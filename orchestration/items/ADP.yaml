@@ -92,20 +92,26 @@ items:
       1. Localiser les bordereaux PDF générés par EncheresV6 (CONFIRMÉ accessible par
          l'utilisateur : blob en base Pervasive OU dossier de fichiers sur le serveur —
          déterminer lequel sur la base réelle/fixtures, configurable dans EncheresV6AdapterConfig).
-      2. GetAttachments(sourceReference) : retrouver le(s) PDF du bordereau correspondant
-         (par numéro de bordereau / no_ba), les retourner en SourceAttachment
-         (FileName, MimeType=application/pdf, Content, Origin documentée).
+      2. Selon ce que la base réelle permet, déclarer la ou les bonnes capacités (PIV03) :
+         - lien explicite possible (blob lié au bordereau, ou nommage fiable contenant le no_ba)
+           → ProvidesSourceDocuments + GetAttachments(sourceReference) : retrouver le(s) PDF
+           du bordereau, les retourner en SourceAttachment (FileName,
+           MimeType=application/pdf, Content, Origin documentée)
+         - dossier de PDF SANS lien fiable → ProvidesUnlinkedDocumentPool + ListPoolDocuments
+           (le moteur de réconciliation TRK08 fera le rapprochement)
+         Le mode se choisit dans EncheresV6AdapterConfig ; les deux peuvent coexister.
       3. Lecture seule stricte : aucun déplacement/modification des fichiers source.
       4. Cas limites : PDF introuvable (capacité déclarée mais document absent → liste vide +
          Warning journalisé, jamais d'échec du run), PDF multiple pour un même bordereau
          (toutes les versions archivées).
-      5. Mode fixtures : les fixtures incluent des PDF factices pour les tests.
+      5. Mode fixtures : les fixtures incluent des PDF factices pour les tests (mode lié ET mode pool).
     acceptance:
-      - "ProvidesSourceDocuments déclaré par l'adaptateur EncheresV6"
-      - "GetAttachments retrouve le PDF d'un bordereau par sa référence"
+      - "Capacités déclarées selon la configuration (lien explicite et/ou pool)"
+      - "Mode lié : GetAttachments retrouve le PDF d'un bordereau par sa référence"
+      - "Mode pool : ListPoolDocuments expose les PDF du dossier configuré"
       - "Source des PDF (blob ou dossier) configurable dans la config adaptateur"
       - "PDF introuvable = liste vide + Warning, jamais d'échec"
-      - "Tests : PDF présent, absent, multiple, sur fixtures avec PDF factices"
+      - "Tests : PDF présent, absent, multiple, mode pool, sur fixtures avec PDF factices"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 

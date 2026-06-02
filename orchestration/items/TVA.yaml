@@ -95,3 +95,31 @@ items:
       - "Aucune donnée client (CMP, EncheresV6 réel) dans le fichier"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
+
+  TVA05:
+    title: "Édition de la table de mapping : mutations journalisées + workflow de validation"
+    description: |
+      Implémenter dans Gateway.Core/TvaMapping/ l'édition contrôlée de la table de mapping
+      (décision 2026-06-02 : le paramétrage COMPTABLE s'édite depuis la console — la config
+      technique, elle, reste en fichiers côté serveur) :
+      1. MappingTableEditor : opérations AddRule / UpdateRule / RemoveRule sur une MappingTable,
+         avec validation structurelle à chaque mutation (mêmes règles que TVA01 : E+0% → VATEX
+         obligatoire, catégories UNCL5305, pas de doublon).
+      2. TOUTE mutation invalide la validation : validatedBy/validatedDate sont effacés, la table
+         repasse « NON VALIDÉE » → les envois en production sont suspendus tant que la table
+         n'est pas revalidée (cohérent avec le refus d'envoi de TVA01/TVA04).
+      3. MappingChangeLog : journal append-only des modifications — qui (identité opérateur),
+         quand, quelle règle, valeur avant/après. Persisté à côté de la table
+         (fichier .changelog.json) — jamais de modification d'une entrée existante.
+      4. Validate(validatedBy) : marquer la table comme validée (workflow expert-comptable),
+         journalisé comme toute mutation.
+      5. Sauvegarde atomique : écriture fichier temporaire + rename — jamais de table
+         à moitié écrite, même en cas de crash.
+    acceptance:
+      - "AddRule/UpdateRule/RemoveRule avec validation structurelle à chaque mutation"
+      - "Toute mutation efface validatedBy/validatedDate (table repasse NON VALIDÉE)"
+      - "MappingChangeLog append-only : qui, quand, avant/après"
+      - "Sauvegarde atomique (jamais de fichier corrompu)"
+      - "Tests : ajout règle valide, règle invalide rejetée, invalidation après mutation, changelog, re-validation"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"

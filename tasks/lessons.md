@@ -42,6 +42,24 @@ Jamais de slash après un nom de branche existante. Corrigé dans protocol.md St
   invalide la review.
 - **Les P2 ne sont jamais ignorés silencieusement** : fixés ou acceptés avec justification écrite.
 
+## 2026-06-02 — Concevoir le backlog en déroulant la journée de l'OPÉRATEUR
+
+**Symptôme :** L'utilisateur a détecté deux trous dans le backlog v3 :
+1. Aucune UI de paramétrage comptable — l'écran Configuration était en lecture seule alors que
+   le flux nominal du produit (régime TVA non mappé → documents bloqués) exige que le COMPTABLE
+   complète la table lui-même, sans intervention IT sur des fichiers serveur.
+2. L'accès aux PDF supposait toujours un lien explicite document ↔ fichier, alors que beaucoup
+   de logiciels legacy déposent tous les PDF dans un même dossier sans lien fiable
+   (→ besoin d'un moteur de réconciliation).
+
+**Règles pour l'avenir :**
+- Pour chaque blocage que le produit peut produire, se demander : « QUI le résout, et le backlog
+  lui donne-t-il un écran/outil pour le faire ? » Un blocage sans chemin de résolution opérateur
+  est un trou fonctionnel.
+- Pour chaque donnée attendue d'un système legacy, prévoir le cas dégradé : la donnée existe
+  mais SANS lien exploitable (fichiers en vrac, champs libres). La capacité « propre » et la
+  capacité « dégradée + réconciliation » sont deux capacités distinctes.
+
 ## 2026-06-02 — Spécifique Conformat (conformité fiscale)
 
 - **Ne jamais inventer une règle fiscale.** Si la spec (docs/conception/) ne tranche pas une

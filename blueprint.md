@@ -48,7 +48,8 @@ Base legacy ──extraction (lecture seule, ODBC)──▶ Modèle pivot (EN 16
         └──────────────── DEUX axes de plug-in symétriques ──────────────────┘
 
                     PARAMÉTRAGE PAR DÉPLOIEMENT (jamais du code) :
-          table TVA du client (validée par SON expert-comptable) • SIREN •
+          table TVA du client (validée par SON expert-comptable — éditable depuis
+          la console, toute modification = revalidation requise) • SIREN •
           chaîne ODBC • choix du/des PA + comptes • planification
 ```
 
@@ -119,10 +120,13 @@ src/
 │  │                                   PivotPayment, PivotTotals, IExtractor, FixtureExtractor,
 │  │                                   sérialisation canonique + hash SHA-256
 │  ├─ TvaMapping/                      MappingTable (JSON externe), TvaMapper, MappingTrace,
-│  │                                   MappingCoverageReport — AUCUNE table client embarquée
+│  │                                   MappingCoverageReport, MappingTableEditor + MappingChangeLog
+│  │                                   (édition journalisée depuis la console) — AUCUNE table
+│  │                                   client embarquée
 │  ├─ Validation/                      ValidationPipeline, IDocumentRule, ~20 règles
 │  ├─ Tracking/                        SQLite : Document, DocumentEvent (append-only),
-│  │                                   TaxReport, PaymentAggregate, RunLog, AuditExporter
+│  │                                   TaxReport, PaymentAggregate, RunLog, AuditExporter,
+│  │                                   Reconciliation (rapprochement PDF pool ↔ documents)
 │  ├─ PaClient/                        IPaClient + PaCapabilities + DTOs (ABSTRACTION SEULE)
 │  ├─ Pipeline/                        PipelineRunner, pipeline avoirs, agrégation paiements
 │  └─ Configuration/                   GatewayConfig (JSON), SecretProtector (DPAPI)

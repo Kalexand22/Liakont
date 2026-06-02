@@ -200,6 +200,42 @@ items:
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
+  TRK08:
+    title: "Moteur de réconciliation PDF ↔ documents émis"
+    description: |
+      Implémenter dans Gateway.Core/Tracking/Reconciliation/ le rapprochement entre les PDF
+      d'un pool non lié (capacité ProvidesUnlinkedDocumentPool — PIV03) et les documents émis.
+      Contexte : certains logiciels source déposent tous leurs PDF au même endroit, sans lien
+      explicite avec le document (pas de nommage fiable, pas de référence en base).
+      1. ReconciliationEngine : pour chaque PDF du pool non encore rattaché, proposer une
+         correspondance avec un document du Tracking :
+         - stratégie 1 (confiance HAUTE) : numéro de document trouvé dans le nom de fichier
+         - stratégie 2 (confiance HAUTE) : numéro de document trouvé dans le texte du PDF
+           (extraction de texte simple — pas d'OCR en V1)
+         - stratégie 3 (confiance MOYENNE) : correspondance date + montant TTC, candidat UNIQUE
+         - ambiguïté (plusieurs candidats) ou aucune correspondance → NON RÉCONCILIÉ
+      2. Décision 2026-06-02 (auto + confirmation manuelle) :
+         - confiance HAUTE → lien automatique, journalisé (DocumentEvent RECONCILED_AUTO)
+         - confiance MOYENNE → proposition en file d'attente, confirmation opérateur requise
+         - non réconcilié → file d'attente manuelle
+         Un rapprochement erroné archivé en WORM serait incorrigible → JAMAIS d'automatique
+         en dessous de la confiance haute.
+      3. ReconciliationQueue persistée (Tracking) : propositions en attente, PDF orphelins,
+         documents émis sans PDF.
+      4. Un PDF réconcilié rejoint le paquet d'archive du document en ADDENDUM
+         (cohérent avec le WORM de TRK06 : ajout référencé, jamais de réécriture).
+      5. La réconciliation manuelle (opérateur) est journalisée avec l'identité de l'opérateur
+         (DocumentEvent RECONCILED_MANUAL).
+    acceptance:
+      - "Les 3 stratégies de matching implémentées avec leurs niveaux de confiance"
+      - "Confiance haute = lien auto journalisé ; moyenne = file d'attente, jamais de lien auto"
+      - "Ambiguïté (2 candidats ou plus) = jamais de rapprochement automatique"
+      - "PDF réconcilié ajouté au paquet d'archive en addendum (WORM respecté)"
+      - "ReconciliationQueue persistée : propositions, orphelins, documents sans PDF"
+      - "Tests : matching par nom, par contenu, par date+montant, ambiguïté, orphelin, réconciliation manuelle"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
   GATE_CORE_FOUNDATION:
     type: gate
     executor: human

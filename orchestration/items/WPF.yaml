@@ -13,7 +13,9 @@ items:
       1. MVVM minimal SANS framework (pas de Prism) : ViewModelBase (INotifyPropertyChanged),
          RelayCommand (~50 lignes), navigation par ContentControl + DataTemplate.
       2. Shell : fenêtre principale, menu latéral (Documents, Encaissements, Journal,
-         Configuration), barre d'état (serveur connecté, dernier run, état du service).
+         Paramétrage, Configuration — et Réconciliation, visible uniquement si l'adaptateur
+         configuré déclare la capacité pool de PDF), barre d'état (serveur connecté,
+         dernier run, état du service).
       3. Thème MahApps.Metro.
       4. Connexion à l'API : adresse du serveur dans la config locale de la console
          (serveur + port), authentification Windows transparente (Gateway.ApiClient),
@@ -91,10 +93,13 @@ items:
          - connexion source (chaîne masquée, indicateur ✅/❌ d'accès)
          - plateforme(s) agréée(s) configurée(s) : nom, compte, environnement (staging/prod)
            et **capacités déclarées** (B2C ✅, Paiements ⏳ en attente, B2B ⬜ phase 2...)
-         - table de mapping TVA : version, validateur, état de validation (⚠️ visible si
-           « NON VALIDÉE » ou table d'exemple), règles affichées
+         - table de mapping TVA : résumé seulement (version, validateur, état de validation —
+           ⚠️ visible si « NON VALIDÉE » ou table d'exemple) + lien « Ouvrir le paramétrage
+           comptable » vers l'écran d'édition (WPF07)
          - provider de stockage, planification, état du coffre d'archive
-      3. Aucune édition : la config s'édite dans les fichiers côté serveur (auditabilité).
+      3. Aucune édition ICI : la config TECHNIQUE s'édite dans les fichiers côté serveur
+         (auditabilité). Le paramétrage COMPTABLE (table TVA), lui, s'édite dans l'écran
+         dédié WPF07 (décision 2026-06-02).
     acceptance:
       - "Journal des runs avec compteurs et déclencheur"
       - "Configuration affichée en lecture seule, secrets masqués"
@@ -147,6 +152,65 @@ items:
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
+  WPF07:
+    title: "Écran Paramétrage comptable (table TVA éditable, via API)"
+    description: |
+      Implémenter l'écran de paramétrage comptable (décision 2026-06-02 : le paramétrage
+      COMPTABLE s'édite depuis la console ; la config technique reste en fichiers serveur),
+      alimenté par les endpoints /configuration/tva-mapping (API04) :
+      1. Vue de la table de mapping TVA : règles (code régime source, libellé, part, catégorie,
+         taux, VATEX), état de validation bien visible (✅ Validée par X le Y / ⚠️ NON VALIDÉE).
+      2. Édition (droits « paramétrage » requis — boutons masqués sinon) :
+         - ajouter/modifier/supprimer une règle : formulaire avec listes FERMÉES des catégories
+           UNCL5305 et des codes VATEX autorisés — jamais de saisie libre sur ces champs
+         - intégration MappingCoverageReport (TVA03) : les régimes source détectés non mappés
+           apparaissent en haut « À compléter » avec bouton [Créer la règle] pré-rempli
+         - bandeau permanent après toute modification : « Table modifiée — NON VALIDÉE.
+           Les envois sont suspendus jusqu'à validation par l'expert-comptable. »
+         - bouton [Marquer comme validée] avec confirmation (saisie du nom du validateur)
+      3. Historique des modifications (changelog) affiché en bas d'écran : qui, quand, quoi.
+      4. ParametrageViewModel testé avec ApiClient mocké : édition, droits, invalidation,
+         régimes à compléter, validation.
+    acceptance:
+      - "Table TVA affichée avec état de validation permanent"
+      - "Édition complète des règles avec listes fermées (UNCL5305, VATEX)"
+      - "Régimes non mappés affichés « À compléter » avec création de règle pré-remplie"
+      - "Toute modification affiche le bandeau NON VALIDÉE"
+      - "Droits paramétrage respectés (édition masquée sinon)"
+      - "Changelog visible"
+      - "Tests ViewModel avec ApiClient mocké"
+      - "Checklist smoke mise à jour"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  WPF08:
+    title: "Écran Réconciliation des PDF (via API)"
+    description: |
+      Implémenter l'écran de réconciliation PDF ↔ documents (TRK08 / API04) :
+      1. Trois listes alimentées par GET /reconciliation :
+         - Propositions à confirmer (confiance moyenne) : PDF + document candidat + raison du
+           rapprochement (« même date et même montant ») → [Confirmer] / [Rejeter]
+         - PDF orphelins : aucun document correspondant trouvé → [Lier manuellement...]
+           (sélecteur de document avec recherche)
+         - Documents sans PDF : documents émis dont l'archive n'a pas de bordereau-source.pdf
+      2. Aperçu du PDF intégré (visionneuse simple — GET /reconciliation/{id}/pdf) pour décider
+         en connaissance de cause.
+      3. Compteur dans le menu latéral : nombre d'éléments en attente de réconciliation.
+      4. Cet écran n'apparaît QUE si l'adaptateur configuré déclare ProvidesUnlinkedDocumentPool
+         (capacité absente = pas d'écran, pas de bruit pour les déploiements non concernés).
+      5. ReconciliationViewModel testé avec ApiClient mocké : les 3 listes, confirmation, rejet,
+         lien manuel, écran masqué sans capacité.
+    acceptance:
+      - "Les 3 listes alimentées par GET /reconciliation"
+      - "Confirmation/rejet/lien manuel branchés sur l'API"
+      - "Aperçu PDF intégré"
+      - "Écran masqué si la capacité pool n'est pas déclarée"
+      - "Compteur d'attente visible dans le menu"
+      - "Tests ViewModel avec ApiClient mocké"
+      - "Checklist smoke mise à jour"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
   GATE_CONSOLE_ADMIN:
     type: gate
     executor: human
@@ -155,7 +219,8 @@ items:
       Validation humaine de la console WPF multi-postes. C'est la gate « démo » côté visuel :
       chaque écran doit être présentable. Revue sur machine avec les checklists smoke déroulées,
       console connectée à un Service réel tournant sur fixtures, IDÉALEMENT depuis deux postes
-      en même temps (preuve du multi-utilisateurs).
+      en même temps (preuve du multi-utilisateurs). Inclut le scénario paramétrage comptable
+      (régime non mappé → complétion → revalidation) et la réconciliation PDF.
     acceptance:
       - "Tous les items WPF sont done"
       - "Toutes les checklists smoke déroulées avec succès"

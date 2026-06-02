@@ -76,3 +76,37 @@ items:
       - "Tests d'intégration : action autorisée, action refusée (403), journalisation identité"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
+
+  API04:
+    title: "Endpoints paramétrage comptable + réconciliation PDF"
+    description: |
+      Compléter l'API et le client .NET (décisions 2026-06-02 : paramétrage comptable éditable
+      depuis la console, réconciliation PDF auto + confirmation manuelle) :
+      1. Paramétrage comptable (table de mapping TVA — s'appuie sur MappingTableEditor, TVA05) :
+         - GET /configuration/tva-mapping → table complète + état de validation + changelog
+         - POST /configuration/tva-mapping/rules → ajouter une règle
+         - PUT /configuration/tva-mapping/rules/{id} → modifier une règle
+         - DELETE /configuration/tva-mapping/rules/{id} → supprimer une règle
+         - POST /configuration/tva-mapping/validate → marquer la table validée (validatedBy)
+         Toute mutation passe par MappingTableEditor : invalidation automatique de la validation,
+         changelog, identité Windows de l'opérateur journalisée.
+      2. Réconciliation PDF (s'appuie sur ReconciliationEngine/Queue, TRK08) :
+         - GET /reconciliation → file d'attente (propositions à confirmer, PDF orphelins,
+           documents émis sans PDF)
+         - GET /reconciliation/{proposalId}/pdf → contenu du PDF (pour l'aperçu console)
+         - POST /reconciliation/{proposalId}/confirm → confirmer une proposition
+         - POST /reconciliation/{proposalId}/reject → rejeter une proposition
+         - POST /reconciliation/link → lien manuel PDF ↔ document
+      3. TROISIÈME niveau de droits : lecture / actions / paramétrage (groupes Windows distincts).
+         Le niveau « paramétrage » est requis pour l'édition de la table TVA et la validation.
+         La réconciliation requiert le niveau « actions ».
+      4. Gateway.ApiClient étendu à tous ces endpoints.
+    acceptance:
+      - "Endpoints tva-mapping opérationnels, mutations via MappingTableEditor uniquement"
+      - "Endpoints réconciliation opérationnels (file, aperçu PDF, confirmation, rejet, lien manuel)"
+      - "Niveau de droits « paramétrage » : un utilisateur « actions » ne peut pas éditer la table TVA"
+      - "Toute mutation journalisée avec l'identité Windows de l'opérateur"
+      - "Gateway.ApiClient couvre les nouveaux endpoints"
+      - "Tests d'intégration : édition autorisée/refusée (403), invalidation, confirmation/rejet réconciliation"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"

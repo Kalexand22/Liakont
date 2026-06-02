@@ -78,8 +78,8 @@ automatiques en review** :
    de `docs/conception/F*.md`. Si la spec ne tranche pas : bloquer l'item, ne pas deviner.
 3. **Bloquer plutôt qu'envoyer faux.** Jamais affaiblir une validation Blocking en Warning
    pour faire passer un test ou un envoi.
-4. **Piste d'audit et coffre d'archive immuables.** `DocumentEvent` est append-only, le coffre
-   d'archive est WORM. Aucun code d'update/delete, aucune purge automatique.
+4. **Piste d'audit et coffre d'archive immuables.** `DocumentEvent` et `MappingChangeLog` sont
+   append-only, le coffre d'archive est WORM. Aucun code d'update/delete, aucune purge automatique.
 5. **Lecture seule stricte de la base source.** Aucun INSERT/UPDATE/DELETE, aucun verrou,
    aucune transaction d'écriture sur la base du client.
 6. **Frontières de la généricité (blueprint.md §2 et §6) :**
@@ -140,7 +140,7 @@ Claude owns the entire verification + review loop. The human only gives the obje
 9. **float/double sur un montant est un P1.**
 10. **Règle fiscale inventée (catégorie TVA, VATEX, seuil sans source dans docs/conception/) est un P1.**
 11. **Affaiblissement d'une validation Blocking est un P1.**
-12. **Chemin d'update/delete sur DocumentEvent, le coffre d'archive (WORM) ou purge d'une table d'audit est un P1.**
+12. **Chemin d'update/delete sur DocumentEvent, MappingChangeLog, le coffre d'archive (WORM) ou purge d'une table d'audit est un P1.**
 13. **Écriture (ou verrou) sur la base source dans un adaptateur est un P1.**
 14. **Violation des frontières est un P1 :** Core → plug-in, plug-in → plug-in, ou Gateway.App → Core/plug-ins/SQLite.
 15. **Donnée client dans le code est un P1 :** SIREN réel, table TVA réelle, chaîne ODBC, compte PA hors de deployments/.**

@@ -58,18 +58,27 @@ items:
          - ExtractorCapabilities Capabilities { get; }
          - IReadOnlyList<SourceAttachment> GetAttachments(string sourceReference)
            (vide si la capacité n'est pas déclarée)
-      2. ExtractorCapabilities : ProvidesSourceDocuments (bool) — l'adaptateur sait-il fournir
-         les documents émis par le logiciel source (bordereaux PDF) ?
+         - IEnumerable<PoolDocument> ListPoolDocuments(DateTime from, DateTime to)
+           (vide si la capacité pool n'est pas déclarée)
+      2. ExtractorCapabilities — accès aux documents émis par le logiciel source (bordereaux PDF),
+         DEUX modes non exclusifs (décision 2026-06-02) :
+         - ProvidesSourceDocuments (bool) : l'adaptateur sait retrouver le PDF d'un document
+           PRÉCIS (lien explicite : blob en base, nommage fiable) → GetAttachments
+         - ProvidesUnlinkedDocumentPool (bool) : l'adaptateur expose un POOL de PDF sans lien
+           explicite avec les documents (ex. tous les PDF dans un même dossier) →
+           ListPoolDocuments + moteur de réconciliation (TRK08)
          Même principe que PaCapabilities : capacité déclarée, comportement adapté, jamais d'exception.
       3. SourceAttachment : FileName, MimeType, Content (byte[]), Origin (description de la
          provenance : table/blob ou chemin fichier). Destiné au coffre d'archive (TRK06).
-      4. HealthCheckResult : IsHealthy, Message (français opérateur), Details.
-      5. SourceTaxRegime : code source brut, libellé source, occurrences.
+      4. PoolDocument : FileName, FileDate, Origin, accès au contenu différé (lazy — un pool
+         peut être volumineux). Destiné au moteur de réconciliation (TRK08).
+      5. HealthCheckResult : IsHealthy, Message (français opérateur), Details.
+      6. SourceTaxRegime : code source brut, libellé source, occurrences.
       Le contrat est LA frontière produit/adaptateur : le Core ne connaît jamais le schéma source.
     acceptance:
-      - "IExtractor, ExtractorCapabilities, SourceAttachment, HealthCheckResult, SourceTaxRegime dans Conformat.Gateway.Core.Pivot"
+      - "IExtractor, ExtractorCapabilities, SourceAttachment, PoolDocument, HealthCheckResult, SourceTaxRegime dans Conformat.Gateway.Core.Pivot"
       - "Extraction en streaming (IEnumerable, pas de List matérialisée)"
-      - "Capacité ProvidesSourceDocuments : adaptateur sans capacité = liste vide, jamais d'exception"
+      - "Capacités ProvidesSourceDocuments et ProvidesUnlinkedDocumentPool : adaptateur sans capacité = liste vide, jamais d'exception"
       - "Aucune référence à un schéma source spécifique dans le Core"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"

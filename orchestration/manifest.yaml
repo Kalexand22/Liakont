@@ -9,7 +9,7 @@
 meta:
   project: conformat-gateway
   phase: 1
-  version: 3
+  version: 4
   host: multi_agent_v1
 
 segments:
@@ -108,6 +108,7 @@ items:
   - { id: TVA02, lot: TVA, priority: 2110, depends_on: [TVA01] }
   - { id: TVA03, lot: TVA, priority: 2120, depends_on: [TVA02, PIV03] }
   - { id: TVA04, lot: TVA, priority: 2130, depends_on: [TVA02] }
+  - { id: TVA05, lot: TVA, priority: 2140, depends_on: [TVA01] }
 
   # ── VAL ──
   - { id: VAL01, lot: VAL, priority: 2200, depends_on: [PIV01] }
@@ -124,7 +125,8 @@ items:
   - { id: TRK05, lot: TRK, priority: 2340, depends_on: [TRK01] }
   - { id: TRK06, lot: TRK, priority: 2350, depends_on: [TRK04] }
   - { id: TRK07, lot: TRK, priority: 2360, depends_on: [TRK06] }
-  - { id: GATE_CORE_FOUNDATION, type: gate, executor: human, priority: 2900, depends_on: [PIV02, PIV05, TVA03, TVA04, VAL02, VAL03, VAL04, VAL05, TRK03, TRK05, TRK06, TRK07] }
+  - { id: TRK08, lot: TRK, priority: 2370, depends_on: [TRK06, PIV03] }
+  - { id: GATE_CORE_FOUNDATION, type: gate, executor: human, priority: 2900, depends_on: [PIV02, PIV05, TVA03, TVA04, TVA05, VAL02, VAL03, VAL04, VAL05, TRK03, TRK05, TRK06, TRK07, TRK08] }
 
   # ── PAA ──
   - { id: PAA01, lot: PAA, priority: 3000, depends_on: [] }
@@ -160,10 +162,11 @@ items:
   - { id: API01, lot: API, priority: 5600, depends_on: [SVC01] }
   - { id: API02, lot: API, priority: 5610, depends_on: [API01] }
   - { id: API03, lot: API, priority: 5620, depends_on: [API02] }
+  - { id: API04, lot: API, priority: 5630, depends_on: [API03] }
 
   # ── CLI ──
   - { id: CLI01, lot: CLI, priority: 5700, depends_on: [] }
-  - { id: GATE_SERVICE_API, type: gate, executor: human, priority: 5900, depends_on: [SVC02, SVC03, API03, CLI01] }
+  - { id: GATE_SERVICE_API, type: gate, executor: human, priority: 5900, depends_on: [SVC02, SVC03, API03, API04, CLI01] }
 
   # ── ADP ──
   - { id: ADP01, lot: ADP, priority: 6000, depends_on: [] }
@@ -180,7 +183,9 @@ items:
   - { id: WPF04, lot: WPF, blueprint: wpf-screen-item, priority: 6530, depends_on: [WPF01] }
   - { id: WPF05, lot: WPF, blueprint: wpf-screen-item, priority: 6540, depends_on: [WPF02] }
   - { id: WPF06, lot: WPF, blueprint: wpf-screen-item, priority: 6550, depends_on: [WPF02] }
-  - { id: GATE_CONSOLE_ADMIN, type: gate, executor: human, priority: 6900, depends_on: [WPF03, WPF04, WPF05, WPF06] }
+  - { id: WPF07, lot: WPF, blueprint: wpf-screen-item, priority: 6560, depends_on: [WPF04] }
+  - { id: WPF08, lot: WPF, blueprint: wpf-screen-item, priority: 6570, depends_on: [WPF02] }
+  - { id: GATE_CONSOLE_ADMIN, type: gate, executor: human, priority: 6900, depends_on: [WPF03, WPF04, WPF05, WPF06, WPF07, WPF08] }
 
   # ── CFG ──
   - { id: CFG01, lot: CFG, blueprint: docs-spec-item, priority: 7000, depends_on: [] }
