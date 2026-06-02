@@ -44,15 +44,6 @@ ils ne bloquent PAS le développement du produit — ils bloquent les gates de d
 - [ ] WPF08 : aperçu PDF dans la console (recommandation V1 : ouverture dans le lecteur du poste)
 - [ ] API01 : prérequis réseau Windows (urlacl, SPN, firewall, postes hors domaine)
 
-### Décisions de pilotage à prendre (issues de la 2ème review indépendante)
-- [ ] **Jalon de démo intermédiaire ?** La démo ISATECH dépend aujourd'hui du produit COMPLET
-      (GATE_TOOLKIT, 11 segments). Pour l'échéance sept. 2026, envisager un jalon « tranche verticale »
-      plus tôt (pipeline + console sur fixtures, avant l'adaptateur ODBC réel) — risque d'ordonnancement
-      à assumer consciemment si on ne le fait pas.
-- [ ] **Reviewer indépendant ?** codex-review.ps1 utilise Claude (le même moteur que l'orchestrateur)
-      en reviewer primaire, Codex en repli. Envisager Codex en primaire pour une vraie indépendance
-      de review (la gate humaine reste le filet de sécurité dans tous les cas).
-
 ### Commercial (hors backlog technique)
 - [ ] Relancer ISATECH (dossier CMP + période d'observation RJ jusqu'au 7 juillet 2026)
 - [ ] Décliner la correction de l'offre (périmètre V1 : pas de réception native, pas de Flux 10.1,
