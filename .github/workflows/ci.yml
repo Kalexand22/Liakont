@@ -1,0 +1,48 @@
+# Conformat — Intégration continue
+#
+# Construit et teste la solution Gateway.sln sur les DEUX plateformes livrées (x86 ET x64).
+# Réf : orchestration/items/SOL.yaml (SOL02), Directory.Build.props (Platforms x86;x64).
+#
+# x86 = plateforme contraignante (drivers ODBC Pervasive 32 bits) ; x64 = build également livré.
+# Les deux doivent compiler et passer les tests, sinon le pipeline échoue.
+#
+# Runner Windows obligatoire : la cible net48 (.NET Framework 4.8) ne se construit que sous
+# Windows, où le targeting pack 4.8 est préinstallé sur windows-latest.
+#
+# Garde anti-faux-vert : chaque étape utilise un seul `run:`. Si `dotnet` renvoie un code de
+# sortie non nul, l'étape échoue, donc le job échoue, donc le pipeline échoue. Aucune étape
+# n'utilise `continue-on-error`. `fail-fast: false` ne masque rien : il laisse simplement
+# l'autre plateforme finir pour donner un diagnostic complet, sans transformer un échec en succès.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-test:
+    name: Build & test (${{ matrix.platform }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [x86, x64]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore src/Gateway.sln
+
+      - name: Build (${{ matrix.platform }})
+        run: dotnet build src/Gateway.sln --no-restore --configuration Release /p:Platform=${{ matrix.platform }}
+
+      - name: Test (${{ matrix.platform }})
+        run: dotnet test src/Gateway.sln --no-build --configuration Release /p:Platform=${{ matrix.platform }} --filter "Category!=Staging&Category!=Sandbox&Category!=Integration.SqlServer"

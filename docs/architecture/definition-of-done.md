@@ -2,6 +2,29 @@
 
 Un item d'orchestration est **done** quand TOUTES ces conditions sont remplies :
 
+## Commandes de vérification (réelles)
+
+Les vérifications ci-dessous s'exécutent depuis la racine du dépôt. Toutes échouent avec un
+code de sortie non nul en cas de problème (pas de faux vert).
+
+| Vérification | Commande | Portée |
+|---|---|---|
+| Rapide (locale) | `powershell -ExecutionPolicy Bypass -File tools/verify-fast.ps1` | structure + manifest + restore + build x86 + tests unitaires |
+| Suite complète | `powershell -ExecutionPolicy Bypass -File tools/run-tests.ps1` | unit + intégration + contrat PA (exclut `Category=Staging`, `Sandbox`, `Integration.SqlServer`) |
+| Review | `powershell -ExecutionPolicy Bypass -File tools/codex-review.ps1` | review de l'arbre de travail courant |
+| CI (push/PR) | `.github/workflows/ci.yml` | build **x86 ET x64** (matrice) + tests, sur `windows-latest` |
+
+Détails sous-jacents :
+
+- `verify-fast.ps1` construit la plateforme **x86** uniquement (plateforme contraignante des
+  drivers ODBC Pervasive 32 bits) pour rester rapide ; la couverture **x64** est assurée par
+  la CI. Logs détaillés dans `.verify-fast.log`.
+- `run-tests.ps1` exécute `dotnet test src/Gateway.sln` avec le filtre
+  `Category!=Staging&Category!=Sandbox&Category!=Integration.SqlServer`. Résumé compact sur
+  stdout, log détaillé dans `.run-tests.log`.
+- La CI construit les **deux** plateformes (matrice `x86`/`x64`) en `Release` ; une étape en
+  échec fait échouer le pipeline (aucun `continue-on-error`).
+
 ## Pour tout item
 
 - [ ] Tous les critères d'acceptation du lot file (`orchestration/items/<lot>.yaml`) sont satisfaits
