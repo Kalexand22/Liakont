@@ -1,4 +1,7 @@
 {
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  },
   "env": {
     "ORCH_REPO": "C:\\Source\\conformat-orchestration"
   }
