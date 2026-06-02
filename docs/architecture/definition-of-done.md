@@ -24,6 +24,7 @@ Détails sous-jacents :
   stdout, log détaillé dans `.run-tests.log`.
 - La CI construit les **deux** plateformes (matrice `x86`/`x64`) en `Release` ; une étape en
   échec fait échouer le pipeline (aucun `continue-on-error`).
+- Les filtres de catégories diffèrent volontairement : `verify-fast.ps1` exécute un sous-ensemble « rapide » (`Category!=Integration&Category!=Staging`) tandis que `run-tests.ps1` et la CI excluent `Staging`, `Sandbox` et `Integration.SqlServer`. Aucun test ne porte aujourd'hui ces catégories (l'écart est latent). La taxonomie de référence des catégories de tests est définie dans `docs/architecture/testing-strategy.md` (item SOL03) ; l'harmonisation des filtres y est rattachée.
 
 ## Pour tout item
 

@@ -18,7 +18,12 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-test:
@@ -45,4 +50,4 @@ jobs:
         run: dotnet build src/Gateway.sln --no-restore --configuration Release /p:Platform=${{ matrix.platform }}
 
       - name: Test (${{ matrix.platform }})
-        run: dotnet test src/Gateway.sln --no-build --configuration Release /p:Platform=${{ matrix.platform }} --filter "Category!=Staging&Category!=Sandbox&Category!=Integration.SqlServer"
+        run: dotnet test src/Gateway.sln --no-build --configuration Release /p:Platform=${{ matrix.platform }} --filter "Category!=Staging&Category!=Sandbox&Category!=Integration.SqlServer" -- RunConfiguration.TreatNoTestsAsError=true
