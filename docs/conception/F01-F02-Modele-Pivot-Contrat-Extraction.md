@@ -3,6 +3,13 @@
 
 > Statut : 🟨 issu de la deep research DR1 (2026-06-02) + connaissances projet (RECAP, analyse données EncheresV6, API B2Brouter). À revoir ensemble.
 > Légende de confiance : ✅ confirmé (source primaire vérifiée ou validé en staging) · 🔶 très probable (source citée, non re-vérifiée) · ❓ décision à prendre
+>
+> **⚠️ NOTE DE VEILLE RÉGLEMENTAIRE (2026-06-02)** : cette spec cite les spécifications externes
+> DGFiP **v3.1 (31 octobre 2025)** comme référence en vigueur. La page officielle impots.gouv.fr
+> a été modifiée depuis (07/05/2026) — une version plus récente existe probablement (v3.2 ?).
+> **ACTION HUMAINE REQUISE avant les lots PIV/PAA/PAB** : télécharger la dernière version sur
+> https://www.impots.gouv.fr/specifications-externes-b2b, dépouiller les écarts (BT, flux 10.x,
+> XSD, swaggers, règles) et mettre à jour cette spec. Suivi dans tasks/todo.md.
 
 ---
 

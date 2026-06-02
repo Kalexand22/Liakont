@@ -10,14 +10,19 @@ items:
       Implémenter l'exécutable CLI dans src/Gateway.Cli/ :
       1. Commandes de mise en service :
          - check-config --config <chemin> : valide la config complète (connexion source ODBC,
-           clé API PA + capacités, table TVA chargée, provider de stockage, droits API)
-           sans rien traiter. Sortie lisible point par point.
+           clé API PA + capacités, table TVA chargée, provider de stockage, droits API,
+           tax_report_setting actif côté PA pour le SIREN configuré — diagnostic F04 §3.1 :
+           « Transport not available » détecté AVANT le premier envoi) sans rien traiter.
+           Sortie lisible point par point.
          - encrypt-secret : chiffre une valeur (DPAPI) pour collage dans le fichier de config.
       2. Commandes de secours (quand le Service est ARRÊTÉ — protégé par le mutex global) :
          - run --config <chemin> [--from --to --dry-run --max] : exécution manuelle du pipeline
            complet, codes retour 0/1/2/3 (contrat F11)
          - backup : sauvegarde horodatée de la base + du coffre d'archive
          - verify-archive : vérification d'intégrité de la chaîne d'archive (TRK07)
+         - audit-export --from <date> --to <date> [--document <numéro>] : export contrôle fiscal
+           par période ou par document (TRK07) — le même export que l'API, disponible sans le
+           Service (cas : contrôle fiscal après désinstallation, machine de secours)
       3. Si le Service tourne (mutex occupé) : les commandes de secours refusent avec le
          message « Le service Conformat est actif — utilisez la console ou arrêtez le service »
          (code retour 3). check-config et encrypt-secret restent toujours disponibles.
@@ -25,9 +30,10 @@ items:
     acceptance:
       - "check-config valide tous les points de la config avec sortie lisible"
       - "encrypt-secret fonctionnel (round-trip DPAPI)"
-      - "run/backup/verify-archive refusent proprement quand le Service tourne (code 3)"
+      - "run/backup/verify-archive/audit-export refusent proprement quand le Service tourne (code 3)"
+      - "audit-export produit un export par période et par document"
       - "Codes retour 0/1/2/3 conformes à F11"
-      - "Tests : parsing arguments, mutex occupé → code 3, dry-run sans écriture PA"
+      - "Tests : parsing arguments, mutex occupé → code 3, dry-run sans écriture PA, audit-export"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 

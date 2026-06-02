@@ -41,6 +41,7 @@ items:
       Mêmes règles que PIV01 : decimal, immutabilité, null si absent.
     acceptance:
       - "PivotPayment et PaymentReportPeriod dans Conformat.Gateway.Core.Pivot"
+      - "Montants en decimal partout, aucun float/double"
       - "Aucune donnée nominative client dans PaymentReportPeriod"
       - "Tests unitaires de construction et d'arrondi"
       - "verify-fast passes"
@@ -51,6 +52,7 @@ items:
     description: |
       Définir le contrat universel des adaptateurs dans Gateway.Core/Pivot/ selon F02 :
       1. IExtractor :
+         - ExtractorInfo GetInfo()  (identité de l'adaptateur : nom, version, logiciel source ciblé)
          - HealthCheckResult CheckHealth()
          - IEnumerable<PivotDocument> ExtractDocuments(DateTime from, DateTime to)  (streaming, [from, to[)
          - IEnumerable<PivotPayment> ExtractPayments(DateTime from, DateTime to)
@@ -60,6 +62,11 @@ items:
            (vide si la capacité n'est pas déclarée)
          - IEnumerable<PoolDocument> ListPoolDocuments(DateTime from, DateTime to)
            (vide si la capacité pool n'est pas déclarée)
+         Exceptions typées (contrat F01-F02 R7 — elles pilotent la décision du pipeline) :
+         - SourceUnavailableException : la source est injoignable (réseau, service arrêté) →
+           RÉESSAYABLE au prochain run
+         - SourceSchemaException : le schéma ne correspond pas (table/colonne manquante) →
+           NON réessayable, intervention requise, run en échec fatal
       2. ExtractorCapabilities — accès aux documents émis par le logiciel source (bordereaux PDF),
          DEUX modes non exclusifs (décision 2026-06-02) :
          - ProvidesSourceDocuments (bool) : l'adaptateur sait retrouver le PDF d'un document
@@ -76,7 +83,8 @@ items:
       6. SourceTaxRegime : code source brut, libellé source, occurrences.
       Le contrat est LA frontière produit/adaptateur : le Core ne connaît jamais le schéma source.
     acceptance:
-      - "IExtractor, ExtractorCapabilities, SourceAttachment, PoolDocument, HealthCheckResult, SourceTaxRegime dans Conformat.Gateway.Core.Pivot"
+      - "IExtractor, ExtractorInfo, ExtractorCapabilities, SourceAttachment, PoolDocument, HealthCheckResult, SourceTaxRegime dans Conformat.Gateway.Core.Pivot"
+      - "Exceptions typées SourceUnavailableException (réessayable) / SourceSchemaException (fatale)"
       - "Extraction en streaming (IEnumerable, pas de List matérialisée)"
       - "Capacités ProvidesSourceDocuments et ProvidesUnlinkedDocumentPool : adaptateur sans capacité = liste vide, jamais d'exception"
       - "Aucune référence à un schéma source spécifique dans le Core"

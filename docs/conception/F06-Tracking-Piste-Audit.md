@@ -3,6 +3,13 @@
 
 > Statut : 🟨 issu de la deep research DR6 (2026-06-02) + conception interne. À revoir ensemble.
 > Légende : ✅ confirmé source primaire (Légifrance, BOFiP) · 🔶 probable · ❓ zone d'ombre / décision
+>
+> **⚠️ AMENDEMENT (2026-06-02 — décision utilisateur, postérieure à la rédaction)** : la décision
+> ouverte n°3 (§9, « Scellement renforcé en V1 ? recommandation : non ») est TRANCHÉE dans l'autre
+> sens : **l'archivage fiscal 10 ans est intégré au produit en V1** — coffre WORM local + chaîne
+> de hashes SHA-256 + ancrage temporel (OpenTimestamps par défaut / RFC 3161 en option / NoAnchor).
+> Motif : l'offre commerciale vend « archivage 10 ans inclus » et l'archive doit être indépendante
+> de la PA. Voir tasks/decisions.md (2026-06-02) et les items TRK06/TRK07 qui font foi.
 
 ---
 
@@ -121,7 +128,7 @@ Puisque la répartition légale des responsabilités SC/PA/assujetti n'est pas c
 |---|---|---|
 | 1 | Rétention des données nominatives acheteur (RGPD) | minimiser : référence + pseudonymisation passé le délai utile, à valider DPO CMP |
 | 2 | Format de l'export d'audit | dossier (JSON+XML+PDF récap) — couvre contrôle informatisé et lisibilité |
-| 3 | Scellement renforcé (hash chaîné / horodatage qualifié) en V1 ? | non en V1 (hash SHA-256 + append-only suffisent au démarrage) ; réévaluer si exigence client |
+| 3 | Scellement renforcé (hash chaîné / horodatage qualifié) en V1 ? | ~~non en V1~~ **TRANCHÉ (2026-06-02) : OUI en V1** — coffre WORM + chaîne de hashes + ancrage (voir amendement en tête + items TRK06/TRK07) |
 | 4 | Sauvegarde de la base SQLite | quotidienne, horodatée, hors machine si possible — c'est la pièce maîtresse de l'audit |
 | 5 | Confirmer la délégation archivage probatoire à B2Brouter | à inscrire au contrat PA |
 | 6 | Clauses de responsabilité (obligation de moyens, qualité donnée source au client) | à intégrer à la proposition commerciale CMP |

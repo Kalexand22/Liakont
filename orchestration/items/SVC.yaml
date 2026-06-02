@@ -8,8 +8,10 @@ items:
     title: "Gateway.Service : service Windows + ordonnanceur interne"
     description: |
       Implémenter le service dans src/Gateway.Service/ :
-      1. ServiceBase + hôte d'exécution : démarre l'API HTTP (lot API), l'ordonnanceur,
-         et détient le SEUL accès au Tracking (principe mono-écrivain).
+      1. ServiceBase + hôte d'exécution : démarre l'ordonnanceur + le pipeline et détient le
+         SEUL accès au Tracking (principe mono-écrivain). L'hébergement de l'API HTTP est
+         PRÉPARÉ ici (point d'extension IApiHost no-op) mais son implémentation réelle arrive
+         avec API01 — SVC01 ne dépend pas du lot API.
       2. Ordonnanceur interne configuré par la section schedule de la config :
          {"times": ["03:00"], "catchUpOnStart": true, "heartbeatMinutes": 15}
          - times : heures de déclenchement quotidien du pipeline complet
@@ -20,7 +22,7 @@ items:
          (développement et diagnostic).
       5. Aucune logique métier : le service orchestre PipelineRunner + API, rien d'autre.
     acceptance:
-      - "Le service démarre l'API + l'ordonnanceur + le pipeline planifié"
+      - "Le service démarre l'ordonnanceur + le pipeline planifié + le point d'extension API (no-op à ce stade)"
       - "Ordonnanceur : déclenchement aux heures configurées + catchUpOnStart"
       - "Heartbeat périodique (fichier + /health)"
       - "Mode --console fonctionnel pour le debug"

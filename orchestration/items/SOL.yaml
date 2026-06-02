@@ -11,6 +11,7 @@ items:
       2. Projets SDK-style ciblant net48 (compatible `dotnet build` sous Windows) :
          - src/Gateway.Core/                        (le produit générique)
            Dossiers : Pivot/, TvaMapping/, Validation/, Tracking/, PaClient/, Pipeline/, Configuration/
+         - src/Gateway.PaClients.Fake/              (plug-in PA #0 : PA factice — démo + tests)
          - src/Gateway.PaClients.B2Brouter/         (plug-in PA #1)
          - src/Gateway.PaClients.SuperPdp/          (plug-in PA #2)
          - src/Gateway.Adapters.EncheresV6/         (plug-in source #1)
@@ -21,6 +22,7 @@ items:
          - src/Gateway.Cli/                         (utilitaire de mise en service/secours)
          - tests/Gateway.Core.Tests/                (xUnit)
          - tests/Gateway.PaClients.Contract.Tests/  (suite de contrat PA)
+         - tests/Gateway.PaClients.Fake.Tests/
          - tests/Gateway.PaClients.B2Brouter.Tests/
          - tests/Gateway.PaClients.SuperPdp.Tests/
          - tests/Gateway.Adapters.EncheresV6.Tests/
@@ -42,7 +44,7 @@ items:
       IMPORTANT : aucune logique métier — uniquement le squelette compilable.
     acceptance:
       - "Gateway.sln compile via dotnet build en Debug x86 et x64"
-      - "Les 9 projets produit + 7 projets de tests existent avec namespaces Conformat.Gateway.*"
+      - "Les 10 projets produit + 8 projets de tests existent avec namespaces Conformat.Gateway.*"
       - "Les règles de références inter-projets sont en place (App ne référence pas Core, Core ne référence aucun plug-in)"
       - "Directory.Build.props centralise framework et versions de packages"
       - "ADR-0001 rédigé dans docs/adr/"
@@ -53,18 +55,20 @@ items:
     title: "Outillage de vérification réel + CI"
     description: |
       Brancher l'outillage de vérification sur la solution réelle :
-      1. tools/verify-fast.ps1 : restore + build (x86) + analyzers + tests unitaires.
+      1. tools/verify-fast.ps1 : restore + build (x86 — plateforme contraignante des drivers
+         ODBC Pervasive) + analyzers + tests unitaires.
          Doit échouer (exit != 0) si build ou tests échouent. Pas de faux verts.
       2. tools/run-tests.ps1 : suite complète (unit + integration + contrat PA) avec résumé
-         compact et log détaillé dans .run-tests.log. Exclut Category=Staging et
+         compact et log détaillé dans .run-tests.log. Exclut Category=Staging, Category=Sandbox et
          Category=Integration.SqlServer (optionnelles).
-      3. CI GitHub Actions (.github/workflows/ci.yml) : sur push/PR — restore, build, tests.
-         Un step qui échoue fait échouer le pipeline (vérifier, pas de continue-on-error).
+      3. CI GitHub Actions (.github/workflows/ci.yml) : sur push/PR — restore, build
+         **x86 ET x64** (matrice de plateformes — les deux builds livrés doivent compiler),
+         tests. Un step qui échoue fait échouer le pipeline (vérifier, pas de continue-on-error).
       4. Mettre à jour docs/architecture/definition-of-done.md avec les commandes réelles.
     acceptance:
       - "verify-fast.ps1 échoue réellement quand un test échoue (testé en cassant un test volontairement)"
       - "run-tests.ps1 produit un résumé compact + .run-tests.log détaillé"
-      - "ci.yml exécute restore/build/tests et échoue si une étape échoue"
+      - "ci.yml construit x86 ET x64, exécute les tests, et échoue si une étape échoue"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 

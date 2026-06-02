@@ -90,6 +90,17 @@ switch ($Command) {
         if (-not $ItemId) { Write-Error "-ItemId required"; exit 1 }
         if (-not $SlotId) { Write-Error "-SlotId required"; exit 1 }
         if (-not $SessionId) { Write-Error "-SessionId required"; exit 1 }
+        # Subbranch is mandatory and must follow the convention <segment-branch>-<item_id>
+        # (dash separator — see protocol.md Step 3). "unknown" placeholders are forbidden.
+        if (-not $Subbranch) { Write-Error "-Subbranch required (convention: <segment-branch>-$ItemId)"; exit 1 }
+        if ($Subbranch -notmatch "-$([regex]::Escape($ItemId))$") {
+            Write-Error "Subbranch '$Subbranch' does not follow the convention <segment-branch>-$ItemId"
+            exit 1
+        }
+        if ($Subbranch -match "/$([regex]::Escape($ItemId))$") {
+            Write-Error "Subbranch '$Subbranch' uses a slash before the item id — use a dash (git ref namespace collision)"
+            exit 1
+        }
 
         Invoke-WithLock {
             $content = Read-State
@@ -113,9 +124,8 @@ switch ($Command) {
             # Build active_sessions entry
             $now = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
             $clonePathEsc = if ($ClonePath) { $ClonePath } else { (Get-Location).Path }
-            $subbranchVal = if ($Subbranch) { $Subbranch } else { "unknown" }
 
-            $slotEntry = "  slot-${SlotId}: { session_id: `"$SessionId`", item_id: `"$ItemId`", clone_path: `"$clonePathEsc`", subbranch: `"$subbranchVal`", started_at: `"$now`" }"
+            $slotEntry = "  slot-${SlotId}: { session_id: `"$SessionId`", item_id: `"$ItemId`", clone_path: `"$clonePathEsc`", subbranch: `"$Subbranch`", started_at: `"$now`" }"
 
             # Replace the slot line
             $content = $content -replace "(?m)^\s+slot-${SlotId}:\s*.*$", $slotEntry
@@ -129,14 +139,43 @@ switch ($Command) {
         if (-not $ItemId) { Write-Error "-ItemId required"; exit 1 }
         if (-not $Status) { Write-Error "-Status required"; exit 1 }
 
+        # Status must be one of the statuses documented in state.yaml's header.
+        $validStatuses = @('pending', 'claimed', 'in_progress', 'done', 'blocked', 'stale', 'failed', 'gate_pending')
+        if ($validStatuses -notcontains $Status) {
+            Write-Error "Invalid status '$Status'. Allowed: $($validStatuses -join ', ')"
+            exit 1
+        }
+
         Invoke-WithLock {
             $content = Read-State
 
-            # Update item status
-            if ($content -match "(?m)^\s+${ItemId}:\s*\{") {
+            # Update item status (with transition guard)
+            if ($content -match "(?m)^\s+${ItemId}:\s*\{[^}]*status:\s*(\w+)") {
+                $currentStatus = $Matches[1]
+
+                # State machine: prevents accidental promotions (e.g. pending → done without claim)
+                # and any demotion of a done item. 'done' is terminal: done items get purged
+                # from state.yaml (absent = done), they are never demoted.
+                $allowedTransitions = @{
+                    'pending'      = @('claimed', 'blocked', 'gate_pending')
+                    'claimed'      = @('in_progress', 'done', 'blocked', 'failed', 'stale', 'pending')
+                    'in_progress'  = @('done', 'blocked', 'failed', 'stale')
+                    'blocked'      = @('pending', 'claimed', 'in_progress', 'done')
+                    'stale'        = @('done', 'pending', 'claimed', 'failed')
+                    'failed'       = @('pending', 'claimed')
+                    'gate_pending' = @('done', 'pending')
+                    'done'         = @()
+                }
+                $allowed = $allowedTransitions[$currentStatus]
+                if ($null -eq $allowed -or $allowed -notcontains $Status) {
+                    $allowedList = if ($allowed) { $allowed -join ', ' } else { '(none — terminal status)' }
+                    Write-Error "Illegal transition for ${ItemId}: '$currentStatus' → '$Status'. Allowed from '$currentStatus': $allowedList"
+                    exit 1
+                }
+
                 $content = $content -replace "(?m)(^\s+${ItemId}:\s*\{[^}]*status:\s*)\w+", "`${1}$Status"
                 Write-State $content
-                Write-Host "[UPDATED] $ItemId → $Status" -ForegroundColor Green
+                Write-Host "[UPDATED] $ItemId : $currentStatus → $Status" -ForegroundColor Green
             }
             else {
                 Write-Error "Item $ItemId not found in state.yaml"

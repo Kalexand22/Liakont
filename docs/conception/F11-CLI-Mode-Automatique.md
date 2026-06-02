@@ -3,6 +3,18 @@
 
 > Statut : 🟨 rédigé sans deep research (conception interne, pattern SynchroAxelor éprouvé). À revoir ensemble.
 > Dernière mise à jour : 2026-06-02 — ajout du double hébergement (tâche planifiée **et** service Windows).
+>
+> **⚠️ AMENDEMENT D'ARCHITECTURE (2026-06-02 — décision blueprint.md §3, postérieure à la rédaction)** :
+> cette spec décrit deux hôtes nominaux interchangeables (CLI en tâche planifiée OU service Windows)
+> partageant le même Tracking. **C'est obsolète.** Le **Service Windows est l'UNIQUE hôte nominal**
+> (ordonnanceur + pipeline + API HTTP + SEUL écrivain du Tracking). Le CLI est réduit à un utilitaire
+> de mise en service et de secours, utilisable uniquement quand le Service est ARRÊTÉ (protégé par mutex).
+> Le contrat du PipelineRunner, les codes de sortie 0/1/2/3 et la planification décrits ici restent
+> valables — c'est l'hébergement qui change. Le backlog (orchestration/items/SVC.yaml, CLI.yaml) fait foi.
+> Conséquence sur les sous-commandes CLI du §2 : `extract`, `send`, `sync-status` et `report` ne sont
+> PAS reprises — elles sont remplacées par les endpoints de l'API du Service (lot API) et le run
+> de secours complet. Le CLI ne garde que : check-config, encrypt-secret, run, backup, verify-archive,
+> audit-export.
 
 ---
 

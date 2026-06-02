@@ -5,8 +5,11 @@
 .DESCRIPTION
     Writes detailed log to .run-tests.log, prints a compact summary to stdout.
     Exit code 0 = all passed, non-zero = failure.
-    Staging tests (Category=Staging, real B2Brouter API) are NEVER run by this script —
-    they require a local API key and are run manually (see docs/architecture/testing-strategy.md).
+    Suites excluded from this script (run manually, never in CI):
+    - Category=Staging (real B2Brouter API — requires a local API key)
+    - Category=Sandbox (real Super PDP API)
+    - Category=Integration.SqlServer (requires SQL Server LocalDB — optional per SOL02)
+    See docs/architecture/testing-strategy.md.
 #>
 $ErrorActionPreference = 'Continue'
 
@@ -17,6 +20,20 @@ $logFile = Join-Path $repoRoot '.run-tests.log'
 "run-tests started at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Set-Content $logFile
 
 if (-not (Test-Path $slnPath)) {
+    # Bootstrap guard: only legitimate while SOL01 is still pending.
+    # If SOL01 is done (or purged from state = done), a missing solution is a FAILURE.
+    $orchRepo = $env:ORCH_REPO
+    if (-not $orchRepo) { $orchRepo = 'C:\Source\conformat-orchestration' }
+    $statePath = Join-Path $orchRepo 'state.yaml'
+    if (Test-Path $statePath) {
+        $state = Get-Content $statePath -Raw
+        $sol01Done = ($state -notmatch '(?m)^  SOL01:') -or ($state -match '(?m)^  SOL01:\s*\{\s*status:\s*done')
+        if ($sol01Done) {
+            Write-Host "FAIL: src/Gateway.sln is missing but SOL01 is done — the solution has been deleted." -ForegroundColor Red
+            "Solution missing while SOL01 is done — failure, not bootstrap." | Add-Content $logFile
+            exit 1
+        }
+    }
     Write-Host "src/Gateway.sln does not exist yet (SOL01 pending) — nothing to test." -ForegroundColor Yellow
     "Solution not found — nothing to test (bootstrap mode)." | Add-Content $logFile
     exit 0
@@ -24,7 +41,7 @@ if (-not (Test-Path $slnPath)) {
 
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 
-dotnet test $slnPath --verbosity normal --filter "Category!=Staging" 2>&1 | Tee-Object -Append -FilePath $logFile | Out-Null
+dotnet test $slnPath --verbosity normal --filter "Category!=Staging&Category!=Sandbox&Category!=Integration.SqlServer" 2>&1 | Tee-Object -Append -FilePath $logFile | Out-Null
 $exitCode = $LASTEXITCODE
 $sw.Stop()
 

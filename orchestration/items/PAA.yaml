@@ -14,6 +14,10 @@ items:
       1. IPaClient :
          - Task<PaSendResult> SendDocumentAsync(PivotDocument doc, bool sendAfterImport = true)
          - Task<PaSendResult> SendPaymentReportAsync(PaymentReportPeriod period)
+           Le PaymentReportPeriod porte son TYPE DE FLUX (PaymentReportFlux.Domestic = Flux 10.4 /
+           PaymentReportFlux.International = Flux 10.2) — F01-F02 §1 les distingue : le routage
+           et les schémas DGFiP diffèrent. Le plug-in PA transforme selon le flux déclaré ;
+           un plug-in qui ne supporte qu'un des deux flux le déclare dans ses capacités.
          - Task<PaDocumentStatus> GetDocumentStatusAsync(string paDocumentId)
          - Task<IReadOnlyList<PaTaxReport>> ListTaxReportsAsync(DateTime? since = null)
          - Task<PaTaxReport> GetTaxReportAsync(string taxReportId)
@@ -25,9 +29,10 @@ items:
            la PA ne le permet pas)
          - PaCapabilities Capabilities { get; }
       2. PaCapabilities (le cœur de l'indépendance PA) :
-         - SupportsB2cReporting (bool)        — Flux 10.3
-         - SupportsPaymentReporting (bool)    — Flux 10.2/10.4
-         - SupportsB2bInvoicing (bool)        — Flux 1/2 (phase 2)
+         - SupportsB2cReporting (bool)            — Flux 10.3
+         - SupportsDomesticPaymentReporting (bool) — Flux 10.4 (paiements B2C)
+         - SupportsInternationalPaymentReporting (bool) — Flux 10.2 (paiements internationaux)
+         - SupportsB2bInvoicing (bool)            — Flux 1/2 (phase 2)
          - SupportsCreditNotes (bool)
          - SupportsTaxReportRetrieval (bool)
          - SupportsDocumentRetrieval (bool)   — la PA permet de télécharger la facture
@@ -42,6 +47,7 @@ items:
       Aucun type HTTP dans l'interface publique.
     acceptance:
       - "IPaClient, PaCapabilities et DTOs dans Conformat.Gateway.Core.PaClient"
+      - "Flux 10.2 et 10.4 distingués (type de flux porté par PaymentReportPeriod + 2 capacités séparées)"
       - "Aucune référence à un PA concret, aucun type HTTP dans l'abstraction"
       - "Capacité manquante = résultat typé, jamais d'exception, jamais de blocage du produit"
       - "Tests : appel d'une capacité non supportée → CapabilityNotSupported journalisable"
@@ -49,21 +55,27 @@ items:
       - "codex-review clean or only accepted P2s"
 
   PAA02:
-    title: "FakePaClient (PA de test configurable)"
+    title: "Plug-in Gateway.PaClients.Fake (PA factice livré : démo + tests)"
     description: |
-      Implémenter dans Gateway.Core/PaClient/Testing/ (ou tests partagés) :
+      Implémenter le plug-in PA factice dans src/Gateway.PaClients.Fake/ — c'est un PLUG-IN
+      À PART ENTIÈRE, pas un composant du Core (le Core ne contient que l'abstraction —
+      blueprint.md §2 règle 4 ; un faux PA dans le Core violerait la frontière) :
       1. FakePaClient : IPaClient en mémoire, configurable :
          - réponses succès / rejet / erreur silencieuse / timeout / capacité absente
          - capacités configurables (pour tester le comportement du produit face à un PA limité)
          - journal des appels (le pipeline peut être audité dans les tests)
-      2. Le FakePaClient est utilisé par : les tests du pipeline (PIP), les tests de la
+      2. Le plug-in Fake est utilisé par : les tests du pipeline (PIP), les tests de la
          console (WPF), les tests de l'API (API), les fixtures de démo.
-      3. Il fait partie du produit livré (mode démo hors-ligne sans aucun compte PA).
+      3. Il fait partie du produit livré (mode démo hors-ligne sans aucun compte PA) —
+         c'est aussi la preuve vivante que le modèle plug-in fonctionne : il se référence,
+         se configure et se package exactement comme B2Brouter et Super PDP.
+      4. Comme tout plug-in : référence UNIQUEMENT Gateway.Core, jamais un autre plug-in.
     acceptance:
+      - "Projet src/Gateway.PaClients.Fake/ séparé — AUCUN type concret de PA dans Gateway.Core"
       - "FakePaClient couvre succès, rejet, erreur silencieuse, timeout, capacité absente"
       - "Capacités configurables par test"
       - "Journal des appels exploitable en assertion"
-      - "Tests du FakePaClient lui-même"
+      - "Tests du plug-in Fake lui-même (tests/Gateway.PaClients.Fake.Tests/)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -80,8 +92,9 @@ items:
          - timeout / erreur réseau → résultat TechnicalError re-tentable
          - idempotence : même numéro jamais envoyé deux fois
          - cohérence des capacités déclarées vs comportement réel
-      2. La suite tourne contre le FakePaClient (preuve qu'elle est exécutable) et sera
-         héritée par les tests des plug-ins B2Brouter (PAB04) et Super PDP (PAS03).
+      2. La suite tourne contre le plug-in Fake (Gateway.PaClients.Fake, PAA02 — preuve qu'elle
+         est exécutable) et sera héritée par les tests des plug-ins B2Brouter (PAB04) et
+         Super PDP (PAS03).
       3. Documenter dans docs/architecture/ : « comment ajouter un nouveau plug-in PA »
          (checklist : implémenter IPaClient, déclarer les capacités, hériter la suite de
          contrat, fournir la suite réelle staging/sandbox séparée).

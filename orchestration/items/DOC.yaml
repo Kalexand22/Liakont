@@ -16,7 +16,7 @@ items:
          sauvegardes (base + coffre d'archive), vérification d'intégrité de l'archive,
          lecture des logs, procédures d'incident.
       3. README.md du repo mis à jour : état du produit, comment builder, comment lancer
-         en mode démo (fixtures + FakePaClient), liens vers toute la documentation.
+         en mode démo (fixtures + plug-in Fake), liens vers toute la documentation.
     acceptance:
       - "Guide utilisateur couvrant tous les écrans et états, en français opérateur"
       - "Guide exploitant couvrant supervision, sauvegardes et incidents"
@@ -32,8 +32,12 @@ items:
       Validation humaine du produit complet packagé : le zip s'installe sur une machine propre,
       le Service démarre, la console se connecte, la documentation permet à un intégrateur
       (partenaire Niveau 2) de déployer sans assistance.
+      Le package inclut au moins un PA réel (B2Brouter) et un adaptateur réel (EncheresV6) —
+      les gates correspondantes sont en amont de ce segment. Super PDP n'est PAS bloquant
+      (décision 2026-06-02 : il rejoint le package dès que sa gate passe).
       C'est la dernière gate du PRODUIT — tout ce qui suit (lot CMP) est du paramétrage.
     acceptance:
-      - "Tous les items CFG et DOC sont done"
+      - "Tous les items PKG et DOC sont done"
       - "Installation complète depuis le zip réussie sur machine propre"
+      - "Le zip contient les plug-ins B2Brouter, EncheresV6 et Fake opérationnels"
       - "PR du segment feat/deploiement-toolkit revue et mergée dans main"

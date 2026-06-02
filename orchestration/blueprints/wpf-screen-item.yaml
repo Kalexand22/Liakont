@@ -12,19 +12,23 @@ nodes:
   - id: hydrate_context
     type: deterministic
     action: build-agent-context
-    description: "Assemble F10 spec (docs/conception/F10-Console-Admin-WPF.md), MVVM conventions, existing screens, Core services used by the screen."
+    description: "Assemble F10 spec (docs/conception/F10-Console-Admin-WPF.md + its architecture amendment), MVVM conventions, existing screens, the API endpoints (Gateway.Api DTOs) and Gateway.ApiClient methods used by the screen. RULE: Gateway.App references ONLY Api + ApiClient — never Core, plug-ins or SQLite."
 
   - id: plan
     type: agentic
-    description: "Plan the screen: ViewModel state, commands, bindings, which Core services are called, French operator wording (zero technical jargon)"
+    description: "Plan the screen: ViewModel state, commands, bindings, which API endpoints are called (via Gateway.ApiClient — never Core directly), French operator wording (zero technical jargon)"
 
   - id: implement
     type: agentic
-    description: "Implement View (XAML) + ViewModel + bindings. ViewModel logic must be fully unit-testable: no code-behind logic beyond view wiring, all state and commands in the ViewModel."
+    description: "Implement View (XAML) + ViewModel + bindings. ViewModel logic must be fully unit-testable: no code-behind logic beyond view wiring, all state and commands in the ViewModel. The ViewModel talks to Gateway.ApiClient (mockable interface) — any reference to Gateway.Core or a plug-in is a P1."
 
   - id: viewmodel_tests
     type: agentic
-    description: "Write unit tests for the ViewModel: state transitions, command CanExecute/Execute, formatting of French operator messages, error paths. Tests live in tests/Gateway.Core.Tests or tests/Gateway.App.Tests."
+    description: "Write unit tests for the ViewModel: state transitions, command CanExecute/Execute, formatting of French operator messages, error paths. Tests use a mocked ApiClient and live in tests/Gateway.App.Tests."
+
+  - id: smoke_checklist
+    type: agentic
+    description: "Produce/update the manual smoke checklist for this screen in docs/architecture/smoke-checklists/<screen>.md: launch steps, data prerequisites (fixtures), expected states, French labels to verify. The checklist is the human-verifiable equivalent of E2E tests. It MUST exist before the commit so it is part of the committed work."
 
   - id: verify
     type: deterministic
@@ -49,22 +53,18 @@ nodes:
     action: git-commit-apply
     description: "git add -A + git commit -F .orch-commit-msg + rm .orch-commit-msg"
 
-  - id: smoke_checklist
-    type: agentic
-    description: "Produce/update the manual smoke checklist for this screen in docs/architecture/smoke-checklists/<screen>.md: launch steps, data prerequisites (fixtures), expected states, French labels to verify. The checklist is the human-verifiable equivalent of E2E tests."
-
   - id: review
     type: deterministic
     action: codex-review
     retry: { max: 3, on_exhaust: blocked }
-    description: "Run codex-review.ps1"
+    description: "Run codex-review.ps1 -Base <segment-branch> (MANDATORY: this node runs after commit_apply, the tree is clean — without -Base nothing gets reviewed and the script exits 3). Reviews ALL sub-branch work: committed + uncommitted."
 
   - id: fix_review
     type: agentic
     subagent: orch-fix-review
-    condition: "review has P1 or fixable P2 findings"
+    condition: "review exited 2 (has P1/P2 findings)"
     loop_back_to: verify
-    description: "Delegate to orch-fix-review (sonnet) — fix review findings, then loop back to verify → commit → review"
+    description: "Delegate to orch-fix-review (sonnet) — fix review findings, then loop back to verify → commit → review (re-run with -Base <segment-branch> -Round N)"
 
   - id: merge_back
     type: deterministic

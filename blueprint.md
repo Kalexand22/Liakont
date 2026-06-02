@@ -100,9 +100,10 @@ POSTE COMPTABLE 1        POSTE COMPTABLE 2          POSTE COMPTABLE N
 
 **Conséquences structurantes :**
 
-- **Un seul écrivain** (le service) → SQLite suffit définitivement, aucun problème de
-  concurrence, aucun verrou réseau, la piste d'audit ne peut pas être corrompue par
-  un accès concurrent.
+- **Un seul écrivain** (le service) → aucun problème de concurrence, aucun verrou réseau,
+  la piste d'audit ne peut pas être corrompue par un accès concurrent. Le stockage est
+  multi-provider (décision 2026-06-02) : SQLite par défaut (zéro admin), SQL Server Express
+  en option quand la politique IT du client l'impose — dans les deux cas, seul le Service écrit.
 - **La console WPF ne touche JAMAIS la base ni le Core directement** : elle parle à
   l'API HTTP via `Gateway.ApiClient`. Elle peut tourner sur n'importe quel poste du réseau.
 - **Le CLI devient un utilitaire** de mise en service et de secours (check-config,
@@ -131,6 +132,8 @@ src/
 │  ├─ Pipeline/                        PipelineRunner, pipeline avoirs, agrégation paiements
 │  └─ Configuration/                   GatewayConfig (JSON), SecretProtector (DPAPI)
 │
+├─ Gateway.PaClients.Fake/             ★ Plug-in PA #0 : PA factice livré (mode démo
+│                                        hors-ligne + tests) — preuve que le modèle plug-in marche
 ├─ Gateway.PaClients.B2Brouter/        ★ Plug-in PA #1 (staging validé)
 ├─ Gateway.PaClients.SuperPdp/         ★ Plug-in PA #2 (Offre Éco marque grise)
 ├─ Gateway.Adapters.EncheresV6/        ★ Plug-in source #1 (Magic XPA / Pervasive)
@@ -172,7 +175,7 @@ deployments/                           ★ PARAMÉTRAGE par déploiement (jamais
 | API HTTP | Self-host .NET 4.8 (HttpListener/OWIN) + **auth Windows intégrée** | Pas de credentials à distribuer, IT-friendly |
 | UI console | **WPF** desktop + MahApps.Metro, **cliente de l'API** | Multi-postes, pas d'accès BDD direct |
 | MVVM | Minimal maison (pas de Prism) | INotifyPropertyChanged + RelayCommand ≈ 50 lignes |
-| Persistence | **SQLite** local (WAL), accédé par le Service UNIQUEMENT | Un seul écrivain → zéro admin, backup = copie fichier |
+| Persistence | **SQLite** (défaut, WAL) ou **SQL Server Express** (option IT), via Dapper — accédé par le Service UNIQUEMENT | Un seul écrivain ; SQLite = zéro admin ; SQL Server quand la DSI l'impose |
 | Accès source | **ODBC générique, lecture seule** | Pilote de chaque système ; zéro modification du logiciel source |
 | Sérialisation | Newtonsoft.Json | Pattern éprouvé chez le client fondateur |
 | Tests | xUnit | Standard, net48-compatible |

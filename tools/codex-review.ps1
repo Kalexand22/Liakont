@@ -18,6 +18,17 @@
     Specific commit SHA to review.
 .PARAMETER Round
     Review round number (default: 1). Round 1 = full review. Round 2+ = verify fixes only.
+.OUTPUTS
+    Exit codes:
+    0 = review ran on at least one non-empty diff AND is clean (no findings)
+    2 = review ran AND has P1/P2 findings (review is NOT clean — fix and re-run with -Round N)
+    3 = NOTHING was reviewed (no uncommitted changes and no -Base given, or empty diffs).
+        This is NOT a pass: in orchestration the review node runs after commit_apply, so the
+        working tree is clean — callers MUST pass -Base <segment-branch> to review the
+        committed sub-branch work. Treating 3 as success is a false-green.
+    1 (or other) = review could not run (engine failure)
+    A reviewer process exiting 0 NEVER means the review is clean by itself: the findings
+    in its output are parsed, and any [P1]/[P2] finding forces exit code 2.
 #>
 param(
     [string]$Base = '',
@@ -28,6 +39,30 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# --- Findings tracking (anti faux-vert) ---
+# A review that RAN is not a review that is CLEAN. Findings are counted across all
+# Invoke-Review calls and drive the final exit code.
+$script:totalP1 = 0
+$script:totalP2 = 0
+# Number of non-empty diffs actually reviewed. 0 at the end = exit 3 (nothing reviewed ≠ clean).
+$script:reviewedCount = 0
+
+function Register-Findings {
+    param([string]$ReviewOutput, [string]$Label)
+    # Findings follow the mandated format: "[P1] | file:line | ..." (markdown bold tolerated)
+    $p1 = [regex]::Matches($ReviewOutput, '\[P1\]\**\s*\|').Count
+    $p2 = [regex]::Matches($ReviewOutput, '\[P2\]\**\s*\|').Count
+    $script:totalP1 += $p1
+    $script:totalP2 += $p2
+    $script:reviewedCount += 1
+    if ($p1 -gt 0 -or $p2 -gt 0) {
+        Write-Host "[FINDINGS] ${Label}: $p1 P1, $p2 P2 — review is NOT clean" -ForegroundColor Red
+    }
+    else {
+        Write-Host "[CLEAN] ${Label}: no findings" -ForegroundColor Green
+    }
+}
 
 # --- Review instructions (Conformat-specific) ---
 $reviewInstructions = @'
@@ -155,15 +190,19 @@ function Invoke-Review {
             # ANTHROPIC_API_KEY (héritée de l'env Windows) pointe vers un compte API
             # sans crédits et ferait échouer la review ("Credit balance is too low").
             $env:ANTHROPIC_API_KEY = $null
-            Get-Content $tmpFile -Raw | & claude --print --model opus
+            # Capture the review output: exit 0 from claude only means "the reviewer ran",
+            # NOT "the review is clean". The findings are parsed below.
+            $reviewOutput = (Get-Content $tmpFile -Raw | & claude --print --model opus 2>&1 | Out-String)
             $claudeExit = $LASTEXITCODE
             $ErrorActionPreference = 'Stop'
+            Write-Host $reviewOutput
         }
         finally {
             Remove-Item $tmpFile -ErrorAction SilentlyContinue
         }
 
         if ($claudeExit -eq 0) {
+            Register-Findings -ReviewOutput $reviewOutput -Label $Label
             return
         }
     }
@@ -206,12 +245,14 @@ function Invoke-Review {
         $codexArgs += '--uncommitted'
     }
     $ErrorActionPreference = 'Continue'
-    codex review @codexArgs 2>&1
+    $codexOutput = (codex review @codexArgs 2>&1 | Out-String)
     $ErrorActionPreference = 'Stop'
+    Write-Host $codexOutput
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[FAIL] Codex review also failed (exit $LASTEXITCODE)" -ForegroundColor Red
         exit $LASTEXITCODE
     }
+    Register-Findings -ReviewOutput $codexOutput -Label $Label
 }
 
 # --- Main ---
@@ -248,3 +289,23 @@ else {
         Write-Host 'Use -Base <ref> to review committed branch changes.' -ForegroundColor Yellow
     }
 }
+
+# --- Final verdict (anti faux-vert) ---
+# The exit code reflects the CONTENT of the review, never just "the reviewer ran".
+if ($script:totalP1 -gt 0 -or $script:totalP2 -gt 0) {
+    Write-Host ""
+    Write-Host "=== REVIEW NOT CLEAN: $($script:totalP1) P1, $($script:totalP2) P2 ===" -ForegroundColor Red
+    Write-Host "Fix the findings, then re-run with -Round $($Round + 1)." -ForegroundColor Red
+    exit 2
+}
+if ($script:reviewedCount -eq 0) {
+    # Nothing was actually reviewed. NEVER a pass: in orchestration the review node runs after
+    # commit_apply (clean tree), so a caller that forgot -Base would otherwise get a free green.
+    Write-Host ""
+    Write-Host "=== NOTHING REVIEWED ===" -ForegroundColor Red
+    Write-Host "No diff was reviewed. After a commit, run with -Base <segment-branch> to review the committed work." -ForegroundColor Red
+    exit 3
+}
+Write-Host ""
+Write-Host "=== REVIEW CLEAN ($($script:reviewedCount) diff(s) reviewed) ===" -ForegroundColor Green
+exit 0

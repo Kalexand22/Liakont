@@ -47,12 +47,12 @@ nodes:
     type: deterministic
     action: codex-review
     retry: { max: 3, on_exhaust: blocked }
-    description: "Run codex-review.ps1"
+    description: "Run codex-review.ps1 -Base <segment-branch> (MANDATORY: this node runs after commit_apply, the tree is clean — without -Base nothing gets reviewed and the script exits 3). Reviews ALL sub-branch work: committed + uncommitted."
 
   - id: fix_review
     type: agentic
     model: sonnet
-    condition: "review has P1 or fixable P2 findings"
+    condition: "review exited 2 (has P1/P2 findings)"
     loop_back_to: verify
     description: "Fix review findings, then loop back to verify → commit → review"
 

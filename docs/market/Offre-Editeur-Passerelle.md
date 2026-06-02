@@ -40,7 +40,9 @@ Et l'argument de fermeture (à utiliser avec parcimonie) :
 
 ## 2. Qui finance le connecteur ? Les 3 structures
 
-Le « connecteur » (adaptateur) = les requêtes d'extraction + le mapping spécifiques au logiciel de l'éditeur. Le moteur générique (génération Factur-X/UBL, client PA, e-reporting, archivage) existe déjà — c'est notre produit, amorti sur tous les éditeurs.
+Le « connecteur » (adaptateur) = les requêtes d'extraction + le mapping spécifiques au logiciel de l'éditeur. Le moteur générique (modèle pivot EN 16931, contrôles qualité, mapping TVA, client PA, e-reporting, archivage 10 ans) existe déjà — c'est notre produit, amorti sur tous les éditeurs.
+
+> ⚠️ **Correction du 2026-06-02 (alignement produit)** : le moteur ne **génère pas** lui-même les fichiers Factur-X/UBL — c'est la **Plateforme Agréée** qui les génère à partir des données structurées que nous lui transmettons (et nous récupérons le Factur-X généré pour l'archivage quand la PA le permet). Ne jamais promettre de « génération Factur-X » dans un pitch : la promesse exacte est « vos données partent conformes, la facture électronique légale est générée par la PA et archivée 10 ans chez vous ».
 
 ### Structure A — « Zéro investissement éditeur » ⭐ recommandée pour les petits éditeurs
 
@@ -200,7 +202,17 @@ Le client final reçoit une offre simple, dans la marque de son éditeur, **avec
 | **Grand compte** | > 5 000 bordereaux/an, multi-sites | **89-119 €** | ~450-550 € |
 | Setup | — | 500-900 € (ou 0 € avec engagement 24 mois) | licence ~250-350 € |
 
-Tout est inclus à chaque palier : émission, réception, e-reporting (B2B international, B2C, paiements), PA (Super PDP marque grise, ~3-5 €/mois absorbés), archivage 10 ans, veille réglementaire. **UN contrat (avec l'éditeur), zéro démarche PA.**
+Tout est inclus à chaque palier : émission (e-reporting B2C, garde-fou B2B), e-reporting des paiements (selon capacité de la PA), PA (Super PDP marque grise, ~3-5 €/mois absorbés), archivage fiscal 10 ans, veille réglementaire. **UN contrat (avec l'éditeur), zéro démarche PA.**
+
+> ⚠️ **Correction du 2026-06-02 (alignement produit V1)** : la première version de ce tableau
+> promettait « réception » et « e-reporting B2B international » à chaque palier. **Le produit V1
+> ne les couvre pas** :
+> - **Réception des factures fournisseurs** : l'obligation du 1er sept. 2026 est satisfaite via le
+>   **portail de la PA** (inclus dans le compte Super PDP/B2Brouter du client). L'intégration native
+>   de la réception dans la passerelle est en **phase 2** (voir DR16-Offre-Reception-Produit-Appel.md).
+> - **B2B international (Flux 10.1)** : **phase 2** — le garde-fou B2B (détection d'acheteur
+>   professionnel + traitement manuel) couvre la V1.
+> Ne vendre QUE ce que le produit fait. Tout pitch/contrat doit refléter ce périmètre.
 
 **Le pitch client à ce prix n'est plus « la conformité » (subie) mais le temps gagné :**
 

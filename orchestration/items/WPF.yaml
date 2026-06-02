@@ -68,16 +68,26 @@ items:
          opérateur, action corrective si disponible. Pour BUYER_LOOKS_PROFESSIONAL : boutons
          de verdict « Confirmer particulier (B2C) » / « Traiter manuellement (B2B) » →
          POST /documents/{id}/verdict (l'identité Windows de l'opérateur est journalisée côté serveur).
+      2bis. Actions de résolution (droits « actions » requis) :
+         - Document bloqué après correction (source corrigée, table complétée) : bouton
+           [Revérifier maintenant] → POST /documents/{id}/recheck → résultat affiché immédiatement
+         - Document bloqué non transmissible (ex. avoir orphelin) : bouton [Traiter manuellement
+           hors passerelle...] → saisie du motif obligatoire → POST /documents/{id}/resolve-manually
+         - Document rejeté par la PA : bouton [Lier au document de remplacement...] → sélecteur
+           du nouveau document (extrait du logiciel source au run suivant la correction) →
+           POST /documents/{id}/supersede → l'écran affiche le lien ancien ⇄ nouveau
       3. Onglet Historique : chronologie complète (détecté, envoyé, réponse PA, tax report,
-         changements d'état, verdicts opérateur avec leur auteur).
+         changements d'état, verdicts opérateur avec leur auteur, résolutions manuelles avec motif,
+         renvois avec lien vers le document remplacé).
       4. Onglet Archive : référence du paquet d'archive, état d'intégrité de la chaîne,
          bouton [Exporter pour contrôle fiscal] → GET /documents/{id}/audit-export.
       5. DocumentDetailViewModel testé avec ApiClient mocké.
     acceptance:
       - "4 onglets conformes (Contenu, Contrôles, Historique, Archive)"
       - "Verdict opérateur B2C/B2B envoyé via l'API"
+      - "Actions revérifier / résolution manuelle (motif obligatoire) / lien de remplacement branchées sur l'API"
       - "Export audit téléchargé via l'API"
-      - "Tests ViewModel avec ApiClient mocké : onglets, verdict, export"
+      - "Tests ViewModel avec ApiClient mocké : onglets, verdict, recheck, résolution manuelle, remplacement, export"
       - "Checklist smoke mise à jour"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
@@ -193,8 +203,10 @@ items:
          - PDF orphelins : aucun document correspondant trouvé → [Lier manuellement...]
            (sélecteur de document avec recherche)
          - Documents sans PDF : documents émis dont l'archive n'a pas de bordereau-source.pdf
-      2. Aperçu du PDF intégré (visionneuse simple — GET /reconciliation/{id}/pdf) pour décider
-         en connaissance de cause.
+      2. Aperçu du PDF (GET /reconciliation/{id}/pdf) pour décider en connaissance de cause.
+         ADR REQUIS : WPF/net48 n'a pas de visionneuse PDF native — choix entre contrôle
+         WebBrowser (Adobe Reader installé), composant tiers (= ADR de dépendance), ou
+         ouverture dans le lecteur PDF par défaut du poste (zéro dépendance, recommandé en V1).
       3. Compteur dans le menu latéral : nombre d'éléments en attente de réconciliation.
       4. Cet écran n'apparaît QUE si l'adaptateur configuré déclare ProvidesUnlinkedDocumentPool
          (capacité absente = pas d'écran, pas de bruit pour les déploiements non concernés).

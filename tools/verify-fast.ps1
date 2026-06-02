@@ -80,7 +80,38 @@ if ($ok) {
             $lotFile = Join-Path $repoRoot "orchestration\items\$lot.yaml"
             if (-not (Test-Path $lotFile)) { throw "Lot file missing: orchestration/items/$lot.yaml" }
         }
-        Write-Output "Manifest sane: $($declared.Count) items, $($lots.Count) lots, all dependencies resolvable."
+        # Every work item must be defined in its lot file (reciprocity manifest → lots)
+        $itemLotPairs = [regex]::Matches($manifest, '\{\s*id:\s*([A-Z_0-9]+),\s*lot:\s*([A-Z]+)')
+        foreach ($m in $itemLotPairs) {
+            $iid = $m.Groups[1].Value; $ilot = $m.Groups[2].Value
+            $lotContent = Get-Content (Join-Path $repoRoot "orchestration\items\$ilot.yaml") -Raw
+            if ($lotContent -notmatch "(?m)^  $([regex]::Escape($iid)):") {
+                throw "Item $iid (manifest) is not defined in orchestration/items/$ilot.yaml"
+            }
+        }
+        # Every gate must be defined in some lot file
+        $gates = $declared | Where-Object { $_ -like 'GATE_*' } | Select-Object -Unique
+        $allLotContent = ($lots | ForEach-Object { Get-Content (Join-Path $repoRoot "orchestration\items\$_.yaml") -Raw }) -join "`n"
+        foreach ($g in $gates) {
+            if ($allLotContent -notmatch "(?m)^  $([regex]::Escape($g)):") { throw "Gate $g (manifest) is not defined in any lot file" }
+        }
+        # Every blueprint referenced must exist
+        $blueprints = [regex]::Matches($manifest, 'blueprint:\s*([a-z][a-z0-9-]+)') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique
+        foreach ($bp in $blueprints) {
+            if (-not (Test-Path (Join-Path $repoRoot "orchestration\blueprints\$bp.yaml"))) { throw "Blueprint missing: orchestration/blueprints/$bp.yaml" }
+        }
+        # State reciprocity: every item in state.yaml must exist in the manifest
+        # (manifest items absent from state = done & purged, which is legitimate: absent = done)
+        $orchRepo = $env:ORCH_REPO
+        if (-not $orchRepo) { $orchRepo = 'C:\Source\conformat-orchestration' }
+        $statePath2 = Join-Path $orchRepo 'state.yaml'
+        if (Test-Path $statePath2) {
+            $state = Get-Content $statePath2 -Raw
+            $stateIds = [regex]::Matches($state, '(?m)^  ([A-Z_0-9]+):\s*\{\s*status:') | ForEach-Object { $_.Groups[1].Value }
+            $orphans = $stateIds | Where-Object { $declared -notcontains $_ } | Select-Object -Unique
+            if ($orphans) { throw "state.yaml contains items absent from the manifest: $($orphans -join ', ')" }
+        }
+        Write-Output "Manifest sane: $($declared.Count) items, $($lots.Count) lots, items<->lots reciprocal, blueprints present, state consistent."
     }
 }
 
@@ -92,8 +123,10 @@ if ($ok) {
             if ($LASTEXITCODE -ne 0) { throw "restore failed" }
         }
         if ($ok) {
-            $ok = Run-Step 'build+analyzers' {
-                dotnet build $slnPath --no-restore --verbosity quiet
+            # x86 is the constraining platform (32-bit Pervasive ODBC drivers).
+            # The x64 build is covered by run-tests / CI (SOL02) to keep verify-fast fast.
+            $ok = Run-Step 'build+analyzers (x86)' {
+                dotnet build $slnPath --no-restore --verbosity quiet /p:Platform=x86
                 if ($LASTEXITCODE -ne 0) { throw "build failed" }
             }
         }
@@ -105,9 +138,26 @@ if ($ok) {
         }
     }
     else {
-        "`n=== build (skipped) ===" | Add-Content $logFile
-        "src/Gateway.sln does not exist yet (SOL01 pending) — build/tests skipped (bootstrap mode)." | Add-Content $logFile
-        $steps += @{ Name = 'build (bootstrap skip)'; Status = 'SKIP'; Duration = 0 }
+        # Bootstrap guard: the solution may only be absent while SOL01 is still pending.
+        # If SOL01 is done (or purged from state = done), a missing solution is a FAILURE,
+        # not a bootstrap skip — someone deleted it.
+        $orchRepo = $env:ORCH_REPO
+        if (-not $orchRepo) { $orchRepo = 'C:\Source\conformat-orchestration' }
+        $statePath3 = Join-Path $orchRepo 'state.yaml'
+        $sol01Pending = $true
+        if (Test-Path $statePath3) {
+            $state = Get-Content $statePath3 -Raw
+            if ($state -notmatch '(?m)^  SOL01:') { $sol01Pending = $false }                                # absent = done
+            elseif ($state -match '(?m)^  SOL01:\s*\{\s*status:\s*done') { $sol01Pending = $false }         # explicit done
+        }
+        if (-not $sol01Pending) {
+            $ok = Run-Step 'build (solution missing)' { throw "src/Gateway.sln is missing but SOL01 is done — the solution has been deleted or the checkout is broken." }
+        }
+        else {
+            "`n=== build (skipped) ===" | Add-Content $logFile
+            "src/Gateway.sln does not exist yet (SOL01 pending) — build/tests skipped (bootstrap mode)." | Add-Content $logFile
+            $steps += @{ Name = 'build (bootstrap skip)'; Status = 'SKIP'; Duration = 0 }
+        }
     }
 }
 

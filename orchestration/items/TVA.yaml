@@ -14,8 +14,15 @@ items:
       Implémenter dans Gateway.Core/TvaMapping/ le modèle de la table de mapping selon F03 :
       1. MappingTable : mappingVersion, validatedBy, validatedDate, defaultBehavior (block),
          rules (List<MappingRule>).
-      2. MappingRule : sourceRegimeCode, label, part (adjudication/frais/autre), category (UNCL5305),
-         rate, vatex (nullable), note.
+      2. MappingRule (modèle de condition riche, F03 §conditions) :
+         - sourceRegimeCode, label, part (adjudication/frais/autre)
+         - sourceFlags (nullable) : conditions supplémentaires sur des flags source
+           (ex. EncheresV6 : RegimeMarge, assujetti_tva) — une règle peut matcher
+           (code régime + part + flags), pas seulement le code
+         - category (UNCL5305), vatex (nullable), note
+         - rate : taux FIXE ou CALCULÉ (RateMode.Fixed / RateMode.ComputedFromSource) —
+           F03 : le taux des frais peut être calculé (montant_tva_frais / montant_frais_ht)
+           plutôt que figé dans la table
       3. Chargement depuis fichier JSON externe + validation structurelle au chargement :
          - catégorie E + taux 0 → vatex obligatoire (sinon table invalide)
          - codes catégorie dans la liste UNCL5305 valide (S, AA, AAA, Z, E, AE, G, K, O)
@@ -27,10 +34,11 @@ items:
       La table est un FICHIER EXTERNE paramétré par déploiement, jamais embarqué dans le code.
     acceptance:
       - "MappingTable et MappingRule dans Conformat.Gateway.Core.TvaMapping"
+      - "MappingRule supporte les conditions riches de F03 : part + flags source + taux fixe OU calculé"
       - "Chargement JSON externe avec validation structurelle (E+0% → VATEX requis)"
       - "Table invalide = exception explicite, jamais de comportement silencieux"
       - "État « NON VALIDÉE » porté par le modèle et exposé"
-      - "Tests : table valide, table sans VATEX sur E, doublons, catégorie inconnue, table non validée"
+      - "Tests : table valide, table sans VATEX sur E, doublons, catégorie inconnue, table non validée, règle à flags, taux calculé"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -118,7 +126,7 @@ items:
     acceptance:
       - "AddRule/UpdateRule/RemoveRule avec validation structurelle à chaque mutation"
       - "Toute mutation efface validatedBy/validatedDate (table repasse NON VALIDÉE)"
-      - "MappingChangeLog append-only : qui, quand, avant/après"
+      - "MappingChangeLog append-only VÉRIFIÉ PAR TEST : toute modification/suppression d'une entrée existante est rejetée (même discipline que DocumentEvent)"
       - "Sauvegarde atomique (jamais de fichier corrompu)"
       - "Tests : ajout règle valide, règle invalide rejetée, invalidation après mutation, changelog, re-validation"
       - "verify-fast passes"

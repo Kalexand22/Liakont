@@ -18,7 +18,11 @@ items:
       3. Pipeline de requête : routage simple, sérialisation JSON (Newtonsoft), gestion d'erreurs
          uniforme (codes HTTP + corps d'erreur typé), journalisation des appels.
       4. Endpoint /health : version, état de la base, dernier run, état de la connexion source.
-      ADR : choix HttpListener vs OWIN, stratégie HTTPS.
+      ADR : choix HttpListener vs OWIN, stratégie HTTPS, ET les prérequis réseau Windows qui
+      conditionnent l'installation chez le client : réservation d'URL (netsh http add urlacl),
+      compte de service et SPN pour l'auth Negotiate/Kerberos, règle firewall entrante,
+      comportement pour les postes hors domaine (NTLM fallback ou refus documenté).
+      Ces prérequis alimentent la doc d'installation (PKG01) et check-config (CLI01).
     acceptance:
       - "API self-hosted démarrable/arrêtable avec le service, port configurable"
       - "Auth Windows intégrée : utilisateur non autorisé → 403"
@@ -63,8 +67,24 @@ items:
            AVANT exécution si ?confirm=false : nombre + montant total)
          - POST /documents/{id}/verdict → verdict B2C/B2B du garde-fou (confirme particulier /
            traite manuellement) — journalisé dans DocumentEvent avec l'identité Windows de l'opérateur
+         - POST /documents/{id}/resolve-manually → marquer un document bloqué ou rejeté comme
+           « traité manuellement hors passerelle » avec MOTIF OBLIGATOIRE (cas : avoir orphelin F07,
+           document non transmissible). Transition vers l'état terminal ManuallyHandled (TRK02),
+           journalisée (DocumentEvent) — le document reste visible et auditable.
+         - POST /documents/{id}/supersede → lier un document RejectedByPa à son REMPLAÇANT
+           (corps : id du nouveau document, déjà extrait depuis le logiciel source — le source
+           est le seul créateur de numéros, Conformat n'en invente jamais). L'ancien passe
+           Superseded avec lien vers le nouveau (règle TRK02/TRK03). Refusé si le document
+           remplaçant n'existe pas dans le Tracking. Journalisé avec l'identité de l'opérateur.
+         - POST /documents/{id}/recheck → re-valider UN document Blocked après correction
+           (source corrigée, table TVA complétée, verdict posé) sans déclencher un run complet :
+           le document repasse par le ValidationPipeline → ReadyToSend ou Blocked avec les
+           nouveaux motifs. (Le run complet reste possible via /runs/trigger.)
          - POST /runs/trigger → déclencher un run manuel (extract/check/send/sync)
          - GET /documents/{id}/audit-export → dossier d'export contrôle fiscal (zip streamé)
+         - GET /audit-export?from=&to= → export contrôle fiscal PAR PÉRIODE (TRK07) :
+           tous les paquets d'archive de la période + rapport d'intégrité + preuves d'ancrage
+           + chronologie (zip streamé)
       2. Gateway.ApiClient : client .NET de l'API (HttpClient + auth Windows par défaut),
          utilisé par la console WPF. Une méthode par endpoint, DTOs de Gateway.Api,
          gestion des erreurs typée (ApiException avec code + message opérateur).
@@ -72,10 +92,14 @@ items:
          (piste d'audit : QUI a déclenché QUOI).
     acceptance:
       - "Endpoints d'action opérationnels avec contrôle des droits"
+      - "resolve-manually : motif obligatoire, transition vers ManuallyHandled, journalisé et auditable"
+      - "supersede : lien vers un document remplaçant EXISTANT, ancien document Superseded (règle TRK02/TRK03)"
+      - "recheck : re-validation d'un seul document sans run complet"
+      - "Export contrôle fiscal par document ET par période"
       - "Toute action journalisée avec l'identité Windows de l'opérateur"
       - "send-all retourne le récapitulatif avant exécution (mécanisme de confirmation)"
       - "Gateway.ApiClient couvre tous les endpoints, erreurs typées"
-      - "Tests d'intégration : action autorisée, action refusée (403), journalisation identité"
+      - "Tests d'intégration : action autorisée, action refusée (403), journalisation identité, resend, resolve-manually"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 

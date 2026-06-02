@@ -10,14 +10,33 @@ items:
     description: |
       Implémenter le moteur dans Gateway.Core/Pipeline/ selon F11 :
       1. PipelineRunner.RunAsync(RunOptions) exécute la séquence :
-         - EXTRACT : IExtractor.ExtractDocuments(période) → documents inconnus en état Detected
+         - EXTRACT : IExtractor.ExtractDocuments(période) → documents inconnus en état Detected.
+           Documents DÉJÀ ÉMIS ré-extraits : comparaison de hash (SourceAlterationDetector, TRK03) —
+           altération détectée = événement + alerte, jamais de réémission.
          - CHECK : documents Detected/Blocked → ValidationPipeline (F04) →
-           OK : ReadyToSend ; KO : Blocked avec motifs
+           OK : ReadyToSend ; KO : Blocked avec motifs.
+           GARDE-FOU PRODUCTION : si l'environnement PA est « production » et que la table de
+           mapping TVA n'est PAS validée (validatedBy absent, table modifiée non revalidée, ou
+           table d'exemple), TOUS les documents restent Blocked avec le motif « Table TVA non
+           validée — validation expert-comptable requise ». Le mode staging/démo n'est pas concerné.
+         - PRE-SEND : avant tout retry d'un document TechnicalError, ET pour tout document
+           resté en état Sending (crash dur du Service au milieu d'un envoi), vérifier côté PA
+           (GetPotentiallySentDocuments TRK03 + IPaClient.GetDocumentStatusAsync) qu'un envoi
+           précédent dont la réponse s'est perdue n'a pas réussi — si la PA connaît le
+           document : transition vers Issued SANS renvoyer (anti-doublon inter-run).
+           Exceptions d'extraction typées (PIV03) : SourceUnavailableException = run réessayable
+           (code sortie 1) ; SourceSchemaException = échec fatal (code 2), intervention requise.
          - SEND : ReadyToSend → IPaClient.SendDocumentAsync →
            succès : Issued (+ création du paquet d'archive TRK06) ; errors[] : RejectedByPa ;
            réseau : TechnicalError
-         - SYNC : Issued sans tax report → ListTaxReportsAsync → archivage xml_base64
-           (si le PA déclare SupportsTaxReportRetrieval)
+         - SYNC : pour chaque document Issued :
+           * tax report manquant → ListTaxReportsAsync → archivage xml_base64
+             (si le PA déclare SupportsTaxReportRetrieval)
+           * facture PA manquante dans l'archive → IPaClient.GetGeneratedDocumentAsync →
+             ajout au paquet d'archive en addendum (si SupportsDocumentRetrieval)
+           * bordereau source manquant dans l'archive → IExtractor.GetAttachments →
+             ajout en addendum (si ProvidesSourceDocuments) ; mode pool → alimente la
+             file de réconciliation (TRK08)
       2. RunOptions : période (from/to), dryRun (tout sauf écritures PA), maxDocuments,
          commande partielle (extract seul, send seul, sync seul).
       3. RunReport : compteurs par état, durée, issues, code de sortie calculé
@@ -27,8 +46,13 @@ items:
          ne peut le prendre que si le Service est arrêté).
       5. Chaque run écrit un RunLog dans le Tracking.
     acceptance:
-      - "Séquence extract→check→send→sync complète et testée avec FixtureExtractor + FakePaClient"
-      - "dry-run n'effectue aucune écriture PA (vérifié par le journal d'appels du FakePaClient)"
+      - "Séquence extract→check→pre-send→send→sync complète et testée avec FixtureExtractor + plug-in Fake"
+      - "Garde-fou production : table TVA non validée + environnement production = tout reste Blocked (testé)"
+      - "Anti-doublon inter-run : timeout au run N, le run N+1 vérifie côté PA avant de retenter (testé : la PA connaît le doc → pas de renvoi)"
+      - "Reprise après crash : documents restés en Sending vérifiés côté PA au démarrage du run suivant (testé)"
+      - "SYNC récupère la facture PA et le bordereau source vers l'archive selon les capacités (testé avec/sans capacités)"
+      - "Altération source après émission détectée au EXTRACT (testé)"
+      - "dry-run n'effectue aucune écriture PA (vérifié par le journal d'appels du plug-in Fake)"
       - "Codes de sortie 0/1/2/3 calculés selon F11"
       - "Le pipeline ne référence JAMAIS un plug-in PA concret (uniquement IPaClient)"
       - "Mutex global empêche deux runs simultanés sur la même config"
@@ -71,22 +95,69 @@ items:
          jour×taux au niveau SIREN, pas un lettrage ligne à ligne).
       2. Règle d'imputation : part frais (prestation de services) au prorata HT frais / HT total
          du bordereau lié.
-      3. Cas limites : paiement partiel (imputé à sa date), trop-perçu/remboursement (montant
+      3. PARAMÉTRAGE FISCAL DU DÉPLOIEMENT (F09 §questions ouvertes — ces décisions appartiennent
+         à l'expert-comptable du client, le produit doit supporter les deux réponses) :
+         - fiscal.vatOnDebits (bool) : si le client a opté pour la TVA sur les débits,
+           l'exigibilité est à la facturation → PAS d'e-reporting de paiement pour les
+           prestations de services concernées. Le moteur calcule quand même les agrégats
+           (traçabilité) mais les marque « non requis — TVA sur les débits ».
+         - fiscal.operationCategory (LivraisonBiens/PrestationServices/Mixte) : détermine
+           quelle part des documents déclenche l'e-reporting de paiement.
+         Ces paramètres vivent dans la config du DÉPLOIEMENT (deployments/<client>/), jamais
+         en dur. Tant qu'ils ne sont pas renseignés : agrégats calculés mais transmission
+         suspendue avec le motif « Décision fiscale en attente (TVA sur les débits /
+         catégorie d'opération) — consultez votre expert-comptable ».
+      4. Cas limites : paiement partiel (imputé à sa date), trop-perçu/remboursement (montant
          négatif dans l'agrégat de la période), règlement sans rattachement bordereau (alerte Warning).
-      4. ENVOI piloté par la capacité du PA :
-         - PA avec SupportsPaymentReporting=true → IPaClient.SendPaymentReportAsync, suivi des états
-         - PA avec SupportsPaymentReporting=false → les agrégats sont calculés, persistés
-           (PaymentAggregate) et affichés avec l'état « En attente : la plateforme <nom> ne
-           supporte pas encore la transmission des paiements ». Dès que le plug-in déclarera
-           la capacité, les agrégats en attente partiront au run suivant — AUCUN autre changement.
-      5. Tests avec FakePaClient dans les deux configurations de capacité.
+      5. ENVOI piloté par la capacité du PA (Flux 10.4 domestique / 10.2 international — PAA01) :
+         - PA avec la capacité du flux concerné → IPaClient.SendPaymentReportAsync, suivi des états,
+           journalisation PaymentAggregateEvent (TRK04)
+         - PA sans la capacité → les agrégats sont calculés, persistés (PaymentAggregate) et
+           affichés avec l'état « En attente : la plateforme <nom> ne supporte pas encore la
+           transmission des paiements ». Dès que le plug-in déclarera la capacité, les agrégats
+           en attente partiront au run suivant — AUCUN autre changement.
+      6. Tests avec le plug-in Fake dans les deux configurations de capacité ET les
+         combinaisons de paramétrage fiscal.
     acceptance:
       - "Agrégation jour×taux conforme F09, sans données nominatives"
       - "Imputation prorata frais/total implémentée et testée"
-      - "Envoi réel via IPaClient quand la capacité est déclarée (testé avec FakePaClient)"
+      - "Montants agrégés en decimal, aucun float/double"
+      - "Paramètres fiscaux du déploiement (vatOnDebits, operationCategory) pilotent l'e-reporting — jamais de valeur en dur"
+      - "Paramètres fiscaux non renseignés = transmission suspendue avec message explicite (testé)"
+      - "Envoi réel via IPaClient quand la capacité est déclarée (testé avec le plug-in Fake)"
       - "Capacité absente : agrégats persistés en attente, transmission automatique dès activation"
-      - "Aucun flag de configuration produit — uniquement la capacité du PA"
-      - "Tests : agrégation multi-jours/multi-taux, paiement partiel, remboursement, les 2 modes de capacité"
+      - "Aucun flag de configuration PRODUIT — capacités PA + paramétrage fiscal du déploiement uniquement"
+      - "Tests : agrégation multi-jours/multi-taux, paiement partiel, remboursement, les 2 modes de capacité, TVA sur débits oui/non/inconnu"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  PIP04:
+    title: "Rectificatifs e-reporting (flux RE annule-et-remplace)"
+    description: |
+      Implémenter les rectificatifs d'e-reporting dans Gateway.Core/Pipeline/ selon F07 §corrections :
+      Contexte : quand une donnée déjà transmise en e-reporting (Flux 10.3 B2C ou 10.2/10.4
+      paiements) doit être corrigée (avoir tardif, erreur détectée, altération source), la
+      correction ne passe PAS par un montant négatif isolé : la DGFiP attend un flux
+      rectificatif type RE qui ANNULE ET REMPLACE l'ensemble des données agrégées de la
+      période concernée (par SIREN + période).
+      1. RectificationBuilder : pour une période déjà transmise, reconstruire l'agrégat complet
+         corrigé (toutes les données de la période, pas seulement le delta).
+      2. Transmission du rectificatif via IPaClient (capacité SupportsReportRectification —
+         à ajouter à PaCapabilities) ; PA sans capacité = rectificatif en attente, comme les
+         autres capacités.
+      3. Suivi : la période rectifiée garde son historique complet (transmission initiale +
+         chaque rectificatif) dans PaymentAggregateEvent / TaxReport — append-only, l'ancien
+         état n'est jamais effacé.
+      4. Idempotence : re-déclencher un rectificatif identique ne crée pas de doublon
+         (comparaison de hash du contenu rectifié).
+      5. Déclencheurs : avoir sur période déjà déclarée (PIP02), correction manuelle opérateur
+         (via API/console), altération source détectée (TRK03).
+    acceptance:
+      - "RectificationBuilder reconstruit l'agrégat complet de la période (annule-et-remplace, pas un delta)"
+      - "Capacité SupportsReportRectification ajoutée à PaCapabilities, comportement en attente si absente"
+      - "Historique complet conservé (initial + rectificatifs), append-only"
+      - "Idempotence des rectificatifs (testé : double déclenchement = une seule transmission)"
+      - "Tests : avoir sur période déclarée, rectificatif manuel, PA sans capacité, idempotence"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 

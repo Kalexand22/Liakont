@@ -60,6 +60,31 @@ Jamais de slash après un nom de branche existante. Corrigé dans protocol.md St
   mais SANS lien exploitable (fichiers en vrac, champs libres). La capacité « propre » et la
   capacité « dégradée + réconciliation » sont deux capacités distinctes.
 
+## 2026-06-02 — Leçons de la review indépendante (backlog v4 → v5)
+
+Une review indépendante (47 findings, 46 confirmés) a été menée avant le lancement de
+l'orchestration. Les patterns d'erreur qu'elle révèle :
+
+1. **Amender les specs le jour où une décision les rend obsolètes.** F10/F11 décrivaient encore
+   l'architecture pré-API : les items étaient corrects mais les specs les contredisaient — un agent
+   qui lit la spec en premier aurait codé la mauvaise architecture. Règle : toute décision qui
+   contredit une spec = note d'amendement datée EN TÊTE de la spec, le jour même de la décision.
+2. **Tester les faux verts de l'outillage AVANT de s'y fier.** codex-review.ps1 retournait 0 dès
+   que le reviewer répondait, même avec des P1 — toute la boucle de review reposait sur un faux vert.
+   Règle : pour chaque script de vérification, exécuter le scénario « ça DOIT échouer » avant
+   de l'utiliser (c'est déjà la règle SOL02 pour verify-fast : la généraliser à tout l'outillage).
+3. **Câbler les consommateurs, pas seulement les producteurs.** TRK03 exposait
+   GetPotentiallySentDocuments, PAA01 exposait GetGeneratedDocumentAsync — mais PIP01 (le
+   consommateur) ne les appelait pas : capacités produites jamais consommées = trous fonctionnels.
+   Règle : chaque méthode/capacité introduite par un item doit avoir son consommateur identifié
+   dans la description d'un item (le même ou un autre, nommé explicitement).
+4. **Vérifier l'ordonnancement par les CONSOMMATEURS.** CFG02 (GatewayConfig) était ordonné après
+   la console alors que le Service/API/CLI en dépendent. Règle : pour chaque item, se demander
+   « qui consomme ce que je produis, et est-il APRÈS moi dans le graphe ? »
+5. **Une review indépendante avant tout lancement d'orchestration.** Coût : 1 session.
+   Gain ici : 28 P1 dont des faux verts d'outillage et des inversions de dépendances qui
+   auraient bloqué les agents en plein segment.
+
 ## 2026-06-02 — Spécifique Conformat (conformité fiscale)
 
 - **Ne jamais inventer une règle fiscale.** Si la spec (docs/conception/) ne tranche pas une

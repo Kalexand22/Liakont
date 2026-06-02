@@ -65,10 +65,12 @@ items:
          À VÉRIFIER — ajouter au ticket support si non documenté) et l'implémenter.
       5. Déclaration des capacités RÉELLES de B2Brouter (état au 2026-06) :
          - SupportsB2cReporting: true (validé staging)
-         - SupportsPaymentReporting: false (« planned for a future release » — point ouvert F09)
+         - SupportsDomesticPaymentReporting: false (Flux 10.4 — « planned for a future release », point ouvert F09)
+         - SupportsInternationalPaymentReporting: false (Flux 10.2 — idem)
          - SupportsCreditNotes: true (validé staging)
          - SupportsTaxReportRetrieval: true
          - SupportsDocumentRetrieval: à déclarer selon le résultat de la vérification staging (point 4)
+         - SupportsReportRectification: à vérifier en staging (flux RE — PIP04)
          - SupportsB2bInvoicing: false (phase 2)
          Quand B2Brouter activera les paiements, SEULE cette déclaration changera —
          aucun autre code du produit n'est impacté.

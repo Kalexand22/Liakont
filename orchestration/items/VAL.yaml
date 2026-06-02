@@ -51,15 +51,20 @@ items:
       1. LineTotalsRule : Σ lignes HT = Total HT, Σ lignes TVA = Total TVA (tolérance zéro,
          arrondi commercial half-up 2 décimales).
       2. ArithmeticRule (BR-CO-15, fatale EN 16931) : HT + TVA = TTC.
-      3. StructureRule : au moins 1 ligne, date plausible (pas dans le futur, pas avant 2000),
+      3. SourceTotalsRule (F04 §3.2) : les totaux calculés par la passerelle = les totaux bruts
+         du document source (PivotTotals.totaux source bruts). Un écart = Blocking — soit le
+         mapping a altéré un montant, soit la source est incohérente : dans les deux cas,
+         ne jamais envoyer un montant différent de ce que le logiciel source a facturé.
+      4. StructureRule : au moins 1 ligne, date plausible (pas dans le futur, pas avant 2000),
          devise ISO 4217.
-      4. UniquenessRule : numéro de document non déjà émis (interroge le Tracking via une interface
+      5. UniquenessRule : numéro de document non déjà émis (interroge le Tracking via une interface
          IIssuedDocumentLookup — l'implémentation SQLite arrive avec TRK03, ici un fake suffit).
     acceptance:
       - "BR-CO-15 (HT+TVA=TTC) implémentée comme règle Blocking"
-      - "Réconciliation des totaux lignes/document sans tolérance"
+      - "Réconciliation des totaux lignes/document sans tolérance, en decimal, après arrondi commercial half-up 2 décimales"
+      - "SourceTotalsRule : écart passerelle/source = Blocking"
       - "UniquenessRule derrière une interface, testée avec un fake"
-      - "Tests : document cohérent, écart d'arrondi, TTC incohérent, doublon de numéro"
+      - "Tests : document cohérent, écart d'arrondi, TTC incohérent, écart vs totaux source, doublon de numéro"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -71,15 +76,22 @@ items:
       2. VatexRequiredRule : catégorie E + taux 0 → code VATEX présent.
          (Validé en staging B2Brouter : l'absence de VATEX = blocage silencieux côté PA —
          c'est exactement ce qu'on veut attraper AVANT envoi.)
-      3. CreditNoteRules (F07) : référence facture d'origine présente, facture connue du Tracking
+      3. CategoryRateConsistencyRule (F04 §3.4 AMENDÉE 2026-06-02) : cohérence catégorie/taux
+         en BLOCKING (décision utilisateur — la spec d'origine disait Warning) :
+         - catégorie S → taux > 0
+         - catégories E, Z, AE, G, K, O → taux = 0
+         Une incohérence = erreur de mapping ou donnée source fausse → jamais envoyé.
+      4. CreditNoteRules (F07) : référence facture d'origine présente, facture connue du Tracking
          ET déjà émise, montants positifs (règle fatale EN 16931 — jamais de montants négatifs).
-      4. Avoir orphelin (original hors passerelle) = Blocking « facture d'origine inconnue de la
-         passerelle » — jamais de référence fabriquée.
+      5. Avoir orphelin (original hors passerelle) = Blocking « facture d'origine inconnue de la
+         passerelle » — jamais de référence fabriquée. Le traitement manuel de l'avoir orphelin
+         (action opérateur) est exposé par l'API (API03) et la console (WPF03).
     acceptance:
       - "VatexRequiredRule bloque tout E+0% sans VATEX"
+      - "CategoryRateConsistencyRule en BLOCKING (S→taux>0, E/Z/AE/G/K/O→taux=0)"
       - "Avoirs : montants positifs obligatoires, référence d'origine vérifiée via le Tracking"
       - "Avoir orphelin bloqué avec message explicite"
-      - "Tests : E sans VATEX, avoir valide, avoir orphelin, avoir à montants négatifs"
+      - "Tests : E sans VATEX, S avec taux 0, E avec taux 20, avoir valide, avoir orphelin, avoir à montants négatifs"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -87,12 +99,16 @@ items:
     title: "Garde-fou B2B/B2C : détection acheteur professionnel"
     description: |
       Implémenter le garde-fou F08 dans Gateway.Core/Validation/Rules/ :
-      1. CompanyHintDetector : heuristique de détection d'acheteur professionnel :
+      1. CompanyHintDetector : heuristique de détection d'acheteur professionnel —
+         EXACTEMENT celle de F07-F08 §A.4, ni plus ni moins (liste de formes juridiques et
+         seuil de déclenchement repris de la spec, jamais étendus sans amendement de la spec) :
          - raison sociale renseignée (champ societe) → indice fort
          - n° TVA intracommunautaire présent → indice fort
-         - forme juridique détectée par regex (SARL, SAS, SA, EURL, EI, SCI, SASU...) → indice moyen
+         - forme juridique détectée par regex (liste DE LA SPEC F07-F08) → indice moyen
          - le montant seul n'est JAMAIS un critère
-         IsCompanyHint = true si au moins un indice fort OU deux indices moyens.
+         IsCompanyHint = true si au moins un indice fort OU l'indice de forme juridique
+         (la spec ne définit qu'un seul indice moyen — un seuil « deux indices moyens »
+         serait inatteignable).
       2. BuyerLooksProfessionalRule : si IsCompanyHint → Blocking BUYER_LOOKS_PROFESSIONAL avec
          message : « L'acheteur "<nom>" semble être un professionnel. Une facture électronique B2B
          est requise (non gérée automatiquement en V1). Traitez ce bordereau manuellement ou
@@ -102,7 +118,7 @@ items:
       Contexte (F08) : déclarer en e-reporting B2C une vente B2B prive l'acheteur pro de sa facture
       déductible = manquement à l'obligation e-invoicing. Le garde-fou est la protection V1.
     acceptance:
-      - "CompanyHintDetector implémente exactement l'heuristique F08 (2 indices forts, regex formes juridiques)"
+      - "CompanyHintDetector implémente EXACTEMENT l'heuristique et la liste de formes juridiques de F07-F08 (aucune forme ajoutée, aucun seuil inventé)"
       - "Le montant n'intervient jamais dans la détection"
       - "BUYER_LOOKS_PROFESSIONAL est Blocking avec le message opérateur de F04/F08"
       - "Tests : particulier, SARL en raison sociale, n° TVA présent, nom ambigu"

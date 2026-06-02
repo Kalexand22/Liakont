@@ -65,8 +65,10 @@ items:
          verdict B2B, export d'audit, coffre d'archive).
       2. Points de valeur à montrer : extraction sans toucher au logiciel source, blocages
          expliqués en français, piste d'audit + archivage 10 ans indépendant de la PA,
-         multi-postes (deux consoles ouvertes en même temps), généricité multi-PA
-         (capacités B2Brouter vs Super PDP affichées).
+         multi-postes (deux consoles ouvertes en même temps), généricité multi-PA :
+         capacités comparées entre les plug-ins DISPONIBLES à la date de la démo
+         (B2Brouter vs plug-in Fake au minimum ; vs Super PDP si GATE_PA_SUPERPDP est passée —
+         la démo ne dépend JAMAIS de la disponibilité d'un PA tiers).
       3. Objections probables d'ISATECH et réponses (à partir de docs/market/Offre-Editeur-Passerelle.md
          et DR12-Intelligence-ISATECH.md).
       4. Déroulé de répétition : la démo doit avoir été exécutée de bout en bout sur une

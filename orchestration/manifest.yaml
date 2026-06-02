@@ -9,7 +9,7 @@
 meta:
   project: conformat-gateway
   phase: 1
-  version: 4
+  version: 5
   host: multi_agent_v1
 
 segments:
@@ -22,7 +22,7 @@ segments:
   core-foundation:
     branch: feat/core-foundation
     base: main
-    lots: [PIV, TVA, VAL, TRK]
+    lots: [PIV, TVA, VAL, TRK, CFG]
     gate: GATE_CORE_FOUNDATION
     depends_on_gate: GATE_SOCLE
 
@@ -78,9 +78,9 @@ segments:
   deploiement-toolkit:
     branch: feat/deploiement-toolkit
     base: main
-    lots: [CFG, DOC]
+    lots: [PKG, DOC]
     gate: GATE_TOOLKIT
-    depends_on_gate: GATE_CONSOLE_ADMIN
+    depends_on_gate: [GATE_CONSOLE_ADMIN, GATE_PA_B2BROUTER, GATE_ADAPTER_ENCHERESV6]
 
   deploiement-cmp:
     branch: feat/deploiement-cmp
@@ -126,7 +126,11 @@ items:
   - { id: TRK06, lot: TRK, priority: 2350, depends_on: [TRK04] }
   - { id: TRK07, lot: TRK, priority: 2360, depends_on: [TRK06] }
   - { id: TRK08, lot: TRK, priority: 2370, depends_on: [TRK06, PIV03] }
-  - { id: GATE_CORE_FOUNDATION, type: gate, executor: human, priority: 2900, depends_on: [PIV02, PIV05, TVA03, TVA04, TVA05, VAL02, VAL03, VAL04, VAL05, TRK03, TRK05, TRK06, TRK07, TRK08] }
+
+  # ── CFG ──
+  - { id: CFG01, lot: CFG, blueprint: docs-spec-item, priority: 2400, depends_on: [] }
+  - { id: CFG02, lot: CFG, priority: 2410, depends_on: [CFG01] }
+  - { id: GATE_CORE_FOUNDATION, type: gate, executor: human, priority: 2900, depends_on: [PIV02, PIV05, TVA03, TVA04, TVA05, VAL02, VAL03, VAL04, VAL05, TRK03, TRK05, TRK06, TRK07, TRK08, CFG02] }
 
   # ── PAA ──
   - { id: PAA01, lot: PAA, priority: 3000, depends_on: [] }
@@ -151,7 +155,8 @@ items:
   - { id: PIP01, lot: PIP, priority: 5000, depends_on: [] }
   - { id: PIP02, lot: PIP, priority: 5010, depends_on: [PIP01] }
   - { id: PIP03, lot: PIP, priority: 5020, depends_on: [PIP01] }
-  - { id: GATE_PIPELINE, type: gate, executor: human, priority: 5400, depends_on: [PIP02, PIP03] }
+  - { id: PIP04, lot: PIP, priority: 5030, depends_on: [PIP02, PIP03] }
+  - { id: GATE_PIPELINE, type: gate, executor: human, priority: 5400, depends_on: [PIP02, PIP03, PIP04] }
 
   # ── SVC ──
   - { id: SVC01, lot: SVC, priority: 5500, depends_on: [] }
@@ -187,14 +192,12 @@ items:
   - { id: WPF08, lot: WPF, blueprint: wpf-screen-item, priority: 6570, depends_on: [WPF02] }
   - { id: GATE_CONSOLE_ADMIN, type: gate, executor: human, priority: 6900, depends_on: [WPF03, WPF04, WPF05, WPF06, WPF07, WPF08] }
 
-  # ── CFG ──
-  - { id: CFG01, lot: CFG, blueprint: docs-spec-item, priority: 7000, depends_on: [] }
-  - { id: CFG02, lot: CFG, priority: 7010, depends_on: [CFG01] }
-  - { id: CFG03, lot: CFG, blueprint: tooling-item, priority: 7020, depends_on: [CFG02] }
+  # ── PKG ──
+  - { id: PKG01, lot: PKG, blueprint: tooling-item, priority: 7020, depends_on: [] }
 
   # ── DOC ──
-  - { id: DOC01, lot: DOC, blueprint: docs-spec-item, priority: 7100, depends_on: [CFG03] }
-  - { id: GATE_TOOLKIT, type: gate, executor: human, priority: 7400, depends_on: [CFG03, DOC01] }
+  - { id: DOC01, lot: DOC, blueprint: docs-spec-item, priority: 7100, depends_on: [PKG01] }
+  - { id: GATE_TOOLKIT, type: gate, executor: human, priority: 7400, depends_on: [PKG01, DOC01] }
 
   # ── CMP ──
   - { id: CMP01, lot: CMP, blueprint: docs-spec-item, priority: 8000, depends_on: [] }

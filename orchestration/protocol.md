@@ -25,7 +25,9 @@ multi-agent parallelism.
 - Leases: `$ORCH_REPO/leases/slot-<N>.yaml`
 - Event journal: `$ORCH_REPO/events.jsonl`
 - Session logs: `$ORCH_REPO/session-log/`
-- Archives: `$ORCH_REPO/archive/`
+- Runtime archives (purged state entries, old session data): `$ORCH_REPO/archive/`
+  (NOT the same as `orchestration/archive/` in the source repo, which archives
+  completed lot/segment DEFINITIONS — see MANIFEST-CONVENTIONS.md)
 
 ### Multi-agent model: separate clones
 
@@ -55,10 +57,13 @@ is defined by `max_parallel` in `$ORCH_REPO/config.yaml`.
      - If it exists and `expires_at` <= now → slot is expired. Delete the file and treat as free.
    - Take the first free slot.
 3. If no free slot → **EXIT 0** with message "All slots occupied."
-4. Acquire the slot atomically: write `$ORCH_REPO/leases/slot-$SLOT_ID.yaml`
+4. Acquire the slot atomically: create `$ORCH_REPO/leases/slot-$SLOT_ID.yaml` in
+   **exclusive-create mode** (PowerShell: `[System.IO.File]::Open($path, [System.IO.FileMode]::CreateNew)`
+   then write — `CreateNew` throws if the file already exists, which closes the TOCTOU race
+   where two agents see the same free slot).
    (fields: session_id, slot_id, clone_path, hostname, acquired_at, heartbeat_at,
    expires_at = now + `lease_duration_minutes` from config.yaml).
-   If file exists (race): re-read, try next slot. No free slots → EXIT 0.
+   If the exclusive create fails (race lost): re-read, try next slot. No free slots → EXIT 0.
 
 ### Recovery
 
@@ -101,7 +106,10 @@ attempts automatic recovery **before** selecting the next item:
 2. Read `$ORCH_REPO/state.yaml` via `tools/orch-state.ps1 read` — current statuses.
    Note: item details (description, acceptance, executor, blueprint) live in
    `orchestration/items/<lot>.yaml`. Read the relevant lot file in Step 4 when executing.
-   - If state.yaml does not exist: initialize it from the manifest (all items `pending`).
+   - If state.yaml does not exist: **STOP — EXIT 1.** The state repo is versioned and
+     state.yaml must always exist there. A missing state.yaml means `$ORCH_REPO` points to
+     the wrong place or the clone is broken. Never recreate it (recreating it would resurrect
+     items already done and purged — absent = done).
    - **CRITICAL — absent = done**: If an item exists in the manifest but is NOT present
      in state.yaml, it has already been completed and purged. **Never re-add it.**
      **Never treat it as new.** Only items explicitly listed in state.yaml are actionable.
@@ -181,7 +189,14 @@ The agent is already in its own clone. It just needs to create the sub-branch.
      - `build-agent-context` → `powershell -ExecutionPolicy Bypass -File tools/build-agent-context.ps1 -ItemId <item_id>`, then read all listed files.
      - `verify-fast` → `powershell -ExecutionPolicy Bypass -File tools/verify-fast.ps1`
      - `run-tests` → `powershell -ExecutionPolicy Bypass -File tools/run-tests.ps1` (full unit + integration test suite)
-     - `codex-review` → `powershell -ExecutionPolicy Bypass -File tools/codex-review.ps1` (with `-Round N` on re-runs)
+     - `codex-review` → `powershell -ExecutionPolicy Bypass -File tools/codex-review.ps1 -Base "<segment-branch>"`
+       (with `-Round N` on re-runs). **`-Base` is MANDATORY in orchestration**: the review node
+       runs after `commit_apply`, so the working tree is clean — without `-Base`, there is
+       nothing to review and the run fails with exit 3.
+       **Exit codes**: 0 = review ran on the sub-branch diff and is CLEAN. 2 = review ran and
+       has P1/P2 findings (triggers the `fix_review` node). 3 = nothing was reviewed (caller
+       error — fix the -Base argument, never treat as clean). Any other code = the review could
+       not run (tool failure — retry per the node's retry policy, never treat as clean).
      - `git-commit-apply` → `git add -A && git commit -F .orch-commit-msg && rm .orch-commit-msg`. Requires that the preceding `commit_compose` node (delegated to `orch-commit`) has written the message file at the repo root. The file is gitignored (see `.gitignore`), so `git add -A` will not stage it. If `.orch-commit-msg` is missing, mark the item `blocked` and exit.
      - `merge-back` → see Step 5a.
      - `finalize-publish` → see Step 5b.

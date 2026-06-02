@@ -37,6 +37,9 @@ items:
          - CheckHealth : connexion + présence des tables attendues + comptage rapide
       2. LECTURE SEULE STRICTE : connection string en read-only si le driver le permet,
          aucune requête INSERT/UPDATE/DELETE, aucune transaction d'écriture, timeouts courts.
+         PREUVE par les tests (pas une simple déclaration) : les tests unitaires interceptent
+         TOUTES les commandes émises (IDbCommand mocké/espionné) et échouent si une commande
+         non-SELECT, un BeginTransaction d'écriture ou un verrou explicite est émis.
       3. Le SIREN émetteur ne vient PAS de la base (absent du schéma EncheresV6) : il vient
          de la configuration (SIREN global CMP).
       4. Réutilise EncheresV6RowMapper (ADP01) pour produire le pivot.
@@ -45,6 +48,7 @@ items:
       sont une suite séparée (jamais en CI). Les tests unitaires mockent IDbConnection/IDataReader.
     acceptance:
       - "PervasiveExtractor implémente IExtractor en lecture seule stricte"
+      - "Test-espion : toute commande non-SELECT, transaction d'écriture ou verrou fait échouer la suite"
       - "Requêtes conformes au schéma documenté dans F01-F02 (entete_ba, lignes_ba, Regime_tva)"
       - "SIREN émetteur lu depuis la config, jamais depuis la base"
       - "Tests unitaires avec data readers mockés ; suite ODBC réelle séparée et documentée"

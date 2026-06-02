@@ -3,6 +3,12 @@
 
 > Statut : 🟨 issu de la deep research DR3 (2026-06-02) + connaissances projet. À revoir ensemble.
 > Légende : ✅ confirmé source primaire · 🔶 probable · ❓ à confirmer/décider
+>
+> **⚠️ AMENDEMENT (2026-06-02 — décision utilisateur, postérieure à la rédaction)** : le contrôle
+> « Taux cohérent avec la catégorie (S ⇒ taux > 0 ; E ⇒ 0) » (§3.4) passe de ⚠️ Warning à 🛑 **BLOCKING**.
+> Motif : une catégorie incohérente avec son taux est soit une erreur de mapping, soit une donnée
+> source fausse — dans les deux cas, l'envoyer transmettrait un motif de taxation erroné
+> (règle produit « bloquer plutôt qu'envoyer faux »). Le backlog (orchestration/items/VAL.yaml, VAL04) fait foi.
 
 ---
 

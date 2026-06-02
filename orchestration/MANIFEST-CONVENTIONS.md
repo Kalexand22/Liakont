@@ -29,7 +29,8 @@ YAML inline minimal. Un item par ligne :
 | Item id, lot, priority, depends_on, blueprint  | `manifest.yaml` (index)           |
 | Titre, description, critères d'acceptation     | `items/<lot>.yaml` (détail)       |
 | Statut courant, compteur de retry              | `$ORCH_REPO/state.yaml` (runtime) |
-| Segments archivés / terminés                   | répertoire `archive/`             |
+| Définitions de lots/segments archivés (terminés) | `orchestration/archive/` (CE dépôt source) |
+| Données runtime archivées (sessions, états purgés) | `$ORCH_REPO/archive/` (dépôt d'état)  |
 
 ## Règles
 
@@ -38,11 +39,11 @@ YAML inline minimal. Un item par ligne :
 2. **Pas de commentaires décoratifs** — pas d'en-têtes `# ════`, pas de références d'ADR, pas de
    notes de conception. Un seul séparateur `# ── LOT ──` par groupe de lot.
 3. **Pas de segments archivés** — supprimer de `segments:` quand archivé. Les références d'archive
-   restent uniquement dans le répertoire `archive/`.
+   restent uniquement dans `orchestration/archive/` (dépôt source — jamais dans `$ORCH_REPO`).
 4. **Pas de `executor: claude`** — c'est le défaut. Spécifier uniquement `executor: human` sur les gates.
 5. **Pas de `type: work`** — c'est le défaut. Spécifier uniquement `type: gate` sur les gates.
 6. **Pas de `blueprint: module-work-item`** — c'est le défaut. Spécifier uniquement les blueprints
    non-défaut (`docs-spec-item`, `tooling-item`, `wpf-screen-item`).
 7. **Purger les items terminés** — quand tous les items d'un lot sont done et que la gate est validée,
-   déplacer toute la section du lot vers `archive/` et la supprimer du manifest.
+   déplacer toute la section du lot vers `orchestration/archive/` et la supprimer du manifest.
 8. **Bump de version** — incrémenter `meta.version` à chaque changement structurel du manifest.

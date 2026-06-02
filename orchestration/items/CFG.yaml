@@ -1,7 +1,10 @@
-# Lot CFG — Configuration & packaging du produit (F12 — spec à rédiger puis implémenter)
+# Lot CFG — Configuration du produit (F12 — spec à rédiger puis implémenter)
 # F12 n'existe pas encore dans docs/conception/ : le premier item du lot EST la rédaction de la spec.
-# Périmètre : le TOOLKIT générique de déploiement (= le produit). Le paramétrage d'un client
-# donné (ex: CMP) est dans le lot CMP.
+# SEGMENT : core-foundation (déplacé depuis deploiement-toolkit suite à la review indépendante v4 —
+# GatewayConfig/SecretProtector sont des fondations du Core consommées par le Service, l'API et le CLI ;
+# les ordonner après la console était une inversion de dépendances).
+# Le PACKAGING du produit (ex-CFG03) est dans le lot PKG (segment deploiement-toolkit).
+# Le paramétrage d'un client donné (ex: CMP) est dans le lot CMP.
 
 items:
   CFG01:
@@ -12,8 +15,9 @@ items:
       1. Format du fichier de configuration (JSON) : identité émetteur, adaptateur source
          (type + paramètres), plateforme(s) agréée(s) (type de plug-in + compte + environnement),
          chemin table TVA, provider de stockage (sqlite/sqlserver), coffre d'archive,
-         API (port, HTTPS, groupes Windows autorisés lecture/action), planification,
-         notifications SMTP.
+         API (port, HTTPS, groupes Windows autorisés par niveau de droits :
+         lecture / actions / paramétrage), planification, notifications SMTP,
+         paramétrage fiscal du déploiement (vatOnDebits, operationCategory — PIP03).
       2. Gestion des secrets : clé API PA et credentials SMTP chiffrés par DPAPI (machine scope) —
          jamais en clair. Outil de chiffrement intégré (CLI encrypt-secret).
       3. Multi-config sur la même machine : N fichiers de config = N déploiements
@@ -24,11 +28,12 @@ items:
          (Windows 7 SP1+, .NET Framework 4.8, driver ODBC), procédure d'installation pas à pas.
       6. Checklist de mise en service générique : check-config, run --dry-run, premier envoi
          staging, bascule production.
-      Sources : F11, F05, blueprint.md (architecture Service/API), Offre-Editeur-Passerelle.md
-      (déploiement par un partenaire Niveau 2 : la doc doit être exécutable par un intégrateur).
+      Sources : F11 (+ son amendement architecture), F05, blueprint.md (architecture Service/API),
+      Offre-Editeur-Passerelle.md (déploiement par un partenaire Niveau 2 : la doc doit être
+      exécutable par un intégrateur).
     acceptance:
       - "F12 rédigé au format des specs F01-F11, en français"
-      - "Format de config JSON complet avec exemple (incluant API, providers, archive)"
+      - "Format de config JSON complet avec exemple (incluant API, les 3 niveaux de droits, providers, archive, paramétrage fiscal)"
       - "Structure deployments/<client>/ spécifiée"
       - "Stratégie secrets DPAPI documentée"
       - "Procédure d'installation et checklist de mise en service rédigées"
@@ -45,35 +50,19 @@ items:
          français.
       2. SecretProtector : chiffrement/déchiffrement DPAPI (ProtectedData, machine scope) des
          champs sensibles (clé API PA, mot de passe SMTP).
-      3. Résolution des plug-ins par configuration : le type d'adaptateur source et le(s) type(s)
-         de plug-in PA sont choisis par la config (composition root dans Gateway.Service/Cli) —
-         jamais codés en dur.
-      4. check-config (CLI01) étendu : valide la config complète y compris déchiffrement des
-         secrets et résolution des plug-ins.
+      3. Mécanisme de résolution des plug-ins par configuration : le type d'adaptateur source et
+         le(s) type(s) de plug-in PA sont déclarés dans la config et résolus à l'exécution
+         (registre de types + activation) — jamais codés en dur. La composition root réelle
+         (chargement des assemblies des plug-ins concrets) vit dans Gateway.Service/Cli.
+         NOTE : à ce stade (core-foundation), aucun plug-in concret n'existe encore — le mécanisme
+         est testé avec des types factices enregistrés par les tests.
+      4. Les 3 niveaux de droits (lecture / actions / paramétrage) sont portés par le modèle
+         de config (groupes Windows par niveau) — consommés plus tard par API01/API04.
     acceptance:
       - "GatewayConfig typé avec validation et messages français"
       - "Secrets chiffrés DPAPI, jamais en clair dans les fichiers"
-      - "Adaptateur et PA résolus par la config (testé : config B2Brouter vs config FakePa)"
-      - "Tests : config valide/invalide, round-trip chiffrement, plug-in inconnu"
-      - "verify-fast passes"
-      - "codex-review clean or only accepted P2s"
-
-  CFG03:
-    title: "Packaging + documentation d'installation"
-    description: |
-      Implémenter le packaging selon la spec F12 :
-      1. tools/package.ps1 : build Release x86 + x64, assemblage du zip autoportant
-         (Gateway.Service, Gateway.App, Gateway.Cli, plug-ins, dépendances, config.example.json,
-         table TVA exemple, doc installation).
-      2. docs/installation.md : prérequis, installation du Service (serveur) pas à pas,
-         installation de la console (postes), configuration, mise en service (checklist F12),
-         dépannage des erreurs courantes (ODBC absent, .NET 4.8 absent, port API bloqué,
-         droits Windows).
-      3. Le zip produit est testé : extraction sur dossier propre + check-config + run --dry-run
-         sur fixtures + console connectée fonctionnent.
-    acceptance:
-      - "package.ps1 produit un zip autoportant x86 et x64"
-      - "docs/installation.md exécutable par un intégrateur (cible : partenaire Niveau 2)"
-      - "Le zip extrait passe check-config + dry-run + connexion console"
+      - "Mécanisme de résolution de plug-ins par config (testé avec des types factices)"
+      - "Les 3 niveaux de droits portés par le modèle de configuration"
+      - "Tests : config valide/invalide, round-trip chiffrement, type de plug-in inconnu"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"

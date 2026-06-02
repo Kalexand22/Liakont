@@ -3,6 +3,16 @@
 
 > Statut : 🟨 rédigé sans deep research (conception interne). À revoir ensemble — c'est le composant le plus visible en démo, vos retours comptent le plus ici.
 > Dernière mise à jour : 2026-06-02
+>
+> **⚠️ AMENDEMENT D'ARCHITECTURE (2026-06-02 — décision blueprint.md §3, postérieure à la rédaction)** :
+> cette spec décrit une console qui appelle directement les services du Core (`Pipeline`, `Tracking`,
+> `IPaClient`) et lit la base SQLite. **C'est obsolète.** La console est désormais une **cliente HTTP
+> de l'API du Service** (Gateway.Api + Gateway.ApiClient) : elle ne référence JAMAIS Gateway.Core,
+> les plug-ins ni SQLite, et tourne sur n'importe quel poste du réseau (multi-utilisateurs).
+> Les écrans, états et libellés français décrits ici restent la référence FONCTIONNELLE ;
+> pour l'architecture, le backlog (orchestration/items/WPF.yaml) et blueprint.md font foi.
+> S'ajoutent deux écrans décidés après rédaction : Paramétrage comptable (WPF07) et
+> Réconciliation des PDF (WPF08).
 
 ---
 
