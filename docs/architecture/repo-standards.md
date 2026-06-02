@@ -17,7 +17,7 @@ tout le dépôt. Les points saillants :
 
 | Règle | Valeur | Portée | Sévérité |
 |---|---|---|---|
-| Indentation | 4 espaces (2 pour `.csproj`/`.props`/`.xml`/`.xaml`/`.json`/`.yaml`/`.ps1`) | tous fichiers | — |
+| Indentation | 4 espaces (2 pour `.csproj`/`.props`/`.targets`/`.xml`/`.xaml`/`.json`/`.yaml` ; `.ps1` reste à 4) | tous fichiers | — |
 | Fins de ligne | `crlf` | tous fichiers | — |
 | Encodage | `utf-8` | tous fichiers | — |
 | Espaces de fin de ligne | supprimés (sauf `.md`) | tous fichiers | — |
