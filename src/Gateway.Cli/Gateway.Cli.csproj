@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Utilitaire de mise en service / secours (tâche planifiée, ou dépannage Service arrêté).
+       Accès direct au Core et aux plug-ins, sous mutex global mono-écrivain (CLAUDE.md règle 9). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- Un exécutable net48 reçoit un RID (win-x86/win-x64) selon la plateforme. Déclarer les deux
+         RID permet à UNE seule restauration (`dotnet restore`, qui se résout en x86 par défaut) de
+         couvrir aussi x64, pour qu'un build x64 sans restauration implicite (CI matricielle, SOL02)
+         ne casse pas sur NETSDK1047. Reste un binaire net48 classique (pas self-contained). -->
+    <RuntimeIdentifiers>win-x86;win-x64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Gateway.Core\Gateway.Core.csproj" />
+    <ProjectReference Include="..\Gateway.PaClients.Fake\Gateway.PaClients.Fake.csproj" />
+    <ProjectReference Include="..\Gateway.PaClients.B2Brouter\Gateway.PaClients.B2Brouter.csproj" />
+    <ProjectReference Include="..\Gateway.PaClients.SuperPdp\Gateway.PaClients.SuperPdp.csproj" />
+    <ProjectReference Include="..\Gateway.Adapters.EncheresV6\Gateway.Adapters.EncheresV6.csproj" />
+  </ItemGroup>
+
+</Project>

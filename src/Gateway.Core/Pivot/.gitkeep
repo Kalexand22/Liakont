@@ -1,0 +1,3 @@
+# Pivot/ — Modèle pivot neutre (EN 16931) : PivotDocument, PivotLine, PivotLineTax,
+# PivotParty, PivotPayment, PivotTotals, IExtractor, FixtureExtractor, sérialisation
+# canonique + hash SHA-256. Implémenté par le lot PIV. Le pivot ne calcule rien (blueprint.md §5).

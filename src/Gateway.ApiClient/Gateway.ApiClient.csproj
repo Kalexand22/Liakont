@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Client .NET de l'API HTTP. Référence uniquement les contrats Gateway.Api
+       (jamais le Core ni les plug-ins). -->
+  <ItemGroup>
+    <ProjectReference Include="..\Gateway.Api\Gateway.Api.csproj" />
+  </ItemGroup>
+
+</Project>

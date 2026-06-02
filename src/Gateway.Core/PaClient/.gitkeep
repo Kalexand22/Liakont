@@ -1,0 +1,4 @@
+# PaClient/ — Abstraction multi-PA : IPaClient, PaCapabilities, DTOs neutres d'envoi/suivi.
+# SEULE l'abstraction vit dans le Core ; les implémentations concrètes (Fake, B2Brouter,
+# SuperPdp) sont des plug-ins séparés référençant uniquement le Core (CLAUDE.md règle 6).
+# Le contrat est implémenté par le lot PAA ; les plug-ins par PAB / PAS.

@@ -1,0 +1,3 @@
+# TvaMapping/ — Code régime source → catégorie/taux/VATEX : MappingTable (JSON externe
+# versionné), TvaMapper, MappingTrace, MappingCoverageReport. Implémenté par le lot TVA.
+# Aucune règle en dur : tout vient de la table (blueprint.md §5).

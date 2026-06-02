@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Console d'administration WPF (cliente de l'API). Référence UNIQUEMENT Gateway.Api et
+       Gateway.ApiClient — jamais le Core, les plug-ins ni SQLite (CLAUDE.md règle 6). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF>
+    <!-- Un exécutable net48 reçoit un RID (win-x86/win-x64) selon la plateforme. Déclarer les deux
+         RID permet à UNE seule restauration (`dotnet restore`, qui se résout en x86 par défaut) de
+         couvrir aussi x64, pour qu'un build x64 sans restauration implicite (CI matricielle, SOL02)
+         ne casse pas sur NETSDK1047. Reste un binaire net48 classique (pas self-contained). -->
+    <RuntimeIdentifiers>win-x86;win-x64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Gateway.Api\Gateway.Api.csproj" />
+    <ProjectReference Include="..\Gateway.ApiClient\Gateway.ApiClient.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Gateway.Core — LE PRODUIT générique (≈90 % du code). Ne référence AUCUN plug-in. -->
+  <!-- Toutes les propriétés communes (net48, Platforms, RootNamespace…) viennent de Directory.Build.props. -->
+
+</Project>

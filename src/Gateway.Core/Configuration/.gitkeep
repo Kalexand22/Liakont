@@ -1,0 +1,3 @@
+# Configuration/ — GatewayConfig (JSON) et SecretProtector (DPAPI, machine scope).
+# Implémenté par le lot CFG. Les secrets (clé API PA, mot de passe SMTP) ne sont jamais en
+# clair (blueprint.md §4, CLAUDE.md règle 10).

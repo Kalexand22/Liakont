@@ -1,0 +1,3 @@
+# Pipeline/ — Orchestration extract→check→send→sync : PipelineRunner, pipeline avoirs,
+# agrégation paiements, mutex global mono-écrivain. Implémenté par le lot PIP. Aucune logique
+# métier ici : elle est déléguée aux couches (blueprint.md §5).

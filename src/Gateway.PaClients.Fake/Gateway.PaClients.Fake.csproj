@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Plug-in PA #0 (factice) — démo + tests de contrat. Référence UNIQUEMENT le Core. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Gateway.Core\Gateway.Core.csproj" />
+  </ItemGroup>
+
+</Project>

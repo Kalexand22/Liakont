@@ -1,0 +1,3 @@
+# Validation/ — Détection pré-envoi de tout ce qui serait rejeté : ValidationPipeline,
+# IDocumentRule, ~20 règles (Luhn, BR-CO-15, VATEX, avoirs, garde-fou B2B). Implémenté par
+# le lot VAL. Pas de correction automatique des données (blueprint.md §5).

@@ -25,6 +25,12 @@ desktop.ini
 **/config.local.json
 **/*staging-key*
 
+## Paramétrage de déploiement client — données réelles (SIREN, table TVA validée, chaîne ODBC)
+## et secrets (deployments/<client>/secrets/). JAMAIS versionnés (CLAUDE.md règles 7, 10, 15).
+## Seul deployments/README.md (documentation produit) reste suivi.
+deployments/*/
+!deployments/README.md
+
 ## Build results
 *.dll
 *.exe
