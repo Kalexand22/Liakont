@@ -4,12 +4,14 @@
 > Statut : 🟨 issu de la deep research DR1 (2026-06-02) + connaissances projet (RECAP, analyse données EncheresV6, API B2Brouter). À revoir ensemble.
 > Légende de confiance : ✅ confirmé (source primaire vérifiée ou validé en staging) · 🔶 très probable (source citée, non re-vérifiée) · ❓ décision à prendre
 >
-> **⚠️ NOTE DE VEILLE RÉGLEMENTAIRE (2026-06-02)** : cette spec cite les spécifications externes
-> DGFiP **v3.1 (31 octobre 2025)** comme référence en vigueur. La page officielle impots.gouv.fr
-> a été modifiée depuis (07/05/2026) — une version plus récente existe probablement (v3.2 ?).
-> **ACTION HUMAINE REQUISE avant les lots PIV/PAA/PAB** : télécharger la dernière version sur
-> https://www.impots.gouv.fr/specifications-externes-b2b, dépouiller les écarts (BT, flux 10.x,
-> XSD, swaggers, règles) et mettre à jour cette spec. Suivi dans tasks/todo.md.
+> **✅ VEILLE RÉGLEMENTAIRE RÉSOLUE (2026-06-02)** : cette spec cite les spécifications externes
+> DGFiP **v3.1 (31 octobre 2025)**. La **v3.2 (30/04/2026)** a été téléchargée et dépouillée —
+> elle est dans `docs/references/dgfip-v3.2/` (avec note de lecture LECTURE-CONFORMAT.md).
+> **Delta v3.1 → v3.2 minime, aucun impact sur le périmètre Conformat V1** : e-reporting =
+> suppression d'un attribut xmlns (cosmétique), e-invoicing = BG-25 commenté dans le profil BASE
+> (phase 2), annuaire = aucun changement (source : Changelog_XSD.md officiel). Cette spec reste
+> valide. Reste à faire (humain) : lecture du Dossier général v3.2 (texte) et croisement de
+> l'Annexe 7 (règles de gestion V1.9) avec F04 lors du lot VAL.
 
 ---
 

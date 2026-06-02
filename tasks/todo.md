@@ -27,12 +27,13 @@ ils ne bloquent PAS le développement du produit — ils bloquent les gates de d
 - [ ] Ouvrir une sandbox Super PDP (action DR17-A4, ~1-2 jours)
 - [ ] Questions support Super PDP : flux paiement 10.2/10.4, archivage NF Z42-013, sort des archives en cas de résiliation
 
-### Veille réglementaire (détectée par la review indépendante — bloquant pour les lots PIV/PAA/PAB)
-- [ ] **Télécharger la DERNIÈRE version des spécifications externes DGFiP** sur
-      https://www.impots.gouv.fr/specifications-externes-b2b — la page a été modifiée le 07/05/2026,
-      une version postérieure à la v3.1 (31/10/2025) citée dans F01-F02 existe probablement (v3.2 ?).
-      Dépouiller les écarts (BT, flux 10.x, XSD, swaggers, règles) et mettre à jour F01-F02.
-- [ ] Télécharger les normes AFNOR XP Z12-012/-013/-014
+### Veille réglementaire
+- [x] ~~Télécharger la DERNIÈRE version des spécifications externes DGFiP~~ **FAIT (2026-06-02)** :
+      v3.2 (30/04/2026) téléchargée et dépouillée → `docs/references/dgfip-v3.2/` + note de lecture.
+      **Delta v3.1→v3.2 minime, aucun impact V1** (changelog officiel). F01-F02 reste valide.
+- [ ] Lire le Dossier général v3.2 (PDF) pour vérifier les évolutions de TEXTE (le changelog ne
+      couvre que les XSD) + croiser l'Annexe 7 (règles de gestion V1.9) avec F04 lors du lot VAL
+- [ ] Télécharger les normes AFNOR XP Z12-012/-013/-014 (payantes — boutique AFNOR)
 - [ ] Vérifier l'impact de la recodification des textes fiscaux applicable au 1er septembre 2026
       sur les références juridiques des specs (art. 289 CGI, etc.)
 
