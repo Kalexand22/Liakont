@@ -69,7 +69,7 @@ For normal interactive sessions (human-driven), ignore orchestration files entir
 
 ## Règles métier non négociables (produit de conformité fiscale)
 
-Conformat transmet des données fiscales à l'administration via une Plateforme Agréée.
+Conformat transmet des données fiscales à l'administration via des Plateformes Agréées.
 Une erreur ici engage la responsabilité fiscale du client. Ces règles sont des **P1
 automatiques en review** :
 
@@ -78,15 +78,25 @@ automatiques en review** :
    de `docs/conception/F*.md`. Si la spec ne tranche pas : bloquer l'item, ne pas deviner.
 3. **Bloquer plutôt qu'envoyer faux.** Jamais affaiblir une validation Blocking en Warning
    pour faire passer un test ou un envoi.
-4. **Piste d'audit immuable.** `DocumentEvent` est append-only. Aucun code d'update/delete,
-   aucune purge automatique des tables d'audit.
+4. **Piste d'audit et coffre d'archive immuables.** `DocumentEvent` est append-only, le coffre
+   d'archive est WORM. Aucun code d'update/delete, aucune purge automatique.
 5. **Lecture seule stricte de la base source.** Aucun INSERT/UPDATE/DELETE, aucun verrou,
    aucune transaction d'écriture sur la base du client.
-6. **Frontière Core/Adaptateur.** `Gateway.Core` ne référence jamais un adaptateur.
-   Un adaptateur ne référence que le Core.
-7. **Secrets chiffrés.** Clé API PA et credentials SMTP : DPAPI, jamais en clair dans un
-   fichier versionné ou un log.
-8. **Messages opérateur en français**, avec numéro de document et action corrective.
+6. **Frontières de la généricité (blueprint.md §2 et §6) :**
+   - `Gateway.Core` ne référence JAMAIS un plug-in (ni source, ni PA)
+   - Un plug-in ne référence que le Core, jamais un autre plug-in
+   - `Gateway.App` (console) ne référence QUE Api + ApiClient — jamais Core, plug-ins ou SQLite
+7. **Aucune donnée client dans le code.** Table TVA réelle, SIREN, chaîne ODBC, compte PA :
+   tout est paramétrage dans `deployments/<client>/`. Le code n'embarque que des EXEMPLES
+   fictifs dans `config/exemples/`.
+8. **Aucune fonctionnalité produit ne dépend de ce qu'UN PA sait faire.** Le comportement
+   est piloté par les capacités déclarées du plug-in (`PaCapabilities`), jamais par un flag
+   de configuration produit ni par un `if (pa is B2Brouter)`.
+9. **Un seul écrivain sur le Tracking : le Service.** Aucun autre processus n'ouvre la base
+   en écriture (le CLI de secours uniquement quand le Service est arrêté, sous mutex).
+10. **Secrets chiffrés.** Clé API PA et credentials SMTP : DPAPI, jamais en clair dans un
+    fichier versionné ou un log.
+11. **Messages opérateur en français**, avec numéro de document et action corrective.
 
 ## Verification Workflow
 
@@ -130,11 +140,14 @@ Claude owns the entire verification + review loop. The human only gives the obje
 9. **float/double sur un montant est un P1.**
 10. **Règle fiscale inventée (catégorie TVA, VATEX, seuil sans source dans docs/conception/) est un P1.**
 11. **Affaiblissement d'une validation Blocking est un P1.**
-12. **Chemin d'update/delete sur DocumentEvent ou purge d'une table d'audit est un P1.**
+12. **Chemin d'update/delete sur DocumentEvent, le coffre d'archive (WORM) ou purge d'une table d'audit est un P1.**
 13. **Écriture (ou verrou) sur la base source dans un adaptateur est un P1.**
-14. **Référence Core → Adaptateur est un P1.**
-15. **Secret en clair (clé API, mot de passe SMTP) est un P1.**
-16. **Item WPF sans tests ViewModel est un P1.** Le code-behind ne doit contenir que du câblage de vue.
+14. **Violation des frontières est un P1 :** Core → plug-in, plug-in → plug-in, ou Gateway.App → Core/plug-ins/SQLite.
+15. **Donnée client dans le code est un P1 :** SIREN réel, table TVA réelle, chaîne ODBC, compte PA hors de deployments/.**
+16. **Dépendance à un PA concret hors de son plug-in est un P1 :** `if (pa is B2Brouter)`, flag produit doublonnant une capacité, fonctionnalité désactivée parce qu'« un PA ne le supporte pas ».
+17. **Accès en écriture au Tracking hors du Service est un P1** (sauf CLI de secours sous mutex).
+18. **Secret en clair (clé API, mot de passe SMTP) est un P1.**
+19. **Item WPF sans tests ViewModel est un P1.** Le code-behind ne doit contenir que du câblage de vue.
 
 **Format per finding:**
 [P1] or [P2] | file:line | concrete description | suggested fix

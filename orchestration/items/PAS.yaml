@@ -1,0 +1,82 @@
+# Lot PAS — Plug-in PA #2 : Super PDP (superpdp.tech)
+# Réfs : docs/market/DR17-Strategie-Multi-PA-Partenaires.md (intégrabilité API vérifiée 2026-06-02),
+#        docs/market/DR9-Business-Model-Pricing-Scenarios-CA.md (Offre Éco marque grise)
+# ENJEU COMMERCIAL : l'« Offre Éco — PA incluse, < 100 €/mois tout compris » repose sur
+# Super PDP en marque grise (tarification grossiste 0,01 €/facture).
+# Projet : src/Gateway.PaClients.SuperPdp/ — assembly séparée, référence Core uniquement.
+#
+# ⚠️ PRÉREQUIS HUMAIN (DR17-A4) : ouvrir une sandbox Super PDP (~1-2 jours).
+# Sans sandbox, PAS02/PAS03 doivent être marqués `blocked` avec ce motif — jamais
+# d'implémentation devinée à partir de la seule doc publique.
+
+items:
+  PAS01:
+    title: "Étude de l'API Super PDP + conception du plug-in"
+    description: |
+      Rédiger docs/conception/F13-Plugin-SuperPdp.md (fichier À CRÉER par cet item) :
+      1. Synthèse de l'API Super PDP depuis la documentation publique (superpdp.tech/documentation)
+         et la sandbox si elle est ouverte : auth, endpoints d'émission, e-reporting B2C (10.3),
+         webhooks de statuts, tax reports.
+      2. Comparaison avec le contrat IPaClient : mapping endpoint par endpoint, écarts,
+         capacités supportées (B2C, paiement 10.2/10.4 — point ouvert DR17-A4, avoirs).
+      3. Spécificités du modèle marque grise/grossiste : création de comptes clients,
+         facturation, ce que ça implique pour la configuration multi-compte.
+      4. Questions à poser au support Super PDP (flux paiement, archivage NF Z42-013,
+         horodatage, sort des archives en cas de résiliation — liste DR17-A4).
+      Sources : DR17, DR9, doc publique. Tout ce qui n'est pas vérifiable = marqué « à
+      confirmer sandbox/support », jamais affirmé.
+    acceptance:
+      - "F13-Plugin-SuperPdp.md rédigé au format des specs F01-F12"
+      - "Mapping IPaClient ↔ API Super PDP complet avec écarts identifiés"
+      - "Capacités provisoires documentées avec leur statut (vérifié / à confirmer)"
+      - "Liste de questions support prête à envoyer"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  PAS02:
+    title: "SuperPdpClient : auth, transformation, envoi"
+    description: |
+      Implémenter le plug-in dans src/Gateway.PaClients.SuperPdp/ selon F13 (PAS01) :
+      1. SuperPdpClient : IPaClient sur l'API Super PDP (auth, émission, e-reporting B2C,
+         statuts via webhooks OU polling selon ce que la sandbox confirme).
+      2. Transformation PivotDocument → format Super PDP (DTO interne à l'assembly).
+      3. Gestion d'erreurs selon les conventions de l'API (à valider en sandbox).
+      4. Déclaration des capacités RÉELLES vérifiées en sandbox.
+      ⚠️ PRÉREQUIS : la sandbox Super PDP doit être ouverte (DR17-A4, action humaine).
+      Si elle ne l'est pas au moment de prendre cet item → marquer `blocked` avec motif
+      « sandbox Super PDP non ouverte — action humaine DR17-A4 requise ».
+    acceptance:
+      - "SuperPdpClient implémente IPaClient"
+      - "Transformation pivot → format Super PDP testée avec handler mocké"
+      - "Capacités déclarées = ce qui a été vérifié en sandbox (rien de supposé)"
+      - "Aucun type propriétaire Super PDP exposé hors de l'assembly"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  PAS03:
+    title: "Tests de contrat + suite sandbox"
+    description: |
+      Finaliser la conformité du plug-in :
+      1. Hériter la suite de tests de contrat (PAA03) dans tests/Gateway.PaClients.SuperPdp.Tests/
+         et la faire passer en vert (handler mocké).
+      2. Suite sandbox séparée (Category=Staging, JAMAIS en CI) : envoi d'une facture fixture
+         sur la sandbox réelle. Config locale via variable d'env SUPERPDP_SANDBOX_KEY.
+      3. Mettre à jour F13 avec les réponses du support (flux paiement, archivage).
+    acceptance:
+      - "Suite de contrat PAA03 héritée et verte"
+      - "Suite sandbox séparée, exclue de verify-fast et de la CI, documentée"
+      - "F13 à jour avec les réponses support obtenues"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  GATE_PA_SUPERPDP:
+    type: gate
+    executor: human
+    title: "Gate : plug-in Super PDP validé"
+    description: |
+      Validation humaine du deuxième plug-in PA — la preuve que le framework multi-PA
+      fonctionne (deux implémentations du même contrat) et le socle de l'Offre Éco.
+    acceptance:
+      - "Tous les items PAS sont done"
+      - "PR du segment feat/pa-superpdp revue et mergée dans main"
+      - "Un envoi sandbox réel a été effectué avec succès (manuel)"

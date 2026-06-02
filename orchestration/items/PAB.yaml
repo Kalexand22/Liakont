@@ -1,0 +1,104 @@
+# Lot PAB — Plug-in PA #1 : B2Brouter (eDocExchange)
+# Spec : docs/conception/F05-Client-API-B2Brouter.md
+# Faits validés en staging (ne PAS redécouvrir) : auth X-B2B-API-Key, version 2026-03-02,
+# api-staging.b2brouter.net, erreurs silencieuses HTTP 200 + errors[].
+# Projet : src/Gateway.PaClients.B2Brouter/ — assembly séparée, référence Core uniquement.
+
+items:
+  PAB01:
+    title: "B2BrouterClient : auth, transformation pivot → JSON, envoi"
+    description: |
+      Implémenter le plug-in dans src/Gateway.PaClients.B2Brouter/ :
+      1. B2BrouterClient : IPaClient implémenté sur l'API eDocExchange :
+         - Auth : header X-B2B-API-Key (clé statique)
+         - Versioning : header X-B2B-API-Version (minimum 2026-03-02)
+         - URLs : staging https://api-staging.b2brouter.net (PAS app-staging),
+           production https://api.b2brouter.net — configurables
+         - Envoi : POST /accounts/{accountId}/invoices.json avec send_after_import: true
+      2. Transformation PivotDocument → JSON B2Brouter (DTO propriétaire INTERNE à cette assembly) :
+         modèle 2 lignes marge validé en staging, is_credit_note + amended_number/date pour avoirs.
+      3. HttpClient statique par configuration, TLS 1.2/1.3 (ServicePointManager, net48).
+      4. Multi-compte : un B2BrouterClient = un compte (clé API, account id, URL).
+      5. Aucun type B2Brouter ne fuit hors de l'assembly : seuls IPaClient et les DTOs
+         de l'abstraction sont visibles de l'extérieur.
+    acceptance:
+      - "B2BrouterClient implémente IPaClient avec les faits staging de F05 (URLs, headers, version)"
+      - "Transformation pivot → JSON B2Brouter testée (facture 20%, marge, avoir) avec handler HTTP mocké"
+      - "Aucun type propriétaire B2Brouter exposé hors de l'assembly"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  PAB02:
+    title: "Gestion d'erreurs 3 familles + idempotence"
+    description: |
+      Implémenter la gestion d'erreurs dans B2BrouterClient selon F05 :
+      1. Réseau/5xx/timeout : retry automatique 3 fois, backoff exponentiel (5s, 30s, 2min).
+         Au-delà → PaSendResult en TechnicalError, re-tentable au prochain run.
+      2. HTTP 4xx : pas de retry. Résultat Rejected avec détail. 401 → erreur de configuration
+         remontée comme fatale au pipeline.
+      3. Erreur silencieuse (HTTP 200 + errors[] non vide) : pas de retry auto, résultat
+         RejectedByPa avec errors[] détaillé. (Cas piégeux validé staging : VATEX manquant.)
+         TOUJOURS inspecter errors[] même sur 200.
+      4. Idempotence : avant tout POST, le numéro est vérifié via le Tracking (côté pipeline) ;
+         en cas de timeout sur POST, relire GET liste factures avant retenter.
+      5. Pas de resend : aucun endpoint de renvoi → recréer une facture avec un numéro unique.
+    acceptance:
+      - "Les 3 familles d'erreurs traitées avec les politiques de retry de F05"
+      - "errors[] inspecté systématiquement même sur HTTP 200"
+      - "Timeout POST → relecture GET avant nouvelle tentative (testé avec handler mocké)"
+      - "Tests : retry backoff, 4xx sans retry, 200+errors[], timeout puis relecture"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  PAB03:
+    title: "Tax reports DGFiP + settings + déclaration de capacités"
+    description: |
+      Compléter le plug-in B2Brouter :
+      1. ListTaxReportsAsync / GetTaxReportAsync : GET tax_reports, champ xml_base64 disponible
+         après génération (~02:00) — l'absence est « pas encore généré », pas une erreur.
+      2. Tax report settings : GET/POST/PATCH tax_report_settings[/dgfip].json —
+         naf_code, start_date, type_operation, enterprise_size. Niveau SIREN (scheme 0002).
+      3. EnsureTaxReportSettingAsync idempotent.
+      4. Déclaration des capacités RÉELLES de B2Brouter (état au 2026-06) :
+         - SupportsB2cReporting: true (validé staging)
+         - SupportsPaymentReporting: false (« planned for a future release » — point ouvert F09)
+         - SupportsCreditNotes: true (validé staging)
+         - SupportsTaxReportRetrieval: true
+         - SupportsB2bInvoicing: false (phase 2)
+         Quand B2Brouter activera les paiements, SEULE cette déclaration changera —
+         aucun autre code du produit n'est impacté.
+    acceptance:
+      - "Tax reports récupérés, xml_base64 absent géré comme « pas encore généré »"
+      - "EnsureTaxReportSettingAsync idempotent"
+      - "Capacités déclarées conformes à l'état réel de B2Brouter, avec référence aux points ouverts"
+      - "Tests avec handler mocké : liste, détail avec/sans XML, settings"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  PAB04:
+    title: "Tests de contrat + suite staging"
+    description: |
+      Finaliser la conformité du plug-in :
+      1. Hériter la suite de tests de contrat (PAA03) dans tests/Gateway.PaClients.B2Brouter.Tests/
+         et la faire passer en vert (handler HTTP mocké).
+      2. Suite staging séparée (Category=Staging, JAMAIS en CI) : envoi d'une facture fixture
+         sur le compte staging réel, lecture du statut et des tax reports.
+         Config locale via variable d'env B2BROUTER_STAGING_KEY.
+      3. Documenter dans testing-strategy.md comment lancer la suite staging.
+    acceptance:
+      - "Suite de contrat PAA03 héritée et verte"
+      - "Suite staging séparée, exclue de verify-fast et de la CI, documentée"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  GATE_PA_B2BROUTER:
+    type: gate
+    executor: human
+    title: "Gate : plug-in B2Brouter validé"
+    description: |
+      Validation humaine du premier plug-in PA. Idéalement accompagnée d'un test staging réel
+      réussi (facture fixture envoyée, tax report récupéré) — c'est la preuve de bout en bout.
+    acceptance:
+      - "Tous les items PAB sont done"
+      - "PR du segment feat/pa-b2brouter revue et mergée dans main"
+      - "Un envoi staging réel a été effectué avec succès (manuel)"

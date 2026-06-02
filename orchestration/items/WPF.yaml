@@ -1,132 +1,148 @@
-# Lot WPF — Console d'administration WPF (F10)
+# Lot WPF — Console d'administration WPF multi-postes (F10 adapté à l'architecture API)
 # Spec : docs/conception/F10-Console-Admin-WPF.md
-# Philosophie : simple, lisible, zéro jargon technique. L'opérateur comptable ne voit jamais
-# JSON/HTTP — il voit des bordereaux, des états en français, des actions possibles.
-# Chaque écran doit être présentable en démo ISATECH.
+# Décision 2026-06-02 : la console est CLIENTE DE L'API du Service (Gateway.ApiClient).
+# Elle ne référence JAMAIS Gateway.Core, les plug-ins ni la base de données.
+# Elle peut tourner sur n'importe quel poste du réseau (multi-utilisateurs).
+# Philosophie : simple, lisible, zéro jargon technique, 100 % français.
 
 items:
   WPF01:
-    title: "Squelette Gateway.App : MVVM minimal, navigation, thème"
+    title: "Squelette Gateway.App : MVVM, navigation, thème, connexion API"
     description: |
       Initialiser la console dans src/Gateway.App/ selon F10 :
       1. MVVM minimal SANS framework (pas de Prism) : ViewModelBase (INotifyPropertyChanged),
          RelayCommand (~50 lignes), navigation par ContentControl + DataTemplate.
       2. Shell : fenêtre principale, menu latéral (Documents, Encaissements, Journal,
-         Configuration), barre d'état (config chargée, dernier run).
-      3. Thème MahApps.Metro (décision F10 : gratuit, moderne, adapté démo).
-      4. Chargement de la configuration au démarrage (même fichier que le CLI), affichage
-         clair si config absente/invalide.
-      5. Accès SQLite en lecture (WAL : la console lit pendant que le CLI écrit).
+         Configuration), barre d'état (serveur connecté, dernier run, état du service).
+      3. Thème MahApps.Metro.
+      4. Connexion à l'API : adresse du serveur dans la config locale de la console
+         (serveur + port), authentification Windows transparente (Gateway.ApiClient),
+         écran de connexion/diagnostic si le serveur est injoignable (« Le service Conformat
+         sur SRV01:8475 ne répond pas — vérifiez que le service est démarré »).
+      5. RÈGLE ABSOLUE : le projet Gateway.App ne référence QUE Gateway.Api + Gateway.ApiClient.
+         Aucune référence à Core, aux plug-ins, à SQLite.
       Langue : français uniquement. Aucun texte anglais visible par l'opérateur.
     acceptance:
       - "ViewModelBase + RelayCommand maison, aucune dépendance MVVM externe"
       - "Shell avec navigation entre les 4 sections (placeholders acceptés à ce stade)"
-      - "Thème MahApps.Metro appliqué"
+      - "Connexion API avec auth Windows + écran de diagnostic si serveur injoignable"
+      - "Gateway.App ne référence ni Core, ni plug-ins, ni SQLite (vérifié dans le csproj)"
       - "Tous les libellés en français"
-      - "Tests unitaires : ViewModelBase, RelayCommand, navigation"
+      - "Tests unitaires : ViewModelBase, RelayCommand, navigation, état de connexion"
+      - "Checklist smoke créée (docs/architecture/smoke-checklists/)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   WPF02:
-    title: "Écran Documents (vue centrale)"
+    title: "Écran Documents (vue centrale, via API)"
     description: |
-      Implémenter l'écran principal selon F10 :
+      Implémenter l'écran principal selon F10, alimenté par GET /documents :
       1. Liste des documents : n°, date, acheteur, montant, type (bordereau/avoir), état avec
          icône (✅ Émis, 🛑 Bloqué, ⏳ À envoyer, ❌ Rejeté, ⚠️ Erreur technique, ↪ Remplacé).
-      2. Filtres : période (défaut mois courant), état, type, texte libre (n°, acheteur).
+      2. Filtres : période (défaut mois courant), état, type, texte libre (n°, acheteur) —
+         mappés sur les paramètres de l'API.
       3. Compteurs permanents : synthèse par état au-dessus de la liste.
       4. Boutons : [Voir] (détail — WPF03), [▶ Envoyer la sélection], [▶▶ Tout envoyer]
          (actions branchées en WPF05 — ici désactivées avec tooltip explicatif).
-      5. DocumentsViewModel testé : chargement, filtres, compteurs, formatage français des états.
+      5. Rafraîchissement : bouton manuel + timer optionnel 60s.
+      6. DocumentsViewModel testé avec un ApiClient mocké : chargement, filtres, compteurs,
+         formatage français des états, erreur API.
     acceptance:
-      - "Liste avec colonnes et états français de F10"
-      - "Filtres période/état/type/texte fonctionnels"
+      - "Liste avec colonnes et états français de F10, alimentée par l'API"
+      - "Filtres période/état/type/texte fonctionnels (côté API)"
       - "Compteurs par état mis à jour avec les filtres"
-      - "Tests ViewModel : filtrage, compteurs, formatage des états"
-      - "Checklist smoke mise à jour (docs/architecture/smoke-checklists/)"
+      - "Tests ViewModel avec ApiClient mocké : filtrage, compteurs, formatage, erreur API"
+      - "Checklist smoke mise à jour"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   WPF03:
-    title: "Écran détail document (Contenu / Contrôles / Historique)"
+    title: "Écran détail document (Contenu / Contrôles / Historique / Archive, via API)"
     description: |
-      Implémenter le détail document selon F10 :
+      Implémenter le détail document selon F10, alimenté par GET /documents/{id} :
       1. Onglet Contenu : en-tête (n°, date, acheteur, totaux) + lignes (libellé, montants,
          régime TVA source → catégorie/VATEX résultante). Blocages mis en évidence.
       2. Onglet Contrôles : liste des contrôles passés/échoués (F04) — ✅/🛑/⚠️, message
          opérateur, action corrective si disponible. Pour BUYER_LOOKS_PROFESSIONAL : boutons
-         de verdict « Confirmer particulier (B2C) » / « Traiter manuellement (B2B) » —
-         décision journalisée dans DocumentEvent (F08).
+         de verdict « Confirmer particulier (B2C) » / « Traiter manuellement (B2B) » →
+         POST /documents/{id}/verdict (l'identité Windows de l'opérateur est journalisée côté serveur).
       3. Onglet Historique : chronologie complète (détecté, envoyé, réponse PA, tax report,
-         changements d'état). Bouton [Exporter] → AuditExporter (TRK05).
-      4. DocumentDetailViewModel testé : chargement des 3 onglets, verdict B2C/B2B, export.
+         changements d'état, verdicts opérateur avec leur auteur).
+      4. Onglet Archive : référence du paquet d'archive, état d'intégrité de la chaîne,
+         bouton [Exporter pour contrôle fiscal] → GET /documents/{id}/audit-export.
+      5. DocumentDetailViewModel testé avec ApiClient mocké.
     acceptance:
-      - "3 onglets conformes à F10"
-      - "Verdict opérateur B2C/B2B journalisé dans la piste d'audit"
-      - "Export audit branché sur AuditExporter"
-      - "Tests ViewModel : onglets, verdict, déclenchement export"
+      - "4 onglets conformes (Contenu, Contrôles, Historique, Archive)"
+      - "Verdict opérateur B2C/B2B envoyé via l'API"
+      - "Export audit téléchargé via l'API"
+      - "Tests ViewModel avec ApiClient mocké : onglets, verdict, export"
       - "Checklist smoke mise à jour"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   WPF04:
-    title: "Écrans Journal (runs) et Configuration (lecture seule)"
+    title: "Écrans Journal (runs) et Configuration (lecture seule, via API)"
     description: |
       Implémenter les écrans secondaires selon F10 :
-      1. Journal : liste des runs (manuels + planifiés) — date, durée, documents
-         traités/envoyés/bloqués/rejetés, lien vers le log fichier détaillé.
-         Répond à « ça a tourné cette nuit ? ».
-      2. Configuration (LECTURE SEULE en V1 — décision F10) :
+      1. Journal (GET /runs) : liste des runs (planifiés + manuels + secours CLI) — date, durée,
+         documents traités/envoyés/bloqués/rejetés, déclencheur. Répond à « ça a tourné cette nuit ? ».
+      2. Configuration (GET /configuration, LECTURE SEULE) :
          - identité émetteur (SIREN, raison sociale)
          - connexion source (chaîne masquée, indicateur ✅/❌ d'accès)
-         - compte PA (account id, staging/prod)
-         - table de mapping TVA affichée (l'expert-comptable doit pouvoir la lire à l'écran)
-         - planification (heures de run automatique)
-      3. Aucune édition : la config et la table TVA s'éditent dans les fichiers (auditabilité).
+         - plateforme(s) agréée(s) configurée(s) : nom, compte, environnement (staging/prod)
+           et **capacités déclarées** (B2C ✅, Paiements ⏳ en attente, B2B ⬜ phase 2...)
+         - table de mapping TVA : version, validateur, état de validation (⚠️ visible si
+           « NON VALIDÉE » ou table d'exemple), règles affichées
+         - provider de stockage, planification, état du coffre d'archive
+      3. Aucune édition : la config s'édite dans les fichiers côté serveur (auditabilité).
     acceptance:
-      - "Journal des runs avec compteurs et lien vers les logs"
+      - "Journal des runs avec compteurs et déclencheur"
       - "Configuration affichée en lecture seule, secrets masqués"
-      - "Table de mapping TVA lisible à l'écran avec version et validateur"
-      - "Tests ViewModel : chargement journal, masquage secrets, affichage table TVA"
+      - "Capacités du PA affichées (l'opérateur voit ce que sa plateforme sait faire)"
+      - "État de validation de la table TVA bien visible (alerte si non validée)"
+      - "Tests ViewModel avec ApiClient mocké"
       - "Checklist smoke mise à jour"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   WPF05:
-    title: "Actions d'envoi + verrou partagé avec le CLI"
+    title: "Actions d'envoi (via API)"
     description: |
-      Brancher les actions d'envoi selon F10/F11 :
-      1. [▶ Envoyer la sélection] : documents ReadyToSend sélectionnés → PipelineRunner (phase SEND).
-      2. [▶▶ Tout envoyer] : confirmation obligatoire avec récapitulatif (nombre de documents +
-         montant total + mention « action irréversible ») avant exécution.
-      3. Verrou : la console prend le mutex global (PIP01) pour envoyer. Si le CLI tourne,
-         la console le détecte, désactive les boutons d'envoi et affiche « Un traitement
-         automatique est en cours ». La lecture reste possible (WAL).
-      4. Rafraîchissement : bouton manuel + timer optionnel 60s (pas de push).
+      Brancher les actions d'envoi selon F10 :
+      1. [▶ Envoyer la sélection] : POST /documents/{id}/send pour chaque document sélectionné.
+      2. [▶▶ Tout envoyer] : appel préalable avec confirm=false → affichage du récapitulatif
+         (nombre de documents + montant total + mention « action irréversible ») → confirmation
+         opérateur → POST définitif.
+      3. Déclenchement d'un run manuel : bouton « Lancer un traitement maintenant »
+         → POST /runs/trigger (utile pour la démo et les rattrapages).
+      4. Gestion des droits : si l'utilisateur Windows n'a que le droit lecture, les boutons
+         d'action sont masqués (l'API renvoie les droits dans /health ou /configuration).
+      5. Gestion des erreurs d'action : messages français exploitables (« Le document n° 2019
+         n'a pas pu être envoyé : ... »).
     acceptance:
-      - "Envoi sélection et tout-envoyer via PipelineRunner (jamais d'appel PA direct depuis la console)"
-      - "Confirmation avec récapitulatif avant tout-envoyer"
-      - "Mutex partagé : boutons désactivés quand le CLI tourne"
-      - "Tests ViewModel : confirmation, désactivation sous verrou, rafraîchissement"
+      - "Envoi sélection et tout-envoyer via l'API avec confirmation"
+      - "Run manuel déclenchable depuis la console"
+      - "Droits lecture/action respectés (boutons masqués si lecture seule)"
+      - "Tests ViewModel avec ApiClient mocké : confirmation, droits, erreurs"
       - "Checklist smoke mise à jour"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   WPF06:
-    title: "Écran Encaissements (e-reporting paiement)"
+    title: "Écran Encaissements (e-reporting paiement, via API)"
     description: |
-      Implémenter l'écran Encaissements selon F10 (conditionné à F09) :
-      1. Même logique que Documents : période, agrégats jour×taux (PaymentAggregate),
-         état de transmission Flux 10.4.
-      2. Si PaymentReportingEnabled = false (cas actuel — point ouvert B2Brouter) :
-         l'écran affiche les agrégats calculés avec le bandeau « Transmission en attente
-         d'activation par la plateforme agréée » — argument démo : « notre passerelle est
-         prête avant la PA ».
-      3. PaymentsViewModel testé.
+      Implémenter l'écran Encaissements selon F10, alimenté par GET /payments :
+      1. Agrégats jour×taux (PaymentAggregate) avec leur état de transmission.
+      2. L'état affiché dépend de la capacité du PA configuré :
+         - PA avec capacité paiements : états de transmission réels (transmis/en attente/rejeté)
+         - PA sans capacité : bandeau « En attente : la plateforme <nom> ne supporte pas encore
+           la transmission des paiements — les agrégats sont prêts et partiront automatiquement
+           dès l'activation » (argument démo : notre produit est prêt avant la PA)
+      3. PaymentsViewModel testé avec ApiClient mocké dans les deux états de capacité.
     acceptance:
-      - "Agrégats jour×taux affichés depuis PaymentAggregate"
-      - "Bandeau d'attente d'activation quand le flag est désactivé"
-      - "Tests ViewModel : affichage agrégats, état selon flag"
+      - "Agrégats jour×taux affichés depuis l'API"
+      - "Affichage adapté à la capacité du PA (les 2 états testés)"
+      - "Tests ViewModel avec ApiClient mocké"
       - "Checklist smoke mise à jour"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
@@ -136,10 +152,12 @@ items:
     executor: human
     title: "Gate : console d'administration validée"
     description: |
-      Validation humaine de la console WPF. C'est la gate « démo ISATECH » côté visuel :
-      chaque écran doit être présentable. Revue sur machine avec les checklists smoke
-      (docs/architecture/smoke-checklists/) déroulées manuellement sur les fixtures.
+      Validation humaine de la console WPF multi-postes. C'est la gate « démo » côté visuel :
+      chaque écran doit être présentable. Revue sur machine avec les checklists smoke déroulées,
+      console connectée à un Service réel tournant sur fixtures, IDÉALEMENT depuis deux postes
+      en même temps (preuve du multi-utilisateurs).
     acceptance:
       - "Tous les items WPF sont done"
       - "Toutes les checklists smoke déroulées avec succès"
+      - "Démonstration multi-postes effectuée (2 consoles connectées au même service)"
       - "PR du segment feat/console-admin revue et mergée dans main"

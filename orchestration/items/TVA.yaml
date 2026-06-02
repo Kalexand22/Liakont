@@ -1,8 +1,11 @@
 # Lot TVA — Moteur de mapping TVA (F03)
 # Spec : docs/conception/F03-Mapping-TVA.md
 # ZONE DE RISQUE FISCAL N°1 : une erreur de mapping = motif d'exonération erroné transmis
-# = responsabilité fiscale du client engagée. AUCUNE règle fiscale inventée :
-# tout vient de la spec F03 ou est marqué « à valider expert-comptable ».
+# = responsabilité fiscale du client engagée.
+#
+# PRINCIPE DE GÉNÉRICITÉ (décision 2026-06-02) : le Core contient le MOTEUR et une table
+# d'EXEMPLE pour les tests. Les tables réelles des clients (ex: CMP) sont du PARAMÉTRAGE
+# qui vit dans deployments/<client>/ — jamais dans le code. Voir lot CMP.
 
 items:
   TVA01:
@@ -11,19 +14,23 @@ items:
       Implémenter dans Gateway.Core/TvaMapping/ le modèle de la table de mapping selon F03 :
       1. MappingTable : mappingVersion, validatedBy, validatedDate, defaultBehavior (block),
          rules (List<MappingRule>).
-      2. MappingRule : sourceRegimeCode, label, part (adjudication/frais), category (UNCL5305),
+      2. MappingRule : sourceRegimeCode, label, part (adjudication/frais/autre), category (UNCL5305),
          rate, vatex (nullable), note.
       3. Chargement depuis fichier JSON externe + validation structurelle au chargement :
          - catégorie E + taux 0 → vatex obligatoire (sinon table invalide)
          - codes catégorie dans la liste UNCL5305 valide (S, AA, AAA, Z, E, AE, G, K, O)
          - pas de doublon (sourceRegimeCode, part)
       4. Une table invalide = exception au chargement avec message opérateur français.
-      La table est un FICHIER EXTERNE versionné, jamais embarqué dans le code (auditabilité).
+      5. Indicateur de validation : une table dont validatedBy/validatedDate ne sont pas
+         renseignés est chargeable (dev/démo) mais marquée « NON VALIDÉE » — cet état est
+         visible partout (API /configuration, console, logs de run).
+      La table est un FICHIER EXTERNE paramétré par déploiement, jamais embarqué dans le code.
     acceptance:
       - "MappingTable et MappingRule dans Conformat.Gateway.Core.TvaMapping"
       - "Chargement JSON externe avec validation structurelle (E+0% → VATEX requis)"
       - "Table invalide = exception explicite, jamais de comportement silencieux"
-      - "Tests : table valide, table sans VATEX sur E, doublons, catégorie inconnue"
+      - "État « NON VALIDÉE » porté par le modèle et exposé"
+      - "Tests : table valide, table sans VATEX sur E, doublons, catégorie inconnue, table non validée"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -32,14 +39,15 @@ items:
     description: |
       Implémenter le moteur dans Gateway.Core/TvaMapping/ :
       1. TvaMapper : (code régime source, part) → PivotLineTax {catégorie, taux, VATEX}.
-      2. MappingTrace : horodatage, mappingVersion, règle appliquée, code source d'entrée,
-         résultat produit. Attachée à chaque PivotLineTax et persistée par le Tracking (F06).
-         La trace permet de prouver, des années après, quelle règle a produit quel motif d'exonération.
+      2. MappingTrace : horodatage, mappingVersion, validatedBy, règle appliquée, code source
+         d'entrée, résultat produit. Attachée à chaque PivotLineTax et persistée par le
+         Tracking (F06). La trace permet de prouver, des années après, quelle règle a produit
+         quel motif d'exonération.
       3. Comportement régime inconnu : selon defaultBehavior de la table — `block` = le document
          porteur passe en blocage, jamais d'envoi à l'aveugle, jamais de valeur par défaut.
     acceptance:
       - "TvaMapper transforme (code source, part) en PivotLineTax via la table"
-      - "MappingTrace complète attachée à chaque mapping (version, règle, horodatage)"
+      - "MappingTrace complète attachée à chaque mapping (version, validateur, règle, horodatage)"
       - "Régime inconnu = blocage, jamais de catégorie devinée"
       - "Tests : mapping S/20%, mapping E+VATEX-EU-J (marge), régime inconnu bloqué"
       - "verify-fast passes"
@@ -53,7 +61,7 @@ items:
       2. Produire un MappingCoverageReport : régimes couverts, régimes absents (code + libellé +
          occurrences), verdict (complet / incomplet).
       3. Si incomplet : le rapport est exploitable par le pipeline (blocage des documents porteurs)
-         et par la console (message « Complétez la table des régimes de TVA », F04 VATEX_MISSING).
+         et par la console via l'API (message « Complétez la table des régimes de TVA »).
     acceptance:
       - "MappingCoverageReport liste les régimes source absents de la table"
       - "Le rapport distingue couverts/absents avec occurrences"
@@ -62,22 +70,28 @@ items:
       - "codex-review clean or only accepted P2s"
 
   TVA04:
-    title: "Table de mapping CMP initiale (EncheresV6)"
+    title: "Table de mapping d'EXEMPLE + tests de bout en bout du moteur"
     description: |
-      Créer la table de mapping initiale pour le client fondateur CMP dans config/mapping-tables/ :
-      1. cmp-v1.json : régimes EncheresV6 connus, à partir de docs/conception/F03-Mapping-TVA.md
-         (régime 5 = S/20%, régime 6 = E + VATEX-EU-J avec note « À VALIDER : marge ou hors champ »).
-      2. validatedBy = "EN ATTENTE — Expert-comptable CMP", validatedDate = null :
-         la table N'EST PAS validée tant que l'expert-comptable n'a pas tranché.
-      3. Tests d'intégration : charger cmp-v1.json, mapper les fixtures PIV05, vérifier que les cas
-         marge produisent E + VATEX-EU-J et que les régimes inconnus bloquent.
-      IMPORTANT : la décision « régime 6 = marge EU-J ou hors champ » appartient à l'expert-comptable
-      CMP. La table doit porter cette incertitude explicitement (note + validatedBy en attente).
-      Ne JAMAIS marquer la table comme validée.
+      Créer la table d'exemple GÉNÉRIQUE dans config/exemples/ (PAS de données client) :
+      1. mapping-exemple.json : table de démonstration couvrant tous les cas que le moteur
+         doit savoir traiter, avec des codes régimes FICTIFS (REGIME-A, REGIME-B...) :
+         - cas normal : S / 20%
+         - cas réduit : AA / 10% et AAA / 2,1%
+         - cas exonéré avec motif : E / 0% / VATEX-EU-F, VATEX-EU-I, VATEX-EU-J
+         - cas autoliquidation : AE
+         - cas hors champ : O
+         - une règle volontairement absente (pour tester la détection TVA03)
+      2. validatedBy = "Table d'exemple — usage démo/tests uniquement" (jamais utilisable
+         en production : le moteur refuse d'envoyer si la table porte ce marqueur d'exemple).
+      3. Tests d'intégration : charger mapping-exemple.json, mapper les fixtures PIV05,
+         vérifier chaque catégorie produite, vérifier le blocage sur le régime absent,
+         vérifier le refus d'envoi en production avec une table d'exemple.
+      RAPPEL : la table réelle du CMP est l'item CMP01 (paramétrage), pas ici.
     acceptance:
-      - "cmp-v1.json existe avec les régimes EncheresV6 documentés dans F03"
-      - "validatedBy indique explicitement que la validation expert-comptable est en attente"
-      - "Le régime 6 porte la note « À VALIDER : marge (EU-J) ou hors champ ? »"
+      - "mapping-exemple.json dans config/exemples/ avec des codes régimes fictifs uniquement"
+      - "Tous les cas UNCL5305 supportés sont couverts par l'exemple"
+      - "Le moteur refuse l'envoi en production avec une table marquée exemple"
       - "Tests d'intégration sur les fixtures PIV05 verts"
+      - "Aucune donnée client (CMP, EncheresV6 réel) dans le fichier"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"

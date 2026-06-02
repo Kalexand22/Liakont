@@ -1,69 +1,47 @@
-# Lot CLI — Mode automatique en ligne de commande (F11)
-# Spec : docs/conception/F11-CLI-Mode-Automatique.md
-# Pattern de référence : SynchroAxelor (EXE + config + logs fichiers), éprouvé en production.
+# Lot CLI — Gateway.Cli : utilitaire de mise en service et de secours
+# Spec : docs/conception/F11-CLI-Mode-Automatique.md (rôle réduit par l'architecture Service/API)
+# Décision 2026-06-02 : le mode nominal de production est le Service. Le CLI devient un
+# utilitaire pour la mise en service, le diagnostic et les opérations de secours.
 
 items:
   CLI01:
-    title: "Gateway.Cli : commandes, options, codes retour"
+    title: "Gateway.Cli : utilitaire de mise en service et de secours"
     description: |
-      Implémenter l'exécutable CLI dans src/Gateway.Cli/ selon F11 :
-      1. Commandes :
-         - run          : pipeline complet (extract+check+send+sync) — mode planifié
-         - extract      : extraction seule, alimente le Tracking, n'envoie rien
-         - send         : envoi des documents en état ReadyToSend
-         - sync-status  : synchro statuts/tax reports PA
-         - check-config : valide la config (connexion source, clé API, table TVA) sans traiter
-         - report       : récapitulatif (compteurs par état, période)
-      2. Options : --config <chemin> (obligatoire), --from/--to (yyyy-MM-dd), --dry-run,
-         --verbose, --max <n>.
-      3. Codes retour (contrat avec le Planificateur Windows) :
-         0 = succès complet | 1 = succès partiel (blocages/rejets) | 2 = échec run (fatal) |
-         3 = verrou occupé (run non exécuté).
-      4. Le CLI est une coquille mince : il parse les arguments, charge la config, appelle
-         PipelineRunner, mappe le RunReport en code retour. Aucune logique métier.
+      Implémenter l'exécutable CLI dans src/Gateway.Cli/ :
+      1. Commandes de mise en service :
+         - check-config --config <chemin> : valide la config complète (connexion source ODBC,
+           clé API PA + capacités, table TVA chargée, provider de stockage, droits API)
+           sans rien traiter. Sortie lisible point par point.
+         - encrypt-secret : chiffre une valeur (DPAPI) pour collage dans le fichier de config.
+      2. Commandes de secours (quand le Service est ARRÊTÉ — protégé par le mutex global) :
+         - run --config <chemin> [--from --to --dry-run --max] : exécution manuelle du pipeline
+           complet, codes retour 0/1/2/3 (contrat F11)
+         - backup : sauvegarde horodatée de la base + du coffre d'archive
+         - verify-archive : vérification d'intégrité de la chaîne d'archive (TRK07)
+      3. Si le Service tourne (mutex occupé) : les commandes de secours refusent avec le
+         message « Le service Conformat est actif — utilisez la console ou arrêtez le service »
+         (code retour 3). check-config et encrypt-secret restent toujours disponibles.
+      4. Le CLI est une coquille mince : il appelle les services du Core, aucune logique métier.
     acceptance:
-      - "Les 6 commandes de F11 implémentées en appelant PipelineRunner"
-      - "Codes retour 0/1/2/3 conformes au tableau F11"
-      - "check-config valide source + clé API + table TVA sans rien traiter"
-      - "Tests : parsing arguments, mapping RunReport → code retour, config invalide → 2"
+      - "check-config valide tous les points de la config avec sortie lisible"
+      - "encrypt-secret fonctionnel (round-trip DPAPI)"
+      - "run/backup/verify-archive refusent proprement quand le Service tourne (code 3)"
+      - "Codes retour 0/1/2/3 conformes à F11"
+      - "Tests : parsing arguments, mutex occupé → code 3, dry-run sans écriture PA"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
-  CLI02:
-    title: "Journalisation fichiers + last-run-status.json"
+  GATE_SERVICE_API:
+    type: gate
+    executor: human
+    title: "Gate : Service + API + CLI validés"
     description: |
-      Implémenter la journalisation selon F11 :
-      1. Fichier de log par run : logs\<yyyy-MM-dd>_<HHmm>_<commande>.log — texte lisible,
-         horodaté, n° de document sur chaque ligne concernée (grep-able).
-      2. Niveaux : INFO (par document : détecté/envoyé/état), WARN (alertes), ERROR (rejets, erreurs).
-      3. Rotation : conservation 90 jours des logs fichiers (le Tracking SQLite n'est JAMAIS purgé).
-      4. last-run-status.json : écrit à chaque fin de run (started, ended, command, exit_code,
-         compteurs) — exploitable par une supervision externe pour détecter la « montre morte »
-         (aucun run depuis > 48h).
+      Validation humaine de l'hôte d'exécution complet. Démonstration attendue :
+      le Service installé tourne, un run planifié s'exécute sur fixtures (FixtureExtractor +
+      FakePaClient), l'API répond avec auth Windows, et le CLI check-config/run de secours
+      fonctionnent.
     acceptance:
-      - "Un fichier de log par run, format horodaté lisible et grep-able"
-      - "Rotation 90 jours implémentée et testée"
-      - "last-run-status.json écrit à chaque run avec les champs de F11"
-      - "Tests : écriture log, rotation, contenu last-run-status.json"
-      - "verify-fast passes"
-      - "codex-review clean or only accepted P2s"
-
-  CLI03:
-    title: "Notifications SMTP"
-    description: |
-      Implémenter les notifications selon F11 :
-      1. Code retour 2 (échec run) : mail immédiat « La transmission du <date> n'a pas pu
-         s'exécuter : <raison> ».
-      2. Code retour 1 + nouveaux blocages/rejets : mail récapitulatif — liste des documents
-         + motifs + consigne « ouvrir la console ».
-      3. Run OK : pas de mail (éviter le bruit). Option de config NotifyOnSuccess: true pour
-         les premières semaines d'exploitation.
-      4. SMTP simple (System.Net.Mail, net48) : hôte, port, credentials, from/to dans la config.
-         Échec d'envoi du mail = WARN dans le log, jamais un échec du run.
-    acceptance:
-      - "Les 3 scénarios de notification de F11 implémentés"
-      - "NotifyOnSuccess configurable, défaut false"
-      - "Un échec SMTP ne fait jamais échouer le run (testé)"
-      - "Tests avec un faux serveur/transport SMTP : contenu des mails, déclenchement par code retour"
-      - "verify-fast passes"
-      - "codex-review clean or only accepted P2s"
+      - "Tous les items SVC, API, CLI sont done"
+      - "PR du segment feat/service-api revue et mergée dans main"
+      - "Un run de bout en bout sur fixtures via le Service planifié a été démontré"
+      - "L'API a été appelée avec succès depuis une autre machine du réseau (auth Windows)"

@@ -5,18 +5,27 @@ le backlog autoritaire est `orchestration/manifest.yaml`._
 
 ## Prochaine étape
 
-- [ ] Lancer la première session d'orchestration : `Lis orchestration/prompt.md et exécute-le.`
-      → L'agent prendra SOL01 (création de la solution Gateway.sln).
+- [ ] Lancer une session d'orchestration : `Lis orchestration/prompt.md et exécute-le.`
+      → L'agent prendra SOL01 (création de la solution Gateway.sln, structure blueprint.md §4).
 
-## Points ouverts à traiter en parallèle du développement (hors orchestration)
+## Actions humaines à mener en parallèle du développement (hors orchestration)
 
-Ces points appartiennent à des humains et bloquent la mise en production (pas le développement) :
+Ces points appartiennent à des humains. Grâce à l'architecture générique (plug-ins + paramétrage),
+ils ne bloquent PAS le développement du produit — ils bloquent les gates de déploiement concernées.
 
-- [ ] Expert-comptable CMP : régime 6 = marge EU-J ou hors champ ? (bloque la validation de TVA04)
-- [ ] Expert-comptable CMP : TVA sur les débits optée ? (conditionne l'existence de F9/PIP03)
-- [ ] Expert-comptable CMP : OperationCategory = Mixte ? (conditionne F9 sur la part frais)
-- [ ] Expert-comptable CMP : volume d'acheteurs professionnels ? (garde-fou F8 vs phase 2 B2B)
-- [ ] Ticket support B2Brouter : montant marge cas n°33 (impacte PAC02)
-- [ ] Ticket support B2Brouter : transmission Flux 10.2/10.4 disponible ? (active PaymentReportingEnabled)
+### Bloquant pour GATE_PROD_CMP (production CMP)
+- [ ] Expert-comptable CMP : régime 6 = marge EU-J ou hors champ ? → consigner dans deployments/cmp/DECISIONS-FISCALES.md
+- [ ] Expert-comptable CMP : TVA sur les débits optée ? (conditionne l'e-reporting paiement pour CE déploiement)
+- [ ] Expert-comptable CMP : OperationCategory = Mixte ?
+- [ ] Expert-comptable CMP : volume d'acheteurs professionnels ?
+- [ ] Ticket support B2Brouter : montant marge cas n°33
+- [ ] Ticket support B2Brouter : transmission Flux 10.2/10.4 (calendrier) → mettra à jour les capacités du plug-in
+- [ ] Compte B2Brouter production + tax_report_setting
+
+### Bloquant pour GATE_PA_SUPERPDP (plug-in Super PDP)
+- [ ] Ouvrir une sandbox Super PDP (action DR17-A4, ~1-2 jours)
+- [ ] Questions support Super PDP : flux paiement 10.2/10.4, archivage NF Z42-013, sort des archives en cas de résiliation
+
+### Commercial (hors backlog technique)
 - [ ] Relancer ISATECH (dossier CMP + période d'observation RJ jusqu'au 7 juillet 2026)
 - [ ] Télécharger spécifications externes DGFiP v3.1 + normes AFNOR XP Z12-012/-013/-014

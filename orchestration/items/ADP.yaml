@@ -90,9 +90,12 @@ items:
     executor: human
     title: "Gate : adaptateur EncheresV6 validé"
     description: |
-      Validation humaine du premier adaptateur. Démonstration attendue : extraction d'un jeu
+      Validation humaine du premier plug-in source. Démonstration attendue : extraction d'un jeu
       de fixtures EncheresV6 complet → pipeline → FakePaClient, et si possible une extraction
       ODBC réelle sur la base de test CMP (si accès disponible).
+      Rappel généricité : l'adaptateur ne contient AUCUNE donnée client (le SIREN CMP, la chaîne
+      ODBC réelle sont du paramétrage — lot CMP) ; il contient la connaissance du SCHÉMA EncheresV6.
     acceptance:
       - "Tous les items ADP sont done"
+      - "Aucune donnée client dans le code de l'adaptateur (uniquement la connaissance du schéma)"
       - "PR du segment feat/adapter-encheresv6 revue et mergée dans main"

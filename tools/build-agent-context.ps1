@@ -52,14 +52,18 @@ $lotToSpecs = @{
     'TVA' = @('docs/conception/F03-Mapping-TVA.md', 'docs/conception/F01-F02-Modele-Pivot-Contrat-Extraction.md')
     'VAL' = @('docs/conception/F04-Controles-Qualite-Validation.md', 'docs/conception/F07-F08-Avoirs-Frontiere-B2B-B2C.md')
     'TRK' = @('docs/conception/F06-Tracking-Piste-Audit.md')
-    'PAC' = @('docs/conception/F05-Client-API-B2Brouter.md')
+    'PAA' = @('docs/conception/F05-Client-API-B2Brouter.md')
+    'PAB' = @('docs/conception/F05-Client-API-B2Brouter.md')
+    'PAS' = @('docs/market/DR17-Strategie-Multi-PA-Partenaires.md', 'docs/market/DR9-Business-Model-Pricing-Scenarios-CA.md')
     'PIP' = @('docs/conception/F11-CLI-Mode-Automatique.md', 'docs/conception/F07-F08-Avoirs-Frontiere-B2B-B2C.md', 'docs/conception/F09-E-Reporting-Paiement.md')
-    'CLI' = @('docs/conception/F11-CLI-Mode-Automatique.md')
     'SVC' = @('docs/conception/F11-CLI-Mode-Automatique.md')
+    'API' = @('docs/conception/F10-Console-Admin-WPF.md', 'docs/conception/F11-CLI-Mode-Automatique.md')
+    'CLI' = @('docs/conception/F11-CLI-Mode-Automatique.md')
     'ADP' = @('docs/conception/F01-F02-Modele-Pivot-Contrat-Extraction.md', 'docs/conception/F03-Mapping-TVA.md', 'docs/conception/F09-E-Reporting-Paiement.md')
     'WPF' = @('docs/conception/F10-Console-Admin-WPF.md')
     'CFG' = @('docs/conception/F11-CLI-Mode-Automatique.md', 'docs/conception/F05-Client-API-B2Brouter.md', 'docs/market/Offre-Editeur-Passerelle.md')
     'DOC' = @('docs/conception/F10-Console-Admin-WPF.md', 'docs/conception/README-Index-Conception.md')
+    'CMP' = @('docs/conception/F03-Mapping-TVA.md', 'docs/market/DR12-Intelligence-ISATECH.md', 'docs/market/Offre-Editeur-Passerelle.md')
 }
 
 # ── Always-included context ──────────────────────────────────────

@@ -1,29 +1,35 @@
-# Lot CFG — Configuration & déploiement (F12 — spec à rédiger puis implémenter)
+# Lot CFG — Configuration & packaging du produit (F12 — spec à rédiger puis implémenter)
 # F12 n'existe pas encore dans docs/conception/ : le premier item du lot EST la rédaction de la spec.
+# Périmètre : le TOOLKIT générique de déploiement (= le produit). Le paramétrage d'un client
+# donné (ex: CMP) est dans le lot CMP.
 
 items:
   CFG01:
     title: "Spec F12 — Configuration & déploiement"
     description: |
       Rédiger docs/conception/F12-Configuration-Deploiement.md (fichier À CRÉER par cet item),
-      dans le même format que F01-F11
-      (objectif, périmètre, conception, décisions, points ouverts) :
-      1. Format du fichier de configuration (JSON) : identité émetteur, connexion source,
-         compte PA (URL, account id, clé API), chemin table TVA, planification, notifications SMTP,
-         flags (PaymentReportingEnabled, NotifyOnSuccess).
+      dans le même format que F01-F11 (objectif, périmètre, conception, décisions, points ouverts) :
+      1. Format du fichier de configuration (JSON) : identité émetteur, adaptateur source
+         (type + paramètres), plateforme(s) agréée(s) (type de plug-in + compte + environnement),
+         chemin table TVA, provider de stockage (sqlite/sqlserver), coffre d'archive,
+         API (port, HTTPS, groupes Windows autorisés lecture/action), planification,
+         notifications SMTP.
       2. Gestion des secrets : clé API PA et credentials SMTP chiffrés par DPAPI (machine scope) —
-         jamais en clair dans le fichier. Outil de chiffrement intégré (CLI encrypt-secret).
-      3. Multi-config sur la même machine : N fichiers de config = N études/sites,
-         mutex et services distincts par config.
-      4. Packaging : zip autoportant (exe + dépendances + config exemple + doc), prérequis
+         jamais en clair. Outil de chiffrement intégré (CLI encrypt-secret).
+      3. Multi-config sur la même machine : N fichiers de config = N déploiements
+         (services et ports distincts par config).
+      4. Structure d'un dossier de déploiement (deployments/<client>/) : config, table TVA,
+         fixtures éventuelles, documents de décisions fiscales — le modèle que CMP01/CMP02 suivront.
+      5. Packaging : zip autoportant (exe + dépendances + config exemple + doc), prérequis
          (Windows 7 SP1+, .NET Framework 4.8, driver ODBC), procédure d'installation pas à pas.
-      5. Checklist de mise en service : check-config, run --dry-run, premier envoi staging,
-         bascule production.
-      Sources : F11 (pattern config), F05 (multi-compte), Conception-Produit-Passerelle.md
-      (décisions structurantes), Offre-Editeur-Passerelle.md (déploiement par l'éditeur Niveau 2).
+      6. Checklist de mise en service générique : check-config, run --dry-run, premier envoi
+         staging, bascule production.
+      Sources : F11, F05, blueprint.md (architecture Service/API), Offre-Editeur-Passerelle.md
+      (déploiement par un partenaire Niveau 2 : la doc doit être exécutable par un intégrateur).
     acceptance:
       - "F12 rédigé au format des specs F01-F11, en français"
-      - "Format de config JSON complet avec exemple"
+      - "Format de config JSON complet avec exemple (incluant API, providers, archive)"
+      - "Structure deployments/<client>/ spécifiée"
       - "Stratégie secrets DPAPI documentée"
       - "Procédure d'installation et checklist de mise en service rédigées"
       - "Aucune décision inventée : traçable vers les specs existantes ou marqué « à trancher »"
@@ -35,16 +41,20 @@ items:
     description: |
       Implémenter dans Gateway.Core/Configuration/ selon la spec F12 (CFG01) :
       1. GatewayConfig : modèle typé de la configuration, chargement JSON, validation au démarrage
-         (champs obligatoires, formats, cohérence) avec messages opérateur français.
+         (champs obligatoires, formats, cohérence adaptateur/PA/stockage) avec messages opérateur
+         français.
       2. SecretProtector : chiffrement/déchiffrement DPAPI (ProtectedData, machine scope) des
          champs sensibles (clé API PA, mot de passe SMTP).
-      3. Commande CLI encrypt-secret : chiffre une valeur pour collage dans le fichier de config.
-      4. check-config (CLI01) étendu : valide la config complète y compris déchiffrement des secrets.
+      3. Résolution des plug-ins par configuration : le type d'adaptateur source et le(s) type(s)
+         de plug-in PA sont choisis par la config (composition root dans Gateway.Service/Cli) —
+         jamais codés en dur.
+      4. check-config (CLI01) étendu : valide la config complète y compris déchiffrement des
+         secrets et résolution des plug-ins.
     acceptance:
       - "GatewayConfig typé avec validation et messages français"
       - "Secrets chiffrés DPAPI, jamais en clair dans les fichiers"
-      - "Commande encrypt-secret fonctionnelle"
-      - "Tests : config valide/invalide, round-trip chiffrement, champ manquant"
+      - "Adaptateur et PA résolus par la config (testé : config B2Brouter vs config FakePa)"
+      - "Tests : config valide/invalide, round-trip chiffrement, plug-in inconnu"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -53,15 +63,17 @@ items:
     description: |
       Implémenter le packaging selon la spec F12 :
       1. tools/package.ps1 : build Release x86 + x64, assemblage du zip autoportant
-         (Gateway.Cli, Gateway.Service, Gateway.App, dépendances, config.example.json,
+         (Gateway.Service, Gateway.App, Gateway.Cli, plug-ins, dépendances, config.example.json,
          table TVA exemple, doc installation).
-      2. docs/installation.md : prérequis, installation pas à pas, configuration, mise en service
-         (checklist F12), dépannage des erreurs courantes (ODBC absent, .NET 4.8 absent, clé API).
+      2. docs/installation.md : prérequis, installation du Service (serveur) pas à pas,
+         installation de la console (postes), configuration, mise en service (checklist F12),
+         dépannage des erreurs courantes (ODBC absent, .NET 4.8 absent, port API bloqué,
+         droits Windows).
       3. Le zip produit est testé : extraction sur dossier propre + check-config + run --dry-run
-         sur fixtures fonctionnent.
+         sur fixtures + console connectée fonctionnent.
     acceptance:
       - "package.ps1 produit un zip autoportant x86 et x64"
-      - "docs/installation.md complet et exécutable par un intégrateur (cible : partenaire Niveau 2)"
-      - "Le zip extrait passe check-config + dry-run sur fixtures"
+      - "docs/installation.md exécutable par un intégrateur (cible : partenaire Niveau 2)"
+      - "Le zip extrait passe check-config + dry-run + connexion console"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"

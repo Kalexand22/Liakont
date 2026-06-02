@@ -118,8 +118,8 @@ attempts automatic recovery **before** selecting the next item:
      - `status` = `pending` (explicitly present in state.yaml)
      - ALL items in `depends_on` have `status` = `done` in state.yaml
      - `executor` is `claude` (not `human`) — read from `orchestration/items/<lot>.yaml`
-     - **The item's segment is unlocked**: if the segment declares `depends_on_gate`,
-       that gate must have `status` = `done` in state.yaml
+     - **The item's segment is unlocked**: if the segment declares `depends_on_gate`
+       (a single gate or a list), ALL of those gates must have `status` = `done` in state.yaml
      - **No active agent is working on a dependency**: none of the item's `depends_on` have
        `status` = `claimed` or `in_progress` (prevents two agents from working on dependent items)
 2. Check gates separately:

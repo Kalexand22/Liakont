@@ -1,32 +1,50 @@
 # Lot SOL — Socle solution (.NET Framework 4.8)
-# Réf : blueprint.md, docs/market/Conception-Produit-Passerelle.md
+# Réf : blueprint.md (§4 structure de la solution), docs/market/Conception-Produit-Passerelle.md
 # Préalable à tout le reste : sans solution compilable, verify-fast ne peut pas tourner.
 
 items:
   SOL01:
     title: "Solution Gateway.sln + squelette des projets"
     description: |
-      Créer la solution et les projets vides compilables, structure cible du produit :
+      Créer la solution et les projets vides compilables, structure cible du blueprint.md §4 :
       1. Gateway.sln à la racine de src/.
       2. Projets SDK-style ciblant net48 (compatible `dotnet build` sous Windows) :
-         - src/Gateway.Core/            (bibliothèque — le produit générique)
+         - src/Gateway.Core/                        (le produit générique)
            Dossiers : Pivot/, TvaMapping/, Validation/, Tracking/, PaClient/, Pipeline/, Configuration/
-         - src/Gateway.Adapters.EncheresV6/  (bibliothèque — premier adaptateur)
-         - src/Gateway.App/              (WPF, UseWPF=true — console admin)
-         - src/Gateway.Cli/              (exe console — mode automatique)
-         - src/Gateway.Service/          (exe — service Windows)
-         - tests/Gateway.Core.Tests/     (MSTest ou xUnit — choisir xUnit, documenter dans ADR)
+         - src/Gateway.PaClients.B2Brouter/         (plug-in PA #1)
+         - src/Gateway.PaClients.SuperPdp/          (plug-in PA #2)
+         - src/Gateway.Adapters.EncheresV6/         (plug-in source #1)
+         - src/Gateway.Api/                         (contrats DTOs de l'API HTTP)
+         - src/Gateway.ApiClient/                   (client .NET de l'API)
+         - src/Gateway.Service/                     (l'hôte : service Windows + API + pipeline)
+         - src/Gateway.App/                         (WPF, UseWPF=true — console cliente de l'API)
+         - src/Gateway.Cli/                         (utilitaire de mise en service/secours)
+         - tests/Gateway.Core.Tests/                (xUnit)
+         - tests/Gateway.PaClients.Contract.Tests/  (suite de contrat PA)
+         - tests/Gateway.PaClients.B2Brouter.Tests/
+         - tests/Gateway.PaClients.SuperPdp.Tests/
          - tests/Gateway.Adapters.EncheresV6.Tests/
+         - tests/Gateway.Service.Tests/
+         - tests/Gateway.App.Tests/
       3. Directory.Build.props : TargetFramework net48, LangVersion latest, Platforms x86+x64,
-         TreatWarningsAsErrors true, Newtonsoft.Json en PackageReference centralisée.
+         TreatWarningsAsErrors true, versions de packages centralisées (Newtonsoft.Json, Dapper,
+         System.Data.SQLite, xUnit, MahApps.Metro).
       4. Chaque projet contient une classe placeholder dans le bon namespace (Conformat.Gateway.*).
-      5. Références projet : Adapters → Core, App/Cli/Service → Core + Adapters, Tests → tout.
-      6. ADR-0001 : choix .NET Framework 4.8, SDK-style csproj, xUnit, builds x86/x64.
+      5. Règles de références entre projets (la frontière du blueprint §6) :
+         - Les plug-ins (PaClients.*, Adapters.*) ne référencent QUE Gateway.Core
+         - Gateway.Core ne référence AUCUN plug-in
+         - Gateway.Service référence Core + Api + les plug-ins (composition root)
+         - Gateway.App référence UNIQUEMENT Api + ApiClient (jamais Core ni les plug-ins)
+         - Gateway.Cli référence Core + les plug-ins (mode secours, accès direct)
+      6. Dossiers config/exemples/ et deployments/ créés avec README expliquant leur rôle.
+      7. ADR-0001 : choix .NET Framework 4.8, SDK-style csproj, xUnit, builds x86/x64,
+         architecture Service/API mono-écrivain.
       IMPORTANT : aucune logique métier — uniquement le squelette compilable.
     acceptance:
       - "Gateway.sln compile via dotnet build en Debug x86 et x64"
-      - "Les 5 projets produit + 2 projets de tests existent avec namespaces Conformat.Gateway.*"
-      - "Directory.Build.props centralise TargetFramework net48 et les versions de packages"
+      - "Les 9 projets produit + 7 projets de tests existent avec namespaces Conformat.Gateway.*"
+      - "Les règles de références inter-projets sont en place (App ne référence pas Core, Core ne référence aucun plug-in)"
+      - "Directory.Build.props centralise framework et versions de packages"
       - "ADR-0001 rédigé dans docs/adr/"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
@@ -37,8 +55,9 @@ items:
       Brancher l'outillage de vérification sur la solution réelle :
       1. tools/verify-fast.ps1 : restore + build (x86) + analyzers + tests unitaires.
          Doit échouer (exit != 0) si build ou tests échouent. Pas de faux verts.
-      2. tools/run-tests.ps1 : suite complète (unit + integration) avec résumé compact
-         et log détaillé dans .run-tests.log.
+      2. tools/run-tests.ps1 : suite complète (unit + integration + contrat PA) avec résumé
+         compact et log détaillé dans .run-tests.log. Exclut Category=Staging et
+         Category=Integration.SqlServer (optionnelles).
       3. CI GitHub Actions (.github/workflows/ci.yml) : sur push/PR — restore, build, tests.
          Un step qui échoue fait échouer le pipeline (vérifier, pas de continue-on-error).
       4. Mettre à jour docs/architecture/definition-of-done.md avec les commandes réelles.
@@ -54,16 +73,19 @@ items:
     description: |
       Rédiger les documents de conventions dans docs/architecture/ :
       1. repo-standards.md : conventions C# (.editorconfig appliqué), nommage, structure des
-         dossiers de Gateway.Core, conventions de commit (conventional commits), règles de PR.
-      2. module-rules.md : frontière Core/Adaptateur (le Core ne référence JAMAIS un adaptateur ;
-         un adaptateur ne référence que Core), règle « le pivot ne calcule rien », règle
-         « montants en decimal, jamais float », règle « tout champ absent = null ».
-      3. testing-strategy.md : pyramide de tests (unit sur Core, integration sur SQLite/fixtures,
-         tests staging B2Brouter en suite séparée jamais exécutée en CI), conventions de nommage.
+         dossiers, conventions de commit (conventional commits), règles de PR.
+      2. module-rules.md : les frontières du blueprint.md §6 —
+         Core ↔ plug-ins (Core ne référence JAMAIS un plug-in), Console ↔ API (la console ne
+         référence jamais Core), règle « le pivot ne calcule rien », règle « montants en decimal,
+         jamais float », règle « tout champ absent = null », règle « aucune donnée client dans
+         le code » (tout est paramétrage dans deployments/).
+      3. testing-strategy.md : pyramide de tests (unit Core, contrat PA, integration SQLite/
+         fixtures/API in-process, suites staging/sandbox séparées jamais en CI, checklists smoke
+         WPF), conventions de nommage, catégories xUnit.
       Source : blueprint.md + docs/conception/ + docs/market/Conception-Produit-Passerelle.md.
     acceptance:
       - "repo-standards.md, module-rules.md, testing-strategy.md rédigés en français"
-      - "Les règles de frontière Core/Adaptateur sont explicites et vérifiables"
+      - "Les règles de frontière (Core/plug-ins, Console/API, code/paramétrage) sont explicites et vérifiables"
       - "Aucune règle inventée : tout est traçable vers blueprint.md ou docs/conception/"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
@@ -73,8 +95,9 @@ items:
     executor: human
     title: "Gate : socle solution validé"
     description: |
-      Validation humaine du socle : solution compilable, outillage de vérification fiable,
-      conventions documentées. Cette gate débloque le segment core-foundation.
+      Validation humaine du socle : solution compilable avec les bonnes frontières de références,
+      outillage de vérification fiable, conventions documentées.
+      Cette gate débloque le segment core-foundation.
     acceptance:
       - "Tous les items SOL sont done"
       - "PR du segment feat/socle revue et mergée dans main"

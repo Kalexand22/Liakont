@@ -1,0 +1,101 @@
+# Lot PAA — Framework PA : abstraction, capacités, tests de contrat
+# Spec : docs/conception/F05-Client-API-B2Brouter.md (section abstraction IPaClient)
+# C'EST LE PRODUIT : l'abstraction qui rend Conformat indépendant des Plateformes Agréées.
+# B2Brouter (PAB), Super PDP (PAS) et tout futur PA ne sont que des plug-ins de ce framework.
+#
+# Règle absolue : AUCUNE fonctionnalité du produit ne dépend de ce qu'UN PA sait faire.
+# Chaque plug-in déclare ses capacités ; le produit s'adapte.
+
+items:
+  PAA01:
+    title: "IPaClient + PaCapabilities + DTOs (abstraction multi-PA)"
+    description: |
+      Définir l'abstraction PA dans Gateway.Core/PaClient/ :
+      1. IPaClient :
+         - Task<PaSendResult> SendDocumentAsync(PivotDocument doc, bool sendAfterImport = true)
+         - Task<PaSendResult> SendPaymentReportAsync(PaymentReportPeriod period)
+         - Task<PaDocumentStatus> GetDocumentStatusAsync(string paDocumentId)
+         - Task<IReadOnlyList<PaTaxReport>> ListTaxReportsAsync(DateTime? since = null)
+         - Task<PaTaxReport> GetTaxReportAsync(string taxReportId)
+         - Task<PaAccountInfo> GetAccountInfoAsync()
+         - Task<PaTaxReportSetting> GetTaxReportSettingAsync()
+         - Task EnsureTaxReportSettingAsync(PaTaxReportSettingRequest request)
+         - PaCapabilities Capabilities { get; }
+      2. PaCapabilities (le cœur de l'indépendance PA) :
+         - SupportsB2cReporting (bool)        — Flux 10.3
+         - SupportsPaymentReporting (bool)    — Flux 10.2/10.4
+         - SupportsB2bInvoicing (bool)        — Flux 1/2 (phase 2)
+         - SupportsCreditNotes (bool)
+         - SupportsTaxReportRetrieval (bool)
+         - MaxDocumentsPerRequest (int?)
+      3. DTOs : PaSendResult, PaDocumentStatus, PaTaxReport, PaAccountInfo, PaTaxReportSetting,
+         PaTaxReportSettingRequest, PaError, PaCapabilityNotSupportedResult.
+      4. Comportement standard quand une capacité manque : l'appel retourne un résultat
+         typé CapabilityNotSupported (jamais une exception) ; le Tracking journalise
+         « en attente : la plateforme <nom> ne supporte pas encore <capacité> ».
+      AUCUNE référence à un PA concret (B2Brouter, Super PDP...) dans cette couche.
+      Aucun type HTTP dans l'interface publique.
+    acceptance:
+      - "IPaClient, PaCapabilities et DTOs dans Conformat.Gateway.Core.PaClient"
+      - "Aucune référence à un PA concret, aucun type HTTP dans l'abstraction"
+      - "Capacité manquante = résultat typé, jamais d'exception, jamais de blocage du produit"
+      - "Tests : appel d'une capacité non supportée → CapabilityNotSupported journalisable"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  PAA02:
+    title: "FakePaClient (PA de test configurable)"
+    description: |
+      Implémenter dans Gateway.Core/PaClient/Testing/ (ou tests partagés) :
+      1. FakePaClient : IPaClient en mémoire, configurable :
+         - réponses succès / rejet / erreur silencieuse / timeout / capacité absente
+         - capacités configurables (pour tester le comportement du produit face à un PA limité)
+         - journal des appels (le pipeline peut être audité dans les tests)
+      2. Le FakePaClient est utilisé par : les tests du pipeline (PIP), les tests de la
+         console (WPF), les tests de l'API (API), les fixtures de démo.
+      3. Il fait partie du produit livré (mode démo hors-ligne sans aucun compte PA).
+    acceptance:
+      - "FakePaClient couvre succès, rejet, erreur silencieuse, timeout, capacité absente"
+      - "Capacités configurables par test"
+      - "Journal des appels exploitable en assertion"
+      - "Tests du FakePaClient lui-même"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  PAA03:
+    title: "Suite de tests de contrat IPaClient"
+    description: |
+      Créer tests/Gateway.PaClients.Contract.Tests/ :
+      1. Suite de tests de contrat abstraite (classe de base générique) que TOUT plug-in PA
+         doit hériter et passer :
+         - envoi d'un document valide → PaSendResult exploitable
+         - envoi d'un avoir → lien facture d'origine transmis
+         - document rejeté → erreurs remontées intactes
+         - erreur silencieuse (succès HTTP + erreurs métier) → détectée
+         - timeout / erreur réseau → résultat TechnicalError re-tentable
+         - idempotence : même numéro jamais envoyé deux fois
+         - cohérence des capacités déclarées vs comportement réel
+      2. La suite tourne contre le FakePaClient (preuve qu'elle est exécutable) et sera
+         héritée par les tests des plug-ins B2Brouter (PAB04) et Super PDP (PAS03).
+      3. Documenter dans docs/architecture/ : « comment ajouter un nouveau plug-in PA »
+         (checklist : implémenter IPaClient, déclarer les capacités, hériter la suite de
+         contrat, fournir la suite réelle staging/sandbox séparée).
+    acceptance:
+      - "Suite de contrat abstraite héritable par tout plug-in PA"
+      - "La suite passe contre FakePaClient"
+      - "Doc « ajouter un plug-in PA » rédigée"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  GATE_PA_FRAMEWORK:
+    type: gate
+    executor: human
+    title: "Gate : framework PA validé"
+    description: |
+      Validation humaine de l'abstraction PA. C'est la gate la plus structurante du produit :
+      elle fige le contrat que tous les plug-ins PA devront respecter.
+      Points de revue : le produit ne peut JAMAIS être bloqué par les limites d'un PA ;
+      les capacités couvrent les besoins commerciaux (B2C, paiement, B2B futur).
+    acceptance:
+      - "Tous les items PAA sont done"
+      - "PR du segment feat/pa-framework revue et mergée dans main"

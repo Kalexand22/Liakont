@@ -1,0 +1,78 @@
+# Lot API — API HTTP du Service (architecture multi-utilisateurs)
+# Décision 2026-06-02 : le Service est le SEUL processus à toucher le Tracking ;
+# les consoles WPF (et demain une console web) sont des clientes HTTP de cette API.
+# Projets : src/Gateway.Api/ (contrats DTOs) + src/Gateway.ApiClient/ (client .NET)
+#           + hébergement dans src/Gateway.Service/
+
+items:
+  API01:
+    title: "API HTTP self-hosted + authentification Windows"
+    description: |
+      Implémenter l'hébergement de l'API dans Gateway.Service :
+      1. Serveur HTTP self-hosted .NET Framework 4.8 (HttpListener ou OWIN self-host —
+         documenter le choix en ADR). Port configurable (défaut 8475), HTTPS optionnel
+         (certificat configurable), liaison réseau local.
+      2. Authentification Windows intégrée (NTLM/Negotiate via HttpListener) : les comptables
+         s'authentifient avec leur session Windows, aucun mot de passe à gérer.
+         Liste d'utilisateurs/groupes autorisés dans la configuration (lecture vs actions).
+      3. Pipeline de requête : routage simple, sérialisation JSON (Newtonsoft), gestion d'erreurs
+         uniforme (codes HTTP + corps d'erreur typé), journalisation des appels.
+      4. Endpoint /health : version, état de la base, dernier run, état de la connexion source.
+      ADR : choix HttpListener vs OWIN, stratégie HTTPS.
+    acceptance:
+      - "API self-hosted démarrable/arrêtable avec le service, port configurable"
+      - "Auth Windows intégrée : utilisateur non autorisé → 403"
+      - "Deux niveaux de droits : lecture / actions, configurables par groupe Windows"
+      - "/health opérationnel"
+      - "Tests d'intégration API in-process (serveur démarré dans le test)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  API02:
+    title: "Endpoints de lecture : documents, runs, encaissements, configuration"
+    description: |
+      Implémenter les endpoints de consultation (ceux dont la console a besoin pour
+      « vérifier que tout est OK ») :
+      1. GET /documents?from=&to=&state=&type=&search= → liste paginée (DTO résumé)
+      2. GET /documents/{id} → détail complet : contenu, contrôles (ValidationIssues),
+         historique (DocumentEvents), archive (référence paquet + état intégrité)
+      3. GET /runs?from=&to= → journal des runs (RunLog)
+      4. GET /payments?period= → agrégats d'encaissements (PaymentAggregate) + état transmission
+      5. GET /configuration → configuration visible (secrets masqués), table TVA chargée
+         (version, validateur, règles), capacités du/des PA configurés
+      6. Tous les DTOs dans Gateway.Api (assembly de contrats partagée service/clients),
+         versionnés (header X-Conformat-Api-Version).
+    acceptance:
+      - "Les 5 familles d'endpoints de lecture opérationnelles"
+      - "DTOs dans Gateway.Api, versionnés"
+      - "Secrets toujours masqués dans /configuration"
+      - "Pagination et filtres testés"
+      - "Tests d'intégration in-process sur chaque endpoint"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  API03:
+    title: "Endpoints d'action + Gateway.ApiClient"
+    description: |
+      Implémenter les actions et le client .NET :
+      1. Endpoints d'action (droits « actions » requis) :
+         - POST /documents/{id}/send → envoi d'un document ReadyToSend
+         - POST /documents/send-all → envoi de tous les ReadyToSend (avec récapitulatif retourné
+           AVANT exécution si ?confirm=false : nombre + montant total)
+         - POST /documents/{id}/verdict → verdict B2C/B2B du garde-fou (confirme particulier /
+           traite manuellement) — journalisé dans DocumentEvent avec l'identité Windows de l'opérateur
+         - POST /runs/trigger → déclencher un run manuel (extract/check/send/sync)
+         - GET /documents/{id}/audit-export → dossier d'export contrôle fiscal (zip streamé)
+      2. Gateway.ApiClient : client .NET de l'API (HttpClient + auth Windows par défaut),
+         utilisé par la console WPF. Une méthode par endpoint, DTOs de Gateway.Api,
+         gestion des erreurs typée (ApiException avec code + message opérateur).
+      3. Toutes les actions sont journalisées avec l'identité Windows de l'appelant
+         (piste d'audit : QUI a déclenché QUOI).
+    acceptance:
+      - "Endpoints d'action opérationnels avec contrôle des droits"
+      - "Toute action journalisée avec l'identité Windows de l'opérateur"
+      - "send-all retourne le récapitulatif avant exécution (mécanisme de confirmation)"
+      - "Gateway.ApiClient couvre tous les endpoints, erreurs typées"
+      - "Tests d'intégration : action autorisée, action refusée (403), journalisation identité"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"

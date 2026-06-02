@@ -38,24 +38,36 @@ tests/                  — Tests (à produire)
 
 ## Architecture cible (résumé)
 
+Conformat est un **produit générique** avec deux axes de plug-ins symétriques :
+les **sources** (IExtractor) et les **Plateformes Agréées** (IPaClient + capacités).
+Toute donnée client est du **paramétrage** (`deployments/<client>/`), jamais du code.
+
 ```
 Gateway.sln
-├─ Gateway.Core/                    ★ LE PRODUIT (générique, réutilisable)
-│  ├─ Pivot/                          Modèle pivot EN 16931 + contrat IExtractor
-│  ├─ TvaMapping/                     Moteur de mapping TVA (table externe validée)
-│  ├─ Validation/                     Contrôles qualité pré-envoi (~20 règles)
-│  ├─ Tracking/                       SQLite : anti-doublons, états, piste d'audit 10 ans
-│  ├─ PaClient/                       Abstraction PA + client B2Brouter
-│  ├─ Pipeline/                       extract → check → send → sync (host-agnostique)
-│  └─ Configuration/                  Config JSON + secrets DPAPI
-├─ Gateway.Adapters.EncheresV6/     ★ Premier adaptateur (Magic XPA / Pervasive — CMP)
-├─ Gateway.App/                       Console admin WPF (opérateur comptable)
-├─ Gateway.Cli/                       Mode automatique (tâche planifiée)
-└─ Gateway.Service/                   Service Windows (ordonnanceur interne)
+├─ Gateway.Core/                       ★ LE PRODUIT (générique)
+│  ├─ Pivot/                             Modèle pivot EN 16931 + contrat IExtractor
+│  ├─ TvaMapping/                        Moteur de mapping TVA (tables = paramétrage)
+│  ├─ Validation/                        Contrôles qualité pré-envoi (~20 règles)
+│  ├─ Tracking/                          Multi-provider (SQLite/SQL Server) : états, piste
+│  │                                     d'audit + coffre d'archivage fiscal 10 ans (WORM)
+│  ├─ PaClient/                          Abstraction IPaClient + PaCapabilities
+│  ├─ Pipeline/                          extract → check → send → sync
+│  └─ Configuration/                     Config JSON + secrets DPAPI
+├─ Gateway.PaClients.B2Brouter/        ★ Plug-in PA #1 (staging validé)
+├─ Gateway.PaClients.SuperPdp/         ★ Plug-in PA #2 (Offre Éco marque grise)
+├─ Gateway.Adapters.EncheresV6/        ★ Plug-in source #1 (Magic XPA / Pervasive)
+├─ Gateway.Api/ + Gateway.ApiClient/     Contrats + client de l'API HTTP
+├─ Gateway.Service/                      L'HÔTE : service Windows = ordonnanceur + pipeline
+│                                        + API HTTP + seul accès à la base (mono-écrivain)
+├─ Gateway.App/                          Console WPF multi-postes (cliente de l'API)
+└─ Gateway.Cli/                          Utilitaire de mise en service et de secours
+
+deployments/cmp/                       ★ Paramétrage du 1er déploiement (CMP) — pas du code
 ```
 
-Stack : **.NET Framework 4.8** (compatibilité Windows legacy), WPF, SQLite, Newtonsoft.Json.
-Déploiement : **on-premise uniquement**. Voir `blueprint.md` pour la doctrine complète.
+Stack : **.NET Framework 4.8** (compatibilité Windows legacy), WPF, SQLite/SQL Server Express,
+Newtonsoft.Json, Dapper. Déploiement : **on-premise uniquement**.
+Voir `blueprint.md` pour la doctrine complète.
 
 ## Orchestration multi-agents
 

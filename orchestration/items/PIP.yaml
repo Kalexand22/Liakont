@@ -1,7 +1,8 @@
 # Lot PIP — Pipeline d'orchestration du flux (F11 cœur + F07 + F09)
 # Specs : docs/conception/F11-CLI-Mode-Automatique.md, F07-F08-Avoirs-Frontiere-B2B-B2C.md,
 #         F09-E-Reporting-Paiement.md
-# Le pipeline est host-agnostique : CLI et Service Windows appellent le même PipelineRunner.
+# Le pipeline est host-agnostique : le Service (et le CLI en secours) appellent le même
+# PipelineRunner. Il parle aux PA via IPaClient + capacités — JAMAIS à un PA concret.
 
 items:
   PIP01:
@@ -13,19 +14,23 @@ items:
          - CHECK : documents Detected/Blocked → ValidationPipeline (F04) →
            OK : ReadyToSend ; KO : Blocked avec motifs
          - SEND : ReadyToSend → IPaClient.SendDocumentAsync →
-           succès : Issued ; errors[] : RejectedByPa ; réseau : TechnicalError
+           succès : Issued (+ création du paquet d'archive TRK06) ; errors[] : RejectedByPa ;
+           réseau : TechnicalError
          - SYNC : Issued sans tax report → ListTaxReportsAsync → archivage xml_base64
+           (si le PA déclare SupportsTaxReportRetrieval)
       2. RunOptions : période (from/to), dryRun (tout sauf écritures PA), maxDocuments,
          commande partielle (extract seul, send seul, sync seul).
       3. RunReport : compteurs par état, durée, issues, code de sortie calculé
          (0 = succès complet, 1 = partiel avec blocages/rejets, 2 = échec fatal).
       4. Mutex global nommé : Global\Conformat_<hash-chemin-config> — un seul processus en
-         écriture par configuration. Mutex occupé = code 3, aucune attente bloquante.
+         écriture par configuration (le Service le détient en continu ; le CLI de secours
+         ne peut le prendre que si le Service est arrêté).
       5. Chaque run écrit un RunLog dans le Tracking.
     acceptance:
       - "Séquence extract→check→send→sync complète et testée avec FixtureExtractor + FakePaClient"
       - "dry-run n'effectue aucune écriture PA (vérifié par le journal d'appels du FakePaClient)"
       - "Codes de sortie 0/1/2/3 calculés selon F11"
+      - "Le pipeline ne référence JAMAIS un plug-in PA concret (uniquement IPaClient)"
       - "Mutex global empêche deux runs simultanés sur la même config"
       - "RunLog écrit pour chaque run"
       - "verify-fast passes"
@@ -43,18 +48,24 @@ items:
          multi-références), avoir orphelin (bloqué, pas de référence fabriquée).
       3. Le mapping TVA d'un avoir est identique à celui de l'original, montants positifs
          (le type 381 porte la sémantique crédit).
+      4. Si le PA ne déclare pas SupportsCreditNotes : les avoirs restent en ReadyToSend avec
+         le statut « en attente : capacité avoirs non disponible chez <PA> » — jamais perdus,
+         jamais bloquants pour le reste du run.
     acceptance:
       - "Avoir envoyé seulement après émission de sa facture d'origine"
       - "Réordonnancement automatique quand l'original est dans le même run"
       - "Avoir orphelin bloqué, jamais envoyé"
-      - "Tests : avoir simple, avoir groupé, avoir orphelin, avoir avant facture dans le même run"
+      - "PA sans capacité avoirs : mise en attente propre, pas de blocage du run"
+      - "Tests : avoir simple, avoir groupé, avoir orphelin, avoir avant facture, PA sans capacité"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   PIP03:
-    title: "Agrégation e-reporting de paiement (F09)"
+    title: "E-reporting de paiement (F09) — complet, piloté par les capacités PA"
     description: |
-      Implémenter l'agrégation des encaissements dans Gateway.Core/Pipeline/ selon F09 :
+      Implémenter l'e-reporting de paiement dans Gateway.Core/Pipeline/ selon F09.
+      LE PRODUIT EST COMPLET : extraction, agrégation, persistence ET envoi sont implémentés.
+      C'est la capacité du PA configuré qui détermine si l'envoi part réellement.
       1. PaymentAggregator : PivotPayment (extraits par IExtractor.ExtractPayments) →
          PaymentReportPeriod agrégés par jour × taux TVA (l'obligation DGFiP est un agrégé
          jour×taux au niveau SIREN, pas un lettrage ligne à ligne).
@@ -62,17 +73,32 @@ items:
          du bordereau lié.
       3. Cas limites : paiement partiel (imputé à sa date), trop-perçu/remboursement (montant
          négatif dans l'agrégat de la période), règlement sans rattachement bordereau (alerte Warning).
-      4. ENVOI CONDITIONNEL : la transmission des Flux 10.2/10.4 côté B2Brouter est annoncée
-         « planned for a future release » (point ouvert F09). On développe extraction + agrégation +
-         persistence (PaymentAggregate dans le Tracking), l'envoi est derrière un flag de config
-         PaymentReportingEnabled (défaut false) qui sera activé quand B2Brouter exposera l'API.
-      IMPORTANT : si la décision fiscale « CMP a opté TVA sur les débits » tombe (point ouvert),
-      F9 disparaît entièrement — c'est pour ça que tout est derrière un flag.
+      4. ENVOI piloté par la capacité du PA :
+         - PA avec SupportsPaymentReporting=true → IPaClient.SendPaymentReportAsync, suivi des états
+         - PA avec SupportsPaymentReporting=false → les agrégats sont calculés, persistés
+           (PaymentAggregate) et affichés avec l'état « En attente : la plateforme <nom> ne
+           supporte pas encore la transmission des paiements ». Dès que le plug-in déclarera
+           la capacité, les agrégats en attente partiront au run suivant — AUCUN autre changement.
+      5. Tests avec FakePaClient dans les deux configurations de capacité.
     acceptance:
       - "Agrégation jour×taux conforme F09, sans données nominatives"
       - "Imputation prorata frais/total implémentée et testée"
-      - "Envoi derrière le flag PaymentReportingEnabled (défaut false)"
-      - "Agrégats persistés dans PaymentAggregate (Tracking)"
-      - "Tests : agrégation multi-jours/multi-taux, paiement partiel, remboursement, sans rattachement"
+      - "Envoi réel via IPaClient quand la capacité est déclarée (testé avec FakePaClient)"
+      - "Capacité absente : agrégats persistés en attente, transmission automatique dès activation"
+      - "Aucun flag de configuration produit — uniquement la capacité du PA"
+      - "Tests : agrégation multi-jours/multi-taux, paiement partiel, remboursement, les 2 modes de capacité"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
+
+  GATE_PIPELINE:
+    type: gate
+    executor: human
+    title: "Gate : pipeline validé"
+    description: |
+      Validation humaine du pipeline complet. Démonstration attendue : un run de bout en bout
+      sur fixtures (FixtureExtractor → validation → FakePaClient → tracking → archive),
+      incluant avoirs et agrégats de paiement, dans les deux configurations de capacités PA.
+    acceptance:
+      - "Tous les items PIP sont done"
+      - "PR du segment feat/pipeline revue et mergée dans main"
+      - "Un run de bout en bout sur fixtures a été démontré"

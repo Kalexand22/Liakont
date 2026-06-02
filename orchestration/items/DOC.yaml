@@ -1,40 +1,39 @@
-# Lot DOC — Documentation utilisateur & démo
-# Dernière ligne droite avant la gate démo ISATECH.
+# Lot DOC — Documentation utilisateur du produit
+# Documentation GÉNÉRIQUE du produit (le scénario de démo ISATECH, spécifique au déploiement
+# CMP, est dans le lot CMP).
 
 items:
   DOC01:
-    title: "Documentation utilisateur console + scénario de démo"
+    title: "Guide utilisateur console + guide exploitant"
     description: |
-      Rédiger la documentation finale :
-      1. docs/guide-utilisateur.md : guide opérateur de la console WPF — chaque écran,
-         chaque état, chaque action, les messages de blocage courants et comment les résoudre.
-         Public : opérateur comptable non technique. Captures d'écran des écrans sur fixtures.
-      2. docs/scenario-demo.md : scénario de démo ISATECH pas à pas (15-20 min) —
-         jeu de fixtures à charger, enchaînement des écrans, points de valeur à montrer
-         (extraction sans toucher au logiciel source, blocages TVA expliqués en français,
-         piste d'audit, export contrôle fiscal), questions/objections probables et réponses.
+      Rédiger la documentation produit :
+      1. docs/guide-utilisateur.md : guide opérateur de la console WPF — connexion au serveur,
+         chaque écran, chaque état, chaque action, les messages de blocage courants et comment
+         les résoudre, le verdict B2C/B2B, l'export d'audit. Public : opérateur comptable non
+         technique. Captures d'écran des écrans sur fixtures.
+      2. docs/guide-exploitant.md : guide de l'exploitant du Service — installation,
+         planification, supervision (/health, last-run-status.json, montre morte),
+         sauvegardes (base + coffre d'archive), vérification d'intégrité de l'archive,
+         lecture des logs, procédures d'incident.
       3. README.md du repo mis à jour : état du produit, comment builder, comment lancer
-         la démo, liens vers toute la documentation.
+         en mode démo (fixtures + FakePaClient), liens vers toute la documentation.
     acceptance:
       - "Guide utilisateur couvrant tous les écrans et états, en français opérateur"
-      - "Scénario de démo exécutable de bout en bout sur fixtures"
+      - "Guide exploitant couvrant supervision, sauvegardes et incidents"
       - "README.md à jour"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
-  GATE_DEMO_ISATECH:
+  GATE_TOOLKIT:
     type: gate
     executor: human
-    title: "Gate finale : produit prêt pour la démo ISATECH"
+    title: "Gate : produit packagé et documenté"
     description: |
-      Validation humaine finale : le produit complet (Core + adaptateur EncheresV6 + console +
-      CLI/Service + packaging + docs) est prêt pour la démo ISATECH.
-      Dérouler le scénario de démo (docs/scenario-demo.md) de bout en bout sur une machine
-      propre à partir du zip de packaging.
-      Points ouverts métier à vérifier avant la démo (hors code) :
-      - réponses expert-comptable CMP (régime 6, TVA sur débits, OperationCategory, volume pros)
-      - tickets support B2Brouter (marge cas 33, Flux 10.2/10.4)
+      Validation humaine du produit complet packagé : le zip s'installe sur une machine propre,
+      le Service démarre, la console se connecte, la documentation permet à un intégrateur
+      (partenaire Niveau 2) de déployer sans assistance.
+      C'est la dernière gate du PRODUIT — tout ce qui suit (lot CMP) est du paramétrage.
     acceptance:
       - "Tous les items CFG et DOC sont done"
-      - "Scénario de démo déroulé avec succès depuis le zip sur machine propre"
-      - "PR du segment feat/deployment revue et mergée dans main"
+      - "Installation complète depuis le zip réussie sur machine propre"
+      - "PR du segment feat/deploiement-toolkit revue et mergée dans main"

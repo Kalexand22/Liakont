@@ -6,11 +6,35 @@ de chaque session (protocol.md, Step 1)._
 
 ---
 
-## 2026-06-02 — Initialisation du projet
+## 2026-06-02 — Leçon majeure : Conformat est un PRODUIT, pas un projet client
 
-**Contexte :** Le système d'orchestration de Conformat reprend le principe éprouvé sur Stratum
-(voir C:\Source\Stratum et C:\Source\stratum-orchestration). Leçons héritées de Stratum
-applicables ici :
+**Symptôme :** Le backlog v1 contenait la table de mapping TVA du CMP comme item du Core
+(TVA04), un flag produit `PaymentReportingEnabled` calé sur les limites de B2Brouter, et
+visait « la démo ISATECH » comme objectif final. L'utilisateur a corrigé fermement
+(« On code un produit GÉNÉRIQUE, pas un spé. Doit être du paramétrage, point final »).
+
+**Règles pour l'avenir :**
+- **Toute donnée d'UN client** (table TVA, SIREN, chaîne ODBC, compte PA) va dans
+  `deployments/<client>/`, jamais dans `src/` ni `config/exemples/`. Les exemples du Core
+  utilisent des codes FICTIFS.
+- **Toute limite d'UN PA** s'exprime par les capacités déclarées de SON plug-in
+  (`PaCapabilities`), jamais par un flag produit, jamais par un `if` sur le type de PA.
+- **Avant de créer un item de backlog**, se demander : « est-ce du PRODUIT (générique,
+  réutilisable pour tout client/PA) ou du PARAMÉTRAGE (spécifique à un déploiement) ? »
+  Les deux ne vont pas dans le même segment.
+- Quand un document commercial (DR9, DR17, Offre-Editeur) mentionne un acteur (Super PDP),
+  le chercher dans TOUTE la doc avant de dire qu'il n'y est pas.
+
+## 2026-06-02 — Orchestration : collision de namespace de refs git
+
+**Symptôme :** Première session d'orchestration bloquée sur SOL01 — impossible de créer
+`feat/socle/SOL01` car la branche `feat/socle` existe (git stocke les refs comme fichiers :
+un chemin ne peut pas être à la fois fichier et répertoire).
+
+**Règle :** Les sous-branches utilisent un TIRET : `<segment>-<item>` (ex: `feat/socle-SOL01`).
+Jamais de slash après un nom de branche existante. Corrigé dans protocol.md Step 3.
+
+## 2026-06-02 — Leçons héritées de Stratum (applicables ici)
 
 - **Ne jamais enchaîner un 2ème item après le premier** : un item par session, EXIT propre.
 - **Les tests doivent être EXÉCUTÉS, pas seulement écrits** : un test jamais lancé est un faux vert.
@@ -18,11 +42,14 @@ applicables ici :
   invalide la review.
 - **Les P2 ne sont jamais ignorés silencieusement** : fixés ou acceptés avec justification écrite.
 
-**Spécifique Conformat :**
+## 2026-06-02 — Spécifique Conformat (conformité fiscale)
 
 - **Ne jamais inventer une règle fiscale.** Si la spec (docs/conception/) ne tranche pas une
   question TVA/VATEX/arrondi, l'item passe en `blocked` avec le nom de la décision manquante
-  et son propriétaire (expert-comptable CMP ou support B2Brouter). Deviner = risque fiscal client.
+  et son propriétaire (expert-comptable du client ou support PA). Deviner = risque fiscal client.
 - **Les montants sont en decimal.** Tout float/double sur un montant est un P1, sans exception.
-- **La piste d'audit est sacrée.** Aucun code ne doit pouvoir modifier ou supprimer un
-  DocumentEvent, même pour « corriger » des données de test.
+- **La piste d'audit et le coffre d'archive sont sacrés.** Aucun code ne doit pouvoir modifier
+  ou supprimer un DocumentEvent ou un paquet d'archive, même pour « corriger » des données de test.
+- **PowerShell 5.1 + fichiers UTF-8 sans BOM = corruption d'accents.** Les .ps1 doivent avoir
+  un BOM UTF-8 ; les lectures/écritures de fichiers en .NET doivent spécifier l'encodage UTF-8
+  explicitement.

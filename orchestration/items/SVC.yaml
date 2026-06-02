@@ -1,60 +1,72 @@
-# Lot SVC — Service Windows résident (F11)
+# Lot SVC — Gateway.Service : l'hôte central (F11 adapté à l'architecture API)
 # Spec : docs/conception/F11-CLI-Mode-Automatique.md
-# Hôte alternatif au CLI : ordonnanceur interne + auto-surveillance (« montre morte »).
-# CLI OU Service par déploiement, jamais les deux (le mutex global l'interdit de toute façon).
+# Décision 2026-06-02 : le Service est l'hôte NOMINAL du produit (plus une alternative au CLI).
+# Il héberge : l'ordonnanceur + le pipeline + l'API HTTP + le seul accès au Tracking.
 
 items:
   SVC01:
     title: "Gateway.Service : service Windows + ordonnanceur interne"
     description: |
-      Implémenter le service dans src/Gateway.Service/ selon F11 :
-      1. ServiceBase mince + timer : le service appelle PipelineRunner.RunAsync exactement
-         comme le CLI (même moteur, même config, même mutex).
+      Implémenter le service dans src/Gateway.Service/ :
+      1. ServiceBase + hôte d'exécution : démarre l'API HTTP (lot API), l'ordonnanceur,
+         et détient le SEUL accès au Tracking (principe mono-écrivain).
       2. Ordonnanceur interne configuré par la section schedule de la config :
          {"times": ["03:00"], "catchUpOnStart": true, "heartbeatMinutes": 15}
-         - times : heures de déclenchement quotidien
+         - times : heures de déclenchement quotidien du pipeline complet
          - catchUpOnStart : si la machine était éteinte à l'heure prévue, exécuter au démarrage
-      3. Battement de cœur : écriture périodique de last-run-status.json même hors run
-         (champ heartbeat_utc) → une supervision externe détecte un service figé.
-      4. Aucune logique métier dans le service : coquille ServiceBase + timer + appel moteur.
+      3. Battement de cœur : écriture périodique de last-run-status.json (+ exposé sur /health)
+         → une supervision externe détecte un service figé.
+      4. Mode console (debug) : Gateway.Service.exe --console pour lancer l'hôte en interactif
+         (développement et diagnostic).
+      5. Aucune logique métier : le service orchestre PipelineRunner + API, rien d'autre.
     acceptance:
-      - "Le service appelle le même PipelineRunner que le CLI (vérifié : aucune duplication de logique)"
+      - "Le service démarre l'API + l'ordonnanceur + le pipeline planifié"
       - "Ordonnanceur : déclenchement aux heures configurées + catchUpOnStart"
-      - "Heartbeat périodique écrit dans last-run-status.json"
+      - "Heartbeat périodique (fichier + /health)"
+      - "Mode --console fonctionnel pour le debug"
       - "Tests : calcul du prochain déclenchement, catch-up, heartbeat (timer abstrait/mockable)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   SVC02:
-    title: "Self-install/uninstall + détection montre morte"
+    title: "Self-install/uninstall + montre morte + arrêt propre + journalisation"
     description: |
       Compléter le service selon F11 :
-      1. Gateway.Service.exe install / uninstall : auto-installation du service Windows
-         (sc.exe ou ServiceInstaller), nom de service dérivé du chemin de config
-         (multi-config sur la même machine = plusieurs instances de service).
-      2. Détection « montre morte » : au démarrage et à chaque heartbeat, si le dernier run
-         réussi date de plus de 48h alors qu'un run était planifié → notification (réutilise CLI03)
-         + ERROR dans le log.
-      3. Arrêt propre : si un run est en cours lors d'un Stop du service, le run se termine
-         (timeout configurable) avant l'arrêt — jamais d'interruption brutale au milieu d'un envoi.
+      1. Gateway.Service.exe install / uninstall : auto-installation du service Windows,
+         nom de service dérivé du chemin de config (multi-config sur la même machine =
+         plusieurs instances de service, chacune avec son port API).
+      2. Détection « montre morte » : si le dernier run réussi date de plus de 48h alors
+         qu'un run était planifié → notification (SVC03) + ERROR dans le log + état dégradé
+         visible sur /health.
+      3. Arrêt propre : si un run est en cours lors d'un Stop, le run se termine (timeout
+         configurable) avant l'arrêt — jamais d'interruption au milieu d'un envoi.
+      4. Journalisation fichiers : un log par run (logs\<date>_<heure>_run.log, format
+         horodaté lisible, n° de document grep-able), rotation 90 jours.
+         Le Tracking et le coffre d'archive ne sont JAMAIS purgés.
     acceptance:
-      - "install/uninstall fonctionnels (testables sur machine de dev avec droits admin)"
-      - "Multi-config = multi-instances de service avec noms distincts"
-      - "Montre morte > 48h détectée et notifiée"
+      - "install/uninstall fonctionnels, multi-config = multi-instances"
+      - "Montre morte > 48h détectée, notifiée et visible sur /health"
       - "Arrêt propre attend la fin du run en cours"
+      - "Logs par run avec rotation 90 jours"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
-  GATE_PIPELINE:
-    type: gate
-    executor: human
-    title: "Gate : pipeline + hôtes validés"
+  SVC03:
+    title: "Notifications SMTP"
     description: |
-      Validation humaine du pipeline complet et de ses deux hôtes (CLI + Service).
-      Démonstration attendue : un run complet de bout en bout sur fixtures
-      (FixtureExtractor → validation → FakePaClient → tracking) via le CLI,
-      avec codes retour corrects et logs exploitables.
+      Implémenter les notifications selon F11 :
+      1. Échec de run (erreur fatale) : mail immédiat « La transmission du <date> n'a pas pu
+         s'exécuter : <raison> ».
+      2. Run partiel (blocages/rejets nouveaux) : mail récapitulatif — liste des documents
+         + motifs + consigne « ouvrir la console ».
+      3. Montre morte (SVC02) : mail d'alerte.
+      4. Run OK : pas de mail. Option NotifyOnSuccess: true pour les premières semaines.
+      5. SMTP simple (System.Net.Mail, net48) : hôte, port, credentials (chiffrés DPAPI),
+         from/to dans la config. Échec d'envoi du mail = WARN dans le log, jamais un échec du run.
     acceptance:
-      - "Tous les items PIP, CLI, SVC sont done"
-      - "PR du segment feat/pipeline-hosts revue et mergée dans main"
-      - "Un run de bout en bout sur fixtures a été démontré"
+      - "Les 4 scénarios de notification implémentés"
+      - "NotifyOnSuccess configurable, défaut false"
+      - "Un échec SMTP ne fait jamais échouer le run (testé)"
+      - "Tests avec transport SMTP factice : contenu des mails, déclenchement par scénario"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
