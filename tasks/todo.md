@@ -12,9 +12,9 @@ l'architecture on-premise. Voir `tasks/analyse-impact-pivot-plateforme.md` et `t
 
 ### Séquence de préparation (sessions interactives)
 
-- [ ] ❗ **Fermer la PR #1 (GATE_SOCLE) sans la merger** — le scaffold net48 est invalidé par le pivot
-- [ ] Trancher : où vit le code plateforme ? (recommandation : repo Conformat, socle Stratum copié — analyse §6)
-- [ ] Trancher : nommage des projets (Gateway.* ou Conformat.*)
+- [x] ~~Fermer la PR #1 (GATE_SOCLE) sans la merger~~ **FAIT (2026-06-03)**
+- [x] ~~Trancher : où vit le code plateforme ?~~ **TRANCHÉ** : repo Conformat, socle Stratum vendored
+- [x] ~~Trancher : nommage des projets~~ **TRANCHÉ** : Conformat.* (Conformat.Host, Conformat.Modules.*, Conformat.Agent)
 - [ ] Réécrire blueprint.md (architecture plateforme + agent)
 - [ ] Réécrire les règles métier du CLAUDE.md (net48 = agent uniquement, frontières de modules, etc.)
 - [ ] Amender F10/F11 + créer F12 (architecture plateforme/agent + contrat d'API)

@@ -202,11 +202,11 @@ pas une décision technique.
 | # | Question | Propriétaire | Impact |
 |---|---|---|---|
 | 1 | **CMP : tenant mutualisé ou instance dédiée/on-premise ?** | ISATECH/CMP | Dimensionne le lot CMP et l'urgence d'OPS01 (appliance) |
-| 2 | **Où vit le code plateforme ?** (§6 — recommandation : option C) | Karl | Structure du repo, démarrage du scaffold |
+| 2 | ~~Où vit le code plateforme ?~~ **TRANCHÉ (2026-06-03)** : repo Conformat, socle Stratum vendored (option C) | Karl | Structure du repo, démarrage du scaffold |
 | 3 | **Hébergeur des instances hébergées** (OVH, Scaleway, autre) | Karl | OPS02, contrats, RGPD |
 | 4 | **Auth : Keycloak par instance, Keycloak mutualisé, ou alternative ?** | ADR (début du dev) | OPS01/OPS02, empreinte par instance |
-| 5 | **Nommage des projets** : Gateway.* (actuel) ou Conformat.* | Karl | Scaffold v2 (SOL01 v6) |
-| 6 | **Sort de la PR #1** : fermer sans merger (recommandé) ou merger puis réécrire | Karl | Propreté de l'historique |
+| 5 | ~~Nommage des projets~~ **TRANCHÉ (2026-06-03)** : **Conformat.*** | Karl | Scaffold v2 (SOL01 v6) |
+| 6 | ~~Sort de la PR #1~~ **TRANCHÉ (2026-06-03)** : fermée sans merge | Karl | Propreté de l'historique |
 
 ---
 
@@ -214,8 +214,8 @@ pas une décision technique.
 
 Dans l'ordre :
 
-1. ❗ **Fermer la PR #1 sans merger** (décision #6 ci-dessus)
-2. Trancher les questions ouvertes #2 et #5 (repo + nommage) — les autres peuvent attendre
+1. ~~Fermer la PR #1 sans merger~~ ✅ FAIT (2026-06-03)
+2. ~~Trancher les questions ouvertes #2 et #5 (repo + nommage)~~ ✅ FAIT (2026-06-03)
 3. Réécrire `blueprint.md` (architecture cible plateforme + agent)
 4. Réécrire les règles métier du `CLAUDE.md` (la règle « .NET Framework 4.8 jamais .NET 8+ »
    ne vaut plus que pour l'agent ; les frontières Core/plug-ins deviennent les frontières
