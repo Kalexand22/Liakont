@@ -20,6 +20,7 @@ ils ne bloquent PAS le développement du produit — ils bloquent les gates de d
 - [ ] Expert-comptable CMP : volume d'acheteurs professionnels ?
 - [ ] Ticket support B2Brouter : montant marge cas n°33
 - [ ] Ticket support B2Brouter : transmission Flux 10.2/10.4 (calendrier) → mettra à jour les capacités du plug-in
+- [ ] Ticket/vérification staging B2Brouter : endpoint de téléchargement de la facture Factur-X générée (→ capacité SupportsDocumentRetrieval, archivage des factures légales)
 - [ ] Compte B2Brouter production + tax_report_setting
 
 ### Bloquant pour GATE_PA_SUPERPDP (plug-in Super PDP)

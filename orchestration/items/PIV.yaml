@@ -47,7 +47,7 @@ items:
       - "codex-review clean or only accepted P2s"
 
   PIV03:
-    title: "Contrat d'extraction IExtractor"
+    title: "Contrat d'extraction IExtractor + pièces jointes source"
     description: |
       Définir le contrat universel des adaptateurs dans Gateway.Core/Pivot/ selon F02 :
       1. IExtractor :
@@ -55,12 +55,21 @@ items:
          - IEnumerable<PivotDocument> ExtractDocuments(DateTime from, DateTime to)  (streaming, [from, to[)
          - IEnumerable<PivotPayment> ExtractPayments(DateTime from, DateTime to)
          - IReadOnlyList<SourceTaxRegime> ListSourceTaxRegimes()
-      2. HealthCheckResult : IsHealthy, Message (français opérateur), Details.
-      3. SourceTaxRegime : code source brut, libellé source, occurrences.
+         - ExtractorCapabilities Capabilities { get; }
+         - IReadOnlyList<SourceAttachment> GetAttachments(string sourceReference)
+           (vide si la capacité n'est pas déclarée)
+      2. ExtractorCapabilities : ProvidesSourceDocuments (bool) — l'adaptateur sait-il fournir
+         les documents émis par le logiciel source (bordereaux PDF) ?
+         Même principe que PaCapabilities : capacité déclarée, comportement adapté, jamais d'exception.
+      3. SourceAttachment : FileName, MimeType, Content (byte[]), Origin (description de la
+         provenance : table/blob ou chemin fichier). Destiné au coffre d'archive (TRK06).
+      4. HealthCheckResult : IsHealthy, Message (français opérateur), Details.
+      5. SourceTaxRegime : code source brut, libellé source, occurrences.
       Le contrat est LA frontière produit/adaptateur : le Core ne connaît jamais le schéma source.
     acceptance:
-      - "IExtractor, HealthCheckResult, SourceTaxRegime dans Conformat.Gateway.Core.Pivot"
+      - "IExtractor, ExtractorCapabilities, SourceAttachment, HealthCheckResult, SourceTaxRegime dans Conformat.Gateway.Core.Pivot"
       - "Extraction en streaming (IEnumerable, pas de List matérialisée)"
+      - "Capacité ProvidesSourceDocuments : adaptateur sans capacité = liste vide, jamais d'exception"
       - "Aucune référence à un schéma source spécifique dans le Core"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"

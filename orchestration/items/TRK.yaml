@@ -131,10 +131,16 @@ items:
          - payload.json (ce qui a été transmis à la PA, exact)
          - reponse-pa.json (réponse PA + identifiants DGFiP — preuve de transmission)
          - tax-report.xml (le ledger DGFiP, ajouté quand récupéré)
+         - facture-pa.pdf / facture-pa.xml (LA FACTURE LÉGALE générée par la PA — Factur-X/UBL,
+           récupérée via IPaClient.GetGeneratedDocumentAsync quand la PA déclare
+           SupportsDocumentRetrieval ; absente sinon, mentionné dans le manifest)
+         - bordereau-source.pdf (le document émis par le logiciel source — fourni par
+           l'adaptateur via IExtractor.GetAttachments quand il déclare ProvidesSourceDocuments ;
+           absent sinon, mentionné dans le manifest)
          - document-lisible.html (rendu lisible autonome : en-tête, lignes, totaux, TVA —
            exigence de lisibilité art. 289 V CGI, doit rester lisible sans le logiciel)
          - manifest.json (hashes SHA-256 de chaque fichier + horodatage + trace mapping +
-           chain_hash)
+           chain_hash + liste des pièces présentes/absentes avec motif)
       2. Chaîne de hashes (intégrité tamper-evident) :
          chain_hash(N) = SHA256(chain_hash(N-1) + package_hash(N))
          → toute altération a posteriori d'un paquet casse la chaîne à partir de ce point.
@@ -146,10 +152,11 @@ items:
          est ce qui rend le client indépendant de sa PA.
     acceptance:
       - "Paquet d'archive complet créé pour chaque document émis"
+      - "Facture PA (Factur-X) et bordereau source intégrés quand les capacités le permettent, absence documentée sinon"
       - "Rendu HTML lisible autonome (ouvrable dans 10 ans sans le logiciel)"
       - "Chaîne de hashes implémentée, altération détectable"
       - "Aucune méthode de modification/suppression de paquet (WORM vérifié par test)"
-      - "Tests : création paquet, chaînage, ajout tax-report a posteriori, détection altération"
+      - "Tests : création paquet, chaînage, ajout tax-report a posteriori, détection altération, avec/sans pièces jointes"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 

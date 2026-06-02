@@ -9,7 +9,7 @@
 meta:
   project: conformat-gateway
   phase: 1
-  version: 2
+  version: 3
   host: multi_agent_v1
 
 segments:
@@ -170,7 +170,8 @@ items:
   - { id: ADP02, lot: ADP, priority: 6010, depends_on: [ADP01] }
   - { id: ADP03, lot: ADP, priority: 6020, depends_on: [ADP02] }
   - { id: ADP04, lot: ADP, priority: 6030, depends_on: [ADP02] }
-  - { id: GATE_ADAPTER_ENCHERESV6, type: gate, executor: human, priority: 6400, depends_on: [ADP03, ADP04] }
+  - { id: ADP05, lot: ADP, priority: 6040, depends_on: [ADP02] }
+  - { id: GATE_ADAPTER_ENCHERESV6, type: gate, executor: human, priority: 6400, depends_on: [ADP03, ADP04, ADP05] }
 
   # ── WPF ──
   - { id: WPF01, lot: WPF, blueprint: wpf-screen-item, priority: 6500, depends_on: [] }

@@ -20,6 +20,9 @@ items:
          - Task<PaAccountInfo> GetAccountInfoAsync()
          - Task<PaTaxReportSetting> GetTaxReportSettingAsync()
          - Task EnsureTaxReportSettingAsync(PaTaxReportSettingRequest request)
+         - Task<PaGeneratedDocument> GetGeneratedDocumentAsync(string paDocumentId)
+           (la facture générée par la PA : contenu + format ; CapabilityNotSupported si
+           la PA ne le permet pas)
          - PaCapabilities Capabilities { get; }
       2. PaCapabilities (le cœur de l'indépendance PA) :
          - SupportsB2cReporting (bool)        — Flux 10.3
@@ -27,6 +30,8 @@ items:
          - SupportsB2bInvoicing (bool)        — Flux 1/2 (phase 2)
          - SupportsCreditNotes (bool)
          - SupportsTaxReportRetrieval (bool)
+         - SupportsDocumentRetrieval (bool)   — la PA permet de télécharger la facture
+           électronique qu'elle a générée (Factur-X PDF/A-3, UBL, CII) → archivage TRK06
          - MaxDocumentsPerRequest (int?)
       3. DTOs : PaSendResult, PaDocumentStatus, PaTaxReport, PaAccountInfo, PaTaxReportSetting,
          PaTaxReportSettingRequest, PaError, PaCapabilityNotSupportedResult.

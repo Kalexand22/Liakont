@@ -22,7 +22,9 @@ items:
       3. Spécificités du modèle marque grise/grossiste : création de comptes clients,
          facturation, ce que ça implique pour la configuration multi-compte.
       4. Questions à poser au support Super PDP (flux paiement, archivage NF Z42-013,
-         horodatage, sort des archives en cas de résiliation — liste DR17-A4).
+         horodatage, sort des archives en cas de résiliation — liste DR17-A4 ;
+         + téléchargement de la facture Factur-X générée via l'API → capacité
+         SupportsDocumentRetrieval).
       Sources : DR17, DR9, doc publique. Tout ce qui n'est pas vérifiable = marqué « à
       confirmer sandbox/support », jamais affirmé.
     acceptance:
