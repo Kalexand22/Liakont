@@ -154,27 +154,42 @@ items:
       - "codex-review clean or only accepted P2s"
 
   TRK07:
-    title: "Vérification d'intégrité + horodatage RFC 3161 + export contrôle fiscal"
+    title: "Vérification d'intégrité + ancrage temporel (OpenTimestamps / RFC 3161) + export contrôle fiscal"
     description: |
       Compléter le coffre d'archive :
       1. ArchiveVerifier : vérification complète de la chaîne d'archive (tous les hashes,
-         tout le chaînage) → rapport d'intégrité. Exposé via le CLI (verify-archive) et l'API.
-      2. Horodatage RFC 3161 (OPTIONNEL, configurable) : horodatage quotidien de la tête de
-         chaîne par une autorité d'horodatage (TSA configurable : URL, certificat).
-         Si activé : le jeton d'horodatage est archivé avec la chaîne → valeur probante renforcée.
-         Si pas d'accès internet sortant : désactivé proprement, le coffre fonctionne sans.
+         tout le chaînage, les preuves d'ancrage) → rapport d'intégrité. Exposé via le CLI
+         (verify-archive) et l'API.
+      2. Ancrage temporel de la tête de chaîne — abstraction ITimestampAnchor (même principe
+         que les plug-ins PA : le scellement est une capacité paramétrable, jamais une
+         dépendance à un prestataire) :
+         - OpenTimestampsAnchor (DÉFAUT) : envoi quotidien du hash de tête de chaîne (32 octets,
+           aucune donnée confidentielle) aux serveurs calendar publics OpenTimestamps →
+           ancrage dans la blockchain Bitcoin. GRATUIT, preuve .ots archivée avec la chaîne,
+           gestion du cycle pending → complete (upgrade différé de quelques heures).
+           Implémentation : POST HTTP aux calendars (protocole simple), stockage et upgrade
+           des preuves .ots, vérification intégrée au rapport ArchiveVerifier.
+         - Rfc3161Anchor (OPTION premium) : horodatage qualifié eIDAS par une TSA configurable
+           (URL, certificat — ex. Certigna/Universign, ~15-50 €/an). Pour les clients qui
+           veulent la présomption légale d'exactitude (art. 41 eIDAS).
+         - NoAnchor : sites sans accès internet sortant — la chaîne de hashes locale reste active.
+         Les deux ancrages peuvent être actifs simultanément (ceinture-bretelles).
       3. Export contrôle fiscal : pour un document ou une période, produire un dossier d'export
-         contenant les paquets d'archive + le rapport d'intégrité + la chronologie complète
-         (DocumentEvents) — exploitable directement par un vérificateur.
+         contenant les paquets d'archive + le rapport d'intégrité + les preuves d'ancrage
+         (.ots / jetons RFC 3161) + la chronologie complète (DocumentEvents) + une notice
+         en français expliquant au vérificateur comment vérifier les preuves.
       4. Limite assumée et documentée : ce coffre n'est PAS un SAE certifié NF Z42-013.
-         C'est un archivage à intégrité vérifiable. La doc commerciale ne doit jamais
-         prétendre à la certification.
+         C'est un archivage à intégrité vérifiable et ancrée. La doc commerciale ne doit
+         jamais prétendre à la certification ; l'argument est « ancrage blockchain inclus,
+         scellement qualifié eIDAS en option ».
     acceptance:
-      - "ArchiveVerifier détecte toute altération et produit un rapport exploitable"
-      - "Horodatage RFC 3161 fonctionnel quand activé, absence gérée proprement"
-      - "Export contrôle fiscal complet (paquets + intégrité + chronologie)"
+      - "ArchiveVerifier détecte toute altération et vérifie les preuves d'ancrage"
+      - "ITimestampAnchor : les 3 implémentations (OpenTimestamps, RFC 3161, NoAnchor) configurables par paramétrage"
+      - "OpenTimestampsAnchor : preuve .ots créée, upgradée et vérifiée (testé avec calendar mocké + 1 test réel manuel)"
+      - "Rfc3161Anchor fonctionnel quand configuré, absence gérée proprement"
+      - "Export contrôle fiscal complet avec notice de vérification en français"
       - "La limite « pas de certification NF Z42-013 » est documentée"
-      - "Tests : vérification chaîne saine, chaîne altérée, export complet"
+      - "Tests : chaîne saine, chaîne altérée, preuve manquante, les 3 modes d'ancrage"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
