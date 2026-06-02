@@ -3,12 +3,37 @@
 _Ce fichier est le plan de la session interactive en cours. En mode orchestration,
 le backlog autoritaire est `orchestration/manifest.yaml`._
 
-## Prochaine étape
+## ⚠️ PIVOT D'ARCHITECTURE EN COURS (2026-06-03)
 
-- [ ] Lancer une session d'orchestration : `Lis orchestration/prompt.md et exécute-le.`
-      → L'agent prendra SOL01 (création de la solution Gateway.sln, structure blueprint.md §4).
+Décision actée : plateforme web centralisée (socle Stratum) + agent léger remplace
+l'architecture on-premise. Voir `tasks/analyse-impact-pivot-plateforme.md` et `tasks/decisions.md`.
+
+**L'orchestration est SUSPENDUE jusqu'au manifest v6.** Ne pas lancer de session.
+
+### Séquence de préparation (sessions interactives)
+
+- [ ] ❗ **Fermer la PR #1 (GATE_SOCLE) sans la merger** — le scaffold net48 est invalidé par le pivot
+- [ ] Trancher : où vit le code plateforme ? (recommandation : repo Conformat, socle Stratum copié — analyse §6)
+- [ ] Trancher : nommage des projets (Gateway.* ou Conformat.*)
+- [ ] Réécrire blueprint.md (architecture plateforme + agent)
+- [ ] Réécrire les règles métier du CLAUDE.md (net48 = agent uniquement, frontières de modules, etc.)
+- [ ] Amender F10/F11 + créer F12 (architecture plateforme/agent + contrat d'API)
+- [ ] Réécrire manifest v6 + items + blueprints d'orchestration + outillage (verify-fast, run-tests)
+- [ ] Réinitialiser state.yaml (v6) dans conformat-orchestration
+- [ ] Relancer l'orchestration
 
 ## Actions humaines à mener en parallèle du développement (hors orchestration)
+
+### Nouvelles actions dues au pivot (2026-06-03)
+
+- [ ] **Question ISATECH/CMP : tenant mutualisé, instance dédiée ou appliance on-premise ?**
+      → dimensionne le lot CMP et l'urgence de l'appliance Docker
+- [ ] Choisir l'hébergeur des instances hébergées (OVH / Scaleway / autre — France/UE obligatoire)
+- [ ] RC Pro : faire évoluer le contrat pour couvrir l'hébergement de données fiscales de tiers
+- [ ] Préparer le DPA (sous-traitant RGPD) et le registre des traitements
+- [ ] Se renseigner sur le séquestre de code source (APP) — argument commercial pour les éditeurs self-hosted
+- [ ] Décliner le pivot dans l'offre commerciale (supervision proactive incluse, marque grise = instance
+      par éditeur, réversibilité)
 
 Ces points appartiennent à des humains. Grâce à l'architecture générique (plug-ins + paramétrage),
 ils ne bloquent PAS le développement du produit — ils bloquent les gates de déploiement concernées.
@@ -38,12 +63,18 @@ ils ne bloquent PAS le développement du produit — ils bloquent les gates de d
       sur les références juridiques des specs (art. 289 CGI, etc.)
 
 ### Questions techniques ouvertes (à trancher par ADR pendant les items concernés)
-- [ ] TRK07 : bibliothèque/implémentation OpenTimestamps en net48 (spike requis — pas un simple POST)
-- [ ] TRK07 : RFC 3161 en net48 (les API .NET 5+ n'existent pas — ASN.1 manuel, BouncyCastle, ou report V1.1)
-- [ ] TRK08 : moyen d'extraction de texte PDF en net48 — attention licence (iTextSharp = AGPL interdit ;
-      candidats : PdfPig Apache-2.0, Docnet.Core) — ou retirer la stratégie 2 du matching V1
-- [ ] WPF08 : aperçu PDF dans la console (recommandation V1 : ouverture dans le lecteur du poste)
-- [ ] API01 : prérequis réseau Windows (urlacl, SPN, firewall, postes hors domaine)
+- [x] ~~TRK07 : OpenTimestamps en net48~~ **RÉSOLU PAR LE PIVOT (2026-06-03)** : la plateforme est en
+      .NET 10, bibliothèques modernes disponibles
+- [x] ~~TRK07 : RFC 3161 en net48~~ **RÉSOLU PAR LE PIVOT** : API .NET modernes natives (Rfc3161TimestampRequest)
+- [x] ~~TRK08 : extraction de texte PDF en net48 (licences)~~ **RÉSOLU PAR LE PIVOT** : bibliothèques
+      modernes côté plateforme (le choix précis reste un ADR, la contrainte net48 a disparu)
+- [x] ~~WPF08 : aperçu PDF dans la console~~ **RÉSOLU PAR LE PIVOT** : affichage PDF natif dans le navigateur
+- [x] ~~API01 : prérequis réseau Windows (urlacl, SPN, firewall)~~ **RÉSOLU PAR LE PIVOT** : plus d'API
+      self-hosted ; la console est web, l'agent fait du HTTPS sortant uniquement
+- [ ] Auth des instances : Keycloak par instance, Keycloak mutualisé (un realm par instance), ou
+      alternative allégée ? (ADR au début du dev plateforme — empreinte mémoire en jeu)
+- [ ] AGT02 : versionnement du contrat d'API agent ↔ plateforme (la plateforme supporte N et N-1)
+- [ ] AGT04 : mécanisme d'auto-update de l'agent (flotte d'agents chez les clients finaux)
 
 ### Commercial (hors backlog technique)
 - [ ] Relancer ISATECH (dossier CMP + période d'observation RJ jusqu'au 7 juillet 2026)
