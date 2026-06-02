@@ -80,23 +80,29 @@ automatiques en review** :
    pour faire passer un test ou un envoi.
 4. **Piste d'audit et coffre d'archive immuables.** `DocumentEvent` et `MappingChangeLog` sont
    append-only, le coffre d'archive est WORM. Aucun code d'update/delete, aucune purge automatique.
-5. **Lecture seule stricte de la base source.** Aucun INSERT/UPDATE/DELETE, aucun verrou,
-   aucune transaction d'écriture sur la base du client.
+5. **Lecture seule stricte de la base source.** L'agent ne fait aucun INSERT/UPDATE/DELETE,
+   aucun verrou, aucune transaction d'écriture sur la base du client.
 6. **Frontières de la généricité (blueprint.md §2 et §6) :**
-   - `Gateway.Core` ne référence JAMAIS un plug-in (ni source, ni PA)
-   - Un plug-in ne référence que le Core, jamais un autre plug-in
-   - `Gateway.App` (console) ne référence QUE Api + ApiClient — jamais Core, plug-ins ou SQLite
+   - Le module `Transmission` ne référence JAMAIS un plug-in PA concret
+   - Un plug-in PA ne référence que `Transmission.Contracts` (+ Common), jamais un autre
+     plug-in ni un module métier
+   - Un module n'accède à un autre module que par ses **Contracts** (NetArchTest l'impose)
+   - L'agent ne référence que `Conformat.Agent.Contracts`, jamais le code plateforme
+   - **L'agent n'a AUCUNE logique métier** (pas de TVA, pas de validation, pas de machine à états)
 7. **Aucune donnée client dans le code.** Table TVA réelle, SIREN, chaîne ODBC, compte PA :
-   tout est paramétrage dans `deployments/<client>/`. Le code n'embarque que des EXEMPLES
-   fictifs dans `config/exemples/`.
+   tout est paramétrage de TENANT (en base) ou seed versionné dans `deployments/<client>/`.
+   Le code n'embarque que des EXEMPLES fictifs dans `config/exemples/`.
 8. **Aucune fonctionnalité produit ne dépend de ce qu'UN PA sait faire.** Le comportement
    est piloté par les capacités déclarées du plug-in (`PaCapabilities`), jamais par un flag
    de configuration produit ni par un `if (pa is B2Brouter)`.
-9. **Un seul écrivain sur le Tracking : le Service.** Aucun autre processus n'ouvre la base
-   en écriture (le CLI de secours uniquement quand le Service est arrêté, sous mutex).
-10. **Secrets chiffrés.** Clé API PA et credentials SMTP : DPAPI, jamais en clair dans un
-    fichier versionné ou un log.
-11. **Messages opérateur en français**, avec numéro de document et action corrective.
+9. **Toute requête métier est tenant-scopée.** Jamais de requête cross-tenant dans le code
+   métier (seul le module Supervision a des vues cross-tenant, en lecture seule). Un agent
+   n'écrit que dans SON tenant (clé API scopée).
+10. **Secrets chiffrés.** Clés API des PA (en base, chiffrées, par tenant) et clé API de
+    l'agent (DPAPI côté client) : jamais en clair dans un fichier versionné ou un log.
+11. **Le socle Stratum vendored (`Stratum.*`) ne se modifie pas silencieusement.** Toute
+    modification est consignée dans `docs/architecture/provenance-socle-stratum.md`.
+12. **Messages opérateur en français**, avec numéro de document et action corrective.
 
 ## Verification Workflow
 
@@ -116,13 +122,15 @@ Claude owns the entire verification + review loop. The human only gives the obje
 11. Scripts/CI/config/docs changes require the same review discipline as production code
 
 ### Post-Dev Checklist
-- [ ] `verify-fast` passes
+- [ ] `verify-fast` passes (BOTH solutions: platform .NET 10 + agent net48)
 - [ ] No new packages added without ADR
-- [ ] No cross-boundary references (Core → Adapter forbidden)
+- [ ] No cross-module references outside Contracts (NetArchTest green)
 - [ ] No float/double on amounts
 - [ ] No fiscal rule without a traceable source in docs/conception/
 - [ ] DocumentEvent stays append-only (no update/delete paths added)
-- [ ] WPF items have ViewModel unit tests + updated smoke checklist
+- [ ] Business queries are tenant-scoped
+- [ ] UI items (Blazor pages) have bUnit and/or Playwright tests
+- [ ] Vendored Stratum code (`Stratum.*`) modifications are logged in the provenance file
 - [ ] Review has been re-run after the last code change
 - [ ] Tests were EXECUTED, not just written (a written-but-never-run test is a false-green)
 
@@ -142,12 +150,13 @@ Claude owns the entire verification + review loop. The human only gives the obje
 11. **Affaiblissement d'une validation Blocking est un P1.**
 12. **Chemin d'update/delete sur DocumentEvent, MappingChangeLog, le coffre d'archive (WORM) ou purge d'une table d'audit est un P1.**
 13. **Écriture (ou verrou) sur la base source dans un adaptateur est un P1.**
-14. **Violation des frontières est un P1 :** Core → plug-in, plug-in → plug-in, ou Gateway.App → Core/plug-ins/SQLite.
+14. **Violation des frontières est un P1 :** module → Domain/Application/Infrastructure d'un autre module (hors Contracts), Transmission → plug-in PA concret, plug-in → plug-in, agent → code plateforme, logique métier dans l'agent.
 15. **Donnée client dans le code est un P1 :** SIREN réel, table TVA réelle, chaîne ODBC, compte PA hors de deployments/.**
 16. **Dépendance à un PA concret hors de son plug-in est un P1 :** `if (pa is B2Brouter)`, flag produit doublonnant une capacité, fonctionnalité désactivée parce qu'« un PA ne le supporte pas ».
-17. **Accès en écriture au Tracking hors du Service est un P1** (sauf CLI de secours sous mutex).
+17. **Requête métier non tenant-scopée est un P1** (fuite de données entre tenants — seul le module Supervision a des vues cross-tenant, en lecture seule).
 18. **Secret en clair (clé API, mot de passe SMTP) est un P1.**
-19. **Item WPF sans tests ViewModel est un P1.** Le code-behind ne doit contenir que du câblage de vue.
+19. **Page/écran Blazor sans test (bUnit ou Playwright) est un P1.** Aucune logique métier dans les pages (déléguée aux handlers MediatR).
+20. **Modification du socle vendored (`Stratum.*`) non consignée dans la provenance est un P1.**
 
 **Format per finding:**
 [P1] or [P2] | file:line | concrete description | suggested fix

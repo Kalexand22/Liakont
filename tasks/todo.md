@@ -15,8 +15,11 @@ l'architecture on-premise. Voir `tasks/analyse-impact-pivot-plateforme.md` et `t
 - [x] ~~Fermer la PR #1 (GATE_SOCLE) sans la merger~~ **FAIT (2026-06-03)**
 - [x] ~~Trancher : où vit le code plateforme ?~~ **TRANCHÉ** : repo Conformat, socle Stratum vendored
 - [x] ~~Trancher : nommage des projets~~ **TRANCHÉ** : Conformat.* (Conformat.Host, Conformat.Modules.*, Conformat.Agent)
-- [ ] Réécrire blueprint.md (architecture plateforme + agent)
-- [ ] Réécrire les règles métier du CLAUDE.md (net48 = agent uniquement, frontières de modules, etc.)
+- [x] ~~Réécrire blueprint.md~~ **FAIT (2026-06-03)** : blueprint v2 (plateforme + agent, 3 topologies,
+      multi-tenancy, structure du dépôt, stack double, frontières de modules, stratégie de test)
+- [x] ~~Réécrire les règles métier du CLAUDE.md~~ **FAIT (2026-06-03)** : règles 5-12 + checklist +
+      règles de review 14-20 adaptées (tenant-scoping, frontières modules, Blazor/bUnit/Playwright,
+      socle vendored). AGENTS.md synchronisé
 - [ ] Amender F10/F11 + créer F12 (architecture plateforme/agent + contrat d'API)
 - [ ] Réécrire manifest v6 + items + blueprints d'orchestration + outillage (verify-fast, run-tests)
 - [ ] Réinitialiser state.yaml (v6) dans conformat-orchestration
