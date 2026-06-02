@@ -1,0 +1,40 @@
+# Lot DOC — Documentation utilisateur & démo
+# Dernière ligne droite avant la gate démo ISATECH.
+
+items:
+  DOC01:
+    title: "Documentation utilisateur console + scénario de démo"
+    description: |
+      Rédiger la documentation finale :
+      1. docs/guide-utilisateur.md : guide opérateur de la console WPF — chaque écran,
+         chaque état, chaque action, les messages de blocage courants et comment les résoudre.
+         Public : opérateur comptable non technique. Captures d'écran des écrans sur fixtures.
+      2. docs/scenario-demo.md : scénario de démo ISATECH pas à pas (15-20 min) —
+         jeu de fixtures à charger, enchaînement des écrans, points de valeur à montrer
+         (extraction sans toucher au logiciel source, blocages TVA expliqués en français,
+         piste d'audit, export contrôle fiscal), questions/objections probables et réponses.
+      3. README.md du repo mis à jour : état du produit, comment builder, comment lancer
+         la démo, liens vers toute la documentation.
+    acceptance:
+      - "Guide utilisateur couvrant tous les écrans et états, en français opérateur"
+      - "Scénario de démo exécutable de bout en bout sur fixtures"
+      - "README.md à jour"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  GATE_DEMO_ISATECH:
+    type: gate
+    executor: human
+    title: "Gate finale : produit prêt pour la démo ISATECH"
+    description: |
+      Validation humaine finale : le produit complet (Core + adaptateur EncheresV6 + console +
+      CLI/Service + packaging + docs) est prêt pour la démo ISATECH.
+      Dérouler le scénario de démo (docs/scenario-demo.md) de bout en bout sur une machine
+      propre à partir du zip de packaging.
+      Points ouverts métier à vérifier avant la démo (hors code) :
+      - réponses expert-comptable CMP (régime 6, TVA sur débits, OperationCategory, volume pros)
+      - tickets support B2Brouter (marge cas 33, Flux 10.2/10.4)
+    acceptance:
+      - "Tous les items CFG et DOC sont done"
+      - "Scénario de démo déroulé avec succès depuis le zip sur machine propre"
+      - "PR du segment feat/deployment revue et mergée dans main"

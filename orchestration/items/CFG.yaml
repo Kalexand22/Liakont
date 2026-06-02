@@ -1,0 +1,66 @@
+# Lot CFG — Configuration & déploiement (F12 — spec à rédiger puis implémenter)
+# F12 n'existe pas encore dans docs/conception/ : le premier item du lot EST la rédaction de la spec.
+
+items:
+  CFG01:
+    title: "Spec F12 — Configuration & déploiement"
+    description: |
+      Rédiger docs/conception/F12-Configuration-Deploiement.md, dans le même format que F01-F11
+      (objectif, périmètre, conception, décisions, points ouverts) :
+      1. Format du fichier de configuration (JSON) : identité émetteur, connexion source,
+         compte PA (URL, account id, clé API), chemin table TVA, planification, notifications SMTP,
+         flags (PaymentReportingEnabled, NotifyOnSuccess).
+      2. Gestion des secrets : clé API PA et credentials SMTP chiffrés par DPAPI (machine scope) —
+         jamais en clair dans le fichier. Outil de chiffrement intégré (CLI encrypt-secret).
+      3. Multi-config sur la même machine : N fichiers de config = N études/sites,
+         mutex et services distincts par config.
+      4. Packaging : zip autoportant (exe + dépendances + config exemple + doc), prérequis
+         (Windows 7 SP1+, .NET Framework 4.8, driver ODBC), procédure d'installation pas à pas.
+      5. Checklist de mise en service : check-config, run --dry-run, premier envoi staging,
+         bascule production.
+      Sources : F11 (pattern config), F05 (multi-compte), Conception-Produit-Passerelle.md
+      (décisions structurantes), Offre-Editeur-Passerelle.md (déploiement par l'éditeur Niveau 2).
+    acceptance:
+      - "F12 rédigé au format des specs F01-F11, en français"
+      - "Format de config JSON complet avec exemple"
+      - "Stratégie secrets DPAPI documentée"
+      - "Procédure d'installation et checklist de mise en service rédigées"
+      - "Aucune décision inventée : traçable vers les specs existantes ou marqué « à trancher »"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  CFG02:
+    title: "Chargement/validation de configuration + secrets DPAPI"
+    description: |
+      Implémenter dans Gateway.Core/Configuration/ selon la spec F12 (CFG01) :
+      1. GatewayConfig : modèle typé de la configuration, chargement JSON, validation au démarrage
+         (champs obligatoires, formats, cohérence) avec messages opérateur français.
+      2. SecretProtector : chiffrement/déchiffrement DPAPI (ProtectedData, machine scope) des
+         champs sensibles (clé API PA, mot de passe SMTP).
+      3. Commande CLI encrypt-secret : chiffre une valeur pour collage dans le fichier de config.
+      4. check-config (CLI01) étendu : valide la config complète y compris déchiffrement des secrets.
+    acceptance:
+      - "GatewayConfig typé avec validation et messages français"
+      - "Secrets chiffrés DPAPI, jamais en clair dans les fichiers"
+      - "Commande encrypt-secret fonctionnelle"
+      - "Tests : config valide/invalide, round-trip chiffrement, champ manquant"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  CFG03:
+    title: "Packaging + documentation d'installation"
+    description: |
+      Implémenter le packaging selon la spec F12 :
+      1. tools/package.ps1 : build Release x86 + x64, assemblage du zip autoportant
+         (Gateway.Cli, Gateway.Service, Gateway.App, dépendances, config.example.json,
+         table TVA exemple, doc installation).
+      2. docs/installation.md : prérequis, installation pas à pas, configuration, mise en service
+         (checklist F12), dépannage des erreurs courantes (ODBC absent, .NET 4.8 absent, clé API).
+      3. Le zip produit est testé : extraction sur dossier propre + check-config + run --dry-run
+         sur fixtures fonctionnent.
+    acceptance:
+      - "package.ps1 produit un zip autoportant x86 et x64"
+      - "docs/installation.md complet et exécutable par un intégrateur (cible : partenaire Niveau 2)"
+      - "Le zip extrait passe check-config + dry-run sur fixtures"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"

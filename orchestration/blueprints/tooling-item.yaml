@@ -1,0 +1,76 @@
+# Blueprint: tooling-item
+# Node graph for tooling, CI, packaging, or infrastructure work items
+# (verification scripts, CI pipelines, packaging, deployment tooling)
+
+name: tooling-item
+description: Tooling, CI, or infrastructure work item
+
+nodes:
+  - id: hydrate_context
+    type: deterministic
+    action: build-agent-context
+    model: haiku
+    description: "Assemble relevant architecture docs and existing tooling"
+
+  - id: plan
+    type: agentic
+    description: "Analyze existing tooling, plan changes"
+
+  - id: implement
+    type: agentic
+    description: "Implement tooling changes"
+
+  - id: verify
+    type: deterministic
+    action: verify-fast
+    retry: { max: 3, on_exhaust: fail }
+    description: "Run verify-fast.ps1"
+
+  - id: fix_verify
+    type: agentic
+    subagent: orch-fix-verify
+    condition: "verify failed"
+    loop_back_to: verify
+    description: "Delegate to orch-fix-verify (sonnet) — fix verification failures, then re-run verify node"
+
+  - id: smoke_test
+    type: agentic
+    description: "Run the tool manually on real state (empty state, dirty state, failure state), verify correct output and exit codes. A tool that passes on the happy path only is a false-green."
+
+  - id: commit_compose
+    type: agentic
+    subagent: orch-commit
+    description: "Delegate to orch-commit (haiku) — write conventional commit message to .orch-commit-msg"
+
+  - id: commit_apply
+    type: deterministic
+    action: git-commit-apply
+    description: "git add -A + git commit -F .orch-commit-msg + rm .orch-commit-msg"
+
+  - id: review
+    type: deterministic
+    action: codex-review
+    retry: { max: 3, on_exhaust: blocked }
+    description: "Run codex-review.ps1"
+
+  - id: fix_review
+    type: agentic
+    subagent: orch-fix-review
+    condition: "review has P1 or fixable P2 findings"
+    loop_back_to: verify
+    description: "Delegate to orch-fix-review (sonnet) — fix review findings, then loop back to verify → commit → review"
+
+  - id: merge_back
+    type: deterministic
+    action: merge-back
+    description: "Push sub-branch, pull segment branch, merge --no-ff, push. If non-trivial conflict, mark blocked."
+
+  - id: finalize_compose_log
+    type: agentic
+    subagent: orch-finalize
+    description: "Delegate to orch-finalize (haiku) — compose and write session log to $ORCH_REPO/session-log/"
+
+  - id: finalize_publish
+    type: deterministic
+    action: finalize-publish
+    description: "Append events.jsonl + commit $ORCH_REPO + release slot lease + EXIT 0"

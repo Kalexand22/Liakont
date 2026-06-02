@@ -1,0 +1,68 @@
+## .NET
+bin/
+obj/
+publish/
+packages/
+
+## IDE
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+*.sln.docstates
+**/Properties/launchSettings.json
+
+## OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+## Secrets
+.env
+*.pfx
+*.p12
+**/config.local.json
+**/*staging-key*
+
+## Build results
+*.dll
+*.exe
+*.pdb
+*.nupkg
+
+## Test results
+TestResults/
+coverage/
+tests/fixtures/**/output/
+
+## SQLite runtime (jamais versionner une base de tracking réelle — piste d'audit client)
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+
+## Logs
+*.log
+logs/
+last-run-status.json
+
+## Orchestration runtime state (vit dans conformat-orchestration)
+orchestration/state/*.yaml
+
+## Tool output logs (consommés par les agents, non versionnés)
+.verify-fast.log
+.run-tests.log
+.codex-review.log
+
+## Orchestration transient files
+.orch-commit-msg
+
+## Claude Code runtime
+.claude/scheduled_tasks.lock
+.claude/worktrees/
+.claude/settings.local.json
+tmp/
+
+## Packaging output
+dist/

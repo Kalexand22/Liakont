@@ -1,0 +1,96 @@
+# Blueprint: module-work-item
+# Standard node graph for Gateway.Core / adapter / host implementation items
+# (pivot model, TVA mapping, validation, tracking, PA client, pipeline, CLI, service)
+#
+# Node types:
+#   deterministic — run a known tool/script, no LLM judgment
+#   agentic       — LLM-driven step with a described objective
+#                   When `subagent: <name>` is set, the orchestrator MUST
+#                   delegate execution to that custom subagent (see
+#                   protocol.md "Subagent routing"). Inline execution by
+#                   the main orchestrator is forbidden for delegated nodes.
+#
+# Conditional nodes are skipped when their condition is not met.
+# Retry policies define max attempts and the status to set on exhaustion.
+
+name: module-work-item
+description: Standard Gateway module implementation work item
+
+nodes:
+  - id: hydrate_context
+    type: deterministic
+    action: build-agent-context
+    description: "Assemble feature spec (docs/conception/), architecture docs, related code. Main orchestrator reads each file (no delegation — full context is needed for plan/implement)."
+
+  - id: plan
+    type: agentic
+    description: "Read acceptance criteria and the relevant F-spec, plan implementation approach"
+
+  - id: implement
+    type: agentic
+    description: "Implement the work item per acceptance criteria. Includes unit tests — every public behavior gets a test."
+
+  - id: verify
+    type: deterministic
+    action: verify-fast
+    retry: { max: 3, on_exhaust: fail }
+    description: "Run verify-fast.ps1 (build + analyzers + unit tests)"
+
+  - id: fix_verify
+    type: agentic
+    subagent: orch-fix-verify
+    condition: "verify failed"
+    loop_back_to: verify
+    description: "Delegate to orch-fix-verify (sonnet) — fix verification failures, then re-run verify node"
+
+  - id: commit_compose
+    type: agentic
+    subagent: orch-commit
+    description: "Delegate to orch-commit (haiku) — read git status/diff, write conventional commit message to .orch-commit-msg (gitignored)"
+
+  - id: commit_apply
+    type: deterministic
+    action: git-commit-apply
+    description: "git add -A + git commit -F .orch-commit-msg + rm .orch-commit-msg. Pure shell, no LLM. .orch-commit-msg is gitignored so 'git add -A' will not stage it."
+
+  - id: integration_tests
+    type: deterministic
+    action: run-tests
+    condition: "item has integration tests (fixtures, SQLite, fake PA client)"
+    retry: { max: 2, on_exhaust: blocked }
+    description: "Run the full test suite via tools/run-tests.ps1. MUST pass before review. Writing tests without executing them is a false-green."
+
+  - id: fix_tests
+    type: agentic
+    subagent: orch-fix-tests
+    condition: "integration_tests failed"
+    loop_back_to: verify
+    description: "Delegate to orch-fix-tests (sonnet) — fix test failures, then loop back to verify → commit_compose → commit_apply → integration_tests"
+
+  - id: review
+    type: deterministic
+    action: codex-review
+    retry: { max: 3, on_exhaust: blocked }
+    description: "Run codex-review.ps1"
+
+  - id: fix_review
+    type: agentic
+    subagent: orch-fix-review
+    condition: "review has P1 or fixable P2 findings"
+    loop_back_to: verify
+    description: "Delegate to orch-fix-review (sonnet) — fix review findings, then loop back to verify → commit_compose → commit_apply → review"
+
+  - id: merge_back
+    type: deterministic
+    action: merge-back
+    description: "Push sub-branch, pull segment branch, merge --no-ff, push. If non-trivial conflict, mark blocked."
+
+  - id: finalize_compose_log
+    type: agentic
+    subagent: orch-finalize
+    description: "Delegate to orch-finalize (haiku) — compose and write session log to $ORCH_REPO/session-log/<session>_<item>.md. No git operations, no slot release."
+
+  - id: finalize_publish
+    type: deterministic
+    action: finalize-publish
+    description: "Append events.jsonl + commit $ORCH_REPO + release slot lease + EXIT 0. Pure shell, no LLM. See protocol.md §5b."

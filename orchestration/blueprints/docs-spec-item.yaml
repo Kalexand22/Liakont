@@ -1,0 +1,72 @@
+# Blueprint: docs-spec-item
+# Node graph for documentation or specification work items
+# (feature specs, architecture docs, ADRs, installation docs, user docs)
+
+name: docs-spec-item
+description: Documentation or specification work item
+
+nodes:
+  - id: hydrate_context
+    type: deterministic
+    action: build-agent-context
+    model: haiku
+    description: "Assemble relevant feature specs (docs/conception/), architecture docs and market docs"
+
+  - id: research
+    type: agentic
+    description: "Read existing docs, conception specs, market analysis for context. Never invent fiscal/regulatory rules — every claim must trace to docs/conception/ or docs/market/."
+
+  - id: draft
+    type: agentic
+    description: "Write documentation or specification per acceptance criteria, in French"
+
+  - id: verify
+    type: deterministic
+    action: verify-fast
+    retry: { max: 3, on_exhaust: fail }
+    description: "Run verify-fast.ps1 (build + doc-link checks)"
+
+  - id: fix_verify
+    type: agentic
+    model: sonnet
+    condition: "verify failed"
+    loop_back_to: verify
+    description: "Fix verification failures, then re-run verify node"
+
+  - id: commit_compose
+    type: agentic
+    subagent: orch-commit
+    description: "Delegate to orch-commit (haiku) — write conventional commit message to .orch-commit-msg"
+
+  - id: commit_apply
+    type: deterministic
+    action: git-commit-apply
+    description: "git add -A + git commit -F .orch-commit-msg + rm .orch-commit-msg"
+
+  - id: review
+    type: deterministic
+    action: codex-review
+    retry: { max: 3, on_exhaust: blocked }
+    description: "Run codex-review.ps1"
+
+  - id: fix_review
+    type: agentic
+    model: sonnet
+    condition: "review has P1 or fixable P2 findings"
+    loop_back_to: verify
+    description: "Fix review findings, then loop back to verify → commit → review"
+
+  - id: merge_back
+    type: deterministic
+    action: merge-back
+    description: "Push sub-branch, pull segment branch, merge --no-ff, push. If non-trivial conflict, mark blocked."
+
+  - id: finalize_compose_log
+    type: agentic
+    subagent: orch-finalize
+    description: "Delegate to orch-finalize (haiku) — compose and write session log to $ORCH_REPO/session-log/"
+
+  - id: finalize_publish
+    type: deterministic
+    action: finalize-publish
+    description: "Append events.jsonl + commit $ORCH_REPO + release slot lease + EXIT 0"

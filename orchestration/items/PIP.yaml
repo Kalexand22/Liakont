@@ -1,0 +1,78 @@
+# Lot PIP — Pipeline d'orchestration du flux (F11 cœur + F07 + F09)
+# Specs : docs/conception/F11-CLI-Mode-Automatique.md, F07-F08-Avoirs-Frontiere-B2B-B2C.md,
+#         F09-E-Reporting-Paiement.md
+# Le pipeline est host-agnostique : CLI et Service Windows appellent le même PipelineRunner.
+
+items:
+  PIP01:
+    title: "PipelineRunner : extract → check → send → sync"
+    description: |
+      Implémenter le moteur dans Gateway.Core/Pipeline/ selon F11 :
+      1. PipelineRunner.RunAsync(RunOptions) exécute la séquence :
+         - EXTRACT : IExtractor.ExtractDocuments(période) → documents inconnus en état Detected
+         - CHECK : documents Detected/Blocked → ValidationPipeline (F04) →
+           OK : ReadyToSend ; KO : Blocked avec motifs
+         - SEND : ReadyToSend → IPaClient.SendDocumentAsync →
+           succès : Issued ; errors[] : RejectedByPa ; réseau : TechnicalError
+         - SYNC : Issued sans tax report → ListTaxReportsAsync → archivage xml_base64
+      2. RunOptions : période (from/to), dryRun (tout sauf écritures PA), maxDocuments,
+         commande partielle (extract seul, send seul, sync seul).
+      3. RunReport : compteurs par état, durée, issues, code de sortie calculé
+         (0 = succès complet, 1 = partiel avec blocages/rejets, 2 = échec fatal).
+      4. Mutex global nommé : Global\Conformat_<hash-chemin-config> — un seul processus en
+         écriture par configuration. Mutex occupé = code 3, aucune attente bloquante.
+      5. Chaque run écrit un RunLog dans le Tracking.
+    acceptance:
+      - "Séquence extract→check→send→sync complète et testée avec FixtureExtractor + FakePaClient"
+      - "dry-run n'effectue aucune écriture PA (vérifié par le journal d'appels du FakePaClient)"
+      - "Codes de sortie 0/1/2/3 calculés selon F11"
+      - "Mutex global empêche deux runs simultanés sur la même config"
+      - "RunLog écrit pour chaque run"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  PIP02:
+    title: "Pipeline des avoirs (F07)"
+    description: |
+      Implémenter le traitement des avoirs dans Gateway.Core/Pipeline/ selon F07 :
+      1. Ordre de traitement chronologique : un avoir n'est envoyé qu'après sa facture d'origine.
+         - facture d'origine trouvée dans le Tracking + déjà émise → CreditNoteRef renseigné → envoi
+         - facture trouvée mais PAS encore émise → traiter l'original d'abord (réordonnancement)
+         - facture introuvable → Blocked « facture d'origine inconnue de la passerelle »
+      2. Cas limites : avoir partiel (lignes de la part annulée), avoir groupé (CreditNoteRefs
+         multi-références), avoir orphelin (bloqué, pas de référence fabriquée).
+      3. Le mapping TVA d'un avoir est identique à celui de l'original, montants positifs
+         (le type 381 porte la sémantique crédit).
+    acceptance:
+      - "Avoir envoyé seulement après émission de sa facture d'origine"
+      - "Réordonnancement automatique quand l'original est dans le même run"
+      - "Avoir orphelin bloqué, jamais envoyé"
+      - "Tests : avoir simple, avoir groupé, avoir orphelin, avoir avant facture dans le même run"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  PIP03:
+    title: "Agrégation e-reporting de paiement (F09)"
+    description: |
+      Implémenter l'agrégation des encaissements dans Gateway.Core/Pipeline/ selon F09 :
+      1. PaymentAggregator : PivotPayment (extraits par IExtractor.ExtractPayments) →
+         PaymentReportPeriod agrégés par jour × taux TVA (l'obligation DGFiP est un agrégé
+         jour×taux au niveau SIREN, pas un lettrage ligne à ligne).
+      2. Règle d'imputation : part frais (prestation de services) au prorata HT frais / HT total
+         du bordereau lié.
+      3. Cas limites : paiement partiel (imputé à sa date), trop-perçu/remboursement (montant
+         négatif dans l'agrégat de la période), règlement sans rattachement bordereau (alerte Warning).
+      4. ENVOI CONDITIONNEL : la transmission des Flux 10.2/10.4 côté B2Brouter est annoncée
+         « planned for a future release » (point ouvert F09). On développe extraction + agrégation +
+         persistence (PaymentAggregate dans le Tracking), l'envoi est derrière un flag de config
+         PaymentReportingEnabled (défaut false) qui sera activé quand B2Brouter exposera l'API.
+      IMPORTANT : si la décision fiscale « CMP a opté TVA sur les débits » tombe (point ouvert),
+      F9 disparaît entièrement — c'est pour ça que tout est derrière un flag.
+    acceptance:
+      - "Agrégation jour×taux conforme F09, sans données nominatives"
+      - "Imputation prorata frais/total implémentée et testée"
+      - "Envoi derrière le flag PaymentReportingEnabled (défaut false)"
+      - "Agrégats persistés dans PaymentAggregate (Tracking)"
+      - "Tests : agrégation multi-jours/multi-taux, paiement partiel, remboursement, sans rattachement"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"

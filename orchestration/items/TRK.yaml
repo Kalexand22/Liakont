@@ -1,0 +1,125 @@
+# Lot TRK — Tracking, anti-doublons & piste d'audit fiable (F06)
+# Spec : docs/conception/F06-Tracking-Piste-Audit.md
+# Double rôle : opérationnel (qui a été envoyé, reprise) + légal (piste d'audit fiable,
+# art. 289 VII CGI, conservation 10 ans).
+
+items:
+  TRK01:
+    title: "Schéma SQLite + migrations + WAL"
+    description: |
+      Implémenter la persistence dans Gateway.Core/Tracking/ selon F06 :
+      1. Schéma SQLite :
+         - Document : id, source_reference, document_number, document_type, issue_date,
+           supplier_siren, customer_name, customer_is_company_hint, total_net, total_tax,
+           total_gross, state, payload_hash, pa_document_id, mapping_version,
+           first_seen_utc, last_update_utc
+         - DocumentEvent (append-only) : id, document_id, timestamp_utc, event_type, detail,
+           payload_snapshot, pa_response_snapshot, mapping_trace
+         - TaxReport : id, document_id, pa_tax_report_id, type, transport, state, xml_base64, retrieved_utc
+         - PaymentAggregate : id, period, date, vat_rate, taxable_base, vat_amount, state
+         - RunLog : id, started_utc, ended_utc, command, counts_json, exit_code
+      2. Migrations versionnées (table schema_version, scripts SQL embarqués, application au démarrage).
+      3. Mode WAL activé (la console doit pouvoir lire pendant que le CLI écrit).
+      4. System.Data.SQLite ou Microsoft.Data.Sqlite compatible net48 (documenter le choix en ADR).
+    acceptance:
+      - "Schéma complet créé par migrations versionnées"
+      - "Mode WAL activé et vérifié par test (lecture concurrente pendant écriture)"
+      - "ADR sur le choix du provider SQLite net48"
+      - "Tests : création de base vierge, migration incrémentale, WAL"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  TRK02:
+    title: "Repository Document + machine à états"
+    description: |
+      Implémenter dans Gateway.Core/Tracking/ :
+      1. DocumentState enum : Detected, Blocked, ReadyToSend, Sending, Issued, RejectedByPa,
+         TechnicalError, Superseded.
+      2. Transitions autorisées (machine à états explicite) :
+         Detected → Blocked | ReadyToSend
+         Blocked → ReadyToSend (après correction source + re-check)
+         ReadyToSend → Sending → Issued | RejectedByPa | TechnicalError
+         TechnicalError → ReadyToSend (re-tentable au prochain run)
+         RejectedByPa → Superseded (quand renvoyé sous nouveau numéro)
+         Toute transition hors de cette liste = exception.
+      3. DocumentRepository : Upsert, GetByNumber, GetByState, TransitionTo (avec écriture
+         DocumentEvent automatique à chaque transition).
+    acceptance:
+      - "Machine à états explicite, transitions illégales rejetées par exception"
+      - "Chaque transition écrit automatiquement un DocumentEvent"
+      - "Tests : cycle nominal complet, transition illégale, reprise TechnicalError"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  TRK03:
+    title: "Anti-doublons et règles de renvoi"
+    description: |
+      Implémenter dans Gateway.Core/Tracking/ la logique anti-doublon selon F06 :
+      1. Avant envoi, chercher Document par (supplier_siren, document_number) :
+         - trouvé en état Issued → NE PAS renvoyer (doublon)
+         - trouvé en état RejectedByPa → renvoi autorisé sous NOUVEAU numéro, l'ancien passe Superseded
+         - payload_hash identique déjà Issued → doublon strict, bloqué
+         - sinon → envoi autorisé
+      2. IIssuedDocumentLookup (interface utilisée par VAL03) implémentée sur le repository.
+      3. Reprise sur timeout POST : exposer GetPotentiallySentDocuments() pour que le PA client
+         (PAC03) puisse vérifier côté PA avant de retenter.
+    acceptance:
+      - "Les 4 règles anti-doublon de F06 implémentées et testées une par une"
+      - "IIssuedDocumentLookup branché sur le repository"
+      - "Tests : doublon Issued, renvoi après rejet, doublon strict par hash, document nouveau"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  TRK04:
+    title: "Piste d'audit : snapshots et rétention"
+    description: |
+      Implémenter dans Gateway.Core/Tracking/ la piste d'audit selon F06 :
+      1. Chaque document Issued archive 3 snapshots dans DocumentEvent :
+         payload pivot envoyé (JSON), réponse PA brute, trace de mapping TVA.
+      2. DocumentEvent est append-only : aucune méthode d'update/delete exposée,
+         contrainte vérifiée par test (tentative d'update = exception).
+      3. Rétention : Document/DocumentEvent/TaxReport jamais purgés automatiquement (10 ans,
+         art. L.123-22 Code de commerce). Aucun code de purge dans le produit V1.
+      4. Sauvegarde : BackupService — copie horodatée de la base SQLite (la piste d'audit ne doit
+         jamais être perdue), exposé pour le CLI (commande backup) et la planification.
+    acceptance:
+      - "3 snapshots archivés pour chaque document émis"
+      - "DocumentEvent strictement append-only (vérifié par test)"
+      - "Aucun mécanisme de purge automatique des tables d'audit"
+      - "BackupService produit une copie horodatée et vérifiable de la base"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  TRK05:
+    title: "Export audit pour contrôle fiscal"
+    description: |
+      Implémenter dans Gateway.Core/Tracking/ l'export d'audit selon F06 :
+      1. AuditExporter : pour un document (ou une période), produit un dossier d'export contenant :
+         - document source (référence, montants)
+         - payload transmis (JSON) + XML tax report récupéré
+         - réponse PA + identifiants de transmission DGFiP (tax_report_id, ledger_id)
+         - trace de mapping TVA (règle, version, validée par qui/quand)
+         - chronologie horodatée complète (tous les DocumentEvent)
+      2. Format : dossier de fichiers (JSON + XML + recap.md lisible). Le PDF récapitulatif
+         est hors périmètre V1 (markdown lisible suffit).
+      3. Exposé pour la console (WPF03 bouton Exporter) et le CLI (commande report).
+    acceptance:
+      - "AuditExporter produit un dossier complet pour un document émis"
+      - "La chronologie inclut tous les événements horodatés"
+      - "La trace de mapping (version + validateur) est dans l'export"
+      - "Tests : export d'un document émis avec tax report, export d'un document rejeté"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  GATE_CORE_FOUNDATION:
+    type: gate
+    executor: human
+    title: "Gate : fondations Core validées"
+    description: |
+      Validation humaine du cœur générique : modèle pivot, mapping TVA, contrôles qualité,
+      tracking/piste d'audit. Cette gate débloque les segments pa-client et adapter-encheresv6.
+      Points de vigilance pour la revue : conformité aux specs F01-F08, aucune règle fiscale
+      inventée, piste d'audit append-only.
+    acceptance:
+      - "Tous les items PIV, TVA, VAL, TRK sont done"
+      - "PR du segment feat/core-foundation revue et mergée dans main"

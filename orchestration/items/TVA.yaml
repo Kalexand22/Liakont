@@ -1,0 +1,83 @@
+# Lot TVA — Moteur de mapping TVA (F03)
+# Spec : docs/conception/F03-Mapping-TVA.md
+# ZONE DE RISQUE FISCAL N°1 : une erreur de mapping = motif d'exonération erroné transmis
+# = responsabilité fiscale du client engagée. AUCUNE règle fiscale inventée :
+# tout vient de la spec F03 ou est marqué « à valider expert-comptable ».
+
+items:
+  TVA01:
+    title: "Modèle de table de mapping TVA (JSON externe versionné)"
+    description: |
+      Implémenter dans Gateway.Core/TvaMapping/ le modèle de la table de mapping selon F03 :
+      1. MappingTable : mappingVersion, validatedBy, validatedDate, defaultBehavior (block),
+         rules (List<MappingRule>).
+      2. MappingRule : sourceRegimeCode, label, part (adjudication/frais), category (UNCL5305),
+         rate, vatex (nullable), note.
+      3. Chargement depuis fichier JSON externe + validation structurelle au chargement :
+         - catégorie E + taux 0 → vatex obligatoire (sinon table invalide)
+         - codes catégorie dans la liste UNCL5305 valide (S, AA, AAA, Z, E, AE, G, K, O)
+         - pas de doublon (sourceRegimeCode, part)
+      4. Une table invalide = exception au chargement avec message opérateur français.
+      La table est un FICHIER EXTERNE versionné, jamais embarqué dans le code (auditabilité).
+    acceptance:
+      - "MappingTable et MappingRule dans Conformat.Gateway.Core.TvaMapping"
+      - "Chargement JSON externe avec validation structurelle (E+0% → VATEX requis)"
+      - "Table invalide = exception explicite, jamais de comportement silencieux"
+      - "Tests : table valide, table sans VATEX sur E, doublons, catégorie inconnue"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  TVA02:
+    title: "Moteur de mapping + MappingTrace"
+    description: |
+      Implémenter le moteur dans Gateway.Core/TvaMapping/ :
+      1. TvaMapper : (code régime source, part) → PivotLineTax {catégorie, taux, VATEX}.
+      2. MappingTrace : horodatage, mappingVersion, règle appliquée, code source d'entrée,
+         résultat produit. Attachée à chaque PivotLineTax et persistée par le Tracking (F06).
+         La trace permet de prouver, des années après, quelle règle a produit quel motif d'exonération.
+      3. Comportement régime inconnu : selon defaultBehavior de la table — `block` = le document
+         porteur passe en blocage, jamais d'envoi à l'aveugle, jamais de valeur par défaut.
+    acceptance:
+      - "TvaMapper transforme (code source, part) en PivotLineTax via la table"
+      - "MappingTrace complète attachée à chaque mapping (version, règle, horodatage)"
+      - "Régime inconnu = blocage, jamais de catégorie devinée"
+      - "Tests : mapping S/20%, mapping E+VATEX-EU-J (marge), régime inconnu bloqué"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  TVA03:
+    title: "Détection proactive des régimes non mappés"
+    description: |
+      Implémenter dans Gateway.Core/TvaMapping/ le contrôle de couverture selon F03 :
+      1. Au démarrage d'un run : croiser IExtractor.ListSourceTaxRegimes() avec la table de mapping.
+      2. Produire un MappingCoverageReport : régimes couverts, régimes absents (code + libellé +
+         occurrences), verdict (complet / incomplet).
+      3. Si incomplet : le rapport est exploitable par le pipeline (blocage des documents porteurs)
+         et par la console (message « Complétez la table des régimes de TVA », F04 VATEX_MISSING).
+    acceptance:
+      - "MappingCoverageReport liste les régimes source absents de la table"
+      - "Le rapport distingue couverts/absents avec occurrences"
+      - "Tests : couverture complète, couverture partielle, extracteur sans régimes"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  TVA04:
+    title: "Table de mapping CMP initiale (EncheresV6)"
+    description: |
+      Créer la table de mapping initiale pour le client fondateur CMP dans config/mapping-tables/ :
+      1. cmp-v1.json : régimes EncheresV6 connus, à partir de docs/conception/F03-Mapping-TVA.md
+         (régime 5 = S/20%, régime 6 = E + VATEX-EU-J avec note « À VALIDER : marge ou hors champ »).
+      2. validatedBy = "EN ATTENTE — Expert-comptable CMP", validatedDate = null :
+         la table N'EST PAS validée tant que l'expert-comptable n'a pas tranché.
+      3. Tests d'intégration : charger cmp-v1.json, mapper les fixtures PIV05, vérifier que les cas
+         marge produisent E + VATEX-EU-J et que les régimes inconnus bloquent.
+      IMPORTANT : la décision « régime 6 = marge EU-J ou hors champ » appartient à l'expert-comptable
+      CMP. La table doit porter cette incertitude explicitement (note + validatedBy en attente).
+      Ne JAMAIS marquer la table comme validée.
+    acceptance:
+      - "cmp-v1.json existe avec les régimes EncheresV6 documentés dans F03"
+      - "validatedBy indique explicitement que la validation expert-comptable est en attente"
+      - "Le régime 6 porte la note « À VALIDER : marge (EU-J) ou hors champ ? »"
+      - "Tests d'intégration sur les fixtures PIV05 verts"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"

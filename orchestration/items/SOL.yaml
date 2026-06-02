@@ -1,0 +1,80 @@
+# Lot SOL — Socle solution (.NET Framework 4.8)
+# Réf : blueprint.md, docs/conception/Conception-Produit-Passerelle.md (copie : docs/market/)
+# Préalable à tout le reste : sans solution compilable, verify-fast ne peut pas tourner.
+
+items:
+  SOL01:
+    title: "Solution Gateway.sln + squelette des projets"
+    description: |
+      Créer la solution et les projets vides compilables, structure cible du produit :
+      1. Gateway.sln à la racine de src/.
+      2. Projets SDK-style ciblant net48 (compatible `dotnet build` sous Windows) :
+         - src/Gateway.Core/            (bibliothèque — le produit générique)
+           Dossiers : Pivot/, TvaMapping/, Validation/, Tracking/, PaClient/, Pipeline/, Configuration/
+         - src/Gateway.Adapters.EncheresV6/  (bibliothèque — premier adaptateur)
+         - src/Gateway.App/              (WPF, UseWPF=true — console admin)
+         - src/Gateway.Cli/              (exe console — mode automatique)
+         - src/Gateway.Service/          (exe — service Windows)
+         - tests/Gateway.Core.Tests/     (MSTest ou xUnit — choisir xUnit, documenter dans ADR)
+         - tests/Gateway.Adapters.EncheresV6.Tests/
+      3. Directory.Build.props : TargetFramework net48, LangVersion latest, Platforms x86+x64,
+         TreatWarningsAsErrors true, Newtonsoft.Json en PackageReference centralisée.
+      4. Chaque projet contient une classe placeholder dans le bon namespace (Conformat.Gateway.*).
+      5. Références projet : Adapters → Core, App/Cli/Service → Core + Adapters, Tests → tout.
+      6. ADR-0001 : choix .NET Framework 4.8, SDK-style csproj, xUnit, builds x86/x64.
+      IMPORTANT : aucune logique métier — uniquement le squelette compilable.
+    acceptance:
+      - "Gateway.sln compile via dotnet build en Debug x86 et x64"
+      - "Les 5 projets produit + 2 projets de tests existent avec namespaces Conformat.Gateway.*"
+      - "Directory.Build.props centralise TargetFramework net48 et les versions de packages"
+      - "ADR-0001 rédigé dans docs/adr/"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  SOL02:
+    title: "Outillage de vérification réel + CI"
+    description: |
+      Brancher l'outillage de vérification sur la solution réelle :
+      1. tools/verify-fast.ps1 : restore + build (x86) + analyzers + tests unitaires.
+         Doit échouer (exit != 0) si build ou tests échouent. Pas de faux verts.
+      2. tools/run-tests.ps1 : suite complète (unit + integration) avec résumé compact
+         et log détaillé dans .run-tests.log.
+      3. CI GitHub Actions (.github/workflows/ci.yml) : sur push/PR — restore, build, tests.
+         Un step qui échoue fait échouer le pipeline (vérifier, pas de continue-on-error).
+      4. Mettre à jour docs/architecture/definition-of-done.md avec les commandes réelles.
+    acceptance:
+      - "verify-fast.ps1 échoue réellement quand un test échoue (testé en cassant un test volontairement)"
+      - "run-tests.ps1 produit un résumé compact + .run-tests.log détaillé"
+      - "ci.yml exécute restore/build/tests et échoue si une étape échoue"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  SOL03:
+    title: "Documentation d'architecture du repo"
+    description: |
+      Rédiger les documents de conventions dans docs/architecture/ :
+      1. repo-standards.md : conventions C# (.editorconfig appliqué), nommage, structure des
+         dossiers de Gateway.Core, conventions de commit (conventional commits), règles de PR.
+      2. module-rules.md : frontière Core/Adaptateur (le Core ne référence JAMAIS un adaptateur ;
+         un adaptateur ne référence que Core), règle « le pivot ne calcule rien », règle
+         « montants en decimal, jamais float », règle « tout champ absent = null ».
+      3. testing-strategy.md : pyramide de tests (unit sur Core, integration sur SQLite/fixtures,
+         tests staging B2Brouter en suite séparée jamais exécutée en CI), conventions de nommage.
+      Source : blueprint.md + docs/conception/ + docs/market/Conception-Produit-Passerelle.md.
+    acceptance:
+      - "repo-standards.md, module-rules.md, testing-strategy.md rédigés en français"
+      - "Les règles de frontière Core/Adaptateur sont explicites et vérifiables"
+      - "Aucune règle inventée : tout est traçable vers blueprint.md ou docs/conception/"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  GATE_SOCLE:
+    type: gate
+    executor: human
+    title: "Gate : socle solution validé"
+    description: |
+      Validation humaine du socle : solution compilable, outillage de vérification fiable,
+      conventions documentées. Cette gate débloque le segment core-foundation.
+    acceptance:
+      - "Tous les items SOL sont done"
+      - "PR du segment feat/socle revue et mergée dans main"

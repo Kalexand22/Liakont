@@ -1,0 +1,161 @@
+﻿#!/usr/bin/env pwsh
+<#
+.SYNOPSIS
+    Thread-safe state.yaml operations for multi-agent orchestration (Conformat).
+.DESCRIPTION
+    All state.yaml mutations MUST go through this script to prevent concurrent
+    corruption when multiple agents run in parallel. Uses a named mutex for locking.
+.PARAMETER Command
+    The operation: read, claim, update, release.
+.EXAMPLE
+    powershell -ExecutionPolicy Bypass -File tools/orch-state.ps1 read
+    powershell -ExecutionPolicy Bypass -File tools/orch-state.ps1 claim -ItemId PIV01 -SlotId 2 -SessionId "orch-..." -ClonePath "C:\Source\Conformat2" -Subbranch "feat/core-foundation/PIV01"
+    powershell -ExecutionPolicy Bypass -File tools/orch-state.ps1 update -ItemId PIV01 -Status done
+    powershell -ExecutionPolicy Bypass -File tools/orch-state.ps1 release -SlotId 2
+#>
+param(
+    [Parameter(Mandatory, Position = 0)]
+    [ValidateSet('read', 'claim', 'update', 'release')]
+    [string]$Command,
+
+    [string]$ItemId,
+    [string]$SlotId,
+    [string]$SessionId,
+    [string]$ClonePath,
+    [string]$Subbranch,
+    [string]$Status
+)
+
+$ErrorActionPreference = 'Stop'
+
+# ── Resolve ORCH_REPO ────────────────────────────────────────────
+$orchRepo = $env:ORCH_REPO
+if (-not $orchRepo) {
+    $orchRepo = 'C:\Source\conformat-orchestration'
+}
+$statePath = Join-Path $orchRepo 'state.yaml'
+
+if (-not (Test-Path $statePath)) {
+    Write-Error "state.yaml not found at $statePath"
+    exit 1
+}
+
+# ── Mutex-based locking ──────────────────────────────────────────
+# Named mutex works across processes on the same machine.
+$mutexName = 'Global\ConformatOrchStateYaml'
+
+function Invoke-WithLock {
+    param([scriptblock]$Action)
+
+    $mutex = [System.Threading.Mutex]::new($false, $mutexName)
+    $acquired = $false
+    try {
+        $acquired = $mutex.WaitOne(10000)  # 10 second timeout
+        if (-not $acquired) {
+            Write-Error "LOCK TIMEOUT: another agent holds the state.yaml lock"
+            exit 1
+        }
+        & $Action
+    }
+    finally {
+        if ($acquired) { $mutex.ReleaseMutex() }
+        $mutex.Dispose()
+    }
+}
+
+# ── YAML helpers (simple line-based, no external dependency) ─────
+# state.yaml uses simple key: { ... } format on single lines.
+
+function Read-State {
+    # Explicit UTF-8: PowerShell 5.1 Get-Content reads BOM-less UTF-8 as ANSI and would
+    # corrupt accented characters on a read/write round trip.
+    [System.IO.File]::ReadAllText($statePath, [System.Text.Encoding]::UTF8)
+}
+
+function Write-State {
+    param([string]$Content)
+    [System.IO.File]::WriteAllText($statePath, $Content, (New-Object System.Text.UTF8Encoding $false))
+}
+
+# ── Commands ─────────────────────────────────────────────────────
+
+switch ($Command) {
+    'read' {
+        # No lock needed for read-only
+        $content = Read-State
+        Write-Output $content
+    }
+
+    'claim' {
+        if (-not $ItemId) { Write-Error "-ItemId required"; exit 1 }
+        if (-not $SlotId) { Write-Error "-SlotId required"; exit 1 }
+        if (-not $SessionId) { Write-Error "-SessionId required"; exit 1 }
+
+        Invoke-WithLock {
+            $content = Read-State
+
+            # Check item is still pending
+            if ($content -match "(?m)^\s+${ItemId}:\s*\{[^}]*status:\s*(\w+)") {
+                $currentStatus = $Matches[1]
+                if ($currentStatus -ne 'pending') {
+                    Write-Host "[CLAIM FAILED] $ItemId is '$currentStatus', not 'pending'" -ForegroundColor Yellow
+                    exit 1
+                }
+            }
+            else {
+                Write-Error "Item $ItemId not found in state.yaml"
+                exit 1
+            }
+
+            # Update item status to claimed
+            $content = $content -replace "(?m)(^\s+${ItemId}:\s*\{[^}]*status:\s*)pending", "`${1}claimed"
+
+            # Build active_sessions entry
+            $now = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+            $clonePathEsc = if ($ClonePath) { $ClonePath } else { (Get-Location).Path }
+            $subbranchVal = if ($Subbranch) { $Subbranch } else { "unknown" }
+
+            $slotEntry = "  slot-${SlotId}: { session_id: `"$SessionId`", item_id: `"$ItemId`", clone_path: `"$clonePathEsc`", subbranch: `"$subbranchVal`", started_at: `"$now`" }"
+
+            # Replace the slot line
+            $content = $content -replace "(?m)^\s+slot-${SlotId}:\s*.*$", $slotEntry
+
+            Write-State $content
+            Write-Host "[CLAIMED] $ItemId by slot-$SlotId ($SessionId)" -ForegroundColor Green
+        }
+    }
+
+    'update' {
+        if (-not $ItemId) { Write-Error "-ItemId required"; exit 1 }
+        if (-not $Status) { Write-Error "-Status required"; exit 1 }
+
+        Invoke-WithLock {
+            $content = Read-State
+
+            # Update item status
+            if ($content -match "(?m)^\s+${ItemId}:\s*\{") {
+                $content = $content -replace "(?m)(^\s+${ItemId}:\s*\{[^}]*status:\s*)\w+", "`${1}$Status"
+                Write-State $content
+                Write-Host "[UPDATED] $ItemId → $Status" -ForegroundColor Green
+            }
+            else {
+                Write-Error "Item $ItemId not found in state.yaml"
+                exit 1
+            }
+        }
+    }
+
+    'release' {
+        if (-not $SlotId) { Write-Error "-SlotId required"; exit 1 }
+
+        Invoke-WithLock {
+            $content = Read-State
+
+            # Clear the slot entry
+            $content = $content -replace "(?m)^\s+slot-${SlotId}:\s*\{[^}]*\}", "  slot-${SlotId}: null"
+
+            Write-State $content
+            Write-Host "[RELEASED] slot-$SlotId" -ForegroundColor Green
+        }
+    }
+}

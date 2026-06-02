@@ -1,0 +1,98 @@
+# Lot ADP — Adaptateur EncheresV6 (Magic XPA / Pervasive)
+# Specs : docs/conception/F01-F02 (cas EncheresV6), F03 (régimes), F07 (avoirs), F09 (encaissements)
+# Premier adaptateur du produit — il valide le contrat IExtractor sur un cas réel (CMP).
+# L'extraction est en LECTURE SEULE STRICTE : aucune écriture, aucun verrou sur la base source.
+
+items:
+  ADP01:
+    title: "Projet adaptateur + FixtureExtractor EncheresV6"
+    description: |
+      Initialiser src/Gateway.Adapters.EncheresV6/ :
+      1. EncheresV6FixtureExtractor : IExtractor rejouant des fixtures JSON au format
+         EncheresV6 (structure entete_ba / lignes_ba / Regime_tva) puis transformées en pivot.
+         C'est le mode dev sans licence Pervasive/Zen, démo hors site et tests.
+      2. Jeu de fixtures réalistes dans tests/fixtures/encheresv6/ :
+         - bordereaux de vente (bordereau_ou_avoir='B') avec lignes type 4 (adjudication)
+           et type 2 (frais), jointure régime TVA
+         - avoirs (bordereau_ou_avoir='A') liés par no_ba_lettrage
+         - règlements (type_ligne='3') avec date_reglement, mode, no_remise
+         - cas marge (régime 6), cas assujetti normal (régime 5), acheteur avec societe renseignée
+      3. La transformation fixture → pivot est LA même que celle qu'utilisera PervasiveExtractor
+         (classe de mapping partagée EncheresV6RowMapper) — seule la source des lignes diffère.
+    acceptance:
+      - "EncheresV6FixtureExtractor implémente IExtractor"
+      - "EncheresV6RowMapper séparé et réutilisable par le futur PervasiveExtractor"
+      - "Fixtures couvrant bordereaux, avoirs, règlements, marge, normal, acheteur pro"
+      - "Tests : extraction des fixtures → PivotDocument valides (validés par le ValidationPipeline)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  ADP02:
+    title: "PervasiveExtractor : extraction ODBC des documents"
+    description: |
+      Implémenter l'extracteur réel dans src/Gateway.Adapters.EncheresV6/ selon F02 :
+      1. PervasiveExtractor : IExtractor sur ODBC (System.Data.Odbc, net48) :
+         - ExtractDocuments : SELECT entete_ba WHERE bordereau_ou_avoir='B'
+           AND date_vente ∈ [from, to[ + lignes type 4/2 + jointure Regime_tva
+         - CheckHealth : connexion + présence des tables attendues + comptage rapide
+      2. LECTURE SEULE STRICTE : connection string en read-only si le driver le permet,
+         aucune requête INSERT/UPDATE/DELETE, aucune transaction d'écriture, timeouts courts.
+      3. Le SIREN émetteur ne vient PAS de la base (absent du schéma EncheresV6) : il vient
+         de la configuration (SIREN global CMP).
+      4. Réutilise EncheresV6RowMapper (ADP01) pour produire le pivot.
+      5. Builds x86 obligatoires : les drivers ODBC Pervasive sont souvent 32-bit.
+      NOTE : sans licence Pervasive sur la machine de dev, les tests d'intégration ODBC réels
+      sont une suite séparée (jamais en CI). Les tests unitaires mockent IDbConnection/IDataReader.
+    acceptance:
+      - "PervasiveExtractor implémente IExtractor en lecture seule stricte"
+      - "Requêtes conformes au schéma documenté dans F01-F02 (entete_ba, lignes_ba, Regime_tva)"
+      - "SIREN émetteur lu depuis la config, jamais depuis la base"
+      - "Tests unitaires avec data readers mockés ; suite ODBC réelle séparée et documentée"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  ADP03:
+    title: "Extraction avoirs + encaissements EncheresV6"
+    description: |
+      Compléter PervasiveExtractor et EncheresV6RowMapper selon F07 et F09 :
+      1. Avoirs : bordereau_ou_avoir='A', montants stockés en positif, lien no_ba_lettrage →
+         CreditNoteRef (pivot). Modèle 2 lignes (adjudication + frais) applicable.
+      2. Encaissements (ExtractPayments) : lignes_ba.type_ligne='3' → montant_ligne,
+         date_reglement, mode de règlement, no_remise. Rattachement au bordereau via no_ba.
+      3. Les deux chemins (fixtures et ODBC) produisent le même pivot pour les mêmes données
+         (test de parité sur un jeu commun).
+    acceptance:
+      - "Avoirs extraits avec lien vers la facture d'origine (no_ba_lettrage → CreditNoteRef)"
+      - "Encaissements extraits en PivotPayment avec rattachement bordereau"
+      - "Test de parité fixtures vs ODBC mocké sur le même jeu de données"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  ADP04:
+    title: "ListSourceTaxRegimes + configuration adaptateur"
+    description: |
+      Compléter l'adaptateur :
+      1. ListSourceTaxRegimes : SELECT des régimes TVA distincts de la base (table Regime_tva +
+         occurrences dans lignes_ba) — alimente la détection de couverture TVA03.
+      2. EncheresV6AdapterConfig : section de configuration de l'adaptateur — chaîne ODBC,
+         SIREN émetteur, raison sociale, chemin fixtures (mode fixture), période par défaut.
+      3. Sélection du mode (Pervasive vs Fixture) par configuration, jamais par compilation.
+    acceptance:
+      - "ListSourceTaxRegimes retourne les régimes réels avec occurrences"
+      - "Configuration adaptateur typée et validée (chaîne ODBC OU chemin fixtures requis)"
+      - "Le mode fixture/ODBC se choisit par config"
+      - "Tests : config valide/invalide, listing des régimes sur fixtures"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  GATE_ADAPTER_ENCHERESV6:
+    type: gate
+    executor: human
+    title: "Gate : adaptateur EncheresV6 validé"
+    description: |
+      Validation humaine du premier adaptateur. Démonstration attendue : extraction d'un jeu
+      de fixtures EncheresV6 complet → pipeline → FakePaClient, et si possible une extraction
+      ODBC réelle sur la base de test CMP (si accès disponible).
+    acceptance:
+      - "Tous les items ADP sont done"
+      - "PR du segment feat/adapter-encheresv6 revue et mergée dans main"

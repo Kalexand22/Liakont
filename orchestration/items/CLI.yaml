@@ -1,0 +1,69 @@
+# Lot CLI — Mode automatique en ligne de commande (F11)
+# Spec : docs/conception/F11-CLI-Mode-Automatique.md
+# Pattern de référence : SynchroAxelor (EXE + config + logs fichiers), éprouvé en production.
+
+items:
+  CLI01:
+    title: "Gateway.Cli : commandes, options, codes retour"
+    description: |
+      Implémenter l'exécutable CLI dans src/Gateway.Cli/ selon F11 :
+      1. Commandes :
+         - run          : pipeline complet (extract+check+send+sync) — mode planifié
+         - extract      : extraction seule, alimente le Tracking, n'envoie rien
+         - send         : envoi des documents en état ReadyToSend
+         - sync-status  : synchro statuts/tax reports PA
+         - check-config : valide la config (connexion source, clé API, table TVA) sans traiter
+         - report       : récapitulatif (compteurs par état, période)
+      2. Options : --config <chemin> (obligatoire), --from/--to (yyyy-MM-dd), --dry-run,
+         --verbose, --max <n>.
+      3. Codes retour (contrat avec le Planificateur Windows) :
+         0 = succès complet | 1 = succès partiel (blocages/rejets) | 2 = échec run (fatal) |
+         3 = verrou occupé (run non exécuté).
+      4. Le CLI est une coquille mince : il parse les arguments, charge la config, appelle
+         PipelineRunner, mappe le RunReport en code retour. Aucune logique métier.
+    acceptance:
+      - "Les 6 commandes de F11 implémentées en appelant PipelineRunner"
+      - "Codes retour 0/1/2/3 conformes au tableau F11"
+      - "check-config valide source + clé API + table TVA sans rien traiter"
+      - "Tests : parsing arguments, mapping RunReport → code retour, config invalide → 2"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  CLI02:
+    title: "Journalisation fichiers + last-run-status.json"
+    description: |
+      Implémenter la journalisation selon F11 :
+      1. Fichier de log par run : logs\<yyyy-MM-dd>_<HHmm>_<commande>.log — texte lisible,
+         horodaté, n° de document sur chaque ligne concernée (grep-able).
+      2. Niveaux : INFO (par document : détecté/envoyé/état), WARN (alertes), ERROR (rejets, erreurs).
+      3. Rotation : conservation 90 jours des logs fichiers (le Tracking SQLite n'est JAMAIS purgé).
+      4. last-run-status.json : écrit à chaque fin de run (started, ended, command, exit_code,
+         compteurs) — exploitable par une supervision externe pour détecter la « montre morte »
+         (aucun run depuis > 48h).
+    acceptance:
+      - "Un fichier de log par run, format horodaté lisible et grep-able"
+      - "Rotation 90 jours implémentée et testée"
+      - "last-run-status.json écrit à chaque run avec les champs de F11"
+      - "Tests : écriture log, rotation, contenu last-run-status.json"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  CLI03:
+    title: "Notifications SMTP"
+    description: |
+      Implémenter les notifications selon F11 :
+      1. Code retour 2 (échec run) : mail immédiat « La transmission du <date> n'a pas pu
+         s'exécuter : <raison> ».
+      2. Code retour 1 + nouveaux blocages/rejets : mail récapitulatif — liste des documents
+         + motifs + consigne « ouvrir la console ».
+      3. Run OK : pas de mail (éviter le bruit). Option de config NotifyOnSuccess: true pour
+         les premières semaines d'exploitation.
+      4. SMTP simple (System.Net.Mail, net48) : hôte, port, credentials, from/to dans la config.
+         Échec d'envoi du mail = WARN dans le log, jamais un échec du run.
+    acceptance:
+      - "Les 3 scénarios de notification de F11 implémentés"
+      - "NotifyOnSuccess configurable, défaut false"
+      - "Un échec SMTP ne fait jamais échouer le run (testé)"
+      - "Tests avec un faux serveur/transport SMTP : contenu des mails, déclenchement par code retour"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"

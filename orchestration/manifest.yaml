@@ -1,0 +1,145 @@
+# Conformat — Work Manifest (active items only)
+# Archives : orchestration/archive/
+# Détail des items : orchestration/items/<lot>.yaml
+# Conventions : voir MANIFEST-CONVENTIONS.md dans ce répertoire
+#
+# Defaults (omettre quand la valeur correspond) :
+#   type: work | executor: claude | blueprint: module-work-item
+
+meta:
+  project: conformat-gateway
+  phase: 1
+  version: 1
+  host: multi_agent_v1
+
+segments:
+  socle:
+    branch: feat/socle
+    base: main
+    lots: [SOL]
+    gate: GATE_SOCLE
+
+  core-foundation:
+    branch: feat/core-foundation
+    base: main
+    lots: [PIV, TVA, VAL, TRK]
+    gate: GATE_CORE_FOUNDATION
+    depends_on_gate: GATE_SOCLE
+
+  pa-client:
+    branch: feat/pa-client
+    base: main
+    lots: [PAC]
+    gate: GATE_PA_CLIENT
+    depends_on_gate: GATE_CORE_FOUNDATION
+
+  pipeline-hosts:
+    branch: feat/pipeline-hosts
+    base: main
+    lots: [PIP, CLI, SVC]
+    gate: GATE_PIPELINE
+    depends_on_gate: GATE_PA_CLIENT
+
+  adapter-encheresv6:
+    branch: feat/adapter-encheresv6
+    base: main
+    lots: [ADP]
+    gate: GATE_ADAPTER_ENCHERESV6
+    depends_on_gate: GATE_CORE_FOUNDATION
+
+  console-admin:
+    branch: feat/console-admin
+    base: main
+    lots: [WPF]
+    gate: GATE_CONSOLE_ADMIN
+    depends_on_gate: GATE_PIPELINE
+
+  deployment:
+    branch: feat/deployment
+    base: main
+    lots: [CFG, DOC]
+    gate: GATE_DEMO_ISATECH
+    depends_on_gate: GATE_CONSOLE_ADMIN
+
+items:
+  # ── SOL ──
+  - { id: SOL01, lot: SOL, priority: 1000, depends_on: [] }
+  - { id: SOL02, lot: SOL, blueprint: tooling-item, priority: 1010, depends_on: [SOL01] }
+  - { id: SOL03, lot: SOL, blueprint: docs-spec-item, priority: 1020, depends_on: [SOL01] }
+  - { id: GATE_SOCLE, type: gate, executor: human, priority: 1100, depends_on: [SOL02, SOL03] }
+
+  # ── PIV ──
+  - { id: PIV01, lot: PIV, priority: 2000, depends_on: [] }
+  - { id: PIV02, lot: PIV, priority: 2010, depends_on: [PIV01] }
+  - { id: PIV03, lot: PIV, priority: 2020, depends_on: [PIV01] }
+  - { id: PIV04, lot: PIV, priority: 2030, depends_on: [PIV01] }
+  - { id: PIV05, lot: PIV, priority: 2040, depends_on: [PIV03, PIV04] }
+
+  # ── TVA ──
+  - { id: TVA01, lot: TVA, priority: 2100, depends_on: [PIV01] }
+  - { id: TVA02, lot: TVA, priority: 2110, depends_on: [TVA01] }
+  - { id: TVA03, lot: TVA, priority: 2120, depends_on: [TVA02, PIV03] }
+  - { id: TVA04, lot: TVA, priority: 2130, depends_on: [TVA02] }
+
+  # ── VAL ──
+  - { id: VAL01, lot: VAL, priority: 2200, depends_on: [PIV01] }
+  - { id: VAL02, lot: VAL, priority: 2210, depends_on: [VAL01] }
+  - { id: VAL03, lot: VAL, priority: 2220, depends_on: [VAL01] }
+  - { id: VAL04, lot: VAL, priority: 2230, depends_on: [VAL01, TVA02] }
+  - { id: VAL05, lot: VAL, priority: 2240, depends_on: [VAL01] }
+
+  # ── TRK ──
+  - { id: TRK01, lot: TRK, priority: 2300, depends_on: [PIV04] }
+  - { id: TRK02, lot: TRK, priority: 2310, depends_on: [TRK01] }
+  - { id: TRK03, lot: TRK, priority: 2320, depends_on: [TRK02] }
+  - { id: TRK04, lot: TRK, priority: 2330, depends_on: [TRK02] }
+  - { id: TRK05, lot: TRK, priority: 2340, depends_on: [TRK04] }
+  - { id: GATE_CORE_FOUNDATION, type: gate, executor: human, priority: 2900, depends_on: [PIV02, PIV05, TVA03, TVA04, VAL02, VAL03, VAL04, VAL05, TRK03, TRK05] }
+
+  # ── PAC ──
+  - { id: PAC01, lot: PAC, priority: 3000, depends_on: [] }
+  - { id: PAC02, lot: PAC, priority: 3010, depends_on: [PAC01] }
+  - { id: PAC03, lot: PAC, priority: 3020, depends_on: [PAC02] }
+  - { id: PAC04, lot: PAC, priority: 3030, depends_on: [PAC02] }
+  - { id: PAC05, lot: PAC, priority: 3040, depends_on: [PAC01] }
+  - { id: GATE_PA_CLIENT, type: gate, executor: human, priority: 3900, depends_on: [PAC03, PAC04, PAC05] }
+
+  # ── PIP ──
+  - { id: PIP01, lot: PIP, priority: 4000, depends_on: [] }
+  - { id: PIP02, lot: PIP, priority: 4010, depends_on: [PIP01] }
+  - { id: PIP03, lot: PIP, priority: 4020, depends_on: [PIP01] }
+
+  # ── CLI ──
+  - { id: CLI01, lot: CLI, priority: 4100, depends_on: [PIP01] }
+  - { id: CLI02, lot: CLI, priority: 4110, depends_on: [CLI01] }
+  - { id: CLI03, lot: CLI, priority: 4120, depends_on: [CLI01] }
+
+  # ── SVC ──
+  - { id: SVC01, lot: SVC, priority: 4200, depends_on: [PIP01] }
+  - { id: SVC02, lot: SVC, priority: 4210, depends_on: [SVC01] }
+  - { id: GATE_PIPELINE, type: gate, executor: human, priority: 4900, depends_on: [PIP02, PIP03, CLI02, CLI03, SVC02] }
+
+  # ── ADP ──
+  - { id: ADP01, lot: ADP, priority: 5000, depends_on: [] }
+  - { id: ADP02, lot: ADP, priority: 5010, depends_on: [ADP01] }
+  - { id: ADP03, lot: ADP, priority: 5020, depends_on: [ADP02] }
+  - { id: ADP04, lot: ADP, priority: 5030, depends_on: [ADP02] }
+  - { id: GATE_ADAPTER_ENCHERESV6, type: gate, executor: human, priority: 5900, depends_on: [ADP03, ADP04] }
+
+  # ── WPF ──
+  - { id: WPF01, lot: WPF, blueprint: wpf-screen-item, priority: 6000, depends_on: [] }
+  - { id: WPF02, lot: WPF, blueprint: wpf-screen-item, priority: 6010, depends_on: [WPF01] }
+  - { id: WPF03, lot: WPF, blueprint: wpf-screen-item, priority: 6020, depends_on: [WPF02] }
+  - { id: WPF04, lot: WPF, blueprint: wpf-screen-item, priority: 6030, depends_on: [WPF01] }
+  - { id: WPF05, lot: WPF, blueprint: wpf-screen-item, priority: 6040, depends_on: [WPF02] }
+  - { id: WPF06, lot: WPF, blueprint: wpf-screen-item, priority: 6050, depends_on: [WPF02] }
+  - { id: GATE_CONSOLE_ADMIN, type: gate, executor: human, priority: 6900, depends_on: [WPF03, WPF04, WPF05, WPF06] }
+
+  # ── CFG ──
+  - { id: CFG01, lot: CFG, blueprint: docs-spec-item, priority: 7000, depends_on: [] }
+  - { id: CFG02, lot: CFG, priority: 7010, depends_on: [CFG01] }
+  - { id: CFG03, lot: CFG, blueprint: tooling-item, priority: 7020, depends_on: [CFG02] }
+
+  # ── DOC ──
+  - { id: DOC01, lot: DOC, blueprint: docs-spec-item, priority: 7100, depends_on: [CFG03] }
+  - { id: GATE_DEMO_ISATECH, type: gate, executor: human, priority: 7900, depends_on: [CFG03, DOC01] }

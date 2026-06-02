@@ -1,0 +1,60 @@
+# Lot SVC — Service Windows résident (F11)
+# Spec : docs/conception/F11-CLI-Mode-Automatique.md
+# Hôte alternatif au CLI : ordonnanceur interne + auto-surveillance (« montre morte »).
+# CLI OU Service par déploiement, jamais les deux (le mutex global l'interdit de toute façon).
+
+items:
+  SVC01:
+    title: "Gateway.Service : service Windows + ordonnanceur interne"
+    description: |
+      Implémenter le service dans src/Gateway.Service/ selon F11 :
+      1. ServiceBase mince + timer : le service appelle PipelineRunner.RunAsync exactement
+         comme le CLI (même moteur, même config, même mutex).
+      2. Ordonnanceur interne configuré par la section schedule de la config :
+         {"times": ["03:00"], "catchUpOnStart": true, "heartbeatMinutes": 15}
+         - times : heures de déclenchement quotidien
+         - catchUpOnStart : si la machine était éteinte à l'heure prévue, exécuter au démarrage
+      3. Battement de cœur : écriture périodique de last-run-status.json même hors run
+         (champ heartbeat_utc) → une supervision externe détecte un service figé.
+      4. Aucune logique métier dans le service : coquille ServiceBase + timer + appel moteur.
+    acceptance:
+      - "Le service appelle le même PipelineRunner que le CLI (vérifié : aucune duplication de logique)"
+      - "Ordonnanceur : déclenchement aux heures configurées + catchUpOnStart"
+      - "Heartbeat périodique écrit dans last-run-status.json"
+      - "Tests : calcul du prochain déclenchement, catch-up, heartbeat (timer abstrait/mockable)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  SVC02:
+    title: "Self-install/uninstall + détection montre morte"
+    description: |
+      Compléter le service selon F11 :
+      1. Gateway.Service.exe install / uninstall : auto-installation du service Windows
+         (sc.exe ou ServiceInstaller), nom de service dérivé du chemin de config
+         (multi-config sur la même machine = plusieurs instances de service).
+      2. Détection « montre morte » : au démarrage et à chaque heartbeat, si le dernier run
+         réussi date de plus de 48h alors qu'un run était planifié → notification (réutilise CLI03)
+         + ERROR dans le log.
+      3. Arrêt propre : si un run est en cours lors d'un Stop du service, le run se termine
+         (timeout configurable) avant l'arrêt — jamais d'interruption brutale au milieu d'un envoi.
+    acceptance:
+      - "install/uninstall fonctionnels (testables sur machine de dev avec droits admin)"
+      - "Multi-config = multi-instances de service avec noms distincts"
+      - "Montre morte > 48h détectée et notifiée"
+      - "Arrêt propre attend la fin du run en cours"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  GATE_PIPELINE:
+    type: gate
+    executor: human
+    title: "Gate : pipeline + hôtes validés"
+    description: |
+      Validation humaine du pipeline complet et de ses deux hôtes (CLI + Service).
+      Démonstration attendue : un run complet de bout en bout sur fixtures
+      (FixtureExtractor → validation → FakePaClient → tracking) via le CLI,
+      avec codes retour corrects et logs exploitables.
+    acceptance:
+      - "Tous les items PIP, CLI, SVC sont done"
+      - "PR du segment feat/pipeline-hosts revue et mergée dans main"
+      - "Un run de bout en bout sur fixtures a été démontré"

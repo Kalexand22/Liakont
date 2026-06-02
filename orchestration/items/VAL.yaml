@@ -1,0 +1,110 @@
+# Lot VAL — Contrôles qualité pré-envoi (F04)
+# Spec : docs/conception/F04-Controles-Qualite-Validation.md
+# Principe : détecter AVANT envoi tout ce qui serait rejeté par la PA.
+# Un contrôle bloquant échoue = document reste Blocked, jamais envoyé.
+
+items:
+  VAL01:
+    title: "Framework de validation (résultats, sévérités, messages opérateur)"
+    description: |
+      Implémenter le socle de validation dans Gateway.Core/Validation/ selon F04 :
+      1. ValidationResult : IsValid, Issues (IReadOnlyList<ValidationIssue>).
+      2. ValidationIssue : Code (ex. DOC_TOTAL_MISMATCH), Severity (Blocking/Warning),
+         MessageOperateur (français, zéro jargon technique, cite le n° de document et l'action
+         corrective), DetailTechnique.
+      3. IDocumentRule : interface d'une règle — Validate(PivotDocument) → IEnumerable<ValidationIssue>.
+      4. ValidationPipeline : exécute toutes les règles enregistrées, agrège le résultat.
+         Une règle qui lève une exception = Blocking issue RULE_CRASHED (jamais de règle silencieuse).
+      Exemples de messages (F04) :
+      - DOC_TOTAL_MISMATCH → « Le total du bordereau (1 162,80 €) ne correspond pas à la somme
+        des lignes (1 160,00 €). Vérifiez le bordereau n° 2019 dans Enchères SVV. »
+    acceptance:
+      - "ValidationResult, ValidationIssue, IDocumentRule, ValidationPipeline dans Conformat.Gateway.Core.Validation"
+      - "Messages opérateur en français avec n° de document et action corrective"
+      - "Une règle qui crash produit une issue Blocking, jamais un passage silencieux"
+      - "Tests du pipeline : agrégation, règle qui crash, document sans issue"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  VAL02:
+    title: "Contrôles d'identité : SIREN/SIRET Luhn, TVA intracommunautaire, pays"
+    description: |
+      Implémenter les règles d'identité dans Gateway.Core/Validation/Rules/ selon F04 :
+      1. SirenValidator : 9 chiffres + algorithme de Luhn. Exception connue : La Poste (356000000).
+      2. SiretValidator : 14 chiffres + Luhn.
+      3. TvaIntracommunautaireValidator : format FR + clé (2 car.) + SIREN,
+         clé = (12 + 3 × (SIREN mod 97)) mod 97.
+      4. CountryCodeValidator : ISO 3166-1 alpha-2.
+      5. Règles documents : SUPPLIER_SIREN_MISSING (Blocking), SUPPLIER_SIREN_INVALID (Blocking),
+         BUYER_SIREN_INVALID (Blocking si présent), BUYER_COUNTRY_INVALID (Blocking).
+    acceptance:
+      - "Luhn SIREN/SIRET implémenté avec l'exception La Poste"
+      - "Clé TVA intracommunautaire calculée selon la formule officielle"
+      - "Tests : SIREN valides/invalides connus, SIRET, clé TVA FR, La Poste"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  VAL03:
+    title: "Contrôles de cohérence document : totaux, BR-CO-15, unicité, devise"
+    description: |
+      Implémenter les règles de cohérence dans Gateway.Core/Validation/Rules/ selon F04 :
+      1. LineTotalsRule : Σ lignes HT = Total HT, Σ lignes TVA = Total TVA (tolérance zéro,
+         arrondi commercial half-up 2 décimales).
+      2. ArithmeticRule (BR-CO-15, fatale EN 16931) : HT + TVA = TTC.
+      3. StructureRule : au moins 1 ligne, date plausible (pas dans le futur, pas avant 2000),
+         devise ISO 4217.
+      4. UniquenessRule : numéro de document non déjà émis (interroge le Tracking via une interface
+         IIssuedDocumentLookup — l'implémentation SQLite arrive avec TRK03, ici un fake suffit).
+    acceptance:
+      - "BR-CO-15 (HT+TVA=TTC) implémentée comme règle Blocking"
+      - "Réconciliation des totaux lignes/document sans tolérance"
+      - "UniquenessRule derrière une interface, testée avec un fake"
+      - "Tests : document cohérent, écart d'arrondi, TTC incohérent, doublon de numéro"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  VAL04:
+    title: "Contrôles TVA et avoirs"
+    description: |
+      Implémenter les règles TVA et avoirs dans Gateway.Core/Validation/Rules/ selon F04 et F07 :
+      1. MappingCoverageRule : chaque ligne a un régime source mappé (utilise TVA03).
+      2. VatexRequiredRule : catégorie E + taux 0 → code VATEX présent.
+         (Validé en staging B2Brouter : l'absence de VATEX = blocage silencieux côté PA —
+         c'est exactement ce qu'on veut attraper AVANT envoi.)
+      3. CreditNoteRules (F07) : référence facture d'origine présente, facture connue du Tracking
+         ET déjà émise, montants positifs (règle fatale EN 16931 — jamais de montants négatifs).
+      4. Avoir orphelin (original hors passerelle) = Blocking « facture d'origine inconnue de la
+         passerelle » — jamais de référence fabriquée.
+    acceptance:
+      - "VatexRequiredRule bloque tout E+0% sans VATEX"
+      - "Avoirs : montants positifs obligatoires, référence d'origine vérifiée via le Tracking"
+      - "Avoir orphelin bloqué avec message explicite"
+      - "Tests : E sans VATEX, avoir valide, avoir orphelin, avoir à montants négatifs"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  VAL05:
+    title: "Garde-fou B2B/B2C : détection acheteur professionnel"
+    description: |
+      Implémenter le garde-fou F08 dans Gateway.Core/Validation/Rules/ :
+      1. CompanyHintDetector : heuristique de détection d'acheteur professionnel :
+         - raison sociale renseignée (champ societe) → indice fort
+         - n° TVA intracommunautaire présent → indice fort
+         - forme juridique détectée par regex (SARL, SAS, SA, EURL, EI, SCI, SASU...) → indice moyen
+         - le montant seul n'est JAMAIS un critère
+         IsCompanyHint = true si au moins un indice fort OU deux indices moyens.
+      2. BuyerLooksProfessionalRule : si IsCompanyHint → Blocking BUYER_LOOKS_PROFESSIONAL avec
+         message : « L'acheteur "<nom>" semble être un professionnel. Une facture électronique B2B
+         est requise (non gérée automatiquement en V1). Traitez ce bordereau manuellement ou
+         confirmez qu'il s'agit d'un particulier. »
+      3. Le verdict opérateur (« confirmer B2C » / « traiter manuellement ») arrive avec la console
+         (WPF03) — ici on expose juste l'issue et un OverrideToken journalisable.
+      Contexte (F08) : déclarer en e-reporting B2C une vente B2B prive l'acheteur pro de sa facture
+      déductible = manquement à l'obligation e-invoicing. Le garde-fou est la protection V1.
+    acceptance:
+      - "CompanyHintDetector implémente exactement l'heuristique F08 (2 indices forts, regex formes juridiques)"
+      - "Le montant n'intervient jamais dans la détection"
+      - "BUYER_LOOKS_PROFESSIONAL est Blocking avec le message opérateur de F04/F08"
+      - "Tests : particulier, SARL en raison sociale, n° TVA présent, nom ambigu"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
