@@ -39,7 +39,9 @@ items:
       3. GET /runs?from=&to= → journal des runs (RunLog)
       4. GET /payments?period= → agrégats d'encaissements (PaymentAggregate) + état transmission
       5. GET /configuration → configuration visible (secrets masqués), table TVA chargée
-         (version, validateur, règles), capacités du/des PA configurés
+         (version, validateur, règles), capacités du/des PA configurés ET capacités de
+         l'adaptateur source (ExtractorCapabilities — la console en a besoin pour afficher
+         ou masquer l'écran Réconciliation)
       6. Tous les DTOs dans Gateway.Api (assembly de contrats partagée service/clients),
          versionnés (header X-Conformat-Api-Version).
     acceptance:
