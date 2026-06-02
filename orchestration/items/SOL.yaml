@@ -1,5 +1,5 @@
 # Lot SOL — Socle solution (.NET Framework 4.8)
-# Réf : blueprint.md, docs/conception/Conception-Produit-Passerelle.md (copie : docs/market/)
+# Réf : blueprint.md, docs/market/Conception-Produit-Passerelle.md
 # Préalable à tout le reste : sans solution compilable, verify-fast ne peut pas tourner.
 
 items:

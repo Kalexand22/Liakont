@@ -5,7 +5,8 @@ items:
   CFG01:
     title: "Spec F12 — Configuration & déploiement"
     description: |
-      Rédiger docs/conception/F12-Configuration-Deploiement.md, dans le même format que F01-F11
+      Rédiger docs/conception/F12-Configuration-Deploiement.md (fichier À CRÉER par cet item),
+      dans le même format que F01-F11
       (objectif, périmètre, conception, décisions, points ouverts) :
       1. Format du fichier de configuration (JSON) : identité émetteur, connexion source,
          compte PA (URL, account id, clé API), chemin table TVA, planification, notifications SMTP,

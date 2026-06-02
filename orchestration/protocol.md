@@ -46,8 +46,8 @@ Each agent runs in its **own full clone** of the source repo (e.g., `Conformat`,
 Multiple agents can run in parallel, each occupying a **slot**. The number of slots
 is defined by `max_parallel` in `$ORCH_REPO/config.yaml`.
 
-1. Read `$ORCH_REPO/config.yaml` to get `max_parallel` (default: 3) and
-   `lease_duration_minutes` (default: 120).
+1. Read `$ORCH_REPO/config.yaml` to get `max_parallel` (default: 3),
+   `lease_duration_minutes` (default: 120) and `heartbeat_interval_minutes` (default: 10).
 2. Scan `$ORCH_REPO/leases/slot-*.yaml` files:
    - For each slot from 1 to `max_parallel`:
      - If `$ORCH_REPO/leases/slot-<N>.yaml` does not exist → slot is free.
@@ -191,7 +191,8 @@ The agent is already in its own clone. It just needs to create the sub-branch.
    - **loop-back** nodes (have a `loop_back_to` field): after execution, return to the specified node and resume from there (e.g., `fix_review` loops back to `verify` → `commit` → `review`).
    - **retry** nodes: on failure, retry up to `retry.max` times. On exhaustion, set item to `retry.on_exhaust` status, write session-log, release slot, **EXIT 1**.
 5. Track each node execution: record start time, duration, and status for the session log.
-6. Between nodes, renew the lease heartbeat if >10 minutes have elapsed:
+6. Between nodes, renew the lease heartbeat if more than `heartbeat_interval_minutes`
+   (from config.yaml) have elapsed:
    - Update `heartbeat_at` and `expires_at` in `$ORCH_REPO/leases/slot-$SLOT_ID.yaml`.
 7. After all nodes complete, update item status:
    `tools/orch-state.ps1 update -ItemId <id> -Status done`
@@ -334,7 +335,7 @@ state.yaml at a time.
   (e.g., régime 6, TVA sur débits), mark the item `blocked` with a note — do not guess.
 - **If anything unexpected happens** (tool error, git conflict, network failure):
   mark the item as `blocked` with notes, write session-log, release slot, EXIT.
-- **Renew the lease heartbeat** during long operations (every 10 minutes).
+- **Renew the lease heartbeat** during long operations (every `heartbeat_interval_minutes` from config.yaml).
 - **P2 findings are not silently skipped.** Every P2 is either fixed or explicitly accepted
   with a documented reason in the session log. Unaddressed P2s are a false-green.
 - **Session logs go to `$ORCH_REPO`**, not to the source repo. No "chore: session log" commits in the source repo.
