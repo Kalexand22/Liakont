@@ -46,7 +46,8 @@ Each agent runs in its **own full clone** of the source repo (e.g., `Conformat`,
 Multiple agents can run in parallel, each occupying a **slot**. The number of slots
 is defined by `max_parallel` in `$ORCH_REPO/config.yaml`.
 
-1. Read `$ORCH_REPO/config.yaml` to get `max_parallel` (default: 3).
+1. Read `$ORCH_REPO/config.yaml` to get `max_parallel` (default: 3) and
+   `lease_duration_minutes` (default: 120).
 2. Scan `$ORCH_REPO/leases/slot-*.yaml` files:
    - For each slot from 1 to `max_parallel`:
      - If `$ORCH_REPO/leases/slot-<N>.yaml` does not exist → slot is free.
@@ -55,7 +56,8 @@ is defined by `max_parallel` in `$ORCH_REPO/config.yaml`.
    - Take the first free slot.
 3. If no free slot → **EXIT 0** with message "All slots occupied."
 4. Acquire the slot atomically: write `$ORCH_REPO/leases/slot-$SLOT_ID.yaml`
-   (fields: session_id, slot_id, clone_path, hostname, acquired_at, heartbeat_at, expires_at +30min).
+   (fields: session_id, slot_id, clone_path, hostname, acquired_at, heartbeat_at,
+   expires_at = now + `lease_duration_minutes` from config.yaml).
    If file exists (race): re-read, try next slot. No free slots → EXIT 0.
 
 ### Recovery

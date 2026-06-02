@@ -12,7 +12,7 @@ conformat-orchestration/    ← Dépôt d'état central ($ORCH_REPO)
   ├── config.yaml             max_parallel: 3
   ├── state.yaml              Statuts des items (runtime, versionné git)
   ├── events.jsonl            Journal d'audit append-only
-  ├── leases/                 slot-N.yaml (verrous d'agents, TTL 30 min)
+  ├── leases/                 slot-N.yaml (verrous d'agents, TTL = lease_duration_minutes)
   └── session-log/            <session>_<item>.md (logs par session)
 
 Conformat/                  ← Dépôt source (ce dépôt) — slot-1

@@ -89,7 +89,12 @@ else {
 }
 
 # --- Diff helpers ---
+# Note: $ErrorActionPreference = 'Continue' is required around native git calls.
+# In PowerShell 5.1, stderr output from a native command (even a benign warning
+# like "LF will be replaced by CRLF") becomes a NativeCommandError record; with
+# 'Stop' it terminates the script and the review never runs (false failure).
 function Get-UncommittedDiff {
+    $ErrorActionPreference = 'Continue'
     $staged = git diff --cached 2>$null | Out-String
     $unstaged = git diff 2>$null | Out-String
     $untracked = git ls-files --others --exclude-standard 2>$null
@@ -106,11 +111,13 @@ function Get-UncommittedDiff {
 
 function Get-BaseDiff {
     param([string]$Ref)
+    $ErrorActionPreference = 'Continue'
     return (git diff "$Ref...HEAD" 2>$null | Out-String)
 }
 
 function Get-CommitDiff {
     param([string]$Sha)
+    $ErrorActionPreference = 'Continue'
     return (git show $Sha 2>$null | Out-String)
 }
 
@@ -144,6 +151,10 @@ function Invoke-Review {
         try {
             [System.IO.File]::WriteAllText($tmpFile, $prompt, (New-Object System.Text.UTF8Encoding $false))
             $ErrorActionPreference = 'Continue'
+            # Force l'auth abonnement (OAuth) pour le sous-processus claude :
+            # ANTHROPIC_API_KEY (héritée de l'env Windows) pointe vers un compte API
+            # sans crédits et ferait échouer la review ("Credit balance is too low").
+            $env:ANTHROPIC_API_KEY = $null
             Get-Content $tmpFile -Raw | & claude --print --model opus
             $claudeExit = $LASTEXITCODE
             $ErrorActionPreference = 'Stop'
@@ -194,7 +205,9 @@ function Invoke-Review {
     else {
         $codexArgs += '--uncommitted'
     }
+    $ErrorActionPreference = 'Continue'
     codex review @codexArgs 2>&1
+    $ErrorActionPreference = 'Stop'
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[FAIL] Codex review also failed (exit $LASTEXITCODE)" -ForegroundColor Red
         exit $LASTEXITCODE
