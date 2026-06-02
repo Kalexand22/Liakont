@@ -9,7 +9,7 @@
     The operation: read, claim, update, release.
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File tools/orch-state.ps1 read
-    powershell -ExecutionPolicy Bypass -File tools/orch-state.ps1 claim -ItemId PIV01 -SlotId 2 -SessionId "orch-..." -ClonePath "C:\Source\Conformat2" -Subbranch "feat/core-foundation/PIV01"
+    powershell -ExecutionPolicy Bypass -File tools/orch-state.ps1 claim -ItemId PIV01 -SlotId 2 -SessionId "orch-..." -ClonePath "C:\Source\Conformat2" -Subbranch "feat/core-foundation-PIV01"
     powershell -ExecutionPolicy Bypass -File tools/orch-state.ps1 update -ItemId PIV01 -Status done
     powershell -ExecutionPolicy Bypass -File tools/orch-state.ps1 release -SlotId 2
 #>

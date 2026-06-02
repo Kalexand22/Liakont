@@ -156,10 +156,12 @@ The agent is already in its own clone. It just needs to create the sub-branch.
 
 1. Determine the item's segment: find which segment in the manifest contains the item's `lot`.
 2. Get the segment branch name from `segments.<segment>.branch` (e.g., `feat/core-foundation`).
-3. Define the sub-branch name: `<segment-branch>/<item_id>` (e.g., `feat/core-foundation/PIV01`).
+3. Define the sub-branch name: `<segment-branch>-<item_id>` (e.g., `feat/core-foundation-PIV01`).
+   **Dash separator, never a slash**: git refs are stored as files, so `feat/socle` (file) and
+   `feat/socle/SOL01` (would require `feat/socle` to be a directory) cannot coexist.
 
 4. `git fetch origin`, checkout segment branch (create from `base` if it does not exist yet),
-   `git pull`, then `git checkout -b "$SEGMENT_BRANCH/<item_id>"`.
+   `git pull`, then `git checkout -b "$SEGMENT_BRANCH-<item_id>"`.
 
 5. All subsequent work happens on the sub-branch in this clone.
 
@@ -301,7 +303,7 @@ to prevent concurrent corruption. **Agents must NEVER edit state.yaml directly.*
 tools/orch-state.ps1 read
 
 # Claim an item atomically (lock + verify pending + set claimed + update active_sessions)
-tools/orch-state.ps1 claim -ItemId PIV01 -SlotId 2 -SessionId "orch-..." -ClonePath "C:\Source\Conformat2" -Subbranch "feat/core-foundation/PIV01"
+tools/orch-state.ps1 claim -ItemId PIV01 -SlotId 2 -SessionId "orch-..." -ClonePath "C:\Source\Conformat2" -Subbranch "feat/core-foundation-PIV01"
 
 # Update item status (lock + write)
 tools/orch-state.ps1 update -ItemId PIV01 -Status done
@@ -321,7 +323,7 @@ state.yaml at a time.
 - **ONE item per agent per session.** Implement, verify, review, commit — all in one session.
 - **Each agent works in its own clone.** Clones sync via the remote (git push/fetch).
 - **All state.yaml mutations go through `tools/orch-state.ps1`.** Never edit state.yaml directly.
-- **Sub-branches are named `<segment-branch>/<item_id>`.** Merged back via `--no-ff`.
+- **Sub-branches are named `<segment-branch>-<item_id>`** (dash, never slash — ref namespace collision). Merged back via `--no-ff`.
 - **Never merge to main.** Leave the segment branch for human PR review.
 - **Always push after merge-back.** After merging the sub-branch into the segment branch, `git push origin <segment-branch>` immediately (once a remote exists). Other slots/agents depend on the remote to see your work. The default Claude Code "don't push unless asked" rule does NOT apply during orchestration — pushing is part of the pipeline.
 - **Stay on the segment branch.** After merge-back, remain on the segment branch (e.g. `feat/core-foundation`). Never checkout `main` — the segment branch is the working base for all items in the segment.
