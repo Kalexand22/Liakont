@@ -1,0 +1,28 @@
+<Project>
+
+  <!--
+    Propriétés communes à TOUS les projets de la solution (src/ et tests/).
+    Découvert par MSBuild en remontant l'arborescence depuis chaque .csproj.
+    Réf : blueprint.md §4 (stack actée) et orchestration/items/SOL.yaml (SOL01).
+  -->
+  <PropertyGroup>
+    <!-- .NET Framework 4.8 uniquement (jamais 4.7, jamais .NET 8+) — portée legacy maximale. -->
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+
+    <!-- x86 (drivers ODBC Pervasive 32-bit, plateforme contraignante) ET x64, les deux livrés.
+         x86 est la plateforme PAR DÉFAUT de la solution (1re du matrice .sln) : ainsi
+         `dotnet test Gateway.sln` sans /p:Platform (verify-fast, run-tests) se résout en x86,
+         cohérent avec le build x86 explicite de verify-fast. Chemins de sortie conventionnels
+         par plateforme (bin\x86\…, bin\x64\…). -->
+    <Platforms>x86;x64</Platforms>
+
+    <!-- Aucun avertissement toléré : un warning est une erreur de build. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <!-- Tous les namespaces du produit sont préfixés Conformat.* (ex : Conformat.Gateway.Core).
+         Le nom de projet est déjà Gateway.* → on ajoute simplement le préfixe Conformat. -->
+    <RootNamespace>Conformat.$(MSBuildProjectName)</RootNamespace>
+  </PropertyGroup>
+
+</Project>

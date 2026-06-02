@@ -1,0 +1,3 @@
+# Tracking/ — Persistance SQLite : Document, DocumentEvent (append-only), TaxReport,
+# PaymentAggregate, RunLog, AuditExporter. Implémenté par le lot TRK. Piste d'audit immuable :
+# aucune purge automatique, aucun update d'event (blueprint.md §5, CLAUDE.md règle 4).

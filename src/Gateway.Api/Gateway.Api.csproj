@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Contrats / DTOs de l'API HTTP. Bibliothèque pure : ne référence AUCUN autre projet
+       (en particulier pas le Core), pour que Gateway.App (qui ne voit qu'Api + ApiClient)
+       ne puisse pas atteindre le Core par transitivité (CLAUDE.md règle 6). -->
+
+</Project>

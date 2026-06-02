@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Plug-in source #1 (EncheresV6 / base Pervasive en lecture seule). N'implémente que
+       IExtractor. Référence UNIQUEMENT le Core (jamais Tracking, PaClient ni Pipeline). -->
+  <ItemGroup>
+    <ProjectReference Include="..\Gateway.Core\Gateway.Core.csproj" />
+  </ItemGroup>
+
+</Project>

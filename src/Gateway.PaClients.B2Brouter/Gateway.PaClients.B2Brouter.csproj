@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Plug-in PA #1 (B2Brouter eDocExchange). Référence UNIQUEMENT le Core. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Gateway.Core\Gateway.Core.csproj" />
+  </ItemGroup>
+
+</Project>
