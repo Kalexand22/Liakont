@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- netstandard2.0 : consommable par la plateforme (net10) ET l'agent (net48).
+         Contrat de transport pur agent <-> plateforme (blueprint.md §3.2) :
+         AUCUNE logique, AUCUNE dépendance hors BCL. -->
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <!-- « Zéro PackageReference » (acceptance SOL02) : on retire l'analyseur StyleCop hérité
+       du Directory.Build.props racine. La pureté de cet assembly (BCL seul) est vérifiée
+       par ContractsPurityTests dans agent/tests/Liakont.Agent.Core.Tests. -->
+  <ItemGroup>
+    <PackageReference Remove="StyleCop.Analyzers" />
+  </ItemGroup>
+
+</Project>

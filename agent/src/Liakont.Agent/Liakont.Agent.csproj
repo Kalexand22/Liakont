@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- net48 exe : le SDK infère un RuntimeIdentifier pour un build x64. On déclare les deux
+         RID pour qu'UN seul restore couvre x86 ET x64 (build sans restauration des deux). -->
+    <RuntimeIdentifiers>win-x86;win-x64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <!-- Service Windows hôte : System.ServiceProcess est une assembly du framework (net48). -->
+  <ItemGroup>
+    <Reference Include="System.ServiceProcess" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Liakont.Agent.Core\Liakont.Agent.Core.csproj" />
+  </ItemGroup>
+
+</Project>
