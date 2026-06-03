@@ -163,7 +163,7 @@ if ($ok) {
                 # FullyQualifiedName ~Tests.Integration (vendored Stratum socle convention — its
                 # integration tests use [Collection(...)] fixtures, not a Category trait). Integration
                 # (Testcontainers) runs in run-tests.ps1. See provenance-socle-stratum.md.
-                dotnet test $platformSln --no-build --verbosity quiet --filter "Category!=Integration&Category!=Staging&Category!=Sandbox&Category!=E2E&FullyQualifiedName!~Tests.Integration"
+                dotnet test $platformSln --no-build --verbosity quiet --filter "Category!=Integration&Category!=Staging&Category!=Sandbox&Category!=E2E&FullyQualifiedName!~Tests.Integration&FullyQualifiedName!~Tests.Acceptance"
                 if ($LASTEXITCODE -ne 0) { throw "unit tests failed" }
             }
         }

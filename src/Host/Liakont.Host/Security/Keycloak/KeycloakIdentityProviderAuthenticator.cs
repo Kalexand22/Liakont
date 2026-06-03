@@ -309,43 +309,4 @@ internal sealed class KeycloakIdentityProviderAuthenticator : IIdentityProviderA
             },
         };
     }
-
-    /// <summary>
-    /// Determines the OIDC authentication scheme to sign out from based on the user's issuer claim.
-    /// Returns the additional realm scheme name if the user authenticated via a non-primary realm,
-    /// otherwise returns the default OIDC scheme.
-    /// </summary>
-    private static string ResolveOidcSchemeForLogout(HttpContext ctx, KeycloakSettings kc)
-    {
-        var issuer = ctx.User.FindFirst("iss")?.Value;
-        if (string.IsNullOrWhiteSpace(issuer))
-        {
-            return OpenIdConnectDefaults.AuthenticationScheme;
-        }
-
-        // Extract realm name from issuer to match against additional realm configs,
-        // avoiding trailing slash and path normalization issues.
-        var issuerRealm = OidcIssuerTenantResolver.ExtractRealmName(issuer);
-        if (issuerRealm is null)
-        {
-            return OpenIdConnectDefaults.AuthenticationScheme;
-        }
-
-        foreach (var (realmName, realmConfig) in kc.AdditionalRealms)
-        {
-            if (string.IsNullOrWhiteSpace(realmConfig.Authority))
-            {
-                continue;
-            }
-
-            var configRealm = OidcIssuerTenantResolver.ExtractRealmName(realmConfig.Authority);
-            if (configRealm is not null
-                && issuerRealm.Equals(configRealm, StringComparison.OrdinalIgnoreCase))
-            {
-                return $"oidc-{realmName}";
-            }
-        }
-
-        return OpenIdConnectDefaults.AuthenticationScheme;
-    }
 }

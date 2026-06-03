@@ -147,9 +147,17 @@ vendored (Identity, Job, Notification, Audit). Retirés : les 15 modules ERP (Pr
 `Add*Module`, NavSectionProviders, endpoints, job handlers, assemblies Blazor), les features ERP du
 Host (CsvImport, Portal public Showcase, pages `Components/Pages/Agent` et `Pages/Public`,
 `AgentNavSectionProvider`, `AdminUserSeeder` réduit aux permissions des 4 modules). Branding
-« Stratum ERP » → « Liakont ». **Seam d'IdP D10** : l'auth est consommée derrière
-`IIdentityProviderAuthenticator` (impl `KeycloakIdentityProviderAuthenticator`) — aucun appel
-Keycloak-spécifique hors de cette couche d'auth.
+« Stratum ERP » → « Liakont ». **Seam d'IdP D10** : l'ENREGISTREMENT et la VALIDATION du pipeline d'authentification sont consommés
+derrière `IIdentityProviderAuthenticator` (impl `KeycloakIdentityProviderAuthenticator`, sélectionnée
+par un registre de providers) — toute la configuration OIDC/JwtBearer/cookie/JWKS Keycloak-spécifique
+vit dans `src/Host/Liakont.Host/Security/Keycloak/`. **Limite connue (suivi)** : deux résidus
+Keycloak-spécifiques subsistent encore dans le composition root (`AppBootstrap`) — la dérivation
+d'autorité de realm (`…/realms/{realm}`) du seeding `SeedRealmRegistryFromDatabaseAsync`, et les
+endpoints `/auth/oidc-login` /`/auth/oidc-logout` gardés par `KeycloakSettings`. Brancher une
+alternative (OpenIddict) exigerait donc encore d'adapter ces deux points : leur extraction derrière
+l'abstraction (méthodes `ConfigureEndpoints`/`SeedRegistry` sur `IIdentityProviderAuthenticator`) est
+un suivi du segment plateforme. Le seam établi rend le gros du basculement (pipeline d'auth) déjà
+swappable sans toucher au métier.
 
 ### 4.9 Infra de dev — realm Keycloak + docker-compose
 `deploy/docker/keycloak/realm-export.json` adapté : realm `liakont-dev`, client `liakont`, rôles
