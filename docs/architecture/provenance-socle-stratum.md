@@ -185,6 +185,21 @@ Sur un Windows FR, ce résumé est en français (« Réussi! … total : N ») q
 matche → faux « 0 test / format non reconnu ». Ajout de `$env:DOTNET_CLI_UI_LANGUAGE = 'en'` en
 tête de run-tests.ps1 pour rendre le parsing indépendant de la locale (le garde reste intact).
 
+### 4.12 `tools/socle-provenance-check.ps1` + `tools/socle-baseline.sha1` — garde automatique (SOL03)
+La règle « le socle vendored ne se modifie pas silencieusement » (CLAUDE.md n.11) est désormais
+**vérifiée automatiquement**. `tools/socle-baseline.sha1` épingle le hash de blob git
+(`git hash-object`, indépendant de la plateforme) de chacun des 1226 fichiers vendored
+(`src/Common` + `src/Modules/{Identity,Party,Job,Notification,Audit}` ; le Host adapté `Liakont.Host`
+est exclu — code Liakont, pas `Stratum.*`). À chaque `verify-fast`, le script recalcule les hashes :
+tout fichier épinglé qui a dérivé du baseline (modifié ou supprimé) DOIT être référencé dans la
+section 4 de ce document, sinon `verify-fast` échoue (exit 2). Workflow d'une modification légitime
+future d'un fichier `Stratum.*` : (1) éditer le fichier, (2) ajouter une sous-section 4.x ici qui le
+nomme, (3) régénérer le baseline (`tools/socle-provenance-check.ps1 -Generate`). Limite assumée : un
+fichier AJOUTÉ sous un dossier vendored (ex. mécanique multi-tenant Liakont de SOL06) n'est pas épinglé
+par le baseline — la garde cible la modification/suppression silencieuse d'un fichier vendored existant,
+exactement la règle n.11. Le baseline a été généré sur l'état consigné courant (vendoring SOL01 + les
+modifications des sections 4.1–4.11 ci-dessus).
+
 ## 5. ADR du socle hérités
 
 Les ADR Stratum pertinents au socle sont copiés dans `docs/adr/socle/` (référence, non re-décidés).

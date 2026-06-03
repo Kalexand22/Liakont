@@ -5,7 +5,8 @@ Un item d'orchestration est **done** quand TOUTES ces conditions sont remplies :
 ## Pour tout item
 
 - [ ] Tous les critères d'acceptation du lot file (`orchestration/items/<lot>.yaml`) sont satisfaits
-- [ ] `tools/verify-fast.ps1` passe (build double : plateforme .NET 10 + agent net48 x86, analyzers, tests unitaires)
+- [ ] `tools/verify-fast.ps1` passe (build double : plateforme .NET 10 + agent net48 x86, analyzers, tests
+      unitaires, **garde de provenance du socle vendored**)
 - [ ] `tools/codex-review.ps1` : clean ou uniquement des P2 acceptés avec justification écrite
 - [ ] Le code est commité en conventional commits et mergé `--no-ff` dans la branche de segment
 - [ ] Le log de session est écrit dans `$ORCH_REPO/session-log/`
@@ -45,6 +46,24 @@ Un item d'orchestration est **done** quand TOUTES ces conditions sont remplies :
 - [ ] Lecture seule stricte de la base source (aucun INSERT/UPDATE/DELETE/verrou)
 - [ ] Aucune logique métier (pas de TVA, pas de validation, pas de machine à états)
 - [ ] Secrets chiffrés DPAPI, jamais en clair
+
+## Commandes de vérification (référence — branchées sur les solutions réelles par SOL03)
+
+Toutes les commandes se lancent depuis la racine du dépôt, en PowerShell.
+
+| But | Commande | Couvre |
+|---|---|---|
+| Gate rapide locale | `powershell -ExecutionPolicy Bypass -File tools/verify-fast.ps1` | build plateforme (`src/Liakont.sln`) + build agent x86 (`agent/Liakont.Agent.sln`) + analyzers + tests unitaires (dont architecture/NetArchTest) + garde de provenance du socle vendored |
+| Suite complète | `powershell -ExecutionPolicy Bypass -File tools/run-tests.ps1` | unit + intégration Testcontainers PostgreSQL (plateforme) + agent x86 **et** x64. Exclut `Category=Staging\|Sandbox\|E2E`. Échoue si zéro suite exécutée (anti faux-vert) |
+| Suite E2E (séparée) | `powershell -ExecutionPolicy Bypass -File tools/run-e2e.ps1` | Playwright `Category=E2E` (livré par SOL05 — décision D3 2026-06-03). Jamais dans `run-tests`/`verify-fast` |
+| Garde de provenance | `powershell -ExecutionPolicy Bypass -File tools/socle-provenance-check.ps1` | échoue (exit 2) si un fichier `Stratum.*` vendored a dérivé du baseline (`tools/socle-baseline.sha1`) sans être consigné dans `provenance-socle-stratum.md`. Régénérer le baseline après consignation : `-Generate` |
+| Review | `powershell -ExecutionPolicy Bypass -File tools/codex-review.ps1 -Base <branche-segment>` | review du diff de la sous-branche (P1/P2) |
+
+**CI** (`.github/workflows/ci.yml`, sur push/PR) : 2 jobs reproduisant ces vérifications avec
+`dotnet` natif — job **plateforme** (`ubuntu-latest`, .NET 10, intégration Testcontainers via le
+Docker du runner) et job **agent** (`windows-latest`, net48 x86 **et** x64). Tout step en échec
+fait échouer le pipeline ; les E2E sont exclues par filtre (`Category!=E2E`) et tournent via
+`run-e2e.ps1`.
 
 ## Pour les gates (executor: human)
 
