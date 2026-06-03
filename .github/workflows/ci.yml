@@ -1,0 +1,92 @@
+# CI Liakont — double build (plateforme .NET 10 + agent net48 x86/x64).
+# Branché sur les deux solutions réelles par SOL03. Tout step qui échoue fait échouer le
+# pipeline (aucun continue-on-error, aucun skip silencieux).
+#
+# Parallèle avec l'outillage local :
+#   - tools/verify-fast.ps1 = gate rapide locale (build + analyzers + unit + provenance + agent x86)
+#   - tools/run-tests.ps1    = suite complète locale (unit + intégration Testcontainers + agent x86/x64)
+#   - tools/run-e2e.ps1       = suite E2E Playwright SÉPARÉE (livrée par SOL05, décision D3 2026-06-03)
+# La CI reproduit ces vérifications avec dotnet natif sur l'OS adéquat (Linux pour la
+# plateforme .NET 10, Windows pour l'agent net48). Les steps de test passent par
+# tools/ci-test.ps1, qui porte la garde anti faux-vert « zéro test exécuté » de run-tests.ps1
+# (un dotnet test nu retourne 0 si aucun test ne matche — la garde fait échouer le step).
+# Les E2E (Category=E2E) sont EXCLUES de la CI par filtre explicite : elles ont leurs propres
+# prérequis (navigateurs Playwright, infra Testcontainers Keycloak) et tournent via
+# tools/run-e2e.ps1. Décision documentée, pas de demi-mesure : voir
+# docs/architecture/testing-strategy.md (SOL04) et definition-of-done.md.
+
+name: CI
+
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+    branches: [main]
+
+# Un seul run par référence : un nouveau push annule le précédent (économie de runners).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Plateforme : .NET 10, cross-platform → Linux (Docker natif pour Testcontainers) ──
+  plateforme:
+    name: Plateforme (.NET 10 — build + unit + intégration)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore src/Liakont.sln
+
+      - name: Build + analyzers (TreatWarningsAsErrors)
+        run: dotnet build src/Liakont.sln --no-restore -c Release
+
+      - name: Garde de provenance du socle Stratum vendored
+        shell: pwsh
+        run: ./tools/socle-provenance-check.ps1
+
+      # Unit + intégration. Les tests d'intégration utilisent Testcontainers, qui pilote le
+      # Docker natif du runner ubuntu (pas besoin d'un service: postgres). Staging/Sandbox
+      # (API réelles PA) et E2E (Playwright) sont exclus — voir l'en-tête. Le wrapper ci-test.ps1
+      # reproduit la garde anti faux-vert « zéro test exécuté » de run-tests.ps1.
+      - name: Tests plateforme (unit + intégration Testcontainers PostgreSQL)
+        shell: pwsh
+        run: ./tools/ci-test.ps1 -Solution src/Liakont.sln -Filter "Category!=Staging&Category!=Sandbox&Category!=E2E"
+
+  # ── Agent : net48 → Windows obligatoire, x86 ET x64 (drivers ODBC 32 bits = x86 contraint) ──
+  agent:
+    name: Agent (net48 — build + tests x86 et x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET (SDK pour MSBuild ; net48 via reference assemblies)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore agent/Liakont.Agent.sln
+
+      - name: Build agent x86
+        run: dotnet build agent/Liakont.Agent.sln --no-restore -c Release -p:Platform=x86
+
+      - name: Build agent x64
+        run: dotnet build agent/Liakont.Agent.sln --no-restore -c Release -p:Platform=x64
+
+      # Tests sur les DEUX plateformes : ne tester qu'une seule serait un trou de couverture.
+      # Staging (ODBC réel) exclu — il exige une base source réelle, lancé manuellement.
+      # ci-test.ps1 échoue si zéro test n'a tourné (garde anti faux-vert).
+      - name: Tests agent x86
+        shell: pwsh
+        run: ./tools/ci-test.ps1 -Solution agent/Liakont.Agent.sln -Filter "Category!=Staging" -Platform x86
+
+      - name: Tests agent x64
+        shell: pwsh
+        run: ./tools/ci-test.ps1 -Solution agent/Liakont.Agent.sln -Filter "Category!=Staging" -Platform x64
