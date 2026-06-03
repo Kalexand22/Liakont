@@ -1,19 +1,24 @@
-# Lot TVA — Moteur de mapping TVA (F03)
+# Lot TVA — Moteur de mapping TVA (F03) — module TvaMapping
 # Spec : docs/conception/F03-Mapping-TVA.md
 # ZONE DE RISQUE FISCAL N°1 : une erreur de mapping = motif d'exonération erroné transmis
 # = responsabilité fiscale du client engagée.
 #
-# PRINCIPE DE GÉNÉRICITÉ (décision 2026-06-02) : le Core contient le MOTEUR et une table
-# d'EXEMPLE pour les tests. Les tables réelles des clients (ex: CMP) sont du PARAMÉTRAGE
-# qui vit dans deployments/<client>/ — jamais dans le code. Voir lot CMP.
+# PRINCIPE DE GÉNÉRICITÉ (décisions 2026-06-02/03) : le module contient le MOTEUR et une table
+# d'EXEMPLE pour les tests. Les tables réelles des clients sont du PARAMÉTRAGE PAR TENANT
+# (en base, éditées depuis la console avec workflow de validation expert-comptable) —
+# jamais dans le code. Le seed d'un déploiement vit dans deployments/<client>/ (lot CMP).
+#
+# CHANGEMENT v6 : la table vit EN BASE (par tenant, PostgreSQL), plus en fichier JSON.
+# Le moteur, les règles de validation structurelle et la sémantique fiscale sont INCHANGÉS.
 
 items:
   TVA01:
-    title: "Modèle de table de mapping TVA (JSON externe versionné)"
+    title: "Modèle de table de mapping TVA (par tenant, en base)"
     description: |
-      Implémenter dans Gateway.Core/TvaMapping/ le modèle de la table de mapping selon F03 :
-      1. MappingTable : mappingVersion, validatedBy, validatedDate, defaultBehavior (block),
-         rules (List<MappingRule>).
+      Implémenter dans src/Modules/TvaMapping/ (pattern Stratum) le modèle de la table de
+      mapping selon F03 :
+      1. MappingTable (par tenant) : mappingVersion, validatedBy, validatedDate,
+         defaultBehavior (block), rules (List<MappingRule>).
       2. MappingRule (modèle de condition riche, F03 §conditions) :
          - sourceRegimeCode, label, part (adjudication/frais/autre)
          - sourceFlags (nullable) : conditions supplémentaires sur des flags source
@@ -23,83 +28,98 @@ items:
          - rate : taux FIXE ou CALCULÉ (RateMode.Fixed / RateMode.ComputedFromSource) —
            F03 : le taux des frais peut être calculé (montant_tva_frais / montant_frais_ht)
            plutôt que figé dans la table
-      3. Chargement depuis fichier JSON externe + validation structurelle au chargement :
+      3. Persistence PostgreSQL (Dapper, base du tenant) + validation structurelle à
+         l'écriture ET au chargement :
          - catégorie E + taux 0 → vatex obligatoire (sinon table invalide)
          - codes catégorie dans la liste UNCL5305 valide (S, AA, AAA, Z, E, AE, G, K, O)
          - pas de doublon (sourceRegimeCode, part)
       4. Une table invalide = exception au chargement avec message opérateur français.
       5. Indicateur de validation : une table dont validatedBy/validatedDate ne sont pas
          renseignés est chargeable (dev/démo) mais marquée « NON VALIDÉE » — cet état est
-         visible partout (API /configuration, console, logs de run).
-      La table est un FICHIER EXTERNE paramétré par déploiement, jamais embarqué dans le code.
+         visible partout (GET /settings, console, supervision).
+      6. RÈGLE MONTANTS/TAUX : colonnes en NUMERIC PostgreSQL, jamais de type flottant —
+         round-trip decimal sans perte.
     acceptance:
-      - "MappingTable et MappingRule dans Conformat.Gateway.Core.TvaMapping"
+      - "MappingTable et MappingRule dans Conformat.Modules.TvaMapping, persistées par tenant"
       - "MappingRule supporte les conditions riches de F03 : part + flags source + taux fixe OU calculé"
-      - "Chargement JSON externe avec validation structurelle (E+0% → VATEX requis)"
+      - "Validation structurelle à l'écriture et au chargement (E+0% → VATEX requis)"
       - "Table invalide = exception explicite, jamais de comportement silencieux"
       - "État « NON VALIDÉE » porté par le modèle et exposé"
-      - "Tests : table valide, table sans VATEX sur E, doublons, catégorie inconnue, table non validée, règle à flags, taux calculé"
+      - "Aucune colonne monétaire/taux en type flottant"
+      - "Tests d'intégration : table valide, sans VATEX sur E, doublons, catégorie inconnue, table non validée, règle à flags, taux calculé, isolation tenant"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   TVA02:
     title: "Moteur de mapping + MappingTrace"
     description: |
-      Implémenter le moteur dans Gateway.Core/TvaMapping/ :
-      1. TvaMapper : (code régime source, part) → PivotLineTax {catégorie, taux, VATEX}.
+      Implémenter le moteur dans src/Modules/TvaMapping/ :
+      1. TvaMapper : (code régime source, part, flags) → résultat de mapping {catégorie, taux,
+         VATEX} appliqué aux lignes du document reçu (le régime source brut arrive dans le
+         PivotLineDto via l'ingestion).
       2. MappingTrace : horodatage, mappingVersion, validatedBy, règle appliquée, code source
-         d'entrée, résultat produit. Attachée à chaque PivotLineTax et persistée par le
-         Tracking (F06). La trace permet de prouver, des années après, quelle règle a produit
-         quel motif d'exonération.
+         d'entrée, résultat produit. Attachée à chaque ligne mappée et persistée par le
+         module Documents (TRK01/04). La trace permet de prouver, des années après, quelle
+         règle a produit quel motif d'exonération.
       3. Comportement régime inconnu : selon defaultBehavior de la table — `block` = le document
          porteur passe en blocage, jamais d'envoi à l'aveugle, jamais de valeur par défaut.
+      4. Le mapping s'exécute dans le pipeline aval de l'ingestion (déclenché par l'événement
+         DocumentReceived — le câblage complet arrive avec PIP01 ; ici le moteur est testé
+         en direct).
     acceptance:
-      - "TvaMapper transforme (code source, part) en PivotLineTax via la table"
+      - "TvaMapper transforme (code source, part, flags) en {catégorie, taux, VATEX} via la table du tenant"
       - "MappingTrace complète attachée à chaque mapping (version, validateur, règle, horodatage)"
       - "Régime inconnu = blocage, jamais de catégorie devinée"
-      - "Tests : mapping S/20%, mapping E+VATEX-EU-J (marge), régime inconnu bloqué"
+      - "Tests : mapping S/20%, mapping E+VATEX-EU-J (marge), régime inconnu bloqué, isolation tenant"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   TVA03:
     title: "Détection proactive des régimes non mappés"
     description: |
-      Implémenter dans Gateway.Core/TvaMapping/ le contrôle de couverture selon F03 :
-      1. Au démarrage d'un run : croiser IExtractor.ListSourceTaxRegimes() avec la table de mapping.
-      2. Produire un MappingCoverageReport : régimes couverts, régimes absents (code + libellé +
-         occurrences), verdict (complet / incomplet).
-      3. Si incomplet : le rapport est exploitable par le pipeline (blocage des documents porteurs)
-         et par la console via l'API (message « Complétez la table des régimes de TVA »).
+      Implémenter le contrôle de couverture selon F03 (adapté à l'architecture v6) :
+      1. Les régimes TVA source arrivent par les métadonnées de push de l'agent
+         (SourceTaxRegimeDto persistés par tenant — PIV04) : code source, libellé, occurrences.
+      2. MappingCoverageReport (par tenant) : croiser les régimes source connus avec la table
+         de mapping du tenant — régimes couverts, régimes absents (code + libellé + occurrences),
+         verdict (complet / incomplet).
+      3. Si incomplet : le rapport est exploitable par le pipeline (blocage des documents
+         porteurs d'un régime non mappé) et par la console via GET /settings/tva-mapping
+         (« Complétez la table des régimes de TVA » — affiché dans WEB07 « À compléter »).
+      4. Le rapport se met à jour à chaque push d'agent ET à chaque modification de la table.
     acceptance:
-      - "MappingCoverageReport liste les régimes source absents de la table"
+      - "MappingCoverageReport liste les régimes source absents de la table du tenant"
       - "Le rapport distingue couverts/absents avec occurrences"
-      - "Tests : couverture complète, couverture partielle, extracteur sans régimes"
+      - "Mise à jour à chaque push et à chaque modification de table"
+      - "Tests : couverture complète, partielle, tenant sans régimes remontés, isolation tenant"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   TVA04:
-    title: "Table de mapping d'EXEMPLE + tests de bout en bout du moteur"
+    title: "Table de mapping d'EXEMPLE (seed) + tests de bout en bout du moteur"
     description: |
       Créer la table d'exemple GÉNÉRIQUE dans config/exemples/ (PAS de données client) :
-      1. mapping-exemple.json : table de démonstration couvrant tous les cas que le moteur
-         doit savoir traiter, avec des codes régimes FICTIFS (REGIME-A, REGIME-B...) :
+      1. mapping-exemple.json (seed importable — format de deployments/<client>/) : table de
+         démonstration couvrant tous les cas que le moteur doit savoir traiter, avec des codes
+         régimes FICTIFS (REGIME-A, REGIME-B...) :
          - cas normal : S / 20%
          - cas réduit : AA / 10% et AAA / 2,1%
          - cas exonéré avec motif : E / 0% / VATEX-EU-F, VATEX-EU-I, VATEX-EU-J
          - cas autoliquidation : AE
          - cas hors champ : O
          - une règle volontairement absente (pour tester la détection TVA03)
-      2. validatedBy = "Table d'exemple — usage démo/tests uniquement" (jamais utilisable
-         en production : le moteur refuse d'envoyer si la table porte ce marqueur d'exemple).
-      3. Tests d'intégration : charger mapping-exemple.json, mapper les fixtures PIV05,
-         vérifier chaque catégorie produite, vérifier le blocage sur le régime absent,
+      2. validatedBy = "Table d'exemple — usage démo/tests uniquement" : le moteur REFUSE
+         d'autoriser des envois en environnement production avec une table portant ce marqueur
+         (même règle que « NON VALIDÉE » — garde-fou production de PIP01).
+      3. Tests d'intégration : importer le seed dans un tenant de test, mapper les golden files
+         PIV03, vérifier chaque catégorie produite, vérifier le blocage sur le régime absent,
          vérifier le refus d'envoi en production avec une table d'exemple.
       RAPPEL : la table réelle du CMP est l'item CMP01 (paramétrage), pas ici.
     acceptance:
       - "mapping-exemple.json dans config/exemples/ avec des codes régimes fictifs uniquement"
       - "Tous les cas UNCL5305 supportés sont couverts par l'exemple"
       - "Le moteur refuse l'envoi en production avec une table marquée exemple"
-      - "Tests d'intégration sur les fixtures PIV05 verts"
+      - "Tests d'intégration sur les golden files PIV03 verts"
       - "Aucune donnée client (CMP, EncheresV6 réel) dans le fichier"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
@@ -107,27 +127,28 @@ items:
   TVA05:
     title: "Édition de la table de mapping : mutations journalisées + workflow de validation"
     description: |
-      Implémenter dans Gateway.Core/TvaMapping/ l'édition contrôlée de la table de mapping
-      (décision 2026-06-02 : le paramétrage COMPTABLE s'édite depuis la console — la config
-      technique, elle, reste en fichiers côté serveur) :
-      1. MappingTableEditor : opérations AddRule / UpdateRule / RemoveRule sur une MappingTable,
+      Implémenter l'édition contrôlée de la table du tenant (décision 2026-06-02 : le
+      paramétrage COMPTABLE s'édite depuis la console) :
+      1. Handlers d'édition : AddRule / UpdateRule / RemoveRule sur la MappingTable du tenant,
          avec validation structurelle à chaque mutation (mêmes règles que TVA01 : E+0% → VATEX
          obligatoire, catégories UNCL5305, pas de doublon).
       2. TOUTE mutation invalide la validation : validatedBy/validatedDate sont effacés, la table
          repasse « NON VALIDÉE » → les envois en production sont suspendus tant que la table
-         n'est pas revalidée (cohérent avec le refus d'envoi de TVA01/TVA04).
-      3. MappingChangeLog : journal append-only des modifications — qui (identité opérateur),
-         quand, quelle règle, valeur avant/après. Persisté à côté de la table
-         (fichier .changelog.json) — jamais de modification d'une entrée existante.
+         n'est pas revalidée (cohérent avec le garde-fou de TVA04/PIP01).
+      3. MappingChangeLog : journal append-only des modifications EN BASE — qui (identité
+         Keycloak de l'opérateur), quand, quelle règle, valeur avant/après. Jamais de
+         modification/suppression d'une entrée existante (même discipline que DocumentEvent —
+         vérifié par test).
       4. Validate(validatedBy) : marquer la table comme validée (workflow expert-comptable),
          journalisé comme toute mutation.
-      5. Sauvegarde atomique : écriture fichier temporaire + rename — jamais de table
-         à moitié écrite, même en cas de crash.
+      5. Transactions : une mutation et son entrée de changelog sont atomiques (jamais l'une
+         sans l'autre).
+      Ces handlers sont consommés par les endpoints API04 et la page WEB07.
     acceptance:
       - "AddRule/UpdateRule/RemoveRule avec validation structurelle à chaque mutation"
       - "Toute mutation efface validatedBy/validatedDate (table repasse NON VALIDÉE)"
-      - "MappingChangeLog append-only VÉRIFIÉ PAR TEST : toute modification/suppression d'une entrée existante est rejetée (même discipline que DocumentEvent)"
-      - "Sauvegarde atomique (jamais de fichier corrompu)"
-      - "Tests : ajout règle valide, règle invalide rejetée, invalidation après mutation, changelog, re-validation"
+      - "MappingChangeLog append-only VÉRIFIÉ PAR TEST : toute modification/suppression d'une entrée existante est rejetée"
+      - "Mutation + changelog atomiques (testé : échec d'écriture = rien n'est persisté)"
+      - "Tests : ajout règle valide, règle invalide rejetée, invalidation après mutation, changelog, re-validation, isolation tenant"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"

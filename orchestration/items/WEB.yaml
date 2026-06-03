@@ -1,0 +1,216 @@
+# Lot WEB — Console web (pages Blazor des modules Conformat)
+# Specs : docs/conception/F10-Console-Admin-WPF.md (CONTENU FONCTIONNEL : écrans, états,
+#         vocabulaire opérateur — l'amendement 2026-06-03 fait foi pour l'architecture),
+#         docs/conception/F12 (architecture)
+# Architecture : pages Blazor Server (Radzen, socle Stratum) dans les projets Web des modules.
+# Les pages appellent les handlers MediatR (jamais la base directement). Navigation via
+# INavSectionProvider. Tests : bUnit (composants) + Playwright (E2E parcours complets).
+# Philosophie F10 : simple, lisible, zéro jargon technique, 100 % français.
+
+items:
+  WEB01:
+    title: "Navigation Conformat + tableau de bord d'accueil"
+    description: |
+      Implémenter la structure de la console web :
+      1. ConformatNavSectionProvider(s) : sections de navigation — Documents, Encaissements,
+         Traitements, Réconciliation (visible UNIQUEMENT si l'agent du tenant déclare la
+         capacité pool de PDF — lue via GET /settings), Paramétrage, Supervision (visible
+         selon le rôle). Pattern INavSectionProvider du socle Stratum.
+      2. Page d'accueil / tableau de bord du tenant : compteurs par état (à envoyer, bloqués,
+         émis, rejetés), état de l'agent (dernier heartbeat, version), état de la table TVA
+         (alerte si NON VALIDÉE), prochaine échéance de période déclarative.
+      3. États et vocabulaire opérateur de F10 §2.2 repris à l'identique :
+         ⏳ À envoyer / 🛑 Bloqué / ⏫ En cours / ✅ Émis / ❌ Rejeté / ⚠️ Erreur technique /
+         ↪ Remplacé / ✋ Traité manuellement — composant partagé DocumentStateBadge.
+      4. Langue : français uniquement. Aucun texte anglais visible par l'opérateur.
+      5. Tests bUnit : badge d'état (tous les états), compteurs, navigation conditionnelle
+         (réconciliation masquée sans capacité). Test E2E Playwright : login → dashboard →
+         navigation vers chaque section.
+    acceptance:
+      - "Navigation avec sections conditionnelles (capacités, rôles)"
+      - "Tableau de bord avec compteurs, état agent, état table TVA, échéance"
+      - "DocumentStateBadge couvre tous les états avec le vocabulaire français de F10"
+      - "Tests bUnit + E2E Playwright (login → dashboard → navigation)"
+      - "Tous les libellés en français"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  WEB02:
+    title: "Page Documents (vue centrale)"
+    description: |
+      Implémenter la page principale selon F10 §2.1, alimentée par GET /documents :
+      1. Liste des documents (grille Radzen) : n°, date, acheteur, montant, type
+         (bordereau/avoir), état (DocumentStateBadge).
+      2. Filtres : période (défaut mois courant), état, type, texte libre (n°, acheteur).
+      3. Compteurs permanents : synthèse par état au-dessus de la liste.
+      4. Sélection multiple + boutons [Voir] (détail — WEB03), [▶ Envoyer la sélection],
+         [▶▶ Tout envoyer] (actions branchées en WEB05 — ici présents mais désactivés
+         avec tooltip explicatif).
+      5. Pagination serveur (les tenants peuvent avoir des milliers de documents).
+      6. Tests bUnit : filtres, compteurs, formatage français, état vide. E2E Playwright :
+         chargement, filtrage, navigation vers le détail.
+    acceptance:
+      - "Liste avec colonnes et états français de F10, pagination serveur"
+      - "Filtres période/état/type/texte fonctionnels"
+      - "Compteurs par état synchronisés avec les filtres"
+      - "Tests bUnit + E2E Playwright"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  WEB03:
+    title: "Page détail document (Contenu / Contrôles / Historique / Archive + actions)"
+    description: |
+      Implémenter le détail document selon F10 §2.3, alimenté par GET /documents/{id} :
+      1. Onglet Contenu : en-tête (n°, date, acheteur, totaux) + lignes (libellé, montants,
+         régime TVA source → catégorie/VATEX résultante). Blocages mis en évidence.
+      2. Onglet Contrôles : liste des contrôles passés/échoués (F04) — ✅/🛑/⚠️, message
+         opérateur, action corrective. Pour BUYER_LOOKS_PROFESSIONAL : boutons de verdict
+         « Confirmer particulier (B2C) » / « Traiter manuellement (B2B) » → POST verdict.
+      3. Actions de résolution (permission actions requise) :
+         - [Revérifier maintenant] → POST recheck → résultat affiché immédiatement
+         - [Traiter manuellement hors passerelle...] → saisie du motif obligatoire → POST
+           resolve-manually
+         - Document rejeté : [Lier au document de remplacement...] → sélecteur du nouveau
+           document → POST supersede → affichage du lien ancien ⇄ nouveau
+      4. Onglet Historique : chronologie complète (réception agent, validations, envoi,
+         réponse PA, tax report, changements d'état, verdicts avec auteur, résolutions
+         manuelles avec motif).
+      5. Onglet Archive : référence du paquet, état d'intégrité de la chaîne,
+         [Exporter pour contrôle fiscal] → GET audit-export (téléchargement navigateur).
+      6. Tests bUnit : onglets, verdict, actions, motif obligatoire, permissions (boutons
+         masqués en lecture seule). E2E Playwright : parcours blocage → verdict → recheck.
+    acceptance:
+      - "4 onglets conformes au contenu fonctionnel F10"
+      - "Verdict B2C/B2B, recheck, résolution manuelle (motif obligatoire), supersede branchés"
+      - "Export audit téléchargeable"
+      - "Boutons d'action masqués sans la permission actions"
+      - "Tests bUnit + E2E Playwright (parcours blocage → verdict → recheck)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  WEB04:
+    title: "Pages Traitements (journal) + Paramétrage du tenant (lecture)"
+    description: |
+      Implémenter les pages secondaires :
+      1. Traitements (GET /runs) : journal des traitements du tenant — date, durée, déclencheur
+         (planifié/manuel/ingestion), compteurs (reçus/validés/bloqués/envoyés/rejetés).
+         Répond à « est-ce que ça a tourné cette nuit ? ».
+      2. Paramétrage du tenant (GET /settings, LECTURE dans cet item — l'édition du profil
+         arrive avec OPS03/provisioning, l'édition de la table TVA avec WEB07) :
+         - profil (SIREN, raison sociale, contact)
+         - paramètres fiscaux (vatOnDebits, operationCategory) avec alerte « décision en
+           attente » si null
+         - agent(s) : dernier heartbeat, version, état
+         - compte(s) PA : nom, environnement, capacités déclarées (B2C ✅, Paiements ⏳,
+           B2B ⬜ phase 2...) — l'opérateur voit ce que sa plateforme sait faire
+         - table TVA : résumé (version, validateur, état) + lien vers WEB07
+         - secrets TOUJOURS masqués
+      3. Tests bUnit : journal, paramétrage, alertes fiscales, secrets masqués.
+         E2E Playwright : navigation et affichage.
+    acceptance:
+      - "Journal des traitements avec compteurs et déclencheur"
+      - "Paramétrage affiché en lecture, secrets masqués, capacités PA visibles"
+      - "État de validation de la table TVA bien visible (alerte si non validée)"
+      - "Alerte « décision fiscale en attente » quand les paramètres sont null"
+      - "Tests bUnit + E2E Playwright"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  WEB05:
+    title: "Actions d'envoi (sélection, tout envoyer, traitement manuel)"
+    description: |
+      Brancher les actions d'envoi selon F10 :
+      1. [▶ Envoyer la sélection] : POST /documents/{id}/send pour chaque document sélectionné,
+         avec retour visuel par document.
+      2. [▶▶ Tout envoyer] : appel confirm=false → dialogue de confirmation (nombre de
+         documents + montant total + mention « action irréversible ») → POST confirm=true.
+      3. Bouton « Lancer un traitement maintenant » → POST /runs/trigger (démo, rattrapages).
+      4. Permissions : boutons masqués si l'utilisateur n'a que conformat.read.
+      5. Erreurs d'action : messages français exploitables (« Le document n° 2019 n'a pas pu
+         être envoyé : ... »).
+      6. Tests bUnit : confirmation, permissions, erreurs. E2E Playwright : parcours
+         envoi avec confirmation (sur fixtures + plug-in Fake).
+    acceptance:
+      - "Envoi sélection et tout-envoyer avec confirmation (récapitulatif affiché avant)"
+      - "Traitement manuel déclenchable"
+      - "Permissions respectées (boutons masqués en lecture seule)"
+      - "Tests bUnit + E2E Playwright (parcours d'envoi complet sur fixtures)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  WEB06:
+    title: "Page Encaissements (e-reporting paiement)"
+    description: |
+      Implémenter la page Encaissements selon F10 §2.4, alimentée par GET /payments :
+      1. Agrégats jour×taux (PaymentAggregate) avec leur état de transmission.
+      2. L'affichage dépend de la capacité du PA configuré ET des paramètres fiscaux :
+         - PA avec capacité paiements : états réels (transmis/en attente/rejeté)
+         - PA sans capacité : bandeau « En attente : la plateforme <nom> ne supporte pas encore
+           la transmission des paiements — les agrégats sont prêts et partiront automatiquement
+           dès l'activation » (argument démo : notre produit est prêt avant la PA)
+         - Paramètres fiscaux en attente : bandeau « Décision fiscale en attente (TVA sur les
+           débits / catégorie d'opération) — consultez votre expert-comptable »
+      3. Tests bUnit : les 3 états d'affichage. E2E Playwright : affichage sur fixtures.
+    acceptance:
+      - "Agrégats jour×taux affichés avec état de transmission"
+      - "Affichage adapté à la capacité du PA et aux paramètres fiscaux (les 3 états testés)"
+      - "Tests bUnit + E2E Playwright"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  WEB07:
+    title: "Page Paramétrage comptable (table TVA éditable)"
+    description: |
+      Implémenter l'écran de paramétrage comptable selon F10 (amendé) et la décision 2026-06-02,
+      alimenté par les endpoints /settings/tva-mapping (API04) :
+      1. Vue de la table de mapping TVA du tenant : règles (code régime source, libellé, part,
+         catégorie, taux, VATEX), état de validation bien visible
+         (✅ Validée par X le Y / ⚠️ NON VALIDÉE).
+      2. Édition (permission conformat.settings — éléments masqués sinon) :
+         - ajouter/modifier/supprimer une règle : formulaire avec listes FERMÉES des catégories
+           UNCL5305 et des codes VATEX autorisés — jamais de saisie libre sur ces champs
+         - intégration du rapport de couverture (TVA03) : les régimes source détectés non mappés
+           apparaissent en haut « À compléter » avec bouton [Créer la règle] pré-rempli
+         - bandeau permanent après toute modification : « Table modifiée — NON VALIDÉE.
+           Les envois sont suspendus jusqu'à validation par l'expert-comptable. »
+         - bouton [Marquer comme validée] avec confirmation (saisie du nom du validateur)
+      3. Historique des modifications (changelog) affiché en bas de page : qui, quand, quoi.
+      4. Tests bUnit : édition, permissions, invalidation, régimes à compléter, validation,
+         listes fermées. E2E Playwright : parcours « régime non mappé → création de règle →
+         bandeau non validée → validation ».
+    acceptance:
+      - "Table TVA affichée avec état de validation permanent"
+      - "Édition complète avec listes fermées (UNCL5305, VATEX)"
+      - "Régimes non mappés « À compléter » avec création pré-remplie"
+      - "Toute modification affiche le bandeau NON VALIDÉE"
+      - "Permission conformat.settings respectée (édition masquée sinon)"
+      - "Changelog visible"
+      - "Tests bUnit + E2E Playwright (parcours complétion → validation)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  WEB08:
+    title: "Page Réconciliation des PDF"
+    description: |
+      Implémenter la page de réconciliation PDF ↔ documents (TRK07 / API04) :
+      1. Trois listes alimentées par GET /reconciliation :
+         - Propositions à confirmer (confiance moyenne) : PDF + document candidat + raison
+           (« même date et même montant ») → [Confirmer] / [Rejeter]
+         - PDF orphelins : [Lier manuellement...] (sélecteur de document avec recherche)
+         - Documents sans PDF : documents émis dont l'archive n'a pas de bordereau source
+      2. Aperçu du PDF : affichage natif navigateur (iframe/embed sur GET .../pdf) —
+         l'avantage du web sur WPF, aucun ADR de visionneuse nécessaire.
+      3. Compteur dans la navigation : nombre d'éléments en attente.
+      4. La page n'apparaît QUE si l'agent du tenant déclare ProvidesUnlinkedDocumentPool
+         (capacité absente = pas de page, pas de bruit).
+      5. Tests bUnit : les 3 listes, confirmation, rejet, lien manuel, page masquée sans
+         capacité. E2E Playwright : parcours confirmation d'une proposition.
+    acceptance:
+      - "Les 3 listes alimentées par l'API"
+      - "Confirmation/rejet/lien manuel branchés"
+      - "Aperçu PDF natif navigateur"
+      - "Page masquée si la capacité pool n'est pas déclarée"
+      - "Compteur d'attente visible dans la navigation"
+      - "Tests bUnit + E2E Playwright"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"

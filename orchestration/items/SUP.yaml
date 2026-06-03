@@ -1,0 +1,104 @@
+# Lot SUP — Supervision proactive (dead-man's switch, alertes, dashboard)
+# Spec : docs/conception/F12-Architecture-Plateforme-Agent.md §5
+# LE différenciateur opérationnel du pivot : c'est la plateforme qui détecte l'absence
+# (panne silencieuse), pas l'agent qui signale sa présence. L'e-reporting a des échéances
+# légales — une panne silencieuse = client en non-conformité sans le savoir.
+
+items:
+  SUP01:
+    title: "Dead-man's switch + moteur de règles d'alerte"
+    description: |
+      Implémenter src/Modules/Supervision/ (pattern Stratum) selon F12 §5 :
+      1. Job planifié (module Job du socle, toutes les 15 min) qui évalue les règles d'alerte
+         sur TOUS les tenants de l'instance (c'est le SEUL endroit du produit autorisé à faire
+         des requêtes cross-tenant, en lecture — blueprint §7 règle 3).
+      2. Règles d'alerte (seuils par défaut F12 §5.2, surchargés par les seuils du tenant CFG02) :
+         - Agent muet (aucun heartbeat) > 24 h → 🔴 Critique
+         - Run d'extraction manqué (heartbeat OK mais pas de run) > 36 h → 🔴 Critique
+         - File de push en erreur (signalée par le heartbeat) > seuil → 🟠 Avertissement
+         - Documents bloqués non traités > 5 jours → 🟠 Avertissement
+         - Rejets PA non traités > 2 jours → 🔴 Critique
+         - Échéance de période déclarative à J-3 avec documents non transmis → 🔴 Critique
+         - Version d'agent obsolète (< N-1) → 🟠 Avertissement
+      3. Alert (entité) : tenant, règle, gravité, déclenchée le, résolue le (auto-résolution
+         quand la condition disparaît), acquittée par (opérateur).
+         Anti-bruit : une alerte active ne se re-déclenche pas (pas de spam) ; elle se résout
+         et peut se re-déclencher après résolution.
+      4. Tests d'intégration : chaque règle (déclenchement, auto-résolution, anti-bruit),
+         seuils par tenant, le job parcourt plusieurs tenants.
+    acceptance:
+      - "Les 7 règles d'alerte implémentées avec seuils par défaut + surcharge par tenant"
+      - "Auto-résolution quand la condition disparaît, anti-bruit (pas de re-déclenchement)"
+      - "Le job d'évaluation est le seul code cross-tenant (en lecture), vérifié en review"
+      - "Tests d'intégration : chaque règle, multi-tenants, seuils"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  SUP02:
+    title: "Dashboard de supervision (opérateur d'instance)"
+    description: |
+      Implémenter la page de supervision (rôle opérateur d'instance — celui qui opère la
+      plateforme : l'éditeur ou IT Innovations) :
+      1. Vue d'ensemble de TOUS les tenants de l'instance : par tenant — état de l'agent
+         (dernier heartbeat, version, taille de file), compteurs de documents (bloqués,
+         rejetés, en attente), alertes actives, échéance déclarative la plus proche.
+      2. Tri/filtre : tenants en alerte d'abord, recherche par nom.
+      3. Détail d'un tenant : historique des heartbeats, historique des alertes, lien vers
+         la console du tenant.
+      4. Acquittement d'alerte : marquer une alerte comme prise en charge (journalisé).
+      5. Permission dédiée : conformat.supervision (distinct des permissions tenant —
+         un comptable d'un tenant ne voit JAMAIS ce dashboard ni les autres tenants).
+      6. Tests bUnit : vue d'ensemble, tri par alerte, acquittement, permissions.
+         E2E Playwright : parcours supervision (alerte visible → détail → acquittement).
+    acceptance:
+      - "Vue d'ensemble multi-tenants avec alertes, état agents, compteurs"
+      - "Acquittement d'alerte journalisé"
+      - "Permission conformat.supervision : un utilisateur tenant ne voit jamais ce dashboard (testé)"
+      - "Tests bUnit + E2E Playwright"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  SUP03:
+    title: "Notifications email d'alerte"
+    description: |
+      Implémenter l'envoi des alertes par email (module Notification du socle Stratum) :
+      1. Destinataires (F12 §5.3) :
+         - Opérateur de l'instance : TOUTES les alertes (email configuré au niveau instance)
+         - Contact du tenant (si configuré dans le profil CFG02 et si l'option est activée) :
+           alertes 🔴 Critiques uniquement
+      2. Contenu : français, actionnable — « L'agent du client <tenant> ne répond plus depuis
+         le <date heure>. Dernier état connu : ... Vérifiez que le serveur est allumé et que
+         le service Conformat Agent est démarré. »
+      3. Anti-spam : une alerte = un email au déclenchement (pas de répétition), un email de
+         résolution optionnel. Récapitulatif quotidien optionnel (digest des alertes actives).
+      4. Échec d'envoi SMTP = journalisé, ré-essayé par le job suivant — jamais une exception
+         qui casse l'évaluation des règles.
+      5. Tests : contenu des emails (transport mocké), destinataires selon gravité/config,
+         anti-spam, digest, échec SMTP non bloquant.
+    acceptance:
+      - "Emails envoyés au déclenchement : opérateur (tout) + contact tenant (critiques, si activé)"
+      - "Contenu français actionnable avec le contexte du problème"
+      - "Anti-spam : pas de répétition, digest quotidien optionnel"
+      - "Échec SMTP non bloquant (testé)"
+      - "Tests avec transport mocké"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  GATE_CONSOLE_WEB:
+    type: gate
+    executor: human
+    title: "Gate : console web + supervision validées"
+    description: |
+      Validation humaine de la console web complète. C'est la gate « démo » côté visuel :
+      chaque page doit être présentable. Revue sur instance de dev avec les parcours E2E
+      Playwright verts, console connectée à un pipeline réel tournant sur fixtures (agent
+      de dev + plug-in Fake), depuis DEUX comptes utilisateurs de rôles différents (preuve
+      des permissions). Inclut le scénario paramétrage comptable (régime non mappé →
+      complétion → revalidation), la réconciliation PDF, et le dashboard de supervision
+      avec une alerte d'agent muet simulée.
+    acceptance:
+      - "Tous les items API, WEB, SUP sont done"
+      - "Tous les parcours E2E Playwright passent"
+      - "Démonstration : deux rôles différents, pages et permissions correctes"
+      - "Alerte d'agent muet simulée et visible dans le dashboard + email reçu"
+      - "PR du segment feat/console-web revue et mergée dans main"

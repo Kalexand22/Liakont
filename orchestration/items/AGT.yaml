@@ -1,0 +1,205 @@
+# Lot AGT — L'agent local (.NET Framework 4.8) : extraction + transport
+# Spec : docs/conception/F12-Architecture-Plateforme-Agent.md (§2 agent, §3 contrat d'ingestion)
+# L'agent est le SEUL composant installé chez le client final. Il n'a AUCUNE logique métier :
+# extraction (via plug-ins IExtractor) + buffer local + push HTTPS + heartbeat. Toute
+# l'intelligence (TVA, validation, états, envoi PA) est sur la plateforme.
+#
+# RÈGLES ABSOLUES (blueprint §6, CLAUDE.md règle 6) :
+#   - L'agent ne référence QUE Conformat.Agent.Contracts, jamais le code plateforme
+#   - Lecture seule stricte de la base source
+#   - HTTPS sortant uniquement (aucune écoute réseau entrante)
+#   - La file locale SQLite est un TAMPON TECHNIQUE, pas une piste d'audit
+
+items:
+  AGT01:
+    title: "Service Windows + file locale SQLite + configuration DPAPI"
+    description: |
+      Implémenter le cœur de l'agent dans agent/src/Conformat.Agent.Core/ et Conformat.Agent/ :
+      1. File locale SQLite (F12 §2.3) dans Conformat.Agent.Core :
+         - push_queue : éléments à pousser (type document/pdf, payload JSON ou chemin fichier,
+           tentatives, dernière erreur, horodatage)
+         - pushed_log : (source_reference, payload_hash, date ACK) — rétention 90 jours
+         - agent_state : filigrane d'extraction, dernière config reçue de la plateforme
+         Mode WAL, fichier dans C:\ProgramData\Conformat\. Purge automatique de pushed_log
+         au-delà de 90 jours (ce n'est PAS une table d'audit — la piste d'audit vit sur la
+         plateforme, F12 §2.3).
+      2. Configuration de l'agent (F12 §2.4) : AgentConfig typé chargé depuis
+         C:\ProgramData\Conformat\agent.json — platformUrl, apiKey (chiffré DPAPI),
+         section extraction (adapter, odbcConnectionString chiffré DPAPI, pdfPoolPath,
+         schedule, catchUpOnStart), heartbeatMinutes. Validation au chargement avec messages
+         opérateur français.
+      3. SecretProtector : chiffrement/déchiffrement DPAPI machine scope.
+      4. Service Windows (Conformat.Agent) : ServiceBase + self-install/uninstall
+         (Conformat.Agent.exe install/uninstall), mode --console pour le debug.
+         Arrêt propre : un run d'extraction en cours se termine avant l'arrêt.
+      5. Journalisation fichiers : logs\<date>_agent.log, rotation 90 jours, format horodaté
+         lisible, messages français.
+    acceptance:
+      - "File locale SQLite : push_queue + pushed_log + agent_state, mode WAL"
+      - "pushed_log purgé au-delà de 90 jours ; push_queue et agent_state jamais purgés automatiquement"
+      - "AgentConfig typé avec validation et messages français"
+      - "Secrets (clé API, ODBC) chiffrés DPAPI, jamais en clair"
+      - "Service install/uninstall + mode --console fonctionnels"
+      - "Arrêt propre attend la fin du run en cours (testé avec timer abstrait)"
+      - "Tests : config valide/invalide, round-trip DPAPI, file locale (enqueue/dequeue/purge)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  AGT02:
+    title: "Contrat IExtractor + run d'extraction + client de push (batching, retries, idempotence)"
+    description: |
+      Implémenter le contrat d'extraction, le cycle d'extraction et le transport dans
+      Conformat.Agent.Core (F12 §2.2, §3 + F01-F02 §IExtractor) :
+      0. Contrat IExtractor (repris de F01-F02, vit dans Conformat.Agent.Core — les adaptateurs
+         du lot ADP l'implémentent) :
+         - ExtractorInfo GetInfo() / HealthCheckResult CheckHealth()
+         - IEnumerable<PivotDocumentDto> ExtractDocuments(DateTime from, DateTime to) (streaming)
+         - IEnumerable<PivotPaymentDto> ExtractPayments(DateTime from, DateTime to)
+         - IReadOnlyList<SourceTaxRegimeDto> ListSourceTaxRegimes()
+         - ExtractorCapabilities Capabilities { get; } : ProvidesSourceDocuments (bool),
+           ProvidesUnlinkedDocumentPool (bool)
+         - IReadOnlyList<SourceAttachment> GetAttachments(string sourceReference)
+           (vide si la capacité n'est pas déclarée, jamais d'exception)
+         - IEnumerable<PoolDocument> ListPoolDocuments(DateTime from, DateTime to) (lazy)
+         - Exceptions typées : SourceUnavailableException (réessayable) /
+           SourceSchemaException (fatale, intervention requise)
+         + FixtureExtractor GÉNÉRIQUE : rejoue des documents pivot depuis des fichiers JSON
+           (dev, démo, tests — sans aucune dépendance ODBC).
+      1. Run d'extraction planifié (planification locale : schedule + catchUpOnStart) :
+         - EXTRACT : IExtractor.ExtractDocuments(période) → documents pivot (DTOs du contrat)
+           → enfilés dans push_queue, clé (source_reference, payload_hash)
+         - les documents déjà dans pushed_log (même hash ACKé) ne sont PAS ré-enfilés
+         - COLLECT : selon les capacités de l'adaptateur (ProvidesSourceDocuments /
+           ProvidesUnlinkedDocumentPool), les PDF sont enfilés aussi
+         - le run collecte aussi les régimes TVA source (ListSourceTaxRegimes) → inclus
+           dans les métadonnées du prochain push (la détection de couverture TVA03 tourne
+           sur la PLATEFORME)
+      2. Client de push (AgentApiClient) sur HttpClient net48 (TLS 1.2+) :
+         - POST /api/agent/v1/documents/batch : lots de 100 max, résultat par document
+           (accepted / duplicate / rejected + motif)
+         - POST .../documents/{sourceReference}/pdf et POST .../pdf-pool pour les PDF
+         - auth header X-Agent-Key, version du contrat dans les headers
+         - un élément n'est retiré de push_queue QU'APRÈS un ACK (accepted ou duplicate) ;
+           rejected (400) = marqué en erreur, signalé au heartbeat, PAS de retry infini
+         - codes d'erreur selon F12 §3.3 : 401/403 = stop + erreur explicite ; 413 = re-découpe ;
+           426 = déclenche l'auto-update (AGT04) ; 429/5xx/réseau = backoff exponentiel,
+           les éléments restent en file
+      3. Boucle de drainage : tourne après chaque run ET périodiquement (rattrapage des
+         éléments en attente après une coupure réseau).
+      4. Exceptions d'extraction typées (héritées du contrat IExtractor) :
+         SourceUnavailableException = run en échec réessayable ; SourceSchemaException =
+         échec fatal signalé au heartbeat (intervention requise).
+      5. Tests avec serveur HTTP mocké : batching, ACK partiel, re-découpe 413, backoff,
+         coupure réseau (éléments conservés), idempotence (re-push même hash = pas de doublon
+         dans la file).
+    acceptance:
+      - "Cycle extract → collect → enqueue → push conforme à F12 §2.2"
+      - "Les éléments ne quittent la file qu'après ACK de la plateforme (testé : coupure réseau = rien perdu)"
+      - "Batching 100 max + re-découpe sur 413"
+      - "Backoff exponentiel sur 429/5xx/réseau ; pas de retry sur 400"
+      - "Régimes TVA source collectés et transmis dans les métadonnées de push"
+      - "Aucune logique métier (pas de TVA, pas de validation) — l'agent transporte, c'est tout"
+      - "Tests : tous les codes de réponse F12 §3.3, idempotence, reprise après coupure"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  AGT03:
+    title: "Heartbeat + pilotage de la planification par la plateforme"
+    description: |
+      Implémenter la remontée d'état et le pilotage centralisé (F12 §2.5, §3.2) :
+      1. Heartbeat périodique (heartbeatMinutes, défaut 15 min, même hors run) :
+         POST /api/agent/v1/heartbeat — version de l'agent, état du service, taille de la
+         push_queue, horodatage et résultat du dernier run, dernières erreurs locales,
+         espace disque restant.
+      2. La réponse du heartbeat porte la configuration effective : planification d'extraction
+         (peut surcharger le fichier local — pilotage centralisé F12 §6.1 décision n°3),
+         période à extraire, latestAgentVersion + updateRequired (consommé par AGT04).
+      3. GET /api/agent/v1/configuration au démarrage du service (même contenu que la
+         réponse heartbeat — l'agent démarre avec la config plateforme si elle est joignable,
+         sinon avec le fichier local).
+      4. Échec du heartbeat = silencieux côté agent (log WARN local, réessai au prochain cycle).
+         C'est la PLATEFORME qui alerte sur l'absence de heartbeat (dead-man's switch SUP01),
+         jamais l'agent qui s'auto-alerte.
+      5. Tests : heartbeat nominal, surcharge de planification appliquée, plateforme
+         injoignable (l'agent continue avec sa config locale), démarrage avec/sans réseau.
+    acceptance:
+      - "Heartbeat périodique complet (version, file, dernier run, erreurs, disque)"
+      - "La planification plateforme surcharge le fichier local quand elle est présente"
+      - "L'agent démarre et extrait même si la plateforme est injoignable (config locale + buffer)"
+      - "Échec de heartbeat = WARN local, jamais d'alerte agent (le dead-man's switch est côté plateforme)"
+      - "Tests : nominal, surcharge, hors-ligne, démarrage sans réseau"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  AGT04:
+    title: "Auto-update de l'agent"
+    description: |
+      Implémenter la mise à jour automatique (F12 §2.5) — une flotte d'agents chez les clients
+      finaux doit se mettre à jour sans intervention :
+      1. Déclencheurs : heartbeat avec updateRequired=true, OU réponse 426 sur un push.
+      2. Processus : télécharger le package depuis updateUrl (HTTPS) → vérifier l'intégrité
+         (hash SHA-256 annoncé par la plateforme via l'API — décision F12 §7.4 : hash via API
+         en V1, Authenticode si certificat disponible) → extraire dans un dossier de staging →
+         lancer l'updater (petit exe séparé Conformat.Agent.Updater) → l'updater arrête le
+         service, remplace les binaires, redémarre le service, journalise.
+      3. Échec de mise à jour = rollback (les anciens binaires sont conservés jusqu'au
+         redémarrage réussi de la nouvelle version) + signalement au heartbeat suivant.
+      4. La version de l'agent est visible : dans le heartbeat, dans les logs, via le CLI.
+      5. Garde-fou : jamais de mise à jour pendant un run d'extraction (attendre la fin).
+      6. Tests : update nominal (avec updater mocké/processus simulé), hash invalide (refus),
+         échec + rollback, update pendant un run (différé).
+    acceptance:
+      - "Update déclenché par heartbeat ou 426, téléchargement + vérification de hash"
+      - "Hash invalide = refus de la mise à jour + signalement"
+      - "Rollback automatique si la nouvelle version ne redémarre pas"
+      - "Jamais d'update pendant un run (testé)"
+      - "Tests : nominal, hash invalide, rollback, différé pendant run"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  AGT05:
+    title: "CLI de diagnostic de l'agent"
+    description: |
+      Implémenter agent/src/Conformat.Agent.Cli/ (F12 §2.1) — l'outil d'installation et de
+      diagnostic utilisé par l'intégrateur/éditeur lors de la mise en service chez un client :
+      1. Commandes :
+         - check-config : valide agent.json point par point (fichier présent, secrets
+           déchiffrables, adaptateur connu) — sortie lisible ✅/❌ par point
+         - test-odbc : connexion à la base source (CheckHealth de l'adaptateur configuré)
+           — lecture seule, affiche les tables détectées et le comptage
+         - test-api : appel de la plateforme avec la clé API configurée (heartbeat à blanc)
+           — diagnostique : URL injoignable / clé invalide / clé révoquée / OK
+         - encrypt : chiffre une valeur DPAPI pour collage dans agent.json
+         - run : déclenche un run d'extraction manuel (le service peut tourner — le run
+           manuel et le run planifié partagent le même verrou local)
+         - show-queue : affiche l'état de la push_queue (éléments en attente, en erreur)
+         - version : version de l'agent et du contrat
+      2. Messages 100 % français, orientés intégrateur (« Le pilote ODBC Pervasive 32-bit
+         n'est pas installé — installez-le depuis... »).
+      3. Codes de retour : 0 = OK, 1 = problème détecté, 2 = erreur d'exécution.
+      4. Tests : parsing des arguments, chaque commande avec dépendances mockées, codes retour.
+    acceptance:
+      - "Les 7 commandes opérationnelles avec sortie lisible en français"
+      - "check-config + test-odbc + test-api couvrent toute la mise en service"
+      - "Codes de retour 0/1/2 cohérents"
+      - "Verrou local partagé entre run manuel et run planifié (testé)"
+      - "Tests : arguments, commandes mockées, codes retour"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  GATE_AGENT:
+    type: gate
+    executor: human
+    title: "Gate : agent validé"
+    description: |
+      Validation humaine de l'agent. Démonstration attendue : un agent installé (service
+      Windows) extrait des fixtures via le FixtureExtractor (PIV03), les pousse vers une
+      plateforme de dev (Conformat.Host local), heartbeat visible, coupure réseau simulée
+      sans perte de données, CLI de diagnostic déroulé.
+      Points de vigilance : aucune logique métier dans l'agent, lecture seule stricte,
+      aucune donnée perdue sur coupure, secrets DPAPI.
+    acceptance:
+      - "Tous les items AGT sont done"
+      - "Démonstration de bout en bout : extraction fixtures → push → documents visibles côté plateforme"
+      - "Test de coupure réseau : aucun document perdu, rattrapage automatique"
+      - "PR du segment feat/agent revue et mergée dans main"

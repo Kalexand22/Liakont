@@ -1,21 +1,27 @@
 ﻿#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Fast local verification for Conformat: build + analyzers + unit tests.
+    Fast local verification for Conformat: builds + analyzers + unit tests (platform + agent).
 .DESCRIPTION
     Runs sequentially, stops on first failure. Writes detailed log to .verify-fast.log,
     prints a compact summary to stdout.
     Exit code 0 = all passed, non-zero = at least one step failed.
 
-    BOOTSTRAP MODE: while src/Gateway.sln does not exist yet (item SOL01 not done),
-    only the docs/structure checks run. This lets docs-spec items pass verification
-    before the solution exists. Once the solution exists, build+tests are mandatory.
-    SOL02 hardens this script against false-greens.
+    Two solutions (blueprint.md v2 §4):
+      - Platform : src/Conformat.sln          (.NET 10 — Host, modules, PA plug-ins, contracts)
+      - Agent    : agent/Conformat.Agent.sln  (.NET Framework 4.8, x86 — extraction + transport)
+
+    BOOTSTRAP MODE: while a solution does not exist yet (SOL01 for the platform, SOL02 for
+    the agent), its build/test steps are skipped. This lets docs-spec items pass verification
+    before the solutions exist. Once a solution exists, its build+tests are mandatory.
+    If the corresponding SOL item is done but the solution is missing, that is a FAILURE
+    (the solution has been deleted), never a skip.
 #>
 $ErrorActionPreference = 'Continue'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$slnPath = Join-Path $repoRoot 'src\Gateway.sln'
+$platformSln = Join-Path $repoRoot 'src\Conformat.sln'
+$agentSln = Join-Path $repoRoot 'agent\Conformat.Agent.sln'
 $logFile = Join-Path $repoRoot '.verify-fast.log'
 
 $steps = @()
@@ -52,6 +58,19 @@ function Run-Step {
         $script:allPassed = $false
         return $false
     }
+}
+
+# Returns $true while the given SOL item is still pending (absent from state = done).
+function Test-SolItemPending {
+    param([string]$ItemId)
+    $orchRepo = $env:ORCH_REPO
+    if (-not $orchRepo) { $orchRepo = 'C:\Source\conformat-orchestration' }
+    $statePath = Join-Path $orchRepo 'state.yaml'
+    if (-not (Test-Path $statePath)) { return $true }
+    $state = Get-Content $statePath -Raw
+    if ($state -notmatch "(?m)^  $([regex]::Escape($ItemId)):") { return $false }                          # absent = done
+    if ($state -match "(?m)^  $([regex]::Escape($ItemId)):\s*\{\s*status:\s*done") { return $false }       # explicit done
+    return $true
 }
 
 # ── Step 1: structure checks (always run) ────────────────────────
@@ -115,48 +134,70 @@ if ($ok) {
     }
 }
 
-# ── Step 3+: build + tests (only when the solution exists) ───────
+# ── Step 3: PLATFORM build + unit tests (when src/Conformat.sln exists) ──
 if ($ok) {
-    if (Test-Path $slnPath) {
-        $ok = Run-Step 'restore' {
-            dotnet restore $slnPath --verbosity quiet
+    if (Test-Path $platformSln) {
+        $ok = Run-Step 'platform: restore' {
+            dotnet restore $platformSln --verbosity quiet
             if ($LASTEXITCODE -ne 0) { throw "restore failed" }
         }
         if ($ok) {
-            # x86 is the constraining platform (32-bit Pervasive ODBC drivers).
-            # The x64 build is covered by run-tests / CI (SOL02) to keep verify-fast fast.
-            $ok = Run-Step 'build+analyzers (x86)' {
-                dotnet build $slnPath --no-restore --verbosity quiet /p:Platform=x86
+            $ok = Run-Step 'platform: build+analyzers' {
+                dotnet build $platformSln --no-restore --verbosity quiet
                 if ($LASTEXITCODE -ne 0) { throw "build failed" }
             }
         }
         if ($ok) {
-            $ok = Run-Step 'unit-tests' {
-                dotnet test $slnPath --no-build --verbosity quiet --filter "Category!=Integration&Category!=Staging"
+            # Unit + architecture tests only — integration (Testcontainers), Staging, Sandbox,
+            # E2E (Playwright) run via run-tests.ps1.
+            $ok = Run-Step 'platform: unit-tests' {
+                dotnet test $platformSln --no-build --verbosity quiet --filter "Category!=Integration&Category!=Staging&Category!=Sandbox&Category!=E2E"
                 if ($LASTEXITCODE -ne 0) { throw "unit tests failed" }
             }
         }
     }
     else {
-        # Bootstrap guard: the solution may only be absent while SOL01 is still pending.
-        # If SOL01 is done (or purged from state = done), a missing solution is a FAILURE,
-        # not a bootstrap skip — someone deleted it.
-        $orchRepo = $env:ORCH_REPO
-        if (-not $orchRepo) { $orchRepo = 'C:\Source\conformat-orchestration' }
-        $statePath3 = Join-Path $orchRepo 'state.yaml'
-        $sol01Pending = $true
-        if (Test-Path $statePath3) {
-            $state = Get-Content $statePath3 -Raw
-            if ($state -notmatch '(?m)^  SOL01:') { $sol01Pending = $false }                                # absent = done
-            elseif ($state -match '(?m)^  SOL01:\s*\{\s*status:\s*done') { $sol01Pending = $false }         # explicit done
-        }
-        if (-not $sol01Pending) {
-            $ok = Run-Step 'build (solution missing)' { throw "src/Gateway.sln is missing but SOL01 is done — the solution has been deleted or the checkout is broken." }
+        if (-not (Test-SolItemPending 'SOL01')) {
+            $ok = Run-Step 'platform: build (solution missing)' { throw "src/Conformat.sln is missing but SOL01 is done — the solution has been deleted or the checkout is broken." }
         }
         else {
-            "`n=== build (skipped) ===" | Add-Content $logFile
-            "src/Gateway.sln does not exist yet (SOL01 pending) — build/tests skipped (bootstrap mode)." | Add-Content $logFile
-            $steps += @{ Name = 'build (bootstrap skip)'; Status = 'SKIP'; Duration = 0 }
+            "`n=== platform build (skipped) ===" | Add-Content $logFile
+            "src/Conformat.sln does not exist yet (SOL01 pending) — platform build/tests skipped (bootstrap mode)." | Add-Content $logFile
+            $steps += @{ Name = 'platform (bootstrap skip)'; Status = 'SKIP'; Duration = 0 }
+        }
+    }
+}
+
+# ── Step 4: AGENT build + unit tests (when agent/Conformat.Agent.sln exists) ──
+if ($ok) {
+    if (Test-Path $agentSln) {
+        $ok = Run-Step 'agent: restore' {
+            dotnet restore $agentSln --verbosity quiet
+            if ($LASTEXITCODE -ne 0) { throw "restore failed" }
+        }
+        if ($ok) {
+            # x86 is the constraining platform (32-bit Pervasive ODBC drivers).
+            # The x64 build is covered by run-tests / CI (SOL03) to keep verify-fast fast.
+            $ok = Run-Step 'agent: build+analyzers (x86)' {
+                dotnet build $agentSln --no-restore --verbosity quiet /p:Platform=x86
+                if ($LASTEXITCODE -ne 0) { throw "build failed" }
+            }
+        }
+        if ($ok) {
+            $ok = Run-Step 'agent: unit-tests' {
+                dotnet test $agentSln --no-build --verbosity quiet --filter "Category!=Integration&Category!=Staging"
+                if ($LASTEXITCODE -ne 0) { throw "unit tests failed" }
+            }
+        }
+    }
+    else {
+        if (-not (Test-SolItemPending 'SOL02')) {
+            $ok = Run-Step 'agent: build (solution missing)' { throw "agent/Conformat.Agent.sln is missing but SOL02 is done — the solution has been deleted or the checkout is broken." }
+        }
+        else {
+            "`n=== agent build (skipped) ===" | Add-Content $logFile
+            "agent/Conformat.Agent.sln does not exist yet (SOL02 pending) — agent build/tests skipped (bootstrap mode)." | Add-Content $logFile
+            $steps += @{ Name = 'agent (bootstrap skip)'; Status = 'SKIP'; Duration = 0 }
         }
     }
 }
@@ -166,7 +207,7 @@ Write-Host ""
 Write-Host "=== verify-fast summary ===" -ForegroundColor Cyan
 foreach ($s in $steps) {
     $color = switch ($s.Status) { 'PASS' { 'Green' } 'SKIP' { 'Yellow' } default { 'Red' } }
-    Write-Host ("{0,-30} {1,-6} {2}s" -f $s.Name, $s.Status, $s.Duration) -ForegroundColor $color
+    Write-Host ("{0,-35} {1,-6} {2}s" -f $s.Name, $s.Status, $s.Duration) -ForegroundColor $color
 }
 if (-not $allPassed) {
     Write-Host ""

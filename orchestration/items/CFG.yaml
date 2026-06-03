@@ -1,68 +1,93 @@
-# Lot CFG — Configuration du produit (F12 — spec à rédiger puis implémenter)
-# F12 n'existe pas encore dans docs/conception/ : le premier item du lot EST la rédaction de la spec.
-# SEGMENT : core-foundation (déplacé depuis deploiement-toolkit suite à la review indépendante v4 —
-# GatewayConfig/SecretProtector sont des fondations du Core consommées par le Service, l'API et le CLI ;
-# les ordonner après la console était une inversion de dépendances).
-# Le PACKAGING du produit (ex-CFG03) est dans le lot PKG (segment deploiement-toolkit).
-# Le paramétrage d'un client donné (ex: CMP) est dans le lot CMP.
+# Lot CFG — Paramétrage : spec des 3 niveaux + profil tenant + secrets
+# Specs : docs/conception/F12-Architecture-Plateforme-Agent.md §6 (les 3 niveaux de configuration)
+# SEGMENT : core-foundation — le profil tenant et le chiffrement des secrets sont des fondations
+# consommées par TVA (tables par tenant), Transmission (comptes PA), Ingestion (agents) et la console.
+#
+# Rappel des 3 niveaux (F12 §6.1) :
+#   INSTANCE (appsettings/env Docker) — PostgreSQL, Keycloak, SMTP, branding
+#   TENANT   (en base, édité par la console) — SIREN, table TVA, comptes PA, planification, seuils
+#   AGENT    (fichier local + DPAPI chez le client) — URL plateforme, clé API, ODBC
 
 items:
   CFG01:
-    title: "Spec F12 — Configuration & déploiement"
+    title: "Spec détaillée du paramétrage par tenant"
     description: |
-      Rédiger docs/conception/F12-Configuration-Deploiement.md (fichier À CRÉER par cet item),
-      dans le même format que F01-F11 (objectif, périmètre, conception, décisions, points ouverts) :
-      1. Format du fichier de configuration (JSON) : identité émetteur, adaptateur source
-         (type + paramètres), plateforme(s) agréée(s) (type de plug-in + compte + environnement),
-         chemin table TVA, provider de stockage (sqlite/sqlserver), coffre d'archive,
-         API (port, HTTPS, groupes Windows autorisés par niveau de droits :
-         lecture / actions / paramétrage), planification, notifications SMTP,
-         paramétrage fiscal du déploiement (vatOnDebits, operationCategory — PIP03).
-      2. Gestion des secrets : clé API PA et credentials SMTP chiffrés par DPAPI (machine scope) —
-         jamais en clair. Outil de chiffrement intégré (CLI encrypt-secret).
-      3. Multi-config sur la même machine : N fichiers de config = N déploiements
-         (services et ports distincts par config).
-      4. Structure d'un dossier de déploiement (deployments/<client>/) : config, table TVA,
-         fixtures éventuelles, documents de décisions fiscales — le modèle que CMP01/CMP02 suivront.
-      5. Packaging : zip autoportant (exe + dépendances + config exemple + doc), prérequis
-         (Windows 7 SP1+, .NET Framework 4.8, driver ODBC), procédure d'installation pas à pas.
-      6. Checklist de mise en service générique : check-config, run --dry-run, premier envoi
-         staging, bascule production.
-      Sources : F11 (+ son amendement architecture), F05, blueprint.md (architecture Service/API),
-      Offre-Editeur-Passerelle.md (déploiement par un partenaire Niveau 2 : la doc doit être
-      exécutable par un intégrateur).
+      Compléter docs/conception/F12-Architecture-Plateforme-Agent.md §6 (ou créer une annexe
+      F12-A-Parametrage-Tenant.md) avec le modèle DÉTAILLÉ du paramétrage de tenant :
+      1. Profil du tenant : SIREN (clé fonctionnelle), raison sociale, adresse, contact
+         (email d'alerte optionnel), statut (actif/suspendu).
+      2. Paramétrage fiscal du tenant (consommé par PIP03 — les décisions appartiennent à
+         l'expert-comptable du client) : vatOnDebits (bool?), operationCategory
+         (LivraisonBiens/PrestationServices/Mixte/null). Null = décision en attente =
+         transmissions concernées suspendues avec message explicite.
+      3. Comptes PA du tenant : liste de (type de plug-in, environnement staging/production,
+         identifiants de compte, clé API CHIFFRÉE, actif). Un tenant peut avoir plusieurs
+         comptes (staging + production, ou multi-PA).
+      4. Planification d'extraction du tenant : heures, catchUpOnStart — poussée vers
+         l'agent via le heartbeat (AGT03).
+      5. Seuils d'alerte du tenant (consommés par SUP01) : heures avant « agent muet »,
+         jours avant « documents bloqués », activation de l'alerte au contact tenant.
+      6. Qui édite quoi : niveaux de droits (lecture/actions/paramétrage — permissions du
+         module Identity) par section de paramétrage. La table TVA a son propre workflow
+         de validation (TVA05) — ce n'est pas le même niveau que le profil.
+      7. Seed de déploiement : structure de deployments/<client>/ (profil + table TVA +
+         comptes PA en placeholders + fixtures) et sémantique de l'import (provisioning OPS03).
+      Sources : F12, F09 (paramètres fiscaux), blueprint §7, décisions 2026-06-02/03.
+      Aucune décision inventée : tout est traçable ou marqué « à trancher ».
     acceptance:
-      - "F12 rédigé au format des specs F01-F11, en français"
-      - "Format de config JSON complet avec exemple (incluant API, les 3 niveaux de droits, providers, archive, paramétrage fiscal)"
-      - "Structure deployments/<client>/ spécifiée"
-      - "Stratégie secrets DPAPI documentée"
-      - "Procédure d'installation et checklist de mise en service rédigées"
-      - "Aucune décision inventée : traçable vers les specs existantes ou marqué « à trancher »"
+      - "Spec du paramétrage tenant complète (profil, fiscal, comptes PA, planification, seuils, droits)"
+      - "Structure deployments/<client>/ spécifiée avec sémantique d'import"
+      - "Les paramètres fiscaux null = transmission suspendue, documenté"
+      - "Aucune décision inventée : traçable vers F09/F12/décisions ou marqué « à trancher »"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   CFG02:
-    title: "Chargement/validation de configuration + secrets DPAPI"
+    title: "Profil tenant + chiffrement des secrets (module TenantSettings)"
     description: |
-      Implémenter dans Gateway.Core/Configuration/ selon la spec F12 (CFG01) :
-      1. GatewayConfig : modèle typé de la configuration, chargement JSON, validation au démarrage
-         (champs obligatoires, formats, cohérence adaptateur/PA/stockage) avec messages opérateur
-         français.
-      2. SecretProtector : chiffrement/déchiffrement DPAPI (ProtectedData, machine scope) des
-         champs sensibles (clé API PA, mot de passe SMTP).
-      3. Mécanisme de résolution des plug-ins par configuration : le type d'adaptateur source et
-         le(s) type(s) de plug-in PA sont déclarés dans la config et résolus à l'exécution
-         (registre de types + activation) — jamais codés en dur. La composition root réelle
-         (chargement des assemblies des plug-ins concrets) vit dans Gateway.Service/Cli.
-         NOTE : à ce stade (core-foundation), aucun plug-in concret n'existe encore — le mécanisme
-         est testé avec des types factices enregistrés par les tests.
-      4. Les 3 niveaux de droits (lecture / actions / paramétrage) sont portés par le modèle
-         de config (groupes Windows par niveau) — consommés plus tard par API01/API04.
+      Implémenter le paramétrage de tenant selon la spec CFG01 — soit comme module dédié
+      src/Modules/TenantSettings/, soit comme partie du module Ingestion (décision d'implémentation
+      à justifier dans le plan ; le critère : éviter une dépendance circulaire avec Ingestion) :
+      1. Entités : TenantProfile (SIREN, raison sociale, contact, statut), FiscalSettings
+         (vatOnDebits, operationCategory — nullable), PaAccount (type plug-in, environnement,
+         identifiants, secret chiffré, actif), ExtractionSchedule, AlertThresholds.
+      2. Chiffrement des secrets en base : les clés API des PA sont chiffrées via
+         ASP.NET Core Data Protection (clés de protection persistées par instance —
+         documentation du stockage des clés DP dans l'appliance OPS01). JAMAIS de secret
+         en clair en base ni dans les logs ni dans les réponses d'API.
+      3. Handlers MediatR : GetTenantProfile, UpdateTenantProfile, SetFiscalSettings,
+         AddPaAccount, UpdatePaAccount, DeactivatePaAccount — toute mutation journalisée
+         (module Audit du socle) avec l'identité de l'opérateur.
+      4. Validation : SIREN Luhn (réutilise la règle VAL02 si déjà disponible, sinon
+         duplication temporaire documentée), cohérence type de plug-in connu.
+      5. Import de seed : ImportTenantSeed(dossier deployments/<client>/) — création/mise à
+         jour du profil depuis les fichiers de seed (consommé par le provisioning OPS03).
+      6. Tests d'intégration : CRUD profil, secrets jamais en clair (vérifié dans les
+         réponses ET en base), paramètres fiscaux null, import de seed, journalisation.
     acceptance:
-      - "GatewayConfig typé avec validation et messages français"
-      - "Secrets chiffrés DPAPI, jamais en clair dans les fichiers"
-      - "Mécanisme de résolution de plug-ins par config (testé avec des types factices)"
-      - "Les 3 niveaux de droits portés par le modèle de configuration"
-      - "Tests : config valide/invalide, round-trip chiffrement, type de plug-in inconnu"
+      - "Profil tenant + fiscal + comptes PA + planification + seuils implémentés"
+      - "Secrets chiffrés (Data Protection), jamais en clair en base/logs/réponses (vérifié par test)"
+      - "Toute mutation journalisée avec identité opérateur"
+      - "Import de seed depuis deployments/<client>/ fonctionnel"
+      - "Tests d'intégration PostgreSQL"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
+
+  GATE_CORE_FOUNDATION:
+    type: gate
+    executor: human
+    title: "Gate : fondations Core validées"
+    description: |
+      Validation humaine du cœur de la plateforme : contrat pivot (DTOs + golden files),
+      module Ingestion (réception, agents, heartbeat), moteur de mapping TVA (par tenant,
+      sans aucune donnée client), contrôles qualité, machine à états documents, piste d'audit,
+      coffre d'archivage 10 ans, paramétrage tenant.
+      Cette gate débloque les segments pa-framework et agent.
+      Points de vigilance : conformité aux specs F01-F09 + F12, AUCUNE donnée client dans le
+      code, piste d'audit et coffre strictement append-only/WORM, isolation tenant vérifiée,
+      hashes identiques entre net48 et .NET 10.
+    acceptance:
+      - "Tous les items PIV, TVA, VAL, TRK, CFG sont done"
+      - "Aucune donnée client (SIREN, table TVA réelle, chaîne de connexion) dans le code ou les exemples"
+      - "Les golden files du contrat passent sur les deux runtimes"
+      - "PR du segment feat/core-foundation revue et mergée dans main"

@@ -1,57 +1,67 @@
 # Lot CMP — Déploiement CMP / Crédit Municipal de Paris (PARAMÉTRAGE, pas du code)
 # Réfs : docs/conception/F03-Mapping-TVA.md (régimes EncheresV6), docs/market/ (contexte CMP)
 # PRINCIPE : ce segment ne produit AUCUNE ligne de code produit. Il produit le paramétrage
-# du premier déploiement réel (deployments/cmp/), la démo ISATECH et la mise en production CMP.
-# C'est la preuve que le produit se déploie sans toucher au code.
+# du premier déploiement réel (deployments/cmp/ = seed du tenant CMP), la démo ISATECH et
+# la mise en production CMP. C'est la preuve que le produit se déploie sans toucher au code.
+#
+# QUESTION OUVERTE (décision ISATECH/CMP attendue — tasks/todo.md) : le CMP est-il un tenant
+# de l'instance mutualisée IT Innovations, une instance dédiée, ou une appliance on-premise ?
+# Les items CMP01-03 sont identiques dans les trois cas (le seed et la démo ne changent pas) ;
+# CMP04 (mise en production) dépend de la réponse.
 
 items:
   CMP01:
-    title: "Paramétrage TVA CMP (table cmp-v1.json)"
+    title: "Paramétrage TVA CMP (seed de la table du tenant)"
     description: |
       Créer le paramétrage TVA du déploiement CMP dans deployments/cmp/ :
-      1. cmp-v1.json : table de mapping TVA des régimes EncheresV6 du CMP, à partir de
-         docs/conception/F03-Mapping-TVA.md :
+      1. tva-mapping-cmp-v1.json (seed importable — format CFG01/CFG02) : table de mapping TVA
+         des régimes EncheresV6 du CMP, à partir de docs/conception/F03-Mapping-TVA.md :
          - régime 5 (assujetti 20%) → S / 20% / pas de VATEX
          - régime 6 (non assujetti) → E / 0% / VATEX-EU-J avec note
            « À VALIDER : marge (EU-J) ou hors champ ? — décision expert-comptable CMP »
          - tous les autres régimes documentés dans F03
-      2. validatedBy = "EN ATTENTE — Expert-comptable CMP", validatedDate = null :
-         la table N'EST PAS validée tant que l'expert-comptable n'a pas tranché.
-         La mise en production (GATE_PROD_CMP) est conditionnée à cette validation.
+      2. validatedBy = null (la table N'EST PAS validée tant que l'expert-comptable n'a pas
+         tranché — le seed indique explicitement « EN ATTENTE — Expert-comptable CMP » en note).
+         La mise en production (GATE_PROD_CMP) est conditionnée à cette validation,
+         et le garde-fou production (PIP01) bloque les envois tant qu'elle n'est pas faite.
       3. Document deployments/cmp/DECISIONS-FISCALES.md : la liste des 4 questions fiscales
          ouvertes (régime 6, TVA sur débits, OperationCategory, volume acheteurs pros),
          leur impact, et l'espace pour consigner les réponses de l'expert-comptable.
-      IMPORTANT : ce fichier vit dans deployments/cmp/, JAMAIS dans src/ ni config/exemples/.
-      L'agent ne tranche AUCUNE question fiscale — il matérialise l'état des connaissances de F03.
+      IMPORTANT : ce dossier vit dans deployments/cmp/, JAMAIS dans src/ ni config/exemples/.
+      L'agent d'orchestration ne tranche AUCUNE question fiscale — il matérialise l'état des
+      connaissances de F03.
     acceptance:
-      - "cmp-v1.json dans deployments/cmp/ avec tous les régimes documentés dans F03"
-      - "validatedBy indique explicitement que la validation expert-comptable est en attente"
+      - "tva-mapping-cmp-v1.json dans deployments/cmp/ avec tous les régimes documentés dans F03"
+      - "La table seed n'est PAS validée (validation expert-comptable explicitement en attente)"
       - "DECISIONS-FISCALES.md liste les 4 questions ouvertes avec leur impact"
-      - "Aucun fichier créé/modifié dans src/"
+      - "Aucun fichier créé/modifié dans src/ ni agent/"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   CMP02:
-    title: "Configuration déploiement CMP + fixtures de démo"
+    title: "Seed complet du tenant CMP + fixtures de démo"
     description: |
-      Créer la configuration du déploiement dans deployments/cmp/ :
-      1. config-cmp.json : configuration complète du déploiement CMP —
-         identité émetteur (SIREN CMP, raison sociale), adaptateur EncheresV6 (mode Pervasive
-         avec chaîne ODBC à compléter + mode fixtures pour la démo), PA B2Brouter
-         (compte staging pour la démo, place pour le compte production), table TVA cmp-v1.json,
-         provider de stockage, planification (03:00), notifications.
-         Les secrets sont des placeholders « À CHIFFRER avec encrypt-secret ».
-      2. Fixtures de démo ISATECH dans deployments/cmp/fixtures-demo/ : jeu réaliste de
+      Créer le seed complet du déploiement dans deployments/cmp/ :
+      1. tenant-cmp.json (seed de profil — format CFG01/CFG02) : SIREN CMP, raison sociale,
+         contact, paramètres fiscaux (null — en attente expert-comptable), planification
+         d'extraction (03:00), seuils d'alerte par défaut.
+         Compte PA B2Brouter : environnement staging pour la démo (clé en placeholder
+         « À RENSEIGNER à l'import »), place pour le compte production.
+      2. agent-cmp.json.example : configuration de l'agent côté CMP — adaptateur EncheresV6
+         (mode Pervasive avec chaîne ODBC en placeholder + mode fixtures pour la démo),
+         URL de la plateforme et clé API en placeholders.
+      3. Fixtures de démo ISATECH dans deployments/cmp/fixtures-demo/ : jeu réaliste de
          bordereaux EncheresV6 (à partir des fixtures ADP01) couvrant le scénario de démo —
          ventes normales, régime de la marge, avoir, acheteur professionnel bloqué,
-         encaissements.
-      3. Test de cohérence : Gateway.Cli check-config --config deployments/cmp/config-cmp.json
-         passe (en mode fixtures).
+         encaissements, PDF factices pour la réconciliation.
+      4. Test de cohérence : l'import du seed (CFG02 ImportTenantSeed) sur un tenant de test
+         passe, et l'agent en mode fixtures avec agent-cmp.json.example extrait et pousse.
     acceptance:
-      - "config-cmp.json complet, secrets en placeholders explicites"
-      - "Fixtures de démo couvrant tous les cas du scénario ISATECH"
-      - "check-config passe sur la config en mode fixtures"
-      - "Aucun fichier créé/modifié dans src/"
+      - "tenant-cmp.json complet, secrets/clés en placeholders explicites"
+      - "agent-cmp.json.example complet pour les deux modes (Pervasive/fixtures)"
+      - "Fixtures de démo couvrant tous les cas du scénario ISATECH (PDF inclus)"
+      - "L'import du seed passe sur un tenant de test (testé)"
+      - "Aucun fichier créé/modifié dans src/ ni agent/"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -59,24 +69,30 @@ items:
     title: "Scénario de démo ISATECH"
     description: |
       Rédiger deployments/cmp/SCENARIO-DEMO-ISATECH.md :
-      1. Scénario de démo pas à pas (15-20 min) : installation depuis le zip (toolkit),
-         chargement de la config CMP en mode fixtures, run du pipeline, parcours de la console
-         multi-postes (liste des bordereaux, détail d'un blocage TVA expliqué en français,
-         verdict B2B, export d'audit, coffre d'archive).
+      1. Scénario de démo pas à pas (15-20 min) :
+         - instance de démo provisionnée (appliance Docker OU instance mutualisée)
+         - création du tenant CMP depuis la console (assistant OPS03) + import du seed
+         - installation de l'agent pré-configuré sur une machine de démo (mode fixtures)
+         - le push arrive, le pipeline tourne, parcours de la console : liste des bordereaux,
+           détail d'un blocage TVA expliqué en français, verdict B2B, paramétrage de la table
+           TVA (complétion d'un régime manquant), réconciliation PDF, export d'audit,
+           dashboard de supervision (l'agent visible, simulation d'agent muet)
       2. Points de valeur à montrer : extraction sans toucher au logiciel source, blocages
-         expliqués en français, piste d'audit + archivage 10 ans indépendant de la PA,
-         multi-postes (deux consoles ouvertes en même temps), généricité multi-PA :
-         capacités comparées entre les plug-ins DISPONIBLES à la date de la démo
-         (B2Brouter vs plug-in Fake au minimum ; vs Super PDP si GATE_PA_SUPERPDP est passée —
-         la démo ne dépend JAMAIS de la disponibilité d'un PA tiers).
+         expliqués en français, supervision proactive (« on voit la panne avant le client »),
+         piste d'audit + archivage 10 ans, marque grise (montrer le branding), réversibilité
+         (export d'un tenant), généricité multi-PA : capacités comparées entre les plug-ins
+         DISPONIBLES à la date de la démo (B2Brouter vs plug-in Fake au minimum ; vs Super PDP
+         si GATE_PA_SUPERPDP est passée — la démo ne dépend JAMAIS de la disponibilité d'un
+         PA tiers).
       3. Objections probables d'ISATECH et réponses (à partir de docs/market/Offre-Editeur-Passerelle.md
-         et DR12-Intelligence-ISATECH.md).
+         et DR12-Intelligence-ISATECH.md) — notamment : « où sont hébergées les données ? »,
+         « que se passe-t-il si vous disparaissez ? » (réversibilité + séquestre).
       4. Déroulé de répétition : la démo doit avoir été exécutée de bout en bout sur une
-         machine propre à partir du zip de packaging avant la gate.
+         machine/instance propre avant la gate.
     acceptance:
       - "Scénario complet, minuté, exécutable par une personne qui n'a pas développé le produit"
-      - "Les points de valeur différenciants sont scénarisés"
-      - "Objections/réponses préparées à partir des docs marché"
+      - "Les points de valeur différenciants sont scénarisés (dont supervision proactive et marque grise)"
+      - "Objections/réponses préparées à partir des docs marché (dont hébergement et réversibilité)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -86,11 +102,11 @@ items:
     title: "Gate : démo ISATECH prête"
     description: |
       Validation humaine : le scénario de démo (CMP03) a été déroulé de bout en bout sur une
-      machine propre, à partir du zip de packaging, en mode fixtures. Chaque écran est
+      instance propre, agent installé sur machine propre, en mode fixtures. Chaque page est
       présentable, chaque point de valeur est démontrable.
     acceptance:
       - "CMP01, CMP02, CMP03 sont done"
-      - "La démo a été déroulée avec succès sur machine propre par un humain"
+      - "La démo a été déroulée avec succès par un humain"
       - "PR du segment feat/deploiement-cmp (partie démo) revue et mergée"
 
   CMP04:
@@ -98,17 +114,23 @@ items:
     description: |
       Rédiger et exécuter deployments/cmp/MISE-EN-PRODUCTION.md :
       1. Checklist des prérequis de production :
-         - ✅/⬜ Table TVA cmp-v1.json VALIDÉE par l'expert-comptable CMP (validatedBy + date renseignés)
-         - ✅/⬜ Réponses aux 4 questions fiscales consignées dans DECISIONS-FISCALES.md
+         - ✅/⬜ Décision de topologie CMP prise (tenant mutualisé / instance dédiée / on-premise)
+         - ✅/⬜ Table TVA cmp VALIDÉE par l'expert-comptable CMP (validatedBy + date renseignés
+           via le workflow de validation de la console)
+         - ✅/⬜ Réponses aux 4 questions fiscales consignées dans DECISIONS-FISCALES.md et
+           reportées dans le paramétrage du tenant (vatOnDebits, operationCategory)
          - ✅/⬜ Tickets support B2Brouter résolus (marge cas n°33, Flux 10.2/10.4)
-         - ✅/⬜ Compte B2Brouter PRODUCTION créé, tax_report_setting configuré
-         - ✅/⬜ Accès ODBC à la base Pervasive de production (lecture seule) vérifié
-         - ✅/⬜ Service installé sur le serveur CMP, API accessible depuis les postes comptables
-         - ✅/⬜ Sauvegarde quotidienne (base + coffre) configurée et testée
-      2. Protocole de premier envoi réel supervisé : période limitée (--max), vérification
-         document par document avant et après, contrôle des tax reports DGFiP générés.
+         - ✅/⬜ Compte B2Brouter PRODUCTION créé, tax_report_setting configuré, renseigné
+           dans le paramétrage du tenant
+         - ✅/⬜ Agent installé sur le serveur CMP, accès ODBC à la base Pervasive de production
+           (lecture seule) vérifié (CLI test-odbc), heartbeat visible en supervision
+         - ✅/⬜ Sauvegardes de l'instance configurées et testées (restauration incluse)
+         - ✅/⬜ DPA / contrat d'hébergement signé (si tenant hébergé) OU appliance installée
+           chez le CMP (si on-premise)
+      2. Protocole de premier envoi réel supervisé : période limitée, vérification document
+         par document avant et après, contrôle des tax reports DGFiP générés.
       3. Protocole de retour arrière si problème (les documents émis ne peuvent pas être
-         « retirés » — procédure d'avoir/correction).
+         « retirés » — procédure d'avoir/correction + rectificatif RE le cas échéant).
       Cet item documente et prépare ; l'exécution réelle de la bascule est la gate humaine.
     acceptance:
       - "Checklist complète avec l'état réel de chaque prérequis"

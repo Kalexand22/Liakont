@@ -1,126 +1,169 @@
-# Lot PIV — Modèle pivot & contrat d'extraction (F01-F02)
-# Spec : docs/conception/F01-F02-Modele-Pivot-Contrat-Extraction.md
-# Le pivot est la représentation interne neutre des documents, alignée EN 16931.
+# Lot PIV — Modèle pivot (contrat agent↔plateforme) & module Ingestion (F01-F02 + F12)
+# Specs : docs/conception/F01-F02-Modele-Pivot-Contrat-Extraction.md (le QUOI : champs EN 16931),
+#         docs/conception/F12-Architecture-Plateforme-Agent.md (le COMMENT : contrat d'ingestion)
+# Le pivot est LE contrat de l'API agent → plateforme. Les DTOs vivent dans
+# Conformat.Agent.Contracts (netstandard2.0, partagé net48/net10). Le module Ingestion
+# est la porte d'entrée de la plateforme : réception, anti-doublon, gestion des agents.
 
 items:
   PIV01:
-    title: "Modèle pivot : documents, lignes, taxes, tiers, totaux"
+    title: "DTOs pivot : documents, lignes, taxes, tiers, totaux, paiements (Agent.Contracts)"
     description: |
-      Implémenter le modèle pivot dans Gateway.Core/Pivot/ selon F01-F02 :
-      1. PivotDocument : type (Invoice/CreditNote), numéro, date, devise, émetteur (PivotParty),
-         destinataire (PivotParty), lignes (List<PivotLine>), totaux (PivotTotals),
+      Implémenter le modèle pivot dans src/Contracts/Conformat.Agent.Contracts/ selon F01-F02 :
+      1. PivotDocumentDto : type (Invoice/CreditNote), numéro, date, devise, émetteur (PivotPartyDto),
+         destinataire (PivotPartyDto), lignes (List<PivotLineDto>), totaux (PivotTotalsDto),
          OperationCategory (LivraisonBiens/PrestationServices/Mixte), SourceReference,
          CreditNoteRefs (List<string> — multi-références pour avoirs groupés), SourceData (JSON brut).
-      2. PivotLine : description, montant HT, quantité, régime TVA source brut (string),
-         taxe calculée (PivotLineTax), SourceData.
-      3. PivotLineTax : catégorie UNCL5305 (S/AA/AAA/Z/E/AE/G/K/O), taux %, montant TVA,
-         code VATEX (nullable), MappingTrace (référence règle appliquée).
-      4. PivotParty : nom, SIREN, SIRET, n° TVA intracommunautaire, adresse, pays ISO 3166-1 alpha-2,
-         IsCompanyHint (bool — heuristique professionnel).
-      5. PivotTotals : total HT, total TVA, total TTC, totaux source bruts.
-      Règles non négociables (F01) :
-      - Tous les montants en decimal, arrondis 2 décimales (half-up), originaux conservés dans SourceData
+      2. PivotLineDto : description, montant HT, quantité, régime TVA source brut (string),
+         taxe (PivotLineTaxDto), SourceData.
+      3. PivotLineTaxDto : catégorie UNCL5305 (S/AA/AAA/Z/E/AE/G/K/O), taux %, montant TVA,
+         code VATEX (nullable). NOTE v6 : la MappingTrace n'est PAS dans le DTO du contrat —
+         le mapping TVA se fait sur la PLATEFORME ; l'agent transmet le régime source BRUT.
+      4. PivotPartyDto : nom, SIREN, SIRET, n° TVA intracommunautaire, adresse,
+         pays ISO 3166-1 alpha-2, IsCompanyHint (bool).
+      5. PivotTotalsDto : total HT, total TVA, total TTC, totaux source bruts.
+      6. PivotPaymentDto : PaymentDate, Amount (decimal), Method, RelatedDocumentNumber,
+         SourceReference (F09 — les agrégats jour×taux sont calculés sur la PLATEFORME,
+         l'agent transmet les paiements bruts).
+      7. DTOs d'enveloppe du contrat (F12 §3.4) : PushBatchRequestDto/ResponseDto,
+         DocumentPushResultDto (accepted/duplicate/rejected + motif), HeartbeatRequestDto/
+         ResponseDto, AgentConfigurationDto, SourceTaxRegimeDto (code, libellé, occurrences).
+      Règles non négociables (F01 + blueprint §8) :
+      - Tous les montants en decimal, arrondis 2 décimales (half-up), originaux dans SourceData
       - Le pivot ne calcule RIEN : il porte les montants calculés par la source
       - Tout champ absent = null, jamais de valeur devinée
-      - Types immutables (readonly), constructeurs validants
+      - DTOs PURS : aucune logique, aucune dépendance (netstandard2.0, zéro PackageReference)
+      - Versionnement : constante ContractVersion = "1" portée par l'assembly
     acceptance:
-      - "PivotDocument, PivotLine, PivotLineTax, PivotParty, PivotTotals dans Conformat.Gateway.Core.Pivot"
+      - "Tous les DTOs dans Conformat.Agent.Contracts (netstandard2.0)"
       - "Montants en decimal partout, aucun float/double"
       - "Catégories TVA = enum ou type contraint UNCL5305"
+      - "Aucune logique dans les DTOs, zéro PackageReference (vérifié par test d'architecture)"
+      - "ContractVersion exposée"
       - "Tests unitaires : construction, immutabilité, arrondis"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   PIV02:
-    title: "Modèle pivot paiements (e-reporting)"
+    title: "Sérialisation canonique + PayloadHasher + alignement EN 16931 / Annexe 6 DGFiP"
     description: |
-      Implémenter les types de paiement dans Gateway.Core/Pivot/ selon F09 :
-      1. PivotPayment : PaymentDate, Amount (decimal), Method, RelatedDocumentNumber, SourceReference.
-      2. PaymentReportPeriod : Date, Rate (taux TVA), TotalCollectedTaxableBase, TotalCollectedVat, State.
-         C'est l'agrégat jour×taux exigé par la DGFiP (Flux 10.4) — pas de données nominatives.
-      Mêmes règles que PIV01 : decimal, immutabilité, null si absent.
+      Compléter le contrat dans Conformat.Agent.Contracts + côté plateforme :
+      1. Sérialisation JSON canonique du pivot : ordre des propriétés stable, culture invariante,
+         dates ISO 8601, decimals sans perte. CONTRAINTE DOUBLE RUNTIME : le résultat doit être
+         IDENTIQUE octet par octet entre Newtonsoft.Json (agent net48) et System.Text.Json
+         (plateforme .NET 10) — c'est ce qui garantit que le hash calculé des deux côtés
+         correspond. La logique de canonicalisation vit dans Agent.Contracts (netstandard2.0,
+         sans dépendance : writer JSON manuel ou abstraction sérialiseur).
+      2. PayloadHasher : SHA-256 du JSON canonique → string hex 64 caractères. Utilisé pour
+         l'anti-doublon (PIV04/TRK03) et la détection d'altération source.
+      3. Vérification d'alignement EN 16931 / Annexe 6 DGFiP v3.2 (docs/references/dgfip-v3.2/) :
+         les champs du pivot couvrent les BT nécessaires aux Flux 10.x (e-reporting). Produire
+         docs/architecture/mapping-pivot-en16931.md : champ pivot → BT EN 16931 → usage Flux 10.x.
+         Tout champ manquant détecté = à ajouter au pivot (avec test).
+      4. Round-trip sans perte : désérialiser(sérialiser(doc)) == doc, des deux côtés.
     acceptance:
-      - "PivotPayment et PaymentReportPeriod dans Conformat.Gateway.Core.Pivot"
-      - "Montants en decimal partout, aucun float/double"
-      - "Aucune donnée nominative client dans PaymentReportPeriod"
-      - "Tests unitaires de construction et d'arrondi"
-      - "verify-fast passes"
-      - "codex-review clean or only accepted P2s"
-
-  PIV03:
-    title: "Contrat d'extraction IExtractor + pièces jointes source"
-    description: |
-      Définir le contrat universel des adaptateurs dans Gateway.Core/Pivot/ selon F02 :
-      1. IExtractor :
-         - ExtractorInfo GetInfo()  (identité de l'adaptateur : nom, version, logiciel source ciblé)
-         - HealthCheckResult CheckHealth()
-         - IEnumerable<PivotDocument> ExtractDocuments(DateTime from, DateTime to)  (streaming, [from, to[)
-         - IEnumerable<PivotPayment> ExtractPayments(DateTime from, DateTime to)
-         - IReadOnlyList<SourceTaxRegime> ListSourceTaxRegimes()
-         - ExtractorCapabilities Capabilities { get; }
-         - IReadOnlyList<SourceAttachment> GetAttachments(string sourceReference)
-           (vide si la capacité n'est pas déclarée)
-         - IEnumerable<PoolDocument> ListPoolDocuments(DateTime from, DateTime to)
-           (vide si la capacité pool n'est pas déclarée)
-         Exceptions typées (contrat F01-F02 R7 — elles pilotent la décision du pipeline) :
-         - SourceUnavailableException : la source est injoignable (réseau, service arrêté) →
-           RÉESSAYABLE au prochain run
-         - SourceSchemaException : le schéma ne correspond pas (table/colonne manquante) →
-           NON réessayable, intervention requise, run en échec fatal
-      2. ExtractorCapabilities — accès aux documents émis par le logiciel source (bordereaux PDF),
-         DEUX modes non exclusifs (décision 2026-06-02) :
-         - ProvidesSourceDocuments (bool) : l'adaptateur sait retrouver le PDF d'un document
-           PRÉCIS (lien explicite : blob en base, nommage fiable) → GetAttachments
-         - ProvidesUnlinkedDocumentPool (bool) : l'adaptateur expose un POOL de PDF sans lien
-           explicite avec les documents (ex. tous les PDF dans un même dossier) →
-           ListPoolDocuments + moteur de réconciliation (TRK08)
-         Même principe que PaCapabilities : capacité déclarée, comportement adapté, jamais d'exception.
-      3. SourceAttachment : FileName, MimeType, Content (byte[]), Origin (description de la
-         provenance : table/blob ou chemin fichier). Destiné au coffre d'archive (TRK06).
-      4. PoolDocument : FileName, FileDate, Origin, accès au contenu différé (lazy — un pool
-         peut être volumineux). Destiné au moteur de réconciliation (TRK08).
-      5. HealthCheckResult : IsHealthy, Message (français opérateur), Details.
-      6. SourceTaxRegime : code source brut, libellé source, occurrences.
-      Le contrat est LA frontière produit/adaptateur : le Core ne connaît jamais le schéma source.
-    acceptance:
-      - "IExtractor, ExtractorInfo, ExtractorCapabilities, SourceAttachment, PoolDocument, HealthCheckResult, SourceTaxRegime dans Conformat.Gateway.Core.Pivot"
-      - "Exceptions typées SourceUnavailableException (réessayable) / SourceSchemaException (fatale)"
-      - "Extraction en streaming (IEnumerable, pas de List matérialisée)"
-      - "Capacités ProvidesSourceDocuments et ProvidesUnlinkedDocumentPool : adaptateur sans capacité = liste vide, jamais d'exception"
-      - "Aucune référence à un schéma source spécifique dans le Core"
-      - "verify-fast passes"
-      - "codex-review clean or only accepted P2s"
-
-  PIV04:
-    title: "Sérialisation JSON canonique + hash anti-doublon"
-    description: |
-      Implémenter dans Gateway.Core/Pivot/ :
-      1. Sérialisation JSON canonique du pivot (Newtonsoft.Json) : ordre des propriétés stable,
-         culture invariante, dates ISO 8601, decimals sans perte.
-      2. PayloadHasher : SHA-256 du JSON canonique → string hex. Utilisé pour l'anti-doublon (F06)
-         et la détection d'altération de la donnée source après envoi.
-      3. Round-trip sans perte : désérialiser(sérialiser(doc)) == doc.
-    acceptance:
-      - "Sérialisation canonique stable (deux sérialisations du même objet = même string)"
-      - "PayloadHasher produit un SHA-256 hex de 64 caractères"
+      - "Sérialisation canonique stable et identique entre net48 et .NET 10 (testé avec les mêmes golden files des deux côtés)"
+      - "PayloadHasher produit un SHA-256 hex de 64 caractères, identique des deux côtés"
+      - "mapping-pivot-en16931.md rédigé, traçable vers l'Annexe 6 v3.2"
       - "Test de round-trip sans perte sur un document complet (avoir + lignes + taxes)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
-  PIV05:
-    title: "FixtureExtractor générique + jeu de fixtures"
+  PIV03:
+    title: "Golden files du contrat + tests de contrat des deux côtés"
     description: |
-      Implémenter un IExtractor qui rejoue des fixtures JSON (F02 — mode dev sans licence) :
-      1. FixtureExtractor : charge un dossier de fixtures JSON (documents, paiements, régimes TVA)
-         et les sert via IExtractor. Aucune dépendance ODBC.
-      2. Jeu de fixtures de test dans tests/fixtures/ : au moins 5 bordereaux représentatifs
-         (cas normal 20%, cas marge E+VATEX-EU-J, avoir lié, acheteur professionnel,
-         document avec encaissements), construits à partir des exemples de docs/conception/.
-      3. Tests : FixtureExtractor lit les fixtures et produit des PivotDocument valides.
-      Le FixtureExtractor sert : dev sans licence Pervasive, démos hors site, tests unitaires.
+      Créer le jeu de fixtures de référence du contrat (F12 §3.4) :
+      1. tests/fixtures/contrat-v1/ : golden files JSON — au moins 6 documents pivot
+         représentatifs (cas normal 20%, cas marge E+VATEX-EU-J, avoir lié, avoir groupé,
+         acheteur professionnel, document avec paiements) + 1 batch complet + 1 heartbeat.
+         Construits à partir des exemples de docs/conception/ (données FICTIVES uniquement).
+      2. Tests de contrat côté plateforme (tests/) : chaque golden file se désérialise,
+         se re-sérialise canoniquement à l'identique, et son hash est stable (valeurs de
+         hash attendues figées dans les tests — un changement de hash = rupture de contrat
+         détectée).
+      3. Tests de contrat côté agent (agent/tests/) : MÊMES golden files, MÊMES hashes attendus.
+         (Ces tests sont écrits ici mais ne pourront tourner qu'après SOL02 — ils sont
+         dans la solution agent, exécutés par verify-fast.)
+      4. Documentation : docs/architecture/contrat-agent-v1.md — la liste des endpoints,
+         des DTOs, des règles d'évolution (un champ s'AJOUTE, ne se renomme/supprime jamais
+         en v1 ; toute rupture = v2 du contrat).
+      Ces golden files sont LA référence de compatibilité : la CI les fait passer sur les
+      deux runtimes à chaque commit, et sur le contrat N-1 à chaque montée de version.
     acceptance:
-      - "FixtureExtractor implémente IExtractor sans dépendance ODBC"
-      - "Au moins 5 fixtures couvrant : 20% normal, marge/VATEX, avoir, pro B2B, encaissements"
-      - "Tests verts sur le chargement et l'extraction des fixtures"
+      - "Au moins 6 golden files documents + batch + heartbeat, données fictives uniquement"
+      - "Tests plateforme : désérialisation + re-sérialisation canonique + hashes figés"
+      - "Tests agent : mêmes fixtures, mêmes hashes (la preuve de compatibilité cross-runtime)"
+      - "contrat-agent-v1.md rédigé avec les règles d'évolution"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  PIV04:
+    title: "Module Ingestion : réception des batchs, anti-doublon, état Detected"
+    description: |
+      Créer src/Modules/Ingestion/ (pattern Stratum : Contracts/Domain/Application/
+      Infrastructure/Web) selon F12 §3-4 :
+      1. Endpoint POST /api/agent/v1/documents/batch :
+         - auth par clé API agent (PIV05) → résolution du tenant
+         - par document du lot : payload_hash déjà connu pour ce tenant → résultat "duplicate"
+           (aucun effet) ; source_reference connue avec un AUTRE hash → "accepted" + événement
+           AlterationDetected (consommé par TRK03) ; sinon → "accepted", document créé en état
+           Detected (via le module Documents — TRK01/02 ; à ce stade du lot, l'interface
+           IDocumentIntake est définie dans Ingestion.Contracts et mockée dans les tests,
+           le câblage réel arrive quand TRK02 est done)
+         - réponse : résultat individuel par document (jamais de rejet global du lot pour
+           un seul document invalide)
+         - lot NON transactionnel, 100 documents max (413 au-delà)
+      2. Endpoints POST .../documents/{sourceReference}/pdf et POST .../pdf-pool :
+         stockage des PDF reçus (module Document du socle Stratum OU stockage fichier par
+         tenant — choix documenté par ADR), rattachement au document ou au pool de
+         réconciliation (TRK07).
+      3. Métadonnées de push : les régimes TVA source (SourceTaxRegimeDto) transmis par
+         l'agent sont persistés par tenant → consommés par la détection de couverture TVA03.
+      4. Validation du contrat : payload non conforme aux DTOs = 400 avec détail —
+         JAMAIS d'acceptation partielle d'un document malformé.
+      5. Publication d'un événement (outbox du socle) DocumentReceived par document accepté →
+         déclenchera le pipeline aval (PIP01).
+      6. Tests d'intégration (Testcontainers PostgreSQL) : batch nominal, doublons, altération,
+         lot mixte, payload malformé, tenant isolation (un agent ne peut pas écrire chez un
+         autre tenant).
+    acceptance:
+      - "Réception batch avec résultat individuel par document"
+      - "Anti-doublon par payload_hash par tenant"
+      - "Altération source (même référence, autre hash) → accepted + événement AlterationDetected"
+      - "Événement outbox DocumentReceived publié par document accepté"
+      - "Isolation tenant vérifiée par test (clé d'un tenant A ne peut pas écrire chez B)"
+      - "Régimes TVA source persistés par tenant"
+      - "Tests d'intégration PostgreSQL sur tous les cas"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  PIV05:
+    title: "Module Ingestion : gestion des agents, clés API, heartbeat, configuration"
+    description: |
+      Compléter le module Ingestion (F12 §3.2, §4.2) :
+      1. Gestion des agents : entité Agent (tenant, nom, clé API prefix+hash, créé le,
+         révoqué le, dernière version vue, dernier heartbeat) — un tenant peut avoir
+         plusieurs agents.
+         Handlers : RegisterAgent (génère la clé, affichée UNE seule fois), RevokeAgent,
+         RotateKey. Le modèle de clé API suit celui du socle Stratum (Notification.ApiKey) :
+         prefix + hash, jamais de clé en clair en base.
+      2. Middleware/filtre d'authentification agent : header X-Agent-Key → résolution
+         (prefix → hash compare) → tenant + agent dans le contexte de la requête.
+         Clé inconnue/révoquée = 401/403. Brute force : rate limiting par IP.
+      3. Endpoint POST /api/agent/v1/heartbeat : persiste l'état (HeartbeatLog, rétention
+         90 jours), répond avec AgentConfigurationDto (planification du tenant, période à
+         extraire, latestAgentVersion, updateRequired, updateUrl + hash).
+      4. Endpoint GET /api/agent/v1/configuration : même contenu (pour le démarrage de l'agent).
+      5. Compatibilité de version : header de version du contrat vérifié — version inconnue
+         ou trop ancienne (< N-1) = 426 Upgrade Required.
+      6. Tests d'intégration : enregistrement, clé affichée une fois, révocation, rotation,
+         auth (valide/invalide/révoquée), heartbeat persisté, 426 sur vieille version,
+         rate limiting.
+    acceptance:
+      - "Cycle de vie des agents complet (register/revoke/rotate), clé en prefix+hash"
+      - "Auth par clé API : 401/403 corrects, rate limiting, tenant résolu dans le contexte"
+      - "Heartbeat persisté (rétention 90 jours) + réponse de configuration"
+      - "Contrat N-1 supporté, plus ancien = 426"
+      - "Tests d'intégration PostgreSQL sur tout le cycle de vie"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"

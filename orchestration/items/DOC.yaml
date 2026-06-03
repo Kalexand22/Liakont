@@ -4,40 +4,44 @@
 
 items:
   DOC01:
-    title: "Guide utilisateur console + guide exploitant"
+    title: "Guide opérateur (console web) + guide éditeur/intégrateur"
     description: |
       Rédiger la documentation produit :
-      1. docs/guide-utilisateur.md : guide opérateur de la console WPF — connexion au serveur,
-         chaque écran, chaque état, chaque action, les messages de blocage courants et comment
-         les résoudre, le verdict B2C/B2B, l'export d'audit. Public : opérateur comptable non
-         technique. Captures d'écran des écrans sur fixtures.
-      2. docs/guide-exploitant.md : guide de l'exploitant du Service — installation,
-         planification, supervision (/health, last-run-status.json, montre morte),
-         sauvegardes (base + coffre d'archive), vérification d'intégrité de l'archive,
-         lecture des logs, procédures d'incident.
-      3. README.md du repo mis à jour : état du produit, comment builder, comment lancer
-         en mode démo (fixtures + plug-in Fake), liens vers toute la documentation.
+      1. docs/guide-operateur.md : guide de l'opérateur comptable (console web) — connexion,
+         chaque page, chaque état, chaque action, les messages de blocage courants et comment
+         les résoudre, le verdict B2C/B2B, le paramétrage de la table TVA et son workflow de
+         validation, la réconciliation PDF, l'export d'audit. Public : opérateur comptable non
+         technique. Captures d'écran sur fixtures.
+      2. docs/guide-editeur.md : guide de l'opérateur d'INSTANCE (éditeur ou IT Innovations) —
+         créer un client (tenant), enregistrer un agent, installer l'agent chez le client final
+         (renvoi vers docs/installation-agent.md OPS05), le dashboard de supervision, les
+         alertes et comment y réagir, la mise à jour de l'instance (self-hosted), les
+         sauvegardes, la réversibilité (export d'un client).
+      3. README.md du repo mis à jour : état du produit, architecture (plateforme + agent),
+         comment builder les deux solutions, comment lancer en mode démo (docker compose +
+         agent fixtures + plug-in Fake), liens vers toute la documentation.
     acceptance:
-      - "Guide utilisateur couvrant tous les écrans et états, en français opérateur"
-      - "Guide exploitant couvrant supervision, sauvegardes et incidents"
-      - "README.md à jour"
+      - "Guide opérateur couvrant toutes les pages et états, en français opérateur"
+      - "Guide éditeur couvrant le cycle de vie complet (tenant, agent, supervision, réversibilité)"
+      - "README.md à jour (architecture, builds, mode démo)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   GATE_TOOLKIT:
     type: gate
     executor: human
-    title: "Gate : produit packagé et documenté"
+    title: "Gate : produit complet, opérable et documenté"
     description: |
-      Validation humaine du produit complet packagé : le zip s'installe sur une machine propre,
-      le Service démarre, la console se connecte, la documentation permet à un intégrateur
-      (partenaire Niveau 2) de déployer sans assistance.
-      Le package inclut au moins un PA réel (B2Brouter) et un adaptateur réel (EncheresV6) —
+      Validation humaine du produit complet : une instance se provisionne (appliance Docker),
+      un tenant se crée depuis la console, un agent pré-configuré s'installe sur une machine
+      propre et pousse des documents, la supervision voit tout, la documentation permet à un
+      éditeur (profil « serveur chez un hébergeur ») de déployer sans assistance.
+      Le produit inclut au moins un PA réel (B2Brouter) et un adaptateur réel (EncheresV6) —
       les gates correspondantes sont en amont de ce segment. Super PDP n'est PAS bloquant
-      (décision 2026-06-02 : il rejoint le package dès que sa gate passe).
+      (décision 2026-06-02 : il rejoint le produit dès que sa gate passe).
       C'est la dernière gate du PRODUIT — tout ce qui suit (lot CMP) est du paramétrage.
     acceptance:
-      - "Tous les items PKG et DOC sont done"
-      - "Installation complète depuis le zip réussie sur machine propre"
-      - "Le zip contient les plug-ins B2Brouter, EncheresV6 et Fake opérationnels"
+      - "Tous les items OPS, BRD et DOC sont done"
+      - "Parcours complet démontré : provisioning instance → création tenant → installation agent → push → pipeline → console"
+      - "Le branding marque grise a été démontré sur une instance de test"
       - "PR du segment feat/deploiement-toolkit revue et mergée dans main"

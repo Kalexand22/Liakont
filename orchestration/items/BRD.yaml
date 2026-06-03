@@ -1,0 +1,38 @@
+# Lot BRD — Marque grise : branding par instance
+# Specs : blueprint.md §3.3 (topologies, marque grise), F12 §6.1 (configuration d'instance)
+# Réf décision 2026-06-03 : la marque grise = une instance de plateforme PAR éditeur.
+# L'éditeur vend la plateforme sous SA marque : ses clients ne voient jamais « Conformat »
+# ni « IT Innovations » si l'éditeur ne le veut pas.
+# Le socle Stratum n'a PAS de branding multi-instance (titre/thème en dur) — c'est du
+# travail Conformat, potentiellement reversable dans Stratum ensuite.
+
+items:
+  BRD01:
+    title: "Branding par instance (nom, logo, couleurs, domaine, emails)"
+    description: |
+      Implémenter le branding configurable au niveau instance :
+      1. Configuration de branding (variables d'environnement / appsettings de l'instance —
+         F12 §6.1) : nom commercial, logo (chemin/URL), couleur primaire + accent, favicon,
+         domaine public, mentions de pied de page, expéditeur des emails (nom + adresse).
+      2. Application dans l'UI : le shell Blazor (titre, logo, couleurs CSS — variables de
+         thème du socle surchargées), la page de login (realm Keycloak thémé ou page
+         intermédiaire), le favicon, les titres d'onglet navigateur.
+      3. Application dans les emails (module Notification + SUP03) : expéditeur, en-tête/logo,
+         pied de page — un client d'un éditeur reçoit des emails à la marque de SON éditeur.
+      4. Application dans les exports (API03) : la notice d'export d'audit et de réversibilité
+         porte la marque de l'instance (+ une mention technique discrète « propulsé par
+         Conformat » paramétrable on/off).
+      5. Valeurs par défaut : branding « Conformat » (l'instance mutualisée IT Innovations
+         l'utilise telle quelle).
+      6. Le provisioning (OPS02) collecte les paramètres de branding à la création d'instance.
+      7. Tests : bUnit sur le shell brandé (logo, couleurs, titre), contenu des emails brandés,
+         exports brandés, valeurs par défaut. E2E Playwright : l'instance de test affiche le
+         branding configuré.
+    acceptance:
+      - "Branding complet configurable par instance (UI, login, emails, exports, favicon)"
+      - "Aucune mention Conformat/IT Innovations visible quand l'éditeur la désactive"
+      - "Valeurs par défaut Conformat fonctionnelles"
+      - "Le provisioning d'instance collecte le branding"
+      - "Tests bUnit + emails + E2E Playwright"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"

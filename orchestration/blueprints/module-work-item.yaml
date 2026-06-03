@@ -1,6 +1,7 @@
 # Blueprint: module-work-item
-# Standard node graph for Gateway.Core / adapter / host implementation items
-# (pivot model, TVA mapping, validation, tracking, PA client, pipeline, CLI, service)
+# Standard node graph for platform module / agent / plug-in implementation items
+# (contracts, ingestion, TVA mapping, validation, documents, archive, transmission,
+#  PA plug-ins, pipeline, agent core, adapters)
 #
 # Node types:
 #   deterministic — run a known tool/script, no LLM judgment

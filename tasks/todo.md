@@ -24,9 +24,15 @@ l'architecture on-premise. Voir `tasks/analyse-impact-pivot-plateforme.md` et `t
       supervision, configuration/déploiement — absorbe l'ancien placeholder F12), F10 amendée
       (console web, contenu fonctionnel conservé), F11 amendée (exécution répartie agent/plateforme),
       F06 amendée (PostgreSQL remplace SQLite), index mis à jour
-- [ ] Réécrire manifest v6 + items + blueprints d'orchestration + outillage (verify-fast, run-tests)
-- [ ] Réinitialiser state.yaml (v6) dans conformat-orchestration
-- [ ] Relancer l'orchestration
+- [x] ~~Réécrire manifest v6 + items + blueprints + outillage~~ **FAIT (2026-06-03)** :
+      manifest v6 (79 items + 12 gates = 91 entrées, 11 segments, 19 lots), 19 fichiers d'items
+      (nouveaux : AGT/SUP/OPS/BRD/WEB ; supprimés : SVC/CLI/WPF/PKG), blueprint blazor-page-item
+      (remplace wpf-screen-item), verify-fast/run-tests adaptés au double build (plateforme .NET 10 +
+      agent net48 x86), codex-review mis à jour (frontières modules, tenant-scoping)
+- [x] ~~Réinitialiser state.yaml (v6)~~ **FAIT (2026-06-03)** : 91 entrées pending, segments v6,
+      branche feat/socle (v5) supprimée. verify-fast PASS (manifest-sanity + gardes bootstrap)
+- [ ] **Relancer l'orchestration** : `Lis orchestration/prompt.md et exécute-le.` dans une nouvelle
+      fenêtre Claude Code → l'agent prendra SOL01 (vendoring du socle Stratum + Conformat.Host)
 
 ## Actions humaines à mener en parallèle du développement (hors orchestration)
 

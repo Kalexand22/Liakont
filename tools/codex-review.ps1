@@ -66,8 +66,9 @@ function Register-Findings {
 
 # --- Review instructions (Conformat-specific) ---
 $reviewInstructions = @'
-You are a strict code reviewer for Conformat, a French e-invoicing compliance gateway
-(.NET Framework 4.8, WPF, SQLite, B2Brouter PA client). Read blueprint.md and
+You are a strict code reviewer for Conformat, a French e-invoicing compliance gateway:
+a multi-tenant web platform (.NET 10, PostgreSQL, Blazor, vendored Stratum socle) plus a
+lightweight on-site agent (.NET Framework 4.8, ODBC extraction). Read blueprint.md and
 docs/architecture/ for project conventions before reviewing.
 
 **Report only:**
@@ -86,9 +87,14 @@ docs/architecture/ for project conventions before reviewing.
 - Blocking validation weakened to Warning, or validation bypass path
 - Update/delete path on DocumentEvent, or automatic purge of audit tables
 - Write operation (INSERT/UPDATE/DELETE) or lock on the legacy source database in an adapter
-- Gateway.Core referencing an adapter project
-- Secret in clear text (PA API key, SMTP password) in code, config, or logs
-- WPF item without ViewModel unit tests, or business logic in code-behind
+- Module boundary violation: a module referencing another module's Domain/Application/
+  Infrastructure (only Contracts allowed), Transmission referencing a concrete PA plug-in,
+  the agent referencing platform code, or business logic inside the agent
+- Business query that is not tenant-scoped (cross-tenant data leak) — only the Supervision
+  module may read cross-tenant
+- Secret in clear text (PA API key, agent API key, SMTP password) in code, config, or logs
+- Blazor page without bUnit/Playwright tests, or business logic inside a page/component
+- Modified vendored Stratum.* file not logged in docs/architecture/provenance-socle-stratum.md
 
 **Format per finding:**
 [P1] or [P2] | file:line | concrete description | suggested fix

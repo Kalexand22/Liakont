@@ -1,107 +1,159 @@
-# Lot SOL — Socle solution (.NET Framework 4.8)
-# Réf : blueprint.md (§4 structure de la solution), docs/market/Conception-Produit-Passerelle.md
-# Préalable à tout le reste : sans solution compilable, verify-fast ne peut pas tourner.
+# Lot SOL — Socle : plateforme (.NET 10, socle Stratum vendored) + agent (.NET Framework 4.8)
+# Réfs : blueprint.md v2 (§4 structure), docs/conception/F12-Architecture-Plateforme-Agent.md,
+#        tasks/analyse-impact-pivot-plateforme.md (§5-6 : ce que Stratum fournit, décision vendoring)
+# Préalable à tout le reste : sans solutions compilables, verify-fast ne peut pas tourner.
+#
+# DÉCISIONS 2026-06-03 : le code plateforme vit dans CE repo avec le socle Stratum COPIÉ
+# (vendored) depuis C:\Source\Stratum ; nommage Conformat.* pour les projets Conformat,
+# les projets vendored gardent leurs noms Stratum.* (provenance + re-convergence NuGet future).
 
 items:
   SOL01:
-    title: "Solution Gateway.sln + squelette des projets"
+    title: "Plateforme : vendoring du socle Stratum + Conformat.Host compilable"
     description: |
-      Créer la solution et les projets vides compilables, structure cible du blueprint.md §4 :
-      1. Gateway.sln à la racine de src/.
-      2. Projets SDK-style ciblant net48 (compatible `dotnet build` sous Windows) :
-         - src/Gateway.Core/                        (le produit générique)
-           Dossiers : Pivot/, TvaMapping/, Validation/, Tracking/, PaClient/, Pipeline/, Configuration/
-         - src/Gateway.PaClients.Fake/              (plug-in PA #0 : PA factice — démo + tests)
-         - src/Gateway.PaClients.B2Brouter/         (plug-in PA #1)
-         - src/Gateway.PaClients.SuperPdp/          (plug-in PA #2)
-         - src/Gateway.Adapters.EncheresV6/         (plug-in source #1)
-         - src/Gateway.Api/                         (contrats DTOs de l'API HTTP)
-         - src/Gateway.ApiClient/                   (client .NET de l'API)
-         - src/Gateway.Service/                     (l'hôte : service Windows + API + pipeline)
-         - src/Gateway.App/                         (WPF, UseWPF=true — console cliente de l'API)
-         - src/Gateway.Cli/                         (utilitaire de mise en service/secours)
-         - tests/Gateway.Core.Tests/                (xUnit)
-         - tests/Gateway.PaClients.Contract.Tests/  (suite de contrat PA)
-         - tests/Gateway.PaClients.Fake.Tests/
-         - tests/Gateway.PaClients.B2Brouter.Tests/
-         - tests/Gateway.PaClients.SuperPdp.Tests/
-         - tests/Gateway.Adapters.EncheresV6.Tests/
-         - tests/Gateway.Service.Tests/
-         - tests/Gateway.App.Tests/
-      3. Directory.Build.props : TargetFramework net48, LangVersion latest, Platforms x86+x64,
-         TreatWarningsAsErrors true, versions de packages centralisées (Newtonsoft.Json, Dapper,
-         System.Data.SQLite, xUnit, MahApps.Metro).
-      4. Chaque projet contient une classe placeholder dans le bon namespace (Conformat.Gateway.*).
-      5. Règles de références entre projets (la frontière du blueprint §6) :
-         - Les plug-ins (PaClients.*, Adapters.*) ne référencent QUE Gateway.Core
-         - Gateway.Core ne référence AUCUN plug-in
-         - Gateway.Service référence Core + Api + les plug-ins (composition root)
-         - Gateway.App référence UNIQUEMENT Api + ApiClient (jamais Core ni les plug-ins)
-         - Gateway.Cli référence Core + les plug-ins (mode secours, accès direct)
-      6. Dossiers config/exemples/ et deployments/ créés avec README expliquant leur rôle.
-      7. ADR-0001 : choix .NET Framework 4.8, SDK-style csproj, xUnit, builds x86/x64,
-         architecture Service/API mono-écrivain.
-      IMPORTANT : aucune logique métier — uniquement le squelette compilable.
+      Créer la solution plateforme src/Conformat.sln selon blueprint.md §4 :
+      1. VENDORING du socle Stratum (copie depuis C:\Source\Stratum, en gardant les noms
+         de projets/namespaces Stratum.*) :
+         - src/Common/Abstractions/   (Stratum.Common.Abstractions)
+         - src/Common/Infrastructure/ (Stratum.Common.Infrastructure — Dapper, tenancy, outbox, DbUp)
+         - src/Common/UI/             (Stratum.Common.UI — Radzen, composants, thème)
+         - src/Common/Testing/        (Stratum.Common.Testing)
+         - src/Modules/Identity/      (Stratum.Modules.Identity — auth/RBAC)
+         - src/Modules/Job/           (Stratum.Modules.Job — ordonnanceur)
+         - src/Modules/Notification/  (Stratum.Modules.Notification — emails, clés API)
+         - src/Modules/Audit/         (Stratum.Modules.Audit)
+         Ne PAS copier les modules métier de l'ERP (Party, Sales, Finance, Reservation,
+         Resource, Company, Workflow, FormEngine, Sequence, ReferenceData, Tax, Config,
+         Showcase) — Conformat n'en a pas besoin et ils tirent des dépendances inter-modules.
+      2. docs/architecture/provenance-socle-stratum.md : commit source Stratum copié, date,
+         liste des dossiers copiés, modifications locales (initialement : aucune).
+         RÈGLE : toute modification ultérieure d'un fichier Stratum.* DOIT être consignée ici.
+      3. src/Host/Conformat.Host/ : copie ADAPTÉE de Stratum.Host —
+         - AppBootstrap n'enregistre QUE les modules vendored (Identity, Job, Notification, Audit)
+         - Endpoints/NavSectionProviders des modules ERP retirés
+         - Titre/branding « Conformat » (le branding par instance complet arrive avec BRD01)
+         - Realm Keycloak de dev adapté (realm conformat-dev)
+      4. Directory.Packages.props + Directory.Build.props copiés/adaptés de Stratum
+         (versions de packages centralisées).
+      5. La solution compile (dotnet build src/Conformat.sln) et le Host démarre en mode dev
+         (PostgreSQL + Keycloak via docker-compose de dev copié/adapté de Stratum).
+      6. ADR-0001 : pivot d'architecture — plateforme .NET 10 sur socle Stratum vendored
+         + agent net48 ; renvoie vers tasks/decisions.md et l'analyse d'impact.
+      IMPORTANT : aucune logique métier Conformat — uniquement le socle qui compile et démarre.
+      PÉRIMÈTRE DE REVIEW : la review porte sur l'ADAPTATION (Conformat.Host, csproj, provenance,
+      ADR), PAS sur le code Stratum copié tel quel (déjà reviewé dans son repo d'origine).
+      Un fichier Stratum.* modifié pendant la copie = à consigner dans la provenance = reviewé.
     acceptance:
-      - "Gateway.sln compile via dotnet build en Debug x86 et x64"
-      - "Les 10 projets produit + 8 projets de tests existent avec namespaces Conformat.Gateway.*"
-      - "Les règles de références inter-projets sont en place (App ne référence pas Core, Core ne référence aucun plug-in)"
-      - "Directory.Build.props centralise framework et versions de packages"
+      - "src/Conformat.sln compile via dotnet build"
+      - "Conformat.Host démarre en mode dev (PostgreSQL + Keycloak docker-compose)"
+      - "Seuls les modules Identity/Job/Notification/Audit sont enregistrés (aucun module ERP)"
+      - "provenance-socle-stratum.md créé : commit source, date, dossiers copiés, modifications locales"
+      - "Les tests du socle vendored (Common + 4 modules) passent"
       - "ADR-0001 rédigé dans docs/adr/"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   SOL02:
-    title: "Outillage de vérification réel + CI"
+    title: "Agent : solution net48 + Conformat.Agent.Contracts (netstandard2.0)"
     description: |
-      Brancher l'outillage de vérification sur la solution réelle :
-      1. tools/verify-fast.ps1 : restore + build (x86 — plateforme contraignante des drivers
-         ODBC Pervasive) + analyzers + tests unitaires.
-         Doit échouer (exit != 0) si build ou tests échouent. Pas de faux verts.
-      2. tools/run-tests.ps1 : suite complète (unit + integration + contrat PA) avec résumé
-         compact et log détaillé dans .run-tests.log. Exclut Category=Staging, Category=Sandbox et
-         Category=Integration.SqlServer (optionnelles).
-      3. CI GitHub Actions (.github/workflows/ci.yml) : sur push/PR — restore, build
-         **x86 ET x64** (matrice de plateformes — les deux builds livrés doivent compiler),
-         tests. Un step qui échoue fait échouer le pipeline (vérifier, pas de continue-on-error).
-      4. Mettre à jour docs/architecture/definition-of-done.md avec les commandes réelles.
+      Créer la solution agent et l'assembly de contrat partagée selon blueprint.md §4 et F12 §2 :
+      1. src/Contracts/Conformat.Agent.Contracts/ (netstandard2.0) : projet de DTOs PURS
+         du contrat agent ↔ plateforme — référencé par les DEUX solutions :
+         - placeholder des DTOs (les vrais types arrivent avec PIV01)
+         - AUCUNE logique, AUCUNE dépendance autre que le BCL (règle vérifiable par test
+           d'architecture : aucune PackageReference)
+      2. agent/Conformat.Agent.sln + projets SDK-style ciblant net48 :
+         - agent/src/Conformat.Agent/              (service Windows — coquille ServiceBase)
+         - agent/src/Conformat.Agent.Core/         (IExtractor, file locale, client HTTP, config)
+         - agent/src/Conformat.Agent.Adapters.EncheresV6/  (plug-in source #1 — vide)
+         - agent/src/Conformat.Agent.Cli/          (diagnostic)
+         - agent/tests/Conformat.Agent.Core.Tests/ (xUnit net48)
+         - agent/tests/Conformat.Agent.Adapters.EncheresV6.Tests/
+      3. agent/Directory.Build.props : TargetFramework net48, LangVersion latest,
+         Platforms x86+x64, TreatWarningsAsErrors true, packages centralisés
+         (Newtonsoft.Json, System.Data.SQLite, xUnit).
+      4. Règles de références (frontières blueprint §6) :
+         - Conformat.Agent.Core référence Conformat.Agent.Contracts (cross-solution, chemin relatif)
+         - Les adaptateurs référencent UNIQUEMENT Conformat.Agent.Core (+ Contracts)
+         - AUCUN projet agent ne référence un projet de la plateforme (src/Host, src/Modules, src/Common)
+      5. Chaque projet contient une classe placeholder dans le bon namespace.
+      6. Dossiers config/exemples/ et deployments/ avec README mis à jour pour la nouvelle
+         architecture (paramétrage de tenant en seed).
+      IMPORTANT : aucune logique métier — uniquement le squelette compilable des deux côtés.
     acceptance:
-      - "verify-fast.ps1 échoue réellement quand un test échoue (testé en cassant un test volontairement)"
-      - "run-tests.ps1 produit un résumé compact + .run-tests.log détaillé"
-      - "ci.yml construit x86 ET x64, exécute les tests, et échoue si une étape échoue"
+      - "agent/Conformat.Agent.sln compile via dotnet build en Debug x86 et x64"
+      - "Conformat.Agent.Contracts est netstandard2.0, zéro PackageReference, référencé par les deux solutions"
+      - "Les règles de références sont en place (agent ne référence jamais la plateforme)"
+      - "Namespaces Conformat.Agent.* pour l'agent"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   SOL03:
+    title: "CI double build + outillage de vérification branché sur les solutions réelles"
+    description: |
+      Brancher l'outillage de vérification et la CI sur les deux solutions :
+      1. Vérifier/ajuster tools/verify-fast.ps1 : build plateforme (dotnet build src/Conformat.sln)
+         + build agent (dotnet build agent/Conformat.Agent.sln -p:Platform=x86) + tests unitaires
+         des deux côtés + tests d'architecture (NetArchTest). Doit échouer (exit != 0) si un
+         build ou un test échoue — pas de faux verts.
+      2. Vérifier/ajuster tools/run-tests.ps1 : suite complète plateforme (unit + integration
+         Testcontainers PostgreSQL + contrats) + suite agent. Exclut Category=Staging,
+         Category=Sandbox, Category=E2E (suites séparées).
+      3. CI GitHub Actions (.github/workflows/ci.yml) : sur push/PR —
+         - job plateforme : restore + build + tests (avec service PostgreSQL pour l'intégration)
+         - job agent : restore + build x86 ET x64 + tests
+         Un step qui échoue fait échouer le pipeline (pas de continue-on-error).
+      4. Mettre à jour docs/architecture/definition-of-done.md avec les commandes réelles.
+      NOTE : les scripts ont été pré-adaptés lors de la préparation v6 (garde bootstrap) —
+      cet item les branche sur les solutions réelles et les teste en conditions réelles.
+    acceptance:
+      - "verify-fast.ps1 échoue réellement quand un test échoue (testé en cassant un test volontairement)"
+      - "run-tests.ps1 couvre les deux solutions avec résumé compact + .run-tests.log"
+      - "ci.yml : 2 jobs (plateforme + agent x86/x64), échec d'un step = échec du pipeline"
+      - "definition-of-done.md à jour avec les commandes réelles"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  SOL04:
     title: "Documentation d'architecture du repo"
     description: |
       Rédiger les documents de conventions dans docs/architecture/ :
-      1. repo-standards.md : conventions C# (.editorconfig appliqué), nommage, structure des
-         dossiers, conventions de commit (conventional commits), règles de PR.
+      1. repo-standards.md : conventions C# (.editorconfig appliqué — celui du socle Stratum),
+         nommage (Conformat.* vs Stratum.* vendored), structure des dossiers (src/ plateforme,
+         agent/, deploy/, deployments/), conventions de commit, règles de PR.
       2. module-rules.md : les frontières du blueprint.md §6 —
-         Core ↔ plug-ins (Core ne référence JAMAIS un plug-in), Console ↔ API (la console ne
-         référence jamais Core), règle « le pivot ne calcule rien », règle « montants en decimal,
-         jamais float », règle « tout champ absent = null », règle « aucune donnée client dans
-         le code » (tout est paramétrage dans deployments/).
-      3. testing-strategy.md : pyramide de tests (unit Core, contrat PA, integration SQLite/
-         fixtures/API in-process, suites staging/sandbox séparées jamais en CI, checklists smoke
-         WPF), conventions de nommage, catégories xUnit.
-      Source : blueprint.md + docs/conception/ + docs/market/Conception-Produit-Passerelle.md.
+         - inter-modules : uniquement via Contracts (NetArchTest)
+         - Transmission ne référence jamais un plug-in PA ; plug-in → Transmission.Contracts only
+         - l'agent ne référence jamais la plateforme ; AUCUNE logique métier dans l'agent
+         - toute requête métier est tenant-scopée (règle CLAUDE.md n°9)
+         - socle vendored : modification = consignation dans la provenance
+         - montants en decimal, jamais float ; tout champ absent = null
+         - aucune donnée client dans le code
+      3. testing-strategy.md : pyramide de tests (architecture NetArchTest, unit, integration
+         Testcontainers PostgreSQL, contrat agent golden files, contrat PA, E2E Playwright,
+         agent net48, suites staging/sandbox séparées jamais en CI), conventions de nommage,
+         catégories xUnit.
+      Source : blueprint.md v2 + docs/conception/F12 + le socle Stratum vendored (ses
+      docs/architecture/ servent de base pour les conventions héritées).
     acceptance:
       - "repo-standards.md, module-rules.md, testing-strategy.md rédigés en français"
-      - "Les règles de frontière (Core/plug-ins, Console/API, code/paramétrage) sont explicites et vérifiables"
-      - "Aucune règle inventée : tout est traçable vers blueprint.md ou docs/conception/"
+      - "Les règles de frontière (modules, agent/plateforme, tenant-scoping, vendoring) sont explicites et vérifiables"
+      - "Aucune règle inventée : tout est traçable vers blueprint.md, F12 ou les décisions"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   GATE_SOCLE:
     type: gate
     executor: human
-    title: "Gate : socle solution validé"
+    title: "Gate : socle plateforme + agent validé"
     description: |
-      Validation humaine du socle : solution compilable avec les bonnes frontières de références,
-      outillage de vérification fiable, conventions documentées.
+      Validation humaine du socle : les deux solutions compilent, le Host démarre avec les
+      modules Stratum vendored, l'agent est scaffoldé, l'outillage de vérification est fiable,
+      les conventions sont documentées.
       Cette gate débloque le segment core-foundation.
+      Points de vigilance : provenance du socle complète, aucun module ERP embarqué,
+      frontières agent/plateforme en place.
     acceptance:
       - "Tous les items SOL sont done"
-      - "PR du segment feat/socle revue et mergée dans main"
+      - "Conformat.Host démarre et la console web s'affiche (login Keycloak dev)"
+      - "PR du segment feat/socle-v6 revue et mergée dans main"

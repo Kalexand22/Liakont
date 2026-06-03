@@ -1,18 +1,21 @@
-# Lot PAA — Framework PA : abstraction, capacités, tests de contrat
+# Lot PAA — Framework PA : module Transmission (abstraction, capacités, tests de contrat)
 # Spec : docs/conception/F05-Client-API-B2Brouter.md (section abstraction IPaClient)
 # C'EST LE PRODUIT : l'abstraction qui rend Conformat indépendant des Plateformes Agréées.
 # B2Brouter (PAB), Super PDP (PAS) et tout futur PA ne sont que des plug-ins de ce framework.
 #
 # Règle absolue : AUCUNE fonctionnalité du produit ne dépend de ce qu'UN PA sait faire.
 # Chaque plug-in déclare ses capacités ; le produit s'adapte.
+# Architecture v6 : l'abstraction vit dans src/Modules/Transmission/Contracts ; les plug-ins
+# sont des assemblies séparées sous src/PaClients/, enregistrées par Conformat.Host.
 
 items:
   PAA01:
-    title: "IPaClient + PaCapabilities + DTOs (abstraction multi-PA)"
+    title: "IPaClient + PaCapabilities + DTOs (module Transmission)"
     description: |
-      Définir l'abstraction PA dans Gateway.Core/PaClient/ :
+      Définir l'abstraction PA dans src/Modules/Transmission/ (les interfaces et DTOs dans
+      Transmission.Contracts — c'est ce que les plug-ins référencent) :
       1. IPaClient :
-         - Task<PaSendResult> SendDocumentAsync(PivotDocument doc, bool sendAfterImport = true)
+         - Task<PaSendResult> SendDocumentAsync(document, bool sendAfterImport = true)
          - Task<PaSendResult> SendPaymentReportAsync(PaymentReportPeriod period)
            Le PaymentReportPeriod porte son TYPE DE FLUX (PaymentReportFlux.Domestic = Flux 10.4 /
            PaymentReportFlux.International = Flux 10.2) — F01-F02 §1 les distingue : le routage
@@ -29,60 +32,67 @@ items:
            la PA ne le permet pas)
          - PaCapabilities Capabilities { get; }
       2. PaCapabilities (le cœur de l'indépendance PA) :
-         - SupportsB2cReporting (bool)            — Flux 10.3
-         - SupportsDomesticPaymentReporting (bool) — Flux 10.4 (paiements B2C)
+         - SupportsB2cReporting (bool)             — Flux 10.3
+         - SupportsDomesticPaymentReporting (bool)  — Flux 10.4 (paiements B2C)
          - SupportsInternationalPaymentReporting (bool) — Flux 10.2 (paiements internationaux)
-         - SupportsB2bInvoicing (bool)            — Flux 1/2 (phase 2)
+         - SupportsB2bInvoicing (bool)              — Flux 1/2 (phase 2)
          - SupportsCreditNotes (bool)
          - SupportsTaxReportRetrieval (bool)
-         - SupportsDocumentRetrieval (bool)   — la PA permet de télécharger la facture
-           électronique qu'elle a générée (Factur-X PDF/A-3, UBL, CII) → archivage TRK06
+         - SupportsDocumentRetrieval (bool)    — la PA permet de télécharger la facture
+           électronique qu'elle a générée (Factur-X PDF/A-3, UBL, CII) → archivage TRK05
+         - SupportsReportRectification (bool)  — flux RE (PIP04)
          - MaxDocumentsPerRequest (int?)
       3. DTOs : PaSendResult, PaDocumentStatus, PaTaxReport, PaAccountInfo, PaTaxReportSetting,
          PaTaxReportSettingRequest, PaError, PaCapabilityNotSupportedResult.
       4. Comportement standard quand une capacité manque : l'appel retourne un résultat
-         typé CapabilityNotSupported (jamais une exception) ; le Tracking journalise
+         typé CapabilityNotSupported (jamais une exception) ; le module Documents journalise
          « en attente : la plateforme <nom> ne supporte pas encore <capacité> ».
-      AUCUNE référence à un PA concret (B2Brouter, Super PDP...) dans cette couche.
-      Aucun type HTTP dans l'interface publique.
+      5. Résolution des plug-ins : le compte PA du tenant (CFG02 : type de plug-in + identifiants)
+         est résolu vers l'implémentation IPaClient enregistrée par Conformat.Host — registre
+         de types, jamais de `if (type == "B2Brouter")` dans le module.
+      AUCUNE référence à un PA concret dans le module Transmission. Aucun type HTTP dans
+      l'interface publique. Frontière vérifiée par test d'architecture (NetArchTest).
     acceptance:
-      - "IPaClient, PaCapabilities et DTOs dans Conformat.Gateway.Core.PaClient"
-      - "Flux 10.2 et 10.4 distingués (type de flux porté par PaymentReportPeriod + 2 capacités séparées)"
-      - "Aucune référence à un PA concret, aucun type HTTP dans l'abstraction"
+      - "IPaClient, PaCapabilities et DTOs dans Conformat.Modules.Transmission.Contracts"
+      - "Flux 10.2 et 10.4 distingués (type de flux + 2 capacités séparées)"
+      - "Aucune référence à un PA concret, aucun type HTTP dans l'abstraction (NetArchTest)"
       - "Capacité manquante = résultat typé, jamais d'exception, jamais de blocage du produit"
+      - "Résolution plug-in par registre (testée avec un type factice)"
       - "Tests : appel d'une capacité non supportée → CapabilityNotSupported journalisable"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   PAA02:
-    title: "Plug-in Gateway.PaClients.Fake (PA factice livré : démo + tests)"
+    title: "Plug-in Conformat.PaClients.Fake (PA factice livré : démo + tests)"
     description: |
-      Implémenter le plug-in PA factice dans src/Gateway.PaClients.Fake/ — c'est un PLUG-IN
-      À PART ENTIÈRE, pas un composant du Core (le Core ne contient que l'abstraction —
-      blueprint.md §2 règle 4 ; un faux PA dans le Core violerait la frontière) :
+      Implémenter le plug-in PA factice dans src/PaClients/Conformat.PaClients.Fake/ — c'est
+      un PLUG-IN À PART ENTIÈRE, pas un composant du module (le module ne contient que
+      l'abstraction — blueprint.md §2 règle 4) :
       1. FakePaClient : IPaClient en mémoire, configurable :
          - réponses succès / rejet / erreur silencieuse / timeout / capacité absente
          - capacités configurables (pour tester le comportement du produit face à un PA limité)
          - journal des appels (le pipeline peut être audité dans les tests)
       2. Le plug-in Fake est utilisé par : les tests du pipeline (PIP), les tests de la
-         console (WPF), les tests de l'API (API), les fixtures de démo.
+         console (WEB), les tests de l'API (API), le mode démo.
       3. Il fait partie du produit livré (mode démo hors-ligne sans aucun compte PA) —
          c'est aussi la preuve vivante que le modèle plug-in fonctionne : il se référence,
-         se configure et se package exactement comme B2Brouter et Super PDP.
-      4. Comme tout plug-in : référence UNIQUEMENT Gateway.Core, jamais un autre plug-in.
+         se configure et s'enregistre exactement comme B2Brouter et Super PDP.
+      4. Comme tout plug-in : référence UNIQUEMENT Transmission.Contracts (+ Common),
+         jamais un autre plug-in ni un module métier.
     acceptance:
-      - "Projet src/Gateway.PaClients.Fake/ séparé — AUCUN type concret de PA dans Gateway.Core"
+      - "Projet src/PaClients/Conformat.PaClients.Fake/ séparé — AUCUN type concret de PA dans le module Transmission"
       - "FakePaClient couvre succès, rejet, erreur silencieuse, timeout, capacité absente"
       - "Capacités configurables par test"
       - "Journal des appels exploitable en assertion"
-      - "Tests du plug-in Fake lui-même (tests/Gateway.PaClients.Fake.Tests/)"
+      - "Frontières vérifiées par NetArchTest (Fake ne référence que Transmission.Contracts + Common)"
+      - "Tests du plug-in Fake lui-même"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   PAA03:
     title: "Suite de tests de contrat IPaClient"
     description: |
-      Créer tests/Gateway.PaClients.Contract.Tests/ :
+      Créer tests/Conformat.PaClients.Contract.Tests/ :
       1. Suite de tests de contrat abstraite (classe de base générique) que TOUT plug-in PA
          doit hériter et passer :
          - envoi d'un document valide → PaSendResult exploitable
@@ -92,12 +102,11 @@ items:
          - timeout / erreur réseau → résultat TechnicalError re-tentable
          - idempotence : même numéro jamais envoyé deux fois
          - cohérence des capacités déclarées vs comportement réel
-      2. La suite tourne contre le plug-in Fake (Gateway.PaClients.Fake, PAA02 — preuve qu'elle
-         est exécutable) et sera héritée par les tests des plug-ins B2Brouter (PAB04) et
-         Super PDP (PAS03).
+      2. La suite tourne contre le plug-in Fake (PAA02 — preuve qu'elle est exécutable) et
+         sera héritée par les tests des plug-ins B2Brouter (PAB04) et Super PDP (PAS03).
       3. Documenter dans docs/architecture/ : « comment ajouter un nouveau plug-in PA »
-         (checklist : implémenter IPaClient, déclarer les capacités, hériter la suite de
-         contrat, fournir la suite réelle staging/sandbox séparée).
+         (checklist : implémenter IPaClient, déclarer les capacités, s'enregistrer dans le
+         Host, hériter la suite de contrat, fournir la suite réelle staging/sandbox séparée).
     acceptance:
       - "Suite de contrat abstraite héritable par tout plug-in PA"
       - "La suite passe contre FakePaClient"
@@ -113,7 +122,8 @@ items:
       Validation humaine de l'abstraction PA. C'est la gate la plus structurante du produit :
       elle fige le contrat que tous les plug-ins PA devront respecter.
       Points de revue : le produit ne peut JAMAIS être bloqué par les limites d'un PA ;
-      les capacités couvrent les besoins commerciaux (B2C, paiement, B2B futur).
+      les capacités couvrent les besoins commerciaux (B2C, paiement, B2B futur) ;
+      la résolution de plug-in par compte de tenant fonctionne.
     acceptance:
       - "Tous les items PAA sont done"
       - "PR du segment feat/pa-framework revue et mergée dans main"

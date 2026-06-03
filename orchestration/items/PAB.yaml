@@ -2,29 +2,31 @@
 # Spec : docs/conception/F05-Client-API-B2Brouter.md
 # Faits validés en staging (ne PAS redécouvrir) : auth X-B2B-API-Key, version 2026-03-02,
 # api-staging.b2brouter.net, erreurs silencieuses HTTP 200 + errors[].
-# Projet : src/Gateway.PaClients.B2Brouter/ — assembly séparée, référence Core uniquement.
+# Projet : src/PaClients/Conformat.PaClients.B2Brouter/ — assembly séparée,
+# référence Transmission.Contracts + Common uniquement.
 
 items:
   PAB01:
     title: "B2BrouterClient : auth, transformation pivot → JSON, envoi"
     description: |
-      Implémenter le plug-in dans src/Gateway.PaClients.B2Brouter/ :
+      Implémenter le plug-in dans src/PaClients/Conformat.PaClients.B2Brouter/ :
       1. B2BrouterClient : IPaClient implémenté sur l'API eDocExchange :
-         - Auth : header X-B2B-API-Key (clé statique)
+         - Auth : header X-B2B-API-Key (clé statique — fournie par le compte PA du tenant, CFG02)
          - Versioning : header X-B2B-API-Version (minimum 2026-03-02)
          - URLs : staging https://api-staging.b2brouter.net (PAS app-staging),
-           production https://api.b2brouter.net — configurables
+           production https://api.b2brouter.net — selon l'environnement du compte
          - Envoi : POST /accounts/{accountId}/invoices.json avec send_after_import: true
-      2. Transformation PivotDocument → JSON B2Brouter (DTO propriétaire INTERNE à cette assembly) :
+      2. Transformation document → JSON B2Brouter (DTO propriétaire INTERNE à cette assembly) :
          modèle 2 lignes marge validé en staging, is_credit_note + amended_number/date pour avoirs.
-      3. HttpClient statique par configuration, TLS 1.2/1.3 (ServicePointManager, net48).
-      4. Multi-compte : un B2BrouterClient = un compte (clé API, account id, URL).
+      3. HTTP : IHttpClientFactory (.NET 10) + client nommé par compte, TLS 1.2/1.3.
+      4. Multi-compte : un B2BrouterClient = un compte (clé API, account id, URL) — instancié
+         par compte PA de tenant.
       5. Aucun type B2Brouter ne fuit hors de l'assembly : seuls IPaClient et les DTOs
-         de l'abstraction sont visibles de l'extérieur.
+         de l'abstraction sont visibles de l'extérieur (NetArchTest).
     acceptance:
       - "B2BrouterClient implémente IPaClient avec les faits staging de F05 (URLs, headers, version)"
       - "Transformation pivot → JSON B2Brouter testée (facture 20%, marge, avoir) avec handler HTTP mocké"
-      - "Aucun type propriétaire B2Brouter exposé hors de l'assembly"
+      - "Aucun type propriétaire B2Brouter exposé hors de l'assembly (NetArchTest)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -32,16 +34,18 @@ items:
     title: "Gestion d'erreurs 3 familles + idempotence"
     description: |
       Implémenter la gestion d'erreurs dans B2BrouterClient selon F05 :
-      1. Réseau/5xx/timeout : retry automatique 3 fois, backoff exponentiel (5s, 30s, 2min).
-         Au-delà → PaSendResult en TechnicalError, re-tentable au prochain run.
+      1. Réseau/5xx/timeout : retry automatique 3 fois, backoff exponentiel (5s, 30s, 2min) —
+         resilience pipeline .NET (Microsoft.Extensions.Http.Resilience, déjà dans le socle,
+         sinon ADR). Au-delà → PaSendResult en TechnicalError, re-tentable au prochain traitement.
       2. HTTP 4xx : pas de retry. Résultat Rejected avec détail. 401 → erreur de configuration
-         remontée comme fatale au pipeline.
+         du compte PA remontée comme fatale (alerte SUP01).
       3. Erreur silencieuse (HTTP 200 + errors[] non vide) : pas de retry auto, résultat
          RejectedByPa avec errors[] détaillé. (Cas piégeux validé staging : VATEX manquant.)
          TOUJOURS inspecter errors[] même sur 200.
-      4. Idempotence : avant tout POST, le numéro est vérifié via le Tracking (côté pipeline) ;
-         en cas de timeout sur POST, relire GET liste factures avant retenter.
-      5. Pas de resend : aucun endpoint de renvoi → recréer une facture avec un numéro unique.
+      4. Idempotence : avant tout POST, le numéro est vérifié via le module Documents
+         (côté pipeline) ; en cas de timeout sur POST, relire GET liste factures avant retenter.
+      5. Pas de resend : aucun endpoint de renvoi → recréer une facture avec un numéro unique
+         (mécanique supersede TRK02).
     acceptance:
       - "Les 3 familles d'erreurs traitées avec les politiques de retry de F05"
       - "errors[] inspecté systématiquement même sur HTTP 200"
@@ -86,7 +90,7 @@ items:
     title: "Tests de contrat + suite staging"
     description: |
       Finaliser la conformité du plug-in :
-      1. Hériter la suite de tests de contrat (PAA03) dans tests/Gateway.PaClients.B2Brouter.Tests/
+      1. Hériter la suite de tests de contrat (PAA03) dans tests/Conformat.PaClients.B2Brouter.Tests/
          et la faire passer en vert (handler HTTP mocké).
       2. Suite staging séparée (Category=Staging, JAMAIS en CI) : envoi d'une facture fixture
          sur le compte staging réel, lecture du statut et des tax reports.

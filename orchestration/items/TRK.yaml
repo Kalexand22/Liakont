@@ -1,54 +1,53 @@
-# Lot TRK — Tracking, piste d'audit & archivage fiscal 10 ans (F06 étendu)
-# Spec : docs/conception/F06-Tracking-Piste-Audit.md
-# Décisions 2026-06-02 :
-#   - Stockage multi-provider : SQLite (défaut, zéro admin) + SQL Server Express (politiques IT)
-#   - Archivage fiscal 10 ans INTÉGRÉ au produit (coffre local WORM + chaîne de hashes),
-#     indépendant de la PA — la copie PA reste en ceinture-bretelles
-#   - Un SEUL processus écrivain : le Service (architecture API) — le Tracking n'est jamais
-#     accédé directement par la console ou un poste client
+# Lot TRK — Documents, piste d'audit & archivage fiscal 10 ans (F06 amendée 2026-06-03)
+# Spec : docs/conception/F06-Tracking-Piste-Audit.md (+ amendement PostgreSQL)
+# Modules concernés : Documents (états, audit), Payments (agrégats), Archive (WORM, ancrage),
+# Reconciliation (PDF). Stockage : PostgreSQL, base du tenant (database-per-tenant du socle).
+#
+# CHANGEMENTS v6 vs v5 :
+#   - PostgreSQL remplace SQLite/SQL Server (l'ex-TRK05 « provider SQL Server » est sans objet)
+#   - Les contraintes net48 (RFC 3161, OpenTimestamps, parsing PDF) sont LEVÉES (.NET 10)
+#   - Renumérotation : TRK05=Archive WORM, TRK06=Ancrage+export, TRK07=Réconciliation
+# Règles inchangées : DocumentEvent append-only, coffre WORM, jamais de purge automatique.
 
 items:
   TRK01:
-    title: "Abstraction de stockage (Dapper + providers) + provider SQLite"
+    title: "Module Documents : schéma + Document/DocumentEvent append-only"
     description: |
-      Implémenter la persistence dans Gateway.Core/Tracking/ :
-      1. Abstraction de stockage : accès données via Dapper + DbProviderFactory —
-         AUCUN SQL spécifique à un moteur dans le code métier. Le choix du provider est
-         du paramétrage : "tracking": { "provider": "sqlite|sqlserver", "connectionString": "..." }.
-      2. Schéma (7 tables) :
+      Implémenter src/Modules/Documents/ (pattern Stratum) selon F06 :
+      1. Schéma PostgreSQL (migrations DbUp, base du tenant) :
          - Document : id, source_reference, document_number, document_type, issue_date,
            supplier_siren, customer_name, customer_is_company_hint, total_net, total_tax,
            total_gross, state, payload_hash, pa_document_id, mapping_version,
            first_seen_utc, last_update_utc
          - DocumentEvent (append-only) : id, document_id, timestamp_utc, event_type, detail,
-           payload_snapshot, pa_response_snapshot, mapping_trace
-         - TaxReport : id, document_id, pa_tax_report_id, type, transport, state, xml_base64, retrieved_utc
-         - PaymentAggregate : id, period, date, vat_rate, taxable_base, vat_amount, state
-         - PaymentAggregateEvent (append-only) : id, aggregate_id, timestamp_utc, event_type,
-           payload_snapshot, pa_response_snapshot (piste d'audit des transmissions de paiement — TRK04)
-         - RunLog : id, started_utc, ended_utc, command, counts_json, exit_code
+           payload_snapshot (JSONB), pa_response_snapshot (JSONB), mapping_trace (JSONB),
+           operator_identity (nullable — identité Keycloak pour les actions opérateur)
+         - TaxReport : id, document_id, pa_tax_report_id, type, transport, state, xml_base64,
+           retrieved_utc
          - ArchiveEntry : id, document_id, package_path, package_hash, chain_hash, archived_utc
-      3. RÈGLE MONTANTS : toutes les colonnes monétaires utilisent un type SQL EXACT
-         (SQLite : TEXT avec conversion decimal contrôlée OU INTEGER en centimes — documenter le
-         choix dans l'ADR ; SQL Server : DECIMAL(18,2)). JAMAIS de REAL/FLOAT : un round-trip
-         base ↔ decimal ne doit jamais altérer un montant.
-      4. Migrations versionnées PAR PROVIDER (scripts SQL par moteur, table schema_version).
-      5. Provider SQLite (défaut) : mode WAL, fichier local.
-      6. ADR : choix Dapper + stratégie multi-provider + représentation SQL des montants.
+      2. RÈGLE MONTANTS : toutes les colonnes monétaires en NUMERIC(18,2) — JAMAIS de type
+         flottant. Round-trip base ↔ decimal sans perte (testé avec 0.1+0.2, 1162.80).
+      3. DocumentEvent est append-only : aucune méthode d'update/delete dans le repository,
+         contrainte renforcée côté base (REVOKE UPDATE/DELETE ou trigger de rejet — documenter
+         le choix). Tentative d'update = exception (vérifié par test).
+      4. Repository Dapper : Upsert document, GetByNumber, GetByState, GetById, requêtes
+         paginées pour l'API — toutes tenant-scopées par construction (connexion = base du tenant).
+      5. Le document est créé en état Detected par l'ingestion (PIV04 — le câblage IDocumentIntake
+         se branche ici).
     acceptance:
-      - "Aucun SQL spécifique moteur dans le code métier (tout passe par Dapper + scripts par provider)"
-      - "Provider SQLite fonctionnel : création base vierge, migrations, WAL"
-      - "Aucune colonne monétaire en type flottant ; round-trip decimal sans perte (testé avec des montants à 2 décimales piégeux : 0.1+0.2, 1162.80)"
-      - "Le provider se choisit par configuration"
-      - "ADR Dapper + multi-provider + montants rédigé"
-      - "Tests : création, migration, round-trip sur les 7 tables (SQLite)"
+      - "Schéma PostgreSQL avec migrations DbUp, colonnes monétaires en NUMERIC"
+      - "DocumentEvent append-only : update/delete impossibles (repository ET base, vérifié par tests)"
+      - "Round-trip decimal sans perte (testé avec des montants piégeux)"
+      - "Repository complet, requêtes paginées pour l'API"
+      - "Câblage IDocumentIntake (PIV04) : un push agent crée des documents Detected"
+      - "Tests d'intégration PostgreSQL (Testcontainers) sur les 4 tables"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   TRK02:
-    title: "Repository Document + machine à états"
+    title: "Machine à états + supersede + ManuallyHandled"
     description: |
-      Implémenter dans Gateway.Core/Tracking/ :
+      Implémenter la machine à états dans src/Modules/Documents/ :
       1. DocumentState enum : Detected, Blocked, ReadyToSend, Sending, Issued, RejectedByPa,
          TechnicalError, Superseded, ManuallyHandled.
       2. Transitions autorisées (machine à états explicite) :
@@ -57,217 +56,187 @@ items:
          Blocked → ManuallyHandled (action opérateur : « traité manuellement hors passerelle »,
            MOTIF OBLIGATOIRE, journalisé — cas : avoir orphelin, document non transmissible)
          ReadyToSend → Sending → Issued | RejectedByPa | TechnicalError
-         TechnicalError → ReadyToSend (re-tentable au prochain run)
+         TechnicalError → ReadyToSend (re-tentable au prochain traitement)
          RejectedByPa → Superseded (remplacé par un nouveau document — voir point 4)
          RejectedByPa → ManuallyHandled (action opérateur, motif obligatoire)
          Toute transition hors de cette liste = exception.
          Superseded et ManuallyHandled sont TERMINAUX : un document n'en sort jamais
          (il reste visible et auditable, mais ne pollue plus les compteurs d'attente).
-      3. DocumentRepository : Upsert, GetByNumber, GetByState, TransitionTo (avec écriture
-         DocumentEvent automatique à chaque transition).
-      4. Mécanique du remplacement après rejet (cohérente avec la règle F06/TRK03 « renvoi sous
-         NOUVEAU numéro ») : le logiciel SOURCE est le seul créateur de numéros — Conformat
-         n'invente jamais un numéro. Le flux réel : l'opérateur corrige/recrée le document dans
-         le logiciel source → le run suivant extrait le nouveau document (nouveau numéro) →
-         l'opérateur LIE les deux (action API « supersede ») : l'ancien passe Superseded avec
-         la référence du remplaçant dans le DocumentEvent.
-      4. Les requêtes du repository fonctionnent sur tous les providers (testées sur SQLite ici,
-         le provider SQL Server est validé en TRK05).
+      3. TransitionTo : chaque transition écrit automatiquement un DocumentEvent
+         (atomique : transition + événement dans la même transaction).
+      4. Mécanique du remplacement après rejet (règle F06) : le logiciel SOURCE est le seul
+         créateur de numéros — Conformat n'invente jamais un numéro. Le flux réel :
+         l'opérateur corrige/recrée le document dans le logiciel source → l'agent extrait
+         et pousse le nouveau document (nouveau numéro) → l'opérateur LIE les deux
+         (action supersede API02) : l'ancien passe Superseded avec la référence du
+         remplaçant dans le DocumentEvent.
     acceptance:
       - "Machine à états explicite, transitions illégales rejetées par exception"
       - "États terminaux ManuallyHandled (motif obligatoire) et Superseded (lien vers le remplaçant)"
-      - "Chaque transition écrit automatiquement un DocumentEvent"
+      - "Chaque transition écrit automatiquement un DocumentEvent (atomique)"
       - "Tests : cycle nominal complet, transition illégale, reprise TechnicalError, traitement manuel avec motif, remplacement après rejet"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   TRK03:
-    title: "Anti-doublons et règles de renvoi"
+    title: "Anti-doublons + détection d'altération source"
     description: |
-      Implémenter dans Gateway.Core/Tracking/ la logique anti-doublon selon F06 :
-      1. Avant envoi, chercher Document par (supplier_siren, document_number) :
+      Implémenter la logique anti-doublon dans src/Modules/Documents/ selon F06 :
+      1. Avant envoi, chercher Document par (supplier_siren, document_number) dans le tenant :
          - trouvé en état Issued → NE PAS renvoyer (doublon)
          - trouvé en état RejectedByPa → renvoi autorisé sous NOUVEAU numéro, l'ancien passe Superseded
          - payload_hash identique déjà Issued → doublon strict, bloqué
          - sinon → envoi autorisé
       2. IIssuedDocumentLookup (interface utilisée par VAL03) implémentée sur le repository.
-      3. Reprise sur timeout POST : exposer GetPotentiallySentDocuments() pour que le pipeline
+      3. Reprise sur timeout d'envoi : GetPotentiallySentDocuments() pour que le pipeline
          puisse vérifier côté PA avant de retenter (câblé dans PIP01 — un timeout réseau peut
          masquer un envoi qui a réussi côté PA : retenter sans vérifier = doublon).
       4. Détection d'altération source APRÈS émission (F06 : double usage du payload_hash) :
-         SourceAlterationDetector — quand un document déjà Issued est ré-extrait, recalculer le
-         hash du pivot ré-extrait et le comparer au payload_hash archivé :
-         - hash identique → rien
-         - hash différent → DocumentEvent SOURCE_ALTERED_AFTER_ISSUE (append-only) + alerte
-           opérateur. JAMAIS de réémission silencieuse, jamais de mise à jour du document émis.
+         l'ingestion (PIV04) publie un événement AlterationDetected quand une source_reference
+         connue arrive avec un autre hash. Ce module le consomme : si le document est déjà
+         Issued → DocumentEvent SOURCE_ALTERED_AFTER_ISSUE (append-only) + alerte (consommée
+         par SUP01). JAMAIS de réémission silencieuse, jamais de mise à jour du document émis.
     acceptance:
       - "Les 4 règles anti-doublon de F06 implémentées et testées une par une"
       - "IIssuedDocumentLookup branché sur le repository"
-      - "SourceAlterationDetector : altération après émission → événement + alerte, jamais de réémission"
+      - "Altération après émission → événement + alerte, jamais de réémission (consomme l'événement d'ingestion PIV04)"
       - "Tests : doublon Issued, renvoi après rejet, doublon strict par hash, document nouveau, source altérée après émission"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   TRK04:
-    title: "Piste d'audit : snapshots et rétention"
+    title: "Piste d'audit (snapshots) + module Payments (agrégats append-only)"
     description: |
-      Implémenter dans Gateway.Core/Tracking/ la piste d'audit selon F06 :
-      1. Chaque document Issued archive 3 snapshots dans DocumentEvent :
-         payload pivot envoyé (JSON), réponse PA brute, trace de mapping TVA.
+      Implémenter la piste d'audit complète :
+      1. Dans src/Modules/Documents/ — chaque document Issued archive 3 snapshots dans
+         DocumentEvent : payload pivot envoyé (JSON), réponse PA brute, trace de mapping TVA.
       2. Chaque document RejectedByPa archive AUSSI ses snapshots (payload envoyé + réponse de
          rejet brute) : la tentative ratée fait partie de la piste d'audit (F06) — un contrôle
          fiscal peut exiger de prouver ce qui a été tenté, pas seulement ce qui a réussi.
-      3. DocumentEvent est append-only : aucune méthode d'update/delete exposée,
-         contrainte vérifiée par test (tentative d'update = exception).
-      4. Piste d'audit des PaymentAggregate (e-reporting paiement) : PaymentAggregateEvent
-         (append-only, même discipline que DocumentEvent) — chaque transmission d'agrégat
-         journalise : payload envoyé, réponse PA, horodatage, état résultant. Les agrégats
-         transmis à la DGFiP ont la même valeur fiscale que les documents.
-      5. Rétention : Document/DocumentEvent/TaxReport/PaymentAggregate/PaymentAggregateEvent/
-         ArchiveEntry jamais purgés automatiquement (10 ans, art. L.123-22 Code de commerce).
-         Aucun code de purge dans le produit V1.
-      6. BackupService : copie horodatée de la base + du coffre d'archive, exposé pour le CLI
-         (commande backup) et la planification du Service.
+      3. Dans src/Modules/Payments/ (nouveau module, pattern Stratum) :
+         - PivotPaymentDto reçus de l'agent → persistés (Payment)
+         - PaymentAggregate : agrégats jour×taux (le calcul d'agrégation arrive avec PIP03 —
+           ici le modèle et la persistence)
+         - PaymentAggregateEvent (append-only, même discipline que DocumentEvent) — chaque
+           transmission d'agrégat journalise : payload envoyé, réponse PA, horodatage, état.
+           Les agrégats transmis à la DGFiP ont la même valeur fiscale que les documents.
+      4. Rétention : Document/DocumentEvent/TaxReport/Payment/PaymentAggregate/
+         PaymentAggregateEvent/ArchiveEntry jamais purgés automatiquement (10 ans,
+         art. L.123-22 Code de commerce). Aucun code de purge dans le produit V1.
+         (Les sauvegardes sont au niveau instance — OPS01 ; le BackupService local v5 est
+         sans objet.)
     acceptance:
       - "3 snapshots archivés pour chaque document émis ET pour chaque rejet"
-      - "DocumentEvent strictement append-only (vérifié par test)"
-      - "PaymentAggregateEvent append-only : chaque transmission d'agrégat journalisée (payload + réponse)"
+      - "Module Payments créé : Payment, PaymentAggregate, PaymentAggregateEvent"
+      - "PaymentAggregateEvent append-only (même vérification par test que DocumentEvent)"
       - "Aucun mécanisme de purge automatique des tables d'audit"
-      - "BackupService produit une copie horodatée et vérifiable"
+      - "Tests d'intégration PostgreSQL"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   TRK05:
-    title: "Provider SQL Server Express"
+    title: "Module Archive : coffre WORM + chaîne de hashes + addenda chaînés"
     description: |
-      Implémenter le deuxième provider de stockage :
-      1. Scripts de migration SQL Server pour les 6 tables (équivalents aux scripts SQLite).
-      2. Factory de connexion SQL Server (Integrated Security par défaut, SQL auth possible).
-      3. Toute la suite de tests d'intégration Tracking (TRK01-04) doit passer sur SQL Server :
-         suite paramétrée par provider, exécutée sur SQL Server LocalDB en local
-         (Category=Integration.SqlServer, optionnelle en CI selon disponibilité LocalDB).
-      4. Documentation : quand choisir SQL Server vs SQLite (politiques IT, reporting,
-         sauvegardes centralisées), comment configurer.
-      Cas d'usage cible : DSI qui impose « toutes les bases sur NOTRE SQL Server »
-      (institutions type Crédit Municipal de Paris) ou besoin de reporting Excel/Power BI.
-    acceptance:
-      - "Migrations SQL Server complètes et versionnées"
-      - "La suite d'intégration Tracking passe sur SQL Server LocalDB"
-      - "Le passage SQLite ↔ SQL Server est un pur changement de configuration"
-      - "Doc « quel provider choisir » rédigée"
-      - "verify-fast passes"
-      - "codex-review clean or only accepted P2s"
-
-  TRK06:
-    title: "Archivage fiscal 10 ans : coffre local WORM + chaîne de hashes"
-    description: |
-      Implémenter le coffre d'archive dans Gateway.Core/Tracking/Archive/ :
-      1. ArchiveStore : pour chaque document Issued, créer un paquet d'archive
-         archive/<année>/<mois>/<numéro-document>/ contenant :
+      Implémenter src/Modules/Archive/ selon F06 :
+      1. IArchiveStore (abstraction — décision F12 §7.2) avec deux implémentations :
+         - FileSystemArchiveStore (défaut, appliance self-hosted) : volume de l'instance,
+           un répertoire par tenant
+         - S3ArchiveStore (instances hébergées) : object storage S3-compatible avec
+           Object Lock (vrai WORM matériel) — OVH/Scaleway. ADR : choix de la bibliothèque
+           S3 (AWSSDK.S3 = ADR de dépendance).
+         Le choix est une configuration d'INSTANCE ; le comportement est identique.
+      2. Pour chaque document Issued, créer un paquet d'archive
+         <tenant>/<année>/<mois>/<numéro-document>/ contenant :
          - payload.json (ce qui a été transmis à la PA, exact)
          - reponse-pa.json (réponse PA + identifiants DGFiP — preuve de transmission)
          - tax-report.xml (le ledger DGFiP, ajouté quand récupéré)
          - facture-pa.pdf / facture-pa.xml (LA FACTURE LÉGALE générée par la PA — Factur-X/UBL,
            récupérée via IPaClient.GetGeneratedDocumentAsync quand la PA déclare
-           SupportsDocumentRetrieval ; absente sinon, mentionné dans le manifest)
-         - bordereau-source.pdf (le document émis par le logiciel source — fourni par
-           l'adaptateur via IExtractor.GetAttachments quand il déclare ProvidesSourceDocuments ;
-           absent sinon, mentionné dans le manifest)
+           SupportsDocumentRetrieval ; absente sinon, mentionné dans le manifest du paquet)
+         - bordereau-source.pdf (le document émis par le logiciel source — poussé par l'agent
+           quand l'adaptateur déclare ProvidesSourceDocuments ; absent sinon, mentionné)
          - document-lisible.html (rendu lisible autonome : en-tête, lignes, totaux, TVA —
            exigence de lisibilité art. 289 V CGI, doit rester lisible sans le logiciel)
          - manifest.json (hashes SHA-256 de chaque fichier + horodatage + trace mapping +
            chain_hash + liste des pièces présentes/absentes avec motif)
-      2. Chaîne de hashes (intégrité tamper-evident) :
+      3. Chaîne de hashes (intégrité tamper-evident, par tenant) :
          chain_hash(N) = SHA256(chain_hash(N-1) + package_hash(N))
          → toute altération a posteriori d'un paquet casse la chaîne à partir de ce point.
-      3. WORM : le coffre est write-once — aucune méthode de modification/suppression d'un
+      4. WORM : le coffre est write-once — aucune méthode de modification/suppression d'un
          paquet existant. Les ajouts ultérieurs (tax-report récupéré après coup, PDF réconcilié)
          créent un fichier additionnel référencé dans un manifest-addendum, jamais une réécriture.
-      4. CHAÎNAGE DES ADDENDA (les pièces tardives sont protégées comme les paquets initiaux) :
-         chaque manifest-addendum porte son propre hash, chaîné sur la chaîne principale :
-         chain_hash(N+1) = SHA256(chain_hash(N) + addendum_hash). Un addendum ajouté n'est
-         JAMAIS hors chaîne — l'altération d'un tax-report ou d'un PDF ajouté a posteriori
-         casse la chaîne exactement comme l'altération d'un paquet initial.
-      5. ArchiveEntry en base (TRK01) référence chaque paquet ET chaque addendum
-         (chemin, hashes, position dans la chaîne).
-      5. La copie d'archivage PA (quand la PA l'offre) reste en doublon — le coffre local
-         est ce qui rend le client indépendant de sa PA.
+      5. CHAÎNAGE DES ADDENDA : chaque manifest-addendum porte son propre hash, chaîné sur la
+         chaîne principale : chain_hash(N+1) = SHA256(chain_hash(N) + addendum_hash).
+         Un addendum n'est JAMAIS hors chaîne.
+      6. ArchiveEntry en base (TRK01) référence chaque paquet ET chaque addendum.
     acceptance:
+      - "IArchiveStore avec FileSystemArchiveStore + S3ArchiveStore (Object Lock), choix par config d'instance"
       - "Paquet d'archive complet créé pour chaque document émis"
-      - "Facture PA (Factur-X) et bordereau source intégrés quand les capacités le permettent, absence documentée sinon"
+      - "Facture PA et bordereau source intégrés quand les capacités le permettent, absence documentée sinon"
       - "Rendu HTML lisible autonome (ouvrable dans 10 ans sans le logiciel)"
-      - "Chaîne de hashes implémentée, altération détectable"
+      - "Chaîne de hashes par tenant, altération détectable"
       - "Les addenda sont chaînés : altérer une pièce ajoutée a posteriori casse la chaîne (testé)"
       - "Aucune méthode de modification/suppression de paquet (WORM vérifié par test)"
-      - "Tests : création paquet, chaînage, ajout tax-report a posteriori, altération d'un addendum, détection altération, avec/sans pièces jointes"
+      - "Tests : création paquet, chaînage, addendum, altération, avec/sans pièces, les 2 stores"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  TRK06:
+    title: "Ancrage temporel (RFC 3161 / OpenTimestamps) + ArchiveVerifier + export contrôle fiscal"
+    description: |
+      Compléter le module Archive — NOTE v6 : les contraintes net48 du backlog v5 sont LEVÉES,
+      les API .NET modernes existent :
+      1. ArchiveVerifier : vérification complète de la chaîne d'archive d'un tenant (tous les
+         hashes, tout le chaînage, les preuves d'ancrage) → rapport d'intégrité. Exposé via
+         l'API (état d'intégrité dans le détail document WEB03, export API03).
+      2. Ancrage temporel de la tête de chaîne — abstraction ITimestampAnchor (même principe
+         que les plug-ins PA : le scellement est une capacité paramétrable par instance) :
+         - Rfc3161Anchor (recommandé par défaut en v6) : horodatage qualifié via une TSA
+           configurable (Certigna/Universign, ~15-50 €/an par instance). Implémentation :
+           **System.Security.Cryptography.Pkcs.Rfc3161TimestampRequest/Token — API NATIVES
+           .NET** (le point dur net48 du backlog v5 n'existe plus). Aucune dépendance externe.
+         - OpenTimestampsAnchor (option gratuite) : envoi quotidien du hash de tête (32 octets,
+           aucune donnée confidentielle) aux serveurs calendar publics OpenTimestamps →
+           ancrage blockchain Bitcoin. Le protocole .ots complet (sérialisation, upgrade,
+           vérification Merkle) reste non trivial : SPIKE + ADR (bibliothèque .NET existante
+           ou sous-ensemble maison). Si aucune option raisonnable : OpenTimestamps passe en
+           V1.1, RFC 3161 reste l'ancrage par défaut — décision à l'ADR.
+         - NoAnchor : instances sans accès internet sortant — la chaîne de hashes reste active.
+         Les ancrages peuvent être actifs simultanément (ceinture-bretelles).
+      3. Job d'ancrage quotidien (module Job du socle) : ancre la tête de chaîne de chaque
+         tenant de l'instance, stocke les preuves (jetons RFC 3161 / fichiers .ots) dans le
+         coffre, gère le cycle pending → complete d'OpenTimestamps.
+      4. Export contrôle fiscal (consommé par API03) : pour un document ou une période,
+         produire le dossier d'export — paquets d'archive + rapport d'intégrité + preuves
+         d'ancrage + chronologie complète (DocumentEvents) + notice en français expliquant
+         au vérificateur comment vérifier les preuves.
+      5. Limite assumée et documentée : ce coffre n'est PAS un SAE certifié NF Z42-013.
+         La doc commerciale ne doit jamais prétendre à la certification ; l'argument est
+         « scellement qualifié eIDAS inclus, ancrage blockchain en option ».
+    acceptance:
+      - "ArchiveVerifier détecte toute altération et vérifie les preuves d'ancrage"
+      - "ITimestampAnchor : Rfc3161Anchor (API .NET natives, sans dépendance), OpenTimestamps (selon ADR/spike), NoAnchor"
+      - "Job d'ancrage quotidien par tenant, preuves stockées dans le coffre"
+      - "Export contrôle fiscal complet avec notice de vérification en français"
+      - "La limite « pas de certification NF Z42-013 » est documentée"
+      - "Tests : chaîne saine, chaîne altérée, preuve manquante, les modes d'ancrage, TSA mockée"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   TRK07:
-    title: "Vérification d'intégrité + ancrage temporel (OpenTimestamps / RFC 3161) + export contrôle fiscal"
+    title: "Module Reconciliation : rapprochement PDF ↔ documents émis"
     description: |
-      Compléter le coffre d'archive :
-      1. ArchiveVerifier : vérification complète de la chaîne d'archive (tous les hashes,
-         tout le chaînage, les preuves d'ancrage) → rapport d'intégrité. Exposé via le CLI
-         (verify-archive) et l'API.
-      2. Ancrage temporel de la tête de chaîne — abstraction ITimestampAnchor (même principe
-         que les plug-ins PA : le scellement est une capacité paramétrable, jamais une
-         dépendance à un prestataire) :
-         - OpenTimestampsAnchor (DÉFAUT) : envoi quotidien du hash de tête de chaîne (32 octets,
-           aucune donnée confidentielle) aux serveurs calendar publics OpenTimestamps →
-           ancrage dans la blockchain Bitcoin. GRATUIT, preuve .ots archivée avec la chaîne,
-           gestion du cycle pending → complete (upgrade différé de quelques heures).
-           Implémentation : ATTENTION, le protocole .ots complet (sérialisation des preuves,
-           upgrade, vérification Merkle) n'est PAS un simple POST HTTP. SPIKE PRÉALABLE OBLIGATOIRE
-           + ADR : implémentation maison du sous-ensemble nécessaire OU bibliothèque .NET existante
-           (nouveau package = ADR obligatoire, règle blueprint §5). Si aucune option raisonnable
-           en net48 : l'ancrage par défaut V1 se replie sur NoAnchor + publication périodique
-           manuelle du hash de tête (documentée), et OpenTimestamps passe en V1.1 — décision à
-           l'ADR, jamais d'implémentation au rabais d'un protocole cryptographique.
-           Stockage et upgrade des preuves .ots, vérification intégrée au rapport ArchiveVerifier.
-         - Rfc3161Anchor (OPTION premium) : horodatage qualifié eIDAS par une TSA configurable
-           (URL, certificat — ex. Certigna/Universign, ~15-50 €/an). Pour les clients qui
-           veulent la présomption légale d'exactitude (art. 41 eIDAS).
-           ATTENTION net48 : les API Rfc3161TimestampRequest/Rfc3161TimestampToken n'existent
-           PAS en .NET Framework 4.8 (ajoutées en .NET 5+). Le même ADR que pour OpenTimestamps
-           tranche : construction TimeStampReq ASN.1/DER + validation SignedCms en built-in,
-           OU BouncyCastle (= ADR de dépendance), OU report de RFC 3161 en V1.1.
-         - NoAnchor : sites sans accès internet sortant — la chaîne de hashes locale reste active.
-         Les deux ancrages peuvent être actifs simultanément (ceinture-bretelles).
-      3. Export contrôle fiscal : pour un document ou une période, produire un dossier d'export
-         contenant les paquets d'archive + le rapport d'intégrité + les preuves d'ancrage
-         (.ots / jetons RFC 3161) + la chronologie complète (DocumentEvents) + une notice
-         en français expliquant au vérificateur comment vérifier les preuves.
-      4. Limite assumée et documentée : ce coffre n'est PAS un SAE certifié NF Z42-013.
-         C'est un archivage à intégrité vérifiable et ancrée. La doc commerciale ne doit
-         jamais prétendre à la certification ; l'argument est « ancrage blockchain inclus,
-         scellement qualifié eIDAS en option ».
-    acceptance:
-      - "ArchiveVerifier détecte toute altération et vérifie les preuves d'ancrage"
-      - "ITimestampAnchor : les 3 implémentations (OpenTimestamps, RFC 3161, NoAnchor) configurables par paramétrage"
-      - "OpenTimestampsAnchor : preuve .ots créée, upgradée et vérifiée (testé avec calendar mocké + 1 test réel manuel)"
-      - "Rfc3161Anchor fonctionnel quand configuré, absence gérée proprement"
-      - "Export contrôle fiscal complet avec notice de vérification en français"
-      - "La limite « pas de certification NF Z42-013 » est documentée"
-      - "Tests : chaîne saine, chaîne altérée, preuve manquante, les 3 modes d'ancrage"
-      - "verify-fast passes"
-      - "codex-review clean or only accepted P2s"
-
-  TRK08:
-    title: "Moteur de réconciliation PDF ↔ documents émis"
-    description: |
-      Implémenter dans Gateway.Core/Tracking/Reconciliation/ le rapprochement entre les PDF
-      d'un pool non lié (capacité ProvidesUnlinkedDocumentPool — PIV03) et les documents émis.
-      Contexte : certains logiciels source déposent tous leurs PDF au même endroit, sans lien
-      explicite avec le document (pas de nommage fiable, pas de référence en base).
+      Implémenter src/Modules/Reconciliation/ — le rapprochement entre les PDF du pool non lié
+      (poussés par l'agent via /pdf-pool quand l'adaptateur déclare ProvidesUnlinkedDocumentPool)
+      et les documents émis. Contexte : certains logiciels source déposent tous leurs PDF au
+      même endroit, sans lien explicite avec le document.
       1. ReconciliationEngine : pour chaque PDF du pool non encore rattaché, proposer une
-         correspondance avec un document du Tracking :
+         correspondance avec un document du tenant :
          - stratégie 1 (confiance HAUTE) : numéro de document trouvé dans le nom de fichier
-         - stratégie 2 (confiance HAUTE) : numéro de document trouvé dans le texte du PDF
-           (extraction de texte simple — pas d'OCR en V1). ADR REQUIS : choix du moyen
-           d'extraction de texte PDF en net48 (parsing basique des objets texte du PDF, ou
-           package dédié = ADR de dépendance). Si aucun choix raisonnable : la stratégie 2
-           est retirée de la V1 et le matching repose sur les stratégies 1 et 3 — décision à l'ADR.
+         - stratégie 2 (confiance HAUTE) : numéro de document trouvé dans le texte du PDF.
+           NOTE v6 : la contrainte de licence net48 est levée — extraction de texte via une
+           bibliothèque .NET moderne (PdfPig Apache-2.0 recommandé ; nouveau package = ADR,
+           règle blueprint §5). Pas d'OCR en V1.
          - stratégie 3 (confiance MOYENNE) : correspondance date + montant TTC, candidat UNIQUE
          - ambiguïté (plusieurs candidats) ou aucune correspondance → NON RÉCONCILIÉ
       2. Décision 2026-06-02 (auto + confirmation manuelle) :
@@ -276,33 +245,20 @@ items:
          - non réconcilié → file d'attente manuelle
          Un rapprochement erroné archivé en WORM serait incorrigible → JAMAIS d'automatique
          en dessous de la confiance haute.
-      3. ReconciliationQueue persistée (Tracking) : propositions en attente, PDF orphelins,
-         documents émis sans PDF.
+      3. ReconciliationQueue persistée (base du tenant) : propositions en attente, PDF orphelins,
+         documents émis sans PDF. Consommée par API04 et WEB08.
       4. Un PDF réconcilié rejoint le paquet d'archive du document en ADDENDUM
-         (cohérent avec le WORM de TRK06 : ajout référencé, jamais de réécriture).
+         (cohérent avec le WORM de TRK05 : ajout référencé, jamais de réécriture).
       5. La réconciliation manuelle (opérateur) est journalisée avec l'identité de l'opérateur
          (DocumentEvent RECONCILED_MANUAL).
+      6. Le moteur tourne en job (module Job) après chaque réception de PDF pool + à la demande.
     acceptance:
       - "Les 3 stratégies de matching implémentées avec leurs niveaux de confiance"
       - "Confiance haute = lien auto journalisé ; moyenne = file d'attente, jamais de lien auto"
       - "Ambiguïté (2 candidats ou plus) = jamais de rapprochement automatique"
       - "PDF réconcilié ajouté au paquet d'archive en addendum (WORM respecté)"
       - "ReconciliationQueue persistée : propositions, orphelins, documents sans PDF"
+      - "ADR rédigé pour la bibliothèque d'extraction de texte PDF"
       - "Tests : matching par nom, par contenu, par date+montant, ambiguïté, orphelin, réconciliation manuelle"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
-
-  GATE_CORE_FOUNDATION:
-    type: gate
-    executor: human
-    title: "Gate : fondations Core validées"
-    description: |
-      Validation humaine du cœur générique : modèle pivot, moteur de mapping TVA (sans aucune
-      donnée client), contrôles qualité, tracking multi-provider, piste d'audit et coffre
-      d'archivage 10 ans. Cette gate débloque les segments pa-framework et adapter-encheresv6.
-      Points de vigilance : conformité aux specs F01-F08, AUCUNE donnée client dans le code,
-      piste d'audit et coffre strictement append-only/WORM.
-    acceptance:
-      - "Tous les items PIV, TVA, VAL, TRK sont done"
-      - "Aucune donnée client (SIREN, table TVA réelle, chaîne de connexion) dans le code ou les exemples"
-      - "PR du segment feat/core-foundation revue et mergée dans main"

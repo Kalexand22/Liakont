@@ -1,0 +1,179 @@
+# Lot OPS — Opérations multi-instances : appliance, provisioning, flotte, réversibilité
+# Specs : docs/conception/F12-Architecture-Plateforme-Agent.md §6, blueprint.md §3.3 (topologies)
+# Réfs décisions 2026-06-03 : 3 topologies (self-hosted éditeur / dédiée hébergée / mutualisée),
+# marque grise = une instance par éditeur, réversibilité = item de V1 (pas une option).
+# Absorbe l'ex-lot PKG (packaging) du manifest v5.
+
+items:
+  OPS01:
+    title: "Appliance Docker (plateforme + PostgreSQL + Keycloak)"
+    description: |
+      Créer le livrable de déploiement d'une instance dans deploy/docker/ (F12 §6.2) :
+      1. Dockerfile multi-stage pour Conformat.Host (.NET 10, image runtime aspnet).
+      2. docker-compose.yml : conformat (Host) + postgres (volumes persistants) + keycloak
+         (realm Conformat importé au démarrage : realm-conformat.json) + reverse proxy
+         optionnel (Caddy — TLS automatique pour le self-hosted).
+      3. Configuration par variables d'environnement : connexion PostgreSQL, Keycloak,
+         SMTP, branding (BRD01), URL publique. Fichier .env.example documenté — AUCUN
+         secret par défaut (génération obligatoire à l'installation).
+      4. Clés Data Protection (CFG02) persistées dans un volume (les secrets tenant survivent
+         au redéploiement du conteneur).
+      5. Sauvegardes : script deploy/docker/backup.ps1|sh — pg_dump quotidien + volumes
+         d'archive, rotation documentée. La procédure fait partie du livrable.
+      6. Documentation deploy/docker/README.md : prérequis (Docker, RAM ~4 GB), installation
+         pas à pas pour un éditeur self-hosted, mise à jour (pull + up), restauration.
+      7. ADR : stratégie Keycloak (par instance vs mutualisé — question ouverte F12 §7.1,
+         tranchée ICI après mesure de l'empreinte réelle).
+      8. Test : l'appliance démarre sur une machine propre (docker compose up), le Host
+         répond, un tenant de test se crée, le login Keycloak fonctionne.
+    acceptance:
+      - "docker compose up démarre l'instance complète sur machine propre"
+      - "Aucun secret par défaut, .env.example documenté"
+      - "Clés Data Protection et données persistées en volumes (survivent au redéploiement)"
+      - "Script de sauvegarde + procédure de restauration testés"
+      - "ADR Keycloak rédigé (empreinte mesurée, décision tranchée)"
+      - "README d'installation exécutable par un éditeur (cible : profil « serveur chez un hébergeur »)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  OPS02:
+    title: "Provisioning d'instance (créer une instance éditeur = 1 commande)"
+    description: |
+      Outiller la création d'instances dans deploy/provisioning/ (F12 §6.3) :
+      1. new-instance.ps1 : crée une nouvelle instance — répertoire/stack Docker dédié,
+         génération des secrets (PostgreSQL, Keycloak admin, clés DP), realm Keycloak,
+         paramètres de branding (nom éditeur, logo, couleurs, domaine), .env complet.
+      2. Modes : self-hosted (génère le bundle à remettre à l'éditeur) et hébergé
+         (déploie sur l'infra IT Innovations — le script est le même, la cible diffère).
+      3. Registre des instances : deploy/provisioning/instances.yaml — liste des instances
+         opérées par IT Innovations (nom, éditeur, URL, version, hébergement). Les instances
+         self-hosted n'y figurent que si l'éditeur a souscrit la méta-supervision (OPS04).
+      4. update-instance.ps1 : mise à jour d'une instance (pull nouvelle image, migration DbUp
+         automatique au démarrage, vérification de santé post-update, rollback documenté).
+      5. Test : provisionner une instance de test de bout en bout, la mettre à jour,
+         la détruire proprement.
+    acceptance:
+      - "new-instance.ps1 produit une instance fonctionnelle (testé de bout en bout)"
+      - "Secrets générés, jamais de valeurs par défaut partagées entre instances"
+      - "update-instance.ps1 : mise à jour + vérification de santé + procédure de rollback"
+      - "Registre des instances tenu à jour par les scripts"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  OPS03:
+    title: "Provisioning de tenant (écran opérateur d'instance)"
+    description: |
+      Implémenter la création de tenants depuis la console (permission conformat.supervision —
+      c'est l'opérateur de l'instance qui crée ses clients) :
+      1. Écran « Clients » (liste des tenants de l'instance) : nom, SIREN, statut, agents,
+         date de création + bouton [Nouveau client].
+      2. Assistant de création de tenant :
+         - étape 1 : profil (SIREN avec validation Luhn, raison sociale, contact)
+         - étape 2 : import de seed optionnel (dossier deployments/<client>/ → CFG02 ImportTenantSeed)
+         - étape 3 : création du premier utilisateur (compte Keycloak + rôle) — invitation email
+         - étape 4 : enregistrement du premier agent (PIV05) → clé API affichée une fois +
+           lien de téléchargement du package d'installation agent (OPS05) pré-configuré
+      3. Suspension/réactivation d'un tenant (statut — un tenant suspendu n'accepte plus
+         de push d'agent et ses utilisateurs ne peuvent plus se connecter ; ses données
+         restent intactes).
+      4. Création de la base du tenant (database-per-tenant du socle) automatique à la création.
+      5. Tests d'intégration : création complète, import de seed, suspension/réactivation,
+         isolation (le nouveau tenant ne voit rien des autres). E2E Playwright : assistant complet.
+    acceptance:
+      - "Assistant de création de tenant complet (profil → seed → utilisateur → agent)"
+      - "Base du tenant créée automatiquement (database-per-tenant)"
+      - "Clé API agent affichée une seule fois + package pré-configuré téléchargeable"
+      - "Suspension/réactivation fonctionnelles"
+      - "Tests d'intégration + E2E Playwright (assistant complet)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  OPS04:
+    title: "Méta-supervision de flotte (instances + mises à jour)"
+    description: |
+      Outiller la supervision des INSTANCES par IT Innovations (le niveau au-dessus de SUP01,
+      qui supervise les tenants d'une instance) :
+      1. Heartbeat d'instance : chaque instance opérée (ou self-hosted avec souscription)
+         envoie périodiquement à un endpoint central IT Innovations : version, santé
+         (Host/PostgreSQL/Keycloak), nombre de tenants (PAS leurs noms ni leurs données —
+         respect du cloisonnement éditeur), espace disque, dernière sauvegarde réussie.
+         Implémentation minimale V1 : un endpoint sur l'instance mutualisée IT Innovations
+         + un job d'envoi dans chaque instance.
+      2. Dashboard de flotte (sur l'instance mutualisée, permission dédiée IT Innovations) :
+         état de toutes les instances, versions, alertes (instance muette, sauvegarde en échec,
+         version obsolète).
+      3. Notification de mise à jour : quand une nouvelle version de la plateforme est publiée,
+         les instances en retard sont signalées ; pour les self-hosted, l'éditeur reçoit un
+         email « nouvelle version disponible » (avec notes de version).
+      4. RESPECT DU CLOISONNEMENT : la méta-supervision ne transporte JAMAIS de données métier
+         d'un éditeur (pas de noms de tenants, pas de SIREN, pas de compteurs de documents) —
+         uniquement de la télémétrie technique. Vérifié en review et par test.
+      5. Tests : heartbeat d'instance, dashboard, alerte instance muette, cloisonnement
+         (aucune donnée métier dans les payloads — testé).
+    acceptance:
+      - "Heartbeat d'instance + dashboard de flotte opérationnels"
+      - "Alertes : instance muette, sauvegarde en échec, version obsolète"
+      - "AUCUNE donnée métier éditeur dans la télémétrie (vérifié par test sur le payload)"
+      - "Notification de nouvelle version aux instances en retard"
+      - "Tests complets"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  OPS05:
+    title: "Installeur de l'agent (package x86/x64 pré-configurable)"
+    description: |
+      Créer le packaging de l'agent dans deploy/agent-installer/ (ex-PKG01 adapté) :
+      1. tools/package-agent.ps1 : build Release x86 + x64 de la solution agent, assemblage
+         d'un package d'installation (zip auto-suffisant OU MSI — choix documenté par ADR ;
+         critère : installation silencieuse possible par un intégrateur).
+      2. Le package contient : Conformat.Agent + Agent.Cli + adaptateurs (EncheresV6 + futurs),
+         dépendances natives par plateforme (SQLite.Interop.dll x86 dans le package x86,
+         x64 dans le x64 — vérifié par test d'extraction), script d'installation
+         (création du service, du dossier ProgramData, agent.json modèle).
+      3. PRÉ-CONFIGURATION : le package peut être généré pré-configuré pour un tenant
+         (OPS03 étape 4) — agent.json pré-rempli avec platformUrl + clé API chiffrée à
+         l'installation (la clé transite dans le package de façon sécurisée : chiffrement
+         par mot de passe à usage unique communiqué séparément, documenté par ADR).
+      4. docs/installation-agent.md : prérequis (Windows 7 SP1+, .NET Framework 4.8, driver
+         ODBC source), installation pas à pas, configuration, vérification (CLI check-config /
+         test-odbc / test-api), dépannage des erreurs courantes. Public : intégrateur/éditeur.
+      5. Test : le package x86 ET x64 s'installe sur machine propre, le service démarre,
+         le CLI check-config passe.
+    acceptance:
+      - "package-agent.ps1 produit les packages x86 et x64"
+      - "SQLite.Interop.dll de la bonne plateforme dans chaque package (testé sur les deux)"
+      - "Pré-configuration par tenant fonctionnelle (clé jamais en clair dans le package)"
+      - "Installation testée sur machine propre (service démarre, check-config passe)"
+      - "docs/installation-agent.md exécutable par un intégrateur"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  OPS06:
+    title: "Réversibilité : export tenant + migration d'instance"
+    description: |
+      Implémenter la réversibilité (décision 2026-06-03 : item de V1, pas une option —
+      c'est l'argument qui désamorce l'objection « dépendance à un tiers ») :
+      1. Export complet d'un tenant (s'appuie sur l'endpoint API03 /tenant-export) :
+         outillage opérateur — depuis l'écran Clients (OPS03), bouton [Exporter ce client] →
+         dossier complet : tracking (dump SQL + export JSON lisible), coffre d'archive
+         (paquets WORM + preuves d'ancrage), paramétrage (profil + table TVA + changelog),
+         notice de restitution en français (que contient l'export, comment le lire,
+         comment vérifier l'intégrité de l'archive).
+      2. Migration d'instance (dédiée hébergée → self-hosted) : procédure outillée
+         deploy/provisioning/migrate-instance.ps1 — pg_dump de toutes les bases (système +
+         tenants), copie des volumes (archive, clés DP), génération du bundle d'installation
+         pour la nouvelle cible, vérification de santé post-migration, bascule DNS documentée.
+      3. Suppression d'un tenant APRÈS export : possible uniquement si un export complet a été
+         produit ET confirmé (double confirmation + saisie du nom du tenant). La suppression
+         est journalisée de façon irréversible dans l'audit de l'instance (qui, quand,
+         référence de l'export). Les obligations de conservation passent au client avec l'export.
+      4. Tests : export complet d'un tenant de test (contenu vérifié), migration d'une instance
+         de test de bout en bout, suppression refusée sans export préalable.
+    acceptance:
+      - "Export tenant complet : tracking + archive + paramétrage + notice française"
+      - "L'intégrité de l'archive exportée est vérifiable hors plateforme (notice + outil/procédure)"
+      - "Migration d'instance outillée et testée de bout en bout"
+      - "Suppression d'un tenant impossible sans export confirmé, journalisée"
+      - "Tests complets"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
