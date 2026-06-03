@@ -130,7 +130,9 @@ Quatre axes de variabilité sont **enfichables / déclaratifs**, jamais des `if`
 
 > Une requête métier non tenant-scopée (fuite de données entre tenants) est un **P1**
 > (`CLAUDE.md` n°17). Les jobs multi-tenant passent par la mécanique unique `TenantJobRunner` (SOL06)
-> — aucun module ne réinvente sa propre boucle de balayage des tenants.
+> — aucun module ne réinvente sa propre boucle de balayage des tenants. Patron `ITenantJob` /
+> `TenantJobRunner` documenté dans [`tenant-jobs.md`](tenant-jobs.md) (déclaration, déclenchement,
+> isolation des échecs) ; décision de placement et de basculement de tenant : `ADR-0006`.
 
 ---
 

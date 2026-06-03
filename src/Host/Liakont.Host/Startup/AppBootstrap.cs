@@ -34,6 +34,7 @@ using Stratum.Common.Infrastructure.Gis;
 using Stratum.Common.Infrastructure.GridPreferences;
 using Stratum.Common.Infrastructure.HealthChecks;
 using Stratum.Common.Infrastructure.Http;
+using Stratum.Common.Infrastructure.Jobs;
 using Stratum.Common.Infrastructure.UiRules;
 using Stratum.Common.Infrastructure.Validation;
 using Stratum.Common.UI;
@@ -87,6 +88,10 @@ public static class AppBootstrap
         builder.Services.AddStratumValidationEngine();
         builder.Services.AddStratumUiRuleEngine();
         builder.Services.AddStratumGis(builder.Configuration);
+
+        // Multi-tenant job runner (SOL06) — fans an ITenantJob out over all active tenants.
+        // Requires ITenantScopeFactory (registered by AddStratumMultiTenancy above).
+        builder.Services.AddTenantJobs();
 
         // Modules
         builder.Services.AddIdentityModule(builder.Configuration);

@@ -41,6 +41,10 @@ public static class MultiTenantServiceCollectionExtensions
         services.AddScoped<TenantCircuitHandler>();
         services.AddScoped<CircuitHandler>(sp => sp.GetRequiredService<TenantCircuitHandler>());
 
+        // Tenant scope factory — lets background multi-tenant jobs (TenantJobRunner, SOL06)
+        // establish a tenant on a fresh DI scope, the same way the middleware does for HTTP.
+        services.AddSingleton<ITenantScopeFactory, TenantScopeFactory>();
+
         return services;
     }
 
