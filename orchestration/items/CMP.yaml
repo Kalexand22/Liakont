@@ -102,14 +102,21 @@ items:
   GATE_DEMO_ISATECH:
     type: gate
     executor: human
-    title: "Gate : démo ISATECH prête"
+    title: "Gate : démo ISATECH prête + 1ʳᵉ preuve schéma EncheresV6 réel"
     description: |
-      Validation humaine : le scénario de démo (CMP03) a été déroulé de bout en bout sur une
+      Validation HUMAINE : le scénario de démo (CMP03) a été déroulé de bout en bout sur une
       instance propre, agent installé sur machine propre, en mode fixtures. Chaque page est
       présentable, chaque point de valeur est démontrable.
+      PORTE AUSSI LA PREUVE DU SCHÉMA RÉEL (reportée depuis GATE_ADAPTER_ENCHERESV6, auto/fixtures) :
+      la base Pervasive EncheresV6 n'étant jamais sur la machine d'orchestration, c'est ICI, sur
+      le SERVEUR DÉDIÉ, qu'est validée la première extraction ODBC réelle (CLI test-odbc →
+      extraction → push → pipeline). Reste une gate humaine précisément parce qu'un écart de schéma
+      découvert ici est STRUCTUREL : il force la reprise de l'adaptateur (lot ADP), voire du contrat.
     acceptance:
       - "CMP01, CMP02, CMP03 sont done"
-      - "La démo a été déroulée avec succès par un humain"
+      - "La démo (mode fixtures) a été déroulée avec succès par un humain"
+      - "Extraction ODBC RÉELLE EncheresV6 validée sur le serveur dédié (test-odbc → extraction → push → pipeline) — 1ʳᵉ preuve du schéma réel"
+      - "Tout écart de schéma constaté est consigné et renvoyé au lot ADP (jamais contourné en dur)"
       - "PR du segment feat/deploiement-cmp (partie démo) revue et mergée"
 
   CMP04:

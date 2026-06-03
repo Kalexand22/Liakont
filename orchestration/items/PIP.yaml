@@ -189,14 +189,18 @@ items:
 
   GATE_PIPELINE:
     type: gate
-    executor: human
-    title: "Gate : pipeline validé"
+    executor: claude
+    blueprint: auto-gate-item
+    title: "Gate (auto) : pipeline intégré"
     description: |
-      Validation humaine du pipeline complet. Démonstration attendue : un traitement de bout
-      en bout sur golden files (ingestion → mapping → validation → FakePaClient → archive),
-      incluant avoirs et agrégats de paiement, dans les deux configurations de capacités PA,
-      sur deux tenants pour prouver l'isolation.
+      Gate d'INTÉGRATION AUTOMATIQUE (executor claude, blueprint auto-gate-item). Le traitement
+      de bout en bout (ingestion → mapping → validation → FakePaClient → archive), avoirs,
+      agrégats de paiement, les deux configurations de capacités PA et l'isolation 2 tenants
+      sont couverts par les tests d'intégration (acceptance PIP01-04) — un test humain n'y
+      révélerait rien de structurel. La gate enchaîne verify + run-tests + review d'intégration
+      (diff complet vs main), puis merge dans main ; échec/conflit = blocked.
     acceptance:
       - "Tous les items PIP sont done"
-      - "PR du segment feat/pipeline revue et mergée dans main"
-      - "Un traitement de bout en bout sur golden files a été démontré (2 tenants)"
+      - "Tests d'intégration de bout en bout verts (golden files → check → send Fake → sync → archive, 2 tenants)"
+      - "Review d'intégration (codex-review -Base main) clean ou P2 acceptés justifiés"
+      - "Segment feat/pipeline intégré automatiquement dans main (Step 5c) — pas de PR humaine"

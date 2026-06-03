@@ -82,19 +82,26 @@ items:
 
   GATE_CORE_FOUNDATION:
     type: gate
-    executor: human
-    title: "Gate : fondations Core validées"
+    executor: claude
+    blueprint: auto-gate-item
+    title: "Gate (auto) : fondations Core intégrées"
     description: |
-      Validation humaine du cœur de la plateforme : contrat pivot (DTOs + golden files),
-      module Ingestion (réception, agents, heartbeat), moteur de mapping TVA (par tenant,
-      sans aucune donnée client), contrôles qualité, machine à états documents, piste d'audit,
-      coffre d'archivage 10 ans, paramétrage tenant.
+      Gate d'INTÉGRATION AUTOMATIQUE (executor claude, blueprint auto-gate-item) du cœur de la
+      plateforme : contrat pivot (DTOs + golden files), module Ingestion, moteur de mapping TVA
+      (par tenant, sans donnée client), contrôles qualité, machine à états, piste d'audit, coffre
+      10 ans, paramétrage tenant. Toute la correction VÉRIFIABLE ici est automatisée — hashes
+      identiques net48/.NET 10, WORM/append-only, isolation tenant : ce sont des tests, pas un
+      jugement humain. La JUSTESSE FISCALE des règles n'est PAS validée ici (la gate tourne sur
+      une table d'EXEMPLE — TVA04) : elle l'est par l'expert-comptable au lot CMP. La gate
+      enchaîne verify + run-tests + review d'intégration (diff complet vs main), puis merge dans
+      main ; échec/conflit = blocked (humain).
       Cette gate débloque les segments pa-framework et agent.
-      Points de vigilance : conformité aux specs F01-F09 + F12, AUCUNE donnée client dans le
-      code, piste d'audit et coffre strictement append-only/WORM, isolation tenant vérifiée,
-      hashes identiques entre net48 et .NET 10.
+      Points de vigilance (review d'intégration) : conformité specs F01-F09 + F12, AUCUNE donnée
+      client, append-only/WORM stricts, isolation tenant, hashes cross-runtime.
     acceptance:
       - "Tous les items PIV, TVA, VAL, TRK, CFG sont done"
       - "Aucune donnée client (SIREN, table TVA réelle, chaîne de connexion) dans le code ou les exemples"
       - "Les golden files du contrat passent sur les deux runtimes"
-      - "PR du segment feat/core-foundation revue et mergée dans main"
+      - "Review d'intégration (codex-review -Base main) clean ou P2 acceptés justifiés"
+      - "Rappel tracé : justesse fiscale NON validée ici (table d'exemple) — déléguée à l'expert-comptable au lot CMP"
+      - "Segment feat/core-foundation intégré automatiquement dans main (Step 5c) — pas de PR humaine"

@@ -255,18 +255,22 @@ items:
 
   GATE_SOCLE:
     type: gate
-    executor: human
-    title: "Gate : socle plateforme + agent validé"
+    executor: claude
+    blueprint: auto-gate-item
+    title: "Gate (auto) : socle plateforme + agent intégré"
     description: |
-      Validation humaine du socle : les deux solutions compilent, le Host démarre avec les
-      modules Stratum vendored, l'agent est scaffoldé, l'outillage de vérification est fiable
-      (y compris le harness E2E et run-e2e.ps1), la mécanique de jobs multi-tenant est en place,
-      les conventions sont documentées.
+      Gate d'INTÉGRATION AUTOMATIQUE (executor claude, blueprint auto-gate-item) : la
+      vérification du socle est entièrement automatisée (compilation des deux solutions, Host
+      qui démarre, harness E2E, mécanique de jobs multi-tenant, conventions) — un test humain
+      n'y révélerait rien de structurel qui ne soit déjà prouvé par verify + tests + E2E. La
+      gate enchaîne verify-fast + run-tests + review d'intégration (diff complet vs main), puis
+      merge la branche dans main. Échec/conflit non trivial = blocked (repris par un humain).
       Cette gate débloque le segment core-foundation.
-      Points de vigilance : provenance du socle complète, aucun module ERP embarqué (hors
-      Party.Contracts — décision D1), frontières agent/plateforme en place.
+      Points de vigilance (vérifiés par la review d'intégration) : provenance du socle complète,
+      aucun module ERP embarqué (hors Party.Contracts — décision D1), frontières agent/plateforme.
     acceptance:
       - "Tous les items SOL sont done"
-      - "Liakont.Host démarre et la console web s'affiche (login Keycloak dev)"
+      - "verify-fast + run-tests verts sur feat/socle-v6 (deux solutions)"
       - "Le test E2E de preuve passe via tools/run-e2e.ps1"
-      - "PR du segment feat/socle-v6 revue et mergée dans main"
+      - "Review d'intégration (codex-review -Base main) clean ou P2 acceptés justifiés"
+      - "Segment feat/socle-v6 intégré automatiquement dans main (Step 5c) — pas de PR humaine"
