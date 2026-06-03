@@ -185,6 +185,38 @@ Sur un Windows FR, ce résumé est en français (« Réussi! … total : N ») q
 matche → faux « 0 test / format non reconnu ». Ajout de `$env:DOTNET_CLI_UI_LANGUAGE = 'en'` en
 tête de run-tests.ps1 pour rendre le parsing indépendant de la locale (le garde reste intact).
 
+### 4.12 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
+Le harness de tests E2E (`tests/Liakont.Tests.E2E`) est **adapté** du harness Stratum
+`tests/Stratum.Tests.E2E` — **hors périmètre du vendoring SOL01** (qui ne copie que `src/`), d'où
+sa consignation ici (adaptation, pas copie brute). Le nouveau projet porte le namespace
+**`Liakont.Tests.E2E`** (code Liakont, pas `Stratum.*`). Infrastructure reprise et adaptée :
+`KeycloakE2EWebFactory` (démarre `Liakont.Host` sur PostgreSQL `postgres:16-alpine` + Keycloak
+`quay.io/keycloak/keycloak:26.0` via Testcontainers, ports dynamiques), `PlaywrightFixture`,
+`KeycloakE2ECollection`, `KeycloakBaseE2ETest`, `E2EAuthenticationStateProvider` (pont SSR↔circuit),
+`Pages/KeycloakLoginPage`. **Retiré du portage** (spécifique ERP Stratum, hors périmètre Liakont) :
+la configuration `BugCapture` + `MockGitHubHandler`/`GitHubIssueReporter`, et les ~130 Page Objects /
+Scenarios ERP. **Adapté aux clés réelles du Host Liakont** : `Database:ConnectionString` +
+`TenantConnections:ConnectionStrings:default` (même base — le tenant `default` partage la base
+système, cohérent avec `appsettings.Development.json`), `Keycloak:{Authority,ClientId,ClientSecret,
+UseKeycloak,RealmTenantMap}`. Fixture realm `Fixtures/keycloak-e2e-realm.json` dérivée du realm dev
+`deploy/docker/keycloak/realm-export.json` (realm `liakont-dev`, client `liakont`, 4 rôles, 4
+utilisateurs de test SOL01) avec redirect URIs en joker de port (substitués au runtime). Le projet
+est dans `src/Liakont.sln` (compilé par `verify-fast`/`run-tests`) mais ses tests `Category=E2E` y
+sont exclus ; seul `tools/run-e2e.ps1` (livré par SOL05) les exécute. POM `ErpShellPage` et test de
+preuve `LoginShellE2ETests` = code Liakont neuf (pas d'origine Stratum).
+
+**Écart assumé vs realm dev + défaut signalé (hors périmètre SOL05).** Dans la fixture E2E, le
+`username` Keycloak des utilisateurs de test est un identifiant court (`lecture`, `operateur`,
+`parametrage`, `superviseur`) avec l'email en champ séparé — alors que le realm dev SOL01 fixe
+`username = email` (`lecture@liakont.local`). Raison : le sync OIDC (`UserSyncService.SyncFromOidcClaimsAsync`,
+vendored) prend le claim `preferred_username` **brut** et ne le passe PAS par `SanitizeUsername`
+(qui n'est appliqué qu'au *fallback* email) ; le value object `Username` rejette alors un email
+(« 3-50 car. alphanumériques + underscores », INV-IDENTITY-007). **Conséquence : le login OIDC
+échoue avec le realm dev tel quel** (jamais exercé par SOL01 qui ne testait que `/health`). C'est un
+**défaut réel à corriger hors SOL05** (item dédié) : soit `UserSyncService` sanitise aussi
+`preferred_username`, soit le realm dev passe à des usernames courts — décision plateforme touchant
+le module Identity vendoré. La fixture E2E à handles est compatible avec les deux résolutions.
+
 ## 5. ADR du socle hérités
 
 Les ADR Stratum pertinents au socle sont copiés dans `docs/adr/socle/` (référence, non re-décidés).
