@@ -47,7 +47,7 @@ tests/fixtures/**/output/
 logs/
 last-run-status.json
 
-## Orchestration runtime state (vit dans conformat-orchestration)
+## Orchestration runtime state (vit dans liakont-orchestration)
 orchestration/state/*.yaml
 
 ## Tool output logs (consommés par les agents, non versionnés)

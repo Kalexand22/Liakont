@@ -13,8 +13,8 @@ l'architecture on-premise. Voir `tasks/analyse-impact-pivot-plateforme.md` et `t
 ### Séquence de préparation (sessions interactives)
 
 - [x] ~~Fermer la PR #1 (GATE_SOCLE) sans la merger~~ **FAIT (2026-06-03)**
-- [x] ~~Trancher : où vit le code plateforme ?~~ **TRANCHÉ** : repo Conformat, socle Stratum vendored
-- [x] ~~Trancher : nommage des projets~~ **TRANCHÉ** : Conformat.* (Conformat.Host, Conformat.Modules.*, Conformat.Agent)
+- [x] ~~Trancher : où vit le code plateforme ?~~ **TRANCHÉ** : repo Liakont, socle Stratum vendored
+- [x] ~~Trancher : nommage des projets~~ **TRANCHÉ** : Liakont.* (Liakont.Host, Liakont.Modules.*, Liakont.Agent)
 - [x] ~~Réécrire blueprint.md~~ **FAIT (2026-06-03)** : blueprint v2 (plateforme + agent, 3 topologies,
       multi-tenancy, structure du dépôt, stack double, frontières de modules, stratégie de test)
 - [x] ~~Réécrire les règles métier du CLAUDE.md~~ **FAIT (2026-06-03)** : règles 5-12 + checklist +
@@ -53,7 +53,7 @@ l'architecture on-premise. Voir `tasks/analyse-impact-pivot-plateforme.md` et `t
       decisions.md (D9/D10), TRK05, SOL01, OPS01, blueprint §2/5/6/12, F12 §7, CLAUDE/AGENTS.
       **Manifest inchangé** (98 entrées, aucun nouvel item, meta.version reste 7).
 - [ ] **Relancer l'orchestration** : `Lis orchestration/prompt.md et exécute-le.` dans une nouvelle
-      fenêtre Claude Code → l'agent prendra SOL01 (vendoring du socle Stratum + Conformat.Host)
+      fenêtre Claude Code → l'agent prendra SOL01 (vendoring du socle Stratum + Liakont.Host)
 
 ## Actions humaines à mener en parallèle du développement (hors orchestration)
 

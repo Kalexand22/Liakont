@@ -1,7 +1,7 @@
 ﻿#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Thread-safe state.yaml operations for multi-agent orchestration (Conformat).
+    Thread-safe state.yaml operations for multi-agent orchestration (Liakont).
 .DESCRIPTION
     All state.yaml mutations MUST go through this script to prevent concurrent
     corruption when multiple agents run in parallel. Uses a named mutex for locking.
@@ -9,7 +9,7 @@
     The operation: read, claim, update, release.
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File tools/orch-state.ps1 read
-    powershell -ExecutionPolicy Bypass -File tools/orch-state.ps1 claim -ItemId PIV01 -SlotId 2 -SessionId "orch-..." -ClonePath "C:\Source\Conformat2" -Subbranch "feat/core-foundation-PIV01"
+    powershell -ExecutionPolicy Bypass -File tools/orch-state.ps1 claim -ItemId PIV01 -SlotId 2 -SessionId "orch-..." -ClonePath "C:\Source\Liakont2" -Subbranch "feat/core-foundation-PIV01"
     powershell -ExecutionPolicy Bypass -File tools/orch-state.ps1 update -ItemId PIV01 -Status done
     powershell -ExecutionPolicy Bypass -File tools/orch-state.ps1 release -SlotId 2
 #>
@@ -31,7 +31,7 @@ $ErrorActionPreference = 'Stop'
 # ── Resolve ORCH_REPO ────────────────────────────────────────────
 $orchRepo = $env:ORCH_REPO
 if (-not $orchRepo) {
-    $orchRepo = 'C:\Source\conformat-orchestration'
+    $orchRepo = 'C:\Source\liakont-orchestration'
 }
 $statePath = Join-Path $orchRepo 'state.yaml'
 
@@ -45,7 +45,7 @@ if (-not (Test-Path $statePath)) {
 # Layer 2: exclusive-creation lock file in $ORCH_REPO — protects against agents on
 #          OTHER machines (the state repo can be a shared/synced folder; a Windows
 #          named mutex is invisible across hosts).
-$mutexName = 'Global\ConformatOrchStateYaml'
+$mutexName = 'Global\LiakontOrchStateYaml'
 $lockFilePath = Join-Path $orchRepo '.state.lock'
 
 function Invoke-WithLock {

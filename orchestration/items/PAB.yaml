@@ -2,14 +2,14 @@
 # Spec : docs/conception/F05-Client-API-B2Brouter.md
 # Faits validés en staging (ne PAS redécouvrir) : auth X-B2B-API-Key, version 2026-03-02,
 # api-staging.b2brouter.net, erreurs silencieuses HTTP 200 + errors[].
-# Projet : src/PaClients/Conformat.PaClients.B2Brouter/ — assembly séparée,
+# Projet : src/PaClients/Liakont.PaClients.B2Brouter/ — assembly séparée,
 # référence Transmission.Contracts + Common uniquement.
 
 items:
   PAB01:
     title: "B2BrouterClient : auth, transformation pivot → JSON, envoi"
     description: |
-      Implémenter le plug-in dans src/PaClients/Conformat.PaClients.B2Brouter/ :
+      Implémenter le plug-in dans src/PaClients/Liakont.PaClients.B2Brouter/ :
       1. B2BrouterClient : IPaClient implémenté sur l'API eDocExchange :
          - Auth : header X-B2B-API-Key (clé statique — fournie par le compte PA du tenant, CFG02)
          - Versioning : header X-B2B-API-Version (minimum 2026-03-02)
@@ -90,7 +90,7 @@ items:
     title: "Tests de contrat + suite staging"
     description: |
       Finaliser la conformité du plug-in :
-      1. Hériter la suite de tests de contrat (PAA03) dans tests/Conformat.PaClients.B2Brouter.Tests/
+      1. Hériter la suite de tests de contrat (PAA03) dans tests/Liakont.PaClients.B2Brouter.Tests/
          et la faire passer en vert (handler HTTP mocké).
       2. Suite staging séparée (Category=Staging, JAMAIS en CI) : envoi d'une facture fixture
          sur le compte staging réel, lecture du statut et des tax reports.

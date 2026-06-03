@@ -23,7 +23,7 @@ items:
       - DOC_TOTAL_MISMATCH → « Le total du bordereau (1 162,80 €) ne correspond pas à la somme
         des lignes (1 160,00 €). Vérifiez le bordereau n° 2019 dans Enchères SVV. »
     acceptance:
-      - "ValidationResult, ValidationIssue, IDocumentRule, ValidationPipeline dans Conformat.Modules.Validation"
+      - "ValidationResult, ValidationIssue, IDocumentRule, ValidationPipeline dans Liakont.Modules.Validation"
       - "Messages opérateur en français avec n° de document et action corrective"
       - "Une règle qui crash produit une issue Blocking, jamais un passage silencieux"
       - "Tests du pipeline : agrégation, règle qui crash, document sans issue"

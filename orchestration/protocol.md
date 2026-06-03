@@ -32,8 +32,8 @@ multi-agent parallelism.
 
 ### Multi-agent model: separate clones
 
-Each agent runs in its **own full clone** of the source repo (e.g., `Conformat`, `Conformat2`,
-`Conformat3`). Synchronization happens via the remote (git push/fetch).
+Each agent runs in its **own full clone** of the source repo (e.g., `Liakont`, `Liakont2`,
+`Liakont3`). Synchronization happens via the remote (git push/fetch).
 
 - Each clone has its own `.claude/settings.json` with `$ORCH_REPO` pointing to the **same**
   shared orchestration repo.
@@ -322,7 +322,7 @@ to prevent concurrent corruption. **Agents must NEVER edit state.yaml directly.*
 tools/orch-state.ps1 read
 
 # Claim an item atomically (lock + verify pending + set claimed + update active_sessions)
-tools/orch-state.ps1 claim -ItemId PIV01 -SlotId 2 -SessionId "orch-..." -ClonePath "C:\Source\Conformat2" -Subbranch "feat/core-foundation-PIV01"
+tools/orch-state.ps1 claim -ItemId PIV01 -SlotId 2 -SessionId "orch-..." -ClonePath "C:\Source\Liakont2" -Subbranch "feat/core-foundation-PIV01"
 
 # Update item status (lock + write)
 tools/orch-state.ps1 update -ItemId PIV01 -Status done
@@ -351,7 +351,7 @@ state.yaml at a time.
 - **Conventional commits.** Follow docs/architecture/repo-standards.md for commit messages
   (file created by SOL04 — until then, use the conventional-commits standard: `type(scope): subject`).
 - **All CLAUDE.md rules apply.** Verification, review, coding standards — everything.
-- **Regulatory caution.** Conformat is a tax-compliance product. Items touching TVA mapping (TVA*),
+- **Regulatory caution.** Liakont is a tax-compliance product. Items touching TVA mapping (TVA*),
   validation rules (VAL*), or the audit trail (TRK*) must NEVER invent fiscal rules: every rule
   comes from `docs/conception/` or `docs/market/`. If a fiscal decision is missing
   (e.g., régime 6, TVA sur débits), mark the item `blocked` with a note — do not guess.

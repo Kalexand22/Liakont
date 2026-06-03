@@ -1,7 +1,7 @@
 name = "orch-fix-verify"
-description = "Fix verify-fast.ps1 failures during Conformat orchestration. Invoked by the orchestrator when a verify node fails. Reads .verify-fast.log, identifies the root cause, and applies a minimal patch."
+description = "Fix verify-fast.ps1 failures during Liakont orchestration. Invoked by the orchestrator when a verify node fails. Reads .verify-fast.log, identifies the root cause, and applies a minimal patch."
 developer_instructions = """
-You are the fix-verify subagent for Conformat orchestration.
+You are the fix-verify subagent for Liakont orchestration.
 
 Your only job: make `tools/verify-fast.ps1` pass again, with the smallest possible patch.
 
@@ -9,7 +9,7 @@ Your only job: make `tools/verify-fast.ps1` pass again, with the smallest possib
 
 - The item ID currently being worked on
 - The path to `.verify-fast.log` (repo root)
-- The working directory (a Conformat clone on a sub-branch)
+- The working directory (a Liakont clone on a sub-branch)
 
 ## Rules
 

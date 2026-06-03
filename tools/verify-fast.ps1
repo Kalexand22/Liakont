@@ -1,15 +1,15 @@
 ﻿#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Fast local verification for Conformat: builds + analyzers + unit tests (platform + agent).
+    Fast local verification for Liakont: builds + analyzers + unit tests (platform + agent).
 .DESCRIPTION
     Runs sequentially, stops on first failure. Writes detailed log to .verify-fast.log,
     prints a compact summary to stdout.
     Exit code 0 = all passed, non-zero = at least one step failed.
 
     Two solutions (blueprint.md v2 §4):
-      - Platform : src/Conformat.sln          (.NET 10 — Host, modules, PA plug-ins, contracts)
-      - Agent    : agent/Conformat.Agent.sln  (.NET Framework 4.8, x86 — extraction + transport)
+      - Platform : src/Liakont.sln          (.NET 10 — Host, modules, PA plug-ins, contracts)
+      - Agent    : agent/Liakont.Agent.sln  (.NET Framework 4.8, x86 — extraction + transport)
 
     BOOTSTRAP MODE: while a solution does not exist yet (SOL01 for the platform, SOL02 for
     the agent), its build/test steps are skipped. This lets docs-spec items pass verification
@@ -20,8 +20,8 @@
 $ErrorActionPreference = 'Continue'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$platformSln = Join-Path $repoRoot 'src\Conformat.sln'
-$agentSln = Join-Path $repoRoot 'agent\Conformat.Agent.sln'
+$platformSln = Join-Path $repoRoot 'src\Liakont.sln'
+$agentSln = Join-Path $repoRoot 'agent\Liakont.Agent.sln'
 $logFile = Join-Path $repoRoot '.verify-fast.log'
 
 $steps = @()
@@ -70,7 +70,7 @@ function Run-Step {
 function Test-SolItemPending {
     param([string]$ItemId)
     $orchRepo = $env:ORCH_REPO
-    if (-not $orchRepo) { $orchRepo = 'C:\Source\conformat-orchestration' }
+    if (-not $orchRepo) { $orchRepo = 'C:\Source\liakont-orchestration' }
     $statePath = Join-Path $orchRepo 'state.yaml'
     if (-not (Test-Path $statePath)) {
         throw "Orchestration state not found ($statePath). state.yaml is mandatory (protocol.md Step 1) - set ORCH_REPO to the state repo. NEVER recreate state.yaml (absent items = done items)."
@@ -130,7 +130,7 @@ if ($ok) {
         # State reciprocity: every item in state.yaml must exist in the manifest
         # (manifest items absent from state = done & purged, which is legitimate: absent = done)
         $orchRepo = $env:ORCH_REPO
-        if (-not $orchRepo) { $orchRepo = 'C:\Source\conformat-orchestration' }
+        if (-not $orchRepo) { $orchRepo = 'C:\Source\liakont-orchestration' }
         $statePath2 = Join-Path $orchRepo 'state.yaml'
         if (Test-Path $statePath2) {
             $state = Get-Content $statePath2 -Raw
@@ -142,7 +142,7 @@ if ($ok) {
     }
 }
 
-# ── Step 3: PLATFORM build + unit tests (when src/Conformat.sln exists) ──
+# ── Step 3: PLATFORM build + unit tests (when src/Liakont.sln exists) ──
 if ($ok) {
     if (Test-Path $platformSln) {
         $ok = Run-Step 'platform: restore' {
@@ -170,14 +170,14 @@ if ($ok) {
         # SOL01 is done (the solution has been deleted) — never a silent skip.
         $ok = Run-Step 'platform: bootstrap-check' {
             if (-not (Test-SolItemPending 'SOL01')) {
-                throw "src/Conformat.sln is missing but SOL01 is done — the solution has been deleted or the checkout is broken."
+                throw "src/Liakont.sln is missing but SOL01 is done — the solution has been deleted or the checkout is broken."
             }
-            Write-Output "src/Conformat.sln does not exist yet (SOL01 pending per state.yaml) — platform build/tests skipped (bootstrap mode)."
+            Write-Output "src/Liakont.sln does not exist yet (SOL01 pending per state.yaml) — platform build/tests skipped (bootstrap mode)."
         }
     }
 }
 
-# ── Step 4: AGENT build + unit tests (when agent/Conformat.Agent.sln exists) ──
+# ── Step 4: AGENT build + unit tests (when agent/Liakont.Agent.sln exists) ──
 if ($ok) {
     if (Test-Path $agentSln) {
         $ok = Run-Step 'agent: restore' {
@@ -203,9 +203,9 @@ if ($ok) {
         # Solution missing: decide bootstrap-skip vs failure from the orchestration state.
         $ok = Run-Step 'agent: bootstrap-check' {
             if (-not (Test-SolItemPending 'SOL02')) {
-                throw "agent/Conformat.Agent.sln is missing but SOL02 is done — the solution has been deleted or the checkout is broken."
+                throw "agent/Liakont.Agent.sln is missing but SOL02 is done — the solution has been deleted or the checkout is broken."
             }
-            Write-Output "agent/Conformat.Agent.sln does not exist yet (SOL02 pending per state.yaml) — agent build/tests skipped (bootstrap mode)."
+            Write-Output "agent/Liakont.Agent.sln does not exist yet (SOL02 pending per state.yaml) — agent build/tests skipped (bootstrap mode)."
         }
     }
 }

@@ -65,7 +65,7 @@ items:
       3. TransitionTo : chaque transition écrit automatiquement un DocumentEvent
          (atomique : transition + événement dans la même transaction).
       4. Mécanique du remplacement après rejet (règle F06) : le logiciel SOURCE est le seul
-         créateur de numéros — Conformat n'invente jamais un numéro. Le flux réel :
+         créateur de numéros — Liakont n'invente jamais un numéro. Le flux réel :
          l'opérateur corrige/recrée le document dans le logiciel source → l'agent extrait
          et pousse le nouveau document (nouveau numéro) → l'opérateur LIE les deux
          (action supersede API02) : l'ancien passe Superseded avec la référence du

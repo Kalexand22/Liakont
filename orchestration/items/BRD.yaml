@@ -1,10 +1,10 @@
 # Lot BRD — Marque grise : branding par instance
 # Specs : blueprint.md §3.3 (topologies, marque grise), F12 §6.1 (configuration d'instance)
 # Réf décision 2026-06-03 : la marque grise = une instance de plateforme PAR éditeur.
-# L'éditeur vend la plateforme sous SA marque : ses clients ne voient jamais « Conformat »
+# L'éditeur vend la plateforme sous SA marque : ses clients ne voient jamais « Liakont »
 # ni « IT Innovations » si l'éditeur ne le veut pas.
 # Le socle Stratum n'a PAS de branding multi-instance (titre/thème en dur) — c'est du
-# travail Conformat, potentiellement reversable dans Stratum ensuite.
+# travail Liakont, potentiellement reversable dans Stratum ensuite.
 
 items:
   BRD01:
@@ -21,8 +21,8 @@ items:
          pied de page — un client d'un éditeur reçoit des emails à la marque de SON éditeur.
       4. Application dans les exports (API03) : la notice d'export d'audit et de réversibilité
          porte la marque de l'instance (+ une mention technique discrète « propulsé par
-         Conformat » paramétrable on/off).
-      5. Valeurs par défaut : branding « Conformat » (l'instance mutualisée IT Innovations
+         Liakont » paramétrable on/off).
+      5. Valeurs par défaut : branding « Liakont » (l'instance mutualisée IT Innovations
          l'utilise telle quelle).
       6. Le provisioning (OPS02) collecte les paramètres de branding à la création d'instance.
       7. Tests : bUnit sur le shell brandé (logo, couleurs, titre), contenu des emails brandés,
@@ -30,8 +30,8 @@ items:
          branding configuré.
     acceptance:
       - "Branding complet configurable par instance (UI, login, emails, exports, favicon)"
-      - "Aucune mention Conformat/IT Innovations visible quand l'éditeur la désactive"
-      - "Valeurs par défaut Conformat fonctionnelles"
+      - "Aucune mention Liakont/IT Innovations visible quand l'éditeur la désactive"
+      - "Valeurs par défaut Liakont fonctionnelles"
       - "Le provisioning d'instance collecte le branding"
       - "Tests bUnit + emails + E2E Playwright"
       - "verify-fast passes"

@@ -1,5 +1,5 @@
 # Blueprint: blazor-page-item
-# Node graph for Blazor web console pages (Conformat modules' Web projects)
+# Node graph for Blazor web console pages (Liakont modules' Web projects)
 # Replaces wpf-screen-item (v5). Key differences:
 #   - bUnit component tests replace ViewModel unit tests
 #   - Playwright E2E tests replace manual smoke checklists (now possible — web UI)
@@ -29,7 +29,7 @@ nodes:
 
   - id: e2e_tests
     type: agentic
-    description: "Write/update Playwright E2E tests for the page's main user journey (login → navigate → act → verify outcome) in tests/Conformat.Tests.E2E (harness from SOL05: Testcontainers PostgreSQL + Keycloak + fixtures + Fake PA plug-in). E2E tests are Category=E2E — they are a SEPARATE suite run by tools/run-e2e.ps1 (decision D3 2026-06-03), never by run-tests or verify-fast. They MUST exist and pass (via the e2e_run node below) before the commit."
+    description: "Write/update Playwright E2E tests for the page's main user journey (login → navigate → act → verify outcome) in tests/Liakont.Tests.E2E (harness from SOL05: Testcontainers PostgreSQL + Keycloak + fixtures + Fake PA plug-in). E2E tests are Category=E2E — they are a SEPARATE suite run by tools/run-e2e.ps1 (decision D3 2026-06-03), never by run-tests or verify-fast. They MUST exist and pass (via the e2e_run node below) before the commit."
 
   - id: verify
     type: deterministic

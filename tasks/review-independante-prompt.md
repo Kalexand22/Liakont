@@ -1,10 +1,10 @@
-# Review indépendante — Conformat backlog v6 (architecture plateforme + agent)
+# Review indépendante — Liakont backlog v6 (architecture plateforme + agent)
 
 ## Ta mission
 
 Tu es un **reviewer indépendant**. Tu n'as participé à aucune décision de conception de ce
 projet et tu ne dois rien tenir pour acquis. Ton travail : passer en revue l'intégralité du
-dépôt Conformat (vision, architecture, backlog d'orchestration, outillage, dépôt d'état) et
+dépôt Liakont (vision, architecture, backlog d'orchestration, outillage, dépôt d'état) et
 produire un rapport de findings exploitable.
 
 Contexte particulier de cette review : le backlog v6 est issu d'un **pivot d'architecture
@@ -20,7 +20,7 @@ Tu ne corriges RIEN. Tu observes, tu vérifies, tu rapportes.
 1. **LECTURE SEULE.** Tu ne modifies, ne crées, ne supprimes aucun fichier — à une seule
    exception : le rapport final (voir « Livrable »).
 2. Tu ne lances **aucune session d'orchestration**, tu ne prends aucun item, tu ne touches pas
-   au dépôt d'état (`C:\Source\conformat-orchestration` : state.yaml, leases/, events.jsonl)
+   au dépôt d'état (`C:\Source\liakont-orchestration` : state.yaml, leases/, events.jsonl)
    ni au dépôt Stratum (`C:\Source\Stratum` — lecture seule pour la dimension J).
 3. Chaque finding cite le **fichier** (et la ligne si pertinent). Pas de finding vague.
 4. Classement : **P1** = bloquant (incohérence entre documents, trou fonctionnel, risque
@@ -35,7 +35,7 @@ Tu ne corriges RIEN. Tu observes, tu vérifies, tu rapportes.
 
 ## Le contexte en trois phrases
 
-Conformat est une **passerelle de conformité facturation électronique GÉNÉRIQUE** (produit,
+Liakont est une **passerelle de conformité facturation électronique GÉNÉRIQUE** (produit,
 jamais un développement spécifique client) entre des logiciels métier legacy (base accessible,
 pas d'API) et des **Plateformes Agréées** (réforme française, échéance septembre 2026).
 Architecture (pivot 2026-06-03) : un **agent net48** chez chaque client final (extraction ODBC +
@@ -43,7 +43,7 @@ push HTTPS) et une **plateforme web multi-tenant** (pivot, TVA, validation, éta
 archivage, console Blazor, supervision proactive) déployable en 3 topologies (self-hosted
 éditeur / dédiée hébergée / mutualisée — marque grise = une instance par éditeur).
 Le développement est piloté par un système d'orchestration multi-agents : le backlog est
-`orchestration/manifest.yaml` (v6), l'état runtime vit dans `C:\Source\conformat-orchestration`.
+`orchestration/manifest.yaml` (v6), l'état runtime vit dans `C:\Source\liakont-orchestration`.
 
 ## Lecture préalable (dans cet ordre)
 
@@ -85,7 +85,7 @@ L'outillage et les agents :
 
 Les dépôts externes (lecture seule stricte) :
 
-15. `C:\Source\conformat-orchestration\state.yaml`, `config.yaml`, `README.md`
+15. `C:\Source\liakont-orchestration\state.yaml`, `config.yaml`, `README.md`
 16. `C:\Source\Stratum` — le socle qui sera vendored par SOL01 (pour la dimension J)
 
 L'historique v5 (pour la dimension I) :
@@ -125,7 +125,7 @@ Pour CHAQUE item :
   `PaCapabilities`), aucune conditionnée à UN logiciel source précis (`ExtractorCapabilities`).
 - **Frontières de modules** (blueprint §6) : inter-modules via Contracts uniquement,
   Transmission ne référence jamais un plug-in PA, plug-in → Transmission.Contracts only.
-- **Frontière agent/plateforme** : l'agent ne référence que `Conformat.Agent.Contracts` ;
+- **Frontière agent/plateforme** : l'agent ne référence que `Liakont.Agent.Contracts` ;
   AUCUNE logique métier dans l'agent (pas de TVA, pas de validation, pas d'états) — tout item
   AGT/ADP qui glisse de la logique métier côté agent est un P1.
 - **Tenant-scoping** : les items qui manipulent des données métier le font par tenant ;
@@ -321,7 +321,7 @@ Un rapport unique : `tasks/review-independante-v6.md` (c'est le SEUL fichier que
 Structure du rapport :
 
 ```markdown
-# Review indépendante — Conformat backlog v6
+# Review indépendante — Liakont backlog v6
 Date : <date>
 Reviewer : agent indépendant (session <id>)
 

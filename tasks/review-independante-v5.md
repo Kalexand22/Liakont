@@ -1,4 +1,4 @@
-# Review indépendante — Conformat backlog v4
+# Review indépendante — Liakont backlog v4
 Date : 2026-06-02
 Reviewer : agent indépendant (session review-v5)
 

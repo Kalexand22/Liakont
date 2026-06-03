@@ -9,9 +9,9 @@ items:
     title: "Appliance Docker (plateforme + PostgreSQL + Keycloak)"
     description: |
       Créer le livrable de déploiement d'une instance dans deploy/docker/ (F12 §6.2) :
-      1. Dockerfile multi-stage pour Conformat.Host (.NET 10, image runtime aspnet).
-      2. docker-compose.yml : conformat (Host) + postgres (volumes persistants) + keycloak
-         (realm Conformat importé au démarrage : realm-conformat.json) + reverse proxy
+      1. Dockerfile multi-stage pour Liakont.Host (.NET 10, image runtime aspnet).
+      2. docker-compose.yml : liakont (Host) + postgres (volumes persistants) + keycloak
+         (realm Liakont importé au démarrage : realm-liakont.json) + reverse proxy
          optionnel (Caddy — TLS automatique pour le self-hosted).
       3. Configuration par variables d'environnement : connexion PostgreSQL, Keycloak,
          SMTP, branding (BRD01), URL publique. Fichier .env.example documenté — AUCUN
@@ -36,7 +36,7 @@ items:
          derrière une abstraction dès SOL01 (décision D10) + spike d'empreinte ; cet ADR ne
          décide donc que la topologie de déploiement du fournisseur retenu et son empreinte
          réelle heap-bornée (qui conditionne le pricing des instances hébergées). Le Keycloak
-         de dev de SOL01 (realm conformat-dev) reste l'implémentation par défaut tant que le
+         de dev de SOL01 (realm liakont-dev) reste l'implémentation par défaut tant que le
          spike n'a pas justifié une bascule ; le seam rend la bascule possible sans remettre
          en cause les fondations (même mécanique de rôles, même mapping tenant).
       10. Test : l'appliance démarre sur une machine propre (docker compose up), le Host
@@ -59,7 +59,7 @@ items:
       1. new-instance.ps1 : crée une nouvelle instance — répertoire/stack Docker dédié,
          génération des secrets (PostgreSQL, Keycloak admin, clés DP), realm Keycloak,
          paramètres de branding (nom éditeur, logo, couleurs, domaine — branding PAR DÉFAUT
-         Conformat tant que BRD01 n'est pas livré ; le branding complet est appliqué/enrichi
+         Liakont tant que BRD01 n'est pas livré ; le branding complet est appliqué/enrichi
          par BRD01), .env complet.
       2. Modes : self-hosted (génère le bundle à remettre à l'éditeur) et hébergé
          (déploie sur l'infra IT Innovations — le script est le même, la cible diffère).
@@ -93,7 +93,7 @@ items:
   OPS03:
     title: "Provisioning de tenant (écran opérateur d'instance)"
     description: |
-      Implémenter la création de tenants depuis la console (permission conformat.supervision —
+      Implémenter la création de tenants depuis la console (permission liakont.supervision —
       c'est l'opérateur de l'instance qui crée ses clients) :
       1. Écran « Clients » (liste des tenants de l'instance) : nom, SIREN, statut, agents,
          date de création + bouton [Nouveau client].
@@ -171,7 +171,7 @@ items:
          un service x64 ne peut pas le charger) ; x64 seulement si TOUS les adaptateurs du
          client sont 64-bit. Le service et ses adaptateurs partagent le même bitness — jamais
          de mélange.
-      2. Le package contient : Conformat.Agent + Agent.Cli + adaptateurs (EncheresV6 + futurs),
+      2. Le package contient : Liakont.Agent + Agent.Cli + adaptateurs (EncheresV6 + futurs),
          dépendances natives par plateforme (SQLite.Interop.dll x86 dans le package x86,
          x64 dans le x64 — vérifié par test d'extraction), script d'installation
          (création du service, du dossier ProgramData avec les ACL requises par AGT01
@@ -258,7 +258,7 @@ items:
          (servi par le module Ingestion, authentifié par clé API agent) — c'est l'updateUrl
          que PIV05 renvoie dans le heartbeat.
       4. Politique de mise à jour de flotte (écran opérateur d'instance, permission
-         conformat.supervision) : définir la version cible (latestAgentVersion) et le mode
+         liakont.supervision) : définir la version cible (latestAgentVersion) et le mode
          (updateRequired : obligatoire = les agents se mettent à jour au prochain heartbeat ;
          optionnel = signalé mais pas forcé) — par instance, avec possibilité d'exclure des
          tenants (déploiement progressif).

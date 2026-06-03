@@ -2,14 +2,14 @@
 # Specs : docs/conception/F01-F02 (cas EncheresV6), F03 (régimes), F07 (avoirs), F09 (encaissements)
 # Premier adaptateur du produit — il valide le contrat IExtractor sur un cas réel (CMP).
 # L'extraction est en LECTURE SEULE STRICTE : aucune écriture, aucun verrou sur la base source.
-# Projet : agent/src/Conformat.Agent.Adapters.EncheresV6/ (net48, x86 pour les drivers ODBC
-# Pervasive 32-bit). L'adaptateur référence UNIQUEMENT Conformat.Agent.Core (+ Contracts).
+# Projet : agent/src/Liakont.Agent.Adapters.EncheresV6/ (net48, x86 pour les drivers ODBC
+# Pervasive 32-bit). L'adaptateur référence UNIQUEMENT Liakont.Agent.Core (+ Contracts).
 
 items:
   ADP01:
     title: "Projet adaptateur + FixtureExtractor EncheresV6"
     description: |
-      Initialiser agent/src/Conformat.Agent.Adapters.EncheresV6/ :
+      Initialiser agent/src/Liakont.Agent.Adapters.EncheresV6/ :
       1. EncheresV6FixtureExtractor : IExtractor (contrat AGT02) rejouant des fixtures JSON au
          format EncheresV6 (structure entete_ba / lignes_ba / Regime_tva) puis transformées en
          documents pivot (DTOs du contrat). C'est le mode dev sans licence Pervasive/Zen,

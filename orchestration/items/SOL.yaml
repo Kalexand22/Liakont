@@ -4,14 +4,14 @@
 # Préalable à tout le reste : sans solutions compilables, verify-fast ne peut pas tourner.
 #
 # DÉCISIONS 2026-06-03 : le code plateforme vit dans CE repo avec le socle Stratum COPIÉ
-# (vendored) depuis C:\Source\Stratum ; nommage Conformat.* pour les projets Conformat,
+# (vendored) depuis C:\Source\Stratum ; nommage Liakont.* pour les projets Liakont,
 # les projets vendored gardent leurs noms Stratum.* (provenance + re-convergence NuGet future).
 
 items:
   SOL01:
-    title: "Plateforme : vendoring du socle Stratum + Conformat.Host compilable"
+    title: "Plateforme : vendoring du socle Stratum + Liakont.Host compilable"
     description: |
-      Créer la solution plateforme src/Conformat.sln selon blueprint.md §4 :
+      Créer la solution plateforme src/Liakont.sln selon blueprint.md §4 :
       1. VENDORING du socle Stratum (copie depuis C:\Source\Stratum, en gardant les noms
          de projets/namespaces Stratum.*) :
          - src/Common/Abstractions/   (Stratum.Common.Abstractions)
@@ -28,7 +28,7 @@ items:
          - src/Modules/Audit/         (Stratum.Modules.Audit)
          Ne PAS copier les autres modules métier de l'ERP (Party hors Contracts, Sales, Finance,
          Reservation, Resource, Company, Workflow, FormEngine, Sequence, ReferenceData, Tax,
-         Config, Showcase) — Conformat n'en a pas besoin et ils tirent des dépendances inter-modules.
+         Config, Showcase) — Liakont n'en a pas besoin et ils tirent des dépendances inter-modules.
          ADAPTATIONS À CONSIGNER dans la provenance (constats review 2026-06-03) :
          - Module Notification : NEUTRALISER les migrations V009/V010 (seeds de templates et
            règles de routage « réservation » — données métier ERP, pas du socle générique)
@@ -37,23 +37,23 @@ items:
       2. docs/architecture/provenance-socle-stratum.md : commit source Stratum copié, date,
          liste des dossiers copiés, modifications locales (les neutralisations ci-dessus).
          RÈGLE : toute modification ultérieure d'un fichier Stratum.* DOIT être consignée ici.
-      3. src/Host/Conformat.Host/ : copie ADAPTÉE de Stratum.Host —
+      3. src/Host/Liakont.Host/ : copie ADAPTÉE de Stratum.Host —
          - AppBootstrap n'enregistre QUE les modules vendored (Identity, Job, Notification, Audit)
          - Endpoints/NavSectionProviders des modules ERP retirés
-         - Titre/branding « Conformat » (le branding par instance complet arrive avec BRD01)
-         - Realm Keycloak de dev adapté (realm conformat-dev)
-      4. Seed Keycloak + permissions applicatives Conformat (consommées par API/WEB/SUP/OPS) :
-         - Permissions : conformat.read, conformat.actions, conformat.settings, conformat.supervision
+         - Titre/branding « Liakont » (le branding par instance complet arrive avec BRD01)
+         - Realm Keycloak de dev adapté (realm liakont-dev)
+      4. Seed Keycloak + permissions applicatives Liakont (consommées par API/WEB/SUP/OPS) :
+         - Permissions : liakont.read, liakont.actions, liakont.settings, liakont.supervision
          - Rôles standard : lecture (read), opérateur (read+actions), paramétrage (read+actions+
            settings), superviseur (toutes) — matrice permissions→rôles documentée
-         - Seed du realm de dev (realm conformat-dev : client, client roles, un utilisateur de
+         - Seed du realm de dev (realm liakont-dev : client, client roles, un utilisateur de
            test par rôle) + mécanique de mapping utilisateur→tenant (réutilise le pattern
            Identity/tenancy du socle ; le mapping concret par client final arrive avec OPS03)
          - ABSTRACTION D'IdP (décision D10 du 2026-06-03 — NE PAS figer l'auth sur Keycloak) :
            l'authentification OIDC et le provisioning utilisateur/rôle du module Identity sont
            consommés DERRIÈRE une couche d'abstraction (Keycloak = UNE implémentation, pas un
            couplage en dur — aucun appel Keycloak-spécifique hors de cette couche). Le realm
-           conformat-dev reste l'implémentation de dev/V1. But : pouvoir basculer vers un IdP
+           liakont-dev reste l'implémentation de dev/V1. But : pouvoir basculer vers un IdP
            in-process léger (OpenIddict) sans rouvrir le code métier.
          - SPIKE D'EMPREINTE (déliverable, time-boxé) : mesurer Keycloak 26 heap-borné vs
            OpenIddict in-process (RAM plancher, démarrage, surface d'ops), consigné dans un ADR.
@@ -62,25 +62,25 @@ items:
            retenu (par instance vs mutualisé) reste tranchée à l'ADR OPS01.
       5. Directory.Packages.props + Directory.Build.props copiés/adaptés de Stratum
          (versions de packages centralisées).
-      6. La solution compile (dotnet build src/Conformat.sln) et le Host démarre en mode dev
+      6. La solution compile (dotnet build src/Liakont.sln) et le Host démarre en mode dev
          (PostgreSQL + Keycloak via docker-compose de dev copié/adapté de Stratum).
       7. ADR-0001 : pivot d'architecture — plateforme .NET 10 sur socle Stratum vendored
          + agent net48 ; renvoie vers tasks/decisions.md et l'analyse d'impact.
-      IMPORTANT : aucune logique métier Conformat — uniquement le socle qui compile et démarre.
+      IMPORTANT : aucune logique métier Liakont — uniquement le socle qui compile et démarre.
       STRATÉGIE DE VOLUME (~50 000 LOC à copier) : la copie brute des fichiers est SCRIPTÉE
       (robocopy/Copy-Item, pas de réécriture LLM fichier par fichier) ; la session LLM ne
       produit que les adaptations (Host, csproj, neutralisations, provenance, ADR, seed).
       PRÉREQUIS : Docker disponible (docker-compose dev + Testcontainers pour les tests du socle).
-      PÉRIMÈTRE DE REVIEW : la review porte sur l'ADAPTATION (Conformat.Host, csproj, provenance,
+      PÉRIMÈTRE DE REVIEW : la review porte sur l'ADAPTATION (Liakont.Host, csproj, provenance,
       ADR), PAS sur le code Stratum copié tel quel (déjà reviewé dans son repo d'origine).
       Un fichier Stratum.* modifié pendant la copie = à consigner dans la provenance = reviewé.
     acceptance:
-      - "src/Conformat.sln compile via dotnet build"
-      - "Conformat.Host démarre en mode dev (PostgreSQL + Keycloak docker-compose)"
+      - "src/Liakont.sln compile via dotnet build"
+      - "Liakont.Host démarre en mode dev (PostgreSQL + Keycloak docker-compose)"
       - "Seuls les modules Identity/Party.Contracts/Job/Notification/Audit sont vendored (aucun autre module ERP)"
       - "Migrations Notification V009/V010 (seeds réservation) neutralisées + consignées dans la provenance"
       - "ADR Stratum copiés sans collision de numéro (0010 dédupliqué)"
-      - "Permissions conformat.* + rôles standard + seed realm dev Keycloak en place (matrice documentée)"
+      - "Permissions liakont.* + rôles standard + seed realm dev Keycloak en place (matrice documentée)"
       - "Auth Identity consommée derrière une abstraction d'IdP (Keycloak = une implémentation ; aucun couplage Keycloak hors de la couche d'auth) — décision D10"
       - "Spike d'empreinte Keycloak vs OpenIddict consigné dans un ADR (décision IdP prise sur mesure, non figée)"
       - "provenance-socle-stratum.md créé : commit source, date, dossiers copiés, modifications locales"
@@ -90,37 +90,37 @@ items:
       - "codex-review clean or only accepted P2s"
 
   SOL02:
-    title: "Agent : solution net48 + Conformat.Agent.Contracts (netstandard2.0)"
+    title: "Agent : solution net48 + Liakont.Agent.Contracts (netstandard2.0)"
     description: |
       Créer la solution agent et l'assembly de contrat partagée selon blueprint.md §4 et F12 §2 :
-      1. src/Contracts/Conformat.Agent.Contracts/ (netstandard2.0) : projet de DTOs PURS
+      1. src/Contracts/Liakont.Agent.Contracts/ (netstandard2.0) : projet de DTOs PURS
          du contrat agent ↔ plateforme — référencé par les DEUX solutions :
          - placeholder des DTOs (les vrais types arrivent avec PIV01)
          - AUCUNE logique, AUCUNE dépendance autre que le BCL (règle vérifiable par test
            d'architecture : aucune PackageReference)
-      2. agent/Conformat.Agent.sln + projets SDK-style ciblant net48 :
-         - agent/src/Conformat.Agent/              (service Windows — coquille ServiceBase)
-         - agent/src/Conformat.Agent.Core/         (IExtractor, file locale, client HTTP, config)
-         - agent/src/Conformat.Agent.Adapters.EncheresV6/  (plug-in source #1 — vide)
-         - agent/src/Conformat.Agent.Cli/          (diagnostic)
-         - agent/tests/Conformat.Agent.Core.Tests/ (xUnit net48)
-         - agent/tests/Conformat.Agent.Adapters.EncheresV6.Tests/
+      2. agent/Liakont.Agent.sln + projets SDK-style ciblant net48 :
+         - agent/src/Liakont.Agent/              (service Windows — coquille ServiceBase)
+         - agent/src/Liakont.Agent.Core/         (IExtractor, file locale, client HTTP, config)
+         - agent/src/Liakont.Agent.Adapters.EncheresV6/  (plug-in source #1 — vide)
+         - agent/src/Liakont.Agent.Cli/          (diagnostic)
+         - agent/tests/Liakont.Agent.Core.Tests/ (xUnit net48)
+         - agent/tests/Liakont.Agent.Adapters.EncheresV6.Tests/
       3. agent/Directory.Build.props : TargetFramework net48, LangVersion latest,
          Platforms x86+x64, TreatWarningsAsErrors true, packages centralisés
          (Newtonsoft.Json, System.Data.SQLite, xUnit).
       4. Règles de références (frontières blueprint §6) :
-         - Conformat.Agent.Core référence Conformat.Agent.Contracts (cross-solution, chemin relatif)
-         - Les adaptateurs référencent UNIQUEMENT Conformat.Agent.Core (+ Contracts)
+         - Liakont.Agent.Core référence Liakont.Agent.Contracts (cross-solution, chemin relatif)
+         - Les adaptateurs référencent UNIQUEMENT Liakont.Agent.Core (+ Contracts)
          - AUCUN projet agent ne référence un projet de la plateforme (src/Host, src/Modules, src/Common)
       5. Chaque projet contient une classe placeholder dans le bon namespace.
       6. Dossiers config/exemples/ et deployments/ avec README mis à jour pour la nouvelle
          architecture (paramétrage de tenant en seed).
       IMPORTANT : aucune logique métier — uniquement le squelette compilable des deux côtés.
     acceptance:
-      - "agent/Conformat.Agent.sln compile via dotnet build en Debug x86 et x64"
-      - "Conformat.Agent.Contracts est netstandard2.0, zéro PackageReference, référencé par les deux solutions"
+      - "agent/Liakont.Agent.sln compile via dotnet build en Debug x86 et x64"
+      - "Liakont.Agent.Contracts est netstandard2.0, zéro PackageReference, référencé par les deux solutions"
       - "Les règles de références sont en place (agent ne référence jamais la plateforme)"
-      - "Namespaces Conformat.Agent.* pour l'agent"
+      - "Namespaces Liakont.Agent.* pour l'agent"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -128,8 +128,8 @@ items:
     title: "CI double build + outillage de vérification branché sur les solutions réelles"
     description: |
       Brancher l'outillage de vérification et la CI sur les deux solutions :
-      1. Vérifier/ajuster tools/verify-fast.ps1 : build plateforme (dotnet build src/Conformat.sln)
-         + build agent (dotnet build agent/Conformat.Agent.sln -p:Platform=x86) + tests unitaires
+      1. Vérifier/ajuster tools/verify-fast.ps1 : build plateforme (dotnet build src/Liakont.sln)
+         + build agent (dotnet build agent/Liakont.Agent.sln -p:Platform=x86) + tests unitaires
          des deux côtés + tests d'architecture (NetArchTest). Doit échouer (exit != 0) si un
          build ou un test échoue — pas de faux verts.
          + Contrôle de provenance : tout fichier Stratum.* modifié (vs le commit source consigné)
@@ -165,7 +165,7 @@ items:
     description: |
       Rédiger les documents de conventions dans docs/architecture/ :
       1. repo-standards.md : conventions C# (.editorconfig appliqué — celui du socle Stratum),
-         nommage (Conformat.* vs Stratum.* vendored), structure des dossiers (src/ plateforme,
+         nommage (Liakont.* vs Stratum.* vendored), structure des dossiers (src/ plateforme,
          agent/, deploy/, deployments/), conventions de commit, règles de PR.
       2. module-rules.md : les frontières du blueprint.md §6 —
          - inter-modules : uniquement via Contracts (NetArchTest)
@@ -199,24 +199,24 @@ items:
       Créer l'infrastructure de tests E2E de la plateforme — prérequis de TOUS les items
       blazor-page-item (WEB01-09, SUP02, OPS03). Décision D3 du 2026-06-03 : les E2E sont une
       suite SÉPARÉE, exécutée par un script dédié, jamais par run-tests.ps1.
-      1. tests/Conformat.Tests.E2E/ : projet xUnit (Category=E2E) adapté du harness Stratum
+      1. tests/Liakont.Tests.E2E/ : projet xUnit (Category=E2E) adapté du harness Stratum
          (tests/Stratum.Tests.E2E — hors périmètre du vendoring SOL01 qui ne copie que src/) :
          - Factory de test qui démarre PostgreSQL + Keycloak via Testcontainers
-           (équivalent de KeycloakE2EWebFactory adapté au realm Conformat)
-         - Fixture de realm : realm conformat-dev + utilisateurs de test par rôle (seed SOL01)
+           (équivalent de KeycloakE2EWebFactory adapté au realm Liakont)
+         - Fixture de realm : realm liakont-dev + utilisateurs de test par rôle (seed SOL01)
          - Page Object Model de base : login Keycloak, navigation shell
          - Installation des navigateurs Playwright (playwright install) intégrée au setup
       2. tools/run-e2e.ps1 : démarre l'infra (Testcontainers via le projet de test), exécute
          dotnet test --filter Category=E2E, échoue si les prérequis manquent (Docker absent,
          navigateurs non installés) avec un message explicite — JAMAIS de skip silencieux.
-      3. Un test E2E de preuve : login + affichage du shell Conformat.Host (sera enrichi par
+      3. Un test E2E de preuve : login + affichage du shell Liakont.Host (sera enrichi par
          chaque item blazor-page-item).
       4. Documentation dans testing-strategy.md (SOL04) : quand/comment lancer run-e2e.ps1,
          prérequis, lien avec le blueprint blazor-page-item.
       Provenance : le harness adapté de Stratum.Tests.E2E est consigné dans
       provenance-socle-stratum.md (adaptation, pas copie brute).
     acceptance:
-      - "tests/Conformat.Tests.E2E compile et le test de preuve (login + shell) passe via tools/run-e2e.ps1"
+      - "tests/Liakont.Tests.E2E compile et le test de preuve (login + shell) passe via tools/run-e2e.ps1"
       - "run-e2e.ps1 échoue avec message explicite si Docker ou les navigateurs Playwright manquent"
       - "Les tests E2E sont Category=E2E, exclus de run-tests.ps1 et de verify-fast.ps1"
       - "Harness consigné dans provenance-socle-stratum.md"
@@ -224,7 +224,7 @@ items:
       - "codex-review clean or only accepted P2s"
 
   SOL06:
-    title: "Mécanique de jobs multi-tenant (extension Conformat du module Job vendored)"
+    title: "Mécanique de jobs multi-tenant (extension Liakont du module Job vendored)"
     description: |
       Le module Job du socle Stratum crée un scope SANS résolution de tenant (constat review
       2026-06-03 : aucune référence à ITenantContext dans le module, tables dans la base système).
@@ -267,6 +267,6 @@ items:
       Party.Contracts — décision D1), frontières agent/plateforme en place.
     acceptance:
       - "Tous les items SOL sont done"
-      - "Conformat.Host démarre et la console web s'affiche (login Keycloak dev)"
+      - "Liakont.Host démarre et la console web s'affiche (login Keycloak dev)"
       - "Le test E2E de preuve passe via tools/run-e2e.ps1"
       - "PR du segment feat/socle-v6 revue et mergée dans main"

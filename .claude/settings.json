@@ -3,6 +3,6 @@
     "defaultMode": "bypassPermissions"
   },
   "env": {
-    "ORCH_REPO": "C:\\Source\\conformat-orchestration"
+    "ORCH_REPO": "C:\\Source\\liakont-orchestration"
   }
 }

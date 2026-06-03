@@ -1,15 +1,15 @@
 ﻿#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Full test suite for Conformat: unit + integration tests (platform + agent x86/x64).
+    Full test suite for Liakont: unit + integration tests (platform + agent x86/x64).
 .DESCRIPTION
     Writes detailed log to .run-tests.log, prints a compact summary to stdout.
     Exit code 0 = all passed, non-zero = failure.
 
     Two solutions (blueprint.md v2 §4):
-      - Platform : src/Conformat.sln          (unit + integration Testcontainers PostgreSQL +
+      - Platform : src/Liakont.sln          (unit + integration Testcontainers PostgreSQL +
                                                contract tests)
-      - Agent    : agent/Conformat.Agent.sln  (unit + integration on fixtures — x86 AND x64)
+      - Agent    : agent/Liakont.Agent.sln  (unit + integration on fixtures — x86 AND x64)
 
     Suites excluded from this script:
     - Category=E2E     (Playwright — separate suite run by tools/run-e2e.ps1, decision D3 2026-06-03)
@@ -25,8 +25,8 @@
 $ErrorActionPreference = 'Continue'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$platformSln = Join-Path $repoRoot 'src\Conformat.sln'
-$agentSln = Join-Path $repoRoot 'agent\Conformat.Agent.sln'
+$platformSln = Join-Path $repoRoot 'src\Liakont.sln'
+$agentSln = Join-Path $repoRoot 'agent\Liakont.Agent.sln'
 $logFile = Join-Path $repoRoot '.run-tests.log'
 
 "run-tests started at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Set-Content $logFile
@@ -38,7 +38,7 @@ $logFile = Join-Path $repoRoot '.run-tests.log'
 function Test-SolItemPending {
     param([string]$ItemId)
     $orchRepo = $env:ORCH_REPO
-    if (-not $orchRepo) { $orchRepo = 'C:\Source\conformat-orchestration' }
+    if (-not $orchRepo) { $orchRepo = 'C:\Source\liakont-orchestration' }
     $statePath = Join-Path $orchRepo 'state.yaml'
     if (-not (Test-Path $statePath)) {
         throw "Orchestration state not found ($statePath). state.yaml is mandatory (protocol.md Step 1) - set ORCH_REPO to the state repo. NEVER recreate state.yaml (absent items = done items)."

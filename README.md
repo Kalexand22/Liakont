@@ -1,8 +1,8 @@
-# Conformat
+# Liakont
 
 **Passerelle de conformité facturation électronique pour logiciels métier legacy.**
 
-Conformat est une Solution Compatible (SC) qui permet à un logiciel métier legacy
+Liakont est une Solution Compatible (SC) qui permet à un logiciel métier legacy
 (Magic XPA/Pervasive, AS400, vieux SQL Server, Access...) de répondre aux obligations
 de la réforme française de facturation électronique (e-invoicing / e-reporting,
 échéances septembre 2026 et 2027) **sans modifier le logiciel source** :
@@ -38,7 +38,7 @@ tests/                  — Tests (à produire)
 
 ## Architecture cible (résumé)
 
-Conformat est un **produit générique** avec deux axes de plug-ins symétriques :
+Liakont est un **produit générique** avec deux axes de plug-ins symétriques :
 les **sources** (IExtractor) et les **Plateformes Agréées** (IPaClient + capacités).
 Toute donnée client est du **paramétrage** (`deployments/<client>/`), jamais du code.
 
@@ -74,9 +74,9 @@ Voir `blueprint.md` pour la doctrine complète.
 Le développement est piloté par un système d'orchestration multi-agents (principe Stratum) :
 
 - **Ce dépôt** contient le backlog, les blueprints d'exécution et le code.
-- **`C:\Source\conformat-orchestration`** (dépôt séparé, `$ORCH_REPO`) contient l'état
+- **`C:\Source\liakont-orchestration`** (dépôt séparé, `$ORCH_REPO`) contient l'état
   runtime : statuts des items, leases de slots, journal d'événements, logs de sessions.
-- Chaque agent Claude Code tourne dans son propre clone (`Conformat`, `Conformat2`, ...),
+- Chaque agent Claude Code tourne dans son propre clone (`Liakont`, `Liakont2`, ...),
   réclame un slot, prend un item éligible, l'implémente, le vérifie, le fait reviewer,
   le merge et libère son slot.
 
@@ -91,8 +91,8 @@ Lis orchestration/prompt.md et exécute-le.
 ### Suivre l'avancement
 
 - Backlog et dépendances : `orchestration/manifest.yaml`
-- Statuts courants : `C:\Source\conformat-orchestration\state.yaml`
-- Historique : `C:\Source\conformat-orchestration\events.jsonl` et `session-log/`
+- Statuts courants : `C:\Source\liakont-orchestration\state.yaml`
+- Historique : `C:\Source\liakont-orchestration\events.jsonl` et `session-log/`
 
 ## Documents clés
 

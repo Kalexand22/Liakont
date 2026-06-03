@@ -1,7 +1,7 @@
 ﻿#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Assembles scoped context file list for an orchestration work item (Conformat).
+    Assembles scoped context file list for an orchestration work item (Liakont).
 .DESCRIPTION
     Given an item ID from the manifest, resolves the item's lot, then collects relevant
     documentation files the agent should read before starting work.

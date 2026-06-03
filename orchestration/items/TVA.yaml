@@ -40,7 +40,7 @@ items:
       6. RÈGLE MONTANTS/TAUX : colonnes en NUMERIC PostgreSQL, jamais de type flottant —
          round-trip decimal sans perte.
     acceptance:
-      - "MappingTable et MappingRule dans Conformat.Modules.TvaMapping, persistées par tenant"
+      - "MappingTable et MappingRule dans Liakont.Modules.TvaMapping, persistées par tenant"
       - "MappingRule supporte les conditions riches de F03 : part + flags source + taux fixe OU calculé"
       - "Validation structurelle à l'écriture et au chargement (E+0% → VATEX requis)"
       - "Table invalide = exception explicite, jamais de comportement silencieux"

@@ -5,7 +5,7 @@
 # l'intelligence (TVA, validation, états, envoi PA) est sur la plateforme.
 #
 # RÈGLES ABSOLUES (blueprint §6, CLAUDE.md règle 6) :
-#   - L'agent ne référence QUE Conformat.Agent.Contracts, jamais le code plateforme
+#   - L'agent ne référence QUE Liakont.Agent.Contracts, jamais le code plateforme
 #   - Lecture seule stricte de la base source
 #   - HTTPS sortant uniquement (aucune écoute réseau entrante)
 #   - La file locale SQLite est un TAMPON TECHNIQUE, pas une piste d'audit
@@ -14,30 +14,30 @@ items:
   AGT01:
     title: "Service Windows + file locale SQLite + configuration DPAPI"
     description: |
-      Implémenter le cœur de l'agent dans agent/src/Conformat.Agent.Core/ et Conformat.Agent/ :
-      1. File locale SQLite (F12 §2.3) dans Conformat.Agent.Core :
+      Implémenter le cœur de l'agent dans agent/src/Liakont.Agent.Core/ et Liakont.Agent/ :
+      1. File locale SQLite (F12 §2.3) dans Liakont.Agent.Core :
          - push_queue : éléments à pousser (type document/pdf, payload JSON ou chemin fichier,
            tentatives, dernière erreur, horodatage)
          - pushed_log : (source_reference, payload_hash, date ACK) — rétention 90 jours
          - agent_state : filigrane d'extraction, dernière config reçue de la plateforme
-         Mode WAL, fichier dans C:\ProgramData\Conformat\. Purge automatique de pushed_log
+         Mode WAL, fichier dans C:\ProgramData\Liakont\. Purge automatique de pushed_log
          au-delà de 90 jours (ce n'est PAS une table d'audit — la piste d'audit vit sur la
          plateforme, F12 §2.3).
          ACCÈS MULTI-PROCESS (service + CLI) : le service Windows (LocalSystem) et le CLI
          (utilisateur intégrateur) partagent cette base —
-         - verrou inter-process : mutex Windows nommé (Global\ConformatAgentRun) partagé
+         - verrou inter-process : mutex Windows nommé (Global\LiakontAgentRun) partagé
            entre le run planifié (service) et le run manuel (CLI AGT05)
-         - ACL : le répertoire C:\ProgramData\Conformat\ accorde l'écriture au service ET
+         - ACL : le répertoire C:\ProgramData\Liakont\ accorde l'écriture au service ET
            au groupe des intégrateurs (les fichiers -wal/-shm de SQLite exigent l'écriture
            pour TOUS les processus qui ouvrent la base) — posée par l'installeur (OPS05)
       2. Configuration de l'agent (F12 §2.4) : AgentConfig typé chargé depuis
-         C:\ProgramData\Conformat\agent.json — platformUrl, apiKey (chiffré DPAPI),
+         C:\ProgramData\Liakont\agent.json — platformUrl, apiKey (chiffré DPAPI),
          section extraction (adapter, odbcConnectionString chiffré DPAPI, pdfPoolPath,
          schedule, catchUpOnStart), heartbeatMinutes. Validation au chargement avec messages
          opérateur français.
       3. SecretProtector : chiffrement/déchiffrement DPAPI machine scope.
-      4. Service Windows (Conformat.Agent) : ServiceBase + self-install/uninstall
-         (Conformat.Agent.exe install/uninstall), mode --console pour le debug.
+      4. Service Windows (Liakont.Agent) : ServiceBase + self-install/uninstall
+         (Liakont.Agent.exe install/uninstall), mode --console pour le debug.
          Arrêt propre : un run d'extraction en cours se termine avant l'arrêt.
       5. Journalisation fichiers : logs\<date>_agent.log, rotation 90 jours, format horodaté
          lisible, messages français.
@@ -57,8 +57,8 @@ items:
     title: "Contrat IExtractor + run d'extraction + client de push (batching, retries, idempotence)"
     description: |
       Implémenter le contrat d'extraction, le cycle d'extraction et le transport dans
-      Conformat.Agent.Core (F12 §2.2, §3 + F01-F02 §IExtractor) :
-      0. Contrat IExtractor (repris de F01-F02, vit dans Conformat.Agent.Core — les adaptateurs
+      Liakont.Agent.Core (F12 §2.2, §3 + F01-F02 §IExtractor) :
+      0. Contrat IExtractor (repris de F01-F02, vit dans Liakont.Agent.Core — les adaptateurs
          du lot ADP l'implémentent) :
          - ExtractorInfo GetInfo() / HealthCheckResult CheckHealth()
          - IEnumerable<PivotDocumentDto> ExtractDocuments(DateTime from, DateTime to) (streaming)
@@ -155,7 +155,7 @@ items:
          Authenticode (signature du binaire) s'ajoute dès qu'un certificat de signature de
          code est disponible. Le modèle de confiance complet est documenté par ADR.
          → extraire dans un dossier de staging → lancer l'updater (petit exe séparé
-         Conformat.Agent.Updater) → l'updater arrête le service, remplace les binaires,
+         Liakont.Agent.Updater) → l'updater arrête le service, remplace les binaires,
          redémarre le service, journalise.
       3. Échec de mise à jour = rollback (les anciens binaires sont conservés jusqu'au
          redémarrage réussi de la nouvelle version) + signalement au heartbeat suivant.
@@ -184,7 +184,7 @@ items:
   AGT05:
     title: "CLI de diagnostic de l'agent"
     description: |
-      Implémenter agent/src/Conformat.Agent.Cli/ (F12 §2.1) — l'outil d'installation et de
+      Implémenter agent/src/Liakont.Agent.Cli/ (F12 §2.1) — l'outil d'installation et de
       diagnostic utilisé par l'intégrateur/éditeur lors de la mise en service chez un client :
       1. Commandes :
          - check-config : valide agent.json point par point (fichier présent, secrets
@@ -196,7 +196,7 @@ items:
          - encrypt : chiffre une valeur DPAPI pour collage dans agent.json
          - run : déclenche un run d'extraction manuel (le service peut tourner — le run
            manuel et le run planifié partagent le même verrou local : mutex Windows nommé
-           Global\ConformatAgentRun, défini en AGT01)
+           Global\LiakontAgentRun, défini en AGT01)
          - show-queue : affiche l'état de la push_queue (éléments en attente, en erreur)
          - version : version de l'agent et du contrat
       2. Messages 100 % français, orientés intégrateur (« Le pilote ODBC Pervasive 32-bit
@@ -219,7 +219,7 @@ items:
     description: |
       Validation humaine de l'agent. Démonstration attendue : un agent installé (service
       Windows) extrait des fixtures via le FixtureExtractor (PIV03), les pousse vers une
-      plateforme de dev (Conformat.Host local), heartbeat visible, coupure réseau simulée
+      plateforme de dev (Liakont.Host local), heartbeat visible, coupure réseau simulée
       sans perte de données, CLI de diagnostic déroulé.
       Points de vigilance : aucune logique métier dans l'agent, lecture seule stricte,
       aucune donnée perdue sur coupure, secrets DPAPI.

@@ -1,5 +1,5 @@
 # F12 — Architecture plateforme & agent — Contrat d'ingestion, supervision, déploiement
-### Document de conception — Conformat.Host / Conformat.Modules.Ingestion / Conformat.Agent
+### Document de conception — Liakont.Host / Liakont.Modules.Ingestion / Liakont.Agent
 
 > Statut : 🟨 conception interne issue du pivot d'architecture (2026-06-03). À revoir ensemble.
 > Référence : `blueprint.md` v2 (doctrine), `tasks/analyse-impact-pivot-plateforme.md` (décision),
@@ -24,17 +24,17 @@ Ce document spécifie ce que le blueprint v2 ne fait que cadrer :
 Les specs métier (F01-F09) restent la référence pour le contenu des données ; F12 décrit
 **comment elles circulent et où elles vivent**.
 
-## 2. L'agent (`Conformat.Agent`, .NET Framework 4.8)
+## 2. L'agent (`Liakont.Agent`, .NET Framework 4.8)
 
 ### 2.1 Composants
 
 | Projet | Rôle |
 |---|---|
-| `Conformat.Agent` | Service Windows : planification locale, boucle de push, heartbeat |
-| `Conformat.Agent.Core` | IExtractor (contrat), file locale SQLite, client HTTP, config DPAPI |
-| `Conformat.Agent.Adapters.EncheresV6` | Plug-in source #1 (ODBC Pervasive, x86) |
-| `Conformat.Agent.Cli` | Diagnostic : `check-config`, `test-odbc`, `test-api`, `run` manuel, `show-queue` |
-| `Conformat.Agent.Contracts` | (référencé, pas contenu — vit dans `src/Contracts/`, netstandard2.0) DTOs du contrat |
+| `Liakont.Agent` | Service Windows : planification locale, boucle de push, heartbeat |
+| `Liakont.Agent.Core` | IExtractor (contrat), file locale SQLite, client HTTP, config DPAPI |
+| `Liakont.Agent.Adapters.EncheresV6` | Plug-in source #1 (ODBC Pervasive, x86) |
+| `Liakont.Agent.Cli` | Diagnostic : `check-config`, `test-odbc`, `test-api`, `run` manuel, `show-queue` |
+| `Liakont.Agent.Contracts` | (référencé, pas contenu — vit dans `src/Contracts/`, netstandard2.0) DTOs du contrat |
 
 ### 2.2 Cycle d'un run d'extraction (local, planifié)
 
@@ -76,9 +76,9 @@ Les specs métier (F01-F09) restent la référence pour le contenu des données 
 ### 2.4 Configuration de l'agent (fichier local)
 
 ```jsonc
-// C:\ProgramData\Conformat\agent.json
+// C:\ProgramData\Liakont\agent.json
 {
-  "platformUrl": "https://conformat.editeur-x.fr",
+  "platformUrl": "https://liakont.editeur-x.fr",
   "apiKey": "<chiffré DPAPI machine scope — jamais en clair>",
   "extraction": {
     "adapter": "EncheresV6",
@@ -92,7 +92,7 @@ Les specs métier (F01-F09) restent la référence pour le contenu des données 
 ```
 
 - Les secrets (clé API, chaîne ODBC) sont chiffrés **DPAPI machine scope** par
-  `Conformat.Agent.Cli encrypt` lors de l'installation.
+  `Liakont.Agent.Cli encrypt` lors de l'installation.
 - La planification **effective** peut être pilotée par la plateforme (§3.2 `GET configuration`) :
   le fichier local est le défaut/secours, la plateforme peut la surcharger (pilotage centralisé).
 
@@ -123,7 +123,7 @@ Les specs métier (F01-F09) restent la référence pour le contenu des données 
 
 | Principe | Mise en œuvre |
 |---|---|
-| **Versionné** | Préfixe d'URL `/api/agent/v1/` + version du contrat dans `Conformat.Agent.Contracts`. La plateforme supporte N et N-1 |
+| **Versionné** | Préfixe d'URL `/api/agent/v1/` + version du contrat dans `Liakont.Agent.Contracts`. La plateforme supporte N et N-1 |
 | **Authentifié** | Header `X-Agent-Key: <prefix>.<secret>` — la plateforme ne stocke que prefix + hash (modèle ApiKey du socle). Une clé = UN agent = UN tenant |
 | **Idempotent** | Re-pousser un document déjà reçu (même `payload_hash`) → 200 `duplicate`, aucun effet |
 | **Par lots** | Push par batch (max 100 documents), résultat individuel par document, lot NON transactionnel |
@@ -150,7 +150,7 @@ Les specs métier (F01-F09) restent la référence pour le contenu des données 
 | 426 | Version d'agent non supportée | Déclenche l'auto-update |
 | 429/5xx | Surcharge / indisponibilité | Backoff exponentiel, les éléments restent en file |
 
-### 3.4 DTOs (assemblage `Conformat.Agent.Contracts`, netstandard2.0)
+### 3.4 DTOs (assemblage `Liakont.Agent.Contracts`, netstandard2.0)
 
 - `PivotDocumentDto` (+ lignes, taxes, parties, totaux) — structure définie par **F01-F02**,
   sérialisation JSON canonique (ordre de propriétés stable → hash reproductible).
@@ -227,9 +227,9 @@ de l'instance.
 ```yaml
 # deploy/docker/docker-compose.yml (structure cible)
 services:
-  conformat:        # Conformat.Host (.NET 10)
+  liakont:        # Liakont.Host (.NET 10)
   postgres:         # PostgreSQL 16+ (volumes persistants)
-  keycloak:         # Keycloak + realm Conformat importé au démarrage
+  keycloak:         # Keycloak + realm Liakont importé au démarrage
 # + reverse proxy / TLS selon l'environnement (Caddy/Traefik ou celui de l'hébergeur)
 ```
 

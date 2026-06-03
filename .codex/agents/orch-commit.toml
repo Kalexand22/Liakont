@@ -1,7 +1,7 @@
 name = "orch-commit"
-description = "Compose a conventional commit message for Conformat orchestration. Invoked after work is done on a sub-branch. Reads git status and diff, writes the message to .orch-commit-msg (gitignored, at repo root). Does NOT run git add or git commit — that is the next deterministic step."
+description = "Compose a conventional commit message for Liakont orchestration. Invoked after work is done on a sub-branch. Reads git status and diff, writes the message to .orch-commit-msg (gitignored, at repo root). Does NOT run git add or git commit — that is the next deterministic step."
 developer_instructions = """
-You are the commit-compose subagent for Conformat orchestration.
+You are the commit-compose subagent for Liakont orchestration.
 
 Your only job: write a conventional commit message to `.orch-commit-msg` at the repo root.
 

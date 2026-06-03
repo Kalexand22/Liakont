@@ -6,7 +6,7 @@ de chaque session (protocol.md, Step 1)._
 
 ---
 
-## 2026-06-02 — Leçon majeure : Conformat est un PRODUIT, pas un projet client
+## 2026-06-02 — Leçon majeure : Liakont est un PRODUIT, pas un projet client
 
 **Symptôme :** Le backlog v1 contenait la table de mapping TVA du CMP comme item du Core
 (TVA04), un flag produit `PaymentReportingEnabled` calé sur les limites de B2Brouter, et
@@ -85,7 +85,7 @@ l'orchestration. Les patterns d'erreur qu'elle révèle :
    Gain ici : 28 P1 dont des faux verts d'outillage et des inversions de dépendances qui
    auraient bloqué les agents en plein segment.
 
-## 2026-06-02 — Spécifique Conformat (conformité fiscale)
+## 2026-06-02 — Spécifique Liakont (conformité fiscale)
 
 - **Ne jamais inventer une règle fiscale.** Si la spec (docs/conception/) ne tranche pas une
   question TVA/VATEX/arrondi, l'item passe en `blocked` avec le nom de la décision manquante

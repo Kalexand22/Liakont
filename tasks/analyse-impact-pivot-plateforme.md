@@ -12,7 +12,7 @@ L'architecture on-premise (service Windows + console WPF + tracking SQLite chez 
 est remplacée par :
 
 ```
-CLIENT FINAL                          PLATEFORME CONFORMAT (web, .NET 10, socle Stratum)
+CLIENT FINAL                          PLATEFORME LIAKONT (web, .NET 10, socle Stratum)
 ┌──────────────────────────┐          ┌─────────────────────────────────────────────────┐
 │ Serveur legacy (vieux OK) │          │  Multi-tenant (1 tenant = 1 client final)        │
 │  ┌─────────────────────┐ │  HTTPS   │  ├─ Pivot EN 16931 (contrat d'API)               │
@@ -62,7 +62,7 @@ IT Innovations ne voit jamais le parc d'un éditeur self-hosted ou dédié.
 | SOL02 (commit e3edd92) | GitHub Actions CI + docs outillage de vérification | 🟡 Partiellement transposable (les principes CI/DoD restent, les commandes de build changent) |
 | SOL03 (commit bd6d33a) | Docs d'architecture du repo (repo-standards) | 🟡 Partiellement transposable |
 | **PR #1 (GATE_SOCLE)** | PR du segment socle en attente de validation humaine | ❗ **NE PAS MERGER — à fermer avec un commentaire renvoyant à cette analyse** |
-| state.yaml (conformat-orchestration) | SOL01/02/03 done, GATE_SOCLE gate_pending | À réinitialiser lors du passage au manifest v6 |
+| state.yaml (liakont-orchestration) | SOL01/02/03 done, GATE_SOCLE gate_pending | À réinitialiser lors du passage au manifest v6 |
 
 **Perte sèche : ~2-3 sessions.** Le pivot intervient avant le démarrage du métier — c'est le
 meilleur moment possible (après, chaque lot métier livré en net48 aurait été à re-livrer).
@@ -138,7 +138,7 @@ Légende : 🟢 transposé (la spec de l'item reste valide, le runtime/stockage 
 
 ## 5. Ce que le socle Stratum fournit (vérifié sur pièce le 2026-06-03)
 
-| Besoin Conformat | Fourni par Stratum | État |
+| Besoin Liakont | Fourni par Stratum | État |
 |---|---|---|
 | Multi-tenancy (isolation physique par tenant) | `ITenantContext` + connection factory tenant-aware (ADR-0011 database-per-tenant) | ✅ Direct |
 | Auth utilisateurs + 3 niveaux de droits (lecture/actions/paramétrage) | Keycloak OIDC + module Identity (RBAC par permissions, `PermissionPolicyProvider`) | ✅ Direct |
@@ -152,31 +152,31 @@ Légende : 🟢 transposé (la spec de l'item reste valide, le runtime/stockage 
 | Tests E2E navigateur | Playwright (infra existante) | ✅ Direct — **impossible avec WPF**, gros gain |
 | Pattern modulaire éprouvé | Contracts/Domain/Application/Infrastructure/Web par module | ✅ Le module « Conformité » suit le pattern |
 
-### Ce qui MANQUE dans Stratum (devient du travail Conformat)
+### Ce qui MANQUE dans Stratum (devient du travail Liakont)
 
 | Manque | Conséquence |
 |---|---|
 | ❌ Dockerfile / appliance | OPS01 |
 | ❌ Branding multi-instance (titre « Stratum ERP » et thème en dur) | BRD01 |
 | ❌ Provisioning d'instances outillé | OPS02 |
-| ❌ Modules enregistrés en dur dans `AppBootstrap.cs` (pas de découverte/configuration) | Le Host Conformat est une **copie adaptée** du Host Stratum (risque de divergence à documenter) |
+| ❌ Modules enregistrés en dur dans `AppBootstrap.cs` (pas de découverte/configuration) | Le Host Liakont est une **copie adaptée** du Host Stratum (risque de divergence à documenter) |
 | ✅ (non bloquant) Hiérarchie de tenants absente (tenants plats) | **Pas nécessaire** : avec le modèle instance-par-éditeur, les tenants d'une instance = clients finaux, à plat |
 
 ---
 
 ## 6. Question structurante : où vit le code de la plateforme ?
 
-Stratum est un produit (ERP) avec sa propre vie. Conformat en réutilise le socle. Quatre options :
+Stratum est un produit (ERP) avec sa propre vie. Liakont en réutilise le socle. Quatre options :
 
 | Option | Description | Pour | Contre |
 |---|---|---|---|
-| A — Modules Conformat dans Stratum.Host | La passerelle devient des modules de l'ERP | Réutilisation maximale | ❌ Le déploiement Conformat embarque Sales/Reservation/Tourisme (poids mort, surface d'attaque), releases couplées, confusion commerciale. **Rejetée** |
-| B — Conformat.Host séparé DANS le repo Stratum | Deux Hosts, un repo | Références projet directes, architecture tests existants | ❌ L'orchestration/docs/specs Conformat vivent dans le repo Conformat → orchestration cross-repo non gérée par le protocole ; cycles de vie couplés |
-| **C — Code plateforme dans le repo Conformat, socle Stratum copié (vendored)** | Copier Common/* + modules autonomes (Identity, Job, Notification, Audit) avec note de provenance | ✅ Tout au même endroit pour l'orchestration multi-agents (critique) ; liberté d'adaptation (branding, provisioning) sans risquer l'ERP ; zéro infra de packaging sous contrainte de délai | ❌ Divergence : les correctifs socle ne se propagent pas automatiquement entre les deux produits |
-| D — Code plateforme dans le repo Conformat, socle Stratum en packages NuGet | Stratum publie Stratum.Common.* sur GitHub Packages | Propre, pas de divergence silencieuse | ❌ Infrastructure de packaging à monter + friction de version à chaque évolution du socle (et Conformat VA demander des évolutions du socle : branding, API keys, provisioning) |
+| A — Modules Liakont dans Stratum.Host | La passerelle devient des modules de l'ERP | Réutilisation maximale | ❌ Le déploiement Liakont embarque Sales/Reservation/Tourisme (poids mort, surface d'attaque), releases couplées, confusion commerciale. **Rejetée** |
+| B — Liakont.Host séparé DANS le repo Stratum | Deux Hosts, un repo | Références projet directes, architecture tests existants | ❌ L'orchestration/docs/specs Liakont vivent dans le repo Liakont → orchestration cross-repo non gérée par le protocole ; cycles de vie couplés |
+| **C — Code plateforme dans le repo Liakont, socle Stratum copié (vendored)** | Copier Common/* + modules autonomes (Identity, Job, Notification, Audit) avec note de provenance | ✅ Tout au même endroit pour l'orchestration multi-agents (critique) ; liberté d'adaptation (branding, provisioning) sans risquer l'ERP ; zéro infra de packaging sous contrainte de délai | ❌ Divergence : les correctifs socle ne se propagent pas automatiquement entre les deux produits |
+| D — Code plateforme dans le repo Liakont, socle Stratum en packages NuGet | Stratum publie Stratum.Common.* sur GitHub Packages | Propre, pas de divergence silencieuse | ❌ Infrastructure de packaging à monter + friction de version à chaque évolution du socle (et Liakont VA demander des évolutions du socle : branding, API keys, provisioning) |
 
 **Recommandation : Option C maintenant, convergence vers D plus tard** (quand les besoins socle
-de Conformat seront stabilisés et reversés dans Stratum). La copie est datée et tracée
+de Liakont seront stabilisés et reversés dans Stratum). La copie est datée et tracée
 (`docs/architecture/provenance-socle-stratum.md` : version, date, fichiers, écarts).
 
 ⚠️ **Décision à valider par Karl** — c'est une décision de propriété et de cycle de vie du code,
@@ -202,10 +202,10 @@ pas une décision technique.
 | # | Question | Propriétaire | Impact |
 |---|---|---|---|
 | 1 | **CMP : tenant mutualisé ou instance dédiée/on-premise ?** | ISATECH/CMP | Dimensionne le lot CMP et l'urgence d'OPS01 (appliance) |
-| 2 | ~~Où vit le code plateforme ?~~ **TRANCHÉ (2026-06-03)** : repo Conformat, socle Stratum vendored (option C) | Karl | Structure du repo, démarrage du scaffold |
+| 2 | ~~Où vit le code plateforme ?~~ **TRANCHÉ (2026-06-03)** : repo Liakont, socle Stratum vendored (option C) | Karl | Structure du repo, démarrage du scaffold |
 | 3 | **Hébergeur des instances hébergées** (OVH, Scaleway, autre) | Karl | OPS02, contrats, RGPD |
 | 4 | **Auth : Keycloak par instance, Keycloak mutualisé, ou alternative ?** | ADR (début du dev) | OPS01/OPS02, empreinte par instance |
-| 5 | ~~Nommage des projets~~ **TRANCHÉ (2026-06-03)** : **Conformat.*** | Karl | Scaffold v2 (SOL01 v6) |
+| 5 | ~~Nommage des projets~~ **TRANCHÉ (2026-06-03)** : **Liakont.*** | Karl | Scaffold v2 (SOL01 v6) |
 | 6 | ~~Sort de la PR #1~~ **TRANCHÉ (2026-06-03)** : fermée sans merge | Karl | Propreté de l'historique |
 
 ---
@@ -225,7 +225,7 @@ Dans l'ordre :
    (`wpf-screen-item` → `blazor-page-item`, nouveau `agent-item`, etc.)
 7. Adapter l'outillage (`verify-fast.ps1`, `run-tests.ps1` : build .NET 10 + build agent x86 net48,
    tests Playwright)
-8. Réinitialiser `state.yaml` (v6) dans conformat-orchestration
+8. Réinitialiser `state.yaml` (v6) dans liakont-orchestration
 9. Relancer l'orchestration
 
 **Estimation du travail de préparation : ~4-6 sessions interactives** (comparable à ce qui a été

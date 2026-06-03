@@ -1,4 +1,4 @@
-# Conformat — Instructions de travail (Claude Code)
+# Liakont — Instructions de travail (Claude Code)
 
 ## Orchestration Mode
 
@@ -69,7 +69,7 @@ For normal interactive sessions (human-driven), ignore orchestration files entir
 
 ## Règles métier non négociables (produit de conformité fiscale)
 
-Conformat transmet des données fiscales à l'administration via des Plateformes Agréées.
+Liakont transmet des données fiscales à l'administration via des Plateformes Agréées.
 Une erreur ici engage la responsabilité fiscale du client. Ces règles sont des **P1
 automatiques en review** :
 
@@ -87,7 +87,7 @@ automatiques en review** :
    - Un plug-in PA ne référence que `Transmission.Contracts` (+ Common), jamais un autre
      plug-in ni un module métier
    - Un module n'accède à un autre module que par ses **Contracts** (NetArchTest l'impose)
-   - L'agent ne référence que `Conformat.Agent.Contracts`, jamais le code plateforme
+   - L'agent ne référence que `Liakont.Agent.Contracts`, jamais le code plateforme
    - **L'agent n'a AUCUNE logique métier** (pas de TVA, pas de validation, pas de machine à états)
    - Le module `Archive` ne dépend que de l'abstraction `IArchiveStore` à capacités, jamais
      d'un backend de stockage concret (`if (store is S3)` interdit ; V1 = FileSystem +

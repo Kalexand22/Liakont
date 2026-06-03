@@ -2,7 +2,7 @@
 # Specs : docs/conception/F10 (contenu fonctionnel), F12 (architecture), F06/F07 (actions documents)
 # Architecture : les endpoints vivent dans le projet Web de chaque module (pattern Stratum,
 # MapGroup /api/v1/), protégés par les permissions du module Identity (3 niveaux :
-# conformat.read / conformat.actions / conformat.settings). Les pages Blazor (lot WEB)
+# liakont.read / liakont.actions / liakont.settings). Les pages Blazor (lot WEB)
 # consomment les MÊMES handlers MediatR — les endpoints REST servent l'intégration
 # et les clients externes.
 #
@@ -27,7 +27,7 @@ items:
          (version, validateur, état de validation), capacités du/des PA configurés, capacités
          de l'agent/adaptateur (la console en a besoin pour afficher ou masquer l'écran
          Réconciliation).
-      6. Tous les endpoints : permission conformat.read minimum, tenant résolu depuis le
+      6. Tous les endpoints : permission liakont.read minimum, tenant résolu depuis le
          contexte utilisateur (un utilisateur appartient à un tenant — mapping via Identity),
          pagination, codes d'erreur uniformes.
       7. Tests d'intégration in-process (WebApplicationFactory + Testcontainers) :
@@ -35,7 +35,7 @@ items:
          ne voit jamais les documents du tenant B), secrets masqués.
     acceptance:
       - "Les 5 familles d'endpoints de lecture opérationnelles"
-      - "Permission conformat.read appliquée, 403 sans elle"
+      - "Permission liakont.read appliquée, 403 sans elle"
       - "Isolation tenant vérifiée par test sur chaque endpoint"
       - "Secrets toujours masqués dans /settings"
       - "Pagination et filtres testés"
@@ -46,7 +46,7 @@ items:
   API02:
     title: "Endpoints d'action sur les documents"
     description: |
-      Implémenter les actions (permission conformat.actions) dans Documents.Web / Pipeline :
+      Implémenter les actions (permission liakont.actions) dans Documents.Web / Pipeline :
       1. POST /api/v1/documents/{id}/send → envoi d'un document ReadyToSend.
       2. POST /api/v1/documents/send-all → envoi de tous les ReadyToSend du tenant.
          Avec ?confirm=false : retourne le récapitulatif (nombre + montant total) SANS exécuter ;
@@ -70,7 +70,7 @@ items:
          de l'opérateur. Tests d'intégration : chaque action, droits (lecture seule → 403),
          motif obligatoire, supersede vers un document inexistant (refus), isolation tenant.
     acceptance:
-      - "Toutes les actions opérationnelles avec permission conformat.actions"
+      - "Toutes les actions opérationnelles avec permission liakont.actions"
       - "send-all : récapitulatif avant exécution (confirm=false/true)"
       - "resolve-manually : motif obligatoire, transition ManuallyHandled, journalisé"
       - "supersede : remplaçant existant requis, ancien document Superseded avec lien"
@@ -92,15 +92,15 @@ items:
          être volumineux), pas de matérialisation complète en mémoire.
       3. GET /api/v1/tenant-export → RÉVERSIBILITÉ (F12 §6.3, décision 2026-06-03) :
          export COMPLET du tenant — tracking + archive + paramétrage + journal — le dossier
-         que le client emporte s'il quitte la plateforme. Permission conformat.settings.
+         que le client emporte s'il quitte la plateforme. Permission liakont.settings.
          (L'outillage opérateur de cette réversibilité est OPS06 ; ici c'est l'endpoint.)
       4. POST /api/v1/archive/verify → vérification d'intégrité À LA DEMANDE de TOUT le coffre
          du tenant (ArchiveVerifier TRK06) : exécute la vérification complète (hashes, chaînage,
-         preuves d'ancrage) et retourne le rapport. Permission conformat.read. Exposé par le
+         preuves d'ancrage) et retourne le rapport. Permission liakont.read. Exposé par le
          bouton « Vérifier l'intégrité de l'archive » de WEB04. Équivalent v6 de la commande
          verify-archive du backlog v5.
-      5. Permission : audit-export = conformat.read (consulter ses propres preuves) ;
-         tenant-export = conformat.settings.
+      5. Permission : audit-export = liakont.read (consulter ses propres preuves) ;
+         tenant-export = liakont.settings.
       6. Tests d'intégration : export document, export période, export tenant complet,
          vérification d'archive complète (chaîne saine + chaîne altérée), contenu du zip
          vérifié (manifest, notice), isolation tenant, streaming (pas d'OOM sur un gros
@@ -127,19 +127,19 @@ items:
          - POST /api/v1/settings/tva-mapping/validate → marquer la table validée (validatedBy)
          Toute mutation passe par le moteur d'édition TVA05 : invalidation automatique de la
          validation, changelog append-only, identité de l'opérateur journalisée.
-         Permission : conformat.settings (un utilisateur « actions » ne peut pas éditer).
+         Permission : liakont.settings (un utilisateur « actions » ne peut pas éditer).
       2. Réconciliation PDF (s'appuie sur TRK07) :
          - GET /api/v1/reconciliation → file d'attente (propositions à confirmer, PDF orphelins,
            documents émis sans PDF)
          - GET /api/v1/reconciliation/{proposalId}/pdf → contenu du PDF (affichage navigateur)
          - POST /api/v1/reconciliation/{proposalId}/confirm | /reject
          - POST /api/v1/reconciliation/link → lien manuel PDF ↔ document
-         Permission : conformat.actions.
+         Permission : liakont.actions.
       3. Tests d'intégration : édition autorisée/refusée (403 selon permission), invalidation
          après mutation, changelog, confirmation/rejet/lien réconciliation, isolation tenant.
     acceptance:
       - "Endpoints tva-mapping opérationnels, mutations via le moteur TVA05 uniquement"
-      - "Permission conformat.settings requise pour la table TVA (testé : actions → 403)"
+      - "Permission liakont.settings requise pour la table TVA (testé : actions → 403)"
       - "Endpoints réconciliation opérationnels (file, PDF, confirmation, rejet, lien manuel)"
       - "Toute mutation journalisée avec l'identité de l'opérateur"
       - "Tests d'intégration complets, isolation tenant"
@@ -161,7 +161,7 @@ items:
       4. POST /api/v1/agents/{id}/rotate-key → rotation de clé : nouvelle clé retournée une
          seule fois, l'ancienne reste valide pendant une fenêtre de recouvrement configurable
          (le temps de reconfigurer l'agent), puis est invalidée.
-      5. Permission : conformat.settings (gestion de secrets). Toute opération journalisée
+      5. Permission : liakont.settings (gestion de secrets). Toute opération journalisée
          (module Audit) avec l'identité de l'opérateur.
       6. Tests d'intégration : liste, enregistrement (clé une seule fois), révocation (l'agent
          révoqué reçoit 401 au push suivant), rotation (recouvrement puis invalidation),
@@ -171,7 +171,7 @@ items:
       - "La clé API n'est JAMAIS récupérable après sa première restitution"
       - "Révocation effective : la clé révoquée est rejetée à l'ingestion (testé de bout en bout)"
       - "Rotation avec fenêtre de recouvrement testée"
-      - "Permission conformat.settings + journalisation de chaque opération"
+      - "Permission liakont.settings + journalisation de chaque opération"
       - "Tests d'intégration : tout le cycle de vie, permissions, isolation tenant"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"

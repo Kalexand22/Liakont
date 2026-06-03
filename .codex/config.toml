@@ -2,4 +2,4 @@
 inherit = "core"
 
 [shell_environment_policy.set]
-ORCH_REPO = 'C:\Source\conformat-orchestration'
+ORCH_REPO = 'C:\Source\liakont-orchestration'

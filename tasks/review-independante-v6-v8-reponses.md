@@ -89,7 +89,7 @@ Légende : ✅ corrigé · 🔶 corrigé via décision utilisateur · ❌ infirm
 | 18 | OPS02 : migration DbUp mono-base | ✅ | OPS.yaml (OPS02) : boucle multi-bases, échec partiel, blocage des push (503), sauvegarde pré-migration |
 | 19 | OPS01 : coût/empreinte Keycloak non mesuré | ✅ | OPS.yaml (OPS01) : ADR avec mesure heap-bornée avant pricing |
 | 20 | OPS05 : critère x86/x64 non écrit | ✅ | OPS.yaml (OPS05) : x86 par défaut si adaptateur ODBC 32-bit, même bitness service/adaptateurs |
-| 21 | AGT01/AGT05 : verrou SQLite inter-process non défini | ✅ | AGT.yaml : mutex nommé Global\ConformatAgentRun + ACL ProgramData posées par l'installeur (OPS05) |
+| 21 | AGT01/AGT05 : verrou SQLite inter-process non défini | ✅ | AGT.yaml : mutex nommé Global\LiakontAgentRun + ACL ProgramData posées par l'installeur (OPS05) |
 | 22 | OPS01 : restauration jamais testée de bout en bout | ✅ | OPS.yaml (OPS01) : restore → ArchiveVerifier vert en acceptance |
 | 23 | PRA absent (RTO/RPO) | ✅ | OPS.yaml (OPS01) : PRA documenté + testé, lien méta-supervision |
 | 24 | PIV05 : formulation ApiKey induit une réutilisation de table | ✅ | PIV.yaml (PIV05) : pattern uniquement, entité Agent propre scopée tenant |

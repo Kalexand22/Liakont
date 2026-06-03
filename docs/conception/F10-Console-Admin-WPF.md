@@ -1,5 +1,5 @@
 # F10 — Console d'administration (devenue console WEB)
-### Document de conception — ex-Gateway.App, désormais pages Blazor des modules Conformat
+### Document de conception — ex-Gateway.App, désormais pages Blazor des modules Liakont
 
 > Statut : 🟨 rédigé sans deep research (conception interne). À revoir ensemble — c'est le composant le plus visible en démo, vos retours comptent le plus ici.
 > Dernière mise à jour : 2026-06-03

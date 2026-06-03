@@ -1,4 +1,4 @@
-# Conformat — Blueprint d'architecture (v2 — plateforme centralisée)
+# Liakont — Blueprint d'architecture (v2 — plateforme centralisée)
 
 Doctrine d'architecture du produit. Toute décision de code doit pouvoir se justifier
 par rapport à ce document, aux specs `docs/conception/F*.md` ou à un ADR dans `docs/adr/`.
@@ -11,7 +11,7 @@ par rapport à ce document, aux specs `docs/conception/F*.md` ou à un ADR dans 
 
 ## 1. Objectif du produit
 
-Conformat est une **passerelle de conformité facturation électronique GÉNÉRIQUE** entre
+Liakont est une **passerelle de conformité facturation électronique GÉNÉRIQUE** entre
 des logiciels métier legacy (base de données accessible, aucune API) et des **Plateformes
 Agréées (PA)** qui portent le routage, l'interopérabilité et la déclaration fiscale
 (réforme française, échéances septembre 2026 / 2027).
@@ -25,7 +25,7 @@ Agréées (PA)** qui portent le routage, l'interopérabilité et la déclaration
 [CONSOLE WEB]     Comptables (consultation, déblocage, paramétrage) + opérateur (supervision)
 ```
 
-**Ce que Conformat N'EST PAS** :
+**Ce que Liakont N'EST PAS** :
 - Pas une Plateforme Agréée (l'agrément est délégué aux PA partenaires)
 - Pas un ERP (il ne remplace pas le logiciel source)
 - Pas un développement spécifique pour un client (c'est un PRODUIT)
@@ -35,7 +35,7 @@ Agréées (PA)** qui portent le routage, l'interopérabilité et la déclaration
 ## 2. Le principe fondateur : la généricité sur DEUX axes de plug-ins (+ stockage d'archive enfichable)
 
 ```
-                              LE PRODUIT CONFORMAT (générique)
+                              LE PRODUIT LIAKONT (générique)
 
  Plug-ins SOURCE (IExtractor)                                  Plug-ins PA (IPaClient + capacités)
  — vivent dans L'AGENT —              PLATEFORME               — vivent dans LA PLATEFORME —
@@ -95,7 +95,7 @@ Agréées (PA)** qui portent le routage, l'interopérabilité et la déclaration
 - Le **document pivot EN 16931 (JSON)** est le payload du contrat — spec F01-F02.
 - Contrat **versionné** (`v1`, `v2`...) : la plateforme supporte la version N et N-1
   (les agents se mettent à jour moins vite que la plateforme).
-- DTOs partagés dans **`Conformat.Agent.Contracts`** (netstandard2.0, AUCUNE logique),
+- DTOs partagés dans **`Liakont.Agent.Contracts`** (netstandard2.0, AUCUNE logique),
   référencé par l'agent (net48) ET par le module Ingestion (net10).
 - Auth : **clé API par agent** (préfixe + hash, révocable), scopée à UN tenant.
 - Idempotence : re-pousser un document déjà poussé est sans effet (anti-doublon par
@@ -132,11 +132,11 @@ Principe : **c'est la plateforme qui détecte l'absence, pas l'agent qui signale
 ## 4. Structure du dépôt et de la solution
 
 ```
-C:\Source\Conformat\
+C:\Source\Liakont\
 ├─ blueprint.md, CLAUDE.md, AGENTS.md
 ├─ src/                                ★ LA PLATEFORME (.NET 10) — pattern Stratum
 │  ├─ Host/
-│  │  └─ Conformat.Host/               Composition root : Blazor + API + enregistrement
+│  │  └─ Liakont.Host/               Composition root : Blazor + API + enregistrement
 │  │                                   des modules + branding d'instance
 │  ├─ Common/                          ★ SOCLE STRATUM VENDORED (provenance documentée)
 │  │  ├─ Abstractions/                 Stratum.Common.Abstractions
@@ -164,21 +164,21 @@ C:\Source\Conformat\
 │  │  │                                  / file manuelle)
 │  │  └─ Supervision/                  ★ Dead-man's switch, règles d'alerte, dashboard
 │  ├─ PaClients/
-│  │  ├─ Conformat.PaClients.Fake/     ★ Plug-in PA #0 (démo hors-ligne + tests)
-│  │  ├─ Conformat.PaClients.B2Brouter/ ★ Plug-in PA #1
-│  │  └─ Conformat.PaClients.SuperPdp/ ★ Plug-in PA #2 (Offre Éco marque grise)
+│  │  ├─ Liakont.PaClients.Fake/     ★ Plug-in PA #0 (démo hors-ligne + tests)
+│  │  ├─ Liakont.PaClients.B2Brouter/ ★ Plug-in PA #1
+│  │  └─ Liakont.PaClients.SuperPdp/ ★ Plug-in PA #2 (Offre Éco marque grise)
 │  └─ Contracts/
-│     └─ Conformat.Agent.Contracts/    ★ DTOs du contrat agent↔plateforme (netstandard2.0)
+│     └─ Liakont.Agent.Contracts/    ★ DTOs du contrat agent↔plateforme (netstandard2.0)
 │
 ├─ tests/                              Tests plateforme (architecture, unit, integration,
 │                                      contrat PA, contrat agent, E2E Playwright)
 │
 ├─ agent/                              ★ L'AGENT (.NET Framework 4.8) — solution séparée
 │  ├─ src/
-│  │  ├─ Conformat.Agent/              Service Windows : planification locale, push, heartbeat
-│  │  ├─ Conformat.Agent.Core/         IExtractor, buffer SQLite, config DPAPI, client HTTP
-│  │  ├─ Conformat.Agent.Adapters.EncheresV6/  ★ Plug-in source #1 (Magic XPA / Pervasive)
-│  │  └─ Conformat.Agent.Cli/          check-config, test ODBC, test API, run manuel
+│  │  ├─ Liakont.Agent/              Service Windows : planification locale, push, heartbeat
+│  │  ├─ Liakont.Agent.Core/         IExtractor, buffer SQLite, config DPAPI, client HTTP
+│  │  ├─ Liakont.Agent.Adapters.EncheresV6/  ★ Plug-in source #1 (Magic XPA / Pervasive)
+│  │  └─ Liakont.Agent.Cli/          check-config, test ODBC, test API, run manuel
 │  └─ tests/
 │
 ├─ deploy/                             ★ Appliance & opérations
@@ -202,7 +202,7 @@ Le socle Stratum (`src/Common/*` + modules Identity/Job/Notification/Audit) est 
 du dépôt Stratum, tracée dans `docs/architecture/provenance-socle-stratum.md` (commit source,
 date, fichiers copiés). Toute modification locale du code `Stratum.*` est autorisée mais doit
 être **consignée dans ce fichier** (objectif : pouvoir re-converger vers des packages NuGet
-plus tard). Les modules et le Host Conformat suivent les conventions du socle
+plus tard). Les modules et le Host Liakont suivent les conventions du socle
 (Contracts/Domain/Application/Infrastructure/Web, MediatR, Dapper, NetArchTest).
 
 ## 5. Stack technique (décisions actées)
@@ -232,20 +232,20 @@ plus tard). Les modules et le Host Conformat suivent les conventions du socle
 | Module / couche | Responsabilité | Interdit |
 |---|---|---|
 | `Agent.Contracts` | DTOs du contrat agent↔plateforme, versionnés | Toute logique (DTOs purs) |
-| Agent (`Conformat.Agent.*`) | Extraction, buffer, transport, heartbeat | Logique métier (TVA, validation, états), écriture sur la base source, référencer du code plateforme |
+| Agent (`Liakont.Agent.*`) | Extraction, buffer, transport, heartbeat | Logique métier (TVA, validation, états), écriture sur la base source, référencer du code plateforme |
 | Plug-ins source (`Agent.Adapters.*`) | Implémenter IExtractor pour UN logiciel | Écrire/verrouiller la base source, référencer un autre adaptateur |
 | `Ingestion` | Réception pivot/PDF, anti-doublon, gestion des agents et clés | Transformer les données (délégué aux modules métier) |
 | `Documents` | Machine à états, piste d'audit append-only, supersede | Update/delete sur DocumentEvent, purge automatique |
 | `TvaMapping` | Code régime → catégorie/taux/VATEX via table du tenant | Règles en dur, données client embarquées |
 | `Validation` | Détection pré-envoi de tout ce qui serait rejeté | Correction automatique des données |
 | `Transmission` | Contrat IPaClient + capacités, envoi, suivi | Référencer un plug-in PA concret |
-| Plug-ins PA (`Conformat.PaClients.*`) | Implémenter IPaClient pour UNE plateforme | Fuiter leurs types hors de leur assembly, référencer un autre plug-in ou module métier |
+| Plug-ins PA (`Liakont.PaClients.*`) | Implémenter IPaClient pour UNE plateforme | Fuiter leurs types hors de leur assembly, référencer un autre plug-in ou module métier |
 | `Payments` | Agrégats de paiement, e-reporting Flux 10.2/10.4 | — |
 | `Archive` | Coffre WORM, hashes chaînés, ancrage, export/réversibilité ; **`IArchiveStore` à capacités** (FS, S3-compatible ; Azure/GCS fast-follow) | Tout chemin d'update/delete (WORM) ; référencer un backend de stockage concret hors de son implémentation (`if (store is S3)`) |
 | `Reconciliation` | Rapprochement PDF ↔ documents | Lien automatique en confiance moyenne/basse |
 | `Supervision` | Heartbeats, alertes, dashboards | — |
 | Modules Stratum vendored | Identity (auth OIDC **derrière une abstraction d'IdP** — Keycloak ou alternative légère), Job, Notification, Audit | Modification non consignée dans la provenance ; coupler le code à un IdP concret hors de la couche d'auth |
-| `Conformat.Host` | Composition root, branding d'instance, enregistrement modules + plug-ins | Logique métier |
+| `Liakont.Host` | Composition root, branding d'instance, enregistrement modules + plug-ins | Logique métier |
 | Pages Blazor (Web de chaque module) | UI cliente des handlers MediatR | Logique métier dans les pages, accès direct à la base |
 
 **Frontières inter-modules (héritées du socle Stratum, vérifiées par NetArchTest)** :
@@ -337,4 +337,4 @@ plug-ins, le paramétrage et les ADR), mais ils bloquent les mises en production
 - **Nouveaux extracteurs** (AS400, Sage, Access...) : nouveaux plug-ins d'agent.
 - **Nouvelles PA** (Iopole, Seqino...) : nouveaux plug-ins de plateforme.
 - **Re-convergence du socle** : remplacer la copie Stratum par des packages NuGet quand
-  les besoins de Conformat seront stabilisés et reversés dans Stratum.
+  les besoins de Liakont seront stabilisés et reversés dans Stratum.

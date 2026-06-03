@@ -1,12 +1,12 @@
 # Lot PAA — Framework PA : module Transmission (abstraction, capacités, tests de contrat)
 # Spec : docs/conception/F05-Client-API-B2Brouter.md (section abstraction IPaClient)
-# C'EST LE PRODUIT : l'abstraction qui rend Conformat indépendant des Plateformes Agréées.
+# C'EST LE PRODUIT : l'abstraction qui rend Liakont indépendant des Plateformes Agréées.
 # B2Brouter (PAB), Super PDP (PAS) et tout futur PA ne sont que des plug-ins de ce framework.
 #
 # Règle absolue : AUCUNE fonctionnalité du produit ne dépend de ce qu'UN PA sait faire.
 # Chaque plug-in déclare ses capacités ; le produit s'adapte.
 # Architecture v6 : l'abstraction vit dans src/Modules/Transmission/Contracts ; les plug-ins
-# sont des assemblies séparées sous src/PaClients/, enregistrées par Conformat.Host.
+# sont des assemblies séparées sous src/PaClients/, enregistrées par Liakont.Host.
 
 items:
   PAA01:
@@ -53,12 +53,12 @@ items:
          typé CapabilityNotSupported (jamais une exception) ; le module Documents journalise
          « en attente : la plateforme <nom> ne supporte pas encore <capacité> ».
       5. Résolution des plug-ins : le compte PA du tenant (CFG02 : type de plug-in + identifiants)
-         est résolu vers l'implémentation IPaClient enregistrée par Conformat.Host — registre
+         est résolu vers l'implémentation IPaClient enregistrée par Liakont.Host — registre
          de types, jamais de `if (type == "B2Brouter")` dans le module.
       AUCUNE référence à un PA concret dans le module Transmission. Aucun type HTTP dans
       l'interface publique. Frontière vérifiée par test d'architecture (NetArchTest).
     acceptance:
-      - "IPaClient, PaCapabilities et DTOs dans Conformat.Modules.Transmission.Contracts"
+      - "IPaClient, PaCapabilities et DTOs dans Liakont.Modules.Transmission.Contracts"
       - "Flux 10.2 et 10.4 distingués (type de flux + 2 capacités séparées)"
       - "Aucune référence à un PA concret, aucun type HTTP dans l'abstraction (NetArchTest)"
       - "Capacité manquante = résultat typé, jamais d'exception, jamais de blocage du produit"
@@ -68,9 +68,9 @@ items:
       - "codex-review clean or only accepted P2s"
 
   PAA02:
-    title: "Plug-in Conformat.PaClients.Fake (PA factice livré : démo + tests)"
+    title: "Plug-in Liakont.PaClients.Fake (PA factice livré : démo + tests)"
     description: |
-      Implémenter le plug-in PA factice dans src/PaClients/Conformat.PaClients.Fake/ — c'est
+      Implémenter le plug-in PA factice dans src/PaClients/Liakont.PaClients.Fake/ — c'est
       un PLUG-IN À PART ENTIÈRE, pas un composant du module (le module ne contient que
       l'abstraction — blueprint.md §2 règle 4) :
       1. FakePaClient : IPaClient en mémoire, configurable :
@@ -85,7 +85,7 @@ items:
       4. Comme tout plug-in : référence UNIQUEMENT Transmission.Contracts (+ Common),
          jamais un autre plug-in ni un module métier.
     acceptance:
-      - "Projet src/PaClients/Conformat.PaClients.Fake/ séparé — AUCUN type concret de PA dans le module Transmission"
+      - "Projet src/PaClients/Liakont.PaClients.Fake/ séparé — AUCUN type concret de PA dans le module Transmission"
       - "FakePaClient couvre succès, rejet, erreur silencieuse, timeout, capacité absente"
       - "Capacités configurables par test"
       - "Journal des appels exploitable en assertion"
@@ -97,7 +97,7 @@ items:
   PAA03:
     title: "Suite de tests de contrat IPaClient"
     description: |
-      Créer tests/Conformat.PaClients.Contract.Tests/ :
+      Créer tests/Liakont.PaClients.Contract.Tests/ :
       1. Suite de tests de contrat abstraite (classe de base générique) que TOUT plug-in PA
          doit hériter et passer :
          - envoi d'un document valide → PaSendResult exploitable

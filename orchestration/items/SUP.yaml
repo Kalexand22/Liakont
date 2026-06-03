@@ -54,14 +54,14 @@ items:
       3. Détail d'un tenant : historique des heartbeats, historique des alertes, lien vers
          la console du tenant.
       4. Acquittement d'alerte : marquer une alerte comme prise en charge (journalisé).
-      5. Permission dédiée : conformat.supervision (distinct des permissions tenant —
+      5. Permission dédiée : liakont.supervision (distinct des permissions tenant —
          un comptable d'un tenant ne voit JAMAIS ce dashboard ni les autres tenants).
       6. Tests bUnit : vue d'ensemble, tri par alerte, acquittement, permissions.
          E2E Playwright : parcours supervision (alerte visible → détail → acquittement).
     acceptance:
       - "Vue d'ensemble multi-tenants avec alertes, état agents, compteurs"
       - "Acquittement d'alerte journalisé"
-      - "Permission conformat.supervision : un utilisateur tenant ne voit jamais ce dashboard (testé)"
+      - "Permission liakont.supervision : un utilisateur tenant ne voit jamais ce dashboard (testé)"
       - "Tests bUnit + E2E Playwright"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
@@ -83,7 +83,7 @@ items:
            alertes 🔴 Critiques uniquement
       2. Contenu : français, actionnable — « L'agent du client <tenant> ne répond plus depuis
          le <date heure>. Dernier état connu : ... Vérifiez que le serveur est allumé et que
-         le service Conformat Agent est démarré. »
+         le service Liakont Agent est démarré. »
       3. Anti-spam : une alerte = un email au déclenchement (pas de répétition), un email de
          résolution optionnel. Récapitulatif quotidien optionnel (digest des alertes actives).
       4. Échec d'envoi SMTP = journalisé, ré-essayé par le job suivant — jamais une exception

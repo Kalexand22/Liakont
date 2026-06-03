@@ -1,18 +1,18 @@
-# Spécifications externes DGFiP v3.2 — Note de lecture Conformat
+# Spécifications externes DGFiP v3.2 — Note de lecture Liakont
 
 **Source officielle** : https://www.impots.gouv.fr/specifications-externes-b2b
 **Version** : 3.2, publiée le 30/04/2026 (page modifiée le 07/05/2026)
 **Téléchargé le** : 2026-06-02
 **Versions antérieures** : la v3.1 (31/10/2025) était la référence citée par docs/conception/F01-F02.
 
-## Verdict pour Conformat : delta v3.1 → v3.2 MINIME
+## Verdict pour Liakont : delta v3.1 → v3.2 MINIME
 
 Le changelog officiel (`3- XSD_v3.2/Changelog_XSD.md`) liste les changements v3.1 → v3.2 :
 
-| Domaine | Changement v3.1 → v3.2 | Impact Conformat |
+| Domaine | Changement v3.1 → v3.2 | Impact Liakont |
 |---|---|---|
-| **E-reporting** (Flux 10.x — le cœur de Conformat V1) | Suppression de l'attribut `xmlns:ereporting` dans ereporting.xsd | **Aucun** (cosmétique XML ; de plus, Conformat ne produit pas ce XML — les PA le font) |
-| E-invoicing (Flux 1/2 — phase 2 Conformat) | Mise en commentaire de BG-25 (lignes de facture) dans le profil CII BASE | Aucun en V1 (B2B = phase 2) ; à re-regarder en phase 2 |
+| **E-reporting** (Flux 10.x — le cœur de Liakont V1) | Suppression de l'attribut `xmlns:ereporting` dans ereporting.xsd | **Aucun** (cosmétique XML ; de plus, Liakont ne produit pas ce XML — les PA le font) |
+| E-invoicing (Flux 1/2 — phase 2 Liakont) | Mise en commentaire de BG-25 (lignes de facture) dans le profil CII BASE | Aucun en V1 (B2B = phase 2) ; à re-regarder en phase 2 |
 | Annuaire (Flux 11-12) | Aucun changement | Aucun |
 
 **Conclusion** : les specs internes F01-F11 (rédigées sur la base v3.1) restent valides.
@@ -20,15 +20,15 @@ Aucune modification du backlog n'est requise par la v3.2.
 
 ## Rappel d'architecture : pourquoi l'impact est structurellement faible
 
-Conformat ne dialogue **jamais directement** avec le PPF/DGFiP : il transmet des données
+Liakont ne dialogue **jamais directement** avec le PPF/DGFiP : il transmet des données
 structurées aux **Plateformes Agréées** (B2Brouter, Super PDP...) via leurs API propres,
 et ce sont les PA qui produisent les flux DGFiP conformes (Factur-X, Flux 10.x XML).
-Les XSD DGFiP servent à Conformat de **référence de validation amont** (s'assurer que les
+Les XSD DGFiP servent à Liakont de **référence de validation amont** (s'assurer que les
 données transmises permettront à la PA de produire un flux valide), pas de format de sortie.
 
 ## Contenu du paquet officiel (ce dossier)
 
-| Fichier/Dossier | Contenu | Pertinence Conformat |
+| Fichier/Dossier | Contenu | Pertinence Liakont |
 |---|---|---|
 | `0- Dossier de specifications externes FE - Dossier général_v3.2.pdf` | LA spec complète (flux, acteurs, cas d'usage, cycle de vie) | ★★★ Référence principale |
 | `1- Dossier ... Chorus Pro_v1.1.pdf` | Spécifique B2G (facturation au secteur public) | ★ Hors périmètre V1 |

@@ -6,8 +6,8 @@
 >
 > **✅ VEILLE RÉGLEMENTAIRE RÉSOLUE (2026-06-02)** : cette spec cite les spécifications externes
 > DGFiP **v3.1 (31 octobre 2025)**. La **v3.2 (30/04/2026)** a été téléchargée et dépouillée —
-> elle est dans `docs/references/dgfip-v3.2/` (avec note de lecture LECTURE-CONFORMAT.md).
-> **Delta v3.1 → v3.2 minime, aucun impact sur le périmètre Conformat V1** : e-reporting =
+> elle est dans `docs/references/dgfip-v3.2/` (avec note de lecture LECTURE-LIAKONT.md).
+> **Delta v3.1 → v3.2 minime, aucun impact sur le périmètre Liakont V1** : e-reporting =
 > suppression d'un attribut xmlns (cosmétique), e-invoicing = BG-25 commenté dans le profil BASE
 > (phase 2), annuaire = aucun changement (source : Changelog_XSD.md officiel). Cette spec reste
 > valide. Reste à faire (humain) : lecture du Dossier général v3.2 (texte) et croisement de

@@ -71,9 +71,9 @@ function Register-Findings {
     }
 }
 
-# --- Review instructions (Conformat-specific) ---
+# --- Review instructions (Liakont-specific) ---
 $reviewInstructions = @'
-You are a strict code reviewer for Conformat, a French e-invoicing compliance gateway:
+You are a strict code reviewer for Liakont, a French e-invoicing compliance gateway:
 a multi-tenant web platform (.NET 10, PostgreSQL, Blazor, vendored Stratum socle) plus a
 lightweight on-site agent (.NET Framework 4.8, ODBC extraction). Read blueprint.md and
 docs/architecture/ for project conventions before reviewing.
@@ -88,7 +88,7 @@ docs/architecture/ for project conventions before reviewing.
 7. Trous de test
 8. Faux positifs / faux verts dans scripts, CI, verify, checks, or tooling
 
-**Conformat-specific P1 rules (always blocking):**
+**Liakont-specific P1 rules (always blocking):**
 - float/double used for monetary amounts (must be decimal, half-up, 2 decimals)
 - Invented fiscal rule: VAT category, VATEX code, or threshold with no source in docs/conception/
 - Blocking validation weakened to Warning, or validation bypass path

@@ -1,4 +1,4 @@
-# Lot WEB — Console web (pages Blazor des modules Conformat)
+# Lot WEB — Console web (pages Blazor des modules Liakont)
 # Specs : docs/conception/F10-Console-Admin-WPF.md (CONTENU FONCTIONNEL : écrans, états,
 #         vocabulaire opérateur — l'amendement 2026-06-03 fait foi pour l'architecture),
 #         docs/conception/F12 (architecture)
@@ -9,10 +9,10 @@
 
 items:
   WEB01:
-    title: "Navigation Conformat + tableau de bord d'accueil"
+    title: "Navigation Liakont + tableau de bord d'accueil"
     description: |
       Implémenter la structure de la console web :
-      1. ConformatNavSectionProvider(s) : sections de navigation — Documents, Encaissements,
+      1. LiakontNavSectionProvider(s) : sections de navigation — Documents, Encaissements,
          Traitements, Réconciliation (visible UNIQUEMENT si l'agent du tenant déclare la
          capacité pool de PDF — lue via GET /settings), Paramétrage, Supervision (visible
          selon le rôle). Pattern INavSectionProvider du socle Stratum.
@@ -133,7 +133,7 @@ items:
       2. [▶▶ Tout envoyer] : appel confirm=false → dialogue de confirmation (nombre de
          documents + montant total + mention « action irréversible ») → POST confirm=true.
       3. Bouton « Lancer un traitement maintenant » → POST /runs/trigger (démo, rattrapages).
-      4. Permissions : boutons masqués si l'utilisateur n'a que conformat.read.
+      4. Permissions : boutons masqués si l'utilisateur n'a que liakont.read.
       5. Erreurs d'action : messages français exploitables (« Le document n° 2019 n'a pas pu
          être envoyé : ... »).
       6. Tests bUnit : confirmation, permissions, erreurs. E2E Playwright : parcours
@@ -174,7 +174,7 @@ items:
       1. Vue de la table de mapping TVA du tenant : règles (code régime source, libellé, part,
          catégorie, taux, VATEX), état de validation bien visible
          (✅ Validée par X le Y / ⚠️ NON VALIDÉE).
-      2. Édition (permission conformat.settings — éléments masqués sinon) :
+      2. Édition (permission liakont.settings — éléments masqués sinon) :
          - ajouter/modifier/supprimer une règle : formulaire avec listes FERMÉES des catégories
            UNCL5305 et des codes VATEX autorisés — jamais de saisie libre sur ces champs
          - intégration du rapport de couverture (TVA03) : les régimes source détectés non mappés
@@ -191,7 +191,7 @@ items:
       - "Édition complète avec listes fermées (UNCL5305, VATEX)"
       - "Régimes non mappés « À compléter » avec création pré-remplie"
       - "Toute modification affiche le bandeau NON VALIDÉE"
-      - "Permission conformat.settings respectée (édition masquée sinon)"
+      - "Permission liakont.settings respectée (édition masquée sinon)"
       - "Changelog visible"
       - "Tests bUnit + E2E Playwright (parcours complétion → validation)"
       - "verify-fast passes"
@@ -231,7 +231,7 @@ items:
       1. Liste des agents du tenant : nom, état (✅ actif / 🚫 révoqué), dernière version vue,
          dernier heartbeat (avec alerte visuelle si muet depuis plus que le seuil SUP01),
          date de création.
-      2. Actions (permission conformat.settings — page masquée sinon) :
+      2. Actions (permission liakont.settings — page masquée sinon) :
          - [Enregistrer un nouvel agent...] : saisie du nom → la clé API est affichée UNE SEULE
            FOIS dans un dialogue avec bouton copier + avertissement explicite
            (« Cette clé ne pourra plus être affichée — copiez-la maintenant »)
@@ -247,7 +247,7 @@ items:
       - "Liste du parc d'agents avec états et heartbeat"
       - "Enregistrement avec clé affichée une seule fois (vérifié : pas de re-récupération possible)"
       - "Révocation et rotation avec confirmations explicites en français"
-      - "Page accessible uniquement avec conformat.settings"
+      - "Page accessible uniquement avec liakont.settings"
       - "Tests bUnit + E2E Playwright (parcours enregistrement → révocation)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"

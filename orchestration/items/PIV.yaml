@@ -2,7 +2,7 @@
 # Specs : docs/conception/F01-F02-Modele-Pivot-Contrat-Extraction.md (le QUOI : champs EN 16931),
 #         docs/conception/F12-Architecture-Plateforme-Agent.md (le COMMENT : contrat d'ingestion)
 # Le pivot est LE contrat de l'API agent → plateforme. Les DTOs vivent dans
-# Conformat.Agent.Contracts (netstandard2.0, partagé net48/net10). Le module Ingestion
+# Liakont.Agent.Contracts (netstandard2.0, partagé net48/net10). Le module Ingestion
 # est la porte d'entrée de la plateforme : réception, anti-doublon, gestion des agents.
 #
 # ORDRE D'EXÉCUTION (manifest) : PIV01 → PIV02/PIV03 → PIV05 (gestion agents + auth) → PIV04
@@ -13,7 +13,7 @@ items:
   PIV01:
     title: "DTOs pivot : documents, lignes, taxes, tiers, totaux, paiements (Agent.Contracts)"
     description: |
-      Implémenter le modèle pivot dans src/Contracts/Conformat.Agent.Contracts/ selon F01-F02 :
+      Implémenter le modèle pivot dans src/Contracts/Liakont.Agent.Contracts/ selon F01-F02 :
       1. PivotDocumentDto : type (Invoice/CreditNote), numéro, date, devise, émetteur (PivotPartyDto),
          destinataire (PivotPartyDto), lignes (List<PivotLineDto>), totaux (PivotTotalsDto),
          OperationCategory (LivraisonBiens/PrestationServices/Mixte), SourceReference,
@@ -47,7 +47,7 @@ items:
       - DTOs PURS : aucune logique, aucune dépendance (netstandard2.0, zéro PackageReference)
       - Versionnement : constante ContractVersion = "1" portée par l'assembly
     acceptance:
-      - "Tous les DTOs dans Conformat.Agent.Contracts (netstandard2.0)"
+      - "Tous les DTOs dans Liakont.Agent.Contracts (netstandard2.0)"
       - "Montants en decimal partout, aucun float/double"
       - "Catégories TVA = enum ou type contraint UNCL5305"
       - "CreditNoteRefs porte Number + IssueDate (PivotDocumentRefDto), pas une liste de strings"
@@ -60,7 +60,7 @@ items:
   PIV02:
     title: "Sérialisation canonique + PayloadHasher + alignement EN 16931 / Annexe 6 DGFiP"
     description: |
-      Compléter le contrat dans Conformat.Agent.Contracts + côté plateforme :
+      Compléter le contrat dans Liakont.Agent.Contracts + côté plateforme :
       1. Sérialisation JSON canonique du pivot : ordre des propriétés stable, culture invariante,
          dates ISO 8601, decimals sans perte. CONTRAINTE DOUBLE RUNTIME : le résultat doit être
          IDENTIQUE octet par octet entre l'agent (net48) et la plateforme (.NET 10) — c'est ce

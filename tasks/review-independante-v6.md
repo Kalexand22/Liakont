@@ -1,4 +1,4 @@
-# Review indépendante — Conformat backlog v6
+# Review indépendante — Liakont backlog v6
 Date : 2026-06-03
 Reviewer : agent indépendant (session Codex)
 
@@ -26,7 +26,7 @@ Reviewer : agent indépendant (session Codex)
 
 [P1] | orchestration/items/PIV.yaml:155 | PIV05 expose `latestAgentVersion`, `updateRequired`, `updateUrl + hash` et AGT04 les consomme, mais aucun item ne publie les packages d'update, le registre de versions, le canal HTTPS ou la version attendue par tenant/instance. OPS05 ne couvre que l'installeur. | Étendre OPS05/PIV05 ou créer un item dédié : stockage packages versionnés, manifeste signé, publication, version cible, hash/signature, tests heartbeat/426 → téléchargement → update.
 
-[P1] | orchestration/items/API.yaml:5 | Les items API/WEB/SUP utilisent `conformat.read`, `conformat.actions`, `conformat.settings` et `conformat.supervision`, mais aucun item ne définit le seed Keycloak, les rôles standard, la matrice permissions→rôles, ni le mapping utilisateur→tenant initial. OPS03 dit seulement "compte + rôle" (`orchestration/items/OPS.yaml:73`). | Ajouter au socle/provisioning les permissions applicatives, rôles lecture/actions/paramétrage/supervision, seed realm/client roles, mapping tenant et tests API/E2E multi-rôles.
+[P1] | orchestration/items/API.yaml:5 | Les items API/WEB/SUP utilisent `liakont.read`, `liakont.actions`, `liakont.settings` et `liakont.supervision`, mais aucun item ne définit le seed Keycloak, les rôles standard, la matrice permissions→rôles, ni le mapping utilisateur→tenant initial. OPS03 dit seulement "compte + rôle" (`orchestration/items/OPS.yaml:73`). | Ajouter au socle/provisioning les permissions applicatives, rôles lecture/actions/paramétrage/supervision, seed realm/client roles, mapping tenant et tests API/E2E multi-rôles.
 
 [P1] | tools/verify-fast.ps1:64 | Si `$ORCH_REPO/state.yaml` est absent ou pointe au mauvais dépôt, `Test-SolItemPending` retourne `true`; les solutions manquantes sont alors traitées comme "SOL pending" et peuvent être skippées, contrairement au protocole qui rend state.yaml obligatoire. | Échouer immédiatement si le state repo ou state.yaml est absent/illisible ; rendre le bootstrap pré-SOL explicite via option dédiée.
 
@@ -37,7 +37,7 @@ Reviewer : agent indépendant (session Codex)
 ## Findings P2
 [P2] | orchestration/items/VAL.yaml:62 | `SourceTotalsRule` rend l'écart total plateforme/source Blocking, alors que F04 le classe en alerte et confirme "alerte" dans les décisions (`docs/conception/F04-Controles-Qualite-Validation.md:60`, `F04:128`). | Aligner VAL03 sur Warning ou amender F04 avec une décision datée si le durcissement est voulu.
 
-[P2] | orchestration/items/PIV.yaml:53 | PIV02 place `CanonicalJsonWriter` et `PayloadHasher` dans `Conformat.Agent.Contracts`, alors que PIV01/SOL02 décrivent l'assembly comme DTOs purs sans logique ni package. | Séparer DTOs et utilitaires techniques, ou préciser que "aucune logique" signifie "aucune logique métier" et tester cette exception.
+[P2] | orchestration/items/PIV.yaml:53 | PIV02 place `CanonicalJsonWriter` et `PayloadHasher` dans `Liakont.Agent.Contracts`, alors que PIV01/SOL02 décrivent l'assembly comme DTOs purs sans logique ni package. | Séparer DTOs et utilitaires techniques, ou préciser que "aucune logique" signifie "aucune logique métier" et tester cette exception.
 
 [P2] | orchestration/items/SOL.yaml:43 | SOL01 exclut le code Stratum copié du périmètre de review, mais aucun contrôle mécanique ne vérifie que les fichiers vendored sont byte-identiques au commit source ou que les modifications locales sont consignées. | Ajouter un vérificateur de provenance qui compare la copie au commit Stratum et échoue sur modification non listée.
 

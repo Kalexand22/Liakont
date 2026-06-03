@@ -1,4 +1,4 @@
-# Conformat — Work Manifest (active items only)
+# Liakont — Work Manifest (active items only)
 # Archives : orchestration/archive/
 # Détail des items : orchestration/items/<lot>.yaml
 # Conventions : voir MANIFEST-CONVENTIONS.md dans ce répertoire
@@ -7,7 +7,7 @@
 #   type: work | executor: claude | blueprint: module-work-item
 
 meta:
-  project: conformat-gateway
+  project: liakont-gateway
   phase: 1
   # version 7 = backlog v6 (pivot plateforme+agent) corrigé après les reviews indépendantes
   # v6/v8 du 2026-06-03 (voir tasks/review-independante-v6-v8-reponses.md)

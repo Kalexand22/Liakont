@@ -3,7 +3,7 @@
 #        docs/market/DR9-Business-Model-Pricing-Scenarios-CA.md (Offre Éco marque grise)
 # ENJEU COMMERCIAL : l'« Offre Éco — PA incluse, < 100 €/mois tout compris » repose sur
 # Super PDP en marque grise (tarification grossiste 0,01 €/facture).
-# Projet : src/PaClients/Conformat.PaClients.SuperPdp/ — assembly séparée,
+# Projet : src/PaClients/Liakont.PaClients.SuperPdp/ — assembly séparée,
 # référence Transmission.Contracts + Common uniquement.
 #
 # ⚠️ PRÉREQUIS HUMAIN (DR17-A4) : ouvrir une sandbox Super PDP (~1-2 jours).
@@ -39,7 +39,7 @@ items:
   PAS02:
     title: "SuperPdpClient : auth, transformation, envoi"
     description: |
-      Implémenter le plug-in dans src/PaClients/Conformat.PaClients.SuperPdp/ selon F13 (PAS01) :
+      Implémenter le plug-in dans src/PaClients/Liakont.PaClients.SuperPdp/ selon F13 (PAS01) :
       1. SuperPdpClient : IPaClient sur l'API Super PDP (auth, émission, e-reporting B2C,
          statuts via webhooks OU polling selon ce que la sandbox confirme).
          NOTE webhooks : si Super PDP pousse des webhooks, l'endpoint de réception vit dans
@@ -63,7 +63,7 @@ items:
     title: "Tests de contrat + suite sandbox"
     description: |
       Finaliser la conformité du plug-in :
-      1. Hériter la suite de tests de contrat (PAA03) dans tests/Conformat.PaClients.SuperPdp.Tests/
+      1. Hériter la suite de tests de contrat (PAA03) dans tests/Liakont.PaClients.SuperPdp.Tests/
          et la faire passer en vert (handler mocké).
       2. Suite sandbox séparée (Category=Sandbox, JAMAIS en CI) : envoi d'une facture fixture
          sur la sandbox réelle. Config locale via variable d'env SUPERPDP_SANDBOX_KEY.

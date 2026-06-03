@@ -4,18 +4,18 @@ _Document de haut niveau. Le protocole exécutable est dans `orchestration/proto
 
 ## Principe
 
-Le développement de Conformat est piloté par un système d'orchestration multi-agents
+Le développement de Liakont est piloté par un système d'orchestration multi-agents
 repris du projet Stratum :
 
 ```
-conformat-orchestration/    ← Dépôt d'état central ($ORCH_REPO)
+liakont-orchestration/    ← Dépôt d'état central ($ORCH_REPO)
   ├── config.yaml             max_parallel: 3
   ├── state.yaml              Statuts des items (runtime, versionné git)
   ├── events.jsonl            Journal d'audit append-only
   ├── leases/                 slot-N.yaml (verrous d'agents, TTL = lease_duration_minutes)
   └── session-log/            <session>_<item>.md (logs par session)
 
-Conformat/                  ← Dépôt source (ce dépôt) — slot-1
+Liakont/                  ← Dépôt source (ce dépôt) — slot-1
   ├── orchestration/
   │   ├── manifest.yaml       Index du backlog
   │   ├── items/              Détail des items par lot
@@ -24,10 +24,10 @@ Conformat/                  ← Dépôt source (ce dépôt) — slot-1
   │   └── prompt.md           Point d'entrée du mode orchestration
   ├── .claude/
   │   ├── agents/             Subagents (commit, finalize, fix-*)
-  │   └── settings.json       ORCH_REPO=C:\Source\conformat-orchestration
+  │   └── settings.json       ORCH_REPO=C:\Source\liakont-orchestration
   └── src/, tests/, docs/     Le produit
 
-Conformat2/, Conformat3/    ← Clones pour le parallélisme (slots 2 et 3)
+Liakont2/, Liakont3/    ← Clones pour le parallélisme (slots 2 et 3)
 ```
 
 ## Cycle de vie d'un item
