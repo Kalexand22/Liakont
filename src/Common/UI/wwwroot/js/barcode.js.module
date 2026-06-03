@@ -1,0 +1,60 @@
+// barcode.js.module — Barcode renderer for Barcode.razor
+// Wraps the vendored JsBarcode library (wwwroot/lib/jsbarcode/JsBarcode.all.min.js).
+// Pattern: ES module loaded via IJSRuntime.InvokeAsync<IJSObjectReference>("import", ...)
+
+const _LIB_BASE = '_content/Stratum.Common.UI/lib/jsbarcode/';
+
+// Serializes concurrent loads so the bundle is injected exactly once.
+let _loadPromise = null;
+
+/**
+ * Ensures the JsBarcode library is available on window.
+ * @returns {Promise<void>}
+ */
+async function _ensureJsBarcode() {
+    if (typeof window.JsBarcode !== 'undefined') return;
+
+    if (!_loadPromise) {
+        _loadPromise = _loadBundle().catch(e => { _loadPromise = null; throw e; });
+    }
+    await _loadPromise;
+}
+
+/**
+ * Performs the actual script injection (called at most once).
+ * @returns {Promise<void>}
+ */
+async function _loadBundle() {
+    if (document.querySelector('script[data-jsbarcode]')) return;
+
+    await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = _LIB_BASE + 'JsBarcode.all.min.js';
+        script.setAttribute('data-jsbarcode', '');
+        script.onload  = resolve;
+        script.onerror = () => reject(new Error('barcode: failed to load JsBarcode.all.min.js'));
+        document.head.appendChild(script);
+    });
+}
+
+/**
+ * Renders a barcode into the given SVG element.
+ * @param {SVGElement} element  The svg element managed by Blazor (@ref)
+ * @param {string}     value    The value to encode
+ * @param {{ format: string, height: number, width: number, displayValue: boolean, background: string, lineColor: string }} options
+ */
+export async function render(element, value, options) {
+    await _ensureJsBarcode();
+
+    // JsBarcode throws on invalid input — the Blazor component catches JSException.
+    window.JsBarcode(element, value, {
+        format:       options.format       ?? 'CODE128',
+        height:       options.height       ?? 80,
+        width:        options.width        ?? 2,
+        displayValue: options.displayValue ?? true,
+        background:   options.background   ?? '#ffffff',
+        lineColor:    options.lineColor    ?? '#000000',
+        margin:       10,
+        fontSize:     16,
+    });
+}

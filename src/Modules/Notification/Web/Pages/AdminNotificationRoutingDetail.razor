@@ -1,0 +1,564 @@
+@page "/admin/notifications/routing/{Id:guid}"
+@page "/admin/notifications/routing/{Id:guid}/edit"
+@page "/admin/notifications/routing/new"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using System.Text.Json
+@using Stratum.Common.UI.Models
+@using Stratum.Common.UI.Validation
+@using Stratum.Modules.Notification.Contracts.DTOs
+@using Stratum.Modules.Notification.Contracts.Queries
+@using Stratum.Modules.Notification.Contracts.Commands
+@inject IRoutingRuleQueries RuleQueries
+@inject IServiceDefinitionQueries ServiceQueries
+@inject IRoutingEngine RoutingEngine
+@inject ISender Sender
+@inject NavigationManager Nav
+@inject IToastService ToastService
+
+@*
+ * AdminNotificationRoutingDetail — DeclaredFormPage<RoutingRuleDto> with
+ * View/Edit/Create modes. Sub-panels: LogicTreeEditor (conditions),
+ * RoutingPreviewConsole (dry-run simulation).
+ *@
+
+<PageTitle>@PageTitleText — Routage</PageTitle>
+
+<DeclaredFormPage @ref="_formRef"
+                  TEntity="RoutingRuleDto"
+                  Id="@Id"
+                  Title="@BuildTitle"
+                  TestId="notif-routing-form"
+                  ListUrl="/admin/notifications/routing"
+                  DetailUrl="@(id => $"/admin/notifications/routing/{id}")"
+                  CreateUrl="/admin/notifications/routing/new"
+                  EnableViewMode="true"
+                  InitialMode="@(_isEditRoute ? FormMode.Edit : FormMode.View)"
+                  EditPermission="@NotificationPermissions.RoutingRuleUpdate"
+                  LoadEntity="@(id => RuleQueries.GetById(id))"
+                  CreateEntity="CreateAsync"
+                  UpdateEntity="UpdateAsync"
+                  Validate="ValidateForm"
+                  ClearErrors="ClearAllErrors"
+                  MapEntity="MapFromDto"
+                  ResetFields="ResetAllFields"
+                  @bind-GlobalError="_globalError"
+                  @bind-IsDirty="_isDirty">
+    <StatusContent>
+        @if (!IsCreateMode)
+        {
+            <StatusBadge Severity="@(_isActive ? Severity.Success : Severity.Neutral)"
+                         Label="@(_isActive ? "Actif" : "Inactif")" />
+        }
+    </StatusContent>
+    <HeaderActions Context="ctx">
+        @if (ctx.Mode == FormMode.View && !IsCreateMode)
+        {
+            <PermissionGate Permission="@NotificationPermissions.RoutingRuleUpdate">
+                <StratumButton Text="@(_isActive ? "Désactiver" : "Activer")"
+                               Variant="@(_isActive ? ButtonVariant.Warning : ButtonVariant.Success)"
+                               Outline Size="ButtonSize.Small"
+                               OnClick="ToggleActiveAsync"
+                               Disabled="@_toggling"
+                               TestId="notif-routing-toggle-btn" />
+            </PermissionGate>
+        }
+    </HeaderActions>
+    <Content Context="ctx">
+        <div class="row g-4">
+            <div class="col-lg-7">
+                <SectionCard Title="Informations" TestId="notif-routing-info-section">
+                    <div class="row g-3">
+                        <div class="col-sm-6">
+                            <FormField Label="Code" Required>
+                                <input type="text" class="form-control"
+                                       value="@_code"
+                                       @oninput="HandleCodeInput"
+                                       disabled="@(!IsCreateMode || ctx.Mode == FormMode.View)"
+                                       data-testid="notif-routing-code" />
+                            </FormField>
+                        </div>
+                        <div class="col-sm-6">
+                            <FormField Label="Nom" Required>
+                                <input type="text" class="form-control"
+                                       value="@_name"
+                                       @oninput="HandleNameInput"
+                                       disabled="@(ctx.Mode == FormMode.View)"
+                                       data-testid="notif-routing-name" />
+                            </FormField>
+                        </div>
+                        <div class="col-sm-6">
+                            <FormField Label="Type entité" Required>
+                                <input type="text" class="form-control"
+                                       value="@_entityType"
+                                       @oninput="HandleEntityTypeInput"
+                                       disabled="@(!IsCreateMode || ctx.Mode == FormMode.View)"
+                                       data-testid="notif-routing-entity-type" />
+                            </FormField>
+                        </div>
+                        <div class="col-sm-6">
+                            <FormField Label="Service" Required>
+                                <select class="form-select"
+                                        value="@_serviceCode"
+                                        @onchange="HandleServiceChange"
+                                        disabled="@(ctx.Mode == FormMode.View)"
+                                        data-testid="notif-routing-service">
+                                    <option value="">Sélectionner…</option>
+                                    @foreach (var s in _services)
+                                    {
+                                        <option value="@s.Code">@s.Name (@s.Code)</option>
+                                    }
+                                </select>
+                            </FormField>
+                        </div>
+                        <div class="col-sm-4">
+                            <FormField Label="Type destinataire" Required>
+                                <select class="form-select"
+                                        value="@_recipientType"
+                                        @onchange="HandleRecipientTypeChange"
+                                        disabled="@(ctx.Mode == FormMode.View)"
+                                        data-testid="notif-routing-recipient-type">
+                                    <option value="ServiceEmail">Email service</option>
+                                    <option value="Role">Rôle</option>
+                                    <option value="User">Utilisateur</option>
+                                </select>
+                            </FormField>
+                        </div>
+                        <div class="col-sm-4">
+                            <FormField Label="Destinataire" Required>
+                                <input type="text" class="form-control"
+                                       value="@_recipientValue"
+                                       @oninput="HandleRecipientValueInput"
+                                       disabled="@(ctx.Mode == FormMode.View)"
+                                       data-testid="notif-routing-recipient-value" />
+                            </FormField>
+                        </div>
+                        <div class="col-sm-4">
+                            <FormField Label="Priorité">
+                                <input type="number" class="form-control"
+                                       value="@_priority"
+                                       @oninput="HandlePriorityInput"
+                                       disabled="@(ctx.Mode == FormMode.View)"
+                                       data-testid="notif-routing-priority" />
+                            </FormField>
+                        </div>
+                    </div>
+                </SectionCard>
+
+                <div class="mt-4">
+                    <SectionCard Title="Conditions" TestId="notif-routing-conditions-section">
+                        <LogicTreeEditor Value="@_conditionRoot"
+                                         ValueChanged="HandleConditionsChanged"
+                                         Variables="@_logicVariables"
+                                         TestId="notif-routing-logic-tree"
+                                         AriaLabel="Conditions de routage" />
+                    </SectionCard>
+                </div>
+            </div>
+
+            <div class="col-lg-5">
+                <SectionCard Title="Simulation" TestId="notif-routing-preview-section">
+                    <RoutingPreviewConsole EventTypes="@_eventTypes"
+                                           Results="@_simulationResults"
+                                           IsSimulating="@_simulating"
+                                           SimulationDuration="@_simulationDuration"
+                                           OnSimulate="HandleSimulateAsync"
+                                           OnClear="HandleClearSimulation"
+                                           TestId="notif-routing-preview"
+                                           AriaLabel="Console de simulation de routage" />
+                </SectionCard>
+            </div>
+        </div>
+    </Content>
+    <AuditSection>
+        @if (!IsCreateMode)
+        {
+            <SectionCard Title="Audit" Collapsible DefaultCollapsed TestId="notif-routing-audit">
+                <dl class="row mb-0">
+                    <dt class="col-sm-3">Identifiant</dt>
+                    <dd class="col-sm-9"><code class="text-muted small">@Id</code></dd>
+                    <dt class="col-sm-3">Créé le</dt>
+                    <dd class="col-sm-9">@_createdAt.ToString("dd/MM/yyyy HH:mm")</dd>
+                    @if (_updatedAt.HasValue)
+                    {
+                        <dt class="col-sm-3">Modifié le</dt>
+                        <dd class="col-sm-9">@_updatedAt.Value.ToString("dd/MM/yyyy HH:mm")</dd>
+                    }
+                </dl>
+            </SectionCard>
+        }
+    </AuditSection>
+</DeclaredFormPage>
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+
+    private DeclaredFormPage<RoutingRuleDto>? _formRef;
+
+    private bool IsCreateMode => Id is null;
+    private bool _isEditRoute;
+    private bool _isDirty;
+    private bool _toggling;
+
+    private string _code = string.Empty;
+    private string _name = string.Empty;
+    private string _entityType = string.Empty;
+    private string _serviceCode = string.Empty;
+    private string _recipientType = "ServiceEmail";
+    private string _recipientValue = string.Empty;
+    private int _priority;
+    private LogicNode? _conditionRoot;
+    private bool _isActive = true;
+    private DateTimeOffset _createdAt;
+    private DateTimeOffset? _updatedAt;
+    private string? _globalError;
+
+    private IReadOnlyList<ServiceDefinitionDto> _services = [];
+
+    private IReadOnlyList<LogicVariable> _logicVariables =
+    [
+        new() { Code = "entityType", Label = "Type entité", DataType = "string" },
+        new() { Code = "status", Label = "Statut", DataType = "string" },
+        new() { Code = "priority", Label = "Priorité", DataType = "number" },
+        new() { Code = "assignee", Label = "Assigné à", DataType = "string" },
+        new() { Code = "createdBy", Label = "Créé par", DataType = "string" },
+        new() { Code = "tenantId", Label = "Tenant", DataType = "string" },
+    ];
+
+    private IReadOnlyList<string> _eventTypes = ["ReservationCreated", "ReservationApproved", "ReservationRejected", "ReservationCancelled", "SlaBreached"];
+    private IReadOnlyList<SimulationResultItem>? _simulationResults;
+    private bool _simulating;
+    private TimeSpan? _simulationDuration;
+
+    private string PageTitleText =>
+        IsCreateMode ? "Nouvelle règle" :
+        _isEditRoute ? "Modifier règle" :
+        _name.Length > 0 ? _name : "Règle";
+
+    private string BuildTitle(bool createMode) =>
+        createMode ? "Nouvelle règle de routage" : _name.Length > 0 ? _name : "Règle";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _services = await ServiceQueries.List(null);
+        _conditionRoot ??= LogicNode.DefaultRoot();
+    }
+
+    protected override void OnParametersSet()
+    {
+        _isEditRoute = Nav.Uri.EndsWith("/edit", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void MapFromDto(RoutingRuleDto dto)
+    {
+        _code = dto.Code;
+        _name = dto.Name;
+        _entityType = dto.EntityType;
+        _serviceCode = dto.ServiceCode;
+        _recipientType = dto.RecipientType;
+        _recipientValue = dto.RecipientValue;
+        _priority = dto.Priority;
+        _isActive = dto.IsActive;
+        _createdAt = dto.CreatedAt;
+        _updatedAt = dto.UpdatedAt;
+        _conditionRoot = ParseConditions(dto.ConditionsJson);
+    }
+
+    private void ResetAllFields()
+    {
+        _code = string.Empty;
+        _name = string.Empty;
+        _entityType = string.Empty;
+        _serviceCode = string.Empty;
+        _recipientType = "ServiceEmail";
+        _recipientValue = string.Empty;
+        _priority = 0;
+        _isActive = true;
+        _createdAt = default;
+        _updatedAt = null;
+        _conditionRoot = LogicNode.DefaultRoot();
+    }
+
+    private bool ValidateForm()
+    {
+        var (ok, err) = FormFields.Required(
+            ("Code", _code),
+            ("Nom", _name),
+            ("Type entité", _entityType),
+            ("Service", _serviceCode),
+            ("Destinataire", _recipientValue));
+
+        if (!ok)
+        {
+            _globalError = err;
+            return false;
+        }
+
+        return true;
+    }
+
+    private void ClearAllErrors()
+    {
+        _globalError = null;
+    }
+
+    private async Task<Guid> CreateAsync()
+    {
+        return await Sender.Send(new CreateRoutingRuleCommand
+        {
+            Code = _code.Trim(),
+            Name = _name.Trim(),
+            EntityType = _entityType.Trim(),
+            ServiceCode = _serviceCode,
+            RecipientType = _recipientType,
+            RecipientValue = _recipientValue.Trim(),
+            ConditionsJson = SerializeConditions(_conditionRoot),
+            Priority = _priority,
+        });
+    }
+
+    private async Task UpdateAsync()
+    {
+        await Sender.Send(new UpdateRoutingRuleCommand
+        {
+            Code = _code.Trim(),
+            EntityType = _entityType.Trim(),
+            Name = _name.Trim(),
+            ServiceCode = _serviceCode,
+            RecipientType = _recipientType,
+            RecipientValue = _recipientValue.Trim(),
+            ConditionsJson = SerializeConditions(_conditionRoot),
+            Priority = _priority,
+            IsActive = _isActive,
+        });
+    }
+
+    private async Task ToggleActiveAsync()
+    {
+        if (Id is null || _toggling) return;
+
+        _toggling = true;
+        try
+        {
+            await Sender.Send(new UpdateRoutingRuleCommand
+            {
+                Code = _code,
+                EntityType = _entityType,
+                Name = _name,
+                ServiceCode = _serviceCode,
+                RecipientType = _recipientType,
+                RecipientValue = _recipientValue,
+                ConditionsJson = SerializeConditions(_conditionRoot),
+                Priority = _priority,
+                IsActive = !_isActive,
+            });
+            ToastService.Show(_isActive ? "Règle désactivée." : "Règle activée.", Severity.Success);
+            if (_formRef is not null)
+            {
+                await _formRef.ReloadAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.Show($"Erreur : {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _toggling = false;
+        }
+    }
+
+    private void HandleCodeInput(ChangeEventArgs e)
+    {
+        _code = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+    }
+
+    private void HandleNameInput(ChangeEventArgs e)
+    {
+        _name = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+    }
+
+    private void HandleEntityTypeInput(ChangeEventArgs e)
+    {
+        _entityType = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+    }
+
+    private void HandleServiceChange(ChangeEventArgs e)
+    {
+        _serviceCode = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+    }
+
+    private void HandleRecipientTypeChange(ChangeEventArgs e)
+    {
+        _recipientType = e.Value?.ToString() ?? "ServiceEmail";
+        _isDirty = true;
+    }
+
+    private void HandleRecipientValueInput(ChangeEventArgs e)
+    {
+        _recipientValue = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+    }
+
+    private void HandlePriorityInput(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var p))
+        {
+            _priority = p;
+            _isDirty = true;
+        }
+    }
+
+    private void HandleConditionsChanged(LogicNode? node)
+    {
+        _conditionRoot = node;
+        _isDirty = true;
+    }
+
+    private async Task HandleSimulateAsync(SimulationRequest request)
+    {
+        _simulating = true;
+        _simulationResults = null;
+        _simulationDuration = null;
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var data = ParsePayloadJson(request.PayloadJson);
+            var results = await RoutingEngine.EvaluateRoutingAsync(request.EventType, data);
+            sw.Stop();
+
+            _simulationDuration = sw.Elapsed;
+            _simulationResults = results.Select(r => new SimulationResultItem
+            {
+                RuleCode = r.RuleCode,
+                RuleName = r.RuleName,
+                ServiceCode = r.ServiceCode,
+                RecipientType = r.RecipientType,
+                RecipientValue = r.RecipientValue,
+                Priority = r.Priority,
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            ToastService.Show($"Erreur simulation : {ex.Message}", Severity.Error);
+            _simulationResults = [];
+        }
+        finally
+        {
+            _simulating = false;
+        }
+    }
+
+    private void HandleClearSimulation()
+    {
+        _simulationResults = null;
+        _simulationDuration = null;
+    }
+
+    private static IReadOnlyDictionary<string, JsonElement> ParsePayloadJson(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return new Dictionary<string, JsonElement>();
+
+        using var doc = JsonDocument.Parse(json);
+        var dict = new Dictionary<string, JsonElement>();
+        foreach (var prop in doc.RootElement.EnumerateObject())
+        {
+            dict[prop.Name] = prop.Value.Clone();
+        }
+        return dict;
+    }
+
+    private static LogicNode? ParseConditions(string? conditionsJson)
+    {
+        if (string.IsNullOrWhiteSpace(conditionsJson))
+            return LogicNode.DefaultRoot();
+
+        try
+        {
+            using var doc = JsonDocument.Parse(conditionsJson);
+            if (doc.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                var children = doc.RootElement.EnumerateArray()
+                    .Select(ParseLogicNode).ToArray();
+                return LogicNode.Group(LogicGroupOperator.And, children);
+            }
+            return ParseLogicNode(doc.RootElement);
+        }
+        catch
+        {
+            return LogicNode.DefaultRoot();
+        }
+    }
+
+    private static LogicNode ParseLogicNode(JsonElement el)
+    {
+        if (el.TryGetProperty("and", out var andChildren))
+        {
+            var children = andChildren.EnumerateArray().Select(ParseLogicNode).ToArray();
+            return LogicNode.Group(LogicGroupOperator.And, children);
+        }
+
+        if (el.TryGetProperty("or", out var orChildren))
+        {
+            var children = orChildren.EnumerateArray().Select(ParseLogicNode).ToArray();
+            return LogicNode.Group(LogicGroupOperator.Or, children);
+        }
+
+        return LogicNode.Condition(
+            el.TryGetProperty("field", out var f) ? f.GetString() : null,
+            el.TryGetProperty("op", out var o) ? o.GetString() : null,
+            el.TryGetProperty("value", out var val) ? val.GetString() : null);
+    }
+
+    private static string SerializeConditions(LogicNode? node)
+    {
+        if (node is null)
+            return "[]";
+
+        var items = CollectConditions(node);
+        return JsonSerializer.Serialize(items, new JsonSerializerOptions { WriteIndented = false });
+    }
+
+    private static object[] CollectConditions(LogicNode node)
+    {
+        if (node.NodeType == LogicNodeType.Group)
+        {
+            var validChildren = node.Children
+                .Select(SerializeNode)
+                .Where(c => c is not null)
+                .ToArray();
+            return validChildren!;
+        }
+
+        var single = SerializeNode(node);
+        return single is not null ? [single] : [];
+    }
+
+    private static object? SerializeNode(LogicNode node)
+    {
+        if (node.NodeType == LogicNodeType.Group)
+        {
+            var children = node.Children.Select(SerializeNode).Where(c => c is not null).ToArray();
+            if (children.Length == 0)
+                return null;
+            if (node.GroupOperator == LogicGroupOperator.Or)
+                return new Dictionary<string, object> { ["or"] = children };
+            return new Dictionary<string, object> { ["and"] = children };
+        }
+        if (string.IsNullOrWhiteSpace(node.Variable) || string.IsNullOrWhiteSpace(node.Operator))
+            return null;
+
+        return new Dictionary<string, object?>
+        {
+            ["field"] = node.Variable,
+            ["op"] = node.Operator,
+            ["value"] = node.Value,
+        };
+    }
+}

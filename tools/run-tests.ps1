@@ -24,6 +24,12 @@
 #>
 $ErrorActionPreference = 'Continue'
 
+# Force the dotnet CLI to emit its test summary in English so the test-count parsing below
+# (and the anti-false-green guard that depends on it) is locale-independent. On a French
+# Windows the summary reads "Réussi! ... total : N", which none of the English regexes match,
+# making the guard wrongly report "0 tests / unrecognized format".
+$env:DOTNET_CLI_UI_LANGUAGE = 'en'
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $platformSln = Join-Path $repoRoot 'src\Liakont.sln'
 $agentSln = Join-Path $repoRoot 'agent\Liakont.Agent.sln'

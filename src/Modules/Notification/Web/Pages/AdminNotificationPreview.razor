@@ -1,0 +1,170 @@
+@page "/admin/notifications/preview"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using System.Text.Json
+@using Stratum.Modules.Notification.Contracts.DTOs
+@using Stratum.Modules.Notification.Contracts.Queries
+@inject IRoutingEngine RoutingEngine
+@inject IToastService ToastService
+
+@*
+ * AdminNotificationPreview — standalone RoutingPreviewConsole with real events.
+ *
+ * Full-page simulation console for testing routing rules against arbitrary payloads.
+ *
+ * Ref: UIA05
+ *@
+
+<PageTitle>Simulation de routage — Administration</PageTitle>
+
+<PageHeader Title="Simulation de routage"
+            Subtitle="Testez les règles avec des événements simulés"
+            TestId="notif-preview-page-header">
+    <Actions>
+        <a href="/admin/notifications/routing"
+           class="btn btn-sm btn-outline-secondary"
+           data-testid="notif-preview-routing-btn">Voir les règles</a>
+    </Actions>
+</PageHeader>
+
+<div class="row g-4">
+    <div class="col-lg-8">
+        <SectionCard Title="Console de simulation" TestId="notif-preview-console-section">
+            <RoutingPreviewConsole EventTypes="@_eventTypes"
+                                   Results="@_results"
+                                   IsSimulating="@_simulating"
+                                   SimulationDuration="@_duration"
+                                   PayloadRows="12"
+                                   OnSimulate="HandleSimulateAsync"
+                                   OnClear="HandleClear"
+                                   TestId="notif-preview-console"
+                                   AriaLabel="Console de simulation de routage" />
+        </SectionCard>
+    </div>
+    <div class="col-lg-4">
+        <SectionCard Title="Exemples de payload" TestId="notif-preview-examples-section">
+            <p class="text-muted mb-3">Cliquez sur un exemple pour le charger dans la console.</p>
+            @foreach (var example in _examples)
+            {
+                <button type="button"
+                        class="btn btn-sm btn-outline-primary d-block mb-2 w-100 text-start"
+                        @onclick="() => _selectedExample = example"
+                        data-testid="@($"notif-preview-example-{example.EventType}")">
+                    <strong>@example.EventType</strong>
+                    <br />
+                    <small class="text-muted">@example.Description</small>
+                </button>
+            }
+            @if (_selectedExample is not null)
+            {
+                <div class="mt-3 p-3 border rounded bg-light">
+                    <code class="d-block" style="white-space: pre-wrap; font-size: var(--font-size-body-sm);">@_selectedExample.SamplePayload</code>
+                </div>
+            }
+        </SectionCard>
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<string> _eventTypes =
+    [
+        "ReservationCreated",
+        "ReservationApproved",
+        "ReservationRejected",
+        "ReservationCancelled",
+        "SlaBreached",
+        "FormSubmitted",
+        "WorkflowStepCompleted",
+    ];
+
+    private IReadOnlyList<SimulationResultItem>? _results;
+    private bool _simulating;
+    private TimeSpan? _duration;
+    private PayloadExample? _selectedExample;
+
+    private readonly IReadOnlyList<PayloadExample> _examples =
+    [
+        new("ReservationCreated", "Création d'une réservation", """
+            {
+              "entityType": "Reservation",
+              "status": "pending",
+              "resourceType": "space",
+              "createdBy": "user@example.com",
+              "tenantId": "tenant-001"
+            }
+            """),
+        new("ReservationApproved", "Approbation d'une réservation", """
+            {
+              "entityType": "Reservation",
+              "status": "approved",
+              "assignee": "admin@example.com",
+              "priority": 1
+            }
+            """),
+        new("SlaBreached", "Dépassement d'un SLA", """
+            {
+              "entityType": "Reservation",
+              "status": "pending",
+              "slaCategory": "response_time",
+              "breachedAt": "2026-04-10T14:30:00Z"
+            }
+            """),
+    ];
+
+    private async Task HandleSimulateAsync(SimulationRequest request)
+    {
+        _simulating = true;
+        _results = null;
+        _duration = null;
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var data = ParsePayloadJson(request.PayloadJson);
+            var routingResults = await RoutingEngine.EvaluateRoutingAsync(request.EventType, data);
+            sw.Stop();
+
+            _duration = sw.Elapsed;
+            _results = routingResults.Select(r => new SimulationResultItem
+            {
+                RuleCode = r.RuleCode,
+                RuleName = r.RuleName,
+                ServiceCode = r.ServiceCode,
+                RecipientType = r.RecipientType,
+                RecipientValue = r.RecipientValue,
+                Priority = r.Priority,
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            ToastService.Show($"Erreur simulation : {ex.Message}", Severity.Error);
+            _results = [];
+        }
+        finally
+        {
+            _simulating = false;
+        }
+    }
+
+    private void HandleClear()
+    {
+        _results = null;
+        _duration = null;
+        _selectedExample = null;
+    }
+
+    private static IReadOnlyDictionary<string, JsonElement> ParsePayloadJson(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return new Dictionary<string, JsonElement>();
+
+        using var doc = JsonDocument.Parse(json);
+        var dict = new Dictionary<string, JsonElement>();
+        foreach (var prop in doc.RootElement.EnumerateObject())
+        {
+            dict[prop.Name] = prop.Value.Clone();
+        }
+        return dict;
+    }
+
+    private sealed record PayloadExample(string EventType, string Description, string SamplePayload);
+}

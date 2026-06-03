@@ -1,0 +1,455 @@
+@page "/admin/sla"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Modules.Notification.Contracts.DTOs
+@using Stratum.Modules.Notification.Contracts.Queries
+@using Stratum.Modules.Notification.Contracts.Commands
+@inject ISender Sender
+@inject NavigationManager Nav
+@inject IToastService ToastService
+@inject IDeliverySlaQueries SlaQueries
+@inject IDeliveryRecordQueries DeliveryRecordQueries
+
+@*
+ * AdminSla - SLA configuration + monitoring page.
+ *
+ * Three tabs:
+ *   1. Configuration: CRUD for DeliverySla entities
+ *   2. Monitoring: live SLA breaches with SlaCountdown
+ *   3. Historique: breach rate statistics
+ *
+ * Ref: UIA06
+ *@
+
+<PageTitle>SLA — Administration</PageTitle>
+
+<PageHeader Title="SLA"
+            Subtitle="Configuration et suivi des engagements de service"
+            TestId="sla-page-header">
+    <Actions>
+        @if (_activeTab == "config")
+        {
+            <PermissionGate Permission="@NotificationPermissions.SlaCreate">
+                <a href="/admin/sla/new"
+                   class="btn btn-sm btn-primary"
+                   data-testid="sla-create-btn">+ Nouveau SLA</a>
+            </PermissionGate>
+        }
+    </Actions>
+</PageHeader>
+
+<div class="d-flex gap-2 mb-3" role="tablist" data-testid="sla-tabs">
+    <button type="button"
+            role="tab"
+            class="btn btn-sm @(_activeTab == "config" ? "btn-primary" : "btn-outline-secondary")"
+            aria-selected="@(_activeTab == "config")"
+            @onclick='() => SwitchTab("config")'
+            data-testid="sla-tab-config">
+        Configuration
+    </button>
+    <button type="button"
+            role="tab"
+            class="btn btn-sm @(_activeTab == "monitoring" ? "btn-primary" : "btn-outline-secondary")"
+            aria-selected="@(_activeTab == "monitoring")"
+            @onclick='() => SwitchTab("monitoring")'
+            data-testid="sla-tab-monitoring">
+        Monitoring
+    </button>
+    <button type="button"
+            role="tab"
+            class="btn btn-sm @(_activeTab == "historique" ? "btn-primary" : "btn-outline-secondary")"
+            aria-selected="@(_activeTab == "historique")"
+            @onclick='() => SwitchTab("historique")'
+            data-testid="sla-tab-historique">
+        Historique
+    </button>
+</div>
+
+@* ── Configuration tab ── *@
+@if (_activeTab == "config")
+{
+    <div role="tabpanel" data-testid="sla-config-panel">
+        <FilterBar SearchPlaceholder="Chercher un SLA… (raccourci : /)"
+                   SearchValue="@_search"
+                   OnSearch="HandleSearchAsync">
+        </FilterBar>
+
+        <StratumDataGrid TItem="DeliverySlaDto"
+                         Data="@_pagedItems"
+                         Loading="@_loading"
+                         AriaLabel="Liste des SLA"
+                         AllowSorting="true"
+                         AllowSelection="false"
+                         OnSortChanged="HandleSortChangedAsync"
+                         OnRowActivated="HandleRowActivated">
+            <EmptyContent>
+                <p>Aucun SLA configuré.</p>
+            </EmptyContent>
+            <ChildContent>
+                <StratumColumn TItem="DeliverySlaDto" Title="Catégorie" Property="Category" Sortable />
+                <StratumColumn TItem="DeliverySlaDto" Title="Délai max">
+                    <Template Context="sla">
+                        @FormatDelay(sla.MaxDelaySeconds)
+                    </Template>
+                </StratumColumn>
+                <StratumColumn TItem="DeliverySlaDto" Title="Action d'escalade" Property="EscalationAction" Sortable />
+                <StratumColumn TItem="DeliverySlaDto" Title="Destinataire" Property="EscalationRecipient" Sortable />
+                <StratumColumn TItem="DeliverySlaDto" Title="Modifié le">
+                    <Template Context="sla">
+                        @((sla.UpdatedAt ?? sla.CreatedAt).ToString("dd/MM/yyyy HH:mm"))
+                    </Template>
+                </StratumColumn>
+            </ChildContent>
+        </StratumDataGrid>
+
+        <Pagination TotalItems="@_filteredItems.Count"
+                    PageSize="@_pageSize"
+                    CurrentPage="@_page"
+                    OnPageChanged="HandlePageChangedAsync"
+                    OnPageSizeChanged="HandlePageSizeChangedAsync" />
+    </div>
+}
+
+@* ── Monitoring tab ── *@
+@if (_activeTab == "monitoring")
+{
+    <div role="tabpanel" data-testid="sla-monitoring-panel">
+        <FilterBar SearchPlaceholder="Filtrer les breaches…"
+                   SearchValue="@_monitorSearch"
+                   OnSearch="HandleMonitorSearchAsync">
+        </FilterBar>
+
+        @if (_monitoringLoading)
+        {
+            <p class="text-muted" data-testid="sla-monitoring-loading">Chargement…</p>
+        }
+        else if (_monitoringBreaches.Count == 0)
+        {
+            <div class="alert alert-success" data-testid="sla-no-breaches">
+                Aucune violation SLA en cours.
+            </div>
+        }
+        else
+        {
+            <div class="row g-3" data-testid="sla-breach-list">
+                @foreach (var breach in _filteredBreaches)
+                {
+                    <div class="col-md-6 col-lg-4">
+                        <SectionCard Title="@breach.TemplateCode" TestId="@($"sla-breach-{breach.Id}")">
+                            <dl class="row mb-0">
+                                <dt class="col-sm-5">Destinataire</dt>
+                                <dd class="col-sm-7">@breach.RecipientEmail</dd>
+                                <dt class="col-sm-5">Envoyé le</dt>
+                                <dd class="col-sm-7">@breach.SentAt.ToString("dd/MM/yyyy HH:mm")</dd>
+                                <dt class="col-sm-5">Statut SLA</dt>
+                                <dd class="col-sm-7">
+                                    <SlaCountdown Deadline="@ComputeDeadline(breach)"
+                                                  Breached="true"
+                                                  TestId="@($"sla-countdown-{breach.Id}")" />
+                                </dd>
+                            </dl>
+                        </SectionCard>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@* ── Historique tab ── *@
+@if (_activeTab == "historique")
+{
+    <div role="tabpanel" data-testid="sla-historique-panel">
+        @if (_historyLoading)
+        {
+            <p class="text-muted" data-testid="sla-historique-loading">Chargement…</p>
+        }
+        else
+        {
+            <div class="row g-4">
+                <div class="col-md-6">
+                    <SectionCard Title="Violations SLA" TestId="sla-stat-breaches">
+                        <p class="display-sm mb-0" style="font-size: var(--font-size-display-sm); font-weight: 700; color: var(--color-error, #d93025);">
+                            @_totalBreaches
+                        </p>
+                    </SectionCard>
+                </div>
+                <div class="col-md-6">
+                    <SectionCard Title="Taux de respect" TestId="sla-stat-rate">
+                        <p class="text-muted mb-0">Bientôt disponible</p>
+                    </SectionCard>
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <SectionCard Title="Détail par catégorie" TestId="sla-stat-categories">
+                    <StratumDataGrid TItem="CategoryStat"
+                                     Data="@_categoryStats"
+                                     Loading="false"
+                                     AriaLabel="Statistiques SLA par catégorie"
+                                     AllowSorting="false"
+                                     AllowSelection="false">
+                        <EmptyContent>
+                            <p>Aucune donnée.</p>
+                        </EmptyContent>
+                        <ChildContent>
+                            <StratumColumn TItem="CategoryStat" Title="Catégorie" Property="Category" />
+                            <StratumColumn TItem="CategoryStat" Title="Total" Property="Total" />
+                            <StratumColumn TItem="CategoryStat" Title="Violations" Property="Breached" />
+                            <StratumColumn TItem="CategoryStat" Title="Taux respect">
+                                <Template Context="stat">
+                                    @(stat.Total > 0 ? $"{((stat.Total - stat.Breached) * 100.0 / stat.Total):F1} %" : "—")
+                                </Template>
+                            </StratumColumn>
+                        </ChildContent>
+                    </StratumDataGrid>
+                </SectionCard>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    // Tab state
+    private string _activeTab = "config";
+
+    // ── Config tab ──
+    private IReadOnlyList<DeliverySlaDto> _allSlas = [];
+    private IReadOnlyList<DeliverySlaDto> _filteredItems = [];
+    private IReadOnlyList<DeliverySlaDto> _pagedItems = [];
+    private string _search = string.Empty;
+    private string _sortColumn = "Category";
+    private SortDirection _sortDirection = SortDirection.Ascending;
+    private int _page = 1;
+    private int _pageSize = 25;
+    private bool _loading;
+
+    // ── Monitoring tab ──
+    private IReadOnlyList<DeliveryRecordDto> _monitoringBreaches = [];
+    private IReadOnlyList<DeliveryRecordDto> _filteredBreaches = [];
+    private string _monitorSearch = string.Empty;
+    private bool _monitoringLoading;
+
+    // ── Historique tab ──
+    private int _totalBreaches;
+    private IReadOnlyList<CategoryStat> _categoryStats = [];
+    private bool _historyLoading;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadConfigAsync();
+    }
+
+    private async Task SwitchTab(string tab)
+    {
+        if (_activeTab == tab) return;
+        _activeTab = tab;
+
+        var task = tab switch
+        {
+            "monitoring" => LoadMonitoringAsync(),
+            "historique" => LoadHistoryAsync(),
+            _ => Task.CompletedTask,
+        };
+
+        await task;
+    }
+
+    // ── Config tab logic ──
+
+    private async Task LoadConfigAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+        try
+        {
+            _allSlas = await SlaQueries.List(null);
+            ApplyConfigFilters();
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ApplyConfigFilters()
+    {
+        IEnumerable<DeliverySlaDto> result = _allSlas;
+
+        if (!string.IsNullOrWhiteSpace(_search))
+        {
+            var q = _search.Trim();
+            result = result.Where(s =>
+                s.Category.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                (s.EscalationAction?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (s.EscalationRecipient?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+
+        result = (_sortColumn, _sortDirection) switch
+        {
+            ("Category", SortDirection.Ascending) => result.OrderBy(s => s.Category),
+            ("Category", _) => result.OrderByDescending(s => s.Category),
+            ("EscalationAction", SortDirection.Ascending) => result.OrderBy(s => s.EscalationAction ?? string.Empty),
+            ("EscalationAction", _) => result.OrderByDescending(s => s.EscalationAction ?? string.Empty),
+            ("EscalationRecipient", SortDirection.Ascending) => result.OrderBy(s => s.EscalationRecipient ?? string.Empty),
+            ("EscalationRecipient", _) => result.OrderByDescending(s => s.EscalationRecipient ?? string.Empty),
+            _ => result.OrderBy(s => s.Category),
+        };
+
+        _filteredItems = result.ToList();
+        ApplyConfigPaging();
+    }
+
+    private void ApplyConfigPaging()
+    {
+        _pagedItems = _filteredItems
+            .Skip((_page - 1) * _pageSize)
+            .Take(_pageSize)
+            .ToList();
+    }
+
+    private Task HandleSearchAsync(string value)
+    {
+        _search = value;
+        _page = 1;
+        ApplyConfigFilters();
+        return Task.CompletedTask;
+    }
+
+    private Task HandleSortChangedAsync(SortChangedArgs args)
+    {
+        _sortColumn = args.Column;
+        _sortDirection = args.Direction;
+        ApplyConfigFilters();
+        return Task.CompletedTask;
+    }
+
+    private void HandleRowActivated(DeliverySlaDto item)
+    {
+        Nav.NavigateTo($"/admin/sla/{item.Id}");
+    }
+
+    private Task HandlePageChangedAsync(int page)
+    {
+        _page = page;
+        ApplyConfigPaging();
+        return Task.CompletedTask;
+    }
+
+    private Task HandlePageSizeChangedAsync(int size)
+    {
+        _pageSize = size;
+        _page = 1;
+        ApplyConfigPaging();
+        return Task.CompletedTask;
+    }
+
+    // ── Monitoring tab logic ──
+
+    private async Task LoadMonitoringAsync()
+    {
+        _monitoringLoading = true;
+        StateHasChanged();
+        try
+        {
+            _monitoringBreaches = await DeliveryRecordQueries.ListSlaBreaches(null);
+            ApplyMonitorFilter();
+        }
+        finally
+        {
+            _monitoringLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ApplyMonitorFilter()
+    {
+        if (string.IsNullOrWhiteSpace(_monitorSearch))
+        {
+            _filteredBreaches = _monitoringBreaches;
+            return;
+        }
+
+        var q = _monitorSearch.Trim();
+        _filteredBreaches = _monitoringBreaches
+            .Where(b =>
+                b.TemplateCode.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                b.RecipientEmail.Contains(q, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    private Task HandleMonitorSearchAsync(string value)
+    {
+        _monitorSearch = value;
+        ApplyMonitorFilter();
+        return Task.CompletedTask;
+    }
+
+    private static DateTimeOffset ComputeDeadline(DeliveryRecordDto breach)
+    {
+        // DeliveryRecord doesn't carry a direct SLA category link yet,
+        // so we use a fixed default for the countdown display.
+        const int defaultDelaySeconds = 300;
+        return breach.SentAt.AddSeconds(defaultDelaySeconds);
+    }
+
+    // ── Historique tab logic ──
+
+    private async Task LoadHistoryAsync()
+    {
+        _historyLoading = true;
+        StateHasChanged();
+        try
+        {
+            // Load config data if not already loaded
+            if (_allSlas.Count == 0)
+            {
+                _allSlas = await SlaQueries.List(null);
+            }
+
+            var breaches = await DeliveryRecordQueries.ListSlaBreaches(null);
+            _totalBreaches = breaches.Count;
+
+            // Category-level stats require a join between delivery records
+            // and SLA categories that is not yet implemented in the data model.
+            _categoryStats = [];
+        }
+        finally
+        {
+            _historyLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    // ── Helpers ──
+
+    private static string FormatDelay(int seconds)
+    {
+        if (seconds < 60) return $"{seconds}s";
+        if (seconds < 3600) return $"{seconds / 60}min";
+        var h = seconds / 3600;
+        var m = (seconds % 3600) / 60;
+        return m > 0 ? $"{h}h{m:D2}min" : $"{h}h";
+    }
+
+    private static string FormatCategoryLabel(string category)
+    {
+        return category.ToLowerInvariant() switch
+        {
+            "transactional" => "Transactionnel",
+            "routing" => "Routage",
+            "escalation" => "Escalade",
+            "reminder" => "Rappel",
+            _ => category,
+        };
+    }
+
+    internal sealed class CategoryStat
+    {
+        public string Category { get; init; } = string.Empty;
+        public int Total { get; init; }
+        public int Breached { get; init; }
+    }
+}

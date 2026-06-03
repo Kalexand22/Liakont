@@ -1,0 +1,286 @@
+@namespace Stratum.Common.UI.Components
+
+@using System.Text.Json
+@using Microsoft.Extensions.Localization
+@using Stratum.Common.UI.Models
+@using Stratum.Common.UI.Services
+
+@implements IAsyncDisposable
+
+@inject ITabManagerService TabManager
+@inject ITabTitleProvider TitleProvider
+@inject NavigationManager Nav
+@inject IToastService Toast
+@inject IJSRuntime JS
+@inject IStringLocalizer<SharedResources> L
+
+@* TabBar — Navigation tab strip for the ERP shell.
+ *
+ * Renders open tabs from ITabManagerService as an ARIA tablist.
+ * Supports: horizontal scroll overflow, close button (×), new-tab button (+).
+ * Pinned tabs cannot be closed.
+ *
+ * Placed in ErpShellLayout between the top bar and main content area.
+ *@
+
+<div class="tab-bar" data-testid="tab-bar">
+    <div class="tab-bar__list"
+         role="tablist"
+         aria-label="@L["Tab_AriaLabel"]"
+         @onkeydown="HandleKeyDown">
+        @{ var tabs = TabManager.GetTabs(); }
+        @for (var i = 0; i < tabs.Count; i++)
+        {
+            var index = i;
+            var tab = tabs[i];
+            var isActive = tab.Id == TabManager.ActiveTabId;
+            <button type="button"
+                    id="@TabButtonId(tab.Id)"
+                    role="tab"
+                    class="tab-bar__tab @(isActive ? "tab-bar__tab--active" : string.Empty)"
+                    aria-selected="@(isActive ? "true" : "false")"
+                    aria-controls="tab-bar-panel"
+                    tabindex="@(isActive ? 0 : -1)"
+                    data-testid="@($"tab-bar-tab-{index}")"
+                    @onclick="() => OnTabClick(tab)"
+                    @ref="_tabRefs[tab.Id]">
+                @if (!string.IsNullOrEmpty(tab.Icon))
+                {
+                    <i class="@tab.Icon tab-bar__icon" aria-hidden="true"></i>
+                }
+                <span class="tab-bar__title">@tab.Title</span>
+                @if (!tab.IsPinned)
+                {
+                    <button type="button"
+                            class="tab-bar__close"
+                            aria-label="@string.Format(L["Tab_CloseAriaLabel"], tab.Title)"
+                            data-testid="@($"tab-bar-close-{index}")"
+                            tabindex="-1"
+                            @onclick="() => OnCloseClick(tab.Id)"
+                            @onclick:stopPropagation="true">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                }
+            </button>
+        }
+        <button type="button"
+                class="tab-bar__new"
+                aria-label="@L["Tab_NewTabAriaLabel"]"
+                data-testid="tab-bar-new"
+                @onclick="OnNewTabClick">
+            <span aria-hidden="true">+</span>
+        </button>
+    </div>
+</div>
+
+@code {
+    private readonly Dictionary<Guid, ElementReference> _tabRefs = new();
+    private bool _restored;
+
+    protected override void OnInitialized()
+    {
+        TabManager.OnTabsChanged += HandleTabsChanged;
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _restored) return;
+        _restored = true;
+
+        try
+        {
+            var json = await JS.InvokeAsync<string?>("stratumUI.getSessionTabs");
+            if (!string.IsNullOrEmpty(json))
+            {
+                var state = JsonSerializer.Deserialize<TabSessionState>(json);
+                if (state?.Tabs is { Count: > 0 })
+                {
+                    TabManager.RestoreTabs(state.Tabs, state.ActiveTabId);
+
+                    var currentRelativePath = "/" + Nav.ToBaseRelativePath(Nav.Uri).TrimEnd('/');
+                    if (currentRelativePath == "/") currentRelativePath = "/";
+
+                    var (activeId, restoredTabs) = TabManager.GetState();
+                    var activeTab = activeId is not null ? restoredTabs.FirstOrDefault(t => t.Id == activeId) : null;
+
+                    if (activeTab is not null && SamePath(activeTab.Url, currentRelativePath))
+                    {
+                        // Already at the active tab URL — no navigation needed.
+                    }
+                    else
+                    {
+                        // User navigated to a different URL (e.g., manual address bar change).
+                        // Switch to the matching tab or open a new one; don't override the URL.
+                        var matchingTab = restoredTabs.FirstOrDefault(t => SamePath(t.Url, currentRelativePath));
+                        if (matchingTab is not null)
+                            TabManager.SwitchTab(matchingTab.Id);
+                        else
+                        {
+                            var title = TitleProvider.GetTitle(StripQuery(currentRelativePath));
+                            TabManager.OpenTab(currentRelativePath, title);
+                        }
+                    }
+
+                    return;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is JSException or Microsoft.JSInterop.JSDisconnectedException
+                                       or InvalidOperationException or OperationCanceledException)
+        {
+            // Safe: prerendering or disconnected circuit
+        }
+
+        // No saved state — create initial tab for the current page
+        if (TabManager.GetTabs().Count == 0)
+        {
+            var relativePath = "/" + Nav.ToBaseRelativePath(Nav.Uri).TrimEnd('/');
+            if (relativePath == "/") relativePath = "/";
+            var title = TitleProvider.GetTitle(relativePath);
+            TabManager.OpenTab(relativePath, title);
+        }
+    }
+
+    private void HandleTabsChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await PersistTabsAsync();
+        });
+    }
+
+    private async Task PersistTabsAsync()
+    {
+        try
+        {
+            var (activeId, tabs) = TabManager.GetState();
+            var state = new TabSessionState(activeId, [.. tabs]);
+            var json = JsonSerializer.Serialize(state);
+            await JS.InvokeVoidAsync("stratumUI.setSessionTabs", json);
+        }
+        catch (Exception ex) when (ex is JSException or Microsoft.JSInterop.JSDisconnectedException
+                                       or InvalidOperationException or OperationCanceledException)
+        {
+            // Safe: prerendering or disconnected circuit
+        }
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        var relativePath = "/" + Nav.ToBaseRelativePath(e.Location).TrimEnd('/');
+        if (relativePath == "/") relativePath = "/";
+
+        // If the active tab already points at the same path (ignoring query),
+        // just refresh the stored URL so the query string is preserved without
+        // re-resolving the title (which would otherwise change on filter changes).
+        if (TabManager.ActiveTabId is not null)
+        {
+            var activeTab = TabManager.GetTabs().FirstOrDefault(t => t.Id == TabManager.ActiveTabId);
+            if (activeTab is not null && SamePath(activeTab.Url, relativePath))
+            {
+                if (!string.Equals(activeTab.Url, relativePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    TabManager.UpdateActiveTab(relativePath, activeTab.Title);
+                }
+                return;
+            }
+        }
+
+        // New path → resolve title from the path only (query string ignored).
+        var pathOnly = StripQuery(relativePath);
+        var title = TitleProvider.GetTitle(pathOnly);
+        TabManager.UpdateActiveTab(relativePath, title);
+    }
+
+    private static string StripQuery(string url)
+    {
+        var q = url.IndexOf('?');
+        return q < 0 ? url : url[..q];
+    }
+
+    private static bool SamePath(string a, string b)
+        => string.Equals(StripQuery(a), StripQuery(b), StringComparison.OrdinalIgnoreCase);
+
+    private void OnTabClick(TabEntry tab)
+    {
+        TabManager.SwitchTab(tab.Id);
+        Nav.NavigateTo(tab.Url);
+    }
+
+    private void OnCloseClick(Guid tabId)
+    {
+        var tabs = TabManager.GetTabs();
+        var closingTab = tabs.FirstOrDefault(t => t.Id == tabId);
+        var wasActive = closingTab is not null && tabId == TabManager.ActiveTabId;
+
+        TabManager.CloseTab(tabId);
+
+        if (wasActive)
+        {
+            var remainingTabs = TabManager.GetTabs();
+            if (remainingTabs.Count > 0 && TabManager.ActiveTabId is { } activeId)
+            {
+                var activeTab = remainingTabs.FirstOrDefault(t => t.Id == activeId);
+                if (activeTab is not null)
+                {
+                    Nav.NavigateTo(activeTab.Url);
+                }
+            }
+        }
+    }
+
+    private void OnNewTabClick()
+    {
+        if (!TabManager.OpenTab("/", L["Tab_NewTab"]))
+        {
+            Toast.Show(L["Tab_LimitReached"], Severity.Warning);
+            return;
+        }
+
+        Nav.NavigateTo("/");
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        var tabs = TabManager.GetTabs();
+        if (tabs.Count == 0) return;
+
+        var activeIndex = tabs.ToList().FindIndex(t => t.Id == TabManager.ActiveTabId);
+        if (activeIndex < 0) activeIndex = 0;
+
+        int? targetIndex = e.Key switch
+        {
+            "ArrowRight" => (activeIndex + 1) % tabs.Count,
+            "ArrowLeft" => (activeIndex - 1 + tabs.Count) % tabs.Count,
+            "Home" => 0,
+            "End" => tabs.Count - 1,
+            _ => null
+        };
+
+        if (targetIndex is not null && targetIndex != activeIndex)
+        {
+            var targetTab = tabs[targetIndex.Value];
+            TabManager.SwitchTab(targetTab.Id);
+            Nav.NavigateTo(targetTab.Url);
+
+            if (_tabRefs.TryGetValue(targetTab.Id, out var tabRef))
+            {
+                await tabRef.FocusAsync();
+            }
+        }
+    }
+
+    private static string TabButtonId(Guid tabId) => $"tab-bar-btn-{tabId:N}";
+
+    public ValueTask DisposeAsync()
+    {
+        TabManager.OnTabsChanged -= HandleTabsChanged;
+        Nav.LocationChanged -= OnLocationChanged;
+        return ValueTask.CompletedTask;
+    }
+
+    /// <summary>Serializable snapshot for sessionStorage round-trip.</summary>
+    internal sealed record TabSessionState(Guid? ActiveTabId, List<TabEntry> Tabs);
+}

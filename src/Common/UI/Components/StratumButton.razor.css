@@ -1,0 +1,7 @@
+/* StratumButton — scoped styles using Stratum design tokens.
+ * Most styling flows through Radzen's CSS variables (radzen-overrides.css).
+ * This file only contains Stratum-specific overrides. */
+
+.stratum-button {
+    font-family: var(--font-family-base);
+}

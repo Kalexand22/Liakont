@@ -1,0 +1,157 @@
+@namespace Stratum.Common.UI.Components
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+@if (_errorMessage is not null)
+{
+    <span class="barcode-error text-danger small" data-testid="@(TestId is not null ? $"{TestId}-error" : null)">@_errorMessage</span>
+}
+else
+{
+    <div class="barcode-wrapper @CssClass" data-testid="@TestId">
+        <svg @ref="_svgRef"
+             aria-label="@(string.IsNullOrWhiteSpace(Value) ? "Code-barres" : $"Code-barres : {Value}")"
+             role="img"
+             class="barcode-svg">
+        </svg>
+    </div>
+}
+
+@code {
+    /// <summary>Value to encode in the barcode. Null or empty → nothing rendered.</summary>
+    [Parameter] public string? Value { get; set; }
+
+    /// <summary>Barcode format. Default: <see cref="BarcodeFormat.Code128"/>.</summary>
+    [Parameter] public BarcodeFormat Format { get; set; } = BarcodeFormat.Code128;
+
+    /// <summary>Height of the bars in pixels. Default: 80.</summary>
+    [Parameter] public int Height { get; set; } = 80;
+
+    /// <summary>Width of a single bar unit in pixels. Default: 2.</summary>
+    [Parameter] public int BarWidth { get; set; } = 2;
+
+    /// <summary>Show the encoded value as text below the bars. Default: true.</summary>
+    [Parameter] public bool DisplayValue { get; set; } = true;
+
+    /// <summary>Background color (CSS color string). Default: "#ffffff".</summary>
+    [Parameter] public string BackgroundColor { get; set; } = "#ffffff";
+
+    /// <summary>Bar color (CSS color string). Default: "#000000".</summary>
+    [Parameter] public string LineColor { get; set; } = "#000000";
+
+    /// <summary>Additional CSS classes on the root element.</summary>
+    [Parameter] public string? CssClass { get; set; }
+
+    /// <summary>Test ID for E2E testing.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    // ── State ─────────────────────────────────────────────────────────────────
+
+    private ElementReference _svgRef;
+    private IJSObjectReference? _jsModule;
+    private bool _rendered;
+    private string? _errorMessage;
+
+    // Tracks last rendered params to avoid redundant JS calls.
+    private string? _lastValue;
+    private BarcodeFormat _lastFormat;
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_jsModule is null)
+        {
+            try
+            {
+                _jsModule = await JS.InvokeAsync<IJSObjectReference>(
+                    "import", "./_content/Stratum.Common.UI/js/barcode.js.module");
+            }
+            catch (JSException ex)
+            {
+                _errorMessage = $"Impossible de charger le module barcode : {ex.Message}";
+                StateHasChanged();
+                return;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(Value))
+        {
+            _rendered = false;
+            return;
+        }
+
+        if (!_rendered || Value != _lastValue || Format != _lastFormat)
+        {
+            await RenderAsync();
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!_rendered || _jsModule is null) return;
+
+        if (Value != _lastValue || Format != _lastFormat)
+        {
+            await RenderAsync();
+        }
+    }
+
+    // ── Rendering ─────────────────────────────────────────────────────────────
+
+    private async Task RenderAsync()
+    {
+        if (_jsModule is null || string.IsNullOrWhiteSpace(Value)) return;
+
+        var options = new
+        {
+            format       = FormatKey(Format),
+            height       = Height,
+            width        = BarWidth,
+            displayValue = DisplayValue,
+            background   = BackgroundColor,
+            lineColor    = LineColor,
+        };
+
+        try
+        {
+            _errorMessage = null;
+            await _jsModule.InvokeVoidAsync("render", _svgRef, Value, options);
+            _rendered   = true;
+            _lastValue  = Value;
+            _lastFormat = Format;
+        }
+        catch (JSException ex)
+        {
+            _errorMessage = ex.Message.Contains("invalid", StringComparison.OrdinalIgnoreCase)
+                ? $"Code-barres invalide : {ex.Message}"
+                : "Code-barres invalide";
+            _rendered = false;
+            StateHasChanged();
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /// <summary>Maps a <see cref="BarcodeFormat"/> to the JsBarcode format string.</summary>
+    internal static string FormatKey(BarcodeFormat format) => format switch
+    {
+        BarcodeFormat.Ean13  => "EAN13",
+        BarcodeFormat.Ean8   => "EAN8",
+        BarcodeFormat.UpcA   => "UPC",
+        BarcodeFormat.Code39 => "CODE39",
+        BarcodeFormat.Itf14  => "ITF14",
+        _                    => "CODE128",
+    };
+
+    // ── Disposal ──────────────────────────────────────────────────────────────
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_jsModule is not null)
+        {
+            try { await _jsModule.DisposeAsync(); }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException) { }
+        }
+    }
+}

@@ -1,0 +1,258 @@
+@namespace Stratum.Common.UI.Components
+
+@* ColorPicker — color selection with preview swatch, hex text input, preset palette, popup.
+ *
+ * Usage:
+ *   <ColorPicker Value="@_color"
+ *                ValueChanged="v => _color = v"
+ *                Presets="@_palette" />
+ *@
+
+<div class="color-picker @(ReadOnly ? "color-picker--readonly" : string.Empty) @(Disabled ? "color-picker--disabled" : string.Empty) @(_hasError ? "color-picker--error" : string.Empty) @CssClass"
+     data-testid="@(TestId ?? "color-picker")">
+
+    @if (ReadOnly)
+    {
+        <span class="color-picker__trigger color-picker__trigger--readonly">
+            <span class="color-picker__swatch"
+                  style="background-color: @(Value ?? "transparent")"
+                  aria-hidden="true"></span>
+            <span class="color-picker__value">@(Value ?? "—")</span>
+        </span>
+    }
+    else
+    {
+        <button type="button"
+                class="color-picker__trigger"
+                disabled="@Disabled"
+                aria-label="@($"Choisir une couleur : {(Value ?? "aucune")}")"
+                aria-haspopup="dialog"
+                aria-expanded="@(_open ? "true" : "false")"
+                @onclick="TogglePopover"
+                @onkeydown="OnTriggerKeyDown">
+            <span class="color-picker__swatch"
+                  style="background-color: @(Value ?? "transparent")"
+                  aria-hidden="true"></span>
+            <span class="color-picker__value">@(Value ?? "—")</span>
+        </button>
+
+        @if (_open)
+        {
+            <div class="color-picker__popover"
+                 role="dialog"
+                 aria-label="Sélecteur de couleur"
+                 tabindex="-1"
+                 @ref="_popoverRef"
+                 @onkeydown="OnPopoverKeyDown">
+
+                @* Native color picker *@
+                <div class="color-picker__native-row">
+                    <input type="color"
+                           aria-label="Couleur"
+                           value="@(Value ?? "#000000")"
+                           @onchange="OnNativeColorChange" />
+                </div>
+
+                @* Preset palette *@
+                @if (Presets is { Count: > 0 })
+                {
+                    <div class="color-picker__presets" role="group" aria-label="Couleurs prédéfinies">
+                        @foreach (var color in Presets)
+                        {
+                            var c = color;
+                            <button type="button"
+                                    class="color-picker__preset @(string.Equals(Value, c, StringComparison.OrdinalIgnoreCase) ? "color-picker__preset--selected" : string.Empty)"
+                                    aria-label="@c"
+                                    aria-pressed="@(string.Equals(Value, c, StringComparison.OrdinalIgnoreCase) ? "true" : "false")"
+                                    style="background-color: @c"
+                                    @onclick="@(() => SelectColor(c))"></button>
+                        }
+                    </div>
+                }
+
+                @* Hex input *@
+                @if (ShowHexInput)
+                {
+                    <div class="color-picker__input-row">
+                        <label for="@_hexInputId" class="color-picker__input-label">Hex</label>
+                        <input type="text"
+                               id="@_hexInputId"
+                               class="color-picker__hex-input @(_hexError ? "color-picker__hex-input--error" : string.Empty)"
+                               value="@_hexText"
+                               maxlength="7"
+                               placeholder="#RRGGBB"
+                               aria-label="Valeur hexadécimale"
+                               @oninput="OnHexInput"
+                               @onblur="CommitHex"
+                               @onkeydown="OnHexKeyDown" />
+                    </div>
+                }
+
+                @* Actions *@
+                <div class="color-picker__actions">
+                    @if (AllowNull)
+                    {
+                        <button type="button"
+                                class="color-picker__action-btn"
+                                @onclick="ClearColor">Effacer</button>
+                    }
+                    <button type="button"
+                            class="color-picker__action-btn color-picker__action-btn--close"
+                            @onclick="ClosePopover">Fermer</button>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private FormFieldContext? _context { get; set; }
+
+    /// <summary>Selected color as "#RRGGBB" hex string (two-way). Null when empty.</summary>
+    [Parameter] public string? Value { get; set; }
+
+    /// <summary>Raised when the color changes.</summary>
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Preset color palette (hex strings).</summary>
+    [Parameter] public IReadOnlyList<string>? Presets { get; set; }
+
+    /// <summary>Show the hex text input below the picker. Default: true.</summary>
+    [Parameter] public bool ShowHexInput { get; set; } = true;
+
+    /// <summary>Allow clearing the color (emits null). Default: true.</summary>
+    [Parameter] public bool AllowNull { get; set; } = true;
+
+    /// <summary>Disabled state.</summary>
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Read-only display mode.</summary>
+    [Parameter] public bool ReadOnly { get; set; }
+
+    /// <summary>Additional CSS classes on the root element.</summary>
+    [Parameter] public string? CssClass { get; set; }
+
+    /// <summary>Optional test identifier for E2E tests.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    // ── Internal state ──────────────────────────────────────
+
+    private bool _open;
+    private string _hexText = string.Empty;
+    private bool _hexError;
+    private bool _hasError => _context?.HasError == true;
+
+    private readonly string _hexInputId = $"chex-{Guid.NewGuid().ToString("N")[..8]}";
+    private ElementReference _popoverRef;
+
+    // ── Lifecycle ────────────────────────────────────────────
+
+    private bool _shouldFocusPopover;
+
+    protected override void OnParametersSet()
+    {
+        _hexText = Value ?? string.Empty;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_shouldFocusPopover)
+        {
+            _shouldFocusPopover = false;
+            try { await _popoverRef.FocusAsync(); }
+            catch (Exception) { /* element may not be rendered yet */ }
+        }
+    }
+
+    // ── Popover ─────────────────────────────────────────────
+
+    private void TogglePopover()
+    {
+        if (Disabled || ReadOnly) return;
+        _open = !_open;
+        if (_open)
+        {
+            _hexText = Value ?? string.Empty;
+            _hexError = false;
+            _shouldFocusPopover = true;
+        }
+    }
+
+    private void ClosePopover()
+    {
+        _open = false;
+    }
+
+    private void OnTriggerKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape" && _open)
+            _open = false;
+    }
+
+    private void OnPopoverKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+            _open = false;
+    }
+
+    // ── Color selection ─────────────────────────────────────
+
+    private async Task SelectColor(string hex)
+    {
+        await EmitColor(hex);
+        _open = false;
+    }
+
+    private async Task ClearColor()
+    {
+        await EmitColor(null);
+        _open = false;
+    }
+
+    private async Task OnNativeColorChange(ChangeEventArgs e)
+    {
+        var hex = e.Value?.ToString();
+        if (!string.IsNullOrWhiteSpace(hex))
+            await EmitColor(hex.ToUpperInvariant());
+    }
+
+    private void OnHexInput(ChangeEventArgs e)
+    {
+        _hexText = e.Value?.ToString() ?? string.Empty;
+        _hexError = false;
+    }
+
+    private async Task CommitHex()
+    {
+        var raw = _hexText.Trim();
+        if (string.IsNullOrEmpty(raw)) return;
+        if (!IsValidHex(raw))
+        {
+            _hexError = true;
+            return;
+        }
+        await EmitColor(raw.ToUpperInvariant());
+    }
+
+    private async Task OnHexKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await CommitHex();
+        if (e.Key == "Escape") _open = false;
+    }
+
+    private async Task EmitColor(string? hex)
+    {
+        Value = hex;
+        _hexText = hex ?? string.Empty;
+        _hexError = false;
+        await ValueChanged.InvokeAsync(hex);
+    }
+
+    // ── Helpers ──────────────────────────────────────────────
+
+    private static readonly System.Text.RegularExpressions.Regex HexRegex =
+        new(@"^#[0-9A-Fa-f]{6}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    internal static bool IsValidHex(string s) => HexRegex.IsMatch(s);
+}

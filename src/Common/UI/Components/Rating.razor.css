@@ -1,0 +1,92 @@
+/* Rating — scoped styles using Stratum design tokens */
+
+.rating {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-1, 0.25rem);
+    user-select: none;
+    outline: none;
+}
+
+.rating:focus-visible {
+    outline: 2px solid var(--color-border-focus, var(--color-primary-500));
+    outline-offset: 2px;
+    border-radius: var(--radius-sm, 4px);
+}
+
+/* ── Stars ───────────────────────────────────────────── */
+
+.rating__star {
+    position: relative;
+    font-size: 1.5rem;
+    line-height: 1;
+    color: var(--color-neutral-300);
+    transition: color var(--transition-fast, 100ms ease),
+                transform var(--transition-fast, 100ms ease);
+}
+
+.rating__star--interactive {
+    cursor: pointer;
+}
+
+.rating__star--interactive:hover {
+    transform: scale(1.15);
+}
+
+.rating__star--full {
+    color: var(--color-warning-500, #f59e0b);
+}
+
+.rating__star--half {
+    position: relative;
+    overflow: hidden;
+}
+
+.rating__star-half-bg {
+    color: var(--color-neutral-300);
+}
+
+.rating__star-half-fg {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 50%;
+    overflow: hidden;
+    color: var(--color-warning-500, #f59e0b);
+}
+
+.rating__star--empty {
+    color: var(--color-neutral-300);
+}
+
+/* ── Value label ─────────────────────────────────────── */
+
+.rating__value {
+    margin-left: var(--spacing-2, 0.5rem);
+    font-size: var(--font-size-sm, 0.875rem);
+    color: var(--color-text-secondary);
+    font-weight: var(--font-weight-medium, 500);
+}
+
+/* ── Readonly ────────────────────────────────────────── */
+
+.rating--readonly {
+    pointer-events: none;
+}
+
+/* ── Disabled ────────────────────────────────────────── */
+
+.rating--disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+/* ── Error ───────────────────────────────────────────── */
+
+.rating--error .rating__star--full {
+    color: var(--color-error-500);
+}
+
+.rating--error .rating__star--half .rating__star-half-fg {
+    color: var(--color-error-500);
+}

@@ -1,0 +1,284 @@
+@page "/admin/sla/new"
+@page "/admin/sla/{Id:guid}"
+@page "/admin/sla/{Id:guid}/edit"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Stratum.Modules.Notification.Contracts.DTOs
+@using Stratum.Modules.Notification.Contracts.Queries
+@using Stratum.Modules.Notification.Contracts.Commands
+@inject ISender Sender
+@inject NavigationManager Nav
+@inject IToastService ToastService
+@inject IDeliverySlaQueries SlaQueries
+
+<PageTitle>@PageTitleText — Administration</PageTitle>
+
+<DeclaredFormPage @ref="_formRef"
+                  TEntity="DeliverySlaDto"
+                  Id="@Id"
+                  Title="@BuildTitle"
+                  TestId="sla-form"
+                  ListUrl="/admin/sla"
+                  DetailUrl="@(id => $"/admin/sla/{id}")"
+                  CreateUrl="/admin/sla/new"
+                  EnableViewMode="true"
+                  InitialMode="@(_isEditRoute ? FormMode.Edit : FormMode.View)"
+                  EditPermission="@NotificationPermissions.SlaUpdate"
+                  LoadEntity="@(id => SlaQueries.GetById(id))"
+                  CreateEntity="CreateAsync"
+                  UpdateEntity="UpdateAsync"
+                  Validate="ValidateForm"
+                  ClearErrors="ClearAllErrors"
+                  MapEntity="MapFromDto"
+                  ResetFields="ResetAllFields"
+                  @bind-GlobalError="_globalError"
+                  @bind-IsDirty="_isDirty">
+    <StatusContent>
+        <StatusBadge Severity="Severity.Info" Label="SLA" />
+    </StatusContent>
+    <HeaderActions Context="ctx">
+        @if (ctx.Mode == FormMode.View && !IsCreateMode)
+        {
+            <PermissionGate Permission="@NotificationPermissions.SlaDelete">
+                <StratumButton Text="@(_deleting ? "Suppression…" : "Supprimer")"
+                               Variant="ButtonVariant.Danger" Outline Size="ButtonSize.Small"
+                               OnClick="DeleteAsync"
+                               Disabled="@_deleting"
+                               TestId="sla-form-delete-btn" />
+            </PermissionGate>
+        }
+    </HeaderActions>
+    <Content Context="ctx">
+        <SectionCard Title="Configuration du SLA" TestId="sla-form-config">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <FormField Label="Catégorie" Required Error="@_categoryError">
+                        <select class="form-select"
+                                value="@_category"
+                                @onchange="@(e => SetDirty(ref _category, ref _categoryError, e))"
+                                disabled="@(!ctx.IsCreateMode || ctx.Mode == FormMode.View)"
+                                data-testid="sla-category-select">
+                            <option value="">Sélectionner une catégorie…</option>
+                            <option value="transactional">Transactionnel</option>
+                            <option value="routing">Routage</option>
+                            <option value="escalation">Escalade</option>
+                            <option value="reminder">Rappel</option>
+                        </select>
+                    </FormField>
+                </div>
+                <div class="col-md-6">
+                    <FormField Label="Délai maximum (secondes)" Required Error="@_delayError">
+                        <input type="number"
+                               class="form-control"
+                               value="@_maxDelaySeconds"
+                               @oninput="@(e => SetDirty(ref _maxDelaySeconds, ref _delayError, e))"
+                               min="1"
+                               placeholder="300"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="sla-delay-input" />
+                    </FormField>
+                </div>
+                <div class="col-md-6">
+                    <FormField Label="Action d'escalade" Error="@_actionError">
+                        <input type="text"
+                               class="form-control"
+                               value="@_escalationAction"
+                               @oninput="@(e => SetDirty(ref _escalationAction, ref _actionError, e))"
+                               placeholder="email, webhook, etc."
+                               maxlength="200"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="sla-action-input" />
+                    </FormField>
+                </div>
+                <div class="col-md-6">
+                    <FormField Label="Destinataire escalade" Error="@_recipientError">
+                        <input type="text"
+                               class="form-control"
+                               value="@_escalationRecipient"
+                               @oninput="@(e => SetDirty(ref _escalationRecipient, ref _recipientError, e))"
+                               placeholder="admin@example.com"
+                               maxlength="200"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="sla-recipient-input" />
+                    </FormField>
+                </div>
+            </div>
+        </SectionCard>
+
+        @if (ctx.Mode == FormMode.View && !IsCreateMode && int.TryParse(_maxDelaySeconds, out var previewDelay))
+        {
+            <SectionCard Title="Aperçu SLA" TestId="sla-form-preview">
+                <p class="text-muted small mb-2">Simulation du compte à rebours pour ce SLA :</p>
+                <SlaCountdown Deadline="@DateTimeOffset.UtcNow.AddSeconds(previewDelay)"
+                              TestId="sla-preview-countdown" />
+            </SectionCard>
+        }
+    </Content>
+    <AuditSection>
+        @if (!IsCreateMode)
+        {
+            <SectionCard Title="Audit" Collapsible DefaultCollapsed TestId="sla-form-audit">
+                <dl class="row mb-0">
+                    <dt class="col-sm-3">Identifiant</dt>
+                    <dd class="col-sm-9"><code class="text-muted small">@Id</code></dd>
+                    <dt class="col-sm-3">Créé le</dt>
+                    <dd class="col-sm-9">@_createdAt.ToString("dd/MM/yyyy HH:mm")</dd>
+                    @if (_updatedAt.HasValue)
+                    {
+                        <dt class="col-sm-3">Modifié le</dt>
+                        <dd class="col-sm-9">@_updatedAt.Value.ToString("dd/MM/yyyy HH:mm")</dd>
+                    }
+                </dl>
+            </SectionCard>
+        }
+    </AuditSection>
+</DeclaredFormPage>
+
+@code {
+    [Parameter]
+    public Guid? Id { get; set; }
+
+    private DeclaredFormPage<DeliverySlaDto>? _formRef;
+
+    private bool IsCreateMode => Id is null;
+    private bool _isEditRoute;
+
+    private string _category = string.Empty;
+    private string _maxDelaySeconds = string.Empty;
+    private string _escalationAction = string.Empty;
+    private string _escalationRecipient = string.Empty;
+    private bool _isDirty;
+    private DateTimeOffset _createdAt;
+    private DateTimeOffset? _updatedAt;
+    private bool _deleting;
+
+    private string? _categoryError;
+    private string? _delayError;
+    private string? _actionError;
+    private string? _recipientError;
+    private string? _globalError;
+
+    private string PageTitleText =>
+        IsCreateMode ? "Nouveau SLA" :
+        _isEditRoute ? "Modifier SLA" :
+        FormatCategory(_category);
+
+    private string BuildTitle(bool createMode) =>
+        createMode ? "Nouveau SLA" : FormatCategory(_category);
+
+    protected override void OnParametersSet()
+    {
+        _isEditRoute = Nav.Uri.EndsWith("/edit", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void MapFromDto(DeliverySlaDto sla)
+    {
+        _category = sla.Category;
+        _maxDelaySeconds = sla.MaxDelaySeconds.ToString();
+        _escalationAction = sla.EscalationAction ?? string.Empty;
+        _escalationRecipient = sla.EscalationRecipient ?? string.Empty;
+        _createdAt = sla.CreatedAt;
+        _updatedAt = sla.UpdatedAt;
+    }
+
+    private void ResetAllFields()
+    {
+        _category = string.Empty;
+        _maxDelaySeconds = string.Empty;
+        _escalationAction = string.Empty;
+        _escalationRecipient = string.Empty;
+        _createdAt = default;
+        _updatedAt = null;
+    }
+
+    private void ClearAllErrors()
+    {
+        _categoryError = null;
+        _delayError = null;
+        _actionError = null;
+        _recipientError = null;
+    }
+
+    private bool ValidateForm()
+    {
+        var valid = true;
+
+        if (Id is null && string.IsNullOrEmpty(_category))
+        {
+            _categoryError = "La catégorie est obligatoire.";
+            valid = false;
+        }
+
+        if (string.IsNullOrWhiteSpace(_maxDelaySeconds) || !int.TryParse(_maxDelaySeconds, out var delay) || delay <= 0)
+        {
+            _delayError = "Le délai doit être un nombre positif (en secondes).";
+            valid = false;
+        }
+
+        return valid;
+    }
+
+    private void SetDirty(ref string field, ref string? error, ChangeEventArgs e)
+    {
+        field = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+        error = null;
+    }
+
+    private async Task<Guid> CreateAsync()
+    {
+        return await Sender.Send(new CreateDeliverySlaCommand
+        {
+            Category = _category,
+            MaxDelaySeconds = int.Parse(_maxDelaySeconds),
+            EscalationAction = string.IsNullOrWhiteSpace(_escalationAction) ? null : _escalationAction.Trim(),
+            EscalationRecipient = string.IsNullOrWhiteSpace(_escalationRecipient) ? null : _escalationRecipient.Trim(),
+        });
+    }
+
+    private async Task UpdateAsync()
+    {
+        await Sender.Send(new UpdateDeliverySlaCommand
+        {
+            Id = Id!.Value,
+            MaxDelaySeconds = int.Parse(_maxDelaySeconds),
+            EscalationAction = string.IsNullOrWhiteSpace(_escalationAction) ? null : _escalationAction.Trim(),
+            EscalationRecipient = string.IsNullOrWhiteSpace(_escalationRecipient) ? null : _escalationRecipient.Trim(),
+        });
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (Id is null || _deleting) return;
+        _deleting = true;
+        try
+        {
+            await Sender.Send(new DeleteDeliverySlaCommand { Id = Id.Value });
+            ToastService.Show("SLA supprimé.", Severity.Success);
+            Nav.NavigateTo("/admin/sla");
+        }
+        catch (Exception ex)
+        {
+            ToastService.Show($"Erreur : {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _deleting = false;
+        }
+    }
+
+    private static string FormatCategory(string category)
+    {
+        return category.ToLowerInvariant() switch
+        {
+            "transactional" => "Transactionnel",
+            "routing" => "Routage",
+            "escalation" => "Escalade",
+            "reminder" => "Rappel",
+            _ => string.IsNullOrEmpty(category) ? "SLA" : category,
+        };
+    }
+}

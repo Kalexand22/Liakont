@@ -1,0 +1,266 @@
+@page "/admin/notifications/webhooks/new"
+@page "/admin/notifications/webhooks/{Id:guid}"
+@page "/admin/notifications/webhooks/{Id:guid}/edit"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Stratum.Modules.Notification.Contracts
+@using Stratum.Modules.Notification.Contracts.DTOs
+@using Stratum.Modules.Notification.Contracts.Queries
+@using Stratum.Modules.Notification.Contracts.Commands
+@using Stratum.Common.Abstractions.Security
+@inject ISender Sender
+@inject IWebhookQueries WebhookQueries
+@inject IActorContextAccessor ActorContext
+@inject NavigationManager Nav
+@inject IToastService ToastService
+
+<PageTitle>@PageTitleText — Stratum ERP</PageTitle>
+
+<DeclaredFormPage @ref="_formRef"
+                  TEntity="WebhookSubscriptionDto"
+                  Id="@Id"
+                  Title="@BuildTitle"
+                  TestId="webhook-form"
+                  ListUrl="/admin/notifications/webhooks"
+                  DetailUrl="@(id => $"/admin/notifications/webhooks/{id}")"
+                  CreateUrl="/admin/notifications/webhooks/new"
+                  EntityType="Webhook"
+                  EnableViewMode="true"
+                  InitialMode="@(_isEditRoute ? FormMode.Edit : FormMode.View)"
+                  EditPermission="@NotificationPermissions.WebhookUpdate"
+                  LoadEntity="@(id => WebhookQueries.GetById(id))"
+                  CreateEntity="CreateAsync"
+                  UpdateEntity="UpdateAsync"
+                  Validate="ValidateForm"
+                  ClearErrors="ClearAllErrors"
+                  MapEntity="MapFromDto"
+                  ResetFields="ResetAllFields"
+                  MapDomainError="HandleDomainError"
+                  @bind-GlobalError="_globalError"
+                  @bind-IsDirty="_isDirty">
+    <StatusContent>
+        @if (!IsCreateMode)
+        {
+            <StatusBadge Severity="@(_isActive ? Severity.Success : Severity.Neutral)"
+                         Label="@(_isActive ? "Actif" : "Inactif")" />
+        }
+    </StatusContent>
+    <Content Context="ctx">
+        <SectionCard Title="Configuration" TestId="webhook-form-config">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <FormField Label="Nom" Required Error="@_nameError">
+                        <input type="text" class="form-control" value="@_name"
+                               @oninput="HandleNameInput"
+                               placeholder="ex: Notification Zapier"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="webhook-form-name" />
+                    </FormField>
+                </div>
+                <div class="col-md-6">
+                    <FormField Label="Type d'événement" Required Error="@_eventTypeError">
+                        <input type="text" class="form-control" value="@_eventType"
+                               @oninput="HandleEventTypeInput"
+                               placeholder="ex: reservation.created"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="webhook-form-eventtype" />
+                    </FormField>
+                </div>
+                <div class="col-md-6">
+                    <FormField Label="URL cible (HTTPS)" Required Error="@_targetUrlError">
+                        <input type="url" class="form-control" value="@_targetUrl"
+                               @oninput="HandleTargetUrlInput"
+                               placeholder="https://your-server.com/webhook"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="webhook-form-url" />
+                    </FormField>
+                </div>
+                <div class="col-md-6">
+                    <FormField Label="@SecretLabel" Required="@IsCreateMode" Error="@_secretError">
+                        <div class="input-group">
+                            <input type="@(_showSecret ? "text" : "password")" class="form-control" value="@_secret"
+                                   @oninput="HandleSecretInput"
+                                   placeholder="@(IsCreateMode ? "Minimum 32 caractères" : "Laisser vide pour conserver")"
+                                   disabled="@(ctx.Mode == FormMode.View)"
+                                   data-testid="webhook-form-secret" />
+                            @if (ctx.Mode != FormMode.View)
+                            {
+                                <StratumButton Text="@(_showSecret ? "Masquer" : "Afficher")"
+                                               Variant="ButtonVariant.Secondary"
+                                               Outline
+                                               Size="ButtonSize.Small"
+                                               OnClick="@(() => _showSecret = !_showSecret)"
+                                               TestId="webhook-form-secret-toggle" />
+                            }
+                        </div>
+                    </FormField>
+                </div>
+                <div class="col-md-3 d-flex align-items-center">
+                    <input type="checkbox" class="form-check-input" id="webhook-active" checked="@_isActive"
+                           @onchange="HandleActiveChange"
+                           disabled="@(ctx.Mode == FormMode.View)"
+                           data-testid="webhook-form-active" />
+                    <label class="form-check-label ms-2" for="webhook-active">Actif</label>
+                </div>
+            </div>
+        </SectionCard>
+    </Content>
+</DeclaredFormPage>
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+
+    private DeclaredFormPage<WebhookSubscriptionDto>? _formRef;
+    private bool _isDirty;
+    private string _globalError = string.Empty;
+    private bool _isEditRoute;
+    private bool _showSecret;
+
+    private string _name = string.Empty;
+    private string _nameError = string.Empty;
+    private string _eventType = string.Empty;
+    private string _eventTypeError = string.Empty;
+    private string _targetUrl = string.Empty;
+    private string _targetUrlError = string.Empty;
+    private string _secret = string.Empty;
+    private string _secretError = string.Empty;
+    private bool _isActive = true;
+
+    private bool IsCreateMode => Id is null;
+    private string PageTitleText => IsCreateMode ? "Nouveau webhook" : "Webhook";
+    private string BuildTitle(bool isCreate) => isCreate ? "Nouveau webhook" : "Webhook";
+    private string SecretLabel => IsCreateMode ? "Secret (min 32 car.)" : "Secret (vide = conserver)";
+
+    private Guid CompanyId => ActorContext.Current.CompanyId
+        ?? throw new InvalidOperationException("No company context available.");
+
+    protected override void OnInitialized()
+    {
+        _isEditRoute = Nav.Uri.EndsWith("/edit", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void MapFromDto(WebhookSubscriptionDto dto)
+    {
+        _name = dto.Name;
+        _eventType = dto.EventType;
+        _targetUrl = dto.TargetUrl;
+        _secret = string.Empty;
+        _isActive = dto.IsActive;
+        _showSecret = false;
+    }
+
+    private void ResetAllFields()
+    {
+        _name = string.Empty;
+        _eventType = string.Empty;
+        _targetUrl = string.Empty;
+        _secret = string.Empty;
+        _isActive = true;
+        _showSecret = false;
+    }
+
+    private void ClearAllErrors()
+    {
+        _nameError = string.Empty;
+        _eventTypeError = string.Empty;
+        _targetUrlError = string.Empty;
+        _secretError = string.Empty;
+        _globalError = string.Empty;
+    }
+
+    private bool ValidateForm()
+    {
+        var valid = true;
+        ClearAllErrors();
+
+        if (string.IsNullOrWhiteSpace(_name)) { _nameError = "Nom requis"; valid = false; }
+        if (string.IsNullOrWhiteSpace(_eventType)) { _eventTypeError = "Type d'événement requis"; valid = false; }
+        if (string.IsNullOrWhiteSpace(_targetUrl)) { _targetUrlError = "URL cible requise"; valid = false; }
+        if (IsCreateMode && (string.IsNullOrWhiteSpace(_secret) || _secret.Length < 32))
+        {
+            _secretError = "Secret requis (min 32 caractères)";
+            valid = false;
+        }
+        else if (!IsCreateMode && !string.IsNullOrEmpty(_secret) && _secret.Length < 32)
+        {
+            _secretError = "Secret trop court (min 32 caractères)";
+            valid = false;
+        }
+
+        return valid;
+    }
+
+    private void HandleDomainError(string errorCode)
+    {
+        _globalError = errorCode switch
+        {
+            "INV-WH-001" => "URL cible invalide (HTTPS requis)",
+            "INV-WH-002" => "Secret trop court (min 32 car.)",
+            "INV-WH-003" => "Type d'événement requis",
+            "INV-WH-004" => "Nom requis",
+            _ => errorCode,
+        };
+    }
+
+    private async Task<Guid> CreateAsync()
+    {
+        return await Sender.Send(new CreateWebhookSubscriptionCommand
+        {
+            Name = _name,
+            EventType = _eventType,
+            TargetUrl = _targetUrl,
+            Secret = _secret,
+            CompanyId = CompanyId,
+        });
+    }
+
+    private async Task UpdateAsync()
+    {
+        await Sender.Send(new UpdateWebhookSubscriptionCommand
+        {
+            SubscriptionId = Id!.Value,
+            Name = _name,
+            EventType = _eventType,
+            TargetUrl = _targetUrl,
+            Secret = string.IsNullOrEmpty(_secret) ? null : _secret,
+            IsActive = _isActive,
+        });
+    }
+
+    private void HandleNameInput(ChangeEventArgs e)
+    {
+        _name = e.Value?.ToString() ?? string.Empty;
+        _nameError = string.Empty;
+        _isDirty = true;
+    }
+
+    private void HandleEventTypeInput(ChangeEventArgs e)
+    {
+        _eventType = e.Value?.ToString() ?? string.Empty;
+        _eventTypeError = string.Empty;
+        _isDirty = true;
+    }
+
+    private void HandleTargetUrlInput(ChangeEventArgs e)
+    {
+        _targetUrl = e.Value?.ToString() ?? string.Empty;
+        _targetUrlError = string.Empty;
+        _isDirty = true;
+    }
+
+    private void HandleSecretInput(ChangeEventArgs e)
+    {
+        _secret = e.Value?.ToString() ?? string.Empty;
+        _secretError = string.Empty;
+        _isDirty = true;
+    }
+
+    private void HandleActiveChange(ChangeEventArgs e)
+    {
+        _isActive = (bool)(e.Value ?? false);
+        _isDirty = true;
+    }
+}

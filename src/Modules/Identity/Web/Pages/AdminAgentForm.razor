@@ -1,0 +1,503 @@
+@page "/admin/agents/{Id:guid}"
+@page "/admin/agents/{Id:guid}/edit"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Stratum.Modules.Identity.Contracts
+@using Stratum.Modules.Identity.Contracts.DTOs
+@using Stratum.Modules.Identity.Contracts.Queries
+@using Stratum.Modules.Identity.Contracts.Commands
+@inject ISender Sender
+@inject IAgentQueries AgentQueries
+@inject NavigationManager Nav
+@inject IToastService ToastService
+
+<PageTitle>@PageTitleText — Stratum ERP</PageTitle>
+
+<DeclaredFormPage @ref="_formRef"
+                  TEntity="AgentDto"
+                  Id="@Id"
+                  Title="@BuildTitle"
+                  TestId="agent-form"
+                  ListUrl="/admin/agents"
+                  DetailUrl="@(id => $"/admin/agents/{id}")"
+                  CreateUrl="/admin/agents/new"
+                  EntityType="Agent"
+                  EnableViewMode="true"
+                  InitialMode="@(_isEditRoute ? FormMode.Edit : FormMode.View)"
+                  EditPermission="@IdentityPermissions.AgentUpdate"
+                  LoadEntity="LoadAgentAsync"
+                  CreateEntity="CreateAsync"
+                  UpdateEntity="UpdateAsync"
+                  Validate="ValidateForm"
+                  ClearErrors="ClearAllErrors"
+                  MapEntity="MapFromDto"
+                  ResetFields="ResetAllFields"
+                  MapDomainError="MapError"
+                  OnEntityChanged="HandleEntityChanged"
+                  @bind-GlobalError="_globalError"
+                  @bind-IsDirty="_isDirty">
+    <StatusContent>
+        <StatusBadge Severity="@(_isActive ? Severity.Success : Severity.Neutral)"
+                     Label="@(_isActive ? "Actif" : "Inactif")" />
+    </StatusContent>
+    <Content Context="ctx">
+        <SectionCard Title="Informations générales" TestId="agent-form-general">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <FormField Label="Identifiant">
+                        <input type="text"
+                               class="form-control"
+                               value="@_username"
+                               disabled
+                               data-testid="agent-form-username" />
+                    </FormField>
+                </div>
+                <div class="col-md-4">
+                    <FormField Label="E-mail">
+                        <input type="text"
+                               class="form-control"
+                               value="@_email"
+                               disabled
+                               data-testid="agent-form-email" />
+                    </FormField>
+                </div>
+                <div class="col-md-4">
+                    <FormField Label="Nom affiché">
+                        <input type="text"
+                               class="form-control"
+                               value="@_displayName"
+                               disabled
+                               data-testid="agent-form-displayname" />
+                    </FormField>
+                </div>
+                <div class="col-md-4">
+                    <FormField Label="Fonction" Error="@_titleError">
+                        <input type="text"
+                               class="form-control"
+                               value="@_title"
+                               @oninput="HandleTitleInput"
+                               placeholder="ex: Chef de service"
+                               maxlength="200"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="agent-form-title" />
+                    </FormField>
+                </div>
+                <div class="col-md-4">
+                    <FormField Label="Service">
+                        <input type="text"
+                               class="form-control"
+                               value="@_serviceCode"
+                               @oninput="HandleServiceCodeInput"
+                               placeholder="Code service"
+                               maxlength="100"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="agent-form-service" />
+                    </FormField>
+                </div>
+                <div class="col-md-4">
+                    <FormField Label="Téléphone">
+                        <input type="tel"
+                               class="form-control"
+                               value="@_phone"
+                               @oninput="HandlePhoneInput"
+                               placeholder="ex: 02 98 00 00 00"
+                               maxlength="30"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="agent-form-phone" />
+                    </FormField>
+                </div>
+                <div class="col-md-4">
+                    <FormField Label="Bureau">
+                        <input type="text"
+                               class="form-control"
+                               value="@_officeLocation"
+                               @oninput="HandleOfficeInput"
+                               placeholder="ex: Bâtiment A, Bureau 12"
+                               maxlength="200"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="agent-form-office" />
+                    </FormField>
+                </div>
+                <div class="col-md-4">
+                    <FormField Label="Date d'embauche">
+                        <input type="date"
+                               class="form-control"
+                               value="@_hireDate?.ToString("yyyy-MM-dd")"
+                               @oninput="HandleHireDateInput"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="agent-form-hiredate" />
+                    </FormField>
+                </div>
+                <div class="col-12">
+                    <FormField Label="Notes">
+                        <textarea class="form-control"
+                                  @oninput="HandleNotesInput"
+                                  placeholder="Notes internes"
+                                  rows="3"
+                                  disabled="@(ctx.Mode == FormMode.View)"
+                                  data-testid="agent-form-notes">@_notes</textarea>
+                    </FormField>
+                </div>
+            </div>
+        </SectionCard>
+
+        <SectionCard Title="Compétences" TestId="agent-form-competences">
+            @if (_competences.Count > 0)
+            {
+                <table class="table table-sm mb-0" data-testid="agent-form-competences-table">
+                    <thead>
+                        <tr>
+                            <th>Nom</th>
+                            <th>Catégorie</th>
+                            <th>Valide jusqu'au</th>
+                            @if (ctx.Mode != FormMode.View)
+                            {
+                                <th style="width: 60px;"></th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var c in _competences)
+                        {
+                            <tr>
+                                <td>@c.Name</td>
+                                <td>@(c.Category ?? "—")</td>
+                                <td>@(c.ValidUntil?.ToString("dd/MM/yyyy") ?? "—")</td>
+                                @if (ctx.Mode != FormMode.View)
+                                {
+                                    <td>
+                                        <StratumButton Text="×"
+                                                       Variant="ButtonVariant.Danger"
+                                                       Outline
+                                                       Size="ButtonSize.Small"
+                                                       OnClick="@(() => RemoveCompetenceAsync(c.Id))"
+                                                       TestId="@($"agent-form-remove-comp-{c.Id}")" />
+                                    </td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <p class="text-muted mb-0">Aucune compétence enregistrée.</p>
+            }
+        </SectionCard>
+    </Content>
+    <AuditSection>
+        <SectionCard Title="Audit" Collapsible DefaultCollapsed TestId="agent-form-audit">
+            <dl class="row mb-0">
+                <dt class="col-sm-3">Identifiant</dt>
+                <dd class="col-sm-9"><code class="text-muted small">@Id</code></dd>
+                <dt class="col-sm-3">Créé le</dt>
+                <dd class="col-sm-9">@_createdAt.ToString("dd/MM/yyyy HH:mm")</dd>
+                @if (_updatedAt.HasValue)
+                {
+                    <dt class="col-sm-3">Modifié le</dt>
+                    <dd class="col-sm-9">@_updatedAt.Value.ToString("dd/MM/yyyy HH:mm")</dd>
+                }
+            </dl>
+        </SectionCard>
+    </AuditSection>
+</DeclaredFormPage>
+
+@code {
+    [Parameter]
+    public Guid? Id { get; set; }
+
+    private DeclaredFormPage<AgentDto>? _formRef;
+
+    private bool _isEditRoute;
+
+    private string _username = string.Empty;
+    private string _email = string.Empty;
+    private string? _displayName;
+    private string? _serviceCode;
+    private string? _title;
+    private string? _phone;
+    private string? _officeLocation;
+    private DateOnly? _hireDate;
+    private string? _notes;
+    private bool _isActive = true;
+    private bool _isDirty;
+    private Guid _userId;
+    private DateTimeOffset _createdAt;
+    private DateTimeOffset? _updatedAt;
+    private List<AgentCompetenceDto> _competences = new();
+
+    private string? _origServiceCode;
+    private string? _origTitle;
+    private string? _origPhone;
+    private string? _origOfficeLocation;
+    private DateOnly? _origHireDate;
+    private string? _origNotes;
+
+    private string? _titleError;
+    private string? _globalError;
+
+    private string PageTitleText =>
+        _displayName?.Length > 0 ? _displayName : "Fiche agent";
+
+    private string BuildTitle(bool createMode) =>
+        _displayName?.Length > 0 ? _displayName : "Fiche agent";
+
+    protected override void OnParametersSet()
+    {
+        _isEditRoute = Nav.Uri.EndsWith("/edit", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<AgentDto?> LoadAgentAsync(Guid id)
+    {
+        var dto = await AgentQueries.GetById(id);
+        if (dto is not null)
+        {
+            _competences = (await AgentQueries.GetCompetences(dto.UserId)).ToList();
+        }
+
+        return dto;
+    }
+
+    private void MapFromDto(AgentDto dto)
+    {
+        _username = dto.Username;
+        _email = dto.Email;
+        _displayName = dto.DisplayName;
+        _serviceCode = dto.ServiceCode;
+        _title = dto.Title;
+        _phone = dto.Phone;
+        _officeLocation = dto.OfficeLocation;
+        _hireDate = dto.HireDate;
+        _isActive = dto.IsActive;
+        _userId = dto.UserId;
+        _createdAt = dto.CreatedAt;
+        _updatedAt = dto.UpdatedAt;
+
+        _origServiceCode = dto.ServiceCode;
+        _origTitle = dto.Title;
+        _origPhone = dto.Phone;
+        _origOfficeLocation = dto.OfficeLocation;
+        _origHireDate = dto.HireDate;
+        _notes = dto.Notes;
+        _origNotes = dto.Notes;
+    }
+
+    private void ResetAllFields()
+    {
+        _username = string.Empty;
+        _email = string.Empty;
+        _displayName = null;
+        _serviceCode = null;
+        _title = null;
+        _phone = null;
+        _officeLocation = null;
+        _hireDate = null;
+        _notes = null;
+        _isActive = true;
+        _userId = Guid.Empty;
+        _createdAt = default;
+        _updatedAt = null;
+        _competences = new();
+
+        _origServiceCode = null;
+        _origTitle = null;
+        _origPhone = null;
+        _origOfficeLocation = null;
+        _origHireDate = null;
+        _origNotes = null;
+    }
+
+    private bool ValidateForm()
+    {
+        return true;
+    }
+
+    private void ClearAllErrors()
+    {
+        _titleError = null;
+    }
+
+    private Task<Guid> CreateAsync()
+    {
+        throw new NotSupportedException("Agent profiles are created from user provisioning.");
+    }
+
+    private async Task UpdateAsync()
+    {
+        await Sender.Send(new UpdateAgentProfileCommand
+        {
+            AgentProfileId = Id!.Value,
+            ServiceCode = _serviceCode?.Trim(),
+            Title = _title?.Trim(),
+            Phone = _phone?.Trim(),
+            OfficeLocation = _officeLocation?.Trim(),
+            HireDate = _hireDate,
+            Notes = _notes?.Trim(),
+        });
+    }
+
+    private async Task RemoveCompetenceAsync(Guid competenceId)
+    {
+        await Sender.Send(new RemoveAgentCompetenceCommand { CompetenceId = competenceId });
+        _competences.RemoveAll(c => c.Id == competenceId);
+        ToastService.Show("Compétence retirée.", Severity.Success);
+    }
+
+    private void MapError(string message)
+    {
+        _globalError = message;
+    }
+
+    private void HandleTitleInput(ChangeEventArgs e)
+    {
+        _title = e.Value?.ToString();
+        _isDirty = true;
+        _titleError = null;
+    }
+
+    private void HandleServiceCodeInput(ChangeEventArgs e)
+    {
+        _serviceCode = e.Value?.ToString();
+        _isDirty = true;
+    }
+
+    private void HandlePhoneInput(ChangeEventArgs e)
+    {
+        _phone = e.Value?.ToString();
+        _isDirty = true;
+    }
+
+    private void HandleOfficeInput(ChangeEventArgs e)
+    {
+        _officeLocation = e.Value?.ToString();
+        _isDirty = true;
+    }
+
+    private void HandleHireDateInput(ChangeEventArgs e)
+    {
+        if (DateOnly.TryParse(e.Value?.ToString(), out var val))
+        {
+            _hireDate = val;
+        }
+        else
+        {
+            _hireDate = null;
+        }
+
+        _isDirty = true;
+    }
+
+    private void HandleNotesInput(ChangeEventArgs e)
+    {
+        _notes = e.Value?.ToString();
+        _isDirty = true;
+    }
+
+    private async Task HandleEntityChanged(EntityChangedEvent evt)
+    {
+        if (!_isDirty && _formRef is not null)
+        {
+            await _formRef.ReloadAsync();
+            ToastService.Show($"Mise à jour par {evt.ChangedBy} appliquée.", Severity.Info);
+            return;
+        }
+
+        AgentDto? serverDto;
+        try
+        {
+            serverDto = await AgentQueries.GetById(Id!.Value);
+        }
+        catch
+        {
+            ToastService.Show("Impossible de recharger les données.", Severity.Error);
+            return;
+        }
+
+        if (serverDto is null)
+        {
+            return;
+        }
+
+        var conflicts = new List<string>();
+
+        if (_serviceCode == _origServiceCode)
+        {
+            _serviceCode = serverDto.ServiceCode;
+        }
+        else if (serverDto.ServiceCode != _origServiceCode)
+        {
+            conflicts.Add("Service");
+        }
+
+        if (_title == _origTitle)
+        {
+            _title = serverDto.Title;
+        }
+        else if (serverDto.Title != _origTitle)
+        {
+            conflicts.Add("Fonction");
+        }
+
+        if (_phone == _origPhone)
+        {
+            _phone = serverDto.Phone;
+        }
+        else if (serverDto.Phone != _origPhone)
+        {
+            conflicts.Add("Téléphone");
+        }
+
+        if (_officeLocation == _origOfficeLocation)
+        {
+            _officeLocation = serverDto.OfficeLocation;
+        }
+        else if (serverDto.OfficeLocation != _origOfficeLocation)
+        {
+            conflicts.Add("Bureau");
+        }
+
+        if (_hireDate == _origHireDate)
+        {
+            _hireDate = serverDto.HireDate;
+        }
+        else if (serverDto.HireDate != _origHireDate)
+        {
+            conflicts.Add("Date d'embauche");
+        }
+
+        if (_notes == _origNotes)
+        {
+            _notes = serverDto.Notes;
+        }
+        else if (serverDto.Notes != _origNotes)
+        {
+            conflicts.Add("Notes");
+        }
+
+        _isActive = serverDto.IsActive;
+        _createdAt = serverDto.CreatedAt;
+        _updatedAt = serverDto.UpdatedAt;
+
+        _origServiceCode = serverDto.ServiceCode;
+        _origTitle = serverDto.Title;
+        _origPhone = serverDto.Phone;
+        _origOfficeLocation = serverDto.OfficeLocation;
+        _origHireDate = serverDto.HireDate;
+        _origNotes = serverDto.Notes;
+
+        if (conflicts.Count > 0)
+        {
+            ToastService.Show($"Conflit détecté sur : {string.Join(", ", conflicts)}. Vos modifications sont conservées.", Severity.Warning);
+        }
+        else
+        {
+            _isDirty = _serviceCode != _origServiceCode || _title != _origTitle
+                || _phone != _origPhone || _officeLocation != _origOfficeLocation
+                || _hireDate != _origHireDate || _notes != _origNotes;
+            ToastService.Show($"Mise à jour par {evt.ChangedBy} appliquée.", Severity.Info);
+        }
+    }
+}

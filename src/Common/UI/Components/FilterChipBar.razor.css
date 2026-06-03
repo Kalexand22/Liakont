@@ -1,0 +1,219 @@
+/* FilterChipBar — scoped CSS (Civic Blueprint tokens only, no hex literals)
+ * Structure: <div.filter-chip-bar> → <div.filter-chip-bar__chips> + <div.filter-chip-bar__actions>
+ *
+ * Overflow (DF-09): chips container is clamped to 2 lines via max-height.
+ * When expanded, max-height is removed.
+ */
+
+.filter-chip-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--spacing-2);
+    padding: var(--spacing-1) 0;
+}
+
+/* ── Chips container ─────────────────────────────────────── */
+
+.filter-chip-bar__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-1);
+    align-items: center;
+    /* 2-line clamp: each chip line is ~28px, allow 2 lines + gap.
+       JS overflow detection counts hidden children. */
+    max-height: 4rem;
+    overflow: hidden;
+    /* Shrink-to-content so the "+ Ajouter un filtre" button sits directly
+       after the last chip rather than being pushed to the far right. */
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
+.filter-chip-bar__chips--expanded {
+    max-height: none;
+    overflow: visible;
+}
+
+/* ── Action buttons (always visible) ─────────────────────── */
+
+.filter-chip-bar__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    flex-shrink: 0;
+}
+
+/* ── Overflow "+n autres" button ─────────────────────────── */
+
+.filter-chip-bar__overflow-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem var(--spacing-2);
+    background: var(--color-surface-container);
+    border: none;
+    border-radius: var(--radius-default);
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-label-sm);
+    font-weight: var(--font-weight-label-sm);
+    color: var(--color-primary);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.15s ease;
+}
+
+.filter-chip-bar__overflow-btn:hover {
+    background: var(--color-surface-container-high);
+}
+
+.filter-chip-bar__overflow-btn:focus-visible {
+    box-shadow: 0 0 0 2px var(--color-focus-ring);
+    outline: none;
+}
+
+/* ── "+ Ajouter un filtre" button ────────────────────────── */
+
+.filter-chip-bar__add-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-1);
+    padding: 0.125rem var(--spacing-2);
+    background: transparent;
+    border: 1px dashed var(--color-border-ghost);
+    border-radius: var(--radius-default);
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-label-sm);
+    font-weight: var(--font-weight-label-sm);
+    color: var(--color-on-surface-variant);
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.filter-chip-bar__add-btn:hover {
+    background: var(--color-surface-container);
+    border-color: color-mix(in srgb, var(--color-outline-variant) 30%, transparent);
+    color: var(--color-on-surface);
+}
+
+.filter-chip-bar__add-btn:focus-visible {
+    box-shadow: 0 0 0 2px var(--color-focus-ring);
+    outline: none;
+}
+
+::deep .filter-chip-bar__add-icon {
+    font-size: var(--font-size-body-sm);
+}
+
+/* ── "Effacer tout" button ───────────────────────────────── */
+
+.filter-chip-bar__clear-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem var(--spacing-2);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-default);
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-label-sm);
+    font-weight: var(--font-weight-label-sm);
+    color: var(--color-error);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.15s ease;
+}
+
+.filter-chip-bar__clear-btn:hover {
+    background: color-mix(in srgb, var(--color-error) 8%, transparent);
+}
+
+.filter-chip-bar__clear-btn:focus-visible {
+    box-shadow: 0 0 0 2px var(--color-focus-ring);
+    outline: none;
+}
+
+/* ── Inline pager (right-aligned) ───────────────────────── */
+
+.filter-chip-bar__pager {
+    margin-left: auto;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+}
+
+/* Strip card and size-down Pagination to match the chip bar height/style. */
+::deep .filter-chip-bar__pager .pagination {
+    margin-top: 0;
+    padding: 0;
+    border: none;
+    background: none;
+    box-shadow: none;
+    border-radius: 0;
+    gap: var(--spacing-2);
+    flex-wrap: nowrap;
+    color: var(--color-on-surface-variant);
+}
+
+::deep .filter-chip-bar__pager .pagination__summary {
+    color: var(--color-on-surface-variant);
+    gap: var(--spacing-1);
+}
+
+::deep .filter-chip-bar__pager .pagination__info,
+::deep .filter-chip-bar__pager .pagination__page-info,
+::deep .filter-chip-bar__pager .pagination__page-size label {
+    font-size: var(--font-size-label-sm);
+    font-weight: var(--font-weight-label-sm);
+    color: var(--color-on-surface-variant);
+}
+
+::deep .filter-chip-bar__pager .pagination__controls {
+    padding: 0;
+    border: none;
+    background: none;
+    gap: 0;
+}
+
+::deep .filter-chip-bar__pager .pagination__btn {
+    width: 1.5rem;
+    height: 1.5rem;
+    color: var(--color-on-surface-variant);
+}
+
+::deep .filter-chip-bar__pager .pagination__icon {
+    font-size: var(--font-size-body-sm);
+}
+
+::deep .filter-chip-bar__pager .pagination__page-size {
+    margin-left: 0;
+    gap: var(--spacing-1);
+}
+
+::deep .filter-chip-bar__pager .pagination__page-size-select {
+    height: 1.5rem;
+    font-size: var(--font-size-label-sm);
+    font-weight: var(--font-weight-label-sm);
+    color: var(--color-on-surface-variant);
+    border-color: var(--color-border-ghost);
+    padding: 0 var(--spacing-3) 0 var(--spacing-1);
+}
+
+/* ── Density ─────────────────────────────────────────────── */
+
+[data-density="compact"] .filter-chip-bar {
+    gap: var(--spacing-1);
+    padding: var(--spacing-1) 0;
+}
+
+[data-density="compact"] .filter-chip-bar__chips {
+    max-height: 3rem;
+    gap: 2px;
+}
+
+[data-density="compact"] .filter-chip-bar__overflow-btn,
+[data-density="compact"] .filter-chip-bar__add-btn,
+[data-density="compact"] .filter-chip-bar__clear-btn {
+    font-size: 0.625rem;
+    padding: 0 var(--spacing-1);
+}

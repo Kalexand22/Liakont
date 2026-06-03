@@ -1,0 +1,429 @@
+@page "/admin/agents/teams/new"
+@page "/admin/agents/teams/{Id:guid}"
+@page "/admin/agents/teams/{Id:guid}/edit"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Stratum.Modules.Identity.Contracts
+@using Stratum.Modules.Identity.Contracts.DTOs
+@using Stratum.Modules.Identity.Contracts.Queries
+@using Stratum.Modules.Identity.Contracts.Commands
+@inject ISender Sender
+@inject ITeamQueries TeamQueries
+@inject NavigationManager Nav
+@inject IToastService ToastService
+
+<PageTitle>@PageTitleText — Stratum ERP</PageTitle>
+
+<DeclaredFormPage @ref="_formRef"
+                  TEntity="TeamDto"
+                  Id="@Id"
+                  Title="@BuildTitle"
+                  TestId="team-form"
+                  ListUrl="/admin/agents/teams"
+                  DetailUrl="@(id => $"/admin/agents/teams/{id}")"
+                  CreateUrl="/admin/agents/teams/new"
+                  EntityType="Team"
+                  EnableViewMode="true"
+                  InitialMode="@(_isEditRoute ? FormMode.Edit : FormMode.View)"
+                  EditPermission="@IdentityPermissions.TeamUpdate"
+                  LoadEntity="LoadTeamAsync"
+                  CreateEntity="CreateAsync"
+                  UpdateEntity="UpdateAsync"
+                  Validate="ValidateForm"
+                  ClearErrors="ClearAllErrors"
+                  MapEntity="MapFromDto"
+                  ResetFields="ResetAllFields"
+                  MapDomainError="MapError"
+                  OnEntityChanged="HandleEntityChanged"
+                  @bind-GlobalError="_globalError"
+                  @bind-IsDirty="_isDirty">
+    <StatusContent>
+        @if (!IsCreateMode)
+        {
+            <StatusBadge Severity="@(_isActive ? Severity.Success : Severity.Neutral)"
+                         Label="@(_isActive ? "Actif" : "Inactif")" />
+        }
+    </StatusContent>
+    <Content Context="ctx">
+        <SectionCard Title="Informations générales" TestId="team-form-general">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <FormField Label="Code" Required Error="@_codeError">
+                        <input type="text"
+                               class="form-control"
+                               value="@_code"
+                               @oninput="HandleCodeInput"
+                               placeholder="ex: TECH"
+                               maxlength="50"
+                               disabled="@(ctx.Mode != FormMode.Create)"
+                               data-testid="team-form-code" />
+                    </FormField>
+                </div>
+                <div class="col-md-8">
+                    <FormField Label="Nom" Required Error="@_nameError">
+                        <input type="text"
+                               class="form-control"
+                               value="@_name"
+                               @oninput="HandleNameInput"
+                               placeholder="Nom de l'équipe"
+                               maxlength="200"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="team-form-name" />
+                    </FormField>
+                </div>
+                <div class="col-md-6">
+                    <FormField Label="Service">
+                        <input type="text"
+                               class="form-control"
+                               value="@_serviceCode"
+                               @oninput="HandleServiceCodeInput"
+                               placeholder="Code service"
+                               maxlength="100"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="team-form-service" />
+                    </FormField>
+                </div>
+                <div class="col-12">
+                    <FormField Label="Description">
+                        <textarea class="form-control"
+                                  @oninput="HandleDescriptionInput"
+                                  placeholder="Description de l'équipe"
+                                  rows="3"
+                                  disabled="@(ctx.Mode == FormMode.View)"
+                                  data-testid="team-form-description">@_description</textarea>
+                    </FormField>
+                </div>
+            </div>
+        </SectionCard>
+
+        @if (!IsCreateMode)
+        {
+            <SectionCard Title="Membres" TestId="team-form-members">
+                @if (_members.Count > 0)
+                {
+                    <table class="table table-sm mb-0" data-testid="team-form-members-table">
+                        <thead>
+                            <tr>
+                                <th>Nom</th>
+                                <th>Identifiant</th>
+                                <th>Rôle</th>
+                                <th>Depuis le</th>
+                                @if (ctx.Mode != FormMode.View)
+                                {
+                                    <th style="width: 60px;"></th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var m in _members)
+                            {
+                                <tr>
+                                    <td>@(m.DisplayName ?? m.Username)</td>
+                                    <td>@m.Username</td>
+                                    <td>@(m.Role ?? "Membre")</td>
+                                    <td>@m.JoinedAt.ToString("dd/MM/yyyy")</td>
+                                    @if (ctx.Mode != FormMode.View)
+                                    {
+                                        <td>
+                                            <StratumButton Text="×"
+                                                           Variant="ButtonVariant.Danger"
+                                                           Outline
+                                                           Size="ButtonSize.Small"
+                                                           OnClick="@(() => RemoveMemberAsync(m.Id))"
+                                                           TestId="@($"team-form-remove-member-{m.Id}")" />
+                                        </td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                else
+                {
+                    <p class="text-muted mb-0">Aucun membre dans cette équipe.</p>
+                }
+            </SectionCard>
+        }
+    </Content>
+    <AuditSection>
+        @if (!IsCreateMode)
+        {
+            <SectionCard Title="Audit" Collapsible DefaultCollapsed TestId="team-form-audit">
+                <dl class="row mb-0">
+                    <dt class="col-sm-3">Identifiant</dt>
+                    <dd class="col-sm-9"><code class="text-muted small">@Id</code></dd>
+                    <dt class="col-sm-3">Créé le</dt>
+                    <dd class="col-sm-9">@_createdAt.ToString("dd/MM/yyyy HH:mm")</dd>
+                    @if (_updatedAt.HasValue)
+                    {
+                        <dt class="col-sm-3">Modifié le</dt>
+                        <dd class="col-sm-9">@_updatedAt.Value.ToString("dd/MM/yyyy HH:mm")</dd>
+                    }
+                </dl>
+            </SectionCard>
+        }
+    </AuditSection>
+</DeclaredFormPage>
+
+@code {
+    [Parameter]
+    public Guid? Id { get; set; }
+
+    private DeclaredFormPage<TeamDto>? _formRef;
+
+    private bool IsCreateMode => Id is null;
+
+    private bool _isEditRoute;
+
+    private string _code = string.Empty;
+    private string _name = string.Empty;
+    private string? _description;
+    private string? _serviceCode;
+    private bool _isActive = true;
+    private bool _isDirty;
+    private DateTimeOffset _createdAt;
+    private DateTimeOffset? _updatedAt;
+    private List<TeamMemberDto> _members = new();
+
+    private string _origName = string.Empty;
+    private string? _origDescription;
+    private string? _origServiceCode;
+
+    private string? _codeError;
+    private string? _nameError;
+    private string? _globalError;
+
+    private string PageTitleText =>
+        IsCreateMode ? "Nouvelle équipe" :
+        _isEditRoute ? "Modifier équipe" :
+        _name.Length > 0 ? _name : "Équipe";
+
+    private string BuildTitle(bool createMode) =>
+        createMode ? "Nouvelle équipe" : _name.Length > 0 ? _name : "Équipe";
+
+    protected override void OnParametersSet()
+    {
+        _isEditRoute = Nav.Uri.EndsWith("/edit", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<TeamDto?> LoadTeamAsync(Guid id)
+    {
+        var dto = await TeamQueries.GetById(id);
+        if (dto is not null)
+        {
+            _members = (await TeamQueries.GetMembers(dto.Id)).ToList();
+        }
+
+        return dto;
+    }
+
+    private void MapFromDto(TeamDto dto)
+    {
+        _code = dto.Code;
+        _name = dto.Name;
+        _description = dto.Description;
+        _serviceCode = dto.ServiceCode;
+        _isActive = dto.IsActive;
+        _createdAt = dto.CreatedAt;
+        _updatedAt = dto.UpdatedAt;
+
+        _origName = dto.Name;
+        _origDescription = dto.Description;
+        _origServiceCode = dto.ServiceCode;
+    }
+
+    private void ResetAllFields()
+    {
+        _code = string.Empty;
+        _name = string.Empty;
+        _description = null;
+        _serviceCode = null;
+        _isActive = true;
+        _createdAt = default;
+        _updatedAt = null;
+        _members = new();
+
+        _origName = string.Empty;
+        _origDescription = null;
+        _origServiceCode = null;
+    }
+
+    private bool ValidateForm()
+    {
+        var valid = true;
+        if (string.IsNullOrWhiteSpace(_code))
+        {
+            _codeError = "Le code est obligatoire.";
+            valid = false;
+        }
+
+        if (string.IsNullOrWhiteSpace(_name))
+        {
+            _nameError = "Le nom est obligatoire.";
+            valid = false;
+        }
+
+        return valid;
+    }
+
+    private void ClearAllErrors()
+    {
+        _codeError = null;
+        _nameError = null;
+    }
+
+    private async Task<Guid> CreateAsync()
+    {
+        return await Sender.Send(new CreateTeamCommand
+        {
+            Code = _code.Trim(),
+            Name = _name.Trim(),
+            Description = _description?.Trim(),
+            ServiceCode = _serviceCode?.Trim(),
+        });
+    }
+
+    private async Task UpdateAsync()
+    {
+        await Sender.Send(new UpdateTeamCommand
+        {
+            TeamId = Id!.Value,
+            Name = _name.Trim(),
+            Description = _description?.Trim(),
+            ServiceCode = _serviceCode?.Trim(),
+            IsActive = _isActive,
+        });
+    }
+
+    private async Task RemoveMemberAsync(Guid membershipId)
+    {
+        await Sender.Send(new RemoveTeamMemberCommand { MemberId = membershipId });
+        _members.RemoveAll(m => m.Id == membershipId);
+        ToastService.Show("Membre retiré.", Severity.Success);
+    }
+
+    private void MapError(string message)
+    {
+        var lower = message.ToLowerInvariant();
+        if (lower.Contains("code"))
+        {
+            _codeError = message;
+        }
+        else if (lower.Contains("name") || lower.Contains("nom"))
+        {
+            _nameError = message;
+        }
+        else
+        {
+            _globalError = message;
+        }
+    }
+
+    private void HandleCodeInput(ChangeEventArgs e)
+    {
+        _code = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+        _codeError = null;
+    }
+
+    private void HandleNameInput(ChangeEventArgs e)
+    {
+        _name = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+        _nameError = null;
+    }
+
+    private void HandleDescriptionInput(ChangeEventArgs e)
+    {
+        _description = e.Value?.ToString();
+        _isDirty = true;
+    }
+
+    private void HandleServiceCodeInput(ChangeEventArgs e)
+    {
+        _serviceCode = e.Value?.ToString();
+        _isDirty = true;
+    }
+
+    private async Task HandleEntityChanged(EntityChangedEvent evt)
+    {
+        if (IsCreateMode)
+        {
+            return;
+        }
+
+        if (!_isDirty && _formRef is not null)
+        {
+            await _formRef.ReloadAsync();
+            ToastService.Show($"Mise à jour par {evt.ChangedBy} appliquée.", Severity.Info);
+            return;
+        }
+
+        TeamDto? serverDto;
+        try
+        {
+            serverDto = await TeamQueries.GetById(Id!.Value);
+        }
+        catch
+        {
+            ToastService.Show("Impossible de recharger les données.", Severity.Error);
+            return;
+        }
+
+        if (serverDto is null)
+        {
+            return;
+        }
+
+        var conflicts = new List<string>();
+
+        if (_name == _origName)
+        {
+            _name = serverDto.Name;
+        }
+        else if (serverDto.Name != _origName)
+        {
+            conflicts.Add("Nom");
+        }
+
+        if (_description == _origDescription)
+        {
+            _description = serverDto.Description;
+        }
+        else if (serverDto.Description != _origDescription)
+        {
+            conflicts.Add("Description");
+        }
+
+        if (_serviceCode == _origServiceCode)
+        {
+            _serviceCode = serverDto.ServiceCode;
+        }
+        else if (serverDto.ServiceCode != _origServiceCode)
+        {
+            conflicts.Add("Service");
+        }
+
+        _isActive = serverDto.IsActive;
+        _createdAt = serverDto.CreatedAt;
+        _updatedAt = serverDto.UpdatedAt;
+
+        _origName = serverDto.Name;
+        _origDescription = serverDto.Description;
+        _origServiceCode = serverDto.ServiceCode;
+
+        if (conflicts.Count > 0)
+        {
+            ToastService.Show($"Conflit détecté sur : {string.Join(", ", conflicts)}. Vos modifications sont conservées.", Severity.Warning);
+        }
+        else
+        {
+            _isDirty = _name != _origName || _description != _origDescription
+                || _serviceCode != _origServiceCode;
+            ToastService.Show($"Mise à jour par {evt.ChangedBy} appliquée.", Severity.Info);
+        }
+    }
+}

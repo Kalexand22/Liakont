@@ -1,0 +1,70 @@
+/* Dashlet — scoped styles for the widget container */
+
+.dashlet {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background-color: var(--color-bg-surface, #fff);
+    border: 1px solid var(--color-border, #e5e7eb);
+    border-radius: var(--radius-lg, 0.5rem);
+    box-shadow: var(--shadow-sm, 0 1px 2px 0 rgb(0 0 0 / 0.05));
+    overflow: hidden;
+}
+
+.dashlet__header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2, 0.5rem);
+    padding: var(--spacing-2, 0.5rem) var(--spacing-3, 0.75rem);
+    border-bottom: 1px solid var(--color-border, #e5e7eb);
+    background-color: var(--color-bg-subtle, #f9fafb);
+    min-height: 2.25rem;
+}
+
+.dashlet__title {
+    flex: 1;
+    font-size: var(--font-size-sm, 0.875rem);
+    font-weight: var(--font-weight-semibold, 600);
+    color: var(--color-text-primary, #111827);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dashlet__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-1, 0.25rem);
+}
+
+.dashlet__drag-handle {
+    cursor: grab;
+    padding: var(--spacing-1, 0.25rem);
+    color: var(--color-text-muted, #9ca3af);
+    font-size: var(--font-size-base, 1rem);
+    line-height: 1;
+    user-select: none;
+}
+
+.dashlet__drag-handle:hover {
+    color: var(--color-text-secondary, #6b7280);
+}
+
+.dashlet__drag-handle:active {
+    cursor: grabbing;
+}
+
+.dashlet__body {
+    flex: 1;
+    padding: var(--spacing-3, 0.75rem);
+    overflow: auto;
+    min-height: 0;
+}
+
+.dashlet__loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--color-text-muted, #9ca3af);
+}

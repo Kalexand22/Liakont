@@ -1,0 +1,174 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.UI.Components.Internal
+
+@*
+ * LogicTreeEditor — UIE01
+ *
+ * Éditeur de conditions imbriquées IF/THEN/AND/OR pour :
+ *   - Règles de visibilité de champs (FormBuilder, UIE02)
+ *   - Règles de transition de workflow (WorkflowGraphEditor, UIE03)
+ *   - Règles de routage de notifications (UIA05)
+ *
+ * API :
+ *   <LogicTreeEditor Variables="..." Operators="..." Value="..."
+ *                    OnChange="..." />
+ *
+ * DSL : { "type": "group", "operator": "and", "children": [...] }
+ *       { "type": "condition", "variable": "x", "operator": "eq", "value": "y" }
+ *
+ * All public parameters use Stratum types only (R2). No Radzen dependency.
+ * Keyboard: Tab between fields, Enter on add/remove buttons. Full ARIA tree.
+ *
+ * Ref: orchestration/items/UIE.yaml — UIE01
+ *      docs/ergonomie/diteur_de_formulaires_formengine/code.html (CONDITIONS tab)
+ *@
+
+<div class="logic-tree-editor"
+     data-testid="@(TestId ?? "logic-tree-editor")"
+     role="tree"
+     aria-label="@(AriaLabel ?? "Éditeur de conditions logiques")">
+
+    @if (_root is not null)
+    {
+        <LogicTreeNode Node="_root"
+                                Variables="Variables"
+                                Operators="_resolvedOperators"
+                                Depth="0"
+                                TestIdPrefix="@_testIdPrefix"
+                                OnChange="HandleRootChanged"
+                                OnRemove="_ => {}" />
+    }
+
+    @* Validation messages *@
+    @if (_validationErrors.Count > 0)
+    {
+        <div class="logic-tree-editor__validation"
+             data-testid="@($"{_testIdPrefix}-validation")"
+             role="alert">
+            <ul class="logic-tree-editor__validation-list">
+                @foreach (var err in _validationErrors)
+                {
+                    <li>@err</li>
+                }
+            </ul>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>Optional test identifier. Rendered as data-testid on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Optional ARIA label for the tree root.</summary>
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    /// <summary>The root logic node (two-way bindable). Null creates a default AND group.</summary>
+    [Parameter]
+    public LogicNode? Value { get; set; }
+
+    /// <summary>Raised whenever the tree changes. Receives the new root node.</summary>
+    [Parameter]
+    public EventCallback<LogicNode> ValueChanged { get; set; }
+
+    /// <summary>Alias for ValueChanged — explicit change handler.</summary>
+    [Parameter]
+    public EventCallback<LogicNode> OnChange { get; set; }
+
+    /// <summary>Available variables for condition dropdowns.</summary>
+    [Parameter]
+    public IReadOnlyList<LogicVariable> Variables { get; set; } = [];
+
+    /// <summary>Available operators. When empty, a sensible default set is used.</summary>
+    [Parameter]
+    public IReadOnlyList<LogicOperatorDef> Operators { get; set; } = [];
+
+    /// <summary>When true, validation errors are shown below the tree. Default: true.</summary>
+    [Parameter]
+    public bool ShowValidation { get; set; } = true;
+
+    // ── Internal ──
+
+    private LogicNode? _root;
+    private string _testIdPrefix => TestId ?? "logic-tree-editor";
+    private List<string> _validationErrors = [];
+    private IReadOnlyList<LogicOperatorDef> _resolvedOperators = [];
+
+    /// <summary>Default operator definitions — used when Operators parameter is empty.</summary>
+    private static readonly LogicOperatorDef[] DefaultOperators =
+    [
+        new() { Code = "eq",           Label = "est",               CompatibleTypes = ["string", "number", "date", "enum", "boolean"] },
+        new() { Code = "neq",          Label = "n'est pas",         CompatibleTypes = ["string", "number", "date", "enum", "boolean"] },
+        new() { Code = "gt",           Label = "est supérieur à",   CompatibleTypes = ["number", "date"] },
+        new() { Code = "lt",           Label = "est inférieur à",   CompatibleTypes = ["number", "date"] },
+        new() { Code = "gte",          Label = "est ≥",             CompatibleTypes = ["number", "date"] },
+        new() { Code = "lte",          Label = "est ≤",             CompatibleTypes = ["number", "date"] },
+        new() { Code = "contains",     Label = "contient",          CompatibleTypes = ["string"] },
+        new() { Code = "in",           Label = "est parmi",         CompatibleTypes = ["string", "enum"] },
+        new() { Code = "not_in",       Label = "n'est pas parmi",   CompatibleTypes = ["string", "enum"] },
+        new() { Code = "is_empty",     Label = "est vide",          CompatibleTypes = [], HidesValue = true },
+        new() { Code = "is_not_empty", Label = "n'est pas vide",    CompatibleTypes = [], HidesValue = true },
+    ];
+
+    protected override void OnParametersSet()
+    {
+        _root = Value ?? LogicNode.DefaultRoot();
+        _resolvedOperators = Operators.Count > 0 ? Operators : DefaultOperators;
+
+        if (ShowValidation)
+        {
+            _validationErrors = Validate(_root);
+        }
+    }
+
+    private async Task HandleRootChanged(LogicNode newRoot)
+    {
+        _root = newRoot;
+
+        if (ShowValidation)
+        {
+            _validationErrors = Validate(_root);
+        }
+
+        await ValueChanged.InvokeAsync(newRoot);
+        await OnChange.InvokeAsync(newRoot);
+    }
+
+    // ── Validation ──
+
+    private static List<string> Validate(LogicNode node)
+    {
+        var errors = new List<string>();
+        ValidateRecursive(node, errors);
+        return errors;
+    }
+
+    private static void ValidateRecursive(LogicNode node, List<string> errors)
+    {
+        if (node.NodeType == LogicNodeType.Group)
+        {
+            if (node.Children.Count == 0)
+            {
+                errors.Add("Un groupe ne peut pas être vide.");
+            }
+
+            foreach (var child in node.Children)
+            {
+                ValidateRecursive(child, errors);
+            }
+        }
+        else
+        {
+            if (string.IsNullOrEmpty(node.Variable))
+            {
+                errors.Add("Une condition n'a pas de variable sélectionnée.");
+            }
+
+            if (string.IsNullOrEmpty(node.Operator))
+            {
+                errors.Add("Une condition n'a pas d'opérateur sélectionné.");
+            }
+        }
+    }
+}

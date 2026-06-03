@@ -1,0 +1,74 @@
+@namespace Stratum.Common.UI.Components.Internal
+
+@*
+ * FieldPalette — left sidebar for FormBuilderCanvas (UIE02).
+ * Displays categorized field types that can be clicked to add to the canvas.
+ * Internal component — never consumed directly.
+ *@
+
+<div class="field-palette" data-testid="@($"{TestIdPrefix}-palette-list")">
+    @foreach (var group in _groups)
+    {
+        <div class="field-palette__group">
+            <h3 class="field-palette__group-title">@group.Title</h3>
+            <div class="field-palette__items">
+                @foreach (var item in group.Items)
+                {
+                    <button type="button"
+                            class="field-palette__item"
+                            data-testid="@($"{TestIdPrefix}-palette-{item.Type}")"
+                            title="@($"Ajouter {item.Label}")"
+                            @onclick="() => OnFieldTypeSelected.InvokeAsync(item.Type)">
+                        <span class="field-palette__icon" aria-hidden="true">@item.Icon</span>
+                        <span>@item.Label</span>
+                    </button>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public EventCallback<string> OnFieldTypeSelected { get; set; }
+
+    [Parameter]
+    public string TestIdPrefix { get; set; } = "form-builder";
+
+    private sealed record PaletteGroup(string Title, PaletteItem[] Items);
+    private sealed record PaletteItem(string Type, string Label, string Icon);
+
+    private static readonly PaletteGroup[] _groups =
+    [
+        new("Champs standards", [
+            new("text", "Texte court", "Aa"),
+            new("text_area", "Zone de texte", "¶"),
+            new("single_select", "Liste déroulante", "▾"),
+            new("multi_select", "Sélection multiple", "☑"),
+        ]),
+        new("Dates & temps", [
+            new("date", "Date", "📅"),
+            new("datetime", "Date et heure", "🕐"),
+            new("time", "Heure", "⏱"),
+            new("duration", "Durée", "⏳"),
+        ]),
+        new("Nombres", [
+            new("number", "Nombre", "#"),
+            new("currency", "Montant", "€"),
+            new("rating", "Notation", "★"),
+        ]),
+        new("Contact", [
+            new("email", "Email", "@"),
+            new("phone", "Téléphone", "☎"),
+            new("url", "URL", "🔗"),
+        ]),
+        new("Ressources & SIG", [
+            new("file_upload", "Téléchargement", "📎"),
+            new("geo_draw", "Périmètre carte", "🗺"),
+            new("geo_select", "Cadastre", "📍"),
+        ]),
+        new("Logique", [
+            new("boolean", "Case à cocher", "☐"),
+        ]),
+    ];
+}

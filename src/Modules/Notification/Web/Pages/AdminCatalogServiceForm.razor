@@ -1,0 +1,518 @@
+@page "/admin/catalog/services/new"
+@page "/admin/catalog/services/{Id:guid}"
+@page "/admin/catalog/services/{Id:guid}/edit"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Stratum.Modules.Notification.Contracts
+@using Stratum.Modules.Notification.Contracts.DTOs
+@using Stratum.Modules.Notification.Contracts.Queries
+@using Stratum.Modules.Notification.Contracts.Commands
+@inject ISender Sender
+@inject IServiceDefinitionQueries ServiceQueries
+@inject NavigationManager Nav
+@inject IToastService ToastService
+
+<PageTitle>@PageTitleText — Stratum ERP</PageTitle>
+
+<DeclaredFormPage @ref="_formRef"
+                  TEntity="ServiceDefinitionDto"
+                  Id="@Id"
+                  Title="@BuildTitle"
+                  TestId="service-form"
+                  ListUrl="/admin/catalog/services"
+                  DetailUrl="@(id => $"/admin/catalog/services/{id}")"
+                  CreateUrl="/admin/catalog/services/new"
+                  EntityType="ServiceDefinition"
+                  EnableViewMode="true"
+                  InitialMode="@(_isEditRoute ? FormMode.Edit : FormMode.View)"
+                  EditPermission="@NotificationPermissions.ServiceUpdate"
+                  LoadEntity="@(id => ServiceQueries.GetById(id))"
+                  CreateEntity="CreateAsync"
+                  UpdateEntity="UpdateAsync"
+                  Validate="ValidateForm"
+                  ClearErrors="ClearAllErrors"
+                  MapEntity="MapFromDto"
+                  ResetFields="ResetAllFields"
+                  MapDomainError="MapError"
+                  OnEntityChanged="HandleEntityChanged"
+                  @bind-GlobalError="_globalError"
+                  @bind-IsDirty="_isDirty">
+    <StatusContent>
+        @if (!IsCreateMode)
+        {
+            <StatusBadge Severity="@(_isActive ? Severity.Success : Severity.Neutral)"
+                         Label="@(_isActive ? "Actif" : "Inactif")" />
+        }
+    </StatusContent>
+    <HeaderActions Context="ctx">
+        @if (ctx.Mode == FormMode.View && _isActive)
+        {
+            <PermissionGate Permission="@NotificationPermissions.ServiceUpdate">
+                <StratumButton Text="@(_deactivating ? "Désactivation…" : "Désactiver")"
+                               Variant="ButtonVariant.Warning" Outline Size="ButtonSize.Small"
+                               OnClick="DeactivateAsync"
+                               Disabled="@_deactivating"
+                               TestId="service-form-deactivate-btn" />
+            </PermissionGate>
+        }
+    </HeaderActions>
+    <Content Context="ctx">
+        <SectionCard Title="Informations générales" TestId="service-form-general">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <FormField Label="Code" Required Error="@_codeError">
+                        <input type="text"
+                               class="form-control"
+                               value="@_code"
+                               @oninput="HandleCodeInput"
+                               placeholder="ex: voirie"
+                               maxlength="100"
+                               disabled="@(ctx.Mode != FormMode.Create)"
+                               data-testid="service-form-code" />
+                    </FormField>
+                </div>
+                <div class="col-md-8">
+                    <FormField Label="Nom" Required Error="@_nameError">
+                        <input type="text"
+                               class="form-control"
+                               value="@_name"
+                               @oninput="HandleNameInput"
+                               placeholder="Nom du service"
+                               maxlength="200"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="service-form-name" />
+                    </FormField>
+                </div>
+                <div class="col-md-6">
+                    <FormField Label="E-mail" Required Error="@_emailError">
+                        <input type="email"
+                               class="form-control"
+                               value="@_email"
+                               @oninput="HandleEmailInput"
+                               placeholder="service@commune.local"
+                               maxlength="320"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="service-form-email" />
+                    </FormField>
+                </div>
+                <div class="col-md-6">
+                    <FormField Label="Responsable" Error="@_managerError">
+                        <input type="text"
+                               class="form-control"
+                               value="@_managerName"
+                               @oninput="HandleManagerInput"
+                               placeholder="Nom du responsable"
+                               maxlength="200"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="service-form-manager" />
+                    </FormField>
+                </div>
+                <div class="col-12">
+                    <FormField Label="Description">
+                        <textarea class="form-control"
+                                  @oninput="HandleDescriptionInput"
+                                  placeholder="Description du service"
+                                  rows="3"
+                                  disabled="@(ctx.Mode == FormMode.View)"
+                                  data-testid="service-form-description">@_description</textarea>
+                    </FormField>
+                </div>
+            </div>
+        </SectionCard>
+
+        <SectionCard Title="Paramètres" TestId="service-form-params">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <FormField Label="SLA par défaut (heures)">
+                        <input type="number"
+                               class="form-control"
+                               value="@_defaultSlaHours"
+                               @oninput="HandleSlaInput"
+                               placeholder="ex: 48"
+                               min="0"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="service-form-sla" />
+                    </FormField>
+                </div>
+                <div class="col-md-4">
+                    <FormField Label="Couleur d'affichage">
+                        <input type="color"
+                               class="form-control form-control-color"
+                               value="@(_color ?? "#001b44")"
+                               @oninput="HandleColorInput"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="service-form-color" />
+                    </FormField>
+                </div>
+                <div class="col-md-4">
+                    <FormField Label="Compétences" HelpText="Séparées par des virgules">
+                        <input type="text"
+                               class="form-control"
+                               value="@_competences"
+                               @oninput="HandleCompetencesInput"
+                               placeholder="voirie, sécurité, technique"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="service-form-competences" />
+                    </FormField>
+                </div>
+            </div>
+        </SectionCard>
+    </Content>
+    <AuditSection>
+        @if (!IsCreateMode)
+        {
+            <SectionCard Title="Audit" Collapsible DefaultCollapsed TestId="service-form-audit">
+                <dl class="row mb-0">
+                    <dt class="col-sm-3">Identifiant</dt>
+                    <dd class="col-sm-9"><code class="text-muted small">@Id</code></dd>
+                    <dt class="col-sm-3">Créé le</dt>
+                    <dd class="col-sm-9">@_createdAt.ToString("dd/MM/yyyy HH:mm")</dd>
+                    @if (_updatedAt.HasValue)
+                    {
+                        <dt class="col-sm-3">Modifié le</dt>
+                        <dd class="col-sm-9">@_updatedAt.Value.ToString("dd/MM/yyyy HH:mm")</dd>
+                    }
+                </dl>
+            </SectionCard>
+        }
+    </AuditSection>
+</DeclaredFormPage>
+
+@code {
+    [Parameter]
+    public Guid? Id { get; set; }
+
+    private DeclaredFormPage<ServiceDefinitionDto>? _formRef;
+
+    private bool IsCreateMode => Id is null;
+
+    private bool _isEditRoute;
+
+    private string _code = string.Empty;
+    private string _name = string.Empty;
+    private string _email = string.Empty;
+    private string? _description;
+    private string? _managerName;
+    private int? _defaultSlaHours;
+    private string? _color;
+    private string? _competences;
+    private bool _isDirty;
+    private bool _isActive = true;
+    private DateTimeOffset _createdAt;
+    private DateTimeOffset? _updatedAt;
+    private bool _deactivating;
+
+    private string _origName = string.Empty;
+    private string _origEmail = string.Empty;
+    private string? _origDescription;
+    private string? _origManagerName;
+    private int? _origDefaultSlaHours;
+    private string? _origColor;
+    private string? _origCompetences;
+
+    private string? _codeError;
+    private string? _nameError;
+    private string? _emailError;
+    private string? _managerError;
+    private string? _globalError;
+
+    private string PageTitleText =>
+        IsCreateMode ? "Nouveau service" :
+        _isEditRoute ? "Modifier service" :
+        _name.Length > 0 ? _name : "Service";
+
+    private string BuildTitle(bool createMode) =>
+        createMode ? "Nouveau service" : _name.Length > 0 ? _name : "Service";
+
+    protected override void OnParametersSet()
+    {
+        _isEditRoute = Nav.Uri.EndsWith("/edit", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void MapFromDto(ServiceDefinitionDto dto)
+    {
+        _code = dto.Code;
+        _name = dto.Name;
+        _email = dto.Email;
+        _description = dto.Description;
+        _managerName = dto.ManagerName;
+        _defaultSlaHours = dto.DefaultSlaHours;
+        _color = dto.Color;
+        _competences = dto.Competences;
+        _isActive = dto.IsActive;
+        _createdAt = dto.CreatedAt;
+        _updatedAt = dto.UpdatedAt;
+
+        _origName = dto.Name;
+        _origEmail = dto.Email;
+        _origDescription = dto.Description;
+        _origManagerName = dto.ManagerName;
+        _origDefaultSlaHours = dto.DefaultSlaHours;
+        _origColor = dto.Color;
+        _origCompetences = dto.Competences;
+    }
+
+    private void ResetAllFields()
+    {
+        _code = string.Empty;
+        _name = string.Empty;
+        _email = string.Empty;
+        _description = null;
+        _managerName = null;
+        _defaultSlaHours = null;
+        _color = null;
+        _competences = null;
+        _isActive = true;
+        _createdAt = default;
+        _updatedAt = null;
+
+        _origName = string.Empty;
+        _origEmail = string.Empty;
+        _origDescription = null;
+        _origManagerName = null;
+        _origDefaultSlaHours = null;
+        _origColor = null;
+        _origCompetences = null;
+    }
+
+    private bool ValidateForm()
+    {
+        var valid = true;
+        if (string.IsNullOrWhiteSpace(_code))
+        {
+            _codeError = "Le code est obligatoire.";
+            valid = false;
+        }
+
+        if (string.IsNullOrWhiteSpace(_name))
+        {
+            _nameError = "Le nom est obligatoire.";
+            valid = false;
+        }
+
+        if (string.IsNullOrWhiteSpace(_email))
+        {
+            _emailError = "L'adresse e-mail est obligatoire.";
+            valid = false;
+        }
+
+        return valid;
+    }
+
+    private void ClearAllErrors()
+    {
+        _codeError = null;
+        _nameError = null;
+        _emailError = null;
+        _managerError = null;
+    }
+
+    private async Task<Guid> CreateAsync()
+    {
+        return await Sender.Send(new CreateServiceDefinitionCommand
+        {
+            Code = _code.Trim(),
+            Name = _name.Trim(),
+            Email = _email.Trim(),
+            Description = _description?.Trim(),
+            ManagerName = _managerName?.Trim(),
+            DefaultSlaHours = _defaultSlaHours,
+            Color = _color?.Trim(),
+            Competences = _competences?.Trim(),
+        });
+    }
+
+    private async Task UpdateAsync()
+    {
+        await Sender.Send(new UpdateServiceDefinitionCommand
+        {
+            Id = Id!.Value,
+            Name = _name.Trim(),
+            Email = _email.Trim(),
+            Description = _description?.Trim(),
+            IsActive = _isActive,
+            ManagerName = _managerName?.Trim(),
+            DefaultSlaHours = _defaultSlaHours,
+            Color = _color?.Trim(),
+            Competences = _competences?.Trim(),
+        });
+    }
+
+    private async Task DeactivateAsync()
+    {
+        if (Id is null || _deactivating) return;
+
+        _deactivating = true;
+        try
+        {
+            await Sender.Send(new UpdateServiceDefinitionCommand
+            {
+                Id = Id.Value,
+                Name = _name,
+                Email = _email,
+                Description = _description,
+                IsActive = false,
+                ManagerName = _managerName,
+                DefaultSlaHours = _defaultSlaHours,
+                Color = _color,
+                Competences = _competences,
+            });
+            ToastService.Show("Service désactivé.", Severity.Success);
+            if (_formRef is not null)
+            {
+                await _formRef.ReloadAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.Show($"Erreur : {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _deactivating = false;
+        }
+    }
+
+    private void MapError(string message)
+    {
+        var lower = message.ToLowerInvariant();
+        if (lower.Contains("code"))
+            _codeError = message;
+        else if (lower.Contains("name") || lower.Contains("nom"))
+            _nameError = message;
+        else if (lower.Contains("email") || lower.Contains("mail"))
+            _emailError = message;
+        else
+            _globalError = message;
+    }
+
+    private void HandleCodeInput(ChangeEventArgs e)
+    {
+        _code = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+        _codeError = null;
+    }
+
+    private void HandleNameInput(ChangeEventArgs e)
+    {
+        _name = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+        _nameError = null;
+    }
+
+    private void HandleEmailInput(ChangeEventArgs e)
+    {
+        _email = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+        _emailError = null;
+    }
+
+    private void HandleManagerInput(ChangeEventArgs e)
+    {
+        _managerName = e.Value?.ToString();
+        _isDirty = true;
+        _managerError = null;
+    }
+
+    private void HandleDescriptionInput(ChangeEventArgs e)
+    {
+        _description = e.Value?.ToString();
+        _isDirty = true;
+    }
+
+    private void HandleSlaInput(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var val))
+            _defaultSlaHours = val;
+        else
+            _defaultSlaHours = null;
+        _isDirty = true;
+    }
+
+    private void HandleColorInput(ChangeEventArgs e)
+    {
+        _color = e.Value?.ToString();
+        _isDirty = true;
+    }
+
+    private void HandleCompetencesInput(ChangeEventArgs e)
+    {
+        _competences = e.Value?.ToString();
+        _isDirty = true;
+    }
+
+    private async Task HandleEntityChanged(EntityChangedEvent evt)
+    {
+        if (IsCreateMode) return;
+
+        if (!_isDirty && _formRef is not null)
+        {
+            await _formRef.ReloadAsync();
+            ToastService.Show($"Mise à jour par {evt.ChangedBy} appliquée.", Severity.Info);
+            return;
+        }
+
+        ServiceDefinitionDto? serverDto;
+        try
+        {
+            serverDto = await ServiceQueries.GetById(Id!.Value);
+        }
+        catch
+        {
+            ToastService.Show("Impossible de recharger les données.", Severity.Error);
+            return;
+        }
+
+        if (serverDto is null) return;
+
+        var conflicts = new List<string>();
+
+        if (_name == _origName) _name = serverDto.Name;
+        else if (serverDto.Name != _origName) conflicts.Add("Nom");
+
+        if (_email == _origEmail) _email = serverDto.Email;
+        else if (serverDto.Email != _origEmail) conflicts.Add("E-mail");
+
+        if (_description == _origDescription) _description = serverDto.Description;
+        else if (serverDto.Description != _origDescription) conflicts.Add("Description");
+
+        if (_managerName == _origManagerName) _managerName = serverDto.ManagerName;
+        else if (serverDto.ManagerName != _origManagerName) conflicts.Add("Responsable");
+
+        if (_defaultSlaHours == _origDefaultSlaHours) _defaultSlaHours = serverDto.DefaultSlaHours;
+        else if (serverDto.DefaultSlaHours != _origDefaultSlaHours) conflicts.Add("SLA");
+
+        if (_color == _origColor) _color = serverDto.Color;
+        else if (serverDto.Color != _origColor) conflicts.Add("Couleur");
+
+        if (_competences == _origCompetences) _competences = serverDto.Competences;
+        else if (serverDto.Competences != _origCompetences) conflicts.Add("Compétences");
+
+        _isActive = serverDto.IsActive;
+        _createdAt = serverDto.CreatedAt;
+        _updatedAt = serverDto.UpdatedAt;
+
+        _origName = serverDto.Name;
+        _origEmail = serverDto.Email;
+        _origDescription = serverDto.Description;
+        _origManagerName = serverDto.ManagerName;
+        _origDefaultSlaHours = serverDto.DefaultSlaHours;
+        _origColor = serverDto.Color;
+        _origCompetences = serverDto.Competences;
+
+        if (conflicts.Count > 0)
+        {
+            ToastService.Show($"Conflit détecté sur : {string.Join(", ", conflicts)}. Vos modifications sont conservées.", Severity.Warning);
+        }
+        else
+        {
+            _isDirty = _name != _origName || _email != _origEmail || _description != _origDescription
+                || _managerName != _origManagerName || _defaultSlaHours != _origDefaultSlaHours
+                || _color != _origColor || _competences != _origCompetences;
+            ToastService.Show($"Mise à jour par {evt.ChangedBy} appliquée.", Severity.Info);
+        }
+    }
+}

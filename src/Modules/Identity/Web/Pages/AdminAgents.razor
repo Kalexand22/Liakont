@@ -1,0 +1,96 @@
+@page "/admin/agents"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Stratum.Modules.Identity.Contracts.DTOs
+@using Stratum.Modules.Identity.Contracts.Queries
+@using Stratum.Modules.Identity.Contracts.Commands
+@using Stratum.Modules.Identity.Web.Registries
+@inject IAgentQueries AgentQueries
+@inject ISender Sender
+@inject NavigationManager Nav
+@inject IToastService ToastService
+
+<PageTitle>Annuaire des agents — Stratum ERP</PageTitle>
+
+<DeclaredListPage TItem="AgentDto"
+                  Title="Annuaire des agents"
+                  TestId="admin-agents"
+                  LoadItems="@(() => AgentQueries.List())"
+                  DetailUrl="@(a => $"/admin/agents/{a.Id}")"
+                  ColumnRegistry="@_registry"
+                  ColumnTemplates="@_columnTemplates"
+                  GridKey="Identity.Agents"
+                  RowActions="@_rowActions"
+                  AriaLabel="Liste des agents"
+                  DefaultSortColumn="DisplayName"
+                  SearchPlaceholder="Chercher un agent… (raccourci : /)"
+                  AllowExport="true"
+                  ExportFileName="annuaire-agents">
+</DeclaredListPage>
+
+@code {
+    private readonly AgentColumnRegistry _registry = new();
+
+    private readonly Dictionary<string, RenderFragment<AgentDto>> _columnTemplates = new()
+    {
+        ["IsActive"] = item => __builder =>
+        {
+            __builder.OpenComponent<StatusBadge>(0);
+            __builder.AddAttribute(1, "Severity", item.IsActive ? Severity.Success : Severity.Neutral);
+            __builder.AddAttribute(2, "Label", item.IsActive ? "Actif" : "Inactif");
+            __builder.CloseComponent();
+        },
+        ["Teams"] = item => __builder =>
+        {
+            if (!string.IsNullOrWhiteSpace(item.Teams))
+            {
+                var tags = item.Teams.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var seq = 0;
+                foreach (var tag in tags)
+                {
+                    __builder.OpenComponent<CategoryBadge>(seq++);
+                    __builder.AddAttribute(seq++, "Label", tag);
+                    __builder.CloseComponent();
+                }
+            }
+            else
+            {
+                __builder.AddContent(0, "—");
+            }
+        },
+        ["CompetenceCount"] = item => __builder =>
+        {
+            if (item.CompetenceCount > 0)
+            {
+                __builder.AddContent(0, $"{item.CompetenceCount}");
+            }
+            else
+            {
+                __builder.AddContent(0, "—");
+            }
+        },
+    };
+
+    private readonly IReadOnlyList<GridRowAction<AgentDto>> _rowActions;
+
+    public AdminAgents()
+    {
+        _rowActions =
+        [
+            new GridRowAction<AgentDto>(
+                Id: "view",
+                Label: "Voir la fiche",
+                Icon: "visibility",
+                IsQuickAction: true,
+                Callback: item =>
+                {
+                    Nav.NavigateTo($"/admin/agents/{item.Id}");
+                    return Task.CompletedTask;
+                }),
+        ];
+    }
+}

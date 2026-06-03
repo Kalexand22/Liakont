@@ -1,0 +1,339 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* DurationField — hours:minutes:seconds structured input or free-form parsing.
+ *
+ * Usage:
+ *   <DurationField Value="@_duration"
+ *                  ValueChanged="v => _duration = v" />
+ *@
+
+@if (Mode == DurationMode.Structured)
+{
+    <div class="duration-field @(Disabled ? "duration-field--disabled" : string.Empty) @(ReadOnly ? "duration-field--readonly" : string.Empty) @(_hasError ? "duration-field--error" : string.Empty) @CssClass"
+         role="group"
+         aria-label="@(AriaLabel ?? "Durée")"
+         aria-disabled="@(Disabled ? "true" : null)"
+         data-testid="@(TestId ?? "duration-field")">
+
+        @* Hours *@
+        <div class="duration-field__segment">
+            <label for="@_hoursId" class="duration-field__label">H</label>
+            <input type="number"
+                   id="@_hoursId"
+                   class="duration-field__input"
+                   min="0"
+                   max="@(MaxHours?.ToString() ?? "9999")"
+                   value="@_hours"
+                   inputmode="numeric"
+                   aria-label="Heures"
+                   disabled="@Disabled"
+                   readonly="@ReadOnly"
+                   aria-readonly="@(ReadOnly ? "true" : null)"
+                   @oninput="@((e) => OnSegmentInput(e, 'h'))"
+                   @onblur="OnBlurAsync" />
+        </div>
+
+        <span class="duration-field__sep" aria-hidden="true">:</span>
+
+        @* Minutes *@
+        <div class="duration-field__segment">
+            <label for="@_minsId" class="duration-field__label">M</label>
+            <input type="number"
+                   id="@_minsId"
+                   class="duration-field__input"
+                   min="0"
+                   max="59"
+                   value="@_minutes"
+                   inputmode="numeric"
+                   aria-label="Minutes"
+                   disabled="@Disabled"
+                   readonly="@ReadOnly"
+                   aria-readonly="@(ReadOnly ? "true" : null)"
+                   @oninput="@((e) => OnSegmentInput(e, 'm'))"
+                   @onblur="OnBlurAsync" />
+        </div>
+
+        @if (ShowSeconds)
+        {
+            <span class="duration-field__sep" aria-hidden="true">:</span>
+
+            @* Seconds *@
+            <div class="duration-field__segment">
+                <label for="@_secsId" class="duration-field__label">S</label>
+                <input type="number"
+                       id="@_secsId"
+                       class="duration-field__input"
+                       min="0"
+                       max="59"
+                       value="@_seconds"
+                       inputmode="numeric"
+                       aria-label="Secondes"
+                       disabled="@Disabled"
+                       readonly="@ReadOnly"
+                       aria-readonly="@(ReadOnly ? "true" : null)"
+                       @oninput="@((e) => OnSegmentInput(e, 's'))"
+                       @onblur="OnBlurAsync" />
+            </div>
+        }
+
+        @if (_validationError is not null)
+        {
+            <span class="duration-field__error" role="alert">@_validationError</span>
+        }
+    </div>
+}
+else
+{
+    <div class="duration-field duration-field--freeform @(Disabled ? "duration-field--disabled" : string.Empty) @(ReadOnly ? "duration-field--readonly" : string.Empty) @(_hasError ? "duration-field--error" : string.Empty) @CssClass"
+         data-testid="@(TestId ?? "duration-field")">
+        <input type="text"
+               class="duration-field__free-input @(_validationError is not null ? "duration-field__free-input--error" : string.Empty)"
+               value="@_freeText"
+               placeholder="@(Placeholder ?? "ex: 1h30m")"
+               aria-label="@(AriaLabel ?? "Durée (ex: 1h30m)")"
+               disabled="@Disabled"
+               readonly="@ReadOnly"
+               aria-readonly="@(ReadOnly ? "true" : null)"
+               @oninput="@((e) => _freeText = e.Value?.ToString() ?? string.Empty)"
+               @onblur="CommitFreeFormAsync"
+               @onkeydown="OnFreeKeyDown" />
+        @if (_validationError is not null)
+        {
+            <span class="duration-field__error" role="alert">@_validationError</span>
+        }
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    private FormFieldContext? _context { get; set; }
+
+    /// <summary>Duration value (two-way). Null = empty.</summary>
+    [Parameter] public TimeSpan? Value { get; set; }
+
+    /// <summary>Raised when the duration changes.</summary>
+    [Parameter] public EventCallback<TimeSpan?> ValueChanged { get; set; }
+
+    /// <summary>Input mode. Default: Structured (H:M:S spinners).</summary>
+    [Parameter] public DurationMode Mode { get; set; } = DurationMode.Structured;
+
+    /// <summary>Show the seconds segment in Structured mode. Default: false.</summary>
+    [Parameter] public bool ShowSeconds { get; set; }
+
+    /// <summary>Maximum total hours. Validated on blur.</summary>
+    [Parameter] public int? MaxHours { get; set; }
+
+    /// <summary>Placeholder for FreeForm mode.</summary>
+    [Parameter] public string? Placeholder { get; set; }
+
+    /// <summary>Disabled state.</summary>
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Read-only — focusable but not editable.</summary>
+    [Parameter] public bool ReadOnly { get; set; }
+
+    /// <summary>Accessible label.</summary>
+    [Parameter] public string? AriaLabel { get; set; }
+
+    /// <summary>Additional CSS classes on root element.</summary>
+    [Parameter] public string? CssClass { get; set; }
+
+    /// <summary>Optional test identifier for E2E tests.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    // ── Internal state ──────────────────────────────────────
+
+    private int _hours;
+    private int _minutes;
+    private int _seconds;
+    private string _freeText = string.Empty;
+    private string? _validationError;
+    private bool _hasError => _context?.HasError == true || _validationError is not null;
+
+    private readonly string _hoursId = $"dur-h-{Guid.NewGuid().ToString("N")[..8]}";
+    private readonly string _minsId  = $"dur-m-{Guid.NewGuid().ToString("N")[..8]}";
+    private readonly string _secsId  = $"dur-s-{Guid.NewGuid().ToString("N")[..8]}";
+
+    // ── Lifecycle ────────────────────────────────────────────
+
+    protected override void OnParametersSet()
+    {
+        _validationError = null;
+        if (Value.HasValue)
+        {
+            var ts = Value.Value;
+            if (Mode == DurationMode.Structured)
+            {
+                _hours   = (int)ts.TotalHours;
+                _minutes = ts.Minutes;
+                _seconds = ts.Seconds;
+            }
+            else
+            {
+                _freeText = FormatFreeForm(ts);
+            }
+        }
+        else
+        {
+            _hours = _minutes = _seconds = 0;
+            _freeText = string.Empty;
+        }
+    }
+
+    // ── Structured mode ─────────────────────────────────────
+
+    private void OnSegmentInput(ChangeEventArgs e, char segment)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var val)) return;
+        switch (segment)
+        {
+            case 'h':
+                _hours = Math.Max(0, val);
+                break;
+            case 'm':
+                if (val > 59) { _hours += val / 60; val %= 60; }
+                _minutes = Math.Max(0, val);
+                break;
+            case 's':
+                if (val > 59) { _minutes += val / 60; _hours += _minutes / 60; _minutes %= 60; val %= 60; }
+                _seconds = Math.Max(0, val);
+                break;
+        }
+    }
+
+    private async Task OnBlurAsync()
+    {
+        if (ReadOnly) return;
+        if (Mode == DurationMode.Structured)
+            await CommitStructuredAsync();
+    }
+
+    private async Task CommitStructuredAsync()
+    {
+        var ts = new TimeSpan(_hours, _minutes, ShowSeconds ? _seconds : 0);
+        if (MaxHours.HasValue && ts.TotalHours > MaxHours.Value)
+        {
+            _validationError = $"La durée dépasse le maximum de {MaxHours} heures.";
+            return;
+        }
+        _validationError = null;
+        await ValueChanged.InvokeAsync(ts);
+    }
+
+    // ── FreeForm mode ───────────────────────────────────────
+
+    private async Task CommitFreeFormAsync()
+    {
+        if (ReadOnly) return;
+        var text = _freeText.Trim();
+        if (string.IsNullOrEmpty(text))
+        {
+            _validationError = null;
+            await ValueChanged.InvokeAsync(null);
+            return;
+        }
+        if (!TryParseFreeForm(text, out var ts))
+        {
+            _validationError = "Format invalide. Exemples : 1h30m, 1:30, 90";
+            return;
+        }
+        if (MaxHours.HasValue && ts.TotalHours > MaxHours.Value)
+        {
+            _validationError = $"La durée dépasse le maximum de {MaxHours} heures.";
+            return;
+        }
+        _validationError = null;
+        _freeText = FormatFreeForm(ts);
+        await ValueChanged.InvokeAsync(ts);
+    }
+
+    private async Task OnFreeKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await CommitFreeFormAsync();
+    }
+
+    // ── Helpers ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Parses free-form duration text. Supports:
+    /// "1h30m", "1h30", "1:30", "1:30:45", "90" (minutes), "45m", "30s"
+    /// </summary>
+    internal static bool TryParseFreeForm(string text, out TimeSpan result)
+    {
+        result = default;
+        if (string.IsNullOrWhiteSpace(text)) return false;
+
+        text = text.Trim().ToLowerInvariant();
+
+        // hh:mm or hh:mm:ss
+        if (text.Contains(':'))
+        {
+            var parts = text.Split(':');
+            if (parts.Length == 2 &&
+                int.TryParse(parts[0], out var h2) &&
+                int.TryParse(parts[1], out var m2))
+            {
+                result = new TimeSpan(h2, m2, 0);
+                return true;
+            }
+            if (parts.Length == 3 &&
+                int.TryParse(parts[0], out var h3) &&
+                int.TryParse(parts[1], out var m3) &&
+                int.TryParse(parts[2], out var s3))
+            {
+                result = new TimeSpan(h3, m3, s3);
+                return true;
+            }
+            return false;
+        }
+
+        // Token-based: e.g. "1h30m15s", "1h30", "45m", "30s"
+        int totalSeconds = 0;
+        bool matched = false;
+        var span = text.AsSpan();
+        while (!span.IsEmpty)
+        {
+            int numEnd = 0;
+            while (numEnd < span.Length && char.IsDigit(span[numEnd])) numEnd++;
+            if (numEnd == 0) break;
+            if (!int.TryParse(span[..numEnd], out var num)) break;
+            span = span[numEnd..];
+            if (!span.IsEmpty)
+            {
+                switch (span[0])
+                {
+                    case 'h': totalSeconds += num * 3600; span = span[1..]; matched = true; continue;
+                    case 'm': totalSeconds += num * 60;   span = span[1..]; matched = true; continue;
+                    case 's': totalSeconds += num;         span = span[1..]; matched = true; continue;
+                    default: break;
+                }
+            }
+            else
+            {
+                // bare number = minutes
+                totalSeconds += num * 60;
+                matched = true;
+            }
+            break;
+        }
+
+        if (!matched || totalSeconds < 0) return false;
+        result = TimeSpan.FromSeconds(totalSeconds);
+        return true;
+    }
+
+    internal static string FormatFreeForm(TimeSpan ts)
+    {
+        int totalH = (int)ts.TotalHours;
+        int m = ts.Minutes;
+        int s = ts.Seconds;
+        if (totalH > 0 && m > 0 && s > 0) return $"{totalH}h{m:D2}m{s:D2}s";
+        if (totalH > 0 && m > 0)           return $"{totalH}h{m:D2}m";
+        if (totalH > 0)                     return $"{totalH}h";
+        if (m > 0 && s > 0)                return $"{m}m{s:D2}s";
+        if (m > 0)                          return $"{m}min";
+        if (s > 0)                          return $"{s}s";
+        return "0min";
+    }
+}

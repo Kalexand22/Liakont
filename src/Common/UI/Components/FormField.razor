@@ -1,0 +1,123 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.Abstractions.UiRules
+
+@if (!_isHidden)
+{
+<div class="form-field @(_hasError ? "form-field--error" : string.Empty)" data-testid="@(TestId ?? "form-field")">
+    <label class="form-field__label" for="@_fieldId">
+        @Label
+        @if (_isRequired)
+        {
+            <span class="form-field__required" aria-hidden="true"> *</span>
+        }
+    </label>
+
+    <CascadingValue Value="@_context">
+        @ChildContent
+    </CascadingValue>
+
+    @if (_hasError)
+    {
+        <p class="form-field__error" id="@_errorId" role="alert">@Error</p>
+    }
+    else if (!string.IsNullOrEmpty(HelpText))
+    {
+        <p class="form-field__help" id="@_helpId">@HelpText</p>
+    }
+</div>
+}
+
+@code {
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Visible label text. Always rendered as a <c>&lt;label&gt;</c>.</summary>
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Optional explicit id for the inner input element. Auto-generated when omitted.
+    /// The generated id is also available to child components via the cascaded
+    /// <see cref="FormFieldContext"/>.
+    /// </summary>
+    [Parameter]
+    public string? FieldId { get; set; }
+
+    /// <summary>Marks the field as required (renders a <c>*</c> indicator).</summary>
+    [Parameter]
+    public bool Required { get; set; }
+
+    /// <summary>Hint text displayed below the input when there is no error.</summary>
+    [Parameter]
+    public string? HelpText { get; set; }
+
+    /// <summary>Inline validation error. When non-empty, the error replaces help text.</summary>
+    [Parameter]
+    public string? Error { get; set; }
+
+    /// <summary>The input element(s) to render inside the field.</summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// The name of the field in the DTO, used to look up dynamic attributes in
+    /// <see cref="UiAttributes"/>. When null, falls back to <see cref="FieldId"/>.
+    /// </summary>
+    [Parameter]
+    public string? FieldName { get; set; }
+
+    /// <summary>
+    /// Dynamic UI attributes produced by <see cref="IUiRuleService{TDto}"/>.
+    /// When set, the component applies Hidden, ReadOnly, and Required overrides.
+    /// Required is OR-ed with the <see cref="Required"/> parameter.
+    /// </summary>
+    [Parameter]
+    public UiAttributeSet? UiAttributes { get; set; }
+
+    // ── Stable per-component ids ─────────────────────────────────
+
+    private readonly string _uniqueId = Guid.NewGuid().ToString("N")[..8];
+
+    // Computed inline — cheap, string-only, no allocation on cascade path
+    private string _fieldId  => FieldId ?? $"field-{_uniqueId}";
+    private string _errorId  => $"{_fieldId}-error";
+    private string _helpId   => $"{_fieldId}-help";
+    private bool   _hasError => !string.IsNullOrEmpty(Error);
+
+    // ── Dynamic UI attributes ────────────────────────────────────
+
+    private string? _resolvedFieldName => FieldName ?? FieldId;
+    private UiFieldAttributes? _fieldAttrs;
+
+    private bool _isHidden => _fieldAttrs?.Hidden == true;
+    private bool _isReadOnly => _fieldAttrs?.ReadOnly == true;
+    private bool _isRequired => Required || (_fieldAttrs?.Required == true);
+
+    // ── CascadingValue backing field — rebuilt only when parameters change ──
+
+    private FormFieldContext _context = new();
+
+    protected override void OnParametersSet()
+    {
+        // Resolve dynamic attributes for this field
+        _fieldAttrs = null;
+        if (UiAttributes is not null && _resolvedFieldName is not null)
+        {
+            UiAttributes.TryGetValue(_resolvedFieldName, out var attrs);
+            _fieldAttrs = attrs;
+        }
+
+        var hasError = _hasError;
+        var fieldId  = _fieldId;
+
+        _context = new FormFieldContext
+        {
+            FieldId     = fieldId,
+            DescribedBy = hasError ? _errorId : !string.IsNullOrEmpty(HelpText) ? _helpId : null,
+            Required    = _isRequired,
+            HasError    = hasError,
+            ReadOnly    = _isReadOnly,
+        };
+    }
+}

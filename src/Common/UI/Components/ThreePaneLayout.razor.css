@@ -1,0 +1,129 @@
+/*
+ * ThreePaneLayout — scoped Blazor CSS (UIF07).
+ *
+ * Civic Blueprint :
+ * - No-Line Rule : la séparation master / detail est obtenue par un shift
+ *   de surface (`surface-container` → `surface-container-high`), mapping
+ *   canonique de la playbook §2.2 ("Cards, panels, master list" →
+ *   "Detail panel sur workspace"). Aucune `border: 1px` en position de
+ *   section divider.
+ * - Tonal Stacking : pas d'ombre statique entre panneaux. La popin drawer
+ *   responsive (≤ 1023 px) est un élément flottant et a donc droit à
+ *   `--shadow-floating` (token canonique post-UIF05 ; `--shadow-md` n'existe
+ *   plus dans tokens.css).
+ * - Density-aware : ne fixe aucune hauteur de ligne. Les contenus internes
+ *   pilotent leurs paddings via les variables `--density-*` héritées.
+ *
+ * Tokens consommés (depuis tokens.css) :
+ *   --color-surface, --color-surface-container,
+ *   --color-surface-container-high, --color-on-surface,
+ *   --shadow-floating, --shadow-subtle, --spacing-2, --density-button-*.
+ */
+
+.three-pane {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    height: 100%;
+    background-color: var(--color-surface);
+    color: var(--color-on-surface);
+    overflow: hidden;
+    position: relative;
+}
+
+.three-pane__master {
+    flex: 0 0 auto;
+    width: var(--three-pane-master-size, 400px);
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    background-color: var(--color-surface-container);
+    /* No-Line Rule: pas de border-right ; le contraste de surface tient lieu
+     * de séparation. Le shift `container → container-high` produit une
+     * ligne perceptuelle sans tracer de pixel (playbook §2.2). */
+}
+
+.three-pane__detail {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    background-color: var(--color-surface-container-high);
+    /* No-Line Rule: pas de border-left ; le shift de surface joue le rôle
+     * de section divider sans tracer de pixel. */
+}
+
+.three-pane__master-toggle {
+    /* Hidden on desktop — only the responsive drawer mode uses it. */
+    display: none;
+}
+
+.three-pane__backdrop {
+    display: none;
+}
+
+/* ── Responsive collapse (< 1024 px) ─────────────────────────────────
+ * Master pane slides in as a drawer overlay. The detail pane uses the
+ * full width. Toggle button anchored top-left of the layout.
+ *
+ * Note : 1024px est la valeur littérale de --breakpoint-lg côté tokens.
+ * Les CSS variables ne peuvent pas être consommées dans les @media,
+ * d'où la valeur fixe synchronisée à la main avec tokens.css §Breakpoints.
+ * ────────────────────────────────────────────────────────────────── */
+@media (max-width: 1023.98px) {
+    .three-pane__master {
+        position: absolute;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        z-index: 12;
+        max-width: 90vw;
+        transform: translateX(-100%);
+        transition: transform 200ms ease;
+        box-shadow: var(--shadow-floating);
+        border-radius: 0 var(--radius-lg, 0.25rem) var(--radius-lg, 0.25rem) 0;
+    }
+
+    .three-pane--master-open .three-pane__master {
+        transform: translateX(0);
+    }
+
+    .three-pane__backdrop {
+        display: block;
+        position: absolute;
+        inset: 0;
+        z-index: 11;
+        background-color: rgba(0, 27, 68, 0.32);
+    }
+
+    .three-pane__master-toggle {
+        display: inline-flex;
+        position: absolute;
+        top: var(--spacing-2, 0.5rem);
+        left: var(--spacing-2, 0.5rem);
+        z-index: 13;
+        align-items: center;
+        justify-content: center;
+        min-width: var(--density-button-min-height, 1.75rem);
+        min-height: var(--density-button-min-height, 1.75rem);
+        padding: var(--density-button-padding-block, 0.25rem) var(--density-button-padding-inline, 0.75rem);
+        background-color: var(--color-surface-container-lowest);
+        color: var(--color-on-surface);
+        border: none;
+        border-radius: var(--radius-lg, 0.25rem);
+        box-shadow: var(--shadow-subtle);
+        cursor: pointer;
+        font-size: 1rem;
+        line-height: 1;
+    }
+
+    .three-pane__master-toggle:focus-visible {
+        outline: 2px solid var(--color-primary, #001b44);
+        outline-offset: 2px;
+    }
+}

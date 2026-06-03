@@ -1,0 +1,54 @@
+.circular-progress {
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.circular-progress__track {
+  stroke: var(--color-neutral-200, #e5e7eb);
+}
+
+.circular-progress__bar {
+  stroke: var(--cp-color, var(--color-primary-500, #3b82f6));
+  transition: stroke-dashoffset 0.3s ease;
+  stroke-linecap: round;
+}
+
+/* Indeterminate — rotation on the SVG root */
+@keyframes rotate-circle {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Indeterminate — arc length animation on the progress circle */
+@keyframes dash-indeterminate {
+  0% {
+    stroke-dasharray: 1 100;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 70 100;
+    stroke-dashoffset: -30;
+  }
+  100% {
+    stroke-dasharray: 70 100;
+    stroke-dashoffset: -100;
+  }
+}
+
+.circular-progress--indeterminate {
+  animation: rotate-circle 1.4s linear infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.circular-progress__bar--indeterminate {
+  transition: none;
+  animation: dash-indeterminate 1.4s ease-in-out infinite;
+}
+
+/* Color variants */
+.circular-progress--default { --cp-color: var(--color-primary-500, #3b82f6); }
+.circular-progress--info    { --cp-color: var(--color-info-500, #0ea5e9); }
+.circular-progress--success { --cp-color: var(--color-success-500, #22c55e); }
+.circular-progress--warning { --cp-color: var(--color-warning-500, #f59e0b); }
+.circular-progress--danger  { --cp-color: var(--color-error-500, #ef4444); }

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Stratum.Common.UI.Tests.Unit" />
+    <InternalsVisibleTo Include="Stratum.Common.Infrastructure.Tests.Unit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Abstractions/Stratum.Common.Abstractions.csproj" />
+    <ProjectReference Include="../Infrastructure/Stratum.Common.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Radzen.Blazor" />
+    <PackageReference Include="QuestPDF" />
+  </ItemGroup>
+
+</Project>

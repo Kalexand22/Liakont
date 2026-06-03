@@ -1,0 +1,123 @@
+@namespace Stratum.Common.UI.Components
+
+<div class="email-field @CssClass @(Disabled ? "email-field--disabled" : string.Empty)"
+     data-testid="@TestId">
+    <div class="email-field__wrap">
+        <input type="email"
+               id="@_inputId"
+               class="email-field__input @(_invalid ? "email-field__input--error" : string.Empty)"
+               value="@Value"
+               multiple="@Multiple"
+               placeholder="@Placeholder"
+               autocomplete="email"
+               inputmode="email"
+               aria-invalid="@(_invalid ? "true" : null)"
+               aria-describedby="@(_invalid ? _errorId : null)"
+               disabled="@Disabled"
+               readonly="@ReadOnly"
+               aria-readonly="@(ReadOnly ? "true" : null)"
+               @oninput="OnInput"
+               @onblur="OnBlur" />
+
+        @if (ShowLinkIcon && !string.IsNullOrWhiteSpace(Value) && !_invalid)
+        {
+            <a href="mailto:@Value"
+               class="email-field__link"
+               aria-label="Envoyer un email à @Value"
+               title="Envoyer un email"
+               tabindex="0">✉</a>
+        }
+    </div>
+
+    @if (_invalid)
+    {
+        <span id="@_errorId" class="email-field__error" role="alert">Adresse email invalide.</span>
+    }
+</div>
+
+@code {
+    /// <summary>Email address (two-way). Multiple addresses if <see cref="Multiple"/> is true.</summary>
+    [Parameter] public string? Value { get; set; }
+
+    /// <summary>Raised when the value changes.</summary>
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Accept multiple comma-separated addresses.</summary>
+    [Parameter] public bool Multiple { get; set; }
+
+    /// <summary>Placeholder text.</summary>
+    [Parameter] public string? Placeholder { get; set; }
+
+    /// <summary>Show a mailto link icon when a valid address is present. Default: true.</summary>
+    [Parameter] public bool ShowLinkIcon { get; set; } = true;
+
+    /// <summary>Disabled — no interaction.</summary>
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Read-only — focusable but not editable.</summary>
+    [Parameter] public bool ReadOnly { get; set; }
+
+    /// <summary>Additional CSS classes on root element.</summary>
+    [Parameter] public string? CssClass { get; set; }
+
+    /// <summary>Test identifier for E2E tests.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    // ── State ─────────────────────────────────────────────────────
+
+    private bool _invalid;
+    private string? _lastUserValue;
+    private readonly string _inputId = $"email-{Guid.NewGuid():N}";
+    private readonly string _errorId = $"email-err-{Guid.NewGuid():N}";
+
+    // ── Lifecycle ─────────────────────────────────────────────────
+
+    protected override void OnParametersSet()
+    {
+        if (string.IsNullOrWhiteSpace(Value))
+        {
+            _invalid = false;
+        }
+        else if (Value != _lastUserValue)
+        {
+            _invalid = !IsValidEmail(Value, Multiple);
+        }
+    }
+
+    // ── Events ────────────────────────────────────────────────────
+
+    private async Task OnInput(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        _lastUserValue = string.IsNullOrEmpty(val) ? null : val;
+        _invalid = false;
+        await ValueChanged.InvokeAsync(_lastUserValue);
+    }
+
+    private void OnBlur()
+    {
+        if (ReadOnly || string.IsNullOrWhiteSpace(Value)) { _invalid = false; return; }
+        _invalid = !IsValidEmail(Value, Multiple);
+    }
+
+    // ── Pure helpers (internal for testability) ───────────────────
+
+    private static readonly System.Text.RegularExpressions.Regex EmailPattern = new(
+        @"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+        System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    internal static bool IsValidEmail(string? value, bool multiple)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return true;
+        var addresses = multiple
+            ? value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            : (string[])[value];
+        foreach (var addr in addresses)
+        {
+            if (!EmailPattern.IsMatch(addr))
+                return false;
+        }
+        return true;
+    }
+}

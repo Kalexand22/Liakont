@@ -1,0 +1,181 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.UI.Helpers
+@using Stratum.Common.UI.Models
+
+@* EmailTemplateEditor — three-pane WYSIWYG email template editor.
+ *
+ * Left sidebar:  template library + metadata + variable chips
+ * Center:        RichTextEditor body (Quill.js via RichTextEditor wrapper)
+ * Right sidebar: live preview (desktop/mobile toggle)
+ *
+ * Ref: orchestration/items/UIE.yaml — UIE05
+ *@
+
+<div class="ete" data-testid="@(TestId ?? "email-template-editor")" role="region" aria-label="@(AriaLabel ?? "Email template editor")">
+
+    @* ── Left Sidebar: Template Library + Metadata + Variables ── *@
+    <aside class="ete__sidebar-left" data-testid="@(TestId ?? "email-template-editor")-sidebar-left">
+        <div class="ete__library">
+            <h3 class="ete__section-title">Biblioth&egrave;que de mod&egrave;les</h3>
+            <div class="ete__template-list" role="listbox" aria-label="Templates disponibles" data-testid="@(TestId ?? "email-template-editor")-template-list">
+                @if (Templates is not null)
+                {
+                    @foreach (var tpl in Templates)
+                    {
+                        var isSelected = tpl.Code == _selectedCode;
+                        <button class="ete__template-item @(isSelected ? "ete__template-item--selected" : "")"
+                                role="option"
+                                aria-selected="@isSelected"
+                                data-testid="template-item-@tpl.Code"
+                                @onclick="() => SelectTemplate(tpl)">
+                            <div class="ete__template-item-header">
+                                <span class="ete__template-item-name">@tpl.Name</span>
+                                <span class="ete__template-category-badge">@tpl.Category</span>
+                            </div>
+                            @if (!string.IsNullOrEmpty(tpl.Description))
+                            {
+                                <p class="ete__template-item-desc">@tpl.Description</p>
+                            }
+                        </button>
+                    }
+                }
+            </div>
+        </div>
+
+        <div class="ete__metadata">
+            <h3 class="ete__section-title">M&eacute;tadonn&eacute;es du mod&egrave;le</h3>
+
+            <div class="ete__field">
+                <label class="ete__label" for="@($"{_uid}-name")">Nom du mod&egrave;le</label>
+                <input id="@($"{_uid}-name")"
+                       class="ete__input"
+                       type="text"
+                       value="@_name"
+                       data-testid="@(TestId ?? "email-template-editor")-name"
+                       @oninput="OnNameInput" />
+            </div>
+
+            <div class="ete__field">
+                <label class="ete__label" for="@($"{_uid}-subject")">Objet de l'email</label>
+                <input id="@($"{_uid}-subject")"
+                       class="ete__input"
+                       type="text"
+                       value="@_subject"
+                       data-testid="@(TestId ?? "email-template-editor")-subject"
+                       @oninput="OnSubjectInput" />
+            </div>
+
+            <div class="ete__field">
+                <label class="ete__label" for="@($"{_uid}-category")">Cat&eacute;gorie</label>
+                <select id="@($"{_uid}-category")"
+                        class="ete__input"
+                        value="@_category"
+                        data-testid="@(TestId ?? "email-template-editor")-category"
+                        @onchange="OnCategoryChange">
+                    @foreach (var cat in Categories)
+                    {
+                        <option value="@cat" selected="@(cat == _category)">@cat</option>
+                    }
+                </select>
+            </div>
+        </div>
+
+        <div class="ete__variables">
+            <h3 class="ete__section-title">Variables dynamiques</h3>
+            <div class="ete__variable-chips" data-testid="@(TestId ?? "email-template-editor")-variables">
+                @if (Variables is not null)
+                {
+                    @foreach (var v in Variables)
+                    {
+                        <button class="ete__variable-chip"
+                                title="Ins&eacute;rer {{@v.Name}}"
+                                data-testid="variable-chip-@v.Name"
+                                @onclick="() => InsertVariable(v)">
+                            <span class="ete__chip-icon" aria-hidden="true">&#xf71e;</span>
+                            {{@v.Name}}
+                        </button>
+                    }
+                }
+            </div>
+        </div>
+    </aside>
+
+    @* ── Center: WYSIWYG Editor ── *@
+    <section class="ete__editor" data-testid="@(TestId ?? "email-template-editor")-editor-pane">
+        <RichTextEditor @bind-Value="_bodyHtml"
+                        Toolbar="ToolbarPreset.Full"
+                        Placeholder="R&eacute;digez le contenu de l'email..."
+                        AriaLabel="Corps de l'email"
+                        TestId="@($"{TestId ?? "email-template-editor"}-body")" />
+    </section>
+
+    @* ── Right Sidebar: Live Preview ── *@
+    <aside class="ete__sidebar-right" data-testid="@(TestId ?? "email-template-editor")-preview-pane">
+        <div class="ete__preview-header">
+            <h3 class="ete__section-title">Aper&ccedil;u en temps r&eacute;el</h3>
+            <div class="ete__preview-toggle" role="radiogroup" aria-label="Mode d'apercu">
+                <button class="ete__preview-toggle-btn @(_previewMode == PreviewMode.Desktop ? "ete__preview-toggle-btn--active" : "")"
+                        aria-pressed="@(_previewMode == PreviewMode.Desktop)"
+                        data-testid="@(TestId ?? "email-template-editor")-preview-desktop"
+                        @onclick="() => _previewMode = PreviewMode.Desktop">
+                    <span class="ete__icon" aria-hidden="true">&#xe30b;</span>
+                    <span class="visually-hidden">Bureau</span>
+                </button>
+                <button class="ete__preview-toggle-btn @(_previewMode == PreviewMode.Mobile ? "ete__preview-toggle-btn--active" : "")"
+                        aria-pressed="@(_previewMode == PreviewMode.Mobile)"
+                        data-testid="@(TestId ?? "email-template-editor")-preview-mobile"
+                        @onclick="() => _previewMode = PreviewMode.Mobile">
+                    <span class="ete__icon" aria-hidden="true">&#xe325;</span>
+                    <span class="visually-hidden">Mobile</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="ete__preview-frame-container">
+            <div class="ete__preview-frame @(_previewMode == PreviewMode.Mobile ? "ete__preview-frame--mobile" : "")"
+                 data-testid="@(TestId ?? "email-template-editor")-preview-frame">
+                <div class="ete__preview-chrome">
+                    <div class="ete__preview-dots">
+                        <span class="ete__dot ete__dot--red"></span>
+                        <span class="ete__dot ete__dot--amber"></span>
+                        <span class="ete__dot ete__dot--green"></span>
+                    </div>
+                    <span class="ete__preview-subject">@ResolveVariables(_subject)</span>
+                </div>
+                <div class="ete__preview-body">
+                    @((MarkupString)HtmlSanitizer.Sanitize(ResolveVariables(_bodyHtml ?? "")))
+                </div>
+            </div>
+            <p class="ete__preview-note">Les donn&eacute;es affich&eacute;es sont des &eacute;chantillons pour visualiser le rendu final des variables.</p>
+        </div>
+    </aside>
+</div>
+
+@* ── Bottom Action Bar ── *@
+<div class="ete__action-bar" data-testid="@(TestId ?? "email-template-editor")-action-bar">
+    <div class="ete__action-bar-left">
+        <button class="ete__btn ete__btn--outline"
+                data-testid="@(TestId ?? "email-template-editor")-send-test"
+                @onclick="HandleSendTest">
+            <span class="ete__icon" aria-hidden="true">&#xe0be;</span>
+            Envoyer un test
+        </button>
+        <span class="ete__action-bar-divider"></span>
+        @if (_lastModified.HasValue)
+        {
+            <span class="ete__last-modified">Derni&egrave;re modification : @FormatRelativeTime(_lastModified.Value)</span>
+        }
+    </div>
+    <div class="ete__action-bar-right">
+        <button class="ete__btn ete__btn--text"
+                data-testid="@(TestId ?? "email-template-editor")-save-version"
+                @onclick="HandleSaveVersion">
+            Enregistrer en tant que version...
+        </button>
+        <button class="ete__btn ete__btn--primary"
+                data-testid="@(TestId ?? "email-template-editor")-publish"
+                @onclick="HandlePublish">
+            Publier le mod&egrave;le
+        </button>
+    </div>
+</div>

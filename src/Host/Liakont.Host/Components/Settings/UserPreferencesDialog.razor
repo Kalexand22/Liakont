@@ -1,0 +1,48 @@
+@namespace Liakont.Host.Components.Settings
+
+@using Microsoft.Extensions.Localization
+@using Stratum.Common.UI.Components
+@using Liakont.Host
+
+@inject IStringLocalizer<HostResources> L
+
+@* UserPreferencesDialog — modal wrapper around UserPreferencesPanel (GUX06).
+ *
+ * Opened from the topbar profile area (ProfilePreferencesLauncher).
+ * Closes on Esc / overlay click / close button. Theme and density changes
+ * are applied live by the panel; closing the dialog keeps them in place.
+ *@
+
+<StratumDialog TestId="user-preferences-dialog"
+               Title="@L["Preferences_PageTitle"]"
+               Size="DialogSize.Md"
+               Scrollable="true"
+               @bind-Visible="Visible"
+               OnClose="HandleClose">
+    <ChildContent>
+        @if (Visible)
+        {
+            <UserPreferencesPanel />
+        }
+    </ChildContent>
+</StratumDialog>
+
+@code {
+    /// <summary>Whether the dialog is visible (two-way binding).</summary>
+    [Parameter]
+    public bool Visible { get; set; }
+
+    /// <summary>Raised when the Visible value changes.</summary>
+    [Parameter]
+    public EventCallback<bool> VisibleChanged { get; set; }
+
+    /// <summary>Raised once when the dialog has been closed.</summary>
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    private async Task HandleClose()
+    {
+        await VisibleChanged.InvokeAsync(false);
+        await OnClose.InvokeAsync();
+    }
+}

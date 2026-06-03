@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Contracts/Stratum.Modules.Job.Contracts.csproj" />
+    <ProjectReference Include="../Application/Stratum.Modules.Job.Application.csproj" />
+    <ProjectReference Include="../../../Common/UI/Stratum.Common.UI.csproj" />
+  </ItemGroup>
+</Project>

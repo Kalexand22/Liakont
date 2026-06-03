@@ -1,0 +1,355 @@
+@namespace Stratum.Common.UI.Components.Internal
+
+@*
+ * LogicTreeNode — recursive renderer for a single LogicNode inside
+ * LogicTreeEditor (UIE01).
+ *
+ * Internal component — never consumed directly by pages.
+ * Handles both Group nodes (AND/OR + children) and Condition leaves
+ * (variable / operator / value dropdowns).
+ *@
+
+@if (Node is null) { return; }
+
+@if (Node.NodeType == LogicNodeType.Group)
+{
+    <div class="logic-tree-group"
+         data-testid="@($"{TestIdPrefix}-group-{Node.Id}")"
+         data-operator="@_groupOpLower"
+         role="group"
+         aria-label="@($"Groupe {_groupOpLabel}")">
+
+        @* Group header: operator badge + toggle + actions *@
+        <div class="logic-tree-group__header">
+            <button type="button"
+                    class="logic-tree-group__operator-toggle"
+                    data-testid="@($"{TestIdPrefix}-toggle-{Node.Id}")"
+                    title="@($"Basculer vers {_altGroupOpLabel}")"
+                    @onclick="ToggleGroupOperator">
+                @_groupOpLabel
+            </button>
+
+            <div class="logic-tree-group__actions">
+                <button type="button"
+                        class="logic-tree-node__btn logic-tree-node__btn--add"
+                        data-testid="@($"{TestIdPrefix}-add-condition-{Node.Id}")"
+                        title="Ajouter une condition"
+                        @onclick="AddCondition">
+                    <span aria-hidden="true">+</span> Condition
+                </button>
+                <button type="button"
+                        class="logic-tree-node__btn logic-tree-node__btn--add-group"
+                        data-testid="@($"{TestIdPrefix}-add-group-{Node.Id}")"
+                        title="Ajouter un sous-groupe"
+                        @onclick="AddSubGroup">
+                    <span aria-hidden="true">+</span> Groupe
+                </button>
+                @if (Depth > 0)
+                {
+                    <button type="button"
+                            class="logic-tree-node__btn logic-tree-node__btn--remove"
+                            data-testid="@($"{TestIdPrefix}-remove-{Node.Id}")"
+                            title="Supprimer ce groupe"
+                            @onclick="() => OnRemove.InvokeAsync(Node)">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                }
+            </div>
+        </div>
+
+        @* Children *@
+        <div class="logic-tree-group__children">
+            @for (var i = 0; i < Node.Children.Count; i++)
+            {
+                var child = Node.Children[i];
+                var idx = i;
+
+                @if (idx > 0)
+                {
+                    <div class="logic-tree-group__separator" aria-hidden="true">
+                        <span class="logic-tree-group__separator-label">@_groupOpLabel</span>
+                    </div>
+                }
+
+                <LogicTreeNode Node="child"
+                               Variables="@Variables"
+                               Operators="@Operators"
+                               Depth="Depth + 1"
+                               TestIdPrefix="@TestIdPrefix"
+                               OnChange="childNode => HandleChildChanged(idx, childNode)"
+                               OnRemove="_ => HandleChildRemoved(idx)" />
+            }
+        </div>
+    </div>
+}
+else
+{
+    @* Condition leaf *@
+    <div class="logic-tree-condition"
+         data-testid="@($"{TestIdPrefix}-condition-{Node.Id}")"
+         role="row">
+
+        <div class="logic-tree-condition__field">
+            <label class="logic-tree-condition__label">Variable</label>
+            <select class="logic-tree-condition__select"
+                    data-testid="@($"{TestIdPrefix}-variable-{Node.Id}")"
+                    value="@(Node.Variable ?? "")"
+                    @onchange="HandleVariableChanged">
+                <option value="">— Choisir —</option>
+                @foreach (var v in Variables)
+                {
+                    <option value="@v.Code">@v.Label</option>
+                }
+            </select>
+        </div>
+
+        <div class="logic-tree-condition__field">
+            <label class="logic-tree-condition__label">Opérateur</label>
+            <select class="logic-tree-condition__select"
+                    data-testid="@($"{TestIdPrefix}-operator-{Node.Id}")"
+                    value="@(Node.Operator ?? "")"
+                    @onchange="HandleOperatorChanged">
+                <option value="">— Op —</option>
+                @foreach (var op in _filteredOperators)
+                {
+                    <option value="@op.Code">@op.Label</option>
+                }
+            </select>
+        </div>
+
+        @if (!_selectedOperatorHidesValue)
+        {
+            <div class="logic-tree-condition__field logic-tree-condition__field--value">
+                <label class="logic-tree-condition__label">Valeur</label>
+                @if (_selectedVariable?.DataType == "enum" && _selectedVariable.EnumValues is { Count: > 0 })
+                {
+                    <select class="logic-tree-condition__select"
+                            data-testid="@($"{TestIdPrefix}-value-{Node.Id}")"
+                            value="@(Node.Value ?? "")"
+                            @onchange="HandleValueChanged">
+                        <option value="">— Valeur —</option>
+                        @foreach (var ev in _selectedVariable.EnumValues)
+                        {
+                            <option value="@ev">@ev</option>
+                        }
+                    </select>
+                }
+                else if (_selectedVariable?.DataType == "boolean")
+                {
+                    <select class="logic-tree-condition__select"
+                            data-testid="@($"{TestIdPrefix}-value-{Node.Id}")"
+                            value="@(Node.Value ?? "")"
+                            @onchange="HandleValueChanged">
+                        <option value="">— Valeur —</option>
+                        <option value="true">Oui</option>
+                        <option value="false">Non</option>
+                    </select>
+                }
+                else
+                {
+                    <input type="@_inputType"
+                           class="logic-tree-condition__input"
+                           data-testid="@($"{TestIdPrefix}-value-{Node.Id}")"
+                           value="@(Node.Value ?? "")"
+                           placeholder="Valeur"
+                           @onchange="HandleValueChanged" />
+                }
+            </div>
+        }
+
+        <div class="logic-tree-condition__remove">
+            <button type="button"
+                    class="logic-tree-node__btn logic-tree-node__btn--remove"
+                    data-testid="@($"{TestIdPrefix}-remove-{Node.Id}")"
+                    title="Supprimer cette condition"
+                    @onclick="() => OnRemove.InvokeAsync(Node)">
+                <span aria-hidden="true">&times;</span>
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public LogicNode Node { get; set; } = default!;
+
+    [Parameter]
+    public IReadOnlyList<LogicVariable> Variables { get; set; } = [];
+
+    [Parameter]
+    public IReadOnlyList<LogicOperatorDef> Operators { get; set; } = [];
+
+    [Parameter]
+    public int Depth { get; set; }
+
+    [Parameter]
+    public string TestIdPrefix { get; set; } = "logic-tree";
+
+    [Parameter]
+    public EventCallback<LogicNode> OnChange { get; set; }
+
+    [Parameter]
+    public EventCallback<LogicNode> OnRemove { get; set; }
+
+    // ── Computed ──
+
+    private string _groupOpLower => Node.GroupOperator == LogicGroupOperator.And ? "and" : "or";
+    private string _groupOpLabel => Node.GroupOperator == LogicGroupOperator.And ? "ET" : "OU";
+    private string _altGroupOpLabel => Node.GroupOperator == LogicGroupOperator.And ? "OU" : "ET";
+
+    private LogicVariable? _selectedVariable;
+    private IReadOnlyList<LogicOperatorDef> _filteredOperators = [];
+    private bool _selectedOperatorHidesValue;
+    private string _inputType = "text";
+
+    protected override void OnParametersSet()
+    {
+        if (Node.NodeType == LogicNodeType.Condition)
+        {
+            _selectedVariable = string.IsNullOrEmpty(Node.Variable)
+                ? null
+                : Variables.FirstOrDefault(v => v.Code == Node.Variable);
+
+            _filteredOperators = _selectedVariable is null
+                ? Operators
+                : Operators.Where(o => o.CompatibleTypes.Count == 0 ||
+                                       o.CompatibleTypes.Contains(_selectedVariable.DataType))
+                           .ToList();
+
+            var selOp = string.IsNullOrEmpty(Node.Operator)
+                ? null
+                : Operators.FirstOrDefault(o => o.Code == Node.Operator);
+            _selectedOperatorHidesValue = selOp?.HidesValue ?? false;
+
+            _inputType = _selectedVariable?.DataType switch
+            {
+                "number" => "number",
+                "date" => "date",
+                _ => "text"
+            };
+        }
+    }
+
+    // ── Group mutations ──
+
+    private Task ToggleGroupOperator()
+    {
+        var newOp = Node.GroupOperator == LogicGroupOperator.And
+            ? LogicGroupOperator.Or
+            : LogicGroupOperator.And;
+        return OnChange.InvokeAsync(new LogicNode
+        {
+            Id = Node.Id,
+            NodeType = LogicNodeType.Group,
+            GroupOperator = newOp,
+            Children = Node.Children,
+        });
+    }
+
+    private Task AddCondition()
+    {
+        var updated = new LogicNode
+        {
+            Id = Node.Id,
+            NodeType = LogicNodeType.Group,
+            GroupOperator = Node.GroupOperator,
+            Children = [.. Node.Children, LogicNode.Condition()],
+        };
+        return OnChange.InvokeAsync(updated);
+    }
+
+    private Task AddSubGroup()
+    {
+        var subGroup = LogicNode.Group(LogicGroupOperator.And, LogicNode.Condition());
+        var updated = new LogicNode
+        {
+            Id = Node.Id,
+            NodeType = LogicNodeType.Group,
+            GroupOperator = Node.GroupOperator,
+            Children = [.. Node.Children, subGroup],
+        };
+        return OnChange.InvokeAsync(updated);
+    }
+
+    private Task HandleChildChanged(int index, LogicNode childNode)
+    {
+        var newChildren = new List<LogicNode>(Node.Children);
+        newChildren[index] = childNode;
+        var updated = new LogicNode
+        {
+            Id = Node.Id,
+            NodeType = LogicNodeType.Group,
+            GroupOperator = Node.GroupOperator,
+            Children = newChildren,
+        };
+        return OnChange.InvokeAsync(updated);
+    }
+
+    private Task HandleChildRemoved(int index)
+    {
+        var newChildren = new List<LogicNode>(Node.Children);
+        newChildren.RemoveAt(index);
+        var updated = new LogicNode
+        {
+            Id = Node.Id,
+            NodeType = LogicNodeType.Group,
+            GroupOperator = Node.GroupOperator,
+            Children = newChildren,
+        };
+        return OnChange.InvokeAsync(updated);
+    }
+
+    // ── Condition mutations ──
+
+    private Task HandleVariableChanged(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString() ?? "";
+        var newVariable = string.IsNullOrEmpty(val) ? null : val;
+
+        // Reset operator if incompatible with the new variable's data type
+        var newVar = newVariable is null
+            ? null
+            : Variables.FirstOrDefault(v => v.Code == newVariable);
+        var currentOp = string.IsNullOrEmpty(Node.Operator)
+            ? null
+            : Operators.FirstOrDefault(o => o.Code == Node.Operator);
+        var operatorStillValid = currentOp is null || newVar is null
+            || currentOp.CompatibleTypes.Count == 0
+            || currentOp.CompatibleTypes.Contains(newVar.DataType);
+
+        return OnChange.InvokeAsync(new LogicNode
+        {
+            Id = Node.Id,
+            NodeType = LogicNodeType.Condition,
+            Variable = newVariable,
+            Operator = operatorStillValid ? Node.Operator : null,
+            Value = Node.Value,
+        });
+    }
+
+    private Task HandleOperatorChanged(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString() ?? "";
+        return OnChange.InvokeAsync(new LogicNode
+        {
+            Id = Node.Id,
+            NodeType = LogicNodeType.Condition,
+            Variable = Node.Variable,
+            Operator = string.IsNullOrEmpty(val) ? null : val,
+            Value = Node.Value,
+        });
+    }
+
+    private Task HandleValueChanged(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString() ?? "";
+        return OnChange.InvokeAsync(new LogicNode
+        {
+            Id = Node.Id,
+            NodeType = LogicNodeType.Condition,
+            Variable = Node.Variable,
+            Operator = Node.Operator,
+            Value = string.IsNullOrEmpty(val) ? null : val,
+        });
+    }
+}

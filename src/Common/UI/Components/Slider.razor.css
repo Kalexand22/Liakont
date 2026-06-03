@@ -1,0 +1,114 @@
+/* Slider — scoped styles using Stratum design tokens */
+
+.slider {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1, 0.25rem);
+    width: 100%;
+}
+
+/* ── Value label ─────────────────────────────────────── */
+
+.slider__value {
+    font-size: var(--font-size-sm, 0.875rem);
+    font-weight: var(--font-weight-medium, 500);
+    color: var(--color-text-primary);
+    text-align: center;
+}
+
+/* ── Range input ─────────────────────────────────────── */
+
+.slider__input {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 6px;
+    background: var(--color-neutral-200);
+    border-radius: var(--radius-full, 9999px);
+    outline: none;
+    transition: background var(--transition-fast, 100ms ease);
+    cursor: pointer;
+}
+
+.slider__input:focus-visible {
+    outline: 2px solid var(--color-border-focus, var(--color-primary-500));
+    outline-offset: 4px;
+    border-radius: var(--radius-full, 9999px);
+}
+
+/* ── Thumb — WebKit ──────────────────────────────────── */
+
+.slider__input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--color-primary-600);
+    border: 2px solid var(--color-bg-surface, #fff);
+    box-shadow: var(--shadow-sm);
+    cursor: pointer;
+    transition: transform var(--transition-fast, 100ms ease),
+                box-shadow var(--transition-fast, 100ms ease);
+}
+
+.slider__input::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+    box-shadow: 0 0 0 4px var(--color-focus-ring);
+}
+
+/* ── Thumb — Firefox ─────────────────────────────────── */
+
+.slider__input::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--color-primary-600);
+    border: 2px solid var(--color-bg-surface, #fff);
+    box-shadow: var(--shadow-sm);
+    cursor: pointer;
+}
+
+.slider__input::-moz-range-track {
+    height: 6px;
+    background: var(--color-neutral-200);
+    border-radius: var(--radius-full, 9999px);
+    border: none;
+}
+
+/* ── Min/Max labels ──────────────────────────────────── */
+
+.slider__range-labels {
+    display: flex;
+    justify-content: space-between;
+}
+
+.slider__range-min,
+.slider__range-max {
+    font-size: var(--font-size-xs, 0.75rem);
+    color: var(--color-text-muted);
+}
+
+/* ── Disabled ────────────────────────────────────────── */
+
+.slider--disabled {
+    opacity: 0.5;
+}
+
+.slider--disabled .slider__input {
+    cursor: not-allowed;
+}
+
+/* ── Error ───────────────────────────────────────────── */
+
+.slider--error .slider__input {
+    background: color-mix(in srgb, var(--color-error-500) 20%, var(--color-neutral-200));
+}
+
+.slider--error .slider__input::-webkit-slider-thumb {
+    background: var(--color-error-500);
+}
+
+.slider--error .slider__input::-moz-range-thumb {
+    background: var(--color-error-500);
+}

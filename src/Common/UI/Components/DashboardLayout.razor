@@ -1,0 +1,216 @@
+@namespace Stratum.Common.UI.Components
+@implements IAsyncDisposable
+@using System.Text.Json
+@inject IJSRuntime JS
+
+@*
+    DashboardLayout — UI_S01
+    Draggable/resizable widget grid backed by gridstack.js (vendored).
+
+    Cascades a widget-config lookup to child Dashlet components so each Dashlet
+    can render its own gs-* HTML attributes. Gridstack is initialised on first
+    render and reads those attributes from the DOM.
+*@
+
+<CascadingValue Value="@_widgetMap" IsFixed="false">
+    <div @ref="_containerRef"
+         class="@BuildContainerClass(CssClass)"
+         data-testid="@(TestId ?? "dashboard-layout")">
+        @ChildContent
+    </div>
+</CascadingValue>
+
+@code {
+    /// <summary>
+    /// Initial layout configuration for each dashlet.
+    /// To trigger a grid update, assign a new collection reference — in-place mutation
+    /// of the same list instance is not detected (reference equality check).
+    /// </summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<DashletConfig> Widgets { get; set; } = [];
+
+    /// <summary>Number of grid columns. Default: 12.</summary>
+    [Parameter]
+    public int Columns { get; set; } = 12;
+
+    /// <summary>Height of a single grid row in pixels. Default: 60.</summary>
+    [Parameter]
+    public int RowHeight { get; set; } = 60;
+
+    /// <summary>Padding between cells in pixels. Default: 8.</summary>
+    [Parameter]
+    public int CellPadding { get; set; } = 8;
+
+    /// <summary>Allow dragging dashlets. Default: <c>true</c>.</summary>
+    [Parameter]
+    public bool Draggable { get; set; } = true;
+
+    /// <summary>Allow resizing dashlets. Default: <c>true</c>.</summary>
+    [Parameter]
+    public bool Resizable { get; set; } = true;
+
+    /// <summary>Invoked after a drag or resize operation with the updated layout.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<DashletConfig>> OnLayoutChange { get; set; }
+
+    /// <summary>Child <see cref="Dashlet"/> components.</summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Additional CSS classes on the root element.</summary>
+    [Parameter]
+    public string? CssClass { get; set; }
+
+    /// <summary>Test identifier for E2E tests.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    // ── State ─────────────────────────────────────────────────────────
+
+    private ElementReference _containerRef;
+    private IJSObjectReference? _jsModule;
+    private DotNetObjectReference<DashboardLayout>? _dotNetRef;
+    private bool _initialized;
+    private bool _widgetsDirty;
+    private IReadOnlyList<DashletConfig>? _previousWidgets;
+
+    private IReadOnlyDictionary<string, DashletConfig> _widgetMap =
+        new Dictionary<string, DashletConfig>(StringComparer.Ordinal);
+
+    // ── Lifecycle ─────────────────────────────────────────────────────
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(Widgets, _previousWidgets))
+            return;
+
+        _previousWidgets = Widgets;
+        _widgetMap = Widgets.ToDictionary(w => w.Id, w => w, StringComparer.Ordinal);
+        _widgetsDirty = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _jsModule ??= await JS.InvokeAsync<IJSObjectReference>(
+                    "import", "./_content/Stratum.Common.UI/js/dashboard.js.module");
+
+                _dotNetRef = DotNetObjectReference.Create(this);
+
+                var options = new
+                {
+                    columns     = Columns,
+                    rowHeight   = RowHeight,
+                    cellPadding = CellPadding,
+                    draggable   = Draggable,
+                    resizable   = Resizable,
+                };
+
+                await _jsModule.InvokeVoidAsync("init", _containerRef, _dotNetRef, options);
+                _initialized = true;
+                _widgetsDirty = false;
+            }
+            catch (Exception ex) when (ex is JSException
+                or JSDisconnectedException
+                or InvalidOperationException
+                or OperationCanceledException)
+            {
+                // JS module failed to load or init — component degrades gracefully
+                // (static grid layout via CSS, no drag/resize).
+            }
+        }
+        else if (_initialized && _widgetsDirty && _jsModule is not null)
+        {
+            try
+            {
+                var items = Widgets.Select(w => new
+                {
+                    id     = w.Id,
+                    x      = w.X,
+                    y      = w.Y,
+                    w      = w.W,
+                    h      = w.H,
+                    minW   = w.MinW,
+                    minH   = w.MinH,
+                    locked = w.Locked,
+                }).ToArray();
+
+                await _jsModule.InvokeVoidAsync("updateLayout", _containerRef, items);
+                _widgetsDirty = false;
+            }
+            catch (Exception ex) when (ex is JSException
+                or JSDisconnectedException
+                or InvalidOperationException
+                or OperationCanceledException)
+            {
+                // Circuit disconnect during layout update — silently ignore.
+            }
+        }
+    }
+
+    // ── JS Callbacks ──────────────────────────────────────────────────
+
+    [JSInvokable]
+    public async Task OnLayoutChanged(string layoutJson)
+    {
+        if (!OnLayoutChange.HasDelegate) return;
+
+        using var doc = JsonDocument.Parse(layoutJson);
+        var updated = doc.RootElement
+            .EnumerateArray()
+            .Select(item =>
+            {
+                var id = item.TryGetProperty("id", out var idProp) ? idProp.GetString() ?? "" : "";
+                _widgetMap.TryGetValue(id, out var existing);
+                return new DashletConfig
+                {
+                    Id     = id,
+                    X      = item.TryGetProperty("x", out var xProp) ? xProp.GetInt32() : 0,
+                    Y      = item.TryGetProperty("y", out var yProp) ? yProp.GetInt32() : 0,
+                    W      = item.TryGetProperty("w", out var wProp) ? wProp.GetInt32() : 4,
+                    H      = item.TryGetProperty("h", out var hProp) ? hProp.GetInt32() : 2,
+                    MinW   = existing?.MinW,
+                    MinH   = existing?.MinH,
+                    Locked = existing?.Locked ?? false,
+                };
+            })
+            .ToList();
+
+        await OnLayoutChange.InvokeAsync(updated);
+    }
+
+    // ── Disposal ──────────────────────────────────────────────────────
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_jsModule is not null)
+            {
+                if (_initialized)
+                    await _jsModule.InvokeVoidAsync("destroy", _containerRef);
+                await _jsModule.DisposeAsync();
+            }
+        }
+        catch (Exception ex) when (ex is JSException
+            or JSDisconnectedException
+            or InvalidOperationException
+            or OperationCanceledException)
+        {
+            // Expected during circuit disconnect or prerendering.
+        }
+
+        _dotNetRef?.Dispose();
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────
+
+    private static string BuildContainerClass(string? extra)
+    {
+        const string Base = "grid-stack str-dashboard";
+        return string.IsNullOrWhiteSpace(extra) ? Base : $"{Base} {extra}";
+    }
+}

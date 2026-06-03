@@ -1,0 +1,145 @@
+@page "/admin/jobs"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.Abstractions.Security
+@using Stratum.Modules.Job.Contracts.Commands
+@using Stratum.Modules.Job.Web.Registries
+@inject IScheduleQueries ScheduleQueries
+@inject IActorContextAccessor ActorContext
+@inject ISender Sender
+@inject NavigationManager Nav
+@inject IToastService ToastService
+@inject IPermissionService PermissionService
+
+<PermissionGate Permission="@JobPermissions.View">
+<DeclaredListPage TItem="ScheduleDto"
+                  Title="Planifications de jobs"
+                  TestId="admin-jobs"
+                  LoadItems="LoadSchedulesAsync"
+                  DetailUrl="@(s => $"/admin/jobs/{s.Id}")"
+                  CreateUrl="/admin/jobs/new"
+                  CreateLabel="+ Nouvelle planification"
+                  CreatePermission="@JobPermissions.ManageSchedules"
+                  ColumnRegistry="@_registry"
+                  ColumnTemplates="@_columnTemplates"
+                  GridKey="Job.Schedules"
+                  RowActions="@_rowActions"
+                  BulkActions="@_bulkActions"
+                  AriaLabel="Liste des planifications de jobs"
+                  DefaultSortColumn="Name"
+                  SearchPlaceholder="Chercher une planification… (raccourci : /)"
+                  AllowExport="true"
+                  ExportFileName="job-schedules" />
+</PermissionGate>
+
+@code {
+    private readonly ScheduleColumnRegistry _registry = new();
+
+    private readonly Dictionary<string, RenderFragment<ScheduleDto>> _columnTemplates = new()
+    {
+        ["IsActive"] = item => __builder =>
+        {
+            __builder.OpenComponent<StatusBadge>(0);
+            __builder.AddAttribute(1, "Severity", item.IsActive ? Severity.Success : Severity.Neutral);
+            __builder.AddAttribute(2, "Label", item.IsActive ? "Actif" : "Inactif");
+            __builder.CloseComponent();
+        },
+        ["NextRunAt"] = item => __builder =>
+        {
+            __builder.AddContent(0, item.NextRunAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm"));
+        },
+        ["LastRunAt"] = item => __builder =>
+        {
+            __builder.AddContent(0, item.LastRunAt.HasValue
+                ? item.LastRunAt.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                : "—");
+        },
+        ["CronExpression"] = item => __builder =>
+        {
+            __builder.OpenElement(0, "code");
+            __builder.AddAttribute(1, "class", "text-muted small");
+            __builder.AddContent(2, item.CronExpression);
+            __builder.CloseElement();
+        },
+    };
+
+    private IReadOnlyList<GridRowAction<ScheduleDto>> _rowActions = [];
+    private IReadOnlyList<BulkActionConfig<ScheduleDto>> _bulkActions = [];
+
+    protected override void OnInitialized()
+    {
+        var canManage = PermissionService.HasPermission(JobPermissions.ManageSchedules);
+
+        var actions = new List<GridRowAction<ScheduleDto>>
+        {
+            new(
+                Id: "edit",
+                Label: "Modifier",
+                Icon: "edit",
+                IsQuickAction: true,
+                Callback: item =>
+                {
+                    Nav.NavigateTo($"/admin/jobs/{item.Id}/edit");
+                    return Task.CompletedTask;
+                }),
+        };
+
+        if (canManage)
+        {
+            actions.Add(new GridRowAction<ScheduleDto>(
+                Id: "toggle",
+                Label: "Activer / Désactiver",
+                Icon: "power_settings_new",
+                Callback: ToggleScheduleAsync,
+                IsQuickAction: true,
+                IsSeparatorBefore: true));
+        }
+
+        _rowActions = actions;
+
+        _bulkActions =
+        [
+            new BulkActionConfig<ScheduleDto>(
+                Id: "disable",
+                Label: "Désactiver la sélection",
+                Icon: "pause",
+                Permission: JobPermissions.ManageSchedules,
+                PermissionDisabledReason: "Rôle insuffisant pour désactiver.",
+                Execute: DisableBulkAsync,
+                ItemFilter: s => s.IsActive),
+        ];
+    }
+
+    private async Task<IReadOnlyList<ScheduleDto>> LoadSchedulesAsync()
+    {
+        var companyId = ActorContext.Current.CompanyId;
+        if (companyId is null) return [];
+        return await ScheduleQueries.ListByCompanyAsync(companyId.Value);
+    }
+
+    private async Task ToggleScheduleAsync(ScheduleDto item)
+    {
+        if (!PermissionService.HasPermission(JobPermissions.ManageSchedules))
+        {
+            ToastService.Show("Rôle insuffisant pour modifier l'état.", Severity.Warning);
+            return;
+        }
+
+        await Sender.Send(new ToggleScheduleCommand { ScheduleId = item.Id });
+        var label = item.IsActive ? "désactivée" : "activée";
+        ToastService.Show($"Planification « {item.Name} » {label}.", Severity.Success);
+        Nav.NavigateTo("/admin/jobs", forceLoad: true);
+    }
+
+    private async Task DisableBulkAsync(IReadOnlyList<ScheduleDto> items)
+    {
+        foreach (var item in items)
+        {
+            await Sender.Send(new ToggleScheduleCommand { ScheduleId = item.Id });
+        }
+
+        ToastService.Show($"{items.Count} planification(s) désactivée(s).", Severity.Success);
+    }
+}

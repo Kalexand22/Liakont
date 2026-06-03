@@ -1,0 +1,80 @@
+/* StratumDropdown — scoped styles using Stratum design tokens */
+/* Note: Dropdown popup styles are NOT here because Radzen renders the popup
+   via a portal outside the component tree. Popup theming is handled by
+   Radzen's CSS variable overrides in radzen-overrides.css. */
+
+.stratum-dropdown {
+    position: relative;
+    width: 100%;
+}
+
+/* Error state border */
+.stratum-dropdown--error ::deep .rz-dropdown {
+    border-color: var(--color-error-500);
+}
+
+/* Override Radzen dropdown styling to match Stratum tokens */
+::deep .rz-dropdown {
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-sm);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-2) var(--spacing-3);
+    color: var(--color-text-primary);
+    background: var(--color-bg-surface);
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+    min-height: 2.25rem;
+    width: 100%;
+}
+
+::deep .rz-dropdown:focus-within {
+    border-color: var(--color-primary-500);
+    box-shadow: 0 0 0 2px var(--color-primary-100);
+    outline: none;
+}
+
+::deep .rz-dropdown.rz-state-disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Placeholder text */
+::deep .rz-placeholder {
+    color: var(--color-text-muted);
+}
+
+/* Dropdown trigger icon */
+::deep .rz-dropdown-trigger {
+    color: var(--color-text-muted);
+    border: none;
+    background: transparent;
+}
+
+::deep .rz-dropdown-trigger:hover {
+    color: var(--color-primary-500);
+}
+
+/* Clear button */
+::deep .rz-dropdown-clear-icon {
+    color: var(--color-text-muted);
+}
+
+::deep .rz-dropdown-clear-icon:hover {
+    color: var(--color-error-500);
+}
+
+/* Filter input inside the dropdown */
+::deep .rz-dropdown-filter {
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-sm);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-1) var(--spacing-2);
+    color: var(--color-text-primary);
+    background: var(--color-bg-surface);
+}
+
+::deep .rz-dropdown-filter:focus {
+    border-color: var(--color-primary-500);
+    outline: none;
+}

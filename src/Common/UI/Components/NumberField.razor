@@ -1,0 +1,275 @@
+@namespace Stratum.Common.UI.Components
+
+@* NumberField — typed numeric input with spinner, thousand separator, min/max/step.
+ *
+ * Usage:
+ *   <NumberField Value="@_quantity"
+ *                ValueChanged="v => _quantity = v"
+ *                Min="0" Max="999"
+ *                Step="1" />
+ *@
+
+<div class="number-field @(Disabled ? "number-field--disabled" : string.Empty) @(ReadOnly ? "number-field--readonly" : string.Empty) @(_hasError ? "number-field--error" : string.Empty) @CssClass"
+     data-testid="@(TestId ?? "number-field")">
+    <div class="number-field__wrapper">
+        @if (!ReadOnly && ShowSpinner)
+        {
+            <button type="button"
+                    class="number-field__spinner number-field__spinner--down"
+                    tabindex="-1"
+                    disabled="@(Disabled || (Value.HasValue && Min.HasValue && Value.Value <= Min.Value))"
+                    aria-label="Decrease"
+                    aria-hidden="true"
+                    @onclick="DecrementAsync">
+                −
+            </button>
+        }
+
+        <input id="@_effectiveId"
+               type="text"
+               inputmode="decimal"
+               class="number-field__input"
+               value="@_displayText"
+               placeholder="@Placeholder"
+               disabled="@Disabled"
+               readonly="@ReadOnly"
+               aria-label="@AriaLabel"
+               aria-required="@(_context?.Required == true ? "true" : null)"
+               aria-invalid="@(_hasError ? "true" : null)"
+               aria-describedby="@_context?.DescribedBy"
+               aria-valuemin="@(Min.HasValue ? Min.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : null)"
+               aria-valuemax="@(Max.HasValue ? Max.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : null)"
+               aria-valuenow="@(Value.HasValue ? Value.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : null)"
+               @oninput="HandleInputAsync"
+               @onfocus="HandleFocusAsync"
+               @onblur="HandleBlurAsync"
+               @onkeydown="HandleKeyDownAsync" />
+
+        @if (!ReadOnly && ShowSpinner)
+        {
+            <button type="button"
+                    class="number-field__spinner number-field__spinner--up"
+                    tabindex="-1"
+                    disabled="@(Disabled || (Value.HasValue && Max.HasValue && Value.Value >= Max.Value))"
+                    aria-label="Increase"
+                    aria-hidden="true"
+                    @onclick="IncrementAsync">
+                +
+            </button>
+        }
+    </div>
+
+    @if (_parseError is not null)
+    {
+        <p class="number-field__error" role="alert">@_parseError</p>
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private FormFieldContext? _context { get; set; }
+
+    /// <summary>Current numeric value (two-way binding). Null when empty.</summary>
+    [Parameter]
+    public decimal? Value { get; set; }
+
+    /// <summary>Raised when the value changes (on valid parse at blur or spinner click).</summary>
+    [Parameter]
+    public EventCallback<decimal?> ValueChanged { get; set; }
+
+    /// <summary>Minimum allowed value.</summary>
+    [Parameter]
+    public decimal? Min { get; set; }
+
+    /// <summary>Maximum allowed value.</summary>
+    [Parameter]
+    public decimal? Max { get; set; }
+
+    /// <summary>Step for spinner buttons and arrow keys. Default: 1.</summary>
+    [Parameter]
+    public decimal Step { get; set; } = 1;
+
+    /// <summary>Number of decimal places for display formatting. Default: 0 (integer).</summary>
+    [Parameter]
+    public int Decimals { get; set; }
+
+    /// <summary>Show thousand separator in the formatted display. Default: true.</summary>
+    [Parameter]
+    public bool ShowThousandSeparator { get; set; } = true;
+
+    /// <summary>Show increment/decrement spinner buttons. Default: true.</summary>
+    [Parameter]
+    public bool ShowSpinner { get; set; } = true;
+
+    /// <summary>Placeholder text when empty.</summary>
+    [Parameter]
+    public string? Placeholder { get; set; }
+
+    /// <summary>Read-only state.</summary>
+    [Parameter]
+    public bool ReadOnly { get; set; }
+
+    /// <summary>Disabled state.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>Accessible label.</summary>
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    /// <summary>Additional CSS classes on the root element.</summary>
+    [Parameter]
+    public string? CssClass { get; set; }
+
+    /// <summary>Optional test identifier for E2E tests.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Explicit input id. Falls back to FormFieldContext.FieldId when inside FormField.</summary>
+    [Parameter]
+    public string? FieldId { get; set; }
+
+    // ── Internal state ──────────────────────────────────────
+
+    private string _rawText = string.Empty;
+    private string _displayText = string.Empty;
+    private bool _isFocused;
+    private string? _parseError;
+    private decimal? _lastCommitted;
+    private readonly string _uniqueId = Guid.NewGuid().ToString("N")[..8];
+
+    private string _effectiveId => FieldId ?? _context?.FieldId ?? $"number-{_uniqueId}";
+    private bool _hasError => _context?.HasError == true || _parseError is not null;
+
+    // ── Lifecycle ───────────────────────────────────────────
+
+    protected override void OnParametersSet()
+    {
+        if (!_isFocused && Value != _lastCommitted)
+        {
+            _lastCommitted = Value;
+            _displayText = Value.HasValue ? FormatValue(Value.Value) : string.Empty;
+            _rawText = _displayText;
+        }
+    }
+
+    // ── Formatting ──────────────────────────────────────────
+
+    private string FormatValue(decimal val)
+    {
+        var format = ShowThousandSeparator ? $"N{Decimals}" : $"F{Decimals}";
+        return val.ToString(format);
+    }
+
+    // ── Clamping ────────────────────────────────────────────
+
+    private decimal Clamp(decimal val)
+    {
+        if (Min.HasValue && val < Min.Value) return Min.Value;
+        if (Max.HasValue && val > Max.Value) return Max.Value;
+        return val;
+    }
+
+    // ── Event handlers ──────────────────────────────────────
+
+    private Task HandleFocusAsync()
+    {
+        _isFocused = true;
+        _displayText = Value.HasValue
+            ? Value.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : _rawText;
+        _parseError = null;
+        return Task.CompletedTask;
+    }
+
+    private Task HandleInputAsync(ChangeEventArgs e)
+    {
+        _rawText = e.Value?.ToString() ?? string.Empty;
+        _displayText = _rawText;
+        _parseError = null;
+        return Task.CompletedTask;
+    }
+
+    private async Task HandleBlurAsync()
+    {
+        _isFocused = false;
+
+        if (string.IsNullOrWhiteSpace(_rawText))
+        {
+            _parseError = null;
+            _displayText = string.Empty;
+            _lastCommitted = null;
+            await ValueChanged.InvokeAsync(null);
+        }
+        else if (TryParseNumber(_rawText, out var parsed))
+        {
+            var clamped = Clamp(parsed);
+            _parseError = null;
+            _lastCommitted = clamped;
+            _displayText = FormatValue(clamped);
+            await ValueChanged.InvokeAsync(clamped);
+        }
+        else
+        {
+            _parseError = "Nombre invalide.";
+        }
+    }
+
+    private async Task HandleKeyDownAsync(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "ArrowUp":
+                await IncrementAsync();
+                break;
+            case "ArrowDown":
+                await DecrementAsync();
+                break;
+            case "Enter":
+                await HandleBlurAsync();
+                _isFocused = true;
+                break;
+        }
+    }
+
+    private async Task IncrementAsync()
+    {
+        if (Disabled || ReadOnly) return;
+        var current = Value ?? Min ?? 0;
+        var newVal = Clamp(current + Step);
+        _lastCommitted = newVal;
+        _displayText = _isFocused
+            ? newVal.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : FormatValue(newVal);
+        _rawText = _displayText;
+        await ValueChanged.InvokeAsync(newVal);
+    }
+
+    private async Task DecrementAsync()
+    {
+        if (Disabled || ReadOnly) return;
+        var current = Value ?? Max ?? 0;
+        var newVal = Clamp(current - Step);
+        _lastCommitted = newVal;
+        _displayText = _isFocused
+            ? newVal.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : FormatValue(newVal);
+        _rawText = _displayText;
+        await ValueChanged.InvokeAsync(newVal);
+    }
+
+    // ── Parse — handles locale-agnostic input ───────────────
+
+    private static bool TryParseNumber(string text, out decimal result)
+    {
+        // Strip common thousand separators and whitespace
+        var cleaned = text
+            .Replace(" ", string.Empty)
+            .Replace("\u00A0", string.Empty) // non-breaking space
+            .Replace(".", string.Empty)      // thousand sep (FR locale)
+            .Replace(',', '.');              // decimal sep (FR → invariant)
+
+        return decimal.TryParse(cleaned, System.Globalization.NumberStyles.Any,
+            System.Globalization.CultureInfo.InvariantCulture, out result);
+    }
+}

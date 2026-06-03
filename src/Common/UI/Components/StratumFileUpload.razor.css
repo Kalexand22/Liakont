@@ -1,0 +1,125 @@
+/* StratumFileUpload — scoped styles using Stratum design tokens */
+
+.stratum-file-upload-wrapper {
+    position: relative;
+}
+
+.stratum-file-upload {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 160px;
+    padding: var(--spacing-6);
+    border: 2px dashed var(--color-neutral-300);
+    border-radius: var(--radius-lg);
+    background-color: var(--color-bg-surface);
+    cursor: pointer;
+    transition: border-color var(--transition-fast), background-color var(--transition-fast);
+    text-align: center;
+}
+
+.stratum-file-upload:hover:not(.disabled) {
+    border-color: var(--color-primary-400);
+    background-color: var(--color-primary-50);
+}
+
+.stratum-file-upload:focus-visible {
+    outline: 2px solid var(--color-primary-500);
+    outline-offset: 2px;
+}
+
+/* Drag-over state */
+.stratum-file-upload.drag-over {
+    border-color: var(--color-primary-500);
+    background-color: var(--color-primary-50);
+    border-style: solid;
+}
+
+/* Disabled state */
+.stratum-file-upload.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* Hidden native input */
+.stratum-file-upload-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Icon */
+.stratum-file-upload-icon {
+    color: var(--color-text-muted);
+    margin-bottom: var(--spacing-2);
+}
+
+.stratum-file-upload:hover:not(.disabled) .stratum-file-upload-icon {
+    color: var(--color-primary-500);
+}
+
+/* Text */
+.stratum-file-upload-text {
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
+    margin: 0 0 var(--spacing-1) 0;
+}
+
+.stratum-file-upload-link {
+    color: var(--color-primary-600);
+    font-weight: var(--font-weight-medium);
+    text-decoration: underline;
+}
+
+/* Hint text */
+.stratum-file-upload-hint {
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+    margin: 0;
+}
+
+/* Progress bar */
+.stratum-file-upload-progress {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+}
+
+.stratum-file-upload-bar {
+    width: 100%;
+    max-width: 300px;
+    height: 6px;
+    background-color: var(--color-neutral-200);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+    margin-top: var(--spacing-3);
+}
+
+.stratum-file-upload-bar-fill {
+    height: 100%;
+    background-color: var(--color-primary-500);
+    border-radius: var(--radius-full);
+    transition: width var(--transition-fast);
+}
+
+/* Error messages */
+.stratum-file-upload-errors {
+    margin-top: var(--spacing-3);
+    width: 100%;
+}
+
+.stratum-file-upload-error {
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-xs);
+    color: var(--color-danger-600);
+    margin: 0 0 var(--spacing-1) 0;
+}

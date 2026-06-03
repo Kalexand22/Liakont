@@ -1,0 +1,222 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TItem where TItem : notnull
+
+@* StratumGroupChooser<TItem> — multi-column group picker dialog.
+ *
+ * Opens in a StratumDialog. Lists all registry columns as checkboxes, and
+ * shows the currently-selected group columns in an ordered list with ↑↓
+ * arrows to control the grouping hierarchy (first = outer group).
+ *
+ * Usage:
+ *   <StratumGroupChooser TItem="RoutingRuleDto"
+ *                        @bind-Visible="_showGroupChooser"
+ *                        Registry="@_registry"
+ *                        GroupColumnKeys="@_groupKeys"
+ *                        OnApply="HandleGroupChooserApplied" />
+ *@
+
+<StratumDialog Title="@Title"
+               Visible="@Visible"
+               VisibleChanged="HandleVisibleChanged"
+               Width="480px"
+               TestId="@(TestId ?? "stratum-group-chooser")">
+    <ChildContent>
+        <div class="stratum-group-chooser" role="region" aria-label="@Title">
+            @if (_columnsByCategory is not null)
+            {
+                <div class="stratum-group-chooser__categories">
+                    @foreach (var category in _columnsByCategory)
+                    {
+                        <fieldset class="stratum-group-chooser__group">
+                            <legend class="stratum-group-chooser__group-title">@category.Key</legend>
+                            @foreach (var col in category.Value)
+                            {
+                                if (string.IsNullOrEmpty(col.Property))
+                                {
+                                    continue;
+                                }
+                                var isChecked = _workingKeys.Contains(col.Key);
+                                <div class="stratum-group-chooser__item">
+                                    <label class="stratum-group-chooser__label">
+                                        <input type="checkbox"
+                                               checked="@isChecked"
+                                               @onchange="@(e => HandleToggle(col.Key, (bool)(e.Value ?? false)))"
+                                               class="stratum-group-chooser__checkbox"
+                                               aria-label="@($"{col.Title} — {(isChecked ? "groupée" : "non groupée")}")" />
+                                        <span class="stratum-group-chooser__column-name">@col.Title</span>
+                                    </label>
+                                </div>
+                            }
+                        </fieldset>
+                    }
+                </div>
+
+                @if (_workingKeys.Count > 0)
+                {
+                    <div class="stratum-group-chooser__order-section">
+                        <h3 class="stratum-group-chooser__order-title">Hiérarchie de groupement</h3>
+                        <ol class="stratum-group-chooser__order-list" role="list" aria-label="Ordre des niveaux de groupement">
+                            @for (var i = 0; i < _workingKeys.Count; i++)
+                            {
+                                var index = i;
+                                var key = _workingKeys[i];
+                                var col = Registry?.GetColumn(key);
+                                var title = col?.Title ?? key;
+                                <li class="stratum-group-chooser__order-item">
+                                    <span class="stratum-group-chooser__order-label">
+                                        <span class="stratum-group-chooser__order-index">@(index + 1).</span>
+                                        @title
+                                    </span>
+                                    <span class="stratum-group-chooser__order-buttons">
+                                        <button type="button"
+                                                class="stratum-group-chooser__move-btn"
+                                                disabled="@(index == 0)"
+                                                @onclick="@(() => MoveUp(index))"
+                                                aria-label="@($"Monter {title}")">
+                                            ↑
+                                        </button>
+                                        <button type="button"
+                                                class="stratum-group-chooser__move-btn"
+                                                disabled="@(index == _workingKeys.Count - 1)"
+                                                @onclick="@(() => MoveDown(index))"
+                                                aria-label="@($"Descendre {title}")">
+                                            ↓
+                                        </button>
+                                        <button type="button"
+                                                class="stratum-group-chooser__move-btn stratum-group-chooser__move-btn--danger"
+                                                @onclick="@(() => Remove(index))"
+                                                aria-label="@($"Retirer {title}")">
+                                            ✕
+                                        </button>
+                                    </span>
+                                </li>
+                            }
+                        </ol>
+                    </div>
+                }
+            }
+        </div>
+    </ChildContent>
+    <Actions>
+        <button type="button"
+                class="btn btn-sm btn-outline-secondary"
+                @onclick="HandleClear"
+                disabled="@(_workingKeys.Count == 0)"
+                aria-label="Retirer tous les groupements">
+            Tout retirer
+        </button>
+        <button type="button"
+                class="btn btn-sm btn-outline-secondary"
+                @onclick="HandleCancel">
+            Annuler
+        </button>
+        <button type="button"
+                class="btn btn-sm btn-primary"
+                @onclick="HandleApply">
+            Appliquer
+        </button>
+    </Actions>
+</StratumDialog>
+
+@code {
+    [Parameter]
+    public string? TestId { get; set; }
+
+    [Parameter]
+    public string Title { get; set; } = "Grouper par";
+
+    [Parameter]
+    public bool Visible { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> VisibleChanged { get; set; }
+
+    [Parameter]
+    public IColumnRegistry<TItem>? Registry { get; set; }
+
+    /// <summary>Currently-applied group column keys, in hierarchy order (outer → inner).</summary>
+    [Parameter]
+    public IReadOnlyList<string>? GroupColumnKeys { get; set; }
+
+    /// <summary>Raised when the user clicks Apply. Provides the new ordered list of group keys.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<string>> OnApply { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    private IReadOnlyDictionary<string, IReadOnlyList<ColumnDefinition>>? _columnsByCategory;
+    private List<string> _workingKeys = [];
+    private bool _initialized;
+
+    protected override void OnParametersSet()
+    {
+        if (Registry is null) return;
+
+        _columnsByCategory = Registry.GetColumnsByCategory();
+
+        if (Visible && !_initialized)
+        {
+            _workingKeys = GroupColumnKeys is not null
+                ? new List<string>(GroupColumnKeys)
+                : [];
+            _initialized = true;
+        }
+        else if (!Visible)
+        {
+            _initialized = false;
+        }
+    }
+
+    private void HandleToggle(string key, bool isChecked)
+    {
+        if (isChecked && !_workingKeys.Contains(key))
+        {
+            _workingKeys.Add(key);
+        }
+        else if (!isChecked)
+        {
+            _workingKeys.Remove(key);
+        }
+    }
+
+    private void MoveUp(int index)
+    {
+        if (index <= 0 || index >= _workingKeys.Count) return;
+        (_workingKeys[index], _workingKeys[index - 1]) = (_workingKeys[index - 1], _workingKeys[index]);
+    }
+
+    private void MoveDown(int index)
+    {
+        if (index < 0 || index >= _workingKeys.Count - 1) return;
+        (_workingKeys[index], _workingKeys[index + 1]) = (_workingKeys[index + 1], _workingKeys[index]);
+    }
+
+    private void Remove(int index)
+    {
+        if (index < 0 || index >= _workingKeys.Count) return;
+        _workingKeys.RemoveAt(index);
+    }
+
+    private void HandleClear()
+    {
+        _workingKeys.Clear();
+    }
+
+    private async Task HandleApply()
+    {
+        await OnApply.InvokeAsync(_workingKeys.AsReadOnly());
+        await VisibleChanged.InvokeAsync(false);
+    }
+
+    private async Task HandleCancel()
+    {
+        await VisibleChanged.InvokeAsync(false);
+        await OnCancel.InvokeAsync();
+    }
+
+    private async Task HandleVisibleChanged(bool value)
+    {
+        await VisibleChanged.InvokeAsync(value);
+    }
+}

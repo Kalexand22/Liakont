@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <!-- Navigation -->
+  <data name="Nav_Notifications" xml:space="preserve"><value>Notifications</value></data>
+  <data name="Nav_Templates" xml:space="preserve"><value>Templates</value></data>
+  <data name="Nav_RoutingRules" xml:space="preserve"><value>Règles de routage</value></data>
+  <data name="Nav_Webhooks" xml:space="preserve"><value>Webhooks</value></data>
+  <data name="Nav_Simulation" xml:space="preserve"><value>Simulation</value></data>
+  <data name="Nav_Sla" xml:space="preserve"><value>SLA</value></data>
+  <data name="Nav_Services" xml:space="preserve"><value>Services instructeurs</value></data>
+  <data name="Nav_Integrations" xml:space="preserve"><value>Intégrations</value></data>
+</root>

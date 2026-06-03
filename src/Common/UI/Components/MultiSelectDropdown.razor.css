@@ -1,0 +1,142 @@
+/* MultiSelectDropdown — scoped CSS. Civic Blueprint tokens only (no hex literals). */
+
+.multi-select-dropdown {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+    width: 100%;
+    min-width: 14rem;
+    background: var(--color-surface);
+    border: 1px solid var(--color-outline-variant);
+    border-radius: var(--radius-default);
+    padding: var(--spacing-2);
+    font-family: var(--font-family-base);
+    color: var(--color-on-surface);
+    box-sizing: border-box;
+}
+
+.multi-select-dropdown__search {
+    display: flex;
+    align-items: center;
+}
+
+.multi-select-dropdown__search-input {
+    width: 100%;
+    padding: var(--spacing-2);
+    background: var(--color-surface);
+    border: 1px solid var(--color-outline-variant);
+    border-radius: var(--radius-default);
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-body-sm);
+    color: var(--color-on-surface);
+    box-sizing: border-box;
+}
+
+.multi-select-dropdown__search-input::placeholder {
+    color: var(--color-on-surface-variant);
+    opacity: 0.7;
+}
+
+.multi-select-dropdown__search-input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px var(--color-focus-ring);
+}
+
+.multi-select-dropdown__counter {
+    font-size: var(--font-size-label-sm);
+    color: var(--color-on-surface-variant);
+    padding: 0 var(--spacing-1);
+}
+
+.multi-select-dropdown__list {
+    display: flex;
+    flex-direction: column;
+    max-height: 14rem;
+    overflow-y: auto;
+    outline: none;
+}
+
+.multi-select-dropdown__list:focus-visible {
+    box-shadow: 0 0 0 2px var(--color-focus-ring);
+    border-radius: var(--radius-default);
+}
+
+.multi-select-dropdown__virtualized {
+    display: flex;
+    flex-direction: column;
+}
+
+.multi-select-dropdown__option {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    padding: var(--spacing-2);
+    border-radius: var(--radius-default);
+    font-size: var(--font-size-body-sm);
+    color: var(--color-on-surface);
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.15s ease;
+    min-height: 2.25rem;
+}
+
+.multi-select-dropdown__option:hover {
+    background: var(--color-surface-container);
+}
+
+.multi-select-dropdown__option--active {
+    background: var(--color-surface-container);
+}
+
+.multi-select-dropdown__option--selected {
+    background: var(--color-primary-container);
+    color: var(--color-on-primary-container);
+}
+
+.multi-select-dropdown__option--selected.multi-select-dropdown__option--active {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+}
+
+.multi-select-dropdown__checkbox {
+    flex-shrink: 0;
+    font-size: var(--font-size-body-md);
+    line-height: 1;
+}
+
+.multi-select-dropdown__label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.multi-select-dropdown__empty {
+    padding: var(--spacing-3) var(--spacing-2);
+    text-align: center;
+    font-size: var(--font-size-body-sm);
+    color: var(--color-on-surface-variant);
+}
+
+/* ── Density ─────────────────────────────────────────────────── */
+
+[data-density="compact"] .multi-select-dropdown {
+    padding: var(--spacing-1);
+    gap: var(--spacing-1);
+}
+
+[data-density="compact"] .multi-select-dropdown__list {
+    max-height: 11rem;
+}
+
+[data-density="compact"] .multi-select-dropdown__search-input {
+    padding: var(--spacing-1) var(--spacing-2);
+    font-size: var(--font-size-label-sm);
+}
+
+[data-density="compact"] .multi-select-dropdown__option {
+    padding: var(--spacing-1) var(--spacing-2);
+    min-height: 1.75rem;
+}

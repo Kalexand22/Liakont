@@ -1,0 +1,122 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.Abstractions.Grid
+
+@* FilterChip — Individual filter chip displaying a FilterChipModel.
+ *
+ * Shows the filter label with a remove (×) button. Clicking the chip body
+ * opens the appropriate editor (simple or advanced). Advanced-sourced chips
+ * have a distinct visual indicator (accent left border).
+ *
+ * Structure: native <button> for the edit area (Space/Enter natively handled,
+ * no page scroll) + sibling <button> for remove. No nested buttons (invalid HTML).
+ *
+ * Keyboard (DF-10): Delete/Backspace removes, Enter/Space edits.
+ *
+ * Usage:
+ *   <FilterChip Model="chip" Index="0" OnRemove="HandleRemove" OnEdit="HandleEdit" />
+ *
+ * Ref: docs/specs/grid-filter-system-v2.md §8, DF-10.
+ *@
+
+<span class="@ChipClass"
+      data-testid="@(TestId ?? $"filter-chip-{Index}")"
+      role="group"
+      aria-label="@AriaLabel">
+
+    <button type="button"
+            class="filter-chip__body"
+            aria-label="@AriaLabel"
+            aria-disabled="@(!Model.CanEdit ? "true" : null)"
+            @onkeydown="HandleBodyKeyDown"
+            @onclick="HandleEdit">
+
+        @if (Model.Source == FilterSource.GlobalSearch)
+        {
+            <StratumIcon Name="search" Class="filter-chip__icon" AriaHidden />
+        }
+        else if (Model.Source == FilterSource.Advanced)
+        {
+            <StratumIcon Name="tune" Class="filter-chip__icon" AriaHidden />
+        }
+
+        <span class="filter-chip__label">@Model.Label</span>
+    </button>
+
+    <button type="button"
+            class="filter-chip__remove"
+            aria-label="@($"Supprimer le filtre {Model.Label}")"
+            data-testid="@($"filter-chip-remove-{Index}")"
+            @onclick="HandleRemove">
+        <StratumIcon Name="close" Class="filter-chip__remove-icon" AriaHidden />
+    </button>
+</span>
+
+@code {
+    /// <summary>The chip model to display.</summary>
+    [Parameter, EditorRequired]
+    public FilterChipModel Model { get; set; } = default!;
+
+    /// <summary>Positional index for data-testid generation.</summary>
+    [Parameter]
+    public int Index { get; set; }
+
+    /// <summary>Fired when the user removes this chip (× button, Delete, Backspace).</summary>
+    [Parameter]
+    public EventCallback OnRemove { get; set; }
+
+    /// <summary>Fired when the user clicks the chip body to edit (Enter/Space also triggers).</summary>
+    [Parameter]
+    public EventCallback OnEdit { get; set; }
+
+    /// <summary>Optional test identifier override.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    private string ChipClass
+    {
+        get
+        {
+            var cls = "filter-chip";
+            cls += Model.Source switch
+            {
+                FilterSource.Advanced => " filter-chip--advanced",
+                FilterSource.GlobalSearch => " filter-chip--search",
+                _ => " filter-chip--simple",
+            };
+            return cls;
+        }
+    }
+
+    private string AriaLabel => Model.Source switch
+    {
+        FilterSource.GlobalSearch => $"Recherche : {Model.Label}",
+        FilterSource.Advanced => $"Filtre avancé : {Model.Label}",
+        _ => $"Filtre : {Model.Label}",
+    };
+
+    private async Task HandleRemove()
+    {
+        if (OnRemove.HasDelegate)
+        {
+            await OnRemove.InvokeAsync();
+        }
+    }
+
+    private async Task HandleEdit()
+    {
+        if (Model.CanEdit && OnEdit.HasDelegate)
+        {
+            await OnEdit.InvokeAsync();
+        }
+    }
+
+    private async Task HandleBodyKeyDown(KeyboardEventArgs e)
+    {
+        // Delete/Backspace on the chip body triggers remove (DF-10).
+        // Enter/Space are handled natively by the <button> → @onclick.
+        if (e.Key is "Delete" or "Backspace")
+        {
+            await HandleRemove();
+        }
+    }
+}

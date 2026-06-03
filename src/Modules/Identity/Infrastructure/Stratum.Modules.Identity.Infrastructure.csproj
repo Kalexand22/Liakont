@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Stratum.Modules.Identity.Domain.csproj" />
+    <ProjectReference Include="../Application/Stratum.Modules.Identity.Application.csproj" />
+    <ProjectReference Include="../Contracts/Stratum.Modules.Identity.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>Stratum.Modules.Identity.Tests.Unit</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>Stratum.Modules.Identity.Tests.Integration</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+</Project>

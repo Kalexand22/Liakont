@@ -1,0 +1,437 @@
+@namespace Stratum.Common.UI.Components
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+@* DrawingField — canvas freehand drawing / signature widget.
+ *
+ * Native Blazor component (no Radzen dependency).
+ * Two-way binding via Value/ValueChanged (PNG Base64).
+ * JS interop for Canvas 2D API (mouse + touch).
+ *
+ * Usage:
+ *   <DrawingField @bind-Value="_sig" Mode="DrawingMode.Signature" Width="300" Height="100" />
+ *
+ * Keyboard: Ctrl+Z = Undo, Ctrl+Y = Redo, Delete = Clear.
+ *
+ * Ref: docs/architecture/ui-architecture-plan.md §4.
+ *@
+
+<div class="drawing-field @(Disabled ? "drawing-field--disabled" : "") @(ReadOnly ? "drawing-field--readonly" : "") @CssClass"
+     data-testid="@(TestId ?? "drawing-field")"
+     @onkeydown="OnKeyDown">
+
+    @if (ReadOnly)
+    {
+        @* ReadOnly: static image display — no canvas, no JS overhead. *@
+        <div class="drawing-field__display"
+             style="width:@(Width)px;height:@(Height)px;"
+             role="img"
+             aria-label="@(_ariaLabel)">
+            @if (Value is not null)
+            {
+                <img class="drawing-field__readonly-img"
+                     src="data:image/png;base64,@Value"
+                     alt="@(_ariaLabel)"
+                     style="width:100%;height:100%;object-fit:contain;" />
+            }
+            else
+            {
+                <div class="drawing-field__placeholder" aria-hidden="true">
+                    <span class="drawing-field__placeholder-text">Zone de dessin vide</span>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        @* Editable / Disabled: canvas element managed by JS. *@
+        <canvas class="drawing-field__canvas"
+                role="img"
+                aria-label="@(_ariaLabel)"
+                aria-disabled="@(Disabled ? "true" : null)"
+                tabindex="@(Disabled ? -1 : 0)"
+                width="@Width"
+                height="@Height"
+                @ref="_canvasRef">Zone de dessin — naviguer au clavier non supporté pour le tracé libre.</canvas>
+
+        @if (ShowToolbar && !Disabled)
+        {
+            <div class="drawing-field__toolbar" role="toolbar" aria-label="Outils de dessin">
+                <button type="button"
+                        class="drawing-field__tool-btn"
+                        aria-label="Effacer"
+                        title="Effacer (Suppr)"
+                        @onclick="ClearCanvas">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                </button>
+
+                <button type="button"
+                        class="drawing-field__tool-btn"
+                        aria-label="Annuler"
+                        title="Annuler (Ctrl+Z)"
+                        disabled="@(!_isUndoAvailable)"
+                        aria-disabled="@(!_isUndoAvailable ? "true" : null)"
+                        @onclick="UndoCanvas">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="1 4 1 10 7 10"></polyline>
+                        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                    </svg>
+                </button>
+
+                <button type="button"
+                        class="drawing-field__tool-btn"
+                        aria-label="Rétablir"
+                        title="Rétablir (Ctrl+Y)"
+                        disabled="@(!_isRedoAvailable)"
+                        aria-disabled="@(!_isRedoAvailable ? "true" : null)"
+                        @onclick="RedoCanvas">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="23 4 23 10 17 10"></polyline>
+                        <path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10"></path>
+                    </svg>
+                </button>
+
+                @if (Mode == DrawingMode.Freehand)
+                {
+                    <span class="drawing-field__separator" aria-hidden="true"></span>
+
+                    <label class="drawing-field__tool-label">
+                        <span class="sr-only">Couleur du trait</span>
+                        <input type="color"
+                               class="drawing-field__color-input"
+                               aria-label="Couleur du trait"
+                               title="Couleur du trait"
+                               value="@_currentPenColor"
+                               @onchange="OnPenColorChanged" />
+                    </label>
+
+                    <label class="drawing-field__tool-label">
+                        <span class="sr-only">Épaisseur (@_currentPenWidth px)</span>
+                        <input type="range"
+                               class="drawing-field__size-input"
+                               aria-label="Épaisseur du trait (@_currentPenWidth px)"
+                               title="Épaisseur (@_currentPenWidth px)"
+                               min="1"
+                               max="10"
+                               step="1"
+                               value="@_currentPenWidth"
+                               @onchange="OnPenWidthChanged" />
+                    </label>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    // ── Parameters ────────────────────────────────────────────────
+
+    /// <summary>Current canvas image as PNG Base64. <c>null</c> = empty canvas.</summary>
+    [Parameter] public string? Value { get; set; }
+
+    /// <summary>Raised after Clear (null), Undo, Redo, or explicit <see cref="ExportAsync"/> call.</summary>
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Canvas width in pixels. Default: 400.</summary>
+    [Parameter] public int Width { get; set; } = 400;
+
+    /// <summary>Canvas height in pixels. Default: 200.</summary>
+    [Parameter] public int Height { get; set; } = 200;
+
+    /// <summary>Drawing mode. Default: <see cref="DrawingMode.Freehand"/>.</summary>
+    [Parameter] public DrawingMode Mode { get; set; } = DrawingMode.Freehand;
+
+    /// <summary>Pen color (CSS color string). Ignored in Signature mode. Default: "#000000".</summary>
+    [Parameter] public string PenColor { get; set; } = "#000000";
+
+    /// <summary>Pen width in px (1–10). Ignored in Signature mode. Default: 2.</summary>
+    [Parameter] public int PenWidth { get; set; } = 2;
+
+    /// <summary>Canvas background color. Ignored in Signature mode (always white). Default: "#ffffff".</summary>
+    [Parameter] public string BackgroundColor { get; set; } = "#ffffff";
+
+    /// <summary>Maximum undo steps kept in JS memory. Default: 20.</summary>
+    [Parameter] public int MaxUndoSteps { get; set; } = 20;
+
+    /// <summary>Show Clear / Undo / Redo toolbar and color/size selectors. Default: true.</summary>
+    [Parameter] public bool ShowToolbar { get; set; } = true;
+
+    /// <summary>
+    /// If true, <see cref="ValueChanged"/> is invoked after every completed stroke.
+    /// Default: false (export-on-demand via <see cref="ExportAsync"/>).
+    /// </summary>
+    [Parameter] public bool ExportOnStroke { get; set; }
+
+    /// <summary>Disabled — canvas rendered but not interactive.</summary>
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Read-only — displays the image without edit controls.</summary>
+    [Parameter] public bool ReadOnly { get; set; }
+
+    /// <summary>Additional CSS classes on the root element.</summary>
+    [Parameter] public string? CssClass { get; set; }
+
+    /// <summary>Optional test identifier rendered as <c>data-testid</c>.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    // ── State ─────────────────────────────────────────────────────
+
+    private ElementReference _canvasRef;
+    private IJSObjectReference? _jsModule;
+    private DotNetObjectReference<DrawingField>? _dotNetRef;
+    private bool _canvasInitialized;
+    private bool _initialValueLoaded;
+    private bool _isUndoAvailable;
+    private bool _isRedoAvailable;
+
+    private string _currentPenColor = "#000000";
+    private int _currentPenWidth = 2;
+    private string _lastParamPenColor = "#000000";
+    private int _lastParamPenWidth = 2;
+
+    private string _ariaLabel => Mode == DrawingMode.Signature ? "Zone de signature" : "Zone de dessin";
+
+    // ── Lifecycle ─────────────────────────────────────────────────
+
+    protected override void OnParametersSet()
+    {
+        if (PenColor != _lastParamPenColor)
+        {
+            _currentPenColor = PenColor;
+            _lastParamPenColor = PenColor;
+        }
+        var clamped = ClampPenWidth(PenWidth);
+        if (clamped != _lastParamPenWidth)
+        {
+            _currentPenWidth = clamped;
+            _lastParamPenWidth = clamped;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (ReadOnly) return;
+
+        if (_jsModule is null)
+        {
+            try
+            {
+                _jsModule = await JS.InvokeAsync<IJSObjectReference>(
+                    "import", "./_content/Stratum.Common.UI/js/drawing.js.module");
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException
+                or InvalidOperationException or OperationCanceledException)
+            {
+                return;
+            }
+        }
+
+        if (!_canvasInitialized && _jsModule is not null)
+        {
+            _canvasInitialized = true;
+            _dotNetRef ??= DotNetObjectReference.Create(this);
+            try
+            {
+                await _jsModule.InvokeVoidAsync("initCanvas", _canvasRef, new
+                {
+                    penColor = EffectivePenColor(Mode, PenColor),
+                    penWidth = EffectivePenWidth(Mode, PenWidth),
+                    backgroundColor = EffectiveBackgroundColor(Mode, BackgroundColor),
+                    mode = Mode == DrawingMode.Signature ? "signature" : "freehand",
+                    maxUndoSteps = MaxUndoSteps,
+                    exportOnStroke = ExportOnStroke,
+                    disabled = Disabled,
+                }, _dotNetRef);
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException
+                or InvalidOperationException or OperationCanceledException)
+            {
+                // Ignored — canvas init failed
+            }
+        }
+
+        if (_canvasInitialized && !_initialValueLoaded && Value is not null && _jsModule is not null)
+        {
+            try
+            {
+                await _jsModule.InvokeVoidAsync("loadImage", _canvasRef, Value);
+                _initialValueLoaded = true;
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException
+                or InvalidOperationException or OperationCanceledException)
+            {
+                // Ignored
+            }
+        }
+    }
+
+    // ── Public API ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Exports the current canvas as a PNG Base64 string and invokes <see cref="ValueChanged"/>.
+    /// Returns the last known <see cref="Value"/> if the JS module is unavailable.
+    /// </summary>
+    public async Task<string?> ExportAsync()
+    {
+        if (_jsModule is null) return Value;
+        try
+        {
+            var png = await _jsModule.InvokeAsync<string>("exportPng", _canvasRef);
+            await ValueChanged.InvokeAsync(png);
+            return png;
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException
+            or InvalidOperationException or OperationCanceledException)
+        {
+            return Value;
+        }
+    }
+
+    // ── JS callbacks ──────────────────────────────────────────────
+
+    [JSInvokable]
+    public async Task OnCanvasChanged(string? pngBase64)
+    {
+        await ValueChanged.InvokeAsync(pngBase64);
+    }
+
+    [JSInvokable]
+    public async Task OnStrokeCompleted(string pngBase64)
+    {
+        await ValueChanged.InvokeAsync(pngBase64);
+    }
+
+    [JSInvokable]
+    public void OnUndoRedoStateChanged(bool hasUndo, bool hasRedo)
+    {
+        _isUndoAvailable = hasUndo;
+        _isRedoAvailable = hasRedo;
+        StateHasChanged();
+    }
+
+    // ── Toolbar actions ───────────────────────────────────────────
+
+    private async Task ClearCanvas()
+    {
+        if (_jsModule is null) return;
+        try
+        {
+            await _jsModule.InvokeVoidAsync(
+                "clear", _canvasRef, EffectiveBackgroundColor(Mode, BackgroundColor));
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException
+            or InvalidOperationException or OperationCanceledException)
+        {
+            // Ignored
+        }
+    }
+
+    private async Task UndoCanvas()
+    {
+        if (_jsModule is null || !_isUndoAvailable) return;
+        try { await _jsModule.InvokeVoidAsync("undo", _canvasRef); }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException
+            or InvalidOperationException or OperationCanceledException)
+        {
+            // Ignored
+        }
+    }
+
+    private async Task RedoCanvas()
+    {
+        if (_jsModule is null || !_isRedoAvailable) return;
+        try { await _jsModule.InvokeVoidAsync("redo", _canvasRef); }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException
+            or InvalidOperationException or OperationCanceledException)
+        {
+            // Ignored
+        }
+    }
+
+    private async Task OnPenColorChanged(ChangeEventArgs e)
+    {
+        _currentPenColor = e.Value?.ToString() ?? _currentPenColor;
+        if (_jsModule is not null)
+        {
+            try { await _jsModule.InvokeVoidAsync("updateOptions", _canvasRef, new { penColor = _currentPenColor }); }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException
+                or InvalidOperationException or OperationCanceledException)
+            {
+                // Ignored
+            }
+        }
+    }
+
+    private async Task OnPenWidthChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var w))
+        {
+            _currentPenWidth = ClampPenWidth(w);
+            if (_jsModule is not null)
+            {
+                try { await _jsModule.InvokeVoidAsync("updateOptions", _canvasRef, new { penWidth = _currentPenWidth }); }
+                catch (Exception ex) when (ex is JSException or JSDisconnectedException
+                    or InvalidOperationException or OperationCanceledException)
+                {
+                    // Ignored
+                }
+            }
+        }
+    }
+
+    // ── Keyboard ──────────────────────────────────────────────────
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (ReadOnly || Disabled) return;
+        if (e.CtrlKey && e.Key == "z" && !e.ShiftKey)
+        {
+            await UndoCanvas();
+        }
+        else if (e.CtrlKey && (e.Key == "y" || (e.Key == "z" && e.ShiftKey)))
+        {
+            await RedoCanvas();
+        }
+        else if (e.Key == "Delete")
+        {
+            await ClearCanvas();
+        }
+    }
+
+    // ── Pure helpers ──────────────────────────────────────────────
+
+    internal static int ClampPenWidth(int width) => Math.Clamp(width, 1, 10);
+
+    internal static string EffectivePenColor(DrawingMode mode, string penColor) =>
+        mode == DrawingMode.Signature ? "#000000" : penColor;
+
+    internal static string EffectiveBackgroundColor(DrawingMode mode, string backgroundColor) =>
+        mode == DrawingMode.Signature ? "#ffffff" : backgroundColor;
+
+    internal static double EffectivePenWidth(DrawingMode mode, int penWidth) =>
+        mode == DrawingMode.Signature ? 1.5 : ClampPenWidth(penWidth);
+
+    // ── Disposal ──────────────────────────────────────────────────
+
+    public async ValueTask DisposeAsync()
+    {
+        _dotNetRef?.Dispose();
+
+        if (_jsModule is not null)
+        {
+            try
+            {
+                await _jsModule.InvokeVoidAsync("destroyCanvas", _canvasRef);
+                await _jsModule.DisposeAsync();
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException
+                or InvalidOperationException or OperationCanceledException)
+            {
+                // Blazor Server: circuit may be disconnected
+            }
+        }
+    }
+}

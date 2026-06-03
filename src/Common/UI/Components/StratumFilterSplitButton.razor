@@ -1,0 +1,185 @@
+@namespace Stratum.Common.UI.Components
+@using Microsoft.Extensions.Localization
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Models
+@inject IStringLocalizer<SharedResources> L
+
+@* StratumFilterSplitButton — toolbar entry point for the grid filter system.
+ *
+ * Split button with two click targets (DF-01):
+ *   - Body click      → opens the advanced StratumFilterBuilder popup
+ *   - Chevron click   → dropdown listing saved filters + a "Manage" action
+ *
+ * Dropdown items:
+ *   - Each SavedFilter as `[★ ]Name` (star prefix marks the default)
+ *   - A disabled separator row
+ *   - "Gérer les filtres sauvegardés…" which also opens the advanced builder
+ *
+ * Badge (n):
+ *   - When ActiveFilterCount > 0 the label becomes `Filtres (n)`
+ *   - The count is the number of *real* criteria, global search excluded (DF-03)
+ *   - Callers are responsible for computing ActiveFilterCount the same way
+ *
+ * Ref: docs/specs/grid-filter-system-v2.md §3, §9, DF-01/02/03.
+ *@
+
+<StratumSplitButton Text="@_label"
+                    Icon="filter_list"
+                    ButtonStyle="@_buttonVariant"
+                    Outline="@(ActiveFilterCount == 0)"
+                    Size="ButtonSize.Small"
+                    Items="@_items"
+                    OnClick="HandleBodyClick"
+                    OnItemClick="HandleItemClick"
+                    CssClass="stratum-filter-split-button__inner"
+                    TestId="@(TestId ?? "filter-split-button")" />
+
+@code {
+    /// <summary>
+    /// Opaque identifier for the "Gérer les filtres sauvegardés…" action.
+    /// Exposed so tests can target the dropdown entry by value.
+    /// </summary>
+    public const string ManageSavedFiltersValue = "__manage__";
+
+    /// <summary>
+    /// Opaque identifier for the disabled separator row in the dropdown.
+    /// Never fires a click, but callers may assert on its presence.
+    /// </summary>
+    public const string SeparatorValue = "__separator__";
+
+    /// <summary>Optional test identifier. Defaults to <c>filter-split-button</c>.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>
+    /// Number of active non-global-search criteria. Shown as a <c>(n)</c> suffix on the
+    /// button label and drives the primary/secondary visual state.
+    /// </summary>
+    [Parameter]
+    public int ActiveFilterCount { get; set; }
+
+    /// <summary>
+    /// Saved filters to list in the dropdown. Order is preserved; items marked
+    /// <c>IsDefault</c> are rendered with a leading ★. Items are annotated with
+    /// Material Symbols icons (<c>groups</c> for shared filters owned by the
+    /// current user, <c>lock_outline</c> for private or shared-by-others
+    /// filters). Filters authored by another user are labelled "(lecture seule)"
+    /// so the user knows they can only load or clone, not mutate them.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyList<SavedFilter> SavedFilters { get; set; } = Array.Empty<SavedFilter>();
+
+    /// <summary>
+    /// Current user id, used to decide whether a saved filter is read-only
+    /// (authored by someone else). When empty, no ownership check is performed
+    /// and the dropdown behaves as pre-GUX08 (no read-only annotations).
+    /// </summary>
+    [Parameter]
+    public Guid CurrentUserId { get; set; }
+
+    /// <summary>
+    /// Fires when the user clicks the button body. The container is expected to open
+    /// the advanced <see cref="StratumFilterBuilder{TItem}"/> popup.
+    /// </summary>
+    [Parameter]
+    public EventCallback OnOpenBuilder { get; set; }
+
+    /// <summary>
+    /// Fires when the user selects a saved filter from the dropdown. The argument is
+    /// the <see cref="SavedFilter.Id"/> of the chosen filter.
+    /// </summary>
+    [Parameter]
+    public EventCallback<Guid> OnLoadSavedFilter { get; set; }
+
+    /// <summary>
+    /// Fires when the user clicks "Gérer les filtres sauvegardés…". The container is
+    /// expected to open the advanced builder focused on saved-filter management.
+    /// </summary>
+    [Parameter]
+    public EventCallback OnManageSavedFilters { get; set; }
+
+    private string _label = string.Empty;
+    private ButtonVariant _buttonVariant => ActiveFilterCount > 0
+        ? ButtonVariant.Primary
+        : ButtonVariant.Secondary;
+    private List<SplitButtonItem> _items = new();
+
+    protected override void OnParametersSet()
+    {
+        _label = ActiveFilterCount > 0
+            ? string.Format(L["Grid_FilterButtonLabelWithCount"], ActiveFilterCount)
+            : L["Grid_FilterButtonLabel"];
+
+        _items = new List<SplitButtonItem>(capacity: SavedFilters.Count + 2);
+
+        foreach (var sf in SavedFilters)
+        {
+            var icon = ResolveItemIcon(sf);
+            var name = BuildItemLabel(sf);
+            _items.Add(new SplitButtonItem(
+                Text: name,
+                Icon: icon,
+                Value: sf.Id.ToString("D")));
+        }
+
+        if (SavedFilters.Count > 0)
+        {
+            _items.Add(new SplitButtonItem(
+                Text: "──────────",
+                Value: SeparatorValue,
+                Disabled: true));
+        }
+
+        _items.Add(new SplitButtonItem(
+            Text: L["Grid_FilterManageSavedFilters"],
+            Icon: "settings",
+            Value: ManageSavedFiltersValue));
+    }
+
+    private string ResolveItemIcon(SavedFilter sf)
+    {
+        // The `groups` icon denotes a filter the current user owns and has
+        // shared with their tenant. Private filters (owned, not shared) and
+        // filters shared to the user by somebody else both render `lock_outline`:
+        // for private filters it conveys "personal", for foreign shared filters
+        // it conveys "read-only".
+        var ownedByMe = CurrentUserId != Guid.Empty && sf.UserId == CurrentUserId;
+        var shared = sf.SharedWith != SharedScope.None;
+        return ownedByMe && shared ? "groups" : "lock_outline";
+    }
+
+    private string BuildItemLabel(SavedFilter sf)
+    {
+        var star = sf.IsDefault ? "★ " : string.Empty;
+        // "(lecture seule)" is shown only when the current user is known AND
+        // the filter belongs to someone else. When CurrentUserId is unset we
+        // fall back to the legacy label so pre-GUX08 callers keep rendering
+        // identically.
+        var readOnly = CurrentUserId != Guid.Empty && sf.UserId != CurrentUserId
+            ? " (lecture seule)"
+            : string.Empty;
+        return $"{star}{sf.Name}{readOnly}";
+    }
+
+    private Task HandleBodyClick()
+        => OnOpenBuilder.InvokeAsync();
+
+    private async Task HandleItemClick(string value)
+    {
+        if (string.Equals(value, ManageSavedFiltersValue, StringComparison.Ordinal))
+        {
+            await OnManageSavedFilters.InvokeAsync();
+            return;
+        }
+
+        if (string.Equals(value, SeparatorValue, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (Guid.TryParse(value, out var id))
+        {
+            await OnLoadSavedFilter.InvokeAsync(id);
+        }
+    }
+}

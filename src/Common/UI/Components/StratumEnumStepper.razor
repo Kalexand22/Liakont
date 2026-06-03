@@ -1,0 +1,101 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TEnum where TEnum : struct, System.Enum
+@using Stratum.Common.UI.Models
+
+<div class="@RootClass"
+     data-testid="@(TestId ?? "enum-stepper")"
+     role="group"
+     aria-label="@(AriaLabel ?? "Progress steps")">
+
+    @for (var i = 0; i < _steps.Count; i++)
+    {
+        var step = _steps[i];
+        var state = GetStepState(step);
+        var isLast = i == _steps.Count - 1;
+
+        <div class="enum-stepper__item" data-testid="@($"enum-step-{i}")">
+            <div class="@StepCircleClass(state, step)" aria-current="@(state == StepState.Current ? "step" : null)">
+                @if (state == StepState.Past)
+                {
+                    <svg class="enum-stepper__check" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="3" stroke-linecap="round" stroke-linejoin="round"
+                         aria-hidden="true">
+                        <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                }
+                else if (!string.IsNullOrEmpty(step.Icon))
+                {
+                    <span class="enum-stepper__icon" aria-hidden="true">@step.Icon</span>
+                }
+                else
+                {
+                    <span class="enum-stepper__number" aria-hidden="true">@(i + 1)</span>
+                }
+            </div>
+            <span class="enum-stepper__label @LabelClass(state)">@step.Label</span>
+        </div>
+
+        @if (!isLast)
+        {
+            <div class="enum-stepper__connector @ConnectorClass(state)" aria-hidden="true"></div>
+        }
+    }
+</div>
+
+@code {
+    private IReadOnlyList<EnumStepInfo> _steps = [];
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    /// <summary>The current enum value — determines which step is highlighted.</summary>
+    [Parameter, EditorRequired] public TEnum Current { get; set; }
+
+    /// <summary>Optional ARIA label for the stepper group. Defaults to "Progress steps".</summary>
+    [Parameter] public string? AriaLabel { get; set; }
+
+    protected override void OnInitialized()
+        => _steps = EnumStepExtractor.GetSteps<TEnum>();
+
+    private enum StepState { Past, Current, Future }
+
+    private StepState GetStepState(EnumStepInfo step)
+    {
+        var currentValue = Convert.ToInt32(Current);
+        if (step.Value < currentValue) return StepState.Past;
+        if (step.Value == currentValue) return StepState.Current;
+        return StepState.Future;
+    }
+
+    private string RootClass => "enum-stepper";
+
+    private static string StepCircleClass(StepState state, EnumStepInfo step)
+    {
+        var baseClass = "enum-stepper__circle";
+        var stateClass = state switch
+        {
+            StepState.Past    => "enum-stepper__circle--past",
+            StepState.Current => "enum-stepper__circle--current",
+            _                 => "enum-stepper__circle--future",
+        };
+        var colorClass = state != StepState.Future && !string.IsNullOrEmpty(step.Color)
+            ? $"enum-stepper__circle--{step.Color}"
+            : "";
+        return string.IsNullOrEmpty(colorClass)
+            ? $"{baseClass} {stateClass}"
+            : $"{baseClass} {stateClass} {colorClass}";
+    }
+
+    private static string LabelClass(StepState state) => state switch
+    {
+        StepState.Past    => "enum-stepper__label--past",
+        StepState.Current => "enum-stepper__label--current",
+        _                 => "enum-stepper__label--future",
+    };
+
+    private static string ConnectorClass(StepState state) => state switch
+    {
+        StepState.Past => "enum-stepper__connector--past",
+        _              => "",
+    };
+}

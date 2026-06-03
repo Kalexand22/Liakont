@@ -1,0 +1,359 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TItem
+@implements IColumnHost<TItem>
+@inject IJSRuntime JS
+
+@* SimpleTable<TItem> — accessible data grid with sort, selection, and keyboard navigation.
+ *
+ * ARIA pattern: role="grid" with role="row" and role="gridcell"/"columnheader".
+ * Keyboard: ↑↓ rows, Home/End, Enter (row activated), Space/x (row selection).
+ * Sort: single-column, aria-sort on sorted header. Sort changes propagate via OnSortChanged.
+ * Selection: checkbox per row, select-all for current page. Reports via OnSelectionChanged.
+ * Loading: skeleton rows. Empty: configurable text.
+ *
+ * Usage:
+ *   <SimpleTable TItem="ProductListItemDto" Items="@products" Loading="@_loading"
+ *                SortColumn="Name" SortDirection="SortDirection.Ascending"
+ *                OnSortChanged="@HandleSort" OnRowActivated="@GoToProduct"
+ *                SelectedItems="@_selected" OnSelectionChanged="@HandleSelection">
+ *       <Column TItem="ProductListItemDto" Title="Name" FieldName="Name" Sortable
+ *               Field="p => p.Name" />
+ *       <Column TItem="ProductListItemDto" Title="Status"
+ *               Template="p => @<StatusBadge Severity="..." Label="..." />" />
+ *   </SimpleTable>
+ *
+ * Ref: docs/ui-components.md, orchestration/manifest.yaml item O01.
+ *@
+
+@* Cascade IColumnHost<TItem> so Column<TItem> children can register themselves. *@
+<CascadingValue Value="@((IColumnHost<TItem>)this)" IsFixed="true">
+    @ChildContent
+</CascadingValue>
+
+<div class="simple-table-wrapper" data-testid="@(TestId ?? "simple-table")">
+    <table id="@_tableId" class="simple-table" role="grid"
+           aria-busy="@(Loading ? "true" : "false")"
+           aria-label="@AriaLabel"
+           @onkeydown="HandleKeyDown">
+        <thead>
+            <tr role="row">
+                @if (ShowSelection)
+                {
+                    <th class="simple-table__col-check" role="columnheader" aria-label="Selection">
+                        <input type="checkbox"
+                               class="simple-table__check"
+                               aria-label="Sélectionner tout"
+                               checked="@_allSelected"
+                               @onchange="ToggleSelectAll" />
+                    </th>
+                }
+                @foreach (var col in _columns)
+                {
+                    <th role="columnheader"
+                        aria-sort="@GetAriaSortValue(col)"
+                        class="simple-table__th @(col.Sortable ? "simple-table__th--sortable" : string.Empty)">
+                        @if (col.Sortable && col.FieldName is not null)
+                        {
+                            <button class="simple-table__sort-btn"
+                                    type="button"
+                                    @onclick="() => HandleSortClick(col.FieldName)">
+                                @col.Title
+                                <span class="simple-table__sort-icon" aria-hidden="true">
+                                    @GetSortIcon(col.FieldName)
+                                </span>
+                            </button>
+                        }
+                        else
+                        {
+                            @col.Title
+                        }
+                    </th>
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @if (Loading)
+            {
+                @* Skeleton rows *@
+                @for (var s = 0; s < SkeletonRowCount; s++)
+                {
+                    <tr role="row" class="simple-table__row simple-table__row--skeleton" aria-hidden="true">
+                        @if (ShowSelection)
+                        {
+                            <td role="gridcell" class="simple-table__col-check">
+                                <span class="simple-table__skeleton-cell"></span>
+                            </td>
+                        }
+                        @foreach (var _ in _columns)
+                        {
+                            <td role="gridcell">
+                                <span class="simple-table__skeleton-cell"></span>
+                            </td>
+                        }
+                    </tr>
+                }
+            }
+            else if (Items == null || Items.Count == 0)
+            {
+                <tr role="row" class="simple-table__row--empty">
+                    <td role="gridcell"
+                        colspan="@(_columns.Count + (ShowSelection ? 1 : 0))"
+                        class="simple-table__empty-cell">
+                        @EmptyText
+                    </td>
+                </tr>
+            }
+            else
+            {
+                @for (var i = 0; i < Items.Count; i++)
+                {
+                    var item = Items[i];
+                    var index = i;
+                    var isSelected = SelectedItems?.Contains(item) ?? false;
+                    var isFocused = index == _focusedRowIndex;
+
+                    <tr role="row"
+                        data-row-index="@index"
+                        tabindex="@(isFocused ? 0 : -1)"
+                        class="simple-table__row @(isSelected ? "simple-table__row--selected" : string.Empty) @(isFocused ? "simple-table__row--focused" : string.Empty)"
+                        aria-selected="@(isSelected ? "true" : "false")"
+                        @onclick="() => HandleRowClick(item, index)">
+                        @if (ShowSelection)
+                        {
+                            <td role="gridcell" class="simple-table__col-check">
+                                <input type="checkbox"
+                                       class="simple-table__check"
+                                       aria-label="@($"Sélectionner {index + 1}")"
+                                       checked="@isSelected"
+                                       @onchange="() => ToggleItem(item)"
+                                       @onclick:stopPropagation />
+                            </td>
+                        }
+                        @foreach (var col in _columns)
+                        {
+                            <td role="gridcell" class="simple-table__td">
+                                @if (col.Template is not null)
+                                {
+                                    @col.Template(item)
+                                }
+                                else if (col.Field is not null)
+                                {
+                                    @(col.Field(item)?.ToString() ?? string.Empty)
+                                }
+                            </td>
+                        }
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    // ── Columns registry (filled by Column<TItem> children) ───────
+
+    private readonly List<Column<TItem>> _columns = new();
+
+    void IColumnHost<TItem>.RegisterColumn(Column<TItem> column)
+    {
+        if (!_columns.Contains(column))
+        {
+            _columns.Add(column);
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    // ── Parameters ────────────────────────────────────────────────
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>
+    /// Column definitions. Use <see cref="Column{TItem}"/> child components inside this parameter.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Items to display. Null or empty triggers the empty state.</summary>
+    [Parameter]
+    public IReadOnlyList<TItem>? Items { get; set; }
+
+    /// <summary>When <c>true</c>, skeleton rows are rendered instead of data rows.</summary>
+    [Parameter]
+    public bool Loading { get; set; }
+
+    /// <summary>Number of skeleton rows to display while loading. Default: 5.</summary>
+    [Parameter]
+    public int SkeletonRowCount { get; set; } = 5;
+
+    /// <summary>Text shown when <see cref="Items"/> is empty and not loading.</summary>
+    [Parameter]
+    public string EmptyText { get; set; } = "Aucun élément.";
+
+    /// <summary>Accessible label for the grid element (optional).</summary>
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    // ── Sort ──────────────────────────────────────────────────────
+
+    /// <summary>Currently sorted column field name.</summary>
+    [Parameter]
+    public string? SortColumn { get; set; }
+
+    /// <summary>Current sort direction.</summary>
+    [Parameter]
+    public SortDirection SortDirection { get; set; } = SortDirection.Ascending;
+
+    /// <summary>Raised when the user clicks a sortable column header.</summary>
+    [Parameter]
+    public EventCallback<SortChangedArgs> OnSortChanged { get; set; }
+
+    // ── Selection ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// When not null, a selection checkbox column is rendered.
+    /// The set is updated as the user selects/deselects rows.
+    /// </summary>
+    [Parameter]
+    public HashSet<TItem>? SelectedItems { get; set; }
+
+    /// <summary>Raised whenever the selection changes.</summary>
+    [Parameter]
+    public EventCallback<HashSet<TItem>> OnSelectionChanged { get; set; }
+
+    /// <summary>Raised when a row is activated (Enter key or double-click).</summary>
+    [Parameter]
+    public EventCallback<TItem> OnRowActivated { get; set; }
+
+    // ── Internal state ────────────────────────────────────────────
+
+    private readonly string _tableId = $"dt-{Guid.NewGuid():N}"[..12];
+    private int _focusedRowIndex = 0;
+
+    private bool ShowSelection => SelectedItems is not null;
+
+    private bool _allSelected =>
+        Items is { Count: > 0 } && SelectedItems is not null &&
+        Items.All(i => SelectedItems.Contains(i));
+
+    // ── Sort helpers ──────────────────────────────────────────────
+
+    private string? GetAriaSortValue(Column<TItem> col)
+    {
+        if (!col.Sortable || col.FieldName != SortColumn)
+            return null;
+        return SortDirection == SortDirection.Ascending ? "ascending" : "descending";
+    }
+
+    private string GetSortIcon(string fieldName)
+    {
+        if (fieldName != SortColumn) return "↕";
+        return SortDirection == SortDirection.Ascending ? "↑" : "↓";
+    }
+
+    private async Task HandleSortClick(string fieldName)
+    {
+        var direction = fieldName == SortColumn && SortDirection == SortDirection.Ascending
+            ? SortDirection.Descending
+            : SortDirection.Ascending;
+        await OnSortChanged.InvokeAsync(new SortChangedArgs(fieldName, direction));
+    }
+
+    // ── Selection helpers ─────────────────────────────────────────
+
+    private async Task ToggleSelectAll(ChangeEventArgs e)
+    {
+        if (SelectedItems is null || Items is null) return;
+        if (_allSelected)
+            foreach (var item in Items) SelectedItems.Remove(item);
+        else
+            foreach (var item in Items) SelectedItems.Add(item);
+        await OnSelectionChanged.InvokeAsync(SelectedItems);
+    }
+
+    private async Task ToggleItem(TItem item)
+    {
+        if (SelectedItems is null) return;
+        if (!SelectedItems.Remove(item))
+            SelectedItems.Add(item);
+        await OnSelectionChanged.InvokeAsync(SelectedItems);
+    }
+
+    // ── Server-side double-click detection ─────────────────────
+    private DateTime _lastClickTime;
+    private TItem? _lastClickedItem;
+    private static readonly TimeSpan DoubleClickThreshold = TimeSpan.FromMilliseconds(400);
+
+    private async Task HandleRowClick(TItem item, int index)
+    {
+        var now = DateTime.UtcNow;
+        var isDoubleClick = _lastClickedItem is not null
+            && EqualityComparer<TItem>.Default.Equals(_lastClickedItem, item)
+            && (now - _lastClickTime) < DoubleClickThreshold;
+
+        _lastClickTime = now;
+        _lastClickedItem = item;
+        _focusedRowIndex = index;
+        await FocusRowAsync(index);
+
+        if (isDoubleClick)
+        {
+            _lastClickedItem = default;
+            await OnRowActivated.InvokeAsync(item);
+        }
+    }
+
+    // ── Keyboard navigation ───────────────────────────────────────
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (Items is null || Items.Count == 0) return;
+
+        switch (e.Key)
+        {
+            case "ArrowDown":
+                _focusedRowIndex = Math.Min(_focusedRowIndex + 1, Items.Count - 1);
+                await FocusRowAsync(_focusedRowIndex);
+                break;
+
+            case "ArrowUp":
+                _focusedRowIndex = Math.Max(_focusedRowIndex - 1, 0);
+                await FocusRowAsync(_focusedRowIndex);
+                break;
+
+            case "Home":
+                _focusedRowIndex = 0;
+                await FocusRowAsync(_focusedRowIndex);
+                break;
+
+            case "End":
+                _focusedRowIndex = Items.Count - 1;
+                await FocusRowAsync(_focusedRowIndex);
+                break;
+
+            case "Enter":
+                await OnRowActivated.InvokeAsync(Items[_focusedRowIndex]);
+                break;
+
+            case " ":
+            case "x":
+                if (ShowSelection)
+                    await ToggleItem(Items[_focusedRowIndex]);
+                break;
+        }
+    }
+
+    private async Task FocusRowAsync(int index)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("stratumUI.focusRow", _tableId, index);
+        }
+        catch (JSException)
+        {
+            // Non-critical: keyboard focus fallback. The row's tabindex is already updated
+            // by the re-render via _focusedRowIndex, so tab navigation still works.
+        }
+    }
+}

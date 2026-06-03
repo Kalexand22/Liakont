@@ -1,0 +1,115 @@
+/* FormCanvasField — scoped styles */
+
+.form-canvas-field {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-2) var(--spacing-3);
+    background: var(--surface);
+    border: 2px solid transparent;
+    border-radius: var(--radius-default, 2px);
+    cursor: pointer;
+    transition: border-color var(--transition-fast, 150ms), background var(--transition-fast, 150ms);
+}
+
+.form-canvas-field:hover {
+    background: var(--surface-container-low);
+}
+
+.form-canvas-field--selected {
+    border-color: var(--primary);
+    background: var(--surface-container-low);
+    box-shadow: 0 0 0 1px var(--primary);
+}
+
+.form-canvas-field__info {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    flex: 1;
+    min-width: 0;
+}
+
+.form-canvas-field__type-badge {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 1px var(--spacing-1);
+    background: var(--surface-container);
+    color: var(--on-surface-variant);
+    border-radius: var(--radius-default, 2px);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.form-canvas-field__label {
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-body);
+    color: var(--on-surface);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.form-canvas-field__required {
+    color: var(--error);
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.form-canvas-field__condition-indicator {
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.form-canvas-field__actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity var(--transition-fast, 150ms);
+}
+
+.form-canvas-field:hover .form-canvas-field__actions,
+.form-canvas-field--selected .form-canvas-field__actions {
+    opacity: 1;
+}
+
+.form-canvas-field__action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: var(--radius-default, 2px);
+    background: transparent;
+    color: var(--on-surface-variant);
+    font-size: 14px;
+    cursor: pointer;
+    transition: background var(--transition-fast, 150ms);
+}
+
+.form-canvas-field__action-btn:hover:not(:disabled) {
+    background: var(--surface-container);
+}
+
+.form-canvas-field__action-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.form-canvas-field__action-btn--danger:hover:not(:disabled) {
+    background: var(--error-container);
+    color: var(--on-error-container);
+}
+
+/* Density */
+[data-density="compact"] .form-canvas-field {
+    padding: var(--spacing-1) var(--spacing-2);
+}
+
+[data-density="compact"] .form-canvas-field__type-badge {
+    font-size: 9px;
+}

@@ -1,0 +1,197 @@
+// rte-editor.js.module — Quill.js interop for RichTextEditor.razor
+// Pattern: ES module loaded via IJSRuntime.InvokeAsync<IJSObjectReference>("import", ...)
+// Quill.js is vendored at /_content/Stratum.Common.UI/lib/quill/quill.min.js
+
+/** @type {Map<string, { quill: any, dotNetRef: any }>} */
+const _editors = new Map();
+
+let _quillLoaded = false;
+let _quillLoading = null;
+
+/**
+ * Ensures Quill.js script and theme CSS are loaded exactly once.
+ * @returns {Promise<void>}
+ */
+function ensureQuillLoaded() {
+    if (_quillLoaded && window.Quill) return Promise.resolve();
+    if (_quillLoading) return _quillLoading;
+
+    _quillLoading = new Promise((resolve, reject) => {
+        // Load CSS
+        if (!document.querySelector('link[href*="quill.snow.css"]')) {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = '/_content/Stratum.Common.UI/lib/quill/quill.snow.css';
+            document.head.appendChild(link);
+        }
+
+        // Load JS
+        if (window.Quill) {
+            _quillLoaded = true;
+            resolve();
+            return;
+        }
+
+        const script = document.createElement('script');
+        script.src = '/_content/Stratum.Common.UI/lib/quill/quill.min.js';
+        script.onload = () => { _quillLoaded = true; resolve(); };
+        script.onerror = () => reject(new Error('Failed to load Quill.js'));
+        document.head.appendChild(script);
+    });
+
+    return _quillLoading;
+}
+
+/**
+ * Maps a ToolbarPreset enum value to Quill toolbar configuration.
+ * @param {string} preset
+ * @returns {Array}
+ */
+function getToolbarConfig(preset) {
+    switch (preset) {
+        case 'Minimal':
+            return [
+                ['bold', 'italic', 'underline'],
+                ['link'],
+                ['clean']
+            ];
+        case 'Full':
+            return [
+                [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
+                ['bold', 'italic', 'underline', 'strike'],
+                [{ 'color': [] }, { 'background': [] }],
+                [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+                [{ 'indent': '-1' }, { 'indent': '+1' }],
+                [{ 'align': [] }],
+                ['blockquote', 'code-block'],
+                ['link', 'image'],
+                ['clean']
+            ];
+        case 'Standard':
+        default:
+            return [
+                [{ 'header': [1, 2, 3, false] }],
+                ['bold', 'italic', 'underline'],
+                [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+                [{ 'align': [] }],
+                ['link', 'image'],
+                ['clean']
+            ];
+    }
+}
+
+/**
+ * Initialises a Quill editor in the given container element.
+ * @param {string} editorId  Unique ID for the editor container div
+ * @param {string|null} initialHtml  Initial HTML content
+ * @param {string} preset  ToolbarPreset enum value
+ * @param {boolean} readOnly  Whether the editor is read-only
+ * @param {string|null} placeholder  Placeholder text
+ * @param {any} dotNetRef  DotNetObjectReference for callbacks
+ */
+export async function init(editorId, initialHtml, preset, readOnly, placeholder, dotNetRef) {
+    await ensureQuillLoaded();
+
+    const container = document.getElementById(editorId);
+    if (!container) return;
+
+    const quill = new Quill(container, {
+        theme: 'snow',
+        readOnly: readOnly,
+        placeholder: placeholder || '',
+        modules: {
+            toolbar: readOnly ? false : getToolbarConfig(preset),
+        },
+    });
+
+    if (initialHtml) {
+        quill.root.innerHTML = initialHtml;
+    }
+
+    const entry = { quill, dotNetRef, debounceTimer: null };
+    _editors.set(editorId, entry);
+
+    // Notify Blazor on content change (debounced to avoid excessive calls)
+    quill.on('text-change', () => {
+        clearTimeout(entry.debounceTimer);
+        entry.debounceTimer = setTimeout(() => {
+            const html = quill.root.innerHTML;
+            // Quill uses <p><br></p> for empty content
+            const isEmpty = html === '<p><br></p>' || html === '<p></p>' || !html;
+            try {
+                dotNetRef.invokeMethodAsync('OnContentChanged', isEmpty ? '' : html);
+            } catch {
+                // DotNetObjectReference may be disposed
+            }
+        }, 300);
+    });
+}
+
+/**
+ * Sets the HTML content of an existing editor (from Blazor → JS).
+ * @param {string} editorId
+ * @param {string|null} html
+ */
+export function setContent(editorId, html) {
+    const entry = _editors.get(editorId);
+    if (!entry) return;
+
+    // Avoid triggering text-change when setting from Blazor
+    const currentHtml = entry.quill.root.innerHTML;
+    const normalizedCurrent = currentHtml === '<p><br></p>' ? '' : currentHtml;
+    const normalizedNew = html || '';
+
+    if (normalizedCurrent !== normalizedNew) {
+        entry.quill.root.innerHTML = normalizedNew || '';
+    }
+}
+
+/**
+ * Gets the current HTML content.
+ * @param {string} editorId
+ * @returns {string}
+ */
+export function getContent(editorId) {
+    const entry = _editors.get(editorId);
+    if (!entry) return '';
+    const html = entry.quill.root.innerHTML;
+    return html === '<p><br></p>' ? '' : html;
+}
+
+/**
+ * Gets the plain text length (for MaxLength enforcement).
+ * @param {string} editorId
+ * @returns {number}
+ */
+export function getTextLength(editorId) {
+    const entry = _editors.get(editorId);
+    if (!entry) return 0;
+    // Quill getText() always ends with \n, subtract 1
+    return Math.max(0, entry.quill.getText().length - 1);
+}
+
+/**
+ * Toggles read-only mode.
+ * @param {string} editorId
+ * @param {boolean} readOnly
+ */
+export function setReadOnly(editorId, readOnly) {
+    const entry = _editors.get(editorId);
+    if (!entry) return;
+    entry.quill.enable(!readOnly);
+}
+
+/**
+ * Disposes the Quill editor and cleans up resources.
+ * @param {string} editorId
+ */
+export function dispose(editorId) {
+    const entry = _editors.get(editorId);
+    if (!entry) return;
+
+    clearTimeout(entry.debounceTimer);
+
+    // Quill doesn't have a formal destroy API, but we clean up references
+    entry.quill.off('text-change');
+    _editors.delete(editorId);
+}

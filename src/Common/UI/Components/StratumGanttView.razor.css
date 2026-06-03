@@ -1,0 +1,520 @@
+/* StratumGanttView — Timeline Gantt chart */
+
+.stratum-gantt-view {
+    outline: none;
+    position: relative;
+}
+
+/* Toolbar */
+
+.stratum-gantt-view__toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-4, 1rem);
+    padding: var(--spacing-2, 0.5rem) 0;
+    margin-bottom: var(--spacing-4, 1rem);
+    flex-wrap: wrap;
+}
+
+.stratum-gantt-view__nav {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-1, 0.25rem);
+}
+
+.stratum-gantt-view__nav-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: 1px solid var(--color-border, #dee2e6);
+    border-radius: var(--radius-md, 0.5rem);
+    background: var(--color-bg-surface, #fff);
+    color: var(--color-text-primary, #1e293b);
+    font-size: var(--font-size-lg, 1.125rem);
+    cursor: pointer;
+    transition: background var(--transition-fast, 100ms) ease;
+}
+
+.stratum-gantt-view__nav-btn:hover {
+    background: var(--color-bg-subtle, #f8fafc);
+}
+
+.stratum-gantt-view__today-btn {
+    padding: var(--spacing-1, 0.25rem) var(--spacing-3, 0.75rem);
+    border: 1px solid var(--color-border, #dee2e6);
+    border-radius: var(--radius-md, 0.5rem);
+    background: var(--color-bg-surface, #fff);
+    color: var(--color-text-primary, #1e293b);
+    font-size: var(--font-size-sm, 0.875rem);
+    cursor: pointer;
+    transition: background var(--transition-fast, 100ms) ease;
+}
+
+.stratum-gantt-view__today-btn:hover {
+    background: var(--color-bg-subtle, #f8fafc);
+}
+
+.stratum-gantt-view__period-label {
+    font-size: var(--font-size-lg, 1.125rem);
+    font-weight: var(--font-weight-semibold, 600);
+    color: var(--color-text-primary, #1e293b);
+    margin: 0;
+    text-align: center;
+    flex: 1;
+    min-width: 0;
+}
+
+.stratum-gantt-view__view-toggle {
+    display: flex;
+    border: 1px solid var(--color-border, #dee2e6);
+    border-radius: var(--radius-md, 0.5rem);
+    overflow: hidden;
+}
+
+.stratum-gantt-view__toggle-btn {
+    padding: var(--spacing-1, 0.25rem) var(--spacing-3, 0.75rem);
+    border: none;
+    border-right: 1px solid var(--color-border, #dee2e6);
+    background: var(--color-bg-surface, #fff);
+    color: var(--color-text-secondary, #64748b);
+    font-size: var(--font-size-sm, 0.875rem);
+    cursor: pointer;
+    transition: all var(--transition-fast, 100ms) ease;
+}
+
+.stratum-gantt-view__toggle-btn:last-child {
+    border-right: none;
+}
+
+.stratum-gantt-view__toggle-btn--active {
+    background: var(--color-primary, #3b82f6);
+    color: #fff;
+}
+
+.stratum-gantt-view__toggle-btn:hover:not(.stratum-gantt-view__toggle-btn--active) {
+    background: var(--color-bg-subtle, #f8fafc);
+}
+
+/* Container */
+
+.stratum-gantt-view__container {
+    position: relative;
+    overflow-x: auto;
+    border: 1px solid var(--color-border, #dee2e6);
+    border-radius: var(--radius-md, 0.5rem);
+}
+
+/* Header row */
+
+.stratum-gantt-view__head {
+    display: flex;
+    position: sticky;
+    top: 0;
+    z-index: var(--z-raised, 10);
+    background: var(--color-bg-surface, #fff);
+    border-bottom: 2px solid var(--color-border, #dee2e6);
+}
+
+.stratum-gantt-view__label-col {
+    position: sticky;
+    left: 0;
+    z-index: var(--z-raised, 10);
+    width: 200px;
+    min-width: 200px;
+    padding: var(--spacing-2, 0.5rem) var(--spacing-3, 0.75rem);
+    background: var(--color-bg-surface, #fff);
+    border-right: 1px solid var(--color-border, #dee2e6);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2, 0.5rem);
+    overflow: hidden;
+}
+
+.stratum-gantt-view__label-col--header {
+    font-weight: var(--font-weight-semibold, 600);
+    font-size: var(--font-size-sm, 0.875rem);
+    color: var(--color-text-secondary, #64748b);
+}
+
+.stratum-gantt-view__task-name {
+    font-size: var(--font-size-sm, 0.875rem);
+    color: var(--color-text-primary, #1e293b);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.stratum-gantt-view__timeline-head {
+    display: flex;
+}
+
+.stratum-gantt-view__col-header {
+    text-align: center;
+    font-size: var(--font-size-xs, 0.75rem);
+    color: var(--color-text-secondary, #64748b);
+    padding: var(--spacing-2, 0.5rem) 0;
+    border-right: 1px solid var(--color-border-subtle, #f1f5f9);
+    background: var(--color-bg-surface, #fff);
+}
+
+.stratum-gantt-view__col-header--today {
+    background: var(--color-primary-subtle, #eff6ff);
+    color: var(--color-primary, #3b82f6);
+    font-weight: var(--font-weight-semibold, 600);
+}
+
+/* Task rows */
+
+.stratum-gantt-view__row {
+    display: flex;
+    position: relative;
+    height: 40px;
+    border-bottom: 1px solid var(--color-border-subtle, #f1f5f9);
+    cursor: pointer;
+    transition: background var(--transition-fast, 100ms) ease;
+}
+
+.stratum-gantt-view__row:hover {
+    background: var(--color-bg-subtle, #f8fafc);
+}
+
+.stratum-gantt-view__row--focused {
+    background: var(--color-primary-subtle, #eff6ff);
+    outline: 2px solid var(--color-primary, #3b82f6);
+    outline-offset: -2px;
+}
+
+.stratum-gantt-view__row--selected {
+    background: var(--color-primary-subtle, #eff6ff);
+}
+
+.stratum-gantt-view__row--focused.stratum-gantt-view__row--selected {
+    background: var(--color-primary-subtle, #eff6ff);
+}
+
+/* Timeline cells */
+
+.stratum-gantt-view__timeline-cells {
+    display: flex;
+    position: relative;
+    flex: 1;
+}
+
+.stratum-gantt-view__cell {
+    border-right: 1px solid var(--color-border-subtle, #f1f5f9);
+    height: 100%;
+}
+
+.stratum-gantt-view__cell--today {
+    background: var(--color-primary-subtle, #eff6ff);
+    opacity: 0.3;
+}
+
+/* Gantt grid background (radial-gradient subtle lines) */
+
+.stratum-gantt-view__container--grid-bg {
+    background-image:
+        repeating-linear-gradient(
+            to right,
+            var(--color-border-ghost, rgba(0, 27, 68, 0.06)) 0px,
+            transparent 1px
+        );
+}
+
+/* Task bars */
+
+.stratum-gantt-view__bar {
+    position: absolute;
+    top: 6px;
+    height: 28px;
+    background: var(--color-primary, #3b82f6);
+    border-radius: var(--radius-sm, 0.25rem);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    transition: filter var(--transition-fast, 100ms) ease;
+    z-index: 1;
+}
+
+.stratum-gantt-view__bar:hover {
+    filter: brightness(0.9);
+}
+
+.stratum-gantt-view__bar--resizable {
+    cursor: grab;
+}
+
+.stratum-gantt-view__bar--dragging {
+    opacity: 0.8;
+    cursor: ew-resize;
+}
+
+.stratum-gantt-view__bar-progress {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: var(--radius-sm, 0.25rem) 0 0 var(--radius-sm, 0.25rem);
+    pointer-events: none;
+}
+
+/* Double-line bar content (ref-id + name) */
+
+.stratum-gantt-view__bar-content {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0 var(--spacing-2, 0.5rem);
+    overflow: hidden;
+    position: relative;
+    z-index: 1;
+    min-width: 0;
+    flex: 1;
+}
+
+.stratum-gantt-view__bar-ref {
+    font-family: var(--font-family-mono, 'Cascadia Code', 'Fira Code', 'Courier New', monospace);
+    font-size: var(--font-size-xs, 0.75rem);
+    color: rgba(255, 255, 255, 0.7);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1;
+}
+
+.stratum-gantt-view__bar-label {
+    font-size: var(--font-size-xs, 0.75rem);
+    font-weight: var(--font-weight-semibold, 600);
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    position: relative;
+    z-index: 1;
+    line-height: 1.2;
+}
+
+/* Drag-resize handles */
+
+.stratum-gantt-view__resize-handle {
+    position: absolute;
+    top: 0;
+    width: 6px;
+    height: 100%;
+    cursor: ew-resize;
+    z-index: 2;
+    opacity: 0;
+    transition: opacity var(--transition-fast, 100ms) ease;
+}
+
+.stratum-gantt-view__bar--resizable:hover .stratum-gantt-view__resize-handle {
+    opacity: 1;
+}
+
+.stratum-gantt-view__resize-handle--start {
+    left: 0;
+    border-radius: var(--radius-sm, 0.25rem) 0 0 var(--radius-sm, 0.25rem);
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.stratum-gantt-view__resize-handle--end {
+    right: 0;
+    border-radius: 0 var(--radius-sm, 0.25rem) var(--radius-sm, 0.25rem) 0;
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* Today marker */
+
+.stratum-gantt-view__today-marker {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--color-error, #ef4444);
+    z-index: 2;
+    pointer-events: none;
+}
+
+/* Dependency arrows */
+
+.stratum-gantt-view__deps-svg {
+    position: absolute;
+    top: 0;
+    left: 200px; /* matches label column width */
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    z-index: 3;
+    overflow: visible;
+}
+
+.stratum-gantt-view__dep-line {
+    stroke: var(--color-text-tertiary, #94a3b8);
+    stroke-width: 1.5;
+    fill: none;
+}
+
+.stratum-gantt-view__dep-arrow {
+    fill: var(--color-text-tertiary, #94a3b8);
+}
+
+/* Loading skeleton */
+
+.stratum-gantt-view__loading {
+    animation: gantt-pulse 1.5s ease-in-out infinite;
+}
+
+.stratum-gantt-view__toolbar--skeleton {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-2, 0.5rem) 0;
+    margin-bottom: var(--spacing-4, 1rem);
+}
+
+.stratum-gantt-view__skeleton-btn {
+    width: 80px;
+    height: 2rem;
+    background: var(--color-bg-subtle, #f1f5f9);
+    border-radius: var(--radius-md, 0.5rem);
+}
+
+.stratum-gantt-view__skeleton-title {
+    width: 200px;
+    height: 1.5rem;
+    background: var(--color-bg-subtle, #f1f5f9);
+    border-radius: var(--radius-md, 0.5rem);
+}
+
+.stratum-gantt-view__grid-skeleton {
+    border: 1px solid var(--color-border, #dee2e6);
+    border-radius: var(--radius-md, 0.5rem);
+    overflow: hidden;
+}
+
+.stratum-gantt-view__skeleton-row {
+    display: flex;
+    gap: var(--spacing-2, 0.5rem);
+    padding: var(--spacing-2, 0.5rem) var(--spacing-3, 0.75rem);
+    border-bottom: 1px solid var(--color-border-subtle, #f1f5f9);
+}
+
+.stratum-gantt-view__skeleton-cell--label {
+    width: 200px;
+    height: 1rem;
+    background: var(--color-bg-subtle, #f1f5f9);
+    border-radius: var(--radius-sm, 0.25rem);
+}
+
+.stratum-gantt-view__skeleton-cell--bar {
+    flex: 1;
+    height: 1rem;
+    background: var(--color-bg-subtle, #f1f5f9);
+    border-radius: var(--radius-sm, 0.25rem);
+}
+
+@keyframes gantt-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* Empty state */
+
+.stratum-gantt-view__empty {
+    padding: var(--spacing-12, 3rem) var(--spacing-6, 1.5rem);
+    text-align: center;
+}
+
+.stratum-gantt-view__empty-text {
+    color: var(--color-text-tertiary, #94a3b8);
+    font-size: var(--font-size-sm, 0.875rem);
+}
+
+/* Checkbox in label column */
+
+.stratum-gantt-view__label-col input[type="checkbox"] {
+    flex-shrink: 0;
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--color-primary, #3b82f6);
+    cursor: pointer;
+}
+
+/* ── Heatmap footer ───────────────────────────────────────── */
+
+.stratum-gantt-view__heatmap {
+    display: flex;
+    border-top: 1px solid var(--color-border, #dee2e6);
+    background: var(--color-surface-container-low, #f2f4f6);
+}
+
+.stratum-gantt-view__heatmap-label {
+    position: sticky;
+    left: 0;
+    z-index: var(--z-raised, 10);
+    width: 200px;
+    min-width: 200px;
+    padding: var(--spacing-2, 0.5rem) var(--spacing-3, 0.75rem);
+    background: var(--color-surface-container-low, #f2f4f6);
+    border-right: 1px solid var(--color-border, #dee2e6);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2, 0.5rem);
+    font-size: var(--font-size-xs, 0.75rem);
+    font-weight: var(--font-weight-semibold, 600);
+    color: var(--color-text-secondary, #64748b);
+}
+
+.stratum-gantt-view__heatmap-label .material-symbols-outlined {
+    font-size: 16px;
+    color: var(--color-text-tertiary, #94a3b8);
+}
+
+.stratum-gantt-view__heatmap-cells {
+    display: flex;
+}
+
+.stratum-gantt-view__heatmap-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 2rem;
+    background: var(--color-primary, #001b44);
+    border-radius: var(--radius-sm, 2px);
+    margin: 2px 1px;
+    font-size: var(--font-size-xs, 0.75rem);
+    font-variant-numeric: tabular-nums;
+    transition: opacity 0.2s ease;
+}
+
+.stratum-gantt-view__heatmap-text--light {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.stratum-gantt-view__heatmap-text--dark {
+    color: var(--color-primary, #001b44);
+}
+
+/* ── Compact density overrides ──────────────────────────── */
+
+:global([data-density="compact"]) .stratum-gantt-view__row {
+    height: 32px;
+}
+
+:global([data-density="compact"]) .stratum-gantt-view__bar {
+    top: 4px;
+    height: 24px;
+}
+
+:global([data-density="compact"]) .stratum-gantt-view__bar-ref {
+    display: none; /* hide ref-id in compact mode — not enough space */
+}
+
+:global([data-density="compact"]) .stratum-gantt-view__heatmap-cell {
+    height: 1.5rem;
+}

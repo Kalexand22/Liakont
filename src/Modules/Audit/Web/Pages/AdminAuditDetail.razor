@@ -1,0 +1,143 @@
+@page "/admin/audit/{EntryId:guid}"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using Stratum.Modules.Audit.Contracts
+@inject IAuditQueries AuditQueries
+@inject NavigationManager Nav
+
+<PermissionGate Permission="@AuditPermissions.AuditView">
+<div class="audit-detail" data-testid="audit-detail">
+    @if (_loading)
+    {
+        <p>Chargement…</p>
+    }
+    else if (_activity is null)
+    {
+        <div class="audit-detail__empty" data-testid="audit-detail-not-found">
+            <p>Entrée d'audit introuvable.</p>
+            <StratumButton Text="Retour au journal"
+                           Variant="ButtonVariant.Secondary"
+                           OnClick="@(_ => Nav.NavigateTo("/admin/audit"))"
+                           TestId="audit-detail-back-btn" />
+        </div>
+    }
+    else
+    {
+        <div class="audit-detail__header">
+            <StratumButton Text="← Retour"
+                           Variant="ButtonVariant.Secondary"
+                           Outline
+                           OnClick="@(_ => Nav.NavigateTo("/admin/audit"))"
+                           TestId="audit-detail-back-btn" />
+        </div>
+
+        <div class="audit-detail__summary" data-testid="audit-detail-summary">
+            <div class="audit-detail__summary-grid">
+                <div class="audit-detail__field">
+                    <span class="audit-detail__label">Date</span>
+                    <span class="audit-detail__value" data-testid="audit-detail-date">@_activity.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</span>
+                </div>
+                <div class="audit-detail__field">
+                    <span class="audit-detail__label">Utilisateur</span>
+                    <span class="audit-detail__value" data-testid="audit-detail-actor">@_activity.ActorId</span>
+                </div>
+                <div class="audit-detail__field">
+                    <span class="audit-detail__label">Entité</span>
+                    <span class="audit-detail__value" data-testid="audit-detail-entity">@_activity.EntityType / @_activity.EntityId</span>
+                </div>
+                <div class="audit-detail__field">
+                    <span class="audit-detail__label">Action</span>
+                    <span class="audit-detail__value" data-testid="audit-detail-action">@_activity.ActivityType</span>
+                </div>
+                <div class="audit-detail__field audit-detail__field--wide">
+                    <span class="audit-detail__label">Description</span>
+                    <span class="audit-detail__value" data-testid="audit-detail-description">@_activity.Description</span>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(_activity.Metadata))
+                {
+                    <div class="audit-detail__field audit-detail__field--wide">
+                        <span class="audit-detail__label">Métadonnées</span>
+                        <pre class="audit-detail__json" data-testid="audit-detail-metadata">@FormatJson(_activity.Metadata)</pre>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="audit-detail__changes" data-testid="audit-detail-changes">
+            <h3 class="audit-detail__section-title">Modifications de champs</h3>
+            @if (_fieldChanges.Count == 0)
+            {
+                <p class="audit-detail__no-changes" data-testid="audit-detail-no-changes">Aucune modification de champ enregistrée.</p>
+            }
+            else
+            {
+                <table class="audit-detail__diff-table" data-testid="audit-detail-diff-table">
+                    <thead>
+                        <tr>
+                            <th>Champ</th>
+                            <th>Avant</th>
+                            <th>Après</th>
+                            <th>Date</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var change in _fieldChanges)
+                        {
+                            <tr data-testid="audit-detail-diff-row">
+                                <td class="audit-detail__field-name">@change.FieldName</td>
+                                <td class="audit-detail__old-value">@(change.OldValue ?? "—")</td>
+                                <td class="audit-detail__new-value">@(change.NewValue ?? "—")</td>
+                                <td class="audit-detail__change-date">@change.OccurredAt.ToString("HH:mm:ss")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    }
+</div>
+</PermissionGate>
+
+@code {
+    [Parameter]
+    public Guid EntryId { get; set; }
+
+    private ActivityDto? _activity;
+    private IReadOnlyList<FieldChangeDto> _fieldChanges = [];
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _loading = true;
+        try
+        {
+            _activity = await AuditQueries.GetActivityById(EntryId);
+
+            if (_activity is not null)
+            {
+                _fieldChanges = await AuditQueries.GetCorrelatedFieldChanges(
+                    _activity.EntityType,
+                    _activity.EntityId,
+                    _activity.CreatedAt);
+            }
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static string FormatJson(string json)
+    {
+        try
+        {
+            var doc = System.Text.Json.JsonDocument.Parse(json);
+            return System.Text.Json.JsonSerializer.Serialize(
+                doc, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        }
+        catch
+        {
+            return json;
+        }
+    }
+}

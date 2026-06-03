@@ -1,0 +1,222 @@
+/* FormBuilderCanvas — UIE02 scoped styles.
+ * Uses Civic Blueprint tokens only (no hex colors, no 1px dividers). */
+
+.form-builder {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 480px;
+    background: var(--surface);
+    border-radius: var(--radius-default, 2px);
+    overflow: hidden;
+}
+
+/* ── Header ─────────────────────────────────── */
+
+.form-builder__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-2) var(--spacing-4);
+    background: var(--surface-container-low);
+    gap: var(--spacing-3);
+    flex-shrink: 0;
+}
+
+.form-builder__header-left,
+.form-builder__header-right {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+}
+
+.form-builder__header-center {
+    display: flex;
+    align-items: baseline;
+    gap: var(--spacing-2);
+    flex: 1;
+    justify-content: center;
+}
+
+.form-builder__title {
+    font-family: var(--font-family-base);
+    font-weight: 600;
+    font-size: var(--font-size-body);
+    color: var(--on-surface);
+}
+
+.form-builder__version {
+    font-size: var(--font-size-label);
+    color: var(--on-surface-variant);
+    padding: 1px var(--spacing-1);
+    background: var(--surface-container);
+    border-radius: var(--radius-default, 2px);
+}
+
+/* ── Buttons ────────────────────────────────── */
+
+.form-builder__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-1);
+    padding: var(--spacing-1) var(--spacing-2);
+    border: none;
+    border-radius: var(--radius-default, 2px);
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-label);
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color var(--transition-fast, 150ms), opacity var(--transition-fast, 150ms);
+    background: transparent;
+    color: var(--on-surface);
+}
+
+.form-builder__btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.form-builder__btn--icon {
+    font-size: var(--font-size-body);
+    padding: var(--spacing-1);
+    border-radius: var(--radius-default, 2px);
+}
+
+.form-builder__btn--icon:hover:not(:disabled) {
+    background: var(--surface-container);
+}
+
+.form-builder__btn--outline {
+    border: 1px solid var(--outline-variant);
+    color: var(--on-surface-variant);
+}
+
+.form-builder__btn--outline:hover:not(:disabled) {
+    background: var(--surface-container);
+}
+
+.form-builder__btn--primary {
+    background: var(--primary);
+    color: var(--on-primary);
+    font-weight: 600;
+}
+
+.form-builder__btn--primary:hover:not(:disabled) {
+    opacity: 0.9;
+}
+
+.form-builder__btn--ghost {
+    color: var(--primary);
+}
+
+.form-builder__btn--ghost:hover:not(:disabled) {
+    background: var(--surface-container-low);
+}
+
+/* ── Body: 3-pane layout ────────────────────── */
+
+.form-builder__body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* ── Palette (left sidebar) ─────────────────── */
+
+.form-builder__palette {
+    width: 256px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-container-low);
+    overflow-y: auto;
+}
+
+.form-builder__palette-title {
+    padding: var(--spacing-2) var(--spacing-3);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--on-surface-variant);
+}
+
+/* ── Canvas (center) ────────────────────────── */
+
+.form-builder__canvas {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--spacing-4);
+    background: var(--surface);
+}
+
+.form-builder__canvas-actions {
+    margin-top: var(--spacing-3);
+    text-align: center;
+}
+
+.form-builder__empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    color: var(--on-surface-variant);
+    font-size: var(--font-size-body);
+}
+
+/* ── Properties (right sidebar) ─────────────── */
+
+.form-builder__properties {
+    width: 320px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-container-low);
+    overflow-y: auto;
+}
+
+.form-builder__properties-empty {
+    padding: var(--spacing-4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+}
+
+/* ── Preview ────────────────────────────────── */
+
+.form-builder__preview {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--spacing-6);
+    display: flex;
+    justify-content: center;
+    background: var(--surface-container-low);
+}
+
+.form-builder__preview-frame {
+    width: 100%;
+    max-width: 720px;
+    background: var(--surface);
+    border-radius: var(--radius-lg, 4px);
+    padding: var(--spacing-6);
+    box-shadow: var(--shadow-md);
+}
+
+/* ── Density ────────────────────────────────── */
+
+[data-density="compact"] .form-builder__header {
+    padding: var(--spacing-1) var(--spacing-3);
+}
+
+[data-density="compact"] .form-builder__palette {
+    width: 220px;
+}
+
+[data-density="compact"] .form-builder__properties {
+    width: 280px;
+}
+
+[data-density="compact"] .form-builder__canvas {
+    padding: var(--spacing-2);
+}

@@ -1,0 +1,154 @@
+// image-field.js.module — JS interop for ImageField component
+// Handles file reading, URL loading, and crop via Canvas API (no external lib).
+
+/**
+ * Programmatically click an element (e.g. hidden InputFile).
+ * @param {HTMLElement} el
+ */
+export function clickElement(el) {
+    if (el) el.click();
+}
+
+/**
+ * Read an image file from an <input type="file"> and return base64 + dimensions.
+ * @param {HTMLInputElement} inputEl - The file input element.
+ * @param {number} fileIndex - Index of the file in the FileList.
+ * @returns {Promise<{base64: string, contentType: string, widthPx: number, heightPx: number}>}
+ */
+export async function readImageFile(inputEl, fileIndex) {
+    const file = inputEl.files?.[fileIndex];
+    if (!file) return { error: "Aucun fichier sélectionné." };
+
+    try {
+        const dataUrl = await readFileAsDataUrl(file);
+        const dims = await getImageDimensions(dataUrl);
+        const base64 = dataUrl.split(",")[1];
+        return {
+            base64: base64,
+            contentType: file.type || "image/jpeg",
+            widthPx: dims.width,
+            heightPx: dims.height,
+        };
+    } catch (e) {
+        return { error: e.message || "Erreur de lecture du fichier." };
+    }
+}
+
+/**
+ * Load an image from a URL and return base64 + dimensions.
+ * @param {string} url
+ * @returns {Promise<{base64: string, contentType: string, widthPx: number, heightPx: number}>}
+ */
+export async function readImageUrl(url) {
+    try {
+        const response = await fetch(url);
+        if (!response.ok) return { error: `HTTP ${response.status}` };
+
+        const blob = await response.blob();
+        const dataUrl = await readBlobAsDataUrl(blob);
+        const dims = await getImageDimensions(dataUrl);
+        const base64 = dataUrl.split(",")[1];
+        return {
+            base64: base64,
+            contentType: blob.type || "image/jpeg",
+            widthPx: dims.width,
+            heightPx: dims.height,
+        };
+    } catch (e) {
+        return { error: e.message || "Erreur de chargement de l'URL." };
+    }
+}
+
+/**
+ * Initialize crop mode on an image element (simple canvas-based crop).
+ * Stores crop state on the element for applyCrop/destroyCrop.
+ * @param {HTMLImageElement} imgEl
+ * @param {number|null} aspectRatio - Fixed width/height ratio, or null for free.
+ * @param {object} dotNetRef - .NET object reference (unused for now, reserved for callbacks).
+ */
+export function initCrop(imgEl, aspectRatio, dotNetRef) {
+    if (!imgEl) return;
+    // Store crop config on the element
+    imgEl._cropConfig = { aspectRatio: aspectRatio, dotNetRef: dotNetRef };
+}
+
+/**
+ * Apply crop by rendering the image onto a canvas at the specified region.
+ * For simplicity, crops to center 80% if no interactive region was set.
+ * @param {HTMLImageElement} imgEl
+ * @returns {{base64: string, widthPx: number, heightPx: number}}
+ */
+export function applyCrop(imgEl) {
+    if (!imgEl || !imgEl.naturalWidth) return { error: "Image non chargée." };
+
+    const config = imgEl._cropConfig || {};
+    const nw = imgEl.naturalWidth;
+    const nh = imgEl.naturalHeight;
+
+    // Default crop: center 80%
+    let cx = Math.round(nw * 0.1);
+    let cy = Math.round(nh * 0.1);
+    let cw = Math.round(nw * 0.8);
+    let ch = Math.round(nh * 0.8);
+
+    if (config.aspectRatio) {
+        const ar = config.aspectRatio;
+        if (cw / ch > ar) {
+            cw = Math.round(ch * ar);
+        } else {
+            ch = Math.round(cw / ar);
+        }
+        cx = Math.round((nw - cw) / 2);
+        cy = Math.round((nh - ch) / 2);
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = cw;
+    canvas.height = ch;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(imgEl, cx, cy, cw, ch, 0, 0, cw, ch);
+
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+    return {
+        base64: dataUrl.split(",")[1],
+        widthPx: cw,
+        heightPx: ch,
+    };
+}
+
+/**
+ * Destroy crop state on an image element.
+ * @param {HTMLImageElement} imgEl
+ */
+export function destroyCrop(imgEl) {
+    if (imgEl) delete imgEl._cropConfig;
+}
+
+// ── Internal helpers ──────────────────────────────────────────
+
+function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error("Impossible de lire le fichier."));
+        reader.readAsDataURL(file);
+    });
+}
+
+function readBlobAsDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error("Impossible de lire le blob."));
+        reader.readAsDataURL(blob);
+    });
+}
+
+function getImageDimensions(dataUrl) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+        img.onerror = () => reject(new Error("Image invalide."));
+        img.src = dataUrl;
+    });
+}

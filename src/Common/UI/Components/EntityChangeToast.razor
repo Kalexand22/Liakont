@@ -1,0 +1,143 @@
+@namespace Stratum.Common.UI.Components
+@inject IEntityChangeSubscriber ChangeSubscriber
+@implements IDisposable
+
+@*
+    EntityChangeToast — subscribes to entity-change notifications for the current circuit.
+
+    Two modes:
+      - Auto-merge: if OnEntityChanged is bound, fires immediately on change (page handles merge).
+        Shows an informational banner (no Recharger button).
+      - Manual reload: if OnReloadRequested is bound, shows a toast with [Recharger] button.
+
+    Place once in entity detail/edit layouts (usually via EntityPresenceLayout).
+*@
+
+@if (_pendingEvent is not null && !_autoMergeMode)
+{
+    <div class="entity-change-toast"
+         data-testid="@(TestId ?? "entity-change-toast")"
+         role="alert"
+         aria-live="assertive">
+        <span class="entity-change-toast__message">
+            @_pendingEvent.ChangedBy a modifié cette fiche
+        </span>
+        <button class="entity-change-toast__reload"
+                type="button"
+                data-testid="entity-change-reload"
+                @onclick="HandleReload">
+            Recharger
+        </button>
+        <button class="entity-change-toast__dismiss"
+                type="button"
+                aria-label="Fermer la notification"
+                data-testid="entity-change-dismiss"
+                @onclick="HandleDismiss">
+            ×
+        </button>
+    </div>
+}
+
+@code {
+    private volatile bool _disposed;
+    private EntityChangedEvent? _pendingEvent;
+    private Timer? _autoDismissTimer;
+    private bool _autoMergeMode;
+
+    /// <summary>Optional test identifier.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Circuit ID to subscribe for notifications.</summary>
+    [Parameter, EditorRequired]
+    public string CircuitId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Manual reload mode: invoked when the user clicks the Recharger button.
+    /// Use this for read-only detail pages where a full reload is acceptable.
+    /// </summary>
+    [Parameter]
+    public EventCallback OnReloadRequested { get; set; }
+
+    /// <summary>
+    /// Auto-merge mode: invoked immediately when another user modifies the entity.
+    /// The page receives the event and handles field-level merge without data loss.
+    /// When bound, the Recharger button is hidden (merge is automatic).
+    /// </summary>
+    [Parameter]
+    public EventCallback<EntityChangedEvent> OnEntityChanged { get; set; }
+
+    protected override void OnInitialized()
+    {
+        _autoMergeMode = OnEntityChanged.HasDelegate;
+
+        if (!string.IsNullOrWhiteSpace(CircuitId))
+        {
+            ChangeSubscriber.Subscribe(CircuitId, HandleEntityChanged);
+        }
+    }
+
+    private void HandleEntityChanged(EntityChangedEvent evt)
+    {
+        if (_disposed) return;
+
+        _ = InvokeAsync(async () =>
+        {
+            if (_autoMergeMode)
+            {
+                // Auto-merge: fire immediately, page handles the merge
+                await OnEntityChanged.InvokeAsync(evt);
+            }
+            else
+            {
+                // Manual reload: show toast with Recharger button
+                _pendingEvent = evt;
+                ResetAutoDismiss();
+            }
+
+            StateHasChanged();
+        });
+    }
+
+    private void ResetAutoDismiss()
+    {
+        _autoDismissTimer?.Dispose();
+        _autoDismissTimer = new Timer(_ =>
+        {
+            if (_disposed) return;
+            _ = InvokeAsync(() =>
+            {
+                _pendingEvent = null;
+                _autoDismissTimer?.Dispose();
+                _autoDismissTimer = null;
+                StateHasChanged();
+            });
+        }, null, 10_000, Timeout.Infinite);
+    }
+
+    private async Task HandleReload()
+    {
+        _pendingEvent = null;
+        _autoDismissTimer?.Dispose();
+        _autoDismissTimer = null;
+        await OnReloadRequested.InvokeAsync();
+    }
+
+    private void HandleDismiss()
+    {
+        _pendingEvent = null;
+        _autoDismissTimer?.Dispose();
+        _autoDismissTimer = null;
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _autoDismissTimer?.Dispose();
+
+        if (!string.IsNullOrWhiteSpace(CircuitId))
+        {
+            ChangeSubscriber.Unsubscribe(CircuitId);
+        }
+    }
+}

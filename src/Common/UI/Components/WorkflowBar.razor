@@ -1,0 +1,232 @@
+@namespace Stratum.Common.UI.Components
+@inject IJSRuntime JS
+
+<div class="workflow-bar" data-testid="@(TestId ?? "workflow-bar")">
+    <div class="workflow-bar__status">
+        <span class="workflow-bar__status-label">Statut</span>
+        <StatusBadge Label="@CurrentStatus" Severity="@GetStatusSeverity(CurrentStatus)" />
+    </div>
+
+    @if (PendingApprovals.Count > 0)
+    {
+        <div class="workflow-bar__approvals" data-testid="workflow-bar-approvals">
+            <span class="workflow-bar__section-label">Avis en attente</span>
+            <div class="workflow-bar__approval-list">
+                @foreach (var approval in PendingApprovals)
+                {
+                    <span class="workflow-bar__approval-chip @GetApprovalChipClass(approval.Opinion)"
+                          title="@FormatApprovalTooltip(approval)">
+                        @approval.ServiceCode — @FormatOpinionLabel(approval.Opinion)
+                        @if (!string.IsNullOrEmpty(approval.Conditions))
+                        {
+                            <span class="workflow-bar__approval-conditions" title="@approval.Conditions">*</span>
+                        }
+                    </span>
+                }
+            </div>
+        </div>
+    }
+
+    @if (ActiveEscalations.Count > 0)
+    {
+        <div class="workflow-bar__escalations" data-testid="workflow-bar-escalations">
+            <span class="workflow-bar__section-label">Escalades actives</span>
+            <div class="workflow-bar__escalation-list">
+                @foreach (var escalation in ActiveEscalations)
+                {
+                    <span class="workflow-bar__escalation-chip"
+                          title="@FormatEscalationTooltip(escalation)">
+                        @FormatEscalationLabel(escalation)
+                    </span>
+                }
+            </div>
+        </div>
+    }
+
+    @if (AvailableTransitions.Count > 0)
+    {
+        <div class="workflow-bar__actions">
+            @foreach (var transition in AvailableTransitions)
+            {
+                @if (transition.Disabled)
+                {
+                    <button type="button"
+                            class="workflow-bar__btn workflow-bar__btn--disabled"
+                            disabled
+                            title="@transition.DisabledReason"
+                            aria-disabled="true">
+                        @transition.Label
+                    </button>
+                }
+                else
+                {
+                    var t = transition;
+                    <button type="button"
+                            class="@GetButtonClass(t)"
+                            @onclick="async () => await HandleTransitionClick(t)">
+                        @t.Label
+                    </button>
+                }
+            }
+        </div>
+    }
+</div>
+
+@if (_pendingTransition is not null)
+{
+    <div class="workflow-bar__backdrop"
+         role="presentation"
+         aria-hidden="true"
+         @onclick="CancelConfirmation"></div>
+    <div class="workflow-bar__confirm"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="wf-confirm-title"
+         tabindex="-1"
+         @onkeydown="HandleModalKeyDown">
+        <div class="workflow-bar__confirm-header">
+            <h5 class="workflow-bar__confirm-title" id="wf-confirm-title">Confirmer l'action</h5>
+            <button type="button"
+                    class="workflow-bar__confirm-close"
+                    @onclick="CancelConfirmation"
+                    aria-label="Fermer">&#x2715;</button>
+        </div>
+        <div class="workflow-bar__confirm-body">
+            <p>Souhaitez-vous confirmer&#xA0;: <strong>@_pendingTransition.Label</strong>&#xA0;?</p>
+            <p class="workflow-bar__confirm-muted">
+                Cette action passera le statut de <strong>@CurrentStatus</strong>
+                à <strong>@_pendingTransition.TargetStatus</strong>.
+            </p>
+        </div>
+        <div class="workflow-bar__confirm-footer">
+            <button type="button"
+                    class="workflow-bar__btn workflow-bar__btn--secondary"
+                    @onclick="CancelConfirmation"
+                    @ref="_cancelButtonRef">Annuler</button>
+            <button type="button"
+                    class="workflow-bar__btn workflow-bar__btn--primary"
+                    @onclick="ConfirmTransition">Confirmer</button>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Current workflow status to display.</summary>
+    [Parameter, EditorRequired]
+    public string CurrentStatus { get; set; } = string.Empty;
+
+    /// <summary>All transitions to show. Disabled ones are rendered as greyed-out buttons with tooltips.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<WorkflowTransition> AvailableTransitions { get; set; } = [];
+
+    /// <summary>Invoked when the user confirms a transition (after optional confirmation modal).</summary>
+    [Parameter, EditorRequired]
+    public EventCallback<WorkflowTransition> OnTransition { get; set; }
+
+    /// <summary>Pending approvals/opinions for the current instance. Empty list hides the section.</summary>
+    [Parameter]
+    public IReadOnlyList<WorkflowApprovalInfo> PendingApprovals { get; set; } = [];
+
+    /// <summary>Active escalation rules for the current instance. Empty list hides the section.</summary>
+    [Parameter]
+    public IReadOnlyList<WorkflowEscalationInfo> ActiveEscalations { get; set; } = [];
+
+    private WorkflowTransition? _pendingTransition;
+    private ElementReference _cancelButtonRef;
+
+    private async Task HandleTransitionClick(WorkflowTransition transition)
+    {
+        if (transition.RequiresConfirmation)
+        {
+            // Save focus so it can be restored when the modal closes (ARIA best practice).
+            try { await JS.InvokeVoidAsync("stratumUI.saveFocus"); }
+            catch (Exception ex) when (ex is JSException or OperationCanceledException) { }
+            _pendingTransition = transition;
+            await InvokeAsync(StateHasChanged);
+            await _cancelButtonRef.FocusAsync();
+        }
+        else
+        {
+            await OnTransition.InvokeAsync(transition);
+        }
+    }
+
+    private async Task CancelConfirmation()
+    {
+        _pendingTransition = null;
+        try { await JS.InvokeVoidAsync("stratumUI.restoreFocus"); }
+        catch (Exception ex) when (ex is JSException or OperationCanceledException) { }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleModalKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            _ = CancelConfirmation();
+        }
+    }
+
+    private async Task ConfirmTransition()
+    {
+        var t = _pendingTransition!;
+        _pendingTransition = null;
+        try { await JS.InvokeVoidAsync("stratumUI.restoreFocus"); }
+        catch (Exception ex) when (ex is JSException or OperationCanceledException) { }
+        await OnTransition.InvokeAsync(t);
+    }
+
+    private static Severity GetStatusSeverity(string status) => status switch
+    {
+        "Draft"     => Severity.Neutral,
+        "Submitted" => Severity.Warning,
+        "Approved"  => Severity.Success,
+        "Cancelled" => Severity.Error,
+        _           => Severity.Info,
+    };
+
+    private static string GetButtonClass(WorkflowTransition t) => t.TargetStatus switch
+    {
+        "Cancelled" => "workflow-bar__btn workflow-bar__btn--danger",
+        "Approved"  => "workflow-bar__btn workflow-bar__btn--success",
+        _           => "workflow-bar__btn workflow-bar__btn--outline",
+    };
+
+    private static string GetApprovalChipClass(string opinion) => opinion switch
+    {
+        "approved"                 => "workflow-bar__approval-chip--approved",
+        "approved_with_conditions" => "workflow-bar__approval-chip--conditions",
+        "needs_info"               => "workflow-bar__approval-chip--pending",
+        "rejected"                 => "workflow-bar__approval-chip--rejected",
+        _                          => "",
+    };
+
+    private static string FormatOpinionLabel(string opinion) => opinion switch
+    {
+        "approved"                 => "Approuvé",
+        "approved_with_conditions" => "Approuvé avec conditions",
+        "needs_info"               => "Info requise",
+        "rejected"                 => "Rejeté",
+        _                          => opinion,
+    };
+
+    private static string FormatApprovalTooltip(WorkflowApprovalInfo approval)
+    {
+        var label = $"{approval.ServiceCode}: {FormatOpinionLabel(approval.Opinion)}";
+        if (!string.IsNullOrEmpty(approval.Conditions))
+        {
+            label += $" — {approval.Conditions}";
+        }
+        return label;
+    }
+
+    private static string FormatEscalationLabel(WorkflowEscalationInfo escalation) =>
+        $"{escalation.ConditionType}: {escalation.ActionType}";
+
+    private static string FormatEscalationTooltip(WorkflowEscalationInfo escalation) =>
+        $"Condition: {escalation.ConditionType} ({escalation.ConditionParams}) → Action: {escalation.ActionType}";
+}

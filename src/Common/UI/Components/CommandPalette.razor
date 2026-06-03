@@ -1,0 +1,427 @@
+@namespace Stratum.Common.UI.Components
+@using Microsoft.Extensions.Localization
+@using Stratum.Common.UI.Models
+@using Stratum.Common.UI.Services
+@inject IJSRuntime JS
+@inject IStringLocalizer<SharedResources> L
+@inject ICommandRegistry CommandRegistry
+@implements IAsyncDisposable
+
+@*
+ * CommandPalette — glassmorphism fuzzy search overlay for quick navigation
+ * and contextual command discovery.
+ *
+ * Civic Blueprint glass restyle (UIC05):
+ *   - Surface glass navy (backdrop-blur 12px)
+ *   - Scope sections: "Sur cette page" (Page/Widget/Modal) + "Global"
+ *   - KBD shortcut hints on each command
+ *   - Ghost borders (no-line rule)
+ *
+ * Opened by the global Ctrl+K shortcut or the search button in ErpTopBar.
+ * Searches all NavNode labels (localized) and registered commands.
+ * Keyboard: ↑↓ navigate, Enter select, Esc close.
+ * Debounce: 200ms on input.
+ *
+ * Usage:
+ *   <CommandPalette IsOpen="@_searchOpen"
+ *                   OnClose="@(() => _searchOpen = false)"
+ *                   NavNodes="@_navNodes"
+ *                   OnNavigate="@HandleNavigate" />
+ *@
+
+@if (IsOpen)
+{
+    <div class="command-palette-backdrop"
+         @onclick="Close"
+         aria-hidden="true"
+         data-testid="command-palette-backdrop"></div>
+    <div class="command-palette"
+         id="@_dialogId"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="@($"{_dialogId}-title")"
+         tabindex="-1"
+         @onkeydown="HandleKeyDown"
+         @onkeydown:preventDefault="_preventKeyDefault"
+         data-testid="command-palette">
+        <h2 id="@($"{_dialogId}-title")" class="visually-hidden">@L["CommandPalette_AriaLabel"]</h2>
+        <div class="command-palette__search">
+            <span class="command-palette__search-icon" aria-hidden="true">
+                <StratumIcon Name="bi-search" />
+            </span>
+            <input type="text"
+                   class="command-palette__input"
+                   placeholder="@L["CommandPalette_Placeholder"]"
+                   aria-label="@L["CommandPalette_AriaLabel"]"
+                   aria-autocomplete="list"
+                   aria-controls="@($"{_dialogId}-results")"
+                   aria-activedescendant="@ActiveDescendantId"
+                   autocomplete="off"
+                   @ref="_inputRef"
+                   @bind-value="_query"
+                   @bind-value:event="oninput"
+                   @bind-value:after="OnQueryChanged"
+                   data-testid="command-palette-input" />
+            <kbd class="command-palette__search-kbd" data-testid="command-palette-search-kbd">Ctrl+K</kbd>
+        </div>
+
+        <div class="command-palette__results"
+             id="@($"{_dialogId}-results")"
+             role="listbox"
+             tabindex="0"
+             aria-label="@L["Search"]"
+             data-testid="command-palette-results">
+            @if (_flatResults.Count == 0 && !string.IsNullOrWhiteSpace(_query))
+            {
+                <div class="command-palette__empty" data-testid="command-palette-no-results">
+                    @L["NoResults"]
+                </div>
+            }
+            else
+            {
+                var flatIndex = 0;
+
+                @* ── Contextual commands (Page/Widget/Modal) ── *@
+                @if (_contextualCommands.Count > 0)
+                {
+                    <div class="command-palette__scope-section" data-testid="command-palette-scope-page">
+                        <div class="command-palette__scope-title" data-testid="command-palette-scope-title-page">
+                            @L["CommandPalette_ScopeThisPage"]
+                        </div>
+                        @foreach (var cmd in _contextualCommands)
+                        {
+                            var idx = flatIndex;
+                            <div class="command-palette__item @(idx == _selectedIndex ? "selected" : "")"
+                                 id="@($"{_dialogId}-option-{idx}")"
+                                 role="option"
+                                 aria-selected="@(idx == _selectedIndex ? "true" : "false")"
+                                 @onclick="@(() => SelectCommand(cmd))"
+                                 @onmouseover="@(() => { _selectedIndex = idx; })"
+                                 data-testid="command-palette-item-@idx">
+                                <span class="command-palette__item-label">@cmd.Label</span>
+                                @if (cmd.ShortcutHint is not null)
+                                {
+                                    <kbd class="command-palette__item-kbd"
+                                         data-testid="command-palette-kbd-@idx">@cmd.ShortcutHint</kbd>
+                                }
+                            </div>
+                            flatIndex++;
+                        }
+                    </div>
+                }
+
+                @* ── Global commands ── *@
+                @if (_globalCommands.Count > 0)
+                {
+                    <div class="command-palette__scope-section" data-testid="command-palette-scope-global">
+                        <div class="command-palette__scope-title" data-testid="command-palette-scope-title-global">
+                            @L["CommandPalette_ScopeGlobal"]
+                        </div>
+                        @foreach (var cmd in _globalCommands)
+                        {
+                            var idx = flatIndex;
+                            <div class="command-palette__item @(idx == _selectedIndex ? "selected" : "")"
+                                 id="@($"{_dialogId}-option-{idx}")"
+                                 role="option"
+                                 aria-selected="@(idx == _selectedIndex ? "true" : "false")"
+                                 @onclick="@(() => SelectCommand(cmd))"
+                                 @onmouseover="@(() => { _selectedIndex = idx; })"
+                                 data-testid="command-palette-item-@idx">
+                                <span class="command-palette__item-label">@cmd.Label</span>
+                                @if (cmd.ShortcutHint is not null)
+                                {
+                                    <kbd class="command-palette__item-kbd"
+                                         data-testid="command-palette-kbd-@idx">@cmd.ShortcutHint</kbd>
+                                }
+                            </div>
+                            flatIndex++;
+                        }
+                    </div>
+                }
+
+                @* ── Navigation items (grouped by module) ── *@
+                @foreach (var group in _filteredGroups)
+                {
+                    <div class="command-palette__group" data-testid="command-palette-group">
+                        <div class="command-palette__group-title" data-testid="command-palette-group-title">
+                            @if (group.Icon is not null)
+                            {
+                                <StratumIcon Name="@group.Icon" Class="command-palette__group-icon" />
+                            }
+                            @group.ModuleLabel
+                        </div>
+                        @foreach (var item in group.Items)
+                        {
+                            var idx = flatIndex;
+                            <div class="command-palette__item @(idx == _selectedIndex ? "selected" : "")"
+                                 id="@($"{_dialogId}-option-{idx}")"
+                                 role="option"
+                                 aria-selected="@(idx == _selectedIndex ? "true" : "false")"
+                                 @onclick="@(() => SelectItem(item))"
+                                 @onmouseover="@(() => { _selectedIndex = idx; })"
+                                 data-testid="command-palette-item-@idx">
+                                <span class="command-palette__item-label">@item.Label</span>
+                                <span class="command-palette__item-path">@item.Href</span>
+                            </div>
+                            flatIndex++;
+                        }
+                    </div>
+                }
+            }
+        </div>
+
+        <div class="command-palette__footer" data-testid="command-palette-footer">
+            <span><kbd>↑↓</kbd> @L["CommandPalette_NavigateHint"]</span>
+            <span><kbd>↵</kbd> @L["CommandPalette_SelectHint"]</span>
+            <span><kbd>Esc</kbd> @L["CommandPalette_CloseHint"]</span>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public IReadOnlyList<NavNode> NavNodes { get; set; } = [];
+    [Parameter] public EventCallback<string> OnNavigate { get; set; }
+
+    private ElementReference _inputRef;
+    private bool _wasOpen;
+    private bool _focusTrapRegistered;
+    private volatile bool _disposed;
+    private readonly string _dialogId = $"cmd-palette-{Guid.NewGuid():N}"[..18];
+
+    private string _query = "";
+    private int _selectedIndex;
+    private bool _preventKeyDefault;
+    private List<SearchGroup> _filteredGroups = [];
+    private List<object> _flatResults = []; // SearchItem or CommandDefinition
+    private List<CommandDefinition> _contextualCommands = [];
+    private List<CommandDefinition> _globalCommands = [];
+    private System.Timers.Timer? _debounceTimer;
+
+    private string? ActiveDescendantId =>
+        _flatResults.Count > 0 && _selectedIndex >= 0 && _selectedIndex < _flatResults.Count
+            ? $"{_dialogId}-option-{_selectedIndex}"
+            : null;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_disposed) return;
+
+        if (IsOpen && !_wasOpen)
+        {
+            _wasOpen = true;
+            _query = "";
+            _selectedIndex = 0;
+            BuildResults();
+
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.saveFocus");
+                await JS.InvokeVoidAsync("stratumUI.registerDialogFocusTrap", _dialogId);
+                _focusTrapRegistered = true;
+                // Re-render to show results, then focus input
+                StateHasChanged();
+                await Task.Yield();
+                await _inputRef.FocusAsync();
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Non-critical
+            }
+        }
+        else if (!IsOpen && _wasOpen)
+        {
+            _wasOpen = false;
+            await CleanupFocusTrapAsync();
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.restoreFocus");
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Non-critical
+            }
+        }
+    }
+
+    private void OnQueryChanged()
+    {
+        // Debounce: reset timer on each keystroke
+        _debounceTimer?.Stop();
+        _debounceTimer?.Dispose();
+        _debounceTimer = new System.Timers.Timer(200);
+        _debounceTimer.AutoReset = false;
+        _debounceTimer.Elapsed += (_, _) =>
+        {
+            _ = InvokeAsync(() =>
+            {
+                BuildResults();
+                _selectedIndex = 0;
+                StateHasChanged();
+            });
+        };
+        _debounceTimer.Start();
+    }
+
+    private void BuildResults()
+    {
+        _filteredGroups = [];
+        _flatResults = [];
+        _contextualCommands = [];
+        _globalCommands = [];
+
+        var query = _query?.Trim() ?? "";
+
+        // ── Commands from ICommandRegistry ──
+        var allCommands = CommandRegistry.GetAll();
+        foreach (var cmd in allCommands)
+        {
+            // Skip the open-search command (that's us) and disabled commands
+            if (cmd.Id == "open-search") continue;
+            if (cmd.IsEnabled is not null && !cmd.IsEnabled()) continue;
+
+            if (!string.IsNullOrEmpty(query) && !FuzzyMatch(cmd.Label, query) && !FuzzyMatch(cmd.ShortcutHint ?? "", query))
+                continue;
+
+            if (cmd.Scope == ShortcutScopeType.Global)
+                _globalCommands.Add(cmd);
+            else
+                _contextualCommands.Add(cmd);
+        }
+
+        _flatResults.AddRange(_contextualCommands);
+        _flatResults.AddRange(_globalCommands);
+
+        // ── Navigation items ──
+        if (NavNodes.Count == 0) return;
+
+        foreach (var root in NavNodes)
+        {
+            var items = new List<SearchItem>();
+            CollectSearchableItems(root, root.Label, root.Icon, items);
+
+            if (!string.IsNullOrEmpty(query))
+            {
+                items = items.Where(i => FuzzyMatch(i.Label, query) || FuzzyMatch(i.Href ?? "", query)).ToList();
+            }
+
+            if (items.Count > 0)
+            {
+                _filteredGroups.Add(new SearchGroup(root.Label, root.Icon, items));
+                _flatResults.AddRange(items);
+            }
+        }
+    }
+
+    private static void CollectSearchableItems(NavNode node, string moduleLabel, string? moduleIcon, List<SearchItem> items)
+    {
+        if (node.Href is not null)
+        {
+            items.Add(new SearchItem(node.Label, node.Href, moduleLabel, moduleIcon));
+        }
+
+        foreach (var child in node.Children)
+        {
+            CollectSearchableItems(child, moduleLabel, moduleIcon, items);
+        }
+    }
+
+    /// <summary>
+    /// Simple fuzzy match: all characters of the query appear in order in the target (case-insensitive).
+    /// </summary>
+    internal static bool FuzzyMatch(string target, string query)
+    {
+        if (string.IsNullOrEmpty(query)) return true;
+        if (string.IsNullOrEmpty(target)) return false;
+
+        var qi = 0;
+        for (var ti = 0; ti < target.Length && qi < query.Length; ti++)
+        {
+            if (char.ToLowerInvariant(target[ti]) == char.ToLowerInvariant(query[qi]))
+                qi++;
+        }
+        return qi == query.Length;
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        _preventKeyDefault = false;
+
+        switch (e.Key)
+        {
+            case "Escape":
+                Close();
+                break;
+            case "ArrowDown":
+                _preventKeyDefault = true;
+                if (_flatResults.Count > 0)
+                    _selectedIndex = (_selectedIndex + 1) % _flatResults.Count;
+                break;
+            case "ArrowUp":
+                _preventKeyDefault = true;
+                if (_flatResults.Count > 0)
+                    _selectedIndex = (_selectedIndex - 1 + _flatResults.Count) % _flatResults.Count;
+                break;
+            case "Enter":
+                _preventKeyDefault = true;
+                if (_flatResults.Count > 0 && _selectedIndex >= 0 && _selectedIndex < _flatResults.Count)
+                {
+                    var selected = _flatResults[_selectedIndex];
+                    if (selected is SearchItem si)
+                        SelectItem(si);
+                    else if (selected is CommandDefinition cd)
+                        SelectCommand(cd);
+                }
+                break;
+        }
+    }
+
+    private void SelectItem(SearchItem item)
+    {
+        Close();
+        _ = OnNavigate.InvokeAsync(item.Href);
+    }
+
+    private void SelectCommand(CommandDefinition _)
+    {
+        // Commands are informational in the palette — user sees them with their shortcut.
+        // Selecting a command simply closes the palette; the user can invoke it via the shortcut.
+        Close();
+    }
+
+    private void Close() => _ = OnClose.InvokeAsync();
+
+    private async Task CleanupFocusTrapAsync()
+    {
+        if (_focusTrapRegistered)
+        {
+            _focusTrapRegistered = false;
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.unregisterDialogFocusTrap", _dialogId);
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Non-critical
+            }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        _debounceTimer?.Stop();
+        _debounceTimer?.Dispose();
+        await CleanupFocusTrapAsync();
+        if (_wasOpen)
+        {
+            try { await JS.InvokeVoidAsync("stratumUI.restoreFocus"); }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException) { }
+        }
+    }
+
+    // ─── Inner types ──────────────────────────────────────────────────
+    internal sealed record SearchItem(string Label, string Href, string ModuleLabel, string? ModuleIcon);
+    internal sealed record SearchGroup(string ModuleLabel, string? Icon, List<SearchItem> Items);
+}

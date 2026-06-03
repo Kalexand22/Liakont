@@ -1,0 +1,93 @@
+@using System
+@using System.Linq
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.Extensions.Localization
+@using Liakont.Host
+@using Liakont.Host.Components.Settings
+@inject IStringLocalizer<HostResources> L
+
+<div class="erp-topbar-controls" data-testid="erp-topbar">
+    <button type="button"
+            class="erp-topbar__search"
+            title="@L["Topbar_Search"] (Ctrl+K)"
+            aria-label="@L["Topbar_Search"]"
+            onclick="stratumUI.shortcuts.simulateKey('k', true)"
+            data-testid="topbar-search-button">
+        <StratumIcon Name="bi-search" Class="erp-topbar__search-icon" />
+        <span class="erp-topbar__search-label">@L["Topbar_Search"]</span>
+        <kbd class="erp-topbar__kbd" aria-hidden="true">Ctrl+K</kbd>
+    </button>
+
+    <div class="erp-topbar__actions">
+        <button type="button"
+                class="erp-topbar__icon-button"
+                title="@L["Topbar_Notifications"]"
+                aria-label="@L["Topbar_Notifications"]"
+                data-testid="topbar-notifications"
+                disabled>
+            <StratumIcon Name="bi-bell" Class="erp-topbar__button-icon" />
+        </button>
+
+        <AuthorizeView>
+            <Authorized>
+                @{
+                    var displayName = GetDisplayName(context.User);
+                }
+                <div class="erp-topbar__identity">
+                    <div class="erp-topbar__user-chip" data-testid="topbar-user">
+                        <span class="erp-topbar__avatar" aria-hidden="true">@GetInitials(displayName)</span>
+                        <span class="erp-topbar__user-name">@displayName</span>
+                    </div>
+
+                    <ProfilePreferencesLauncher @rendermode="InteractiveServer" />
+
+                    <form method="get" action="/auth/oidc-logout" data-enhance="false" class="erp-topbar__logout-form">
+                        <button type="submit"
+                                class="erp-topbar__logout"
+                                title="@L["Topbar_Logout"]"
+                                aria-label="@L["Topbar_Logout"]"
+                                data-testid="topbar-logout">
+                            <StratumIcon Name="bi-box-arrow-right" Class="erp-topbar__button-icon" />
+                            <span>@L["Topbar_Logout"]</span>
+                        </button>
+                    </form>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+    </div>
+</div>
+
+@code {
+    private string GetDisplayName(ClaimsPrincipal? user)
+    {
+        var displayName = new[]
+        {
+            user?.Identity?.Name,
+            user?.FindFirst("preferred_username")?.Value,
+            user?.FindFirst("name")?.Value,
+            user?.FindFirst(ClaimTypes.Email)?.Value,
+        }
+        .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+
+        return string.IsNullOrWhiteSpace(displayName)
+            ? L["Topbar_DefaultUser"]
+            : displayName.Trim();
+    }
+
+    private static string GetInitials(string? displayName)
+    {
+        if (string.IsNullOrWhiteSpace(displayName))
+        {
+            return "A";
+        }
+
+        var initials = displayName
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Take(2)
+            .Select(part => char.ToUpperInvariant(part[0]))
+            .ToArray();
+
+        return initials.Length == 0 ? "A" : new string(initials);
+    }
+}

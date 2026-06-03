@@ -1,0 +1,287 @@
+@namespace Stratum.Common.UI.Components
+
+@* StratumTreeView — Stratum wrapper around RadzenTree.
+ *
+ * All public parameters use Stratum types. Radzen types are mapped internally.
+ * Use case: chart of accounts, category trees, org hierarchy.
+ *
+ * Usage:
+ *   <StratumTreeView Data="@_categories"
+ *                    TextProperty="Name"
+ *                    ChildrenProperty="Children"
+ *                    SelectedValue="@_selected"
+ *                    SelectedValueChanged="v => _selected = v"
+ *                    AllowExpand="true" />
+ *
+ * Checkbox mode:
+ *   <StratumTreeView Data="@_items"
+ *                    TextProperty="Name"
+ *                    ChildrenProperty="Children"
+ *                    AllowCheckBoxes="true"
+ *                    AllowCheckChildren="true"
+ *                    AllowCheckParents="true"
+ *                    CheckedValues="@_checked"
+ *                    CheckedValuesChanged="v => _checked = v" />
+ *
+ * Lazy loading:
+ *   <StratumTreeView Data="@_roots"
+ *                    TextProperty="Name"
+ *                    ChildrenProperty="Children"
+ *                    OnExpandItem="LoadChildrenAsync" />
+ *
+ * Keyboard: ↑↓ navigate, ←→ collapse/expand, Enter select.
+ *
+ * Ref: docs/architecture/ui-architecture-plan.md §4.
+ *@
+
+<div class="stratum-treeview @(_cssClass)" role="tree" data-testid="@(TestId ?? "stratum-tree-view")" @attributes="@_containerAttributes">
+    <Radzen.Blazor.RadzenTree Data="@Data"
+                              Value="@SelectedValue"
+                              Change="@HandleChange"
+                              Expand="@HandleExpand"
+                              Collapse="@HandleCollapse"
+                              AllowCheckBoxes="@AllowCheckBoxes"
+                              AllowCheckChildren="@AllowCheckChildren"
+                              AllowCheckParents="@AllowCheckParents"
+                              CheckedValues="@CheckedValues"
+                              CheckedValuesChanged="@HandleCheckedValuesChanged"
+                              SingleExpand="@SingleExpand"
+                              style="width: 100%;">
+        <Radzen.Blazor.RadzenTreeLevel TextProperty="@TextProperty"
+                                       ChildrenProperty="@ChildrenProperty"
+                                       HasChildren="@_hasChildrenFunc"
+                                       Expanded="@_expandedFunc"
+                                       Template="@_internalTemplate" />
+    </Radzen.Blazor.RadzenTree>
+</div>
+
+@code {
+    // ── Parameters ────────────────────────────────────────────────
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Hierarchical data source (root items).</summary>
+    [Parameter]
+    public System.Collections.IEnumerable? Data { get; set; }
+
+    /// <summary>Property name on items that provides child items (IEnumerable).</summary>
+    [Parameter]
+    public string? ChildrenProperty { get; set; }
+
+    /// <summary>Property name on items that provides the display text.</summary>
+    [Parameter]
+    public string? TextProperty { get; set; }
+
+    /// <summary>Property name on items that provides the value.</summary>
+    [Parameter]
+    public string? ValueProperty { get; set; }
+
+    /// <summary>Currently selected value (two-way binding).</summary>
+    [Parameter]
+    public object? SelectedValue { get; set; }
+
+    /// <summary>Raised when the selected value changes.</summary>
+    [Parameter]
+    public EventCallback<object?> SelectedValueChanged { get; set; }
+
+    /// <summary>Raised when an item is selected.</summary>
+    [Parameter]
+    public EventCallback<object?> OnSelect { get; set; }
+
+    /// <summary>Whether nodes can be expanded/collapsed. Default: true.</summary>
+    [Parameter]
+    public bool AllowExpand { get; set; } = true;
+
+    /// <summary>Custom template for rendering tree nodes. Receives the data item.</summary>
+    [Parameter]
+    public RenderFragment<object>? Template { get; set; }
+
+    /// <summary>Whether to display checkboxes next to tree nodes. Default: false.</summary>
+    [Parameter]
+    public bool AllowCheckBoxes { get; set; }
+
+    /// <summary>When true, checking a parent also checks all its children. Default: false.</summary>
+    [Parameter]
+    public bool AllowCheckChildren { get; set; }
+
+    /// <summary>When true, checking a child affects the checked state of its parents. Default: false.</summary>
+    [Parameter]
+    public bool AllowCheckParents { get; set; }
+
+    /// <summary>The collection of checked values (two-way binding). Use with <c>AllowCheckBoxes</c>.</summary>
+    [Parameter]
+    public IEnumerable<object>? CheckedValues { get; set; }
+
+    /// <summary>Raised when the checked values change.</summary>
+    [Parameter]
+    public EventCallback<IEnumerable<object>> CheckedValuesChanged { get; set; }
+
+    /// <summary>When true, expanding one node collapses its siblings (accordion style). Default: false.</summary>
+    [Parameter]
+    public bool SingleExpand { get; set; }
+
+    /// <summary>Raised when a node is expanded. Use for lazy loading children.</summary>
+    [Parameter]
+    public EventCallback<TreeExpandedArgs> OnExpandItem { get; set; }
+
+    /// <summary>Raised when a node is collapsed.</summary>
+    [Parameter]
+    public EventCallback<TreeCollapsedArgs> OnCollapseItem { get; set; }
+
+    /// <summary>Additional CSS classes applied to the root element.</summary>
+    [Parameter]
+    public string? CssClass { get; set; }
+
+    // ── Internal ──────────────────────────────────────────────────
+
+    private Dictionary<string, object> _containerAttributes = new();
+    private Func<object, bool>? _hasChildrenFunc;
+    private Func<object, bool>? _expandedFunc;
+    private RenderFragment<Radzen.Blazor.RadzenTreeItem>? _internalTemplate;
+    private string? _cssClass;
+
+    // ── Lifecycle ─────────────────────────────────────────────────
+
+    protected override void OnParametersSet()
+    {
+        // Build HasChildren function based on ChildrenProperty or lazy loading
+        if (OnExpandItem.HasDelegate)
+        {
+            // With lazy loading, any item might have children
+            _hasChildrenFunc = item =>
+            {
+                if (item is null) return false;
+                if (!string.IsNullOrEmpty(ChildrenProperty))
+                {
+                    var prop = item.GetType().GetProperty(ChildrenProperty);
+                    if (prop is null) return false;
+                    var children = prop.GetValue(item) as System.Collections.IEnumerable;
+                    if (children is null) return true; // null children = might have (lazy load)
+                    var enumerator = children.GetEnumerator();
+                    try { return enumerator.MoveNext(); }
+                    finally { (enumerator as IDisposable)?.Dispose(); }
+                }
+                return true; // default: assume expandable for lazy loading
+            };
+        }
+        else if (!string.IsNullOrEmpty(ChildrenProperty))
+        {
+            _hasChildrenFunc = item =>
+            {
+                if (item is null) return false;
+                var prop = item.GetType().GetProperty(ChildrenProperty);
+                if (prop is null) return false;
+                var children = prop.GetValue(item) as System.Collections.IEnumerable;
+                if (children is null) return false;
+                var enumerator = children.GetEnumerator();
+                try { return enumerator.MoveNext(); }
+                finally { (enumerator as IDisposable)?.Dispose(); }
+            };
+        }
+        else
+        {
+            _hasChildrenFunc = null;
+        }
+
+        // AllowExpand: if false, no nodes can expand
+        _expandedFunc = AllowExpand ? null : _ => false;
+
+        // Map external Template to internal RadzenTreeItem template
+        if (Template is not null)
+        {
+            _internalTemplate = treeItem => Template(treeItem.Value!);
+        }
+        else
+        {
+            _internalTemplate = null;
+        }
+
+        // Container ARIA attributes
+        _containerAttributes = new Dictionary<string, object>();
+        if (!AllowExpand)
+        {
+            _containerAttributes["data-no-expand"] = "true";
+        }
+        if (AllowCheckBoxes)
+        {
+            _containerAttributes["data-checkboxes"] = "true";
+        }
+        if (SingleExpand)
+        {
+            _containerAttributes["data-single-expand"] = "true";
+        }
+
+        // CSS class
+        _cssClass = CssClass;
+    }
+
+    // ── Event handling ────────────────────────────────────────────
+
+    private async Task HandleChange(Radzen.TreeEventArgs args)
+    {
+        var value = args.Value;
+
+        // If ValueProperty is specified, extract the value from the selected item
+        if (!string.IsNullOrEmpty(ValueProperty) && value is not null)
+        {
+            var prop = value.GetType().GetProperty(ValueProperty);
+            if (prop is not null)
+            {
+                value = prop.GetValue(value);
+            }
+        }
+
+        await SelectedValueChanged.InvokeAsync(value);
+        await OnSelect.InvokeAsync(value);
+    }
+
+    private async Task HandleExpand(Radzen.TreeExpandEventArgs args)
+    {
+        if (OnExpandItem.HasDelegate)
+        {
+            var stratumArgs = new TreeExpandedArgs(args.Value, args.Text);
+            await OnExpandItem.InvokeAsync(stratumArgs);
+
+            // If children were provided by the handler, set them on the data item
+            // and inform Radzen about the new children via TreeItemSettings
+            if (stratumArgs.Children is not null && !string.IsNullOrEmpty(ChildrenProperty))
+            {
+                // Set children on the data object
+                var prop = args.Value?.GetType().GetProperty(ChildrenProperty);
+                if (prop is not null && args.Value is not null)
+                {
+                    prop.SetValue(args.Value, stratumArgs.Children);
+                }
+
+                // Tell Radzen to render the children
+                var settings = new Radzen.TreeItemSettings
+                {
+                    Data = stratumArgs.Children,
+                    TextProperty = TextProperty,
+                    Template = _internalTemplate
+                };
+                if (_hasChildrenFunc is not null)
+                {
+                    settings.HasChildren = _hasChildrenFunc;
+                }
+                args.Children = settings;
+            }
+        }
+    }
+
+    private async Task HandleCollapse(Radzen.TreeEventArgs args)
+    {
+        if (OnCollapseItem.HasDelegate)
+        {
+            var stratumArgs = new TreeCollapsedArgs(args.Value, args.Text);
+            await OnCollapseItem.InvokeAsync(stratumArgs);
+        }
+    }
+
+    private async Task HandleCheckedValuesChanged(IEnumerable<object> values)
+    {
+        await CheckedValuesChanged.InvokeAsync(values);
+    }
+}

@@ -1,0 +1,73 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.Abstractions.Security
+@implements IDisposable
+@inject IPermissionService PermissionService
+
+@if (_hasPermission)
+{
+    @ChildContent
+}
+else if (Mode == GateMode.Hide)
+{
+    @Fallback
+}
+else
+{
+    <div class="permission-gate permission-gate--disabled"
+         title="@DisabledReason"
+         aria-disabled="true">
+        @ChildContent
+    </div>
+}
+
+@code {
+    /// <summary>Permission string that the current user must hold.</summary>
+    [Parameter, EditorRequired]
+    public string Permission { get; set; } = string.Empty;
+
+    /// <summary>
+    /// How to render when the user lacks the permission.
+    /// <c>Hide</c>: renders nothing (or <see cref="Fallback"/>).
+    /// <c>Disable</c>: renders children inside a wrapper with <c>aria-disabled="true"</c>,
+    /// a tooltip (<see cref="DisabledReason"/>), and CSS class <c>permission-gate--disabled</c>
+    /// (apply <c>pointer-events:none</c> in CSS to block interaction).
+    /// Individual child elements are NOT given the HTML <c>disabled</c> attribute —
+    /// server-side enforcement is always required; client-side is best-effort only.
+    /// </summary>
+    [Parameter]
+    public GateMode Mode { get; set; } = GateMode.Hide;
+
+    /// <summary>Tooltip displayed on the disabled wrapper. Only used in <see cref="GateMode.Disable"/> mode.</summary>
+    [Parameter]
+    public string? DisabledReason { get; set; }
+
+    /// <summary>Content to protect. Displayed when the user has the permission.</summary>
+    [Parameter, EditorRequired]
+    public RenderFragment ChildContent { get; set; } = default!;
+
+    /// <summary>
+    /// Optional alternative content rendered when the user lacks the permission
+    /// and <see cref="Mode"/> is <see cref="GateMode.Hide"/>.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? Fallback { get; set; }
+
+    private bool _hasPermission;
+
+    protected override void OnInitialized()
+    {
+        _hasPermission = PermissionService.HasPermission(Permission);
+        PermissionService.OnPermissionsChanged += HandlePermissionsChanged;
+    }
+
+    private void HandlePermissionsChanged()
+    {
+        InvokeAsync(() =>
+        {
+            _hasPermission = PermissionService.HasPermission(Permission);
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose() => PermissionService.OnPermissionsChanged -= HandlePermissionsChanged;
+}

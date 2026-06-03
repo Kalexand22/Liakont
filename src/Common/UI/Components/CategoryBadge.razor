@@ -1,0 +1,48 @@
+@namespace Stratum.Common.UI.Components
+
+@* CategoryBadge — generic coloured pill for categorical data (service, department, type…).
+ * Colour is deterministic: same Label always gets the same palette slot.
+ * No configuration needed — just pass a label and it works everywhere. *@
+
+<span class="category-badge category-badge--palette-@_paletteIndex"
+      data-testid="@(TestId ?? "category-badge")"
+      title="@Label">@Label</span>
+
+@code {
+    /// <summary>Text to display inside the badge.</summary>
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    /// <summary>Optional test identifier.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>
+    /// Optional explicit palette index (0–7). When null, the index is
+    /// derived deterministically from <see cref="Label"/> so the same
+    /// value always gets the same colour across all pages.
+    /// </summary>
+    [Parameter]
+    public int? PaletteIndex { get; set; }
+
+    private const int PaletteSize = 8;
+
+    private int _paletteIndex => PaletteIndex ?? DeterministicIndex(Label);
+
+    /// <summary>
+    /// Stable hash-based palette selection. Uses a simple DJB2-style hash
+    /// so the result is deterministic across sessions (no random, no GUID).
+    /// </summary>
+    private static int DeterministicIndex(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return 0;
+
+        unchecked
+        {
+            uint hash = 5381;
+            foreach (var c in value)
+                hash = (hash << 5) + hash + c;
+            return (int)(hash % PaletteSize);
+        }
+    }
+}

@@ -1,0 +1,248 @@
+@namespace Stratum.Common.UI.Components
+
+@*
+ * RoutingPreviewConsole — UIE04
+ *
+ * Glass-panel console for dry-run simulation of the RoutingEngine (RTE01..RTE03).
+ * The user selects an event type, edits a JSON payload, clicks "Simulate", and
+ * sees the matched routing rules + execution log in a console-style output.
+ *
+ * Consumed by:
+ *   - Admin notifications page (UIA05) — routing rule testing
+ *   - Showcase authoring page (UIE06) — aggregated demo
+ *
+ * Encapsulation (R1-R2):
+ *   - No RoutingResultDto or Notification.Contracts types in the public API.
+ *   - Consumer projects domain DTOs into Stratum.Common.UI.Models.SimulationResultItem.
+ *   - EventCallback<SimulationRequest> emits the simulation request; consumer handles
+ *     the domain call and feeds results back via the Results parameter.
+ *@
+
+<div class="routing-console @(_isExpanded ? "routing-console--expanded" : "")"
+     data-testid="@_testId"
+     role="region"
+     aria-label="@(AriaLabel ?? "Console de simulation du routage")">
+
+    @* ── Header ──────────────────────────────────────────────── *@
+    <div class="routing-console__header" data-testid="@($"{_testId}-header")">
+        <div class="routing-console__header-left">
+            <span class="routing-console__icon" aria-hidden="true">terminal</span>
+            <h3 class="routing-console__title">@(Title ?? "Routing Preview")</h3>
+        </div>
+        <div class="routing-console__header-actions">
+            @if (OnClear.HasDelegate && _hasResults)
+            {
+                <button type="button"
+                        class="routing-console__btn routing-console__btn--ghost"
+                        data-testid="@($"{_testId}-clear")"
+                        @onclick="HandleClearAsync"
+                        aria-label="Effacer les résultats">
+                    <span class="routing-console__btn-icon" aria-hidden="true">delete</span>
+                    Effacer
+                </button>
+            }
+            <button type="button"
+                    class="routing-console__btn routing-console__btn--ghost"
+                    data-testid="@($"{_testId}-toggle")"
+                    @onclick="ToggleExpand"
+                    aria-label="@(_isExpanded ? "Réduire" : "Agrandir")">
+                <span class="routing-console__btn-icon" aria-hidden="true">
+                    @(_isExpanded ? "collapse_all" : "expand_all")
+                </span>
+            </button>
+        </div>
+    </div>
+
+    @* ── Input area ──────────────────────────────────────────── *@
+    <div class="routing-console__input" data-testid="@($"{_testId}-input")">
+        <div class="routing-console__field">
+            <label class="routing-console__label" for="@($"{_testId}-event-type")">
+                Type d'événement
+            </label>
+            <select class="routing-console__select"
+                    id="@($"{_testId}-event-type")"
+                    data-testid="@($"{_testId}-event-select")"
+                    value="@_selectedEventType"
+                    @onchange="HandleEventTypeChange"
+                    disabled="@IsSimulating">
+                <option value="">— Sélectionner —</option>
+                @foreach (var eventType in EventTypes)
+                {
+                    <option value="@eventType">@eventType</option>
+                }
+            </select>
+        </div>
+
+        <div class="routing-console__field routing-console__field--grow">
+            <label class="routing-console__label" for="@($"{_testId}-payload")">
+                Payload JSON
+            </label>
+            <textarea class="routing-console__textarea"
+                      id="@($"{_testId}-payload")"
+                      data-testid="@($"{_testId}-payload")"
+                      rows="@PayloadRows"
+                      placeholder='{ "key": "value" }'
+                      @bind="_payloadJson"
+                      @bind:event="oninput"
+                      disabled="@IsSimulating"
+                      spellcheck="false"></textarea>
+        </div>
+
+        <button type="button"
+                class="routing-console__btn routing-console__btn--primary"
+                data-testid="@($"{_testId}-simulate")"
+                @onclick="HandleSimulateAsync"
+                disabled="@(!_canSimulate)">
+            @if (IsSimulating)
+            {
+                <span class="routing-console__spinner" aria-hidden="true"></span>
+                <span>Simulation...</span>
+            }
+            else
+            {
+                <span class="routing-console__btn-icon" aria-hidden="true">play_arrow</span>
+                <span>Simulate</span>
+            }
+        </button>
+    </div>
+
+    @* ── Output console ──────────────────────────────────────── *@
+    <div class="routing-console__output" data-testid="@($"{_testId}-output")" role="log" aria-live="polite">
+        @if (_hasResults)
+        {
+            <div class="routing-console__prompt" data-testid="@($"{_testId}-prompt")">
+                <span class="routing-console__prompt-caret" aria-hidden="true">&gt;</span>
+                <span>evaluate "@_selectedEventType" — @Results!.Count règle(s) matchée(s)</span>
+            </div>
+
+            @if (Results!.Count == 0)
+            {
+                <div class="routing-console__line routing-console__line--empty"
+                     data-testid="@($"{_testId}-no-match")">
+                    Aucune règle ne correspond aux données fournies.
+                </div>
+            }
+            else
+            {
+                @for (var i = 0; i < Results.Count; i++)
+                {
+                    var result = Results[i];
+                    var idx = i;
+                    <div class="routing-console__line"
+                         data-testid="@($"{_testId}-result-{idx}")"
+                         @key="result.RuleCode">
+                        <span class="routing-console__line-index" aria-hidden="true">@(idx + 1).</span>
+                        <span class="routing-console__line-code">[@result.RuleCode]</span>
+                        <span class="routing-console__line-name">@result.RuleName</span>
+                        <span class="routing-console__line-sep" aria-hidden="true">→</span>
+                        <span class="routing-console__line-target">
+                            @result.RecipientType:@result.RecipientValue
+                        </span>
+                        <span class="routing-console__line-priority"
+                              title="Priorité @result.Priority">
+                            P@result.Priority
+                        </span>
+                    </div>
+                }
+            }
+
+            @if (SimulationDuration is not null)
+            {
+                <div class="routing-console__footer" data-testid="@($"{_testId}-duration")">
+                    <span class="routing-console__footer-label">Durée :</span>
+                    <span class="routing-console__footer-value">@SimulationDuration.Value.TotalMilliseconds.ToString("F0") ms</span>
+                </div>
+            }
+        }
+        else if (!IsSimulating)
+        {
+            <div class="routing-console__placeholder" data-testid="@($"{_testId}-placeholder")">
+                <span class="routing-console__prompt-caret" aria-hidden="true">&gt;</span>
+                Sélectionnez un type d'événement et cliquez sur « Simulate » pour tester le routage.
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>Optional test identifier prefix. Defaults to <c>"routing-console"</c>.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Optional ARIA label for the region.</summary>
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    /// <summary>Header title. Defaults to "Routing Preview".</summary>
+    [Parameter]
+    public string? Title { get; set; }
+
+    /// <summary>Available event types to simulate against.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<string> EventTypes { get; set; } = [];
+
+    /// <summary>Simulation results to display. Null = no simulation run yet.</summary>
+    [Parameter]
+    public IReadOnlyList<SimulationResultItem>? Results { get; set; }
+
+    /// <summary>Whether a simulation is currently in progress.</summary>
+    [Parameter]
+    public bool IsSimulating { get; set; }
+
+    /// <summary>Optional duration of the last simulation (displayed in the footer).</summary>
+    [Parameter]
+    public TimeSpan? SimulationDuration { get; set; }
+
+    /// <summary>Number of rows in the payload textarea. Defaults to 6.</summary>
+    [Parameter]
+    public int PayloadRows { get; set; } = 6;
+
+    /// <summary>
+    /// Fired when the user clicks "Simulate". The consumer should call the
+    /// routing engine and then update <see cref="Results"/>.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public EventCallback<SimulationRequest> OnSimulate { get; set; }
+
+    /// <summary>Fired when the user clicks "Clear". Consumer should null-out <see cref="Results"/>.</summary>
+    [Parameter]
+    public EventCallback OnClear { get; set; }
+
+    private string _testId => TestId ?? "routing-console";
+
+    private string _selectedEventType = string.Empty;
+
+    private string _payloadJson = "{\n  \n}";
+
+    private bool _isExpanded;
+
+    private bool _hasResults => Results is not null;
+
+    private bool _canSimulate =>
+        !IsSimulating
+        && !string.IsNullOrWhiteSpace(_selectedEventType)
+        && OnSimulate.HasDelegate;
+
+    private void HandleEventTypeChange(ChangeEventArgs e)
+    {
+        _selectedEventType = e.Value?.ToString() ?? string.Empty;
+    }
+
+    private Task HandleSimulateAsync()
+    {
+        if (!_canSimulate)
+        {
+            return Task.CompletedTask;
+        }
+
+        return OnSimulate.InvokeAsync(new SimulationRequest
+        {
+            EventType = _selectedEventType,
+            PayloadJson = _payloadJson,
+        });
+    }
+
+    private Task HandleClearAsync() => OnClear.InvokeAsync();
+
+    private void ToggleExpand() => _isExpanded = !_isExpanded;
+}

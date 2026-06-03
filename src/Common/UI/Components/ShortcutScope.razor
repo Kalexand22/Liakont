@@ -1,0 +1,65 @@
+@namespace Stratum.Common.UI.Components
+@inject IShortcutService ShortcutService
+@implements IDisposable
+
+@*
+ * ShortcutScope — delimits a keyboard-shortcut scope within the component tree.
+ *
+ * Usage:
+ *   <ShortcutScope ScopeType="ShortcutScopeType.Page" Bindings="@_bindings">
+ *       ... page content ...
+ *   </ShortcutScope>
+ *
+ * Bindings example:
+ *   private readonly IReadOnlyList<ScopeBinding> _bindings =
+ *   [
+ *       new ScopeBinding("save",   "s", Ctrl: true,  Handler: () => SaveAsync()),
+ *       new ScopeBinding("cancel", "Escape",          Handler: () => CancelAsync()),
+ *   ];
+ *
+ * The component pushes the scope on initialization and pops it on disposal.
+ * Scopes form a hierarchy: Modal > Widget > Page > Global.
+ * The GlobalShortcutHandler propagates the active key map to JS after each change.
+ *
+ * Ref: docs/ui-foundations.md §4, orchestration/manifest.yaml item P02.
+ *@
+
+@ChildContent
+
+@code {
+    /// <summary>Hierarchical scope type (Global / Page / Widget / Modal).</summary>
+    [Parameter, EditorRequired]
+    public ShortcutScopeType ScopeType { get; set; }
+
+    /// <summary>Key bindings active within this scope.</summary>
+    [Parameter]
+    public IReadOnlyList<ScopeBinding> Bindings { get; set; } = [];
+
+    /// <summary>Content rendered inside this scope boundary.</summary>
+    [Parameter, EditorRequired]
+    public RenderFragment ChildContent { get; set; } = default!;
+
+    private readonly string _scopeId = Guid.NewGuid().ToString("N")[..10];
+    private IReadOnlyList<ScopeBinding>? _registeredBindings;
+
+    protected override void OnInitialized()
+    {
+        _registeredBindings = Bindings;
+        ShortcutService.PushScope(_scopeId, ScopeType, Bindings);
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (_registeredBindings is not null && !ReferenceEquals(_registeredBindings, Bindings))
+        {
+            ShortcutService.PopScope(_scopeId);
+            _registeredBindings = Bindings;
+            ShortcutService.PushScope(_scopeId, ScopeType, Bindings);
+        }
+    }
+
+    public void Dispose()
+    {
+        ShortcutService.PopScope(_scopeId);
+    }
+}

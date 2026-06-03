@@ -1,0 +1,117 @@
+// dashboard.js.module — Dashboard layout interop for DashboardLayout.razor
+// Wraps gridstack.js (vendored in wwwroot/lib/gridstack/).
+
+const _LIB_BASE = '_content/Stratum.Common.UI/lib/gridstack/';
+
+let _loadPromise = null;
+
+async function _ensureGridStack() {
+    if (typeof window.GridStack !== 'undefined') return;
+    if (!_loadPromise) {
+        _loadPromise = _loadBundle().catch(e => { _loadPromise = null; throw e; });
+    }
+    await _loadPromise;
+}
+
+async function _loadBundle() {
+    if (!document.querySelector('link[data-gridstack-css]')) {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = _LIB_BASE + 'gridstack.min.css';
+        link.setAttribute('data-gridstack-css', '');
+        document.head.appendChild(link);
+    }
+
+    if (document.querySelector('script[data-gridstack-js]')) return;
+
+    await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = _LIB_BASE + 'gridstack.min.js';
+        script.setAttribute('data-gridstack-js', '');
+        script.onload = resolve;
+        script.onerror = () => reject(new Error('dashboard: failed to load gridstack.min.js'));
+        document.head.appendChild(script);
+    });
+}
+
+/** @type {WeakMap<Element, GridStack>} */
+const _grids = new WeakMap();
+
+/**
+ * Initialises a Gridstack instance on the given container element.
+ * @param {Element} element
+ * @param {object} dotNetRef
+ * @param {{ columns: number, rowHeight: number, cellPadding: number, draggable: boolean, resizable: boolean }} options
+ */
+export async function init(element, dotNetRef, options) {
+    await _ensureGridStack();
+
+    const isStatic = !options.draggable && !options.resizable;
+
+    const gs = window.GridStack.init(
+        {
+            column:               options.columns    ?? 12,
+            rowHeight:            options.rowHeight   ?? 60,
+            margin:               options.cellPadding ?? 8,
+            handle:               '.dashlet__drag-handle',
+            draggable:            { enabled: options.draggable !== false },
+            resizable:            { enabled: options.resizable !== false },
+            staticGrid:           isStatic,
+            disableOneColumnMode: true,
+            float:                false,
+        },
+        element
+    );
+
+    gs.on('change', () => {
+        const layout = gs.save(false) ?? [];
+        const serialised = JSON.stringify(layout);
+        dotNetRef.invokeMethodAsync('OnLayoutChanged', serialised).catch(e => {
+            console.error('[dashboard] OnLayoutChanged failed:', e);
+        });
+    });
+
+    _grids.set(element, gs);
+}
+
+/**
+ * Applies a new layout programmatically.
+ * @param {Element} element
+ * @param {Array<{ id: string, x: number, y: number, w: number, h: number, minW: number|null, minH: number|null, locked: boolean }>} items
+ */
+export function updateLayout(element, items) {
+    const gs = _grids.get(element);
+    if (!gs || !items) return;
+
+    for (const item of items) {
+        const el = element.querySelector(`[data-dashlet-id="${CSS.escape(item.id)}"]`);
+        if (el) {
+            gs.update(el, {
+                x: item.x,
+                y: item.y,
+                w: item.w,
+                h: item.h,
+                minW:     item.minW    ?? undefined,
+                minH:     item.minH    ?? undefined,
+                locked:   item.locked  ?? false,
+                noMove:   item.locked  ?? false,
+                noResize: item.locked  ?? false,
+            });
+        }
+    }
+}
+
+/**
+ * Destroys the Gridstack instance without removing DOM elements.
+ * @param {Element} element
+ */
+export function destroy(element) {
+    const gs = _grids.get(element);
+    if (!gs) return;
+
+    try {
+        gs.destroy(false);
+    } catch (_) { }
+
+    _grids.delete(element);
+}

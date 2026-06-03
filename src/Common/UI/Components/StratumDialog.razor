@@ -1,0 +1,309 @@
+@namespace Stratum.Common.UI.Components
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@* StratumDialog — accessible modal dialog with focus trap.
+ *
+ * Native implementation (no Radzen dependency). Provides:
+ * - Sizes: Sm / Md / Lg / Xl / Fullscreen (or custom Width)
+ * - role="dialog", aria-modal="true", aria-labelledby
+ * - Focus trap (Tab/Shift+Tab cycle within dialog)
+ * - Esc closes (configurable)
+ * - Overlay click closes (configurable)
+ * - Focus returns to trigger element on close
+ * - Z-index stacking for nested dialogs
+ * - Scroll lock on body while open
+ * - CSS entry animation
+ *
+ * Usage:
+ *   <StratumDialog Title="Confirmer" @bind-Visible="_showDialog" OnClose="HandleClose">
+ *       <ChildContent>
+ *           <p>Voulez-vous vraiment supprimer cet enregistrement ?</p>
+ *       </ChildContent>
+ *       <Actions>
+ *           <button class="btn btn-danger" @onclick="Delete">Supprimer</button>
+ *           <button class="btn btn-secondary" @onclick="() => _showDialog = false">Annuler</button>
+ *       </Actions>
+ *   </StratumDialog>
+ *@
+
+@if (Visible)
+{
+    <div class="stratum-dialog-backdrop"
+         style="z-index: @(_zIndex - 1)"
+         @onclick="HandleOverlayClick"
+         aria-hidden="true"
+         data-testid="@(TestId is not null ? $"{TestId}-backdrop" : "stratum-dialog-backdrop")"></div>
+    <div class="@DialogCssClass"
+         id="@_dialogId"
+         data-testid="@(TestId ?? "stratum-dialog")"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="@_titleId"
+         style="@DialogStyle"
+         @onkeydown="HandleKeyDown"
+         tabindex="-1"
+         @ref="_dialogRef">
+        <div class="stratum-dialog__header">
+            @if (HeaderContent is not null)
+            {
+                <div id="@_titleId" class="stratum-dialog__header-content">@HeaderContent</div>
+            }
+            else
+            {
+                <h2 id="@_titleId" class="stratum-dialog__title">@Title</h2>
+            }
+            @if (ShowCloseButton)
+            {
+                <button type="button"
+                        class="stratum-dialog__close"
+                        @onclick="CloseAsync"
+                        aria-label="Fermer"
+                        data-testid="@(TestId is not null ? $"{TestId}-close" : "stratum-dialog-close")">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            }
+        </div>
+        <div class="@BodyCssClass">
+            @ChildContent
+        </div>
+        @if (Actions is not null)
+        {
+            <div class="stratum-dialog__footer">
+                @Actions
+            </div>
+        }
+    </div>
+}
+
+@code {
+    // ── Parameters ────────────────────────────────────────────────
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Dialog title displayed in the header. Ignored when <see cref="HeaderContent"/> is set.</summary>
+    [Parameter]
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>Rich header content. When set, replaces the <see cref="Title"/> string.</summary>
+    [Parameter]
+    public RenderFragment? HeaderContent { get; set; }
+
+    /// <summary>Whether the dialog is visible (two-way binding).</summary>
+    [Parameter]
+    public bool Visible { get; set; }
+
+    /// <summary>Raised when the Visible value changes.</summary>
+    [Parameter]
+    public EventCallback<bool> VisibleChanged { get; set; }
+
+    /// <summary>Raised when the dialog is closed (Esc, overlay click, or close button).</summary>
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    /// <summary>Body content of the dialog.</summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Footer buttons / actions.</summary>
+    [Parameter]
+    public RenderFragment? Actions { get; set; }
+
+    /// <summary>Predefined dialog size. When set, overrides <see cref="Width"/>.</summary>
+    [Parameter]
+    public DialogSize? Size { get; set; }
+
+    /// <summary>
+    /// CSS width of the dialog (default "500px"). Only used when <see cref="Size"/> is null.
+    /// Must match pattern: number + unit (px, rem, em, %).
+    /// </summary>
+    [Parameter]
+    public string Width { get; set; } = "500px";
+
+    /// <summary>Whether pressing Esc closes the dialog (default true).</summary>
+    [Parameter]
+    public bool CloseOnEsc { get; set; } = true;
+
+    /// <summary>Whether clicking the overlay closes the dialog (default true).</summary>
+    [Parameter]
+    public bool CloseOnOverlay { get; set; } = true;
+
+    /// <summary>Whether to show the close button in the header (default true).</summary>
+    [Parameter]
+    public bool ShowCloseButton { get; set; } = true;
+
+    /// <summary>Whether the body scrolls independently (default false).</summary>
+    [Parameter]
+    public bool Scrollable { get; set; }
+
+    /// <summary>Additional CSS class(es) on the dialog root element.</summary>
+    [Parameter]
+    public string? CssClass { get; set; }
+
+    // ── Width validation ──────────────────────────────────────────
+    private static readonly System.Text.RegularExpressions.Regex WidthPattern =
+        new(@"^\d+(\.\d+)?(px|rem|em|%)$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    // ── Internal state ──────────────────────────────────────────
+
+    private readonly string _dialogId = $"stratum-dialog-{Guid.NewGuid():N}"[..28];
+    private readonly string _titleId = $"stratum-dialog-title-{Guid.NewGuid():N}"[..34];
+    private ElementReference _dialogRef;
+    private bool _wasVisible;
+    private bool _focusTrapRegistered;
+    private bool _scrollLocked;
+    private int _zIndex = 1050;
+
+    // ── Computed CSS ──────────────────────────────────────────────
+
+    private string DialogCssClass
+    {
+        get
+        {
+            var cls = "stratum-dialog";
+            if (Size is not null)
+                cls += $" stratum-dialog--{Size.Value.ToString().ToLowerInvariant()}";
+            if (!string.IsNullOrWhiteSpace(CssClass))
+                cls += $" {CssClass}";
+            return cls;
+        }
+    }
+
+    private string DialogStyle
+    {
+        get
+        {
+            var parts = new System.Collections.Generic.List<string>();
+            parts.Add($"z-index: {_zIndex}");
+
+            // Custom width only when no Size preset
+            if (Size is null)
+            {
+                var safeWidth = WidthPattern.IsMatch(Width) ? Width : "500px";
+                parts.Add($"width: {safeWidth}");
+            }
+
+            return string.Join("; ", parts);
+        }
+    }
+
+    private string BodyCssClass =>
+        Scrollable ? "stratum-dialog__body stratum-dialog__body--scrollable" : "stratum-dialog__body";
+
+    // ── Lifecycle ───────────────────────────────────────────────
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Visible && !_wasVisible)
+        {
+            _wasVisible = true;
+            try
+            {
+                _zIndex = await JS.InvokeAsync<int>("stratumUI.overlay.acquireZIndex");
+                await JS.InvokeVoidAsync("stratumUI.overlay.acquireScrollLock");
+                _scrollLocked = true;
+                await JS.InvokeVoidAsync("stratumUI.saveFocus");
+                await JS.InvokeVoidAsync("stratumUI.registerDialogFocusTrap", _dialogId);
+                _focusTrapRegistered = true;
+
+                // Re-render with the acquired z-index so the style attribute updates.
+                StateHasChanged();
+
+                await _dialogRef.FocusAsync();
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Non-critical: dialog renders even if JS fails.
+            }
+        }
+        else if (!Visible && _wasVisible)
+        {
+            _wasVisible = false;
+            await CleanupOverlayAsync();
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.restoreFocus");
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Non-critical.
+            }
+        }
+    }
+
+    // ── Event handling ──────────────────────────────────────────
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (CloseOnEsc && e.Key == "Escape")
+        {
+            await CloseAsync();
+        }
+    }
+
+    private async Task HandleOverlayClick()
+    {
+        if (CloseOnOverlay)
+        {
+            await CloseAsync();
+        }
+    }
+
+    private async Task CloseAsync()
+    {
+        await VisibleChanged.InvokeAsync(false);
+        await OnClose.InvokeAsync();
+    }
+
+    // ── Cleanup ─────────────────────────────────────────────────
+
+    private async Task CleanupOverlayAsync()
+    {
+        if (_focusTrapRegistered)
+        {
+            _focusTrapRegistered = false;
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.unregisterDialogFocusTrap", _dialogId);
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Non-critical.
+            }
+        }
+
+        if (_scrollLocked)
+        {
+            _scrollLocked = false;
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.overlay.releaseScrollLock");
+                await JS.InvokeVoidAsync("stratumUI.overlay.releaseZIndex");
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Non-critical.
+            }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await CleanupOverlayAsync();
+        if (_wasVisible)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.restoreFocus");
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Non-critical.
+            }
+        }
+    }
+}

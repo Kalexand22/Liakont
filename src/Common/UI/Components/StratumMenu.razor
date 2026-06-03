@@ -1,0 +1,386 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@* StratumMenu — accessible context/click menu.
+ *
+ * Native implementation (no Radzen dependency). Provides:
+ * - role="menu", role="menuitem", aria-disabled
+ * - Keyboard: ↑↓ navigate, Enter select, → open submenu, ← close submenu, Esc close
+ * - Context menu (right-click) or click trigger
+ * - Nested submenus
+ * - Click-outside-to-close
+ *
+ * Usage:
+ *   <StratumMenu Items="@_menuItems"
+ *                Trigger="MenuTrigger.ContextMenu"
+ *                OnItemClick="HandleItemClick">
+ *       <div>Right-click this area</div>
+ *   </StratumMenu>
+ *
+ * Ref: docs/architecture/ui-architecture-plan.md §4.
+ *@
+
+<div class="stratum-menu-trigger"
+     data-testid="@(TestId ?? "stratum-menu")"
+     @oncontextmenu="HandleContextMenu"
+     @oncontextmenu:preventDefault="@(_trigger == MenuTrigger.ContextMenu)"
+     @onclick="HandleClick">
+    @ChildContent
+</div>
+
+@if (_isOpen)
+{
+    <div class="stratum-menu-backdrop" @onclick="Close" @onclick:stopPropagation="true"></div>
+    <div class="stratum-menu"
+         id="@_menuId"
+         role="menu"
+         aria-label="@AriaLabel"
+         style="@_positionStyle"
+         tabindex="-1"
+         @onkeydown="HandleKeyDown"
+         @onkeydown:preventDefault="_preventKeyDefault"
+         @ref="_menuRef">
+
+        @{ var topNonSepIdx = 0; }
+        @foreach (var item in Items)
+        {
+            if (item.Separator)
+            {
+                <div class="stratum-menu__separator" role="separator"></div>
+            }
+            else
+            {
+                var idx = topNonSepIdx;
+                var isFocused = _openSubmenuIndex is null && idx == _focusedIndex;
+                var hasSubmenu = item.SubItems is { Count: > 0 };
+                var isSubmenuOpen = _openSubmenuIndex == idx;
+                var capturedItem = item;
+
+                <div class="stratum-menu__item @(isFocused ? "stratum-menu__item--focused" : "") @(item.Disabled ? "stratum-menu__item--disabled" : "") @(isSubmenuOpen ? "stratum-menu__item--submenu-open" : "")"
+                     role="menuitem"
+                     tabindex="-1"
+                     aria-disabled="@(item.Disabled ? "true" : null)"
+                     aria-haspopup="@(hasSubmenu ? "true" : null)"
+                     aria-expanded="@(hasSubmenu ? (isSubmenuOpen ? "true" : "false") : null)"
+                     title="@(item.Disabled && !string.IsNullOrEmpty(item.DisabledReason) ? item.DisabledReason : null)"
+                     @onclick="() => HandleItemClick(capturedItem)">
+
+                    @if (!string.IsNullOrEmpty(item.Icon))
+                    {
+                        <StratumIcon Name="@item.Icon" Class="stratum-menu__icon" />
+                    }
+                    else
+                    {
+                        <span class="stratum-menu__icon-spacer" aria-hidden="true"></span>
+                    }
+                    <span class="stratum-menu__text">@item.Text</span>
+                    @if (hasSubmenu)
+                    {
+                        <span class="stratum-menu__arrow" aria-hidden="true">▸</span>
+                    }
+
+                    @* Render submenu if open *@
+                    @if (isSubmenuOpen && item.SubItems is not null)
+                    {
+                        <div class="stratum-menu__submenu" role="menu">
+                            @{ var subNonSepIdx = 0; }
+                            @foreach (var subItem in item.SubItems)
+                            {
+                                if (subItem.Separator)
+                                {
+                                    <div class="stratum-menu__separator" role="separator"></div>
+                                }
+                                else
+                                {
+                                    var subIdx = subNonSepIdx;
+                                    var subFocused = subIdx == _submenuFocusedIndex;
+                                    var capturedSubItem = subItem;
+
+                                    <div class="stratum-menu__item @(subFocused ? "stratum-menu__item--focused" : "") @(subItem.Disabled ? "stratum-menu__item--disabled" : "")"
+                                         role="menuitem"
+                                         tabindex="-1"
+                                         aria-disabled="@(subItem.Disabled ? "true" : null)"
+                                         title="@(subItem.Disabled && !string.IsNullOrEmpty(subItem.DisabledReason) ? subItem.DisabledReason : null)"
+                                         @onclick="() => HandleSubItemClick(capturedSubItem)"
+                                         @onclick:stopPropagation="true">
+                                        @if (!string.IsNullOrEmpty(subItem.Icon))
+                                        {
+                                            <StratumIcon Name="@subItem.Icon" Class="stratum-menu__icon" />
+                                        }
+                                        else
+                                        {
+                                            <span class="stratum-menu__icon-spacer" aria-hidden="true"></span>
+                                        }
+                                        <span class="stratum-menu__text">@subItem.Text</span>
+                                    </div>
+
+                                    subNonSepIdx++;
+                                }
+                            }
+                        </div>
+                    }
+                </div>
+
+                topNonSepIdx++;
+            }
+        }
+    </div>
+}
+
+@code {
+    // ── Parameters ────────────────────────────────────────────────
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Menu items to display.</summary>
+    [Parameter]
+    public IReadOnlyList<MenuItem> Items { get; set; } = Array.Empty<MenuItem>();
+
+    /// <summary>How the menu is triggered (ContextMenu or Click).</summary>
+    [Parameter]
+    public MenuTrigger Trigger { get; set; } = MenuTrigger.ContextMenu;
+
+    /// <summary>Raised when a non-disabled menu item is clicked.</summary>
+    [Parameter]
+    public EventCallback<MenuItem> OnItemClick { get; set; }
+
+    /// <summary>Content that acts as the trigger area.</summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Accessible label for the menu.</summary>
+    [Parameter]
+    public string AriaLabel { get; set; } = "Menu contextuel";
+
+    /// <summary>When true, the popup opens to the left of the trigger (anchored at the right edge).</summary>
+    [Parameter]
+    public bool AnchorRight { get; set; }
+
+    // ── Internal state ──────────────────────────────────────────
+
+    private readonly string _menuId = $"stratum-menu-{Guid.NewGuid():N}"[..24];
+    private MenuTrigger _trigger => Trigger;
+    private bool _isOpen;
+    private string _positionStyle = string.Empty;
+    private ElementReference _menuRef;
+    private bool _preventKeyDefault;
+    private int _focusedIndex = -1;
+    private int? _openSubmenuIndex;
+    private int _submenuFocusedIndex = -1;
+    private List<MenuItem> _flatItems = new();
+    private List<MenuItem> _flatSubItems = new();
+
+    // ── Lifecycle ───────────────────────────────────────────────
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_isOpen && _focusedIndex == -1)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.focusElement", _menuId);
+            }
+            catch (Exception ex) when (ex is JSException or Microsoft.JSInterop.JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Non-critical.
+            }
+        }
+    }
+
+    // ── Trigger handlers ────────────────────────────────────────
+
+    private void HandleContextMenu(MouseEventArgs e)
+    {
+        if (Trigger != MenuTrigger.ContextMenu) return;
+        OpenAt(e.ClientX, e.ClientY);
+    }
+
+    private void HandleClick(MouseEventArgs e)
+    {
+        if (Trigger != MenuTrigger.Click) return;
+        if (_isOpen) { Close(); return; }
+        OpenAt(e.ClientX, e.ClientY);
+    }
+
+    private void OpenAt(double x, double y)
+    {
+        _flatItems = Items.Where(i => !i.Separator).ToList();
+        _focusedIndex = -1;
+        _openSubmenuIndex = null;
+        _submenuFocusedIndex = -1;
+        _flatSubItems = new();
+        if (AnchorRight)
+        {
+            // Anchor menu to the left of the click point so it doesn't overflow the viewport
+            _positionStyle = FormattableString.Invariant($"right:calc(100vw - {x:F0}px);top:{y:F0}px;");
+        }
+        else
+        {
+            _positionStyle = FormattableString.Invariant($"left:{x:F0}px;top:{y:F0}px;");
+        }
+        _isOpen = true;
+    }
+
+    private void Close()
+    {
+        _isOpen = false;
+        _focusedIndex = -1;
+        _openSubmenuIndex = null;
+        _submenuFocusedIndex = -1;
+        _flatSubItems = new();
+    }
+
+    // ── Keyboard navigation ─────────────────────────────────────
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        _preventKeyDefault = false;
+
+        switch (e.Key)
+        {
+            case "Escape":
+                _preventKeyDefault = true;
+                if (_openSubmenuIndex is not null)
+                {
+                    _openSubmenuIndex = null;
+                    _submenuFocusedIndex = -1;
+                    _flatSubItems = new();
+                }
+                else
+                {
+                    Close();
+                }
+                break;
+
+            case "ArrowDown":
+                _preventKeyDefault = true;
+                if (_openSubmenuIndex is not null)
+                    _submenuFocusedIndex = Math.Min(_submenuFocusedIndex + 1, _flatSubItems.Count - 1);
+                else
+                    _focusedIndex = Math.Min(_focusedIndex + 1, _flatItems.Count - 1);
+                break;
+
+            case "ArrowUp":
+                _preventKeyDefault = true;
+                if (_openSubmenuIndex is not null)
+                    _submenuFocusedIndex = Math.Max(_submenuFocusedIndex - 1, 0);
+                else
+                    _focusedIndex = Math.Max(_focusedIndex - 1, 0);
+                break;
+
+            case "ArrowRight":
+                _preventKeyDefault = true;
+                if (_openSubmenuIndex is null && _focusedIndex >= 0 && _focusedIndex < _flatItems.Count)
+                {
+                    var item = _flatItems[_focusedIndex];
+                    if (item.SubItems is { Count: > 0 })
+                    {
+                        OpenSubmenu(_focusedIndex, item);
+                    }
+                }
+                break;
+
+            case "ArrowLeft":
+                _preventKeyDefault = true;
+                if (_openSubmenuIndex is not null)
+                {
+                    _openSubmenuIndex = null;
+                    _submenuFocusedIndex = -1;
+                    _flatSubItems = new();
+                }
+                break;
+
+            case "Enter":
+            case " ":
+                _preventKeyDefault = true;
+                if (_openSubmenuIndex is not null && _submenuFocusedIndex >= 0 && _submenuFocusedIndex < _flatSubItems.Count)
+                {
+                    var subItem = _flatSubItems[_submenuFocusedIndex];
+                    if (!subItem.Disabled)
+                    {
+                        await SelectItem(subItem);
+                    }
+                }
+                else if (_focusedIndex >= 0 && _focusedIndex < _flatItems.Count)
+                {
+                    var item = _flatItems[_focusedIndex];
+                    if (item.SubItems is { Count: > 0 })
+                    {
+                        OpenSubmenu(_focusedIndex, item);
+                    }
+                    else if (!item.Disabled)
+                    {
+                        await SelectItem(item);
+                    }
+                }
+                break;
+
+            case "Home":
+                _preventKeyDefault = true;
+                if (_openSubmenuIndex is not null)
+                    _submenuFocusedIndex = 0;
+                else
+                    _focusedIndex = 0;
+                break;
+
+            case "End":
+                _preventKeyDefault = true;
+                if (_openSubmenuIndex is not null)
+                    _submenuFocusedIndex = _flatSubItems.Count - 1;
+                else
+                    _focusedIndex = _flatItems.Count - 1;
+                break;
+        }
+    }
+
+    private void OpenSubmenu(int parentIndex, MenuItem parent)
+    {
+        _openSubmenuIndex = parentIndex;
+        _flatSubItems = parent.SubItems!.Where(i => !i.Separator).ToList();
+        _submenuFocusedIndex = 0;
+    }
+
+    private async Task SelectItem(MenuItem item)
+    {
+        Close();
+        await OnItemClick.InvokeAsync(item);
+    }
+
+    // ── Item click handlers ─────────────────────────────────────
+
+    private async Task HandleItemClick(MenuItem item)
+    {
+        if (item.Disabled) return;
+
+        if (item.SubItems is { Count: > 0 })
+        {
+            var idx = _flatItems.IndexOf(item);
+            if (idx >= 0)
+            {
+                _focusedIndex = idx;
+                OpenSubmenu(idx, item);
+            }
+            return;
+        }
+
+        await SelectItem(item);
+    }
+
+    private async Task HandleSubItemClick(MenuItem item)
+    {
+        if (item.Disabled) return;
+        await SelectItem(item);
+    }
+
+    // ── Cleanup ─────────────────────────────────────────────────
+
+    public ValueTask DisposeAsync()
+    {
+        _isOpen = false;
+        return ValueTask.CompletedTask;
+    }
+}

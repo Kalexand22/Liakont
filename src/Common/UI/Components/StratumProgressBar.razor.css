@@ -1,0 +1,70 @@
+.stratum-progressbar {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2, 8px);
+    width: 100%;
+}
+
+.stratum-progressbar__track {
+    flex: 1;
+    height: 8px;
+    background: var(--color-neutral-200, #e5e7eb);
+    border-radius: var(--radius-full, 9999px);
+    overflow: hidden;
+    position: relative;
+}
+
+.stratum-progressbar__fill {
+    height: 100%;
+    border-radius: var(--radius-full, 9999px);
+    transition: width var(--transition-normal, 200ms) ease;
+}
+
+/* Severity colors */
+.stratum-progressbar--info .stratum-progressbar__fill {
+    background: var(--color-primary-600, #2563eb);
+}
+
+.stratum-progressbar--success .stratum-progressbar__fill {
+    background: var(--color-success-600, #16a34a);
+}
+
+.stratum-progressbar--warning .stratum-progressbar__fill {
+    background: var(--color-warning-500, #f59e0b);
+}
+
+.stratum-progressbar--error .stratum-progressbar__fill {
+    background: var(--color-error-600, #dc2626);
+}
+
+.stratum-progressbar--neutral .stratum-progressbar__fill {
+    background: var(--color-neutral-500, #6b7280);
+}
+
+/* Indeterminate animation */
+.stratum-progressbar__fill--indeterminate {
+    width: 40% !important;
+    animation: stratum-progress-indeterminate 1.5s ease-in-out infinite;
+}
+
+@keyframes stratum-progress-indeterminate {
+    0% {
+        transform: translateX(-100%);
+    }
+    50% {
+        transform: translateX(150%);
+    }
+    100% {
+        transform: translateX(-100%);
+    }
+}
+
+/* Value text */
+.stratum-progressbar__value {
+    font-size: var(--font-size-sm, 14px);
+    font-weight: var(--font-weight-medium, 500);
+    color: var(--color-text-secondary, #6b7280);
+    min-width: 3ch;
+    text-align: right;
+    white-space: nowrap;
+}

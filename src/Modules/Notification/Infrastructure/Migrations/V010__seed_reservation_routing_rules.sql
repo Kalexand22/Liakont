@@ -1,0 +1,13 @@
+-- V010 — NEUTRALISEE pour Liakont (vendoring du socle Stratum, 2026-06-03).
+--
+-- La migration Stratum d'origine seedait des definitions de services et des regles de routage
+-- du module ERP "Reservation" (gestion-salles, voirie, police municipale, emails @commune.local
+-- — donnees metier municipales). Liakont ne vendore PAS le module Reservation : ce seed est du
+-- contenu metier ERP, pas du socle generique. Neutralise (no-op) plutot que supprime, afin de
+-- PRESERVER la sequence de versions DbUp (V011..V014 s'appliquent toujours dans l'ordre). La
+-- table notification.service_definitions (creee en V005) reste vide ; V011 (ALTER TABLE) reste
+-- valide. Aucune ligne inseree.
+--
+-- Tracabilite : docs/architecture/provenance-socle-stratum.md (section "Modifications locales").
+-- Regle CLAUDE.md n.7 : aucune donnee metier d'un client/domaine dans le code generique.
+SELECT 1;

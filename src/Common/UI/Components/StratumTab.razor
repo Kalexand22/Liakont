@@ -1,0 +1,54 @@
+@namespace Stratum.Common.UI.Components
+
+@* StratumTab — child component of StratumTabs.
+ *
+ * Defines a single tab with its title, optional icon, and content.
+ * Must be placed inside a StratumTabs component.
+ *
+ * Usage:
+ *   <StratumTabs @bind-SelectedIndex="_index">
+ *       <StratumTab Title="General">
+ *           <p>General tab content</p>
+ *       </StratumTab>
+ *       <StratumTab Title="Details" Icon="bi-list-ul">
+ *           <p>Details tab content</p>
+ *       </StratumTab>
+ *       <StratumTab Title="Disabled" Disabled>
+ *           <p>This tab is disabled</p>
+ *       </StratumTab>
+ *   </StratumTabs>
+ *
+ * Ref: docs/architecture/ui-architecture-plan.md §4.
+ *@
+
+@code {
+    /// <summary>Tab header text.</summary>
+    [Parameter]
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>Optional CSS icon class (e.g. "bi-gear").</summary>
+    [Parameter]
+    public string? Icon { get; set; }
+
+    /// <summary>Whether the tab is disabled and cannot be selected.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>Tab body content, rendered when this tab is selected.</summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [CascadingParameter]
+    private StratumTabs? _parentTabs { get; set; }
+
+    protected override void OnInitialized()
+    {
+        _parentTabs?.RegisterTab(this);
+    }
+
+    /// <summary>Used by StratumTabs to unregister when this tab is removed.</summary>
+    internal void NotifyRemoved()
+    {
+        _parentTabs?.UnregisterTab(this);
+    }
+}

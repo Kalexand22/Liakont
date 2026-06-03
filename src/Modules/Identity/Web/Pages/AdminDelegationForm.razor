@@ -1,0 +1,393 @@
+@page "/admin/agents/delegations/new"
+@page "/admin/agents/delegations/{Id:guid}"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Stratum.Modules.Identity.Contracts
+@using Stratum.Modules.Identity.Contracts.DTOs
+@using Stratum.Modules.Identity.Contracts.Queries
+@using Stratum.Modules.Identity.Contracts.Commands
+@inject ISender Sender
+@inject IDelegationQueries DelegationQueries
+@inject IAgentQueries AgentQueries
+@inject NavigationManager Nav
+@inject IToastService ToastService
+
+<PageTitle>@PageTitleText — Stratum ERP</PageTitle>
+
+<DeclaredFormPage @ref="_formRef"
+                  TEntity="DelegationDto"
+                  Id="@Id"
+                  Title="@BuildTitle"
+                  TestId="delegation-form"
+                  ListUrl="/admin/agents/delegations"
+                  DetailUrl="@(id => $"/admin/agents/delegations/{id}")"
+                  CreateUrl="/admin/agents/delegations/new"
+                  EntityType="Delegation"
+                  EnableViewMode="true"
+                  InitialMode="FormMode.View"
+                  LoadEntity="@(id => DelegationQueries.GetById(id))"
+                  CreateEntity="CreateAsync"
+                  UpdateEntity="UpdateAsync"
+                  Validate="ValidateForm"
+                  ClearErrors="ClearAllErrors"
+                  MapEntity="MapFromDto"
+                  ResetFields="ResetAllFields"
+                  MapDomainError="MapError"
+                  @bind-GlobalError="_globalError"
+                  @bind-IsDirty="_isDirty">
+    <StatusContent>
+        @if (!IsCreateMode)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var isCurrentlyActive = _isActive && _validFrom <= now && _validUntil > now;
+            <StatusBadge Severity="@(isCurrentlyActive ? Severity.Success : Severity.Neutral)"
+                         Label="@(isCurrentlyActive ? "Active" : _isActive ? "Planifiée" : "Révoquée")" />
+        }
+    </StatusContent>
+    <Content Context="ctx">
+        <SectionCard Title="Délégation de signature" TestId="delegation-form-general">
+            <div class="row g-3">
+                @if (IsCreateMode)
+                {
+                    <div class="col-md-6">
+                        <FormField Label="Délégant (qui délègue)" Required Error="@_delegatorError">
+                            <select class="form-select"
+                                    value="@_delegatorId"
+                                    @onchange="HandleDelegatorChange"
+                                    disabled="@(ctx.Mode == FormMode.View)"
+                                    data-testid="delegation-form-delegator">
+                                <option value="">— Sélectionner —</option>
+                                @foreach (var a in _agents)
+                                {
+                                    <option value="@a.UserId">@(a.DisplayName ?? a.Username)</option>
+                                }
+                            </select>
+                        </FormField>
+                    </div>
+                    <div class="col-md-6">
+                        <FormField Label="Délégataire (qui reçoit)" Required Error="@_delegateError">
+                            <select class="form-select"
+                                    value="@_delegateId"
+                                    @onchange="HandleDelegateChange"
+                                    disabled="@(ctx.Mode == FormMode.View)"
+                                    data-testid="delegation-form-delegate">
+                                <option value="">— Sélectionner —</option>
+                                @foreach (var a in _agents)
+                                {
+                                    <option value="@a.UserId">@(a.DisplayName ?? a.Username)</option>
+                                }
+                            </select>
+                        </FormField>
+                    </div>
+                }
+                else
+                {
+                    <div class="col-md-6">
+                        <FormField Label="Délégant">
+                            <input type="text" class="form-control" value="@_delegatorName" disabled
+                                   data-testid="delegation-form-delegator" />
+                        </FormField>
+                    </div>
+                    <div class="col-md-6">
+                        <FormField Label="Délégataire">
+                            <input type="text" class="form-control" value="@_delegateName" disabled
+                                   data-testid="delegation-form-delegate" />
+                        </FormField>
+                    </div>
+                }
+                <div class="col-md-12">
+                    <FormField Label="Portée" Required Error="@_scopeError">
+                        <input type="text"
+                               class="form-control"
+                               value="@_scope"
+                               @oninput="HandleScopeInput"
+                               placeholder="ex: Signature des bons de commande"
+                               maxlength="500"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="delegation-form-scope" />
+                    </FormField>
+                </div>
+                <div class="col-md-6">
+                    <FormField Label="Début de validité" Required Error="@_validFromError">
+                        <input type="date"
+                               class="form-control"
+                               value="@_validFromStr"
+                               @oninput="HandleValidFromInput"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="delegation-form-validfrom" />
+                    </FormField>
+                </div>
+                <div class="col-md-6">
+                    <FormField Label="Fin de validité" Required Error="@_validUntilError">
+                        <input type="date"
+                               class="form-control"
+                               value="@_validUntilStr"
+                               @oninput="HandleValidUntilInput"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="delegation-form-validuntil" />
+                    </FormField>
+                </div>
+                <div class="col-12">
+                    <FormField Label="Motif">
+                        <textarea class="form-control"
+                                  @oninput="HandleReasonInput"
+                                  placeholder="Motif de la délégation"
+                                  rows="3"
+                                  disabled="@(ctx.Mode == FormMode.View)"
+                                  data-testid="delegation-form-reason">@_reason</textarea>
+                    </FormField>
+                </div>
+            </div>
+        </SectionCard>
+    </Content>
+    <AuditSection>
+        @if (!IsCreateMode)
+        {
+            <SectionCard Title="Audit" Collapsible DefaultCollapsed TestId="delegation-form-audit">
+                <dl class="row mb-0">
+                    <dt class="col-sm-3">Identifiant</dt>
+                    <dd class="col-sm-9"><code class="text-muted small">@Id</code></dd>
+                    <dt class="col-sm-3">Créé le</dt>
+                    <dd class="col-sm-9">@_createdAt.ToString("dd/MM/yyyy HH:mm")</dd>
+                </dl>
+            </SectionCard>
+        }
+    </AuditSection>
+</DeclaredFormPage>
+
+@code {
+    [Parameter]
+    public Guid? Id { get; set; }
+
+    private DeclaredFormPage<DelegationDto>? _formRef;
+
+    private bool IsCreateMode => Id is null;
+
+    private Guid? _delegatorId;
+    private Guid? _delegateId;
+    private string _delegatorName = string.Empty;
+    private string _delegateName = string.Empty;
+    private string _scope = string.Empty;
+    private DateTimeOffset _validFrom;
+    private DateTimeOffset _validUntil;
+    private string _validFromStr = string.Empty;
+    private string _validUntilStr = string.Empty;
+    private string? _reason;
+    private bool _isActive = true;
+    private bool _isDirty;
+    private DateTimeOffset _createdAt;
+    private string? _globalError;
+
+    private string? _delegatorError;
+    private string? _delegateError;
+    private string? _scopeError;
+    private string? _validFromError;
+    private string? _validUntilError;
+
+    private IReadOnlyList<AgentDto> _agents = Array.Empty<AgentDto>();
+
+    private string PageTitleText =>
+        IsCreateMode ? "Nouvelle délégation" : "Délégation";
+
+    private string BuildTitle(bool createMode) =>
+        createMode ? "Nouvelle délégation" : $"{_delegatorName} → {_delegateName}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (IsCreateMode)
+        {
+            _agents = await AgentQueries.List();
+        }
+    }
+
+    private void MapFromDto(DelegationDto dto)
+    {
+        _delegatorId = dto.DelegatorId;
+        _delegateId = dto.DelegateId;
+        _delegatorName = dto.DelegatorName;
+        _delegateName = dto.DelegateName;
+        _scope = dto.Scope;
+        _validFrom = dto.ValidFrom;
+        _validUntil = dto.ValidUntil;
+        _validFromStr = dto.ValidFrom.ToString("yyyy-MM-dd");
+        _validUntilStr = dto.ValidUntil.ToString("yyyy-MM-dd");
+        _reason = dto.Reason;
+        _isActive = dto.IsActive;
+        _createdAt = dto.CreatedAt;
+    }
+
+    private void ResetAllFields()
+    {
+        _delegatorId = null;
+        _delegateId = null;
+        _delegatorName = string.Empty;
+        _delegateName = string.Empty;
+        _scope = string.Empty;
+        _validFrom = default;
+        _validUntil = default;
+        _validFromStr = string.Empty;
+        _validUntilStr = string.Empty;
+        _reason = null;
+        _isActive = true;
+        _createdAt = default;
+    }
+
+    private bool ValidateForm()
+    {
+        var valid = true;
+
+        if (IsCreateMode && (_delegatorId is null || _delegatorId == Guid.Empty))
+        {
+            _delegatorError = "Le délégant est obligatoire.";
+            valid = false;
+        }
+
+        if (IsCreateMode && (_delegateId is null || _delegateId == Guid.Empty))
+        {
+            _delegateError = "Le délégataire est obligatoire.";
+            valid = false;
+        }
+
+        if (IsCreateMode && _delegatorId == _delegateId && _delegatorId is not null)
+        {
+            _delegateError = "Le délégataire doit être différent du délégant.";
+            valid = false;
+        }
+
+        if (string.IsNullOrWhiteSpace(_scope))
+        {
+            _scopeError = "La portée est obligatoire.";
+            valid = false;
+        }
+
+        if (_validFrom == default)
+        {
+            _validFromError = "La date de début est obligatoire.";
+            valid = false;
+        }
+
+        if (_validUntil == default)
+        {
+            _validUntilError = "La date de fin est obligatoire.";
+            valid = false;
+        }
+
+        if (_validFrom != default && _validUntil != default && _validUntil <= _validFrom)
+        {
+            _validUntilError = "La date de fin doit être postérieure à la date de début.";
+            valid = false;
+        }
+
+        return valid;
+    }
+
+    private void ClearAllErrors()
+    {
+        _delegatorError = null;
+        _delegateError = null;
+        _scopeError = null;
+        _validFromError = null;
+        _validUntilError = null;
+    }
+
+    private async Task<Guid> CreateAsync()
+    {
+        return await Sender.Send(new CreateDelegationCommand
+        {
+            DelegatorId = _delegatorId!.Value,
+            DelegateId = _delegateId!.Value,
+            Scope = _scope.Trim(),
+            ValidFrom = _validFrom,
+            ValidUntil = _validUntil,
+            Reason = _reason?.Trim(),
+        });
+    }
+
+    private Task UpdateAsync()
+    {
+        throw new NotSupportedException("Delegations cannot be edited, only revoked.");
+    }
+
+    private void MapError(string message)
+    {
+        var lower = message.ToLowerInvariant();
+        if (lower.Contains("delegator") || lower.Contains("délégant"))
+        {
+            _delegatorError = message;
+        }
+        else if (lower.Contains("delegate") || lower.Contains("délégataire"))
+        {
+            _delegateError = message;
+        }
+        else if (lower.Contains("scope") || lower.Contains("portée"))
+        {
+            _scopeError = message;
+        }
+        else
+        {
+            _globalError = message;
+        }
+    }
+
+    private void HandleDelegatorChange(ChangeEventArgs e)
+    {
+        _delegatorId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        _isDirty = true;
+        _delegatorError = null;
+    }
+
+    private void HandleDelegateChange(ChangeEventArgs e)
+    {
+        _delegateId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        _isDirty = true;
+        _delegateError = null;
+    }
+
+    private void HandleScopeInput(ChangeEventArgs e)
+    {
+        _scope = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+        _scopeError = null;
+    }
+
+    private void HandleValidFromInput(ChangeEventArgs e)
+    {
+        _validFromStr = e.Value?.ToString() ?? string.Empty;
+        if (DateOnly.TryParse(_validFromStr, out var day))
+        {
+            _validFrom = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+        }
+        else
+        {
+            _validFrom = default;
+        }
+
+        _isDirty = true;
+        _validFromError = null;
+    }
+
+    private void HandleValidUntilInput(ChangeEventArgs e)
+    {
+        _validUntilStr = e.Value?.ToString() ?? string.Empty;
+        if (DateOnly.TryParse(_validUntilStr, out var day))
+        {
+            _validUntil = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+        }
+        else
+        {
+            _validUntil = default;
+        }
+
+        _isDirty = true;
+        _validUntilError = null;
+    }
+
+    private void HandleReasonInput(ChangeEventArgs e)
+    {
+        _reason = e.Value?.ToString();
+        _isDirty = true;
+    }
+}
