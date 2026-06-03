@@ -1,0 +1,79 @@
+/* UrlField — scoped styles using Stratum design tokens */
+
+.url-field {
+    display: inline-block;
+    width: 100%;
+}
+
+/* ── Wrap ────────────────────────────────────────────── */
+
+.url-field__wrap {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--color-border, var(--color-neutral-300));
+    border-radius: var(--radius-md, 6px);
+    background: var(--color-bg-surface, #fff);
+    transition: border-color var(--transition-fast, 100ms ease),
+                box-shadow var(--transition-fast, 100ms ease);
+}
+
+.url-field__wrap:focus-within {
+    border-color: var(--color-border-focus, var(--color-primary-500));
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+/* ── Input ──────────────────────────────────────────── */
+
+.url-field__input {
+    flex: 1;
+    min-width: 0;
+    padding: var(--spacing-2, 0.5rem) var(--spacing-3, 0.75rem);
+    border: none;
+    background: transparent;
+    font-size: var(--font-size-base, 1rem);
+    color: var(--color-text-primary);
+    outline: none;
+}
+
+.url-field__input::placeholder {
+    color: var(--color-text-muted);
+}
+
+.url-field__input--error {
+    color: var(--color-error-700);
+}
+
+.url-field__input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ── Link icon ──────────────────────────────────────── */
+
+.url-field__link {
+    flex-shrink: 0;
+    padding: var(--spacing-1, 0.25rem) var(--spacing-2, 0.5rem);
+    color: var(--color-primary-500);
+    text-decoration: none;
+    font-size: var(--font-size-lg, 1.125rem);
+    transition: color var(--transition-fast, 100ms ease);
+}
+
+.url-field__link:hover {
+    color: var(--color-primary-600);
+}
+
+/* ── Error ──────────────────────────────────────────── */
+
+.url-field__error {
+    display: block;
+    margin-top: var(--spacing-1, 0.25rem);
+    font-size: var(--font-size-xs, 0.75rem);
+    color: var(--color-error-500);
+}
+
+/* ── States ─────────────────────────────────────────── */
+
+.url-field--disabled {
+    opacity: 0.5;
+}

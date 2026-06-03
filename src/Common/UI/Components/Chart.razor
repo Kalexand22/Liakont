@@ -1,0 +1,229 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TData
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject IChartRenderer Renderer
+
+@*
+    Chart<TData> — UI_V03
+    Vendor-agnostic chart component.
+    Supports: bar, line, pie, area, radar, gauge.
+    Uses IChartRenderer (default: EChartsRenderer / Apache ECharts).
+*@
+
+<div class="str-chart" data-testid="@(TestId ?? "stratum-chart")">
+    <div id="@_id"
+         class="str-chart__canvas"
+         style="width: 100%; height: @(Height)px;"
+         role="img"
+         aria-label="@_effectiveAriaLabel">
+    </div>
+
+    @* Hidden data table for screen readers (WCAG AA) *@
+    <div class="str-chart__sr-table" aria-hidden="false">
+        <table>
+            <caption>@_effectiveAriaLabel</caption>
+            <thead>
+                <tr>
+                    <th scope="col">@(CategoryField ?? "Category")</th>
+                    @foreach (var s in _effectiveSeries)
+                    {
+                        <th scope="col">@s.Name</th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var (cat, idx) in _categories.Select((c, i) => (c, i)))
+                {
+                    <tr>
+                        <td>@cat</td>
+                        @foreach (var s in _effectiveSeries)
+                        {
+                            <td>@(idx < s.Values.Count ? s.Values[idx].ToString("G") : "—")</td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private string _id = $"str-chart-{Guid.NewGuid():N}";
+    private IJSObjectReference? _jsModule;
+    private DotNetObjectReference<Chart<TData>>? _dotnetRef;
+    private bool _initialized;
+    private IReadOnlyList<string> _categories = [];
+    private IReadOnlyList<ChartSeriesData> _resolvedSeries = [];
+
+    /// <summary>Data source for the chart.</summary>
+    [Parameter] public IReadOnlyList<TData>? Data { get; set; }
+
+    /// <summary>Chart visualization type (bar, line, pie, area, radar, gauge).</summary>
+    [Parameter] public ChartType Type { get; set; } = ChartType.Bar;
+
+    /// <summary>Series definitions describing which data fields to plot.</summary>
+    [Parameter] public IReadOnlyList<ChartSeries> Series { get; set; } = [];
+
+    /// <summary>Property name on TData used for category labels (X-axis).</summary>
+    [Parameter] public string? CategoryField { get; set; }
+
+    /// <summary>When true, series values are stacked.</summary>
+    [Parameter] public bool Stacked { get; set; }
+
+    /// <summary>Chart title displayed above the chart.</summary>
+    [Parameter] public string? Title { get; set; }
+
+    /// <summary>Whether to show the legend. Default: true.</summary>
+    [Parameter] public bool ShowLegend { get; set; } = true;
+
+    /// <summary>Height of the chart container in pixels. Default: 400.</summary>
+    [Parameter] public int Height { get; set; } = 400;
+
+    /// <summary>Accessible label for the chart.</summary>
+    [Parameter] public string? AriaLabel { get; set; }
+
+    /// <summary>Raised when the user clicks a data point.</summary>
+    [Parameter] public EventCallback<ChartPointClickArgs> OnPointClick { get; set; }
+
+    /// <summary>Test ID for E2E tests.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    private string _effectiveAriaLabel =>
+        AriaLabel ?? $"{Type} chart" + (Title is not null ? $": {Title}" : "");
+
+    /// <summary>For pie/gauge charts, only the first series is meaningful.</summary>
+    private IReadOnlyList<ChartSeriesData> _effectiveSeries =>
+        Type is ChartType.Pie or ChartType.Gauge
+            ? (_resolvedSeries.Count > 0 ? [_resolvedSeries[0]] : [])
+            : _resolvedSeries;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _jsModule = await JS.InvokeAsync<IJSObjectReference>(
+                    "import", "./_content/Stratum.Common.UI/js/chart.js");
+            }
+            catch (Exception ex) when (ex is JSException
+                or JSDisconnectedException
+                or InvalidOperationException
+                or OperationCanceledException)
+            {
+                // Expected during static SSR prerender pass — JS interop unavailable.
+                return;
+            }
+
+            _dotnetRef = DotNetObjectReference.Create(this);
+
+            var config = BuildConfig();
+            await Renderer.InitializeAsync(_jsModule, _id, config);
+            _initialized = true;
+
+            await _jsModule.InvokeVoidAsync("chartRegisterClickHandler", _id, _dotnetRef);
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        ResolveData();
+
+        if (_initialized && _jsModule is not null)
+        {
+            var config = BuildConfig();
+            await Renderer.UpdateAsync(_jsModule, _id, config);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnChartPointClick(string seriesName, string category, double value, int dataIndex)
+    {
+        if (OnPointClick.HasDelegate)
+        {
+            await OnPointClick.InvokeAsync(new ChartPointClickArgs
+            {
+                SeriesName = seriesName,
+                Category = category,
+                Value = value,
+                DataIndex = dataIndex,
+            });
+        }
+    }
+
+    private void ResolveData()
+    {
+        if (Data is null || Data.Count == 0 || Series.Count == 0)
+        {
+            _categories = [];
+            _resolvedSeries = [];
+            return;
+        }
+
+        var dataType = typeof(TData);
+
+        // Resolve categories from CategoryField.
+        if (CategoryField is not null)
+        {
+            var catProp = dataType.GetProperty(CategoryField);
+            _categories = catProp is not null
+                ? Data.Select(d => catProp.GetValue(d)?.ToString() ?? "").ToList()
+                : [];
+        }
+        else
+        {
+            _categories = Data.Select((_, i) => i.ToString()).ToList();
+        }
+
+        // Resolve each series.
+        _resolvedSeries = Series.Select(s =>
+        {
+            var valProp = dataType.GetProperty(s.ValueField);
+            var values = valProp is not null
+                ? Data.Select(d => Convert.ToDouble(valProp.GetValue(d) ?? 0)).ToList()
+                : Enumerable.Repeat(0.0, Data.Count).ToList();
+
+            return new ChartSeriesData
+            {
+                Name = s.Name,
+                Type = s.Type ?? Type,
+                Color = s.Color,
+                Values = values,
+            };
+        }).ToList();
+    }
+
+    private ChartConfig BuildConfig() => new()
+    {
+        Type = Type,
+        Categories = _categories,
+        Series = _resolvedSeries,
+        Stacked = Stacked,
+        Title = Title,
+        ShowLegend = ShowLegend,
+        AriaLabel = _effectiveAriaLabel,
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_jsModule is not null)
+            {
+                if (_initialized)
+                    await Renderer.DisposeAsync(_jsModule, _id);
+                await _jsModule.DisposeAsync();
+            }
+        }
+        catch (Exception ex) when (ex is JSException
+            or JSDisconnectedException
+            or InvalidOperationException
+            or OperationCanceledException)
+        {
+            // Expected during circuit disconnect or prerendering.
+        }
+
+        _dotnetRef?.Dispose();
+    }
+}

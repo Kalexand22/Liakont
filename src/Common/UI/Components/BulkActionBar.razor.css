@@ -1,0 +1,222 @@
+/* BulkActionBar — Civic Blueprint glassmorphism overlay
+ * ----------------------------------------------------------------
+ * Floating bottom-center bar that surfaces when ≥ 1 row is selected
+ * inside a collection. Glass recipe: surface-container-highest at 80 %
+ * opacity + 12 px backdrop blur, ghost border, navy primary CTA.
+ *
+ * Density-aware: compact mode collapses padding without resizing the
+ * count pill or icons (status remains scannable). The bar itself is
+ * not bound to --density-row-height because it lives in the viewport
+ * chrome, not in a row.
+ */
+
+.bulk-action-bar {
+    position: fixed;
+    bottom: var(--spacing-6);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1030; /* above page content, below workflow/modal backdrops (1040+) */
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-6);
+    padding: var(--spacing-3) var(--spacing-6);
+    background-color: color-mix(in srgb, var(--color-surface-container-highest) 80%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--color-border-ghost);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    font-family: var(--font-family-base);
+    color: var(--color-on-surface);
+    animation: bulk-action-bar-slide-up 200ms ease-out;
+}
+
+.bulk-action-bar--inline {
+    position: static;
+    transform: none;
+    margin: 0 auto;
+    width: max-content;
+    max-width: 100%;
+    animation: none;
+}
+
+@keyframes bulk-action-bar-slide-up {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(12px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .bulk-action-bar {
+        animation: none;
+    }
+}
+
+/* Count pill ─────────────────────────────────────────────────── */
+
+.bulk-action-bar__count {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    padding-right: var(--spacing-6);
+    border-right: 1px solid var(--color-border-ghost);
+}
+
+.bulk-action-bar__count-pill {
+    background-color: var(--color-primary);
+    color: var(--color-on-primary);
+    font-size: var(--font-size-label-sm);
+    font-weight: var(--font-weight-label-sm);
+    padding: 2px var(--spacing-2);
+    border-radius: var(--radius-full);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+
+.bulk-action-bar__count-label {
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-on-surface-variant);
+    white-space: nowrap;
+}
+
+/* Secondary actions ──────────────────────────────────────────── */
+
+.bulk-action-bar__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+}
+
+.bulk-action-bar__action {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    padding: var(--spacing-2) var(--spacing-3);
+    background: transparent;
+    border: 0;
+    color: var(--color-on-surface-variant);
+    font-family: inherit;
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: color 120ms ease-out, background-color 120ms ease-out;
+}
+
+.bulk-action-bar__action:hover:not(:disabled) {
+    color: var(--color-primary);
+    background-color: var(--color-bg-selected);
+}
+
+.bulk-action-bar__action:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
+}
+
+.bulk-action-bar__action:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.bulk-action-bar__action .material-symbols-outlined {
+    font-size: 1.125rem;
+    line-height: 1;
+}
+
+.bulk-action-bar__action--danger {
+    color: var(--color-error-700);
+}
+
+.bulk-action-bar__action--danger:hover:not(:disabled) {
+    color: var(--color-error-700);
+    background-color: var(--color-error-50);
+}
+
+/* Primary "validate" button ─────────────────────────────────── */
+
+.bulk-action-bar__primary {
+    margin-left: var(--spacing-2);
+    padding: var(--spacing-2) var(--spacing-4);
+    background-color: var(--color-primary);
+    color: var(--color-on-primary);
+    border: 0;
+    border-radius: var(--radius-md);
+    font-family: inherit;
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-bold);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    cursor: pointer;
+    box-shadow: var(--shadow-md);
+    transition: background-color 120ms ease-out, transform 120ms ease-out;
+    white-space: nowrap;
+}
+
+.bulk-action-bar__primary:hover {
+    background-color: var(--color-primary-700);
+}
+
+.bulk-action-bar__primary:active {
+    transform: translateY(1px);
+}
+
+.bulk-action-bar__primary:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
+}
+
+/* Clear button ───────────────────────────────────────────────── */
+
+.bulk-action-bar__clear {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: transparent;
+    border: 0;
+    color: var(--color-on-surface-variant);
+    border-radius: var(--radius-full);
+    cursor: pointer;
+    transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+
+.bulk-action-bar__clear:hover {
+    background-color: var(--color-bg-subtle);
+    color: var(--color-on-surface);
+}
+
+.bulk-action-bar__clear:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
+}
+
+.bulk-action-bar__clear .material-symbols-outlined {
+    font-size: 1.125rem;
+    line-height: 1;
+}
+
+/* Density mode ───────────────────────────────────────────────── */
+
+[data-density="compact"] .bulk-action-bar {
+    padding: var(--spacing-2) var(--spacing-4);
+    gap: var(--spacing-4);
+}
+
+[data-density="compact"] .bulk-action-bar__count {
+    padding-right: var(--spacing-4);
+}
+
+[data-density="compact"] .bulk-action-bar__action {
+    padding: var(--spacing-1) var(--spacing-2);
+}
+
+[data-density="compact"] .bulk-action-bar__primary {
+    padding: var(--spacing-1) var(--spacing-3);
+}

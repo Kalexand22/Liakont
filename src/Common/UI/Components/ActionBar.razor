@@ -1,0 +1,19 @@
+@namespace Stratum.Common.UI.Components
+
+<div class="action-bar @(Sticky ? "action-bar--sticky" : string.Empty)" data-testid="@(TestId ?? "action-bar")">
+    @ChildContent
+</div>
+
+@code {
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Action buttons to display in the bar.</summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>When <c>true</c> (default), the bar sticks to the bottom of the viewport on scroll.</summary>
+    [Parameter]
+    public bool Sticky { get; set; } = true;
+}

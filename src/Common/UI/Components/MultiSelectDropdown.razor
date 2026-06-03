@@ -1,0 +1,508 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TItem
+@using Microsoft.AspNetCore.Components.Web.Virtualization
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+
+@* MultiSelectDropdown<TItem> — pure-HTML multi-select with search,
+ * checkboxes, Blazor virtualization, debounced search, optional remote
+ * lookup, and DF-10 keyboard navigation.
+ *
+ * Two data modes (mutually exclusive):
+ *   - Static list: pass Items. The component filters client-side by search term.
+ *   - Remote search: pass SearchAsync. The component calls it after a 200 ms
+ *     debounce on input change and renders whatever it returns.
+ *
+ * Selection is exposed as a HashSet-friendly IReadOnlyCollection<string>.
+ * Values come from ValueSelector; display text from TextSelector.
+ *
+ * Virtualization: when the rendered list exceeds VirtualizeThreshold
+ * (default 100) the items are wrapped in <Virtualize> for viewport rendering.
+ *
+ * Keyboard (DF-10):
+ *   - ↑ / ↓ : move active index
+ *   - Space : toggle active option
+ *   - Enter : toggle active option (lets parent act on its own Enter if any)
+ *
+ * ARIA:
+ *   - root: role=listbox, aria-multiselectable=true
+ *   - option: role=option, aria-selected=true|false
+ *
+ * Ref: docs/specs/grid-filter-system-v2.md §7, DF-10.
+ *@
+
+<div class="multi-select-dropdown"
+     data-testid="@(TestId ?? "multi-select-dropdown")"
+     @onkeydown="HandleKeyDown"
+     @ref="_rootRef">
+
+    <div class="multi-select-dropdown__search">
+        <input type="text"
+               class="multi-select-dropdown__search-input"
+               placeholder="@(Placeholder ?? "Rechercher…")"
+               aria-label="@(Placeholder ?? "Rechercher")"
+               data-testid="multi-select-dropdown-search"
+               value="@_searchText"
+               @oninput="HandleSearchInput" />
+    </div>
+
+    <div class="multi-select-dropdown__counter"
+         data-testid="multi-select-dropdown-counter"
+         aria-live="polite">
+        @_selected.Count sélectionné@(_selected.Count > 1 ? "s" : string.Empty)
+    </div>
+
+    <div class="multi-select-dropdown__list"
+         role="listbox"
+         aria-multiselectable="true"
+         aria-label="@(ListAriaLabel ?? "Choix multiples")"
+         aria-activedescendant="@_activeDescendantId"
+         data-testid="multi-select-dropdown-list"
+         tabindex="0">
+        @if (_loading)
+        {
+            <div class="multi-select-dropdown__empty"
+                 data-testid="multi-select-dropdown-loading">
+                Recherche…
+            </div>
+        }
+        else if (_visibleItems.Count == 0)
+        {
+            <div class="multi-select-dropdown__empty"
+                 data-testid="multi-select-dropdown-empty">
+                Aucune option.
+            </div>
+        }
+        else if (_visibleItems.Count > VirtualizeThreshold)
+        {
+            <div class="multi-select-dropdown__virtualized"
+                 data-testid="multi-select-dropdown-virtualized">
+                <Virtualize Items="@_visibleItems" Context="item" ItemSize="36">
+                    @RenderOption(item)
+                </Virtualize>
+            </div>
+        }
+        else
+        {
+            @foreach (var item in _visibleItems)
+            {
+                @RenderOption(item)
+            }
+        }
+    </div>
+</div>
+
+@code {
+    // ── Parameters ────────────────────────────────────────────────
+
+    /// <summary>Static list of options. Mutually exclusive with <see cref="SearchAsync"/>.</summary>
+    [Parameter]
+    public IReadOnlyList<TItem>? Items { get; set; }
+
+    /// <summary>
+    /// Async remote search callback. When set, the component calls it with the
+    /// debounced search term and renders the returned items. Mutually exclusive
+    /// with <see cref="Items"/>.
+    /// </summary>
+    [Parameter]
+    public Func<string, CancellationToken, Task<IReadOnlyList<TItem>>>? SearchAsync { get; set; }
+
+    /// <summary>Extracts the display label for an item.</summary>
+    [Parameter, EditorRequired]
+    public Func<TItem, string> TextSelector { get; set; } = default!;
+
+    /// <summary>Extracts the value key for an item (used for selection tracking).</summary>
+    [Parameter, EditorRequired]
+    public Func<TItem, string> ValueSelector { get; set; } = default!;
+
+    /// <summary>Currently selected value keys.</summary>
+    [Parameter]
+    public IReadOnlyCollection<string> Selected { get; set; } = Array.Empty<string>();
+
+    /// <summary>Raised when the selection changes, with the new set of value keys.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyCollection<string>> SelectedChanged { get; set; }
+
+    /// <summary>Search input placeholder text.</summary>
+    [Parameter]
+    public string? Placeholder { get; set; }
+
+    /// <summary>ARIA label for the listbox (defaults to "Choix multiples").</summary>
+    [Parameter]
+    public string? ListAriaLabel { get; set; }
+
+    /// <summary>Item count above which the list is wrapped in Blazor's Virtualize component.</summary>
+    [Parameter]
+    public int VirtualizeThreshold { get; set; } = 100;
+
+    /// <summary>Debounce in milliseconds applied to the search input.</summary>
+    [Parameter]
+    public int SearchDebounceMs { get; set; } = 200;
+
+    /// <summary>Optional test identifier override.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    // ── Internal state ────────────────────────────────────────────
+
+    private string _searchText = string.Empty;
+    private readonly HashSet<string> _selected = new(StringComparer.Ordinal);
+    private List<TItem> _visibleItems = new();
+    private string? _activeKey;
+    private bool _loading;
+
+    private IReadOnlyCollection<string>? _lastSelectedRef;
+    private IReadOnlyList<TItem>? _lastItemsRef;
+
+    private ElementReference _rootRef;
+    private IJSObjectReference? _jsModule;
+    private IJSObjectReference? _jsSubscription;
+
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+
+    private string? _activeDescendantId =>
+        _activeKey is null ? null : BuildOptionId(_activeKey);
+
+    private string BuildOptionId(string key)
+    {
+        // Sanitize + append a stable FNV-1a hash so two keys that differ only by
+        // non-[A-Za-z0-9_-] characters ("foo bar" vs "foo/bar") do not collide
+        // on the same DOM id — which would mis-target aria-activedescendant.
+        var prefix = TestId ?? "multi-select-dropdown";
+        var sanitized = SanitizeIdFragment(key);
+        var hash = Fnv1aHash(key);
+        return $"{prefix}-opt-{sanitized}-{hash:x8}";
+    }
+
+    private static string SanitizeIdFragment(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return "_";
+        }
+        var chars = new char[value.Length];
+        for (var i = 0; i < value.Length; i++)
+        {
+            var c = value[i];
+            chars[i] = (c is (>= 'A' and <= 'Z') or (>= 'a' and <= 'z') or (>= '0' and <= '9') or '-' or '_') ? c : '_';
+        }
+        return new string(chars);
+    }
+
+    private static uint Fnv1aHash(string value)
+    {
+        const uint offset = 2166136261u;
+        const uint prime = 16777619u;
+        var hash = offset;
+        foreach (var c in value)
+        {
+            hash ^= c;
+            hash *= prime;
+        }
+        return hash;
+    }
+
+    private CancellationTokenSource? _debounceCts;
+    private CancellationTokenSource? _searchCts;
+
+    // ── Lifecycle ────────────────────────────────────────────────
+
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(_lastSelectedRef, Selected))
+        {
+            _lastSelectedRef = Selected;
+            _selected.Clear();
+            foreach (var v in Selected)
+            {
+                _selected.Add(v);
+            }
+        }
+
+        if (SearchAsync is null && !ReferenceEquals(_lastItemsRef, Items))
+        {
+            _lastItemsRef = Items;
+            RefreshLocalItems();
+            if (_activeKey is null && _visibleItems.Count > 0)
+            {
+                _activeKey = ValueSelector(_visibleItems[0]);
+            }
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _jsModule = await JS.InvokeAsync<IJSObjectReference>(
+                    "import", "./_content/Stratum.Common.UI/Components/MultiSelectDropdown.razor.js");
+                _jsSubscription = await _jsModule.InvokeAsync<IJSObjectReference>("attach", _rootRef);
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // JS interop unavailable (pre-render, teardown) — fall through without crashing.
+                // JSException is intentionally NOT caught here: a missing module (e.g. bad static
+                // asset path) would silently regress keyboard preventDefault, so we let it bubble.
+            }
+        }
+    }
+
+    // ── Search handling ──────────────────────────────────────────
+
+    private void HandleSearchInput(ChangeEventArgs e)
+    {
+        _searchText = e.Value?.ToString() ?? string.Empty;
+
+        if (SearchAsync is not null)
+        {
+            TriggerDebouncedRemoteSearch();
+        }
+        else
+        {
+            TriggerDebouncedLocalFilter();
+        }
+    }
+
+    private void TriggerDebouncedLocalFilter()
+    {
+        _debounceCts?.Cancel();
+        _debounceCts?.Dispose();
+        _debounceCts = new CancellationTokenSource();
+        var token = _debounceCts.Token;
+
+        _ = RunAfterDelayAsync(
+            async () =>
+            {
+                RefreshLocalItems();
+                _activeKey = _visibleItems.Count > 0 ? ValueSelector(_visibleItems[0]) : null;
+                await InvokeAsync(StateHasChanged);
+            },
+            token);
+    }
+
+    private void TriggerDebouncedRemoteSearch()
+    {
+        _debounceCts?.Cancel();
+        _debounceCts?.Dispose();
+        _debounceCts = new CancellationTokenSource();
+        var debounceToken = _debounceCts.Token;
+
+        _ = RunAfterDelayAsync(
+            async () =>
+            {
+                _searchCts?.Cancel();
+                _searchCts?.Dispose();
+                _searchCts = new CancellationTokenSource();
+                var searchToken = _searchCts.Token;
+
+                _loading = true;
+                await InvokeAsync(StateHasChanged);
+
+                try
+                {
+                    var results = await SearchAsync!(_searchText, searchToken);
+                    if (searchToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+                    _visibleItems = results.ToList();
+                    _activeKey = _visibleItems.Count > 0 ? ValueSelector(_visibleItems[0]) : null;
+                }
+                catch (OperationCanceledException)
+                {
+                    // Ignored: superseded by a newer search.
+                }
+                finally
+                {
+                    _loading = false;
+                    if (!searchToken.IsCancellationRequested)
+                    {
+                        await InvokeAsync(StateHasChanged);
+                    }
+                }
+            },
+            debounceToken);
+    }
+
+    private async Task RunAfterDelayAsync(Func<Task> action, CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(SearchDebounceMs, token);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        if (token.IsCancellationRequested)
+        {
+            return;
+        }
+
+        await action();
+    }
+
+    private void RefreshLocalItems()
+    {
+        if (Items is null)
+        {
+            _visibleItems = new List<TItem>();
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_searchText))
+        {
+            _visibleItems = Items.ToList();
+            return;
+        }
+
+        var search = _searchText.Trim();
+        _visibleItems = Items
+            .Where(i => TextSelector(i).Contains(search, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    // ── Selection ────────────────────────────────────────────────
+
+    private async Task ToggleItemAsync(TItem item)
+    {
+        var key = ValueSelector(item);
+        if (!_selected.Add(key))
+        {
+            _selected.Remove(key);
+        }
+
+        if (SelectedChanged.HasDelegate)
+        {
+            await SelectedChanged.InvokeAsync(_selected.ToArray());
+        }
+    }
+
+    // ── Keyboard ─────────────────────────────────────────────────
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (_visibleItems.Count == 0)
+        {
+            return;
+        }
+
+        var currentIndex = GetActiveIndex();
+
+        switch (e.Key)
+        {
+            case "ArrowDown":
+                var nextIndex = (currentIndex + 1) % _visibleItems.Count;
+                _activeKey = ValueSelector(_visibleItems[nextIndex]);
+                break;
+
+            case "ArrowUp":
+                var prevIndex = currentIndex <= 0
+                    ? _visibleItems.Count - 1
+                    : currentIndex - 1;
+                _activeKey = ValueSelector(_visibleItems[prevIndex]);
+                break;
+
+            case " ":
+            case "Spacebar":
+                if (currentIndex >= 0)
+                {
+                    await ToggleItemAsync(_visibleItems[currentIndex]);
+                }
+                break;
+
+            case "Enter":
+                if (currentIndex >= 0)
+                {
+                    await ToggleItemAsync(_visibleItems[currentIndex]);
+                }
+                break;
+        }
+    }
+
+    private int GetActiveIndex()
+    {
+        if (_activeKey is null)
+        {
+            return -1;
+        }
+        for (var i = 0; i < _visibleItems.Count; i++)
+        {
+            if (string.Equals(ValueSelector(_visibleItems[i]), _activeKey, StringComparison.Ordinal))
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    // ── Rendering ────────────────────────────────────────────────
+
+    private RenderFragment RenderOption(TItem item) => builder =>
+    {
+        var key = ValueSelector(item);
+        var text = TextSelector(item);
+        var isSelected = _selected.Contains(key);
+        var isActive = string.Equals(key, _activeKey, StringComparison.Ordinal);
+        var cssClass = "multi-select-dropdown__option";
+        if (isSelected)
+        {
+            cssClass += " multi-select-dropdown__option--selected";
+        }
+        if (isActive)
+        {
+            cssClass += " multi-select-dropdown__option--active";
+        }
+
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", cssClass);
+        builder.AddAttribute(2, "role", "option");
+        builder.AddAttribute(3, "aria-selected", isSelected ? "true" : "false");
+        builder.AddAttribute(4, "id", BuildOptionId(key));
+        builder.AddAttribute(5, "data-testid", $"multi-select-dropdown-option-{key}");
+        builder.AddAttribute(6, "data-value", key);
+        builder.AddAttribute(7, "onclick", EventCallback.Factory.Create<MouseEventArgs>(
+            this,
+            _ => ToggleItemAsync(item)));
+
+        builder.OpenElement(10, "span");
+        builder.AddAttribute(11, "class", "multi-select-dropdown__checkbox");
+        builder.AddAttribute(12, "aria-hidden", "true");
+        builder.AddContent(13, isSelected ? "☑" : "☐");
+        builder.CloseElement();
+
+        builder.OpenElement(20, "span");
+        builder.AddAttribute(21, "class", "multi-select-dropdown__label");
+        builder.AddContent(22, text);
+        builder.CloseElement();
+
+        builder.CloseElement();
+    };
+
+    // ── Cleanup ──────────────────────────────────────────────────
+
+    public async ValueTask DisposeAsync()
+    {
+        _debounceCts?.Cancel();
+        _debounceCts?.Dispose();
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+
+        if (_jsSubscription is not null)
+        {
+            try { await _jsSubscription.InvokeVoidAsync("dispose"); }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException) { }
+            try { await _jsSubscription.DisposeAsync(); }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException) { }
+        }
+
+        if (_jsModule is not null)
+        {
+            try { await _jsModule.DisposeAsync(); }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException) { }
+        }
+    }
+}

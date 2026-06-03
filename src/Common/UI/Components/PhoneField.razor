@@ -1,0 +1,227 @@
+@namespace Stratum.Common.UI.Components
+
+<div class="phone-field @CssClass @(Disabled ? "phone-field--disabled" : string.Empty)"
+     data-testid="@TestId">
+    <div class="phone-field__wrap @(_invalid ? "phone-field__wrap--error" : string.Empty)">
+
+        @* Country selector *@
+        <select class="phone-field__country"
+                aria-label="Sélectionner le pays"
+                disabled="@(Disabled || ReadOnly)"
+                value="@_selectedCountry"
+                @onchange="OnCountryChanged">
+            @foreach (var c in DisplayedCountries)
+            {
+                <option value="@c.Code" selected="@(c.Code == _selectedCountry)">@c.Name (@c.DialCode)</option>
+            }
+        </select>
+
+        @* Number input *@
+        <input type="tel"
+               id="@_inputId"
+               class="phone-field__input @(_invalid ? "phone-field__input--error" : string.Empty)"
+               value="@_numberText"
+               placeholder="@Placeholder"
+               inputmode="tel"
+               autocomplete="tel"
+               aria-invalid="@(_invalid ? "true" : null)"
+               aria-describedby="@(_invalid ? _errorId : null)"
+               disabled="@Disabled"
+               readonly="@ReadOnly"
+               aria-readonly="@(ReadOnly ? "true" : null)"
+               @oninput="OnNumberInput"
+               @onblur="OnBlur" />
+    </div>
+
+    @if (_invalid)
+    {
+        <span id="@_errorId" class="phone-field__error" role="alert">Numéro de téléphone invalide pour ce pays.</span>
+    }
+</div>
+
+@code {
+    /// <summary>Full phone number with country prefix (e.g. "+33612345678"), two-way.</summary>
+    [Parameter] public string? Value { get; set; }
+
+    /// <summary>Raised when the combined value changes.</summary>
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Default country code (ISO 3166-1 alpha-2). Default: "FR".</summary>
+    [Parameter] public string DefaultCountry { get; set; } = "FR";
+
+    /// <summary>Restrict the country list to this subset. Null = all countries.</summary>
+    [Parameter] public IReadOnlyList<string>? AllowedCountries { get; set; }
+
+    /// <summary>Placeholder for the number input.</summary>
+    [Parameter] public string? Placeholder { get; set; }
+
+    /// <summary>Disabled — no interaction.</summary>
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Read-only — focusable but not editable.</summary>
+    [Parameter] public bool ReadOnly { get; set; }
+
+    /// <summary>Additional CSS classes on root element.</summary>
+    [Parameter] public string? CssClass { get; set; }
+
+    /// <summary>Test identifier for E2E tests.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    // ── State ─────────────────────────────────────────────────────
+
+    private string _selectedCountry = "FR";
+    private string _numberText = string.Empty;
+    private bool _invalid;
+    private bool _initialized;
+    private string? _lastCommittedValue;
+    private readonly string _inputId = $"phone-{Guid.NewGuid():N}";
+    private readonly string _errorId = $"phone-err-{Guid.NewGuid():N}";
+
+    // ── Lifecycle ─────────────────────────────────────────────────
+
+    protected override void OnParametersSet()
+    {
+        if (!_initialized)
+        {
+            _initialized = true;
+            InitFromValue();
+            return;
+        }
+
+        if (Value == _lastCommittedValue) return;
+        InitFromValue();
+    }
+
+    private void InitFromValue()
+    {
+        if (!string.IsNullOrEmpty(Value))
+        {
+            TryParseValue(Value, Countries, out var code, out var number);
+            _selectedCountry = code ?? DefaultCountry;
+            _numberText = number;
+        }
+        else
+        {
+            _selectedCountry = DefaultCountry;
+            _numberText = string.Empty;
+        }
+
+        var displayed = DisplayedCountries.ToList();
+        if (displayed.Count > 0 && !displayed.Any(c => c.Code == _selectedCountry))
+            _selectedCountry = displayed[0].Code;
+    }
+
+    // ── Events ────────────────────────────────────────────────────
+
+    private async Task OnCountryChanged(ChangeEventArgs e)
+    {
+        _selectedCountry = e.Value?.ToString() ?? DefaultCountry;
+        _invalid = false;
+        await CommitAsync();
+    }
+
+    private async Task OnNumberInput(ChangeEventArgs e)
+    {
+        _numberText = e.Value?.ToString() ?? string.Empty;
+        _invalid = false;
+        await CommitAsync();
+    }
+
+    private void OnBlur()
+    {
+        if (ReadOnly || string.IsNullOrWhiteSpace(_numberText)) { _invalid = false; return; }
+        _invalid = !IsValidNumber(_numberText, _selectedCountry);
+    }
+
+    private async Task CommitAsync()
+    {
+        var country = Countries.FirstOrDefault(c => c.Code == _selectedCountry);
+        if (country is null) return;
+        var combined = string.IsNullOrWhiteSpace(_numberText) ? null : $"{country.DialCode}{_numberText.Trim()}";
+        _lastCommittedValue = combined;
+        await ValueChanged.InvokeAsync(combined);
+    }
+
+    // ── Computed ──────────────────────────────────────────────────
+
+    private IEnumerable<CountryInfo> DisplayedCountries =>
+        AllowedCountries is { Count: > 0 }
+            ? Countries.Where(c => AllowedCountries.Contains(c.Code, StringComparer.OrdinalIgnoreCase))
+            : Countries;
+
+    // ── Pure helpers (internal for testability) ───────────────────
+
+    private static readonly System.Text.RegularExpressions.Regex FallbackPhonePattern =
+        new(@"^\d{6,15}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    internal static bool IsValidNumber(string? number, string countryCode)
+    {
+        if (string.IsNullOrWhiteSpace(number)) return true;
+        var country = Countries.FirstOrDefault(c =>
+            string.Equals(c.Code, countryCode, StringComparison.OrdinalIgnoreCase));
+        return country is not null
+            ? country.CompiledPattern.IsMatch(number)
+            : FallbackPhonePattern.IsMatch(number);
+    }
+
+    internal static void TryParseValue(
+        string value,
+        IEnumerable<CountryInfo> countries,
+        out string? countryCode,
+        out string number)
+    {
+        countryCode = null;
+        number = value;
+
+        if (!value.StartsWith('+')) return;
+
+        var match = countries
+            .Where(c => value.StartsWith(c.DialCode, StringComparison.Ordinal))
+            .OrderByDescending(c => c.DialCode.Length)
+            .FirstOrDefault();
+
+        if (match is null) return;
+
+        countryCode = match.Code;
+        number = value[match.DialCode.Length..].TrimStart();
+    }
+
+    // ── Country data ──────────────────────────────────────────────
+
+    internal sealed record CountryInfo(string Code, string Name, string DialCode, string Pattern)
+    {
+        internal System.Text.RegularExpressions.Regex CompiledPattern { get; } =
+            new(Pattern, System.Text.RegularExpressions.RegexOptions.Compiled);
+    }
+
+    internal static readonly CountryInfo[] Countries =
+    [
+        new("FR", "France",          "+33",  @"^\d{9}$"),
+        new("BE", "Belgique",        "+32",  @"^\d{8,9}$"),
+        new("CH", "Suisse",          "+41",  @"^\d{9}$"),
+        new("LU", "Luxembourg",      "+352", @"^\d{6,9}$"),
+        new("DE", "Allemagne",       "+49",  @"^\d{7,12}$"),
+        new("AT", "Autriche",        "+43",  @"^\d{7,13}$"),
+        new("NL", "Pays-Bas",        "+31",  @"^\d{9}$"),
+        new("GB", "Royaume-Uni",     "+44",  @"^\d{10}$"),
+        new("IE", "Irlande",         "+353", @"^\d{7,9}$"),
+        new("ES", "Espagne",         "+34",  @"^\d{9}$"),
+        new("IT", "Italie",          "+39",  @"^\d{9,10}$"),
+        new("PT", "Portugal",        "+351", @"^\d{9}$"),
+        new("PL", "Pologne",         "+48",  @"^\d{9}$"),
+        new("US", "États-Unis",      "+1",   @"^\d{10}$"),
+        new("CA", "Canada",          "+1",   @"^\d{10}$"),
+        new("AU", "Australie",       "+61",  @"^\d{9}$"),
+        new("JP", "Japon",           "+81",  @"^\d{10,11}$"),
+        new("CN", "Chine",           "+86",  @"^\d{11}$"),
+        new("IN", "Inde",            "+91",  @"^\d{10}$"),
+        new("BR", "Brésil",          "+55",  @"^\d{10,11}$"),
+        new("MX", "Mexique",         "+52",  @"^\d{10}$"),
+        new("AR", "Argentine",       "+54",  @"^\d{10}$"),
+        new("MA", "Maroc",           "+212", @"^\d{9}$"),
+        new("DZ", "Algérie",         "+213", @"^\d{9}$"),
+        new("TN", "Tunisie",         "+216", @"^\d{8}$"),
+        new("SN", "Sénégal",         "+221", @"^\d{9}$"),
+        new("ZA", "Afrique du Sud",  "+27",  @"^\d{9}$"),
+    ];
+}

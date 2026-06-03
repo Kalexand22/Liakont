@@ -1,0 +1,171 @@
+@page "/admin/notifications/routing"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Stratum.Modules.Notification.Contracts.DTOs
+@using Stratum.Modules.Notification.Contracts.Queries
+@using Stratum.Modules.Notification.Contracts.Commands
+@using Stratum.Modules.Notification.Web.Registries
+@inject IRoutingRuleQueries RuleQueries
+@inject ISender Sender
+@inject NavigationManager Nav
+@inject IToastService ToastService
+
+@*
+ * AdminNotificationRouting - list page for routing rules (Pattern §2: Page liste).
+ *
+ * Migrated to DeclaredListPage. Uses ColumnRegistry for dynamic columns,
+ * RowActions for per-row CRUD, and BulkActions for bulk deactivation.
+ *
+ * Ref: UIA05
+ *@
+
+<DeclaredListPage TItem="RoutingRuleDto"
+                  Title="Règles de routage"
+                  TestId="notif-routing"
+                  LoadItems="@(() => RuleQueries.List())"
+                  DetailUrl="@(r => $"/admin/notifications/routing/{r.Id}")"
+                  CreateUrl="/admin/notifications/routing/new"
+                  CreateLabel="+ Nouvelle règle"
+                  ColumnRegistry="@_registry"
+                  ColumnTemplates="@_columnTemplates"
+                  GridKey="Notification.RoutingRules"
+                  RowActions="@_rowActions"
+                  BulkActions="@_bulkActions"
+                  AriaLabel="Liste des règles de routage"
+                  DefaultSortColumn="Code"
+                  SearchPlaceholder="Chercher une règle… (raccourci : /)"
+                  AllowExport="true"
+                  AllowGrouping="true"
+                  ExportFileName="regles-routage">
+    <ToolbarActions>
+        <StratumButton Text="Importer"
+                       Variant="ButtonVariant.Secondary"
+                       Outline
+                       Size="ButtonSize.Small"
+                       OnClick="@(_ => ToastService.Show("Importation à venir.", Severity.Info))"
+                       TestId="notif-routing-import-btn" />
+        <StratumSplitButton Text="Plus d'actions"
+                            Items="@_moreActions"
+                            OnItemClick="HandleMenuItemClick"
+                            ButtonStyle="ButtonVariant.Secondary"
+                            Outline
+                            Size="ButtonSize.Small"
+                            TestId="notif-routing-more-menu" />
+    </ToolbarActions>
+</DeclaredListPage>
+
+@code {
+    private readonly RoutingRuleColumnRegistry _registry = new();
+
+    private readonly Dictionary<string, RenderFragment<RoutingRuleDto>> _columnTemplates = new()
+    {
+        ["IsActive"] = item => __builder =>
+        {
+            __builder.OpenComponent<StatusBadge>(0);
+            __builder.AddAttribute(1, "Severity", item.IsActive ? Severity.Success : Severity.Neutral);
+            __builder.AddAttribute(2, "Label", item.IsActive ? "Actif" : "Inactif");
+            __builder.CloseComponent();
+        },
+        ["ServiceCode"] = item => __builder =>
+        {
+            __builder.OpenComponent<CategoryBadge>(0);
+            __builder.AddAttribute(1, "Label", item.ServiceCode ?? "—");
+            __builder.CloseComponent();
+        },
+        ["Priority"] = item => __builder =>
+        {
+            __builder.OpenComponent<PriorityIndicator>(0);
+            __builder.AddAttribute(1, "Value", item.Priority);
+            __builder.CloseComponent();
+        },
+    };
+
+    private readonly IReadOnlyList<GridRowAction<RoutingRuleDto>> _rowActions;
+    private readonly IReadOnlyList<BulkActionConfig<RoutingRuleDto>> _bulkActions;
+
+    private readonly IReadOnlyList<SplitButtonItem> _moreActions =
+    [
+        new SplitButtonItem("Audit des règles", Value: "audit"),
+        new SplitButtonItem("Synchroniser", Value: "sync"),
+        new SplitButtonItem("Purger les inactifs", Value: "purge"),
+    ];
+
+    public AdminNotificationRouting()
+    {
+        _rowActions =
+        [
+            new GridRowAction<RoutingRuleDto>(
+                Id: "edit",
+                Label: "Modifier",
+                Icon: "edit",
+                IsQuickAction: true,
+                Callback: item =>
+                {
+                    Nav.NavigateTo($"/admin/notifications/routing/{item.Id}/edit");
+                    return Task.CompletedTask;
+                }),
+            new GridRowAction<RoutingRuleDto>(
+                Id: "delete",
+                Label: "Supprimer",
+                Icon: "delete",
+                Callback: DeleteItemAsync,
+                RequiresConfirmation: true,
+                IsSeparatorBefore: true,
+                IsQuickAction: true),
+        ];
+
+        _bulkActions =
+        [
+            new BulkActionConfig<RoutingRuleDto>(
+                Id: "deactivate",
+                Label: "Désactiver la sélection",
+                Icon: "pause",
+                Permission: NotificationPermissions.RoutingRuleUpdate,
+                PermissionDisabledReason: "Rôle insuffisant pour désactiver.",
+                Execute: DeactivateAsync,
+                ItemFilter: r => r.IsActive),
+        ];
+    }
+
+    private async Task DeleteItemAsync(RoutingRuleDto item)
+    {
+        await Sender.Send(new DeleteRoutingRuleCommand { RoutingRuleId = item.Id });
+    }
+
+    private async Task DeactivateAsync(IReadOnlyList<RoutingRuleDto> items)
+    {
+        foreach (var item in items)
+        {
+            await Sender.Send(new UpdateRoutingRuleCommand
+            {
+                Code = item.Code,
+                EntityType = item.EntityType,
+                Name = item.Name,
+                ServiceCode = item.ServiceCode,
+                RecipientType = item.RecipientType,
+                RecipientValue = item.RecipientValue,
+                ConditionsJson = item.ConditionsJson,
+                Priority = item.Priority,
+                IsActive = false,
+            });
+        }
+    }
+
+    private Task HandleMenuItemClick(string value)
+    {
+        var (message, severity) = value switch
+        {
+            "audit" => ("Audit lancé.", Severity.Info),
+            "sync" => ("Synchronisation lancée.", Severity.Info),
+            "purge" => ("Purge annulée.", Severity.Warning),
+            _ => ($"Action : {value}", Severity.Info),
+        };
+
+        ToastService.Show(message, severity);
+        return Task.CompletedTask;
+    }
+}

@@ -1,0 +1,46 @@
+@page "/logout"
+@layout Liakont.Host.Components.Layout.AuthLayout
+@* No @rendermode directive — static SSR required for HttpContext.SignOutAsync *@
+@attribute [AllowAnonymous]
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@using Microsoft.Extensions.Options
+@using Liakont.Host.Security
+@inject NavigationManager Nav
+@inject IOptions<KeycloakSettings> KeycloakOptions
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        // Only sign out on POST (form submission with antiforgery token).
+        // GET requests (e.g., navigating directly to /logout) just redirect to login.
+        if (HttpContext.Request.Method != HttpMethods.Post)
+        {
+            Nav.NavigateTo("/login", forceLoad: true);
+            return;
+        }
+
+        var kc = KeycloakOptions.Value;
+
+        if (kc.IsKeycloakLoginActive)
+        {
+            // Redirect to /auth/oidc-logout which handles both OIDC + cookie sign-out.
+            // The cookie must still be present so the OIDC handler can read the
+            // id_token for Keycloak's end_session id_token_hint parameter.
+            Nav.NavigateTo("/auth/oidc-logout", forceLoad: true);
+            return;
+        }
+
+        // Legacy mode: sign out of cookie and redirect to login page
+        await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        Nav.NavigateTo("/login", forceLoad: true);
+    }
+}

@@ -1,0 +1,273 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TItem
+@typeparam TColumn
+@implements IAsyncDisposable
+@using Microsoft.Extensions.Logging
+
+@*
+    Kanban<TItem, TColumn> — UF02
+    Column-based kanban board with drag-drop and keyboard move mode.
+*@
+
+<div class="str-kanban"
+     id="@_id"
+     role="region"
+     aria-label="Tableau kanban"
+     data-testid="stratum-kanban-view"
+     @onkeydown="HandleBoardKeyDown">
+
+    <div class="str-kanban__board">
+        @for (var ci = 0; ci < Columns.Count; ci++)
+        {
+            var colIdx = ci;
+            var col = Columns[colIdx];
+            var colKey = ColumnKeySelector(col);
+            var title = ColumnTitleSelector(col);
+            var cards = CardsForColumn(colIdx);
+            var cardCount = cards.Count;
+            var isCollapsed = IsColumnCollapsed(colKey);
+
+            <div class="str-kanban__col @(isCollapsed ? "str-kanban__col--collapsed" : "")"
+                 role="group"
+                 aria-label="@title — @cardCount cartes"
+                 data-kanban-col-idx="@colIdx">
+
+                <div class="str-kanban__col-header"
+                     role="heading" aria-level="3"
+                     aria-label="@title : @cardCount cartes"
+                     tabindex="@(CollapsibleColumns ? "0" : "-1")"
+                     @onkeydown="@(e => HandleHeaderKeyDown(e, colKey))">
+
+                    @if (ColumnHeaderTemplate is not null)
+                    { @ColumnHeaderTemplate(new ColumnHeaderContext<TColumn>(col, cardCount, isCollapsed)) }
+                    else
+                    {
+                        <span class="str-kanban__col-title">@title</span>
+                        <span class="str-kanban__col-count" aria-hidden="true">@cardCount</span>
+                    }
+
+                    @if (CollapsibleColumns)
+                    {
+                        <button type="button" class="str-kanban__col-toggle"
+                                aria-label="@(isCollapsed ? "Déplier" : "Replier")"
+                                aria-expanded="@(!isCollapsed ? "true" : "false")"
+                                @onclick="@(() => ToggleColumn(colKey))">
+                            @(isCollapsed ? "▸" : "▾")
+                        </button>
+                    }
+                </div>
+
+                @if (!isCollapsed)
+                {
+                    <div class="str-kanban__col-body" data-kanban-dropzone="@colIdx">
+                        @for (var ci2 = 0; ci2 < cards.Count; ci2++)
+                        {
+                            var localIdx = ci2;
+                            var (item, globalIdx) = cards[localIdx];
+                            var isMoving = _inKeyboardMoveMode && globalIdx == _kbMoveItemIndex;
+                            var isTarget = _inKeyboardMoveMode && !isMoving
+                                && colIdx == _kbMoveTargetColIdx && localIdx == _kbMoveTargetLocalIdx;
+
+                            <div class="str-kanban__card @(isMoving ? "str-kanban__card--kb-moving" : "")"
+                                 role="article" tabindex="0"
+                                 draggable="@(DragEnabled && !ReadOnly ? "true" : "false")"
+                                 data-kanban-item-index="@globalIdx"
+                                 data-kanban-col-idx="@colIdx"
+                                 data-kanban-local-idx="@localIdx"
+                                 style="@(MaxCardHeight is not null ? $"max-height:{MaxCardHeight};overflow:hidden;" : null)"
+                                 @onkeydown="@(e => HandleCardKeyDown(e, item, globalIdx, colIdx, localIdx))"
+                                 @onclick="@(() => HandleCardClick(item))">
+                                @if (isTarget) { <div class="str-kanban__drop-indicator" aria-hidden="true"></div> }
+                                @CardTemplate(item)
+                            </div>
+                        }
+
+                        @if (_inKeyboardMoveMode && colIdx == _kbMoveTargetColIdx && _kbMoveTargetLocalIdx >= cards.Count)
+                        { <div class="str-kanban__drop-indicator" aria-hidden="true"></div> }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+
+    <div aria-live="assertive" aria-atomic="true" class="visually-hidden">@_ariaLiveMessage</div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<TItem> Items { get; set; } = null!;
+    [Parameter, EditorRequired] public IReadOnlyList<TColumn> Columns { get; set; } = null!;
+    [Parameter, EditorRequired] public Func<TColumn, object> ColumnKeySelector { get; set; } = null!;
+    [Parameter, EditorRequired] public Func<TItem, object> ItemColumnSelector { get; set; } = null!;
+    [Parameter, EditorRequired] public Func<TColumn, string> ColumnTitleSelector { get; set; } = null!;
+    [Parameter, EditorRequired] public RenderFragment<TItem> CardTemplate { get; set; } = null!;
+    [Parameter] public RenderFragment<ColumnHeaderContext<TColumn>>? ColumnHeaderTemplate { get; set; }
+    [Parameter] public EventCallback<CardMoveArgs<TItem>> OnCardMove { get; set; }
+    [Parameter] public EventCallback<TItem> OnCardClick { get; set; }
+    [Parameter] public bool CollapsibleColumns { get; set; }
+    [Parameter] public IReadOnlySet<object>? CollapsedColumns { get; set; }
+    [Parameter] public EventCallback<IReadOnlySet<object>> CollapsedColumnsChanged { get; set; }
+    [Parameter] public bool DragEnabled { get; set; } = true;
+    [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public string? MaxCardHeight { get; set; }
+
+    [Inject] private IJSRuntime JS { get; set; } = null!;
+    [Inject] private ILogger<Kanban<TItem, TColumn>> Logger { get; set; } = null!;
+
+    private readonly string _id = $"str-kan-{Guid.NewGuid():N}";
+    private IJSObjectReference? _jsModule;
+    private DotNetObjectReference<Kanban<TItem, TColumn>>? _dotnetRef;
+    private bool _jsInitialized;
+    private string _ariaLiveMessage = string.Empty;
+    private bool _inKeyboardMoveMode;
+    private int _kbMoveItemIndex, _kbMoveSourceColIdx, _kbMoveSourceLocalIdx;
+    private int _kbMoveTargetColIdx, _kbMoveTargetLocalIdx;
+    private readonly HashSet<object> _collapsedInternal = [];
+
+    protected override void OnParametersSet()
+    {
+        if (DragEnabled && !ReadOnly && !OnCardMove.HasDelegate)
+            Logger.LogWarning("Kanban: DragEnabled=true but OnCardMove has no subscribers.");
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _jsModule = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./_content/Stratum.Common.UI/js/kanban.js");
+            await _jsModule.InvokeVoidAsync("initKeyboard", _id);
+        }
+        if (DragEnabled && !ReadOnly && !_jsInitialized && _jsModule is not null)
+        {
+            _dotnetRef = DotNetObjectReference.Create(this);
+            await _jsModule.InvokeVoidAsync("initKanban", _id, _dotnetRef);
+            _jsInitialized = true;
+        }
+        else if ((!DragEnabled || ReadOnly) && _jsInitialized && _jsModule is not null)
+        {
+            await _jsModule.InvokeVoidAsync("destroyKanban", _id);
+            _dotnetRef?.Dispose(); _dotnetRef = null; _jsInitialized = false;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_jsModule is not null)
+        {
+            try
+            {
+                if (_jsInitialized)
+                    await _jsModule.InvokeVoidAsync("destroyKanban", _id);
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or OperationCanceledException)
+            {
+                // Expected during circuit disconnect — safe to ignore.
+            }
+            finally
+            {
+                try { await _jsModule.InvokeVoidAsync("destroyKeyboard", _id); }
+                catch (Exception ex) when (ex is JSException or JSDisconnectedException or OperationCanceledException) { }
+                try { await _jsModule.DisposeAsync(); }
+                catch (Exception ex) when (ex is JSException or JSDisconnectedException or OperationCanceledException) { }
+            }
+        }
+        _dotnetRef?.Dispose();
+    }
+
+    private bool IsColumnCollapsed(object colKey) =>
+        CollapsedColumns is not null ? CollapsedColumns.Contains(colKey) : _collapsedInternal.Contains(colKey);
+
+    private async Task ToggleColumn(object colKey)
+    {
+        if (CollapsedColumns is not null)
+        { var next = new HashSet<object>(CollapsedColumns); if (!next.Remove(colKey)) next.Add(colKey); await CollapsedColumnsChanged.InvokeAsync(next); }
+        else { if (!_collapsedInternal.Remove(colKey)) _collapsedInternal.Add(colKey); }
+    }
+
+    private List<(TItem Item, int GlobalIndex)> CardsForColumn(int colIdx)
+    {
+        var colKey = ColumnKeySelector(Columns[colIdx]);
+        var result = new List<(TItem, int)>();
+        for (var i = 0; i < Items.Count; i++)
+            if (KeysEqual(ItemColumnSelector(Items[i]), colKey)) result.Add((Items[i], i));
+        return result;
+    }
+
+    private static bool KeysEqual(object a, object b) => Equals(a, b) || (a?.ToString() == b?.ToString());
+
+    private async Task HandleCardClick(TItem item)
+    { if (!_inKeyboardMoveMode) await OnCardClick.InvokeAsync(item); }
+
+    private Task HandleBoardKeyDown(KeyboardEventArgs e)
+    { if (_inKeyboardMoveMode && e.Key == "Escape") ExitKeyboardMoveMode("Déplacement annulé"); return Task.CompletedTask; }
+
+    private async Task HandleHeaderKeyDown(KeyboardEventArgs e, object colKey)
+    { if (CollapsibleColumns && (e.Key == "Enter" || e.Key == " ")) await ToggleColumn(colKey); }
+
+    private async Task HandleCardKeyDown(KeyboardEventArgs e, TItem item, int globalIdx, int colIdx, int localIdx)
+    {
+        if (e.Key == "Enter" && !_inKeyboardMoveMode) { await OnCardClick.InvokeAsync(item); return; }
+        if (e.Key == " " && DragEnabled && !ReadOnly && !_inKeyboardMoveMode) { EnterKeyboardMoveMode(globalIdx, colIdx, localIdx); return; }
+        if (!_inKeyboardMoveMode || globalIdx != _kbMoveItemIndex) return;
+        switch (e.Key)
+        {
+            case "ArrowLeft": MoveCardToPrevColumn(); break;
+            case "ArrowRight": MoveCardToNextColumn(); break;
+            case "ArrowUp": MoveCardUp(); break;
+            case "ArrowDown": MoveCardDown(); break;
+            case "Enter": await ConfirmKeyboardMove(); break;
+            case "Escape": ExitKeyboardMoveMode("Déplacement annulé"); break;
+        }
+    }
+
+    private void EnterKeyboardMoveMode(int globalIdx, int colIdx, int localIdx)
+    {
+        _inKeyboardMoveMode = true;
+        _kbMoveItemIndex = globalIdx; _kbMoveSourceColIdx = colIdx; _kbMoveSourceLocalIdx = localIdx;
+        _kbMoveTargetColIdx = colIdx; _kbMoveTargetLocalIdx = localIdx;
+        _ariaLiveMessage = $"Carte saisie en colonne {ColumnTitleSelector(Columns[colIdx])}";
+        StateHasChanged();
+    }
+
+    private void MoveCardToPrevColumn() { var n = FindPrevOpenColumn(_kbMoveTargetColIdx); if (n < 0) return; _kbMoveTargetColIdx = n; _kbMoveTargetLocalIdx = CardsForColumn(n).Count; StateHasChanged(); }
+    private void MoveCardToNextColumn() { var n = FindNextOpenColumn(_kbMoveTargetColIdx); if (n < 0) return; _kbMoveTargetColIdx = n; _kbMoveTargetLocalIdx = CardsForColumn(n).Count; StateHasChanged(); }
+    private void MoveCardUp() { if (_kbMoveTargetLocalIdx > 0) { _kbMoveTargetLocalIdx--; StateHasChanged(); } }
+    private void MoveCardDown() { if (_kbMoveTargetLocalIdx < CardsForColumn(_kbMoveTargetColIdx).Count) { _kbMoveTargetLocalIdx++; StateHasChanged(); } }
+
+    private async Task ConfirmKeyboardMove()
+    {
+        var fromKey = ColumnKeySelector(Columns[_kbMoveSourceColIdx]);
+        var toKey = ColumnKeySelector(Columns[_kbMoveTargetColIdx]);
+        var toIdx = _kbMoveTargetLocalIdx;
+        if (KeysEqual(fromKey, toKey) && toIdx > _kbMoveSourceLocalIdx) toIdx--;
+        ExitKeyboardMoveMode($"Carte déposée dans {ColumnTitleSelector(Columns[_kbMoveTargetColIdx])}");
+        await OnCardMove.InvokeAsync(new CardMoveArgs<TItem>(Items[_kbMoveItemIndex], fromKey, toKey, _kbMoveSourceLocalIdx, toIdx));
+    }
+
+    private void ExitKeyboardMoveMode(string msg) { _inKeyboardMoveMode = false; _ariaLiveMessage = msg; StateHasChanged(); }
+    private int FindPrevOpenColumn(int c) { for (var i = c - 1; i >= 0; i--) if (!IsColumnCollapsed(ColumnKeySelector(Columns[i]))) return i; return -1; }
+    private int FindNextOpenColumn(int c) { for (var i = c + 1; i < Columns.Count; i++) if (!IsColumnCollapsed(ColumnKeySelector(Columns[i]))) return i; return -1; }
+
+    [JSInvokable]
+    public async Task OnCardDropped(string itemIndex, string toColIdx, string toLocalIdx)
+    {
+        if (!int.TryParse(itemIndex, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var globalIdx) || globalIdx < 0 || globalIdx >= Items.Count) return;
+        if (!int.TryParse(toColIdx, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var targetColIdx) || targetColIdx < 0 || targetColIdx >= Columns.Count) return;
+        if (!int.TryParse(toLocalIdx, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var targetLocal)) targetLocal = int.MaxValue;
+
+        var item = Items[globalIdx];
+        var itemColKey = ItemColumnSelector(item);
+        var sourceColIdx = -1;
+        for (var i = 0; i < Columns.Count; i++) if (KeysEqual(ColumnKeySelector(Columns[i]), itemColKey)) { sourceColIdx = i; break; }
+        if (sourceColIdx < 0) return;
+
+        var sourceCards = CardsForColumn(sourceColIdx);
+        var fromLocalIdx = sourceCards.FindIndex(x => x.GlobalIndex == globalIdx);
+        if (fromLocalIdx < 0) fromLocalIdx = 0;
+        var clampedToLocal = Math.Min(targetLocal, CardsForColumn(targetColIdx).Count);
+
+        _ariaLiveMessage = $"Carte déposée dans {ColumnTitleSelector(Columns[targetColIdx])}";
+        StateHasChanged();
+        await OnCardMove.InvokeAsync(new CardMoveArgs<TItem>(item, ColumnKeySelector(Columns[sourceColIdx]), ColumnKeySelector(Columns[targetColIdx]), fromLocalIdx, clampedToLocal));
+    }
+}

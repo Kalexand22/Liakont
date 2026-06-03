@@ -1,0 +1,341 @@
+@namespace Liakont.Host.Components.Settings
+
+@using System.Globalization
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.Extensions.Localization
+@using Microsoft.Extensions.Logging
+@using Microsoft.JSInterop
+@using Stratum.Common.UI.Components
+@using Liakont.Host
+@using Stratum.Modules.Identity.Application.Preferences
+
+@inject IJSRuntime JS
+@inject IStringLocalizer<HostResources> L
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IUserPreferencesService PreferencesService
+@inject ILogger<UserPreferencesPanel> Logger
+
+@* UserPreferencesPanel — reusable preferences form (GUX06).
+ *
+ * Rendered by:
+ *   - Settings/UserPreferences.razor (fallback route /settings/preferences)
+ *   - UserPreferencesDialog.razor (modal from topbar profile menu)
+ *
+ * Source of truth: identity.user_preferences (via IUserPreferencesService).
+ * JS helpers (stratumUI.setTheme/setDensity/setCulture) are used only for
+ * live application — the database owns the persisted value.
+ * Grid page size continues to use localStorage (explicitly out of scope per GUX06).
+ *@
+
+<div class="user-preferences-panel" data-testid="user-preferences-panel">
+
+    @* ── Theme section ── *@
+    <SectionCard Title="@L["Preferences_ThemeSection"]">
+        <FormField Label="@L["Preferences_ThemeLabel"]"
+                   HelpText="@L["Preferences_ThemeHelp"]">
+            <button type="button"
+                    class="btn btn-sm @(_isDark ? "btn-outline-secondary" : "btn-primary") me-2"
+                    aria-pressed="@(!_isDark ? "true" : "false")"
+                    data-testid="pref-theme-light"
+                    @onclick="() => SetThemeAsync(false)">
+                @L["Preferences_ThemeLight"]
+            </button>
+            <button type="button"
+                    class="btn btn-sm @(_isDark ? "btn-primary" : "btn-outline-secondary")"
+                    aria-pressed="@(_isDark ? "true" : "false")"
+                    data-testid="pref-theme-dark"
+                    @onclick="() => SetThemeAsync(true)">
+                @L["Preferences_ThemeDark"]
+            </button>
+        </FormField>
+    </SectionCard>
+
+    @* ── Density section (UIF06) ── *@
+    <SectionCard Title="@L["Preferences_DensitySection"]">
+        <FormField Label="@L["Preferences_DensityLabel"]"
+                   HelpText="@L["Preferences_DensityHelp"]">
+            <button type="button"
+                    class="btn btn-sm @(_density == UserPreferences.DensityCompact ? "btn-primary" : "btn-outline-secondary") me-2"
+                    aria-pressed="@(_density == UserPreferences.DensityCompact ? "true" : "false")"
+                    data-testid="pref-density-compact"
+                    @onclick="@(() => SetDensityAsync(UserPreferences.DensityCompact))">
+                @L["Preferences_DensityCompact"]
+            </button>
+            <button type="button"
+                    class="btn btn-sm @(_density == UserPreferences.DensityStandard ? "btn-primary" : "btn-outline-secondary")"
+                    aria-pressed="@(_density == UserPreferences.DensityStandard ? "true" : "false")"
+                    data-testid="pref-density-standard"
+                    @onclick="@(() => SetDensityAsync(UserPreferences.DensityStandard))">
+                @L["Preferences_DensityStandard"]
+            </button>
+        </FormField>
+    </SectionCard>
+
+    @* ── Language section ── *@
+    <SectionCard Title="@L["Preferences_LanguageSection"]">
+        <FormField Label="@L["Preferences_LanguageLabel"]"
+                   HelpText="@L["Preferences_LanguageHelp"]">
+            @foreach (var culture in Liakont.Host.Localization.SupportedCultures.All)
+            {
+                var cultureName = culture.Name;
+                var isActive = IsLanguageActive(cultureName);
+                <button type="button"
+                        class="btn btn-sm @(isActive ? "btn-primary" : "btn-outline-secondary") me-2"
+                        aria-label="@culture.NativeName"
+                        disabled="@isActive"
+                        data-testid="@($"pref-language-{cultureName}")"
+                        @onclick="() => SwitchCultureAsync(cultureName)">
+                    @culture.NativeName
+                </button>
+            }
+        </FormField>
+    </SectionCard>
+
+    @* ── Grid defaults section ── *@
+    <SectionCard Title="@L["Preferences_GridSection"]">
+        <FormField Label="@L["Preferences_GridPageSizeLabel"]"
+                   HelpText="@L["Preferences_GridPageSizeHelp"]">
+            <StratumDropdown TValue="int"
+                             Value="@_gridPageSize"
+                             ValueChanged="HandleGridPageSizeChanged"
+                             Data="@_pageSizeOptions"
+                             TextProperty="Label"
+                             ValueProperty="Value" />
+        </FormField>
+    </SectionCard>
+
+</div>
+
+@code {
+    private bool _isDark;
+    private string _density = UserPreferences.DensityStandard;
+    private string? _persistedLanguage;
+    private int _gridPageSize = 25;
+    private Guid _userId;
+    private bool _themeFromDb;
+    private bool _densityFromDb;
+
+    private sealed record PageSizeOption(string Label, int Value);
+
+    private static readonly PageSizeOption[] _pageSizeOptions =
+    [
+        new("10", 10),
+        new("25", 25),
+        new("50", 50),
+        new("100", 100),
+    ];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            _userId = ResolveUserId(authState.User);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or OperationCanceledException)
+        {
+            Logger.LogDebug(ex, "Unable to resolve authentication state for user preferences panel.");
+            _userId = Guid.Empty;
+        }
+
+        if (_userId == Guid.Empty)
+        {
+            return;
+        }
+
+        try
+        {
+            // GetAsync (not GetOrDefaultAsync) so we can distinguish "row exists"
+            // from "no row yet". For new users with no row we must NOT force any
+            // value into the JS layer — doing so overrides OS dark-mode detection
+            // and stomps on any density the user had already chosen via localStorage.
+            var preferences = await PreferencesService.GetAsync(_userId);
+            if (preferences is null)
+            {
+                return;
+            }
+
+            _persistedLanguage = preferences.Language;
+
+            // Only treat the DB value as authoritative when it is an explicit
+            // light/dark choice. Theme == "system" means the user has not
+            // expressed a preference — leave the JS layer (OS preference +
+            // prior localStorage) in charge.
+            if (string.Equals(preferences.Theme, UserPreferences.ThemeDark, StringComparison.Ordinal))
+            {
+                _isDark = true;
+                _themeFromDb = true;
+            }
+            else if (string.Equals(preferences.Theme, UserPreferences.ThemeLight, StringComparison.Ordinal))
+            {
+                _isDark = false;
+                _themeFromDb = true;
+            }
+
+            if (preferences.Density is UserPreferences.DensityCompact or UserPreferences.DensityStandard)
+            {
+                _density = preferences.Density;
+                _densityFromDb = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load user preferences from database for user {UserId}.", _userId);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        try
+        {
+            // Theme: align live layer only when the DB holds an explicit choice.
+            if (_themeFromDb)
+            {
+                await JS.InvokeVoidAsync("stratumUI.setTheme", _isDark ? "dark" : "light");
+            }
+            else
+            {
+                var theme = await JS.InvokeAsync<string>("stratumUI.getTheme");
+                _isDark = string.Equals(theme, "dark", StringComparison.OrdinalIgnoreCase);
+            }
+
+            // Density: same pattern — never overwrite the JS layer unless the DB has a concrete value.
+            if (_densityFromDb)
+            {
+                await JS.InvokeVoidAsync("stratumUI.setDensity", _density);
+            }
+            else
+            {
+                var density = await JS.InvokeAsync<string>("stratumUI.getDensity");
+                _density = density is UserPreferences.DensityCompact or UserPreferences.DensityStandard
+                    ? density
+                    : UserPreferences.DensityStandard;
+            }
+
+            _gridPageSize = await JS.InvokeAsync<int>("stratumUI.getGridPageSize");
+
+            StateHasChanged();
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+        {
+            // Safe: prerendering or disconnected circuit.
+        }
+    }
+
+    private bool IsLanguageActive(string cultureName)
+    {
+        // Prefer the DB-persisted language so the highlighted button always
+        // matches the source of truth, even if the culture cookie is stale.
+        if (!string.IsNullOrEmpty(_persistedLanguage))
+        {
+            return _persistedLanguage.StartsWith(cultureName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return string.Equals(
+            CultureInfo.CurrentUICulture.TwoLetterISOLanguageName,
+            cultureName,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task SwitchCultureAsync(string culture)
+    {
+        if (_userId != Guid.Empty && Liakont.Host.Localization.SupportedCultures.IsSupported(culture))
+        {
+            await TryPersistAsync(p => p with { Language = culture });
+            _persistedLanguage = culture;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("stratumUI.setCulture", culture);
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+        {
+            // Safe: disconnected circuit (setCulture forces a full reload).
+        }
+    }
+
+    private async Task SetThemeAsync(bool dark)
+    {
+        try
+        {
+            var theme = dark ? UserPreferences.ThemeDark : UserPreferences.ThemeLight;
+            await JS.InvokeVoidAsync("stratumUI.setTheme", dark ? "dark" : "light");
+            _isDark = dark;
+            _themeFromDb = true;
+
+            if (_userId != Guid.Empty)
+            {
+                await TryPersistAsync(p => p with { Theme = theme });
+            }
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+        {
+            // Safe: disconnected circuit.
+        }
+    }
+
+    private async Task HandleGridPageSizeChanged(int size)
+    {
+        _gridPageSize = size;
+        try
+        {
+            await JS.InvokeVoidAsync("stratumUI.setGridPageSize", size);
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+        {
+            // Safe: disconnected circuit. Grid page size stays in localStorage per GUX06 scope.
+        }
+    }
+
+    private async Task SetDensityAsync(string density)
+    {
+        if (density is not (UserPreferences.DensityCompact or UserPreferences.DensityStandard))
+            return;
+        try
+        {
+            await JS.InvokeVoidAsync("stratumUI.setDensity", density);
+            _density = density;
+            _densityFromDb = true;
+
+            if (_userId != Guid.Empty)
+            {
+                await TryPersistAsync(p => p with { Density = density });
+            }
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+        {
+            // Safe: disconnected circuit.
+        }
+    }
+
+    private async Task TryPersistAsync(Func<UserPreferences, UserPreferences> mutate)
+    {
+        try
+        {
+            var current = await PreferencesService.GetOrDefaultAsync(_userId);
+            var updated = mutate(current);
+            await PreferencesService.UpdateAsync(_userId, updated);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to persist user preferences for user {UserId}.", _userId);
+        }
+    }
+
+    private static Guid ResolveUserId(ClaimsPrincipal user)
+    {
+        if (user.Identity?.IsAuthenticated != true)
+            return Guid.Empty;
+
+        var stratumUserId = user.FindFirst("stratum_user_id")?.Value;
+        var nameIdentifier = user.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? user.FindFirst("sub")?.Value;
+        var raw = stratumUserId ?? nameIdentifier;
+        return Guid.TryParse(raw, out var id) ? id : Guid.Empty;
+    }
+
+}

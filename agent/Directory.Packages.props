@@ -1,0 +1,25 @@
+<Project>
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Ciblage net48 via le SDK .NET (pas de pack de ciblage requis sur la machine de build/CI). -->
+    <PackageVersion Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" />
+    <!-- Enforcement de style aligné avec la plateforme (ADR-0003). -->
+    <PackageVersion Include="StyleCop.Analyzers" Version="1.2.0-beta.556" />
+    <!-- Sérialisation du pivot côté agent (Newtonsoft.Json — blueprint.md §5).
+         Déclaré ici (catalogue central) ; référencé par les items AGT (client HTTP / transport). -->
+    <PackageVersion Include="Newtonsoft.Json" Version="13.0.3" />
+    <!-- Buffer local de l'agent (SQLite WAL — blueprint.md §3.2).
+         Déclaré ici ; référencé par les items AGT (buffer local + reprise réseau). -->
+    <PackageVersion Include="System.Data.SQLite.Core" Version="1.0.119" />
+    <!-- Tests (xUnit net48) — versions alignées sur Directory.Packages.props de la plateforme. -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.0.2" />
+    <PackageVersion Include="FluentAssertions" Version="8.2.0" />
+  </ItemGroup>
+
+</Project>

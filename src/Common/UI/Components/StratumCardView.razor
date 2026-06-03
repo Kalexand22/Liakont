@@ -1,0 +1,479 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TItem where TItem : notnull
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Models
+@using Stratum.Common.UI.Services
+
+@implements IStratumListView<TItem>
+
+@* StratumCardView<TItem> — Responsive card grid layout.
+ *
+ * Implements IStratumListView<TItem> for multi-view list pages.
+ * Uses ColumnDefinition metadata to determine which fields display on each card.
+ * Responsive auto-fit grid with configurable minimum card width.
+ * Optional scrollable viewport (EnableVirtualScroll) for large datasets.
+ * Supports multi-selection (checkbox), range selection (Shift+Click),
+ * additive selection (Ctrl+Click), and click-to-detail (OnRowActivated).
+ *
+ * Usage:
+ *   <StratumCardView TItem="ProductDto" Data="@products" Loading="@_loading"
+ *                    ColumnRegistry="@_registry"
+ *                    AllowSelection="true" OnRowActivated="@GoToProduct"
+ *                    EnableVirtualScroll="true" ScrollHeight="600"
+ *                    AriaLabel="Liste des produits" />
+ *
+ * Ref: orchestration/manifest.yaml GV02, UI_G04.
+ *@
+
+<div class="stratum-card-view @(EnableVirtualScroll ? "stratum-card-view--scrollable" : "")"
+     data-testid="@(TestId ?? "stratum-card-view")"
+     @onkeydown="HandleKeyDown"
+     tabindex="0"
+     style="@GetContainerStyle()"
+     @ref="_wrapperRef">
+
+    @if (Loading)
+    {
+        <div class="stratum-card-view__grid" style="@GetGridStyle()"
+             role="status" aria-label="@(AriaLabel ?? "Chargement")" aria-busy="true">
+            @for (var s = 0; s < SkeletonCount; s++)
+            {
+                <div class="stratum-card-view__card stratum-card-view__card--skeleton" aria-hidden="true">
+                    <div class="stratum-card-view__skeleton-title"></div>
+                    <div class="stratum-card-view__skeleton-line"></div>
+                    <div class="stratum-card-view__skeleton-line stratum-card-view__skeleton-line--short"></div>
+                </div>
+            }
+        </div>
+    }
+    else if (Data is null || Data.Count == 0)
+    {
+        <div class="stratum-card-view__empty" role="status">
+            @if (EmptyContent is not null)
+            {
+                @EmptyContent
+            }
+            else
+            {
+                <p class="stratum-card-view__empty-text">Aucun élément.</p>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="stratum-card-view__grid" style="@GetGridStyle()"
+             role="list" aria-label="@AriaLabel">
+            @for (var i = 0; i < Data.Count; i++)
+            {
+                var item = Data[i];
+                var index = i;
+                var isSelected = _selectedSet.Contains(item);
+                var isFocused = index == _focusedIndex;
+
+                <div class="stratum-card-view__card @(isSelected ? "stratum-card-view__card--selected" : "") @(isFocused ? "stratum-card-view__card--focused" : "")"
+                     role="listitem"
+                     tabindex="@(isFocused ? 0 : -1)"
+                     aria-selected="@(isSelected ? "true" : "false")"
+                     data-testid="@($"card-{index}")"
+                     @onclick="e => HandleCardClick(item, index, e)"
+                     @onclick:stopPropagation="false">
+
+                    <div class="stratum-card-view__card-actions">
+                        @if (AllowSelection)
+                        {
+                            <div class="stratum-card-view__checkbox" @onclick:stopPropagation="true">
+                                <input type="checkbox"
+                                       checked="@isSelected"
+                                       aria-label="@($"Sélectionner {GetCardTitle(item)}")"
+                                       @onchange="() => ToggleSelection(item, index)" />
+                            </div>
+                        }
+                        @if (RowActions is { Count: > 0 })
+                        {
+                            <StratumRowActionMenu TItem="TItem"
+                                                  Item="@item"
+                                                  RowActions="@RowActions"
+                                                  AriaItemLabel="@GetCardTitle(item)"
+                                                  TestId="@($"card-row-actions-{index}")" />
+                        }
+                    </div>
+
+                    @if (CardTemplate is not null)
+                    {
+                        @CardTemplate(item)
+                    }
+                    else
+                    {
+                        <div class="stratum-card-view__content">
+                            <div class="stratum-card-view__title">@GetCardTitle(item)</div>
+                            @if (GetCardSubtitle(item) is { Length: > 0 } subtitle)
+                            {
+                                <div class="stratum-card-view__subtitle">@subtitle</div>
+                            }
+                            @foreach (var field in GetCardFields(item))
+                            {
+                                <div class="stratum-card-view__field">
+                                    <span class="stratum-card-view__field-label">@field.Label</span>
+                                    <span class="stratum-card-view__field-value">@field.Value</span>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private ElementReference _wrapperRef;
+    private int _focusedIndex;
+    private int _lastSelectedIndex = -1;
+    private HashSet<TItem> _selectedSet = new();
+    private List<ColumnDefinition>? _resolvedColumns;
+    // ── IStratumListView<TItem> ────────────────────────────────
+
+    /// <summary>Items to display.</summary>
+    [Parameter]
+    public IReadOnlyList<TItem> Data { get; set; } = Array.Empty<TItem>();
+
+    /// <summary>Whether the view is loading.</summary>
+    [Parameter]
+    public bool Loading { get; set; }
+
+    /// <summary>Currently selected items.</summary>
+    [Parameter]
+    public IReadOnlyList<TItem> SelectedItems { get; set; } = Array.Empty<TItem>();
+
+    /// <summary>Accessibility label for the card grid.</summary>
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    // ── Card-specific parameters ─────────────────────────────────
+
+    /// <summary>Optional test identifier.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Enable item selection via checkboxes.</summary>
+    [Parameter]
+    public bool AllowSelection { get; set; }
+
+    /// <summary>Raised when a card is activated (double-click or Enter).</summary>
+    [Parameter]
+    public EventCallback<TItem> OnRowActivated { get; set; }
+
+    /// <summary>Raised when selection changes.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<TItem>> OnSelectionChanged { get; set; }
+
+    /// <summary>
+    /// Column registry providing field metadata for auto-generated card content.
+    /// When null, cards render using ToString.
+    /// </summary>
+    [Parameter]
+    public IColumnRegistry<TItem>? ColumnRegistry { get; set; }
+
+    /// <summary>
+    /// Ordered list of visible column keys. When null and ColumnRegistry is set,
+    /// the registry's default visible columns are used.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyList<string>? VisibleColumnKeys { get; set; }
+
+    /// <summary>
+    /// Custom template for card content. When set, overrides auto-generated layout.
+    /// </summary>
+    [Parameter]
+    public RenderFragment<TItem>? CardTemplate { get; set; }
+
+    /// <summary>Custom content for empty state.</summary>
+    [Parameter]
+    public RenderFragment? EmptyContent { get; set; }
+
+    /// <summary>Number of skeleton cards during loading. Default: 6.</summary>
+    [Parameter]
+    public int SkeletonCount { get; set; } = 6;
+
+    /// <summary>
+    /// Per-row contextual actions rendered as a kebab menu on each card.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyList<GridRowAction<TItem>>? RowActions { get; set; }
+
+    // ── Virtual scroll parameters ────────────────────────────────
+
+    /// <summary>
+    /// Enable a fixed-height scrollable viewport. When true, the card grid is
+    /// constrained to <see cref="ScrollHeight"/> and becomes scrollable via
+    /// overflow-y: auto. All cards remain in the DOM — this is a CSS scroll
+    /// container, not DOM-level virtualization. Suitable for datasets up to
+    /// several hundred items. Default: false.
+    /// </summary>
+    [Parameter]
+    public bool EnableVirtualScroll { get; set; }
+
+    /// <summary>
+    /// Height of the scrollable viewport in pixels when EnableVirtualScroll is true.
+    /// Default: 600.
+    /// </summary>
+    [Parameter]
+    public int ScrollHeight { get; set; } = 600;
+
+    // ── Auto-fit grid parameters ─────────────────────────────────
+
+    /// <summary>
+    /// Minimum card width in pixels for auto-fit grid layout.
+    /// The grid auto-fills as many columns as fit. Default: 280.
+    /// </summary>
+    [Parameter]
+    public int MinCardWidth { get; set; } = 280;
+
+    // ── Lifecycle ────────────────────────────────────────────────
+
+    protected override void OnParametersSet()
+    {
+        // Sync selected set from parameter
+        _selectedSet.Clear();
+        if (SelectedItems is { Count: > 0 })
+        {
+            foreach (var item in SelectedItems)
+                _selectedSet.Add(item);
+        }
+
+        // Resolve columns from registry
+        if (ColumnRegistry is not null)
+        {
+            if (VisibleColumnKeys is { Count: > 0 })
+            {
+                var list = new List<ColumnDefinition>(VisibleColumnKeys.Count);
+                foreach (var key in VisibleColumnKeys)
+                {
+                    var col = ColumnRegistry.GetColumn(key);
+                    if (col is not null)
+                        list.Add(col);
+                }
+                _resolvedColumns = list;
+            }
+            else
+            {
+                _resolvedColumns = ColumnRegistry.GetDefaultVisibleColumns().ToList();
+            }
+        }
+        else
+        {
+            _resolvedColumns = null;
+        }
+
+        // Clamp focused index
+        if (Data is { Count: > 0 })
+        {
+            _focusedIndex = Math.Clamp(_focusedIndex, 0, Data.Count - 1);
+        }
+        else
+        {
+            _focusedIndex = 0;
+        }
+    }
+
+    // ── Style helpers ────────────────────────────────────────────
+
+    private string GetContainerStyle()
+    {
+        if (EnableVirtualScroll)
+            return $"--card-view-height: {ScrollHeight}px;";
+        return string.Empty;
+    }
+
+    private string GetGridStyle()
+        => $"--card-min-width: {MinCardWidth}px;";
+
+    // ── Card field extraction ───────────────────────────────────
+
+    private string GetCardTitle(TItem item)
+    {
+        if (_resolvedColumns is { Count: > 0 })
+        {
+            return GetPropertyValue(item, _resolvedColumns[0].Property);
+        }
+        return item.ToString() ?? string.Empty;
+    }
+
+    private string GetCardSubtitle(TItem item)
+    {
+        if (_resolvedColumns is { Count: > 1 })
+        {
+            return GetPropertyValue(item, _resolvedColumns[1].Property);
+        }
+        return string.Empty;
+    }
+
+    private IEnumerable<(string Label, string Value)> GetCardFields(TItem item)
+    {
+        if (_resolvedColumns is null || _resolvedColumns.Count <= 2)
+            yield break;
+
+        for (var i = 2; i < _resolvedColumns.Count && i < 6; i++)
+        {
+            var col = _resolvedColumns[i];
+            var value = GetPropertyValue(item, col.Property);
+            if (!string.IsNullOrEmpty(value))
+            {
+                yield return (col.Title, value);
+            }
+        }
+    }
+
+    private static string GetPropertyValue(TItem item, string propertyPath)
+    {
+        object? current = item;
+        foreach (var segment in propertyPath.Split('.'))
+        {
+            if (current is null) return string.Empty;
+            var prop = current.GetType().GetProperty(segment);
+            if (prop is null) return string.Empty;
+            current = prop.GetValue(current);
+        }
+        return current?.ToString() ?? string.Empty;
+    }
+
+    // ── Event handlers ──────────────────────────────────────────
+
+    private DateTime _lastClickTime;
+    private TItem? _lastClickedItem;
+    private static readonly TimeSpan DoubleClickThreshold = TimeSpan.FromMilliseconds(400);
+
+    private async Task HandleCardClick(TItem item, int index, MouseEventArgs e)
+    {
+        var now = DateTime.UtcNow;
+        var isDoubleClick = _lastClickedItem is not null
+            && EqualityComparer<TItem>.Default.Equals(_lastClickedItem, item)
+            && (now - _lastClickTime) < DoubleClickThreshold;
+
+        _lastClickTime = now;
+        _lastClickedItem = item;
+        _focusedIndex = index;
+
+        if (isDoubleClick)
+        {
+            _lastClickedItem = default;
+            await OnRowActivated.InvokeAsync(item);
+            return;
+        }
+
+        if (AllowSelection)
+        {
+            if (e.ShiftKey && _lastSelectedIndex >= 0 && Data is { Count: > 0 })
+            {
+                await SelectRange(_lastSelectedIndex, index);
+            }
+            else if (e.CtrlKey || e.MetaKey)
+            {
+                await ToggleSelection(item, index);
+            }
+        }
+    }
+
+    private async Task SelectRange(int fromIndex, int toIndex)
+    {
+        if (Data is null) return;
+
+        var start = Math.Min(fromIndex, toIndex);
+        var end = Math.Max(fromIndex, toIndex);
+
+        // Extend existing selection with the range (standard multi-select semantics)
+        for (var i = start; i <= end && i < Data.Count; i++)
+        {
+            _selectedSet.Add(Data[i]);
+        }
+
+        _lastSelectedIndex = toIndex;
+        await FireSelectionChanged();
+    }
+
+    private async Task ToggleSelection(TItem item, int index)
+    {
+        if (_selectedSet.Contains(item))
+            _selectedSet.Remove(item);
+        else
+            _selectedSet.Add(item);
+
+        _lastSelectedIndex = index;
+        await FireSelectionChanged();
+    }
+
+    private async Task FireSelectionChanged()
+    {
+        var snapshot = (IReadOnlyList<TItem>)_selectedSet.ToList();
+        await OnSelectionChanged.InvokeAsync(snapshot);
+    }
+
+    // ── Keyboard navigation ─────────────────────────────────────
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (Data is null || Data.Count == 0) return;
+
+        switch (e.Key)
+        {
+            case "ArrowRight":
+                _focusedIndex = Math.Min(_focusedIndex + 1, Data.Count - 1);
+                break;
+
+            case "ArrowLeft":
+                _focusedIndex = Math.Max(_focusedIndex - 1, 0);
+                break;
+
+            case "ArrowDown":
+                _focusedIndex = Math.Min(_focusedIndex + _estimatedColumnsPerRow, Data.Count - 1);
+                break;
+
+            case "ArrowUp":
+                _focusedIndex = Math.Max(_focusedIndex - _estimatedColumnsPerRow, 0);
+                break;
+
+            case "Home":
+                _focusedIndex = 0;
+                break;
+
+            case "End":
+                _focusedIndex = Data.Count - 1;
+                break;
+
+            case "Enter":
+                if (_focusedIndex >= 0 && _focusedIndex < Data.Count)
+                {
+                    await OnRowActivated.InvokeAsync(Data[_focusedIndex]);
+                }
+                break;
+
+            case " ":
+            case "x":
+                if (AllowSelection && _focusedIndex >= 0 && _focusedIndex < Data.Count)
+                {
+                    if (e.ShiftKey && _lastSelectedIndex >= 0)
+                    {
+                        await SelectRange(_lastSelectedIndex, _focusedIndex);
+                    }
+                    else
+                    {
+                        await ToggleSelection(Data[_focusedIndex], _focusedIndex);
+                    }
+                }
+                break;
+
+            case "a":
+                if ((e.CtrlKey || e.MetaKey) && AllowSelection)
+                {
+                    _selectedSet.Clear();
+                    foreach (var item in Data)
+                        _selectedSet.Add(item);
+                    _lastSelectedIndex = Data.Count - 1;
+                    await FireSelectionChanged();
+                }
+                break;
+        }
+    }
+
+    private const int _estimatedColumnsPerRow = 3;
+}

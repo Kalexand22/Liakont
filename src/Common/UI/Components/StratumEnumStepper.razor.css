@@ -1,0 +1,184 @@
+/* StratumEnumStepper — horizontal stepper, vertical on mobile */
+
+.enum-stepper {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    width: 100%;
+    padding: var(--spacing-2, 0.5rem) 0;
+}
+
+/* Step item: circle + label stacked vertically */
+.enum-stepper__item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-1, 0.25rem);
+    flex-shrink: 0;
+    min-width: 4rem;
+}
+
+/* Step circle */
+.enum-stepper__circle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: var(--radius-full, 9999px);
+    font-size: var(--font-size-sm, 0.875rem);
+    font-weight: var(--font-weight-semibold, 600);
+    transition: background-color var(--transition-normal, 200ms ease),
+                color var(--transition-normal, 200ms ease),
+                border-color var(--transition-normal, 200ms ease);
+    border: 2px solid transparent;
+}
+
+/* States */
+.enum-stepper__circle--past {
+    background-color: var(--color-primary-500, #3b82f6);
+    color: #fff;
+    border-color: var(--color-primary-500, #3b82f6);
+}
+
+.enum-stepper__circle--current {
+    background-color: var(--color-primary-500, #3b82f6);
+    color: #fff;
+    border-color: var(--color-primary-500, #3b82f6);
+    box-shadow: 0 0 0 3px var(--color-primary-100, #dbeafe);
+}
+
+.enum-stepper__circle--future {
+    background-color: var(--color-bg-surface, #fff);
+    color: var(--color-neutral-400, #9ca3af);
+    border-color: var(--color-neutral-300, #d1d5db);
+}
+
+/* Color overrides (applied to past + current only) */
+.enum-stepper__circle--success {
+    background-color: var(--color-success-500, #22c55e);
+    border-color: var(--color-success-500, #22c55e);
+}
+.enum-stepper__circle--current.enum-stepper__circle--success {
+    box-shadow: 0 0 0 3px var(--color-success-100, #dcfce7);
+}
+
+.enum-stepper__circle--warning {
+    background-color: var(--color-warning-500, #f59e0b);
+    border-color: var(--color-warning-500, #f59e0b);
+    color: var(--color-warning-900, #78350f);
+}
+.enum-stepper__circle--current.enum-stepper__circle--warning {
+    box-shadow: 0 0 0 3px var(--color-warning-100, #fef3c7);
+}
+
+.enum-stepper__circle--error {
+    background-color: var(--color-error-500, #ef4444);
+    border-color: var(--color-error-500, #ef4444);
+}
+.enum-stepper__circle--current.enum-stepper__circle--error {
+    box-shadow: 0 0 0 3px var(--color-error-100, #fee2e2);
+}
+
+.enum-stepper__circle--info {
+    background-color: var(--color-info-500, #0ea5e9);
+    border-color: var(--color-info-500, #0ea5e9);
+}
+.enum-stepper__circle--current.enum-stepper__circle--info {
+    box-shadow: 0 0 0 3px var(--color-info-100, #e0f2fe);
+}
+
+.enum-stepper__circle--neutral {
+    background-color: var(--color-neutral-500, #6b7280);
+    border-color: var(--color-neutral-500, #6b7280);
+}
+.enum-stepper__circle--current.enum-stepper__circle--neutral {
+    box-shadow: 0 0 0 3px var(--color-neutral-200, #e5e7eb);
+}
+
+.enum-stepper__circle--primary {
+    background-color: var(--color-primary-500, #3b82f6);
+    border-color: var(--color-primary-500, #3b82f6);
+}
+
+/* Check icon (past steps) */
+.enum-stepper__check {
+    width: 1rem;
+    height: 1rem;
+}
+
+/* Step number */
+.enum-stepper__number {
+    line-height: 1;
+}
+
+/* Step icon text */
+.enum-stepper__icon {
+    font-size: var(--font-size-sm, 0.875rem);
+    line-height: 1;
+}
+
+/* Label */
+.enum-stepper__label {
+    font-size: var(--font-size-xs, 0.75rem);
+    text-align: center;
+    max-width: 6rem;
+    word-wrap: break-word;
+    transition: color var(--transition-normal, 200ms ease);
+}
+
+.enum-stepper__label--past {
+    color: var(--color-text-primary, var(--color-neutral-900, #111827));
+}
+
+.enum-stepper__label--current {
+    color: var(--color-primary-600, #2563eb);
+    font-weight: var(--font-weight-semibold, 600);
+}
+
+.enum-stepper__label--future {
+    color: var(--color-neutral-400, #9ca3af);
+}
+
+/* Connector line between steps */
+.enum-stepper__connector {
+    flex: 1;
+    height: 2px;
+    min-width: 1.5rem;
+    background-color: var(--color-neutral-300, #d1d5db);
+    margin-top: 1rem; /* vertically centered with 2rem circle */
+    transition: background-color var(--transition-normal, 200ms ease);
+}
+
+.enum-stepper__connector--past {
+    background-color: var(--color-primary-500, #3b82f6);
+}
+
+/* Responsive: vertical layout on small screens */
+@media (max-width: 640px) {
+    .enum-stepper {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0;
+    }
+
+    .enum-stepper__item {
+        flex-direction: row;
+        align-items: center;
+        gap: var(--spacing-3, 0.75rem);
+        min-width: unset;
+    }
+
+    .enum-stepper__label {
+        text-align: left;
+        max-width: none;
+    }
+
+    .enum-stepper__connector {
+        width: 2px;
+        height: 1.5rem;
+        min-width: unset;
+        margin-top: 0;
+        margin-left: calc(1rem - 1px); /* centered under 2rem circle */
+    }
+}

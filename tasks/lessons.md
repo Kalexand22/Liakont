@@ -122,3 +122,25 @@ l'orchestration. Les patterns d'erreur qu'elle révèle :
    du round 1 créait un faux NÉGATIF (FAIL erroné sous Microsoft.Testing.Platform). Règle :
    tester « ça doit échouer quand c'est cassé » ET « ça ne doit pas échouer quand c'est sain »,
    y compris avec les variantes de format/environnement (.NET 10 vs net48, VSTest vs MTP).
+
+## 2026-06-03 — Acter une décision d'architecture ≠ réécrire l'orchestration runtime
+
+**Contexte :** décision de sortir l'agent dans un dépôt Git séparé + d'ajouter un installateur GUI
+paramétrable par intégrateur, demandée en session interactive avec exécution autonome (« je suis
+absent, go écrire »).
+
+**Règles pour l'avenir :**
+- **Distinguer la DÉCISION de sa MISE EN ŒUVRE outillage.** Une décision structurante (repo séparé,
+  multi-repo) s'**acte** dans un ADR + la conception + le blueprint (réversible, review-able). On ne
+  **réécrit pas** `protocol.md` / `verify-fast` / le découpage des segments en autonomie : c'est un
+  chantier à valider avec l'humain, et à exécuter **au moment où le composant existe** (ici : lots
+  AGT/SOL02 ; l'agent n'existe pas encore à SOL01 — rien à déplacer).
+- **Piège manifest sans state = faux « prévu ».** Un item ajouté à `manifest.yaml` mais **absent de
+  `state.yaml`** est traité « done & purgé » par l'orchestration (`protocol.md` Step 1/2) → **jamais
+  exécuté**. Ajouter un item au backlog est une opération **atomique** sur `manifest.yaml` +
+  `orchestration/items/<lot>.yaml` + `state.yaml` (état runtime, dépôt `$ORCH_REPO`). En session
+  interactive autonome, **documenter l'item proposé** (conception + todo) et laisser l'intégration
+  runtime à l'opérateur, plutôt que de corrompre l'état d'un système multi-agent live.
+- **Variabilité par intégrateur = déclarative.** Même réflexe que pour les PA : un profil de
+  capacités/visibilité, jamais un `if (integrateur == X)`. Et « masquer une option » impose une
+  valeur par défaut explicite (sinon donnée implicite cachée = faux vert).

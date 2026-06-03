@@ -1,0 +1,336 @@
+/* RoutingPreviewConsole — UIE04
+ * Civic Blueprint compliance:
+ *   - Glass-panel aesthetic: frosted surface over elevated container
+ *   - No hard hex — all values via tokens.css CSS variables
+ *   - Inter inherited from html body (UIF03)
+ *   - --radius-md (4px) for container, no 8px+ radii
+ *   - Console output uses --font-family-mono (Cascadia Code / Fira Code)
+ *   - Ghost borders at ≤15% opacity (No-Line Rule)
+ *   - Navy-tinted shadows (tokens.css shadow variables)
+ */
+
+/* ── Container (glass panel) ─────────────────────────────────── */
+
+.routing-console {
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--radius-md, 0.25rem);
+    background-color: var(--color-surface-container-highest, #e0e3e5);
+    border: 1px solid var(--color-border-ghost, rgba(116, 119, 129, 0.15));
+    overflow: hidden;
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-body-md, 0.875rem);
+    color: var(--color-text-primary, #191c1e);
+}
+
+/* ── Header ──────────────────────────────────────────────────── */
+
+.routing-console__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-2, 0.5rem) var(--spacing-4, 1rem);
+    background-color: var(--color-surface-container-high, #e6e8ea);
+    border-bottom: 1px solid var(--color-border-ghost, rgba(116, 119, 129, 0.15));
+}
+
+.routing-console__header-left {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2, 0.5rem);
+}
+
+.routing-console__icon {
+    font-family: 'Material Symbols Outlined';
+    font-size: 1.125rem;
+    color: var(--color-primary, #001b44);
+    opacity: 0.8;
+}
+
+.routing-console__title {
+    margin: 0;
+    font-size: var(--font-size-title-sm, 1rem);
+    font-weight: var(--font-weight-semibold, 600);
+    letter-spacing: var(--letter-spacing-tight, -0.01em);
+    color: var(--color-text-primary, #191c1e);
+}
+
+.routing-console__header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-1, 0.25rem);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────── */
+
+.routing-console__btn {
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-1, 0.25rem);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm, 0.125rem);
+    padding: var(--spacing-1, 0.25rem) var(--spacing-3, 0.75rem);
+    font-family: inherit;
+    font-size: var(--font-size-body-sm, 0.75rem);
+    font-weight: var(--font-weight-semibold, 600);
+    line-height: 1.2;
+    cursor: pointer;
+    transition: background-color var(--transition-fast, 100ms ease),
+                border-color var(--transition-fast, 100ms ease);
+}
+
+.routing-console__btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--color-focus-ring, #ccd1da);
+}
+
+.routing-console__btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.routing-console__btn--ghost {
+    background-color: transparent;
+    color: var(--color-text-secondary, #434750);
+}
+
+.routing-console__btn--ghost:hover:not(:disabled) {
+    background-color: color-mix(in srgb, var(--color-primary, #001b44) 8%, transparent);
+}
+
+.routing-console__btn--primary {
+    background-color: var(--color-primary, #001b44);
+    color: var(--color-on-primary, #ffffff);
+    border-color: var(--color-primary, #001b44);
+}
+
+.routing-console__btn--primary:hover:not(:disabled) {
+    background-color: var(--color-primary-700, #00132f);
+    border-color: var(--color-primary-700, #00132f);
+}
+
+.routing-console__btn-icon {
+    font-family: 'Material Symbols Outlined';
+    font-size: 1rem;
+}
+
+/* ── Input area ──────────────────────────────────────────────── */
+
+.routing-console__input {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-3, 0.75rem);
+    padding: var(--spacing-3, 0.75rem) var(--spacing-4, 1rem);
+    border-bottom: 1px solid var(--color-border-ghost, rgba(116, 119, 129, 0.15));
+}
+
+.routing-console__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1, 0.25rem);
+}
+
+.routing-console__field--grow {
+    flex: 1;
+}
+
+.routing-console__label {
+    font-size: var(--font-size-label-sm, 0.6875rem);
+    font-weight: var(--font-weight-bold, 700);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-secondary, #434750);
+}
+
+.routing-console__select {
+    appearance: none;
+    width: 100%;
+    padding: var(--spacing-1, 0.25rem) var(--spacing-3, 0.75rem);
+    border: 1px solid var(--color-border-ghost, rgba(116, 119, 129, 0.15));
+    border-radius: var(--radius-sm, 0.125rem);
+    background-color: var(--color-surface-container-lowest, #ffffff);
+    font-family: inherit;
+    font-size: var(--font-size-body-md, 0.875rem);
+    color: var(--color-text-primary, #191c1e);
+    cursor: pointer;
+    /* Dropdown arrow via background-image in tokens-compatible way */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23434750' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.5rem center;
+    padding-right: 1.5rem;
+}
+
+.routing-console__select:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--color-focus-ring, #ccd1da);
+    border-color: var(--color-primary, #001b44);
+}
+
+.routing-console__select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.routing-console__textarea {
+    width: 100%;
+    padding: var(--spacing-2, 0.5rem) var(--spacing-3, 0.75rem);
+    border: 1px solid var(--color-border-ghost, rgba(116, 119, 129, 0.15));
+    border-radius: var(--radius-sm, 0.125rem);
+    background-color: var(--color-surface-container-lowest, #ffffff);
+    font-family: var(--font-family-mono, 'Cascadia Code', 'Fira Code', monospace);
+    font-size: var(--font-size-body-sm, 0.75rem);
+    line-height: 1.6;
+    color: var(--color-text-primary, #191c1e);
+    resize: vertical;
+}
+
+.routing-console__textarea:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--color-focus-ring, #ccd1da);
+    border-color: var(--color-primary, #001b44);
+}
+
+.routing-console__textarea:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ── Output console (dark theme) ─────────────────────────────── */
+
+.routing-console__output {
+    min-height: 5rem;
+    padding: var(--spacing-3, 0.75rem) var(--spacing-4, 1rem);
+    background-color: var(--color-primary, #001b44);
+    color: var(--color-on-primary, #ffffff);
+    font-family: var(--font-family-mono, 'Cascadia Code', 'Fira Code', monospace);
+    font-size: var(--font-size-body-sm, 0.75rem);
+    line-height: 1.6;
+    overflow-x: auto;
+}
+
+/* ── Console lines ───────────────────────────────────────────── */
+
+.routing-console__prompt {
+    display: flex;
+    align-items: baseline;
+    gap: var(--spacing-2, 0.5rem);
+    margin-bottom: var(--spacing-2, 0.5rem);
+    opacity: 0.7;
+}
+
+.routing-console__prompt-caret {
+    color: var(--color-console-accent-green, #4ade80);
+    font-weight: var(--font-weight-bold, 700);
+}
+
+.routing-console__placeholder {
+    display: flex;
+    align-items: baseline;
+    gap: var(--spacing-2, 0.5rem);
+    opacity: 0.5;
+    font-style: italic;
+}
+
+.routing-console__line {
+    display: flex;
+    align-items: baseline;
+    gap: var(--spacing-2, 0.5rem);
+    padding: var(--spacing-1, 0.25rem) 0;
+    flex-wrap: wrap;
+}
+
+.routing-console__line--empty {
+    opacity: 0.6;
+    font-style: italic;
+}
+
+.routing-console__line-index {
+    opacity: 0.5;
+    min-width: 1.5em;
+    text-align: right;
+}
+
+.routing-console__line-code {
+    color: var(--color-console-accent-green, #4ade80);
+    font-weight: var(--font-weight-semibold, 600);
+}
+
+.routing-console__line-name {
+    color: var(--color-on-primary, #ffffff);
+}
+
+.routing-console__line-sep {
+    opacity: 0.4;
+}
+
+.routing-console__line-target {
+    color: var(--color-console-accent-blue, #93c5fd);
+}
+
+.routing-console__line-priority {
+    margin-left: auto;
+    font-size: var(--font-size-label-sm, 0.6875rem);
+    padding: 0 var(--spacing-1, 0.25rem);
+    border-radius: var(--radius-sm, 0.125rem);
+    background-color: var(--color-console-overlay-subtle, rgba(255, 255, 255, 0.12));
+    white-space: nowrap;
+}
+
+/* ── Footer (duration) ───────────────────────────────────────── */
+
+.routing-console__footer {
+    display: flex;
+    align-items: baseline;
+    gap: var(--spacing-2, 0.5rem);
+    margin-top: var(--spacing-2, 0.5rem);
+    padding-top: var(--spacing-2, 0.5rem);
+    border-top: 1px solid var(--color-console-overlay-subtle, rgba(255, 255, 255, 0.12));
+    font-size: var(--font-size-label-sm, 0.6875rem);
+    opacity: 0.6;
+}
+
+.routing-console__footer-value {
+    font-weight: var(--font-weight-semibold, 600);
+    color: var(--color-console-accent-green, #4ade80);
+}
+
+/* ── Spinner ─────────────────────────────────────────────────── */
+
+.routing-console__spinner {
+    display: inline-block;
+    width: 0.875rem;
+    height: 0.875rem;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: var(--radius-full, 9999px);
+    animation: routing-console-spin 0.6s linear infinite;
+}
+
+@keyframes routing-console-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .routing-console__spinner {
+        animation-duration: 1.5s;
+    }
+}
+
+/* ── Expanded state ──────────────────────────────────────────── */
+
+.routing-console--expanded {
+    max-height: none;
+}
+
+.routing-console--expanded .routing-console__output {
+    min-height: 12rem;
+}
+
+/* ── Density — variables declared in tokens.css (UIF06) ──────
+ * Compact density reduces padding/gap; standard expands.
+ * The component reads its nearest [data-density] ancestor
+ * automatically via custom property cascade. No scoped
+ * overrides needed here — see tokens.css "RoutingPreviewConsole". */

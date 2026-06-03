@@ -1,0 +1,76 @@
+@namespace Stratum.Common.UI.Components
+
+<span class="switch-field @(Disabled ? "switch-field--disabled" : string.Empty) @CssClass"
+      data-testid="@(TestId ?? "switch")">
+    @if (Label is not null && LabelPosition == LabelPosition.Start)
+    {
+        <label class="switch-field__label" for="@_inputId">@Label</label>
+    }
+
+    <input type="checkbox"
+           id="@_inputId"
+           role="switch"
+           class="switch-field__toggle @_sizeClass"
+           checked="@Value"
+           disabled="@Disabled"
+           aria-checked="@(Value ? "true" : "false")"
+           aria-disabled="@(Disabled ? "true" : null)"
+           aria-label="@(Label is null ? "toggle" : null)"
+           @onchange="HandleChange" />
+
+    @if (Label is not null && LabelPosition == LabelPosition.End)
+    {
+        <label class="switch-field__label" for="@_inputId">@Label</label>
+    }
+</span>
+
+@code {
+    /// <summary>Toggle state (two-way).</summary>
+    [Parameter]
+    public bool Value { get; set; }
+
+    /// <summary>Raised on every toggle.</summary>
+    [Parameter]
+    public EventCallback<bool> ValueChanged { get; set; }
+
+    /// <summary>Visible label text. When null the parent must supply aria-label or aria-labelledby.</summary>
+    [Parameter]
+    public string? Label { get; set; }
+
+    /// <summary>Position of the label relative to the toggle. Default: End.</summary>
+    [Parameter]
+    public LabelPosition LabelPosition { get; set; } = LabelPosition.End;
+
+    /// <summary>Visual size of the toggle. Default: Md.</summary>
+    [Parameter]
+    public SwitchSize Size { get; set; } = SwitchSize.Md;
+
+    /// <summary>Renders the switch as disabled.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>Additional CSS classes on the root element.</summary>
+    [Parameter]
+    public string? CssClass { get; set; }
+
+    /// <summary>Optional test identifier for E2E tests.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    // ── Stable per-component id ──────────────────────────────────
+
+    private readonly string _uniqueId = Guid.NewGuid().ToString("N")[..8];
+    private string _inputId => $"switch-{_uniqueId}";
+
+    private string _sizeClass => Size switch
+    {
+        SwitchSize.Sm => "switch-field__toggle--sm",
+        SwitchSize.Lg => "switch-field__toggle--lg",
+        _ => "switch-field__toggle--md",
+    };
+
+    private async Task HandleChange(ChangeEventArgs e)
+    {
+        await ValueChanged.InvokeAsync(e.Value is true);
+    }
+}

@@ -1,0 +1,637 @@
+/* Stratum ERP — Design Tokens (Civic Blueprint)
+ * CSS custom properties (variables) for colors, spacing, typography, and breakpoints.
+ * Import this file in your layout: <link rel="stylesheet" href="_content/Stratum.Common.UI/css/tokens.css" />
+ *
+ * Civic Blueprint reference: docs/ergonomie/civic_blueprint/DESIGN.md
+ * Operational playbook:      docs/architecture/civic-blueprint-playbook.md
+ * ADR:                       docs/adr/ADR-0017-civic-blueprint.md
+ */
+
+/* ══════════════════════════════════════════════════════════════════
+ * Inter — self-hosted variable font (UIF03)
+ * ----------------------------------------------------------------
+ * RGAA / accessibilité : aucun appel CDN tiers (pas de Google Fonts).
+ * Le fichier woff2 variable couvre tous les weights utilisés par
+ * Civic Blueprint (300–700). `font-display: swap` évite le FOIT et
+ * laisse la pile de fallback rendre immédiatement le texte tant que
+ * le woff2 n'est pas disponible.
+ * Source : https://rsms.me/inter/ (licence SIL OFL 1.1).
+ * Texte de licence vendu : ../fonts/inter/OFL.txt (RGAA / conformité).
+ * ══════════════════════════════════════════════════════════════════ */
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('../fonts/inter/InterVariable.woff2') format('woff2');
+}
+
+:root {
+  /* ══════════════════════════════════════════════════════════════
+   * COLORS — Civic Blueprint primitives
+   * "The Architectural Ledger": deep authoritative navy + tonal
+   * surfaces + FSM-aware semantic statuses.
+   * ══════════════════════════════════════════════════════════════ */
+
+  /* ── Primary (deep authoritative navy) ───────────────────────── */
+  --color-primary:           #001b44; /* Deep authoritative navy. CTAs, focus rings, branding. */
+  --color-primary-container: #002f6c; /* Hover/secondary CTAs, gradient end. */
+  --color-on-primary:        #ffffff; /* Text on navy. */
+  --color-on-primary-container: #d8e2f3; /* Text on primary-container. */
+
+  /* Numbered navy ramp (50 = lightest tint, 900 = deepest navy).
+   * Anchor: --color-primary-600 == --color-primary == #001b44 (the canonical
+   * Civic Blueprint navy). Radzen state tokens (--rz-primary, --rz-primary-dark,
+   * --rz-grid-hover-background-color, …) consume this scale by number, so the
+   * ordering must stay monotonic AND keep enough luminance spread between
+   * adjacent steps for hover/selected/pressed feedback to remain perceptible. */
+  --color-primary-50:  #f0f3f8;
+  --color-primary-100: #d8e2f3;
+  --color-primary-200: #adbed3;
+  --color-primary-300: #7e9ab9;
+  --color-primary-400: #4f7099;
+  --color-primary-500: #1f4378; /* lighter navy for accents (--rz-secondary, focus tinting) */
+  --color-primary-600: #001b44; /* Civic Blueprint primary navy (--rz-primary anchor) */
+  --color-primary-700: #00132f; /* hover/active for navy buttons (--rz-primary-dark) */
+  --color-primary-800: #000c1f;
+  --color-primary-900: #000714;
+
+  /* ── Surfaces (No-Line Rule — sectioning by tonal shift) ─────── */
+  --color-surface:                   #f7f9fb; /* Base canvas of the page. */
+  --color-surface-container-lowest:  #ffffff; /* Workspace, focus area. */
+  --color-surface-container-low:     #f2f4f6; /* Sidebar, nav, zebra stripes. */
+  --color-surface-container:         #eceef0; /* Cards, panels, master list. */
+  --color-surface-container-high:    #e6e8ea; /* Detail panel on workspace. */
+  --color-surface-container-highest: #e0e3e5; /* Glass overlays, dialogs base. */
+
+  /* ── Dark sidebar tokens ─────────────────────────────────────── */
+  --sidebar-bg:            var(--color-primary-600);      /* #001b44 */
+  --sidebar-bg-header:     var(--color-primary-700);      /* #00132f */
+  --sidebar-text:          rgba(255, 255, 255, 0.87);
+  --sidebar-text-muted:    rgba(255, 255, 255, 0.54);
+  --sidebar-hover-bg:      rgba(255, 255, 255, 0.08);
+  --sidebar-active-bg:     rgba(255, 255, 255, 0.14);
+  --sidebar-active-accent: var(--color-primary-100);      /* #d8e2f3 */
+  --sidebar-focus-ring:    var(--color-primary-300);      /* #7e9ab9 */
+  --sidebar-scrollbar:     rgba(255, 255, 255, 0.2);
+
+  /* ── On-surface text + outlines ──────────────────────────────── */
+  --color-on-surface:           #191c1e; /* Body text. NEVER pure #000000. */
+  --color-on-surface-variant:   #434750; /* Metadata, secondary labels. */
+  --color-outline:              #747781; /* Active borders (focus). */
+  --color-outline-variant:      #c4c6d2; /* Ghost borders (use ≤15% opacity). */
+
+  /* ── FSM semantic statuses ──────────────────────────────────────
+   * "Pills of intelligence" — soft container background + dark on-container
+   * text. Used by ReservationStatusChip (UIC01) and any FSM badge. */
+
+  /* Draft — neutral grey */
+  --fsm-draft-bg: #e0e3eb;
+  --fsm-draft-fg: #2b3140;
+
+  /* Submitted — professional blue (primary container) */
+  --fsm-submitted-bg: #d8e2f3;
+  --fsm-submitted-fg: #001b44;
+
+  /* Qualifying — sophisticated purple */
+  --fsm-qualifying-bg: #e7dffa;
+  --fsm-qualifying-fg: #2f1e64;
+
+  /* Under Review — amber warning variant */
+  --fsm-under-review-bg: #fdecc8;
+  --fsm-under-review-fg: #5a3a00;
+
+  /* Validated — soft green (#e6f4ea / #137333 per spec) */
+  --fsm-validated-bg: #e6f4ea;
+  --fsm-validated-fg: #137333;
+
+  /* Cancelled — soft red error container */
+  --fsm-cancelled-bg: #fadad7;
+  --fsm-cancelled-fg: #5d1c14;
+
+  /* Reserved — teal container (intermediate, post-Validated pre-execution) */
+  --fsm-reserved-bg: #d3eef0;
+  --fsm-reserved-fg: #0b3a3c;
+
+  /* InPreparation — soft indigo (active prep phase) */
+  --fsm-in-preparation-bg: #dde2fa;
+  --fsm-in-preparation-fg: #1a225e;
+
+  /* InExecution — vivid blue (currently in production) */
+  --fsm-in-execution-bg: #cfe3f8;
+  --fsm-in-execution-fg: #0b3568;
+
+  /* Completed — deep green (terminal success, distinct from Validated) */
+  --fsm-completed-bg: #d8eed5;
+  --fsm-completed-fg: #1f4d1a;
+
+  /* Refused — slate (terminal refusal, distinct from Cancelled) */
+  --fsm-refused-bg: #e5dad6;
+  --fsm-refused-fg: #4a1d12;
+
+  /* ── Console accents (RoutingPreviewConsole / UIE04) ─────────
+   * Used for syntax-style accents inside the navy console output panel.
+   * Separate tokens so components never hard-code hex literals. */
+  --color-console-accent-green: #4ade80;   /* Rule codes, durations */
+  --color-console-accent-blue:  #93c5fd;   /* Recipients / targets */
+  --color-console-overlay-subtle: rgba(255, 255, 255, 0.12); /* Priority badges, dividers */
+
+  /* ══════════════════════════════════════════════════════════════
+   * Legacy semantic palettes (success / warning / error / info / neutral)
+   * Kept intact: many components still consume them, and the FSM tokens
+   * above are dedicated to reservation/status chips, not severity badges.
+   * ══════════════════════════════════════════════════════════════ */
+
+  /* Success */
+  --color-success-50:  #f0fdf4;
+  --color-success-100: #dcfce7;
+  --color-success-300: #86efac;
+  --color-success-500: #22c55e;
+  --color-success-600: #16a34a;
+  --color-success-700: #15803d;
+
+  /* Warning */
+  --color-warning-50:  #fffbeb;
+  --color-warning-100: #fef3c7;
+  --color-warning-300: #fcd34d;
+  --color-warning-500: #f59e0b;
+  --color-warning-600: #d97706;
+  --color-warning-700: #b45309;
+
+  /* Error / Danger */
+  --color-error-50:  #fef2f2;
+  --color-error-100: #fee2e2;
+  --color-error-300: #fca5a5;
+  --color-error-500: #ef4444;
+  --color-error-600: #dc2626;
+  --color-error-700: #b91c1c;
+
+  /* Info */
+  --color-info-50:  #f0f9ff;
+  --color-info-100: #e0f2fe;
+  --color-info-300: #7dd3fc;
+  --color-info-500: #0ea5e9;
+  --color-info-600: #0284c7;
+  --color-info-700: #0369a1;
+
+  /* Neutral */
+  --color-neutral-50:  #f9fafb;
+  --color-neutral-100: #f3f4f6;
+  --color-neutral-200: #e5e7eb;
+  --color-neutral-300: #d1d5db;
+  --color-neutral-400: #9ca3af;
+  --color-neutral-500: #6b7280;
+  --color-neutral-600: #4b5563;
+  --color-neutral-700: #374151;
+  --color-neutral-800: #1f2937;
+  --color-neutral-900: #111827;
+
+  /* ══════════════════════════════════════════════════════════════
+   * Semantic aliases — high-level color roles consumed across the app.
+   * Remapped onto the Civic Blueprint surface + on-surface tokens.
+   * ══════════════════════════════════════════════════════════════ */
+
+  --color-text-primary:   var(--color-on-surface);          /* #191c1e (no pure black) */
+  --color-text-secondary: var(--color-on-surface-variant);  /* #434750 */
+  --color-text-muted:     #6b7079;                          /* lighter than on-surface-variant */
+  --color-text-on-dark:   #ffffff;
+  --color-border:         var(--color-outline-variant);     /* #c4c6d2 */
+  --color-border-focus:   var(--color-primary);             /* navy focus */
+  /* Ghost border (Civic Blueprint "No-Line Rule" — UIF04).
+   * Used wherever a 1px line is unavoidable for high-density data
+   * (compact tables, popover frames, multi-pane separators). The
+   * 15% opacity is the spec ceiling: anything more is a "boxed-in"
+   * line and must be replaced by a surface shift instead.
+   * DESIGN.md §4 ("The Ghost Border Fallback").
+   * The plain hex fallback is the pre-computed mix of #c4c6d2 @ 15%
+   * over white (#ffffff), so engines without color-mix() support
+   * (Chromium <111 / Firefox <113 / Safari <16.4) still see a ghost
+   * line rather than `unset` / initial. */
+  --color-border-ghost:   #f5f6f8;
+  --color-border-ghost:   color-mix(in srgb, var(--color-outline-variant) 15%, transparent);
+  /* Focus ring: navy at ~22% opacity keeps a perceivable halo on light surfaces.
+   * Dropping below ~20% on the deep navy made the WCAG 2.4.7 visible-focus
+   * indicator borderline on white inputs/buttons. Plain-hex fallback is the
+   * pre-computed mix of #001b44 @ 22% over white. */
+  --color-focus-ring:     #ccd1da;
+  --color-focus-ring:     color-mix(in srgb, var(--color-primary) 22%, transparent);
+  --color-bg-page:        var(--color-surface);                   /* #f7f9fb */
+  --color-bg-surface:     var(--color-surface-container-lowest);  /* #ffffff */
+  --color-bg-subtle:      var(--color-surface-container-low);     /* #f2f4f6 */
+  --color-bg-selected:       var(--color-primary-50);
+  --color-bg-selected-hover: var(--color-primary-100);
+
+  /* Severity semantic colors (preserved API for status badges) */
+  /* Severity badges: uniform -100 bg / -700 fg / -300 border across all
+   * variants. Consistent visual weight — no variant more saturated than
+   * another. WCAG AA contrast verified (≥ 4.5:1 on -100 backgrounds). */
+  --color-severity-info-bg:     var(--color-info-100);
+  --color-severity-info-fg:     var(--color-info-700);
+  --color-severity-info-border: var(--color-info-300, #7dd3fc);
+
+  --color-severity-success-bg:     var(--color-success-100);
+  --color-severity-success-fg:     var(--color-success-700);
+  --color-severity-success-border: var(--color-success-300, #86efac);
+
+  --color-severity-warning-bg:     var(--color-warning-100);
+  --color-severity-warning-fg:     var(--color-warning-700);
+  --color-severity-warning-border: var(--color-warning-300, #fcd34d);
+
+  --color-severity-error-bg:     var(--color-error-100);
+  --color-severity-error-fg:     var(--color-error-700);
+  --color-severity-error-border: var(--color-error-300, #fca5a5);
+
+  --color-severity-neutral-bg:     var(--color-neutral-100);
+  --color-severity-neutral-fg:     var(--color-neutral-700);
+  --color-severity-neutral-border: var(--color-neutral-300);
+
+  /* ── Spacing (4 px grid) ─────────────────────────────────────── */
+  --spacing-0:  0;
+  --spacing-1:  0.25rem;   /*  4px */
+  --spacing-2:  0.5rem;    /*  8px */
+  --spacing-3:  0.75rem;   /* 12px */
+  --spacing-4:  1rem;      /* 16px */
+  --spacing-5:  1.25rem;   /* 20px */
+  --spacing-6:  1.5rem;    /* 24px */
+  --spacing-8:  2rem;      /* 32px */
+  --spacing-10: 2.5rem;    /* 40px */
+  --spacing-12: 3rem;      /* 48px */
+  --spacing-16: 4rem;      /* 64px */
+  --spacing-20: 5rem;      /* 80px */
+
+  /* ── Typography ──────────────────────────────────────────────────
+   * Civic Blueprint utilise Inter (self-hosted, voir @font-face en
+   * tête de fichier). La pile de fallback ne nomme PAS `system-ui`
+   * ni `'Segoe UI'` (cf. UIF03 — Civic Blueprint impose Inter, les
+   * fontes système ne sont conservées que comme dégradation finale
+   * via les génériques `-apple-system`/`sans-serif` autorisés). */
+  --font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+  --font-family-mono: 'Cascadia Code', 'Fira Code', 'Courier New', monospace;
+
+  /* Échelle « Hierarchy of Data » Civic Blueprint (DESIGN.md §3).
+   * Les five rôles canoniques utilisés par tout l'app à partir de
+   * UIF04 (reskin components.css). Ils coexistent avec l'échelle
+   * legacy `--font-size-xs/sm/base/lg/xl/2xl/3xl` ci-dessous : la
+   * migration des composants vers les rôles Civic se fait au fil
+   * des items UIF04 → UIH. Aucun composant ne consomme directement
+   * `display-sm`/`title-sm`/etc. tant qu'il n'a pas été reskinné. */
+  --font-size-display-sm: 2.25rem;    /* 36px — large dashboard metrics    */
+  --font-size-title-sm:   1rem;       /* 16px — section / table headers    */
+  --font-size-body-md:    0.875rem;   /* 14px — default data entry         */
+  --font-size-body-sm:    0.75rem;    /* 12px — metadata, secondary cells  */
+  --font-size-label-sm:   0.6875rem;  /* 11px — status chips, micro labels */
+
+  --font-weight-display-sm: 700;
+  --font-weight-title-sm:   600;
+  --font-weight-body-md:    400;
+  --font-weight-body-sm:    400;
+  --font-weight-label-sm:   700;
+
+  /* Échelle legacy (préservée tant que les composants Common.UI
+   * n'ont pas été remappés sur les rôles Civic ci-dessus). NE PAS
+   * supprimer sans avoir migré tout `src/Common/UI/Components/**`
+   * et `src/Modules/**/Web/Pages/**` vers les nouveaux tokens. */
+  --font-size-xs:   0.75rem;   /* 12px */
+  --font-size-sm:   0.875rem;  /* 14px */
+  --font-size-base: 1rem;      /* 16px */
+  --font-size-lg:   1.125rem;  /* 18px */
+  --font-size-xl:   1.25rem;   /* 20px */
+  --font-size-2xl:  1.5rem;    /* 24px */
+  --font-size-3xl:  1.875rem;  /* 30px */
+
+  --font-weight-normal:   400;
+  --font-weight-medium:   500;
+  --font-weight-semibold: 600;
+  --font-weight-bold:     700;
+
+  --line-height-tight:  1.25;
+  --line-height-normal: 1.5;
+  --line-height-loose:  1.75;
+
+  /* Letter-spacing global de la spec Civic Blueprint :
+   * tightens body copy pour augmenter la densité perçue sans réduire
+   * la lisibilité. Appliqué via la règle `body { letter-spacing }`
+   * à la fin de ce fichier. Exposé en token pour permettre des
+   * overrides locaux explicites (ex: tabular-nums). */
+  --letter-spacing-tight: -0.01em;
+
+  /* Bootstrap Civic override : remappe les variables de typographie
+   * Bootstrap sur la pile Inter Civic. Bootstrap charge avant tokens
+   * .css dans App.razor et expose --bs-body-font-family /
+   * --bs-font-sans-serif sur :root ; les redéfinir ici garantit que
+   * tout `font-family: var(--bs-body-font-family)` (utilities, Reboot
+   * `body`, formulaires, etc.) résout la pile Civic et non la fonte
+   * système. Ne touche pas --bs-font-monospace : on conserve la stack
+   * Bootstrap par défaut pour le code mono. */
+  --bs-font-sans-serif:  var(--font-family-base);
+  --bs-body-font-family: var(--font-family-base);
+
+  /* ── Radii ───────────────────────────────────────────────────── */
+  /* Civic Blueprint (UIF04) — DESIGN.md §6 "Don't use 8px+ radii".
+   * The scale is intentionally clipped to a precision/industrial range:
+   * sm = 2px (the SMALL token, chips/inputs micro-rounding)
+   * md = 4px (the DEFAULT for buttons/cards/dialogs/wrappers)
+   * lg = 4px (alias preserved during the migration to a single
+   *           non-pill radius — UIF05 will collapse this with --radius-default)
+   * xl = 4px (alias preserved for the same reason)
+   * full = the only "pill" allowed, reserved for circular badges and
+   *        chevron icons (FSM chips + filter-bar badge). */
+  --radius-none: 0;
+  --radius-sm:   0.125rem; /* 2px */
+  --radius-md:   0.25rem;  /* 4px */
+  --radius-lg:   0.25rem;  /* 4px (was 8px — capped UIF04) */
+  --radius-xl:   0.25rem;  /* 4px (was 12px — capped UIF04) */
+  --radius-full: 9999px;
+
+  /* ── Shadows ──────────────────────────────────────────────────── */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+
+  /* ══════════════════════════════════════════════════════════════
+   * DENSITY (UIF06) — [data-density] on <html>
+   * ----------------------------------------------------------------
+   * Two modes: standard (default) and compact (WPF-like ultra-dense).
+   *
+   * Standard (default, `:root`): 28 px inputs, 32 px rows — balanced
+   * for everyday ERP use. This is the resting state.
+   *
+   * Compact (`[data-density="compact"]`): 22 px rows, 1 px padding,
+   * 12 px font — maximises information density à la WPF DataGrids.
+   * Designed for power users who need to scan hundreds of rows.
+   *
+   * Boot order to avoid flash:
+   *   1. Inline <script> in App.razor <head> reads
+   *      localStorage.getItem('stratum-density') and sets the
+   *      attribute before CSS is evaluated.
+   *   2. stratumUI.setDensity() persists the preference.
+   *   3. A MutationObserver in stratum-ui.js re-applies after Blazor
+   *      enhanced navigation (same pattern as data-theme).
+   *
+   * All density-sensitive components consume the tokens below
+   * (--density-*) instead of hard-coded heights/paddings. Adding a
+   * new component? Read these tokens — do NOT hard-code px values
+   * at the call-site.
+   * ══════════════════════════════════════════════════════════════ */
+
+  /* Standard density primitives (default). */
+  --density-input-height:      1.75rem;  /* 28 px                                */
+  --density-input-padding-y:   0.125rem; /*  2 px — vertical padding              */
+  --density-input-padding-x:   0.5rem;   /*  8 px — horizontal padding            */
+  --density-input-font-size:   var(--font-size-body-md);
+  --density-input-line-height: 1.2;
+
+  --density-row-height:        2rem;     /* 32 px — standard table/grid row      */
+  --density-row-padding-y:     var(--spacing-1); /* 4 px vertical                */
+
+  --density-button-height:     1.75rem;  /* 28 px — secondary/icon buttons       */
+  --density-button-padding-y:  0.125rem;
+  --density-button-padding-x:  var(--spacing-3);
+
+  /* ── Transitions ─────────────────────────────────────────────── */
+  --transition-fast:   100ms ease;
+  --transition-normal: 200ms ease;
+  --transition-slow:   300ms ease;
+
+  /* ── Z-index scale ───────────────────────────────────────────── */
+  --z-base:    0;
+  --z-raised:  10;
+  --z-sticky:  100;
+  --z-overlay: 200;
+  --z-modal:   300;
+  --z-toast:   400;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ * DENSITY — Compact override (UIF06)
+ * ----------------------------------------------------------------
+ * WPF-like ultra-dense mode. Maximises visible rows and columns for
+ * power users. Row height drops to 22 px, padding to 1 px, font to
+ * 12 px. Activated via [data-density="compact"] on <html>.
+ * ══════════════════════════════════════════════════════════════════ */
+
+[data-density="compact"] {
+  --density-input-height:      1.25rem;  /* 20 px                               */
+  --density-input-padding-y:   0;        /*  0 px — zero vertical padding        */
+  --density-input-padding-x:   0.125rem; /*  2 px — minimal horizontal padding   */
+  --density-input-font-size:   0.6875rem; /* 11 px                              */
+  --density-input-line-height: 1;
+
+  --density-row-height:        1.125rem; /* 18 px — WPF-like row height         */
+  --density-row-padding-y:     0;        /* 0 px — zero vertical row padding    */
+
+  --density-button-height:     1.25rem;  /* 20 px                               */
+  --density-button-padding-y:  0;
+  --density-button-padding-x:  0.125rem; /* 2 px                               */
+
+  /* Grid-specific compact tokens */
+  --density-grid-cell-padding-x: 0.25rem;    /* 4 px horizontal cell padding    */
+  --density-grid-cell-font-size: 0.6875rem;  /* 11 px                           */
+  --density-grid-header-padding: 0 0.25rem;  /* 0px 4px                         */
+  --density-grid-header-font-size: 0.625rem; /* 10 px                           */
+
+  /* Layout spacing — everything tighter */
+  --spacing-1: 0.125rem; /*  2 px (override from 4 px)           */
+  --spacing-2: 0.25rem;  /*  4 px (override from 8 px)           */
+  --spacing-3: 0.375rem; /*  6 px (override from 12 px)          */
+  --spacing-4: 0.5rem;   /*  8 px (override from 16 px)          */
+  --spacing-5: 0.625rem; /* 10 px (override from 20 px)          */
+  --spacing-6: 0.75rem;  /* 12 px (override from 24 px)          */
+  --spacing-8: 1rem;     /* 16 px (override from 32 px)          */
+
+  /* Radii — tighter corners */
+  --radius-md: 0.25rem;
+  --radius-lg: 0.375rem;
+
+  /* Font sizes — NOT reduced in compact. Density comes from row/padding,
+   * not font shrinkage. Grid-specific font overrides live in
+   * radzen-overrides.css (grid header 10 px, cells 11 px acceptable for
+   * dense tabular data, but body/nav text is unchanged). */
+
+  /* ConflictAlertBanner (UIC03 / UIF06) */
+  --conflict-banner-padding-y:      0.125rem;
+  --conflict-banner-padding-x:      0.25rem;
+  --conflict-banner-gap:            0.125rem;
+  --conflict-banner-item-padding-y: 0;
+  --conflict-banner-item-padding-x: 0.125rem;
+  --conflict-banner-icon-size:      0.875rem;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ * DENSITY — Standard explicit override (UIF06)
+ * ----------------------------------------------------------------
+ * Re-assert standard values under an explicit selector so a nested
+ * <div data-density="standard"> can override an ancestor in compact
+ * mode. Values match :root — this is the identity override.
+ * ══════════════════════════════════════════════════════════════════ */
+
+[data-density="standard"] {
+  --density-input-height:      1.75rem;  /* 28 px                                */
+  --density-input-padding-y:   0.125rem; /*  2 px                                */
+  --density-input-padding-x:   0.5rem;   /*  8 px                                */
+  --density-input-font-size:   var(--font-size-body-md);
+  --density-input-line-height: 1.2;
+
+  --density-row-height:        2rem;     /* 32 px — standard table/grid row     */
+  --density-row-padding-y:     var(--spacing-1); /* 4 px                        */
+
+  --density-button-height:     1.75rem;  /* 28 px                                */
+  --density-button-padding-y:  0.125rem;
+  --density-button-padding-x:  var(--spacing-3);
+
+  /* ConflictAlertBanner (UIC03 / UIF06) — see compact block above. */
+  --conflict-banner-padding-y:      var(--spacing-2);
+  --conflict-banner-padding-x:      var(--spacing-4);
+  --conflict-banner-gap:            var(--spacing-2);
+  --conflict-banner-item-padding-y: var(--spacing-1);
+  --conflict-banner-item-padding-x: var(--spacing-2);
+  --conflict-banner-icon-size:      1.5rem;
+}
+
+/* ── Dark Theme ──────────────────────────────────────────────────
+ * Activated by setting data-theme="dark" on <html>.
+ * Civic Blueprint dark surfaces remap the tonal hierarchy from
+ * darker (canvas) to lighter (focus area), inverting the light theme.
+ * Primitive scales (success, warning, error, info, neutral) remain
+ * the same — only semantic aliases + surface containers are remapped.
+ * ──────────────────────────────────────────────────────────────── */
+
+[data-theme="dark"] {
+  /* Surfaces — tonal stack inverted (darkest = canvas, lightest = focus) */
+  --color-surface:                   #0f1419; /* dark canvas */
+  --color-surface-container-lowest:  #1a1f26; /* workspace focus area */
+  --color-surface-container-low:     #161b21; /* sidebar/nav */
+  --color-surface-container:         #1f242c; /* cards, panels */
+  --color-surface-container-high:    #252a32; /* detail panel */
+  --color-surface-container-highest: #2b3038; /* glass overlays base */
+
+  /* Dark sidebar — deeper than workspace so it still stands out */
+  --sidebar-bg:            #0a1628;
+  --sidebar-bg-header:     #060f1e;
+  --sidebar-hover-bg:      rgba(255, 255, 255, 0.06);
+  --sidebar-active-bg:     rgba(255, 255, 255, 0.12);
+
+  /* On-surface + outlines */
+  --color-on-surface:         #e3e6ea;
+  --color-on-surface-variant: #b8bcc4;
+  --color-outline:            #6b6f7a;
+  --color-outline-variant:    #3a3f48;
+
+  /* Primary semantic tokens keep the navy identity but lift brightness for
+   * AA contrast on dark surfaces. The numbered --color-primary-50..900 scale
+   * is intentionally NOT redefined here: it inherits the light-theme ramp
+   * so that any consumer reading `var(--color-primary-50)` always gets the
+   * lightest tint (and `var(--color-primary-900)` the deepest navy),
+   * regardless of theme. Dark-mode hover/selected state colors are a known
+   * carry-over from the pre-Civic legacy theme and will be revisited when
+   * the radzen-overrides reskin lands. */
+  --color-primary:              #6b8fd1;
+  --color-primary-container:    #1a2f57; /* dark-mode tonal lift of navy */
+  --color-on-primary:           #001131;
+  --color-on-primary-container: #d8e2f3;
+
+  /* FSM statuses — keep ghost-chip recipe, slightly cooler bg/lighter fg */
+  --fsm-draft-bg: #2b3140;
+  --fsm-draft-fg: #c4c8d4;
+
+  --fsm-submitted-bg: #002f6c;
+  --fsm-submitted-fg: #d8e2f3;
+
+  --fsm-qualifying-bg: #2f1e64;
+  --fsm-qualifying-fg: #e7dffa;
+
+  --fsm-under-review-bg: #4a3000;
+  --fsm-under-review-fg: #fdecc8;
+
+  --fsm-validated-bg: #073d1f;
+  --fsm-validated-fg: #b8e0c4;
+
+  --fsm-cancelled-bg: #4a1612;
+  --fsm-cancelled-fg: #fadad7;
+
+  --fsm-reserved-bg: #0b3a3c;
+  --fsm-reserved-fg: #b8e0e2;
+
+  --fsm-in-preparation-bg: #1a225e;
+  --fsm-in-preparation-fg: #d6dbf6;
+
+  --fsm-in-execution-bg: #0b3568;
+  --fsm-in-execution-fg: #cfe3f8;
+
+  --fsm-completed-bg: #1f4d1a;
+  --fsm-completed-fg: #d8eed5;
+
+  --fsm-refused-bg: #4a1d12;
+  --fsm-refused-fg: #e5dad6;
+
+  /* Semantic aliases */
+  --color-text-primary:   var(--color-on-surface);
+  --color-text-secondary: var(--color-on-surface-variant);
+  --color-text-muted:     #8b9099;
+  --color-text-on-dark:   #ffffff;
+  --color-border:         var(--color-outline-variant);
+  --color-border-focus:   var(--color-primary);
+  --color-focus-ring:     color-mix(in srgb, var(--color-primary) 25%, transparent);
+  --color-bg-page:        var(--color-surface);
+  --color-bg-surface:     var(--color-surface-container-lowest);
+  --color-bg-subtle:      var(--color-surface-container-low);
+  --color-bg-selected:       #1e3a5f;
+  --color-bg-selected-hover: #254a7a;
+
+  /* Severity semantic colors */
+  --color-severity-info-bg:       #0c2d48;
+  --color-severity-info-fg:       var(--color-info-300);
+  --color-severity-info-border:   var(--color-info-700);
+
+  --color-severity-success-bg:       #052e16;
+  --color-severity-success-fg:       var(--color-success-300);
+  --color-severity-success-border:   var(--color-success-700);
+
+  --color-severity-warning-bg:       #451a03;
+  --color-severity-warning-fg:       var(--color-warning-300);
+  --color-severity-warning-border:   var(--color-warning-700);
+
+  --color-severity-error-bg:       #450a0a;
+  --color-severity-error-fg:       var(--color-error-300);
+  --color-severity-error-border:   var(--color-error-700);
+
+  --color-severity-neutral-bg:       var(--color-neutral-800);
+  --color-severity-neutral-fg:       var(--color-neutral-300);
+  --color-severity-neutral-border:   var(--color-neutral-600);
+
+  /* Shadows — stronger opacity for dark backgrounds */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.4);
+}
+
+/* ── Global typographic defaults (Civic Blueprint) ────────────────
+ * Force la pile Inter sur l'ensemble du document et applique le
+ * letter-spacing global -0.01em demandé par DESIGN.md §3 (« tighten
+ * body copy »). On utilise `html body` (spécificité 0,0,2) pour
+ * battre la règle Reboot de Bootstrap (`body { font-family: var(--bs
+ * -body-font-family) }`, spécificité 0,0,1) qui est chargée AVANT
+ * tokens.css dans App.razor. La redéfinition de `--bs-body-font
+ * -family` plus haut suffit normalement, mais cette surcharge
+ * explicite garantit le rendu Inter même si un thème Bootstrap
+ * personnalisé venait à figer la valeur en littéral.
+ * `font-feature-settings` active 'cv11' (caractères ponctuels Inter)
+ * et 'ss03' (curly quotes) pour rester fidèle au rendu Inter par
+ * défaut côté éditorial. */
+html body {
+  font-family: var(--font-family-base);
+  letter-spacing: var(--letter-spacing-tight);
+  font-feature-settings: 'cv11', 'ss03';
+}
+
+/* ── Breakpoints (reference only — use in media queries) ──────────
+ * --breakpoint-sm:  640px
+ * --breakpoint-md:  768px
+ * --breakpoint-lg:  1024px
+ * --breakpoint-xl:  1280px
+ * --breakpoint-2xl: 1536px
+ *
+ * Example: @media (min-width: 768px) { ... }
+ * CSS custom properties cannot be used directly in @media queries.
+ * ──────────────────────────────────────────────────────────────── */

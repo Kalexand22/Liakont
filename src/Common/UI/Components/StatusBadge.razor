@@ -1,0 +1,97 @@
+@namespace Stratum.Common.UI.Components
+
+<span class="@_class" data-testid="@(TestId ?? "status-badge")" data-fsm-status="@(_isFsm ? _fsmSlug : null)">@_displayLabel</span>
+
+@code {
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Display text. Always required — never rely on colour alone.</summary>
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Semantic severity that controls the badge colour when
+    /// <see cref="Intent"/> is <see cref="StatusBadgeIntent.Severity"/>. Ignored
+    /// when <see cref="Intent"/> is <see cref="StatusBadgeIntent.Fsm"/>.
+    /// </summary>
+    /// <remarks>
+    /// Kept <c>EditorRequired</c> so that the 30+ Severity-mode call-sites in
+    /// the repo continue to receive a compile-time warning when the parameter
+    /// is omitted. FSM-mode callers do not read this value (they set
+    /// <see cref="Intent"/> to <see cref="StatusBadgeIntent.Fsm"/> and provide
+    /// <see cref="FsmStatus"/>), but they should still pass an explicit
+    /// <c>Severity="Severity.Neutral"</c> to silence the warning — the default
+    /// enum value of <c>Info</c> is intentionally not used as a silent fallback.
+    /// </remarks>
+    [Parameter, EditorRequired]
+    public Severity Severity { get; set; }
+
+    /// <summary>
+    /// Selects the colour vocabulary used by this badge. Defaults to
+    /// <see cref="StatusBadgeIntent.Severity"/> for backwards compatibility
+    /// with all existing call-sites.
+    /// </summary>
+    [Parameter]
+    public StatusBadgeIntent Intent { get; set; } = StatusBadgeIntent.Severity;
+
+    /// <summary>
+    /// FSM status to render when <see cref="Intent"/> is
+    /// <see cref="StatusBadgeIntent.Fsm"/>. Required in FSM mode.
+    /// </summary>
+    [Parameter]
+    public ReservationStatus? FsmStatus { get; set; }
+
+    private bool _isFsm => Intent == StatusBadgeIntent.Fsm;
+
+    protected override void OnParametersSet()
+    {
+        // Fsm intent is contractual: misuse must surface immediately rather than
+        // silently rendering as a grey Severity.Info pill. The component is
+        // datadriven UI — a wrong status colour is a real correctness bug on
+        // status-bearing screens (inbox, planning, dashboards), so we fail loud.
+        if (Intent == StatusBadgeIntent.Fsm && !FsmStatus.HasValue)
+        {
+            throw new InvalidOperationException(
+                "StatusBadge: Intent=Fsm requires the FsmStatus parameter to be set. " +
+                "Either provide an explicit FsmStatus or switch back to Intent=Severity.");
+        }
+    }
+
+    private string _fsmSlug => FsmStatus.HasValue
+        ? ReservationStatusChip.StatusSlug(FsmStatus.Value)
+        : "draft";
+
+    /// <summary>
+    /// Effective label. In Severity mode the caller-supplied <see cref="Label"/>
+    /// is rendered verbatim. In FSM mode an empty <see cref="Label"/> falls back
+    /// to the canonical FSM display name so the badge stays text-bearing even
+    /// when the host page omits the label.
+    /// </summary>
+    private string _displayLabel => _isFsm && string.IsNullOrWhiteSpace(Label)
+        ? ReservationStatusChip.StatusLabel(FsmStatus!.Value)
+        : Label;
+
+    private string _class
+    {
+        get
+        {
+            if (_isFsm)
+            {
+                return $"status-badge status-badge--fsm status-badge--fsm-{_fsmSlug}";
+            }
+
+            var severityClass = Severity switch
+            {
+                Severity.Info    => "info",
+                Severity.Success => "success",
+                Severity.Warning => "warning",
+                Severity.Error   => "error",
+                Severity.Neutral => "neutral",
+                _                => "neutral",
+            };
+            return $"status-badge status-badge--{severityClass}";
+        }
+    }
+}

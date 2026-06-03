@@ -1,0 +1,793 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TItem where TItem : notnull
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Models
+@using Stratum.Common.UI.Services
+
+@* StratumListContainer<TItem> — orchestrating component for multi-view list pages.
+ *
+ * Wraps the active view mode + shared toolbar in a single component.
+ * Toolbar: title, count, FilterBar, column chooser button, filter builder button,
+ * view switch toggle buttons, action buttons.
+ * View switching is instant — same data, same filters, different renderer.
+ * Filter/search/sort state preserved across view switches.
+ *
+ * Usage:
+ *   <StratumListContainer TItem="PartyDto"
+ *                         Title="Parties"
+ *                         GridKey="Party.PartyList.Main"
+ *                         Data="@_data" Loading="@_loading"
+ *                         ViewModes="@_viewRegistry"
+ *                         ColumnRegistry="@_columnRegistry"
+ *                         Actions="@_actions"
+ *                         RowActions="@_rowActions" ... />
+ *
+ * Ref: orchestration/manifest.yaml GV05.
+ *@
+
+<div class="stratum-list-container" data-testid="@(TestId ?? "stratum-list-container")">
+    @* ── Toolbar row ─────────────────────────────────────────────── *@
+    <div class="stratum-list-container__toolbar" role="toolbar" aria-label="@(Title ?? "Liste")">
+        @if (Title is not null)
+        {
+            <h1 class="stratum-list-container__title">@Title</h1>
+        }
+
+        @if (TotalCount is not null)
+        {
+            <span class="stratum-list-container__count text-muted small text-nowrap">@TotalCount</span>
+        }
+
+        @if (CustomFilters is not null)
+        {
+            <FilterBar SearchPlaceholder="@SearchPlaceholder"
+                       SearchValue="@SearchValue"
+                       OnSearch="OnSearch">
+                <Filters>
+                    @CustomFilters
+                </Filters>
+            </FilterBar>
+        }
+        else
+        {
+            <FilterBar SearchPlaceholder="@SearchPlaceholder"
+                       SearchValue="@SearchValue"
+                       OnSearch="OnSearch" />
+        }
+
+        <div class="stratum-list-container__toolbar-end">
+            @if (_activeView == ViewKind.Table)
+            {
+                <button type="button"
+                        class="btn btn-sm btn-outline-secondary"
+                        data-testid="btn-column-chooser"
+                        @onclick="HandleColumnChooserClick">
+                    Colonnes
+                </button>
+            }
+
+            @if (ShowFilterBuilder || ColumnRegistry is not null)
+            {
+                <button type="button"
+                        class="btn btn-sm @(_filterCount > 0 ? "btn-primary" : "btn-outline-secondary")"
+                        data-testid="btn-filter-builder"
+                        @onclick="HandleFilterBuilderClick">
+                    Filtres@(_filterCount > 0 ? $" ({_filterCount})" : "")
+                </button>
+            }
+
+            @* ── View switcher ──────────────────────────────────── *@
+            @if (_supportedViews is { Count: > 1 })
+            {
+                <div class="stratum-list-container__view-switcher btn-group btn-group-sm"
+                     role="radiogroup"
+                     aria-label="Mode d'affichage">
+                    @foreach (var desc in _supportedViews)
+                    {
+                        var isActive = desc.Kind == _activeView;
+                        <button type="button"
+                                class="btn @(isActive ? "btn-primary" : "btn-outline-secondary")"
+                                role="radio"
+                                aria-checked="@(isActive ? "true" : "false")"
+                                title="@desc.Label"
+                                data-testid="@($"view-switch-{desc.Kind.ToString().ToLowerInvariant()}")"
+                                @onclick="() => SwitchViewAsync(desc.Kind)">
+                            <i class="@desc.Icon" aria-hidden="true"></i>
+                            <span class="visually-hidden">@desc.Label</span>
+                        </button>
+                    }
+                </div>
+            }
+
+            <StratumActionToolbar Actions="@Actions"
+                                  ActionGroups="@ActionGroups"
+                                  SelectedCount="@_selectedCount"
+                                  AriaLabel="@(Title is not null ? $"Actions {Title}" : "Actions")" />
+        </div>
+    </div>
+
+    @* ── Bulk action bar (visible when items are selected) ──────── *@
+    @if (_selectedCount > 0 && BulkActions is { Count: > 0 })
+    {
+        <div class="stratum-list-container__bulk-bar" role="toolbar" aria-label="Actions en masse" data-testid="bulk-action-bar">
+            <span class="stratum-list-container__bulk-count badge bg-primary" data-testid="bulk-selection-count">
+                @_selectedCount sélectionné@(_selectedCount > 1 ? "s" : "")
+            </span>
+            @foreach (var action in BulkActions)
+            {
+                var enabled = action.EvaluateEnabled(_selectedCount);
+                <button type="button"
+                        class="btn btn-sm btn-outline-primary"
+                        disabled="@(!enabled)"
+                        aria-disabled="@(!enabled ? "true" : null)"
+                        data-testid="@($"bulk-action-{action.Id}")"
+                        @onclick="() => HandleBulkActionClickAsync(action)">
+                    @if (action.Icon is not null)
+                    {
+                        <i class="@action.Icon" aria-hidden="true"></i>
+                        @(" ")
+                    }
+                    @action.Label
+                </button>
+            }
+        </div>
+    }
+
+    @* ── Error slot ──────────────────────────────────────────────── *@
+    @if (ErrorContent is not null)
+    {
+        @ErrorContent
+    }
+
+    @* ── Chip bar slot (between toolbar and view) ────────────────── *@
+    @if (ChipBarContent is not null)
+    {
+        @ChipBarContent
+    }
+
+    @* ── Active view ─────────────────────────────────────────────── *@
+    <div class="stratum-list-container__view">
+        @switch (_activeView)
+        {
+            case ViewKind.Table:
+                @TableContent
+                break;
+
+            case ViewKind.Card:
+                <StratumCardView TItem="TItem"
+                                 Data="@(Data ?? Array.Empty<TItem>())"
+                                 Loading="@Loading"
+                                 SelectedItems="@(SelectedItems ?? Array.Empty<TItem>())"
+                                 AllowSelection="@AllowSelection"
+                                 OnRowActivated="OnRowActivated"
+                                 OnSelectionChanged="HandleSelectionChanged"
+                                 ColumnRegistry="@ColumnRegistry"
+                                 VisibleColumnKeys="@VisibleColumnKeys"
+                                 CardTemplate="@CardTemplate"
+                                 EmptyContent="@EmptyContent"
+                                 RowActions="@RowActions"
+                                 AriaLabel="@(Title ?? "Liste")" />
+                break;
+
+            case ViewKind.Kanban:
+                @if (_kanbanColumns is { Count: > 0 })
+                {
+                    <Kanban TItem="TItem" TColumn="string"
+                            Items="@(Data ?? Array.Empty<TItem>())"
+                            Columns="@_kanbanColumns"
+                            ColumnKeySelector="@(c => c)"
+                            ItemColumnSelector="@GetKanbanItemColumnSelector()"
+                            ColumnTitleSelector="@(c => c)"
+                            OnCardClick="OnRowActivated"
+                            DragEnabled="true"
+                            OnCardMove="HandleKanbanCardMove"
+                            CardTemplate="@(CardTemplate ?? DefaultCardTemplate)" />
+                }
+                break;
+
+            case ViewKind.Calendar:
+                <Calendar TItem="TItem"
+                          Items="@(Data ?? Array.Empty<TItem>())"
+                          StartField="@GetCalendarStartField()"
+                          TitleSelector="@GetCalendarTitleSelector()"
+                          ColorSelector="@_calendarColorSelector"
+                          OnEventClick="OnRowActivated" />
+                break;
+        }
+    </div>
+
+    @* ── Below-view content (pagination, dialogs) ────────────────── *@
+    @if (FooterContent is not null)
+    {
+        @FooterContent
+    }
+
+    @* ── Bulk action confirmation dialog ─────────────────────────── *@
+    @if (_bulkConfirmAction is not null)
+    {
+        <StratumDialog Title="Confirmation"
+                       @bind-Visible="_showBulkConfirmDialog"
+                       OnClose="HandleBulkConfirmCancel"
+                       Width="400px">
+            <ChildContent>
+                <p>Voulez-vous vraiment exécuter « @_bulkConfirmAction.Label » sur @_selectedCount élément@(_selectedCount > 1 ? "s" : "") ?</p>
+            </ChildContent>
+            <Actions>
+                <button type="button" class="btn btn-danger" @onclick="HandleBulkConfirmOkAsync" data-testid="bulk-confirm-ok">Confirmer</button>
+                <button type="button" class="btn btn-secondary" @onclick="HandleBulkConfirmCancel" data-testid="bulk-confirm-cancel">Annuler</button>
+            </Actions>
+        </StratumDialog>
+    }
+
+    @* ── Integrated column chooser dialog ──────────────────────── *@
+    @if (ColumnRegistry is not null)
+    {
+        <StratumColumnChooser TItem="TItem"
+                              Visible="@_showColumnChooser"
+                              VisibleChanged="HandleColumnChooserVisibleChanged"
+                              Registry="@ColumnRegistry"
+                              VisibleColumnKeys="@VisibleColumnKeys"
+                              OnApply="HandleColumnsAppliedInternal" />
+    }
+
+    @* ── Integrated filter builder dialog ────────────────────── *@
+    @if (ColumnRegistry is not null)
+    {
+        <StratumFilterBuilder TItem="TItem"
+                              Visible="@_showFilterBuilder"
+                              VisibleChanged="HandleFilterBuilderVisibleChanged"
+                              Registry="@ColumnRegistry"
+                              GridKey="@(GridKey ?? string.Empty)"
+                              UserId="@UserId"
+                              ActiveFilter="@_activeFilter"
+                              OnApply="HandleFilterAppliedInternal"
+                              OnCancel="HandleFilterBuilderCancel"
+                              SavedFilterService="@SavedFilterService"
+                              TestId="filter-builder-dialog" />
+    }
+</div>
+
+@code {
+    // ── Identity / Context ──────────────────────────────────────
+
+    [Parameter]
+    public string? TestId { get; set; }
+
+    [Parameter]
+    public string? Title { get; set; }
+
+    [Parameter]
+    public int? TotalCount { get; set; }
+
+    [Parameter]
+    public string? GridKey { get; set; }
+
+    // ── Data + Loading ──────────────────────────────────────────
+
+    [Parameter]
+    public IReadOnlyList<TItem>? Data { get; set; }
+
+    [Parameter]
+    public bool Loading { get; set; }
+
+    // ── Selection ───────────────────────────────────────────────
+
+    [Parameter]
+    public bool AllowSelection { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<TItem>? SelectedItems { get; set; }
+
+    [Parameter]
+    public EventCallback<IReadOnlyList<TItem>> OnSelectionChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<TItem> OnRowActivated { get; set; }
+
+    /// <summary>Raised when a kanban card is moved (drag-drop or keyboard).</summary>
+    [Parameter]
+    public EventCallback<CardMoveArgs<TItem>> OnKanbanCardMove { get; set; }
+
+    // ── View Modes ──────────────────────────────────────────────
+
+    [Parameter]
+    public IViewModeRegistry? ViewModes { get; set; }
+
+    [Parameter]
+    public ViewKind? InitialView { get; set; }
+
+    // ── Search / Filter ─────────────────────────────────────────
+
+    [Parameter]
+    public string SearchPlaceholder { get; set; } = "Rechercher… (/)";
+
+    [Parameter]
+    public string SearchValue { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> OnSearch { get; set; }
+
+    /// <summary>Custom filter controls rendered inside the FilterBar's Filters slot.</summary>
+    [Parameter]
+    public RenderFragment? CustomFilters { get; set; }
+
+    [Parameter]
+    public bool ShowFilterBuilder { get; set; }
+
+    /// <summary>
+    /// Optional legacy callback. If set, fires in addition to the built-in filter builder.
+    /// </summary>
+    [Parameter]
+    public EventCallback OnFilterBuilderClick { get; set; }
+
+    /// <summary>
+    /// Raised when the user applies a filter via the built-in filter builder.
+    /// Provides the new FilterGroup, or null if filters were cleared.
+    /// </summary>
+    [Parameter]
+    public EventCallback<FilterGroup?> OnFilterApplied { get; set; }
+
+    /// <summary>
+    /// Optional saved filter service. Enables save/load/delete in the filter builder.
+    /// </summary>
+    [Parameter]
+    public ISavedFilterService? SavedFilterService { get; set; }
+
+    // ── Column Chooser ──────────────────────────────────────────
+
+    /// <summary>
+    /// Optional legacy callback. If set, fires in addition to the built-in chooser.
+    /// </summary>
+    [Parameter]
+    public EventCallback OnColumnChooserClick { get; set; }
+
+    /// <summary>
+    /// Raised when the user applies column changes via the built-in chooser.
+    /// Provides the new ordered list of visible column keys.
+    /// </summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<string>> OnColumnsApplied { get; set; }
+
+    // ── Column Registry ─────────────────────────────────────────
+
+    [Parameter]
+    public IColumnRegistry<TItem>? ColumnRegistry { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<string>? VisibleColumnKeys { get; set; }
+
+    // ── Actions ─────────────────────────────────────────────────
+
+    [Parameter]
+    public IReadOnlyList<GridAction>? Actions { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<GridActionGroup>? ActionGroups { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<GridRowAction<TItem>>? RowActions { get; set; }
+
+    /// <summary>
+    /// Bulk action buttons shown in a dedicated bar when items are selected.
+    /// Each action receives the current selection count via EvaluateEnabled.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyList<GridAction>? BulkActions { get; set; }
+
+    // ── View-specific parameters ────────────────────────────────
+
+    [Parameter]
+    public string? KanbanGroupByProperty { get; set; }
+
+    [Parameter]
+    public string? CalendarDateProperty { get; set; }
+
+    [Parameter]
+    public string? CalendarColorProperty { get; set; }
+
+    [Parameter]
+    public RenderFragment<TItem>? CardTemplate { get; set; }
+
+    // ── Content slots ───────────────────────────────────────────
+
+    /// <summary>
+    /// Render fragment for the table view. The parent page renders its own
+    /// StratumDataGrid here (with sort, pagination, export, etc.).
+    /// This keeps StratumListContainer agnostic of StratumDataGrid's many parameters.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? TableContent { get; set; }
+
+    [Parameter]
+    public RenderFragment? EmptyContent { get; set; }
+
+    [Parameter]
+    public RenderFragment? ErrorContent { get; set; }
+
+    /// <summary>
+    /// Content rendered below the active view (e.g. pagination, dialogs).
+    /// </summary>
+    [Parameter]
+    public RenderFragment? FooterContent { get; set; }
+
+    /// <summary>
+    /// Content rendered between the toolbar row and the active view
+    /// (e.g. a FilterChipBar showing all active filter chips).
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChipBarContent { get; set; }
+
+    // ── Preference persistence ──────────────────────────────────
+
+    [Parameter]
+    public IGridPreferenceService? PreferenceService { get; set; }
+
+    [Parameter]
+    public Guid UserId { get; set; }
+
+    // ── View change callback ────────────────────────────────────
+
+    [Parameter]
+    public EventCallback<ViewKind> OnViewChanged { get; set; }
+
+    // ── Internal state ──────────────────────────────────────────
+
+    private ViewKind _activeView = ViewKind.Table;
+    private IReadOnlyList<ViewModeDescriptor>? _supportedViews;
+    private int _selectedCount;
+    private bool _initialized;
+    private bool _showColumnChooser;
+    private bool _showFilterBuilder;
+    private FilterGroup? _activeFilter;
+    private int _filterCount;
+
+    // Calendar delegate cache
+    private Func<TItem, DateTime>? _calendarStartField;
+    private Func<TItem, string>? _calendarTitleSelector;
+    private Func<TItem, string?>? _calendarColorSelector;
+    private string? _cachedDateProp;
+    private string? _cachedColorProp;
+
+    // Kanban state
+    private List<string>? _kanbanColumns;
+    private string? _cachedKanbanProp;
+    private Func<TItem, object>? _kanbanItemColumnSelector;
+
+    // ── Lifecycle ───────────────────────────────────────────────
+
+    protected override void OnParametersSet()
+    {
+        if (!_initialized)
+        {
+            _supportedViews = ViewModes?.GetSupportedViews();
+            _activeView = InitialView ?? ViewModes?.DefaultView ?? ViewKind.Table;
+            _initialized = true;
+        }
+        else
+        {
+            _supportedViews = ViewModes?.GetSupportedViews();
+        }
+
+        _selectedCount = SelectedItems?.Count ?? 0;
+
+        _filterCount = _activeFilter is not null
+            ? CountCriteria(_activeFilter)
+            : 0;
+
+        // Rebuild Calendar delegates when property names change
+        RebuildCalendarDelegates();
+
+        // Rebuild Kanban columns from data
+        RebuildKanbanColumns();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && PreferenceService is not null && UserId != Guid.Empty && GridKey is not null)
+        {
+            var pref = await PreferenceService.GetPreferenceAsync(UserId, GridKey);
+            if (pref?.PreferredViewKind is { } savedView && ViewModes?.Supports(savedView) == true)
+            {
+                _activeView = savedView;
+                await OnViewChanged.InvokeAsync(savedView);
+                StateHasChanged();
+            }
+        }
+    }
+
+    private void RebuildCalendarDelegates()
+    {
+        if (CalendarDateProperty != _cachedDateProp)
+        {
+            _cachedDateProp = CalendarDateProperty;
+            _calendarStartField = !string.IsNullOrEmpty(CalendarDateProperty)
+                ? BuildDateAccessor(CalendarDateProperty)
+                : null;
+        }
+
+        if (CalendarColorProperty != _cachedColorProp)
+        {
+            _cachedColorProp = CalendarColorProperty;
+            _calendarColorSelector = !string.IsNullOrEmpty(CalendarColorProperty)
+                ? BuildStringAccessor(CalendarColorProperty)
+                : null;
+        }
+
+        // Title: use first visible column or ToString
+        if (_calendarTitleSelector is null && ColumnRegistry is not null)
+        {
+            var cols = VisibleColumnKeys is { Count: > 0 }
+                ? VisibleColumnKeys.Select(k => ColumnRegistry.GetColumn(k)).Where(c => c is not null).Select(c => c!).ToList()
+                : ColumnRegistry.GetDefaultVisibleColumns().ToList();
+
+            if (cols.Count > 0)
+            {
+                var prop = cols[0]!.Property;
+                _calendarTitleSelector = item =>
+                {
+                    var val = typeof(TItem).GetProperty(prop)?.GetValue(item);
+                    return val?.ToString() ?? string.Empty;
+                };
+            }
+        }
+
+        _calendarTitleSelector ??= item => item?.ToString() ?? string.Empty;
+    }
+
+    private Func<TItem, DateTime> GetCalendarStartField()
+        => _calendarStartField ?? (item => DateTime.MinValue);
+
+    private Func<TItem, string> GetCalendarTitleSelector()
+        => _calendarTitleSelector ?? (item => item?.ToString() ?? string.Empty);
+
+    private static Func<TItem, DateTime> BuildDateAccessor(string propertyName)
+    {
+        return item =>
+        {
+            var val = typeof(TItem).GetProperty(propertyName)?.GetValue(item);
+            return val is DateTime dt ? dt : DateTime.MinValue;
+        };
+    }
+
+    private static Func<TItem, string?> BuildStringAccessor(string propertyName)
+    {
+        return item => typeof(TItem).GetProperty(propertyName)?.GetValue(item)?.ToString();
+    }
+
+    // ── Kanban helpers ───────────────────────────────────────────
+    private void RebuildKanbanColumns()
+    {
+        if (string.IsNullOrEmpty(KanbanGroupByProperty) || Data is null || Data.Count == 0)
+        {
+            _kanbanColumns = null;
+            return;
+        }
+
+        if (KanbanGroupByProperty != _cachedKanbanProp)
+        {
+            _cachedKanbanProp = KanbanGroupByProperty;
+            _kanbanItemColumnSelector = null;
+            _kanbanColumns = null; // property changed, reset columns
+        }
+
+        var prop = typeof(TItem).GetProperty(KanbanGroupByProperty);
+        if (prop is null) { _kanbanColumns = null; return; }
+
+        // Collect all distinct values from data
+        var seen = new HashSet<string>();
+        foreach (var item in Data)
+        {
+            var val = prop.GetValue(item)?.ToString() ?? "(vide)";
+            seen.Add(val);
+        }
+
+        if (_kanbanColumns is not null)
+        {
+            // Keep existing order, just append any new columns
+            var existing = new HashSet<string>(_kanbanColumns);
+            foreach (var val in seen)
+            {
+                if (!existing.Contains(val)) _kanbanColumns.Add(val);
+            }
+        }
+        else
+        {
+            // First time: build from data order
+            var cols = new List<string>();
+            foreach (var item in Data)
+            {
+                var val = prop.GetValue(item)?.ToString() ?? "(vide)";
+                if (cols.Contains(val)) continue;
+                cols.Add(val);
+            }
+            _kanbanColumns = cols;
+        }
+    }
+
+    private Func<TItem, object> GetKanbanItemColumnSelector()
+    {
+        if (_kanbanItemColumnSelector is not null) return _kanbanItemColumnSelector;
+        var propName = KanbanGroupByProperty ?? string.Empty;
+        _kanbanItemColumnSelector = item =>
+        {
+            var prop = typeof(TItem).GetProperty(propName);
+            return prop?.GetValue(item)?.ToString() ?? "(vide)";
+        };
+        return _kanbanItemColumnSelector;
+    }
+
+    private async Task HandleKanbanCardMove(CardMoveArgs<TItem> args)
+    {
+        await OnKanbanCardMove.InvokeAsync(args);
+    }
+
+    private static RenderFragment<TItem> DefaultCardTemplate => item => builder =>
+    {
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", "p-2");
+        builder.AddContent(2, item?.ToString() ?? string.Empty);
+        builder.CloseElement();
+    };
+
+    private static int CountCriteria(FilterGroup? group)
+    {
+        if (group is null) return 0;
+        var count = group.Criteria.Count;
+        if (group.SubGroups is not null)
+        {
+            foreach (var sub in group.SubGroups)
+                count += CountCriteria(sub);
+        }
+        return count;
+    }
+
+    // ── Public API ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns the currently active view kind.
+    /// </summary>
+    public ViewKind ActiveView => _activeView;
+
+    /// <summary>
+    /// Switches to the specified view kind programmatically.
+    /// </summary>
+    public async Task SetViewAsync(ViewKind kind)
+    {
+        await SwitchViewAsync(kind);
+    }
+
+    // ── Event handlers ──────────────────────────────────────────
+
+    private async Task SwitchViewAsync(ViewKind kind)
+    {
+        if (_activeView == kind) return;
+        if (ViewModes is not null && !ViewModes.Supports(kind)) return;
+
+        _activeView = kind;
+
+        await OnViewChanged.InvokeAsync(kind);
+
+        if (PreferenceService is not null && UserId != Guid.Empty && GridKey is not null)
+        {
+            await PreferenceService.SaveViewPreferenceAsync(UserId, GridKey, kind);
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task HandleSelectionChanged(IReadOnlyList<TItem> selected)
+    {
+        _selectedCount = selected.Count;
+        await OnSelectionChanged.InvokeAsync(selected);
+    }
+
+    private async Task HandleColumnChooserClick()
+    {
+        _showColumnChooser = true;
+        await OnColumnChooserClick.InvokeAsync();
+    }
+
+    private void HandleColumnChooserVisibleChanged(bool visible)
+    {
+        _showColumnChooser = visible;
+    }
+
+    private async Task HandleColumnsAppliedInternal(IReadOnlyList<string> keys)
+    {
+        _showColumnChooser = false;
+        await OnColumnsApplied.InvokeAsync(keys);
+    }
+
+    private async Task HandleFilterBuilderClick()
+    {
+        _showFilterBuilder = true;
+        await OnFilterBuilderClick.InvokeAsync();
+    }
+
+    private void HandleFilterBuilderVisibleChanged(bool visible)
+    {
+        _showFilterBuilder = visible;
+    }
+
+    private async Task HandleFilterAppliedInternal(FilterGroup? filter)
+    {
+        _showFilterBuilder = false;
+        _activeFilter = filter;
+        _filterCount = CountCriteria(filter);
+        await OnFilterApplied.InvokeAsync(filter);
+    }
+
+    private void HandleFilterBuilderCancel()
+    {
+        _showFilterBuilder = false;
+    }
+
+    /// <summary>
+    /// Silently updates the container's internal advanced filter state to match an
+    /// external owner (e.g. DeclaredListPage chip bar). Does NOT fire
+    /// <see cref="OnFilterApplied"/> — the caller owns the data refresh.
+    /// </summary>
+    public void SetActiveFilterSilently(FilterGroup? filter)
+    {
+        _activeFilter = filter;
+        _filterCount = CountCriteria(filter);
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Opens the container's built-in advanced filter builder dialog. Equivalent
+    /// to clicking the toolbar filter button.
+    /// </summary>
+    public Task OpenAdvancedFilterBuilderAsync()
+    {
+        if (ColumnRegistry is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        _showFilterBuilder = true;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    // ── Bulk action handling ─────────────────────────────────────
+
+    private bool _showBulkConfirmDialog;
+    private GridAction? _bulkConfirmAction;
+
+    private async Task HandleBulkActionClickAsync(GridAction action)
+    {
+        if (!action.EvaluateEnabled(_selectedCount))
+            return;
+
+        if (action.RequiresConfirmation)
+        {
+            _bulkConfirmAction = action;
+            _showBulkConfirmDialog = true;
+            return;
+        }
+
+        if (action.Callback is not null)
+        {
+            await action.Callback();
+        }
+    }
+
+    private async Task HandleBulkConfirmOkAsync()
+    {
+        var action = _bulkConfirmAction;
+        _showBulkConfirmDialog = false;
+        _bulkConfirmAction = null;
+
+        if (action?.Callback is not null)
+        {
+            await action.Callback();
+        }
+    }
+
+    private void HandleBulkConfirmCancel()
+    {
+        _showBulkConfirmDialog = false;
+        _bulkConfirmAction = null;
+    }
+}

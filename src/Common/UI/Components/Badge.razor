@@ -1,0 +1,85 @@
+@namespace Stratum.Common.UI.Components
+
+<div class="badge-anchor" data-testid="@(TestId ?? "badge")">
+    @ChildContent
+    @if (Visible)
+    {
+        <span class="@BuildBadgeClass()"
+              role="status"
+              aria-label="@BuildAriaLabel()">
+            @if (!Dot)
+            {
+                @DisplayContent
+            }
+        </span>
+    }
+</div>
+
+@code {
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    /// <summary>Badge content — typically a count or short text. Ignored when <see cref="Dot"/> is true.</summary>
+    [Parameter] public string? Content { get; set; }
+
+    /// <summary>Dot-only mode — shows a small indicator without content.</summary>
+    [Parameter] public bool Dot { get; set; }
+
+    /// <summary>Maximum count to display. Values above this show "{max}+" (e.g., "99+"). Ignored when <see cref="Dot"/> is true.</summary>
+    [Parameter] public int Max { get; set; } = 99;
+
+    /// <summary>Color variant.</summary>
+    [Parameter] public BadgeColor Color { get; set; } = BadgeColor.Error;
+
+    /// <summary>Position of the badge overlay relative to the child element.</summary>
+    [Parameter] public BadgePosition Position { get; set; } = BadgePosition.TopRight;
+
+    /// <summary>Controls badge visibility.</summary>
+    [Parameter] public bool Visible { get; set; } = true;
+
+    /// <summary>The element the badge is anchored to.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private string DisplayContent
+    {
+        get
+        {
+            if (Dot || string.IsNullOrEmpty(Content)) return string.Empty;
+            if (int.TryParse(Content, out var num) && num > Max) return $"{Max}+";
+            return Content;
+        }
+    }
+
+    internal string BuildBadgeClass()
+    {
+        var colorClass = Color switch
+        {
+            BadgeColor.Primary => "primary",
+            BadgeColor.Info    => "info",
+            BadgeColor.Success => "success",
+            BadgeColor.Warning => "warning",
+            BadgeColor.Error   => "error",
+            BadgeColor.Neutral => "neutral",
+            _                  => "error",
+        };
+        var posClass = Position switch
+        {
+            BadgePosition.TopRight    => "top-right",
+            BadgePosition.TopLeft     => "top-left",
+            BadgePosition.BottomRight => "bottom-right",
+            BadgePosition.BottomLeft  => "bottom-left",
+            _                         => "top-right",
+        };
+        var dot = Dot ? " badge-overlay--dot" : "";
+        return $"badge-overlay badge-overlay--{colorClass} badge-overlay--{posClass}{dot}";
+    }
+
+    internal string BuildAriaLabel()
+    {
+        if (Dot) return "New notification";
+        if (string.IsNullOrEmpty(Content)) return string.Empty;
+        if (int.TryParse(Content, out var num) && num > Max) return $"{Max}+ notifications";
+        if (int.TryParse(Content, out var count)) return $"{count} notification{(count == 1 ? "" : "s")}";
+        return Content;
+    }
+}

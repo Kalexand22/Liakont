@@ -3,6 +3,77 @@
 _Ce fichier est le plan de la session interactive en cours. En mode orchestration,
 le backlog autoritaire est `orchestration/manifest.yaml`._
 
+## 2026-06-03 (suite) — Repo agent séparé + installateur paramétrable par intégrateur
+
+Décisions actées avec Karl (session interactive) :
+- **Agent = dépôt Git produit séparé** (`liakont-agent`), PAS un template forké par client.
+  Cœur générique + adaptateurs en plug-ins (1 par logiciel source) ; `Liakont.Agent.Contracts`
+  publié en NuGet versionné. Le « différent par client » = config/seed (`deployments/<client>/`),
+  jamais le cœur (auto-update de flotte préservé). → ADR-0005.
+- **Installateur GUI à écrans guidés** dans le repo agent (connexion BDD source + serveur central),
+  **piloté par un profil intégrateur déclaratif** (3 états affiché/verrouillé/masqué + valeur par
+  défaut ; jamais de `if(integrateur)`). 1 `.exe` par profil, même code. Générique par intégrateur.
+  Liste des options masquables NON figée (data-driven, extensible). → F13.
+
+Garde-fou : l'agent n'existe pas encore (SOL01 en cours ; lots AGT/OPS = priorité 5500+). On ACTE
+la conception ; on ne réécrit PAS l'orchestration runtime (protocol.md multi-repo, manifest+state)
+maintenant — bascule outillage planifiée aux lots AGT/SOL02, tracée dans l'ADR. Un item ajouté au
+manifest sans entrée dans state.yaml est traité « done & purgé » (jamais exécuté) : l'intégration
+des items proposés reste une opération opérateur atomique (manifest + OPS.yaml + state).
+
+- [x] ADR-0005 : agent en repo séparé + contrat NuGet (`docs/adr/ADR-0005-agent-repo-separe-contrat-nuget.md`)
+- [x] F13 : conception installateur agent + profils intégrateur (`docs/conception/F13-...md`)
+- [x] blueprint.md : orientation repo séparé (→ ADR-0005) + composant `Liakont.Agent.Installer` + règle 7 « profil intégrateur »
+- [x] README-Index-Conception : ligne F13
+- [x] F12 : note d'amendement en tête (→ F13 + ADR-0005) + ligne Installer au tableau des composants
+- [x] lessons.md : leçon (acter une décision ≠ réécrire l'orchestration ; piège manifest sans state)
+- [x] Items backlog **intégrés** : OPS08 ajouté à `manifest.yaml` (v8) + `OPS.yaml` + `state.yaml`
+      (pending) ; GATE_TOOLKIT dépend d'OPS08. OPS05 = note de renvoi (le packaging par profil vit
+      dans OPS08, pour éviter le cycle OPS05↔OPS08).
+- [x] verify-fast PASS ; codex-review 0 P1 / 2 P2 (les 2 hors-scope, sur ADR-0004 — voir Revue)
+
+### Revue (fin de session — 2026-06-03)
+
+**verify-fast** : PASS intégral (structure, manifest-sanity, plateforme build+tests, agent net48
+build+tests x86). Aucun fichier de solution ni manifest/state touché — changements 100 % documentaires.
+
+**codex-review** (round 1, working tree) : **0 P1, 2 P2**. Mes 7 fichiers (ADR-0005, F13, blueprint,
+F12, README-Index, lessons, todo) : **aucun finding**. Les 2 P2 portent uniquement sur
+`docs/adr/ADR-0004-perimetre-contrat-extraction-pivot-v1.md`, fichier **untracked pré-existant,
+étranger à cette session** :
+- P2-1 : affirmation inexacte dans ADR-0004 (« aucune classe C# n'existe » alors que
+  `agent/src/.../IExtractor.cs` existe en squelette).
+- P2-2 : ADR-0004 non tracé (ni dans ce plan, ni committé), risque d'être committé en passager.
+
+**Décision** : les 2 P2 sont **acceptés hors-scope** — je ne modifie pas ADR-0004 (WIP d'une autre
+tâche ; principe « surgical / ne pas toucher un orphelin non créé par mon changement »). Pas de
+round 2 : il rebouclerait sur un fichier que je ne dois pas modifier. **À remonter à l'humain**
+(cf. compte-rendu de session).
+
+**Non fait volontairement** (différé / hors autonomie) :
+- ~~Intégration des items au backlog~~ **FAIT (2026-06-03)** : OPS08 ajouté à `manifest.yaml` (v8),
+  `OPS.yaml` et `$ORCH_REPO/state.yaml` (pending) — atomique, aucune session active. GATE_TOOLKIT
+  dépend désormais d'OPS08. Packaging par profil placé dans OPS08 (évite le cycle OPS05↔OPS08).
+- Réécriture de l'orchestration multi-repo (`protocol.md`), de `verify-fast` Step 4, du champ
+  `repo:` des segments : différée au démarrage du segment `agent` (ADR-0005 §Conséquences).
+**Commits (branche `feat/socle-v6` — contrainte de branche levée par l'utilisateur)** :
+- `6647eff` docs(agent) : conception (ADR-0005, F13, blueprint, F12, README, lessons) + intégration
+  OPS08 (manifest v8, OPS.yaml) + todo (9 fichiers).
+- `6079609` fix(orchestration) : corrige les 2 P2 de la review (depends_on intra-segment + chemin agnostique).
+- `$ORCH_REPO` `25fad1b` state : OPS08 pending.
+
+**Review finale (sur les commits, pas le working tree)** : round 1 sur `6647eff` = **2 P2 réels** sur
+mon câblage backlog — (1) `OPS08.depends_on` cross-segment vers AGT05 → deadlock potentiel de
+GATE_TOOLKIT après purge des items AGT (« absent = done ») ; (2) chemin installateur figé
+`agent/src/...` incohérent avec ADR-0005 (repo séparé). **Corrigés** (commit `6079609`) → round 2 =
+**No findings**. verify-fast PASS à chaque étape.
+
+⚠️ **Activité concurrente détectée** sur `feat/socle-v6` (un autre acteur, hors ma session) : commits
+`a4cf2ea` (ADR-0004) et `4bd1d1f` (PIV01/ADP/AGT02 → ADR-0004), + `README.md`/`config.yaml` modifiés
+non committés dans `$ORCH_REPO`. **Fichiers disjoints des miens, aucun conflit** — non touchés.
+
+---
+
 ## ⚠️ PIVOT D'ARCHITECTURE EN COURS (2026-06-03)
 
 Décision actée : plateforme web centralisée (socle Stratum) + agent léger remplace

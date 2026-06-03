@@ -1,0 +1,16 @@
+.stratum-map {
+    position: relative;
+    width: 100%;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+}
+
+.stratum-map__container {
+    min-height: 200px;
+}
+
+.stratum-map__container:focus-visible {
+    outline: 2px solid var(--color-primary-600);
+    outline-offset: -2px;
+}

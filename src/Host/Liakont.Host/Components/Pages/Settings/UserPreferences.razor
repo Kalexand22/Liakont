@@ -1,0 +1,16 @@
+@page "/settings/preferences"
+@rendermode InteractiveServer
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+
+@using Microsoft.Extensions.Localization
+@using Stratum.Common.UI.Components
+@using Liakont.Host
+@using Liakont.Host.Components.Settings
+
+@inject IStringLocalizer<HostResources> L
+
+<PageTitle>@L["Preferences_PageTitle"]</PageTitle>
+<PageHeader Title="@L["Preferences_PageTitle"]"
+            Subtitle="@L["Preferences_Subtitle"]" />
+
+<UserPreferencesPanel />

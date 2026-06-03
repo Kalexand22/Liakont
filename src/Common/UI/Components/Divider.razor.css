@@ -1,0 +1,62 @@
+/* ── Horizontal divider (no text) ─────────────────────── */
+hr.divider {
+    border: none;
+    border-top: 1px solid var(--color-neutral-200, #e5e7eb);
+    width: 100%;
+}
+
+hr.divider.divider--dashed {
+    border-top-style: dashed;
+}
+
+/* ── Horizontal divider with centered text ───────────── */
+.divider--with-text {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    gap: var(--spacing-3, 0.75rem);
+    color: var(--color-text-secondary, #6b7280);
+    font-size: var(--font-size-sm, 0.875rem);
+}
+
+.divider--with-text::before,
+.divider--with-text::after {
+    content: "";
+    flex: 1;
+    border-top: 1px solid var(--color-neutral-200, #e5e7eb);
+}
+
+.divider--with-text.divider--dashed::before,
+.divider--with-text.divider--dashed::after {
+    border-top-style: dashed;
+}
+
+.divider__text {
+    white-space: nowrap;
+    font-weight: var(--font-weight-medium, 500);
+}
+
+/* ── Vertical divider ────────────────────────────────── */
+.divider--vertical {
+    display: inline-block;
+    width: 1px;
+    align-self: stretch;
+    min-height: 1em;
+    background-color: var(--color-neutral-200, #e5e7eb);
+}
+
+.divider--vertical.divider--dashed {
+    background-color: transparent;
+    border-left: 1px dashed var(--color-neutral-200, #e5e7eb);
+}
+
+/* ── Spacing variants ────────────────────────────────── */
+/* Horizontal */
+.divider--horizontal.divider--spacing-sm { margin-top: var(--spacing-2, 0.5rem); margin-bottom: var(--spacing-2, 0.5rem); }
+.divider--horizontal.divider--spacing-md { margin-top: var(--spacing-4, 1rem); margin-bottom: var(--spacing-4, 1rem); }
+.divider--horizontal.divider--spacing-lg { margin-top: var(--spacing-8, 2rem); margin-bottom: var(--spacing-8, 2rem); }
+
+/* Vertical */
+.divider--vertical.divider--spacing-sm { margin-left: var(--spacing-2, 0.5rem); margin-right: var(--spacing-2, 0.5rem); }
+.divider--vertical.divider--spacing-md { margin-left: var(--spacing-4, 1rem); margin-right: var(--spacing-4, 1rem); }
+.divider--vertical.divider--spacing-lg { margin-left: var(--spacing-8, 2rem); margin-right: var(--spacing-8, 2rem); }

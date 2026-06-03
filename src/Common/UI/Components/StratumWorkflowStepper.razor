@@ -1,0 +1,278 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+<div class="@RootClass"
+     data-testid="@(TestId ?? "workflow-stepper")"
+     role="group"
+     aria-label="@(AriaLabel ?? "Workflow steps")">
+
+    @for (var i = 0; i < _mainPath.Count; i++)
+    {
+        var step = _mainPath[i];
+        var state = GetStepState(step.Id);
+        var isLast = i == _mainPath.Count - 1;
+        var branches = GetBranches(step.Id);
+
+        <div class="workflow-stepper__column" data-testid="@($"workflow-step-{step.Id}")">
+            <div class="workflow-stepper__item">
+                <div class="@StepCircleClass(state, step)" aria-current="@(state == StepState.Current ? "step" : null)">
+                    @if (state == StepState.Past)
+                    {
+                        <svg class="workflow-stepper__check" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="3" stroke-linecap="round" stroke-linejoin="round"
+                             aria-hidden="true">
+                            <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                    }
+                    else if (!string.IsNullOrEmpty(step.Icon))
+                    {
+                        <span class="workflow-stepper__icon" aria-hidden="true">@step.Icon</span>
+                    }
+                    else
+                    {
+                        <span class="workflow-stepper__number" aria-hidden="true">@(i + 1)</span>
+                    }
+                </div>
+                <span class="workflow-stepper__label @LabelClass(state)">@step.Label</span>
+            </div>
+
+            @foreach (var branch in branches)
+            {
+                var branchState = GetStepState(branch.Id);
+                <div class="workflow-stepper__branch" data-testid="@($"workflow-branch-{step.Id}-{branch.Id}")">
+                    <div class="workflow-stepper__branch-connector @BranchConnectorClass(branchState)" aria-hidden="true"></div>
+                    <div class="workflow-stepper__item">
+                        <div class="@StepCircleClass(branchState, branch)" aria-current="@(branchState == StepState.Current ? "step" : null)">
+                            @if (branchState == StepState.Past)
+                            {
+                                <svg class="workflow-stepper__check" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="3" stroke-linecap="round" stroke-linejoin="round"
+                                     aria-hidden="true">
+                                    <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                            }
+                            else if (!string.IsNullOrEmpty(branch.Icon))
+                            {
+                                <span class="workflow-stepper__icon" aria-hidden="true">@branch.Icon</span>
+                            }
+                            else
+                            {
+                                <span class="workflow-stepper__number" aria-hidden="true">@(branch.Label.Length > 0 ? branch.Label[0] : '?')</span>
+                            }
+                        </div>
+                        <span class="workflow-stepper__label @LabelClass(branchState)">@branch.Label</span>
+                    </div>
+                </div>
+            }
+        </div>
+
+        @if (!isLast)
+        {
+            <div class="workflow-stepper__connector @ConnectorClass(state)" aria-hidden="true"></div>
+        }
+    }
+</div>
+
+@code {
+    private List<WorkflowStep> _mainPath = [];
+    private Dictionary<string, List<WorkflowStep>> _branchMap = new();
+    private HashSet<string> _pastStepIds = [];
+    private string _currentStepId = string.Empty;
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    /// <summary>The workflow definition including steps, edges, and current step.</summary>
+    [Parameter, EditorRequired] public WorkflowDefinition Definition { get; set; } = default!;
+
+    /// <summary>Optional ARIA label for the stepper group. Defaults to "Workflow steps".</summary>
+    [Parameter] public string? AriaLabel { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        if (Definition is null) return;
+        _currentStepId = Definition.CurrentStepId;
+        ComputeMainPath();
+        ComputePastSteps();
+
+        // Validate CurrentStepId exists somewhere in the workflow
+        var allKnownIds = new HashSet<string>(_mainPath.Select(s => s.Id));
+        foreach (var branch in _branchMap.Values)
+            foreach (var bs in branch)
+                allKnownIds.Add(bs.Id);
+        if (!string.IsNullOrEmpty(_currentStepId) && !allKnownIds.Contains(_currentStepId))
+            System.Diagnostics.Debug.WriteLine($"[StratumWorkflowStepper] CurrentStepId '{_currentStepId}' not found in workflow steps.");
+    }
+
+    private void ComputeMainPath()
+    {
+        _mainPath = [];
+        _branchMap = new Dictionary<string, List<WorkflowStep>>();
+
+        var steps = Definition.Steps;
+        var edges = Definition.Edges;
+        if (steps.Count == 0) return;
+
+        var stepById = steps
+            .GroupBy(s => s.Id)
+            .ToDictionary(g => g.Key, g => g.First());
+        // adjacency: fromId -> list of toIds
+        var adj = new Dictionary<string, List<string>>();
+        foreach (var edge in edges)
+        {
+            if (!adj.TryGetValue(edge.FromId, out var list))
+            {
+                list = [];
+                adj[edge.FromId] = list;
+            }
+            list.Add(edge.ToId);
+        }
+
+        // Find root: step not targeted by any edge
+        var targeted = new HashSet<string>(edges.Select(e => e.ToId));
+        var root = steps.FirstOrDefault(s => !targeted.Contains(s.Id)) ?? steps[0];
+
+        // Main path: follow first transition from each step
+        var visited = new HashSet<string>();
+        var current = root;
+        while (current is not null && visited.Add(current.Id))
+        {
+            _mainPath.Add(current);
+            if (adj.TryGetValue(current.Id, out var targets) && targets.Count > 0)
+            {
+                // First target = main path continuation, rest = branches
+                if (targets.Count > 1)
+                {
+                    var branchSteps = new List<WorkflowStep>();
+                    for (var i = 1; i < targets.Count; i++)
+                    {
+                        if (stepById.TryGetValue(targets[i], out var branchStep))
+                        {
+                            branchSteps.Add(branchStep);
+
+                            // Warn if branch step has its own outgoing edges (not rendered)
+                            if (adj.ContainsKey(branchStep.Id))
+                                System.Diagnostics.Debug.WriteLine($"[StratumWorkflowStepper] Branch step '{branchStep.Id}' has outgoing edges that will not be rendered (single-level branches only).");
+                        }
+                    }
+                    if (branchSteps.Count > 0)
+                        _branchMap[current.Id] = branchSteps;
+                }
+                stepById.TryGetValue(targets[0], out current);
+            }
+            else
+            {
+                current = null;
+            }
+        }
+    }
+
+    private void ComputePastSteps()
+    {
+        _pastStepIds = [];
+        if (Definition is null || _mainPath.Count == 0) return;
+
+        var edges = Definition.Edges;
+        // BFS from root to find path to current step
+        var adj = new Dictionary<string, List<string>>();
+        foreach (var edge in edges)
+        {
+            if (!adj.TryGetValue(edge.FromId, out var list))
+            {
+                list = [];
+                adj[edge.FromId] = list;
+            }
+            list.Add(edge.ToId);
+        }
+
+        var root = _mainPath[0];
+        // BFS to find path from root to CurrentStepId
+        var parent = new Dictionary<string, string?> { [root.Id] = null };
+        var queue = new Queue<string>();
+        queue.Enqueue(root.Id);
+
+        while (queue.Count > 0)
+        {
+            var node = queue.Dequeue();
+            if (node == _currentStepId) break;
+            if (adj.TryGetValue(node, out var targets))
+            {
+                foreach (var t in targets)
+                {
+                    if (!parent.ContainsKey(t))
+                    {
+                        parent[t] = node;
+                        queue.Enqueue(t);
+                    }
+                }
+            }
+        }
+
+        // Trace back from current to root to find "past" path
+        if (parent.ContainsKey(_currentStepId))
+        {
+            var id = _currentStepId;
+            while (id is not null && parent.TryGetValue(id, out var prev))
+            {
+                if (prev is not null)
+                    _pastStepIds.Add(prev);
+                id = prev;
+            }
+        }
+    }
+
+    private enum StepState { Past, Current, Future }
+
+    private StepState GetStepState(string stepId)
+    {
+        if (stepId == _currentStepId) return StepState.Current;
+        if (_pastStepIds.Contains(stepId)) return StepState.Past;
+        return StepState.Future;
+    }
+
+    private IReadOnlyList<WorkflowStep> GetBranches(string stepId)
+        => _branchMap.TryGetValue(stepId, out var branches) ? branches : [];
+
+    private static string RootClass => "workflow-stepper";
+
+    private static string StepCircleClass(StepState state, WorkflowStep step)
+    {
+        var baseClass = "workflow-stepper__circle";
+        var stateClass = state switch
+        {
+            StepState.Past    => "workflow-stepper__circle--past",
+            StepState.Current => "workflow-stepper__circle--current",
+            _                 => "workflow-stepper__circle--future",
+        };
+        var colorClass = state != StepState.Future && IsValidColorToken(step.Color)
+            ? $"workflow-stepper__circle--{step.Color}"
+            : "";
+        return string.IsNullOrEmpty(colorClass)
+            ? $"{baseClass} {stateClass}"
+            : $"{baseClass} {stateClass} {colorClass}";
+    }
+
+    private static string LabelClass(StepState state) => state switch
+    {
+        StepState.Past    => "workflow-stepper__label--past",
+        StepState.Current => "workflow-stepper__label--current",
+        _                 => "workflow-stepper__label--future",
+    };
+
+    private static string ConnectorClass(StepState state) => state switch
+    {
+        StepState.Past => "workflow-stepper__connector--past",
+        _              => "",
+    };
+
+    private static string BranchConnectorClass(StepState state) => state switch
+    {
+        StepState.Past or StepState.Current => "workflow-stepper__branch-connector--active",
+        _ => "",
+    };
+
+    private static readonly HashSet<string> ValidColorTokens = ["success", "warning", "error", "info", "neutral", "primary"];
+
+    private static bool IsValidColorToken(string? color)
+        => !string.IsNullOrEmpty(color) && ValidColorTokens.Contains(color);
+}

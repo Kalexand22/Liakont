@@ -1,0 +1,36 @@
+@typeparam TEntity
+@inject IFormRegistry FormRegistry
+
+@if (_resolvedFormType is not null)
+{
+    <DynamicComponent Type="_resolvedFormType" Parameters="Parameters" />
+}
+else if (FallbackContent is not null)
+{
+    @FallbackContent
+}
+else
+{
+    <div class="alert alert-warning" data-testid="form-host-no-form">
+        Aucun formulaire enregistré pour @(typeof(TEntity).Name)@(_contextLabel).
+    </div>
+}
+
+@code {
+    [Parameter] public string? ContextKey { get; set; }
+
+    [Parameter] public IDictionary<string, object>? Parameters { get; set; }
+
+    [Parameter] public RenderFragment? FallbackContent { get; set; }
+
+    private Type? _resolvedFormType;
+    private string _contextLabel = string.Empty;
+
+    protected override void OnParametersSet()
+    {
+        _resolvedFormType = FormRegistry.TryResolve<TEntity>(ContextKey, out var type)
+            ? type
+            : null;
+        _contextLabel = ContextKey is not null ? $" (contexte : {ContextKey})" : "";
+    }
+}

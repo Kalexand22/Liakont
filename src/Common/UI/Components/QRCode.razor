@@ -1,0 +1,141 @@
+@namespace Stratum.Common.UI.Components
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+@if (!string.IsNullOrWhiteSpace(Value))
+{
+    <div class="qrcode-wrapper @CssClass" data-testid="@TestId">
+        <canvas @ref="_canvasRef"
+                width="@Size"
+                height="@Size"
+                aria-label="@($"QR code : {Value}")"
+                role="img"
+                class="qrcode-canvas">
+        </canvas>
+    </div>
+}
+
+@code {
+    /// <summary>Content to encode. Null or empty → canvas left blank.</summary>
+    [Parameter] public string? Value { get; set; }
+
+    /// <summary>Canvas size in pixels (width and height). Default: 128.</summary>
+    [Parameter] public int Size { get; set; } = 128;
+
+    /// <summary>Error correction level. Default: <see cref="QrEcLevel.M"/>.</summary>
+    [Parameter] public QrEcLevel ErrorCorrectionLevel { get; set; } = QrEcLevel.M;
+
+    /// <summary>Quiet zone margin (modules). Default: 4.</summary>
+    [Parameter] public int Margin { get; set; } = 4;
+
+    /// <summary>Additional CSS classes on the root element.</summary>
+    [Parameter] public string? CssClass { get; set; }
+
+    /// <summary>Test ID for E2E testing.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    // ── State ─────────────────────────────────────────────────────────────────
+
+    private ElementReference _canvasRef;
+    private IJSObjectReference? _jsModule;
+    private bool _rendered;
+
+    // Tracks last rendered params to avoid redundant JS calls.
+    private string? _lastValue;
+    private QrEcLevel _lastEcLevel;
+    private int _lastSize;
+    private int _lastMargin;
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_jsModule is null)
+        {
+            try
+            {
+                _jsModule = await JS.InvokeAsync<IJSObjectReference>(
+                    "import", "./_content/Stratum.Common.UI/js/qrcode.js.module");
+            }
+            catch (JSException)
+            {
+                // Graceful degradation — component renders nothing if module fails to load.
+                return;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(Value))
+        {
+            _rendered = false;
+            return;
+        }
+
+        if (!_rendered || HasParamsChanged())
+        {
+            await RenderAsync();
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!_rendered || _jsModule is null) return;
+
+        if (HasParamsChanged())
+        {
+            await RenderAsync();
+        }
+    }
+
+    // ── Rendering ─────────────────────────────────────────────────────────────
+
+    private async Task RenderAsync()
+    {
+        if (_jsModule is null || string.IsNullOrWhiteSpace(Value)) return;
+
+        var options = new
+        {
+            errorCorrectionLevel = EcLevelKey(ErrorCorrectionLevel),
+            margin               = Margin,
+            width                = Size,
+        };
+
+        try
+        {
+            await _jsModule.InvokeVoidAsync("render", _canvasRef, Value, options);
+            _rendered      = true;
+            _lastValue     = Value;
+            _lastEcLevel   = ErrorCorrectionLevel;
+            _lastSize      = Size;
+            _lastMargin    = Margin;
+        }
+        catch (JSException) { /* Graceful degradation — canvas left blank */ }
+    }
+
+    private bool HasParamsChanged() =>
+        Value != _lastValue ||
+        ErrorCorrectionLevel != _lastEcLevel ||
+        Size != _lastSize ||
+        Margin != _lastMargin;
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /// <summary>Maps a <see cref="QrEcLevel"/> to the qrcode library string key.</summary>
+    internal static string EcLevelKey(QrEcLevel level) => level switch
+    {
+        QrEcLevel.L => "L",
+        QrEcLevel.Q => "Q",
+        QrEcLevel.H => "H",
+        _           => "M",
+    };
+
+    // ── Disposal ──────────────────────────────────────────────────────────────
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_jsModule is not null)
+        {
+            try { await _jsModule.DisposeAsync(); }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException) { }
+        }
+    }
+}

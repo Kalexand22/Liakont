@@ -1,0 +1,302 @@
+.stratum-filter-builder {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-4);
+    max-height: 65vh;
+    overflow-y: auto;
+}
+
+/* ── Saved filters section ── */
+
+.stratum-filter-builder__saved {
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: var(--spacing-3);
+}
+
+.stratum-filter-builder__saved-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+}
+
+.stratum-filter-builder__saved-select {
+    flex: 1;
+    padding: var(--spacing-1) var(--spacing-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-surface);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-sm);
+}
+
+.stratum-filter-builder__saved-select:focus {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 1px;
+}
+
+.stratum-filter-builder__dirty-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--spacing-1) var(--spacing-2);
+    border-radius: var(--radius-sm);
+    background: var(--color-warning-50);
+    color: var(--color-warning-700);
+    border: 1px solid var(--color-warning-300);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    white-space: nowrap;
+}
+
+.stratum-filter-builder__readonly-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--spacing-1) var(--spacing-2);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-subtle);
+    color: var(--color-text-secondary);
+    border: 1px solid var(--color-border);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    white-space: nowrap;
+}
+
+/* ── Filter group ── */
+
+.stratum-filter-builder__group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+}
+
+.stratum-filter-builder__group--nested {
+    margin-left: var(--spacing-4);
+    padding: var(--spacing-3);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-subtle);
+}
+
+/* ── Logic toggle (AND/OR) ── */
+
+.stratum-filter-builder__logic {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-1);
+}
+
+.stratum-filter-builder__logic-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-1) var(--spacing-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-surface);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    cursor: pointer;
+    transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.stratum-filter-builder__logic-btn:hover {
+    background: var(--color-bg-selected-hover);
+}
+
+.stratum-filter-builder__logic-btn--active {
+    background: var(--color-primary-600);
+    color: white;
+    border-color: var(--color-primary-600);
+}
+
+.stratum-filter-builder__logic-btn--active:hover {
+    background: var(--color-primary-700);
+}
+
+.stratum-filter-builder__remove-group {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-surface);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    font-size: var(--font-size-xs);
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.stratum-filter-builder__remove-group:hover {
+    background: var(--color-error-50);
+    color: var(--color-error-700);
+    border-color: var(--color-error-300);
+}
+
+/* ── Criterion row ── */
+
+.stratum-filter-builder__row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    flex-wrap: wrap;
+}
+
+.stratum-filter-builder__field-select,
+.stratum-filter-builder__operator-select {
+    padding: var(--spacing-1) var(--spacing-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-surface);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-sm);
+}
+
+.stratum-filter-builder__field-select {
+    min-width: 160px;
+    flex: 2;
+}
+
+.stratum-filter-builder__operator-select {
+    min-width: 130px;
+    flex: 1;
+}
+
+.stratum-filter-builder__field-select:focus,
+.stratum-filter-builder__operator-select:focus,
+.stratum-filter-builder__value-input:focus {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 1px;
+}
+
+.stratum-filter-builder__field-select:disabled,
+.stratum-filter-builder__operator-select:disabled,
+.stratum-filter-builder__value-input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.stratum-filter-builder__value-input {
+    padding: var(--spacing-1) var(--spacing-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-surface);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-sm);
+    min-width: 100px;
+    flex: 1;
+}
+
+.stratum-filter-builder__between-sep {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+    padding: 0 var(--spacing-1);
+}
+
+.stratum-filter-builder__remove-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-surface);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    flex-shrink: 0;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.stratum-filter-builder__remove-btn:hover {
+    background: var(--color-error-50);
+    color: var(--color-error-700);
+    border-color: var(--color-error-300);
+}
+
+/* ── Add row ── */
+
+.stratum-filter-builder__add-row {
+    display: flex;
+    gap: var(--spacing-2);
+    padding-top: var(--spacing-1);
+}
+
+/* ── Save dialog ── */
+
+.stratum-filter-builder__save-dialog {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+    padding: var(--spacing-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-subtle);
+    margin-top: var(--spacing-2);
+}
+
+.stratum-filter-builder__save-label {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text-secondary);
+}
+
+.stratum-filter-builder__save-input {
+    padding: var(--spacing-1) var(--spacing-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-surface);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-sm);
+}
+
+.stratum-filter-builder__save-input:focus {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 1px;
+}
+
+.stratum-filter-builder__save-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--spacing-2);
+}
+
+.stratum-filter-builder__save-share {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+}
+
+.stratum-filter-builder__save-share-scope {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1);
+    margin-left: var(--spacing-4);
+    padding-left: var(--spacing-3);
+    border-left: 2px solid var(--color-border);
+}
+
+.stratum-filter-builder__share-scope-option {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
+}
+
+.stratum-filter-builder__share-scope-option--disabled {
+    color: var(--color-text-muted);
+    cursor: not-allowed;
+}
+
+.stratum-filter-builder__share-scope-hint {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+    font-style: italic;
+}

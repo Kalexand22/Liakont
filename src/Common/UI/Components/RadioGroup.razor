@@ -1,0 +1,82 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TValue
+
+<div class="radio-group @(_orientation == Orientation.Horizontal ? "radio-group--horizontal" : string.Empty) @(_hasError ? "radio-group--error" : string.Empty) @CssClass"
+     role="radiogroup"
+     aria-required="@(_context?.Required == true ? "true" : null)"
+     aria-invalid="@(_hasError ? "true" : null)"
+     aria-describedby="@_context?.DescribedBy"
+     data-testid="@(TestId ?? "radiogroup")">
+
+    @if (Items is not null)
+    {
+        @foreach (var item in Items)
+        {
+            var isChecked = EqualityComparer<TValue>.Default.Equals(Value, item.Value);
+            var isDisabled = Disabled || item.Disabled;
+            var optionId = $"{_groupId}-{item.Value}";
+
+            <label class="radio-group__option @(isDisabled ? "radio-group__option--disabled" : string.Empty)"
+                   for="@optionId">
+                <input type="radio"
+                       id="@optionId"
+                       name="@_groupId"
+                       class="radio-group__input"
+                       checked="@isChecked"
+                       disabled="@isDisabled"
+                       aria-checked="@(isChecked ? "true" : "false")"
+                       aria-disabled="@(isDisabled ? "true" : null)"
+                       value="@item.Value"
+                       @onchange="() => HandleChange(item.Value)" />
+                <span class="radio-group__indicator" aria-hidden="true"></span>
+                <span class="radio-group__label-text">@item.Label</span>
+            </label>
+        }
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private FormFieldContext? _context { get; set; }
+
+    /// <summary>Currently selected value (two-way).</summary>
+    [Parameter]
+    public TValue? Value { get; set; }
+
+    /// <summary>Raised when the selected value changes.</summary>
+    [Parameter]
+    public EventCallback<TValue?> ValueChanged { get; set; }
+
+    /// <summary>Available options to display.</summary>
+    [Parameter]
+    public IReadOnlyList<RadioOption<TValue>>? Items { get; set; }
+
+    /// <summary>Layout direction. Default: Vertical.</summary>
+    [Parameter]
+    public Orientation Orientation { get; set; } = Orientation.Vertical;
+
+    /// <summary>Disables all options in the group.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>Additional CSS classes on the root element.</summary>
+    [Parameter]
+    public string? CssClass { get; set; }
+
+    /// <summary>Optional test identifier for E2E tests.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    // ── Stable per-component id ──────────────────────────────────
+
+    private readonly string _uniqueId = Guid.NewGuid().ToString("N")[..8];
+    private string _groupId => _context?.FieldId ?? $"radiogroup-{_uniqueId}";
+    private bool _hasError => _context?.HasError == true;
+
+    private Orientation _orientation => Orientation;
+
+    private async Task HandleChange(TValue value)
+    {
+        await ValueChanged.InvokeAsync(value);
+    }
+}

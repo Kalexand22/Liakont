@@ -1,0 +1,206 @@
+{
+  "id": "liakont-dev",
+  "realm": "liakont-dev",
+  "displayName": "Liakont Dev",
+  "enabled": true,
+  "sslRequired": "external",
+  "internationalizationEnabled": true,
+  "supportedLocales": ["fr", "en"],
+  "defaultLocale": "fr",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "minimumQuickLoginWaitSeconds": 60,
+  "waitIncrementSeconds": 60,
+  "quickLoginCheckMilliSeconds": 1000,
+  "maxDeltaTimeSeconds": 43200,
+  "failureFactor": 5,
+  "accessTokenLifespan": 300,
+  "accessTokenLifespanForImplicitFlow": 900,
+  "ssoSessionIdleTimeout": 28800,
+  "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
+  "accessCodeLifespan": 60,
+  "accessCodeLifespanUserAction": 300,
+  "accessCodeLifespanLogin": 1800,
+  "roles": {
+    "realm": [
+      {
+        "name": "lecture",
+        "description": "Consultation des documents, transmissions et journaux (liakont.read)"
+      },
+      {
+        "name": "operateur",
+        "description": "Actions operateur : deblocage, relance, re-emission (liakont.read + liakont.actions)"
+      },
+      {
+        "name": "parametrage",
+        "description": "Parametrage fiscal du tenant : table TVA, mappings, comptes PA (liakont.read + liakont.actions + liakont.settings)"
+      },
+      {
+        "name": "superviseur",
+        "description": "Supervision cross-tenant en lecture seule (toutes les permissions liakont.*)"
+      }
+    ]
+  },
+  "defaultRoles": ["lecture"],
+  "clients": [
+    {
+      "clientId": "liakont",
+      "name": "Liakont",
+      "description": "Liakont — passerelle de conformite e-invoicing",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "liakont-dev-secret",
+      "redirectUris": [
+        "http://localhost:55996/*",
+        "https://localhost:55995/*"
+      ],
+      "webOrigins": ["+"],
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "authorizationServicesEnabled": false,
+      "fullScopeAllowed": true,
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:55996/*##https://localhost:55995/*"
+      },
+      "defaultClientScopes": [
+        "openid",
+        "profile",
+        "email"
+      ],
+      "optionalClientScopes": [
+        "phone",
+        "address"
+      ],
+      "protocolMappers": [
+        {
+          "name": "company_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "company_id",
+            "claim.name": "company_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "stratum_user_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "stratum_user_id",
+            "claim.name": "stratum_user_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "realm roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "liakont",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "lecture@liakont.local",
+      "email": "lecture@liakont.local",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Lea",
+      "lastName": "Lecture",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Test@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["lecture"]
+    },
+    {
+      "username": "operateur@liakont.local",
+      "email": "operateur@liakont.local",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Olivier",
+      "lastName": "Operateur",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Test@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["lecture", "operateur"]
+    },
+    {
+      "username": "parametrage@liakont.local",
+      "email": "parametrage@liakont.local",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Paul",
+      "lastName": "Parametrage",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Test@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["lecture", "operateur", "parametrage"]
+    },
+    {
+      "username": "superviseur@liakont.local",
+      "email": "superviseur@liakont.local",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Sophie",
+      "lastName": "Superviseur",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Test@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["lecture", "operateur", "parametrage", "superviseur"]
+    }
+  ],
+  "scopeMappings": [],
+  "clientScopeMappings": {}
+}

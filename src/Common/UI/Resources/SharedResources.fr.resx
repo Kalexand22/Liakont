@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <data name="Save" xml:space="preserve"><value>Enregistrer</value></data>
+  <data name="Cancel" xml:space="preserve"><value>Annuler</value></data>
+  <data name="Delete" xml:space="preserve"><value>Supprimer</value></data>
+  <data name="Edit" xml:space="preserve"><value>Modifier</value></data>
+  <data name="Create" xml:space="preserve"><value>Nouveau</value></data>
+  <data name="Search" xml:space="preserve"><value>Rechercher</value></data>
+  <data name="Filter" xml:space="preserve"><value>Filtrer</value></data>
+  <data name="Actions" xml:space="preserve"><value>Actions</value></data>
+  <data name="Confirm" xml:space="preserve"><value>Confirmer</value></data>
+  <data name="Close" xml:space="preserve"><value>Fermer</value></data>
+  <data name="Yes" xml:space="preserve"><value>Oui</value></data>
+  <data name="No" xml:space="preserve"><value>Non</value></data>
+  <data name="Loading" xml:space="preserve"><value>Chargement...</value></data>
+  <data name="NoResults" xml:space="preserve"><value>Aucun résultat</value></data>
+  <data name="Required" xml:space="preserve"><value>Ce champ est obligatoire</value></data>
+  <data name="Submit" xml:space="preserve"><value>Soumettre</value></data>
+  <data name="Back" xml:space="preserve"><value>Retour</value></data>
+  <data name="Next" xml:space="preserve"><value>Suivant</value></data>
+  <data name="Previous" xml:space="preserve"><value>Précédent</value></data>
+  <data name="Export" xml:space="preserve"><value>Exporter</value></data>
+  <data name="Import" xml:space="preserve"><value>Importer</value></data>
+  <data name="Add" xml:space="preserve"><value>Ajouter</value></data>
+  <data name="Remove" xml:space="preserve"><value>Retirer</value></data>
+  <data name="Select" xml:space="preserve"><value>Sélectionner</value></data>
+  <data name="Clear" xml:space="preserve"><value>Effacer</value></data>
+  <data name="Apply" xml:space="preserve"><value>Appliquer</value></data>
+  <data name="Reset" xml:space="preserve"><value>Réinitialiser</value></data>
+  <!-- Tab bar -->
+  <data name="Tab_NewTab" xml:space="preserve"><value>Nouvel onglet</value></data>
+  <data name="Tab_LimitReached" xml:space="preserve"><value>Limite d'onglets atteinte (10 maximum)</value></data>
+  <data name="Tab_CloseAriaLabel" xml:space="preserve"><value>Fermer {0}</value></data>
+  <data name="Tab_AriaLabel" xml:space="preserve"><value>Onglets de navigation</value></data>
+  <data name="Tab_NewTabAriaLabel" xml:space="preserve"><value>Ouvrir un nouvel onglet</value></data>
+  <!-- Shortcut commands -->
+  <data name="Shortcut_OpenHelp" xml:space="preserve"><value>Aide raccourcis</value></data>
+  <data name="Shortcut_NewTab" xml:space="preserve"><value>Nouvel onglet</value></data>
+  <data name="Shortcut_OpenSearch" xml:space="preserve"><value>Ouvrir la recherche</value></data>
+  <data name="Shortcut_Save" xml:space="preserve"><value>Enregistrer</value></data>
+  <data name="Shortcut_Cancel" xml:space="preserve"><value>Annuler / Fermer</value></data>
+  <data name="Shortcut_ValidateDocument" xml:space="preserve"><value>Valider le document</value></data>
+  <data name="Shortcut_NextRow" xml:space="preserve"><value>Ligne suivante</value></data>
+  <data name="Shortcut_PreviousRow" xml:space="preserve"><value>Ligne précédente</value></data>
+  <data name="Shortcut_OpenItem" xml:space="preserve"><value>Ouvrir l'élément</value></data>
+  <data name="Shortcut_SelectToggle" xml:space="preserve"><value>Sélectionner / désélect.</value></data>
+  <!-- Command palette -->
+  <data name="CommandPalette_Placeholder" xml:space="preserve"><value>Rechercher un menu...</value></data>
+  <data name="CommandPalette_AriaLabel" xml:space="preserve"><value>Recherche de menu</value></data>
+  <data name="CommandPalette_CloseAriaLabel" xml:space="preserve"><value>Fermer la recherche</value></data>
+  <data name="CommandPalette_NavigateHint" xml:space="preserve"><value>pour naviguer</value></data>
+  <data name="CommandPalette_SelectHint" xml:space="preserve"><value>pour sélectionner</value></data>
+  <data name="CommandPalette_CloseHint" xml:space="preserve"><value>pour fermer</value></data>
+  <data name="CommandPalette_ScopeThisPage" xml:space="preserve"><value>Sur cette page</value></data>
+  <data name="CommandPalette_ScopeGlobal" xml:space="preserve"><value>Global</value></data>
+  <!-- Bug Capture -->
+  <data name="BugCapture_ReportBug" xml:space="preserve"><value>Signaler un bug</value></data>
+  <data name="BugCapture_RequestFeature" xml:space="preserve"><value>Demander une fonctionnalité</value></data>
+  <data name="BugCapture_Bug" xml:space="preserve"><value>Bug</value></data>
+  <data name="BugCapture_Feature" xml:space="preserve"><value>Fonctionnalité</value></data>
+  <data name="BugCapture_DescriptionPlaceholder" xml:space="preserve"><value>Décrivez le problème ou la demande…</value></data>
+  <data name="BugCapture_Screenshots" xml:space="preserve"><value>Captures d'écran ({0})</value></data>
+  <data name="BugCapture_AddScreenshot" xml:space="preserve"><value>Capture d'écran</value></data>
+  <data name="BugCapture_Audio" xml:space="preserve"><value>Audio</value></data>
+  <data name="BugCapture_StopRecording" xml:space="preserve"><value>Arrêter l'enregistrement</value></data>
+  <data name="BugCapture_RecordAudio" xml:space="preserve"><value>Enregistrer audio</value></data>
+  <data name="BugCapture_AudioRecorded" xml:space="preserve"><value>Audio enregistré — sera transcrit à l'envoi</value></data>
+  <data name="BugCapture_Tags" xml:space="preserve"><value>Étiquettes</value></data>
+  <data name="BugCapture_TagPlaceholder" xml:space="preserve"><value>Ajouter + Entrée</value></data>
+  <data name="BugCapture_Saving" xml:space="preserve"><value>Envoi…</value></data>
+  <data name="BugCapture_Send" xml:space="preserve"><value>Envoyer</value></data>
+  <data name="BugCapture_Video" xml:space="preserve"><value>Vidéo</value></data>
+  <data name="BugCapture_RecordScreen" xml:space="preserve"><value>Enregistrer l'écran</value></data>
+  <data name="BugCapture_VideoRecorded" xml:space="preserve"><value>Enregistrement vidéo sauvegardé</value></data>
+  <data name="BugCapture_ScreenshotFailed" xml:space="preserve"><value>Capture d'écran échouée : {0}</value></data>
+  <data name="BugCapture_SaveSuccess" xml:space="preserve"><value>Rapport enregistré avec succès.</value></data>
+  <data name="BugCapture_SaveFailed" xml:space="preserve"><value>Échec de l'enregistrement du rapport.</value></data>
+  <data name="BugCapture_Analyzing" xml:space="preserve"><value>Analyse en cours...</value></data>
+  <data name="BugCapture_AnalyzingHint" xml:space="preserve"><value>L'IA analyse la vidéo et génère un rapport</value></data>
+  <data name="BugCapture_Submitting" xml:space="preserve"><value>Envoi sur GitHub...</value></data>
+  <data name="BugCapture_SubmittingHint" xml:space="preserve"><value>Téléversement des médias et création de l'issue</value></data>
+  <data name="BugCapture_Back" xml:space="preserve"><value>Retour</value></data>
+  <data name="BugCapture_Confirm" xml:space="preserve"><value>Confirmer &amp; Envoyer</value></data>
+  <data name="BugCapture_PreviewTitle" xml:space="preserve"><value>Aperçu de l'issue</value></data>
+  <data name="BugCapture_Title" xml:space="preserve"><value>Titre</value></data>
+  <data name="BugCapture_TitlePlaceholder" xml:space="preserve"><value>Résumé court du problème...</value></data>
+  <data name="BugCapture_Description" xml:space="preserve"><value>Description</value></data>
+  <data name="BugCapture_Environment" xml:space="preserve"><value>Environnement</value></data>
+  <data name="BugCapture_AIAnalysis" xml:space="preserve"><value>Analyse IA</value></data>
+  <data name="BugCapture_StepsToReproduce" xml:space="preserve"><value>Étapes de reproduction</value></data>
+  <data name="BugCapture_KeyMoments" xml:space="preserve"><value>Moments clés</value></data>
+  <data name="BugCapture_ServerLogs" xml:space="preserve"><value>Logs serveur ({0})</value></data>
+  <data name="BugCapture_BrowserConsoleLogs" xml:space="preserve"><value>Console navigateur ({0})</value></data>
+  <data name="BugCapture_HttpTraffic" xml:space="preserve"><value>Trafic HTTP ({0})</value></data>
+  <data name="BugCapture_UserActions" xml:space="preserve"><value>Actions utilisateur ({0})</value></data>
+  <data name="BugCapture_LogFiles" xml:space="preserve"><value>Fichiers de log</value></data>
+  <data name="BugCapture_Preparing" xml:space="preserve"><value>Préparation…</value></data>
+  <!-- Grid / DataGrid -->
+  <data name="Grid_ToolbarAriaLabel" xml:space="preserve"><value>Actions de la grille</value></data>
+  <data name="Grid_ReorderAriaLabel" xml:space="preserve"><value>Réordonner la ligne</value></data>
+  <data name="Grid_TreeExpand" xml:space="preserve"><value>Développer</value></data>
+  <data name="Grid_TreeCollapse" xml:space="preserve"><value>Réduire</value></data>
+  <data name="Grid_Confirmation" xml:space="preserve"><value>Confirmation</value></data>
+  <data name="Grid_ConfirmAction" xml:space="preserve"><value>Voulez-vous vraiment exécuter l'action « {0} » ?</value></data>
+  <data name="Grid_ActionNotAvailable" xml:space="preserve"><value>Action non disponible</value></data>
+  <data name="Grid_FilterButtonLabel" xml:space="preserve"><value>Filtres</value></data>
+  <data name="Grid_FilterButtonLabelWithCount" xml:space="preserve"><value>Filtres ({0})</value></data>
+  <data name="Grid_FilterManageSavedFilters" xml:space="preserve"><value>Gérer les filtres sauvegardés…</value></data>
+</root>

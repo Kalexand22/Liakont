@@ -1,0 +1,123 @@
+/* Drawer — scoped styles using Stratum design tokens */
+
+.stratum-drawer-backdrop {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.4);
+    animation: stratum-drawer-backdrop-in var(--transition-normal, 200ms);
+}
+
+@keyframes stratum-drawer-backdrop-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.stratum-drawer {
+    position: fixed;
+    background-color: var(--color-bg-surface);
+    box-shadow: var(--shadow-lg);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    outline: none;
+}
+
+/* ── Placement variants ──────────────────────────────────────── */
+
+.stratum-drawer--left {
+    top: 0; bottom: 0; left: 0;
+    border-right: 1px solid var(--color-border);
+    animation: stratum-drawer-left-in var(--transition-slow, 300ms);
+}
+
+.stratum-drawer--right {
+    top: 0; bottom: 0; right: 0;
+    border-left: 1px solid var(--color-border);
+    animation: stratum-drawer-right-in var(--transition-slow, 300ms);
+}
+
+.stratum-drawer--top {
+    top: 0; left: 0; right: 0;
+    border-bottom: 1px solid var(--color-border);
+    animation: stratum-drawer-top-in var(--transition-slow, 300ms);
+}
+
+.stratum-drawer--bottom {
+    bottom: 0; left: 0; right: 0;
+    border-top: 1px solid var(--color-border);
+    animation: stratum-drawer-bottom-in var(--transition-slow, 300ms);
+}
+
+@keyframes stratum-drawer-left-in   { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+@keyframes stratum-drawer-right-in  { from { transform: translateX(100%);  } to { transform: translateX(0); } }
+@keyframes stratum-drawer-top-in    { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+@keyframes stratum-drawer-bottom-in { from { transform: translateY(100%);  } to { transform: translateY(0); } }
+
+/* ── Header ──────────────────────────────────────────────────── */
+
+.stratum-drawer__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-4);
+    border-bottom: 1px solid var(--color-border);
+    flex-shrink: 0;
+}
+
+.stratum-drawer__header-content {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold, 600);
+    color: var(--color-text-primary);
+}
+
+.stratum-drawer__header-content h3,
+.stratum-drawer__header-content h4 {
+    margin: 0;
+    font-size: inherit;
+    font-weight: inherit;
+}
+
+.stratum-drawer__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    background: none;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 1rem;
+    color: var(--color-text-secondary);
+    transition: background-color var(--transition-fast), color var(--transition-fast);
+    flex-shrink: 0;
+    margin-left: var(--spacing-3);
+}
+
+.stratum-drawer__close:hover {
+    background-color: var(--color-bg-subtle);
+    color: var(--color-text-primary);
+}
+
+.stratum-drawer__close:focus-visible {
+    outline: 2px solid var(--color-border-focus, var(--color-primary-500));
+    outline-offset: 2px;
+}
+
+/* ── Body ────────────────────────────────────────────────────── */
+
+.stratum-drawer__body {
+    padding: var(--spacing-4);
+    overflow-y: auto;
+    flex: 1;
+}
+
+/* ── Reduced motion ──────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+    .stratum-drawer { animation: none !important; }
+    .stratum-drawer-backdrop { animation: none; }
+}

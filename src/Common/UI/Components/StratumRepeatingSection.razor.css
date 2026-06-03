@@ -1,0 +1,54 @@
+.repeating-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm, 0.5rem);
+}
+
+.repeating-section__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-block: var(--spacing-xs, 0.25rem);
+}
+
+.repeating-section__title {
+    font-weight: 600;
+    font-size: var(--label-md, 0.875rem);
+    color: var(--color-on-surface, #191c1e);
+}
+
+.repeating-section__empty {
+    color: var(--color-on-surface-variant, #434750);
+    font-size: var(--label-sm, 0.8125rem);
+    margin: 0;
+    padding: var(--spacing-md, 1rem) 0;
+}
+
+.repeating-section__table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.repeating-section__table thead th {
+    text-align: start;
+    font-weight: 600;
+    font-size: var(--label-sm, 0.8125rem);
+    color: var(--color-on-surface-variant, #434750);
+    padding: var(--spacing-xs, 0.25rem) var(--spacing-sm, 0.5rem);
+    border-bottom: 1px solid var(--color-outline-variant, rgba(196, 198, 210, 0.15));
+}
+
+.repeating-section__table tbody td {
+    padding: var(--spacing-xs, 0.25rem) var(--spacing-sm, 0.5rem);
+    vertical-align: middle;
+    border-bottom: 1px solid var(--color-outline-variant, rgba(196, 198, 210, 0.1));
+}
+
+.repeating-section__table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.repeating-section__col-actions {
+    width: 3rem;
+    text-align: center;
+}

@@ -1,0 +1,185 @@
+@namespace Stratum.Common.UI.Components
+
+@* Rating — star rating (0-N), half-star option, readonly, keyboard ←→, ARIA.
+ *
+ * Usage:
+ *   <Rating Value="@_rating"
+ *           ValueChanged="v => _rating = v"
+ *           Max="5"
+ *           AllowHalf />
+ *@
+
+<div class="rating @(ReadOnly ? "rating--readonly" : string.Empty) @(Disabled ? "rating--disabled" : string.Empty) @(_hasError ? "rating--error" : string.Empty) @CssClass"
+     role="slider"
+     aria-label="@(AriaLabel ?? "Rating")"
+     aria-valuenow="@Value"
+     aria-valuemin="0"
+     aria-valuemax="@Max"
+     aria-readonly="@(ReadOnly ? "true" : null)"
+     aria-disabled="@(Disabled ? "true" : null)"
+     aria-invalid="@(_hasError ? "true" : null)"
+     aria-describedby="@_context?.DescribedBy"
+     tabindex="@(ReadOnly || Disabled ? -1 : 0)"
+     data-testid="@(TestId ?? "rating")"
+     @onkeydown="HandleKeyDown"
+     @onkeydown:preventDefault>
+
+    @for (var i = 1; i <= Max; i++)
+    {
+        var starIndex = i;
+        var fillState = GetFillState(starIndex);
+
+        <span class="rating__star @($"rating__star--{fillState}") @(ReadOnly || Disabled ? string.Empty : "rating__star--interactive")"
+              aria-hidden="true"
+              @onclick="() => HandleClick(starIndex)"
+              @onmouseover="() => HandleHover(starIndex)"
+              @onmouseout="HandleMouseOut">
+            @if (AllowHalf && fillState == "half")
+            {
+                <span class="rating__star-half-bg">★</span>
+                <span class="rating__star-half-fg">★</span>
+            }
+            else
+            {
+                <text>★</text>
+            }
+        </span>
+    }
+
+    @if (ShowValue)
+    {
+        <span class="rating__value" aria-hidden="true">@Value.ToString("0.#")</span>
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private FormFieldContext? _context { get; set; }
+
+    /// <summary>Current rating value (two-way binding). Range: 0 to Max.</summary>
+    [Parameter]
+    public decimal Value { get; set; }
+
+    /// <summary>Raised when the value changes.</summary>
+    [Parameter]
+    public EventCallback<decimal> ValueChanged { get; set; }
+
+    /// <summary>Maximum rating value (number of stars). Default: 5.</summary>
+    [Parameter]
+    public int Max { get; set; } = 5;
+
+    /// <summary>Allow half-star increments. Default: false.</summary>
+    [Parameter]
+    public bool AllowHalf { get; set; }
+
+    /// <summary>Read-only mode (display only, no interaction).</summary>
+    [Parameter]
+    public bool ReadOnly { get; set; }
+
+    /// <summary>Disabled state.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>Show the numeric value next to the stars.</summary>
+    [Parameter]
+    public bool ShowValue { get; set; }
+
+    /// <summary>Accessible label for the rating control.</summary>
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    /// <summary>Additional CSS classes on the root element.</summary>
+    [Parameter]
+    public string? CssClass { get; set; }
+
+    /// <summary>Optional test identifier for E2E tests.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    // ── Internal state ──────────────────────────────────────
+
+    private decimal _hoverValue;
+    private bool _isHovering;
+    private bool _hasError => _context?.HasError == true;
+
+    private decimal EffectiveValue => _isHovering ? _hoverValue : Value;
+
+    private string GetFillState(int starIndex)
+    {
+        var val = EffectiveValue;
+        if (starIndex <= (int)val)
+            return "full";
+        if (AllowHalf && starIndex - 0.5m <= val)
+            return "half";
+        return "empty";
+    }
+
+    private async Task HandleClick(int starIndex)
+    {
+        if (ReadOnly || Disabled) return;
+
+        decimal newValue;
+        if (AllowHalf)
+        {
+            // If clicking on the already-selected full star, go to half
+            // If clicking on a half star, clear it (go to star - 1)
+            if (starIndex == Value)
+                newValue = starIndex - 0.5m;
+            else if (starIndex - 0.5m == Value)
+                newValue = starIndex - 1;
+            else
+                newValue = starIndex;
+        }
+        else
+        {
+            // Toggle off if clicking the same star
+            newValue = starIndex == Value ? starIndex - 1 : starIndex;
+        }
+
+        newValue = Math.Max(0, Math.Min(Max, newValue));
+        await ValueChanged.InvokeAsync(newValue);
+    }
+
+    private void HandleHover(int starIndex)
+    {
+        if (ReadOnly || Disabled) return;
+        _isHovering = true;
+        _hoverValue = starIndex;
+    }
+
+    private void HandleMouseOut()
+    {
+        _isHovering = false;
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (ReadOnly || Disabled) return;
+
+        var step = AllowHalf ? 0.5m : 1m;
+        decimal newValue = Value;
+
+        switch (e.Key)
+        {
+            case "ArrowRight":
+            case "ArrowUp":
+                newValue = Math.Min(Max, Value + step);
+                break;
+            case "ArrowLeft":
+            case "ArrowDown":
+                newValue = Math.Max(0, Value - step);
+                break;
+            case "Home":
+                newValue = 0;
+                break;
+            case "End":
+                newValue = Max;
+                break;
+            default:
+                return;
+        }
+
+        if (newValue != Value)
+            await ValueChanged.InvokeAsync(newValue);
+    }
+}

@@ -1,0 +1,90 @@
+.doc-attach__loading,
+.doc-attach__empty {
+    color: var(--color-text-muted);
+    font-style: italic;
+    padding: var(--spacing-4) 0;
+    margin: 0;
+}
+
+.doc-attach__list {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--color-neutral-200);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.doc-attach__item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-3);
+    padding: var(--spacing-3) var(--spacing-4);
+    border-bottom: 1px solid var(--color-neutral-100);
+}
+
+.doc-attach__item:last-child {
+    border-bottom: none;
+}
+
+.doc-attach__info {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-3);
+    min-width: 0;
+    flex: 1;
+}
+
+.doc-attach__icon {
+    font-size: var(--font-size-lg);
+    color: var(--color-primary-500);
+    flex-shrink: 0;
+}
+
+.doc-attach__meta {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.doc-attach__name {
+    font-weight: 500;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.doc-attach__details {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+}
+
+.doc-attach__actions {
+    display: flex;
+    gap: var(--spacing-2);
+    flex-shrink: 0;
+}
+
+.doc-attach__download-link {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--spacing-1) var(--spacing-3);
+    border: 1px solid var(--color-neutral-300);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    color: var(--color-text-primary);
+    text-decoration: none;
+    background: var(--color-surface);
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.doc-attach__download-link:hover {
+    border-color: var(--color-primary-500);
+    background: var(--color-primary-50);
+}
+
+.doc-attach__upload {
+    margin-top: var(--spacing-4);
+}

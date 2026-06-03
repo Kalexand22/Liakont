@@ -1,0 +1,139 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* StratumSplitButton — Stratum wrapper around RadzenSplitButton.
+ *
+ * All public parameters use Stratum types. Radzen types are mapped internally.
+ * Use case: primary action with secondary alternatives
+ * (e.g., "Enregistrer" with "Enregistrer et créer", "Enregistrer et fermer").
+ *
+ * Usage:
+ *   <StratumSplitButton Text="Enregistrer"
+ *                        Icon="save"
+ *                        Items="@_actions"
+ *                        OnClick="HandlePrimaryClick"
+ *                        OnItemClick="HandleItemClick" />
+ *
+ * Keyboard: Enter/Space fires primary, ↓ opens menu, ↑↓ navigate, Enter selects, Esc closes.
+ *
+ * Ref: docs/architecture/ui-architecture-plan.md §4.
+ *@
+
+<div class="stratum-split-button stratum-split-button--@ButtonStyle.ToString().ToLowerInvariant() @CssClass"
+     data-testid="@(TestId ?? "stratum-split-button")"
+     @attributes="@_containerAttributes">
+    <Radzen.Blazor.RadzenSplitButton
+        Text="@Text"
+        Icon="@Icon"
+        ButtonStyle="@_radzenStyle"
+        Variant="@_radzenVariant"
+        Size="@(Size == ButtonSize.Small ? Radzen.ButtonSize.Small : Radzen.ButtonSize.Medium)"
+        Disabled="@Disabled"
+        Click="@HandleClick"
+        class="stratum-split-button__inner">
+        <ChildContent>
+            @foreach (var item in Items)
+            {
+                <Radzen.Blazor.RadzenSplitButtonItem
+                    Text="@item.Text"
+                    Icon="@(item.Icon ?? string.Empty)"
+                    Value="@(item.Value ?? item.Text)"
+                    Disabled="@item.Disabled" />
+            }
+        </ChildContent>
+    </Radzen.Blazor.RadzenSplitButton>
+</div>
+
+@code {
+    // ── Parameters ────────────────────────────────────────────────
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Primary button label.</summary>
+    [Parameter]
+    public string Text { get; set; } = string.Empty;
+
+    /// <summary>Optional icon name (Material Symbols).</summary>
+    [Parameter]
+    public string? Icon { get; set; }
+
+    /// <summary>Raised when the primary button is clicked (no item selected).</summary>
+    [Parameter]
+    public EventCallback OnClick { get; set; }
+
+    /// <summary>Raised when a secondary item is selected. Receives the item's Value.</summary>
+    [Parameter]
+    public EventCallback<string> OnItemClick { get; set; }
+
+    /// <summary>Secondary actions displayed in the dropdown menu.</summary>
+    [Parameter]
+    public IReadOnlyList<SplitButtonItem> Items { get; set; } = Array.Empty<SplitButtonItem>();
+
+    /// <summary>Disables the entire control.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>Visual style variant.</summary>
+    [Parameter]
+    public ButtonVariant ButtonStyle { get; set; } = ButtonVariant.Primary;
+
+    /// <summary>When true, renders as an outline button.</summary>
+    [Parameter]
+    public bool Outline { get; set; }
+
+    /// <summary>Button size.</summary>
+    [Parameter]
+    public ButtonSize Size { get; set; } = ButtonSize.Default;
+
+    /// <summary>Additional CSS class for the wrapper div.</summary>
+    [Parameter]
+    public string? CssClass { get; set; }
+
+    // ── Internal ──────────────────────────────────────────────────
+
+    private Radzen.ButtonStyle _radzenStyle => ButtonStyle switch
+    {
+        ButtonVariant.Primary   => Radzen.ButtonStyle.Primary,
+        ButtonVariant.Secondary => Radzen.ButtonStyle.Secondary,
+        ButtonVariant.Danger    => Radzen.ButtonStyle.Danger,
+        ButtonVariant.Success   => Radzen.ButtonStyle.Success,
+        ButtonVariant.Warning   => Radzen.ButtonStyle.Warning,
+        _                       => Radzen.ButtonStyle.Primary,
+    };
+
+    private Radzen.Variant _radzenVariant => Outline
+        ? Radzen.Variant.Outlined
+        : Radzen.Variant.Filled;
+
+    private Dictionary<string, object> _containerAttributes = new();
+
+    protected override void OnParametersSet()
+    {
+        _containerAttributes = new Dictionary<string, object>();
+
+        // Build tooltip for disabled items' reasons
+        var disabledItems = Items.Where(i => i.Disabled && !string.IsNullOrEmpty(i.DisabledReason)).ToList();
+        if (disabledItems.Count > 0)
+        {
+            _containerAttributes["title"] = string.Join("; ", disabledItems.Select(i => $"{i.Text}: {i.DisabledReason}"));
+        }
+    }
+
+    // ── Event handling ────────────────────────────────────────────
+
+    private async Task HandleClick(Radzen.Blazor.RadzenSplitButtonItem? item)
+    {
+        if (item is null)
+        {
+            // Primary button clicked
+            await OnClick.InvokeAsync();
+        }
+        else
+        {
+            // Secondary item selected
+            await OnItemClick.InvokeAsync(item.Value);
+        }
+    }
+}

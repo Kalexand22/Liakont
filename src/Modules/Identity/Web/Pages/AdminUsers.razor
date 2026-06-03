@@ -1,0 +1,143 @@
+@page "/admin/identity/users"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Modules.Identity.Contracts.DTOs
+@using Stratum.Modules.Identity.Contracts.Queries
+@using Stratum.Modules.Identity.Contracts.Commands
+@using Stratum.Modules.Identity.Web.Registries
+@inject IIdentityQueries IdentityQueries
+@inject ISender Sender
+@inject NavigationManager Nav
+@inject IToastService ToastService
+
+<PageTitle>Utilisateurs — Stratum ERP</PageTitle>
+
+<PermissionGate Permission="@IdentityPermissions.UserView">
+    <DeclaredListPage TItem="UserDto"
+                      Title="Utilisateurs"
+                      TestId="admin-users"
+                      LoadItems="@(() => IdentityQueries.ListUsers())"
+                      DetailUrl="@(u => $"/admin/identity/users/{u.Id}")"
+                      CreateUrl="/admin/identity/users/new"
+                      CreateLabel="+ Nouvel utilisateur"
+                      CreatePermission="@IdentityPermissions.UserCreate"
+                      ColumnRegistry="@_registry"
+                      ColumnTemplates="@_columnTemplates"
+                      GridKey="Identity.Users"
+                      RowActions="@_rowActions"
+                      BulkActions="@_bulkActions"
+                      AriaLabel="Liste des utilisateurs"
+                      DefaultSortColumn="DisplayName"
+                      SearchPlaceholder="Chercher un utilisateur… (raccourci : /)"
+                      AllowExport="true"
+                      ExportFileName="utilisateurs">
+    </DeclaredListPage>
+</PermissionGate>
+
+@code {
+    private readonly UserColumnRegistry _registry = new();
+
+    private readonly Dictionary<string, RenderFragment<UserDto>> _columnTemplates = new()
+    {
+        ["IsActive"] = item => __builder =>
+        {
+            __builder.OpenComponent<StatusBadge>(0);
+            __builder.AddAttribute(1, "Severity", item.IsActive ? Severity.Success : Severity.Neutral);
+            __builder.AddAttribute(2, "Label", item.IsActive ? "Actif" : "Inactif");
+            __builder.CloseComponent();
+        },
+        ["Roles"] = item => __builder =>
+        {
+            foreach (var role in item.Roles)
+            {
+                __builder.OpenComponent<CategoryBadge>(0);
+                __builder.AddAttribute(1, "Label", role);
+                __builder.CloseComponent();
+            }
+        },
+        ["LastLoginAt"] = item => __builder =>
+        {
+            if (item.LastLoginAt.HasValue)
+            {
+                __builder.AddContent(0, item.LastLoginAt.Value.ToString("dd/MM/yyyy HH:mm"));
+            }
+            else
+            {
+                __builder.OpenElement(0, "span");
+                __builder.AddAttribute(1, "class", "text-muted");
+                __builder.AddContent(2, "Jamais");
+                __builder.CloseElement();
+            }
+        },
+    };
+
+    private readonly IReadOnlyList<GridRowAction<UserDto>> _rowActions;
+    private readonly IReadOnlyList<BulkActionConfig<UserDto>> _bulkActions;
+
+    public AdminUsers()
+    {
+        _rowActions =
+        [
+            new GridRowAction<UserDto>(
+                Id: "view",
+                Label: "Voir",
+                Icon: "visibility",
+                IsQuickAction: true,
+                Callback: item =>
+                {
+                    Nav.NavigateTo($"/admin/identity/users/{item.Id}");
+                    return Task.CompletedTask;
+                }),
+            new GridRowAction<UserDto>(
+                Id: "edit",
+                Label: "Modifier",
+                Icon: "edit",
+                IsQuickAction: true,
+                Callback: item =>
+                {
+                    Nav.NavigateTo($"/admin/identity/users/{item.Id}/edit");
+                    return Task.CompletedTask;
+                }),
+            new GridRowAction<UserDto>(
+                Id: "deactivate",
+                Label: "Désactiver",
+                Icon: "block",
+                Callback: DeactivateUserAsync,
+                RequiresConfirmation: true,
+                IsSeparatorBefore: true,
+                IsQuickAction: true,
+                IsEnabled: item => item.IsActive),
+        ];
+
+        _bulkActions =
+        [
+            new BulkActionConfig<UserDto>(
+                Id: "deactivate",
+                Label: "Désactiver la sélection",
+                Icon: "block",
+                Permission: IdentityPermissions.UserDeactivate,
+                PermissionDisabledReason: "Rôle insuffisant pour désactiver.",
+                Execute: DeactivateMultipleAsync,
+                RequiresConfirmation: true,
+                ItemFilter: u => u.IsActive),
+        ];
+    }
+
+    private async Task DeactivateUserAsync(UserDto item)
+    {
+        await Sender.Send(new DeactivateUserCommand { UserId = item.Id });
+        ToastService.Show($"Utilisateur « {item.DisplayName} » désactivé.", Severity.Success);
+    }
+
+    private async Task DeactivateMultipleAsync(IReadOnlyList<UserDto> items)
+    {
+        foreach (var item in items)
+        {
+            await Sender.Send(new DeactivateUserCommand { UserId = item.Id });
+        }
+
+        ToastService.Show($"{items.Count} utilisateur(s) désactivé(s).", Severity.Success);
+    }
+}

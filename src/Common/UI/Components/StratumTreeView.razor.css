@@ -1,0 +1,99 @@
+/* StratumTreeView — scoped styles using Stratum design tokens */
+
+.stratum-treeview {
+    position: relative;
+    width: 100%;
+}
+
+/* Override Radzen tree styling to match Stratum tokens */
+::deep .rz-tree {
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-sm);
+    color: var(--color-text-primary);
+    background: transparent;
+}
+
+/* Tree item row */
+::deep .rz-treenode-content {
+    padding: var(--spacing-1) var(--spacing-2);
+    border-radius: var(--radius-sm);
+    transition: background-color var(--transition-fast);
+    cursor: pointer;
+}
+
+::deep .rz-treenode-content:hover {
+    background-color: var(--color-neutral-50);
+}
+
+/* Selected node */
+::deep .rz-treenode-content.rz-treenode-content-selected,
+::deep .rz-state-highlight {
+    background-color: var(--color-primary-50);
+    color: var(--color-primary-700);
+}
+
+/* Focused node (keyboard) */
+::deep .rz-treenode-content:focus-visible {
+    outline: 2px solid var(--color-primary-500);
+    outline-offset: -2px;
+}
+
+/* Expand/collapse toggle */
+::deep .rz-tree-toggler {
+    color: var(--color-text-muted);
+    transition: color var(--transition-fast);
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    padding: var(--spacing-1);
+}
+
+::deep .rz-tree-toggler:hover {
+    color: var(--color-primary-500);
+}
+
+/* Node text */
+::deep .rz-treenode-label {
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-sm);
+    color: inherit;
+    padding: var(--spacing-1);
+}
+
+/* Nested children indentation */
+::deep .rz-treenode-children {
+    padding-left: var(--spacing-4);
+}
+
+/* No-expand mode: hide togglers */
+.stratum-treeview[data-no-expand="true"] ::deep .rz-tree-toggler {
+    display: none;
+}
+
+/* Checkbox styling */
+::deep .rz-chkbox-box {
+    border: 2px solid var(--color-neutral-300);
+    border-radius: var(--radius-xs);
+    width: 1.125rem;
+    height: 1.125rem;
+    transition: border-color var(--transition-fast), background-color var(--transition-fast);
+}
+
+::deep .rz-chkbox-box:hover {
+    border-color: var(--color-primary-500);
+}
+
+::deep .rz-chkbox-box.rz-state-active {
+    background-color: var(--color-primary-500);
+    border-color: var(--color-primary-500);
+}
+
+::deep .rz-chkbox-icon {
+    color: var(--color-white, #fff);
+    font-size: var(--font-size-xs);
+}
+
+/* Loading indicator for lazy-loading nodes */
+::deep .rz-treenode-loading {
+    opacity: 0.6;
+}

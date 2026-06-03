@@ -1,0 +1,427 @@
+@page "/admin/roles/new"
+@page "/admin/roles/{Id:guid}"
+@page "/admin/roles/{Id:guid}/edit"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.Abstractions.Security
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Stratum.Modules.Identity.Contracts
+@using Stratum.Modules.Identity.Contracts.DTOs
+@using Stratum.Modules.Identity.Contracts.Queries
+@using Stratum.Modules.Identity.Contracts.Commands
+@inject ISender Sender
+@inject IIdentityQueries IdentityQueries
+@inject IPermissionCatalog PermissionCatalog
+@inject NavigationManager Nav
+@inject IToastService ToastService
+
+<PageTitle>@PageTitleText — Stratum ERP</PageTitle>
+
+<PermissionGate Permission="@IdentityPermissions.RolesManage">
+    <DeclaredFormPage @ref="_formRef"
+                      TEntity="RoleDetailDto"
+                      Id="@Id"
+                      Title="@BuildTitle"
+                      TestId="role-form"
+                      ListUrl="/admin/roles"
+                      DetailUrl="@(id => $"/admin/roles/{id}")"
+                      CreateUrl="/admin/roles/new"
+                      EntityType="Role"
+                      EnableViewMode="true"
+                      InitialMode="@(_isEditRoute ? FormMode.Edit : FormMode.View)"
+                      EditPermission="@IdentityPermissions.RolesManage"
+                      LoadEntity="LoadRoleAsync"
+                      CreateEntity="CreateAsync"
+                      UpdateEntity="UpdateAsync"
+                      Validate="ValidateForm"
+                      ClearErrors="ClearAllErrors"
+                      MapEntity="MapFromDto"
+                      ResetFields="ResetAllFields"
+                      MapDomainError="MapError"
+                      OnEntityChanged="HandleEntityChanged"
+                      @bind-GlobalError="_globalError"
+                      @bind-IsDirty="_isDirty">
+        <StatusContent>
+            <StatusBadge Severity="@(_isSystem ? Severity.Info : Severity.Neutral)"
+                         Label="@(_isSystem ? "Système" : "Personnalisé")" />
+        </StatusContent>
+        <Content Context="ctx">
+            <SectionCard Title="Informations" TestId="role-form-info">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <FormField Label="Nom du rôle" Error="@_nameError">
+                            <input type="text"
+                                   class="form-control"
+                                   value="@_name"
+                                   @oninput="HandleNameInput"
+                                   placeholder="ex: Agent terrain"
+                                   maxlength="100"
+                                   disabled="@(ctx.Mode == FormMode.View || _isSystem)"
+                                   data-testid="role-form-name" />
+                        </FormField>
+                    </div>
+                    <div class="col-md-6">
+                        <FormField Label="Description">
+                            <input type="text"
+                                   class="form-control"
+                                   value="@_description"
+                                   @oninput="HandleDescriptionInput"
+                                   placeholder="Description du rôle"
+                                   maxlength="500"
+                                   disabled="@(ctx.Mode == FormMode.View || _isSystem)"
+                                   data-testid="role-form-description" />
+                        </FormField>
+                    </div>
+                </div>
+            </SectionCard>
+
+            @if (!ctx.IsCreateMode)
+            {
+                <SectionCard Title="Permissions" TestId="role-form-permissions">
+                    @foreach (var group in _permissionsByModule)
+                    {
+                        <div class="permission-module-group" data-testid="@($"perm-group-{group.Key.ToLowerInvariant()}")">
+                            <h6 class="permission-module-title">@group.Key</h6>
+                            <div class="permission-grid">
+                                @foreach (var perm in group)
+                                {
+                                    var permKey = perm.Permission;
+                                    var isGranted = _grantedPermissions.Contains(permKey);
+                                    <label class="permission-item @(isGranted ? "permission-item--granted" : "")"
+                                           data-testid="@($"perm-{permKey}")">
+                                        <input type="checkbox"
+                                               checked="@isGranted"
+                                               disabled="@(ctx.Mode == FormMode.View)"
+                                               @onchange="@(e => TogglePermission(permKey, (bool)(e.Value ?? false)))"
+                                               data-testid="@($"perm-cb-{permKey}")" />
+                                        <span class="permission-label">@FormatPermissionLabel(permKey)</span>
+                                    </label>
+                                }
+                            </div>
+                        </div>
+                    }
+                </SectionCard>
+
+                <SectionCard Title="Utilisateurs" TestId="role-form-users">
+                    @if (_roleUsers.Count > 0)
+                    {
+                        <table class="table table-sm mb-0" data-testid="role-form-users-table">
+                            <thead>
+                                <tr>
+                                    <th>Nom</th>
+                                    <th>Identifiant</th>
+                                    <th>E-mail</th>
+                                    <th>Statut</th>
+                                    @if (ctx.Mode != FormMode.View)
+                                    {
+                                        <th style="width: 80px;"></th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var u in _roleUsers)
+                                {
+                                    <tr>
+                                        <td>@u.DisplayName</td>
+                                        <td>@u.Username</td>
+                                        <td>@u.Email</td>
+                                        <td>
+                                            <StatusBadge Severity="@(u.IsActive ? Severity.Success : Severity.Neutral)"
+                                                         Label="@(u.IsActive ? "Actif" : "Inactif")" />
+                                        </td>
+                                        @if (ctx.Mode != FormMode.View)
+                                        {
+                                            <td>
+                                                <StratumButton Text="Retirer"
+                                                               Variant="ButtonVariant.Danger"
+                                                               Outline
+                                                               Size="ButtonSize.Small"
+                                                               OnClick="@(() => RevokeUserAsync(u))"
+                                                               TestId="@($"role-form-revoke-{u.UserId}")" />
+                                            </td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                    else
+                    {
+                        <p class="text-muted mb-0">Aucun utilisateur assigné à ce rôle.</p>
+                    }
+                </SectionCard>
+            }
+        </Content>
+        <AuditSection>
+            <SectionCard Title="Audit" Collapsible DefaultCollapsed TestId="role-form-audit">
+                <dl class="row mb-0">
+                    <dt class="col-sm-3">Identifiant</dt>
+                    <dd class="col-sm-9"><code class="text-muted small">@Id</code></dd>
+                    <dt class="col-sm-3">Créé le</dt>
+                    <dd class="col-sm-9">@_createdAt.ToString("dd/MM/yyyy HH:mm")</dd>
+                </dl>
+            </SectionCard>
+        </AuditSection>
+    </DeclaredFormPage>
+</PermissionGate>
+
+@code {
+    [Parameter]
+    public Guid? Id { get; set; }
+
+    private DeclaredFormPage<RoleDetailDto>? _formRef;
+    private bool _isEditRoute;
+
+    private string _name = string.Empty;
+    private string? _description;
+    private bool _isSystem;
+    private DateTimeOffset _createdAt;
+    private bool _isDirty;
+
+    private string? _origName;
+    private string? _origDescription;
+
+    private string? _nameError;
+    private string? _globalError;
+
+    private HashSet<string> _grantedPermissions = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _origGrantedPermissions = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<IGrouping<string, PermissionCatalogEntry>> _permissionsByModule = [];
+    private List<RoleUserDto> _roleUsers = [];
+
+    private string PageTitleText => _name.Length > 0 ? _name : "Nouveau rôle";
+
+    private string BuildTitle(bool createMode) => createMode ? "Nouveau rôle" : _name;
+
+    protected override void OnInitialized()
+    {
+        _permissionsByModule = PermissionCatalog.GetAll()
+            .GroupBy(e => e.Module)
+            .OrderBy(g => g.Key)
+            .ToList();
+    }
+
+    protected override void OnParametersSet()
+    {
+        _isEditRoute = Nav.Uri.EndsWith("/edit", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<RoleDetailDto?> LoadRoleAsync(Guid id)
+    {
+        var dto = await IdentityQueries.GetRoleById(id);
+        if (dto is not null)
+        {
+            _roleUsers = (await IdentityQueries.GetUsersForRole(id)).ToList();
+        }
+
+        return dto;
+    }
+
+    private void MapFromDto(RoleDetailDto dto)
+    {
+        _name = dto.Name;
+        _description = dto.Description;
+        _isSystem = dto.IsSystem;
+        _createdAt = dto.CreatedAt;
+
+        _origName = dto.Name;
+        _origDescription = dto.Description;
+
+        _grantedPermissions = new HashSet<string>(dto.GrantedPermissions, StringComparer.OrdinalIgnoreCase);
+        _origGrantedPermissions = new HashSet<string>(dto.GrantedPermissions, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void ResetAllFields()
+    {
+        _name = string.Empty;
+        _description = null;
+        _isSystem = false;
+        _createdAt = default;
+        _grantedPermissions = new(StringComparer.OrdinalIgnoreCase);
+        _origGrantedPermissions = new(StringComparer.OrdinalIgnoreCase);
+        _roleUsers = [];
+        _origName = null;
+        _origDescription = null;
+    }
+
+    private bool ValidateForm()
+    {
+        var valid = true;
+        if (string.IsNullOrWhiteSpace(_name))
+        {
+            _nameError = "Le nom du rôle est obligatoire.";
+            valid = false;
+        }
+
+        return valid;
+    }
+
+    private void ClearAllErrors()
+    {
+        _nameError = null;
+    }
+
+    private async Task<Guid> CreateAsync()
+    {
+        var id = await Sender.Send(new CreateRoleCommand
+        {
+            Name = _name.Trim(),
+            Description = _description?.Trim(),
+        });
+
+        return id;
+    }
+
+    private async Task UpdateAsync()
+    {
+        var roleName = _name.Trim();
+
+        if (!_isSystem)
+        {
+            await Sender.Send(new UpdateRoleCommand
+            {
+                RoleId = Id!.Value,
+                Name = roleName,
+                Description = _description?.Trim(),
+            });
+        }
+
+        var toGrant = _grantedPermissions.Except(_origGrantedPermissions, StringComparer.OrdinalIgnoreCase);
+        var toRevoke = _origGrantedPermissions.Except(_grantedPermissions, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var perm in toRevoke)
+        {
+            await Sender.Send(new RevokePermissionCommand { RoleName = roleName, Permission = perm });
+        }
+
+        foreach (var perm in toGrant)
+        {
+            var module = perm.Split('.').FirstOrDefault() ?? "unknown";
+            await Sender.Send(new GrantPermissionCommand
+            {
+                RoleName = roleName,
+                Permission = perm,
+                ModuleSource = module,
+            });
+        }
+
+        _origGrantedPermissions = new HashSet<string>(_grantedPermissions, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private async Task RevokeUserAsync(RoleUserDto user)
+    {
+        await Sender.Send(new RevokeUserRoleCommand { UserId = user.UserId, RoleName = _name });
+        _roleUsers.Remove(user);
+        ToastService.Show($"Rôle retiré pour {user.DisplayName}.", Severity.Success);
+    }
+
+    private void TogglePermission(string permission, bool granted)
+    {
+        if (granted)
+        {
+            _grantedPermissions.Add(permission);
+        }
+        else
+        {
+            _grantedPermissions.Remove(permission);
+        }
+
+        _isDirty = true;
+    }
+
+    private void MapError(string message)
+    {
+        if (message.Contains("name", StringComparison.OrdinalIgnoreCase))
+        {
+            _nameError = message;
+        }
+        else
+        {
+            _globalError = message;
+        }
+    }
+
+    private void HandleNameInput(ChangeEventArgs e)
+    {
+        _name = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+        _nameError = null;
+    }
+
+    private void HandleDescriptionInput(ChangeEventArgs e)
+    {
+        _description = e.Value?.ToString();
+        _isDirty = true;
+    }
+
+    private async Task HandleEntityChanged(EntityChangedEvent evt)
+    {
+        if (!_isDirty && _formRef is not null)
+        {
+            await _formRef.ReloadAsync();
+            ToastService.Show($"Mise à jour par {evt.ChangedBy} appliquée.", Severity.Info);
+            return;
+        }
+
+        RoleDetailDto? serverDto;
+        try
+        {
+            serverDto = await IdentityQueries.GetRoleById(Id!.Value);
+        }
+        catch
+        {
+            ToastService.Show("Impossible de recharger les données.", Severity.Error);
+            return;
+        }
+
+        if (serverDto is null)
+        {
+            return;
+        }
+
+        var conflicts = new List<string>();
+
+        if (_name == _origName)
+        {
+            _name = serverDto.Name;
+        }
+        else if (serverDto.Name != _origName)
+        {
+            conflicts.Add("Nom");
+        }
+
+        if (_description == _origDescription)
+        {
+            _description = serverDto.Description;
+        }
+        else if (serverDto.Description != _origDescription)
+        {
+            conflicts.Add("Description");
+        }
+
+        _origName = serverDto.Name;
+        _origDescription = serverDto.Description;
+        _createdAt = serverDto.CreatedAt;
+        _origGrantedPermissions = new HashSet<string>(serverDto.GrantedPermissions, StringComparer.OrdinalIgnoreCase);
+
+        if (conflicts.Count > 0)
+        {
+            ToastService.Show($"Conflit détecté sur : {string.Join(", ", conflicts)}. Vos modifications sont conservées.", Severity.Warning);
+        }
+        else
+        {
+            _isDirty = _name != _origName || _description != _origDescription
+                || !_grantedPermissions.SetEquals(_origGrantedPermissions);
+            ToastService.Show($"Mise à jour par {evt.ChangedBy} appliquée.", Severity.Info);
+        }
+    }
+
+    private static string FormatPermissionLabel(string permission)
+    {
+        var parts = permission.Split('.');
+        return parts.Length >= 2 ? string.Join(" › ", parts.Skip(1)) : permission;
+    }
+}

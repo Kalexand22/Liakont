@@ -77,6 +77,11 @@ Agréées (PA)** qui portent le routage, l'interopérabilité et la déclaration
    blob, GCS bucket lock), il est utilisé EN PLUS (ceinture + bretelles). V1 = FileSystem
    (appliance) + S3-compatible (Amazon, MinIO, OVH, Scaleway — un seul code) ; Azure Blob et
    GCS sont des plug-ins fast-follow à la demande.
+7. **La variabilité par intégrateur est déclarative.** L'installateur de l'agent n'expose que ce
+   qui concerne chaque intégrateur via un **profil** (branding + visibilité d'écrans/options) ;
+   jamais de `if (integrateur == X)` dans le code. Même binaire, un `.exe` par profil. Trois axes
+   de variabilité distincts à ne pas confondre : **profil intégrateur** (installateur),
+   **config tenant** (`deployments/<client>/` + DPAPI), **adaptateur** (logiciel source). Voir F13.
 
 ## 3. Architecture d'exécution : plateforme multi-tenant + agent léger
 
@@ -178,7 +183,8 @@ C:\Source\Liakont\
 │  │  ├─ Liakont.Agent/              Service Windows : planification locale, push, heartbeat
 │  │  ├─ Liakont.Agent.Core/         IExtractor, buffer SQLite, config DPAPI, client HTTP
 │  │  ├─ Liakont.Agent.Adapters.EncheresV6/  ★ Plug-in source #1 (Magic XPA / Pervasive)
-│  │  └─ Liakont.Agent.Cli/          check-config, test ODBC, test API, run manuel
+│  │  ├─ Liakont.Agent.Cli/          check-config, test ODBC, test API, run manuel
+│  │  └─ Liakont.Agent.Installer/    ★ Installateur GUI + profil intégrateur (F13)
 │  └─ tests/
 │
 ├─ deploy/                             ★ Appliance & opérations
@@ -195,6 +201,13 @@ C:\Source\Liakont\
 ├─ tasks/                              Pilotage interactif (todo, decisions, lessons, analyses)
 └─ tools/                              verify-fast, run-tests, codex-review, orch-state
 ```
+
+> **Orientation cible (ADR-0005, 2026-06-03)** : l'agent migrera vers un **dépôt Git séparé**
+> `liakont-agent` (cœur produit + adaptateurs plug-ins + installateur), et `Liakont.Agent.Contracts`
+> sera partagé via **NuGet versionné** (golden files de contrat des deux côtés). Jusqu'à la bascule
+> (lots AGT/SOL02), l'agent reste dans `agent/` ci-dessus et `verify-fast` build les deux solutions.
+> L'**installateur GUI + profils intégrateur** est spécifié dans **F13**. Cet ADR acte la cible ;
+> il ne déplace pas de code et ne modifie pas l'orchestration runtime.
 
 ### Règle du socle vendored
 

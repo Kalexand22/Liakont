@@ -1,0 +1,194 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.Abstractions.Grid
+@inject IJSRuntime JS
+
+@* FilterChipBar — Container for active filter chips with overflow management.
+ *
+ * Displays FilterChip instances in a flex-wrap layout, limited to 2 lines by default.
+ * When chips overflow beyond 2 lines, a "+n autres" button reveals the full set.
+ * "+ Ajouter un filtre" and "Effacer tout" are always visible (never hidden by overflow).
+ *
+ * Usage:
+ *   <FilterChipBar Chips="_chips"
+ *                  OnAddFilter="HandleAdd"
+ *                  OnClearAll="HandleClear"
+ *                  OnRemoveChip="HandleRemove"
+ *                  OnEditChip="HandleEdit" />
+ *
+ * Ref: docs/specs/grid-filter-system-v2.md §3, DF-09.
+ *@
+
+<div class="filter-chip-bar" data-testid="@(TestId ?? "filter-chip-bar")" role="toolbar" aria-label="Filtres actifs">
+    <div class="filter-chip-bar__chips @(_expanded ? "filter-chip-bar__chips--expanded" : "")"
+         @ref="_chipsContainerRef"
+         data-testid="filter-chip-bar-chips">
+        @for (var i = 0; i < Chips.Count; i++)
+        {
+            var idx = i;
+            <FilterChip @key="Chips[idx]"
+                        Model="Chips[idx]"
+                        Index="idx"
+                        OnRemove="() => HandleRemoveChip(idx)"
+                        OnEdit="() => HandleEditChip(idx)" />
+        }
+    </div>
+
+    <button type="button"
+            class="filter-chip-bar__add-btn"
+            data-testid="filter-chip-bar-add"
+            @onclick="HandleAddFilter">
+        <StratumIcon Name="add" Class="filter-chip-bar__add-icon" AriaHidden />
+        Ajouter un filtre
+    </button>
+
+    <div class="filter-chip-bar__actions">
+        @if (_hiddenCount > 0 && !_expanded)
+        {
+            <button type="button"
+                    class="filter-chip-bar__overflow-btn"
+                    data-testid="filter-chip-bar-overflow"
+                    @onclick="Expand"
+                    aria-label="@($"Afficher {_hiddenCount} filtre(s) masqué(s)")">
+                +@_hiddenCount autre@(_hiddenCount > 1 ? "s" : "")
+            </button>
+        }
+
+        @if (Chips.Count > 0)
+        {
+            <button type="button"
+                    class="filter-chip-bar__clear-btn"
+                    data-testid="filter-chip-bar-clear"
+                    @onclick="HandleClearAll">
+                Effacer tout
+            </button>
+        }
+    </div>
+
+    @if (PagerContent is not null)
+    {
+        <div class="filter-chip-bar__pager" data-testid="filter-chip-bar-pager">
+            @PagerContent
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>The list of chip models to display.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<FilterChipModel> Chips { get; set; } = [];
+
+    /// <summary>Fired when the user clicks "+ Ajouter un filtre".</summary>
+    [Parameter]
+    public EventCallback OnAddFilter { get; set; }
+
+    /// <summary>Fired when the user clicks "Effacer tout".</summary>
+    [Parameter]
+    public EventCallback OnClearAll { get; set; }
+
+    /// <summary>Fired when a chip's remove button is clicked. Passes the chip index.</summary>
+    [Parameter]
+    public EventCallback<int> OnRemoveChip { get; set; }
+
+    /// <summary>Fired when a chip body is clicked for editing. Passes the chip index.</summary>
+    [Parameter]
+    public EventCallback<int> OnEditChip { get; set; }
+
+    /// <summary>Optional slot for pagination controls, rendered right-aligned on the chip bar row.</summary>
+    [Parameter]
+    public RenderFragment? PagerContent { get; set; }
+
+    /// <summary>Optional test identifier override.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    private ElementReference _chipsContainerRef;
+    private bool _expanded;
+    private int _hiddenCount;
+    private int _previousChipCount = -1;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Re-measure every render while collapsed — the first render may run before
+        // Material Symbols has loaded or before flex-wrap has finalized, so a single
+        // measurement is unreliable. ComputeOverflow short-circuits StateHasChanged
+        // when the measured value is unchanged, so the cost is one cheap JS interop.
+        if (!_expanded)
+        {
+            await ComputeOverflow();
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        // If chip count changed, reset overflow state so a stale "+n autres" label
+        // doesn't flash for one frame before ComputeOverflow re-runs.
+        if (Chips.Count != _previousChipCount)
+        {
+            _expanded = false;
+            _hiddenCount = 0;
+            _previousChipCount = Chips.Count;
+        }
+    }
+
+    private async Task ComputeOverflow()
+    {
+        if (Chips.Count == 0)
+        {
+            _hiddenCount = 0;
+            return;
+        }
+
+        try
+        {
+            var hidden = await JS.InvokeAsync<int>("stratumUI.computeChipBarOverflow", _chipsContainerRef);
+            if (hidden != _hiddenCount)
+            {
+                _hiddenCount = hidden;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+        {
+            // Non-critical: overflow detection unavailable; show all chips.
+            _hiddenCount = 0;
+        }
+    }
+
+    private void Expand()
+    {
+        _expanded = true;
+        _hiddenCount = 0;
+    }
+
+    private async Task HandleRemoveChip(int index)
+    {
+        if (OnRemoveChip.HasDelegate)
+        {
+            await OnRemoveChip.InvokeAsync(index);
+        }
+    }
+
+    private async Task HandleEditChip(int index)
+    {
+        if (OnEditChip.HasDelegate)
+        {
+            await OnEditChip.InvokeAsync(index);
+        }
+    }
+
+    private async Task HandleAddFilter()
+    {
+        if (OnAddFilter.HasDelegate)
+        {
+            await OnAddFilter.InvokeAsync();
+        }
+    }
+
+    private async Task HandleClearAll()
+    {
+        if (OnClearAll.HasDelegate)
+        {
+            await OnClearAll.InvokeAsync();
+        }
+    }
+}

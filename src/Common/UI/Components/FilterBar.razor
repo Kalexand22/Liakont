@@ -1,0 +1,157 @@
+@namespace Stratum.Common.UI.Components
+@inject IJSRuntime JS
+@inject IShortcutService ShortcutService
+@implements IAsyncDisposable
+
+@* FilterBar — single entry point for search and filtering.
+ *
+ * Keyboard: "/" focuses the search input (global page-scope shortcut, skipped when
+ *           focus is already in a text input / textarea / select).
+ * Debounce: OnSearch fires after <see cref="DebounceMs"/> ms of inactivity.
+ * Filters: use the Filters slot to render additional filter controls (selects, etc.)
+ *
+ * Usage:
+ *   <FilterBar SearchPlaceholder="Rechercher un produit…"
+ *              SearchValue="@_search"
+ *              OnSearch="HandleSearch">
+ *       <Filters>
+ *           <select class="filter-bar__filter-select" @onchange="HandleCategoryChange">
+ *               <option value="">Toutes catégories</option>
+ *               <option value="Electronics">Electronics</option>
+ *           </select>
+ *       </Filters>
+ *   </FilterBar>
+ *
+ * Ref: docs/ui-components.md §FilterBar, orchestration/manifest.yaml item O02.
+ *@
+
+<div class="filter-bar" role="search" data-testid="@(TestId ?? "filter-bar")">
+    <div class="filter-bar__search-shell">
+        <StratumIcon Name="bi-search" Class="filter-bar__search-icon" />
+        <label for="@_searchInputId" class="visually-hidden">@SearchPlaceholder</label>
+        <input id="@_searchInputId"
+               type="search"
+               class="filter-bar__search-input"
+               placeholder="@SearchPlaceholder"
+               value="@SearchValue"
+               @oninput="HandleSearchInput"
+               aria-label="@SearchPlaceholder" />
+        <kbd class="filter-bar__shortcut" aria-hidden="true">/</kbd>
+    </div>
+
+    @if (Filters is not null)
+    {
+        <div class="filter-bar__filters">
+            @Filters
+        </div>
+    }
+
+    @if (PagerContent is not null)
+    {
+        <div class="filter-bar__pager" data-testid="filter-bar-pager">
+            @PagerContent
+        </div>
+    }
+</div>
+
+@code {
+    // ── Parameters ────────────────────────────────────────────────
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Placeholder text for the search input.</summary>
+    [Parameter]
+    public string SearchPlaceholder { get; set; } = "Rechercher…";
+
+    /// <summary>Current search value (controlled).</summary>
+    [Parameter]
+    public string SearchValue { get; set; } = string.Empty;
+
+    /// <summary>Raised after the debounce delay with the current search value.</summary>
+    [Parameter]
+    public EventCallback<string> OnSearch { get; set; }
+
+    /// <summary>Slot for additional filter controls (selects, etc.).</summary>
+    [Parameter]
+    public RenderFragment? Filters { get; set; }
+
+    /// <summary>Slot for pagination controls rendered on the right side of the filter bar.</summary>
+    [Parameter]
+    public RenderFragment? PagerContent { get; set; }
+
+    /// <summary>Debounce delay in milliseconds before OnSearch fires. Default: 300.</summary>
+    [Parameter]
+    public int DebounceMs { get; set; } = 300;
+
+    // ── Internal state ────────────────────────────────────────────
+
+    private readonly string _searchInputId = $"fb-{Guid.NewGuid():N}"[..12];
+    private CancellationTokenSource? _debounceCts;
+
+    // ── Lifecycle ─────────────────────────────────────────────────
+
+    protected override void OnInitialized()
+    {
+        // Register a Page-scope binding so "/" appears in the ShortcutHelpDialog.
+        // The actual focus-on-slash behaviour is driven by the JS registerFilterBar handler
+        // (stratumUI.registerFilterBar) to avoid interference with the global shortcut layer.
+        ShortcutService.PushScope(_searchInputId + "-fb-scope", ShortcutScopeType.Page,
+        [
+            new ScopeBinding("open-search", "/"),
+        ]);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.registerFilterBar", _searchInputId);
+            }
+            catch (JSException)
+            {
+                // Non-critical: "/" shortcut won't work, but component is fully functional otherwise.
+            }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        ShortcutService.PopScope(_searchInputId + "-fb-scope");
+        _debounceCts?.Cancel();
+        _debounceCts?.Dispose();
+        try
+        {
+            await JS.InvokeVoidAsync("stratumUI.unregisterFilterBar", _searchInputId);
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+        {
+            // Non-critical cleanup (circuit may already be disconnected).
+        }
+    }
+
+    // ── Event handlers ────────────────────────────────────────────
+
+    private async Task HandleSearchInput(ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString() ?? string.Empty;
+
+        _debounceCts?.Cancel();
+        _debounceCts?.Dispose();
+        _debounceCts = new CancellationTokenSource();
+        var ct = _debounceCts.Token;
+
+        try
+        {
+            await Task.Delay(DebounceMs, ct);
+            await OnSearch.InvokeAsync(value);
+        }
+        catch (TaskCanceledException)
+        {
+            // Superseded by a newer keystroke — intentional.
+        }
+    }
+}

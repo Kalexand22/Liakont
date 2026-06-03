@@ -1,0 +1,232 @@
+/* ConflictAlertBanner — UIC03
+ * Civic Blueprint compliance:
+ *   - No hard hex colours (everything via tokens.css)
+ *   - Inter family inherited from html body (UIF03)
+ *   - --radius-md (4 px) for the container, no 8 px+ radii
+ *   - No 1 px section dividers — list items use a ghost border
+ *     (--color-border-ghost ≤15 % opacity, UIF04 No-Line Rule)
+ *   - FSM-style severity tints reuse the under-review (warning) and
+ *     cancelled (critical) container tokens, NOT saturated fills
+ *   - Subtle "pulse" only on the icon — full-banner pulse is too noisy
+ *     for an ERP control surface (Civic Blueprint, "calm UI")
+ *   - prefers-reduced-motion disables the icon pulse
+ */
+
+.conflict-alert-banner {
+    display: flex;
+    flex-direction: column;
+    gap: var(--conflict-banner-gap, var(--spacing-3, 0.75rem));
+    width: 100%;
+    padding: var(--conflict-banner-padding-y, var(--spacing-3, 0.75rem))
+             var(--conflict-banner-padding-x, var(--spacing-5, 1.25rem));
+    border-radius: var(--radius-md, 0.25rem);
+    color: var(--color-text-primary);
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-body-md, 0.875rem);
+    line-height: var(--line-height-normal, 1.5);
+}
+
+/* ── Severity tints (Civic Blueprint container recipe) ──────── */
+
+.conflict-alert-banner--warning {
+    background-color: var(--fsm-under-review-bg);
+    color: var(--fsm-under-review-fg);
+}
+
+.conflict-alert-banner--critical {
+    background-color: var(--fsm-cancelled-bg);
+    color: var(--fsm-cancelled-fg);
+}
+
+/* ── Header (icon + title + optional summary) ───────────────── */
+
+.conflict-alert-banner__head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-3, 0.75rem);
+}
+
+.conflict-alert-banner__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: var(--conflict-banner-icon-size, 1.75rem);
+    height: var(--conflict-banner-icon-size, 1.75rem);
+    border-radius: var(--radius-full, 9999px);
+    font-weight: var(--font-weight-bold, 700);
+    font-size: var(--font-size-base, 1rem);
+    /* Theme-aware tint: a faint wash of the current FSM foreground colour
+     * over the container background. Works for both light (`--fsm-*-fg`
+     * is dark amber/red on a pale chip) and dark (`--fsm-*-fg` is pale on
+     * a deep chip) themes — see tokens.css §"FSM container chips". */
+    background-color: color-mix(in srgb, currentColor 15%, transparent);
+    color: inherit;
+    animation: conflict-alert-banner-pulse 2.4s ease-in-out infinite;
+}
+
+.conflict-alert-banner__head-text {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1, 0.25rem);
+    min-width: 0;
+}
+
+.conflict-alert-banner__title {
+    margin: 0;
+    font-size: var(--font-size-title-sm, 1rem);
+    font-weight: var(--font-weight-semibold, 600);
+    color: inherit;
+    letter-spacing: var(--letter-spacing-tight, -0.01em);
+}
+
+.conflict-alert-banner__summary {
+    margin: 0;
+    font-size: var(--font-size-body-sm, 0.75rem);
+    color: inherit;
+    opacity: 0.85;
+}
+
+/* ── Conflict list ──────────────────────────────────────────── */
+
+.conflict-alert-banner__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2, 0.5rem);
+}
+
+.conflict-alert-banner__item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-4, 1rem);
+    padding: var(--conflict-banner-item-padding-y, var(--spacing-2, 0.5rem))
+             var(--conflict-banner-item-padding-x, var(--spacing-3, 0.75rem));
+    /* Theme-aware item tint — see .conflict-alert-banner__icon comment. */
+    background-color: color-mix(in srgb, currentColor 12%, transparent);
+    border-radius: var(--radius-md, 0.25rem);
+    /* Ghost border at ≤15 % — UIF04 No-Line Rule. The fallback hex is the
+     * Civic Blueprint outline-variant tint baked at 15 % opacity over white
+     * for engines that don't yet expose --color-border-ghost. */
+    border: 1px solid var(--color-border-ghost, #f5f6f8);
+}
+
+.conflict-alert-banner__item-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1, 0.25rem);
+    min-width: 0;
+}
+
+.conflict-alert-banner__item-resource {
+    margin: 0;
+    font-size: var(--font-size-body-md, 0.875rem);
+    font-weight: var(--font-weight-semibold, 600);
+    color: inherit;
+}
+
+.conflict-alert-banner__item-meta {
+    margin: 0;
+    font-size: var(--font-size-body-sm, 0.75rem);
+    color: inherit;
+    opacity: 0.9;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--spacing-1, 0.25rem);
+}
+
+.conflict-alert-banner__item-sep {
+    opacity: 0.5;
+}
+
+.conflict-alert-banner__item-detail {
+    margin: 0;
+    font-size: var(--font-size-body-sm, 0.75rem);
+    color: inherit;
+    opacity: 0.8;
+}
+
+/* ── Action buttons ─────────────────────────────────────────── */
+
+.conflict-alert-banner__item-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2, 0.5rem);
+    flex-shrink: 0;
+}
+
+.conflict-alert-banner__action {
+    appearance: none;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm, 0.125rem);
+    padding: var(--spacing-1, 0.25rem) var(--spacing-3, 0.75rem);
+    font-family: inherit;
+    font-size: var(--font-size-body-sm, 0.75rem);
+    font-weight: var(--font-weight-semibold, 600);
+    line-height: 1.2;
+    color: inherit;
+    background-color: transparent;
+    cursor: pointer;
+    transition: background-color var(--transition-fast, 100ms ease),
+                border-color var(--transition-fast, 100ms ease);
+}
+
+.conflict-alert-banner__action:hover {
+    background-color: color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.conflict-alert-banner__action:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--color-focus-ring, #ccd1da);
+}
+
+.conflict-alert-banner__action--primary {
+    background-color: var(--color-primary, #001b44);
+    color: var(--color-on-primary, #ffffff);
+    border-color: var(--color-primary, #001b44);
+}
+
+.conflict-alert-banner__action--primary:hover {
+    background-color: var(--color-primary-700, #00132f);
+    border-color: var(--color-primary-700, #00132f);
+}
+
+.conflict-alert-banner__action--ghost {
+    border-color: var(--color-border-ghost, #f5f6f8);
+}
+
+/* ── Pulse animation (icon only) ────────────────────────────── */
+
+@keyframes conflict-alert-banner-pulse {
+    0%, 100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+    50% {
+        transform: scale(1.08);
+        opacity: 0.85;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .conflict-alert-banner__icon {
+        animation: none;
+    }
+}
+
+/* ── Density overrides (UIF06) ──────────────────────────────────
+ * The `--conflict-banner-*` variables consumed above are defined
+ * UNSCOPED inside the `[data-density]` blocks in `tokens.css`,
+ * alongside the other density primitives. They are NOT declared
+ * in this file because Blazor scoped CSS appends a `[b-xxx]`
+ * attribute to the rightmost compound selector, which would turn
+ * `[data-density]` rules into `[data-density][b-xxx]` and prevent
+ * them from matching the wrapper element (the banner is the only
+ * element that carries `b-xxx`). Declaring the variables globally
+ * lets the CSS custom-property cascade do its job: the closest
+ * `data-density` ancestor in the DOM tree wins automatically.
+ * Search "ConflictAlertBanner" in tokens.css for the source. */

@@ -1,0 +1,31 @@
+.role-assignment-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs, 0.25rem);
+}
+
+.role-assignment-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm, 0.5rem);
+    padding: var(--spacing-xs, 0.25rem) var(--spacing-sm, 0.5rem);
+    border-radius: var(--radius-sm, 2px);
+    cursor: pointer;
+    transition: background-color var(--transition-fast, 150ms);
+}
+
+.role-assignment-item:hover {
+    background-color: var(--surface-hover, rgba(0, 0, 0, 0.04));
+}
+
+.role-assignment-item--assigned {
+    background-color: var(--surface-selected, rgba(0, 0, 0, 0.06));
+}
+
+.role-label {
+    font-weight: 500;
+}
+
+.role-description {
+    font-size: var(--font-size-sm, 0.875rem);
+}

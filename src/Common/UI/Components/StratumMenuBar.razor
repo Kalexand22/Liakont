@@ -1,0 +1,359 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@* StratumMenuBar — accessible horizontal menu bar with dropdown submenus.
+ *
+ * Native implementation (no Radzen dependency). Provides:
+ * - role="menubar" with role="menuitem" children
+ * - ARIA menubar pattern: ←→ between top items, ↑↓ within submenus
+ * - Enter/Space to open submenu or activate item
+ * - Esc to close submenu
+ * - Nested submenus
+ * - Click-outside-to-close
+ *
+ * Usage:
+ *   <StratumMenuBar Items="@_menuItems"
+ *                   OnItemClick="HandleItemClick" />
+ *@
+
+<div class="stratum-menubar-wrapper"
+     data-testid="@(TestId ?? "stratum-menubar")">
+
+    <div class="stratum-menubar"
+         id="@_menuBarId"
+         role="menubar"
+         aria-label="@AriaLabel"
+         @onkeydown="HandleKeyDown"
+         @onkeydown:preventDefault="_preventKeyDefault">
+
+        @{ var topIdx = 0; }
+        @foreach (var item in Items)
+        {
+            if (item.Separator)
+            {
+                <div class="stratum-menubar__separator" role="separator" aria-orientation="vertical"></div>
+            }
+            else
+            {
+                var idx = topIdx;
+                var isFocused = idx == _focusedTopIndex;
+                var hasSubmenu = item.SubItems is { Count: > 0 };
+                var isOpen = _openTopIndex == idx;
+                var capturedItem = item;
+
+                <div class="stratum-menubar__item @(isFocused ? "stratum-menubar__item--focused" : "") @(item.Disabled ? "stratum-menubar__item--disabled" : "") @(isOpen ? "stratum-menubar__item--open" : "")"
+                     role="menuitem"
+                     tabindex="@(idx == _tabbableIndex ? "0" : "-1")"
+                     aria-disabled="@(item.Disabled ? "true" : null)"
+                     aria-haspopup="@(hasSubmenu ? "true" : null)"
+                     aria-expanded="@(hasSubmenu ? (isOpen ? "true" : "false") : null)"
+                     title="@(item.Disabled && !string.IsNullOrEmpty(item.DisabledReason) ? item.DisabledReason : null)"
+                     @onclick="() => HandleTopClick(idx, capturedItem)"
+                     @onmouseenter="() => HandleTopHover(idx)">
+                    @if (!string.IsNullOrEmpty(item.Icon))
+                    {
+                        <i class="stratum-menubar__icon bi @item.Icon" aria-hidden="true"></i>
+                    }
+                    <span class="stratum-menubar__text">@item.Text</span>
+                    @if (hasSubmenu)
+                    {
+                        <span class="stratum-menubar__caret" aria-hidden="true">▾</span>
+                    }
+
+                    @if (isOpen && item.SubItems is not null)
+                    {
+                        <div class="stratum-menubar__dropdown" role="menu">
+                            @{ var subIdx = 0; }
+                            @foreach (var subItem in item.SubItems)
+                            {
+                                if (subItem.Separator)
+                                {
+                                    <div class="stratum-menubar__dropdown-separator" role="separator"></div>
+                                }
+                                else
+                                {
+                                    var sIdx = subIdx;
+                                    var subFocused = sIdx == _focusedSubIndex;
+                                    var capturedSub = subItem;
+
+                                    <div class="stratum-menubar__dropdown-item @(subFocused ? "stratum-menubar__dropdown-item--focused" : "") @(subItem.Disabled ? "stratum-menubar__dropdown-item--disabled" : "")"
+                                         role="menuitem"
+                                         tabindex="-1"
+                                         aria-disabled="@(subItem.Disabled ? "true" : null)"
+                                         title="@(subItem.Disabled && !string.IsNullOrEmpty(subItem.DisabledReason) ? subItem.DisabledReason : null)"
+                                         @onclick="() => HandleSubClick(capturedSub)"
+                                         @onclick:stopPropagation="true">
+                                        @if (!string.IsNullOrEmpty(subItem.Icon))
+                                        {
+                                            <i class="stratum-menubar__icon bi @subItem.Icon" aria-hidden="true"></i>
+                                        }
+                                        else
+                                        {
+                                            <span class="stratum-menubar__icon-spacer" aria-hidden="true"></span>
+                                        }
+                                        <span class="stratum-menubar__dropdown-text">@subItem.Text</span>
+                                    </div>
+
+                                    subIdx++;
+                                }
+                            }
+                        </div>
+                    }
+                </div>
+
+                topIdx++;
+            }
+        }
+    </div>
+
+    @if (_openTopIndex is not null)
+    {
+        <div class="stratum-menubar__backdrop" @onclick="CloseAll" @onclick:stopPropagation="true"></div>
+    }
+</div>
+
+@code {
+    // ── Parameters ────────────────────────────────────────────────
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Top-level menu items. Use <see cref="MenuItem.SubItems"/> for dropdown menus.</summary>
+    [Parameter]
+    public IReadOnlyList<MenuItem> Items { get; set; } = Array.Empty<MenuItem>();
+
+    /// <summary>Raised when a non-disabled leaf menu item is clicked.</summary>
+    [Parameter]
+    public EventCallback<MenuItem> OnItemClick { get; set; }
+
+    /// <summary>Accessible label for the menu bar.</summary>
+    [Parameter]
+    public string AriaLabel { get; set; } = "Menu";
+
+    // ── Internal state ──────────────────────────────────────────
+
+    private readonly string _menuBarId = $"stratum-menubar-{Guid.NewGuid():N}"[..28];
+    private bool _preventKeyDefault;
+    private int _focusedTopIndex;
+    private int _tabbableIndex;
+    private int? _openTopIndex;
+    private int _focusedSubIndex = -1;
+    private List<MenuItem> _flatTopItems = new();
+    private List<MenuItem> _flatSubItems = new();
+
+    // ── Lifecycle ───────────────────────────────────────────────
+
+    protected override void OnParametersSet()
+    {
+        _flatTopItems = Items.Where(i => !i.Separator).ToList();
+    }
+
+    // ── Top-level interactions ─────────────────────────────────
+
+    private async Task HandleTopClick(int idx, MenuItem item)
+    {
+        if (item.Disabled) return;
+
+        if (item.SubItems is { Count: > 0 })
+        {
+            if (_openTopIndex == idx)
+            {
+                CloseAll();
+            }
+            else
+            {
+                OpenDropdown(idx, item);
+            }
+        }
+        else
+        {
+            CloseAll();
+            await OnItemClick.InvokeAsync(item);
+        }
+    }
+
+    private void HandleTopHover(int idx)
+    {
+        // Only open on hover if another menu is already open
+        if (_openTopIndex is not null && _openTopIndex != idx && idx < _flatTopItems.Count)
+        {
+            var item = _flatTopItems[idx];
+            if (!item.Disabled && item.SubItems is { Count: > 0 })
+            {
+                OpenDropdown(idx, item);
+            }
+        }
+    }
+
+    private void OpenDropdown(int idx, MenuItem item)
+    {
+        _openTopIndex = idx;
+        _focusedTopIndex = idx;
+        _tabbableIndex = idx;
+        _flatSubItems = item.SubItems!.Where(i => !i.Separator).ToList();
+        _focusedSubIndex = 0;
+    }
+
+    private void CloseAll()
+    {
+        _openTopIndex = null;
+        _focusedSubIndex = -1;
+        _flatSubItems = new();
+    }
+
+    private async Task HandleSubClick(MenuItem item)
+    {
+        if (item.Disabled) return;
+        CloseAll();
+        await OnItemClick.InvokeAsync(item);
+    }
+
+    // ── Keyboard navigation ─────────────────────────────────────
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        _preventKeyDefault = false;
+
+        if (_openTopIndex is not null)
+        {
+            // Dropdown is open — handle submenu navigation
+            await HandleDropdownKey(e);
+        }
+        else
+        {
+            // No dropdown open — handle menubar navigation
+            HandleBarKey(e);
+        }
+    }
+
+    private void HandleBarKey(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "ArrowRight":
+                _preventKeyDefault = true;
+                _focusedTopIndex = (_focusedTopIndex + 1) % _flatTopItems.Count;
+                _tabbableIndex = _focusedTopIndex;
+                break;
+
+            case "ArrowLeft":
+                _preventKeyDefault = true;
+                _focusedTopIndex = (_focusedTopIndex - 1 + _flatTopItems.Count) % _flatTopItems.Count;
+                _tabbableIndex = _focusedTopIndex;
+                break;
+
+            case "ArrowDown":
+            case "Enter":
+            case " ":
+                _preventKeyDefault = true;
+                if (_focusedTopIndex >= 0 && _focusedTopIndex < _flatTopItems.Count)
+                {
+                    var item = _flatTopItems[_focusedTopIndex];
+                    if (!item.Disabled && item.SubItems is { Count: > 0 })
+                    {
+                        OpenDropdown(_focusedTopIndex, item);
+                    }
+                }
+                break;
+
+            case "Home":
+                _preventKeyDefault = true;
+                _focusedTopIndex = 0;
+                _tabbableIndex = 0;
+                break;
+
+            case "End":
+                _preventKeyDefault = true;
+                _focusedTopIndex = _flatTopItems.Count - 1;
+                _tabbableIndex = _focusedTopIndex;
+                break;
+        }
+    }
+
+    private async Task HandleDropdownKey(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "Escape":
+                _preventKeyDefault = true;
+                CloseAll();
+                break;
+
+            case "ArrowDown":
+                _preventKeyDefault = true;
+                _focusedSubIndex = Math.Min(_focusedSubIndex + 1, _flatSubItems.Count - 1);
+                break;
+
+            case "ArrowUp":
+                _preventKeyDefault = true;
+                _focusedSubIndex = Math.Max(_focusedSubIndex - 1, 0);
+                break;
+
+            case "ArrowRight":
+                _preventKeyDefault = true;
+                CloseAll();
+                _focusedTopIndex = (_focusedTopIndex + 1) % _flatTopItems.Count;
+                _tabbableIndex = _focusedTopIndex;
+                // If the new top item has a submenu, open it
+                if (_focusedTopIndex < _flatTopItems.Count)
+                {
+                    var nextItem = _flatTopItems[_focusedTopIndex];
+                    if (!nextItem.Disabled && nextItem.SubItems is { Count: > 0 })
+                    {
+                        OpenDropdown(_focusedTopIndex, nextItem);
+                    }
+                }
+                break;
+
+            case "ArrowLeft":
+                _preventKeyDefault = true;
+                CloseAll();
+                _focusedTopIndex = (_focusedTopIndex - 1 + _flatTopItems.Count) % _flatTopItems.Count;
+                _tabbableIndex = _focusedTopIndex;
+                if (_focusedTopIndex < _flatTopItems.Count)
+                {
+                    var prevItem = _flatTopItems[_focusedTopIndex];
+                    if (!prevItem.Disabled && prevItem.SubItems is { Count: > 0 })
+                    {
+                        OpenDropdown(_focusedTopIndex, prevItem);
+                    }
+                }
+                break;
+
+            case "Enter":
+            case " ":
+                _preventKeyDefault = true;
+                if (_focusedSubIndex >= 0 && _focusedSubIndex < _flatSubItems.Count)
+                {
+                    var subItem = _flatSubItems[_focusedSubIndex];
+                    if (!subItem.Disabled)
+                    {
+                        CloseAll();
+                        await OnItemClick.InvokeAsync(subItem);
+                    }
+                }
+                break;
+
+            case "Home":
+                _preventKeyDefault = true;
+                _focusedSubIndex = 0;
+                break;
+
+            case "End":
+                _preventKeyDefault = true;
+                _focusedSubIndex = _flatSubItems.Count - 1;
+                break;
+        }
+    }
+
+    // ── Cleanup ─────────────────────────────────────────────────
+
+    public ValueTask DisposeAsync()
+    {
+        _openTopIndex = null;
+        return ValueTask.CompletedTask;
+    }
+}

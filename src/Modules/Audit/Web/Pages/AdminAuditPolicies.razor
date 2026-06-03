@@ -1,0 +1,114 @@
+@page "/admin/audit/policies"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Stratum.Modules.Audit.Contracts
+@using Stratum.Modules.Audit.Contracts.DTOs
+@using Stratum.Modules.Audit.Contracts.Commands
+@using Stratum.Modules.Audit.Web.Registries
+@inject IAuditQueries AuditQueries
+@inject ISender Sender
+@inject NavigationManager Nav
+@inject IToastService ToastService
+
+<PermissionGate Permission="@AuditPermissions.AuditView">
+<DeclaredListPage TItem="AuditPolicyDto"
+                  Title="Politiques d'audit"
+                  TestId="audit-policies"
+                  LoadItems="@(() => AuditQueries.GetAuditPolicies())"
+                  DetailUrl="@(p => $"/admin/audit/policies/{p.Id}")"
+                  CreateUrl="/admin/audit/policies/new"
+                  CreateLabel="+ Nouvelle politique"
+                  CreatePermission="@AuditPermissions.AuditPolicyWrite"
+                  ColumnRegistry="@_registry"
+                  ColumnTemplates="@_columnTemplates"
+                  GridKey="Audit.Policies"
+                  RowActions="@_rowActions"
+                  BulkActions="@_bulkActions"
+                  AriaLabel="Liste des politiques d'audit"
+                  DefaultSortColumn="EntityType"
+                  SearchPlaceholder="Chercher une politique… (raccourci : /)"
+                  AllowExport="true"
+                  ExportFileName="audit-policies" />
+</PermissionGate>
+
+@code {
+    private readonly AuditPolicyColumnRegistry _registry = new();
+
+    private readonly Dictionary<string, RenderFragment<AuditPolicyDto>> _columnTemplates = new()
+    {
+        ["IsEnabled"] = item => __builder =>
+        {
+            __builder.OpenComponent<StatusBadge>(0);
+            __builder.AddAttribute(1, "Severity", item.IsEnabled ? Severity.Success : Severity.Neutral);
+            __builder.AddAttribute(2, "Label", item.IsEnabled ? "Actif" : "Inactif");
+            __builder.CloseComponent();
+        },
+        ["TrackedFields"] = item => __builder =>
+        {
+            var count = item.TrackedFields.Count;
+            __builder.OpenComponent<CategoryBadge>(0);
+            __builder.AddAttribute(1, "Label", count == 0 ? "Tous" : $"{count} champ{(count > 1 ? "s" : "")}");
+            __builder.CloseComponent();
+        },
+    };
+
+    private readonly IReadOnlyList<GridRowAction<AuditPolicyDto>> _rowActions;
+    private readonly IReadOnlyList<BulkActionConfig<AuditPolicyDto>> _bulkActions;
+
+    public AdminAuditPolicies()
+    {
+        _rowActions =
+        [
+            new GridRowAction<AuditPolicyDto>(
+                Id: "edit",
+                Label: "Modifier",
+                Icon: "edit",
+                IsQuickAction: true,
+                Callback: item =>
+                {
+                    Nav.NavigateTo($"/admin/audit/policies/{item.Id}/edit");
+                    return Task.CompletedTask;
+                }),
+            new GridRowAction<AuditPolicyDto>(
+                Id: "disable",
+                Label: "Désactiver",
+                Icon: "pause",
+                Callback: DisablePolicyAsync,
+                RequiresConfirmation: true,
+                IsSeparatorBefore: true,
+                IsQuickAction: true),
+        ];
+
+        _bulkActions =
+        [
+            new BulkActionConfig<AuditPolicyDto>(
+                Id: "disable",
+                Label: "Désactiver la sélection",
+                Icon: "pause",
+                Permission: AuditPermissions.AuditPolicyWrite,
+                PermissionDisabledReason: "Rôle insuffisant pour désactiver.",
+                Execute: DisableBulkAsync,
+                ItemFilter: p => p.IsEnabled),
+        ];
+    }
+
+    private async Task DisablePolicyAsync(AuditPolicyDto item)
+    {
+        await Sender.Send(new DisableAuditPolicyCommand { EntityType = item.EntityType });
+        ToastService.Show($"Politique « {item.EntityType} » désactivée.", Severity.Success);
+    }
+
+    private async Task DisableBulkAsync(IReadOnlyList<AuditPolicyDto> items)
+    {
+        foreach (var item in items)
+        {
+            await Sender.Send(new DisableAuditPolicyCommand { EntityType = item.EntityType });
+        }
+
+        ToastService.Show($"{items.Count} politique(s) désactivée(s).", Severity.Success);
+    }
+}

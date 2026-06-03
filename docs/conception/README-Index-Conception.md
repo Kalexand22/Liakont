@@ -22,6 +22,7 @@
 | [F10](F10-Console-Admin-WPF.md) | Console d'administration (**web** — amendée pivot) | — (interne) | 🟨 à revoir | N/A — contenu fonctionnel (écrans, états, vocabulaire) valide ; architecture → blueprint v2 + F12 |
 | [F11](F11-CLI-Mode-Automatique.md) | Ordonnancement / mode automatique (amendée pivot : réparti agent/plateforme) | — (interne) | 🟨 à revoir | N/A — conception |
 | [F12](F12-Architecture-Plateforme-Agent.md) | **Architecture plateforme & agent** : contrat d'ingestion, supervision, configuration, déploiement (absorbe l'ancien « F12 Configuration/déploiement ») | — (interne, pivot 2026-06-03) | 🟨 à revoir | N/A — conception (blueprint v2) |
+| [F13](F13-Installateur-Agent-Profils-Integrateur.md) | **Installateur agent + profils intégrateur** : bootstrapper GUI, paramétrage guidé connexion BDD source / serveur central, packaging d'un `.exe` par intégrateur | — (interne, 2026-06-03) | 🟨 à revoir | N/A — conception (blueprint v2 + ADR-0005) |
 
 ## Actions transverses sorties des recherches (à traiter)
 

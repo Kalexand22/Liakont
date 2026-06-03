@@ -1,0 +1,331 @@
+/* ResourceAllocationTable — UIC06
+ * ────────────────────────────────────────────────────────────────
+ * Compact allocation table with ghost borders, tabular-nums,
+ * status chips using severity tokens, kebab menu overlay.
+ *
+ * Civic Blueprint compliance:
+ *   - Ghost borders at 15% opacity (not solid 1px dividers)
+ *   - All colours via CSS vars (tokens.css)
+ *   - Inter font via --font-family-base
+ *   - Border-radius 2px DEFAULT
+ *   - Density-aware via --density-row-height
+ */
+
+/* ── Wrapper ──────────────────────────────────────────────────── */
+
+.rat-wrapper {
+    width: 100%;
+}
+
+/* ── Header ───────────────────────────────────────────────────── */
+
+.rat-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-3);
+}
+
+.rat-header__title {
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-body-md);
+    font-weight: 700;
+    color: var(--color-on-surface);
+    margin: 0;
+}
+
+.rat-header__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+}
+
+.rat-header__ttl-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--spacing-0-5) var(--spacing-2);
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-label-sm);
+    font-weight: 700;
+    color: var(--color-primary);
+    background-color: color-mix(in srgb, var(--color-primary) 8%, transparent);
+    border-radius: var(--radius-default);
+}
+
+.rat-header__add-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-1);
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-label-sm);
+    font-weight: 700;
+    color: var(--color-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.rat-header__add-btn:hover {
+    opacity: 0.8;
+}
+
+.rat-header__add-btn .material-symbols-outlined {
+    font-size: 1rem;
+}
+
+/* ── Table container ──────────────────────────────────────────── */
+
+.rat-container {
+    background-color: var(--color-surface-container-low);
+    border-radius: var(--radius-default);
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--color-outline-variant) 15%, transparent);
+}
+
+/* ── Table ─────────────────────────────────────────────────────── */
+
+.rat {
+    width: 100%;
+    text-align: left;
+    border-collapse: collapse;
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-body-sm);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.25;
+}
+
+/* ── Header row ───────────────────────────────────────────────── */
+
+.rat thead tr {
+    border-bottom: 1px solid color-mix(in srgb, var(--color-outline-variant) 15%, transparent);
+    background-color: var(--color-surface-container);
+}
+
+.rat__th {
+    padding: var(--spacing-2) var(--spacing-4);
+    font-size: var(--font-size-label-sm);
+    font-weight: 700;
+    color: var(--color-on-surface-variant);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.rat__th--actions {
+    text-align: right;
+}
+
+/* ── Data rows ────────────────────────────────────────────────── */
+
+.rat__row {
+    height: var(--density-row-height, 32px);
+    border-bottom: 1px solid color-mix(in srgb, var(--color-outline-variant) 15%, transparent);
+    transition: background-color var(--transition-fast, 150ms) ease;
+}
+
+.rat__row:last-child {
+    border-bottom: 0;
+}
+
+.rat__row:hover {
+    background-color: var(--color-surface-container-lowest, #fff);
+}
+
+.rat__row--conflict {
+    border-left: 2px solid var(--color-severity-error-fg);
+}
+
+.rat__row--conflict:hover {
+    background-color: var(--color-surface-container-lowest, #fff);
+}
+
+.rat__td {
+    padding: var(--spacing-2) var(--spacing-4);
+    color: var(--color-on-surface);
+    vertical-align: middle;
+}
+
+.rat__td--resource {
+    font-weight: 600;
+}
+
+.rat__td--type {
+    color: var(--color-on-surface-variant);
+}
+
+.rat__td--actions {
+    text-align: right;
+}
+
+/* ── Empty state ──────────────────────────────────────────────── */
+
+.rat__row--empty {
+    height: auto;
+}
+
+.rat__empty-cell {
+    padding: var(--spacing-6) var(--spacing-4);
+    text-align: center;
+    color: var(--color-on-surface-variant);
+    font-style: italic;
+}
+
+/* ── Status chips ─────────────────────────────────────────────── */
+
+.rat__status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-1);
+    font-size: var(--font-size-label-sm);
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.rat__status-icon {
+    font-size: 0.875rem;
+    line-height: 1;
+}
+
+.rat__status-chip--conflict {
+    color: var(--color-severity-error-fg);
+}
+
+.rat__status-chip--validated {
+    color: var(--color-severity-success-fg);
+}
+
+.rat__status-chip--provisional {
+    color: var(--color-severity-info-fg);
+}
+
+.rat__conflict-ref {
+    font-weight: 400;
+    opacity: 0.8;
+}
+
+/* ── TTL ──────────────────────────────────────────────────────── */
+
+.rat__ttl {
+    font-size: var(--font-size-label-sm);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-on-surface-variant);
+}
+
+.rat__ttl--empty {
+    color: var(--color-on-surface-variant);
+    opacity: 0.4;
+}
+
+/* ── Click-outside backdrop ────────────────────────────────────── */
+
+.rat__backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 19;
+}
+
+/* ── Kebab menu ───────────────────────────────────────────────── */
+
+.rat__menu-anchor {
+    position: relative;
+    display: inline-block;
+}
+
+.rat__menu-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-default);
+    background: none;
+    color: var(--color-on-surface-variant);
+    cursor: pointer;
+    transition: color var(--transition-fast, 150ms) ease,
+                background-color var(--transition-fast, 150ms) ease;
+}
+
+.rat__menu-btn:hover {
+    color: var(--color-primary);
+    background-color: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+.rat__menu-btn:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 1px;
+}
+
+.rat__menu-btn .material-symbols-outlined {
+    font-size: 1.25rem;
+}
+
+.rat__menu {
+    position: absolute;
+    right: 0;
+    top: 100%;
+    z-index: 20;
+    min-width: 10rem;
+    padding: var(--spacing-1) 0;
+    background-color: var(--color-surface-container-lowest, #fff);
+    border: 1px solid color-mix(in srgb, var(--color-outline-variant) 20%, transparent);
+    border-radius: var(--radius-default);
+    box-shadow: var(--shadow-md);
+}
+
+.rat__menu-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    width: 100%;
+    padding: var(--spacing-2) var(--spacing-3);
+    border: 0;
+    background: none;
+    cursor: pointer;
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-body-sm);
+    color: var(--color-on-surface);
+    text-align: left;
+    transition: background-color var(--transition-fast, 150ms) ease;
+}
+
+.rat__menu-item:hover {
+    background-color: var(--color-surface-container);
+}
+
+.rat__menu-item:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+}
+
+.rat__menu-item .material-symbols-outlined {
+    font-size: 1.125rem;
+    color: var(--color-on-surface-variant);
+}
+
+/* ── Density: compact ─────────────────────────────────────────── */
+
+[data-density="compact"] .rat__row {
+    height: 28px;
+}
+
+[data-density="compact"] .rat__th,
+[data-density="compact"] .rat__td {
+    padding: var(--spacing-1) var(--spacing-3);
+}
+
+/* ── Density: standard ────────────────────────────────────────── */
+
+[data-density="standard"] .rat__row {
+    height: 40px;
+}
+
+[data-density="standard"] .rat__th,
+[data-density="standard"] .rat__td {
+    padding: var(--spacing-3) var(--spacing-4);
+}

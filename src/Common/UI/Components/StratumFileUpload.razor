@@ -1,0 +1,277 @@
+@namespace Stratum.Common.UI.Components
+@using Microsoft.AspNetCore.Components.Forms
+@using Stratum.Common.UI.Models
+
+@* StratumFileUpload — Drag-and-drop + click-to-browse file upload.
+ *
+ * Uses Blazor's built-in InputFile internally.
+ * No Radzen dependency — this is a native Stratum component.
+ *
+ * Usage:
+ *   <StratumFileUpload Accept=".csv,.xlsx"
+ *                      MaxFileSize="10_000_000"
+ *                      Multiple="true"
+ *                      OnUpload="HandleUpload"
+ *                      OnProgress="HandleProgress" />
+ *
+ * Keyboard: Tab to focus, Enter/Space to browse.
+ *
+ * Ref: docs/architecture/ui-architecture-plan.md §4.
+ *@
+
+<div class="stratum-file-upload-wrapper">
+    <InputFile @ref="_inputFile"
+               OnChange="HandleFilesSelected"
+               accept="@Accept"
+               multiple="@Multiple"
+               disabled="@Disabled"
+               class="stratum-file-upload-input"
+               tabindex="-1"
+               aria-hidden="true" />
+
+    <div class="stratum-file-upload @(_isDragOver ? "drag-over" : "") @(Disabled ? "disabled" : "")"
+         data-testid="@(TestId ?? "stratum-file-upload")"
+         role="button"
+         tabindex="@(Disabled ? -1 : 0)"
+         aria-label="@(_ariaLabel)"
+         aria-disabled="@Disabled.ToString().ToLowerInvariant()"
+         @ondragenter="HandleDragEnter"
+         @ondragover="HandleDragOver"
+         @ondragover:preventDefault="true"
+         @ondragleave="HandleDragLeave"
+         @ondrop="HandleDrop"
+         @ondrop:preventDefault="true"
+         @onclick="TriggerBrowse"
+         @onkeydown="HandleKeyDown">
+
+    @if (_isUploading)
+    {
+        <div class="stratum-file-upload-progress">
+            <div class="stratum-file-upload-icon" aria-hidden="true">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="16 16 12 12 8 16"></polyline>
+                    <line x1="12" y1="12" x2="12" y2="21"></line>
+                    <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"></path>
+                </svg>
+            </div>
+            <p class="stratum-file-upload-text">Envoi en cours…</p>
+            <div class="stratum-file-upload-bar">
+                <div class="stratum-file-upload-bar-fill" style="width: @(_overallProgress)%"></div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="stratum-file-upload-content">
+            <div class="stratum-file-upload-icon" aria-hidden="true">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="16 16 12 12 8 16"></polyline>
+                    <line x1="12" y1="12" x2="12" y2="21"></line>
+                    <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"></path>
+                </svg>
+            </div>
+            <p class="stratum-file-upload-text">
+                Glissez-déposez vos fichiers ici ou <span class="stratum-file-upload-link">parcourir</span>
+            </p>
+            @if (!string.IsNullOrEmpty(Accept))
+            {
+                <p class="stratum-file-upload-hint">Formats acceptés : @Accept</p>
+            }
+            @if (MaxFileSize > 0)
+            {
+                <p class="stratum-file-upload-hint">Taille max : @FormatSize(MaxFileSize)</p>
+            }
+        </div>
+    }
+
+    @if (_errors.Count > 0)
+    {
+        <div class="stratum-file-upload-errors" role="alert">
+            @foreach (var error in _errors)
+            {
+                <p class="stratum-file-upload-error">@error</p>
+            }
+        </div>
+    }
+    </div>
+</div>
+
+@code {
+    // ── Parameters ────────────────────────────────────────────────
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Accepted file types (e.g. ".csv,.xlsx"). Maps to HTML accept attribute.</summary>
+    [Parameter]
+    public string? Accept { get; set; }
+
+    /// <summary>Maximum file size in bytes. Default: 10 MB. Enforced client-side.</summary>
+    [Parameter]
+    public long MaxFileSize { get; set; } = 10 * 1024 * 1024;
+
+    /// <summary>Whether multiple files can be selected. Default: false.</summary>
+    [Parameter]
+    public bool Multiple { get; set; }
+
+    /// <summary>Raised when files have been selected and read. Contains the uploaded file data.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<UploadedFile>> OnUpload { get; set; }
+
+    /// <summary>Raised to report upload progress for each file.</summary>
+    [Parameter]
+    public EventCallback<UploadProgress> OnProgress { get; set; }
+
+    /// <summary>Whether the upload control is disabled.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    // ── Internal state ──────────────────────────────────────────
+
+    private InputFile? _inputFile;
+    private bool _isDragOver;
+    private bool _isUploading;
+    private int _overallProgress;
+    private List<string> _errors = new();
+
+    private string _ariaLabel => Multiple
+        ? "Déposez des fichiers ou cliquez pour parcourir"
+        : "Déposez un fichier ou cliquez pour parcourir";
+
+    // ── Drag & drop ─────────────────────────────────────────────
+
+    private void HandleDragEnter() => _isDragOver = !Disabled;
+
+    private void HandleDragOver() { /* preventDefault is set in markup */ }
+
+    private void HandleDragLeave() => _isDragOver = false;
+
+    private void HandleDrop()
+    {
+        _isDragOver = false;
+        // Actual file handling happens via InputFile's OnChange
+    }
+
+    // ── Browse trigger ──────────────────────────────────────────
+
+    [Inject]
+    private Microsoft.JSInterop.IJSRuntime JS { get; set; } = default!;
+
+    private async Task TriggerBrowse()
+    {
+        if (Disabled || _inputFile?.Element is null) return;
+        try
+        {
+            await JS.InvokeVoidAsync("HTMLElement.prototype.click.call", _inputFile.Element);
+        }
+        catch (Exception ex) when (ex is Microsoft.JSInterop.JSException
+            or Microsoft.JSInterop.JSDisconnectedException
+            or InvalidOperationException
+            or OperationCanceledException)
+        {
+            // Blazor Server: circuit may be disconnected
+        }
+    }
+
+    private void HandleKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+    {
+        if (e.Key is "Enter" or " ")
+        {
+            _ = TriggerBrowse();
+        }
+    }
+
+    // ── File processing ─────────────────────────────────────────
+
+    private async Task HandleFilesSelected(InputFileChangeEventArgs e)
+    {
+        if (Disabled) return;
+
+        _errors.Clear();
+        _isUploading = true;
+        _overallProgress = 0;
+        StateHasChanged();
+
+        var files = Multiple ? e.GetMultipleFiles(100) : new[] { e.File };
+        var uploadedFiles = new List<UploadedFile>();
+        var totalFiles = files.Count;
+        var completedFiles = 0;
+
+        foreach (var browserFile in files)
+        {
+            if (MaxFileSize > 0 && browserFile.Size > MaxFileSize)
+            {
+                _errors.Add($"Le fichier « {browserFile.Name} » dépasse la taille maximale ({FormatSize(MaxFileSize)}).");
+                completedFiles++;
+                _overallProgress = (int)((double)completedFiles / totalFiles * 100);
+                StateHasChanged();
+                continue;
+            }
+
+            try
+            {
+                var maxAllowed = MaxFileSize > 0 ? MaxFileSize : 10 * 1024 * 1024;
+                var stream = browserFile.OpenReadStream(maxAllowed);
+                var memoryStream = new MemoryStream();
+
+                var buffer = new byte[81920];
+                long totalRead = 0;
+                int bytesRead;
+
+                while ((bytesRead = await stream.ReadAsync(buffer)) > 0)
+                {
+                    await memoryStream.WriteAsync(buffer.AsMemory(0, bytesRead));
+                    totalRead += bytesRead;
+
+                    if (OnProgress.HasDelegate)
+                    {
+                        var progress = new UploadProgress(
+                            browserFile.Name,
+                            browserFile.Size > 0 ? (int)((double)totalRead / browserFile.Size * 100) : 0,
+                            totalRead,
+                            browserFile.Size);
+                        await OnProgress.InvokeAsync(progress);
+                    }
+                }
+
+                memoryStream.Position = 0;
+
+                uploadedFiles.Add(new UploadedFile(
+                    browserFile.Name,
+                    browserFile.Size,
+                    browserFile.ContentType,
+                    memoryStream));
+
+                completedFiles++;
+                _overallProgress = (int)((double)completedFiles / totalFiles * 100);
+                StateHasChanged();
+            }
+            catch (IOException)
+            {
+                _errors.Add($"Le fichier « {browserFile.Name} » dépasse la taille maximale autorisée.");
+                completedFiles++;
+                _overallProgress = (int)((double)completedFiles / totalFiles * 100);
+                StateHasChanged();
+            }
+        }
+
+        _isUploading = false;
+        StateHasChanged();
+
+        if (uploadedFiles.Count > 0 && OnUpload.HasDelegate)
+        {
+            await OnUpload.InvokeAsync(uploadedFiles.AsReadOnly());
+        }
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────
+
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} o",
+        < 1024 * 1024 => $"{bytes / 1024.0:F0} Ko",
+        < 1024 * 1024 * 1024 => $"{bytes / (1024.0 * 1024.0):F1} Mo",
+        _ => $"{bytes / (1024.0 * 1024.0 * 1024.0):F1} Go"
+    };
+}

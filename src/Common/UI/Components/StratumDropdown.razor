@@ -1,0 +1,127 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TValue
+
+@* StratumDropdown<TValue> — Stratum wrapper around RadzenDropDown.
+ *
+ * All public parameters use Stratum types. Radzen types are mapped internally.
+ * Use case: simple select (status filter, country, category).
+ * Not a replacement for Lookup (which is search-as-you-type).
+ *
+ * Usage:
+ *   <StratumDropdown TValue="string"
+ *                    Value="@_status"
+ *                    ValueChanged="v => _status = v"
+ *                    Data="@_statuses"
+ *                    TextProperty="Label"
+ *                    ValueProperty="Code"
+ *                    Placeholder="Choisir un statut" />
+ *
+ * Keyboard: ↑↓ navigate, Enter select, Esc close.
+ *
+ * Ref: docs/architecture/ui-architecture-plan.md §4.
+ *@
+
+<div class="stratum-dropdown @(_hasError ? "stratum-dropdown--error" : string.Empty)" data-testid="@(TestId ?? "stratum-dropdown")">
+    <Radzen.Blazor.RadzenDropDown
+        TValue="TValue"
+        Value="@Value"
+        Data="@Data"
+        TextProperty="@TextProperty"
+        ValueProperty="@ValueProperty"
+        Placeholder="@(Placeholder ?? string.Empty)"
+        Disabled="@Disabled"
+        AllowClear="@Clearable"
+        AllowFiltering="@AllowFiltering"
+        FilterCaseSensitivity="@Radzen.FilterCaseSensitivity.CaseInsensitive"
+        Change="@HandleChange"
+        InputAttributes="@_inputAttributes"
+        class="stratum-dropdown__inner" />
+</div>
+
+@code {
+    // ── Parameters ────────────────────────────────────────────────
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Selected value (two-way binding).</summary>
+    [Parameter]
+    public TValue? Value { get; set; }
+
+    /// <summary>Raised when the selected value changes.</summary>
+    [Parameter]
+    public EventCallback<TValue?> ValueChanged { get; set; }
+
+    /// <summary>Collection of items to display.</summary>
+    [Parameter]
+    public System.Collections.IEnumerable? Data { get; set; }
+
+    /// <summary>Property name on items that provides the display text.</summary>
+    [Parameter]
+    public string? TextProperty { get; set; }
+
+    /// <summary>Property name on items that provides the value.</summary>
+    [Parameter]
+    public string? ValueProperty { get; set; }
+
+    /// <summary>Placeholder text shown when no item is selected.</summary>
+    [Parameter]
+    public string? Placeholder { get; set; }
+
+    /// <summary>Disables the control.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>Shows a clear button to reset the selection.</summary>
+    [Parameter]
+    public bool Clearable { get; set; }
+
+    /// <summary>Enables a filter text box for long lists.</summary>
+    [Parameter]
+    public bool AllowFiltering { get; set; }
+
+    // ── Cascade from FormField ────────────────────────────────────
+
+    [CascadingParameter]
+    private FormFieldContext? _context { get; set; }
+
+    // ── Internal ──────────────────────────────────────────────────
+
+    private readonly string _uniqueId = Guid.NewGuid().ToString("N")[..8];
+
+    private string _effectiveId => _context?.FieldId ?? $"dropdown-{_uniqueId}";
+    private bool _hasError => _context?.HasError == true;
+
+    private Dictionary<string, object> _inputAttributes = new();
+
+    // ── Lifecycle ─────────────────────────────────────────────────
+
+    protected override void OnParametersSet()
+    {
+        _inputAttributes = new Dictionary<string, object>
+        {
+            ["id"] = _effectiveId,
+        };
+        if (_context?.DescribedBy is not null)
+            _inputAttributes["aria-describedby"] = _context.DescribedBy;
+        if (_context?.Required == true)
+            _inputAttributes["aria-required"] = "true";
+        if (_hasError)
+            _inputAttributes["aria-invalid"] = "true";
+    }
+
+    // ── Event handling ────────────────────────────────────────────
+
+    private async Task HandleChange(object? value)
+    {
+        if (value is TValue typed)
+        {
+            await ValueChanged.InvokeAsync(typed);
+        }
+        else
+        {
+            await ValueChanged.InvokeAsync(default);
+        }
+    }
+}

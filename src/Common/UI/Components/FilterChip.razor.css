@@ -1,0 +1,121 @@
+/* FilterChip — scoped CSS (Civic Blueprint tokens only, no hex literals)
+ * Structure: <span.filter-chip> → <button.filter-chip__body> + <button.filter-chip__remove>
+ */
+
+.filter-chip {
+    display: inline-flex;
+    align-items: center;
+    background: var(--color-surface-container);
+    border-radius: var(--radius-default);
+    max-width: 280px;
+    transition: background-color 0.15s ease;
+}
+
+.filter-chip:hover {
+    background: var(--color-surface-container-high);
+}
+
+/* ── Source variants ─────────────────────────────────────────────── */
+
+/* Advanced chips: left accent border for visual distinction */
+.filter-chip--advanced {
+    border-left: 2px solid var(--color-primary);
+}
+
+/* Global search chips: subtle primary tint */
+.filter-chip--search {
+    background: var(--color-primary-50);
+}
+
+.filter-chip--search:hover {
+    background: var(--color-primary-100);
+}
+
+/* ── Body button (edit area) ─────────────────────────────────────── */
+
+.filter-chip__body {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-1);
+    padding: 0.125rem var(--spacing-1) 0.125rem var(--spacing-2);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-default) 0 0 var(--radius-default);
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-label-sm);
+    font-weight: var(--font-weight-label-sm);
+    color: var(--color-on-surface);
+    cursor: pointer;
+    user-select: none;
+    outline: none;
+    line-height: 1.4;
+}
+
+/* Advanced chips: compensate for the 2px left border */
+.filter-chip--advanced .filter-chip__body {
+    padding-left: calc(var(--spacing-2) - 2px);
+}
+
+.filter-chip__body:focus-visible {
+    box-shadow: 0 0 0 2px var(--color-focus-ring);
+}
+
+/* ── Icon ────────────────────────────────────────────────────────── */
+
+::deep .filter-chip__icon {
+    font-size: var(--font-size-body-sm);
+    color: var(--color-on-surface-variant);
+    flex-shrink: 0;
+}
+
+/* ── Label ───────────────────────────────────────────────────────── */
+
+.filter-chip__label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Remove button ───────────────────────────────────────────────── */
+
+.filter-chip__remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 100%;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 0 var(--radius-default) var(--radius-default) 0;
+    cursor: pointer;
+    color: var(--color-on-surface-variant);
+    flex-shrink: 0;
+    transition: background-color 0.15s ease, color 0.15s ease;
+    outline: none;
+}
+
+.filter-chip__remove:hover {
+    background: color-mix(in srgb, var(--color-on-surface) 12%, transparent);
+    color: var(--color-on-surface);
+}
+
+.filter-chip__remove:focus-visible {
+    box-shadow: 0 0 0 2px var(--color-focus-ring);
+}
+
+::deep .filter-chip__remove-icon {
+    font-size: 14px;
+}
+
+/* ── Density ─────────────────────────────────────────────────────── */
+
+[data-density="compact"] .filter-chip__body {
+    padding-top: 0;
+    padding-bottom: 0;
+    font-size: 0.625rem;
+}
+
+[data-density="standard"] .filter-chip__body {
+    padding: var(--spacing-1) var(--spacing-1) var(--spacing-1) var(--spacing-2);
+}

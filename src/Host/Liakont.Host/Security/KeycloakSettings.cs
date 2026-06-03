@@ -1,0 +1,79 @@
+namespace Liakont.Host.Security;
+
+/// <summary>
+/// Configuration for Keycloak OIDC integration.
+/// Bound from <c>appsettings.json</c> section <c>"Keycloak"</c>.
+/// When <see cref="Authority"/> is non-empty, the OIDC + RS256 JwtBearer pipeline
+/// replaces the symmetric JWT pipeline.
+/// </summary>
+internal sealed class KeycloakSettings
+{
+    public string Authority { get; init; } = string.Empty;
+
+    public string ClientId { get; init; } = "stratum";
+
+    public string ClientSecret { get; init; } = string.Empty;
+
+    public bool RequireHttpsMetadata { get; init; } = true;
+
+    /// <summary>
+    /// Feature flag to control Keycloak login flow. When <c>true</c> and
+    /// <see cref="Authority"/> is configured, the login page redirects to Keycloak
+    /// instead of showing the local login form. Set to <c>false</c> to use
+    /// the legacy username/password form even when Keycloak middleware is active.
+    /// Default: <c>true</c>.
+    /// </summary>
+    public bool UseKeycloak { get; init; } = true;
+
+    /// <summary>
+    /// URI to redirect to after Keycloak end_session completes. Defaults to <c>/login</c>.
+    /// Must be registered in the Keycloak client's "Valid Post Logout Redirect URIs".
+    /// </summary>
+    public string PostLogoutRedirectUri { get; init; } = "/login";
+
+    /// <summary>
+    /// Maps realm names to tenant IDs for multi-realm routing.
+    /// Key = Keycloak realm name (e.g., "stratum-enterprise"), Value = Stratum tenant ID.
+    /// When a JWT's <c>iss</c> claim ends with a known realm name, the corresponding tenant ID is resolved.
+    /// </summary>
+    public Dictionary<string, string> RealmTenantMap { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Additional realm configurations for multi-realm OIDC support.
+    /// Key = realm name, Value = realm-specific OIDC settings.
+    /// The primary realm uses <see cref="Authority"/>/<see cref="ClientId"/>/<see cref="ClientSecret"/>.
+    /// Additional realms are configured here.
+    /// </summary>
+    public Dictionary<string, KeycloakRealmConfig> AdditionalRealms { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Base URL of the Keycloak server (e.g., "http://localhost:8080").
+    /// Used for Admin REST API calls — NOT the realm-specific authority URL.
+    /// </summary>
+    public string AdminBaseUrl { get; init; } = string.Empty;
+
+    /// <summary>Admin username for the master realm (used for realm provisioning).</summary>
+    public string AdminUsername { get; init; } = "admin";
+
+    /// <summary>Admin password for the master realm (used for realm provisioning).</summary>
+    public string AdminPassword { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Base URL of the Stratum application, used to construct redirect URIs
+    /// for OIDC clients in new realms (e.g., "https://localhost:55995").
+    /// </summary>
+    public string AppBaseUrl { get; init; } = string.Empty;
+
+    /// <summary>
+    /// When <c>true</c>, Keycloak OIDC middleware is registered (Authority is set).
+    /// This controls middleware registration, not the login flow — see <see cref="UseKeycloak"/>.
+    /// </summary>
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(Authority);
+
+    /// <summary>
+    /// When <c>true</c>, the login page redirects to Keycloak and logout
+    /// triggers Keycloak end_session. Requires both <see cref="IsConfigured"/>
+    /// and <see cref="UseKeycloak"/> to be true.
+    /// </summary>
+    public bool IsKeycloakLoginActive => IsConfigured && UseKeycloak;
+}

@@ -1,0 +1,222 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Stratum.Common.UI.Helpers
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@* MoneyField — monetary input with localized formatting on blur.
+ *
+ * Usage:
+ *   <MoneyField Amount="@_price"
+ *               AmountChanged="v => _price = v"
+ *               Currency="EUR"
+ *               Decimals="2" />
+ *
+ * Behaviour:
+ *   - Saisie libre : the user types any digits/separators freely.
+ *   - On blur : the raw text is parsed and the Amount is formatted per locale.
+ *   - Alignment : text is right-aligned by default.
+ *   - ReadOnly  : renders a formatted span, not an input.
+ *
+ * Ref: docs/ui-components.md §MoneyField, manifest item O04.
+ *@
+
+@if (ReadOnly)
+{
+    <span class="money-field money-field--readonly"
+          data-testid="@(TestId ?? "money-field")"
+          aria-label="@($"{FormatAmount(Amount)} {Currency}")">
+        <span class="money-field__amount">@FormatAmount(Amount)</span>
+        <span class="money-field__currency" aria-hidden="true">@Currency</span>
+    </span>
+}
+else
+{
+    <div class="money-field @(_hasError ? "money-field--error" : string.Empty)" data-testid="@(TestId ?? "money-field")">
+        <div class="money-field__input-wrapper">
+            <input id="@_effectiveId"
+                   type="text"
+                   inputmode="decimal"
+                   class="money-field__input"
+                   value="@_displayText"
+                   aria-required="@(_context?.Required == true ? "true" : null)"
+                   aria-describedby="@_context?.DescribedBy"
+                   aria-invalid="@(_hasError ? "true" : null)"
+                   placeholder="@GetPlaceholder()"
+                   disabled="@Disabled"
+                   @oninput="HandleInputAsync"
+                   @onfocus="HandleFocusAsync"
+                   @onblur="HandleBlurAsync"
+                   @onkeydown="HandleKeyDownAsync" />
+            <span class="money-field__currency-badge" aria-hidden="true">@Currency</span>
+        </div>
+        @if (_parseError is not null)
+        {
+            <p class="money-field__error" role="alert">@_parseError</p>
+        }
+    </div>
+}
+
+@code {
+    // ── Parameters ────────────────────────────────────────────────
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>The monetary amount (two-way binding).</summary>
+    [Parameter]
+    public decimal? Amount { get; set; }
+
+    /// <summary>Raised when the amount changes (on valid parse at blur).</summary>
+    [Parameter]
+    public EventCallback<decimal?> AmountChanged { get; set; }
+
+    /// <summary>ISO 4217 currency code (e.g. "EUR", "USD"). Displayed as a suffix badge.</summary>
+    [Parameter]
+    public string Currency { get; set; } = "EUR";
+
+    /// <summary>When true, renders a read-only formatted span instead of an input.</summary>
+    [Parameter]
+    public bool ReadOnly { get; set; }
+
+    /// <summary>Number of decimal places to display. Default: 2.</summary>
+    [Parameter]
+    public int Decimals { get; set; } = 2;
+
+    /// <summary>Disables the input.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>Explicit input id. Falls back to FormFieldContext.FieldId when inside FormField.</summary>
+    [Parameter]
+    public string? FieldId { get; set; }
+
+    // ── Cascade from FormField ────────────────────────────────────
+
+    [CascadingParameter]
+    private FormFieldContext? _context { get; set; }
+
+    // ── Internal state ────────────────────────────────────────────
+
+    private string _rawText = string.Empty;
+    private string _displayText = string.Empty;
+    private bool _isFocused;
+    private string? _parseError;
+    private decimal? _lastCommitted;
+    private readonly string _uniqueId = Guid.NewGuid().ToString("N")[..8];
+
+    private string _effectiveId => FieldId ?? _context?.FieldId ?? $"money-{_uniqueId}";
+    private bool _hasError => _context?.HasError == true || _parseError is not null;
+
+    // ── Lifecycle ─────────────────────────────────────────────────
+
+    // Captured at registration time; FieldId / context can theoretically change.
+    private string? _registeredInputId;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !ReadOnly)
+        {
+            _registeredInputId = _effectiveId;
+            try { await JS.InvokeVoidAsync("stratumUI.preventEnterDefault", _registeredInputId); }
+            catch (JSException) { }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_registeredInputId is not null)
+        {
+            try { await JS.InvokeVoidAsync("stratumUI.removeEnterDefault", _registeredInputId); }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException) { }
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        // Keep display in sync when the Amount parameter changes externally
+        // (but not while the user is typing).
+        if (!_isFocused && Amount != _lastCommitted)
+        {
+            _lastCommitted = Amount;
+            _displayText = Amount.HasValue ? FormatAmount(Amount) : string.Empty;
+            _rawText = _displayText;
+        }
+    }
+
+    // ── Formatting ────────────────────────────────────────────────
+
+    private string FormatAmount(decimal? value)
+    {
+        if (!value.HasValue) return string.Empty;
+        return value.Value.ToString($"N{Decimals}");
+    }
+
+    private string GetPlaceholder() =>
+        (0m).ToString($"N{Decimals}");
+
+    // ── Parse — delegates to MoneyParser (testable static class) ──
+
+    private static bool TryParseAmount(string text, out decimal result) =>
+        MoneyParser.TryParse(text, out result);
+
+    // ── Event handlers ────────────────────────────────────────────
+
+    private async Task HandleFocusAsync()
+    {
+        _isFocused = true;
+        // On focus: show raw numeric text for easy editing (strip formatting).
+        _displayText = Amount.HasValue
+            ? Amount.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : _rawText;
+        _parseError = null;
+        await Task.CompletedTask;
+    }
+
+    private async Task HandleInputAsync(ChangeEventArgs e)
+    {
+        _rawText = e.Value?.ToString() ?? string.Empty;
+        _displayText = _rawText;
+        _parseError = null;
+        await Task.CompletedTask;
+    }
+
+    private async Task HandleBlurAsync()
+    {
+        _isFocused = false;
+        if (string.IsNullOrWhiteSpace(_rawText))
+        {
+            _parseError = null;
+            _displayText = string.Empty;
+            _lastCommitted = null;
+            await AmountChanged.InvokeAsync(null);
+        }
+        else if (TryParseAmount(_rawText, out var parsed))
+        {
+            _parseError = null;
+            _lastCommitted = parsed;
+            _displayText = FormatAmount(parsed);
+            await AmountChanged.InvokeAsync(parsed);
+        }
+        else
+        {
+            _parseError = "Montant invalide. Saisissez un nombre (ex : 1 234,56).";
+            // Keep raw text visible so user can correct.
+        }
+    }
+
+    private async Task HandleKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await HandleBlurAsync();
+            // DOM focus stays on the input after Enter; restore the flag so that
+            // any immediate re-render triggered by AmountChanged does not overwrite
+            // _displayText via OnParametersSet while the user is still in the field.
+            _isFocused = true;
+        }
+
+        await Task.CompletedTask;
+    }
+}

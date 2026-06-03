@@ -1,0 +1,108 @@
+@page "/login"
+@layout Liakont.Host.Components.Layout.AuthLayout
+@* No @rendermode directive — static SSR required for HttpContext access *@
+@attribute [AllowAnonymous]
+@using Microsoft.AspNetCore.Components
+@using Microsoft.Extensions.Localization
+@using Microsoft.Extensions.Options
+@using Liakont.Host
+@using Liakont.Host.Security
+@inject NavigationManager Nav
+@inject ILogger<Login> Logger
+@inject IStringLocalizer<HostResources> L
+@inject IOptions<KeycloakSettings> KcOptions
+
+<PageTitle>@L["Login_Submit"] - @L["Login_Title"]</PageTitle>
+
+@if (_useLocalForm)
+{
+    <div class="login-card">
+        <div class="login-header">
+            <div class="login-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="7" height="7"/>
+                    <rect x="14" y="3" width="7" height="7"/>
+                    <rect x="14" y="14" width="7" height="7"/>
+                    <rect x="3" y="14" width="7" height="7"/>
+                </svg>
+            </div>
+            <h1 class="login-title">@L["Login_Title"]</h1>
+        </div>
+        <form method="post" action="/auth/test-login">
+            <div class="form-group">
+                <label for="login-username" class="visually-hidden">@L["Login_Username"]</label>
+                <input type="text" name="username" id="login-username" data-testid="login-username"
+                       placeholder="Username" required autocomplete="username" />
+            </div>
+            <div class="form-group">
+                <label for="login-password" class="visually-hidden">@L["Login_Password"]</label>
+                <input type="password" name="password" id="login-password" data-testid="login-password"
+                       placeholder="Password" autocomplete="current-password" />
+            </div>
+            <input type="hidden" name="returnUrl" value="@_returnUrl" />
+            <button type="submit" data-testid="login-submit">@L["Login_Submit"]</button>
+        </form>
+    </div>
+}
+else
+{
+    <div class="login-card">
+        <div class="login-header">
+            <div class="login-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="7" height="7"/>
+                    <rect x="14" y="3" width="7" height="7"/>
+                    <rect x="14" y="14" width="7" height="7"/>
+                    <rect x="3" y="14" width="7" height="7"/>
+                </svg>
+            </div>
+            <h1 class="login-title">@L["Login_Title"]</h1>
+            <p>@L["Login_RedirectingToProvider"]</p>
+        </div>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    private string? ReturnUrl { get; set; }
+
+    private bool _useLocalForm;
+    private string _returnUrl = "/";
+
+    protected override Task OnInitializedAsync()
+    {
+        if (HttpContext is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        _returnUrl = ReturnUrlSanitizer.Sanitize(ReturnUrl);
+
+        // If user is already authenticated, redirect to home
+        if (HttpContext.User.Identity?.IsAuthenticated is true)
+        {
+            Nav.NavigateTo(_returnUrl, forceLoad: true);
+            return Task.CompletedTask;
+        }
+
+        var kc = KcOptions.Value;
+        if (kc.IsKeycloakLoginActive)
+        {
+            // Redirect to the /auth/oidc-login minimal API endpoint which issues
+            // the OIDC challenge outside the Blazor SSR rendering pipeline.
+            Nav.NavigateTo($"/auth/oidc-login?returnUrl={Uri.EscapeDataString(_returnUrl)}", forceLoad: true);
+        }
+        else
+        {
+            // Show local login form (test/fallback mode)
+            _useLocalForm = true;
+        }
+
+        return Task.CompletedTask;
+    }
+}

@@ -1,0 +1,6 @@
+.entity-presence-layout__header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2, 0.5rem);
+    margin-bottom: var(--spacing-2, 0.5rem);
+}

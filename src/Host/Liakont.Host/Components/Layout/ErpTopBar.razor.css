@@ -1,0 +1,215 @@
+.erp-topbar-controls {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--spacing-3);
+    padding: var(--spacing-1) var(--spacing-4);
+    min-width: 0;
+}
+
+.erp-topbar__search {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    min-width: clamp(12rem, 26vw, 18rem);
+    height: var(--density-button-height);
+    padding: 0 var(--spacing-3);
+    border: 1px solid var(--color-border-ghost);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-surface);
+    color: var(--color-text-secondary);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+    transition:
+        border-color var(--transition-fast),
+        background-color var(--transition-fast),
+        color var(--transition-fast),
+        box-shadow var(--transition-fast);
+}
+
+.erp-topbar__search:hover {
+    background-color: var(--color-surface-container-low);
+    color: var(--color-text-primary);
+    border-color: var(--color-outline-variant);
+}
+
+.erp-topbar__search:focus-visible {
+    outline: none;
+    border-color: var(--color-primary-300);
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.erp-topbar__search-icon,
+.erp-topbar__button-icon {
+    font-size: 1rem;
+}
+
+.erp-topbar__search-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+}
+
+.erp-topbar__kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.5rem;
+    height: 1.5rem;
+    padding: 0 var(--spacing-1);
+    border: 1px solid var(--color-border-ghost);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-container-low);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-xs);
+    font-family: var(--font-family-mono);
+    box-shadow: none;
+}
+
+.erp-topbar__actions,
+.erp-topbar__identity {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+}
+
+.erp-topbar__icon-button,
+.erp-topbar__logout {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-2);
+    height: var(--density-button-height);
+    border: 1px solid var(--color-border-ghost);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-surface);
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    transition:
+        border-color var(--transition-fast),
+        background-color var(--transition-fast),
+        color var(--transition-fast),
+        box-shadow var(--transition-fast);
+}
+
+.erp-topbar__icon-button {
+    width: calc(var(--density-button-height) + 0.25rem);
+    padding: 0;
+}
+
+.erp-topbar__logout {
+    padding: 0 var(--spacing-3);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+}
+
+.erp-topbar__icon-button:hover:not(:disabled),
+.erp-topbar__logout:hover {
+    background: var(--color-surface-container-low);
+    color: var(--color-text-primary);
+    border-color: var(--color-outline-variant);
+}
+
+.erp-topbar__icon-button:focus-visible,
+.erp-topbar__logout:focus-visible {
+    outline: none;
+    border-color: var(--color-primary-300);
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.erp-topbar__icon-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.erp-topbar__user-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    min-width: 0;
+    padding: 0 var(--spacing-2) 0 0;
+    color: var(--color-text-primary);
+}
+
+.erp-topbar__avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: var(--radius-full);
+    background: linear-gradient(135deg, var(--color-primary-50), var(--color-primary-100));
+    color: var(--color-primary-700);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-bold);
+    letter-spacing: 0.04em;
+}
+
+.erp-topbar__user-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+}
+
+.erp-topbar__logout-form {
+    margin: 0;
+}
+
+/* Compact density (button height drops to 1.25rem / 20 px): shrink the
+   `/` shortcut badge and the user avatar so they stay inside the row. */
+[data-density="compact"] .erp-topbar__kbd {
+    min-width: 1rem;
+    height: 1rem;
+    font-size: var(--font-size-xs);
+}
+
+[data-density="compact"] .erp-topbar__avatar {
+    width: 1.125rem;
+    height: 1.125rem;
+    font-size: 0.625rem;
+}
+
+@media (max-width: 991.98px) {
+    .erp-topbar-controls {
+        gap: var(--spacing-2);
+        padding-inline: var(--spacing-3);
+    }
+
+    .erp-topbar__search {
+        min-width: 0;
+        flex: 1 1 11rem;
+    }
+
+    .erp-topbar__user-name,
+    .erp-topbar__logout span {
+        display: none;
+    }
+
+    .erp-topbar__logout {
+        width: calc(var(--density-button-height) + 0.25rem);
+        padding: 0;
+    }
+}
+
+@media (max-width: 767.98px) {
+    .erp-topbar__search-label {
+        display: none;
+    }
+
+    .erp-topbar__search {
+        min-width: auto;
+        width: auto;
+        flex: 0 1 auto;
+    }
+
+    .erp-topbar__actions {
+        margin-left: auto;
+    }
+}

@@ -1,0 +1,494 @@
+@namespace Stratum.Common.UI.Components.Internal
+
+@*
+ * FieldPropertyPanel — right sidebar for FormBuilderCanvas (UIE02).
+ * Internal component — shows tabbed property editor for the selected field.
+ * Tabs: PROPRIÉTÉS / VALIDATION / CONDITIONS.
+ * CONDITIONS tab integrates LogicTreeEditor (UIE01).
+ *@
+
+<div class="field-property-panel" data-testid="@($"{TestIdPrefix}-property-panel")">
+
+    @* ── Tab bar ── *@
+    <div class="field-property-panel__tabs" role="tablist">
+        <button type="button" role="tab"
+                class="field-property-panel__tab @(_activeTab == Tab.Properties ? "field-property-panel__tab--active" : "")"
+                aria-selected="@(_activeTab == Tab.Properties)"
+                data-testid="@($"{TestIdPrefix}-tab-properties")"
+                @onclick="() => _activeTab = Tab.Properties">
+            Propriétés
+        </button>
+        @if (Field is not null)
+        {
+            <button type="button" role="tab"
+                    class="field-property-panel__tab @(_activeTab == Tab.Validation ? "field-property-panel__tab--active" : "")"
+                    aria-selected="@(_activeTab == Tab.Validation)"
+                    data-testid="@($"{TestIdPrefix}-tab-validation")"
+                    @onclick="() => _activeTab = Tab.Validation">
+                Validation
+            </button>
+            <button type="button" role="tab"
+                    class="field-property-panel__tab @(_activeTab == Tab.Conditions ? "field-property-panel__tab--active" : "")"
+                    aria-selected="@(_activeTab == Tab.Conditions)"
+                    data-testid="@($"{TestIdPrefix}-tab-conditions")"
+                    @onclick="() => _activeTab = Tab.Conditions">
+                Conditions
+            </button>
+        }
+    </div>
+
+    @* ── Tab content ── *@
+    <div class="field-property-panel__content" role="tabpanel">
+        @if (_activeTab == Tab.Properties)
+        {
+            @if (Field is not null)
+            {
+                @* ── Field properties ── *@
+                <div class="field-property-panel__group">
+                    <label class="field-property-panel__label">Label</label>
+                    <input type="text" class="field-property-panel__input"
+                           value="@Field.Label"
+                           data-testid="@($"{TestIdPrefix}-prop-label")"
+                           @onchange="e => UpdateField(f => f.Label = AsString(e.Value))" />
+                </div>
+
+                <div class="field-property-panel__group">
+                    <label class="field-property-panel__label">Code</label>
+                    <input type="text" class="field-property-panel__input"
+                           value="@Field.Code"
+                           data-testid="@($"{TestIdPrefix}-prop-code")"
+                           @onchange="e => UpdateField(f => f.Code = AsString(e.Value))" />
+                </div>
+
+                <div class="field-property-panel__group">
+                    <label class="field-property-panel__label">Placeholder</label>
+                    <input type="text" class="field-property-panel__input"
+                           value="@Field.Placeholder"
+                           data-testid="@($"{TestIdPrefix}-prop-placeholder")"
+                           @onchange="e => UpdateField(f => f.Placeholder = e.Value?.ToString())" />
+                </div>
+
+                <div class="field-property-panel__group">
+                    <label class="field-property-panel__label">Texte d'aide</label>
+                    <input type="text" class="field-property-panel__input"
+                           value="@Field.HelpText"
+                           data-testid="@($"{TestIdPrefix}-prop-helptext")"
+                           @onchange="e => UpdateField(f => f.HelpText = e.Value?.ToString())" />
+                </div>
+
+                <div class="field-property-panel__group field-property-panel__group--inline">
+                    <label class="field-property-panel__label">Obligatoire</label>
+                    <input type="checkbox" checked="@Field.IsRequired"
+                           data-testid="@($"{TestIdPrefix}-prop-required")"
+                           @onchange="e => UpdateField(f => f.IsRequired = AsBool(e.Value))" />
+                </div>
+
+                <div class="field-property-panel__group">
+                    <label class="field-property-panel__label">Valeur par défaut</label>
+                    <input type="text" class="field-property-panel__input"
+                           value="@Field.DefaultValueJson"
+                           data-testid="@($"{TestIdPrefix}-prop-default")"
+                           @onchange="e => UpdateField(f => f.DefaultValueJson = e.Value?.ToString())" />
+                </div>
+
+                @if (Field.FieldType is "single_select" or "multi_select")
+                {
+                    <div class="field-property-panel__group">
+                        <label class="field-property-panel__label">Options (JSON)</label>
+                        <textarea class="field-property-panel__textarea"
+                                  rows="4"
+                                  data-testid="@($"{TestIdPrefix}-prop-options")"
+                                  @onchange="e => UpdateField(f => f.OptionsJson = e.Value?.ToString())">@Field.OptionsJson</textarea>
+                    </div>
+                }
+            }
+            else if (Section is not null)
+            {
+                @* ── Section properties ── *@
+                <div class="field-property-panel__group">
+                    <label class="field-property-panel__label">Titre de section</label>
+                    <input type="text" class="field-property-panel__input"
+                           value="@Section.Title"
+                           data-testid="@($"{TestIdPrefix}-prop-section-title")"
+                           @onchange="e => UpdateSection(s => s.Title = AsString(e.Value))" />
+                </div>
+
+                <div class="field-property-panel__group">
+                    <label class="field-property-panel__label">Code</label>
+                    <input type="text" class="field-property-panel__input"
+                           value="@Section.Code"
+                           data-testid="@($"{TestIdPrefix}-prop-section-code")"
+                           @onchange="e => UpdateSection(s => s.Code = AsString(e.Value))" />
+                </div>
+            }
+        }
+        else if (_activeTab == Tab.Validation && Field is not null)
+        {
+            @* ── Validation rules ── *@
+            <div class="field-property-panel__section-title">Règles de validation</div>
+
+            @for (var ri = 0; ri < _rules.Count; ri++)
+            {
+                var ruleIdx = ri;
+                var rule = _rules[ri];
+                <div class="field-property-panel__rule" data-testid="@($"{TestIdPrefix}-rule-{ri}")">
+                    <select class="field-property-panel__select"
+                            value="@rule.Type"
+                            data-testid="@($"{TestIdPrefix}-rule-type-{ri}")"
+                            @onchange="e => UpdateRule(ruleIdx, AsString(e.Value))">
+                        <option value="required">Obligatoire</option>
+                        <option value="min_length">Longueur min</option>
+                        <option value="max_length">Longueur max</option>
+                        <option value="min">Minimum</option>
+                        <option value="max">Maximum</option>
+                        <option value="regex">Expression régulière</option>
+                        <option value="custom">Personnalisée</option>
+                    </select>
+                    <input type="text" class="field-property-panel__input"
+                           placeholder="Paramètres JSON"
+                           value="@rule.ParamsJson"
+                           data-testid="@($"{TestIdPrefix}-rule-params-{ri}")"
+                           @onchange="e => UpdateRuleParams(ruleIdx, e.Value?.ToString())" />
+                    <input type="text" class="field-property-panel__input"
+                           placeholder="Message d'erreur"
+                           value="@rule.ErrorMessage"
+                           data-testid="@($"{TestIdPrefix}-rule-msg-{ri}")"
+                           @onchange="e => UpdateRuleMessage(ruleIdx, e.Value?.ToString())" />
+                    <button type="button"
+                            class="field-property-panel__remove-btn"
+                            data-testid="@($"{TestIdPrefix}-rule-remove-{ri}")"
+                            @onclick="() => RemoveRule(ruleIdx)">×</button>
+                </div>
+            }
+
+            <button type="button"
+                    class="field-property-panel__add-btn"
+                    data-testid="@($"{TestIdPrefix}-add-rule")"
+                    @onclick="AddRule">
+                + Ajouter une règle
+            </button>
+        }
+        else if (_activeTab == Tab.Conditions && Field is not null)
+        {
+            @* ── Visibility conditions via LogicTreeEditor ── *@
+            <div class="field-property-panel__section-title">Logique d'affichage</div>
+            <p class="field-property-panel__hint">
+                Déterminez quand ce champ doit être visible par
+                rapport aux valeurs des autres champs du formulaire.
+            </p>
+
+            <LogicTreeEditor TestId="@($"{TestIdPrefix}-field-conditions")"
+                             Variables="_conditionVariables"
+                             Value="_conditionTree"
+                             OnChange="HandleConditionChanged" />
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public FormBuilderFieldState? Field { get; set; }
+
+    [Parameter]
+    public FormBuilderSectionState? Section { get; set; }
+
+    [Parameter]
+    public EventCallback<FormBuilderFieldState> OnFieldChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<FormBuilderSectionState> OnSectionChanged { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<FormBuilderFieldState> AllFields { get; set; } = [];
+
+    [Parameter]
+    public string TestIdPrefix { get; set; } = "form-builder";
+
+    private enum Tab { Properties, Validation, Conditions }
+    private Tab _activeTab = Tab.Properties;
+    private Guid? _previousFieldId;
+
+    // Validation rules (mutable copy)
+    private List<FormBuilderValidationRule> _rules = [];
+
+    // Conditions (LogicTreeEditor integration)
+    private LogicNode? _conditionTree;
+    private IReadOnlyList<LogicVariable> _conditionVariables = [];
+
+    protected override void OnParametersSet()
+    {
+        var currentFieldId = Field?.Id;
+        if (currentFieldId != _previousFieldId)
+        {
+            _activeTab = Tab.Properties;
+            _previousFieldId = currentFieldId;
+        }
+
+        if (Field is not null)
+        {
+            _rules = Field.ValidationRules.Select(r => new FormBuilderValidationRule
+            {
+                Type = r.Type,
+                ParamsJson = r.ParamsJson,
+                ErrorMessage = r.ErrorMessage,
+            }).ToList();
+
+            _conditionTree = ParseConditionTree(Field.VisibilityConditionJson);
+            _conditionVariables = BuildConditionVariables();
+        }
+    }
+
+    // ── Field property updates ──
+
+    private async Task UpdateField(Action<FormBuilderFieldState> mutation)
+    {
+        if (Field is null)
+        {
+            return;
+        }
+
+        var clone = CloneField(Field);
+        mutation(clone);
+        await OnFieldChanged.InvokeAsync(clone);
+    }
+
+    private async Task UpdateSection(Action<FormBuilderSectionState> mutation)
+    {
+        if (Section is null)
+        {
+            return;
+        }
+
+        var clone = CloneSection(Section);
+        mutation(clone);
+        await OnSectionChanged.InvokeAsync(clone);
+    }
+
+    // ── Validation rule operations ──
+
+    private async Task AddRule()
+    {
+        _rules.Add(new FormBuilderValidationRule());
+        await SyncRulesToField();
+    }
+
+    private async Task RemoveRule(int idx)
+    {
+        if (idx >= 0 && idx < _rules.Count)
+        {
+            _rules.RemoveAt(idx);
+            await SyncRulesToField();
+        }
+    }
+
+    private async Task UpdateRule(int idx, string type)
+    {
+        if (idx >= 0 && idx < _rules.Count)
+        {
+            _rules[idx] = new FormBuilderValidationRule
+            {
+                Type = type,
+                ParamsJson = _rules[idx].ParamsJson,
+                ErrorMessage = _rules[idx].ErrorMessage,
+            };
+            await SyncRulesToField();
+        }
+    }
+
+    private async Task UpdateRuleParams(int idx, string? paramsJson)
+    {
+        if (idx >= 0 && idx < _rules.Count)
+        {
+            _rules[idx] = new FormBuilderValidationRule
+            {
+                Type = _rules[idx].Type,
+                ParamsJson = paramsJson,
+                ErrorMessage = _rules[idx].ErrorMessage,
+            };
+            await SyncRulesToField();
+        }
+    }
+
+    private async Task UpdateRuleMessage(int idx, string? msg)
+    {
+        if (idx >= 0 && idx < _rules.Count)
+        {
+            _rules[idx] = new FormBuilderValidationRule
+            {
+                Type = _rules[idx].Type,
+                ParamsJson = _rules[idx].ParamsJson,
+                ErrorMessage = msg,
+            };
+            await SyncRulesToField();
+        }
+    }
+
+    private async Task SyncRulesToField()
+    {
+        if (Field is null)
+        {
+            return;
+        }
+
+        var clone = CloneField(Field);
+        clone.ValidationRules = _rules.ToList();
+        await OnFieldChanged.InvokeAsync(clone);
+    }
+
+    // ── Value conversion helpers (avoid ?? in Razor expressions) ──
+
+    private static string AsString(object? value) => value?.ToString() ?? string.Empty;
+
+    private static bool AsBool(object? value) => value is true;
+
+    // ── Condition tree ──
+
+    private async Task HandleConditionChanged(LogicNode node)
+    {
+        _conditionTree = node;
+        if (Field is null)
+        {
+            return;
+        }
+
+        var clone = CloneField(Field);
+        clone.VisibilityConditionJson = SerializeConditionTree(node);
+        await OnFieldChanged.InvokeAsync(clone);
+    }
+
+    private static LogicNode? ParseConditionTree(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            return ParseNode(doc.RootElement);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static LogicNode? ParseNode(System.Text.Json.JsonElement el)
+    {
+        var type = el.GetProperty("type").GetString();
+        if (type == "group")
+        {
+            var op = el.GetProperty("operator").GetString() == "or"
+                ? LogicGroupOperator.Or
+                : LogicGroupOperator.And;
+            var children = el.GetProperty("children").EnumerateArray()
+                .Select(ParseNode)
+                .Where(n => n is not null)
+                .Cast<LogicNode>()
+                .ToArray();
+            return LogicNode.Group(op, children);
+        }
+
+        return LogicNode.Condition(
+            el.TryGetProperty("variable", out var v) ? v.GetString() : null,
+            el.TryGetProperty("operator", out var o) ? o.GetString() : null,
+            el.TryGetProperty("value", out var val) ? val.GetString() : null);
+    }
+
+    private static string? SerializeConditionTree(LogicNode? node)
+    {
+        if (node is null)
+        {
+            return null;
+        }
+
+        var dto = ToDslDto(node);
+        return System.Text.Json.JsonSerializer.Serialize(dto, new System.Text.Json.JsonSerializerOptions
+        {
+            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+        });
+    }
+
+    private static object ToDslDto(LogicNode node)
+    {
+        if (node.NodeType == LogicNodeType.Group)
+        {
+            return new
+            {
+                type = "group",
+                @operator = node.GroupOperator == LogicGroupOperator.And ? "and" : "or",
+                children = node.Children.Select(ToDslDto).ToArray(),
+            };
+        }
+
+        return new
+        {
+            type = "condition",
+            variable = node.Variable,
+            @operator = node.Operator,
+            value = node.Value,
+        };
+    }
+
+    private IReadOnlyList<LogicVariable> BuildConditionVariables()
+    {
+        if (AllFields.Count == 0)
+        {
+            return [];
+        }
+
+        return AllFields
+            .Where(f => Field is null || f.Id != Field.Id)
+            .Select(f => new LogicVariable
+            {
+                Code = f.Code,
+                Label = f.Label,
+                DataType = MapFieldTypeToDataType(f.FieldType),
+            })
+            .ToList();
+    }
+
+    private static string MapFieldTypeToDataType(string fieldType) => fieldType switch
+    {
+        "number" or "currency" or "rating" => "number",
+        "boolean" => "boolean",
+        "date" or "datetime" or "time" => "date",
+        "single_select" or "multi_select" => "enum",
+        _ => "string",
+    };
+
+    // ── Cloning helpers ──
+
+    private static FormBuilderFieldState CloneField(FormBuilderFieldState src) => new()
+    {
+        Id = src.Id,
+        Code = src.Code,
+        FieldType = src.FieldType,
+        Label = src.Label,
+        HelpText = src.HelpText,
+        Placeholder = src.Placeholder,
+        SortOrder = src.SortOrder,
+        IsRequired = src.IsRequired,
+        DefaultValueJson = src.DefaultValueJson,
+        ValidationRules = src.ValidationRules.Select(r => new FormBuilderValidationRule
+        {
+            Type = r.Type,
+            ParamsJson = r.ParamsJson,
+            ErrorMessage = r.ErrorMessage,
+        }).ToList(),
+        VisibilityConditionJson = src.VisibilityConditionJson,
+        OptionsJson = src.OptionsJson,
+    };
+
+    private static FormBuilderSectionState CloneSection(FormBuilderSectionState src) => new()
+    {
+        Id = src.Id,
+        Code = src.Code,
+        Title = src.Title,
+        SortOrder = src.SortOrder,
+        VisibilityConditionJson = src.VisibilityConditionJson,
+        Fields = src.Fields.Select(f => CloneField(f)).ToList(),
+    };
+}

@@ -1,0 +1,265 @@
+/* CommandPalette — Civic Blueprint glassmorphism overlay (UIC05)
+ *
+ * Glass navy surface: surface-container-highest at 80% opacity + backdrop-blur 12px.
+ * Ghost borders (≤15% opacity) — no solid 1px section dividers.
+ * Radius capped at 4px (Civic Blueprint no-line rule).
+ * KBD hints: mono uppercase 11px weight 700.
+ * Scope sections: "Sur cette page" + "Global" from ICommandRegistry.
+ */
+
+.command-palette-backdrop {
+    position: fixed;
+    inset: 0;
+    background: color-mix(in srgb, var(--color-primary, #001b44) 40%, transparent);
+    backdrop-filter: blur(4px);
+    z-index: 9998;
+    animation: command-palette-backdrop-in 150ms ease-out;
+}
+
+@keyframes command-palette-backdrop-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.command-palette {
+    position: fixed;
+    top: 20%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(560px, calc(100vw - 2rem));
+    max-height: 60vh;
+    display: flex;
+    flex-direction: column;
+    background: color-mix(in srgb, var(--color-surface-container-highest, #e0e3e5) 80%, transparent);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--color-border-ghost, color-mix(in srgb, currentColor 15%, transparent));
+    border-radius: var(--radius-md, 4px);
+    box-shadow: var(--shadow-lg, 0 10px 15px -3px rgb(0 0 0 / 0.1));
+    z-index: 9999;
+    overflow: hidden;
+    animation: command-palette-in 150ms ease-out;
+    font-family: var(--font-family, 'Inter', system-ui, sans-serif);
+}
+
+@keyframes command-palette-in {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-8px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0) scale(1);
+    }
+}
+
+/* ── Search bar ─────────────────────────────────────────────────── */
+
+.command-palette__search {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2, 8px);
+    padding: var(--spacing-3, 12px) var(--spacing-4, 16px);
+    border-bottom: 1px solid var(--color-border-ghost, color-mix(in srgb, currentColor 15%, transparent));
+}
+
+.command-palette__search-icon {
+    font-size: 0.875rem;
+    color: var(--color-on-surface-variant, #6c757d);
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+.command-palette__input {
+    flex: 1;
+    border: none;
+    outline: none;
+    font-size: 0.875rem;
+    font-family: inherit;
+    background: transparent;
+    color: var(--color-on-surface, #212529);
+}
+
+.command-palette__input::placeholder {
+    color: var(--color-on-surface-variant, #6c757d);
+}
+
+.command-palette__search-kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    padding: 2px 6px;
+    font-size: 0.6875rem;
+    font-family: var(--font-family-mono, ui-monospace, monospace);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-on-surface-variant, #6c757d);
+    background: var(--color-surface-container-high, #e6e8ea);
+    border-radius: var(--radius-sm, 2px);
+    flex-shrink: 0;
+}
+
+/* ── Results area ───────────────────────────────────────────────── */
+
+.command-palette__results {
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    max-height: calc(60vh - 120px);
+    padding: var(--spacing-1, 4px) 0;
+}
+
+.command-palette__empty {
+    padding: var(--spacing-6, 32px) var(--spacing-4, 16px);
+    text-align: center;
+    color: var(--color-on-surface-variant, #6c757d);
+    font-size: 0.875rem;
+}
+
+/* ── Scope sections (commands) ──────────────────────────────────── */
+
+.command-palette__scope-section {
+    padding: var(--spacing-1, 4px) 0;
+}
+
+.command-palette__scope-section + .command-palette__scope-section,
+.command-palette__scope-section + .command-palette__group,
+.command-palette__group + .command-palette__group {
+    border-top: 1px solid var(--color-border-ghost, color-mix(in srgb, currentColor 15%, transparent));
+}
+
+.command-palette__scope-title {
+    padding: var(--spacing-2, 8px) var(--spacing-4, 16px) var(--spacing-1, 4px);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-on-surface-variant, #6c757d);
+}
+
+/* ── Navigation groups ──────────────────────────────────────────── */
+
+.command-palette__group {
+    padding: var(--spacing-1, 4px) 0;
+}
+
+.command-palette__group:first-child {
+    border-top: none;
+}
+
+.command-palette__group-title {
+    padding: var(--spacing-2, 8px) var(--spacing-4, 16px) var(--spacing-1, 4px);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-on-surface-variant, #6c757d);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2, 8px);
+}
+
+.command-palette__group-icon {
+    font-size: 0.9375rem;
+}
+
+/* ── Items (shared for commands + nav) ──────────────────────────── */
+
+.command-palette__item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-2, 8px) var(--spacing-4, 16px);
+    cursor: pointer;
+    border-radius: var(--radius-sm, 2px);
+    margin: 0 var(--spacing-1, 4px);
+    transition: background-color 100ms ease;
+}
+
+.command-palette__item:hover,
+.command-palette__item.selected {
+    background: color-mix(in srgb, var(--color-primary, #001b44) 8%, transparent);
+}
+
+.command-palette__item-label {
+    font-size: 0.875rem;
+    color: var(--color-on-surface, #212529);
+}
+
+.command-palette__item-path {
+    font-size: 0.75rem;
+    font-family: var(--font-family-mono, ui-monospace, monospace);
+    color: var(--color-on-surface-variant, #6c757d);
+    margin-left: var(--spacing-3, 12px);
+    flex-shrink: 0;
+}
+
+.command-palette__item-kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    padding: 2px 6px;
+    font-size: 0.6875rem;
+    font-family: var(--font-family-mono, ui-monospace, monospace);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-on-surface-variant, #6c757d);
+    background: var(--color-surface-container-high, #e6e8ea);
+    border-radius: var(--radius-sm, 2px);
+    flex-shrink: 0;
+    margin-left: var(--spacing-3, 12px);
+}
+
+/* ── Footer ─────────────────────────────────────────────────────── */
+
+.command-palette__footer {
+    display: flex;
+    gap: var(--spacing-3, 12px);
+    padding: var(--spacing-2, 8px) var(--spacing-4, 16px);
+    border-top: 1px solid var(--color-border-ghost, color-mix(in srgb, currentColor 15%, transparent));
+    font-size: 0.75rem;
+    color: var(--color-on-surface-variant, #6c757d);
+}
+
+.command-palette__footer kbd {
+    display: inline-block;
+    padding: 2px 6px;
+    font-size: 0.6875rem;
+    font-family: var(--font-family-mono, ui-monospace, monospace);
+    font-weight: 700;
+    background: var(--color-surface-container-high, #e6e8ea);
+    border-radius: var(--radius-sm, 2px);
+    margin-right: var(--spacing-1, 4px);
+}
+
+/* ── Utility ────────────────────────────────────────────────────── */
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* ── Density modes ──────────────────────────────────────────────── */
+
+[data-density="compact"] .command-palette__item {
+    padding: var(--spacing-1, 4px) var(--spacing-4, 16px);
+    font-size: 0.8125rem;
+}
+
+[data-density="compact"] .command-palette__search {
+    padding: var(--spacing-2, 8px) var(--spacing-4, 16px);
+}
+
+[data-density="compact"] .command-palette__footer {
+    padding: var(--spacing-1, 4px) var(--spacing-4, 16px);
+}

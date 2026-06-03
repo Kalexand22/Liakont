@@ -1,0 +1,47 @@
+@namespace Liakont.Host.Components.Settings
+
+@using Microsoft.Extensions.Localization
+@using Stratum.Common.UI.Components
+@using Liakont.Host
+
+@inject IStringLocalizer<HostResources> L
+
+@* ProfilePreferencesLauncher — topbar entry that opens UserPreferencesDialog (GUX06).
+ *
+ * Sits inside the otherwise-static ErpTopBar. The button is the profile-area
+ * entry point; clicking it opens the modal. The /settings/preferences route
+ * remains available as a fallback (FallbackHref parameter keeps the test hook
+ * and also lets middle-click / Ctrl-click still open the full page).
+ *@
+
+<button type="button"
+        class="erp-topbar__icon-button"
+        title="@L["Topbar_Preferences"]"
+        aria-label="@L["Topbar_Preferences"]"
+        aria-haspopup="dialog"
+        aria-expanded="@(_visible ? "true" : "false")"
+        data-testid="topbar-preferences"
+        data-fallback-href="@FallbackHref"
+        @onclick="OpenAsync">
+    <StratumIcon Name="bi-gear" Class="erp-topbar__button-icon" />
+</button>
+
+<UserPreferencesDialog @bind-Visible="_visible" />
+
+@code {
+    /// <summary>
+    /// URL of the fallback preferences page (same content as the dialog) —
+    /// exposed via <c>data-fallback-href</c> so smoke tests can still assert
+    /// the route exists without relying on the <c>href</c> attribute.
+    /// </summary>
+    [Parameter]
+    public string FallbackHref { get; set; } = "/settings/preferences";
+
+    private bool _visible;
+
+    private Task OpenAsync()
+    {
+        _visible = true;
+        return Task.CompletedTask;
+    }
+}

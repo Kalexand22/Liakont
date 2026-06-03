@@ -1,0 +1,68 @@
+@namespace Stratum.Common.UI.Components
+@inject IConnectionStatusService ConnectionStatusService
+@implements IDisposable
+
+@* Connection status banner — place once in your layout (e.g. MainLayout.razor).
+   Silent when connected. Surfaces reconnection / disconnection banners automatically.
+   Use OverrideState for demo or testing purposes. *@
+
+@{
+    var state = OverrideState ?? ConnectionStatusService.State;
+}
+
+@if (state == ConnectionState.Reconnecting)
+{
+    <div class="connection-status connection-status--reconnecting"
+         data-testid="@(TestId ?? "connection-status")"
+         role="alert"
+         aria-live="assertive">
+        <span class="connection-status__icon" aria-hidden="true">&#x27F3;</span>
+        <span>Reconnexion en cours&#x2026;</span>
+    </div>
+}
+else if (state == ConnectionState.Disconnected)
+{
+    <div class="connection-status connection-status--disconnected"
+         data-testid="@(TestId ?? "connection-status")"
+         role="alert"
+         aria-live="assertive">
+        <span class="connection-status__icon" aria-hidden="true">&#x2715;</span>
+        <span>Connexion perdue &#x2014; <a href="" class="connection-status__reload">Actualiser la page</a></span>
+    </div>
+}
+
+@code {
+    private volatile bool _disposed;
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>
+    /// Overrides the state shown by this component. Intended for demo and testing only.
+    /// When <c>null</c> (default), the live <see cref="IConnectionStatusService.State"/> is used.
+    /// </summary>
+    [Parameter]
+    public ConnectionState? OverrideState { get; set; }
+
+    protected override void OnInitialized()
+    {
+        ConnectionStatusService.OnStateChanged += HandleStateChanged;
+    }
+
+    private void HandleStateChanged()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        ConnectionStatusService.OnStateChanged -= HandleStateChanged;
+    }
+}

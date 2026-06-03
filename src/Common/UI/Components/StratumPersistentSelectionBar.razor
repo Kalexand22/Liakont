@@ -1,0 +1,94 @@
+@namespace Stratum.Common.UI.Components
+
+@* StratumPersistentSelectionBar — floating bar that surfaces current vs persistent
+ * selection counters and exposes the add/remove/view/clear actions.
+ * Rendered by StratumDataGrid when its PersistentSelection parameter is set. *@
+
+<div class="persistent-selection-bar"
+     data-testid="@(TestId ?? "persistent-selection-bar")"
+     role="region"
+     aria-label="@AriaLabel">
+    <div class="persistent-selection-bar__counts">
+        <span class="persistent-selection-bar__current-pill"
+              data-testid="@($"{TestId ?? "persistent-selection-bar"}-current")">@CurrentCount</span>
+        <span class="persistent-selection-bar__current-label">sélectionné@(CurrentCount > 1 ? "s" : "")</span>
+        <span class="persistent-selection-bar__total">(<span data-testid="@($"{TestId ?? "persistent-selection-bar"}-total")">@TotalCount</span> au total)</span>
+    </div>
+    <div class="persistent-selection-bar__actions">
+        <button type="button"
+                class="persistent-selection-bar__action"
+                disabled="@(CurrentCount == 0)"
+                title="Ajouter la sélection courante à la sélection persistante"
+                data-testid="@($"{TestId ?? "persistent-selection-bar"}-add")"
+                @onclick="HandleAddAsync">
+            <span class="material-symbols-outlined" aria-hidden="true">playlist_add</span>
+            <span>Ajouter à la sélection</span>
+        </button>
+        <button type="button"
+                class="persistent-selection-bar__action"
+                disabled="@(CurrentCount == 0 || TotalCount == 0)"
+                title="Retirer la sélection courante de la sélection persistante"
+                data-testid="@($"{TestId ?? "persistent-selection-bar"}-remove")"
+                @onclick="HandleRemoveAsync">
+            <span class="material-symbols-outlined" aria-hidden="true">playlist_remove</span>
+            <span>Retirer de la sélection</span>
+        </button>
+        <button type="button"
+                class="persistent-selection-bar__action"
+                disabled="@(TotalCount == 0)"
+                title="Voir la sélection persistante"
+                data-testid="@($"{TestId ?? "persistent-selection-bar"}-view")"
+                @onclick="HandleViewAsync">
+            <span class="material-symbols-outlined" aria-hidden="true">visibility</span>
+            <span>Voir la sélection</span>
+        </button>
+        <button type="button"
+                class="persistent-selection-bar__action persistent-selection-bar__action--danger"
+                disabled="@(TotalCount == 0)"
+                title="Vider la sélection persistante"
+                data-testid="@($"{TestId ?? "persistent-selection-bar"}-clear")"
+                @onclick="HandleClearAsync">
+            <span class="material-symbols-outlined" aria-hidden="true">clear_all</span>
+            <span>Vider la sélection</span>
+        </button>
+    </div>
+</div>
+
+@code {
+    /// <summary>Count of items currently selected on this page (local to the grid).</summary>
+    [Parameter, EditorRequired]
+    public int CurrentCount { get; set; }
+
+    /// <summary>Total number of items persisted across pages/filters.</summary>
+    [Parameter, EditorRequired]
+    public int TotalCount { get; set; }
+
+    /// <summary>Raised when the user clicks "Ajouter à la sélection".</summary>
+    [Parameter]
+    public EventCallback OnAdd { get; set; }
+
+    /// <summary>Raised when the user clicks "Retirer de la sélection".</summary>
+    [Parameter]
+    public EventCallback OnRemove { get; set; }
+
+    /// <summary>Raised when the user clicks "Voir la sélection".</summary>
+    [Parameter]
+    public EventCallback OnView { get; set; }
+
+    /// <summary>Raised when the user clicks "Vider la sélection".</summary>
+    [Parameter]
+    public EventCallback OnClear { get; set; }
+
+    /// <summary>ARIA label of the bar root. Default: "Sélection persistante".</summary>
+    [Parameter]
+    public string AriaLabel { get; set; } = "Sélection persistante";
+
+    /// <summary>Optional <c>data-testid</c>. Defaults to <c>persistent-selection-bar</c>.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    private Task HandleAddAsync() => OnAdd.HasDelegate ? OnAdd.InvokeAsync() : Task.CompletedTask;
+    private Task HandleRemoveAsync() => OnRemove.HasDelegate ? OnRemove.InvokeAsync() : Task.CompletedTask;
+    private Task HandleViewAsync() => OnView.HasDelegate ? OnView.InvokeAsync() : Task.CompletedTask;
+    private Task HandleClearAsync() => OnClear.HasDelegate ? OnClear.InvokeAsync() : Task.CompletedTask;
+}

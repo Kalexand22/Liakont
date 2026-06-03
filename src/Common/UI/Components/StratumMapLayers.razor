@@ -1,0 +1,79 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@*
+    StratumMapLayers — layer selection panel for map overlays.
+
+    Displays available WMS/WFS layers with toggle switches.
+    Used alongside StratumMap to let users control visible layers.
+
+    Usage:
+      <StratumMapLayers Layers="@_allLayers"
+                        ActiveLayers="@_activeLayers"
+                        OnActiveLayersChanged="HandleLayersChanged" />
+*@
+
+<div class="stratum-map-layers" data-testid="@(TestId ?? "stratum-map-layers")">
+    <div class="stratum-map-layers__header">
+        <h6 class="stratum-map-layers__title">Couches</h6>
+    </div>
+    <div class="stratum-map-layers__list" role="list" aria-label="Couches cartographiques">
+        @if (Layers is not null)
+        {
+            @foreach (var layer in Layers)
+            {
+                var isActive = ActiveLayers?.Any(a => a.Name == layer.Name) == true;
+                <div class="stratum-map-layers__item" role="listitem">
+                    <label class="stratum-map-layers__label">
+                        <input type="checkbox"
+                               checked="@isActive"
+                               @onchange="e => ToggleLayer(layer, (bool)(e.Value ?? false))"
+                               class="stratum-map-layers__checkbox"
+                               data-testid="@($"layer-toggle-{layer.Name}")" />
+                        <span class="stratum-map-layers__name">@layer.Name</span>
+                    </label>
+                </div>
+            }
+        }
+        @if (Layers is null || Layers.Count == 0)
+        {
+            <div class="stratum-map-layers__empty">
+                Aucune couche disponible
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>All available layers.</summary>
+    [Parameter] public IReadOnlyList<MapWmsLayer>? Layers { get; set; }
+
+    /// <summary>Currently active/visible layers.</summary>
+    [Parameter] public IReadOnlyList<MapWmsLayer>? ActiveLayers { get; set; }
+
+    /// <summary>Raised when active layers change.</summary>
+    [Parameter] public EventCallback<IReadOnlyList<MapWmsLayer>> OnActiveLayersChanged { get; set; }
+
+    /// <summary>Test ID for E2E tests.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    private async Task ToggleLayer(MapWmsLayer layer, bool active)
+    {
+        var current = ActiveLayers?.ToList() ?? [];
+
+        if (active)
+        {
+            if (!current.Any(l => l.Name == layer.Name))
+                current.Add(layer);
+        }
+        else
+        {
+            current.RemoveAll(l => l.Name == layer.Name);
+        }
+
+        if (OnActiveLayersChanged.HasDelegate)
+        {
+            await OnActiveLayersChanged.InvokeAsync(current);
+        }
+    }
+}

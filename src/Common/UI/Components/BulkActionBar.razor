@@ -1,0 +1,135 @@
+@namespace Stratum.Common.UI.Components
+
+@if (SelectedCount > 0)
+{
+    <div class="@_rootClass"
+         data-testid="@(TestId ?? "bulk-action-bar")"
+         role="region"
+         aria-label="@AriaLabel">
+        <div class="bulk-action-bar__count" aria-live="polite" data-testid="@($"{TestId ?? "bulk-action-bar"}-count")">
+            <span class="bulk-action-bar__count-pill">@SelectedCount</span>
+            <span class="bulk-action-bar__count-label">@CountLabel</span>
+        </div>
+        @if (Actions is { Count: > 0 })
+        {
+            <div class="bulk-action-bar__actions">
+                @foreach (var action in Actions)
+                {
+                    <button type="button"
+                            class="@ActionClass(action)"
+                            disabled="@action.Disabled"
+                            data-testid="@($"{TestId ?? "bulk-action-bar"}-action-{action.Key}")"
+                            @onclick="@(() => InvokeActionAsync(action))">
+                        <span class="material-symbols-outlined" aria-hidden="true">@action.Icon</span>
+                        <span class="bulk-action-bar__action-label">@action.Label</span>
+                    </button>
+                }
+            </div>
+        }
+        @if (OnValidate.HasDelegate)
+        {
+            <button type="button"
+                    class="bulk-action-bar__primary"
+                    data-testid="@($"{TestId ?? "bulk-action-bar"}-primary")"
+                    @onclick="OnValidate">
+                @ValidateLabel
+            </button>
+        }
+        @if (OnClear.HasDelegate)
+        {
+            <button type="button"
+                    class="bulk-action-bar__clear"
+                    aria-label="@ClearLabel"
+                    title="@ClearLabel"
+                    data-testid="@($"{TestId ?? "bulk-action-bar"}-clear")"
+                    @onclick="OnClear">
+                <span class="material-symbols-outlined" aria-hidden="true">close</span>
+            </button>
+        }
+    </div>
+}
+
+@code {
+    /// <summary>Number of currently selected items. The bar is not rendered when this is <c>0</c>.</summary>
+    [Parameter, EditorRequired]
+    public int SelectedCount { get; set; }
+
+    /// <summary>Optional list of secondary actions surfaced as ghost buttons. May be empty.</summary>
+    [Parameter]
+    public IReadOnlyList<BulkAction>? Actions { get; set; }
+
+    /// <summary>Primary "validate selection" button callback. The button is hidden when no delegate is wired.</summary>
+    [Parameter]
+    public EventCallback OnValidate { get; set; }
+
+    /// <summary>Optional "clear selection" callback. When wired, a circular close button is rendered on the right.</summary>
+    [Parameter]
+    public EventCallback OnClear { get; set; }
+
+    /// <summary>Label of the primary button. Default: "Valider la sélection".</summary>
+    [Parameter]
+    public string ValidateLabel { get; set; } = "Valider la sélection";
+
+    /// <summary>ARIA label of the clear button. Default: "Effacer la sélection".</summary>
+    [Parameter]
+    public string ClearLabel { get; set; } = "Effacer la sélection";
+
+    /// <summary>Suffix label after the count pill. Default: "éléments sélectionnés".</summary>
+    [Parameter]
+    public string CountLabel { get; set; } = "éléments sélectionnés";
+
+    /// <summary>ARIA label of the bar root. Default: "Actions sur la sélection".</summary>
+    [Parameter]
+    public string AriaLabel { get; set; } = "Actions sur la sélection";
+
+    /// <summary>Optional <c>data-testid</c>. Defaults to <c>bulk-action-bar</c>.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>
+    /// When <c>true</c>, the bar renders <c>position: static</c> instead of fixed
+    /// bottom-center. Used by the Showcase page to demonstrate the component
+    /// inside flow content; production call sites leave it <c>false</c>.
+    /// </summary>
+    [Parameter]
+    public bool Inline { get; set; }
+
+    private string _rootClass => Inline
+        ? "bulk-action-bar bulk-action-bar--inline"
+        : "bulk-action-bar";
+
+    private static string ActionClass(BulkAction action) => action.Severity == BulkActionSeverity.Danger
+        ? "bulk-action-bar__action bulk-action-bar__action--danger"
+        : "bulk-action-bar__action";
+
+    private static async Task InvokeActionAsync(BulkAction action)
+    {
+        if (action.Callback.HasDelegate)
+        {
+            await action.Callback.InvokeAsync();
+        }
+    }
+
+    /// <summary>
+    /// Descriptor for a secondary bulk action button. <c>Key</c> is used as a
+    /// stable identifier in <c>data-testid</c> attributes — keep it lowercase
+    /// kebab-case.
+    /// </summary>
+    public sealed record BulkAction(
+        string Key,
+        string Label,
+        string Icon,
+        EventCallback Callback,
+        BulkActionSeverity Severity = BulkActionSeverity.Default,
+        bool Disabled = false);
+
+    /// <summary>Visual severity of a <see cref="BulkAction"/>.</summary>
+    public enum BulkActionSeverity
+    {
+        /// <summary>Neutral ghost button (default).</summary>
+        Default,
+
+        /// <summary>Destructive ghost button — uses error tokens for label / hover.</summary>
+        Danger,
+    }
+}

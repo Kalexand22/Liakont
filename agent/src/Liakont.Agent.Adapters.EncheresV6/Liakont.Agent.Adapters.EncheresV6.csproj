@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Règle de frontière (blueprint.md §6) : un adaptateur source ne référence QUE
+       Liakont.Agent.Core (et, transitivement, Liakont.Agent.Contracts), jamais un autre
+       adaptateur ni la plateforme. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Liakont.Agent.Core\Liakont.Agent.Core.csproj" />
+  </ItemGroup>
+
+</Project>

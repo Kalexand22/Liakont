@@ -1,0 +1,474 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TItem where TItem : notnull
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Models
+@using Stratum.Common.UI.Services
+@inject NavigationManager Nav
+@inject IToastService ToastService
+@inject Microsoft.JSInterop.IJSRuntime JS
+@inject Stratum.Common.Abstractions.Security.IActorContextAccessor ActorContext
+@inject Microsoft.Extensions.Localization.IStringLocalizer<Stratum.Common.UI.SharedResources> L
+@inject Microsoft.Extensions.Logging.ILogger<DeclaredListPage<TItem>> Logger
+@inject ITabManagerService TabManager
+
+<PageTitle>@Title — Administration</PageTitle>
+
+<div class="declared-list-page">
+
+@if (ShowHeader)
+{
+    <PageHeader Title="@Title"
+                Subtitle="@Subtitle"
+                Breadcrumbs="@Breadcrumbs"
+                TestId="@($"{TestId}-page-header")">
+        <Actions>
+            @if (HeaderActions is not null)
+            {
+                @HeaderActions
+            }
+            @if (CreateUrl is not null)
+            {
+                if (CreatePermission is not null)
+                {
+                    <PermissionGate Permission="@CreatePermission">
+                        <StratumButton Text="@CreateLabel"
+                                       Variant="ButtonVariant.Primary"
+                                       Size="ButtonSize.Small"
+                                       Href="@CreateUrl"
+                                       TestId="@($"{TestId}-create-btn")" />
+                    </PermissionGate>
+                }
+                else
+                {
+                    <StratumButton Text="@CreateLabel"
+                                   Variant="ButtonVariant.Primary"
+                                   Size="ButtonSize.Small"
+                                   Href="@CreateUrl"
+                                   TestId="@($"{TestId}-create-btn")" />
+                }
+            }
+        </Actions>
+    </PageHeader>
+}
+
+@if (_bulkError is not null)
+{
+    <div class="alert alert-danger mb-3" role="alert">@_bulkError</div>
+}
+
+@if (_viewingSelection)
+{
+    <div class="declared-list__selection-view-bar"
+         data-testid="@($"{TestId}-selection-view-bar")"
+         role="region"
+         aria-label="Vue sélection persistante">
+        <span class="declared-list__selection-view-bar__count">
+            @_viewingSelectionSet.Count élément(s) sélectionné(s)
+        </span>
+        <StratumButton Text="Retour à la liste complète"
+                       Variant="ButtonVariant.Secondary"
+                       Outline
+                       Size="ButtonSize.Small"
+                       OnClick="@(_ => ExitViewSelection())"
+                       TestId="@($"{TestId}-selection-view-exit")" />
+    </div>
+}
+
+@if (BulkActions is not null && _selectedItems.Count > 0)
+{
+    <div class="declared-list__bulk-bar"
+         data-testid="@($"{TestId}-bulk-bar")"
+         role="region"
+         aria-label="Actions de sélection">
+        <span class="declared-list__bulk-bar__count">@_selectedItems.Count élément(s) sélectionné(s)</span>
+        @foreach (var action in BulkActions)
+        {
+            if (action.Permission is not null)
+            {
+                <PermissionGate Permission="@action.Permission"
+                                Mode="GateMode.Disable"
+                                DisabledReason="@(action.PermissionDisabledReason ?? "Permission insuffisante.")">
+                    <StratumButton Text="@(_executingBulk ? "Traitement\u2026" : action.Label)"
+                                   Variant="ButtonVariant.Warning"
+                                   Size="ButtonSize.Small"
+                                   Disabled="@_executingBulk"
+                                   OnClick="@(_ => ExecuteBulkAsync(action))"
+                                   TestId="@($"{TestId}-bulk-{action.Id}")" />
+                </PermissionGate>
+            }
+            else
+            {
+                <StratumButton Text="@(_executingBulk ? "Traitement\u2026" : action.Label)"
+                               Variant="ButtonVariant.Warning"
+                               Size="ButtonSize.Small"
+                               Disabled="@_executingBulk"
+                               OnClick="@(_ => ExecuteBulkAsync(action))"
+                               TestId="@($"{TestId}-bulk-{action.Id}")" />
+            }
+        }
+        <StratumButton Text="Tout désélectionner"
+                       Variant="ButtonVariant.Secondary"
+                       Outline
+                       Size="ButtonSize.Small"
+                       OnClick="@(_ => ClearSelection())" />
+    </div>
+}
+
+@* ── Multi-view mode: render via StratumListContainer ────────────── *@
+@if (IsMultiView)
+{
+    <StratumListContainer @ref="_containerRef"
+                          TItem="TItem"
+                          ViewModes="@ViewModes"
+                          Data="@_filteredItems"
+                          Loading="@_loading"
+                          ColumnRegistry="@ColumnRegistry"
+                          VisibleColumnKeys="@_visibleColumnKeys"
+                          KanbanGroupByProperty="@KanbanGroupByProperty"
+                          CalendarDateProperty="@CalendarDateProperty"
+                          CalendarColorProperty="@CalendarColorProperty"
+                          CardTemplate="@CardTemplate"
+                          SelectedItems="@_selectedItemsList"
+                          AllowSelection="@(BulkActions is not null && BulkActions.Count > 0 || _persistentBinding is not null)"
+                          OnSelectionChanged="HandleMultiViewSelectionChanged"
+                          OnRowActivated="HandleMultiViewRowActivated"
+                          CustomFilters="@CustomFilters"
+                          SearchPlaceholder="@SearchPlaceholder"
+                          SearchValue="@SearchValue"
+                          OnSearch="HandleSearchAsync"
+                          GridKey="@GridKey"
+                          UserId="@ActorContext.Current.UserId"
+                          PreferenceService="@PreferenceService"
+                          OnColumnsApplied="HandleVisibleColumnsChanged"
+                          OnFilterApplied="HandleAdvancedFilterChanged"
+                          OnViewChanged="HandleViewChanged"
+                          RowActions="@RowActions"
+                          TestId="@($"{TestId}-list-container")">
+        <ChipBarContent>
+            @RenderChipBarSlot
+        </ChipBarContent>
+        <TableContent>
+            <StratumDataGrid TItem="TItem"
+                             Data="@(_hasActiveGroups ? _filteredItems : _pagedItems)"
+                             Loading="@_loading"
+                             AriaLabel="@(AriaLabel ?? Title)"
+                             AllowSorting="true"
+                             AllowGroupChooser="@AllowGrouping"
+                             OnGroupsChanged="HandleGroupsChangedAsync"
+                             AllowSelection="@(BulkActions is not null && BulkActions.Count > 0 || _persistentBinding is not null)"
+                             SelectionMode="SelectionMode.Multiple"
+                             SelectedItems="@_selectedItemsList"
+                             OnSelectionChanged="HandleSelectionChanged"
+                             OnSortChanged="HandleSortChangedAsync"
+                             OnRowActivated="HandleRowActivated"
+                             OnCellContextMenu="HandleCellContextMenu"
+                             RowActions="@RowActions"
+                             ColumnRegistry="@ColumnRegistry"
+                             ColumnTemplates="@ColumnTemplates"
+                             GridKey="@GridKey"
+                             AllowAdvancedFilter="false"
+                             AllowColumnChooser="false"
+                             AllowColumnReorder="true"
+                             PreferenceService="@PreferenceService"
+                             OnAdvancedFilterChanged="HandleAdvancedFilterChanged"
+                             UserId="@ActorContext.Current.UserId"
+                             VisibleColumnKeys="@_visibleColumnKeys"
+                             AllowExport="@AllowExport"
+                             ExportFormats="@ExportFormats"
+                             ExportFileName="@ExportFileName"
+                             OnVisibleColumnsChanged="HandleVisibleColumnsChanged"
+                             PersistentSelection="@_persistentBinding"
+                             OnViewPersistentSelection="HandleViewPersistentSelection">
+                <ToolbarEndContent>
+                    @RenderToolbarEndContent
+                </ToolbarEndContent>
+                <EmptyContent>
+                    @if (EmptyContent is not null) { @EmptyContent } else { <p>Aucun élément ne correspond aux filtres.</p> }
+                </EmptyContent>
+                <ChildContent>
+                    @Columns
+                </ChildContent>
+            </StratumDataGrid>
+        </TableContent>
+        <FooterContent>
+            @if (_activeViewKind == ViewKind.Table && !_hasActiveGroups)
+            {
+                <Pagination TotalItems="@_filteredItems.Count"
+                            PageSize="@_pageSize"
+                            CurrentPage="@_page"
+                            OnPageChanged="HandlePageChangedAsync"
+                            OnPageSizeChanged="HandlePageSizeChangedAsync" />
+            }
+        </FooterContent>
+    </StratumListContainer>
+}
+else
+{
+    @* ── Single-view mode: direct DataGrid (backward compatible) ───── *@
+    @if (CustomFilters is not null)
+    {
+        <StratumDataGrid @ref="_gridRef"
+                         TItem="TItem"
+                         Data="@(_hasActiveGroups ? _filteredItems : _pagedItems)"
+                         Loading="@_loading"
+                         AriaLabel="@(AriaLabel ?? Title)"
+                         AllowSorting="true"
+                         AllowGroupChooser="@AllowGrouping"
+                         OnGroupsChanged="HandleGroupsChangedAsync"
+                         AllowSelection="@(BulkActions is not null && BulkActions.Count > 0 || _persistentBinding is not null)"
+                         SelectionMode="SelectionMode.Multiple"
+                         SelectedItems="@_selectedItemsList"
+                         OnSelectionChanged="HandleSelectionChanged"
+                         OnSortChanged="HandleSortChangedAsync"
+                         OnRowActivated="HandleRowActivated"
+                         OnCellContextMenu="HandleCellContextMenu"
+                         RowActions="@RowActions"
+                         ColumnRegistry="@ColumnRegistry"
+                         ColumnTemplates="@ColumnTemplates"
+                         GridKey="@GridKey"
+                         AllowAdvancedFilter="@(ColumnRegistry is not null)"
+                         AllowColumnChooser="@(ColumnRegistry is not null)"
+                         AllowColumnReorder="true"
+                         PreferenceService="@PreferenceService"
+                         UserId="@ActorContext.Current.UserId"
+                         OnAdvancedFilterChanged="HandleAdvancedFilterChanged"
+                         VisibleColumnKeys="@_visibleColumnKeys"
+                         AllowExport="@AllowExport"
+                         ExportFormats="@ExportFormats"
+                         ExportFileName="@ExportFileName"
+                         OnVisibleColumnsChanged="HandleVisibleColumnsChanged"
+                         PersistentSelection="@_persistentBinding"
+                         OnViewPersistentSelection="HandleViewPersistentSelection">
+            <ToolbarContent>
+                <FilterBar SearchPlaceholder="@SearchPlaceholder"
+                           SearchValue="@SearchValue"
+                           OnSearch="HandleSearchAsync">
+                    <Filters>
+                        @CustomFilters
+                    </Filters>
+                </FilterBar>
+            </ToolbarContent>
+            <ToolbarEndContent>
+                @RenderToolbarEndContent
+            </ToolbarEndContent>
+            <PreGridContent>
+                @RenderChipBarSlot
+            </PreGridContent>
+            <EmptyContent>
+                @if (EmptyContent is not null) { @EmptyContent } else { <p>Aucun élément ne correspond aux filtres.</p> }
+            </EmptyContent>
+            <ChildContent>
+                @Columns
+            </ChildContent>
+        </StratumDataGrid>
+    }
+    else
+    {
+        <StratumDataGrid @ref="_gridRef"
+                         TItem="TItem"
+                         Data="@(_hasActiveGroups ? _filteredItems : _pagedItems)"
+                         Loading="@_loading"
+                         AriaLabel="@(AriaLabel ?? Title)"
+                         AllowSorting="true"
+                         AllowGroupChooser="@AllowGrouping"
+                         OnGroupsChanged="HandleGroupsChangedAsync"
+                         AllowSelection="@(BulkActions is not null && BulkActions.Count > 0 || _persistentBinding is not null)"
+                         SelectionMode="SelectionMode.Multiple"
+                         SelectedItems="@_selectedItemsList"
+                         OnSelectionChanged="HandleSelectionChanged"
+                         OnSortChanged="HandleSortChangedAsync"
+                         OnRowActivated="HandleRowActivated"
+                         OnCellContextMenu="HandleCellContextMenu"
+                         RowActions="@RowActions"
+                         ColumnRegistry="@ColumnRegistry"
+                         ColumnTemplates="@ColumnTemplates"
+                         GridKey="@GridKey"
+                         AllowAdvancedFilter="@(ColumnRegistry is not null)"
+                         AllowColumnChooser="@(ColumnRegistry is not null)"
+                         AllowColumnReorder="true"
+                         PreferenceService="@PreferenceService"
+                         UserId="@ActorContext.Current.UserId"
+                         OnAdvancedFilterChanged="HandleAdvancedFilterChanged"
+                         VisibleColumnKeys="@_visibleColumnKeys"
+                         AllowExport="@AllowExport"
+                         ExportFormats="@ExportFormats"
+                         ExportFileName="@ExportFileName"
+                         OnVisibleColumnsChanged="HandleVisibleColumnsChanged"
+                         PersistentSelection="@_persistentBinding"
+                         OnViewPersistentSelection="HandleViewPersistentSelection">
+            <ToolbarContent>
+                <FilterBar SearchPlaceholder="@SearchPlaceholder"
+                           SearchValue="@SearchValue"
+                           OnSearch="HandleSearchAsync" />
+            </ToolbarContent>
+            <ToolbarEndContent>
+                @RenderToolbarEndContent
+            </ToolbarEndContent>
+            <PreGridContent>
+                @RenderChipBarSlot
+            </PreGridContent>
+            <EmptyContent>
+                @if (EmptyContent is not null) { @EmptyContent } else { <p>Aucun élément ne correspond aux filtres.</p> }
+            </EmptyContent>
+            <ChildContent>
+                @Columns
+            </ChildContent>
+        </StratumDataGrid>
+    }
+}
+
+@* GFI09 — cell right-click context menu (Filter on / Exclude / Copy). *@
+@if (_cellMenuVisible)
+{
+    <div class="declared-list-page__cell-menu-backdrop"
+         data-testid="@($"{TestId}-cell-menu-backdrop")"
+         @onclick="HandleCellMenuBackdropClick"
+         @oncontextmenu="HandleCellMenuBackdropClick"
+         @oncontextmenu:preventDefault="true">
+    </div>
+    <div class="declared-list-page__cell-menu"
+         role="menu"
+         tabindex="-1"
+         @ref="_cellMenuRef"
+         data-testid="@($"{TestId}-cell-menu")"
+         style="@GetCellMenuStyle()"
+         @onkeydown="HandleCellMenuKeyDown"
+         @onclick:stopPropagation="true">
+        <button type="button"
+                role="menuitem"
+                class="declared-list-page__cell-menu-item"
+                data-testid="@($"{TestId}-cell-menu-filter")"
+                @onclick="HandleCellMenuFilterOn">
+            Filtrer sur « @_cellMenuDisplay »
+        </button>
+        <button type="button"
+                role="menuitem"
+                class="declared-list-page__cell-menu-item"
+                data-testid="@($"{TestId}-cell-menu-exclude")"
+                @onclick="HandleCellMenuExclude">
+            Exclure « @_cellMenuDisplay »
+        </button>
+        @if (_cellMenuEntityTarget is not null)
+        {
+            <div class="declared-list-page__cell-menu-separator" role="separator"></div>
+            <button type="button"
+                    role="menuitem"
+                    class="declared-list-page__cell-menu-item"
+                    data-testid="@($"{TestId}-cell-menu-open-entity")"
+                    @onclick="HandleCellMenuOpenEntity">
+                @L["CellMenu.OpenEntity"]
+            </button>
+            <button type="button"
+                    role="menuitem"
+                    class="declared-list-page__cell-menu-item"
+                    data-testid="@($"{TestId}-cell-menu-open-entity-in-tab")"
+                    @onclick="HandleCellMenuOpenEntityInNewTab">
+                @L["CellMenu.OpenEntityInNewTab"]
+            </button>
+        }
+        <div class="declared-list-page__cell-menu-separator" role="separator"></div>
+        <button type="button"
+                role="menuitem"
+                class="declared-list-page__cell-menu-item"
+                data-testid="@($"{TestId}-cell-menu-copy")"
+                @onclick="HandleCellMenuCopy">
+            Copier
+        </button>
+    </div>
+}
+
+</div>
+
+@code {
+    private RenderFragment RenderPagerSlot => __builder =>
+    {
+        <Pagination TotalItems="@_filteredItems.Count"
+                    PageSize="@_pageSize"
+                    CurrentPage="@_page"
+                    OnPageChanged="HandlePageChangedAsync"
+                    OnPageSizeChanged="HandlePageSizeChangedAsync" />
+    };
+
+    private RenderFragment RenderToolbarEndContent => __builder =>
+    {
+        if (ToolbarActions is not null)
+        {
+            @ToolbarActions
+        }
+        if (!ShowHeader && CreateUrl is not null)
+        {
+            if (CreatePermission is not null)
+            {
+                <PermissionGate Permission="@CreatePermission">
+                    <StratumButton Text="@CreateLabel"
+                                   Variant="ButtonVariant.Primary"
+                                   Size="ButtonSize.Small"
+                                   Href="@CreateUrl"
+                                   TestId="@($"{TestId}-create-btn")" />
+                </PermissionGate>
+            }
+            else
+            {
+                <StratumButton Text="@CreateLabel"
+                               Variant="ButtonVariant.Primary"
+                               Size="ButtonSize.Small"
+                               Href="@CreateUrl"
+                               TestId="@($"{TestId}-create-btn")" />
+            }
+        }
+    };
+
+    // GFI06 — chip bar, result counter, and simple builder popover. The advanced
+    // filter builder is owned by the inner grid/container (single source of truth);
+    // chip-edit of an advanced chip routes through _gridRef / _containerRef via
+    // OpenGridAdvancedFilterBuilderAsync.
+    private RenderFragment RenderChipBarSlot => __builder =>
+    {
+        <div class="declared-list-page__filter-slot" style="position: relative;" data-testid="@($"{TestId}-filter-slot")">
+            <FilterChipBar Chips="@_chips"
+                           OnAddFilter="HandleAddFilter"
+                           OnClearAll="HandleClearAllChips"
+                           OnRemoveChip="HandleRemoveChip"
+                           OnEditChip="HandleEditChip"
+                           PagerContent="@(!IsMultiView && !_hasActiveGroups ? RenderPagerSlot : null)"
+                           TestId="@($"{TestId}-chip-bar")" />
+
+            @* DF-06 — result counter "n résultats (sur N)" when a filter is active. *@
+            @if (HasAnyFilter && !_loading)
+            {
+                <div class="declared-list-page__result-counter"
+                     data-testid="@($"{TestId}-result-counter")"
+                     role="status"
+                     aria-live="polite">
+                    @if (_filteredItems.Count == 0)
+                    {
+                        <span class="declared-list-page__empty-msg">
+                            Aucun résultat —
+                            <button type="button"
+                                    class="declared-list-page__clear-link"
+                                    data-testid="@($"{TestId}-empty-clear")"
+                                    @onclick="HandleClearAllChips">
+                                Effacer tout
+                            </button>
+                        </span>
+                    }
+                    else
+                    {
+                        <span>@_filteredItems.Count résultat@(_filteredItems.Count > 1 ? "s" : "") (sur @_allItems.Count)</span>
+                    }
+                </div>
+            }
+
+            @if (ColumnRegistry is not null)
+            {
+                <SimpleFilterBuilder TItem="TItem"
+                                     Registry="@ColumnRegistry"
+                                     @bind-Visible="_simpleBuilderVisible"
+                                     InitialCriterion="@_simpleBuilderInitial"
+                                     OnApply="HandleSimpleBuilderApply"
+                                     OnCancel="HandleSimpleBuilderCancel"
+                                     TestId="@($"{TestId}-simple-builder")" />
+            }
+        </div>
+    };
+}

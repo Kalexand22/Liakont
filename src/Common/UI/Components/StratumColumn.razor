@@ -1,0 +1,432 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TItem where TItem : notnull
+@using Stratum.Common.Abstractions.UiRules
+@using Stratum.Common.UI.Models
+@using Stratum.Common.UI.Services
+
+@* StratumColumn<TItem> — Column definition for StratumDataGrid.
+ *
+ * Wraps RadzenDataGridColumn internally. All public parameters use Stratum types.
+ *
+ * Usage:
+ *   <StratumDataGrid TItem="ProductDto" Data="@products">
+ *       <StratumColumn TItem="ProductDto" Property="Name" Title="Nom" Sortable Frozen />
+ *       <StratumColumn TItem="ProductDto" Property="Price" Title="Prix"
+ *                      Format="N2" TextAlign="TextAlign.Right" Width="120px"
+ *                      AggregateFunc="AggregateFunc.Sum" />
+ *   </StratumDataGrid>
+ *
+ * Ref: docs/architecture/ui-architecture-plan.md §4, §5.1.
+ *@
+
+@*
+    Rendering strategy:
+    - When EditTemplate is provided, StratumColumn renders a combined Radzen Template
+      that conditionally shows edit or view content based on the cascaded
+      DataGridEditingContext. Radzen never sees EditTemplate directly — edit state
+      is managed by StratumDataGrid via @key re-creation to avoid Radzen data loss.
+    - When Template is provided (without EditTemplate), it overrides Radzen's
+      default property rendering.
+    - Footer presence adds a FooterTemplate child.
+*@
+
+@if (HasEditTemplate && IsAnyItemEditing && HasFooter)
+{
+    @* Editing mode with footer *@
+    <Radzen.Blazor.RadzenDataGridColumn TItem="TItem"
+        Property="@Property"
+        Title="@Title"
+        Sortable="@Sortable"
+        Width="@Width"
+        FormatString="@FormatString"
+        TextAlign="@MapTextAlign()"
+        Frozen="@Frozen"
+        Visible="@EffectiveVisible"
+        MinWidth="@MinWidth"
+        Resizable="@Resizable">
+        <Template Context="item">
+            @if (IsEditing(item))
+            {
+                @EditTemplate!(item)
+            }
+            else if (Template is not null)
+            {
+                @Template(item)
+            }
+            else
+            {
+                @FormatValue(GetPropertyValue(item))
+            }
+        </Template>
+        <FooterTemplate>
+            @RenderFooter()
+        </FooterTemplate>
+    </Radzen.Blazor.RadzenDataGridColumn>
+}
+else if (HasEditTemplate && IsAnyItemEditing)
+{
+    @* Editing mode without footer *@
+    <Radzen.Blazor.RadzenDataGridColumn TItem="TItem"
+        Property="@Property"
+        Title="@Title"
+        Sortable="@Sortable"
+        Width="@Width"
+        FormatString="@FormatString"
+        TextAlign="@MapTextAlign()"
+        Frozen="@Frozen"
+        Visible="@EffectiveVisible"
+        MinWidth="@MinWidth"
+        Resizable="@Resizable">
+        <Template Context="item">
+            @if (IsEditing(item))
+            {
+                @EditTemplate!(item)
+            }
+            else if (Template is not null)
+            {
+                @Template(item)
+            }
+            else
+            {
+                @FormatValue(GetPropertyValue(item))
+            }
+        </Template>
+    </Radzen.Blazor.RadzenDataGridColumn>
+}
+else if (HasEditTemplate && HasFooter && Template is not null)
+{
+    @* Not editing, has EditTemplate + Footer + custom Template: render custom Template with footer *@
+    <Radzen.Blazor.RadzenDataGridColumn TItem="TItem"
+        Property="@Property"
+        Title="@Title"
+        Sortable="@Sortable"
+        Width="@Width"
+        FormatString="@FormatString"
+        TextAlign="@MapTextAlign()"
+        Frozen="@Frozen"
+        Visible="@EffectiveVisible"
+        MinWidth="@MinWidth"
+        Resizable="@Resizable">
+        <Template Context="item">
+            @Template!(item)
+        </Template>
+        <FooterTemplate>
+            @RenderFooter()
+        </FooterTemplate>
+    </Radzen.Blazor.RadzenDataGridColumn>
+}
+else if (HasEditTemplate && HasFooter)
+{
+    @* Not editing, has EditTemplate + Footer, no custom Template: bare column with footer *@
+    <Radzen.Blazor.RadzenDataGridColumn TItem="TItem"
+        Property="@Property"
+        Title="@Title"
+        Sortable="@Sortable"
+        Width="@Width"
+        FormatString="@FormatString"
+        TextAlign="@MapTextAlign()"
+        Frozen="@Frozen"
+        Visible="@EffectiveVisible"
+        MinWidth="@MinWidth"
+        Resizable="@Resizable">
+        <FooterTemplate>
+            @RenderFooter()
+        </FooterTemplate>
+    </Radzen.Blazor.RadzenDataGridColumn>
+}
+else if (HasEditTemplate && Template is not null)
+{
+    @* Not editing, has EditTemplate + custom Template: render custom Template *@
+    <Radzen.Blazor.RadzenDataGridColumn TItem="TItem"
+        Property="@Property"
+        Title="@Title"
+        Sortable="@Sortable"
+        Width="@Width"
+        FormatString="@FormatString"
+        TextAlign="@MapTextAlign()"
+        Frozen="@Frozen"
+        Visible="@EffectiveVisible"
+        MinWidth="@MinWidth"
+        Resizable="@Resizable">
+        <Template Context="item">
+            @Template!(item)
+        </Template>
+    </Radzen.Blazor.RadzenDataGridColumn>
+}
+else if (HasEditTemplate)
+{
+    @* Not editing, has EditTemplate only: bare Property-based column *@
+    <Radzen.Blazor.RadzenDataGridColumn TItem="TItem"
+        Property="@Property"
+        Title="@Title"
+        Sortable="@Sortable"
+        Width="@Width"
+        FormatString="@FormatString"
+        TextAlign="@MapTextAlign()"
+        Frozen="@Frozen"
+        Visible="@EffectiveVisible"
+        MinWidth="@MinWidth"
+        Resizable="@Resizable" />
+}
+else if (HasFooter)
+{
+    @if (Template is not null)
+    {
+        <Radzen.Blazor.RadzenDataGridColumn TItem="TItem"
+            Property="@Property"
+            Title="@Title"
+            Sortable="@Sortable"
+            Width="@Width"
+            FormatString="@FormatString"
+            TextAlign="@MapTextAlign()"
+            Frozen="@Frozen"
+            Visible="@EffectiveVisible"
+            MinWidth="@MinWidth"
+            Resizable="@Resizable">
+            <Template Context="item">
+                @Template!(item)
+            </Template>
+            <FooterTemplate>
+                @RenderFooter()
+            </FooterTemplate>
+        </Radzen.Blazor.RadzenDataGridColumn>
+    }
+    else
+    {
+        <Radzen.Blazor.RadzenDataGridColumn TItem="TItem"
+            Property="@Property"
+            Title="@Title"
+            Sortable="@Sortable"
+            Width="@Width"
+            FormatString="@FormatString"
+            TextAlign="@MapTextAlign()"
+            Frozen="@Frozen"
+            Visible="@EffectiveVisible"
+            MinWidth="@MinWidth"
+            Resizable="@Resizable">
+            <FooterTemplate>
+                @RenderFooter()
+            </FooterTemplate>
+        </Radzen.Blazor.RadzenDataGridColumn>
+    }
+}
+else if (Template is not null)
+{
+    <Radzen.Blazor.RadzenDataGridColumn TItem="TItem"
+        Property="@Property"
+        Title="@Title"
+        Sortable="@Sortable"
+        Width="@Width"
+        FormatString="@FormatString"
+        TextAlign="@MapTextAlign()"
+        Frozen="@Frozen"
+        Visible="@EffectiveVisible"
+        MinWidth="@MinWidth"
+        Resizable="@Resizable">
+        <Template Context="item">
+            @Template!(item)
+        </Template>
+    </Radzen.Blazor.RadzenDataGridColumn>
+}
+else
+{
+    <Radzen.Blazor.RadzenDataGridColumn TItem="TItem"
+        Property="@Property"
+        Title="@Title"
+        Sortable="@Sortable"
+        Width="@Width"
+        FormatString="@FormatString"
+        TextAlign="@MapTextAlign()"
+        Frozen="@Frozen"
+        Visible="@EffectiveVisible"
+        MinWidth="@MinWidth"
+        Resizable="@Resizable" />
+}
+
+@code {
+    /// <summary>Data field name for automatic cell rendering and sorting.</summary>
+    [Parameter]
+    public string? Property { get; set; }
+
+    /// <summary>Column header text.</summary>
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>When true, the column header is a sort button.</summary>
+    [Parameter]
+    public bool Sortable { get; set; }
+
+    /// <summary>Custom cell template. Overrides Property-based rendering.</summary>
+    [Parameter]
+    public RenderFragment<TItem>? Template { get; set; }
+
+    /// <summary>Template used when the row is in inline edit mode.</summary>
+    [Parameter]
+    public RenderFragment<TItem>? EditTemplate { get; set; }
+
+    /// <summary>CSS width for the column (e.g. "120px", "20%").</summary>
+    [Parameter]
+    public string? Width { get; set; }
+
+    /// <summary>
+    /// .NET format string for automatic cell rendering (e.g. "C2", "N2", "d").
+    /// When a <see cref="Template"/> is provided, Radzen ignores the format string.
+    /// </summary>
+    [Parameter]
+    public string? Format { get; set; }
+
+    /// <summary>Horizontal text alignment. Default: Left.</summary>
+    [Parameter]
+    public TextAlign TextAlign { get; set; } = TextAlign.Left;
+
+    /// <summary>When true, the column stays visible while scrolling horizontally.</summary>
+    [Parameter]
+    public bool Frozen { get; set; }
+
+    /// <summary>When false, the column is hidden. Default: true.</summary>
+    [Parameter]
+    public bool Visible { get; set; } = true;
+
+    /// <summary>Minimum column width when resizing (e.g. "80px"). Only effective when AllowColumnResize is enabled on the grid.</summary>
+    [Parameter]
+    public string? MinWidth { get; set; }
+
+    /// <summary>When false, this column cannot be resized. Default: true (resizable when grid allows).</summary>
+    [Parameter]
+    public bool Resizable { get; set; } = true;
+
+    // ── Aggregation ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Aggregate function to compute and display in the column footer.
+    /// Requires <see cref="Property"/> to be set for automatic computation.
+    /// </summary>
+    [Parameter]
+    public AggregateFunc AggregateFunc { get; set; } = AggregateFunc.None;
+
+    /// <summary>
+    /// Format string for the aggregate value (e.g. "N2", "C0").
+    /// When null, the value is formatted using default ToString.
+    /// </summary>
+    [Parameter]
+    public string? AggregateFormat { get; set; }
+
+    /// <summary>
+    /// Custom footer content. When set, overrides automatic <see cref="AggregateFunc"/> rendering.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? FooterContent { get; set; }
+
+    /// <summary>Cascaded data context from StratumDataGrid for aggregate computation.</summary>
+    [CascadingParameter]
+    internal DataGridAggregateContext<TItem>? AggregateContext { get; set; }
+
+    /// <summary>Cascaded editing context from StratumDataGrid for inline edit state.</summary>
+    [CascadingParameter]
+    internal DataGridEditingContext<TItem>? EditingContext { get; set; }
+
+    /// <summary>
+    /// Cascaded dynamic UI attributes from StratumDataGrid.
+    /// When set and the column's <see cref="Property"/> matches a field marked as
+    /// <see cref="UiFieldAttributes.Hidden"/>, the column is not rendered.
+    /// </summary>
+    [CascadingParameter]
+    internal UiAttributeSet? UiAttributes { get; set; }
+
+    // ── Computed ───────────────────────────────────────────────────────
+
+    private bool HasFooter => AggregateFunc != AggregateFunc.None || FooterContent is not null;
+    private bool HasEditTemplate => EditTemplate is not null;
+    private bool IsAnyItemEditing => EditingContext is not null && EditingContext.IsEditing;
+
+    /// <summary>
+    /// Effective visibility: <c>false</c> if the caller set <see cref="Visible"/> to <c>false</c>
+    /// OR if <see cref="UiAttributes"/> marks this column's <see cref="Property"/> as Hidden.
+    /// </summary>
+    private bool EffectiveVisible => Visible && !IsHiddenByUiAttributes();
+
+    private bool IsHiddenByUiAttributes()
+    {
+        if (UiAttributes is null || string.IsNullOrEmpty(Property))
+            return false;
+        return UiAttributes.TryGetValue(Property, out var attrs) && attrs.Hidden;
+    }
+
+    // ── Edit state check ──────────────────────────────────────────────
+
+    private bool IsEditing(TItem item)
+    {
+        if (EditingContext is null || !EditingContext.IsEditing)
+            return false;
+        return EqualityComparer<TItem>.Default.Equals(EditingContext.EditingItem, item);
+    }
+
+    // ── Property value access (for view mode when EditTemplate is the only template) ──
+
+    private object? GetPropertyValue(TItem item)
+    {
+        if (string.IsNullOrEmpty(Property)) return null;
+        var prop = typeof(TItem).GetProperty(Property);
+        return prop?.GetValue(item);
+    }
+
+    private string FormatValue(object? value)
+    {
+        if (value is null) return string.Empty;
+        if (!string.IsNullOrEmpty(Format) && value is IFormattable formattable)
+            return formattable.ToString(Format, null);
+        return value.ToString() ?? string.Empty;
+    }
+
+    // ── Radzen format mapping ────────────────────────────────────────
+    // Radzen expects FormatString in C# composite format: "{0:C2}".
+    // We accept the user-friendly short form ("C2") and wrap it.
+    private string? FormatString => Format is not null ? $"{{0:{Format}}}" : null;
+
+    // ── Radzen TextAlign mapping ─────────────────────────────────────
+    private Radzen.TextAlign MapTextAlign() => TextAlign switch
+    {
+        TextAlign.Center => Radzen.TextAlign.Center,
+        TextAlign.Right  => Radzen.TextAlign.Right,
+        _                => Radzen.TextAlign.Left,
+    };
+
+    // ── Footer rendering ─────────────────────────────────────────────
+
+    private RenderFragment RenderFooter() => builder =>
+    {
+        if (FooterContent is not null)
+        {
+            FooterContent(builder);
+            return;
+        }
+
+        if (AggregateFunc == AggregateFunc.None || string.IsNullOrEmpty(Property))
+            return;
+
+        var data = AggregateContext?.Data;
+        if (data is null || data.Count == 0)
+            return;
+
+        var label = AggregateComputer.GetLabel(AggregateFunc);
+        var value = AggregateComputer.Compute(data, Property, AggregateFunc, AggregateFormat);
+
+        if (value is not null)
+        {
+            builder.OpenElement(0, "span");
+            builder.AddAttribute(1, "class", "stratum-datagrid__aggregate");
+            builder.AddContent(2, $"{label}: {value}");
+            builder.CloseElement();
+        }
+    };
+
+    // ── Lifecycle: signal parent that aggregation is active ──────────
+
+    protected override void OnParametersSet()
+    {
+        if (AggregateContext is not null && AggregateFunc != AggregateFunc.None)
+        {
+            AggregateContext.HasAggregates = true;
+        }
+    }
+}

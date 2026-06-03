@@ -1,0 +1,409 @@
+@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.Extensions.Localization
+@using Microsoft.JSInterop
+@using Stratum.Common.UI.Models
+@using Stratum.Common.UI.Services
+@using Liakont.Host
+@inject IEnumerable<INavSectionProvider> NavProviders
+@inject IEnumerable<INavNodeProvider> NavNodeProviders
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject IShortcutService ShortcutService
+@inject ICommandRegistry CommandRegistry
+@inject IStringLocalizer<HostResources> L
+@implements IAsyncDisposable
+
+<nav class="erp-nav @(_isCollapsed ? "collapsed" : "")"
+     aria-label="@L["Nav_AriaLabel"]"
+     @ref="_navRef"
+     @onkeydown="HandleKeyDown"
+     data-testid="erp-nav">
+    <div class="erp-nav-header">
+        <span class="erp-nav-brand">@L["Nav_Brand"]</span>
+        <button class="erp-nav-toggle"
+                @onclick="ToggleSidebar"
+                title="@(_isCollapsed ? L["Nav_ExpandSidebar"] : L["Nav_CollapseSidebar"])"
+                aria-label="@(_isCollapsed ? L["Nav_ExpandSidebarAria"] : L["Nav_CollapseSidebarAria"])"
+                data-testid="sidebar-toggle">
+            <StratumIcon Name="@(_isCollapsed ? "bi-chevron-right" : "bi-chevron-left")"
+                         Class="erp-nav-toggle__icon" />
+        </button>
+    </div>
+
+    <div class="erp-nav-scroll">
+        <ul class="erp-nav-tree" role="tree" aria-label="@L["Nav_TreeAriaLabel"]" data-testid="nav-tree">
+            @for (var i = 0; i < _nodes.Count; i++)
+            {
+                var key = i.ToString();
+                var node = _nodes[i];
+                @RenderTreeItem(node, 0, key)
+            }
+        </ul>
+    </div>
+</nav>
+
+@code {
+    private const int MaxDepth = 2;
+
+    /// <summary>When true, only one section at each level can be expanded at a time.</summary>
+    [Parameter] public bool Accordion { get; set; }
+
+    private IReadOnlyList<NavNode> _nodes = [];
+    private readonly HashSet<string> _expanded = new();
+    private string _currentPath = "";
+    private string? _focusedKey;
+    private ElementReference _navRef;
+    private bool _disposed;
+    private bool _isCollapsed;
+
+    private bool _jsInitialized;
+    private const string SidebarScopeId = "erp-nav-sidebar-scope";
+
+    protected override void OnInitialized()
+    {
+        _nodes = NavProviders.BuildNavTree(NavNodeProviders);
+        _currentPath = GetRelativePath();
+        // Start with all root sections expanded (standard sidebar UX).
+        // Users can manually collapse sections they don't need.
+        for (var i = 0; i < _nodes.Count; i++)
+        {
+            if (_nodes[i].HasChildren)
+                _expanded.Add(i.ToString());
+        }
+        ExpandActiveParents();
+        Nav.LocationChanged += OnLocationChanged;
+
+        // Register Ctrl+B shortcut for sidebar toggle (idempotent — safe if called twice)
+        CommandRegistry.Register(new CommandDefinition(
+            "toggle-sidebar", L["Nav_ToggleSidebar"], ShortcutScopeType.Global, "Ctrl+B"));
+        ShortcutService.PopScope(SidebarScopeId); // remove any stale scope before pushing
+        ShortcutService.PushScope(SidebarScopeId, ShortcutScopeType.Global, [
+            new ScopeBinding("toggle-sidebar", "b", ctrl: true, handler: () => InvokeAsync(async () =>
+            {
+                await ToggleSidebar();
+                StateHasChanged();
+            }))
+        ]);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_jsInitialized)
+        {
+            _jsInitialized = true;
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.nav.preventTreeNavKeys", _navRef);
+                // Restore sidebar collapsed state from localStorage
+                _isCollapsed = await JS.InvokeAsync<bool>("stratumUI.nav.getSidebarCollapsed");
+                if (_isCollapsed)
+                {
+                    await JS.InvokeVoidAsync("stratumUI.nav.setSidebarCollapsed", true);
+                    StateHasChanged();
+                }
+            }
+            catch (Exception ex) when (
+                ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Circuit disconnected or prerender — ignore
+            }
+        }
+    }
+
+    private async Task ToggleSidebar()
+    {
+        _isCollapsed = !_isCollapsed;
+        try
+        {
+            await JS.InvokeVoidAsync("stratumUI.nav.setSidebarCollapsed", _isCollapsed);
+        }
+        catch (Exception ex) when (
+            ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+        {
+            // Circuit disconnected — ignore
+        }
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        _currentPath = GetRelativePath();
+        ExpandActiveParents();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private string GetRelativePath() =>
+        Nav.ToBaseRelativePath(Nav.Uri).TrimStart('/').TrimEnd('/');
+
+    // ─── Node key helpers ────────────────────────────────────────
+    // Keys are index-paths: "0", "1", "1.2", "1.2.0"
+    private static string MakeKey(string parentKey, int index) =>
+        string.IsNullOrEmpty(parentKey) ? index.ToString() : $"{parentKey}.{index}";
+
+    private NavNode? FindNode(string key)
+    {
+        var parts = key.Split('.');
+        IReadOnlyList<NavNode> current = _nodes;
+        NavNode? result = null;
+        foreach (var part in parts)
+        {
+            if (!int.TryParse(part, out var idx) || idx >= current.Count) return null;
+            result = current[idx];
+            current = result.Children;
+        }
+        return result;
+    }
+
+    // ─── Expand / collapse ───────────────────────────────────────
+    private bool IsNodeExpanded(string key) => _expanded.Contains(key);
+
+    private void ToggleNode(string key)
+    {
+        if (_expanded.Contains(key))
+        {
+            _expanded.Remove(key);
+        }
+        else
+        {
+            if (Accordion)
+            {
+                // Collapse siblings at the same level
+                var dotCount = key.Count(c => c == '.');
+                var parentPrefix = key.Contains('.')
+                    ? key[..key.LastIndexOf('.')] + "."
+                    : "";
+                _expanded.RemoveWhere(k =>
+                    k.Count(c => c == '.') == dotCount &&
+                    (dotCount == 0 ? !k.Contains('.') : k.StartsWith(parentPrefix)));
+            }
+            _expanded.Add(key);
+        }
+    }
+
+    // ─── Active detection ────────────────────────────────────────
+    private bool IsActive(NavNode node)
+    {
+        if (node.Href is null) return false;
+        var href = node.Href.TrimStart('/').TrimEnd('/');
+        if (node.ExactMatch)
+            return _currentPath.Equals(href, StringComparison.OrdinalIgnoreCase);
+        return _currentPath.Equals(href, StringComparison.OrdinalIgnoreCase)
+            || _currentPath.StartsWith(href + "/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool HasActiveDescendant(NavNode node)
+    {
+        foreach (var child in node.Children)
+        {
+            if (IsActive(child) || HasActiveDescendant(child))
+                return true;
+        }
+        return false;
+    }
+
+    private void ExpandActiveParents()
+    {
+        void Walk(IReadOnlyList<NavNode> nodes, string parentKey)
+        {
+            for (var i = 0; i < nodes.Count; i++)
+            {
+                var key = MakeKey(parentKey, i);
+                var n = nodes[i];
+                if (n.HasChildren && (IsActive(n) || HasActiveDescendant(n)))
+                {
+                    _expanded.Add(key);
+                    Walk(n.Children, key);
+                }
+            }
+        }
+        Walk(_nodes, "");
+    }
+
+    // ─── Flat visible list (for keyboard navigation) ─────────────
+    private List<string> BuildVisibleKeys()
+    {
+        var keys = new List<string>();
+        void Walk(IReadOnlyList<NavNode> nodes, string parentKey, int depth)
+        {
+            for (var i = 0; i < nodes.Count; i++)
+            {
+                var key = MakeKey(parentKey, i);
+                keys.Add(key);
+                if (nodes[i].HasChildren && IsNodeExpanded(key) && depth < MaxDepth)
+                    Walk(nodes[i].Children, key, depth + 1);
+            }
+        }
+        Walk(_nodes, "", 0);
+        return keys;
+    }
+
+    // ─── Keyboard navigation (WAI-ARIA tree pattern) ─────────────
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "ArrowDown":
+                await MoveFocus(1);
+                break;
+            case "ArrowUp":
+                await MoveFocus(-1);
+                break;
+            case "ArrowRight":
+                await ExpandOrDescend();
+                break;
+            case "ArrowLeft":
+                await CollapseOrAscend();
+                break;
+            case "Home":
+                await FocusByIndex(0);
+                break;
+            case "End":
+                await FocusByIndex(-1);
+                break;
+        }
+    }
+
+    private async Task MoveFocus(int direction)
+    {
+        var visible = BuildVisibleKeys();
+        if (visible.Count == 0) return;
+
+        var currentIdx = _focusedKey is not null ? visible.IndexOf(_focusedKey) : -1;
+        var newIdx = Math.Clamp(currentIdx + direction, 0, visible.Count - 1);
+        _focusedKey = visible[newIdx];
+        await FocusDomElement(_focusedKey);
+    }
+
+    private async Task ExpandOrDescend()
+    {
+        if (_focusedKey is null) return;
+        var node = FindNode(_focusedKey);
+        if (node is null || !node.HasChildren) return;
+
+        if (!IsNodeExpanded(_focusedKey))
+        {
+            ToggleNode(_focusedKey);
+            // Just expand; next ArrowRight moves into children
+        }
+        else
+        {
+            // Already expanded — move to first child
+            var firstChildKey = MakeKey(_focusedKey, 0);
+            _focusedKey = firstChildKey;
+            await FocusDomElement(_focusedKey);
+        }
+    }
+
+    private async Task CollapseOrAscend()
+    {
+        if (_focusedKey is null) return;
+        var node = FindNode(_focusedKey);
+
+        if (node is not null && node.HasChildren && IsNodeExpanded(_focusedKey))
+        {
+            ToggleNode(_focusedKey);
+        }
+        else if (_focusedKey.Contains('.'))
+        {
+            // Move to parent
+            _focusedKey = _focusedKey[.._focusedKey.LastIndexOf('.')];
+            await FocusDomElement(_focusedKey);
+        }
+    }
+
+    private async Task FocusByIndex(int index)
+    {
+        var visible = BuildVisibleKeys();
+        if (visible.Count == 0) return;
+        _focusedKey = index < 0 ? visible[^1] : visible[Math.Clamp(index, 0, visible.Count - 1)];
+        await FocusDomElement(_focusedKey);
+    }
+
+    private async Task FocusDomElement(string key)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("stratumUI.nav.focusItem", _navRef, key);
+        }
+        catch (Exception ex) when (
+            ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+        {
+            // Circuit disconnected or prerender — ignore
+        }
+    }
+
+    // ─── Rendering ───────────────────────────────────────────────
+    private string DefaultFocusKey => _focusedKey ?? "0";
+
+    private RenderFragment RenderTreeItem(NavNode node, int depth, string key) => __builder =>
+    {
+        var isBranch = node.HasChildren;
+        var isExpanded = isBranch && IsNodeExpanded(key);
+        var isActive = IsActive(node);
+        var isActiveParent = !isActive && isBranch && HasActiveDescendant(node);
+
+        <li role="treeitem"
+            class="erp-nav-item"
+            aria-expanded="@(isBranch ? (isExpanded ? "true" : "false") : null)">
+
+            @if (isBranch)
+            {
+                <button class="erp-nav-branch @(isActiveParent ? "active-parent" : "")"
+                        style="@(!_isCollapsed ? $"padding-left: {0.75 + depth * 1.0}rem" : null)"
+                        tabindex="@(key == DefaultFocusKey ? 0 : -1)"
+                        data-nav-key="@key"
+                        data-testid="nav-section-@key"
+                        title="@(_isCollapsed ? node.Label : null)"
+                        @onclick="@(() => { _focusedKey = key; ToggleNode(key); })">
+                    @if (node.Icon is not null)
+                    {
+                        <StratumIcon Name="@node.Icon" Class="erp-nav-icon" />
+                    }
+                    <span class="erp-nav-label">@node.Label</span>
+                    <StratumIcon Name="bi-chevron-right"
+                                 Class="@($"erp-nav-chevron{(isExpanded ? " expanded" : "")}")" />
+                </button>
+
+                <div class="erp-nav-group @(isExpanded ? "expanded" : "")">
+                    <ul role="group">
+                        @if (depth < MaxDepth)
+                        {
+                            @for (var i = 0; i < node.Children.Count; i++)
+                            {
+                                var childKey = MakeKey(key, i);
+                                var child = node.Children[i];
+                                @RenderTreeItem(child, depth + 1, childKey)
+                            }
+                        }
+                    </ul>
+                </div>
+            }
+            else if (node.Href is not null)
+            {
+                <a class="erp-nav-leaf @(isActive ? "active" : "")"
+                   href="@node.Href"
+                   style="@(!_isCollapsed ? $"padding-left: {0.75 + depth * 1.0}rem" : null)"
+                   tabindex="@(key == DefaultFocusKey ? 0 : -1)"
+                   data-nav-key="@key"
+                   data-testid="nav-link-@(node.Href.TrimStart('/').Replace("/", "-"))"
+                   aria-current="@(isActive ? "page" : null)"
+                   title="@(_isCollapsed ? node.Label : null)">
+                    @if (node.Icon is not null)
+                    {
+                        <StratumIcon Name="@node.Icon" Class="erp-nav-icon" />
+                    }
+                    <span class="erp-nav-label">@node.Label</span>
+                </a>
+            }
+        </li>
+    };
+
+    // ─── Disposal ────────────────────────────────────────────────
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        Nav.LocationChanged -= OnLocationChanged;
+        ShortcutService.PopScope(SidebarScopeId);
+        CommandRegistry.Unregister("toggle-sidebar");
+    }
+}

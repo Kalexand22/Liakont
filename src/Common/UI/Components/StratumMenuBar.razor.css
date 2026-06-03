@@ -1,0 +1,165 @@
+/* StratumMenuBar — scoped styles using Stratum design tokens */
+
+.stratum-menubar-wrapper {
+    position: relative;
+    display: inline-block;
+}
+
+/* Horizontal menu bar */
+.stratum-menubar {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    background: var(--color-bg-surface);
+    border: 1px solid var(--color-border-default);
+    border-radius: var(--radius-md);
+    padding: 0 var(--spacing-1);
+    outline: none;
+}
+
+/* Vertical separator between top-level items */
+.stratum-menubar__separator {
+    width: 1px;
+    height: 20px;
+    background-color: var(--color-border-default);
+    margin: 0 var(--spacing-1);
+    align-self: center;
+}
+
+/* Top-level menu item */
+.stratum-menubar__item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-1);
+    padding: var(--spacing-2) var(--spacing-3);
+    cursor: pointer;
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-sm);
+    color: var(--color-text-primary);
+    position: relative;
+    user-select: none;
+    border-radius: var(--radius-sm, 4px);
+    transition: background-color var(--transition-fast);
+    white-space: nowrap;
+    outline: none;
+}
+
+.stratum-menubar__item:hover,
+.stratum-menubar__item--focused {
+    background-color: var(--color-bg-hover, rgba(0, 0, 0, 0.06));
+}
+
+.stratum-menubar__item--open {
+    background-color: var(--color-bg-hover, rgba(0, 0, 0, 0.06));
+}
+
+.stratum-menubar__item--disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.stratum-menubar__item--disabled:hover {
+    background-color: transparent;
+}
+
+.stratum-menubar__item:focus-visible {
+    box-shadow: 0 0 0 2px var(--color-primary-500);
+}
+
+/* Icon in top-level item */
+.stratum-menubar__icon {
+    font-size: 16px;
+    width: 18px;
+    text-align: center;
+    flex-shrink: 0;
+    color: var(--color-text-secondary);
+}
+
+.stratum-menubar__icon-spacer {
+    width: 18px;
+    flex-shrink: 0;
+}
+
+/* Text */
+.stratum-menubar__text {
+    flex: 1;
+}
+
+/* Dropdown caret */
+.stratum-menubar__caret {
+    flex-shrink: 0;
+    font-size: 10px;
+    color: var(--color-text-secondary);
+    margin-left: var(--spacing-1);
+}
+
+/* Dropdown panel */
+.stratum-menubar__dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: var(--spacing-1);
+    min-width: 180px;
+    max-width: 320px;
+    background: var(--color-bg-surface);
+    border: 1px solid var(--color-border-default);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg, 0 4px 16px rgba(0, 0, 0, 0.15));
+    padding: var(--spacing-1) 0;
+    z-index: 1000;
+    animation: stratum-menubar-dropdown-in var(--transition-fast, 100ms) ease-out;
+}
+
+/* Dropdown item */
+.stratum-menubar__dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    padding: var(--spacing-2) var(--spacing-3);
+    cursor: pointer;
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-sm);
+    color: var(--color-text-primary);
+    user-select: none;
+    transition: background-color var(--transition-fast);
+}
+
+.stratum-menubar__dropdown-item:hover,
+.stratum-menubar__dropdown-item--focused {
+    background-color: var(--color-bg-hover, rgba(0, 0, 0, 0.06));
+}
+
+.stratum-menubar__dropdown-item--disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.stratum-menubar__dropdown-item--disabled:hover {
+    background-color: transparent;
+}
+
+.stratum-menubar__dropdown-text {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Dropdown separator */
+.stratum-menubar__dropdown-separator {
+    height: 1px;
+    background-color: var(--color-border-default);
+    margin: var(--spacing-1) 0;
+}
+
+/* Click-outside backdrop (transparent) */
+.stratum-menubar__backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+}
+
+@keyframes stratum-menubar-dropdown-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}

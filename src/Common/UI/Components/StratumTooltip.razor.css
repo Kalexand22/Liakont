@@ -1,0 +1,96 @@
+/* StratumTooltip — scoped styles using Stratum design tokens */
+
+.stratum-tooltip-wrapper {
+    display: inline-flex;
+    position: relative;
+}
+
+/* Tooltip popup */
+.stratum-tooltip {
+    position: absolute;
+    z-index: 1100;
+    padding: var(--spacing-1) var(--spacing-2);
+    background: var(--color-text-primary, #1a1a2e);
+    color: var(--color-bg-surface, #fff);
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-xs, 0.75rem);
+    line-height: 1.4;
+    border-radius: var(--radius-sm, 4px);
+    white-space: nowrap;
+    max-width: 280px;
+    pointer-events: none;
+    animation: stratum-tooltip-in var(--transition-fast, 100ms) ease-out;
+}
+
+/* Placement — top */
+.stratum-tooltip--top {
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.stratum-tooltip--top > .stratum-tooltip__arrow {
+    position: absolute;
+    bottom: -4px;
+    left: 50%;
+    transform: translateX(-50%) rotate(45deg);
+    width: 8px;
+    height: 8px;
+    background: var(--color-text-primary, #1a1a2e);
+}
+
+/* Placement — bottom */
+.stratum-tooltip--bottom {
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.stratum-tooltip--bottom > .stratum-tooltip__arrow {
+    position: absolute;
+    top: -4px;
+    left: 50%;
+    transform: translateX(-50%) rotate(45deg);
+    width: 8px;
+    height: 8px;
+    background: var(--color-text-primary, #1a1a2e);
+}
+
+/* Placement — left */
+.stratum-tooltip--left {
+    right: calc(100% + 8px);
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.stratum-tooltip--left > .stratum-tooltip__arrow {
+    position: absolute;
+    right: -4px;
+    top: 50%;
+    transform: translateY(-50%) rotate(45deg);
+    width: 8px;
+    height: 8px;
+    background: var(--color-text-primary, #1a1a2e);
+}
+
+/* Placement — right */
+.stratum-tooltip--right {
+    left: calc(100% + 8px);
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.stratum-tooltip--right > .stratum-tooltip__arrow {
+    position: absolute;
+    left: -4px;
+    top: 50%;
+    transform: translateY(-50%) rotate(45deg);
+    width: 8px;
+    height: 8px;
+    background: var(--color-text-primary, #1a1a2e);
+}
+
+@keyframes stratum-tooltip-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}

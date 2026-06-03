@@ -1,0 +1,115 @@
+@namespace Stratum.Common.UI.Components
+
+@*
+    Dashlet — UI_S01
+    Embeddable widget container for use inside a DashboardLayout.
+
+    Each Dashlet must have a ConfigId that matches a DashletConfig.Id in the parent
+    DashboardLayout. Reads gs-* HTML attributes from the cascaded widget map
+    so Gridstack can position and size it correctly.
+*@
+
+@{
+    var cfg = WidgetMap?.GetValueOrDefault(ConfigId);
+    var gsAttrs = BuildGsAttributes(cfg);
+}
+
+<div class="grid-stack-item @CssClass"
+     data-dashlet-id="@ConfigId"
+     data-testid="@(TestId ?? $"dashlet-{ConfigId}")"
+     @attributes="gsAttrs">
+    <div class="grid-stack-item-content dashlet"
+         role="region"
+         aria-label="@(Title ?? ConfigId)">
+
+        @if (!string.IsNullOrWhiteSpace(Title) || HeaderActions is not null)
+        {
+            <div class="dashlet__header">
+                @if (!string.IsNullOrWhiteSpace(Title))
+                {
+                    <span class="dashlet__title">@Title</span>
+                }
+                @if (HeaderActions is not null)
+                {
+                    <span class="dashlet__actions">@HeaderActions</span>
+                }
+                <span class="dashlet__drag-handle" aria-hidden="true" title="Déplacer">⠿</span>
+            </div>
+        }
+
+        <div class="dashlet__body">
+            @if (Loading)
+            {
+                <div class="dashlet__loading" data-testid="dashlet-loading-@ConfigId">
+                    <span class="spinner-border spinner-border-sm" role="status" aria-label="Chargement"></span>
+                </div>
+            }
+            else
+            {
+                @ChildContent
+            }
+        </div>
+
+    </div>
+</div>
+
+@code {
+    [CascadingParameter]
+    private IReadOnlyDictionary<string, DashletConfig>? WidgetMap { get; set; }
+
+    /// <summary>Must match a <see cref="DashletConfig.Id"/> in the parent <see cref="DashboardLayout"/>.</summary>
+    [Parameter, EditorRequired]
+    public string ConfigId { get; set; } = string.Empty;
+
+    /// <summary>Title shown in the dashlet header.</summary>
+    [Parameter]
+    public string? Title { get; set; }
+
+    /// <summary>Optional header action buttons (e.g., refresh, settings).</summary>
+    [Parameter]
+    public RenderFragment? HeaderActions { get; set; }
+
+    /// <summary>Dashlet content — any Blazor component or markup.</summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>When <c>true</c>, shows a loading spinner instead of content.</summary>
+    [Parameter]
+    public bool Loading { get; set; }
+
+    /// <summary>Additional CSS classes on the outer <c>.grid-stack-item</c> element.</summary>
+    [Parameter]
+    public string? CssClass { get; set; }
+
+    /// <summary>Test identifier for E2E tests.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    private static Dictionary<string, object> BuildGsAttributes(DashletConfig? cfg)
+    {
+        var attrs = new Dictionary<string, object>(StringComparer.Ordinal);
+
+        var x      = cfg?.X      ?? 0;
+        var y      = cfg?.Y      ?? 0;
+        var w      = cfg?.W      ?? 4;
+        var h      = cfg?.H      ?? 2;
+        var locked = cfg?.Locked ?? false;
+
+        attrs["gs-x"] = x;
+        attrs["gs-y"] = y;
+        attrs["gs-w"] = w;
+        attrs["gs-h"] = h;
+
+        if (cfg?.MinW.HasValue == true) attrs["gs-min-w"] = cfg.MinW!.Value;
+        if (cfg?.MinH.HasValue == true) attrs["gs-min-h"] = cfg.MinH!.Value;
+
+        if (locked)
+        {
+            attrs["gs-locked"]    = "true";
+            attrs["gs-no-move"]   = "true";
+            attrs["gs-no-resize"] = "true";
+        }
+
+        return attrs;
+    }
+}

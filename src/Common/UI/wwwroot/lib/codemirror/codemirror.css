@@ -1,0 +1,202 @@
+/* codemirror.css — Stratum Code Editor theme
+ * Supports the textarea/pre-overlay editor (edit mode) and
+ * pre/code-only display (readonly mode).
+ */
+
+/* ── CSS variables ─────────────────────────────────────────────────────────── */
+.cm-editor-container {
+    --cm-bg:           #ffffff;
+    --cm-fg:           #212529;
+    --cm-gutter-bg:    #f8f9fa;
+    --cm-gutter-fg:    #6c757d;
+    --cm-border:       #dee2e6;
+    --cm-caret:        #212529;
+    --cm-kw:           #0000ff;
+    --cm-str:          #a31515;
+    --cm-num:          #098658;
+    --cm-comment:      #6a9955;
+    --cm-tag:          #800000;
+    --cm-attr:         #ff0000;
+    --cm-json-key:     #0451a5;
+    --cm-md-heading:   #000080;
+    --cm-md-bold:      #212529;
+    --cm-md-italic:    #5a6472;
+    --cm-md-code:      #a31515;
+    --cm-selection:    rgba(0, 120, 215, 0.2);
+}
+
+.cm-editor-container.cm-theme-dark {
+    --cm-bg:           #1e1e2e;
+    --cm-fg:           #cdd6f4;
+    --cm-gutter-bg:    #181825;
+    --cm-gutter-fg:    #585b70;
+    --cm-border:       #313244;
+    --cm-caret:        #cdd6f4;
+    --cm-kw:           #cba6f7;
+    --cm-str:          #a6e3a1;
+    --cm-num:          #fab387;
+    --cm-comment:      #6c7086;
+    --cm-tag:          #89b4fa;
+    --cm-attr:         #f38ba8;
+    --cm-json-key:     #89dceb;
+    --cm-md-heading:   #89b4fa;
+    --cm-md-bold:      #cdd6f4;
+    --cm-md-italic:    #a6adc8;
+    --cm-md-code:      #a6e3a1;
+    --cm-selection:    rgba(137, 180, 250, 0.2);
+}
+
+/* ── Container ─────────────────────────────────────────────────────────────── */
+.cm-editor-container {
+    position: relative;
+    border: 1px solid var(--cm-border);
+    border-radius: var(--bs-border-radius, 0.375rem);
+    overflow: hidden;
+    background: var(--cm-bg);
+    color: var(--cm-fg);
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+.cm-editor-container:focus-within {
+    outline: 2px solid var(--bs-focus-ring-color, rgba(13, 110, 253, 0.25));
+    outline-offset: 0;
+    border-color: #86b7fe;
+}
+
+.cm-editor-container.cm-theme-dark:focus-within {
+    outline-color: rgba(137, 180, 250, 0.25);
+    border-color: #89b4fa;
+}
+
+/* ── Language badge ─────────────────────────────────────────────────────────── */
+.cm-lang-badge {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.5rem;
+    font-size: 0.6875rem;
+    font-family: var(--bs-font-sans-serif, system-ui);
+    color: var(--cm-gutter-fg);
+    background: var(--cm-gutter-bg);
+    border: 1px solid var(--cm-border);
+    border-radius: 0.2rem;
+    padding: 0 0.375rem;
+    line-height: 1.6;
+    pointer-events: none;
+    z-index: 2;
+}
+
+/* ── Scroller row (gutter + surface) ──────────────────────────────────────── */
+.cm-scroller {
+    display: flex;
+    height: 100%;
+    overflow: auto;
+}
+
+/* ── Gutter ─────────────────────────────────────────────────────────────────── */
+.cm-gutters {
+    display: flex;
+    flex-direction: column;
+    min-width: 2.5rem;
+    padding: 0.5rem 0;
+    background: var(--cm-gutter-bg);
+    border-right: 1px solid var(--cm-border);
+    color: var(--cm-gutter-fg);
+    font-size: 0.8125rem;
+    user-select: none;
+    flex-shrink: 0;
+    text-align: right;
+}
+
+.cm-gutter-element {
+    padding: 0 0.5rem 0 0.25rem;
+    line-height: 1.5;
+}
+
+/* ── Editor surface ─────────────────────────────────────────────────────────── */
+.cm-surface {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* ── Highlighted pre (shared by edit + readonly) ──────────────────────────── */
+.cm-highlight {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0.5rem 0.75rem;
+    background: transparent;
+    color: var(--cm-fg);
+    font: inherit;
+    line-height: 1.5;
+    white-space: pre;
+    overflow: auto;
+    pointer-events: none;
+    box-sizing: border-box;
+    tab-size: 4;
+    z-index: 1;
+    overflow-wrap: normal;
+}
+
+/* ReadOnly: pre is the interactive element */
+.cm-highlight[tabindex] {
+    position: static;
+    width: 100%;
+    height: 100%;
+    pointer-events: auto;
+    cursor: default;
+    outline: none;
+}
+
+/* ── Textarea (edit mode, transparent overlay) ──────────────────────────────── */
+.cm-input {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0.5rem 0.75rem;
+    border: none;
+    outline: none;
+    resize: none;
+    background: transparent;
+    color: transparent;
+    caret-color: var(--cm-caret);
+    font: inherit;
+    line-height: 1.5;
+    white-space: pre;
+    overflow: auto;
+    box-sizing: border-box;
+    tab-size: 4;
+    z-index: 2;
+    overflow-wrap: normal;
+}
+
+.cm-input:read-only {
+    cursor: default;
+    background: color-mix(in srgb, var(--cm-bg) 90%, var(--cm-gutter-bg) 10%);
+    caret-color: transparent;
+}
+
+.cm-input::selection {
+    background: var(--cm-selection);
+}
+
+/* ── Syntax token colours ───────────────────────────────────────────────────── */
+.cm-keyword    { color: var(--cm-kw); }
+.cm-string     { color: var(--cm-str); }
+.cm-number     { color: var(--cm-num); }
+.cm-comment    { color: var(--cm-comment); font-style: italic; }
+.cm-tag        { color: var(--cm-tag); }
+.cm-attr       { color: var(--cm-attr); }
+.cm-json-key   { color: var(--cm-json-key); }
+.cm-md-heading { color: var(--cm-md-heading); font-weight: 600; }
+.cm-md-bold    { font-weight: 700; }
+.cm-md-italic  { font-style: italic; }
+.cm-md-code    { color: var(--cm-md-code); }

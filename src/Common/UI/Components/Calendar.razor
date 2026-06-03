@@ -1,0 +1,513 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TItem
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+@*
+    Calendar<TItem> — UF01
+    Month / week / day interactive calendar.
+*@
+
+<div class="str-calendar"
+     id="@_id"
+     tabindex="0"
+     role="grid"
+     aria-label="@AriaLabel"
+     aria-multiselectable="false"
+     data-testid="stratum-calendar-view"
+     @onkeydown="HandleKeyDown">
+
+    @* ── Toolbar ─────────────────────────────────────────────────────── *@
+    <div class="str-calendar__toolbar">
+        <div class="str-calendar__nav">
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary"
+                    aria-label="Période précédente"
+                    @onclick="NavigatePrev">
+                ‹
+            </button>
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary"
+                    aria-label="Aujourd'hui"
+                    @onclick="NavigateToday">
+                Aujourd'hui
+            </button>
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary"
+                    aria-label="Période suivante"
+                    @onclick="NavigateNext">
+                ›
+            </button>
+            <span class="str-calendar__period-label">@PeriodLabel</span>
+        </div>
+
+        <div class="str-calendar__mode-tabs"
+             role="tablist"
+             aria-label="Mode d'affichage"
+             @onkeydown="HandleModeTabsKeyDown"
+             @onkeydown:stopPropagation="true">
+            <button type="button" role="tab"
+                    class="btn btn-sm @(Mode == CalendarMode.Month ? "btn-primary" : "btn-outline-secondary")"
+                    aria-selected="@(Mode == CalendarMode.Month ? "true" : "false")"
+                    tabindex="@(Mode == CalendarMode.Month ? "0" : "-1")"
+                    @onclick="@(() => SetMode(CalendarMode.Month))">Mois</button>
+            <button type="button" role="tab"
+                    class="btn btn-sm @(Mode == CalendarMode.Week ? "btn-primary" : "btn-outline-secondary")"
+                    aria-selected="@(Mode == CalendarMode.Week ? "true" : "false")"
+                    tabindex="@(Mode == CalendarMode.Week ? "0" : "-1")"
+                    @onclick="@(() => SetMode(CalendarMode.Week))">Semaine</button>
+            <button type="button" role="tab"
+                    class="btn btn-sm @(Mode == CalendarMode.Day ? "btn-primary" : "btn-outline-secondary")"
+                    aria-selected="@(Mode == CalendarMode.Day ? "true" : "false")"
+                    tabindex="@(Mode == CalendarMode.Day ? "0" : "-1")"
+                    @onclick="@(() => SetMode(CalendarMode.Day))">Jour</button>
+        </div>
+    </div>
+
+    @if (Mode == CalendarMode.Month) { @RenderMonthView() }
+    else { @RenderTimeGridView() }
+
+    <div aria-live="assertive" aria-atomic="true" class="visually-hidden">@_ariaLiveMessage</div>
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<TItem>? Items { get; set; }
+    [Parameter, EditorRequired] public Func<TItem, DateTime> StartField { get; set; } = null!;
+    [Parameter] public Func<TItem, DateTime?>? EndField { get; set; }
+    [Parameter, EditorRequired] public Func<TItem, string> TitleSelector { get; set; } = null!;
+    [Parameter] public Func<TItem, string?>? ColorSelector { get; set; }
+    [Parameter] public CalendarMode Mode { get; set; } = CalendarMode.Month;
+    [Parameter] public EventCallback<CalendarMode> ModeChanged { get; set; }
+    [Parameter] public DateTime CurrentDate { get; set; } = DateTime.Today;
+    [Parameter] public EventCallback<DateTime> CurrentDateChanged { get; set; }
+    [Parameter] public EventCallback<TItem> OnEventClick { get; set; }
+    [Parameter] public EventCallback<EventMoveArgs<TItem>> OnEventMove { get; set; }
+    [Parameter] public EventCallback<DateTime> OnSlotClick { get; set; }
+    [Parameter] public RenderFragment<TItem>? EventTemplate { get; set; }
+    [Parameter] public bool DragEnabled { get; set; }
+    [Parameter] public bool ReadOnly { get; set; }
+
+    private readonly string _id = $"str-cal-{Guid.NewGuid():N}";
+    private IJSObjectReference? _jsModule;
+    private DotNetObjectReference<Calendar<TItem>>? _dotnetRef;
+    private string _ariaLiveMessage = string.Empty;
+    private bool _jsInitialized;
+    private const double PxPerMinute = 0.8;
+    private const int TimeCanvasHeight = 1152;
+
+    private static readonly string[] DayNames = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+    private static readonly System.Globalization.CultureInfo Fr =
+        System.Globalization.CultureInfo.GetCultureInfo("fr-FR");
+
+    private string AriaLabel => Mode switch
+    {
+        CalendarMode.Month => $"Calendrier — {CurrentDate.ToString("MMMM yyyy", Fr)}",
+        CalendarMode.Week => $"Calendrier semaine du {WeekStart.ToString("d MMMM yyyy", Fr)}",
+        CalendarMode.Day => $"Calendrier — {CurrentDate.ToString("dddd d MMMM yyyy", Fr)}",
+        _ => "Calendrier",
+    };
+
+    private string PeriodLabel => Mode switch
+    {
+        CalendarMode.Month => CurrentDate.ToString("MMMM yyyy", Fr),
+        CalendarMode.Week => $"Sem. du {WeekStart.ToString("d MMM", Fr)} au {WeekStart.AddDays(6).ToString("d MMM yyyy", Fr)}",
+        CalendarMode.Day => CurrentDate.ToString("dddd d MMMM yyyy", Fr),
+        _ => string.Empty,
+    };
+
+    private DateTime WeekStart
+    {
+        get
+        {
+            var dow = (int)CurrentDate.DayOfWeek;
+            var offset = dow == 0 ? 6 : dow - 1;
+            return CurrentDate.Date.AddDays(-offset);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _jsModule = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./_content/Stratum.Common.UI/js/calendar.js");
+            await _jsModule.InvokeVoidAsync("initKeyboard", _id);
+        }
+
+        if (DragEnabled && !_jsInitialized && _jsModule is not null)
+        {
+            _dotnetRef = DotNetObjectReference.Create(this);
+            await _jsModule.InvokeVoidAsync("initCalendar", _id, _dotnetRef);
+            _jsInitialized = true;
+        }
+        else if (!DragEnabled && _jsInitialized && _jsModule is not null)
+        {
+            await _jsModule.InvokeVoidAsync("destroyCalendar", _id);
+            _dotnetRef?.Dispose();
+            _dotnetRef = null;
+            _jsInitialized = false;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_jsModule is not null)
+        {
+            if (_jsInitialized) await _jsModule.InvokeVoidAsync("destroyCalendar", _id);
+            await _jsModule.InvokeVoidAsync("destroyKeyboard", _id);
+            await _jsModule.DisposeAsync();
+        }
+        _dotnetRef?.Dispose();
+    }
+
+    private async Task NavigatePrev() => await SetCurrentDate(Mode switch
+    {
+        CalendarMode.Month => CurrentDate.AddMonths(-1),
+        CalendarMode.Week => CurrentDate.AddDays(-7),
+        CalendarMode.Day => CurrentDate.AddDays(-1),
+        _ => CurrentDate,
+    });
+
+    private async Task NavigateNext() => await SetCurrentDate(Mode switch
+    {
+        CalendarMode.Month => CurrentDate.AddMonths(1),
+        CalendarMode.Week => CurrentDate.AddDays(7),
+        CalendarMode.Day => CurrentDate.AddDays(1),
+        _ => CurrentDate,
+    });
+
+    private async Task NavigateToday() => await SetCurrentDate(DateTime.Today);
+    private async Task SetCurrentDate(DateTime date) { CurrentDate = date; await CurrentDateChanged.InvokeAsync(date); }
+    private async Task SetMode(CalendarMode mode) { Mode = mode; await ModeChanged.InvokeAsync(mode); }
+
+    private async Task HandleModeTabsKeyDown(KeyboardEventArgs e)
+    {
+        CalendarMode[] modes = [CalendarMode.Month, CalendarMode.Week, CalendarMode.Day];
+        var cur = Array.IndexOf(modes, Mode);
+        switch (e.Key)
+        {
+            case "ArrowRight": if (cur < modes.Length - 1) await SetMode(modes[cur + 1]); break;
+            case "ArrowLeft": if (cur > 0) await SetMode(modes[cur - 1]); break;
+            case "Home": await SetMode(CalendarMode.Month); break;
+            case "End": await SetMode(CalendarMode.Day); break;
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "ArrowLeft": await NavigatePrev(); break;
+            case "ArrowRight": await NavigateNext(); break;
+            case "t": case "T": await NavigateToday(); break;
+            case "m": case "M": await SetMode(CalendarMode.Month); break;
+            case "w": case "W": await SetMode(CalendarMode.Week); break;
+            case "d": case "D": await SetMode(CalendarMode.Day); break;
+        }
+    }
+
+    private async Task ShowAllEventsForDay(DateTime day) { await SetCurrentDate(day); await SetMode(CalendarMode.Day); }
+
+    private IEnumerable<(TItem Item, int Index)> EventsOnDayWithIndex(DateTime day)
+    {
+        if (Items is null) yield break;
+        for (var i = 0; i < Items.Count; i++)
+        {
+            var item = Items[i];
+            var start = StartField(item).Date;
+            var end = (EndField?.Invoke(item) ?? StartField(item)).Date;
+            if (day >= start && day <= end) yield return (item, i);
+        }
+    }
+
+    private string EventColor(TItem item) =>
+        ColorSelector?.Invoke(item) is { Length: > 0 } c ? c : "var(--color-primary, #2563eb)";
+
+    private string EventTitle(TItem item) => TitleSelector(item);
+
+    private string EventAriaLabel(TItem item)
+    {
+        var start = StartField(item);
+        var end = EndField?.Invoke(item);
+        return end.HasValue && end.Value.Date != start.Date
+            ? $"{EventTitle(item)}, du {start.ToString("d MMM", Fr)} au {end.Value.ToString("d MMM", Fr)}"
+            : $"{EventTitle(item)}, {start.ToString("d MMM yyyy", Fr)}";
+    }
+
+    // ── Month view ────────────────────────────────────────────────────
+    private RenderFragment RenderMonthView() => builder =>
+    {
+        var firstOfMonth = new DateTime(CurrentDate.Year, CurrentDate.Month, 1);
+        var daysInMonth = DateTime.DaysInMonth(CurrentDate.Year, CurrentDate.Month);
+        var dow = (int)firstOfMonth.DayOfWeek;
+        var leadingDays = dow == 0 ? 6 : dow - 1;
+        var gridStart = firstOfMonth.AddDays(-leadingDays);
+        var totalCells = (int)Math.Ceiling((leadingDays + daysInMonth) / 7.0) * 7;
+
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", "str-calendar__month");
+
+        builder.OpenElement(2, "div");
+        builder.AddAttribute(3, "class", "str-calendar__month-header");
+        builder.AddAttribute(4, "aria-hidden", "true");
+        for (var d = 0; d < 7; d++)
+        {
+            builder.OpenRegion(d);
+            builder.OpenElement(0, "div");
+            builder.AddAttribute(1, "class", "str-calendar__day-name");
+            builder.AddContent(2, DayNames[d]);
+            builder.CloseElement();
+            builder.CloseRegion();
+        }
+        builder.CloseElement();
+
+        builder.OpenElement(8, "div");
+        builder.AddAttribute(9, "class", "str-calendar__month-grid");
+        for (var i = 0; i < totalCells; i++)
+        {
+            builder.OpenRegion(i);
+            var day = gridStart.AddDays(i);
+            var isCurrentMonth = day.Month == CurrentDate.Month;
+            var isToday = day.Date == DateTime.Today;
+            var allEvents = EventsOnDayWithIndex(day).ToList();
+            var events = allEvents.Take(3).ToList();
+            var overflow = allEvents.Count - events.Count;
+
+            var cellClass = "str-calendar__day-cell"
+                + (isCurrentMonth ? "" : " str-calendar__day-cell--other")
+                + (isToday ? " str-calendar__day-cell--today" : "");
+
+            builder.OpenElement(0, "div");
+            builder.AddAttribute(1, "class", cellClass);
+            builder.AddAttribute(2, "role", "gridcell");
+            builder.AddAttribute(3, "aria-label", day.ToString("d MMMM yyyy", Fr));
+            if (isToday) builder.AddAttribute(4, "aria-current", "date");
+
+            builder.OpenElement(5, "span");
+            builder.AddAttribute(6, "class", "str-calendar__day-num");
+            builder.AddContent(7, day.Day.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            builder.CloseElement();
+
+            foreach (var (ev, idx) in events)
+            {
+                builder.OpenRegion(idx);
+                RenderEventChip(builder, ev, idx);
+                builder.CloseRegion();
+            }
+
+            if (overflow > 0)
+            {
+                var capturedDay = day;
+                builder.OpenElement(8, "button");
+                builder.AddAttribute(9, "type", "button");
+                builder.AddAttribute(10, "class", "str-calendar__event-overflow");
+                builder.AddAttribute(11, "aria-label", $"+{overflow} autre{(overflow > 1 ? "s" : "")}");
+                builder.AddAttribute(12, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(
+                    this, _ => ShowAllEventsForDay(capturedDay)));
+                builder.AddContent(13, $"+{overflow} autre{(overflow > 1 ? "s" : "")}");
+                builder.CloseElement();
+            }
+
+            builder.CloseElement();
+            builder.CloseRegion();
+        }
+        builder.CloseElement();
+        builder.CloseElement();
+    };
+
+    private void RenderEventChip(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder, TItem ev, int itemIndex)
+    {
+        var color = EventColor(ev);
+        var title = EventTitle(ev);
+        var ariaLabel = EventAriaLabel(ev);
+
+        builder.OpenElement(1, "button");
+        builder.AddAttribute(2, "type", "button");
+        builder.AddAttribute(3, "class", "str-calendar__event-chip");
+        builder.AddAttribute(4, "style", $"background-color:{color};");
+        builder.AddAttribute(5, "role", "button");
+        builder.AddAttribute(6, "aria-label", ariaLabel);
+        builder.AddAttribute(7, "title", title);
+        builder.AddAttribute(8, "tabindex", "0");
+        builder.AddAttribute(9, "data-cal-event-index", itemIndex.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        if (DragEnabled) builder.AddAttribute(10, "draggable", "true");
+        builder.AddAttribute(11, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(
+            this, _ => OnEventClick.InvokeAsync(ev)));
+
+        if (EventTemplate is not null) { builder.AddContent(12, EventTemplate(ev)); }
+        else
+        {
+            builder.OpenElement(12, "span");
+            builder.AddAttribute(13, "class", "str-calendar__event-chip-title");
+            builder.AddContent(14, title);
+            builder.CloseElement();
+        }
+        builder.CloseElement();
+    }
+
+    // ── Time-grid view (week / day) ───────────────────────────────────
+    private RenderFragment RenderTimeGridView() => builder =>
+    {
+        var columns = Mode == CalendarMode.Week ? 7 : 1;
+        var columnStart = Mode == CalendarMode.Week ? WeekStart : CurrentDate.Date;
+
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", "str-calendar__time-grid");
+        builder.AddAttribute(2, "style", $"--tg-col-count:{columns}");
+
+        builder.OpenElement(3, "div");
+        builder.AddAttribute(4, "class", "str-calendar__tg-header");
+        builder.OpenElement(5, "div");
+        builder.AddAttribute(6, "class", "str-calendar__tg-gutter-head");
+        builder.CloseElement();
+
+        for (var c = 0; c < columns; c++)
+        {
+            var colDate = columnStart.AddDays(c);
+            var isToday = colDate.Date == DateTime.Today;
+            builder.OpenElement(7, "div");
+            builder.AddAttribute(8, "class", "str-calendar__tg-col-head" + (isToday ? " str-calendar__tg-col-head--today" : ""));
+            builder.OpenElement(9, "span");
+            builder.AddAttribute(10, "class", "str-calendar__tg-col-dayname");
+            builder.AddContent(11, colDate.ToString("ddd", Fr));
+            builder.CloseElement();
+            builder.OpenElement(12, "span");
+            builder.AddAttribute(13, "class", "str-calendar__tg-col-daynum" + (isToday ? " str-calendar__tg-col-daynum--today" : ""));
+            builder.AddContent(14, colDate.Day.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            builder.CloseElement();
+            builder.CloseElement();
+        }
+        builder.CloseElement();
+
+        builder.OpenElement(15, "div");
+        builder.AddAttribute(16, "class", "str-calendar__tg-body");
+        builder.OpenElement(17, "div");
+        builder.AddAttribute(18, "class", "str-calendar__tg-canvas");
+        builder.AddAttribute(19, "style", $"height:{TimeCanvasHeight}px;");
+
+        for (var h = 0; h < 24; h++)
+        {
+            builder.OpenRegion(h);
+            builder.OpenElement(0, "div");
+            builder.AddAttribute(1, "class", "str-calendar__tg-row");
+            builder.OpenElement(2, "div");
+            builder.AddAttribute(3, "class", "str-calendar__tg-hour");
+            builder.AddContent(4, $"{h:D2}:00");
+            builder.CloseElement();
+            for (var c = 0; c < columns; c++)
+            {
+                builder.OpenRegion(c);
+                var colDate = columnStart.AddDays(c);
+                var slotTime = colDate.AddHours(h);
+                builder.OpenElement(0, "div");
+                builder.AddAttribute(1, "class", "str-calendar__tg-cell");
+                builder.AddAttribute(2, "role", "gridcell");
+                builder.AddAttribute(3, "aria-label", slotTime.ToString("H\\hmm, d MMMM yyyy", Fr));
+                builder.AddAttribute(4, "data-cal-slot", slotTime.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+                if (!ReadOnly)
+                {
+                    var captured = slotTime;
+                    builder.AddAttribute(5, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(
+                        this, _ => OnSlotClick.InvokeAsync(captured)));
+                }
+                builder.CloseElement();
+                builder.CloseRegion();
+            }
+            builder.CloseElement();
+            builder.CloseRegion();
+        }
+
+        for (var c = 0; c < columns; c++)
+        {
+            var colDate = columnStart.AddDays(c);
+            foreach (var (ev, idx, topPx, heightPx) in EventsForTimeGridColumn(colDate))
+            {
+                builder.OpenRegion(100 + (c * 10000) + idx);
+                RenderTimeGridEvent(builder, ev, idx, c, topPx, heightPx);
+                builder.CloseRegion();
+            }
+        }
+
+        builder.CloseElement();
+        builder.CloseElement();
+        builder.CloseElement();
+    };
+
+    private IEnumerable<(TItem Item, int Index, double TopPx, double HeightPx)> EventsForTimeGridColumn(DateTime colDate)
+    {
+        if (Items is null) yield break;
+        for (var i = 0; i < Items.Count; i++)
+        {
+            var item = Items[i];
+            var start = StartField(item);
+            var end = EndField?.Invoke(item) ?? start.AddHours(1);
+            if (start.Date > colDate || end.Date < colDate) continue;
+            var dayStart = colDate;
+            var dayEnd = colDate.AddDays(1);
+            var cs = start < dayStart ? dayStart : start;
+            var ce = end > dayEnd ? dayEnd : end;
+            if (ce <= cs) continue;
+            yield return (item, i, (cs - dayStart).TotalMinutes * PxPerMinute, Math.Max((ce - cs).TotalMinutes * PxPerMinute, 20.0));
+        }
+    }
+
+    private void RenderTimeGridEvent(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder,
+        TItem ev, int itemIndex, int colIndex, double topPx, double heightPx)
+    {
+        var color = EventColor(ev);
+        var title = EventTitle(ev);
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        var style = $"top:{topPx.ToString("F1", inv)}px;height:{heightPx.ToString("F1", inv)}px;"
+            + $"left:calc(64px + {colIndex} * var(--tg-col-width));width:calc(var(--tg-col-width) - 4px);"
+            + $"background-color:{color};";
+
+        builder.OpenElement(1, "button");
+        builder.AddAttribute(2, "type", "button");
+        builder.AddAttribute(3, "class", "str-calendar__tg-event");
+        builder.AddAttribute(4, "style", style);
+        builder.AddAttribute(5, "role", "button");
+        builder.AddAttribute(6, "aria-label", EventAriaLabel(ev));
+        builder.AddAttribute(7, "title", title);
+        builder.AddAttribute(8, "tabindex", "0");
+        builder.AddAttribute(9, "data-cal-event-index", itemIndex.ToString(inv));
+        if (DragEnabled) builder.AddAttribute(10, "draggable", "true");
+        builder.AddAttribute(11, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(
+            this, _ => OnEventClick.InvokeAsync(ev)));
+
+        if (EventTemplate is not null) { builder.AddContent(12, EventTemplate(ev)); }
+        else
+        {
+            builder.OpenElement(12, "span");
+            builder.AddAttribute(13, "class", "str-calendar__tg-event-title");
+            builder.AddContent(14, title);
+            builder.CloseElement();
+        }
+        builder.CloseElement();
+    }
+
+    [JSInvokable]
+    public async Task OnEventMoved(string itemIndex, string newStartIso, string newEndIso)
+    {
+        if (Items is null) return;
+        if (!int.TryParse(itemIndex, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var idx)
+            || idx < 0 || idx >= Items.Count) return;
+
+        var item = Items[idx];
+        var oldStart = StartField(item);
+        var oldEnd = EndField?.Invoke(item);
+
+        if (!DateTime.TryParse(newStartIso, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind, out var newStart)) return;
+
+        DateTime? newEnd = null;
+        if (!string.IsNullOrEmpty(newEndIso)
+            && DateTime.TryParse(newEndIso, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind, out var parsedEnd))
+            newEnd = parsedEnd;
+
+        _ariaLiveMessage = $"{EventTitle(item)} déplacé au {newStart.ToString("d MMM yyyy", Fr)}";
+        StateHasChanged();
+        await OnEventMove.InvokeAsync(new EventMoveArgs<TItem>(item, oldStart, oldEnd, newStart, newEnd));
+    }
+}

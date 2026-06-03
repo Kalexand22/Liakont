@@ -1,0 +1,52 @@
+.stratum-map-layers {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-surface);
+    overflow: hidden;
+}
+
+.stratum-map-layers__header {
+    padding: var(--spacing-2) var(--spacing-3);
+    background: var(--color-bg-subtle);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.stratum-map-layers__title {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text-primary);
+}
+
+.stratum-map-layers__list {
+    padding: var(--spacing-2) 0;
+}
+
+.stratum-map-layers__item {
+    padding: var(--spacing-1) var(--spacing-3);
+}
+
+.stratum-map-layers__label {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+}
+
+.stratum-map-layers__checkbox {
+    accent-color: var(--color-primary-600);
+    width: 16px;
+    height: 16px;
+}
+
+.stratum-map-layers__name {
+    color: var(--color-text-primary);
+}
+
+.stratum-map-layers__empty {
+    padding: var(--spacing-3);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+    text-align: center;
+}

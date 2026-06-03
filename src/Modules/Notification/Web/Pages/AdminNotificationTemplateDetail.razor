@@ -1,0 +1,160 @@
+@page "/admin/notifications/templates/{Id:guid}"
+@page "/admin/notifications/templates/new"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Modules.Notification.Contracts.DTOs
+@using Stratum.Modules.Notification.Contracts.Queries
+@using Stratum.Modules.Notification.Contracts.Commands
+@inject IEmailTemplateQueries TemplateQueries
+@inject ISender Sender
+@inject NavigationManager Nav
+@inject IToastService ToastService
+
+@*
+ * AdminNotificationTemplateDetail — edit/create email template with EmailTemplateEditor.
+ *
+ * Wires the EmailTemplateEditor authoring component to the Notification module backend.
+ * On publish: save via MediatR command.
+ *
+ * Ref: UIA05
+ *@
+
+<PageTitle>@(_isNew ? "Nouveau template" : _current?.Code ?? "Template") — Administration</PageTitle>
+
+<PageHeader Title="@(_isNew ? "Nouveau template email" : _current?.Code ?? "Template")"
+            Subtitle="@(_isNew ? "Création" : "Édition")"
+            TestId="notif-template-detail-header" />
+
+@if (_loading)
+{
+    <div class="d-flex justify-content-center py-5">
+        <div class="spinner-border" role="status">
+            <span class="visually-hidden">Chargement…</span>
+        </div>
+    </div>
+}
+else if (!_isNew && _current is null)
+{
+    <div class="alert alert-warning" role="alert">Template introuvable.</div>
+}
+else
+{
+    <PermissionGate Permission="@(_isNew ? NotificationPermissions.Create : NotificationPermissions.Update)">
+        <EmailTemplateEditor Templates="@_libraryItems"
+                             Variables="@_variables"
+                             Categories="@_categories"
+                             OnPublish="HandlePublishAsync"
+                             OnSendTest="HandleSendTestAsync"
+                             OnTemplateSelected="HandleTemplateSelectedAsync"
+                             TestId="notif-template-editor"
+                             AriaLabel="Éditeur de template email" />
+    </PermissionGate>
+}
+
+<ActionBar TestId="notif-template-actions">
+    <div>
+        <StratumButton Text="Retour liste" Variant="ButtonVariant.Secondary" Outline
+                       Href="/admin/notifications/templates" TestId="notif-template-back-btn" />
+    </div>
+</ActionBar>
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+
+    private bool _isNew => Id is null;
+    private bool _loading;
+    private EmailTemplateDto? _current;
+
+    private IReadOnlyList<EmailTemplateEditorItem> _libraryItems = [];
+    private Dictionary<string, Guid> _templateIdByCode = new();
+    private IReadOnlyList<EmailTemplateVariable> _variables = [];
+    private IReadOnlyList<string> _categories = ["Workflow", "SLA", "Manuel"];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _loading = true;
+        try
+        {
+            var allTemplates = await TemplateQueries.List();
+            _libraryItems = allTemplates.Select(t => new EmailTemplateEditorItem
+            {
+                Code = t.Code,
+                Name = t.SubjectTemplate,
+                Description = t.EntityType,
+                Category = t.Category,
+                Subject = t.SubjectTemplate,
+                BodyHtml = t.BodyTemplate,
+            }).ToList();
+            _templateIdByCode = allTemplates.ToDictionary(t => t.Code, t => t.Id);
+
+            _variables =
+            [
+                new() { Name = "recipientName", SampleValue = "Jean Dupont" },
+                new() { Name = "entityCode", SampleValue = "RSV-2026-001" },
+                new() { Name = "entityType", SampleValue = "Reservation" },
+                new() { Name = "statusLabel", SampleValue = "Approuvé" },
+                new() { Name = "tenantName", SampleValue = "Mairie de Brest" },
+                new() { Name = "actionUrl", SampleValue = "https://app.stratum.io/reservations/123" },
+                new() { Name = "dueDate", SampleValue = "15/04/2026" },
+            ];
+
+            if (!_isNew)
+            {
+                _current = await TemplateQueries.GetById(Id!.Value);
+            }
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task HandlePublishAsync(EmailTemplateEditorSaveArgs args)
+    {
+        try
+        {
+            if (_isNew)
+            {
+                var newId = await Sender.Send(new CreateEmailTemplateCommand
+                {
+                    Code = args.Code,
+                    SubjectTemplate = args.Subject,
+                    BodyTemplate = args.BodyHtml,
+                });
+                ToastService.Show("Template créé.", Severity.Success);
+                Nav.NavigateTo($"/admin/notifications/templates/{newId}");
+            }
+            else
+            {
+                await Sender.Send(new UpdateEmailTemplateCommand
+                {
+                    TemplateId = _current!.Id,
+                    SubjectTemplate = args.Subject,
+                    BodyTemplate = args.BodyHtml,
+                });
+                ToastService.Show("Template enregistré.", Severity.Success);
+                _current = await TemplateQueries.GetById(_current.Id);
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.Show($"Erreur : {ex.Message}", Severity.Error);
+        }
+    }
+
+    private Task HandleSendTestAsync(EmailTemplateEditorSaveArgs args)
+    {
+        ToastService.Show("Envoi de test non encore implémenté.", Severity.Info);
+        return Task.CompletedTask;
+    }
+
+    private Task HandleTemplateSelectedAsync(EmailTemplateEditorItem item)
+    {
+        if (_templateIdByCode.TryGetValue(item.Code, out var templateId))
+        {
+            Nav.NavigateTo($"/admin/notifications/templates/{templateId}");
+        }
+        return Task.CompletedTask;
+    }
+}

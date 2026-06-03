@@ -1,0 +1,17 @@
+/* StratumRowActionMenu — kebab (⋮) trigger + positioning */
+
+.stratum-row-action-menu {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* StratumRowActionMenu — structural only.
+ * All visual styles (color, hover, focus) are in components.css (global)
+ * to avoid Blazor scoped-CSS specificity issues with nested components. */
+
+.stratum-row-action-menu {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}

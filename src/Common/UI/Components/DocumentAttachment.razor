@@ -1,0 +1,225 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.Abstractions.Documents
+@inject IDocumentAttachmentService AttachmentService
+@inject IToastService ToastService
+
+<SectionCard Title="@Title" Collapsible="true" TestId="@(TestId ?? "document-attachment")">
+    @if (_loading)
+    {
+        <p class="doc-attach__loading">Chargement…</p>
+    }
+    else
+    {
+        @if (_documents.Count > 0)
+        {
+            <div class="doc-attach__list" data-testid="doc-attach-list">
+                @foreach (var doc in _documents)
+                {
+                    <div class="doc-attach__item" data-testid="doc-attach-item-@doc.Id">
+                        <div class="doc-attach__info">
+                            <span class="doc-attach__icon" aria-hidden="true">
+                                <i class="bi @GetFileIcon(doc.ContentType)"></i>
+                            </span>
+                            <div class="doc-attach__meta">
+                                <span class="doc-attach__name" data-testid="doc-attach-name">@doc.FileName</span>
+                                <span class="doc-attach__details">@FormatSize(doc.SizeBytes) · @doc.CreatedAt.ToString("dd/MM/yyyy")</span>
+                            </div>
+                        </div>
+                        <div class="doc-attach__actions">
+                            <PermissionGate Permission="document.download">
+                                <a href="@AttachmentService.GetDownloadUrl(doc.Id)"
+                                   download
+                                   class="doc-attach__download-link"
+                                   data-testid="@($"doc-attach-download-{doc.Id}")">
+                                    Télécharger
+                                </a>
+                            </PermissionGate>
+                            <PermissionGate Permission="document.delete">
+                                <StratumButton Text="Supprimer"
+                                               Variant="ButtonVariant.Danger"
+                                               Size="ButtonSize.Small"
+                                               Outline
+                                               OnClick="@(_ => HandleDelete(doc))"
+                                               TestId="@($"doc-attach-delete-{doc.Id}")" />
+                            </PermissionGate>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <p class="doc-attach__empty" data-testid="doc-attach-empty">Aucun document attaché.</p>
+        }
+
+        <PermissionGate Permission="document.upload">
+            <div class="doc-attach__upload" data-testid="doc-attach-upload">
+                <StratumFileUpload Accept="@AcceptedFormats"
+                                   MaxFileSize="@AttachmentService.MaxFileSizeBytes"
+                                   Multiple="true"
+                                   OnUpload="HandleUpload"
+                                   Disabled="@_isUploading"
+                                   TestId="doc-attach-dropzone" />
+            </div>
+        </PermissionGate>
+    }
+</SectionCard>
+
+<StratumDialog Title="Supprimer le document"
+               @bind-Visible="_showDeleteConfirm"
+               TestId="doc-attach-delete-dialog">
+    <ChildContent>
+        <p>Voulez-vous supprimer le document « @_pendingDelete?.FileName » ?</p>
+    </ChildContent>
+    <Actions>
+        <StratumButton Text="Supprimer"
+                       Variant="ButtonVariant.Danger"
+                       OnClick="ConfirmDelete"
+                       Disabled="_isDeleting"
+                       TestId="doc-attach-delete-confirm" />
+        <StratumButton Text="Annuler"
+                       Variant="ButtonVariant.Secondary"
+                       OnClick="@(_ => _showDeleteConfirm = false)"
+                       TestId="doc-attach-delete-cancel" />
+    </Actions>
+</StratumDialog>
+
+@code {
+    [Parameter, EditorRequired]
+    public string EntityType { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string EntityId { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Title { get; set; } = "Documents attachés";
+
+    [Parameter]
+    public string? AcceptedFormats { get; set; }
+
+    [Parameter]
+    public string? TestId { get; set; }
+
+    private List<AttachedDocumentInfo> _documents = [];
+    private bool _loading = true;
+    private bool _isUploading;
+    private bool _showDeleteConfirm;
+    private bool _isDeleting;
+    private AttachedDocumentInfo? _pendingDelete;
+    private string _prevEntityType = string.Empty;
+    private string _prevEntityId = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _prevEntityType = EntityType;
+        _prevEntityId = EntityId;
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_prevEntityType == EntityType && _prevEntityId == EntityId)
+            return;
+
+        _prevEntityType = EntityType;
+        _prevEntityId = EntityId;
+        _loading = true;
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    private async Task ReloadAsync()
+    {
+        _documents = (await AttachmentService.ListByEntityAsync(EntityType, EntityId)).ToList();
+    }
+
+    private async Task HandleUpload(IReadOnlyList<UploadedFile> files)
+    {
+        _isUploading = true;
+        StateHasChanged();
+
+        var successCount = 0;
+
+        foreach (var file in files)
+        {
+            try
+            {
+                await AttachmentService.UploadAsync(
+                    file.Stream,
+                    file.Name,
+                    file.ContentType,
+                    file.Size,
+                    EntityType,
+                    EntityId);
+                successCount++;
+            }
+            catch (Exception ex)
+            {
+                ToastService.Show($"Erreur : {ex.Message}", Severity.Error);
+            }
+            finally
+            {
+                await file.Stream.DisposeAsync();
+            }
+        }
+
+        if (successCount > 0)
+        {
+            ToastService.Show($"{successCount} document(s) attaché(s).", Severity.Success);
+        }
+
+        _isUploading = false;
+        await ReloadAsync();
+        StateHasChanged();
+    }
+
+    private void HandleDelete(AttachedDocumentInfo doc)
+    {
+        _pendingDelete = doc;
+        _showDeleteConfirm = true;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (_pendingDelete is null) return;
+
+        _isDeleting = true;
+        StateHasChanged();
+
+        try
+        {
+            await AttachmentService.DeleteAsync(_pendingDelete.Id);
+            ToastService.Show($"Document « {_pendingDelete.FileName} » supprimé.", Severity.Success);
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            ToastService.Show($"Erreur : {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isDeleting = false;
+            _showDeleteConfirm = false;
+            _pendingDelete = null;
+        }
+    }
+
+    private static string GetFileIcon(string contentType) => contentType switch
+    {
+        _ when contentType.StartsWith("image/") => "bi-file-image",
+        "application/pdf" => "bi-file-pdf",
+        _ when contentType.StartsWith("text/") => "bi-file-text",
+        _ when contentType.Contains("spreadsheet") || contentType.Contains("excel") => "bi-file-earmark-spreadsheet",
+        _ when contentType.Contains("word") || contentType.Contains("document") => "bi-file-earmark-word",
+        _ => "bi-file-earmark",
+    };
+
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} o",
+        < 1024 * 1024 => $"{bytes / 1024.0:F0} Ko",
+        < 1024 * 1024 * 1024 => $"{bytes / (1024.0 * 1024.0):F1} Mo",
+        _ => $"{bytes / (1024.0 * 1024.0 * 1024.0):F1} Go",
+    };
+}

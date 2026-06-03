@@ -1,0 +1,889 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TItem where TItem : notnull
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Models
+@using Stratum.Common.UI.Services
+
+@implements IStratumListView<TItem>
+
+@* StratumCalendarView<TItem> — Date-based calendar layout.
+ *
+ * Implements IStratumListView<TItem> for multi-view list pages.
+ * Places items on a calendar using the DateProperty parameter.
+ * Month, Week, Day views with navigation.
+ *
+ * Usage:
+ *   <StratumCalendarView TItem="EventDto" Data="@events" Loading="@_loading"
+ *                        DateProperty="DueDate"
+ *                        OnRowActivated="@GoToEvent"
+ *                        AriaLabel="Calendrier des événements" />
+ *
+ * Ref: orchestration/manifest.yaml GV04.
+ *@
+
+<div class="stratum-calendar-view"
+     data-testid="@(TestId ?? "stratum-calendar-view")"
+     @onkeydown="HandleKeyDown"
+     tabindex="0"
+     @ref="_wrapperRef">
+
+    @if (Loading)
+    {
+        <div class="stratum-calendar-view__loading" role="status" aria-label="@(AriaLabel ?? "Chargement")" aria-busy="true">
+            <div class="stratum-calendar-view__toolbar stratum-calendar-view__toolbar--skeleton" aria-hidden="true">
+                <div class="stratum-calendar-view__skeleton-btn"></div>
+                <div class="stratum-calendar-view__skeleton-title"></div>
+                <div class="stratum-calendar-view__skeleton-btn"></div>
+            </div>
+            <div class="stratum-calendar-view__grid-skeleton" aria-hidden="true">
+                @for (var r = 0; r < 5; r++)
+                {
+                    <div class="stratum-calendar-view__skeleton-row">
+                        @for (var c = 0; c < 7; c++)
+                        {
+                            <div class="stratum-calendar-view__skeleton-cell"></div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else if (Data is null || Data.Count == 0)
+    {
+        <div class="stratum-calendar-view__header">
+            @RenderToolbar()
+        </div>
+        <div class="stratum-calendar-view__empty" role="status">
+            @if (EmptyContent is not null)
+            {
+                @EmptyContent
+            }
+            else
+            {
+                <p class="stratum-calendar-view__empty-text">Aucun élément.</p>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="stratum-calendar-view__header">
+            @RenderToolbar()
+        </div>
+
+        @switch (_activeView)
+        {
+            case CalendarViewMode.Month:
+                @RenderMonthView()
+                break;
+            case CalendarViewMode.Week:
+                @RenderWeekView()
+                break;
+            case CalendarViewMode.Day:
+                @RenderDayView()
+                break;
+        }
+    }
+</div>
+
+@* ── Toolbar ──────────────────────────────────────────────────── *@
+
+@{
+    RenderFragment RenderToolbar() =>
+        @<div class="stratum-calendar-view__toolbar" role="toolbar" aria-label="Navigation du calendrier">
+            <div class="stratum-calendar-view__nav">
+                <button type="button"
+                        class="stratum-calendar-view__nav-btn"
+                        aria-label="Période précédente"
+                        data-testid="cal-prev"
+                        @onclick="NavigatePrevious">
+                    ‹
+                </button>
+                <button type="button"
+                        class="stratum-calendar-view__today-btn"
+                        data-testid="cal-today"
+                        @onclick="NavigateToday">
+                    Aujourd'hui
+                </button>
+                <button type="button"
+                        class="stratum-calendar-view__nav-btn"
+                        aria-label="Période suivante"
+                        data-testid="cal-next"
+                        @onclick="NavigateNext">
+                    ›
+                </button>
+            </div>
+
+            <h2 class="stratum-calendar-view__period-label" aria-live="polite">
+                @GetPeriodLabel()
+            </h2>
+
+            <div class="stratum-calendar-view__view-toggle" role="group" aria-label="Mode d'affichage">
+                <button type="button"
+                        class="stratum-calendar-view__toggle-btn @(_activeView == CalendarViewMode.Month ? "stratum-calendar-view__toggle-btn--active" : "")"
+                        data-testid="cal-mode-month"
+                        aria-pressed="@(_activeView == CalendarViewMode.Month ? "true" : "false")"
+                        @onclick="() => SetView(CalendarViewMode.Month)">
+                    Mois
+                </button>
+                <button type="button"
+                        class="stratum-calendar-view__toggle-btn @(_activeView == CalendarViewMode.Week ? "stratum-calendar-view__toggle-btn--active" : "")"
+                        data-testid="cal-mode-week"
+                        aria-pressed="@(_activeView == CalendarViewMode.Week ? "true" : "false")"
+                        @onclick="() => SetView(CalendarViewMode.Week)">
+                    Semaine
+                </button>
+                <button type="button"
+                        class="stratum-calendar-view__toggle-btn @(_activeView == CalendarViewMode.Day ? "stratum-calendar-view__toggle-btn--active" : "")"
+                        data-testid="cal-mode-day"
+                        aria-pressed="@(_activeView == CalendarViewMode.Day ? "true" : "false")"
+                        @onclick="() => SetView(CalendarViewMode.Day)">
+                    Jour
+                </button>
+            </div>
+        </div>;
+}
+
+@* ── Month View ───────────────────────────────────────────────── *@
+
+@{
+    RenderFragment RenderMonthView() =>
+        @<div class="stratum-calendar-view__month" role="grid" aria-label="@AriaLabel">
+            <div class="stratum-calendar-view__weekday-header" role="row">
+                @foreach (var day in _weekDayLabels)
+                {
+                    <div class="stratum-calendar-view__weekday" role="columnheader">@day</div>
+                }
+            </div>
+            @foreach (var week in _monthWeeks)
+            {
+                <div class="stratum-calendar-view__week" role="row">
+                    @foreach (var cell in week)
+                    {
+                        var isToday = cell.Date == DateOnly.FromDateTime(DateTime.Today);
+                        var isCurrentMonth = cell.Date.Month == _currentDate.Month && cell.Date.Year == _currentDate.Year;
+                        var isFocused = cell.Date == _focusedDate;
+                        var items = GetItemsForDate(cell.Date);
+
+                        var isDragOver = DragEnabled && _dragOverDate == cell.Date && _dragSourceDate != cell.Date;
+                        <div class="stratum-calendar-view__day @(!isCurrentMonth ? "stratum-calendar-view__day--outside" : "") @(isToday ? "stratum-calendar-view__day--today" : "") @(isFocused ? "stratum-calendar-view__day--focused" : "") @(isDragOver ? "stratum-calendar-view__day--drag-over" : "")"
+                             role="gridcell"
+                             tabindex="@(isFocused ? 0 : -1)"
+                             aria-label="@FormatDateAria(cell.Date)"
+                             data-testid="@($"cal-day-{cell.Date:yyyy-MM-dd}")"
+                             ondragover="@(DragEnabled ? "event.preventDefault();" : null)"
+                             @ondragenter="() => HandleDragOver(cell.Date)"
+                             @ondragleave="() => HandleDragLeave(cell.Date)"
+                             @ondrop="() => HandleDrop(cell.Date)"
+                             @onclick="() => HandleDayClick(cell.Date)">
+
+                            <span class="stratum-calendar-view__day-number @(isToday ? "stratum-calendar-view__day-number--today" : "")">
+                                @cell.Date.Day
+                            </span>
+
+                            <div class="stratum-calendar-view__day-items">
+                                @{ var maxVisible = MaxItemsPerDay; }
+                                @for (var pi = 0; pi < Math.Min(items.Count, maxVisible); pi++)
+                                {
+                                    var item = items[pi];
+                                    var capturedDate = cell.Date;
+                                    var capturedItem = item;
+                                    <button type="button"
+                                            class="stratum-calendar-view__pill"
+                                            style="@GetPillStyle(item)"
+                                            title="@GetItemTitle(item)"
+                                            data-testid="@($"cal-pill-{cell.Date:yyyy-MM-dd}-{pi}")"
+                                            draggable="@(DragEnabled ? "true" : "false")"
+                                            @ondragstart="() => HandleDragStart(capturedItem, capturedDate)"
+                                            @ondragend="HandleDragEnd"
+                                            @onclick="() => HandleItemClick(item)"
+                                            @onclick:stopPropagation="true">
+                                        @GetItemTitle(item)
+                                    </button>
+                                }
+                                @if (items.Count > maxVisible)
+                                {
+                                    <button type="button"
+                                            class="stratum-calendar-view__more"
+                                            title="@($"Voir les {items.Count - maxVisible} éléments restants")"
+                                            data-testid="@($"cal-more-{cell.Date:yyyy-MM-dd}")"
+                                            @onclick="() => HandleDayClick(cell.Date)"
+                                            @onclick:stopPropagation="true">
+                                        +@(items.Count - maxVisible)
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>;
+}
+
+@* ── Week View ────────────────────────────────────────────────── *@
+
+@{
+    RenderFragment RenderWeekView() =>
+        @<div class="stratum-calendar-view__week-view" role="grid" aria-label="@AriaLabel">
+            <div class="stratum-calendar-view__weekday-header" role="row">
+                @foreach (var day in _weekDayLabels)
+                {
+                    <div class="stratum-calendar-view__weekday" role="columnheader">@day</div>
+                }
+            </div>
+            <div class="stratum-calendar-view__week stratum-calendar-view__week--expanded" role="row">
+                @foreach (var date in _weekDates)
+                {
+                    var isToday = date == DateOnly.FromDateTime(DateTime.Today);
+                    var isFocused = date == _focusedDate;
+                    var items = GetItemsForDate(date);
+
+                    var isWeekDragOver = DragEnabled && _dragOverDate == date && _dragSourceDate != date;
+                    <div class="stratum-calendar-view__day stratum-calendar-view__day--week @(isToday ? "stratum-calendar-view__day--today" : "") @(isFocused ? "stratum-calendar-view__day--focused" : "") @(isWeekDragOver ? "stratum-calendar-view__day--drag-over" : "")"
+                         role="gridcell"
+                         tabindex="@(isFocused ? 0 : -1)"
+                         aria-label="@FormatDateAria(date)"
+                         data-testid="@($"cal-day-{date:yyyy-MM-dd}")"
+                         ondragover="@(DragEnabled ? "event.preventDefault();" : null)"
+                         @ondragenter="() => HandleDragOver(date)"
+                         @ondragleave="() => HandleDragLeave(date)"
+                         @ondrop="() => HandleDrop(date)"
+                         @onclick="() => HandleDayClick(date)">
+
+                        <span class="stratum-calendar-view__day-number @(isToday ? "stratum-calendar-view__day-number--today" : "")">
+                            @date.Day
+                        </span>
+
+                        <div class="stratum-calendar-view__day-items">
+                            @for (var pi = 0; pi < items.Count; pi++)
+                            {
+                                var item = items[pi];
+                                var capturedWeekDate = date;
+                                var capturedWeekItem = item;
+                                <button type="button"
+                                        class="stratum-calendar-view__pill"
+                                        style="@GetPillStyle(item)"
+                                        title="@GetItemTitle(item)"
+                                        draggable="@(DragEnabled ? "true" : "false")"
+                                        @ondragstart="() => HandleDragStart(capturedWeekItem, capturedWeekDate)"
+                                        @ondragend="HandleDragEnd"
+                                        @onclick="() => HandleItemClick(item)"
+                                        @onclick:stopPropagation="true">
+                                    @GetItemTitle(item)
+                                </button>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>;
+}
+
+@* ── Day View ─────────────────────────────────────────────────── *@
+
+@{
+    RenderFragment RenderDayView() =>
+        @<div class="stratum-calendar-view__day-view" role="grid" aria-label="@AriaLabel">
+            <div class="stratum-calendar-view__day-view-header">
+                <span class="stratum-calendar-view__day-view-label @(_focusedDate == DateOnly.FromDateTime(DateTime.Today) ? "stratum-calendar-view__day-number--today" : "")">
+                    @FormatDayHeader(_focusedDate)
+                </span>
+            </div>
+            <div class="stratum-calendar-view__day-view-items" role="list">
+                @{
+                    var dayItems = GetItemsForDate(_focusedDate);
+                }
+                @if (dayItems.Count == 0)
+                {
+                    <p class="stratum-calendar-view__empty-text">Aucun élément ce jour.</p>
+                }
+                else
+                {
+                    @for (var i = 0; i < dayItems.Count; i++)
+                    {
+                        var item = dayItems[i];
+                        var idx = i;
+                        var isSelected = _selectedSet.Contains(item);
+
+                        <div class="stratum-calendar-view__day-item @(isSelected ? "stratum-calendar-view__day-item--selected" : "")"
+                             role="listitem"
+                             aria-selected="@(isSelected ? "true" : "false")"
+                             data-testid="@($"cal-day-item-{idx}")"
+                             @onclick="() => HandleItemClick(item)">
+
+                            @if (AllowSelection)
+                            {
+                                <div class="stratum-calendar-view__checkbox" @onclick:stopPropagation="true">
+                                    <input type="checkbox"
+                                           checked="@isSelected"
+                                           aria-label="@($"Sélectionner {GetItemTitle(item)}")"
+                                           @onchange="() => ToggleSelection(item)" />
+                                </div>
+                            }
+
+                            <div class="stratum-calendar-view__day-item-content">
+                                <span class="stratum-calendar-view__day-item-title">@GetItemTitle(item)</span>
+                                @if (GetItemSubtitle(item) is { Length: > 0 } subtitle)
+                                {
+                                    <span class="stratum-calendar-view__day-item-subtitle">@subtitle</span>
+                                }
+                            </div>
+
+                            @if (RowActions is { Count: > 0 })
+                            {
+                                <div @onclick:stopPropagation="true">
+                                    <StratumRowActionMenu TItem="TItem"
+                                                          Item="@item"
+                                                          RowActions="@RowActions"
+                                                          AriaItemLabel="@GetItemTitle(item)"
+                                                          TestId="@($"cal-day-item-actions-{idx}")" />
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+            </div>
+        </div>;
+}
+
+@code {
+    private ElementReference _wrapperRef;
+    private HashSet<TItem> _selectedSet = new();
+    private List<ColumnDefinition>? _resolvedColumns;
+
+    // Calendar state
+    private CalendarViewMode _activeView = CalendarViewMode.Month;
+    private DateOnly _currentDate = DateOnly.FromDateTime(DateTime.Today);
+    private DateOnly _focusedDate = DateOnly.FromDateTime(DateTime.Today);
+    private List<List<DayCell>> _monthWeeks = [];
+    private List<DateOnly> _weekDates = [];
+    private Dictionary<DateOnly, List<TItem>> _itemsByDate = new();
+
+    private static readonly string[] _weekDayLabels = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+
+    // ── IStratumListView<TItem> ────────────────────────────────
+
+    /// <summary>Items to display.</summary>
+    [Parameter]
+    public IReadOnlyList<TItem> Data { get; set; } = Array.Empty<TItem>();
+
+    /// <summary>Whether the view is loading.</summary>
+    [Parameter]
+    public bool Loading { get; set; }
+
+    /// <summary>Currently selected items.</summary>
+    [Parameter]
+    public IReadOnlyList<TItem> SelectedItems { get; set; } = Array.Empty<TItem>();
+
+    /// <summary>Accessibility label for the calendar.</summary>
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    // ── Calendar-specific parameters ────────────────────────────
+
+    /// <summary>Optional test identifier.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>
+    /// Property name that maps each item to a date on the calendar.
+    /// Must resolve to a DateTime, DateTimeOffset, or DateOnly value.
+    /// </summary>
+    [Parameter]
+    public string? DateProperty { get; set; }
+
+    /// <summary>Enable item selection via checkboxes (day view).</summary>
+    [Parameter]
+    public bool AllowSelection { get; set; }
+
+    /// <summary>Raised when an item is activated (click on pill or day item).</summary>
+    [Parameter]
+    public EventCallback<TItem> OnRowActivated { get; set; }
+
+    /// <summary>Raised when an empty day is clicked.</summary>
+    [Parameter]
+    public EventCallback<DateOnly> OnDateSelected { get; set; }
+
+    /// <summary>Raised when selection changes.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<TItem>> OnSelectionChanged { get; set; }
+
+    /// <summary>
+    /// Column registry providing field metadata for item display.
+    /// When null, items render using ToString.
+    /// </summary>
+    [Parameter]
+    public IColumnRegistry<TItem>? ColumnRegistry { get; set; }
+
+    /// <summary>
+    /// Ordered list of visible column keys. When null and ColumnRegistry is set,
+    /// the registry's default visible columns are used.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyList<string>? VisibleColumnKeys { get; set; }
+
+    /// <summary>Custom content for empty state.</summary>
+    [Parameter]
+    public RenderFragment? EmptyContent { get; set; }
+
+    /// <summary>Maximum items to show per day cell in month view. Default: 3.</summary>
+    [Parameter]
+    public int MaxItemsPerDay { get; set; } = 3;
+
+    /// <summary>
+    /// Property name that returns a CSS color string (e.g. "#3b82f6") for colored pills.
+    /// When set, each pill's background is tinted to the resolved color.
+    /// </summary>
+    [Parameter]
+    public string? ColorProperty { get; set; }
+
+    /// <summary>
+    /// Per-row contextual actions rendered as a kebab menu on day-view items.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyList<GridRowAction<TItem>>? RowActions { get; set; }
+
+    /// <summary>Enable drag-drop reschedule of items between day cells (month/week views).</summary>
+    [Parameter]
+    public bool DragEnabled { get; set; }
+
+    /// <summary>Raised when an item is drag-dropped to a different date.</summary>
+    [Parameter]
+    public EventCallback<CalendarRescheduleArgs<TItem>> OnItemRescheduled { get; set; }
+
+    // ── Drag-drop state ──────────────────────────────────────────
+    private TItem? _dragItem;
+    private DateOnly? _dragSourceDate;
+    private DateOnly? _dragOverDate;
+
+    // ── Lifecycle ────────────────────────────────────────────────
+
+    protected override void OnParametersSet()
+    {
+        // Sync selected set from parameter
+        _selectedSet.Clear();
+        if (SelectedItems is { Count: > 0 })
+        {
+            foreach (var item in SelectedItems)
+                _selectedSet.Add(item);
+        }
+
+        // Resolve columns from registry
+        if (ColumnRegistry is not null)
+        {
+            if (VisibleColumnKeys is { Count: > 0 })
+            {
+                var list = new List<ColumnDefinition>(VisibleColumnKeys.Count);
+                foreach (var key in VisibleColumnKeys)
+                {
+                    var col = ColumnRegistry.GetColumn(key);
+                    if (col is not null)
+                        list.Add(col);
+                }
+                _resolvedColumns = list;
+            }
+            else
+            {
+                _resolvedColumns = ColumnRegistry.GetDefaultVisibleColumns().ToList();
+            }
+        }
+        else
+        {
+            _resolvedColumns = null;
+        }
+
+        // Index items by date
+        RebuildItemIndex();
+
+        // Build calendar grids
+        RebuildMonthGrid();
+        RebuildWeekDates();
+    }
+
+    // ── Date indexing ─────────────────────────────────────────────
+
+    private void RebuildItemIndex()
+    {
+        _itemsByDate.Clear();
+
+        if (Data is null || Data.Count == 0 || string.IsNullOrEmpty(DateProperty))
+            return;
+
+        foreach (var item in Data)
+        {
+            var date = GetDateValue(item, DateProperty!);
+            if (date is null) continue;
+
+            if (!_itemsByDate.TryGetValue(date.Value, out var list))
+            {
+                list = [];
+                _itemsByDate[date.Value] = list;
+            }
+            list.Add(item);
+        }
+    }
+
+    private static DateOnly? GetDateValue(TItem item, string propertyPath)
+    {
+        object? current = item;
+        foreach (var segment in propertyPath.Split('.'))
+        {
+            if (current is null) return null;
+            var prop = current.GetType().GetProperty(segment);
+            if (prop is null) return null;
+            current = prop.GetValue(current);
+        }
+
+        return current switch
+        {
+            DateOnly d => d,
+            DateTime dt => DateOnly.FromDateTime(dt),
+            DateTimeOffset dto => DateOnly.FromDateTime(dto.LocalDateTime),
+            _ => null,
+        };
+    }
+
+    private List<TItem> GetItemsForDate(DateOnly date)
+    {
+        return _itemsByDate.TryGetValue(date, out var items) ? items : [];
+    }
+
+    // ── Month grid ────────────────────────────────────────────────
+
+    private void RebuildMonthGrid()
+    {
+        _monthWeeks.Clear();
+
+        var firstOfMonth = new DateOnly(_currentDate.Year, _currentDate.Month, 1);
+        // Monday-based week: DayOfWeek.Monday=0 .. Sunday=6
+        var startOffset = ((int)firstOfMonth.DayOfWeek + 6) % 7;
+        var gridStart = firstOfMonth.AddDays(-startOffset);
+
+        // Build 6 weeks (42 cells) to always fill the grid
+        for (var w = 0; w < 6; w++)
+        {
+            var week = new List<DayCell>(7);
+            for (var d = 0; d < 7; d++)
+            {
+                var date = gridStart.AddDays(w * 7 + d);
+                week.Add(new DayCell(date));
+            }
+            _monthWeeks.Add(week);
+        }
+    }
+
+    // ── Week dates ────────────────────────────────────────────────
+
+    private void RebuildWeekDates()
+    {
+        _weekDates.Clear();
+
+        // Start from Monday of the current week
+        var dayOfWeek = ((int)_focusedDate.DayOfWeek + 6) % 7;
+        var weekStart = _focusedDate.AddDays(-dayOfWeek);
+
+        for (var d = 0; d < 7; d++)
+        {
+            _weekDates.Add(weekStart.AddDays(d));
+        }
+    }
+
+    // ── Navigation ────────────────────────────────────────────────
+
+    private void NavigatePrevious()
+    {
+        switch (_activeView)
+        {
+            case CalendarViewMode.Month:
+                _currentDate = _currentDate.AddMonths(-1);
+                _focusedDate = new DateOnly(_currentDate.Year, _currentDate.Month, 1);
+                break;
+            case CalendarViewMode.Week:
+                _focusedDate = _focusedDate.AddDays(-7);
+                _currentDate = new DateOnly(_focusedDate.Year, _focusedDate.Month, 1);
+                break;
+            case CalendarViewMode.Day:
+                _focusedDate = _focusedDate.AddDays(-1);
+                _currentDate = new DateOnly(_focusedDate.Year, _focusedDate.Month, 1);
+                break;
+        }
+        RebuildMonthGrid();
+        RebuildWeekDates();
+    }
+
+    private void NavigateNext()
+    {
+        switch (_activeView)
+        {
+            case CalendarViewMode.Month:
+                _currentDate = _currentDate.AddMonths(1);
+                _focusedDate = new DateOnly(_currentDate.Year, _currentDate.Month, 1);
+                break;
+            case CalendarViewMode.Week:
+                _focusedDate = _focusedDate.AddDays(7);
+                _currentDate = new DateOnly(_focusedDate.Year, _focusedDate.Month, 1);
+                break;
+            case CalendarViewMode.Day:
+                _focusedDate = _focusedDate.AddDays(1);
+                _currentDate = new DateOnly(_focusedDate.Year, _focusedDate.Month, 1);
+                break;
+        }
+        RebuildMonthGrid();
+        RebuildWeekDates();
+    }
+
+    private void NavigateToday()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        _currentDate = new DateOnly(today.Year, today.Month, 1);
+        _focusedDate = today;
+        RebuildMonthGrid();
+        RebuildWeekDates();
+    }
+
+    private void SetView(CalendarViewMode mode)
+    {
+        _activeView = mode;
+        RebuildWeekDates();
+    }
+
+    // ── Item display ──────────────────────────────────────────────
+
+    private string GetItemTitle(TItem item)
+    {
+        if (_resolvedColumns is { Count: > 0 })
+        {
+            return GetPropertyValue(item, _resolvedColumns[0].Property);
+        }
+        return item.ToString() ?? string.Empty;
+    }
+
+    private string GetItemSubtitle(TItem item)
+    {
+        if (_resolvedColumns is { Count: > 1 })
+        {
+            return GetPropertyValue(item, _resolvedColumns[1].Property);
+        }
+        return string.Empty;
+    }
+
+    private static string GetPropertyValue(TItem item, string propertyPath)
+    {
+        object? current = item;
+        foreach (var segment in propertyPath.Split('.'))
+        {
+            if (current is null) return string.Empty;
+            var prop = current.GetType().GetProperty(segment);
+            if (prop is null) return string.Empty;
+            current = prop.GetValue(current);
+        }
+        return current?.ToString() ?? string.Empty;
+    }
+
+    private string? GetItemColor(TItem item)
+    {
+        if (string.IsNullOrEmpty(ColorProperty)) return null;
+        var val = GetPropertyValue(item, ColorProperty);
+        return string.IsNullOrEmpty(val) ? null : val;
+    }
+
+    private string GetPillStyle(TItem item)
+    {
+        var color = GetItemColor(item);
+        if (color is null) return string.Empty;
+        return $"background:{color}20;color:{color};border-left:3px solid {color};";
+    }
+
+    // ── Label formatting ──────────────────────────────────────────
+
+    private string GetPeriodLabel()
+    {
+        return _activeView switch
+        {
+            CalendarViewMode.Month => _currentDate.ToString("MMMM yyyy",
+                System.Globalization.CultureInfo.GetCultureInfo("fr-FR")),
+            CalendarViewMode.Week => $"Semaine du {_weekDates[0]:d MMM} au {_weekDates[^1]:d MMM yyyy}",
+            CalendarViewMode.Day => _focusedDate.ToString("dddd d MMMM yyyy",
+                System.Globalization.CultureInfo.GetCultureInfo("fr-FR")),
+            _ => string.Empty,
+        };
+    }
+
+    private static string FormatDateAria(DateOnly date)
+    {
+        return date.ToString("dddd d MMMM yyyy",
+            System.Globalization.CultureInfo.GetCultureInfo("fr-FR"));
+    }
+
+    private static string FormatDayHeader(DateOnly date)
+    {
+        return date.ToString("dddd d MMMM yyyy",
+            System.Globalization.CultureInfo.GetCultureInfo("fr-FR"));
+    }
+
+    // ── Event handlers ──────────────────────────────────────────
+
+    // ── Server-side double-click detection ─────────────────────
+    private DateTime _lastClickTime;
+    private TItem? _lastClickedItem;
+    private static readonly TimeSpan DoubleClickThreshold = TimeSpan.FromMilliseconds(400);
+
+    private async Task HandleItemClick(TItem item)
+    {
+        var now = DateTime.UtcNow;
+        var isDoubleClick = _lastClickedItem is not null
+            && EqualityComparer<TItem>.Default.Equals(_lastClickedItem, item)
+            && (now - _lastClickTime) < DoubleClickThreshold;
+
+        _lastClickTime = now;
+        _lastClickedItem = item;
+
+        if (isDoubleClick)
+        {
+            _lastClickedItem = default;
+            await OnRowActivated.InvokeAsync(item);
+        }
+    }
+
+    private async Task HandleDayClick(DateOnly date)
+    {
+        _focusedDate = date;
+
+        // If day has items in month/week view, switch to day view to show them
+        var items = GetItemsForDate(date);
+        if (items.Count == 0)
+        {
+            await OnDateSelected.InvokeAsync(date);
+        }
+        else if (_activeView != CalendarViewMode.Day)
+        {
+            _activeView = CalendarViewMode.Day;
+            _currentDate = new DateOnly(date.Year, date.Month, 1);
+            RebuildWeekDates();
+        }
+    }
+
+    private async Task ToggleSelection(TItem item)
+    {
+        if (_selectedSet.Contains(item))
+            _selectedSet.Remove(item);
+        else
+            _selectedSet.Add(item);
+
+        var snapshot = (IReadOnlyList<TItem>)_selectedSet.ToList();
+        await OnSelectionChanged.InvokeAsync(snapshot);
+    }
+
+    // ── Keyboard navigation ─────────────────────────────────────
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "ArrowLeft":
+                _focusedDate = _focusedDate.AddDays(-1);
+                SyncCurrentMonth();
+                break;
+
+            case "ArrowRight":
+                _focusedDate = _focusedDate.AddDays(1);
+                SyncCurrentMonth();
+                break;
+
+            case "ArrowUp":
+                _focusedDate = _activeView == CalendarViewMode.Day
+                    ? _focusedDate.AddDays(-1)
+                    : _focusedDate.AddDays(-7);
+                SyncCurrentMonth();
+                break;
+
+            case "ArrowDown":
+                _focusedDate = _activeView == CalendarViewMode.Day
+                    ? _focusedDate.AddDays(1)
+                    : _focusedDate.AddDays(7);
+                SyncCurrentMonth();
+                break;
+
+            case "Home":
+                NavigateToday();
+                break;
+
+            case "Enter":
+                var dayItems = GetItemsForDate(_focusedDate);
+                if (dayItems.Count == 1)
+                {
+                    await OnRowActivated.InvokeAsync(dayItems[0]);
+                }
+                else if (dayItems.Count > 1 && _activeView != CalendarViewMode.Day)
+                {
+                    _activeView = CalendarViewMode.Day;
+                    RebuildWeekDates();
+                }
+                else if (dayItems.Count == 0)
+                {
+                    await OnDateSelected.InvokeAsync(_focusedDate);
+                }
+                break;
+        }
+    }
+
+    private void SyncCurrentMonth()
+    {
+        if (_focusedDate.Month != _currentDate.Month || _focusedDate.Year != _currentDate.Year)
+        {
+            _currentDate = new DateOnly(_focusedDate.Year, _focusedDate.Month, 1);
+            RebuildMonthGrid();
+        }
+        RebuildWeekDates();
+    }
+
+    // ── Drag-drop handlers ────────────────────────────────────────
+
+    private void HandleDragStart(TItem item, DateOnly sourceDate)
+    {
+        if (!DragEnabled) return;
+        _dragItem = item;
+        _dragSourceDate = sourceDate;
+    }
+
+    private void HandleDragOver(DateOnly date)
+    {
+        if (!DragEnabled) return;
+        _dragOverDate = date;
+    }
+
+    private async Task HandleDrop(DateOnly targetDate)
+    {
+        if (_dragItem is not null && _dragSourceDate is not null && _dragSourceDate != targetDate)
+        {
+            var args = new CalendarRescheduleArgs<TItem>(_dragItem, _dragSourceDate.Value, targetDate);
+            await OnItemRescheduled.InvokeAsync(args);
+        }
+        _dragItem = default;
+        _dragSourceDate = null;
+        _dragOverDate = null;
+    }
+
+    private void HandleDragEnd()
+    {
+        _dragItem = default;
+        _dragSourceDate = null;
+        _dragOverDate = null;
+    }
+
+    private void HandleDragLeave(DateOnly date)
+    {
+        // Only clear if the pointer left the cell that's currently highlighted.
+        // When moving cell A → B, dragenter(B) fires before dragleave(A),
+        // so _dragOverDate is already B — the stale dragleave(A) is a no-op.
+        if (_dragOverDate == date)
+        {
+            _dragOverDate = null;
+        }
+    }
+
+    // ── Inner types ──────────────────────────────────────────────
+
+    private sealed record DayCell(DateOnly Date);
+
+    private enum CalendarViewMode { Month, Week, Day }
+}

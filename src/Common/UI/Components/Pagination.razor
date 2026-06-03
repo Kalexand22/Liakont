@@ -1,0 +1,181 @@
+@namespace Stratum.Common.UI.Components
+@inject IJSRuntime JS
+
+@* Pagination - paged navigation control.
+ *
+ * Displays item range, page navigation buttons, current page indicator,
+ * and a rows-per-page selector.
+ *
+ * All state is controlled: the parent updates CurrentPage and PageSize on each
+ * callback. The component never mutates its own parameters.
+ *@
+
+@if (!ShouldHide)
+{
+    <nav class="pagination" data-testid="@(TestId ?? "pagination")" aria-label="Pagination">
+        <div class="pagination__summary">
+            <span class="pagination__info" aria-live="polite" aria-atomic="true">
+                @if (TotalItems == 0)
+                {
+                    <text>0 sur 0</text>
+                }
+                else
+                {
+                    <text>@_startItem-@_endItem sur @TotalItems</text>
+                }
+            </span>
+
+            <span class="pagination__page-info">
+                Page @CurrentPage / @TotalPages
+            </span>
+        </div>
+
+        <div class="pagination__controls">
+            <button type="button"
+                    class="pagination__btn"
+                    disabled="@(CurrentPage <= 1)"
+                    @onclick="GoFirstAsync"
+                    title="Premiere page"
+                    aria-label="Premiere page">
+                <StratumIcon Name="bi-chevron-bar-left" Class="pagination__icon" />
+            </button>
+            <button type="button"
+                    class="pagination__btn"
+                    disabled="@(CurrentPage <= 1)"
+                    @onclick="GoPrevAsync"
+                    title="Page precedente"
+                    aria-label="Page precedente">
+                <StratumIcon Name="bi-chevron-left" Class="pagination__icon" />
+            </button>
+            <button type="button"
+                    class="pagination__btn"
+                    disabled="@(CurrentPage >= TotalPages)"
+                    @onclick="GoNextAsync"
+                    title="Page suivante"
+                    aria-label="Page suivante">
+                <StratumIcon Name="bi-chevron-right" Class="pagination__icon" />
+            </button>
+            <button type="button"
+                    class="pagination__btn"
+                    disabled="@(CurrentPage >= TotalPages)"
+                    @onclick="GoLastAsync"
+                    title="Derniere page"
+                    aria-label="Derniere page">
+                <StratumIcon Name="bi-chevron-bar-right" Class="pagination__icon" />
+            </button>
+        </div>
+
+        <div class="pagination__page-size">
+            <label for="@_selectorId">Lignes</label>
+            <select id="@_selectorId"
+                    class="pagination__page-size-select"
+                    value="@PageSize"
+                    @onchange="HandlePageSizeChangeAsync"
+                    aria-label="Lignes par page">
+                @foreach (var opt in _pageSizeOptions)
+                {
+                    <option value="@opt">@opt</option>
+                }
+            </select>
+        </div>
+    </nav>
+}
+
+@code {
+    [Parameter]
+    public string? TestId { get; set; }
+
+    [Parameter]
+    public int TotalItems { get; set; }
+
+    [Parameter]
+    public int CurrentPage { get; set; } = 1;
+
+    [Parameter]
+    public int PageSize { get; set; } = 25;
+
+    [Parameter]
+    public int[]? PageSizeOptions { get; set; }
+
+    [Parameter]
+    public bool HideWhenSinglePage { get; set; } = true;
+
+    [Parameter]
+    public EventCallback<int> OnPageChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnPageSizeChanged { get; set; }
+
+    private static readonly int[] DefaultPageSizeOptions = [25, 50, 100];
+
+    private int[] _pageSizeOptions => PageSizeOptions ?? DefaultPageSizeOptions;
+
+    private int TotalPages => PageSize > 0 ? Math.Max(1, (int)Math.Ceiling((double)TotalItems / PageSize)) : 1;
+    private bool ShouldHide => HideWhenSinglePage && TotalPages <= 1;
+
+    private int _startItem => TotalItems == 0 ? 0 : ((CurrentPage - 1) * PageSize) + 1;
+    private int _endItem => Math.Min(CurrentPage * PageSize, TotalItems);
+
+    private readonly string _selectorId = $"pg-{Guid.NewGuid():N}"[..12];
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            var preferred = await JS.InvokeAsync<int>("stratumUI.getGridPageSize");
+            if (preferred != PageSize && preferred > 0)
+            {
+                await OnPageSizeChanged.InvokeAsync(preferred);
+            }
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+        {
+            // Safe: prerendering or disconnected circuit.
+        }
+    }
+
+    private async Task GoFirstAsync()
+    {
+        if (CurrentPage > 1)
+        {
+            await OnPageChanged.InvokeAsync(1);
+        }
+    }
+
+    private async Task GoPrevAsync()
+    {
+        if (CurrentPage > 1)
+        {
+            await OnPageChanged.InvokeAsync(CurrentPage - 1);
+        }
+    }
+
+    private async Task GoNextAsync()
+    {
+        if (CurrentPage < TotalPages)
+        {
+            await OnPageChanged.InvokeAsync(CurrentPage + 1);
+        }
+    }
+
+    private async Task GoLastAsync()
+    {
+        if (CurrentPage < TotalPages)
+        {
+            await OnPageChanged.InvokeAsync(TotalPages);
+        }
+    }
+
+    private async Task HandlePageSizeChangeAsync(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var size) && size > 0)
+        {
+            await OnPageSizeChanged.InvokeAsync(size);
+        }
+    }
+}

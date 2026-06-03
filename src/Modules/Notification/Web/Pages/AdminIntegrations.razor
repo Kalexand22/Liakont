@@ -1,0 +1,688 @@
+@page "/admin/integrations"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using System.Text.Json
+@using MediatR
+@using Stratum.Common.Abstractions.Security
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Stratum.Modules.Notification.Contracts
+@using Stratum.Modules.Notification.Contracts.DTOs
+@using Stratum.Modules.Notification.Contracts.Queries
+@using Stratum.Modules.Notification.Contracts.Commands
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Modules.Notification.Web.Registries
+@inject IApiKeyQueries ApiKeyQueries
+@inject IIntegrationConfigQueries ConfigQueries
+@inject IActorContextAccessor ActorContext
+@inject ISender Sender
+@inject NavigationManager Nav
+@inject IToastService ToastService
+@inject IHttpClientFactory HttpClientFactory
+@inject IPermissionService PermissionService
+
+<PageTitle>Intégrations — Stratum ERP</PageTitle>
+
+<div data-testid="admin-integrations">
+    <StratumTabs @bind-SelectedIndex="_selectedTab" TestId="integration-tabs" OnChange="HandleTabChanged">
+        <StratumTab Title="Clés API" Icon="bi-key">
+            @* ── API Keys — DeclaredListPage + generate modal ── *@
+            <div data-testid="integration-apikeys">
+            <DeclaredListPage TItem="ApiKeyDto"
+                              Title="Clés API"
+                              TestId="integration-apikeys"
+                              LoadItems="LoadApiKeys"
+                              DetailUrl="@(k => $"/admin/integrations/api-keys/{k.Id}")"
+                              ColumnRegistry="@_apiKeyRegistry"
+                              ColumnTemplates="@_apiKeyColumnTemplates"
+                              GridKey="Integration.ApiKeys"
+                              RowActions="@_apiKeyRowActions"
+                              AriaLabel="Liste des clés API"
+                              DefaultSortColumn="CreatedAt"
+                              SearchPlaceholder="Chercher une clé…"
+                              AllowExport="true"
+                              ExportFileName="api-keys">
+                <ToolbarActions>
+                    <PermissionGate Permission="@NotificationPermissions.ApiKeyCreate">
+                        <StratumButton Text="+ Générer une clé"
+                                       Variant="ButtonVariant.Primary"
+                                       Size="ButtonSize.Small"
+                                       OnClick="ShowGenerateKeyDialog"
+                                       TestId="apikey-generate-btn" />
+                    </PermissionGate>
+                </ToolbarActions>
+            </DeclaredListPage>
+
+            @if (_showNewKeyDialog)
+            {
+                <SectionCard Title="Nouvelle clé API" TestId="apikey-new-dialog">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <FormField Label="Nom" Required Error="@_keyNameError">
+                                <input type="text" class="form-control" value="@_keyName"
+                                       @oninput="e => { _keyName = e.Value?.ToString() ?? string.Empty; _keyNameError = string.Empty; }"
+                                       placeholder="ex: Mobile App" data-testid="apikey-name-input" />
+                            </FormField>
+                        </div>
+                        <div class="col-md-3">
+                            <FormField Label="Limite /h">
+                                <input type="number" class="form-control" value="@_keyRateLimit"
+                                       @oninput="e => _keyRateLimit = int.TryParse(e.Value?.ToString(), out var v) ? v : 1000"
+                                       data-testid="apikey-ratelimit-input" />
+                            </FormField>
+                        </div>
+                        <div class="col-md-3 d-flex align-items-end gap-2">
+                            <StratumButton Text="Générer" Variant="ButtonVariant.Primary"
+                                           OnClick="GenerateApiKey" Disabled="@_generating"
+                                           TestId="apikey-confirm-btn" />
+                            <StratumButton Text="Annuler" Variant="ButtonVariant.Secondary" Outline
+                                           OnClick="@(() => _showNewKeyDialog = false)"
+                                           TestId="apikey-cancel-btn" />
+                        </div>
+                    </div>
+                </SectionCard>
+            }
+
+            @if (!string.IsNullOrEmpty(_generatedKey))
+            {
+                <SectionCard Title="Clé générée" TestId="apikey-generated-card">
+                    <div class="alert alert-warning" role="alert">
+                        Copiez cette clé maintenant. Elle ne sera plus jamais affichée.
+                    </div>
+                    <code data-testid="apikey-generated-value">@_generatedKey</code>
+                </SectionCard>
+            }
+            </div>
+        </StratumTab>
+
+        <StratumTab Title="Tourinsoft" Icon="bi-cloud-arrow-up">
+            @* ── Tourinsoft config form ── *@
+            <SectionCard Title="Configuration Tourinsoft" TestId="integration-tourinsoft">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <FormField Label="URL de l'API" Required Error="@_tourinsoftUrlError">
+                            <input type="url" class="form-control" value="@_tourinsoftUrl"
+                                   @oninput="e => { _tourinsoftUrl = e.Value?.ToString() ?? string.Empty; _tourinsoftUrlError = string.Empty; }"
+                                   placeholder="https://api.tourinsoft.com/v3" data-testid="tourinsoft-url-input" />
+                        </FormField>
+                    </div>
+                    <div class="col-md-6">
+                        <FormField Label="Clé API" Required Error="@_tourinsoftKeyError">
+                            <input type="password" class="form-control" value="@_tourinsoftApiKey"
+                                   @oninput="e => { _tourinsoftApiKey = e.Value?.ToString() ?? string.Empty; _tourinsoftKeyError = string.Empty; }"
+                                   placeholder="••••••••" data-testid="tourinsoft-apikey-input" />
+                        </FormField>
+                    </div>
+                    <div class="col-md-4">
+                        <FormField Label="Intervalle de sync (minutes)">
+                            <input type="number" class="form-control" value="@_tourinsoftSyncInterval"
+                                   @oninput="e => _tourinsoftSyncInterval = int.TryParse(e.Value?.ToString(), out var v) ? v : 60"
+                                   data-testid="tourinsoft-interval-input" />
+                        </FormField>
+                    </div>
+                    <div class="col-md-4 d-flex align-items-center">
+                        <label class="form-check-label me-2">Activé</label>
+                        <input type="checkbox" class="form-check-input" checked="@_tourinsoftEnabled"
+                               @onchange="e => _tourinsoftEnabled = (bool)(e.Value ?? false)"
+                               data-testid="tourinsoft-enabled-check" />
+                    </div>
+                </div>
+                <div class="mt-3 d-flex gap-2">
+                    <PermissionGate Permission="@NotificationPermissions.IntegrationUpdate">
+                        <StratumButton Text="@(_savingTourinsoft ? "Enregistrement…" : "Enregistrer")"
+                                       Variant="ButtonVariant.Primary" Size="ButtonSize.Small"
+                                       OnClick="SaveTourinsoftConfig" Disabled="@_savingTourinsoft"
+                                       TestId="tourinsoft-save-btn" />
+                    </PermissionGate>
+                    <StratumButton Text="@(_testingTourinsoft ? "Test…" : "Tester la connexion")"
+                                   Variant="ButtonVariant.Secondary" Outline Size="ButtonSize.Small"
+                                   OnClick="TestTourinsoftConnection" Disabled="@_testingTourinsoft"
+                                   TestId="tourinsoft-test-btn" />
+                </div>
+            </SectionCard>
+        </StratumTab>
+
+        <StratumTab Title="ChorusPro" Icon="bi-receipt">
+            @* ── ChorusPro config form ── *@
+            <SectionCard Title="Configuration ChorusPro" TestId="integration-choruspro">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <FormField Label="URL de l'API" Required Error="@_chorusUrlError">
+                            <input type="url" class="form-control" value="@_chorusUrl"
+                                   @oninput="e => { _chorusUrl = e.Value?.ToString() ?? string.Empty; _chorusUrlError = string.Empty; }"
+                                   placeholder="https://chorus-pro.gouv.fr/api" data-testid="choruspro-url-input" />
+                        </FormField>
+                    </div>
+                    <div class="col-md-3">
+                        <FormField Label="SIRET" Required Error="@_chorusSiretError">
+                            <input type="text" class="form-control" value="@_chorusSiret"
+                                   @oninput="e => { _chorusSiret = e.Value?.ToString() ?? string.Empty; _chorusSiretError = string.Empty; }"
+                                   placeholder="12345678901234" maxlength="14" data-testid="choruspro-siret-input" />
+                        </FormField>
+                    </div>
+                    <div class="col-md-3">
+                        <FormField Label="Code partenaire">
+                            <input type="text" class="form-control" value="@_chorusPartnerCode"
+                                   @oninput="e => _chorusPartnerCode = e.Value?.ToString() ?? string.Empty"
+                                   data-testid="choruspro-partner-input" />
+                        </FormField>
+                    </div>
+                    <div class="col-md-4 d-flex align-items-center">
+                        <label class="form-check-label me-2">Mode test</label>
+                        <input type="checkbox" class="form-check-input" checked="@_chorusTestMode"
+                               @onchange="e => _chorusTestMode = (bool)(e.Value ?? false)"
+                               data-testid="choruspro-testmode-check" />
+                    </div>
+                    <div class="col-md-4 d-flex align-items-center">
+                        <label class="form-check-label me-2">Activé</label>
+                        <input type="checkbox" class="form-check-input" checked="@_chorusEnabled"
+                               @onchange="e => _chorusEnabled = (bool)(e.Value ?? false)"
+                               data-testid="choruspro-enabled-check" />
+                    </div>
+                </div>
+                <div class="mt-3 d-flex gap-2">
+                    <PermissionGate Permission="@NotificationPermissions.IntegrationUpdate">
+                        <StratumButton Text="@(_savingChorus ? "Enregistrement…" : "Enregistrer")"
+                                       Variant="ButtonVariant.Primary" Size="ButtonSize.Small"
+                                       OnClick="SaveChorusProConfig" Disabled="@_savingChorus"
+                                       TestId="choruspro-save-btn" />
+                    </PermissionGate>
+                    <StratumButton Text="@(_testingChorus ? "Test…" : "Tester la connexion")"
+                                   Variant="ButtonVariant.Secondary" Outline Size="ButtonSize.Small"
+                                   OnClick="TestChorusProConnection" Disabled="@_testingChorus"
+                                   TestId="choruspro-test-btn" />
+                </div>
+            </SectionCard>
+        </StratumTab>
+
+        <StratumTab Title="SIG / WMS" Icon="bi-globe2">
+            @* ── SIG WMS/WFS config form ── *@
+            <SectionCard Title="Configuration SIG (WMS/WFS)" TestId="integration-sig">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <FormField Label="URL WMS" Error="@_sigWmsUrlError">
+                            <input type="url" class="form-control" value="@_sigWmsUrl"
+                                   @oninput="e => { _sigWmsUrl = e.Value?.ToString() ?? string.Empty; _sigWmsUrlError = string.Empty; }"
+                                   placeholder="https://geo.example.com/wms" data-testid="sig-wms-input" />
+                        </FormField>
+                    </div>
+                    <div class="col-md-6">
+                        <FormField Label="URL WFS" Error="@_sigWfsUrlError">
+                            <input type="url" class="form-control" value="@_sigWfsUrl"
+                                   @oninput="e => { _sigWfsUrl = e.Value?.ToString() ?? string.Empty; _sigWfsUrlError = string.Empty; }"
+                                   placeholder="https://geo.example.com/wfs" data-testid="sig-wfs-input" />
+                        </FormField>
+                    </div>
+                    <div class="col-md-4 d-flex align-items-center">
+                        <label class="form-check-label me-2">Activé</label>
+                        <input type="checkbox" class="form-check-input" checked="@_sigEnabled"
+                               @onchange="e => _sigEnabled = (bool)(e.Value ?? false)"
+                               data-testid="sig-enabled-check" />
+                    </div>
+                </div>
+                <div class="mt-3 d-flex gap-2">
+                    <PermissionGate Permission="@NotificationPermissions.IntegrationUpdate">
+                        <StratumButton Text="@(_savingSig ? "Enregistrement…" : "Enregistrer")"
+                                       Variant="ButtonVariant.Primary" Size="ButtonSize.Small"
+                                       OnClick="SaveSigConfig" Disabled="@_savingSig"
+                                       TestId="sig-save-btn" />
+                    </PermissionGate>
+                    <StratumButton Text="@(_testingSig ? "Test…" : "Tester les URL")"
+                                   Variant="ButtonVariant.Secondary" Outline Size="ButtonSize.Small"
+                                   OnClick="TestSigConnection" Disabled="@_testingSig"
+                                   TestId="sig-test-btn" />
+                </div>
+            </SectionCard>
+        </StratumTab>
+    </StratumTabs>
+</div>
+
+@code {
+    // ── Tab state ──
+    private int _selectedTab;
+    private bool _configLoaded;
+
+    private Guid CompanyId => ActorContext.Current.CompanyId
+        ?? throw new InvalidOperationException("No company context available.");
+
+    // ── API Key state ──
+    private readonly ApiKeyColumnRegistry _apiKeyRegistry = new();
+    private readonly Dictionary<string, RenderFragment<ApiKeyDto>> _apiKeyColumnTemplates = new()
+    {
+        ["IsRevoked"] = item => __builder =>
+        {
+            __builder.OpenComponent<StatusBadge>(0);
+            __builder.AddAttribute(1, "Severity", item.IsRevoked ? Severity.Error : Severity.Success);
+            __builder.AddAttribute(2, "Label", item.IsRevoked ? "Révoquée" : "Active");
+            __builder.CloseComponent();
+        },
+        ["Scopes"] = item => __builder =>
+        {
+            __builder.OpenElement(0, "span");
+            __builder.AddContent(1, string.Join(", ", item.Scopes));
+            __builder.CloseElement();
+        },
+        ["KeyPrefix"] = item => __builder =>
+        {
+            __builder.OpenElement(0, "code");
+            __builder.AddContent(1, $"{item.KeyPrefix}…");
+            __builder.CloseElement();
+        },
+    };
+    private readonly IReadOnlyList<GridRowAction<ApiKeyDto>> _apiKeyRowActions;
+
+    private bool _showNewKeyDialog;
+    private string _keyName = string.Empty;
+    private string _keyNameError = string.Empty;
+    private int _keyRateLimit = 1000;
+    private bool _generating;
+    private string _generatedKey = string.Empty;
+
+    // ── Tourinsoft state ──
+    private string _tourinsoftUrl = string.Empty;
+    private string _tourinsoftUrlError = string.Empty;
+    private string _tourinsoftApiKey = string.Empty;
+    private string _tourinsoftKeyError = string.Empty;
+    private int _tourinsoftSyncInterval = 60;
+    private bool _tourinsoftEnabled;
+    private bool _savingTourinsoft;
+    private bool _testingTourinsoft;
+
+    // ── ChorusPro state ──
+    private string _chorusUrl = string.Empty;
+    private string _chorusUrlError = string.Empty;
+    private string _chorusSiret = string.Empty;
+    private string _chorusSiretError = string.Empty;
+    private string _chorusPartnerCode = string.Empty;
+    private bool _chorusTestMode;
+    private bool _chorusEnabled;
+    private bool _savingChorus;
+    private bool _testingChorus;
+
+    // ── SIG state ──
+    private string _sigWmsUrl = string.Empty;
+    private string _sigWmsUrlError = string.Empty;
+    private string _sigWfsUrl = string.Empty;
+    private string _sigWfsUrlError = string.Empty;
+    private bool _sigEnabled;
+    private bool _savingSig;
+    private bool _testingSig;
+
+    public AdminIntegrations()
+    {
+        _apiKeyRowActions =
+        [
+            new GridRowAction<ApiKeyDto>(
+                Id: "revoke",
+                Label: "Révoquer",
+                Icon: "block",
+                Callback: RevokeApiKey,
+                RequiresConfirmation: true,
+                IsQuickAction: true,
+                IsEnabled: k => !k.IsRevoked),
+            new GridRowAction<ApiKeyDto>(
+                Id: "delete",
+                Label: "Supprimer",
+                Icon: "delete",
+                Callback: DeleteApiKey,
+                RequiresConfirmation: true,
+                IsSeparatorBefore: true,
+                IsQuickAction: true),
+        ];
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!PermissionService.HasPermission(NotificationPermissions.IntegrationView))
+        {
+            Nav.NavigateTo("/", replace: true);
+            return;
+        }
+
+        await LoadConfigSections();
+    }
+
+    private Task HandleTabChanged(int tabIndex)
+    {
+        _ = tabIndex;
+        return Task.CompletedTask;
+    }
+
+    // ── API Key methods ──
+
+    private async Task<IReadOnlyList<ApiKeyDto>> LoadApiKeys()
+    {
+        var companyId = CompanyId;
+        return await ApiKeyQueries.ListByCompany(companyId);
+    }
+
+    private Task ShowGenerateKeyDialog()
+    {
+        _showNewKeyDialog = true;
+        _generatedKey = string.Empty;
+        _keyName = string.Empty;
+        _keyNameError = string.Empty;
+        _keyRateLimit = 1000;
+        return Task.CompletedTask;
+    }
+
+    private async Task GenerateApiKey()
+    {
+        if (string.IsNullOrWhiteSpace(_keyName))
+        {
+            _keyNameError = "Nom requis";
+            return;
+        }
+
+        _generating = true;
+        try
+        {
+            var result = await Sender.Send(new CreateApiKeyCommand
+            {
+                Name = _keyName,
+                Scopes = ["*"],
+                RateLimit = _keyRateLimit,
+                CompanyId = CompanyId,
+            });
+
+            _generatedKey = result.FullKey;
+            _showNewKeyDialog = false;
+            ToastService.Show("Clé API générée.", Severity.Success);
+        }
+        finally
+        {
+            _generating = false;
+        }
+    }
+
+    private async Task RevokeApiKey(ApiKeyDto item)
+    {
+        await Sender.Send(new RevokeApiKeyCommand { ApiKeyId = item.Id, CompanyId = CompanyId });
+        ToastService.Show("Clé API révoquée.", Severity.Warning);
+    }
+
+    private async Task DeleteApiKey(ApiKeyDto item)
+    {
+        await Sender.Send(new DeleteApiKeyCommand { ApiKeyId = item.Id, CompanyId = CompanyId });
+        ToastService.Show("Clé API supprimée.", Severity.Success);
+    }
+
+    // ── Config section loading ──
+
+    private async Task LoadConfigSections()
+    {
+        if (_configLoaded)
+        {
+            return;
+        }
+
+        var configs = await ConfigQueries.ListByCompany(CompanyId);
+
+        foreach (var cfg in configs)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(cfg.ConfigJson);
+                var json = doc.RootElement;
+
+                switch (cfg.IntegrationType)
+                {
+                    case "tourinsoft":
+                        _tourinsoftUrl = json.TryGetProperty("apiUrl", out var tUrl) ? tUrl.GetString() ?? string.Empty : string.Empty;
+                        _tourinsoftApiKey = json.TryGetProperty("apiKey", out var tKey) ? tKey.GetString() ?? string.Empty : string.Empty;
+                        _tourinsoftSyncInterval = json.TryGetProperty("syncIntervalMinutes", out var tInt) ? tInt.GetInt32() : 60;
+                        _tourinsoftEnabled = cfg.IsEnabled;
+                        break;
+
+                    case "chorusPro":
+                        _chorusUrl = json.TryGetProperty("apiUrl", out var cUrl) ? cUrl.GetString() ?? string.Empty : string.Empty;
+                        _chorusSiret = json.TryGetProperty("siret", out var cSir) ? cSir.GetString() ?? string.Empty : string.Empty;
+                        _chorusPartnerCode = json.TryGetProperty("partnerCode", out var cPc) ? cPc.GetString() ?? string.Empty : string.Empty;
+                        _chorusTestMode = json.TryGetProperty("testMode", out var cTm) && cTm.GetBoolean();
+                        _chorusEnabled = cfg.IsEnabled;
+                        break;
+
+                    case "sig":
+                        _sigWmsUrl = json.TryGetProperty("wmsUrl", out var sWms) ? sWms.GetString() ?? string.Empty : string.Empty;
+                        _sigWfsUrl = json.TryGetProperty("wfsUrl", out var sWfs) ? sWfs.GetString() ?? string.Empty : string.Empty;
+                        _sigEnabled = cfg.IsEnabled;
+                        break;
+                }
+            }
+            catch (JsonException)
+            {
+                // skip malformed config rows
+            }
+        }
+
+        _configLoaded = true;
+    }
+
+    // ── Tourinsoft save/test ──
+
+    private async Task SaveTourinsoftConfig()
+    {
+        if (string.IsNullOrWhiteSpace(_tourinsoftUrl)) { _tourinsoftUrlError = "URL requise"; return; }
+        if (string.IsNullOrWhiteSpace(_tourinsoftApiKey)) { _tourinsoftKeyError = "Clé API requise"; return; }
+
+        _savingTourinsoft = true;
+        try
+        {
+            var configJson = JsonSerializer.Serialize(new
+            {
+                apiUrl = _tourinsoftUrl,
+                apiKey = _tourinsoftApiKey,
+                syncIntervalMinutes = _tourinsoftSyncInterval,
+            });
+
+            await Sender.Send(new SaveIntegrationConfigCommand
+            {
+                IntegrationType = "tourinsoft",
+                ConfigJson = configJson,
+                IsEnabled = _tourinsoftEnabled,
+                CompanyId = CompanyId,
+            });
+
+            ToastService.Show("Configuration Tourinsoft enregistrée.", Severity.Success);
+        }
+        finally
+        {
+            _savingTourinsoft = false;
+        }
+    }
+
+    private async Task TestTourinsoftConnection()
+    {
+        if (string.IsNullOrWhiteSpace(_tourinsoftUrl)) { _tourinsoftUrlError = "URL requise"; return; }
+
+        _testingTourinsoft = true;
+        try
+        {
+            var success = await TestHttpEndpoint(_tourinsoftUrl);
+            ToastService.Show(
+                success ? "Connexion Tourinsoft réussie." : "Échec de connexion Tourinsoft.",
+                success ? Severity.Success : Severity.Error);
+        }
+        finally
+        {
+            _testingTourinsoft = false;
+        }
+    }
+
+    // ── ChorusPro save/test ──
+
+    private async Task SaveChorusProConfig()
+    {
+        if (string.IsNullOrWhiteSpace(_chorusUrl)) { _chorusUrlError = "URL requise"; return; }
+        if (string.IsNullOrWhiteSpace(_chorusSiret)) { _chorusSiretError = "SIRET requis"; return; }
+
+        _savingChorus = true;
+        try
+        {
+            var configJson = JsonSerializer.Serialize(new
+            {
+                apiUrl = _chorusUrl,
+                siret = _chorusSiret,
+                partnerCode = _chorusPartnerCode,
+                testMode = _chorusTestMode,
+            });
+
+            await Sender.Send(new SaveIntegrationConfigCommand
+            {
+                IntegrationType = "chorusPro",
+                ConfigJson = configJson,
+                IsEnabled = _chorusEnabled,
+                CompanyId = CompanyId,
+            });
+
+            ToastService.Show("Configuration ChorusPro enregistrée.", Severity.Success);
+        }
+        finally
+        {
+            _savingChorus = false;
+        }
+    }
+
+    private async Task TestChorusProConnection()
+    {
+        if (string.IsNullOrWhiteSpace(_chorusUrl)) { _chorusUrlError = "URL requise"; return; }
+
+        _testingChorus = true;
+        try
+        {
+            var success = await TestHttpEndpoint(_chorusUrl);
+            ToastService.Show(
+                success ? "Connexion ChorusPro réussie." : "Échec de connexion ChorusPro.",
+                success ? Severity.Success : Severity.Error);
+        }
+        finally
+        {
+            _testingChorus = false;
+        }
+    }
+
+    // ── SIG save/test ──
+
+    private async Task SaveSigConfig()
+    {
+        _savingSig = true;
+        try
+        {
+            var configJson = JsonSerializer.Serialize(new
+            {
+                wmsUrl = _sigWmsUrl,
+                wfsUrl = _sigWfsUrl,
+            });
+
+            await Sender.Send(new SaveIntegrationConfigCommand
+            {
+                IntegrationType = "sig",
+                ConfigJson = configJson,
+                IsEnabled = _sigEnabled,
+                CompanyId = CompanyId,
+            });
+
+            ToastService.Show("Configuration SIG enregistrée.", Severity.Success);
+        }
+        finally
+        {
+            _savingSig = false;
+        }
+    }
+
+    private async Task TestSigConnection()
+    {
+        _testingSig = true;
+        try
+        {
+            var wmsOk = string.IsNullOrWhiteSpace(_sigWmsUrl) || await TestHttpEndpoint(_sigWmsUrl);
+            var wfsOk = string.IsNullOrWhiteSpace(_sigWfsUrl) || await TestHttpEndpoint(_sigWfsUrl);
+            var success = wmsOk && wfsOk;
+
+            if (!wmsOk) _sigWmsUrlError = "URL WMS inaccessible";
+            if (!wfsOk) _sigWfsUrlError = "URL WFS inaccessible";
+
+            ToastService.Show(
+                success ? "URLs SIG accessibles." : "Certaines URLs SIG inaccessibles.",
+                success ? Severity.Success : Severity.Error);
+        }
+        finally
+        {
+            _testingSig = false;
+        }
+    }
+
+    // ── Shared test connection helper ──
+
+    private async Task<bool> TestHttpEndpoint(string url)
+    {
+        if (!await IsUrlSafeAsync(url))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var client = HttpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(10);
+            var response = await client.GetAsync(url);
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static async Task<bool> IsUrlSafeAsync(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+
+        if (uri.Scheme != Uri.UriSchemeHttps)
+        {
+            return false;
+        }
+
+        if (uri.IsLoopback)
+        {
+            return false;
+        }
+
+        try
+        {
+            var addresses = await System.Net.Dns.GetHostAddressesAsync(uri.Host);
+            return addresses.All(ip => !IsPrivateOrLoopback(ip));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsPrivateOrLoopback(System.Net.IPAddress ip)
+    {
+        if (System.Net.IPAddress.IsLoopback(ip))
+        {
+            return true;
+        }
+
+        var bytes = ip.GetAddressBytes();
+        if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+        {
+            if (bytes[0] == 10) { return true; }
+            if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) { return true; }
+            if (bytes[0] == 192 && bytes[1] == 168) { return true; }
+            if (bytes[0] == 169 && bytes[1] == 254) { return true; }
+        }
+
+        if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 && ip.IsIPv6LinkLocal)
+        {
+            return true;
+        }
+
+        return false;
+    }
+}

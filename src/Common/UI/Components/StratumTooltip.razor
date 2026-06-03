@@ -1,0 +1,122 @@
+@namespace Stratum.Common.UI.Components
+
+@* StratumTooltip — accessible tooltip triggered by hover/focus.
+ *
+ * Native implementation (no Radzen dependency). Provides:
+ * - role="tooltip", aria-describedby linking
+ * - Hover and focus triggers with configurable delay
+ * - 4 placement options: top, bottom, left, right
+ * - Rich content via ChildContent or simple Text parameter
+ * - CSS arrow pointing at the trigger
+ *
+ * Usage:
+ *   <StratumTooltip Text="Helpful info">
+ *       <button>Hover me</button>
+ *   </StratumTooltip>
+ *
+ *   <StratumTooltip Placement="TooltipPlacement.Bottom">
+ *       <TooltipContent>
+ *           <strong>Rich</strong> tooltip with <em>markup</em>
+ *       </TooltipContent>
+ *       <ChildContent>
+ *           <button>Hover me</button>
+ *       </ChildContent>
+ *   </StratumTooltip>
+ *@
+
+<span class="stratum-tooltip-wrapper"
+      data-testid="@(TestId ?? "stratum-tooltip")"
+      aria-describedby="@(_visible ? _tooltipId : null)"
+      @onmouseenter="ShowDelayed"
+      @onmouseleave="Hide"
+      @onfocusin="ShowDelayed"
+      @onfocusout="Hide">
+    @ChildContent
+    @if (_visible)
+    {
+        <span class="stratum-tooltip stratum-tooltip--@PlacementCss"
+              id="@_tooltipId"
+              role="tooltip">
+            @if (TooltipContent is not null)
+            {
+                @TooltipContent
+            }
+            else
+            {
+                @Text
+            }
+            <span class="stratum-tooltip__arrow" aria-hidden="true"></span>
+        </span>
+    }
+</span>
+
+@code {
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Simple text content for the tooltip.</summary>
+    [Parameter]
+    public string? Text { get; set; }
+
+    /// <summary>Rich content for the tooltip. Takes precedence over <see cref="Text"/>.</summary>
+    [Parameter]
+    public RenderFragment? TooltipContent { get; set; }
+
+    /// <summary>The trigger element that the tooltip is attached to.</summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Tooltip placement relative to the trigger.</summary>
+    [Parameter]
+    public TooltipPlacement Placement { get; set; } = TooltipPlacement.Top;
+
+    /// <summary>Delay in milliseconds before showing the tooltip. Default: 300ms.</summary>
+    [Parameter]
+    public int ShowDelay { get; set; } = 300;
+
+    /// <summary>When true, the tooltip is disabled and will not show.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    // ── Internal state ──────────────────────────────────────────
+
+    private readonly string _tooltipId = $"stratum-tooltip-{Guid.NewGuid():N}"[..28];
+    private bool _visible;
+    private CancellationTokenSource? _delayCts;
+
+    private string PlacementCss => Placement switch
+    {
+        TooltipPlacement.Top => "top",
+        TooltipPlacement.Bottom => "bottom",
+        TooltipPlacement.Left => "left",
+        TooltipPlacement.Right => "right",
+        _ => "top"
+    };
+
+    private async Task ShowDelayed()
+    {
+        if (Disabled || string.IsNullOrEmpty(Text) && TooltipContent is null) return;
+
+        _delayCts?.Cancel();
+        _delayCts = new CancellationTokenSource();
+
+        try
+        {
+            await Task.Delay(ShowDelay, _delayCts.Token);
+            _visible = true;
+            StateHasChanged();
+        }
+        catch (TaskCanceledException)
+        {
+            // Hide was called before delay elapsed.
+        }
+    }
+
+    private void Hide()
+    {
+        _delayCts?.Cancel();
+        _delayCts = null;
+        _visible = false;
+    }
+}

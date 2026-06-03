@@ -1,0 +1,113 @@
+@page "/admin/roles"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Stratum.Modules.Identity.Contracts
+@using Stratum.Modules.Identity.Contracts.DTOs
+@using Stratum.Modules.Identity.Contracts.Queries
+@using Stratum.Modules.Identity.Contracts.Commands
+@using Stratum.Modules.Identity.Web.Registries
+@inject IIdentityQueries IdentityQueries
+@inject ISender Sender
+@inject NavigationManager Nav
+@inject IToastService ToastService
+
+<PageTitle>Rôles — Stratum ERP</PageTitle>
+
+<PermissionGate Permission="@IdentityPermissions.RolesManage">
+    <DeclaredListPage TItem="RoleDto"
+                      Title="Rôles"
+                      TestId="admin-roles"
+                      LoadItems="@(() => IdentityQueries.GetRoles())"
+                      DetailUrl="@(r => $"/admin/roles/{r.Id}")"
+                      CreateUrl="/admin/roles/new"
+                      CreateLabel="+ Nouveau rôle"
+                      CreatePermission="@IdentityPermissions.RolesManage"
+                      ColumnRegistry="@_registry"
+                      ColumnTemplates="@_columnTemplates"
+                      GridKey="Identity.Roles"
+                      RowActions="@_rowActions"
+                      BulkActions="@_bulkActions"
+                      AriaLabel="Liste des rôles"
+                      DefaultSortColumn="Name"
+                      SearchPlaceholder="Chercher un rôle… (raccourci : /)"
+                      AllowExport="true"
+                      ExportFileName="roles">
+    </DeclaredListPage>
+</PermissionGate>
+
+@code {
+    private readonly RoleColumnRegistry _registry = new();
+
+    private readonly Dictionary<string, RenderFragment<RoleDto>> _columnTemplates = new()
+    {
+        ["IsSystem"] = item => __builder =>
+        {
+            __builder.OpenComponent<StatusBadge>(0);
+            __builder.AddAttribute(1, "Severity", item.IsSystem ? Severity.Info : Severity.Neutral);
+            __builder.AddAttribute(2, "Label", item.IsSystem ? "Système" : "Personnalisé");
+            __builder.CloseComponent();
+        },
+    };
+
+    private readonly IReadOnlyList<GridRowAction<RoleDto>> _rowActions;
+    private readonly IReadOnlyList<BulkActionConfig<RoleDto>> _bulkActions;
+
+    public AdminRoles()
+    {
+        _rowActions =
+        [
+            new GridRowAction<RoleDto>(
+                Id: "view",
+                Label: "Voir",
+                Icon: "visibility",
+                IsQuickAction: true,
+                Callback: item =>
+                {
+                    Nav.NavigateTo($"/admin/roles/{item.Id}");
+                    return Task.CompletedTask;
+                }),
+            new GridRowAction<RoleDto>(
+                Id: "delete",
+                Label: "Supprimer",
+                Icon: "delete",
+                Callback: DeleteRoleAsync,
+                RequiresConfirmation: true,
+                IsSeparatorBefore: true,
+                IsQuickAction: true,
+                IsEnabled: item => !item.IsSystem),
+        ];
+
+        _bulkActions =
+        [
+            new BulkActionConfig<RoleDto>(
+                Id: "delete",
+                Label: "Supprimer la sélection",
+                Icon: "delete",
+                Permission: IdentityPermissions.RolesManage,
+                PermissionDisabledReason: "Rôle insuffisant pour supprimer.",
+                Execute: DeleteMultipleAsync,
+                RequiresConfirmation: true,
+                ItemFilter: r => !r.IsSystem),
+        ];
+    }
+
+    private async Task DeleteRoleAsync(RoleDto item)
+    {
+        await Sender.Send(new DeleteRoleCommand { RoleId = item.Id });
+        ToastService.Show($"Rôle « {item.Name} » supprimé.", Severity.Success);
+    }
+
+    private async Task DeleteMultipleAsync(IReadOnlyList<RoleDto> items)
+    {
+        foreach (var item in items)
+        {
+            await Sender.Send(new DeleteRoleCommand { RoleId = item.Id });
+        }
+
+        ToastService.Show($"{items.Count} rôle(s) supprimé(s).", Severity.Success);
+    }
+}

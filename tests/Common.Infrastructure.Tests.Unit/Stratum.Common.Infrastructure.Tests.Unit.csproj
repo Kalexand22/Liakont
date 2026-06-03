@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- Test-project naming convention uses underscores (Method_Should_X_When_Y) per coding-standards.md §5 -->
+    <NoWarn>$(NoWarn);CA1707;SA1202</NoWarn>
+  </PropertyGroup>
+
+  <!-- Required to test ErrorHandlingMiddleware (DefaultHttpContext) -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Common\Infrastructure\Stratum.Common.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Common\UI\Stratum.Common.UI.csproj" />
+  </ItemGroup>
+
+</Project>

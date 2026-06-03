@@ -8,7 +8,7 @@ charset = utf-8
 trim_trailing_whitespace = true
 insert_final_newline = true
 
-[*.{csproj,props,targets,xml,xaml}]
+[*.{csproj,props,targets,xml}]
 indent_size = 2
 
 [*.{json,yaml,yml}]
@@ -17,21 +17,14 @@ indent_size = 2
 [*.md]
 trim_trailing_whitespace = false
 
-[*.ps1]
-indent_size = 4
-
 [*.cs]
-# Namespaces : file-scoped autorisés par C# 10+ ; net48 + LangVersion latest les supporte
-csharp_style_namespace_declarations = file_scoped:suggestion
+# File-scoped namespaces
+csharp_style_namespace_declarations = file_scoped:error
 
-# Using directives hors namespace (convention .NET Framework classique)
-csharp_using_directive_placement = outside_namespace:error
+# Using directives inside namespace
+csharp_using_directive_placement = inside_namespace:error
 
-# var uniquement quand le type est évident
-csharp_style_var_when_type_is_apparent = true:suggestion
-csharp_style_var_elsewhere = false:suggestion
-
-# Nommage : PascalCase pour les types et membres publics
+# Naming: PascalCase for types, methods, properties
 dotnet_naming_rule.types_should_be_pascal_case.symbols = types
 dotnet_naming_rule.types_should_be_pascal_case.style = pascal_case_style
 dotnet_naming_rule.types_should_be_pascal_case.severity = error
@@ -41,13 +34,78 @@ dotnet_naming_symbols.types.applicable_accessibilities = *
 
 dotnet_naming_style.pascal_case_style.capitalization = pascal_case
 
-# Nommage : camelCase pour paramètres et variables locales
+# Naming: camelCase for parameters and locals
 dotnet_naming_rule.locals_should_be_camel_case.symbols = locals
 dotnet_naming_rule.locals_should_be_camel_case.style = camel_case_style
 dotnet_naming_rule.locals_should_be_camel_case.severity = error
 
 dotnet_naming_symbols.locals.applicable_kinds = parameter, local
+dotnet_naming_symbols.locals.applicable_accessibilities = *
+
 dotnet_naming_style.camel_case_style.capitalization = camel_case
 
-# Interdire float/double pour les montants — pas applicable via editorconfig,
-# règle vérifiée par codex-review (voir CLAUDE.md, règle « montants en decimal »)
+# Naming: _camelCase for private fields
+dotnet_naming_rule.private_fields_should_be_underscore_camel.symbols = private_fields
+dotnet_naming_rule.private_fields_should_be_underscore_camel.style = underscore_camel_style
+dotnet_naming_rule.private_fields_should_be_underscore_camel.severity = error
+
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private, private_protected
+
+dotnet_naming_style.underscore_camel_style.capitalization = camel_case
+dotnet_naming_style.underscore_camel_style.required_prefix = _
+
+# Naming: Interfaces must start with I
+dotnet_naming_rule.interfaces_should_start_with_i.symbols = interfaces
+dotnet_naming_rule.interfaces_should_start_with_i.style = interface_style
+dotnet_naming_rule.interfaces_should_start_with_i.severity = error
+
+dotnet_naming_symbols.interfaces.applicable_kinds = interface
+dotnet_naming_symbols.interfaces.applicable_accessibilities = *
+
+dotnet_naming_style.interface_style.capitalization = pascal_case
+dotnet_naming_style.interface_style.required_prefix = I
+
+# Code style
+csharp_prefer_braces = true:warning
+csharp_style_var_for_built_in_types = false:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = false:suggestion
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+csharp_style_expression_bodied_properties = true:suggestion
+
+# Sort usings
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+
+# StyleCop: Disable rules that conflict with our conventions
+# SA1200: UsingDirectivesMustBePlacedCorrectly â€” we use inside_namespace via editorconfig
+# SA1633: FileMustHaveHeader â€” no file headers required
+# SA1600: ElementsMustBeDocumented â€” not required in Phase 1
+# SA1101: PrefixLocalCallsWithThis â€” we don't require this
+# SA1309: FieldNamesMustNotBeginWithUnderscore â€” conflicts with _camelCase convention
+dotnet_diagnostic.SA1633.severity = none
+dotnet_diagnostic.SA1600.severity = none
+dotnet_diagnostic.SA1601.severity = none
+dotnet_diagnostic.SA1602.severity = none
+dotnet_diagnostic.SA1101.severity = none
+dotnet_diagnostic.SA1309.severity = none
+
+# SA0001: XML comment analysis disabled â€” no XML docs required in Phase 1
+dotnet_diagnostic.SA0001.severity = none
+
+# Test projects: relax rules that conflict with xUnit naming conventions
+
+# Test projects: relax rules incompatible with xUnit conventions
+[{**/Tests.*/*.cs,**/Tests.*/**/*.cs,**/Stratum.Tests.*/*.cs,**/Stratum.Tests.*/**/*.cs}]
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.SA1116.severity = none
+dotnet_diagnostic.SA1117.severity = none
+dotnet_diagnostic.SA1202.severity = none
+dotnet_diagnostic.SA1210.severity = none
+dotnet_diagnostic.SA1512.severity = none
+
+# ── Liakont ──
+# Montants en decimal, jamais float/double (regle metier CLAUDE.md n.1) :
+# non exprimable en editorconfig, verifie par codex-review (P1 automatique).
+# Agent net48 (solution agent, SOL02) : override de convention via son propre scope.

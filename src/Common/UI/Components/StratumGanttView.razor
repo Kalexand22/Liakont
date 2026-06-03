@@ -1,0 +1,1133 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TItem where TItem : notnull
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Models
+@using Stratum.Common.UI.Services
+@inject IJSRuntime JS
+
+@implements IStratumListView<TItem>
+@implements IAsyncDisposable
+
+@* StratumGanttView<TItem> — Timeline Gantt chart.
+ *
+ * Implements IStratumListView<TItem> for multi-view list pages.
+ * Places items on a timeline using StartDateProperty/EndDateProperty.
+ * Day, Week, Month zoom modes with navigation.
+ * Heatmap footer, drag-resize bars, FSM status border-left, double-line labels.
+ *
+ * Usage:
+ *   <StratumGanttView TItem="TaskDto" Data="@tasks" Loading="@_loading"
+ *                     StartDateProperty="StartDate" EndDateProperty="EndDate"
+ *                     OnRowActivated="@GoToTask"
+ *                     AriaLabel="Gantt des tâches" />
+ *
+ * Ref: orchestration/manifest.yaml UIC07.
+ *@
+
+<div class="stratum-gantt-view"
+     data-testid="@(TestId ?? "stratum-gantt-view")"
+     @onkeydown="HandleKeyDown"
+     tabindex="0">
+
+    @if (Loading)
+    {
+        <div class="stratum-gantt-view__loading" role="status" aria-label="@(AriaLabel ?? "Chargement")" aria-busy="true">
+            <div class="stratum-gantt-view__toolbar stratum-gantt-view__toolbar--skeleton" aria-hidden="true">
+                <div class="stratum-gantt-view__skeleton-btn"></div>
+                <div class="stratum-gantt-view__skeleton-title"></div>
+                <div class="stratum-gantt-view__skeleton-btn"></div>
+            </div>
+            <div class="stratum-gantt-view__grid-skeleton" aria-hidden="true">
+                @for (var r = 0; r < 5; r++)
+                {
+                    <div class="stratum-gantt-view__skeleton-row">
+                        <div class="stratum-gantt-view__skeleton-cell stratum-gantt-view__skeleton-cell--label"></div>
+                        <div class="stratum-gantt-view__skeleton-cell stratum-gantt-view__skeleton-cell--bar"></div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else if (Data is null || Data.Count == 0)
+    {
+        <div class="stratum-gantt-view__header">
+            @RenderToolbar()
+        </div>
+        <div class="stratum-gantt-view__empty" role="status">
+            @if (EmptyContent is not null)
+            {
+                @EmptyContent
+            }
+            else
+            {
+                <p class="stratum-gantt-view__empty-text">Aucun élément.</p>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="stratum-gantt-view__header">
+            @RenderToolbar()
+        </div>
+
+        <div class="stratum-gantt-view__container stratum-gantt-view__container--grid-bg"
+             @ref="_containerRef"
+             role="grid" aria-label="@AriaLabel">
+            @* ── Header row: task label + timeline columns ── *@
+            <div class="stratum-gantt-view__head" role="row">
+                <div class="stratum-gantt-view__label-col stratum-gantt-view__label-col--header" role="columnheader">
+                    Tâche
+                </div>
+                <div class="stratum-gantt-view__timeline-head">
+                    @foreach (var col in _timelineColumns)
+                    {
+                        var isToday = col.Date == DateOnly.FromDateTime(DateTime.Today);
+                        <div class="stratum-gantt-view__col-header @(isToday ? "stratum-gantt-view__col-header--today" : "")"
+                             role="columnheader"
+                             style="width:@(ColumnWidthPx)px;min-width:@(ColumnWidthPx)px;"
+                             title="@FormatDateTooltip(col.Date)">
+                            @col.Label
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @* ── Task rows ── *@
+            @for (var rowIdx = 0; rowIdx < _sortedItems.Count; rowIdx++)
+            {
+                var item = _sortedItems[rowIdx];
+                var isFocused = rowIdx == _focusedRow;
+                var isSelected = _selectedSet.Contains(item);
+                var barStyle = GetBarStyle(item);
+
+                <div class="stratum-gantt-view__row @(isFocused ? "stratum-gantt-view__row--focused" : "") @(isSelected ? "stratum-gantt-view__row--selected" : "")"
+                     role="row"
+                     tabindex="@(isFocused ? 0 : -1)"
+                     aria-selected="@(isSelected ? "true" : "false")"
+                     data-testid="@($"gantt-row-{rowIdx}")"
+                     @onclick="() => HandleRowClick(rowIdx)"
+                     @ondblclick="() => HandleRowDoubleClick(item)">
+
+                    <div class="stratum-gantt-view__label-col" role="gridcell">
+                        @if (AllowSelection)
+                        {
+                            <input type="checkbox"
+                                   checked="@isSelected"
+                                   aria-label="@($"Sélectionner {GetItemTitle(item)}")"
+                                   data-testid="@($"gantt-check-{rowIdx}")"
+                                   @onclick:stopPropagation="true"
+                                   @onchange="() => ToggleSelection(item)" />
+                        }
+                        <span class="stratum-gantt-view__task-name" title="@GetItemTitle(item)">
+                            @GetItemTitle(item)
+                        </span>
+                    </div>
+
+                    <div class="stratum-gantt-view__timeline-cells">
+                        @foreach (var col in _timelineColumns)
+                        {
+                            var isToday = col.Date == DateOnly.FromDateTime(DateTime.Today);
+                            <div class="stratum-gantt-view__cell @(isToday ? "stratum-gantt-view__cell--today" : "")"
+                                 style="width:@(ColumnWidthPx)px;min-width:@(ColumnWidthPx)px;">
+                            </div>
+                        }
+
+                        @* ── Task bar overlay ── *@
+                        @if (barStyle is not null)
+                        {
+                            var progress = GetProgress(item);
+                            var color = GetItemColor(item);
+                            var statusBorder = GetStatusBorderStyle(item);
+                            var refId = GetReferenceId(item);
+                            <div class="stratum-gantt-view__bar @(AllowDragResize ? "stratum-gantt-view__bar--resizable" : "")"
+                                 style="@(barStyle + statusBorder)"
+                                 title="@GetBarTooltip(item)"
+                                 data-testid="@($"gantt-bar-{rowIdx}")"
+                                 role="gridcell"
+                                 aria-label="@GetBarTooltip(item)">
+                                @if (AllowDragResize)
+                                {
+                                    <div class="stratum-gantt-view__resize-handle stratum-gantt-view__resize-handle--start"
+                                         data-gantt-resize="start"
+                                         data-testid="@($"gantt-resize-start-{rowIdx}")"
+                                         aria-hidden="true"></div>
+                                }
+                                @if (progress > 0)
+                                {
+                                    <div class="stratum-gantt-view__bar-progress"
+                                         style="width:@(Math.Min(progress, 100))%;"
+                                         data-testid="@($"gantt-progress-{rowIdx}")">
+                                    </div>
+                                }
+                                <div class="stratum-gantt-view__bar-content">
+                                    @if (!string.IsNullOrEmpty(refId))
+                                    {
+                                        <span class="stratum-gantt-view__bar-ref" data-testid="@($"gantt-ref-{rowIdx}")">@refId</span>
+                                    }
+                                    <span class="stratum-gantt-view__bar-label">@GetItemTitle(item)</span>
+                                </div>
+                                @if (AllowDragResize)
+                                {
+                                    <div class="stratum-gantt-view__resize-handle stratum-gantt-view__resize-handle--end"
+                                         data-gantt-resize="end"
+                                         data-testid="@($"gantt-resize-end-{rowIdx}")"
+                                         aria-hidden="true"></div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+
+            @* ── Today marker ── *@
+            @{
+                var todayOffset = GetTodayMarkerOffset();
+            }
+            @if (todayOffset is not null)
+            {
+                <div class="stratum-gantt-view__today-marker"
+                     style="left:calc(@(_labelColWidth)px + @(todayOffset)px);"
+                     data-testid="gantt-today-marker"
+                     aria-hidden="true">
+                </div>
+            }
+
+            @* ── Dependency arrows (SVG overlay) ── *@
+            @if (DependencyProperty is not null && _sortedItems.Count > 0)
+            {
+                <svg class="stratum-gantt-view__deps-svg" aria-hidden="true">
+                    @foreach (var dep in _dependencies)
+                    {
+                        <line x1="@dep.X1" y1="@dep.Y1" x2="@dep.X2" y2="@dep.Y2"
+                              class="stratum-gantt-view__dep-line"
+                              marker-end="@($"url(#gantt-arrow-{_instanceId})")" />
+                    }
+                    <defs>
+                        <marker id="@($"gantt-arrow-{_instanceId}")" markerWidth="8" markerHeight="8"
+                                refX="8" refY="4" orient="auto">
+                            <path d="M0,0 L8,4 L0,8 Z" class="stratum-gantt-view__dep-arrow" />
+                        </marker>
+                    </defs>
+                </svg>
+            }
+
+            @* ── Heatmap footer (inside scroll container for alignment) ── *@
+            @if (ShowHeatmap && _heatmapData.Count > 0)
+            {
+                <div class="stratum-gantt-view__heatmap" data-testid="gantt-heatmap" aria-label="Heatmap de charge">
+                    <div class="stratum-gantt-view__heatmap-label">
+                        <span class="material-symbols-outlined" aria-hidden="true">monitoring</span>
+                        <span>Charge</span>
+                    </div>
+                    <div class="stratum-gantt-view__heatmap-cells">
+                        @foreach (var entry in _heatmapData)
+                        {
+                            var pct = Math.Min(entry.Percent, 100);
+                            var opacity = 0.05 + (pct / 100.0) * 0.85;
+                            var textClass = pct >= 50 ? "stratum-gantt-view__heatmap-text--light" : "stratum-gantt-view__heatmap-text--dark";
+                            <div class="stratum-gantt-view__heatmap-cell @textClass"
+                                 style="width:@(ColumnWidthPx)px;min-width:@(ColumnWidthPx)px;opacity:@opacity.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);"
+                                 title="@($"{entry.Date:d MMM} — {pct}%")"
+                                 data-testid="@($"gantt-heatmap-cell-{entry.Date:yyyy-MM-dd}")">
+                                @if (ColumnWidthPx >= 24)
+                                {
+                                    <span>@pct%</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@* ── Toolbar ──────────────────────────────────────────────────── *@
+
+@{
+    RenderFragment RenderToolbar() =>
+        @<div class="stratum-gantt-view__toolbar" role="toolbar" aria-label="Navigation du Gantt">
+            <div class="stratum-gantt-view__nav">
+                <button type="button"
+                        class="stratum-gantt-view__nav-btn"
+                        aria-label="Période précédente"
+                        data-testid="gantt-prev"
+                        @onclick="NavigatePrevious">
+                    ‹
+                </button>
+                <button type="button"
+                        class="stratum-gantt-view__today-btn"
+                        data-testid="gantt-today"
+                        @onclick="NavigateToday">
+                    Aujourd'hui
+                </button>
+                <button type="button"
+                        class="stratum-gantt-view__nav-btn"
+                        aria-label="Période suivante"
+                        data-testid="gantt-next"
+                        @onclick="NavigateNext">
+                    ›
+                </button>
+            </div>
+
+            <h2 class="stratum-gantt-view__period-label" aria-live="polite">
+                @GetPeriodLabel()
+            </h2>
+
+            <div class="stratum-gantt-view__view-toggle" role="group" aria-label="Niveau de zoom">
+                <button type="button"
+                        class="stratum-gantt-view__toggle-btn @(_zoomMode == GanttZoomMode.Day ? "stratum-gantt-view__toggle-btn--active" : "")"
+                        data-testid="gantt-zoom-day"
+                        aria-pressed="@(_zoomMode == GanttZoomMode.Day ? "true" : "false")"
+                        @onclick="() => SetZoomAsync(GanttZoomMode.Day)">
+                    Jour
+                </button>
+                <button type="button"
+                        class="stratum-gantt-view__toggle-btn @(_zoomMode == GanttZoomMode.Week ? "stratum-gantt-view__toggle-btn--active" : "")"
+                        data-testid="gantt-zoom-week"
+                        aria-pressed="@(_zoomMode == GanttZoomMode.Week ? "true" : "false")"
+                        @onclick="() => SetZoomAsync(GanttZoomMode.Week)">
+                    Semaine
+                </button>
+                <button type="button"
+                        class="stratum-gantt-view__toggle-btn @(_zoomMode == GanttZoomMode.Month ? "stratum-gantt-view__toggle-btn--active" : "")"
+                        data-testid="gantt-zoom-month"
+                        aria-pressed="@(_zoomMode == GanttZoomMode.Month ? "true" : "false")"
+                        @onclick="() => SetZoomAsync(GanttZoomMode.Month)">
+                    Mois
+                </button>
+            </div>
+        </div>;
+}
+
+@code {
+    // ── State ────────────────────────────────────────────────────
+
+    private List<TItem> _sortedItems = [];
+    private readonly HashSet<TItem> _selectedSet = new();
+    private List<TimelineColumn> _timelineColumns = [];
+    private List<DependencyLine> _dependencies = [];
+    private List<ColumnDefinition>? _resolvedColumns;
+    private List<HeatmapEntry> _heatmapData = [];
+    private DotNetObjectReference<StratumGanttView<TItem>>? _dotNetRef;
+    private ElementReference _containerRef;
+    private IJSObjectReference? _jsModule;
+    private bool _jsInitialized;
+
+    private DateOnly _viewStart;
+    private DateOnly _viewEnd;
+    private int _focusedRow;
+    private GanttZoomMode _zoomMode = GanttZoomMode.Week;
+
+    private const int _labelColWidth = 200;
+    private const int _headerHeight = 40;
+    private string _instanceId = Guid.NewGuid().ToString("N")[..8];
+    private static readonly System.Text.RegularExpressions.Regex s_safeColorPattern =
+        new(@"^(#[0-9a-fA-F]{3,8}|rgb\(\d{1,3},\s*\d{1,3},\s*\d{1,3}\)|[a-zA-Z]+)$",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    // ── IStratumListView<TItem> ────────────────────────────────
+
+    /// <summary>Items to display.</summary>
+    [Parameter]
+    public IReadOnlyList<TItem> Data { get; set; } = Array.Empty<TItem>();
+
+    /// <summary>Whether the view is loading.</summary>
+    [Parameter]
+    public bool Loading { get; set; }
+
+    /// <summary>Currently selected items.</summary>
+    [Parameter]
+    public IReadOnlyList<TItem> SelectedItems { get; set; } = Array.Empty<TItem>();
+
+    /// <summary>Accessibility label for the Gantt view.</summary>
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    // ── Gantt-specific parameters ────────────────────────────────
+
+    /// <summary>Optional test identifier.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Property path on TItem returning the task start date (DateTime, DateTimeOffset, or DateOnly).</summary>
+    [Parameter]
+    public string? StartDateProperty { get; set; }
+
+    /// <summary>Property path on TItem returning the task end date (DateTime, DateTimeOffset, or DateOnly).</summary>
+    [Parameter]
+    public string? EndDateProperty { get; set; }
+
+    /// <summary>Property path on TItem returning a CSS color string for the task bar.</summary>
+    [Parameter]
+    public string? ColorProperty { get; set; }
+
+    /// <summary>Property path on TItem returning a double (0-100) for progress overlay.</summary>
+    [Parameter]
+    public string? ProgressProperty { get; set; }
+
+    /// <summary>
+    /// Property path on TItem returning an IEnumerable of int IDs that this task depends on.
+    /// Used to draw dependency arrows between task bars.
+    /// </summary>
+    [Parameter]
+    public string? DependencyProperty { get; set; }
+
+    /// <summary>Property path on TItem returning an int ID for cross-referencing dependencies.</summary>
+    [Parameter]
+    public string? IdProperty { get; set; }
+
+    /// <summary>Enable item selection via checkboxes.</summary>
+    [Parameter]
+    public bool AllowSelection { get; set; }
+
+    /// <summary>Raised when an item is activated (double-click).</summary>
+    [Parameter]
+    public EventCallback<TItem> OnRowActivated { get; set; }
+
+    /// <summary>Raised when selection changes.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<TItem>> OnSelectionChanged { get; set; }
+
+    /// <summary>Column registry providing field metadata for task display.</summary>
+    [Parameter]
+    public IColumnRegistry<TItem>? ColumnRegistry { get; set; }
+
+    /// <summary>Ordered list of visible column keys.</summary>
+    [Parameter]
+    public IReadOnlyList<string>? VisibleColumnKeys { get; set; }
+
+    /// <summary>Custom content for empty state.</summary>
+    [Parameter]
+    public RenderFragment? EmptyContent { get; set; }
+
+    /// <summary>Column width in pixels. Default: 36 (day mode), auto-adjusted by zoom.</summary>
+    [Parameter]
+    public int? ColumnWidthOverride { get; set; }
+
+    // ── UIC07 extensions ────────────────────────────────────────
+
+    /// <summary>Enable drag-resize on task bars. Fires <see cref="OnBarResize"/> on drop.</summary>
+    [Parameter]
+    public bool AllowDragResize { get; set; }
+
+    /// <summary>Raised when a bar is drag-resized. Args: item, new start date, new end date.</summary>
+    [Parameter]
+    public EventCallback<GanttBarResizeEventArgs<TItem>> OnBarResize { get; set; }
+
+    /// <summary>Property path on TItem returning a <see cref="ReservationStatus"/> for status border-left color.</summary>
+    [Parameter]
+    public string? StatusProperty { get; set; }
+
+    /// <summary>Property path on TItem returning a string reference ID (e.g. "REF-2023-0842") for double-line display.</summary>
+    [Parameter]
+    public string? ReferenceIdProperty { get; set; }
+
+    /// <summary>Show heatmap footer displaying load per day. Computed from data density.</summary>
+    [Parameter]
+    public bool ShowHeatmap { get; set; }
+
+    private int ColumnWidthPx => ColumnWidthOverride ?? _zoomMode switch
+    {
+        GanttZoomMode.Day => 36,
+        GanttZoomMode.Week => 24,
+        GanttZoomMode.Month => 16,
+        _ => 36,
+    };
+
+    // ── Lifecycle ────────────────────────────────────────────────
+
+    protected override void OnParametersSet()
+    {
+        // Sync selected set from parameter
+        _selectedSet.Clear();
+        if (SelectedItems is { Count: > 0 })
+        {
+            foreach (var item in SelectedItems)
+                _selectedSet.Add(item);
+        }
+
+        // Resolve columns from registry
+        if (ColumnRegistry is not null)
+        {
+            if (VisibleColumnKeys is { Count: > 0 })
+            {
+                var list = new List<ColumnDefinition>(VisibleColumnKeys.Count);
+                foreach (var key in VisibleColumnKeys)
+                {
+                    var col = ColumnRegistry.GetColumn(key);
+                    if (col is not null)
+                        list.Add(col);
+                }
+                _resolvedColumns = list;
+            }
+            else
+            {
+                _resolvedColumns = ColumnRegistry.GetDefaultVisibleColumns().ToList();
+            }
+        }
+        else
+        {
+            _resolvedColumns = null;
+        }
+
+        // Sort items by start date
+        _sortedItems = Data?.ToList() ?? [];
+        if (!string.IsNullOrEmpty(StartDateProperty))
+        {
+            _sortedItems.Sort((a, b) =>
+            {
+                var da = GetDateValue(a, StartDateProperty!) ?? DateOnly.MaxValue;
+                var db = GetDateValue(b, StartDateProperty!) ?? DateOnly.MaxValue;
+                return da.CompareTo(db);
+            });
+        }
+
+        // Determine view range
+        ComputeViewRange();
+
+        // Build timeline columns
+        RebuildTimelineColumns();
+
+        // Build dependency lines
+        RebuildDependencies();
+
+        // Build heatmap data
+        if (ShowHeatmap)
+            RebuildHeatmap();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (AllowDragResize && !_jsInitialized && Data is { Count: > 0 } && !Loading)
+        {
+            try
+            {
+                _jsModule ??= await JS.InvokeAsync<IJSObjectReference>(
+                    "import", "./_content/Stratum.Common.UI/js/gantt-interop.js");
+                _dotNetRef ??= DotNetObjectReference.Create(this);
+                await _jsModule.InvokeVoidAsync("initDragResize",
+                    _instanceId, _containerRef, _dotNetRef, ColumnWidthPx);
+                _jsInitialized = true;
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Circuit disconnected or component disposed during prerendering
+            }
+        }
+    }
+
+    // ── View range ────────────────────────────────────────────────
+
+    private IReadOnlyList<TItem>? _previousData;
+
+    private void ComputeViewRange()
+    {
+        // Recompute only on first render or when data changes
+        if (_viewStart != default && _viewEnd != default && ReferenceEquals(Data, _previousData))
+            return;
+        _previousData = Data;
+
+        var today = DateOnly.FromDateTime(DateTime.Today);
+
+        // Determine range from data
+        DateOnly? dataMin = null;
+        DateOnly? dataMax = null;
+
+        if (_sortedItems.Count > 0 && !string.IsNullOrEmpty(StartDateProperty))
+        {
+            foreach (var item in _sortedItems)
+            {
+                var start = GetDateValue(item, StartDateProperty!);
+                if (start is not null)
+                {
+                    if (dataMin is null || start.Value < dataMin.Value) dataMin = start.Value;
+                    if (dataMax is null || start.Value > dataMax.Value) dataMax = start.Value;
+                }
+
+                if (!string.IsNullOrEmpty(EndDateProperty))
+                {
+                    var end = GetDateValue(item, EndDateProperty!);
+                    if (end is not null && (dataMax is null || end.Value > dataMax.Value))
+                        dataMax = end.Value;
+                }
+            }
+        }
+
+        var rangeStart = dataMin ?? today.AddDays(-7);
+        var rangeEnd = dataMax ?? today.AddDays(30);
+
+        // Add padding
+        _viewStart = rangeStart.AddDays(-3);
+        _viewEnd = rangeEnd.AddDays(7);
+
+        // Ensure minimum range
+        var totalDays = _viewEnd.DayNumber - _viewStart.DayNumber;
+        if (totalDays < 14)
+        {
+            _viewEnd = _viewStart.AddDays(14);
+        }
+    }
+
+    // ── Timeline columns ────────────────────────────────────────
+
+    private void RebuildTimelineColumns()
+    {
+        _timelineColumns.Clear();
+
+        var current = _viewStart;
+        while (current <= _viewEnd)
+        {
+            var label = _zoomMode switch
+            {
+                GanttZoomMode.Day => current.Day.ToString(),
+                GanttZoomMode.Week => current.DayOfWeek == DayOfWeek.Monday
+                    ? $"S{GetIso8601WeekNumber(current)}"
+                    : current.Day.ToString(),
+                GanttZoomMode.Month => current.Day == 1
+                    ? current.ToString("MMM", System.Globalization.CultureInfo.GetCultureInfo("fr-FR"))
+                    : current.Day.ToString(),
+                _ => current.Day.ToString(),
+            };
+
+            _timelineColumns.Add(new TimelineColumn(current, label));
+            current = current.AddDays(1);
+        }
+    }
+
+    private static int GetIso8601WeekNumber(DateOnly date)
+    {
+        var dt = date.ToDateTime(TimeOnly.MinValue);
+        return System.Globalization.ISOWeek.GetWeekOfYear(dt);
+    }
+
+    // ── Bar positioning ─────────────────────────────────────────
+
+    private string? GetBarStyle(TItem item)
+    {
+        if (string.IsNullOrEmpty(StartDateProperty)) return null;
+
+        var start = GetDateValue(item, StartDateProperty!);
+        if (start is null) return null;
+
+        DateOnly end;
+        if (!string.IsNullOrEmpty(EndDateProperty))
+        {
+            end = GetDateValue(item, EndDateProperty!) ?? start.Value.AddDays(1);
+        }
+        else
+        {
+            end = start.Value.AddDays(1);
+        }
+
+        // Clamp to view range
+        var barStart = start.Value < _viewStart ? _viewStart : start.Value;
+        var barEnd = end > _viewEnd ? _viewEnd : end;
+
+        if (barEnd <= _viewStart || barStart >= _viewEnd) return null;
+
+        var offsetDays = barStart.DayNumber - _viewStart.DayNumber;
+        var durationDays = Math.Max(1, barEnd.DayNumber - barStart.DayNumber);
+
+        var left = offsetDays * ColumnWidthPx;
+        var width = durationDays * ColumnWidthPx;
+
+        var color = GetItemColor(item);
+        var bgColor = color is not null ? $"background:{color};" : "";
+
+        return $"left:{left}px;width:{width}px;{bgColor}";
+    }
+
+    private double? GetTodayMarkerOffset()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        if (today < _viewStart || today > _viewEnd) return null;
+
+        var offsetDays = today.DayNumber - _viewStart.DayNumber;
+        return offsetDays * ColumnWidthPx + ColumnWidthPx / 2.0;
+    }
+
+    // ── Dependencies ────────────────────────────────────────────
+
+    private void RebuildDependencies()
+    {
+        _dependencies.Clear();
+
+        if (string.IsNullOrEmpty(DependencyProperty) || string.IsNullOrEmpty(IdProperty))
+            return;
+
+        // Build id→rowIndex map
+        var idToRow = new Dictionary<int, int>();
+        for (var i = 0; i < _sortedItems.Count; i++)
+        {
+            var idVal = GetIntValue(_sortedItems[i], IdProperty!);
+            if (idVal is not null)
+                idToRow[idVal.Value] = i;
+        }
+
+        // Build dependency lines
+        for (var i = 0; i < _sortedItems.Count; i++)
+        {
+            var item = _sortedItems[i];
+            var deps = GetDependencyIds(item, DependencyProperty!);
+            if (deps is null) continue;
+
+            foreach (var depId in deps)
+            {
+                if (!idToRow.TryGetValue(depId, out var fromRow)) continue;
+
+                var fromItem = _sortedItems[fromRow];
+                var fromEnd = GetBarEndPx(fromItem);
+                var toStart = GetBarStartPx(item);
+
+                if (fromEnd is null || toStart is null) continue;
+
+                const int rowHeight = 40; // matches CSS row height
+                var y1 = _headerHeight + fromRow * rowHeight + rowHeight / 2;
+                var y2 = _headerHeight + i * rowHeight + rowHeight / 2;
+
+                _dependencies.Add(new DependencyLine(fromEnd.Value, y1, toStart.Value, y2));
+            }
+        }
+    }
+
+    private double? GetBarStartPx(TItem item)
+    {
+        if (string.IsNullOrEmpty(StartDateProperty)) return null;
+        var start = GetDateValue(item, StartDateProperty!);
+        if (start is null) return null;
+
+        var barStart = start.Value < _viewStart ? _viewStart : start.Value;
+        return (barStart.DayNumber - _viewStart.DayNumber) * ColumnWidthPx;
+    }
+
+    private double? GetBarEndPx(TItem item)
+    {
+        if (string.IsNullOrEmpty(StartDateProperty)) return null;
+        var start = GetDateValue(item, StartDateProperty!);
+        if (start is null) return null;
+
+        DateOnly end;
+        if (!string.IsNullOrEmpty(EndDateProperty))
+            end = GetDateValue(item, EndDateProperty!) ?? start.Value.AddDays(1);
+        else
+            end = start.Value.AddDays(1);
+
+        var barEnd = end > _viewEnd ? _viewEnd : end;
+        return (barEnd.DayNumber - _viewStart.DayNumber) * ColumnWidthPx;
+    }
+
+    // ── Property resolution ─────────────────────────────────────
+
+    private static DateOnly? GetDateValue(TItem item, string propertyPath)
+    {
+        object? current = item;
+        foreach (var segment in propertyPath.Split('.'))
+        {
+            if (current is null) return null;
+            var prop = current.GetType().GetProperty(segment);
+            if (prop is null) return null;
+            current = prop.GetValue(current);
+        }
+
+        return current switch
+        {
+            DateOnly d => d,
+            DateTime dt => DateOnly.FromDateTime(dt),
+            DateTimeOffset dto => DateOnly.FromDateTime(dto.LocalDateTime),
+            _ => null,
+        };
+    }
+
+    private static int? GetIntValue(TItem item, string propertyPath)
+    {
+        object? current = item;
+        foreach (var segment in propertyPath.Split('.'))
+        {
+            if (current is null) return null;
+            var prop = current.GetType().GetProperty(segment);
+            if (prop is null) return null;
+            current = prop.GetValue(current);
+        }
+
+        try
+        {
+            return current switch
+            {
+                int i => i,
+                long l => checked((int)l),
+                _ => null,
+            };
+        }
+        catch (OverflowException)
+        {
+            return null;
+        }
+    }
+
+    private static IEnumerable<int>? GetDependencyIds(TItem item, string propertyPath)
+    {
+        object? current = item;
+        foreach (var segment in propertyPath.Split('.'))
+        {
+            if (current is null) return null;
+            var prop = current.GetType().GetProperty(segment);
+            if (prop is null) return null;
+            current = prop.GetValue(current);
+        }
+
+        return current as IEnumerable<int>;
+    }
+
+    private double GetProgress(TItem item)
+    {
+        if (string.IsNullOrEmpty(ProgressProperty)) return 0;
+
+        object? current = item;
+        foreach (var segment in ProgressProperty.Split('.'))
+        {
+            if (current is null) return 0;
+            var prop = current.GetType().GetProperty(segment);
+            if (prop is null) return 0;
+            current = prop.GetValue(current);
+        }
+
+        return current switch
+        {
+            double d => d,
+            float f => f,
+            int i => i,
+            decimal m => (double)m,
+            _ => 0,
+        };
+    }
+
+    private string GetItemTitle(TItem item)
+    {
+        if (_resolvedColumns is { Count: > 0 })
+        {
+            return GetPropertyValue(item, _resolvedColumns[0].Property);
+        }
+        return item.ToString() ?? string.Empty;
+    }
+
+    private static string GetPropertyValue(TItem item, string propertyPath)
+    {
+        object? current = item;
+        foreach (var segment in propertyPath.Split('.'))
+        {
+            if (current is null) return string.Empty;
+            var prop = current.GetType().GetProperty(segment);
+            if (prop is null) return string.Empty;
+            current = prop.GetValue(current);
+        }
+        return current?.ToString() ?? string.Empty;
+    }
+
+    private string? GetItemColor(TItem item)
+    {
+        if (string.IsNullOrEmpty(ColorProperty)) return null;
+        var val = GetPropertyValue(item, ColorProperty);
+        if (string.IsNullOrEmpty(val)) return null;
+        // Validate against safe CSS color patterns to prevent CSS injection
+        return s_safeColorPattern.IsMatch(val) ? val : null;
+    }
+
+    private string GetBarTooltip(TItem item)
+    {
+        var title = GetItemTitle(item);
+        var start = !string.IsNullOrEmpty(StartDateProperty)
+            ? GetDateValue(item, StartDateProperty!)?.ToString("d MMM yyyy",
+                System.Globalization.CultureInfo.GetCultureInfo("fr-FR")) ?? ""
+            : "";
+        var end = !string.IsNullOrEmpty(EndDateProperty)
+            ? GetDateValue(item, EndDateProperty!)?.ToString("d MMM yyyy",
+                System.Globalization.CultureInfo.GetCultureInfo("fr-FR")) ?? ""
+            : "";
+
+        if (!string.IsNullOrEmpty(start) && !string.IsNullOrEmpty(end))
+            return $"{title} — {start} → {end}";
+        if (!string.IsNullOrEmpty(start))
+            return $"{title} — {start}";
+        return title;
+    }
+
+    // ── Label formatting ──────────────────────────────────────────
+
+    private string GetPeriodLabel()
+    {
+        var culture = System.Globalization.CultureInfo.GetCultureInfo("fr-FR");
+        return $"{_viewStart.ToString("d MMM", culture)} — {_viewEnd.ToString("d MMM yyyy", culture)}";
+    }
+
+    private static string FormatDateTooltip(DateOnly date)
+    {
+        return date.ToString("dddd d MMMM yyyy",
+            System.Globalization.CultureInfo.GetCultureInfo("fr-FR"));
+    }
+
+    // ── Navigation ────────────────────────────────────────────────
+
+    private void NavigatePrevious()
+    {
+        var shift = _zoomMode switch
+        {
+            GanttZoomMode.Day => 7,
+            GanttZoomMode.Week => 14,
+            GanttZoomMode.Month => 30,
+            _ => 7,
+        };
+        _viewStart = _viewStart.AddDays(-shift);
+        _viewEnd = _viewEnd.AddDays(-shift);
+        RebuildTimelineColumns();
+        RebuildDependencies();
+        if (ShowHeatmap) RebuildHeatmap();
+    }
+
+    private void NavigateNext()
+    {
+        var shift = _zoomMode switch
+        {
+            GanttZoomMode.Day => 7,
+            GanttZoomMode.Week => 14,
+            GanttZoomMode.Month => 30,
+            _ => 7,
+        };
+        _viewStart = _viewStart.AddDays(shift);
+        _viewEnd = _viewEnd.AddDays(shift);
+        RebuildTimelineColumns();
+        RebuildDependencies();
+        if (ShowHeatmap) RebuildHeatmap();
+    }
+
+    private void NavigateToday()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var halfRange = (_viewEnd.DayNumber - _viewStart.DayNumber) / 2;
+        _viewStart = today.AddDays(-halfRange);
+        _viewEnd = today.AddDays(halfRange);
+        RebuildTimelineColumns();
+        RebuildDependencies();
+        if (ShowHeatmap) RebuildHeatmap();
+    }
+
+    // ── Event handlers ──────────────────────────────────────────
+
+    private void HandleRowClick(int rowIdx)
+    {
+        _focusedRow = rowIdx;
+    }
+
+    private async Task HandleRowDoubleClick(TItem item)
+    {
+        await OnRowActivated.InvokeAsync(item);
+    }
+
+    private async Task ToggleSelection(TItem item)
+    {
+        if (_selectedSet.Contains(item))
+            _selectedSet.Remove(item);
+        else
+            _selectedSet.Add(item);
+
+        var snapshot = (IReadOnlyList<TItem>)_selectedSet.ToList();
+        await OnSelectionChanged.InvokeAsync(snapshot);
+    }
+
+    // ── Keyboard navigation ─────────────────────────────────────
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "ArrowUp":
+                if (_focusedRow > 0) _focusedRow--;
+                break;
+
+            case "ArrowDown":
+                if (_focusedRow < _sortedItems.Count - 1) _focusedRow++;
+                break;
+
+            case "ArrowLeft":
+                NavigatePrevious();
+                break;
+
+            case "ArrowRight":
+                NavigateNext();
+                break;
+
+            case "Home":
+                NavigateToday();
+                break;
+
+            case "Enter":
+                if (_focusedRow >= 0 && _focusedRow < _sortedItems.Count)
+                {
+                    await OnRowActivated.InvokeAsync(_sortedItems[_focusedRow]);
+                }
+                break;
+
+            case " ":
+                if (AllowSelection && _focusedRow >= 0 && _focusedRow < _sortedItems.Count)
+                {
+                    await ToggleSelection(_sortedItems[_focusedRow]);
+                }
+                break;
+        }
+    }
+
+    // ── Heatmap ─────────────────────────────────────────────────
+
+    private void RebuildHeatmap()
+    {
+        _heatmapData.Clear();
+
+        if (string.IsNullOrEmpty(StartDateProperty) || _sortedItems.Count == 0)
+            return;
+
+        // Count how many items overlap each day in the visible range
+        var counts = new Dictionary<DateOnly, int>();
+        foreach (var item in _sortedItems)
+        {
+            var start = GetDateValue(item, StartDateProperty!);
+            if (start is null) continue;
+
+            DateOnly end;
+            if (!string.IsNullOrEmpty(EndDateProperty))
+                end = GetDateValue(item, EndDateProperty!) ?? start.Value.AddDays(1);
+            else
+                end = start.Value.AddDays(1);
+
+            var d = start.Value < _viewStart ? _viewStart : start.Value;
+            var e = end > _viewEnd ? _viewEnd : end;
+
+            while (d < e)
+            {
+                counts.TryGetValue(d, out var c);
+                counts[d] = c + 1;
+                d = d.AddDays(1);
+            }
+        }
+
+        var maxCount = counts.Count > 0 ? counts.Values.Max() : 1;
+        if (maxCount == 0) maxCount = 1;
+
+        foreach (var col in _timelineColumns)
+        {
+            counts.TryGetValue(col.Date, out var count);
+            var pct = (int)Math.Round(100.0 * count / maxCount);
+            _heatmapData.Add(new HeatmapEntry(col.Date, pct));
+        }
+    }
+
+    // ── Status border + Reference ID ────────────────────────────
+
+    private string GetStatusBorderStyle(TItem item)
+    {
+        if (string.IsNullOrEmpty(StatusProperty)) return "";
+
+        var statusVal = GetPropertyValue(item, StatusProperty);
+        if (string.IsNullOrEmpty(statusVal)) return "";
+
+        // Map status enum name to the FSM slug for CSS token lookup
+        var slug = statusVal switch
+        {
+            "Draft" => "draft",
+            "Submitted" => "submitted",
+            "Qualifying" => "qualifying",
+            "UnderReview" => "under-review",
+            "Validated" => "validated",
+            "Reserved" => "reserved",
+            "InPreparation" => "in-preparation",
+            "InExecution" => "in-execution",
+            "Completed" => "completed",
+            "Refused" => "refused",
+            "Cancelled" => "cancelled",
+            _ => null,
+        };
+
+        if (slug is null) return "";
+        return $"border-left:4px solid var(--fsm-{slug}-fg);";
+    }
+
+    private string? GetReferenceId(TItem item)
+    {
+        if (string.IsNullOrEmpty(ReferenceIdProperty)) return null;
+        var val = GetPropertyValue(item, ReferenceIdProperty);
+        return string.IsNullOrEmpty(val) ? null : val;
+    }
+
+    // ── Drag-resize callback (invoked from JS) ─────────────────
+
+    [JSInvokable]
+    public async Task OnDragResizeComplete(int rowIdx, int offsetDays, int durationDays)
+    {
+        if (rowIdx < 0 || rowIdx >= _sortedItems.Count) return;
+
+        var item = _sortedItems[rowIdx];
+        var newStart = _viewStart.AddDays(offsetDays);
+        var newEnd = _viewStart.AddDays(offsetDays + durationDays);
+
+        await OnBarResize.InvokeAsync(new GanttBarResizeEventArgs<TItem>(item, newStart, newEnd));
+    }
+
+    // ── Zoom change — re-init JS if needed ──────────────────────
+
+    private async Task SetZoomAsync(GanttZoomMode mode)
+    {
+        _zoomMode = mode;
+        RebuildTimelineColumns();
+        RebuildDependencies();
+        if (ShowHeatmap) RebuildHeatmap();
+
+        if (AllowDragResize && _jsInitialized && _jsModule is not null)
+        {
+            try
+            {
+                _dotNetRef ??= DotNetObjectReference.Create(this);
+                await _jsModule.InvokeVoidAsync("initDragResize",
+                    _instanceId, _containerRef, _dotNetRef, ColumnWidthPx);
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Swallow — circuit may be disconnected
+            }
+        }
+    }
+
+    // ── Dispose ─────────────────────────────────────────────────
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_jsInitialized && _jsModule is not null)
+        {
+            try
+            {
+                await _jsModule.InvokeVoidAsync("dispose", _instanceId);
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Swallow — circuit may be disconnected
+            }
+        }
+        if (_jsModule is not null)
+        {
+            try
+            {
+                await _jsModule.DisposeAsync();
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Swallow
+            }
+        }
+        _dotNetRef?.Dispose();
+    }
+
+    // ── Inner types ──────────────────────────────────────────────
+
+    private sealed record TimelineColumn(DateOnly Date, string Label);
+    private sealed record DependencyLine(double X1, double Y1, double X2, double Y2);
+    private sealed record HeatmapEntry(DateOnly Date, int Percent);
+    private enum GanttZoomMode { Day, Week, Month }
+}

@@ -1,0 +1,90 @@
+@namespace Stratum.Common.UI.Components
+@inject ICollaborationService CollaborationService
+@implements IDisposable
+
+@if (_others.Count > 0)
+{
+    <span class="presence-badge"
+          data-testid="@(TestId ?? "presence-badge")"
+          title="@_tooltip"
+          role="status"
+          aria-label="@_ariaLabel">
+        <span class="presence-badge__icon" aria-hidden="true">&#x1F465;</span>
+        <span class="presence-badge__text">@_label</span>
+    </span>
+}
+
+@code {
+    private volatile bool _disposed;
+    private IReadOnlyList<PresenceEntry> _others = [];
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Entity type to observe presence for.</summary>
+    [Parameter, EditorRequired]
+    public string EntityType { get; set; } = string.Empty;
+
+    /// <summary>Entity ID to observe presence for.</summary>
+    [Parameter, EditorRequired]
+    public string EntityId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Circuit ID of the current user. When provided, excludes this circuit
+    /// from the presence count (so the user doesn't count themselves).
+    /// </summary>
+    [Parameter]
+    public string? CurrentCircuitId { get; set; }
+
+    private string _label => _others.Count == 1
+        ? "1 autre utilisateur"
+        : $"{_others.Count} autres utilisateurs";
+
+    private string _tooltip => string.Join(", ", _others.Select(e => e.User));
+
+    private string _ariaLabel => _others.Count == 1
+        ? $"1 autre utilisateur sur cette fiche : {_others[0].User}"
+        : $"{_others.Count} autres utilisateurs sur cette fiche : {_tooltip}";
+
+    protected override void OnInitialized()
+    {
+        CollaborationService.OnPresenceChanged += HandlePresenceChanged;
+        RefreshPresence();
+    }
+
+    protected override void OnParametersSet()
+    {
+        RefreshPresence();
+    }
+
+    private void RefreshPresence()
+    {
+        if (string.IsNullOrWhiteSpace(EntityType) || string.IsNullOrWhiteSpace(EntityId))
+        {
+            _others = [];
+            return;
+        }
+
+        var all = CollaborationService.GetPresence(EntityType, EntityId);
+        _others = string.IsNullOrWhiteSpace(CurrentCircuitId)
+            ? all
+            : all.Where(e => !string.Equals(e.CircuitId, CurrentCircuitId, StringComparison.Ordinal)).ToList();
+    }
+
+    private void HandlePresenceChanged()
+    {
+        if (_disposed) return;
+        _ = InvokeAsync(() =>
+        {
+            RefreshPresence();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        CollaborationService.OnPresenceChanged -= HandlePresenceChanged;
+    }
+}

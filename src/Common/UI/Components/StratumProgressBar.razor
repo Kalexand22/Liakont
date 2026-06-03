@@ -1,0 +1,66 @@
+@namespace Stratum.Common.UI.Components
+
+<div class="stratum-progressbar stratum-progressbar--@_severityClass @_modeClass"
+     data-testid="@(TestId ?? "stratum-progress-bar")"
+     role="progressbar"
+     aria-label="@AriaLabel"
+     aria-valuenow="@(Mode == ProgressMode.Determinate ? _clampedValue : null)"
+     aria-valuemin="@(Mode == ProgressMode.Determinate ? 0 : null)"
+     aria-valuemax="@(Mode == ProgressMode.Determinate ? 100 : null)">
+    <div class="stratum-progressbar__track">
+        @if (Mode == ProgressMode.Determinate)
+        {
+            <div class="stratum-progressbar__fill" style="width: @(_clampedValue)%"></div>
+        }
+        else
+        {
+            <div class="stratum-progressbar__fill stratum-progressbar__fill--indeterminate"></div>
+        }
+    </div>
+    @if (ShowValue && Mode == ProgressMode.Determinate)
+    {
+        <span class="stratum-progressbar__value">@(_clampedValue.ToString("0"))%</span>
+    }
+</div>
+
+@code {
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Progress value between 0 and 100.</summary>
+    [Parameter]
+    public double Value { get; set; }
+
+    /// <summary>Determinate shows a fill bar; Indeterminate shows an animation.</summary>
+    [Parameter]
+    public ProgressMode Mode { get; set; } = ProgressMode.Determinate;
+
+    /// <summary>Whether to display the percentage text next to the bar.</summary>
+    [Parameter]
+    public bool ShowValue { get; set; }
+
+    /// <summary>Semantic severity controlling the bar color.</summary>
+    [Parameter]
+    public Severity Severity { get; set; } = Severity.Info;
+
+    /// <summary>Accessible label for screen readers.</summary>
+    [Parameter]
+    public string AriaLabel { get; set; } = "Progress";
+
+    private double _clampedValue => Math.Clamp(Value, 0, 100);
+
+    private string _severityClass => Severity switch
+    {
+        Severity.Info    => "info",
+        Severity.Success => "success",
+        Severity.Warning => "warning",
+        Severity.Error   => "error",
+        Severity.Neutral => "neutral",
+        _                => "info",
+    };
+
+    private string _modeClass => Mode == ProgressMode.Indeterminate
+        ? "stratum-progressbar--indeterminate"
+        : "";
+}

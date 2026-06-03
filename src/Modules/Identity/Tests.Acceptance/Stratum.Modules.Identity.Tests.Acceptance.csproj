@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Web/Stratum.Modules.Identity.Web.csproj" />
+    <ProjectReference Include="../Infrastructure/Stratum.Modules.Identity.Infrastructure.csproj" />
+    <ProjectReference Include="../../../Common/Testing/Stratum.Common.Testing.csproj" />
+  </ItemGroup>
+
+</Project>

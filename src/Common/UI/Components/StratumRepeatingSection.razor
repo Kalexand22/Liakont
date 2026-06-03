@@ -1,0 +1,110 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TItem
+
+<div class="repeating-section" data-testid="@TestId">
+    <div class="repeating-section__header">
+        <span class="repeating-section__title">@Title</span>
+        @if (!Disabled && ShowAddButton)
+        {
+            <StratumButton Text="@AddButtonText"
+                           Variant="ButtonVariant.Primary" Outline
+                           Size="ButtonSize.Small"
+                           OnClick="HandleAdd"
+                           TestId="@($"{TestId}-add-btn")" />
+        }
+    </div>
+
+    @if (Items is null || Items.Count == 0)
+    {
+        <p class="repeating-section__empty" data-testid="@($"{TestId}-empty")">@EmptyText</p>
+    }
+    else
+    {
+        <table class="repeating-section__table" role="grid" aria-label="@Title">
+            <thead>
+                <tr role="row">
+                    @HeaderTemplate
+                    @if (!Disabled)
+                    {
+                        <th class="repeating-section__col-actions" role="columnheader" aria-label="Actions"></th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @for (var i = 0; i < Items.Count; i++)
+                {
+                    var item = Items[i];
+                    var rowIndex = i;
+                    <tr @key="item" role="row" data-testid="@($"{TestId}-row-{rowIndex}")">
+                        @RowTemplate(item)
+                        @if (!Disabled)
+                        {
+                            <td class="repeating-section__col-actions" role="gridcell">
+                                <StratumButton Text="@RemoveButtonText"
+                                               Variant="ButtonVariant.Danger" Outline
+                                               Size="ButtonSize.Small"
+                                               OnClick="@(_ => HandleRemove(item))"
+                                               TestId="@($"{TestId}-remove-btn-{rowIndex}")" />
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string TestId { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public IList<TItem> Items { get; set; } = [];
+
+    [Parameter]
+    public EventCallback<IList<TItem>> ItemsChanged { get; set; }
+
+    [Parameter, EditorRequired]
+    public Func<TItem> NewItemFactory { get; set; } = default!;
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public bool ShowAddButton { get; set; } = true;
+
+    [Parameter, EditorRequired]
+    public RenderFragment HeaderTemplate { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public RenderFragment<TItem> RowTemplate { get; set; } = default!;
+
+    [Parameter]
+    public string AddButtonText { get; set; } = "+ Ajouter";
+
+    [Parameter]
+    public string RemoveButtonText { get; set; } = "\u2715";
+
+    [Parameter]
+    public string EmptyText { get; set; } = "Aucun \u00e9l\u00e9ment.";
+
+    private async Task HandleAdd()
+    {
+        if (Disabled || Items is null) return;
+
+        var newItem = NewItemFactory();
+        Items.Add(newItem);
+        await ItemsChanged.InvokeAsync(Items);
+    }
+
+    private async Task HandleRemove(TItem item)
+    {
+        if (Disabled || Items is null) return;
+
+        Items.Remove(item);
+        await ItemsChanged.InvokeAsync(Items);
+    }
+}

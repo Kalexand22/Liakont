@@ -1,0 +1,63 @@
+@namespace Stratum.Common.UI.Components
+
+<section class="section-card" data-testid="@(TestId ?? "section-card")">
+    @if (Collapsible)
+    {
+        <h2 class="section-card__title-wrap">
+            <button type="button"
+                    class="section-card__toggle-btn @(_isCollapsed ? "section-card__toggle-btn--collapsed" : string.Empty)"
+                    aria-expanded="@(_isCollapsed ? "false" : "true")"
+                    @onclick="Toggle">
+                <span>@Title</span>
+                <span class="section-card__toggle-icon @(_isCollapsed ? "section-card__toggle-icon--collapsed" : string.Empty)" aria-hidden="true">▾</span>
+            </button>
+        </h2>
+    }
+    else
+    {
+        <div class="section-card__header">
+            <h2 class="section-card__title">@Title</h2>
+        </div>
+    }
+    @if (!_isCollapsed)
+    {
+        <div class="section-card__body">@ChildContent</div>
+    }
+</section>
+
+@code {
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Section title.</summary>
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>When <c>true</c>, the user can expand and collapse this section.</summary>
+    [Parameter]
+    public bool Collapsible { get; set; }
+
+    /// <summary>Initial collapsed state when <see cref="Collapsible"/> is <c>true</c>.</summary>
+    [Parameter]
+    public bool DefaultCollapsed { get; set; }
+
+    /// <summary>Section body content.</summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    private bool _isCollapsed;
+
+    protected override void OnInitialized()
+    {
+        _isCollapsed = Collapsible && DefaultCollapsed;
+    }
+
+    private void Toggle()
+    {
+        if (Collapsible)
+        {
+            _isCollapsed = !_isCollapsed;
+        }
+    }
+}
