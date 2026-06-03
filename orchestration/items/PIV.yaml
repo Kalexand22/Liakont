@@ -17,7 +17,8 @@ items:
     title: "DTOs pivot : documents, lignes, taxes, tiers, totaux, paiements (Agent.Contracts)"
     description: |
       Implémenter le modèle pivot dans src/Contracts/Liakont.Agent.Contracts/ selon F01-F02 :
-      1. PivotDocumentDto : type (Invoice/CreditNote), numéro, date, devise, émetteur (PivotPartyDto),
+      1. PivotDocumentDto : SourceDocumentKind (valeur source BRUTE — la distinction facture/avoir
+         vit dans Validation, jamais dans l'adaptateur : cf. NOTE ADR-0004 D3-3), numéro, date, devise, émetteur (PivotPartyDto),
          destinataire (PivotPartyDto), lignes (List<PivotLineDto>), totaux (PivotTotalsDto),
          OperationCategory (LivraisonBiens/PrestationServices/Mixte), SourceReference,
          CreditNoteRefs (List<PivotDocumentRefDto> — multi-références pour avoirs groupés),
