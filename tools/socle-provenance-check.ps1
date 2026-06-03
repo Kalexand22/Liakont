@@ -160,16 +160,34 @@ if ($drifted.Count -eq 0) {
     exit 0
 }
 
-# Any drifted file MUST be referenced in the provenance doc, by its relative path or by its
-# leaf filename (provenance section 4 references files by name). Substring match, case-insensitive.
-$provenanceText = (Get-Content $provenancePath -Raw)
-$unconsigned = @()
-foreach ($d in $drifted) {
-    $leaf = Split-Path $d.Path -Leaf
-    $consigned = $provenanceText.IndexOf($d.Path, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 `
-        -or $provenanceText.IndexOf($leaf, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
-    if (-not $consigned) { $unconsigned += $d }
+# A drifted file is consigné ONLY if its EXACT repo-relative path is listed in the
+# machine-readable consigned-drift block of the provenance doc (between the START/END markers).
+# NO leaf-filename match and NO loose substring: vendored filenames collide heavily
+# (ServiceCollectionExtensions.cs x14, _Imports.razor x6, MODULE.md/INVARIANTS.md/SCENARIOS.md x4,
+# NullPartyQueries.cs, AssemblyInfo.cs, ...). A leaf or substring match would let a silent edit
+# to file B pass merely because a homonym A is consigned — the exact false-green found in SOL03
+# review round 1 (P1). Only an anchored, full-path, line-exact match is safe.
+$startMarker = 'SOCLE-CONSIGNED-DRIFT:START'
+$endMarker = 'SOCLE-CONSIGNED-DRIFT:END'
+$inBlock = $false
+$sawStart = $false
+$sawEnd = $false
+$consignedPaths = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+foreach ($line in (Get-Content $provenancePath)) {
+    if ($line -match $startMarker) { $inBlock = $true; $sawStart = $true; continue }
+    if ($line -match $endMarker) { $inBlock = $false; $sawEnd = $true; continue }
+    if ($inBlock) {
+        $p = $line.Trim()
+        # Skip blanks and comment/markup lines; everything else is an exact repo-relative path.
+        if (-not $p -or $p.StartsWith('#') -or $p.StartsWith('<!--') -or $p.StartsWith('//')) { continue }
+        [void]$consignedPaths.Add($p)
+    }
 }
+if (-not ($sawStart -and $sawEnd)) {
+    Write-Host "FAIL: bloc de consignation introuvable dans provenance-socle-stratum.md (marqueurs $startMarker / $endMarker)." -ForegroundColor Red
+    exit 3
+}
+$unconsigned = @($drifted | Where-Object { -not $consignedPaths.Contains($_.Path) })
 
 if ($unconsigned.Count -eq 0) {
     Write-Host "PROVENANCE OK : $($drifted.Count) fichier(s) vendored modifie(s), tous consignes dans la provenance." -ForegroundColor Yellow

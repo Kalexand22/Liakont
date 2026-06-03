@@ -61,8 +61,10 @@ Toutes les commandes se lancent depuis la racine du dépôt, en PowerShell.
 
 **CI** (`.github/workflows/ci.yml`, sur push/PR) : 2 jobs reproduisant ces vérifications avec
 `dotnet` natif — job **plateforme** (`ubuntu-latest`, .NET 10, intégration Testcontainers via le
-Docker du runner) et job **agent** (`windows-latest`, net48 x86 **et** x64). Tout step en échec
-fait échouer le pipeline ; les E2E sont exclues par filtre (`Category!=E2E`) et tournent via
+Docker du runner) et job **agent** (`windows-latest`, net48 x86 **et** x64). Les steps de test
+passent par `tools/ci-test.ps1`, qui reproduit la garde anti faux-vert « zéro test exécuté » de
+`run-tests.ps1` (un `dotnet test` nu retourne 0 si aucun test ne matche). Tout step en échec fait
+échouer le pipeline ; les E2E sont exclues par filtre (`Category!=E2E`) et tournent via
 `run-e2e.ps1`.
 
 ## Pour les gates (executor: human)

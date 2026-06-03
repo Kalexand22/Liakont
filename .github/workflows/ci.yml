@@ -7,10 +7,13 @@
 #   - tools/run-tests.ps1    = suite complète locale (unit + intégration Testcontainers + agent x86/x64)
 #   - tools/run-e2e.ps1       = suite E2E Playwright SÉPARÉE (livrée par SOL05, décision D3 2026-06-03)
 # La CI reproduit ces vérifications avec dotnet natif sur l'OS adéquat (Linux pour la
-# plateforme .NET 10, Windows pour l'agent net48). Les E2E (Category=E2E) sont EXCLUES de la CI
-# par filtre explicite : elles ont leurs propres prérequis (navigateurs Playwright, infra
-# Testcontainers Keycloak) et tournent via tools/run-e2e.ps1. Décision documentée, pas de
-# demi-mesure : voir docs/architecture/testing-strategy.md (SOL04) et definition-of-done.md.
+# plateforme .NET 10, Windows pour l'agent net48). Les steps de test passent par
+# tools/ci-test.ps1, qui porte la garde anti faux-vert « zéro test exécuté » de run-tests.ps1
+# (un dotnet test nu retourne 0 si aucun test ne matche — la garde fait échouer le step).
+# Les E2E (Category=E2E) sont EXCLUES de la CI par filtre explicite : elles ont leurs propres
+# prérequis (navigateurs Playwright, infra Testcontainers Keycloak) et tournent via
+# tools/run-e2e.ps1. Décision documentée, pas de demi-mesure : voir
+# docs/architecture/testing-strategy.md (SOL04) et definition-of-done.md.
 
 name: CI
 
@@ -50,9 +53,11 @@ jobs:
 
       # Unit + intégration. Les tests d'intégration utilisent Testcontainers, qui pilote le
       # Docker natif du runner ubuntu (pas besoin d'un service: postgres). Staging/Sandbox
-      # (API réelles PA) et E2E (Playwright) sont exclus — voir l'en-tête.
+      # (API réelles PA) et E2E (Playwright) sont exclus — voir l'en-tête. Le wrapper ci-test.ps1
+      # reproduit la garde anti faux-vert « zéro test exécuté » de run-tests.ps1.
       - name: Tests plateforme (unit + intégration Testcontainers PostgreSQL)
-        run: dotnet test src/Liakont.sln --no-build -c Release --filter "Category!=Staging&Category!=Sandbox&Category!=E2E"
+        shell: pwsh
+        run: ./tools/ci-test.ps1 -Solution src/Liakont.sln -Filter "Category!=Staging&Category!=Sandbox&Category!=E2E"
 
   # ── Agent : net48 → Windows obligatoire, x86 ET x64 (drivers ODBC 32 bits = x86 contraint) ──
   agent:
@@ -77,8 +82,11 @@ jobs:
 
       # Tests sur les DEUX plateformes : ne tester qu'une seule serait un trou de couverture.
       # Staging (ODBC réel) exclu — il exige une base source réelle, lancé manuellement.
+      # ci-test.ps1 échoue si zéro test n'a tourné (garde anti faux-vert).
       - name: Tests agent x86
-        run: dotnet test agent/Liakont.Agent.sln --no-build -c Release -p:Platform=x86 --filter "Category!=Staging"
+        shell: pwsh
+        run: ./tools/ci-test.ps1 -Solution agent/Liakont.Agent.sln -Filter "Category!=Staging" -Platform x86
 
       - name: Tests agent x64
-        run: dotnet test agent/Liakont.Agent.sln --no-build -c Release -p:Platform=x64 --filter "Category!=Staging"
+        shell: pwsh
+        run: ./tools/ci-test.ps1 -Solution agent/Liakont.Agent.sln -Filter "Category!=Staging" -Platform x64

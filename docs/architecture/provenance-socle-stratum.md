@@ -191,14 +191,36 @@ La règle « le socle vendored ne se modifie pas silencieusement » (CLAUDE.md n
 (`git hash-object`, indépendant de la plateforme) de chacun des 1226 fichiers vendored
 (`src/Common` + `src/Modules/{Identity,Party,Job,Notification,Audit}` ; le Host adapté `Liakont.Host`
 est exclu — code Liakont, pas `Stratum.*`). À chaque `verify-fast`, le script recalcule les hashes :
-tout fichier épinglé qui a dérivé du baseline (modifié ou supprimé) DOIT être référencé dans la
-section 4 de ce document, sinon `verify-fast` échoue (exit 2). Workflow d'une modification légitime
-future d'un fichier `Stratum.*` : (1) éditer le fichier, (2) ajouter une sous-section 4.x ici qui le
-nomme, (3) régénérer le baseline (`tools/socle-provenance-check.ps1 -Generate`). Limite assumée : un
-fichier AJOUTÉ sous un dossier vendored (ex. mécanique multi-tenant Liakont de SOL06) n'est pas épinglé
-par le baseline — la garde cible la modification/suppression silencieuse d'un fichier vendored existant,
-exactement la règle n.11. Le baseline a été généré sur l'état consigné courant (vendoring SOL01 + les
-modifications des sections 4.1–4.11 ci-dessus).
+tout fichier épinglé qui a dérivé du baseline (modifié ou supprimé) DOIT figurer, **par son chemin
+repo-relatif EXACT**, dans le bloc de consignation balisé ci-dessous (`SOCLE-CONSIGNED-DRIFT`), sinon
+`verify-fast` échoue (exit 2).
+
+**Matching par chemin exact, jamais par nom de fichier** (correctif review SOL03 round 1, P1) : les
+noms de fichiers vendored sont très souvent en collision (`ServiceCollectionExtensions.cs` ×14,
+`_Imports.razor` ×6, `MODULE.md`/`INVARIANTS.md`/`SCENARIOS.md` ×4 chacun, `NullPartyQueries.cs`,
+`AssemblyInfo.cs`…). Un match par leaf ou par sous-chaîne laisserait passer une modification
+silencieuse du fichier B dès qu'un homonyme A est consigné — exactement le faux-vert corrigé ici.
+
+Workflow d'une modification légitime future d'un fichier `Stratum.*` : (1) éditer le fichier,
+(2) ajouter une sous-section 4.x narrative ci-dessus, (3) ajouter son **chemin repo-relatif exact**
+dans le bloc `SOCLE-CONSIGNED-DRIFT` ci-dessous. (Optionnel : régénérer le baseline avec
+`tools/socle-provenance-check.ps1 -Generate` pour « cuire » le nouvel état — il ne dérive alors plus
+et peut être retiré du bloc.) Limite assumée : un fichier AJOUTÉ sous un dossier vendored (ex.
+mécanique multi-tenant Liakont de SOL06) n'est pas épinglé par le baseline — la garde cible la
+modification/suppression silencieuse d'un fichier vendored existant, exactement la règle n.11.
+
+Le baseline a été généré sur l'état consigné courant (vendoring SOL01 + les modifications des sections
+4.1–4.11 ci-dessus) : ces modifications sont déjà **incorporées** dans le baseline et ne dérivent donc
+pas — le bloc de consignation est par conséquent **vide** tant qu'aucune dérive POST-baseline n'a été
+introduite.
+
+Format du bloc : un chemin repo-relatif EXACT par ligne (ex. `src/Modules/Identity/Infrastructure/
+Security/ReflectionPermissionCatalog.cs`). Les lignes vides et les lignes de commentaire (`<!--`,
+`#`, `//`) sont ignorées par le parseur. Ne jamais mettre un nom de fichier seul : le matching est
+ancré sur le chemin complet.
+
+<!-- SOCLE-CONSIGNED-DRIFT:START -->
+<!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ## 5. ADR du socle hérités
 
