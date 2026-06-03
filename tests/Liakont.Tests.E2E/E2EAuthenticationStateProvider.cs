@@ -35,6 +35,14 @@ internal sealed class E2EAuthenticationStateProvider : AuthenticationStateProvid
         _accessor = accessor;
     }
 
+    /// <summary>
+    /// Vide le cache de principal partagé. Appelé en début de chaque test
+    /// (<see cref="KeycloakBaseE2ETest.InitializeAsync"/>) pour empêcher qu'un test hérite de
+    /// l'état d'authentification du test précédent (la factory app est une collection-fixture
+    /// partagée ; le cache statique survivrait sinon d'un test à l'autre).
+    /// </summary>
+    public static void Reset() => CachedPrincipals.Clear();
+
     public override Task<AuthenticationState> GetAuthenticationStateAsync()
     {
         var httpContext = _accessor.HttpContext;

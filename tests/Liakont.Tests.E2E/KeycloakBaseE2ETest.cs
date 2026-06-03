@@ -48,12 +48,15 @@ public abstract class KeycloakBaseE2ETest : IAsyncLifetime
 
     public virtual async Task InitializeAsync()
     {
+        // Repart d'un état d'auth vierge : la factory app est partagée entre tous les tests de la
+        // collection, le cache statique du provider survivrait sinon d'un test à l'autre.
+        E2EAuthenticationStateProvider.Reset();
         (_context, Page) = await _playwright.NewPageAsync();
     }
 
     public async Task DisposeAsync()
     {
-        await CaptureScreenshotOnFailureAsync();
+        await CaptureScreenshotAsync();
 
         if (_context is not null)
         {
@@ -93,7 +96,13 @@ public abstract class KeycloakBaseE2ETest : IAsyncLifetime
         await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
     }
 
-    private async Task CaptureScreenshotOnFailureAsync()
+    /// <summary>
+    /// Capture une copie d'écran pleine page au teardown du test, sous
+    /// <c>test-results/screenshots/</c> (gitignoré) — artefact de diagnostic. xUnit v2 n'expose
+    /// pas le résultat du test à <see cref="IAsyncLifetime.DisposeAsync"/>, donc la capture est
+    /// systématique (et non conditionnée à l'échec) ; elle reste surtout utile pour les échecs.
+    /// </summary>
+    private async Task CaptureScreenshotAsync()
     {
         try
         {
