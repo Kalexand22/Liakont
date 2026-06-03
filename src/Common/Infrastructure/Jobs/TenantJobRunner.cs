@@ -1,3 +1,4 @@
+// Liakont addition (SOL06): multi-tenant job mechanism — not part of the original Stratum vendoring.
 namespace Stratum.Common.Infrastructure.Jobs;
 
 using Microsoft.Extensions.Logging;

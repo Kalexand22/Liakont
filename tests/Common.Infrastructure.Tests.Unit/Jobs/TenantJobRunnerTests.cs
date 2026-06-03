@@ -129,6 +129,55 @@ public sealed class TenantJobRunnerTests
         await act.Should().ThrowAsync<ArgumentNullException>();
     }
 
+    [Fact]
+    public async Task RunForAllTenantsAsync_Should_Abort_When_JobThrowsOce_ForCallerToken()
+    {
+        var queries = new FakeTenantQueries(
+            Tenant("tenant-1", isActive: true),
+            Tenant("tenant-2", isActive: true));
+        var scopeFactory = new RecordingTenantScopeFactory();
+        using var cts = new CancellationTokenSource();
+        var job = new DelegatingTenantJob(_ =>
+        {
+            // Caller cancellation observed mid-execution: the run must abort, not isolate this as a failure.
+            cts.Cancel();
+            throw new OperationCanceledException(cts.Token);
+        });
+        var runner = new TenantJobRunner(queries, scopeFactory, NullLogger<TenantJobRunner>.Instance);
+
+        var act = async () => await runner.RunForAllTenantsAsync(job, cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        job.ExecutedTenantIds.Should().Equal("tenant-1"); // tenant-2 never attempted (run aborted)
+    }
+
+    [Fact]
+    public async Task RunForAllTenantsAsync_Should_ReportFailure_When_JobThrowsOce_WithoutCallerCancellation()
+    {
+        var queries = new FakeTenantQueries(
+            Tenant("tenant-1", isActive: true),
+            Tenant("tenant-2", isActive: true));
+        var scopeFactory = new RecordingTenantScopeFactory();
+        var job = new DelegatingTenantJob(context =>
+        {
+            if (context.TenantId == "tenant-1")
+            {
+                // OCE unrelated to the caller token → isolated as a per-tenant failure; run continues.
+                throw new OperationCanceledException("unrelated to caller token");
+            }
+
+            return Task.CompletedTask;
+        });
+        var runner = new TenantJobRunner(queries, scopeFactory, NullLogger<TenantJobRunner>.Instance);
+
+        var summary = await runner.RunForAllTenantsAsync(job);
+
+        job.ExecutedTenantIds.Should().Equal("tenant-1", "tenant-2");
+        summary.SucceededCount.Should().Be(1);
+        summary.FailedCount.Should().Be(1);
+        summary.Failures.Should().ContainSingle().Which.TenantId.Should().Be("tenant-1");
+    }
+
     private static TenantDto Tenant(string id, bool isActive) => new()
     {
         Id = id,
@@ -213,6 +262,27 @@ public sealed class TenantJobRunnerTests
             }
 
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class DelegatingTenantJob : ITenantJob
+    {
+        private readonly Func<TenantJobContext, Task> _body;
+
+        public DelegatingTenantJob(Func<TenantJobContext, Task> body, string name = "test.delegating")
+        {
+            _body = body;
+            Name = name;
+        }
+
+        public string Name { get; }
+
+        public List<string> ExecutedTenantIds { get; } = [];
+
+        public async Task ExecuteAsync(TenantJobContext context, CancellationToken cancellationToken = default)
+        {
+            ExecutedTenantIds.Add(context.TenantId);
+            await _body(context);
         }
     }
 }
