@@ -1,6 +1,9 @@
 # Lot PIV — Modèle pivot (contrat agent↔plateforme) & module Ingestion (F01-F02 + F12)
 # Specs : docs/conception/F01-F02-Modele-Pivot-Contrat-Extraction.md (le QUOI : champs EN 16931),
-#         docs/conception/F12-Architecture-Plateforme-Agent.md (le COMMENT : contrat d'ingestion)
+#         docs/conception/F12-Architecture-Plateforme-Agent.md (le COMMENT : contrat d'ingestion),
+#         docs/adr/ADR-0004-perimetre-contrat-extraction-pivot-v1.md (périmètre V1 anti-overfit,
+#         validé sur 5 sources réelles : régime = COLLECTION par ligne, SourceDocumentKind brut,
+#         Invoicer/Seller + Payee, montant prépayé, charges niveau document — à intégrer AVANT de figer le v1)
 # Le pivot est LE contrat de l'API agent → plateforme. Les DTOs vivent dans
 # Liakont.Agent.Contracts (netstandard2.0, partagé net48/net10). Le module Ingestion
 # est la porte d'entrée de la plateforme : réception, anti-doublon, gestion des agents.
@@ -23,8 +26,9 @@ items:
          d'origine est OBLIGATOIRE (F07-F08 §B.3 : liste de { Number, IssueDate } ; B2Brouter
          exige amended_number + amended_date — F05). Une simple liste de strings perdrait la
          date obligatoire des avoirs.
-      2. PivotLineDto : description, montant HT, quantité, régime TVA source brut (string),
-         taxe (PivotLineTaxDto), SourceData.
+      2. PivotLineDto : description, montant HT, quantité, régime(s) TVA source brut(s)
+         (COLLECTION par ligne — voir NOTE ADR-0004 ci-dessous, JAMAIS une simple string),
+         taxe(s) (PivotLineTaxDto), SourceData.
       3. PivotLineTaxDto : catégorie UNCL5305 (S/AA/AAA/Z/E/AE/G/K/O), taux %, montant TVA,
          code VATEX (nullable). NOTE v6 : la MappingTrace n'est PAS dans le DTO du contrat —
          le mapping TVA se fait sur la PLATEFORME ; l'agent transmet le régime source BRUT.
@@ -46,10 +50,23 @@ items:
       - Tout champ absent = null, jamais de valeur devinée
       - DTOs PURS : aucune logique, aucune dépendance (netstandard2.0, zéro PackageReference)
       - Versionnement : constante ContractVersion = "1" portée par l'assembly
+      NOTE ADR-0004 (anti-overfit, validé sur 5 sources réelles — docs/adr/ADR-0004, ACCEPTÉ ;
+      à intégrer ici AVANT de figer le v1, sinon = bump v2) : le pivot V1 doit
+      AUSSI porter, en plus des champs ci-dessus :
+      - régime source = COLLECTION par ligne (ORM à couple de posting groups, ligne multi-taxes :
+        4 sources réelles sur 5 le cassent) — le moteur F3 mappe la collection et scinde en lignes
+        pivot si EN 16931 l'exige (BG-30 = 1 catégorie/ligne). Une string simple est l'overfit à éviter.
+      - SourceDocumentKind BRUT : l'adaptateur ne classe PAS facture/avoir (souvent un signe ou un
+        champ ambigu) — la classification vit dans Validation ; avoir sans origine résoluble → blocage.
+      - distinction Invoicer / Seller + Payee : auto-facturation (pour compte de tiers) et affacturage.
+      - montant prépayé (acompte, BT-113) + chaînage acompte→solde.
+      - charges/taxes niveau document (BG-21) : taxes non-TVA (écotaxe) et remises globales.
     acceptance:
       - "Tous les DTOs dans Liakont.Agent.Contracts (netstandard2.0)"
       - "Montants en decimal partout, aucun float/double"
       - "Catégories TVA = enum ou type contraint UNCL5305"
+      - "Régime TVA source = COLLECTION par ligne (ADR-0004 D3-1), jamais une string simple"
+      - "Conforme ADR-0004 : SourceDocumentKind brut, Invoicer/Seller + Payee, montant prépayé, charges niveau document"
       - "CreditNoteRefs porte Number + IssueDate (PivotDocumentRefDto), pas une liste de strings"
       - "Aucune logique dans les DTOs, zéro PackageReference (vérifié par test d'architecture)"
       - "ContractVersion exposée"

@@ -1,5 +1,7 @@
 # Lot AGT — L'agent local (.NET Framework 4.8) : extraction + transport
-# Spec : docs/conception/F12-Architecture-Plateforme-Agent.md (§2 agent, §3 contrat d'ingestion)
+# Spec : docs/conception/F12-Architecture-Plateforme-Agent.md (§2 agent, §3 contrat d'ingestion) ;
+#        docs/adr/ADR-0004 (la frontière IExtractor naît AVEC ses capacités déclarées : ExtractorCapabilities
+#        existe déjà mais limité au PDF — ADR-0004 D2 l'ÉTEND aux dimensions qui varient vraiment ; voir AGT02)
 # L'agent est le SEUL composant installé chez le client final. Il n'a AUCUNE logique métier :
 # extraction (via plug-ins IExtractor) + buffer local + push HTTPS + heartbeat. Toute
 # l'intelligence (TVA, validation, états, envoi PA) est sur la plateforme.
@@ -65,7 +67,13 @@ items:
          - IEnumerable<PivotPaymentDto> ExtractPayments(DateTime from, DateTime to)
          - IReadOnlyList<SourceTaxRegimeDto> ListSourceTaxRegimes()
          - ExtractorCapabilities Capabilities { get; } : ProvidesSourceDocuments (bool),
-           ProvidesUnlinkedDocumentPool (bool)
+           ProvidesUnlinkedDocumentPool (bool).
+           ADR-0004 D2 — ÉTENDRE ces capacités (le pattern existe déjà, on l'enrichit aux dimensions
+           qui varient vraiment d'une source à l'autre — validé sur 5 sources réelles) :
+           HasDetailedLines, HasCreditNoteLink, ExposesPayments, RegimeKeyShape
+           (Simple/Composite/MultiplePerLine), EmitterIdentitySource (InBase/FromConfig/
+           DerivedFromVatNumber), HasStoredHeaderTotal, IsMutableAfterIssue, NumberUniquenessScope.
+           La plateforme s'adapte aux capacités DÉCLARÉES, jamais par `if (source is NAV)`.
          - IReadOnlyList<SourceAttachment> GetAttachments(string sourceReference)
            (vide si la capacité n'est pas déclarée, jamais d'exception)
          - IEnumerable<PoolDocument> ListPoolDocuments(DateTime from, DateTime to) (lazy)
@@ -107,6 +115,7 @@ items:
       - "Backoff exponentiel sur 429/5xx/réseau ; pas de retry sur 400"
       - "Régimes TVA source collectés et transmis dans les métadonnées de push"
       - "Aucune logique métier (pas de TVA, pas de validation) — l'agent transporte, c'est tout"
+      - "ExtractorCapabilities étendu selon ADR-0004 D2 (lignes/avoir/paiements/régime/identité/total/mutabilité/unicité)"
       - "Tests : tous les codes de réponse F12 §3.3, idempotence, reprise après coupure"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
