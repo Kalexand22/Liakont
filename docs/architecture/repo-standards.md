@@ -116,7 +116,7 @@ Liakont/
 ├─ src/                       ★ PLATEFORME (.NET 10) — pattern Stratum
 │  ├─ Host/Liakont.Host/      Composition root : Blazor + API + enregistrement modules + branding
 │  ├─ Common/                 ★ socle Stratum vendored (Abstractions, Infrastructure, UI, Testing)
-│  ├─ Modules/                Identity/Job/Notification/Audit (vendored) + modules métier Liakont
+│  ├─ Modules/                Identity/Job/Notification/Audit + Party.Contracts (vendored, carve D1) + modules métier Liakont
 │  ├─ PaClients/              Liakont.PaClients.Fake / .B2Brouter / .SuperPdp
 │  └─ Contracts/Liakont.Agent.Contracts/   DTOs du contrat agent↔plateforme (netstandard2.0)
 ├─ tests/                     Tests plateforme (architecture, unit, integration, contrats, E2E)
@@ -179,7 +179,8 @@ Liakont/
 
 ## 8. Socle vendored (règle de provenance)
 
-Le socle Stratum (`src/Common/*` + modules Identity/Job/Notification/Audit) est une **copie** tracée
+Le socle Stratum (`src/Common/*` + modules Identity/Job/Notification/Audit + le carve
+`Party.Contracts`, décision D1) est une **copie** tracée
 dans `docs/architecture/provenance-socle-stratum.md` (commit source, date, fichiers copiés). Toute
 modification locale d'un fichier `Stratum.*` est autorisée **mais doit être consignée dans ce
 fichier** — une modification non consignée est un **P1** en review (`CLAUDE.md` n°11, n°20 ;

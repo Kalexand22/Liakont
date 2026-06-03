@@ -44,7 +44,7 @@ Messagerie interne : **MediatR + outbox** (socle Stratum). Les événements trav
 | `Archive` | Coffre WORM, hashes chaînés, ancrage, export/réversibilité ; `IArchiveStore` à capacités | Tout chemin d'update/delete (WORM) ; référencer un backend de stockage concret hors de son implémentation (`if (store is S3)`) |
 | `Reconciliation` | Rapprochement PDF ↔ documents | Lien automatique en confiance moyenne/basse |
 | `Supervision` | Heartbeats, alertes, dashboards | — |
-| Modules Stratum vendored | Identity (auth OIDC **derrière une abstraction d'IdP**), Job, Notification, Audit | Modification non consignée dans la provenance ; coupler le code à un IdP concret hors de la couche d'auth |
+| Modules Stratum vendored | Identity (auth OIDC **derrière une abstraction d'IdP**), Job, Notification, Audit, `Party.Contracts` (carve Contracts-only, décision D1) | Modification non consignée dans la provenance ; coupler le code à un IdP concret hors de la couche d'auth |
 | `Liakont.Host` | Composition root, branding d'instance, enregistrement modules + plug-ins | Logique métier |
 | Pages Blazor | UI cliente des handlers MediatR | Logique métier dans les pages, accès direct à la base |
 
@@ -188,8 +188,12 @@ conventions du socle (Contracts/Domain/Application/Infrastructure/Web, MediatR, 
 ## 11. Obligation documentaire par module
 
 **Règle** (`definition-of-done.md` lignes 24–25 ; obligation héritée des `ModuleIsolationTests` du
-socle Stratum) : **chaque dossier sous `src/Modules/`** contient trois fichiers, sinon les tests
-d'architecture du socle échouent :
+socle Stratum) : **tout nouveau module métier sous `src/Modules/`** doit contenir trois fichiers.
+Cette obligation est **opposable en review (P1)** ; la garde automatique correspondante (les
+`ModuleIsolationTests` du socle) atterrit côté plateforme avec le premier module métier Liakont — le
+harness n'a pas été copié par le vendoring SOL01 (voir §3, §4). Les **carves vendored
+*Contracts-only*** en sont **exclus** : `src/Modules/Party/` ne porte que `Party.Contracts`
+(décision D1, voir `provenance-socle-stratum.md`) et ne contient donc pas ces fichiers.
 
 | Fichier | Contenu | Format observé (modules vendored) |
 |---|---|---|
@@ -200,8 +204,9 @@ d'architecture du socle échouent :
 > **Tout item qui crée un module sous `src/Modules/` doit livrer ces trois fichiers** : notamment
 > les modules `Ingestion`, `Documents`, `TvaMapping` (TVA01), `Validation` (VAL01), `Transmission`
 > (PAA01), `Payments`, `Archive`, `Reconciliation`, `Supervision`, ainsi que les items du cœur
-> (PIV05, TRK01…). Un module créé sans ces trois fichiers fait échouer les tests d'architecture
-> hérités du socle — c'est un trou de done, pas une option.
+> (PIV05, TRK01…). Un module métier créé sans ces trois fichiers est un écart bloquant en review
+> (et fera échouer la garde d'architecture une fois celle-ci en place côté plateforme) — c'est un
+> trou de done, pas une option.
 
 Référence d'exemples complets : `src/Modules/Audit/`, `src/Modules/Identity/`,
 `src/Modules/Notification/` (modules vendored qui portent déjà les trois fichiers).
