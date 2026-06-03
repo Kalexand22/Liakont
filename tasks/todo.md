@@ -56,8 +56,21 @@ round 2 : il rebouclerait sur un fichier que je ne dois pas modifier. **À remon
   dépend désormais d'OPS08. Packaging par profil placé dans OPS08 (évite le cycle OPS05↔OPS08).
 - Réécriture de l'orchestration multi-repo (`protocol.md`), de `verify-fast` Step 4, du champ
   `repo:` des segments : différée au démarrage du segment `agent` (ADR-0005 §Conséquences).
-- Commit demandé : sur `feat/socle-v6-SOL01` (l'utilisateur a explicitement levé la contrainte de
-  branche — « le projet vient de débuter »). `state.yaml` committé séparément dans `$ORCH_REPO`.
+**Commits (branche `feat/socle-v6` — contrainte de branche levée par l'utilisateur)** :
+- `6647eff` docs(agent) : conception (ADR-0005, F13, blueprint, F12, README, lessons) + intégration
+  OPS08 (manifest v8, OPS.yaml) + todo (9 fichiers).
+- `6079609` fix(orchestration) : corrige les 2 P2 de la review (depends_on intra-segment + chemin agnostique).
+- `$ORCH_REPO` `25fad1b` state : OPS08 pending.
+
+**Review finale (sur les commits, pas le working tree)** : round 1 sur `6647eff` = **2 P2 réels** sur
+mon câblage backlog — (1) `OPS08.depends_on` cross-segment vers AGT05 → deadlock potentiel de
+GATE_TOOLKIT après purge des items AGT (« absent = done ») ; (2) chemin installateur figé
+`agent/src/...` incohérent avec ADR-0005 (repo séparé). **Corrigés** (commit `6079609`) → round 2 =
+**No findings**. verify-fast PASS à chaque étape.
+
+⚠️ **Activité concurrente détectée** sur `feat/socle-v6` (un autre acteur, hors ma session) : commits
+`a4cf2ea` (ADR-0004) et `4bd1d1f` (PIV01/ADP/AGT02 → ADR-0004), + `README.md`/`config.yaml` modifiés
+non committés dans `$ORCH_REPO`. **Fichiers disjoints des miens, aucun conflit** — non touchés.
 
 ---
 
