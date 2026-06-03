@@ -217,7 +217,7 @@ items:
   - { id: OPS03, lot: OPS, blueprint: blazor-page-item, priority: 7040, depends_on: [OPS05] }
   - { id: OPS06, lot: OPS, priority: 7050, depends_on: [OPS03] }
   - { id: OPS07, lot: OPS, priority: 7055, depends_on: [OPS05] }
-  - { id: OPS08, lot: OPS, blueprint: tooling-item, priority: 7035, depends_on: [OPS05, AGT05] }
+  - { id: OPS08, lot: OPS, blueprint: tooling-item, priority: 7035, depends_on: [OPS05] }
 
   # ── BRD ──
   - { id: BRD01, lot: BRD, priority: 7060, depends_on: [] }

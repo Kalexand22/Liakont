@@ -284,10 +284,14 @@ items:
   OPS08:
     title: "Installateur GUI de l'agent + moteur de profil intégrateur"
     description: |
-      Implémenter l'installateur à écrans guidés de l'agent dans
-      agent/src/Liakont.Agent.Installer/ (WinForms net48) — conception F13, ADR-0005.
-      Réutilise Liakont.Agent.Core + les commandes AGT05 (test-odbc / test-api / encrypt) :
-      AUCUNE logique dupliquée, AUCUNE logique métier (blueprint §6).
+      Implémenter l'installateur à écrans guidés de l'agent (projet Liakont.Agent.Installer,
+      WinForms net48) dans la solution agent — conception F13, ADR-0005. Emplacement selon l'état
+      du dépôt agent au moment de l'exécution : agent/src/ tant que l'agent est intra-repo, dépôt
+      séparé liakont-agent après la bascule ADR-0005 (différée au segment agent, donc avant OPS08).
+      Réutilise Liakont.Agent.Core + les commandes AGT05 (test-odbc / test-api / encrypt) : AUCUNE
+      logique dupliquée, AUCUNE logique métier (blueprint §6). NB : AGT05/Core sont garantis faits
+      par le séquencement de segment (toolkit ouvert après GATE_AGENT) — d'où l'absence de
+      depends_on d'item cross-segment (qui casserait après la purge des items AGT done : absent = done).
       1. Bootstrapper GUI : pose des binaires + création du service Windows (self-install AGT01),
          ACL ProgramData (OPS05), écriture de agent.json avec secrets chiffrés DPAPI
          (SecretProtector AGT01). Un mode silencieux (fichier de réponses) partage le même moteur

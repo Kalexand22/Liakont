@@ -173,8 +173,10 @@ son profil **embarqué en ressource** (et son branding). Pipeline :
 > **OPS**, segment `deploiement-toolkit`.
 
 **OPS08 — Installateur GUI de l'agent + moteur de profil intégrateur**
-- `lot: OPS`, `depends_on: [OPS05, AGT05]`, `priority: ~7035` (entre OPS05=7030 et OPS03=7040),
-  `blueprint: tooling-item`.
+- `lot: OPS`, `depends_on: [OPS05]`, `priority: 7035` (entre OPS05=7030 et OPS03=7040),
+  `blueprint: tooling-item`. La dépendance à l'agent (Core + CLI AGT05) est portée par le
+  **séquencement de segment** (toolkit ouvert après GATE_AGENT), pas par un `depends_on` d'item
+  cross-segment — qui casserait après la purge des items AGT done (« absent = done »).
 - **Description** : `Liakont.Agent.Installer` (WinForms net48) — bootstrapper GUI réutilisant
   `Agent.Core` + commandes AGT05 (test-odbc/test-api/encrypt) ; écrans §4 ; moteur de profil §5
   (3 états + défaut ouvert + garde-fous + validation) ; **packaging d'un installateur par profil**
