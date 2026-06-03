@@ -31,6 +31,20 @@ l'architecture on-premise. Voir `tasks/analyse-impact-pivot-plateforme.md` et `t
       agent net48 x86), codex-review mis à jour (frontières modules, tenant-scoping)
 - [x] ~~Réinitialiser state.yaml (v6)~~ **FAIT (2026-06-03)** : 91 entrées pending, segments v6,
       branche feat/socle (v5) supprimée. verify-fast PASS (manifest-sanity + gardes bootstrap)
+- [x] **Traiter les reviews indépendantes v6 & v8** ~~(session en cours, 2026-06-03)~~ **FAIT (2026-06-03)** :
+  - [x] Consigner les décisions D1-D8 dans tasks/decisions.md
+  - [x] manifest.yaml : dépendances manquantes (VAL02, TRK01, TRK03, OPS03, OPS06), inversion
+        PIV04↔PIV05, nouveaux items (SOL05, SOL06, API05, WEB09, OPS07, DOC02, DOC03), gates,
+        meta.version 6 → 7
+  - [x] Items YAML : SOL, PIV, CFG, VAL, TVA, TRK, PIP, PAA, AGT, API, WEB, SUP, OPS, DOC, CMP
+  - [x] Blueprints + conventions + prompt.md + protocol.md + README.md
+  - [x] Scripts : verify-fast.ps1, run-tests.ps1, codex-review.ps1, orch-state.ps1,
+        build-agent-context.ps1 (gardes anti-faux-vert testées : ORCH_REPO invalide → exit 1)
+  - [x] Docs : definition-of-done.md, orchestration-protocol.md, F01-F02, F05, F09, F12, F06,
+        Cadrage, analyse-impact-pivot-plateforme.md
+  - [x] state.yaml (dépôt d'état) : 7 nouveaux items en pending (98 entrées alignées)
+  - [x] Vérification : cohérence croisée (98=98, priorités OK) + verify-fast PASS + codex-review
+  - [x] Table de correspondance finding→correction : tasks/review-independante-v6-v8-reponses.md
 - [ ] **Relancer l'orchestration** : `Lis orchestration/prompt.md et exécute-le.` dans une nouvelle
       fenêtre Claude Code → l'agent prendra SOL01 (vendoring du socle Stratum + Conformat.Host)
 

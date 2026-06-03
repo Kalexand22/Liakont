@@ -94,14 +94,21 @@ items:
          export COMPLET du tenant — tracking + archive + paramétrage + journal — le dossier
          que le client emporte s'il quitte la plateforme. Permission conformat.settings.
          (L'outillage opérateur de cette réversibilité est OPS06 ; ici c'est l'endpoint.)
-      4. Permission : audit-export = conformat.read (consulter ses propres preuves) ;
+      4. POST /api/v1/archive/verify → vérification d'intégrité À LA DEMANDE de TOUT le coffre
+         du tenant (ArchiveVerifier TRK06) : exécute la vérification complète (hashes, chaînage,
+         preuves d'ancrage) et retourne le rapport. Permission conformat.read. Exposé par le
+         bouton « Vérifier l'intégrité de l'archive » de WEB04. Équivalent v6 de la commande
+         verify-archive du backlog v5.
+      5. Permission : audit-export = conformat.read (consulter ses propres preuves) ;
          tenant-export = conformat.settings.
-      5. Tests d'intégration : export document, export période, export tenant complet,
-         contenu du zip vérifié (manifest, notice), isolation tenant, streaming (pas d'OOM
-         sur un gros volume simulé).
+      6. Tests d'intégration : export document, export période, export tenant complet,
+         vérification d'archive complète (chaîne saine + chaîne altérée), contenu du zip
+         vérifié (manifest, notice), isolation tenant, streaming (pas d'OOM sur un gros
+         volume simulé).
     acceptance:
       - "Export par document et par période opérationnels (zip streamé)"
       - "Export de réversibilité tenant complet (tracking + archive + paramétrage)"
+      - "Vérification d'intégrité du coffre complet à la demande (rapport exploitable, retour non-OK si altération)"
       - "Notice de vérification en français incluse dans chaque export"
       - "Permissions correctes (read pour audit, settings pour réversibilité)"
       - "Tests d'intégration incluant le contenu des zips et l'isolation tenant"
@@ -136,5 +143,35 @@ items:
       - "Endpoints réconciliation opérationnels (file, PDF, confirmation, rejet, lien manuel)"
       - "Toute mutation journalisée avec l'identité de l'opérateur"
       - "Tests d'intégration complets, isolation tenant"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  API05:
+    title: "Endpoints de gestion des agents (cycle de vie post-provisioning)"
+    description: |
+      Exposer la gestion du parc d'agents du tenant (F10 amendée : écran « Gestion des agents » ;
+      F12 §4.2) — les handlers existent (PIV05 : RegisterAgent/RevokeAgent/RotateKey), mais sans
+      endpoints, impossible d'enregistrer un 2e agent, de révoquer une clé compromise ou de la
+      faire tourner après la création du tenant (opérations de sécurité de routine) :
+      1. GET /api/v1/agents → liste des agents du tenant : nom, état (actif/révoqué), dernière
+         version vue, dernier heartbeat, date de création/révocation.
+      2. POST /api/v1/agents → enregistrer un nouvel agent (RegisterAgent PIV05) : la clé API
+         est retournée UNE SEULE FOIS dans la réponse, jamais récupérable ensuite.
+      3. POST /api/v1/agents/{id}/revoke → révoquer la clé d'un agent (compromission, retrait).
+      4. POST /api/v1/agents/{id}/rotate-key → rotation de clé : nouvelle clé retournée une
+         seule fois, l'ancienne reste valide pendant une fenêtre de recouvrement configurable
+         (le temps de reconfigurer l'agent), puis est invalidée.
+      5. Permission : conformat.settings (gestion de secrets). Toute opération journalisée
+         (module Audit) avec l'identité de l'opérateur.
+      6. Tests d'intégration : liste, enregistrement (clé une seule fois), révocation (l'agent
+         révoqué reçoit 401 au push suivant), rotation (recouvrement puis invalidation),
+         permissions, isolation tenant.
+    acceptance:
+      - "Liste / enregistrement / révocation / rotation opérationnels via les handlers PIV05"
+      - "La clé API n'est JAMAIS récupérable après sa première restitution"
+      - "Révocation effective : la clé révoquée est rejetée à l'ingestion (testé de bout en bout)"
+      - "Rotation avec fenêtre de recouvrement testée"
+      - "Permission conformat.settings + journalisation de chaque opération"
+      - "Tests d'intégration : tout le cycle de vie, permissions, isolation tenant"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"

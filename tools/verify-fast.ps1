@@ -40,6 +40,9 @@ function Run-Step {
     "`n=== $Name ===" | Add-Content $script:logFile
     $output = ''
     try {
+        # Reset before invoking: a pure-PowerShell step must not inherit the exit code
+        # of a native command run by a PREVIOUS step (stale $LASTEXITCODE = false failure).
+        $global:LASTEXITCODE = 0
         $output = & $Action 2>&1 | Out-String
         $output | Add-Content $script:logFile
         $sw.Stop()
@@ -61,13 +64,18 @@ function Run-Step {
 }
 
 # Returns $true while the given SOL item is still pending (absent from state = done).
+# THROWS if the orchestration state repo / state.yaml is missing: the protocol makes
+# state.yaml mandatory. Treating a missing state as "SOL pending" would let a deleted
+# solution (or a misconfigured ORCH_REPO) pass as a bootstrap skip — a false green.
 function Test-SolItemPending {
     param([string]$ItemId)
     $orchRepo = $env:ORCH_REPO
     if (-not $orchRepo) { $orchRepo = 'C:\Source\conformat-orchestration' }
     $statePath = Join-Path $orchRepo 'state.yaml'
-    if (-not (Test-Path $statePath)) { return $true }
-    $state = Get-Content $statePath -Raw
+    if (-not (Test-Path $statePath)) {
+        throw "Orchestration state not found ($statePath). state.yaml is mandatory (protocol.md Step 1) - set ORCH_REPO to the state repo. NEVER recreate state.yaml (absent items = done items)."
+    }
+    $state = Get-Content $statePath -Raw -ErrorAction Stop
     if ($state -notmatch "(?m)^  $([regex]::Escape($ItemId)):") { return $false }                          # absent = done
     if ($state -match "(?m)^  $([regex]::Escape($ItemId)):\s*\{\s*status:\s*done") { return $false }       # explicit done
     return $true
@@ -157,13 +165,14 @@ if ($ok) {
         }
     }
     else {
-        if (-not (Test-SolItemPending 'SOL01')) {
-            $ok = Run-Step 'platform: build (solution missing)' { throw "src/Conformat.sln is missing but SOL01 is done — the solution has been deleted or the checkout is broken." }
-        }
-        else {
-            "`n=== platform build (skipped) ===" | Add-Content $logFile
-            "src/Conformat.sln does not exist yet (SOL01 pending) — platform build/tests skipped (bootstrap mode)." | Add-Content $logFile
-            $steps += @{ Name = 'platform (bootstrap skip)'; Status = 'SKIP'; Duration = 0 }
+        # Solution missing: decide bootstrap-skip vs failure from the orchestration state.
+        # This step FAILS if the state repo is missing (Test-SolItemPending throws) or if
+        # SOL01 is done (the solution has been deleted) — never a silent skip.
+        $ok = Run-Step 'platform: bootstrap-check' {
+            if (-not (Test-SolItemPending 'SOL01')) {
+                throw "src/Conformat.sln is missing but SOL01 is done — the solution has been deleted or the checkout is broken."
+            }
+            Write-Output "src/Conformat.sln does not exist yet (SOL01 pending per state.yaml) — platform build/tests skipped (bootstrap mode)."
         }
     }
 }
@@ -191,13 +200,12 @@ if ($ok) {
         }
     }
     else {
-        if (-not (Test-SolItemPending 'SOL02')) {
-            $ok = Run-Step 'agent: build (solution missing)' { throw "agent/Conformat.Agent.sln is missing but SOL02 is done — the solution has been deleted or the checkout is broken." }
-        }
-        else {
-            "`n=== agent build (skipped) ===" | Add-Content $logFile
-            "agent/Conformat.Agent.sln does not exist yet (SOL02 pending) — agent build/tests skipped (bootstrap mode)." | Add-Content $logFile
-            $steps += @{ Name = 'agent (bootstrap skip)'; Status = 'SKIP'; Duration = 0 }
+        # Solution missing: decide bootstrap-skip vs failure from the orchestration state.
+        $ok = Run-Step 'agent: bootstrap-check' {
+            if (-not (Test-SolItemPending 'SOL02')) {
+                throw "agent/Conformat.Agent.sln is missing but SOL02 is done — the solution has been deleted or the checkout is broken."
+            }
+            Write-Output "agent/Conformat.Agent.sln does not exist yet (SOL02 pending per state.yaml) — agent build/tests skipped (bootstrap mode)."
         }
     }
 }

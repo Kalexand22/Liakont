@@ -26,9 +26,9 @@ orchestration/          — Système d'orchestration multi-agents
   items/                  Détail des items par lot (description + critères d'acceptation)
 .claude/                — Configuration Claude Code + subagents d'orchestration
 docs/
-  conception/           — Specs fonctionnelles F01-F11 (source de vérité produit)
+  conception/           — Specs fonctionnelles F01-F12 (source de vérité produit)
   market/               — Analyse d'opportunité, marché, offre commerciale (DR7-DR17)
-  architecture/         — Conventions du repo (à produire : SOL03)
+  architecture/         — Conventions du repo (à produire : SOL04)
   adr/                  — Architecture Decision Records
 tools/                  — Scripts de vérification et d'orchestration
 tasks/                  — Plans de travail, leçons apprises
@@ -99,7 +99,7 @@ Lis orchestration/prompt.md et exécute-le.
 | Document | Rôle |
 |---|---|
 | `blueprint.md` | Doctrine d'architecture du produit |
-| `docs/conception/README-Index-Conception.md` | Index des specs fonctionnelles F01-F11 |
+| `docs/conception/README-Index-Conception.md` | Index des specs fonctionnelles F01-F12 |
 | `docs/market/Conception-Produit-Passerelle.md` | Vision produit et décisions structurantes |
 | `docs/market/SYNTHESE-DR-Commerciales.md` | Synthèse des analyses marché/commercial |
 | `orchestration/manifest.yaml` | Backlog de développement |

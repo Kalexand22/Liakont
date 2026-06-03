@@ -2,7 +2,7 @@
 # Spec : docs/conception/F04-Controles-Qualite-Validation.md
 # Principe : détecter AVANT envoi tout ce qui serait rejeté par la PA.
 # Un contrôle bloquant échoue = document reste Blocked, jamais envoyé.
-# Le module Validation s'exécute sur la PLATEFORME (jamais dans l'agent — règle blueprint §2.5).
+# Le module Validation s'exécute sur la PLATEFORME (jamais dans l'agent — blueprint §2 règle 5).
 
 items:
   VAL01:
@@ -59,10 +59,11 @@ items:
       1. LineTotalsRule : Σ lignes HT = Total HT, Σ lignes TVA = Total TVA (tolérance zéro,
          arrondi commercial half-up 2 décimales).
       2. ArithmeticRule (BR-CO-15, fatale EN 16931) : HT + TVA = TTC.
-      3. SourceTotalsRule (F04 §3.2) : les totaux calculés par la plateforme = les totaux bruts
-         du document source (PivotTotalsDto.totaux source bruts). Un écart = Blocking — soit le
-         mapping a altéré un montant, soit la source est incohérente : dans les deux cas,
-         ne jamais envoyer un montant différent de ce que le logiciel source a facturé.
+      3. SourceTotalsRule (F04 §3.2/§3.3) : les totaux calculés par la plateforme = les totaux
+         bruts du document source (PivotTotalsDto.totaux source bruts). Un écart = WARNING
+         (alerte opérateur) — aligné sur F04 §3.3 et la décision D5 du 2026-06-03 : les écarts
+         d'arrondis légitimes de la source ne bloquent pas l'envoi, mais l'opérateur est alerté
+         (un écart répété = signal de bug d'extraction à investiguer).
       4. StructureRule : au moins 1 ligne, date plausible (pas dans le futur, pas avant 2000),
          devise ISO 4217.
       5. UniquenessRule : numéro de document non déjà émis dans le tenant (interroge le module
@@ -71,9 +72,9 @@ items:
     acceptance:
       - "BR-CO-15 (HT+TVA=TTC) implémentée comme règle Blocking"
       - "Réconciliation des totaux lignes/document sans tolérance, en decimal, après arrondi commercial half-up 2 décimales"
-      - "SourceTotalsRule : écart plateforme/source = Blocking"
+      - "SourceTotalsRule : écart plateforme/source = Warning (aligné F04 §3.3, décision D5)"
       - "UniquenessRule derrière une interface, testée avec un fake"
-      - "Tests : document cohérent, écart d'arrondi, TTC incohérent, écart vs totaux source, doublon de numéro"
+      - "Tests : document cohérent, écart d'arrondi, TTC incohérent, écart vs totaux source (Warning), doublon de numéro"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -85,11 +86,16 @@ items:
       2. VatexRequiredRule : catégorie E + taux 0 → code VATEX présent.
          (Validé en staging B2Brouter : l'absence de VATEX = blocage silencieux côté PA —
          c'est exactement ce qu'on veut attraper AVANT envoi.)
-      3. CategoryRateConsistencyRule (F04 §3.4 AMENDÉE 2026-06-02) : cohérence catégorie/taux
-         en BLOCKING (décision utilisateur) :
+      3. CategoryRateConsistencyRule (F04 §3.4 AMENDÉE 2026-06-02, étendue 2026-06-03) :
+         cohérence catégorie/taux en BLOCKING (décision utilisateur) sur les 9 catégories
+         UNCL5305 du pivot :
          - catégorie S → taux > 0
+         - catégorie AA (taux réduit : 10 % / 5,5 %) → taux > 0   [source F03 §2.1]
+         - catégorie AAA (super réduit : 2,1 %) → taux > 0        [source F03 §2.1]
          - catégories E, Z, AE, G, K, O → taux = 0
          Une incohérence = erreur de mapping ou donnée source fausse → jamais envoyé.
+         QUESTION OUVERTE (expert-comptable) : existe-t-il un cas légitime de catégorie AA/AAA
+         à taux 0 ? Si oui, la règle sera assouplie par amendement de F04 — jamais silencieusement.
       4. CreditNoteRules (F07) : référence facture d'origine présente, facture connue du module
          Documents ET déjà émise, montants positifs (règle fatale EN 16931 — jamais de montants
          négatifs).
@@ -98,10 +104,10 @@ items:
          opérateur resolve-manually) est exposé par l'API (API02) et la console (WEB03).
     acceptance:
       - "VatexRequiredRule bloque tout E+0% sans VATEX"
-      - "CategoryRateConsistencyRule en BLOCKING (S→taux>0, E/Z/AE/G/K/O→taux=0)"
+      - "CategoryRateConsistencyRule en BLOCKING sur les 9 catégories (S/AA/AAA→taux>0, E/Z/AE/G/K/O→taux=0)"
       - "Avoirs : montants positifs obligatoires, référence d'origine vérifiée"
       - "Avoir orphelin bloqué avec message explicite"
-      - "Tests : E sans VATEX, S avec taux 0, E avec taux 20, avoir valide, avoir orphelin, avoir à montants négatifs"
+      - "Tests : E sans VATEX, S avec taux 0, AA avec taux 0, AAA avec taux 0, E avec taux 20, avoir valide, avoir orphelin, avoir à montants négatifs"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -109,6 +115,10 @@ items:
     title: "Garde-fou B2B/B2C : détection acheteur professionnel"
     description: |
       Implémenter le garde-fou F08 dans src/Modules/Validation/ :
+      FRONTIÈRE AGENT/PLATEFORME (clarification 2026-06-03, amendement F01-F02) : le champ
+      IsCompanyHint transmis par l'agent est une TRANSCRIPTION BRUTE d'un champ source
+      (ex. « societe » non vide) — AUCUNE heuristique côté agent. TOUTE l'heuristique
+      (formes juridiques, n° TVA, décision de blocage) vit ICI, sur la plateforme.
       1. CompanyHintDetector : heuristique de détection d'acheteur professionnel —
          EXACTEMENT celle de F07-F08 §A.4, ni plus ni moins (liste de formes juridiques et
          seuil de déclenchement repris de la spec, jamais étendus sans amendement de la spec) :

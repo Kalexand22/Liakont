@@ -70,6 +70,9 @@ items:
          et pousse le nouveau document (nouveau numéro) → l'opérateur LIE les deux
          (action supersede API02) : l'ancien passe Superseded avec la référence du
          remplaçant dans le DocumentEvent.
+         NOTE : cette mécanique REMPLACE le « suffixe -R1 » décrit par F05 §4.2 (un suffixe
+         créé par la passerelle violerait la règle « la source est le seul créateur de
+         numéros ») — amendement F05 du 2026-06-03.
     acceptance:
       - "Machine à états explicite, transitions illégales rejetées par exception"
       - "États terminaux ManuallyHandled (motif obligatoire) et Superseded (lien vers le remplaçant)"
@@ -138,7 +141,7 @@ items:
     title: "Module Archive : coffre WORM + chaîne de hashes + addenda chaînés"
     description: |
       Implémenter src/Modules/Archive/ selon F06 :
-      1. IArchiveStore (abstraction — décision F12 §7.2) avec deux implémentations :
+      1. IArchiveStore (abstraction — F12 §7, décision sur le stockage d'archive) avec deux implémentations :
          - FileSystemArchiveStore (défaut, appliance self-hosted) : volume de l'instance,
            un répertoire par tenant
          - S3ArchiveStore (instances hébergées) : object storage S3-compatible avec
@@ -188,7 +191,14 @@ items:
       les API .NET modernes existent :
       1. ArchiveVerifier : vérification complète de la chaîne d'archive d'un tenant (tous les
          hashes, tout le chaînage, les preuves d'ancrage) → rapport d'intégrité. Exposé via
-         l'API (état d'intégrité dans le détail document WEB03, export API03).
+         l'API à TROIS niveaux :
+         - état d'intégrité dans le détail document (WEB03)
+         - inclus dans l'export contrôle fiscal (API03)
+         - action opérateur À LA DEMANDE « Vérifier l'intégrité de l'archive du tenant »
+           (endpoint API03 + bouton WEB04) : exécute l'ArchiveVerifier sur TOUT le coffre du
+           tenant et affiche le rapport — équivalent v6 de la commande verify-archive du
+           backlog v5 ; l'export fiscal doit rester vérifiable par l'opérateur sans attendre
+           un contrôle.
       2. Ancrage temporel de la tête de chaîne — abstraction ITimestampAnchor (même principe
          que les plug-ins PA : le scellement est une capacité paramétrable par instance) :
          - Rfc3161Anchor (recommandé par défaut en v6) : horodatage qualifié via une TSA
@@ -203,9 +213,11 @@ items:
            V1.1, RFC 3161 reste l'ancrage par défaut — décision à l'ADR.
          - NoAnchor : instances sans accès internet sortant — la chaîne de hashes reste active.
          Les ancrages peuvent être actifs simultanément (ceinture-bretelles).
-      3. Job d'ancrage quotidien (module Job du socle) : ancre la tête de chaîne de chaque
-         tenant de l'instance, stocke les preuves (jetons RFC 3161 / fichiers .ots) dans le
-         coffre, gère le cycle pending → complete d'OpenTimestamps.
+      3. Job d'ancrage quotidien — utilise la mécanique de jobs multi-tenant du socle
+         (TenantJobRunner/ITenantJob de SOL06, jamais de boucle multi-tenant maison) :
+         ancre la tête de chaîne de chaque tenant de l'instance, stocke les preuves
+         (jetons RFC 3161 / fichiers .ots) dans le coffre, gère le cycle
+         pending → complete d'OpenTimestamps.
       4. Export contrôle fiscal (consommé par API03) : pour un document ou une période,
          produire le dossier d'export — paquets d'archive + rapport d'intégrité + preuves
          d'ancrage + chronologie complète (DocumentEvents) + notice en français expliquant
@@ -215,8 +227,9 @@ items:
          « scellement qualifié eIDAS inclus, ancrage blockchain en option ».
     acceptance:
       - "ArchiveVerifier détecte toute altération et vérifie les preuves d'ancrage"
+      - "Vérification d'intégrité de TOUT le coffre du tenant déclenchable à la demande par l'opérateur (API03/WEB04)"
       - "ITimestampAnchor : Rfc3161Anchor (API .NET natives, sans dépendance), OpenTimestamps (selon ADR/spike), NoAnchor"
-      - "Job d'ancrage quotidien par tenant, preuves stockées dans le coffre"
+      - "Job d'ancrage quotidien par tenant via TenantJobRunner (SOL06), preuves stockées dans le coffre"
       - "Export contrôle fiscal complet avec notice de vérification en français"
       - "La limite « pas de certification NF Z42-013 » est documentée"
       - "Tests : chaîne saine, chaîne altérée, preuve manquante, les modes d'ancrage, TSA mockée"

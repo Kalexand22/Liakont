@@ -23,6 +23,13 @@ items:
          Mode WAL, fichier dans C:\ProgramData\Conformat\. Purge automatique de pushed_log
          au-delà de 90 jours (ce n'est PAS une table d'audit — la piste d'audit vit sur la
          plateforme, F12 §2.3).
+         ACCÈS MULTI-PROCESS (service + CLI) : le service Windows (LocalSystem) et le CLI
+         (utilisateur intégrateur) partagent cette base —
+         - verrou inter-process : mutex Windows nommé (Global\ConformatAgentRun) partagé
+           entre le run planifié (service) et le run manuel (CLI AGT05)
+         - ACL : le répertoire C:\ProgramData\Conformat\ accorde l'écriture au service ET
+           au groupe des intégrateurs (les fichiers -wal/-shm de SQLite exigent l'écriture
+           pour TOUS les processus qui ouvrent la base) — posée par l'installeur (OPS05)
       2. Configuration de l'agent (F12 §2.4) : AgentConfig typé chargé depuis
          C:\ProgramData\Conformat\agent.json — platformUrl, apiKey (chiffré DPAPI),
          section extraction (adapter, odbcConnectionString chiffré DPAPI, pdfPoolPath,
@@ -37,11 +44,12 @@ items:
     acceptance:
       - "File locale SQLite : push_queue + pushed_log + agent_state, mode WAL"
       - "pushed_log purgé au-delà de 90 jours ; push_queue et agent_state jamais purgés automatiquement"
+      - "Verrou inter-process service/CLI défini (mutex nommé) + exigences ACL documentées pour l'installeur"
       - "AgentConfig typé avec validation et messages français"
       - "Secrets (clé API, ODBC) chiffrés DPAPI, jamais en clair"
       - "Service install/uninstall + mode --console fonctionnels"
       - "Arrêt propre attend la fin du run en cours (testé avec timer abstrait)"
-      - "Tests : config valide/invalide, round-trip DPAPI, file locale (enqueue/dequeue/purge)"
+      - "Tests : config valide/invalide, round-trip DPAPI, file locale (enqueue/dequeue/purge), verrou inter-process"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -137,23 +145,39 @@ items:
       Implémenter la mise à jour automatique (F12 §2.5) — une flotte d'agents chez les clients
       finaux doit se mettre à jour sans intervention :
       1. Déclencheurs : heartbeat avec updateRequired=true, OU réponse 426 sur un push.
-      2. Processus : télécharger le package depuis updateUrl (HTTPS) → vérifier l'intégrité
-         (hash SHA-256 annoncé par la plateforme via l'API — décision F12 §7.4 : hash via API
-         en V1, Authenticode si certificat disponible) → extraire dans un dossier de staging →
-         lancer l'updater (petit exe séparé Conformat.Agent.Updater) → l'updater arrête le
-         service, remplace les binaires, redémarre le service, journalise.
+      2. Processus : télécharger le package depuis updateUrl (HTTPS) → VÉRIFIER L'AUTHENTICITÉ
+         (décision D6 du 2026-06-03, amende F12 §7) : le manifeste de version est SIGNÉ par une
+         clé applicative dédiée (clé privée détenue HORS plateforme — poste de release IT
+         Innovations ; clé publique embarquée dans l'agent à l'installation). L'agent vérifie
+         la signature du manifeste + le hash SHA-256 du package référencé par le manifeste.
+         Un hash seul publié par l'API ne suffit PAS : si la plateforme est compromise,
+         elle ne doit pas pouvoir pousser du code arbitraire chez les clients finaux.
+         Authenticode (signature du binaire) s'ajoute dès qu'un certificat de signature de
+         code est disponible. Le modèle de confiance complet est documenté par ADR.
+         → extraire dans un dossier de staging → lancer l'updater (petit exe séparé
+         Conformat.Agent.Updater) → l'updater arrête le service, remplace les binaires,
+         redémarre le service, journalise.
       3. Échec de mise à jour = rollback (les anciens binaires sont conservés jusqu'au
          redémarrage réussi de la nouvelle version) + signalement au heartbeat suivant.
-      4. La version de l'agent est visible : dans le heartbeat, dans les logs, via le CLI.
-      5. Garde-fou : jamais de mise à jour pendant un run d'extraction (attendre la fin).
-      6. Tests : update nominal (avec updater mocké/processus simulé), hash invalide (refus),
-         échec + rollback, update pendant un run (différé).
+         Détection « la nouvelle version ne démarre pas » : l'updater (processus DÉTACHÉ,
+         il survit à l'arrêt du service) attend le redémarrage sain du service (heartbeat
+         local/état SCM) avec timeout → sinon restauration des anciens binaires.
+      4. POINTS DURS WINDOWS à trancher par ADR : compte d'exécution de l'updater (droits
+         d'arrêt/démarrage du service + remplacement des binaires sous Program Files),
+         verrou de fichiers (un binaire chargé ne peut pas être remplacé — l'updater ne
+         tourne JAMAIS depuis le dossier qu'il remplace), emplacement des binaires.
+      5. La version de l'agent est visible : dans le heartbeat, dans les logs, via le CLI.
+      6. Garde-fou : jamais de mise à jour pendant un run d'extraction (attendre la fin).
+      7. Tests : update nominal (avec updater mocké/processus simulé), signature de manifeste
+         invalide (refus), hash invalide (refus), échec + rollback, update pendant un run (différé).
     acceptance:
-      - "Update déclenché par heartbeat ou 426, téléchargement + vérification de hash"
-      - "Hash invalide = refus de la mise à jour + signalement"
-      - "Rollback automatique si la nouvelle version ne redémarre pas"
+      - "Update déclenché par heartbeat ou 426, téléchargement + vérification signature du manifeste + hash du package"
+      - "Signature de manifeste invalide = refus de la mise à jour + signalement (testé)"
+      - "Hash invalide = refus de la mise à jour + signalement (testé)"
+      - "ADR modèle de confiance rédigé (clé dédiée hors plateforme, Authenticode quand disponible, points durs Windows)"
+      - "Rollback automatique si la nouvelle version ne redémarre pas (updater détaché + timeout)"
       - "Jamais d'update pendant un run (testé)"
-      - "Tests : nominal, hash invalide, rollback, différé pendant run"
+      - "Tests : nominal, signature invalide, hash invalide, rollback, différé pendant run"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -171,7 +195,8 @@ items:
            — diagnostique : URL injoignable / clé invalide / clé révoquée / OK
          - encrypt : chiffre une valeur DPAPI pour collage dans agent.json
          - run : déclenche un run d'extraction manuel (le service peut tourner — le run
-           manuel et le run planifié partagent le même verrou local)
+           manuel et le run planifié partagent le même verrou local : mutex Windows nommé
+           Global\ConformatAgentRun, défini en AGT01)
          - show-queue : affiche l'état de la push_queue (éléments en attente, en erreur)
          - version : version de l'agent et du contrat
       2. Messages 100 % français, orientés intégrateur (« Le pilote ODBC Pervasive 32-bit

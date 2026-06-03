@@ -108,17 +108,20 @@ items:
          - cas autoliquidation : AE
          - cas hors champ : O
          - une règle volontairement absente (pour tester la détection TVA03)
-      2. validatedBy = "Table d'exemple — usage démo/tests uniquement" : le moteur REFUSE
-         d'autoriser des envois en environnement production avec une table portant ce marqueur
-         (même règle que « NON VALIDÉE » — garde-fou production de PIP01).
+      2. validatedBy = "Table d'exemple — usage démo/tests uniquement" : le module TvaMapping
+         PORTE ce marqueur (état exposé, comme « NON VALIDÉE »). Le REFUS d'envoi en production
+         est le garde-fou de PIP01 (croisement environnement du compte PA × état de la table) —
+         cet item ne fait qu'exposer le marqueur ; la preuve du refus effectif est le test
+         d'intégration du garde-fou PIP01, qui référence ce marqueur.
       3. Tests d'intégration : importer le seed dans un tenant de test, mapper les golden files
          PIV03, vérifier chaque catégorie produite, vérifier le blocage sur le régime absent,
-         vérifier le refus d'envoi en production avec une table d'exemple.
+         vérifier que le marqueur « table d'exemple » est exposé (le refus d'envoi production
+         lui-même est testé dans PIP01).
       RAPPEL : la table réelle du CMP est l'item CMP01 (paramétrage), pas ici.
     acceptance:
       - "mapping-exemple.json dans config/exemples/ avec des codes régimes fictifs uniquement"
       - "Tous les cas UNCL5305 supportés sont couverts par l'exemple"
-      - "Le moteur refuse l'envoi en production avec une table marquée exemple"
+      - "Le marqueur « table d'exemple » est porté par le modèle et exposé (le refus d'envoi production est prouvé par le test du garde-fou PIP01)"
       - "Tests d'intégration sur les golden files PIV03 verts"
       - "Aucune donnée client (CMP, EncheresV6 réel) dans le fichier"
       - "verify-fast passes"

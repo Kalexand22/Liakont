@@ -18,7 +18,10 @@ items:
          selon le rôle). Pattern INavSectionProvider du socle Stratum.
       2. Page d'accueil / tableau de bord du tenant : compteurs par état (à envoyer, bloqués,
          émis, rejetés), état de l'agent (dernier heartbeat, version), état de la table TVA
-         (alerte si NON VALIDÉE), prochaine échéance de période déclarative.
+         (alerte si NON VALIDÉE), prochaine échéance de période déclarative — affichée
+         UNIQUEMENT si reportingFrequency (CFG02, décision D4) est renseigné ; sinon, bandeau
+         « Fréquence déclarative non renseignée — consultez votre expert-comptable »
+         (jamais d'échéance calculée sur une cadence devinée).
       3. États et vocabulaire opérateur de F10 §2.2 repris à l'identique :
          ⏳ À envoyer / 🛑 Bloqué / ⏫ En cours / ✅ Émis / ❌ Rejeté / ⚠️ Erreur technique /
          ↪ Remplacé / ✋ Traité manuellement — composant partagé DocumentStateBadge.
@@ -28,7 +31,8 @@ items:
          navigation vers chaque section.
     acceptance:
       - "Navigation avec sections conditionnelles (capacités, rôles)"
-      - "Tableau de bord avec compteurs, état agent, état table TVA, échéance"
+      - "Tableau de bord avec compteurs, état agent, état table TVA"
+      - "Échéance déclarative affichée seulement si reportingFrequency est renseigné (testé : null = bandeau explicite, jamais de calcul)"
       - "DocumentStateBadge couvre tous les états avec le vocabulaire français de F10"
       - "Tests bUnit + E2E Playwright (login → dashboard → navigation)"
       - "Tous les libellés en français"
@@ -98,9 +102,12 @@ items:
       2. Paramétrage du tenant (GET /settings, LECTURE dans cet item — l'édition du profil
          arrive avec OPS03/provisioning, l'édition de la table TVA avec WEB07) :
          - profil (SIREN, raison sociale, contact)
-         - paramètres fiscaux (vatOnDebits, operationCategory) avec alerte « décision en
-           attente » si null
-         - agent(s) : dernier heartbeat, version, état
+         - paramètres fiscaux (vatOnDebits, operationCategory, reportingFrequency) avec alerte
+           « décision en attente » si null
+         - agent(s) : dernier heartbeat, version, état (la GESTION du parc — enregistrement,
+           révocation, rotation de clé — est l'écran dédié WEB09)
+         - bouton [Vérifier l'intégrité de l'archive] → POST /archive/verify (API03) →
+           affichage du rapport d'intégrité du coffre complet du tenant
          - compte(s) PA : nom, environnement, capacités déclarées (B2C ✅, Paiements ⏳,
            B2B ⬜ phase 2...) — l'opérateur voit ce que sa plateforme sait faire
          - table TVA : résumé (version, validateur, état) + lien vers WEB07
@@ -112,6 +119,7 @@ items:
       - "Paramétrage affiché en lecture, secrets masqués, capacités PA visibles"
       - "État de validation de la table TVA bien visible (alerte si non validée)"
       - "Alerte « décision fiscale en attente » quand les paramètres sont null"
+      - "Vérification d'intégrité de l'archive déclenchable et rapport affiché"
       - "Tests bUnit + E2E Playwright"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
@@ -212,5 +220,34 @@ items:
       - "Page masquée si la capacité pool n'est pas déclarée"
       - "Compteur d'attente visible dans la navigation"
       - "Tests bUnit + E2E Playwright"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  WEB09:
+    title: "Page Gestion des agents (parc, clés API)"
+    description: |
+      Implémenter l'écran « Gestion des agents » (F10 amendée 2026-06-03, F12 §4.2), alimenté
+      par les endpoints API05 :
+      1. Liste des agents du tenant : nom, état (✅ actif / 🚫 révoqué), dernière version vue,
+         dernier heartbeat (avec alerte visuelle si muet depuis plus que le seuil SUP01),
+         date de création.
+      2. Actions (permission conformat.settings — page masquée sinon) :
+         - [Enregistrer un nouvel agent...] : saisie du nom → la clé API est affichée UNE SEULE
+           FOIS dans un dialogue avec bouton copier + avertissement explicite
+           (« Cette clé ne pourra plus être affichée — copiez-la maintenant »)
+         - [Révoquer] : confirmation avec conséquence explicite (« L'agent ne pourra plus
+           pousser de documents »)
+         - [Renouveler la clé...] : rotation → nouvelle clé affichée une seule fois + rappel
+           de la fenêtre de recouvrement
+      3. Langue : 100 % français, vocabulaire opérateur (pas de jargon « API key rotation »).
+      4. Tests bUnit : liste, états, clé affichée une fois, confirmations, permissions
+         (page masquée en lecture seule). E2E Playwright : parcours « enregistrer un agent →
+         copier la clé → révoquer ».
+    acceptance:
+      - "Liste du parc d'agents avec états et heartbeat"
+      - "Enregistrement avec clé affichée une seule fois (vérifié : pas de re-récupération possible)"
+      - "Révocation et rotation avec confirmations explicites en français"
+      - "Page accessible uniquement avec conformat.settings"
+      - "Tests bUnit + E2E Playwright (parcours enregistrement → révocation)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"

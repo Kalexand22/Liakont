@@ -7,7 +7,7 @@
     documentation files the agent should read before starting work.
     Outputs one file path per line to stdout.
 .PARAMETER ItemId
-    The manifest item ID (e.g., PIV01, TVA02, WPF03).
+    The manifest item ID (e.g., PIV01, TVA02, WEB03).
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File tools/build-agent-context.ps1 -ItemId PIV01
 #>
@@ -46,9 +46,12 @@ else {
 # Maps lots to the feature specs and docs the agent must read.
 # Conventions docs (always included) + lot-specific conception specs.
 
+# Lots aligned with manifest v6 (SOL/PIV/CFG/TVA/VAL/TRK/PAA/PAB/PAS/PIP/AGT/ADP/API/WEB/SUP/OPS/BRD/DOC/CMP).
+# F10 = functional content of the web console (amended 2026-06-03), F12 = platform/agent architecture.
 $lotToSpecs = @{
-    'SOL' = @('docs/market/Conception-Produit-Passerelle.md')
-    'PIV' = @('docs/conception/F01-F02-Modele-Pivot-Contrat-Extraction.md')
+    'SOL' = @('docs/conception/F12-Architecture-Plateforme-Agent.md', 'tasks/analyse-impact-pivot-plateforme.md')
+    'PIV' = @('docs/conception/F01-F02-Modele-Pivot-Contrat-Extraction.md', 'docs/conception/F12-Architecture-Plateforme-Agent.md')
+    'CFG' = @('docs/conception/F12-Architecture-Plateforme-Agent.md', 'docs/conception/F09-E-Reporting-Paiement.md', 'docs/market/Offre-Editeur-Passerelle.md')
     'TVA' = @('docs/conception/F03-Mapping-TVA.md', 'docs/conception/F01-F02-Modele-Pivot-Contrat-Extraction.md')
     'VAL' = @('docs/conception/F04-Controles-Qualite-Validation.md', 'docs/conception/F07-F08-Avoirs-Frontiere-B2B-B2C.md')
     'TRK' = @('docs/conception/F06-Tracking-Piste-Audit.md')
@@ -56,13 +59,14 @@ $lotToSpecs = @{
     'PAB' = @('docs/conception/F05-Client-API-B2Brouter.md')
     'PAS' = @('docs/market/DR17-Strategie-Multi-PA-Partenaires.md', 'docs/market/DR9-Business-Model-Pricing-Scenarios-CA.md')
     'PIP' = @('docs/conception/F11-CLI-Mode-Automatique.md', 'docs/conception/F07-F08-Avoirs-Frontiere-B2B-B2C.md', 'docs/conception/F09-E-Reporting-Paiement.md')
-    'SVC' = @('docs/conception/F11-CLI-Mode-Automatique.md')
-    'API' = @('docs/conception/F10-Console-Admin-WPF.md', 'docs/conception/F11-CLI-Mode-Automatique.md')
-    'CLI' = @('docs/conception/F11-CLI-Mode-Automatique.md')
+    'AGT' = @('docs/conception/F12-Architecture-Plateforme-Agent.md', 'docs/conception/F01-F02-Modele-Pivot-Contrat-Extraction.md')
     'ADP' = @('docs/conception/F01-F02-Modele-Pivot-Contrat-Extraction.md', 'docs/conception/F03-Mapping-TVA.md', 'docs/conception/F09-E-Reporting-Paiement.md')
-    'WPF' = @('docs/conception/F10-Console-Admin-WPF.md')
-    'CFG' = @('docs/conception/F11-CLI-Mode-Automatique.md', 'docs/conception/F05-Client-API-B2Brouter.md', 'docs/market/Offre-Editeur-Passerelle.md')
-    'DOC' = @('docs/conception/F10-Console-Admin-WPF.md', 'docs/conception/README-Index-Conception.md')
+    'API' = @('docs/conception/F10-Console-Admin-WPF.md', 'docs/conception/F12-Architecture-Plateforme-Agent.md')
+    'WEB' = @('docs/conception/F10-Console-Admin-WPF.md', 'docs/conception/F12-Architecture-Plateforme-Agent.md')
+    'SUP' = @('docs/conception/F12-Architecture-Plateforme-Agent.md', 'docs/conception/F10-Console-Admin-WPF.md')
+    'OPS' = @('docs/conception/F12-Architecture-Plateforme-Agent.md')
+    'BRD' = @('docs/conception/F10-Console-Admin-WPF.md', 'docs/conception/F12-Architecture-Plateforme-Agent.md')
+    'DOC' = @('docs/conception/F10-Console-Admin-WPF.md', 'docs/conception/README-Index-Conception.md', 'docs/market/Offre-Editeur-Passerelle.md')
     'CMP' = @('docs/conception/F03-Mapping-TVA.md', 'docs/market/DR12-Intelligence-ISATECH.md', 'docs/market/Offre-Editeur-Passerelle.md')
 }
 

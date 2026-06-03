@@ -39,7 +39,10 @@ Le second rôle impose des contraintes que le premier seul n'imposerait pas (ré
 
 ### ❓ Zones d'ombre confirmées (non tranchées par les sources — à border autrement)
 - **Répartition exacte des responsabilités** éditeur SC / PA / assujetti : **non documentée**. → à border **contractuellement** (clauses), pas à déduire.
-- **Charge de l'archivage à valeur probante NF Z42-013 / NF 461** : non confirmée. → notre position (déléguer à la PA) reste à valider.
+- ~~**Charge de l'archivage à valeur probante NF Z42-013 / NF 461** : non confirmée. → notre position (déléguer à la PA) reste à valider.~~
+  **[CADUC — décision 2026-06-02 + amendement]** : l'archivage fiscal 10 ans est INTÉGRÉ au produit
+  (coffre WORM local + chaîne de hashes + ancrage temporel — TRK05/TRK06) ; la copie PA est un doublon.
+  Limite assumée : pas de certification NF Z42-013 (documentée, jamais promise commercialement).
 - **RGPD sur les données B2C** : aucune affirmation confirmée. → traiter par principe de minimisation (cf. §6).
 
 ## 3. Schéma de données (SQLite)
@@ -127,7 +130,10 @@ Puisque la répartition légale des responsabilités SC/PA/assujetti n'est pas c
 - La **qualité de la donnée source** et la **validation du mapping TVA** incombent au client (d'où `validatedBy` dans la table F3).
 - La **responsabilité fiscale** (déclaration, exigibilité) reste celle de l'assujetti (le CMP).
 - **RC Pro** adaptée recommandée (cf. analyses de marché).
-- Archivage à valeur probante (NF Z42-013) **délégué à la PA** — à confirmer dans le contrat PA.
+- ~~Archivage à valeur probante (NF Z42-013) **délégué à la PA** — à confirmer dans le contrat PA.~~
+  **[CADUC — décision 2026-06-02]** : l'archivage fiscal 10 ans est intégré au produit
+  (coffre WORM, voir l'amendement en tête de ce document et TRK05/TRK06). La copie PA reste
+  un doublon de confort, pas la responsabilité contractuelle.
 
 > Ces clauses rejoignent celles déjà recommandées dans les analyses d'opportunité (clauses limitatives de responsabilité, obligation de moyens).
 

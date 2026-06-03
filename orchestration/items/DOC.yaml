@@ -20,10 +20,71 @@ items:
       3. README.md du repo mis à jour : état du produit, architecture (plateforme + agent),
          comment builder les deux solutions, comment lancer en mode démo (docker compose +
          agent fixtures + plug-in Fake), liens vers toute la documentation.
+      4. PÉRIMÈTRE RÉCEPTION V1 (décision 2026-06-02, Offre Éditeur réalignée) : les deux
+         guides indiquent EXPLICITEMENT que la réception des factures fournisseurs n'est PAS
+         couverte par le produit en V1 — elle est assurée par le portail de la Plateforme
+         Agréée du client, en attendant la phase 2. Ne jamais laisser croire que le produit
+         couvre la réception.
     acceptance:
       - "Guide opérateur couvrant toutes les pages et états, en français opérateur"
       - "Guide éditeur couvrant le cycle de vie complet (tenant, agent, supervision, réversibilité)"
+      - "Le périmètre réception V1 (portail PA, pas le produit) est explicite dans les deux guides"
       - "README.md à jour (architecture, builds, mode démo)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  DOC02:
+    title: "Kit support éditeur (FAQ, formation N1, matrice d'escalade, SLA)"
+    description: |
+      Produire le kit support promis par l'Offre Éditeur (docs/market/Offre-Editeur-Passerelle.md
+      §5 — décision D8 du 2026-06-03 : ces engagements commerciaux entrent au backlog) :
+      1. docs/support/faq-editeur.md : FAQ / base de connaissances — les questions récurrentes
+         des opérateurs et des clients finaux (blocages courants, messages d'erreur, agent muet,
+         table TVA non validée, échéances) avec les réponses de niveau 1 (sans escalade).
+      2. docs/support/formation-n1-editeur.md : support de formation du support N1 de l'éditeur —
+         ce que l'éditeur doit savoir résoudre seul (usage console, lecture des alertes,
+         redémarrage agent), avec exercices sur instance de démo.
+      3. docs/support/matrice-escalade.md : matrice N1 (éditeur — usage) / N2 (IT Innovations —
+         technique) / N3 (PA — plateforme agréée) : qui traite quoi, le canal de ticket,
+         les délais de prise en charge (SLA) par gravité, les informations à fournir à
+         chaque escalade (version, tenant, logs).
+      4. Cohérence : la matrice reprend les gravités des alertes SUP01 (🔴/🟠) — une alerte
+         critique a un SLA, pas seulement une couleur.
+      Source : Offre-Editeur-Passerelle.md §5 (engagements), F12 §5 (alertes). Aucun
+      engagement inventé : tout SLA chiffré est repris de l'offre ou marqué « à contractualiser ».
+    acceptance:
+      - "FAQ, formation N1 et matrice d'escalade rédigées en français"
+      - "La matrice N1/N2/N3 couvre les alertes SUP01 avec SLA par gravité (repris de l'offre ou marqués « à contractualiser »)"
+      - "Aucun engagement inventé : tout est traçable vers l'Offre Éditeur ou marqué explicitement"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  DOC03:
+    title: "Processus de veille réglementaire"
+    description: |
+      Documenter et outiller la veille réglementaire promise dans chaque palier de l'Offre
+      Éditeur (décision D8 du 2026-06-03) :
+      1. docs/support/veille-reglementaire.md :
+         - SOURCES surveillées : specs externes DGFiP (impots.gouv.fr), normes AFNOR
+           (XP Z12-012/-013/-014), annonces des PA partenaires (B2Brouter, Super PDP),
+           recodification des textes fiscaux
+         - CADENCE : vérification mensuelle + à chaque annonce DGFiP majeure
+         - CHECKLIST D'IMPACT à dérouler pour chaque évolution : specs F01-F09 touchées ?
+           schémas/flux modifiés ? catégories/codes TVA modifiés ? validation à amender ?
+           tests de régression à rejouer (golden files) ?
+         - COMMUNICATION : qui informe les éditeurs/clients (release notes réglementaires),
+           dans quel délai
+         - RÈGLE ABSOLUE : une évolution réglementaire ne s'implémente JAMAIS sans amendement
+           des specs (docs/conception/) — la veille produit des amendements de spec, pas du
+           code direct (règle CLAUDE.md n°2 : aucune règle fiscale inventée)
+      2. Modèle de note de veille : docs/support/notes-veille/template.md (date, source,
+         changement, analyse d'impact, décision, specs amendées).
+      3. La première note de veille réelle existe déjà (delta DGFiP v3.1→v3.2 du 2026-06-02,
+         docs/references/dgfip-v3.2/) — la référencer comme exemple du processus.
+    acceptance:
+      - "Processus de veille documenté : sources, cadence, checklist d'impact, communication"
+      - "La règle « jamais de code sans amendement de spec » est explicite"
+      - "Modèle de note de veille + exemple réel (delta v3.2) référencé"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 

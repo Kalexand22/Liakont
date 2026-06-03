@@ -123,7 +123,10 @@ Positionnement réglementaire : **Solution Compatible (SC)**, non agréée, dél
 - OCR / IA d'extraction de factures papier.
 - Workflows d'approbation Procure-to-Pay.
 - Initiation de paiements SEPA (contraintes DSP2).
-- Archivage à valeur probante 10 ans (NF Z42-013) — **à déléguer à la PA**.
+- ~~Archivage à valeur probante 10 ans (NF Z42-013) — **à déléguer à la PA**.~~
+  **[CADUC — décision 2026-06-02]** : l'archivage fiscal 10 ans est INTÉGRÉ au produit V1
+  (coffre WORM + chaîne de hashes + ancrage — voir F06 amendée et TRK05/TRK06). Seule la
+  certification NF Z42-013 elle-même reste hors périmètre (limite assumée et documentée).
 - Multi-PA dès le départ (un connecteur PA d'abord).
 - Les 44 cas d'usage AFNOR (5 à 10 couvrent une PME standard).
 - Couverture multi-pays / PEPPOL international.
@@ -338,7 +341,9 @@ S'adosser dès le départ à une **API de PA en marque blanche** plutôt que de 
 
 **SecNumCloud** — Qualification de sécurité (ANSSI) requise pour l'hébergement d'une PA. Critère de choix d'un partenaire PA.
 
-**NF Z42-013** — Norme d'archivage électronique à valeur probante. Relève de la PA, pas de la passerelle.
+**NF Z42-013** — Norme d'archivage électronique à valeur probante. **[Amendé 2026-06-03]** Le produit
+intègre un coffre d'archivage WORM 10 ans (décision 2026-06-02, F06/TRK05-06) mais ne revendique PAS
+la certification NF Z42-013 elle-même (limite assumée — ne jamais la promettre commercialement).
 
 ### C. Technique et intégration
 

@@ -83,7 +83,7 @@
 | `VatNumber` | string? | BT-31 | n° TVA intracommunautaire |
 | `Address` | PivotAddress | BG-5/BG-8 | rue, CP, ville, **pays ISO 3166-1 alpha-2** (BT-40/BT-55) |
 | `Email` | string? | — | utile aux notifications, pas transmis |
-| `IsCompanyHint` | bool | — | Heuristique adaptateur : "ce tiers semble professionnel" (champ `societe` rempli, etc.) → garde-fou F8 |
+| `IsCompanyHint` | bool | — | **[Amendé 2026-06-03]** Transcription BRUTE d'un champ source (ex. champ `societe` non vide) — AUCUNE heuristique côté agent/adaptateur. TOUTE l'heuristique (formes juridiques, n° TVA, décision de blocage) vit dans le module Validation de la plateforme (VAL05) → garde-fou F8 |
 
 ### 3.3 `PivotLine` — une ligne
 

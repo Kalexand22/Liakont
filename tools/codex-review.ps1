@@ -53,6 +53,13 @@ function Register-Findings {
     # Findings follow the mandated format: "[P1] | file:line | ..." (markdown bold tolerated)
     $p1 = [regex]::Matches($ReviewOutput, '\[P1\]\**\s*\|').Count
     $p2 = [regex]::Matches($ReviewOutput, '\[P2\]\**\s*\|').Count
+    # Anti false-green: an output with NEITHER findings NOR the explicit "No findings."
+    # sentinel is not a review (crashed/empty/truncated reviewer output counted as CLEAN
+    # would be the same class of false green as the historical incident of this script).
+    if ($p1 -eq 0 -and $p2 -eq 0 -and $ReviewOutput -notmatch '(?i)\bno findings\b') {
+        Write-Host "[FAIL] ${Label}: reviewer output contains neither findings nor the 'No findings.' sentinel — not a valid review (engine failure, not clean)." -ForegroundColor Red
+        exit 1
+    }
     $script:totalP1 += $p1
     $script:totalP2 += $p2
     $script:reviewedCount += 1
@@ -153,6 +160,14 @@ function Get-UncommittedDiff {
 function Get-BaseDiff {
     param([string]$Ref)
     $ErrorActionPreference = 'Continue'
+    # A nonexistent ref produces a silent empty diff (git exit 128 swallowed by 2>$null),
+    # indistinguishable from a legitimately empty diff → misleading exit 3 ("nothing
+    # reviewed") instead of the real cause. Verify the ref and fail loudly instead.
+    git rev-parse --verify --quiet "$Ref" 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[FAIL] Base ref not found: '$Ref' — check the -Base argument (segment branch name)." -ForegroundColor Red
+        exit 1
+    }
     return (git diff "$Ref...HEAD" 2>$null | Out-String)
 }
 
