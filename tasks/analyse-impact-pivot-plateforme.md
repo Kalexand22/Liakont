@@ -142,9 +142,9 @@ Légende : 🟢 transposé (la spec de l'item reste valide, le runtime/stockage 
 |---|---|---|
 | Multi-tenancy (isolation physique par tenant) | `ITenantContext` + connection factory tenant-aware (ADR-0011 database-per-tenant) | ✅ Direct |
 | Auth utilisateurs + 3 niveaux de droits (lecture/actions/paramétrage) | Keycloak OIDC + module Identity (RBAC par permissions, `PermissionPolicyProvider`) | ✅ Direct |
-| Ordonnanceur (runs planifiés, retries) | Module Job (`JobWorker` + cron Cronos + dead letter) | ✅ Direct |
+| Ordonnanceur (runs planifiés, retries) | Module Job (`JobWorker` + cron Cronos + dead letter) | 🟡 Le moteur existe mais SANS résolution de tenant (aucun `ITenantContext` dans le module, tables en base système) — la mécanique de jobs multi-tenant est à construire (SOL06) |
 | Journal d'audit technique | Module Audit | ✅ Complète la piste d'audit métier (qui reste à développer) |
-| Notifications email | Module Notification | ✅ Direct |
+| Notifications email | Module Notification | 🟡 Le pipeline existe (templates, queue, retry) mais le seul transport est un STUB qui ne fait que logger — un `IEmailTransport` SMTP réel est à implémenter (SUP03, ADR MailKit) |
 | Clés API machine-to-machine (agents) | Module Notification (`ApiKey` : prefix + hash, scopes, expiration) | 🟡 L'agrégat existe, le middleware de validation est à compléter |
 | GED / stockage de PDF | Module Document | 🟡 À évaluer pour les PDF de réconciliation et les Factur-X archivées |
 | UI shell (navigation, composants, thème clair/sombre) | Common.UI + Radzen + `INavSectionProvider` | ✅ Direct |

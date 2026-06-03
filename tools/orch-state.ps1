@@ -40,24 +40,51 @@ if (-not (Test-Path $statePath)) {
     exit 1
 }
 
-# ── Mutex-based locking ──────────────────────────────────────────
-# Named mutex works across processes on the same machine.
+# ── Two-layer locking ────────────────────────────────────────────
+# Layer 1: named mutex — protects against concurrent agents on the SAME machine.
+# Layer 2: exclusive-creation lock file in $ORCH_REPO — protects against agents on
+#          OTHER machines (the state repo can be a shared/synced folder; a Windows
+#          named mutex is invisible across hosts).
 $mutexName = 'Global\ConformatOrchStateYaml'
+$lockFilePath = Join-Path $orchRepo '.state.lock'
 
 function Invoke-WithLock {
     param([scriptblock]$Action)
 
     $mutex = [System.Threading.Mutex]::new($false, $mutexName)
     $acquired = $false
+    $lockStream = $null
     try {
         $acquired = $mutex.WaitOne(10000)  # 10 second timeout
         if (-not $acquired) {
-            Write-Error "LOCK TIMEOUT: another agent holds the state.yaml lock"
+            Write-Error "LOCK TIMEOUT: another agent holds the state.yaml lock (mutex)"
             exit 1
+        }
+        # Cross-host lock: exclusive file creation (CreateNew fails if the file exists).
+        $deadline = (Get-Date).AddSeconds(10)
+        while ($true) {
+            try {
+                $lockStream = [System.IO.File]::Open($lockFilePath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+                $info = [System.Text.Encoding]::UTF8.GetBytes("host=$env:COMPUTERNAME pid=$PID utc=$((Get-Date).ToUniversalTime().ToString('o'))")
+                $lockStream.Write($info, 0, $info.Length)
+                $lockStream.Flush()
+                break
+            }
+            catch {
+                if ((Get-Date) -gt $deadline) {
+                    Write-Error "LOCK TIMEOUT: cross-host lock file exists ($lockFilePath). Another host's agent holds it. If no agent is running anywhere (stale lock after a crash), delete the file manually."
+                    exit 1
+                }
+                Start-Sleep -Milliseconds 500
+            }
         }
         & $Action
     }
     finally {
+        if ($lockStream) {
+            $lockStream.Dispose()
+            Remove-Item $lockFilePath -Force -ErrorAction SilentlyContinue
+        }
         if ($acquired) { $mutex.ReleaseMutex() }
         $mutex.Dispose()
     }

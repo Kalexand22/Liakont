@@ -9,9 +9,10 @@ items:
     title: "Dead-man's switch + moteur de règles d'alerte"
     description: |
       Implémenter src/Modules/Supervision/ (pattern Stratum) selon F12 §5 :
-      1. Job planifié (module Job du socle, toutes les 15 min) qui évalue les règles d'alerte
-         sur TOUS les tenants de l'instance (c'est le SEUL endroit du produit autorisé à faire
-         des requêtes cross-tenant, en lecture — blueprint §7 règle 3).
+      1. Job planifié (toutes les 15 min) qui évalue les règles d'alerte sur TOUS les tenants
+         de l'instance — utilise la mécanique de jobs multi-tenant du socle (TenantJobRunner/
+         ITenantJob de SOL06, jamais de boucle multi-tenant maison). C'est le SEUL endroit du
+         produit autorisé à faire des requêtes cross-tenant, en lecture — blueprint §7 règle 3.
       2. Règles d'alerte (seuils par défaut F12 §5.2, surchargés par les seuils du tenant CFG02) :
          - Agent muet (aucun heartbeat) > 24 h → 🔴 Critique
          - Run d'extraction manqué (heartbeat OK mais pas de run) > 36 h → 🔴 Critique
@@ -19,17 +20,24 @@ items:
          - Documents bloqués non traités > 5 jours → 🟠 Avertissement
          - Rejets PA non traités > 2 jours → 🔴 Critique
          - Échéance de période déclarative à J-3 avec documents non transmis → 🔴 Critique
+           UNIQUEMENT si reportingFrequency (CFG02, décision D4) est renseigné pour le tenant —
+           null = pas de calcul d'échéance, pas d'alerte (jamais de cadence devinée)
+         - SIREN non publié / tax_report_setting inactif côté PA (diagnostic F04 §3.1, données
+           PAB03) → 🟠 Avertissement (« aucun envoi ne peut partir tant que la PA n'a pas
+           activé le SIREN »)
          - Version d'agent obsolète (< N-1) → 🟠 Avertissement
       3. Alert (entité) : tenant, règle, gravité, déclenchée le, résolue le (auto-résolution
          quand la condition disparaît), acquittée par (opérateur).
          Anti-bruit : une alerte active ne se re-déclenche pas (pas de spam) ; elle se résout
          et peut se re-déclencher après résolution.
       4. Tests d'intégration : chaque règle (déclenchement, auto-résolution, anti-bruit),
-         seuils par tenant, le job parcourt plusieurs tenants.
+         seuils par tenant, échéance non calculée quand reportingFrequency est null,
+         le job parcourt plusieurs tenants.
     acceptance:
-      - "Les 7 règles d'alerte implémentées avec seuils par défaut + surcharge par tenant"
+      - "Les 8 règles d'alerte implémentées avec seuils par défaut + surcharge par tenant"
+      - "Alerte d'échéance déclenchée seulement si reportingFrequency est renseigné (testé : null = pas d'alerte)"
       - "Auto-résolution quand la condition disparaît, anti-bruit (pas de re-déclenchement)"
-      - "Le job d'évaluation est le seul code cross-tenant (en lecture), vérifié en review"
+      - "Job d'évaluation via TenantJobRunner (SOL06) — le seul code cross-tenant (en lecture), vérifié en review"
       - "Tests d'intégration : chaque règle, multi-tenants, seuils"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
@@ -59,9 +67,16 @@ items:
       - "codex-review clean or only accepted P2s"
 
   SUP03:
-    title: "Notifications email d'alerte"
+    title: "Notifications email d'alerte (+ transport SMTP réel)"
     description: |
-      Implémenter l'envoi des alertes par email (module Notification du socle Stratum) :
+      Implémenter l'envoi des alertes par email via le module Notification du socle Stratum.
+      ATTENTION (constat review 2026-06-03) : le socle Stratum fournit le PIPELINE de
+      notification (templates, queue, retry) mais son seul transport est un STUB qui ne fait
+      que logger (StubEmailTransport) — aucun package SMTP dans Directory.Packages.props.
+      Cet item livre donc AUSSI le transport réel :
+      0. Implémentation d'un IEmailTransport SMTP réel (configuration SMTP au niveau instance
+         — F12 §6.1) + ADR de dépendance (MailKit ou équivalent — règle blueprint §5 : tout
+         nouveau package = ADR). Le StubEmailTransport reste le transport des tests.
       1. Destinataires (F12 §5.3) :
          - Opérateur de l'instance : TOUTES les alertes (email configuré au niveau instance)
          - Contact du tenant (si configuré dans le profil CFG02 et si l'option est activée) :
@@ -76,6 +91,7 @@ items:
       5. Tests : contenu des emails (transport mocké), destinataires selon gravité/config,
          anti-spam, digest, échec SMTP non bloquant.
     acceptance:
+      - "IEmailTransport SMTP réel implémenté (config d'instance) + ADR de dépendance rédigé"
       - "Emails envoyés au déclenchement : opérateur (tout) + contact tenant (critiques, si activé)"
       - "Contenu français actionnable avec le contexte du problème"
       - "Anti-spam : pas de répétition, digest quotidien optionnel"

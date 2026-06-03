@@ -11,7 +11,8 @@ Do not ask questions. Do not deviate from the protocol.
 - Lessons: `tasks/lessons.md`
 - Architecture docs: `docs/architecture/`
 - Product blueprint: `blueprint.md`
-- Feature specs: `docs/conception/` (F01-F11 — the functional source of truth)
+- Feature specs: `docs/conception/` (F01-F12 — the functional source of truth; F12 is the
+  platform/agent architecture spec of the 2026-06-03 pivot)
 - Definition of done: `docs/architecture/definition-of-done.md`
 
 ### External state repo (`$ORCH_REPO`)
@@ -165,8 +166,8 @@ The agent is already in its own clone. It just needs to create the sub-branch.
 1. Determine the item's segment: find which segment in the manifest contains the item's `lot`.
 2. Get the segment branch name from `segments.<segment>.branch` (e.g., `feat/core-foundation`).
 3. Define the sub-branch name: `<segment-branch>-<item_id>` (e.g., `feat/core-foundation-PIV01`).
-   **Dash separator, never a slash**: git refs are stored as files, so `feat/socle` (file) and
-   `feat/socle/SOL01` (would require `feat/socle` to be a directory) cannot coexist.
+   **Dash separator, never a slash**: git refs are stored as files, so `feat/socle-v6` (file) and
+   `feat/socle-v6/SOL01` (would require `feat/socle-v6` to be a directory) cannot coexist.
 
 4. `git fetch origin`, checkout segment branch (create from `base` if it does not exist yet),
    `git pull`, then `git checkout -b "$SEGMENT_BRANCH-<item_id>"`.
@@ -185,10 +186,13 @@ The agent is already in its own clone. It just needs to create the sub-branch.
    - Default: `module-work-item`.
 3. Read the blueprint from `orchestration/blueprints/<blueprint>.yaml`.
 4. Execute each node in the blueprint, in sequence:
-   - **deterministic** nodes: run the specified `action`:
+   - **deterministic** nodes: run the specified `action`.
+     NOTE: shell one-liners in this protocol use POSIX syntax (`&&`, `rm`) — run them via the
+     Bash tool, never via PowerShell (where `&&` is a parse error on Windows PowerShell 5.1).
      - `build-agent-context` → `powershell -ExecutionPolicy Bypass -File tools/build-agent-context.ps1 -ItemId <item_id>`, then read all listed files.
      - `verify-fast` → `powershell -ExecutionPolicy Bypass -File tools/verify-fast.ps1`
-     - `run-tests` → `powershell -ExecutionPolicy Bypass -File tools/run-tests.ps1` (full unit + integration test suite)
+     - `run-tests` → `powershell -ExecutionPolicy Bypass -File tools/run-tests.ps1` (full unit + integration test suite — Category=E2E excluded, see `run-e2e`)
+     - `run-e2e` → `powershell -ExecutionPolicy Bypass -File tools/run-e2e.ps1` (Playwright E2E suite — script delivered by SOL05; before SOL05 is done, blueprints using this action cannot run)
      - `codex-review` → `powershell -ExecutionPolicy Bypass -File tools/codex-review.ps1 -Base "<segment-branch>"`
        (with `-Round N` on re-runs). **`-Base` is MANDATORY in orchestration**: the review node
        runs after `commit_apply`, so the working tree is clean — without `-Base`, there is
@@ -344,7 +348,8 @@ state.yaml at a time.
 - **Stay on the segment branch.** After merge-back, remain on the segment branch (e.g. `feat/core-foundation`). Never checkout `main` — the segment branch is the working base for all items in the segment.
 - **Never force-push.** Always regular push.
 - **Non-destructive recovery.** Never stash-drop, reset --hard, or delete branches (except cleanup of own sub-branch after successful merge-back).
-- **Conventional commits.** Follow docs/architecture/repo-standards.md for commit messages.
+- **Conventional commits.** Follow docs/architecture/repo-standards.md for commit messages
+  (file created by SOL04 — until then, use the conventional-commits standard: `type(scope): subject`).
 - **All CLAUDE.md rules apply.** Verification, review, coding standards — everything.
 - **Regulatory caution.** Conformat is a tax-compliance product. Items touching TVA mapping (TVA*),
   validation rules (VAL*), or the audit trail (TRK*) must NEVER invent fiscal rules: every rule

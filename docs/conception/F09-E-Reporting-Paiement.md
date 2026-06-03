@@ -1,6 +1,16 @@
 # F9 — E-reporting de paiement (Flux 10.2 / 10.4)
 ### Document de conception — Gateway.Core (Pivot paiements, Pipeline)
 
+> **⚠️ AMENDEMENTS (2026-06-03, décisions D2/D4 — tasks/decisions.md) :**
+> 1. **V1 = Flux 10.4 (domestique) UNIQUEMENT.** Aucune règle sourcée ne permet de dériver
+>    domestique/international d'un paiement ; le Flux 10.2 (international) reste une capacité
+>    déclarable par les plug-ins PA mais n'est PAS alimenté par le pipeline avant la phase 2.
+> 2. **La méthode d'imputation des frais (§5.2) est un PARAMÈTRE de tenant validé par
+>    l'expert-comptable** — jamais une règle codée en dur ni un défaut.
+> 3. **La fréquence déclarative (§2) est portée par le paramétrage du tenant**
+>    (`reportingFrequency`, nullable). Null = pas de calcul d'échéance, transmissions suspendues —
+>    jamais de cadence devinée.
+
 > Statut : 🟨 issu de la deep research DR5 (2026-06-02) + DR1/DR4 + API B2Brouter. À revoir ensemble.
 > ⚠️ **Particularité DR5** : comme DR2, la plupart des affirmations sont en abstention (0-0) — les vérificateurs n'ont pas pu ouvrir les PDF impots.gouv.fr cités. Les faits ci-dessous proviennent de ces **fiches DGFiP officielles** et du **décret n° 2022-1299** ; ils sont cohérents entre eux et avec le RECAP, mais à re-confirmer sur les fiches primaires avant figeage.
 > Légende : 🔶 source DGFiP officielle (non re-vérifiée) · ✅ validé staging · ❓ décision / point ouvert B2Brouter
@@ -66,6 +76,11 @@ EncheresV6 : `lignes_ba.type_ligne='3'` → `montant_ligne`, `date_reglement`, m
 Pour le e-reporting de paiement « propre », il faut lier l'encaissement à la part **prestation de services** (frais) et à son **taux**. Dans EncheresV6, les règlements (`type_ligne=3`) sont au niveau bordereau, pas ventilés par part adjudication/frais. → Il faut une **règle d'imputation** :
 - Option simple : imputer l'encaissement au prorata HT frais / HT total du bordereau.
 - Option DGFiP-conforme : la donnée attendue est **agrégée par jour et par taux** au niveau SIREN — donc on agrège tous les frais encaissés du jour par taux, sans avoir besoin d'un lettrage parfait ligne à ligne.
+
+**[Amendement 2026-06-03]** Le choix entre ces options N'EST PAS tranché par cette spec : la méthode
+d'imputation est un paramètre de tenant, validé par l'expert-comptable du client (même workflow de
+validation que la table TVA). Le pipeline (PIP03) n'applique JAMAIS l'une des deux options par
+défaut : méthode non renseignée/non validée = transmissions de paiement suspendues avec message opérateur.
 
 > ✅ Bonne nouvelle : l'agrégation jour×taux est **moins exigeante** qu'un lettrage parfait. On somme, par jour de règlement, la part frais (taxable) des bordereaux encaissés, ventilée par taux. Les acomptes/paiements partiels se gèrent par la date d'encaissement réelle.
 

@@ -21,13 +21,21 @@ items:
          table modifiée non revalidée, ou table d'exemple), TOUS les documents restent Blocked
          avec le motif « Table TVA non validée — validation expert-comptable requise ».
          Le mode staging/démo n'est pas concerné.
-      2. SEND (job planifié par tenant — module Job — + déclenchable par API02 send/send-all) :
+      2. SEND (job planifié par tenant — mécanique TenantJobRunner/ITenantJob de SOL06, jamais
+         de boucle multi-tenant maison — + déclenchable par API02 send/send-all) :
          documents ReadyToSend → résolution du plug-in PA du tenant → PRE-SEND → envoi :
          - PRE-SEND : avant tout retry d'un document TechnicalError, ET pour tout document
            resté en état Sending (crash au milieu d'un envoi), vérifier côté PA
            (GetPotentiallySentDocuments TRK03 + IPaClient.GetDocumentStatusAsync) qu'un envoi
            précédent dont la réponse s'est perdue n'a pas réussi — si la PA connaît le
            document : transition vers Issued SANS renvoyer (anti-doublon inter-traitement).
+           Les documents en Sending sont repris dès le PREMIER cycle après redémarrage de
+           la plateforme (pas d'attente d'un déclencheur externe).
+         - DIAGNOSTIC PA (F04 §3.1, piège staging connu « Transport not available ») : avant
+           l'envoi, vérifier que le SIREN du tenant est publié côté PA et que le
+           tax_report_setting est actif (PAB03 Get/EnsureTaxReportSetting) — si non :
+           alerte Warning + documents maintenus en ReadyToSend avec motif explicite
+           (« SIREN non publié côté <PA> — aucun envoi possible »), jamais d'envoi à l'aveugle.
          - ENVOI : IPaClient.SendDocumentAsync → succès : Issued (+ création du paquet
            d'archive TRK05) ; errors[] : RejectedByPa ; réseau : TechnicalError.
       3. SYNC (job planifié) : pour chaque document Issued du tenant :
@@ -45,7 +53,9 @@ items:
       - "CHECK déclenché par événement d'ingestion : mapping + validation → ReadyToSend/Blocked"
       - "Garde-fou production : table TVA non validée + compte PA production = tout reste Blocked (testé)"
       - "PRE-SEND : anti-doublon inter-traitement (timeout au traitement N, vérification PA au N+1 — testé)"
-      - "Reprise après crash : documents restés en Sending vérifiés côté PA (testé)"
+      - "Reprise après crash : documents restés en Sending repris et vérifiés côté PA dès le premier cycle après redémarrage (testé)"
+      - "Diagnostic SIREN publié / tax_report_setting actif avant envoi : non publié = alerte + aucun envoi (testé)"
+      - "Jobs par tenant via TenantJobRunner (SOL06) — aucune boucle multi-tenant locale"
       - "SYNC récupère tax reports + facture PA vers l'archive selon les capacités (testé avec/sans capacités)"
       - "Dry-run n'effectue aucune écriture PA (vérifié par le journal du plug-in Fake)"
       - "Le pipeline ne référence JAMAIS un plug-in PA concret (NetArchTest)"
@@ -88,9 +98,17 @@ items:
       C'est la capacité du PA configuré qui détermine si l'envoi part réellement.
       1. PaymentAggregator : Payments du tenant (poussés par l'agent — PIV01/TRK04) →
          PaymentReportPeriod agrégés par jour × taux TVA (l'obligation DGFiP est un agrégé
-         jour×taux au niveau SIREN, pas un lettrage ligne à ligne). Job planifié par tenant.
-      2. Règle d'imputation : part frais (prestation de services) au prorata HT frais / HT total
-         du bordereau lié.
+         jour×taux au niveau SIREN, pas un lettrage ligne à ligne). Job planifié par tenant
+         (mécanique TenantJobRunner/ITenantJob de SOL06).
+      2. Règle d'imputation de la part frais (prestation de services) : la MÉTHODE est un
+         PARAMÈTRE, pas une règle codée en dur — F09 §5.2 présente deux options (prorata
+         HT frais / HT total du bordereau lié ; agrégation jour×taux DGFiP-conforme) et la
+         décision n'est PAS tranchée (décision ouverte F09).
+         Comportement V1 : méthode d'imputation = paramètre de tenant (valeurs : Prorata |
+         AgregationJourTaux | null). Tant que la méthode n'est pas renseignée ET validée
+         (même workflow que la table TVA), les transmissions de paiement concernées sont
+         SUSPENDUES avec le motif « Méthode d'imputation des frais non validée — consultez
+         votre expert-comptable ». JAMAIS de prorata appliqué par défaut.
       3. PARAMÉTRAGE FISCAL DU TENANT (CFG02 — ces décisions appartiennent à l'expert-comptable
          du client, le produit doit supporter les deux réponses) :
          - vatOnDebits (bool?) : si le client a opté pour la TVA sur les débits, l'exigibilité
@@ -100,12 +118,24 @@ items:
          - operationCategory : détermine quelle part des documents déclenche l'e-reporting
            de paiement.
          Paramètres null = agrégats calculés mais transmission suspendue avec le motif
-         « Décision fiscale en attente (TVA sur les débits / catégorie d'opération) —
-         consultez votre expert-comptable ».
+         « Décision fiscale en attente (TVA sur les débits / catégorie d'opération /
+         fréquence déclarative) — consultez votre expert-comptable ».
+         La fréquence déclarative (reportingFrequency CFG02, source F09 §2) détermine le
+         découpage des périodes de transmission — null = pas de période calculable =
+         transmission suspendue (décision D4).
       4. Cas limites : paiement partiel (imputé à sa date), trop-perçu/remboursement (montant
          négatif dans l'agrégat de la période), règlement sans rattachement bordereau (alerte Warning).
-      5. ENVOI piloté par la capacité du PA (Flux 10.4 domestique / 10.2 international — PAA01) :
-         - PA avec la capacité du flux concerné → IPaClient.SendPaymentReportAsync, suivi des états,
+         PÉRIODE SANS ENCAISSEMENT (« déclaration néant ») : comportement par défaut sûr —
+         ne rien transmettre + signaler la période vide à l'opérateur. DÉCISION OUVERTE
+         (à confirmer DGFiP/PA via les fiches officielles) : une déclaration « néant » est-elle
+         obligatoire ? Si oui, ce comportement sera amendé (F09) — jamais de transmission
+         inventée en attendant.
+      5. ENVOI — décision D2 du 2026-06-03 : le produit V1 ne produit QUE le Flux 10.4
+         (e-reporting de paiement domestique). Le Flux 10.2 (international) est une capacité
+         déclarée par PAA01 mais NON alimentée par le pipeline : aucune règle sourcée ne permet
+         de dériver domestique/international d'un paiement (F09 ne tranche pas), et le B2B
+         international est en phase 2. Envoi piloté par la capacité du PA :
+         - PA avec la capacité Flux 10.4 → IPaClient.SendPaymentReportAsync, suivi des états,
            journalisation PaymentAggregateEvent (TRK04)
          - PA sans la capacité → les agrégats sont calculés, persistés et affichés avec l'état
            « En attente : la plateforme <nom> ne supporte pas encore la transmission des
@@ -115,14 +145,16 @@ items:
          combinaisons de paramétrage fiscal.
     acceptance:
       - "Agrégation jour×taux conforme F09, sans données nominatives"
-      - "Imputation prorata frais/total implémentée et testée"
+      - "Méthode d'imputation des frais = paramètre de tenant validé, JAMAIS de prorata par défaut (testé : méthode null = transmission suspendue)"
       - "Montants agrégés en decimal, aucun float/double"
-      - "Paramètres fiscaux du tenant (vatOnDebits, operationCategory) pilotent l'e-reporting — jamais de valeur en dur"
+      - "Paramètres fiscaux du tenant (vatOnDebits, operationCategory, reportingFrequency) pilotent l'e-reporting — jamais de valeur en dur"
       - "Paramètres fiscaux non renseignés = transmission suspendue avec message explicite (testé)"
+      - "V1 = Flux 10.4 uniquement (décision D2) ; aucune transmission 10.2, aucune règle de dérivation domestique/international inventée"
+      - "Période sans encaissement : rien n'est transmis + signalement opérateur (décision néant ouverte, documentée)"
       - "Envoi réel via IPaClient quand la capacité est déclarée (testé avec le plug-in Fake)"
       - "Capacité absente : agrégats persistés en attente, transmission automatique dès activation"
       - "Aucun flag de configuration PRODUIT — capacités PA + paramétrage fiscal du tenant uniquement"
-      - "Tests : agrégation multi-jours/multi-taux, paiement partiel, remboursement, les 2 modes de capacité, TVA sur débits oui/non/inconnu"
+      - "Tests : agrégation multi-jours/multi-taux, paiement partiel, remboursement, période vide, les 2 modes de capacité, TVA sur débits oui/non/inconnu, méthode d'imputation null/renseignée"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 

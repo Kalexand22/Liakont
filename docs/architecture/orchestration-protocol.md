@@ -52,35 +52,50 @@ gate : pending → gate_pending → (PR humaine + merge) → done
 | orch-fix-tests (Sonnet) | Répare les tests cassés |
 | Humain | Valide les gates, merge les PR, tranche les décisions fiscales |
 
-## Segments et gates (manifest v2)
+## Segments et gates (manifest v6)
+
+Enchaînement des segments (chaque segment se termine par sa gate humaine) :
 
 ```
-socle ───────────────────► GATE_SOCLE
-                               │
-core-foundation ──────────► GATE_CORE_FOUNDATION
-   (pivot, TVA, validation,    ├────────────────────────────────────┐
-    tracking, archivage)       │                                    │
-                               │                          adapter-encheresv6
-pa-framework ─────────────► GATE_PA_FRAMEWORK                       │
-   (IPaClient + capacités      ├──────────────┬─────────────┐       │
-    + tests de contrat)        │              │             │       ▼
-                               │              │             │  GATE_ADAPTER_ENCHERESV6
-pipeline ─────────────────► GATE_PIPELINE     │             │       │
-                               │         pa-b2brouter   pa-superpdp │
-service-api ──────────────► GATE_SERVICE_API  │             │       │
-   (Service + API HTTP + CLI)  │              ▼             ▼       │
-                               │     GATE_PA_B2BROUTER  GATE_PA_SUPERPDP
-console-admin ────────────► GATE_CONSOLE_ADMIN│                     │
-   (WPF cliente de l'API)      │              │                     │
-                               │              │                     │
-deploiement-toolkit ──────► GATE_TOOLKIT      │                     │
-   (packaging + docs)          │              │                     │
-                               ▼              ▼                     ▼
-deploiement-cmp ──────────► GATE_DEMO_ISATECH ──► GATE_PROD_CMP
-   (PARAMÉTRAGE pur : table TVA CMP, config, démo, mise en prod)
+socle ─► core-foundation ─┬─► pa-framework ─┬─► pa-b2brouter ──────────┐
+                          │                 ├─► pa-superpdp (non bloquant)
+                          │                 └─► pipeline ──────────┐   │
+                          │                                        │   │
+                          └─► agent ─┬─► adapter-encheresv6 ───────┼───┼──┐
+                                     │                             │   │  │
+                                     └────────────┬────────────────┘   │  │
+                                                  ▼                    │  │
+                                             console-web               │  │
+                                                  │                    │  │
+                                                  ▼                    ▼  ▼
+                                          deploiement-toolkit ◄────────┴──┘
+                                                  │
+                                                  ▼
+                                           deploiement-cmp
 ```
+
+| Segment | Lots | Gate | Débloqué par |
+|---|---|---|---|
+| socle | SOL | GATE_SOCLE | — |
+| core-foundation | PIV, TVA, VAL, TRK, CFG | GATE_CORE_FOUNDATION | GATE_SOCLE |
+| pa-framework | PAA | GATE_PA_FRAMEWORK | GATE_CORE_FOUNDATION |
+| pa-b2brouter | PAB | GATE_PA_B2BROUTER | GATE_PA_FRAMEWORK |
+| pa-superpdp | PAS | GATE_PA_SUPERPDP | GATE_PA_FRAMEWORK |
+| pipeline | PIP | GATE_PIPELINE | GATE_PA_FRAMEWORK |
+| agent | AGT | GATE_AGENT | GATE_CORE_FOUNDATION |
+| adapter-encheresv6 | ADP | GATE_ADAPTER_ENCHERESV6 | GATE_AGENT |
+| console-web | API, WEB, SUP | GATE_CONSOLE_WEB | GATE_PIPELINE + GATE_AGENT |
+| deploiement-toolkit | OPS, BRD, DOC | GATE_TOOLKIT | GATE_CONSOLE_WEB + GATE_PA_B2BROUTER + GATE_ADAPTER_ENCHERESV6 |
+| deploiement-cmp | CMP | GATE_PROD_CMP | GATE_TOOLKIT + GATE_ADAPTER_ENCHERESV6 + GATE_PA_B2BROUTER |
+
+Notes :
+- **GATE_PA_SUPERPDP n'est PAS bloquante** pour GATE_TOOLKIT (décision 2026-06-02) : Super PDP
+  rejoint le produit dès que sa gate passe, sans bloquer la release.
+- **GATE_DEMO_ISATECH** est une gate intra-segment du segment deploiement-cmp (checkpoint humain
+  « démo prête », sans PR — voir MANIFEST-CONVENTIONS.md règle 9) ; la gate de segment est
+  GATE_PROD_CMP.
 
 **Fin du PRODUIT = GATE_TOOLKIT.** Le segment deploiement-cmp ne produit aucun code :
 c'est la preuve que le produit se déploie par pur paramétrage.
 
-Chaque gate = validation humaine + PR vers main. L'IA ne merge jamais dans main.
+Chaque gate de segment = validation humaine + PR vers main. L'IA ne merge jamais dans main.

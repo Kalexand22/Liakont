@@ -101,8 +101,11 @@ Les specs métier (F01-F09) restent la référence pour le contenu des données 
 - Heartbeat toutes les `heartbeatMinutes` (défaut 15 min), même hors run : version de l'agent,
   état du service, taille de la file, horodatage du dernier run, dernières erreurs.
 - La réponse du heartbeat peut contenir : `latestAgentVersion`, `updateRequired` (bool),
-  `updateUrl`. Si `updateRequired`, l'agent télécharge le package signé, vérifie sa signature,
-  se remplace et redémarre (pattern updater : un petit exe séparé fait le swap).
+  `updateUrl`. Si `updateRequired`, l'agent télécharge le package, vérifie le MANIFESTE DE
+  VERSION SIGNÉ par la clé applicative dédiée (clé privée hors plateforme — décision D6
+  2026-06-03, voir §7 décision n°4) ainsi que le hash du package, se remplace et redémarre
+  (pattern updater : un petit exe séparé fait le swap). Le registre des versions et la
+  politique de flotte sont côté plateforme (OPS07).
 - Un agent dont la version n'est plus supportée (< N-1) est signalé en supervision et la
   plateforme peut refuser ses push (HTTP 426 Upgrade Required).
 
@@ -262,6 +265,6 @@ La CI vérifie que les golden files du contrat N-1 passent toujours sur la plate
 | 1 | Auth des instances | Keycloak par instance / Keycloak mutualisé (un realm par instance) / alternative | À trancher par ADR au début du dev plateforme — l'empreinte mémoire (~1-2 GB/Keycloak) pèse sur le coût des petites instances hébergées |
 | 2 | Stockage du coffre d'archive | Système de fichiers (volume) / object storage S3 + object lock | ADR au lot Archive : abstraction `IArchiveStore` ; FS pour l'appliance, S3 object lock pour les instances hébergées (vrai WORM) |
 | 3 | Pilotage de la planification d'extraction | Fichier agent seul / plateforme prioritaire | **Plateforme prioritaire** (pilotage centralisé), fichier local en secours |
-| 4 | Signature des packages d'auto-update | Authenticode / hash publié via l'API | Authenticode si certificat de signature disponible, sinon hash via l'API (TLS) en V1 |
+| 4 | Signature des packages d'auto-update | Authenticode / hash publié via l'API / manifeste signé par clé dédiée | **TRANCHÉ (2026-06-03, décision D6)** : manifeste de version SIGNÉ par une clé applicative dédiée (clé privée hors plateforme — poste de release) + hash du package, vérifiés par l'agent en V1. Authenticode s'ajoute dès qu'un certificat de signature de code est disponible. Motif : un hash seul publié par la même API que `updateUrl` ne protège pas le client final si la plateforme est compromise |
 | 5 | Transport des PDF | Multipart dans le batch / endpoint séparé | **Endpoint séparé** (les PDF sont gros, le batch documents reste léger) |
 | 6 | Reverse proxy de l'appliance | Inclus (Caddy) / délégué à l'hébergeur | Inclus en self-hosted (TLS automatique), délégué en hébergé |

@@ -9,7 +9,9 @@
 meta:
   project: conformat-gateway
   phase: 1
-  version: 6
+  # version 7 = backlog v6 (pivot plateforme+agent) corrigé après les reviews indépendantes
+  # v6/v8 du 2026-06-03 (voir tasks/review-independante-v6-v8-reponses.md)
+  version: 7
   host: multi_agent_v1
 
 segments:
@@ -95,14 +97,24 @@ items:
   - { id: SOL02, lot: SOL, priority: 1010, depends_on: [SOL01] }
   - { id: SOL03, lot: SOL, blueprint: tooling-item, priority: 1020, depends_on: [SOL01, SOL02] }
   - { id: SOL04, lot: SOL, blueprint: docs-spec-item, priority: 1030, depends_on: [SOL01] }
-  - { id: GATE_SOCLE, type: gate, executor: human, priority: 1100, depends_on: [SOL03, SOL04] }
+  - { id: SOL05, lot: SOL, blueprint: tooling-item, priority: 1040, depends_on: [SOL01] }
+  - { id: SOL06, lot: SOL, priority: 1050, depends_on: [SOL01] }
+  - { id: GATE_SOCLE, type: gate, executor: human, priority: 1100, depends_on: [SOL03, SOL04, SOL05, SOL06] }
 
   # ── PIV ──
+  # PIV05 (cycle de vie agents + clés API + middleware auth) précède PIV04 (ingestion) :
+  # l'ingestion exige l'authentification par clé API que PIV05 met en place (review v6, P1).
   - { id: PIV01, lot: PIV, priority: 2000, depends_on: [] }
   - { id: PIV02, lot: PIV, priority: 2010, depends_on: [PIV01] }
   - { id: PIV03, lot: PIV, priority: 2020, depends_on: [PIV01] }
-  - { id: PIV04, lot: PIV, priority: 2030, depends_on: [PIV01] }
-  - { id: PIV05, lot: PIV, priority: 2040, depends_on: [PIV04] }
+  - { id: PIV05, lot: PIV, priority: 2030, depends_on: [PIV01] }
+  - { id: PIV04, lot: PIV, priority: 2040, depends_on: [PIV05] }
+
+  # ── CFG ──
+  # CFG01/CFG02 (profil + paramétrage fiscal du tenant) précèdent VAL : VAL02 vérifie la
+  # cohérence document ↔ SIREN du profil tenant créé par CFG02 (review v6, P1).
+  - { id: CFG01, lot: CFG, blueprint: docs-spec-item, priority: 2050, depends_on: [] }
+  - { id: CFG02, lot: CFG, priority: 2060, depends_on: [CFG01] }
 
   # ── TVA ──
   - { id: TVA01, lot: TVA, priority: 2100, depends_on: [PIV01] }
@@ -113,24 +125,20 @@ items:
 
   # ── VAL ──
   - { id: VAL01, lot: VAL, priority: 2200, depends_on: [PIV01] }
-  - { id: VAL02, lot: VAL, priority: 2210, depends_on: [VAL01] }
+  - { id: VAL02, lot: VAL, priority: 2210, depends_on: [VAL01, CFG02] }
   - { id: VAL03, lot: VAL, priority: 2220, depends_on: [VAL01] }
   - { id: VAL04, lot: VAL, priority: 2230, depends_on: [VAL01, TVA02] }
   - { id: VAL05, lot: VAL, priority: 2240, depends_on: [VAL01] }
 
   # ── TRK ──
-  - { id: TRK01, lot: TRK, priority: 2300, depends_on: [PIV01] }
+  - { id: TRK01, lot: TRK, priority: 2300, depends_on: [PIV01, PIV04] }
   - { id: TRK02, lot: TRK, priority: 2310, depends_on: [TRK01] }
-  - { id: TRK03, lot: TRK, priority: 2320, depends_on: [TRK02] }
+  - { id: TRK03, lot: TRK, priority: 2320, depends_on: [TRK02, PIV04] }
   - { id: TRK04, lot: TRK, priority: 2330, depends_on: [TRK02] }
   - { id: TRK05, lot: TRK, priority: 2340, depends_on: [TRK02] }
   - { id: TRK06, lot: TRK, priority: 2350, depends_on: [TRK05] }
   - { id: TRK07, lot: TRK, priority: 2360, depends_on: [TRK05, PIV04] }
-
-  # ── CFG ──
-  - { id: CFG01, lot: CFG, blueprint: docs-spec-item, priority: 2400, depends_on: [] }
-  - { id: CFG02, lot: CFG, priority: 2410, depends_on: [CFG01] }
-  - { id: GATE_CORE_FOUNDATION, type: gate, executor: human, priority: 2900, depends_on: [PIV02, PIV03, PIV05, TVA03, TVA04, TVA05, VAL02, VAL03, VAL04, VAL05, TRK03, TRK04, TRK06, TRK07, CFG02] }
+  - { id: GATE_CORE_FOUNDATION, type: gate, executor: human, priority: 2900, depends_on: [PIV02, PIV03, PIV04, TVA03, TVA04, TVA05, VAL02, VAL03, VAL04, VAL05, TRK03, TRK04, TRK06, TRK07, CFG02] }
 
   # ── PAA ──
   - { id: PAA01, lot: PAA, priority: 3000, depends_on: [] }
@@ -179,42 +187,52 @@ items:
   - { id: API02, lot: API, priority: 6510, depends_on: [API01] }
   - { id: API03, lot: API, priority: 6520, depends_on: [API01] }
   - { id: API04, lot: API, priority: 6530, depends_on: [API01] }
+  - { id: API05, lot: API, priority: 6540, depends_on: [API01] }
 
   # ── WEB ──
   - { id: WEB01, lot: WEB, blueprint: blazor-page-item, priority: 6600, depends_on: [API01] }
   - { id: WEB02, lot: WEB, blueprint: blazor-page-item, priority: 6610, depends_on: [WEB01] }
   - { id: WEB03, lot: WEB, blueprint: blazor-page-item, priority: 6620, depends_on: [WEB02, API02] }
-  - { id: WEB04, lot: WEB, blueprint: blazor-page-item, priority: 6630, depends_on: [WEB01] }
+  - { id: WEB04, lot: WEB, blueprint: blazor-page-item, priority: 6630, depends_on: [WEB01, API03] }
   - { id: WEB05, lot: WEB, blueprint: blazor-page-item, priority: 6640, depends_on: [WEB02, API02] }
   - { id: WEB06, lot: WEB, blueprint: blazor-page-item, priority: 6650, depends_on: [WEB02] }
   - { id: WEB07, lot: WEB, blueprint: blazor-page-item, priority: 6660, depends_on: [WEB04, API04] }
   - { id: WEB08, lot: WEB, blueprint: blazor-page-item, priority: 6670, depends_on: [WEB02, API04] }
+  - { id: WEB09, lot: WEB, blueprint: blazor-page-item, priority: 6680, depends_on: [WEB01, API05] }
 
   # ── SUP ──
   - { id: SUP01, lot: SUP, priority: 6700, depends_on: [] }
   - { id: SUP02, lot: SUP, blueprint: blazor-page-item, priority: 6710, depends_on: [SUP01, WEB01] }
   - { id: SUP03, lot: SUP, priority: 6720, depends_on: [SUP01] }
-  - { id: GATE_CONSOLE_WEB, type: gate, executor: human, priority: 6900, depends_on: [WEB03, WEB05, WEB06, WEB07, WEB08, SUP02, SUP03, API03] }
+  - { id: GATE_CONSOLE_WEB, type: gate, executor: human, priority: 6900, depends_on: [WEB03, WEB05, WEB06, WEB07, WEB08, WEB09, SUP02, SUP03, API03] }
 
   # ── OPS ──
+  # Ordre : OPS05 (packaging agent) précède OPS03 (assistant tenant, qui fournit le package
+  # pré-configuré) et OPS07 (publication de versions) ; OPS06 (résiliation) suit OPS03 (écran Clients).
   - { id: OPS01, lot: OPS, blueprint: tooling-item, priority: 7000, depends_on: [] }
   - { id: OPS02, lot: OPS, blueprint: tooling-item, priority: 7010, depends_on: [OPS01] }
-  - { id: OPS03, lot: OPS, blueprint: blazor-page-item, priority: 7020, depends_on: [] }
-  - { id: OPS04, lot: OPS, blueprint: tooling-item, priority: 7030, depends_on: [OPS02] }
-  - { id: OPS05, lot: OPS, blueprint: tooling-item, priority: 7040, depends_on: [] }
-  - { id: OPS06, lot: OPS, priority: 7050, depends_on: [] }
+  - { id: OPS04, lot: OPS, blueprint: tooling-item, priority: 7020, depends_on: [OPS02] }
+  - { id: OPS05, lot: OPS, blueprint: tooling-item, priority: 7030, depends_on: [] }
+  - { id: OPS03, lot: OPS, blueprint: blazor-page-item, priority: 7040, depends_on: [OPS05] }
+  - { id: OPS06, lot: OPS, priority: 7050, depends_on: [OPS03] }
+  - { id: OPS07, lot: OPS, priority: 7055, depends_on: [OPS05] }
 
   # ── BRD ──
   - { id: BRD01, lot: BRD, priority: 7060, depends_on: [] }
 
   # ── DOC ──
   - { id: DOC01, lot: DOC, blueprint: docs-spec-item, priority: 7100, depends_on: [OPS01, OPS05] }
-  - { id: GATE_TOOLKIT, type: gate, executor: human, priority: 7400, depends_on: [OPS03, OPS04, OPS05, OPS06, BRD01, DOC01] }
+  - { id: DOC02, lot: DOC, blueprint: docs-spec-item, priority: 7110, depends_on: [DOC01] }
+  - { id: DOC03, lot: DOC, blueprint: docs-spec-item, priority: 7120, depends_on: [] }
+  - { id: GATE_TOOLKIT, type: gate, executor: human, priority: 7400, depends_on: [OPS03, OPS04, OPS06, OPS07, BRD01, DOC01, DOC02, DOC03] }
 
   # ── CMP ──
   - { id: CMP01, lot: CMP, blueprint: docs-spec-item, priority: 8000, depends_on: [] }
   - { id: CMP02, lot: CMP, priority: 8010, depends_on: [CMP01] }
   - { id: CMP03, lot: CMP, blueprint: docs-spec-item, priority: 8020, depends_on: [CMP02] }
+  # GATE_DEMO_ISATECH est une gate intra-segment (checkpoint humain : démo prête) : elle n'est la
+  # gate d'aucun segment, le protocole ne crée donc PAS de PR pour elle — c'est voulu. L'opérateur
+  # la passe à done via orch-state.ps1 quand la démo a eu lieu (voir MANIFEST-CONVENTIONS.md).
   - { id: GATE_DEMO_ISATECH, type: gate, executor: human, priority: 8500, depends_on: [CMP03] }
   - { id: CMP04, lot: CMP, blueprint: docs-spec-item, priority: 8600, depends_on: [GATE_DEMO_ISATECH] }
   - { id: GATE_PROD_CMP, type: gate, executor: human, priority: 8900, depends_on: [CMP04] }

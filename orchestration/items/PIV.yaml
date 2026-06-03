@@ -4,6 +4,10 @@
 # Le pivot est LE contrat de l'API agent → plateforme. Les DTOs vivent dans
 # Conformat.Agent.Contracts (netstandard2.0, partagé net48/net10). Le module Ingestion
 # est la porte d'entrée de la plateforme : réception, anti-doublon, gestion des agents.
+#
+# ORDRE D'EXÉCUTION (manifest) : PIV01 → PIV02/PIV03 → PIV05 (gestion agents + auth) → PIV04
+# (ingestion). PIV05 précède PIV04 car l'ingestion exige l'authentification par clé API
+# que PIV05 met en place (correction review v6 du 2026-06-03).
 
 items:
   PIV01:
@@ -13,7 +17,12 @@ items:
       1. PivotDocumentDto : type (Invoice/CreditNote), numéro, date, devise, émetteur (PivotPartyDto),
          destinataire (PivotPartyDto), lignes (List<PivotLineDto>), totaux (PivotTotalsDto),
          OperationCategory (LivraisonBiens/PrestationServices/Mixte), SourceReference,
-         CreditNoteRefs (List<string> — multi-références pour avoirs groupés), SourceData (JSON brut).
+         CreditNoteRefs (List<PivotDocumentRefDto> — multi-références pour avoirs groupés),
+         SourceData (JSON brut).
+         PivotDocumentRefDto : { Number, IssueDate, SourceReference? } — la DATE de la facture
+         d'origine est OBLIGATOIRE (F07-F08 §B.3 : liste de { Number, IssueDate } ; B2Brouter
+         exige amended_number + amended_date — F05). Une simple liste de strings perdrait la
+         date obligatoire des avoirs.
       2. PivotLineDto : description, montant HT, quantité, régime TVA source brut (string),
          taxe (PivotLineTaxDto), SourceData.
       3. PivotLineTaxDto : catégorie UNCL5305 (S/AA/AAA/Z/E/AE/G/K/O), taux %, montant TVA,
@@ -25,6 +34,9 @@ items:
       6. PivotPaymentDto : PaymentDate, Amount (decimal), Method, RelatedDocumentNumber,
          SourceReference (F09 — les agrégats jour×taux sont calculés sur la PLATEFORME,
          l'agent transmet les paiements bruts).
+         NOTE décision D2 (2026-06-03) : le e-reporting paiement V1 ne produit que du Flux 10.4
+         (domestique) — aucun champ de dérivation domestique/international n'est requis dans
+         le DTO ; le Flux 10.2 arrivera en phase 2 avec sa règle sourcée.
       7. DTOs d'enveloppe du contrat (F12 §3.4) : PushBatchRequestDto/ResponseDto,
          DocumentPushResultDto (accepted/duplicate/rejected + motif), HeartbeatRequestDto/
          ResponseDto, AgentConfigurationDto, SourceTaxRegimeDto (code, libellé, occurrences).
@@ -38,6 +50,7 @@ items:
       - "Tous les DTOs dans Conformat.Agent.Contracts (netstandard2.0)"
       - "Montants en decimal partout, aucun float/double"
       - "Catégories TVA = enum ou type contraint UNCL5305"
+      - "CreditNoteRefs porte Number + IssueDate (PivotDocumentRefDto), pas une liste de strings"
       - "Aucune logique dans les DTOs, zéro PackageReference (vérifié par test d'architecture)"
       - "ContractVersion exposée"
       - "Tests unitaires : construction, immutabilité, arrondis"
@@ -50,12 +63,23 @@ items:
       Compléter le contrat dans Conformat.Agent.Contracts + côté plateforme :
       1. Sérialisation JSON canonique du pivot : ordre des propriétés stable, culture invariante,
          dates ISO 8601, decimals sans perte. CONTRAINTE DOUBLE RUNTIME : le résultat doit être
-         IDENTIQUE octet par octet entre Newtonsoft.Json (agent net48) et System.Text.Json
-         (plateforme .NET 10) — c'est ce qui garantit que le hash calculé des deux côtés
-         correspond. La logique de canonicalisation vit dans Agent.Contracts (netstandard2.0,
-         sans dépendance : writer JSON manuel ou abstraction sérialiseur).
+         IDENTIQUE octet par octet entre l'agent (net48) et la plateforme (.NET 10) — c'est ce
+         qui garantit que le hash calculé des deux côtés correspond.
+         RÈGLES FIGÉES (à inscrire dans le code ET dans un ADR — ce sont les points qui font
+         réellement diverger Newtonsoft et System.Text.Json) :
+         - UN SEUL writer JSON manuel partagé dans Agent.Contracts (netstandard2.0, zéro
+           dépendance) — JAMAIS deux sérialiseurs « configurés pareil »
+         - Format des decimals imposé : invariant, point décimal, pas de zéros de fin
+           superflus ni de notation exponentielle (ex. 1234.5 → "1234.5", 10 → "10",
+           10.00 → "10.00" si l'échelle source est 2 — règle exacte figée par l'ADR et testée)
+         - Échappement Unicode : ASCII-only en sortie, tout caractère non-ASCII échappé \uXXXX
+         - Format de date unique : yyyy-MM-dd (dates) / yyyy-MM-ddTHH:mm:ssZ (horodatages UTC)
       2. PayloadHasher : SHA-256 du JSON canonique → string hex 64 caractères. Utilisé pour
          l'anti-doublon (PIV04/TRK03) et la détection d'altération source.
+         NOTE frontière : CanonicalJsonWriter et PayloadHasher sont des UTILITAIRES DE
+         SÉRIALISATION du contrat, pas de la logique métier — la règle « DTOs purs, aucune
+         logique » (PIV01/SOL02) signifie « aucune logique MÉTIER » ; cette exception est
+         documentée et testée (aucune règle TVA/validation/état dans Agent.Contracts).
       3. Vérification d'alignement EN 16931 / Annexe 6 DGFiP v3.2 (docs/references/dgfip-v3.2/) :
          les champs du pivot couvrent les BT nécessaires aux Flux 10.x (e-reporting). Produire
          docs/architecture/mapping-pivot-en16931.md : champ pivot → BT EN 16931 → usage Flux 10.x.
@@ -73,8 +97,9 @@ items:
     title: "Golden files du contrat + tests de contrat des deux côtés"
     description: |
       Créer le jeu de fixtures de référence du contrat (F12 §3.4) :
-      1. tests/fixtures/contrat-v1/ : golden files JSON — au moins 6 documents pivot
-         représentatifs (cas normal 20%, cas marge E+VATEX-EU-J, avoir lié, avoir groupé,
+      1. tests/fixtures/contrat-v1/ : golden files JSON — au moins 7 documents pivot
+         représentatifs (cas normal 20%, cas marge E+VATEX-EU-J, avoir simple lié, avoir
+         partiel, avoir groupé multi-références — avec Number + IssueDate par référence,
          acheteur professionnel, document avec paiements) + 1 batch complet + 1 heartbeat.
          Construits à partir des exemples de docs/conception/ (données FICTIVES uniquement).
       2. Tests de contrat côté plateforme (tests/) : chaque golden file se désérialise,
@@ -100,10 +125,10 @@ items:
   PIV04:
     title: "Module Ingestion : réception des batchs, anti-doublon, état Detected"
     description: |
-      Créer src/Modules/Ingestion/ (pattern Stratum : Contracts/Domain/Application/
-      Infrastructure/Web) selon F12 §3-4 :
+      Compléter le module Ingestion (créé par PIV05) avec la réception des documents,
+      selon F12 §3-4 :
       1. Endpoint POST /api/agent/v1/documents/batch :
-         - auth par clé API agent (PIV05) → résolution du tenant
+         - auth par clé API agent → résolution du tenant (middleware livré par PIV05)
          - par document du lot : payload_hash déjà connu pour ce tenant → résultat "duplicate"
            (aucun effet) ; source_reference connue avec un AUTRE hash → "accepted" + événement
            AlterationDetected (consommé par TRK03) ; sinon → "accepted", document créé en état
@@ -113,9 +138,13 @@ items:
          - réponse : résultat individuel par document (jamais de rejet global du lot pour
            un seul document invalide)
          - lot NON transactionnel, 100 documents max (413 au-delà)
+         - NOTE anti-doublon : c'est CE mécanisme (payload_hash par tenant) qui protège
+           contre le re-push complet d'un agent réinstallé (perte du pushed_log local,
+           rétention 90 jours) — cas couvert par un test d'intégration dédié.
       2. Endpoints POST .../documents/{sourceReference}/pdf et POST .../pdf-pool :
-         stockage des PDF reçus (module Document du socle Stratum OU stockage fichier par
-         tenant — choix documenté par ADR), rattachement au document ou au pool de
+         stockage fichier des PDF reçus, par tenant (répertoire/volume scopé tenant —
+         organisation documentée par ADR ; le module Document du socle Stratum n'est PAS
+         vendorisé, ce n'est pas une option), rattachement au document ou au pool de
          réconciliation (TRK07).
       3. Métadonnées de push : les régimes TVA source (SourceTaxRegimeDto) transmis par
          l'agent sont persistés par tenant → consommés par la détection de couverture TVA03.
@@ -124,12 +153,13 @@ items:
       5. Publication d'un événement (outbox du socle) DocumentReceived par document accepté →
          déclenchera le pipeline aval (PIP01).
       6. Tests d'intégration (Testcontainers PostgreSQL) : batch nominal, doublons, altération,
-         lot mixte, payload malformé, tenant isolation (un agent ne peut pas écrire chez un
-         autre tenant).
+         re-push complet après réinstallation d'agent, lot mixte, payload malformé,
+         tenant isolation (un agent ne peut pas écrire chez un autre tenant).
     acceptance:
       - "Réception batch avec résultat individuel par document"
-      - "Anti-doublon par payload_hash par tenant"
+      - "Anti-doublon par payload_hash par tenant (y compris re-push complet après réinstallation d'agent — testé)"
       - "Altération source (même référence, autre hash) → accepted + événement AlterationDetected"
+      - "Stockage PDF fichier par tenant documenté par ADR (pas de dépendance au module Document Stratum)"
       - "Événement outbox DocumentReceived publié par document accepté"
       - "Isolation tenant vérifiée par test (clé d'un tenant A ne peut pas écrire chez B)"
       - "Régimes TVA source persistés par tenant"
@@ -140,30 +170,43 @@ items:
   PIV05:
     title: "Module Ingestion : gestion des agents, clés API, heartbeat, configuration"
     description: |
-      Compléter le module Ingestion (F12 §3.2, §4.2) :
+      Créer src/Modules/Ingestion/ (pattern Stratum : Contracts/Domain/Application/
+      Infrastructure/Web + MODULE.md/INVARIANTS.md/SCENARIOS.md — obligation SOL04) et y
+      implémenter la gestion des agents et leur authentification (F12 §3.2, §4.2).
+      Cet item PRÉCÈDE PIV04 : l'ingestion des documents exige l'auth par clé API créée ici.
       1. Gestion des agents : entité Agent (tenant, nom, clé API prefix+hash, créé le,
          révoqué le, dernière version vue, dernier heartbeat) — un tenant peut avoir
          plusieurs agents.
          Handlers : RegisterAgent (génère la clé, affichée UNE seule fois), RevokeAgent,
-         RotateKey. Le modèle de clé API suit celui du socle Stratum (Notification.ApiKey) :
-         prefix + hash, jamais de clé en clair en base.
+         RotateKey.
+         NOTE : le modèle prefix+hash suit le PATTERN du socle Stratum (Notification.ApiKey),
+         mais l'entité Agent est PROPRE au module Ingestion et scopée TenantId — la table
+         notification.api_keys du socle (clé sur company_id, sans middleware entrant) n'est
+         PAS réutilisée.
       2. Middleware/filtre d'authentification agent : header X-Agent-Key → résolution
          (prefix → hash compare) → tenant + agent dans le contexte de la requête.
          Clé inconnue/révoquée = 401/403. Brute force : rate limiting par IP.
       3. Endpoint POST /api/agent/v1/heartbeat : persiste l'état (HeartbeatLog, rétention
          90 jours), répond avec AgentConfigurationDto (planification du tenant, période à
-         extraire, latestAgentVersion, updateRequired, updateUrl + hash).
+         extraire, latestAgentVersion, updateRequired, updateUrl + manifeste de version SIGNÉ
+         — décision D6 du 2026-06-03).
+         Les champs latestAgentVersion/updateRequired/updateUrl sont alimentés par le REGISTRE
+         DE VERSIONS publié par OPS07 ; tant que ce registre est vide (avant OPS07),
+         updateRequired = false et les champs d'update sont null — comportement par défaut sûr.
       4. Endpoint GET /api/agent/v1/configuration : même contenu (pour le démarrage de l'agent).
       5. Compatibilité de version : header de version du contrat vérifié — version inconnue
          ou trop ancienne (< N-1) = 426 Upgrade Required.
       6. Tests d'intégration : enregistrement, clé affichée une fois, révocation, rotation,
          auth (valide/invalide/révoquée), heartbeat persisté, 426 sur vieille version,
-         rate limiting.
+         rate limiting, réponse d'update sûre quand le registre de versions est vide.
     acceptance:
       - "Cycle de vie des agents complet (register/revoke/rotate), clé en prefix+hash"
+      - "Entité Agent propre au module Ingestion, scopée TenantId (pas de réutilisation de notification.api_keys)"
       - "Auth par clé API : 401/403 corrects, rate limiting, tenant résolu dans le contexte"
       - "Heartbeat persisté (rétention 90 jours) + réponse de configuration"
+      - "Réponse d'update sûre (updateRequired=false) tant que le registre de versions OPS07 est vide"
       - "Contrat N-1 supporté, plus ancien = 426"
+      - "MODULE.md/INVARIANTS.md/SCENARIOS.md du module Ingestion livrés"
       - "Tests d'intégration PostgreSQL sur tout le cycle de vie"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"

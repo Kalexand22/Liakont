@@ -18,8 +18,13 @@ items:
          (email d'alerte optionnel), statut (actif/suspendu).
       2. Paramétrage fiscal du tenant (consommé par PIP03 — les décisions appartiennent à
          l'expert-comptable du client) : vatOnDebits (bool?), operationCategory
-         (LivraisonBiens/PrestationServices/Mixte/null). Null = décision en attente =
-         transmissions concernées suspendues avec message explicite.
+         (LivraisonBiens/PrestationServices/Mixte/null), reportingFrequency
+         (Decadaire/Mensuelle/Trimestrielle/null — régime/cadence déclarative, source F09 §2,
+         décision D4 du 2026-06-03). Null = décision en attente = transmissions concernées
+         suspendues avec message explicite.
+         reportingFrequency est consommé par SUP01 (alerte « échéance à J-3 ») et WEB01
+         (affichage de la prochaine échéance) : tant qu'il est null, AUCUN calcul d'échéance
+         (pas d'alerte, pas d'affichage — jamais de cadence devinée).
       3. Comptes PA du tenant : liste de (type de plug-in, environnement staging/production,
          identifiants de compte, clé API CHIFFRÉE, actif). Un tenant peut avoir plusieurs
          comptes (staging + production, ou multi-PA).
@@ -36,6 +41,7 @@ items:
       Aucune décision inventée : tout est traçable ou marqué « à trancher ».
     acceptance:
       - "Spec du paramétrage tenant complète (profil, fiscal, comptes PA, planification, seuils, droits)"
+      - "reportingFrequency spécifié (valeurs F09 §2, nullable, consommateurs SUP01/WEB01, null = pas de calcul d'échéance)"
       - "Structure deployments/<client>/ spécifiée avec sémantique d'import"
       - "Les paramètres fiscaux null = transmission suspendue, documenté"
       - "Aucune décision inventée : traçable vers F09/F12/décisions ou marqué « à trancher »"
@@ -49,7 +55,8 @@ items:
       src/Modules/TenantSettings/, soit comme partie du module Ingestion (décision d'implémentation
       à justifier dans le plan ; le critère : éviter une dépendance circulaire avec Ingestion) :
       1. Entités : TenantProfile (SIREN, raison sociale, contact, statut), FiscalSettings
-         (vatOnDebits, operationCategory — nullable), PaAccount (type plug-in, environnement,
+         (vatOnDebits, operationCategory, reportingFrequency — tous nullables, null = décision
+         de l'expert-comptable en attente), PaAccount (type plug-in, environnement,
          identifiants, secret chiffré, actif), ExtractionSchedule, AlertThresholds.
       2. Chiffrement des secrets en base : les clés API des PA sont chiffrées via
          ASP.NET Core Data Protection (clés de protection persistées par instance —
@@ -65,7 +72,7 @@ items:
       6. Tests d'intégration : CRUD profil, secrets jamais en clair (vérifié dans les
          réponses ET en base), paramètres fiscaux null, import de seed, journalisation.
     acceptance:
-      - "Profil tenant + fiscal + comptes PA + planification + seuils implémentés"
+      - "Profil tenant + fiscal (vatOnDebits, operationCategory, reportingFrequency) + comptes PA + planification + seuils implémentés"
       - "Secrets chiffrés (Data Protection), jamais en clair en base/logs/réponses (vérifié par test)"
       - "Toute mutation journalisée avec identité opérateur"
       - "Import de seed depuis deployments/<client>/ fonctionnel"

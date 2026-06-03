@@ -52,6 +52,8 @@ public interface IPaClient
     Task EnsureTaxReportSettingAsync(PaTaxReportSettingRequest request); // idempotent (GET puis POST/PATCH si écart)
 
     // Diagnostic
+    // [Note 2026-06-03] L'annuaire n'est PAS repris dans l'abstraction IPaClient V1 (PAA01) :
+    // le produit V1 est B2C (pas de routage SIREN destinataire). Différé en phase 2 (B2B).
     Task<PaDirectoryResult> LookupDirectoryAsync(string scheme, string identifier); // informatif seulement
 }
 ```
@@ -75,7 +77,8 @@ public interface IPaClient
 - Le **numéro de document** (`invoice.number`) est la clé d'unicité côté B2Brouter.
 - Règle : la Passerelle ne renvoie JAMAIS un numéro déjà envoyé avec succès (contrôle dans le Tracking AVANT l'appel API — cf. F6).
 - En cas de doute (timeout sur un POST : envoyé ou pas ?) : relire via `GET` la liste des factures du compte avant de retenter. Si introuvable → renvoyer ; si trouvée → récupérer son id et raccrocher.
-- Pour un renvoi après rejet : nouveau numéro suffixé (`BA-2026-00123-R1`) + lien vers l'original dans le Tracking. ⚠️ Décision à valider : le suffixe est-il acceptable fiscalement ? (cf. DR6 — la numérotation des factures doit être séquentielle et continue ; pour le e-reporting B2C c'est moins contraint que pour le e-invoicing).
+- ~~Pour un renvoi après rejet : nouveau numéro suffixé (`BA-2026-00123-R1`) + lien vers l'original dans le Tracking.~~
+  **[CADUC — Amendement 2026-06-03]** Le suffixe -R1 est ABANDONNÉ : la passerelle ne crée jamais de numéro (le logiciel source est le seul créateur de numéros). La mécanique retenue est le **supersede** (F06/TRK02) : l'opérateur corrige/recrée le document dans le logiciel source → l'agent pousse le nouveau document (nouveau numéro source) → l'opérateur LIE l'ancien (rejeté) à son remplaçant ; l'ancien passe à l'état terminal Superseded.
 
 ### 4.3 Timeouts
 - Timeout HTTP : 60 s par appel (l'API peut être lente à la création + envoi).
@@ -108,7 +111,7 @@ public interface IPaClient
 
 | # | Décision | Options | Recommandation |
 |---|---|---|---|
-| 1 | Numérotation des renvois après rejet | suffixe -R1 / nouvelle séquence / réutiliser le numéro | suffixe, à confirmer avec DR6 |
+| 1 | Numérotation des renvois après rejet | suffixe -R1 / nouvelle séquence / réutiliser le numéro | **TRANCHÉ (2026-06-03)** : aucun des trois — mécanique supersede (F06/TRK02), le logiciel source reste le seul créateur de numéros |
 | 2 | Polling des statuts vs webhooks | polling (simple, on-premise) / webhooks (nécessite URL entrante chez le client !) | **polling** — un webhook entrant est inadapté à du on-premise derrière NAT |
 | 3 | Fréquence de synchro des statuts/tax reports | à chaque run / horaire / quotidien | quotidien (les ledgers DGFiP sont générés à ~02:00, inutile de poller plus) |
 | 4 | Faut-il abstraire `IPaClient` dès la V1 (multi-PA futur) ou coder B2Brouter en dur ? | interface maintenant / refactor plus tard | **interface maintenant** — coût quasi nul, argument produit |

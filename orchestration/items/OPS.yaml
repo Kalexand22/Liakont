@@ -18,19 +18,33 @@ items:
          secret par défaut (génération obligatoire à l'installation).
       4. Clés Data Protection (CFG02) persistées dans un volume (les secrets tenant survivent
          au redéploiement du conteneur).
-      5. Sauvegardes : script deploy/docker/backup.ps1|sh — pg_dump quotidien + volumes
-         d'archive, rotation documentée. La procédure fait partie du livrable.
-      6. Documentation deploy/docker/README.md : prérequis (Docker, RAM ~4 GB), installation
-         pas à pas pour un éditeur self-hosted, mise à jour (pull + up), restauration.
-      7. ADR : stratégie Keycloak (par instance vs mutualisé — question ouverte F12 §7.1,
-         tranchée ICI après mesure de l'empreinte réelle).
-      8. Test : l'appliance démarre sur une machine propre (docker compose up), le Host
-         répond, un tenant de test se crée, le login Keycloak fonctionne.
+      5. Sauvegardes : script deploy/docker/backup.ps1|sh — pg_dump quotidien (granularité :
+         par base — base système + une par tenant, pour permettre la restauration sélective
+         exigée par la réversibilité OPS06) + volumes d'archive, rotation documentée.
+         La procédure fait partie du livrable.
+      6. RESTAURATION DE BOUT EN BOUT TESTÉE (une sauvegarde jamais restaurée est un faux vert
+         classique — et l'opérateur héberge des archives fiscales de tiers, 10 ans) :
+         restore d'un dump dans une instance vierge → données + coffre WORM intègres →
+         ArchiveVerifier (TRK06) vert post-restauration. Ce test fait partie de l'acceptance.
+      7. PRA documenté : RTO/RPO cibles (une panne d'instance = tous les tenants bloqués
+         simultanément à l'approche d'une échéance déclarative), procédure de reprise testée,
+         lien avec la méta-supervision OPS04 (alerte sauvegarde en échec).
+      8. Documentation deploy/docker/README.md : prérequis (Docker, RAM — voir mesure ADR),
+         installation pas à pas pour un éditeur self-hosted, mise à jour (pull + up), restauration.
+      9. ADR : stratégie Keycloak (par instance vs mutualisé — question ouverte F12 §7,
+         tranchée ICI après MESURE de l'empreinte réelle de Keycloak 26 en mode prod
+         heap-borné ; la RAM plancher réaliste conditionne le pricing des instances hébergées).
+         NOTE : le Keycloak de dev de SOL01 (realm conformat-dev) est PROVISOIRE — cet ADR
+         peut faire évoluer la topologie sans remettre en cause les fondations (même realm,
+         même mécanique de rôles).
+      10. Test : l'appliance démarre sur une machine propre (docker compose up), le Host
+          répond, un tenant de test se crée, le login Keycloak fonctionne.
     acceptance:
       - "docker compose up démarre l'instance complète sur machine propre"
       - "Aucun secret par défaut, .env.example documenté"
       - "Clés Data Protection et données persistées en volumes (survivent au redéploiement)"
-      - "Script de sauvegarde + procédure de restauration testés"
+      - "Sauvegardes par base (système + chaque tenant) ; restauration bout-en-bout testée : restore → ArchiveVerifier vert"
+      - "PRA documenté : RTO/RPO cibles + procédure de reprise testée"
       - "ADR Keycloak rédigé (empreinte mesurée, décision tranchée)"
       - "README d'installation exécutable par un éditeur (cible : profil « serveur chez un hébergeur »)"
       - "verify-fast passes"
@@ -42,20 +56,34 @@ items:
       Outiller la création d'instances dans deploy/provisioning/ (F12 §6.3) :
       1. new-instance.ps1 : crée une nouvelle instance — répertoire/stack Docker dédié,
          génération des secrets (PostgreSQL, Keycloak admin, clés DP), realm Keycloak,
-         paramètres de branding (nom éditeur, logo, couleurs, domaine), .env complet.
+         paramètres de branding (nom éditeur, logo, couleurs, domaine — branding PAR DÉFAUT
+         Conformat tant que BRD01 n'est pas livré ; le branding complet est appliqué/enrichi
+         par BRD01), .env complet.
       2. Modes : self-hosted (génère le bundle à remettre à l'éditeur) et hébergé
          (déploie sur l'infra IT Innovations — le script est le même, la cible diffère).
       3. Registre des instances : deploy/provisioning/instances.yaml — liste des instances
          opérées par IT Innovations (nom, éditeur, URL, version, hébergement). Les instances
          self-hosted n'y figurent que si l'éditeur a souscrit la méta-supervision (OPS04).
-      4. update-instance.ps1 : mise à jour d'une instance (pull nouvelle image, migration DbUp
-         automatique au démarrage, vérification de santé post-update, rollback documenté).
-      5. Test : provisionner une instance de test de bout en bout, la mettre à jour,
-         la détruire proprement.
+      4. update-instance.ps1 : mise à jour d'une instance —
+         - pull de la nouvelle image
+         - MIGRATION MULTI-BASES : avec database-per-tenant, une montée de version migre la
+           base SYSTÈME + TOUTES les bases tenant (boucle DbUp). Comportement sur échec
+           partiel défini : si la migration du tenant N échoue, les tenants déjà migrés
+           restent migrés, les suivants ne sont pas tentés, l'instance reste arrêtée et
+           l'état mixte est rapporté (jamais de démarrage avec des bases à des versions
+           différentes). Sauvegarde pré-migration obligatoire (granularité par base — OPS01).
+         - Les push d'agents sont bloqués (503 explicite) pendant la migration.
+         - vérification de santé post-update, rollback documenté (restore des bases depuis
+           la sauvegarde pré-migration).
+      5. Test : provisionner une instance de test de bout en bout (2 tenants), la mettre à
+         jour (migration des 3 bases vérifiée), simuler un échec de migration sur un tenant
+         (état mixte rapporté, pas de démarrage), la détruire proprement.
     acceptance:
       - "new-instance.ps1 produit une instance fonctionnelle (testé de bout en bout)"
       - "Secrets générés, jamais de valeurs par défaut partagées entre instances"
-      - "update-instance.ps1 : mise à jour + vérification de santé + procédure de rollback"
+      - "update-instance.ps1 : migration multi-bases (système + tous les tenants), échec partiel = arrêt + rapport, jamais d'état mixte en marche"
+      - "Push agents bloqués pendant la migration (503 explicite)"
+      - "Sauvegarde pré-migration obligatoire + rollback documenté"
       - "Registre des instances tenu à jour par les scripts"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
@@ -70,19 +98,29 @@ items:
       2. Assistant de création de tenant :
          - étape 1 : profil (SIREN avec validation Luhn, raison sociale, contact)
          - étape 2 : import de seed optionnel (dossier deployments/<client>/ → CFG02 ImportTenantSeed)
-         - étape 3 : création du premier utilisateur (compte Keycloak + rôle) — invitation email
+         - étape 3 : création du premier utilisateur — compte Keycloak + rôle (rôles standard
+           du seed SOL01) + MAPPING utilisateur→tenant (l'utilisateur ne voit que son tenant)
+           — invitation email
          - étape 4 : enregistrement du premier agent (PIV05) → clé API affichée une fois +
            lien de téléchargement du package d'installation agent (OPS05) pré-configuré
-      3. Suspension/réactivation d'un tenant (statut — un tenant suspendu n'accepte plus
+           (la gestion ULTÉRIEURE du parc d'agents — 2e agent, révocation, rotation —
+           est l'écran WEB09 / les endpoints API05)
+      3. GESTION CONTINUE des utilisateurs et rôles du tenant : ajouter un 2e utilisateur,
+         changer un rôle, désactiver un compte — passe par les écrans du module Identity
+         du socle vendored (pas de réimplémentation) ; cet item vérifie que ces écrans
+         fonctionnent pour des utilisateurs tenant-scopés et les référence dans la navigation.
+      4. Suspension/réactivation d'un tenant (statut — un tenant suspendu n'accepte plus
          de push d'agent et ses utilisateurs ne peuvent plus se connecter ; ses données
          restent intactes).
-      4. Création de la base du tenant (database-per-tenant du socle) automatique à la création.
-      5. Tests d'intégration : création complète, import de seed, suspension/réactivation,
-         isolation (le nouveau tenant ne voit rien des autres). E2E Playwright : assistant complet.
+      5. Création de la base du tenant (database-per-tenant du socle) automatique à la création.
+      6. Tests d'intégration : création complète, import de seed, suspension/réactivation,
+         isolation (le nouveau tenant ne voit rien des autres). E2E Playwright : assistant
+         complet + parcours « ajout d'un 2e utilisateur + retrait de droit ».
     acceptance:
-      - "Assistant de création de tenant complet (profil → seed → utilisateur → agent)"
+      - "Assistant de création de tenant complet (profil → seed → utilisateur+mapping tenant → agent)"
       - "Base du tenant créée automatiquement (database-per-tenant)"
       - "Clé API agent affichée une seule fois + package pré-configuré téléchargeable"
+      - "Gestion continue utilisateurs/rôles via les écrans Identity du socle, vérifiée par E2E (2e utilisateur + retrait de droit)"
       - "Suspension/réactivation fonctionnelles"
       - "Tests d'intégration + E2E Playwright (assistant complet)"
       - "verify-fast passes"
@@ -126,10 +164,16 @@ items:
       1. tools/package-agent.ps1 : build Release x86 + x64 de la solution agent, assemblage
          d'un package d'installation (zip auto-suffisant OU MSI — choix documenté par ADR ;
          critère : installation silencieuse possible par un intégrateur).
+         RÈGLE DE CHOIX x86/x64 (documentée dans installation-agent.md) : x86 par DÉFAUT dès
+         qu'un adaptateur ODBC 32-bit est requis (le driver Pervasive d'EncheresV6 est 32-bit :
+         un service x64 ne peut pas le charger) ; x64 seulement si TOUS les adaptateurs du
+         client sont 64-bit. Le service et ses adaptateurs partagent le même bitness — jamais
+         de mélange.
       2. Le package contient : Conformat.Agent + Agent.Cli + adaptateurs (EncheresV6 + futurs),
          dépendances natives par plateforme (SQLite.Interop.dll x86 dans le package x86,
          x64 dans le x64 — vérifié par test d'extraction), script d'installation
-         (création du service, du dossier ProgramData, agent.json modèle).
+         (création du service, du dossier ProgramData avec les ACL requises par AGT01
+         — écriture pour le service ET le CLI intégrateur, agent.json modèle).
       3. PRÉ-CONFIGURATION : le package peut être généré pré-configuré pour un tenant
          (OPS03 étape 4) — agent.json pré-rempli avec platformUrl + clé API chiffrée à
          l'installation (la clé transite dans le package de façon sécurisée : chiffrement
@@ -141,7 +185,9 @@ items:
          le CLI check-config passe.
     acceptance:
       - "package-agent.ps1 produit les packages x86 et x64"
+      - "Règle de choix x86/x64 documentée (x86 par défaut si adaptateur ODBC 32-bit ; même bitness service/adaptateurs)"
       - "SQLite.Interop.dll de la bonne plateforme dans chaque package (testé sur les deux)"
+      - "ACL ProgramData posées par l'installeur (service + CLI — exigence AGT01)"
       - "Pré-configuration par tenant fonctionnelle (clé jamais en clair dans le package)"
       - "Installation testée sur machine propre (service démarre, check-config passe)"
       - "docs/installation-agent.md exécutable par un intégrateur"
@@ -163,17 +209,68 @@ items:
          deploy/provisioning/migrate-instance.ps1 — pg_dump de toutes les bases (système +
          tenants), copie des volumes (archive, clés DP), génération du bundle d'installation
          pour la nouvelle cible, vérification de santé post-migration, bascule DNS documentée.
-      3. Suppression d'un tenant APRÈS export : possible uniquement si un export complet a été
-         produit ET confirmé (double confirmation + saisie du nom du tenant). La suppression
-         est journalisée de façon irréversible dans l'audit de l'instance (qui, quand,
-         référence de l'export). Les obligations de conservation passent au client avec l'export.
-      4. Tests : export complet d'un tenant de test (contenu vérifié), migration d'une instance
-         de test de bout en bout, suppression refusée sans export préalable.
+      3. FIN DE VIE D'UN TENANT (résiliation — décision D7 du 2026-06-03, séquence stricte qui
+         concilie résiliation/RGPD avec le coffre WORM et la conservation fiscale 10 ans) :
+         a. DÉSACTIVATION logique immédiate (statut OPS03 : plus de push, plus de connexion,
+            données intactes) — c'est l'état normal d'un tenant résilié.
+         b. Export complet produit ET VÉRIFIÉ : l'ArchiveVerifier (TRK06) doit être vert sur
+            le bundle exporté (preuve que le client récupère une archive intègre).
+         c. Transfert de responsabilité documenté : la notice de restitution mentionne
+            explicitement que les obligations de conservation fiscale (10 ans) passent au
+            client avec l'export ; l'opérateur conserve la confirmation (référence d'export,
+            date, destinataire).
+         d. SUPPRESSION effective seulement après a+b+c : double confirmation + saisie du nom
+            du tenant. La suppression est journalisée de façon IRRÉVERSIBLE dans l'audit de
+            l'INSTANCE (hors base tenant — qui, quand, référence de l'export vérifié) ;
+            cet enregistrement survit à la suppression de la base du tenant.
+         JAMAIS de suppression directe sans ces étapes — le chemin « désactivé pour toujours »
+         (étape a seule) est légitime et permanent si le client ne demande pas l'effacement.
+      4. Tests : export complet d'un tenant de test (contenu vérifié + ArchiveVerifier vert),
+         migration d'une instance de test de bout en bout, suppression refusée sans export
+         vérifié, suppression refusée si l'export n'est pas intègre, audit d'instance conservé
+         après suppression.
     acceptance:
       - "Export tenant complet : tracking + archive + paramétrage + notice française"
       - "L'intégrité de l'archive exportée est vérifiable hors plateforme (notice + outil/procédure)"
       - "Migration d'instance outillée et testée de bout en bout"
-      - "Suppression d'un tenant impossible sans export confirmé, journalisée"
-      - "Tests complets"
+      - "Séquence de fin de vie D7 : désactivation → export vérifié (ArchiveVerifier vert) → transfert documenté → suppression"
+      - "Suppression impossible sans export VÉRIFIÉ ; journalisée au niveau instance, l'enregistrement survit à la suppression"
+      - "Tests complets (y compris refus sur export non intègre)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  OPS07:
+    title: "Publication de versions agent + politique de mise à jour de flotte"
+    description: |
+      Implémenter le CÔTÉ PLATEFORME de l'auto-update des agents (F12 §4, blueprint §3.1
+      « Auto-update (flotte) ») — sans cet item, AGT04 (client) et PIV05 (heartbeat) n'ont
+      aucune source de données : la flotte ne peut jamais se mettre à jour.
+      1. Registre des versions d'agent (base système de l'instance) : version, date de
+         publication, canal (stable/test), package x86/x64 (produits par OPS05), hash SHA-256,
+         MANIFESTE DE VERSION SIGNÉ (décision D6 : signature par la clé applicative dédiée,
+         générée sur le poste de release — la clé privée n'est JAMAIS sur la plateforme).
+      2. Publication : tools/publish-agent-version.ps1 — prend les packages OPS05 + la clé de
+         signature (poste de release), produit le manifeste signé, le téléverse vers
+         l'instance (stockage des packages : volume/object storage de l'instance).
+      3. Endpoint de téléchargement : GET /api/agent/v1/update/package?version=&platform=
+         (servi par le module Ingestion, authentifié par clé API agent) — c'est l'updateUrl
+         que PIV05 renvoie dans le heartbeat.
+      4. Politique de mise à jour de flotte (écran opérateur d'instance, permission
+         conformat.supervision) : définir la version cible (latestAgentVersion) et le mode
+         (updateRequired : obligatoire = les agents se mettent à jour au prochain heartbeat ;
+         optionnel = signalé mais pas forcé) — par instance, avec possibilité d'exclure des
+         tenants (déploiement progressif).
+      5. Câblage PIV05 : la réponse heartbeat est alimentée par ce registre (latestAgentVersion,
+         updateRequired, updateUrl, manifeste signé).
+      6. Tests d'intégration : publication → heartbeat retourne la version cible → téléchargement
+         du package + manifeste → (avec AGT04) cycle complet heartbeat → 426/updateRequired →
+         download → vérification de signature. Test du déploiement progressif (tenant exclu).
+    acceptance:
+      - "Registre de versions + publication outillée (manifeste signé hors plateforme — clé jamais sur l'instance)"
+      - "Endpoint de téléchargement authentifié opérationnel"
+      - "Politique de flotte réglable par l'opérateur (version cible, obligatoire/optionnel, exclusions)"
+      - "La réponse heartbeat PIV05 est alimentée par le registre (testé de bout en bout)"
+      - "Cycle complet update testé : publication → heartbeat → download → vérification signature (avec AGT04)"
+      - "Tests d'intégration incluant le déploiement progressif"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"

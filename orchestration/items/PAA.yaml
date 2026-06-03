@@ -21,6 +21,11 @@ items:
            PaymentReportFlux.International = Flux 10.2) — F01-F02 §1 les distingue : le routage
            et les schémas DGFiP diffèrent. Le plug-in PA transforme selon le flux déclaré ;
            un plug-in qui ne supporte qu'un des deux flux le déclare dans ses capacités.
+           NOTE décision D2 (2026-06-03) : en V1, le pipeline (PIP03) n'alimente QUE le flux
+           Domestic (10.4) — International reste une capacité déclarable, prête pour la phase 2.
+         NOTE écart F05 assumé : LookupDirectoryAsync (annuaire des destinataires) décrit par
+         F05 §3 n'est PAS repris dans IPaClient en V1 — le produit V1 est B2C (pas de routage
+         SIREN destinataire). L'annuaire arrivera en phase 2 (B2B) avec sa capacité dédiée.
          - Task<PaDocumentStatus> GetDocumentStatusAsync(string paDocumentId)
          - Task<IReadOnlyList<PaTaxReport>> ListTaxReportsAsync(DateTime? since = null)
          - Task<PaTaxReport> GetTaxReportAsync(string taxReportId)

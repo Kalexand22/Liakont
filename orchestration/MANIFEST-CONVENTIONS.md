@@ -43,7 +43,11 @@ YAML inline minimal. Un item par ligne :
 4. **Pas de `executor: claude`** — c'est le défaut. Spécifier uniquement `executor: human` sur les gates.
 5. **Pas de `type: work`** — c'est le défaut. Spécifier uniquement `type: gate` sur les gates.
 6. **Pas de `blueprint: module-work-item`** — c'est le défaut. Spécifier uniquement les blueprints
-   non-défaut (`docs-spec-item`, `tooling-item`, `wpf-screen-item`).
+   non-défaut (`docs-spec-item`, `tooling-item`, `blazor-page-item`).
 7. **Purger les items terminés** — quand tous les items d'un lot sont done et que la gate est validée,
    déplacer toute la section du lot vers `orchestration/archive/` et la supprimer du manifest.
 8. **Bump de version** — incrémenter `meta.version` à chaque changement structurel du manifest.
+9. **Gates intra-segment** — une gate qui n'est la `gate:` d'aucun segment (ex. `GATE_DEMO_ISATECH`)
+   est un checkpoint humain SANS PR : le protocole ne crée des PR que pour les gates de segment.
+   L'opérateur passe une gate intra-segment à `done` via `orch-state.ps1` quand la condition
+   humaine est remplie (ex. démo déroulée). Les items en aval restent bloqués d'ici là — c'est voulu.

@@ -96,3 +96,29 @@ l'orchestration. Les patterns d'erreur qu'elle révèle :
 - **PowerShell 5.1 + fichiers UTF-8 sans BOM = corruption d'accents.** Les .ps1 doivent avoir
   un BOM UTF-8 ; les lectures/écritures de fichiers en .NET doivent spécifier l'encodage UTF-8
   explicitement.
+
+## 2026-06-03 — Leçons du traitement des reviews v6/v8 (backlog v6 → manifest v7)
+
+1. **L'outil Write (réécriture complète) de Claude Code produit de l'UTF-8 SANS BOM.** Réécrire
+   un .ps1 avec Write casse son parsing par PowerShell 5.1 dès qu'il contient un caractère
+   non-ASCII (tiret cadratin, accents) — erreur détectée par l'exécution du script juste après.
+   Règle : après tout Write d'un .ps1, restaurer le BOM immédiatement
+   (`[System.IO.File]::WriteAllText($f, $contenu, [System.Text.UTF8Encoding]::new($true))`).
+   L'outil Edit (remplacement partiel) préserve l'encodage existant — le préférer pour les .ps1.
+2. **Vérifier les hypothèses sur le socle vendored SUR PIÈCE, pas sur sa réputation.** Trois
+   briques Stratum supposées « directes » ne l'étaient pas : Identity référence Party.Contracts
+   en dur, le transport email est un stub, le module Job n'a aucune résolution de tenant.
+   Règle : pour chaque capacité du socle qu'un item consomme, citer le fichier/la ligne du socle
+   qui la fournit — « le module X le fait » sans référence = hypothèse à vérifier.
+3. **Toute feature distribuée a DEUX côtés — vérifier que le backlog couvre les deux.**
+   L'auto-update avait son côté agent (AGT04) et son contrat (PIV05) mais AUCUN côté plateforme
+   (registre, publication, politique de flotte) : la flotte n'aurait jamais pu se mettre à jour.
+   Règle : pour chaque flux client↔serveur, lister les items des deux côtés et leurs consommateurs.
+4. **Un point d'entrée qui contredit le protocole est une corruption en attente.** prompt.md
+   disait « create state.yaml if absent », protocol.md disait « never recreate it » : un agent
+   mal configuré aurait ressuscité des items terminés. Règle : les invariants critiques
+   (état, verrous) ne sont énoncés qu'à UN endroit ; les autres documents y renvoient.
+5. **Les gardes anti-faux-vert se testent dans les deux sens.** La garde « échouer si zéro test »
+   du round 1 créait un faux NÉGATIF (FAIL erroné sous Microsoft.Testing.Platform). Règle :
+   tester « ça doit échouer quand c'est cassé » ET « ça ne doit pas échouer quand c'est sain »,
+   y compris avec les variantes de format/environnement (.NET 10 vs net48, VSTest vs MTP).
