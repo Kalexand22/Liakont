@@ -1,7 +1,12 @@
 # Index des documents de conception — Passerelle e-invoicing legacy
 
-> Mis à jour le 2026-06-02. Chaque fonctionnalité majeure a fait l'objet d'une deep research (réglementaire/technique/fonctionnel) puis d'un document de conception actionnable.
+> Mis à jour le 2026-06-03. Chaque fonctionnalité majeure a fait l'objet d'une deep research (réglementaire/technique/fonctionnel) puis d'un document de conception actionnable.
 > Document parent : `..\Analyse_opportunité\Conception-Produit-Passerelle.md`.
+>
+> **⚠️ PIVOT D'ARCHITECTURE (2026-06-03)** : le produit est désormais une **plateforme web
+> centralisée multi-tenant + agent local léger** (blueprint.md v2). Les specs métier (F01-F09)
+> restent valides — elles décrivent QUOI, pas OÙ ça tourne. F10/F11 sont amendées, F12 (architecture
+> plateforme/agent) est la référence d'exécution. Détails : tasks/analyse-impact-pivot-plateforme.md.
 
 ## Documents
 
@@ -14,9 +19,9 @@
 | [F06](F06-Tracking-Piste-Audit.md) | Tracking, anti-doublons, piste d'audit | DR6 | 🟨 à revoir | PAF (art. 289 V/VII), non-altération, conservation 10 ans confirmés ; responsabilités SC/PA = zone d'ombre à border par contrat |
 | [F07-F08](F07-F08-Avoirs-Frontiere-B2B-B2C.md) | Avoirs + frontière B2B/B2C (garde-fou pro) | DR4 | 🟨 à revoir | ✅ **la plus solide : 25/25 confirmées sur BOFiP/impots.gouv.fr/OpenPEPPOL** |
 | [F09](F09-E-Reporting-Paiement.md) | E-reporting de paiement (Flux 10.2/10.4) | DR5 | 🟨 à revoir | ⚠️ fiches DGFiP en abstention — à re-confirmer ; point ouvert majeur côté B2Brouter |
-| [F10](F10-Console-Admin-WPF.md) | Console d'administration WPF | — (interne) | 🟨 à revoir | N/A — conception |
-| [F11](F11-CLI-Mode-Automatique.md) | CLI / mode automatique planifié | — (interne) | 🟨 à revoir | N/A — conception (pattern SynchroAxelor) |
-| F12 | Configuration / déploiement | — (interne) | ⬜ à faire | reste à rédiger (session de conception) |
+| [F10](F10-Console-Admin-WPF.md) | Console d'administration (**web** — amendée pivot) | — (interne) | 🟨 à revoir | N/A — contenu fonctionnel (écrans, états, vocabulaire) valide ; architecture → blueprint v2 + F12 |
+| [F11](F11-CLI-Mode-Automatique.md) | Ordonnancement / mode automatique (amendée pivot : réparti agent/plateforme) | — (interne) | 🟨 à revoir | N/A — conception |
+| [F12](F12-Architecture-Plateforme-Agent.md) | **Architecture plateforme & agent** : contrat d'ingestion, supervision, configuration, déploiement (absorbe l'ancien « F12 Configuration/déploiement ») | — (interne, pivot 2026-06-03) | 🟨 à revoir | N/A — conception (blueprint v2) |
 
 ## Actions transverses sorties des recherches (à traiter)
 

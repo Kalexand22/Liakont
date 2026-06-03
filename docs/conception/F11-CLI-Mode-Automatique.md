@@ -1,20 +1,26 @@
-# F11 — Ordonnancement & mode automatique (CLI + Service)
-### Document de conception — Gateway.Cli & Gateway.Service
+# F11 — Ordonnancement & mode automatique
+### Document de conception — ex-Gateway.Cli/Gateway.Service, désormais réparti agent / plateforme
 
 > Statut : 🟨 rédigé sans deep research (conception interne, pattern SynchroAxelor éprouvé). À revoir ensemble.
-> Dernière mise à jour : 2026-06-02 — ajout du double hébergement (tâche planifiée **et** service Windows).
+> Dernière mise à jour : 2026-06-03
 >
-> **⚠️ AMENDEMENT D'ARCHITECTURE (2026-06-02 — décision blueprint.md §3, postérieure à la rédaction)** :
-> cette spec décrit deux hôtes nominaux interchangeables (CLI en tâche planifiée OU service Windows)
-> partageant le même Tracking. **C'est obsolète.** Le **Service Windows est l'UNIQUE hôte nominal**
-> (ordonnanceur + pipeline + API HTTP + SEUL écrivain du Tracking). Le CLI est réduit à un utilitaire
-> de mise en service et de secours, utilisable uniquement quand le Service est ARRÊTÉ (protégé par mutex).
-> Le contrat du PipelineRunner, les codes de sortie 0/1/2/3 et la planification décrits ici restent
-> valables — c'est l'hébergement qui change. Le backlog (orchestration/items/SVC.yaml, CLI.yaml) fait foi.
-> Conséquence sur les sous-commandes CLI du §2 : `extract`, `send`, `sync-status` et `report` ne sont
-> PAS reprises — elles sont remplacées par les endpoints de l'API du Service (lot API) et le run
-> de secours complet. Le CLI ne garde que : check-config, encrypt-secret, run, backup, verify-archive,
-> audit-export.
+> **⚠️ AMENDEMENT MAJEUR (2026-06-03 — PIVOT D'ARCHITECTURE, blueprint.md v2)** :
+> cette spec décrivait l'ordonnancement on-premise (CLI/Service Windows + Tracking SQLite local).
+> **L'exécution est désormais répartie en deux** (voir F12, qui fait foi pour l'architecture) :
+>
+> | Ce que décrit cette spec | Où ça vit maintenant |
+> |---|---|
+> | Pipeline complet (extract → check → send → sync) | **Coupé en deux** : extraction = AGENT (F12 §2.2) ; check/send/sync = PLATEFORME (modules + jobs du lot PIP) |
+> | Ordonnanceur interne du service (§7 bis) | Module **Job** du socle Stratum (cron, retries, dead letter) pour la plateforme ; planification locale simple pour l'agent |
+> | Mutex CLI ↔ Console, SQLite WAL (§4) | **Obsolète** — plus de base locale partagée ; la concurrence est gérée par la plateforme (PostgreSQL) |
+> | « Montre morte » (§5) | **Résolue structurellement** par le dead-man's switch de la supervision (F12 §5) — c'était la limite indépassable de l'ancien modèle |
+> | Notifications SMTP (§5) | Module **Notification** du socle (plateforme) ; l'agent ne notifie pas, il fait remonter au heartbeat |
+> | Codes de retour 0/1/2/3 (§3) | Concept conservé : résultats de run d'agent (remontés au heartbeat) et résultats de jobs plateforme |
+> | Sous-commandes CLI (§2) | Le CLI ne concerne plus que l'AGENT : `check-config`, `test-odbc`, `test-api`, `encrypt`, `run` (manuel), `show-queue` (F12 §2.1) |
+> | Planification recommandée (§7) | **Reste valide** (extraction nocturne post-ventes, passage quotidien) — appliquée à l'agent, pilotable depuis la plateforme (F12 §6.1) |
+> | Séquence du run (§8) | Transposée : étapes 4 = agent, étapes 5-7 = plateforme (déclenchées par l'ingestion + jobs) |
+>
+> Les amendements et décisions antérieurs (2026-06-02) sont remplacés par le présent amendement.
 
 ---
 

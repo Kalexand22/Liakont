@@ -1,18 +1,28 @@
-# F10 — Console d'administration (WPF)
-### Document de conception — Gateway.App
+# F10 — Console d'administration (devenue console WEB)
+### Document de conception — ex-Gateway.App, désormais pages Blazor des modules Conformat
 
 > Statut : 🟨 rédigé sans deep research (conception interne). À revoir ensemble — c'est le composant le plus visible en démo, vos retours comptent le plus ici.
-> Dernière mise à jour : 2026-06-02
+> Dernière mise à jour : 2026-06-03
 >
-> **⚠️ AMENDEMENT D'ARCHITECTURE (2026-06-02 — décision blueprint.md §3, postérieure à la rédaction)** :
-> cette spec décrit une console qui appelle directement les services du Core (`Pipeline`, `Tracking`,
-> `IPaClient`) et lit la base SQLite. **C'est obsolète.** La console est désormais une **cliente HTTP
-> de l'API du Service** (Gateway.Api + Gateway.ApiClient) : elle ne référence JAMAIS Gateway.Core,
-> les plug-ins ni SQLite, et tourne sur n'importe quel poste du réseau (multi-utilisateurs).
-> Les écrans, états et libellés français décrits ici restent la référence FONCTIONNELLE ;
-> pour l'architecture, le backlog (orchestration/items/WPF.yaml) et blueprint.md font foi.
-> S'ajoutent deux écrans décidés après rédaction : Paramétrage comptable (WPF07) et
-> Réconciliation des PDF (WPF08).
+> **⚠️ AMENDEMENT MAJEUR (2026-06-03 — PIVOT D'ARCHITECTURE, blueprint.md v2)** :
+> la console n'est **plus une application WPF**. C'est la **console web de la plateforme**
+> (Blazor Server + Radzen, socle Stratum), accessible en navigateur depuis n'importe quel poste.
+> Conséquences :
+> - **Tout le contenu FONCTIONNEL de cette spec reste la référence** : écrans (§2), états et
+>   vocabulaire opérateur (§2.2), onglets du détail document (§2.3), philosophie « zéro jargon ».
+> - **§3 (Architecture technique MVVM/WPF) est obsolète** : pages Blazor + handlers MediatR,
+>   tests bUnit + E2E Playwright (plus de checklists smoke manuelles).
+> - **§4 « pas de gestion des utilisateurs/droits » est obsolète** : auth Keycloak + 3 niveaux de
+>   droits (lecture / actions / paramétrage) par tenant, fournis par le module Identity du socle.
+> - La décision du §5 n°1 (édition table TVA) a été tranchée OUI (décision 2026-06-02, ex-TVA05) :
+>   l'édition journalisée fait partie du périmètre, avec revalidation expert-comptable.
+> - S'ajoutent les écrans : Paramétrage comptable, Réconciliation des PDF, **Supervision**
+>   (dashboard multi-tenants de l'opérateur d'instance — voir F12 §5) et **Gestion des agents**
+>   (enregistrement, clés API — voir F12 §4.2).
+> - Le backlog fait foi pour le découpage en items (lot WEB du manifest v6, ex-lot WPF).
+>
+> **Amendement précédent (2026-06-02, console cliente HTTP de l'API du Service)** : lui-même
+> remplacé par le présent amendement — il n'y a plus de Service on-premise ni de Gateway.ApiClient.
 
 ---
 

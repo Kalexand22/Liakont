@@ -10,6 +10,15 @@
 > de hashes SHA-256 + ancrage temporel (OpenTimestamps par défaut / RFC 3161 en option / NoAnchor).
 > Motif : l'offre commerciale vend « archivage 10 ans inclus » et l'archive doit être indépendante
 > de la PA. Voir tasks/decisions.md (2026-06-02) et les items TRK06/TRK07 qui font foi.
+>
+> **⚠️ AMENDEMENT STOCKAGE (2026-06-03 — pivot d'architecture, blueprint.md v2)** : le Tracking ne
+> vit plus en SQLite local mais dans **PostgreSQL sur la plateforme** (database-per-tenant). Toutes
+> les mentions « SQLite » de cette spec se lisent « PostgreSQL (base du tenant) ». Le schéma de
+> données (§3), les règles append-only, l'anti-doublon (§4) et la rétention (§6) restent valides tels
+> quels. Le §5 (reprise sur incident) se lit : sauvegardes PostgreSQL de l'instance (pg_dump quotidien,
+> F12 §6.2) au lieu de copie du fichier SQLite. La décision « multi-provider SQLite/SQL Server Express »
+> (2026-06-02) est sans objet. SQLite ne subsiste que comme tampon technique de l'agent (F12 §2.3 —
+> qui n'est PAS une piste d'audit).
 
 ---
 

@@ -20,7 +20,10 @@ l'architecture on-premise. Voir `tasks/analyse-impact-pivot-plateforme.md` et `t
 - [x] ~~Réécrire les règles métier du CLAUDE.md~~ **FAIT (2026-06-03)** : règles 5-12 + checklist +
       règles de review 14-20 adaptées (tenant-scoping, frontières modules, Blazor/bUnit/Playwright,
       socle vendored). AGENTS.md synchronisé
-- [ ] Amender F10/F11 + créer F12 (architecture plateforme/agent + contrat d'API)
+- [x] ~~Amender F10/F11 + créer F12~~ **FAIT (2026-06-03)** : F12 créé (agent, contrat d'ingestion,
+      supervision, configuration/déploiement — absorbe l'ancien placeholder F12), F10 amendée
+      (console web, contenu fonctionnel conservé), F11 amendée (exécution répartie agent/plateforme),
+      F06 amendée (PostgreSQL remplace SQLite), index mis à jour
 - [ ] Réécrire manifest v6 + items + blueprints d'orchestration + outillage (verify-fast, run-tests)
 - [ ] Réinitialiser state.yaml (v6) dans conformat-orchestration
 - [ ] Relancer l'orchestration
