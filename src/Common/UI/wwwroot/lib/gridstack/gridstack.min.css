@@ -1,0 +1,25 @@
+/*!
+ * gridstack.min.css — VENDORED STUB
+ *
+ * Replace this file with the real gridstack.min.css from:
+ *   https://github.com/gridstack/gridstack.js  (MIT licence)
+ *
+ * This stub provides minimal layout styles so the dashboard remains usable
+ * until replaced with the full gridstack CSS.
+ */
+
+.grid-stack {
+  position: relative;
+}
+
+.grid-stack-item {
+  position: absolute;
+  box-sizing: border-box;
+}
+
+.grid-stack-item-content {
+  position: absolute;
+  inset: 4px;
+  overflow: auto;
+  box-sizing: border-box;
+}

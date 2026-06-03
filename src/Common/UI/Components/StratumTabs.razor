@@ -1,0 +1,188 @@
+@namespace Stratum.Common.UI.Components
+
+@* StratumTabs — accessible tabbed interface.
+ *
+ * Native implementation (no Radzen dependency). Provides:
+ * - role="tablist", role="tab", role="tabpanel"
+ * - aria-selected, aria-controls, aria-labelledby
+ * - Keyboard: ←→ between tabs, Enter/Space activate, Home/End
+ * - Disabled tab support
+ *
+ * Usage:
+ *   <StratumTabs @bind-SelectedIndex="_index">
+ *       <StratumTab Title="General"><p>Content A</p></StratumTab>
+ *       <StratumTab Title="Details"><p>Content B</p></StratumTab>
+ *   </StratumTabs>
+ *
+ * Ref: docs/architecture/ui-architecture-plan.md §4.
+ *@
+
+<div class="stratum-tabs" data-testid="@(TestId ?? "stratum-tabs")">
+    <div class="stratum-tabs__list" role="tablist" @onkeydown="HandleKeyDown">
+        @for (var i = 0; i < _tabs.Count; i++)
+        {
+            var index = i;
+            var tab = _tabs[i];
+            var isSelected = index == SelectedIndex;
+            <button type="button"
+                    id="@TabId(index)"
+                    role="tab"
+                    class="stratum-tabs__tab @(isSelected ? "stratum-tabs__tab--active" : string.Empty) @(tab.Disabled ? "stratum-tabs__tab--disabled" : string.Empty)"
+                    aria-selected="@(isSelected ? "true" : "false")"
+                    aria-controls="@PanelId(index)"
+                    tabindex="@(isSelected ? 0 : -1)"
+                    disabled="@tab.Disabled"
+                    @onclick="() => SelectTab(index)"
+                    @ref="_tabRefs[index]">
+                @if (!string.IsNullOrEmpty(tab.Icon))
+                {
+                    <i class="@tab.Icon stratum-tabs__icon" aria-hidden="true"></i>
+                }
+                @tab.Title
+            </button>
+        }
+    </div>
+
+    @for (var i = 0; i < _tabs.Count; i++)
+    {
+        var index = i;
+        var tab = _tabs[i];
+        var isSelected = index == SelectedIndex;
+        <div id="@PanelId(index)"
+             role="tabpanel"
+             aria-labelledby="@TabId(index)"
+             class="stratum-tabs__panel"
+             tabindex="0"
+             hidden="@(!isSelected)">
+            @if (isSelected)
+            {
+                @tab.ChildContent
+            }
+        </div>
+    }
+</div>
+
+<CascadingValue Value="this" IsFixed>
+    @ChildContent
+</CascadingValue>
+
+@code {
+    // ── Parameters ────────────────────────────────────────────────
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Zero-based index of the selected tab (two-way binding).</summary>
+    [Parameter]
+    public int SelectedIndex { get; set; }
+
+    /// <summary>Raised when the selected index changes.</summary>
+    [Parameter]
+    public EventCallback<int> SelectedIndexChanged { get; set; }
+
+    /// <summary>Raised when the active tab changes.</summary>
+    [Parameter]
+    public EventCallback<int> OnChange { get; set; }
+
+    /// <summary>StratumTab children.</summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    // ── Internal state ──────────────────────────────────────────
+
+    private readonly string _instanceId = Guid.NewGuid().ToString("N")[..8];
+    private readonly List<StratumTab> _tabs = new();
+    private Dictionary<int, ElementReference> _tabRefs = new();
+
+    private string TabId(int index) => $"stratum-tab-{_instanceId}-{index}";
+    private string PanelId(int index) => $"stratum-tabpanel-{_instanceId}-{index}";
+
+    // ── Tab registration ────────────────────────────────────────
+
+    internal void RegisterTab(StratumTab tab)
+    {
+        if (!_tabs.Contains(tab))
+        {
+            _tabs.Add(tab);
+            EnsureTabRefs();
+            StateHasChanged();
+        }
+    }
+
+    internal void UnregisterTab(StratumTab tab)
+    {
+        if (_tabs.Remove(tab))
+        {
+            EnsureTabRefs();
+            if (SelectedIndex >= _tabs.Count && _tabs.Count > 0)
+            {
+                SelectedIndex = _tabs.Count - 1;
+            }
+            StateHasChanged();
+        }
+    }
+
+    private void EnsureTabRefs()
+    {
+        var newRefs = new Dictionary<int, ElementReference>();
+        for (var i = 0; i < _tabs.Count; i++)
+        {
+            if (_tabRefs.TryGetValue(i, out var existing))
+                newRefs[i] = existing;
+            else
+                newRefs[i] = default;
+        }
+        _tabRefs = newRefs;
+    }
+
+    // ── Tab selection ───────────────────────────────────────────
+
+    private async Task SelectTab(int index)
+    {
+        if (index < 0 || index >= _tabs.Count) return;
+        if (_tabs[index].Disabled) return;
+        if (index == SelectedIndex) return;
+
+        SelectedIndex = index;
+        await SelectedIndexChanged.InvokeAsync(index);
+        await OnChange.InvokeAsync(index);
+    }
+
+    // ── Keyboard navigation ─────────────────────────────────────
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (_tabs.Count == 0) return;
+
+        int? targetIndex = e.Key switch
+        {
+            "ArrowRight" => FindNextEnabledTab(SelectedIndex, 1),
+            "ArrowLeft" => FindNextEnabledTab(SelectedIndex, -1),
+            "Home" => FindNextEnabledTab(-1, 1),
+            "End" => FindNextEnabledTab(_tabs.Count, -1),
+            _ => null
+        };
+
+        if (targetIndex is not null)
+        {
+            await SelectTab(targetIndex.Value);
+            if (_tabRefs.TryGetValue(targetIndex.Value, out var tabRef))
+            {
+                await tabRef.FocusAsync();
+            }
+        }
+    }
+
+    private int? FindNextEnabledTab(int from, int direction)
+    {
+        var candidate = from + direction;
+        while (candidate >= 0 && candidate < _tabs.Count)
+        {
+            if (!_tabs[candidate].Disabled)
+                return candidate;
+            candidate += direction;
+        }
+        return null;
+    }
+}

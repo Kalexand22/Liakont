@@ -1,0 +1,96 @@
+@namespace Stratum.Common.UI.Components
+
+@{
+    var clamped  = ClampValue(Value);
+    var barWidth = Indeterminate ? "50%" : FormattedPercent(clamped);
+    var barClass = BuildBarClass(Striped, Animated);
+    var labelText = $"{(int)Math.Round(clamped)}%";
+}
+
+<div role="progressbar"
+     class="@BuildRootClass(Color, Indeterminate, CssClass)"
+     style="height: @(Thickness)px;"
+     data-testid="@(TestId ?? "linear-progress")"
+     aria-valuemin="0"
+     aria-valuemax="100"
+     aria-valuenow="@(Indeterminate ? null : (object)(int)Math.Round(clamped))"
+     aria-busy="@(Indeterminate ? "true" : null)"
+     aria-label="@(AriaLabel ?? "Progress")">
+    <div class="linear-progress__track">
+        <div class="@barClass" style="width: @barWidth;">
+            @if (ShowLabel && !Indeterminate && clamped >= 20)
+            {
+                <span aria-hidden="true" class="linear-progress__label linear-progress__label--inside">@labelText</span>
+            }
+        </div>
+    </div>
+    @if (ShowLabel && !Indeterminate && clamped < 20)
+    {
+        <span aria-hidden="true" class="linear-progress__label linear-progress__label--outside">@labelText</span>
+    }
+</div>
+
+@code {
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    /// <summary>Accessible label for the progress bar. Default: "Progress".</summary>
+    [Parameter] public string? AriaLabel { get; set; }
+
+    /// <summary>Value 0–100 in determinate mode. Ignored when <see cref="Indeterminate"/> is true.</summary>
+    [Parameter] public double Value { get; set; }
+
+    /// <summary>Indeterminate mode: continuous animation, <see cref="Value"/> is ignored.</summary>
+    [Parameter] public bool Indeterminate { get; set; }
+
+    /// <summary>Diagonal striped pattern on the filled bar.</summary>
+    [Parameter] public bool Striped { get; set; }
+
+    /// <summary>Animates the stripes. Requires <see cref="Striped"/> = true.</summary>
+    [Parameter] public bool Animated { get; set; }
+
+    /// <summary>Height of the bar in pixels.</summary>
+    [Parameter] public int Thickness { get; set; } = 4;
+
+    /// <summary>Color variant.</summary>
+    [Parameter] public ProgressColor Color { get; set; } = ProgressColor.Default;
+
+    /// <summary>Shows the percentage value as text inside or beside the bar.</summary>
+    [Parameter] public bool ShowLabel { get; set; }
+
+    /// <summary>Additional CSS classes on the root element.</summary>
+    [Parameter] public string? CssClass { get; set; }
+
+    /// <summary>Clamps <paramref name="value"/> to [0, 100].</summary>
+    internal static double ClampValue(double value) => Math.Clamp(value, 0, 100);
+
+    /// <summary>Returns <paramref name="value"/> formatted as a CSS percentage using invariant culture.</summary>
+    internal static string FormattedPercent(double value) =>
+        value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + "%";
+
+    /// <summary>Builds the root element CSS class string.</summary>
+    internal static string BuildRootClass(ProgressColor color, bool indeterminate, string? cssClass)
+    {
+        var colorClass = color switch
+        {
+            ProgressColor.Info    => "info",
+            ProgressColor.Success => "success",
+            ProgressColor.Warning => "warning",
+            ProgressColor.Danger  => "danger",
+            _                     => "default",
+        };
+        var sb = new System.Text.StringBuilder("linear-progress linear-progress--").Append(colorClass);
+        if (indeterminate) sb.Append(" linear-progress--indeterminate");
+        if (!string.IsNullOrWhiteSpace(cssClass)) sb.Append(' ').Append(cssClass);
+        return sb.ToString();
+    }
+
+    /// <summary>Builds the progress bar inner element CSS class string.</summary>
+    internal static string BuildBarClass(bool striped, bool animated)
+    {
+        var sb = new System.Text.StringBuilder("linear-progress__bar");
+        if (striped) sb.Append(" linear-progress__bar--striped");
+        if (striped && animated) sb.Append(" linear-progress__bar--animated");
+        return sb.ToString();
+    }
+}

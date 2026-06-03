@@ -1,0 +1,178 @@
+/* FieldPropertyPanel — scoped styles for property sidebar */
+
+.field-property-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+/* ── Tabs ── */
+
+.field-property-panel__tabs {
+    display: flex;
+    flex-shrink: 0;
+    background: var(--surface-container);
+}
+
+.field-property-panel__tab {
+    flex: 1;
+    padding: var(--spacing-2) var(--spacing-2);
+    border: none;
+    background: transparent;
+    font-family: var(--font-family-base);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--on-surface-variant);
+    cursor: pointer;
+    transition: color var(--transition-fast, 150ms), box-shadow var(--transition-fast, 150ms);
+}
+
+.field-property-panel__tab:hover {
+    color: var(--on-surface);
+}
+
+.field-property-panel__tab--active {
+    color: var(--primary);
+    box-shadow: inset 0 -2px 0 var(--primary);
+}
+
+/* ── Content ── */
+
+.field-property-panel__content {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--spacing-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-3);
+}
+
+.field-property-panel__section-title {
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-label);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--on-surface-variant);
+}
+
+.field-property-panel__hint {
+    font-size: var(--font-size-label);
+    color: var(--on-surface-variant);
+    margin: 0;
+    line-height: 1.4;
+}
+
+/* ── Form groups ── */
+
+.field-property-panel__group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1);
+}
+
+.field-property-panel__group--inline {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.field-property-panel__label {
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-label);
+    font-weight: 500;
+    color: var(--on-surface-variant);
+}
+
+.field-property-panel__input,
+.field-property-panel__select,
+.field-property-panel__textarea {
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-body);
+    padding: var(--spacing-1) var(--spacing-2);
+    border: 1px solid var(--outline-variant);
+    border-radius: var(--radius-default, 2px);
+    background: var(--surface);
+    color: var(--on-surface);
+    transition: border-color var(--transition-fast, 150ms);
+    width: 100%;
+}
+
+.field-property-panel__input:focus,
+.field-property-panel__select:focus,
+.field-property-panel__textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.field-property-panel__textarea {
+    resize: vertical;
+    min-height: 60px;
+}
+
+/* ── Validation rules ── */
+
+.field-property-panel__rule {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1);
+    padding: var(--spacing-2);
+    background: var(--surface-container-low);
+    border-radius: var(--radius-default, 2px);
+    position: relative;
+}
+
+.field-property-panel__remove-btn {
+    position: absolute;
+    top: var(--spacing-1);
+    right: var(--spacing-1);
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: var(--radius-default, 2px);
+    background: transparent;
+    color: var(--on-surface-variant);
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.field-property-panel__remove-btn:hover {
+    background: var(--error-container);
+    color: var(--on-error-container);
+}
+
+.field-property-panel__add-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-1);
+    padding: var(--spacing-1) var(--spacing-2);
+    border: none;
+    border-radius: var(--radius-default, 2px);
+    background: transparent;
+    color: var(--primary);
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-label);
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.field-property-panel__add-btn:hover {
+    background: var(--surface-container-low);
+}
+
+/* ── Density ── */
+
+[data-density="compact"] .field-property-panel__content {
+    padding: var(--spacing-2);
+    gap: var(--spacing-2);
+}
+
+[data-density="compact"] .field-property-panel__tab {
+    padding: var(--spacing-1);
+    font-size: 10px;
+}

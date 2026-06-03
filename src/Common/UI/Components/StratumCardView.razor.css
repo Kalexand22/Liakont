@@ -1,0 +1,162 @@
+/* StratumCardView — Responsive auto-fit card grid layout */
+
+.stratum-card-view {
+    outline: none;
+}
+
+/* Scrollable mode: fixed-height container with overflow scroll */
+.stratum-card-view--scrollable {
+    height: var(--card-view-height, 600px);
+    overflow-y: auto;
+}
+
+.stratum-card-view__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(var(--card-min-width, 280px), 1fr));
+    gap: var(--spacing-4, 1rem);
+}
+
+/* Card */
+
+.stratum-card-view__card {
+    position: relative;
+    background: var(--color-bg-surface, #fff);
+    border: 1px solid var(--color-border, #dee2e6);
+    border-radius: var(--radius-md, 0.5rem);
+    padding: var(--spacing-4, 1rem);
+    cursor: pointer;
+    transition: box-shadow var(--transition-fast, 100ms) ease,
+                border-color var(--transition-fast, 100ms) ease;
+}
+
+.stratum-card-view__card:hover {
+    box-shadow: var(--shadow-md, 0 4px 6px -1px rgba(0, 0, 0, 0.1));
+}
+
+.stratum-card-view__card--selected {
+    border-color: var(--color-primary-500, #3b82f6);
+    background: var(--color-bg-selected, #eff6ff);
+}
+
+.stratum-card-view__card--focused {
+    outline: 2px solid var(--color-primary-500, #3b82f6);
+    outline-offset: 2px;
+}
+
+/* Card actions (checkbox + kebab) */
+
+.stratum-card-view__card-actions {
+    position: absolute;
+    top: var(--spacing-2, 0.5rem);
+    right: var(--spacing-2, 0.5rem);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-1, 0.25rem);
+}
+
+.stratum-card-view__checkbox input[type="checkbox"] {
+    width: 1rem;
+    height: 1rem;
+    cursor: pointer;
+    accent-color: var(--color-primary-500, #3b82f6);
+}
+
+/* Content */
+
+.stratum-card-view__content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1, 0.25rem);
+}
+
+.stratum-card-view__title {
+    font-size: var(--font-size-sm, 0.875rem);
+    font-weight: var(--font-weight-semibold, 600);
+    color: var(--color-text-primary, #1e293b);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.stratum-card-view__subtitle {
+    font-size: var(--font-size-xs, 0.75rem);
+    color: var(--color-text-secondary, #64748b);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.stratum-card-view__field {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: var(--font-size-xs, 0.75rem);
+    gap: var(--spacing-2, 0.5rem);
+}
+
+.stratum-card-view__field-label {
+    color: var(--color-text-secondary, #64748b);
+    flex-shrink: 0;
+}
+
+.stratum-card-view__field-value {
+    color: var(--color-text-primary, #1e293b);
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Empty state */
+
+.stratum-card-view__empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+}
+
+.stratum-card-view__empty-text {
+    color: var(--color-text-secondary, #64748b);
+    font-size: var(--font-size-sm, 0.875rem);
+}
+
+/* Loading skeleton */
+
+.stratum-card-view__card--skeleton {
+    cursor: default;
+    pointer-events: none;
+}
+
+.stratum-card-view__skeleton-title,
+.stratum-card-view__skeleton-line {
+    height: 0.75rem;
+    border-radius: var(--radius-sm, 0.25rem);
+    background: linear-gradient(90deg,
+        var(--color-neutral-200, #e2e8f0) 25%,
+        var(--color-neutral-100, #f1f5f9) 50%,
+        var(--color-neutral-200, #e2e8f0) 75%);
+    background-size: 200% 100%;
+    animation: stratum-card-shimmer 1.5s ease-in-out infinite;
+}
+
+.stratum-card-view__skeleton-title {
+    width: 60%;
+    height: 1rem;
+    margin-bottom: var(--spacing-2, 0.5rem);
+}
+
+.stratum-card-view__skeleton-line {
+    width: 80%;
+    margin-top: var(--spacing-1, 0.25rem);
+}
+
+.stratum-card-view__skeleton-line--short {
+    width: 50%;
+}
+
+@keyframes stratum-card-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}

@@ -1,0 +1,156 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.UI.Components.Internal
+
+@*
+ * FormBuilderCanvas — UIE02
+ *
+ * Drag-drop form builder canvas for authoring form templates.
+ * Three-pane layout: palette (left) + canvas (center) + properties (right).
+ * Integrates LogicTreeEditor (UIE01) for field visibility conditions.
+ *
+ * API:
+ *   <FormBuilderCanvas Value="..." OnSave="..." />
+ *
+ * Value is FormBuilderTemplateState (UI-layer model). Conversion to domain
+ * DTOs (FormTemplateDto) happens at the consumer level.
+ *
+ * All public parameters use Stratum types only (R2). No Radzen dependency.
+ *
+ * Ref: orchestration/items/UIE.yaml — UIE02
+ *      docs/ergonomie/diteur_de_formulaires_formengine/code.html
+ *@
+
+<div class="form-builder" data-testid="@(TestId ?? "form-builder")">
+
+    @* ── Header ── *@
+    <div class="form-builder__header" data-testid="@Tid("header")">
+        <div class="form-builder__header-left">
+            <button type="button"
+                    class="form-builder__btn form-builder__btn--icon"
+                    title="Annuler (Ctrl+Z)"
+                    disabled="@(!CanUndo)"
+                    data-testid="@Tid("undo")"
+                    @onclick="Undo">
+                ↶
+            </button>
+            <button type="button"
+                    class="form-builder__btn form-builder__btn--icon"
+                    title="Rétablir (Ctrl+Y)"
+                    disabled="@(!CanRedo)"
+                    data-testid="@Tid("redo")"
+                    @onclick="Redo">
+                ↷
+            </button>
+        </div>
+        <div class="form-builder__header-center">
+            <span class="form-builder__title" data-testid="@Tid("title")">
+                @(_template.Name ?? "Nouveau formulaire")
+            </span>
+            <span class="form-builder__version">v@(_template.Version)</span>
+        </div>
+        <div class="form-builder__header-right">
+            @if (PreviewContent is not null)
+            {
+                <button type="button"
+                        class="form-builder__btn form-builder__btn--outline"
+                        data-testid="@Tid("preview-toggle")"
+                        @onclick="TogglePreview">
+                    @(_showPreview ? "Éditer" : "Aperçu")
+                </button>
+            }
+            <button type="button"
+                    class="form-builder__btn form-builder__btn--primary"
+                    data-testid="@Tid("save")"
+                    @onclick="HandleSave">
+                Enregistrer
+            </button>
+        </div>
+    </div>
+
+    @* ── Body: 3-pane layout ── *@
+    <div class="form-builder__body">
+
+        @if (!_showPreview)
+        {
+            @* ── Left: Field palette ── *@
+            <aside class="form-builder__palette" data-testid="@Tid("palette")">
+                <div class="form-builder__palette-title">Bibliothèque de composants</div>
+                <FieldPalette OnFieldTypeSelected="HandlePaletteFieldSelected" TestIdPrefix="@TidBase()" />
+            </aside>
+
+            @* ── Center: Canvas ── *@
+            <div class="form-builder__canvas" data-testid="@Tid("canvas")">
+                @if (_sections.Count == 0)
+                {
+                    <div class="form-builder__empty" data-testid="@Tid("empty")">
+                        <p>Aucune section. Cliquez ci-dessous pour commencer.</p>
+                    </div>
+                }
+
+                @for (var si = 0; si < _sections.Count; si++)
+                {
+                    var section = _sections[si];
+                    var sectionIdx = si;
+                    <FormCanvasSection Section="section"
+                                       SectionIndex="sectionIdx"
+                                       IsSelected="@(_selectedSectionIdx == sectionIdx && _selectedFieldIdx < 0)"
+                                       SelectedFieldIndex="@(_selectedSectionIdx == sectionIdx ? _selectedFieldIdx : -1)"
+                                       TestIdPrefix="@TidBase()"
+                                       OnSectionClick="() => SelectSection(sectionIdx)"
+                                       OnFieldClick="fi => SelectField(sectionIdx, fi)"
+                                       OnMoveFieldUp="fi => MoveFieldUp(sectionIdx, fi)"
+                                       OnMoveFieldDown="fi => MoveFieldDown(sectionIdx, fi)"
+                                       OnRemoveField="fi => RemoveField(sectionIdx, fi)" />
+                }
+
+                <div class="form-builder__canvas-actions">
+                    <button type="button"
+                            class="form-builder__btn form-builder__btn--ghost"
+                            data-testid="@Tid("add-section")"
+                            @onclick="AddSection">
+                        + Ajouter une section
+                    </button>
+                </div>
+            </div>
+
+            @* ── Right: Properties ── *@
+            <aside class="form-builder__properties" data-testid="@Tid("properties")">
+                @if (_selectedFieldIdx >= 0 && _selectedSectionIdx >= 0
+                     && _selectedSectionIdx < _sections.Count
+                     && _selectedFieldIdx < _sections[_selectedSectionIdx].Fields.Count)
+                {
+                    <FieldPropertyPanel Field="_sections[_selectedSectionIdx].Fields[_selectedFieldIdx]"
+                                        Section="_sections[_selectedSectionIdx]"
+                                        AllFields="_sections.SelectMany(s => s.Fields).ToList()"
+                                        OnFieldChanged="HandleFieldPropertyChanged"
+                                        OnSectionChanged="HandleSectionPropertyChanged"
+                                        TestIdPrefix="@TidBase()" />
+                }
+                else if (_selectedSectionIdx >= 0 && _selectedSectionIdx < _sections.Count && _selectedFieldIdx < 0)
+                {
+                    <FieldPropertyPanel Field="null"
+                                        Section="_sections[_selectedSectionIdx]"
+                                        AllFields="_sections.SelectMany(s => s.Fields).ToList()"
+                                        OnFieldChanged="HandleFieldPropertyChanged"
+                                        OnSectionChanged="HandleSectionPropertyChanged"
+                                        TestIdPrefix="@TidBase()" />
+                }
+                else
+                {
+                    <div class="form-builder__properties-empty">
+                        <p class="text-muted small">Sélectionnez un champ ou une section pour modifier ses propriétés.</p>
+                    </div>
+                }
+            </aside>
+        }
+        else if (PreviewContent is not null)
+        {
+            @* ── Preview mode (rendered by consumer) ── *@
+            <div class="form-builder__preview" data-testid="@Tid("preview")">
+                <div class="form-builder__preview-frame">
+                    @PreviewContent(GetTemplateState())
+                </div>
+            </div>
+        }
+    </div>
+</div>

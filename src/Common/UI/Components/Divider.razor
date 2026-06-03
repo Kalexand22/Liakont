@@ -1,0 +1,52 @@
+@namespace Stratum.Common.UI.Components
+
+@if (IsHorizontal)
+{
+    @if (string.IsNullOrEmpty(Text))
+    {
+        <hr class="@BuildClass()" role="separator" data-testid="@(TestId ?? "divider")" />
+    }
+    else
+    {
+        <div class="@BuildClass()" role="separator" aria-label="@Text" data-testid="@(TestId ?? "divider")">
+            <span class="divider__text">@Text</span>
+        </div>
+    }
+}
+else
+{
+    <div class="@BuildClass()" role="separator" data-testid="@(TestId ?? "divider")"></div>
+}
+
+@code {
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    /// <summary>Orientation — horizontal (default) or vertical.</summary>
+    [Parameter] public Orientation Orientation { get; set; } = Orientation.Horizontal;
+
+    /// <summary>Optional text label displayed centered on the divider line. Only applies to horizontal orientation.</summary>
+    [Parameter] public string? Text { get; set; }
+
+    /// <summary>Line variant — solid (default) or dashed.</summary>
+    [Parameter] public DividerVariant Variant { get; set; } = DividerVariant.Solid;
+
+    /// <summary>Spacing (margin) around the divider.</summary>
+    [Parameter] public DividerSpacing Spacing { get; set; } = DividerSpacing.Md;
+
+    private bool IsHorizontal => Orientation == Orientation.Horizontal;
+
+    internal string BuildClass()
+    {
+        var orientClass = IsHorizontal ? "horizontal" : "vertical";
+        var variantClass = Variant == DividerVariant.Dashed ? "dashed" : "solid";
+        var spacingClass = Spacing switch
+        {
+            DividerSpacing.Sm => "sm",
+            DividerSpacing.Lg => "lg",
+            _                 => "md",
+        };
+        var hasText = !string.IsNullOrEmpty(Text) && IsHorizontal ? " divider--with-text" : "";
+        return $"divider divider--{orientClass} divider--{variantClass} divider--spacing-{spacingClass}{hasText}";
+    }
+}

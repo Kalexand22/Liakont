@@ -1,0 +1,176 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TEntity
+@using Microsoft.AspNetCore.Components.Routing
+@using Stratum.Common.Abstractions.Collaboration
+@using Stratum.Common.UI.Models
+@inject NavigationManager Nav
+@inject Stratum.Common.UI.Services.IToastService ToastService
+@inject IJSRuntime JS
+
+<ShortcutScope ScopeType="ShortcutScopeType.Page" Bindings="@_shortcuts">
+    <NavigationLock OnBeforeInternalNavigation="HandleNavLock" ConfirmExternalNavigation="@IsDirty" />
+
+    @if (_loading)
+    {
+        <p class="text-muted" data-testid="@($"{TestId}-loading")">Chargement…</p>
+    }
+    else if (!IsCreateMode && EntityType is not null)
+    {
+        <EntityPresenceLayout EntityType="@EntityType"
+                              EntityId="@Id.ToString()"
+                              OnEntityChanged="@(OnEntityChanged ?? (_ => Task.CompletedTask))">
+            @RenderHeader()
+
+            @if (GlobalError is not null)
+            {
+                <div class="alert alert-danger mb-3" role="alert" data-testid="@($"{TestId}-error")">@GlobalError</div>
+            }
+
+            @Content(Context)
+
+            @if (AuditSection is not null)
+            {
+                <div class="mt-4">@AuditSection</div>
+            }
+
+            <ActionBar TestId="@($"{TestId}-actions")">
+                <div class="d-flex justify-content-between w-100">
+                    <div>
+                        <StratumButton Text="Retour liste" Variant="ButtonVariant.Secondary" Outline
+                                       Href="@ListUrl" TestId="@($"{TestId}-back-btn")" />
+                    </div>
+                    <div class="d-flex gap-2">
+                        @RenderActionBarButtons()
+                    </div>
+                </div>
+            </ActionBar>
+        </EntityPresenceLayout>
+    }
+    else
+    {
+        @RenderHeader()
+
+        @if (GlobalError is not null)
+        {
+            <div class="alert alert-danger mb-3" role="alert" data-testid="@($"{TestId}-error")">@GlobalError</div>
+        }
+
+        @Content(Context)
+
+        @if (AuditSection is not null)
+        {
+            <div class="mt-4">@AuditSection</div>
+        }
+
+        <ActionBar TestId="@($"{TestId}-actions")">
+            <div class="d-flex justify-content-between w-100">
+                <div>
+                    <StratumButton Text="Retour liste" Variant="ButtonVariant.Secondary" Outline
+                                   Href="@ListUrl" TestId="@($"{TestId}-back-btn")" />
+                </div>
+                <div class="d-flex gap-2">
+                    @RenderActionBarButtons()
+                </div>
+            </div>
+        </ActionBar>
+    }
+</ShortcutScope>
+
+@code {
+    private RenderFragment RenderHeader() => __builder =>
+    {
+        if (StatusContent is not null)
+        {
+            <PageHeader Title="@Title(IsCreateMode)"
+                        Breadcrumbs="@Breadcrumbs"
+                        TestId="@($"{TestId}-header")">
+                <Status>@StatusContent</Status>
+                <Actions>
+                    @RenderHeaderActions(Context)
+                </Actions>
+            </PageHeader>
+        }
+        else
+        {
+            <PageHeader Title="@Title(IsCreateMode)"
+                        Breadcrumbs="@Breadcrumbs"
+                        TestId="@($"{TestId}-header")">
+                <Actions>
+                    @RenderHeaderActions(Context)
+                </Actions>
+            </PageHeader>
+        }
+    };
+
+    private RenderFragment RenderHeaderActions(FormPageContext ctx) => __builder =>
+    {
+        if (_mode == FormMode.View)
+        {
+            if (EditPermission is not null)
+            {
+                <PermissionGate Permission="@EditPermission">
+                    <StratumButton Size="ButtonSize.Small" Variant="ButtonVariant.Primary"
+                                   OnClick="SwitchToEditAsync" TestId="@($"{TestId}-edit-btn")">
+                        Éditer
+                    </StratumButton>
+                </PermissionGate>
+            }
+            else
+            {
+                <StratumButton Size="ButtonSize.Small" Variant="ButtonVariant.Primary"
+                               OnClick="SwitchToEditAsync" TestId="@($"{TestId}-edit-btn")">
+                    Éditer
+                </StratumButton>
+            }
+        }
+        else
+        {
+            <StratumButton Size="ButtonSize.Small" Variant="ButtonVariant.Secondary" Outline
+                           OnClick="CancelAsync" TestId="@($"{TestId}-header-cancel-btn")">
+                Annuler
+            </StratumButton>
+        }
+        @if (HeaderActions is not null) { @HeaderActions(ctx) }
+    };
+
+    private RenderFragment RenderActionBarButtons() => __builder =>
+    {
+        if (_mode == FormMode.View)
+        {
+            if (EditPermission is not null)
+            {
+                <PermissionGate Permission="@EditPermission">
+                    <StratumButton Variant="ButtonVariant.Primary" OnClick="SwitchToEditAsync"
+                                   TestId="@($"{TestId}-edit-btn-bar")">
+                        <span>Éditer <kbd class="ms-2 opacity-75">Ctrl+M</kbd></span>
+                    </StratumButton>
+                </PermissionGate>
+            }
+            else
+            {
+                <StratumButton Variant="ButtonVariant.Primary" OnClick="SwitchToEditAsync"
+                               TestId="@($"{TestId}-edit-btn-bar")">
+                    <span>Éditer <kbd class="ms-2 opacity-75">Ctrl+M</kbd></span>
+                </StratumButton>
+            }
+        }
+        else
+        {
+            <StratumButton Variant="ButtonVariant.Secondary" Outline
+                           OnClick="CancelAsync" TestId="@($"{TestId}-cancel-btn")">
+                <span>Annuler <kbd class="ms-2 opacity-75">Esc</kbd></span>
+            </StratumButton>
+            <StratumButton Variant="ButtonVariant.Primary" Disabled="@_saving"
+                           OnClick="SaveAsync" TestId="@($"{TestId}-save-btn")">
+                <span>@(_saving ? "Enregistrement\u2026" : "Enregistrer") <kbd class="ms-2 opacity-75">Ctrl+S</kbd></span>
+            </StratumButton>
+            if (CreateUrl is not null)
+            {
+                <StratumButton Variant="ButtonVariant.Primary" Outline Disabled="@_saving"
+                               OnClick="SaveAndNewAsync" TestId="@($"{TestId}-save-new-btn")">
+                    <span>Sauvegarder et nouveau <kbd class="ms-2 opacity-75">Ctrl+⇧S</kbd></span>
+                </StratumButton>
+            }
+        }
+    };
+}

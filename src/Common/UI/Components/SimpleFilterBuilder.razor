@@ -1,0 +1,829 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TItem where TItem : notnull
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Models
+@using Stratum.Common.UI.Services
+
+@* SimpleFilterBuilder<TItem> — lightweight popover to build one simple filter criterion.
+ *
+ * Two-step progressive reveal:
+ *   Step 1 — field selection (searchable, grouped by category, visible first).
+ *   Step 2 — operator + value (reveal adapted to the field data type).
+ *
+ * Unlike StratumFilterBuilder this is a popover (no modal overlay, no saved filters,
+ * single criterion). The caller controls Visible and positions the popover relative
+ * to its anchor via a positioned wrapper.
+ *
+ * Edit mode: pass InitialCriterion to pre-fill field/operator/value.
+ *
+ * Keyboard (DF-10):
+ *   - Escape → close
+ *   - Enter on field item → advance to step 2
+ *   - Enter on value input → apply (when valid)
+ *   - "Retour" button on step 2 → back to step 1
+ *
+ * Usage:
+ *   <div style="position: relative">
+ *       <SimpleFilterBuilder TItem="InvoiceDto"
+ *                            Registry="@_registry"
+ *                            @bind-Visible="_showBuilder"
+ *                            OnApply="HandleApply" />
+ *   </div>
+ *
+ * Ref: docs/specs/grid-filter-system-v2.md §5, §12, DF-04, DF-10.
+ *@
+
+@if (Visible)
+{
+    <div class="simple-filter-builder"
+         role="dialog"
+         aria-label="Ajouter un filtre"
+         data-testid="@(TestId ?? "filter-builder-popover")"
+         tabindex="-1"
+         @ref="_rootRef"
+         @onkeydown="HandleRootKeyDown">
+
+        @if (_step == BuilderStep.Field)
+        {
+            <div class="simple-filter-builder__header">
+                <span class="simple-filter-builder__title">Choisir un champ</span>
+                <button type="button"
+                        class="simple-filter-builder__close"
+                        aria-label="Fermer"
+                        data-testid="filter-builder-close"
+                        @onclick="CancelAndClose">
+                    <StratumIcon Name="close" Class="simple-filter-builder__close-icon" AriaHidden />
+                </button>
+            </div>
+
+            <div class="simple-filter-builder__search">
+                <input type="text"
+                       class="simple-filter-builder__search-input"
+                       placeholder="Rechercher un champ…"
+                       aria-label="Rechercher un champ"
+                       data-testid="filter-builder-search"
+                       value="@_fieldSearch"
+                       @oninput="HandleSearchInput" />
+            </div>
+
+            <div class="simple-filter-builder__field-list"
+                 role="listbox"
+                 aria-label="Champs disponibles"
+                 data-testid="filter-builder-field-list">
+                @foreach (var group in GetFilteredGroups())
+                {
+                    <div class="simple-filter-builder__field-group">
+                        <div class="simple-filter-builder__field-group-title">@group.Category</div>
+                        @foreach (var col in group.Columns)
+                        {
+                            var c = col;
+                            <button type="button"
+                                    class="simple-filter-builder__field-item"
+                                    role="option"
+                                    data-testid="@($"filter-builder-field-{c.Key}")"
+                                    @onclick="() => SelectField(c)">
+                                <span class="simple-filter-builder__field-title">@c.Title</span>
+                                <span class="simple-filter-builder__field-type">@GetDataTypeLabel(c.DataType)</span>
+                            </button>
+                        }
+                    </div>
+                }
+                @if (!HasAnyFilteredColumn())
+                {
+                    <div class="simple-filter-builder__empty" data-testid="filter-builder-empty">
+                        Aucun champ correspondant.
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="simple-filter-builder__header">
+                <button type="button"
+                        class="simple-filter-builder__back"
+                        aria-label="Retour"
+                        data-testid="filter-builder-back"
+                        @onclick="BackToFieldStep">
+                    <StratumIcon Name="arrow_back" Class="simple-filter-builder__back-icon" AriaHidden />
+                </button>
+                <span class="simple-filter-builder__title" data-testid="filter-builder-selected-field">
+                    @(_selectedField?.Title ?? string.Empty)
+                </span>
+                <button type="button"
+                        class="simple-filter-builder__close"
+                        aria-label="Fermer"
+                        data-testid="filter-builder-close"
+                        @onclick="CancelAndClose">
+                    <StratumIcon Name="close" Class="simple-filter-builder__close-icon" AriaHidden />
+                </button>
+            </div>
+
+            <div class="simple-filter-builder__operator-row">
+                <label class="simple-filter-builder__label" for="@_operatorId">Opérateur</label>
+                <select id="@_operatorId"
+                        class="simple-filter-builder__operator-select"
+                        data-testid="filter-builder-operator"
+                        @onchange="HandleOperatorChange">
+                    @foreach (var op in GetAvailableOperators())
+                    {
+                        <option value="@op" selected="@(op == _selectedOperator)">
+                            @FilterOperatorLabels.GetLabel(op)
+                        </option>
+                    }
+                </select>
+            </div>
+
+            @if (NeedsValueInput())
+            {
+                <div class="simple-filter-builder__value-row" data-testid="filter-builder-value-row">
+                    @RenderValueEditor()
+                </div>
+            }
+
+            <div class="simple-filter-builder__actions">
+                <button type="button"
+                        class="simple-filter-builder__cancel-btn"
+                        data-testid="filter-builder-cancel"
+                        @onclick="CancelAndClose">
+                    Annuler
+                </button>
+                <button type="button"
+                        class="simple-filter-builder__apply-btn"
+                        data-testid="filter-builder-apply"
+                        disabled="@(!CanApply())"
+                        @onclick="Apply">
+                    Appliquer
+                </button>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter]
+    public IColumnRegistry<TItem> Registry { get; set; } = default!;
+
+    [Parameter]
+    public bool Visible { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> VisibleChanged { get; set; }
+
+    /// <summary>
+    /// Initial criterion for edit mode. Read ONCE per open cycle (on the
+    /// Visible false → true transition). To re-target an already-open popover
+    /// at a different criterion, toggle Visible off then on again.
+    /// </summary>
+    [Parameter]
+    public FilterCriterion? InitialCriterion { get; set; }
+
+    [Parameter]
+    public EventCallback<FilterCriterion> OnApply { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    [Parameter]
+    public string? TestId { get; set; }
+
+    private enum BuilderStep
+    {
+        Field,
+        OperatorValue,
+    }
+
+    private BuilderStep _step = BuilderStep.Field;
+    private string _fieldSearch = string.Empty;
+    private ColumnDefinition? _selectedField;
+    private FilterOperator _selectedOperator;
+    private string _textValue = string.Empty;
+    private string _textValueEnd = string.Empty;
+    private bool? _boolValue;
+    private DateOnly? _dateValue;
+    private DateOnly? _dateValueEnd;
+    private decimal? _numberValue;
+    private decimal? _numberValueEnd;
+    private string? _enumValue;
+    private HashSet<string> _enumListValues = new(StringComparer.Ordinal);
+    private string[] _enumListValuesArray = Array.Empty<string>();
+    private RelativeDatePeriod _relativePeriod;
+    private bool _initialized;
+    private bool _shouldFocusRoot;
+    private bool _applying;
+    private ElementReference _rootRef;
+
+    private readonly string _operatorId = $"fbop-{Guid.NewGuid().ToString("N")[..8]}";
+
+    protected override void OnParametersSet()
+    {
+        if (Visible && !_initialized)
+        {
+            InitializeFromCriterion();
+            _initialized = true;
+            _shouldFocusRoot = true;
+        }
+        else if (!Visible)
+        {
+            _initialized = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_shouldFocusRoot)
+        {
+            _shouldFocusRoot = false;
+            try
+            {
+                await _rootRef.FocusAsync();
+            }
+            catch
+            {
+                // Element may not yet be in the DOM — harmless.
+            }
+        }
+    }
+
+    private void InitializeFromCriterion()
+    {
+        ResetValueState();
+        _fieldSearch = string.Empty;
+        _selectedField = null;
+
+        if (InitialCriterion is null || Registry is null)
+        {
+            _step = BuilderStep.Field;
+            return;
+        }
+
+        var column = Registry.GetColumn(InitialCriterion.Field);
+        if (column is null)
+        {
+            _step = BuilderStep.Field;
+            return;
+        }
+
+        _selectedField = column;
+        _selectedOperator = InitialCriterion.Operator;
+        HydrateValueFromCriterion(InitialCriterion);
+        _step = BuilderStep.OperatorValue;
+    }
+
+    private void HydrateValueFromCriterion(FilterCriterion criterion)
+    {
+        if (_selectedField is null)
+        {
+            return;
+        }
+
+        switch (_selectedField.DataType)
+        {
+            case ColumnDataType.Text:
+                _textValue = criterion.Value?.ToString() ?? string.Empty;
+                break;
+            case ColumnDataType.Number:
+            case ColumnDataType.Money:
+                _numberValue = TryConvertDecimal(criterion.Value);
+                _numberValueEnd = TryConvertDecimal(criterion.ValueEnd);
+                break;
+            case ColumnDataType.Date:
+                if (criterion.Operator == FilterOperator.RelativePeriod && criterion.Value is RelativeDatePeriod p)
+                {
+                    _relativePeriod = p;
+                }
+                else
+                {
+                    _dateValue = TryConvertDate(criterion.Value);
+                    _dateValueEnd = TryConvertDate(criterion.ValueEnd);
+                }
+                break;
+            case ColumnDataType.Boolean:
+                _boolValue = criterion.Value as bool?;
+                break;
+            case ColumnDataType.Enum:
+                if (IsListOperator(criterion.Operator) && criterion.Value is System.Collections.IEnumerable list and not string)
+                {
+                    _enumListValues = new HashSet<string>(
+                        list.Cast<object?>()
+                            .Select(o => o?.ToString() ?? string.Empty)
+                            .Where(s => !string.IsNullOrEmpty(s)),
+                        StringComparer.Ordinal);
+                    _enumListValuesArray = _enumListValues.ToArray();
+                }
+                else
+                {
+                    _enumValue = criterion.Value?.ToString();
+                }
+                break;
+        }
+    }
+
+    private static decimal? TryConvertDecimal(object? value) => value switch
+    {
+        null => null,
+        decimal d => d,
+        IConvertible _ => decimal.TryParse(
+            value.ToString(),
+            System.Globalization.NumberStyles.Any,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out var result)
+            ? result
+            : (decimal?)null,
+        _ => null,
+    };
+
+    private static DateOnly? TryConvertDate(object? value) => value switch
+    {
+        null => null,
+        DateOnly d => d,
+        DateTime dt => DateOnly.FromDateTime(dt),
+        DateTimeOffset dto => DateOnly.FromDateTime(dto.UtcDateTime),
+        string s => DateOnly.TryParse(s, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : null,
+        _ => null,
+    };
+
+    private sealed record FieldGroup(string Category, IReadOnlyList<ColumnDefinition> Columns);
+
+    private IEnumerable<FieldGroup> GetFilteredGroups()
+    {
+        if (Registry is null)
+        {
+            yield break;
+        }
+
+        var search = _fieldSearch.Trim();
+        var visibleKeys = new HashSet<string>(
+            Registry.GetDefaultVisibleColumns().Select(c => c.Key),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var group in Registry.GetColumnsByCategory())
+        {
+            var filtered = group.Value
+                .Where(c => string.IsNullOrEmpty(search) ||
+                            c.Title.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                            c.Key.Contains(search, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(c => visibleKeys.Contains(c.Key))
+                .ThenBy(c => c.SortOrder)
+                .ToList();
+
+            if (filtered.Count > 0)
+            {
+                yield return new FieldGroup(group.Key, filtered);
+            }
+        }
+    }
+
+    private bool HasAnyFilteredColumn() => GetFilteredGroups().Any();
+
+    private void HandleSearchInput(ChangeEventArgs e)
+    {
+        _fieldSearch = e.Value?.ToString() ?? string.Empty;
+    }
+
+    private void SelectField(ColumnDefinition column)
+    {
+        _selectedField = column;
+        var operators = FilterOperatorMap.GetOperators(column.DataType);
+        _selectedOperator = operators.Count > 0 ? operators[0] : FilterOperator.Equals;
+        ResetValueState();
+        _step = BuilderStep.OperatorValue;
+    }
+
+    private void ResetValueState()
+    {
+        _textValue = string.Empty;
+        _textValueEnd = string.Empty;
+        _boolValue = null;
+        _dateValue = null;
+        _dateValueEnd = null;
+        _numberValue = null;
+        _numberValueEnd = null;
+        _enumValue = null;
+        _enumListValues = new HashSet<string>(StringComparer.Ordinal);
+        _enumListValuesArray = Array.Empty<string>();
+        _relativePeriod = RelativeDatePeriod.Today;
+    }
+
+    private void BackToFieldStep()
+    {
+        _step = BuilderStep.Field;
+    }
+
+    private IReadOnlyList<FilterOperator> GetAvailableOperators()
+    {
+        return _selectedField is null
+            ? Array.Empty<FilterOperator>()
+            : FilterOperatorMap.GetOperators(_selectedField.DataType);
+    }
+
+    private void HandleOperatorChange(ChangeEventArgs e)
+    {
+        var raw = e.Value?.ToString();
+        if (!string.IsNullOrEmpty(raw) && Enum.TryParse<FilterOperator>(raw, out var op))
+        {
+            _selectedOperator = op;
+        }
+    }
+
+    private bool NeedsValueInput() =>
+        _selectedOperator is not (FilterOperator.IsNull or FilterOperator.IsNotNull);
+
+    private bool CanApply()
+    {
+        if (_selectedField is null)
+        {
+            return false;
+        }
+
+        if (!NeedsValueInput())
+        {
+            return true;
+        }
+
+        return _selectedField.DataType switch
+        {
+            ColumnDataType.Text => !string.IsNullOrEmpty(_textValue),
+            ColumnDataType.Number or ColumnDataType.Money => IsRangeOperator(_selectedOperator)
+                ? _numberValue.HasValue && _numberValueEnd.HasValue
+                : _numberValue.HasValue,
+            ColumnDataType.Date => _selectedOperator switch
+            {
+                FilterOperator.RelativePeriod => true,
+                FilterOperator.Between or FilterOperator.NotBetween => _dateValue.HasValue && _dateValueEnd.HasValue,
+                _ => _dateValue.HasValue,
+            },
+            ColumnDataType.Boolean => _boolValue.HasValue,
+            ColumnDataType.Enum => IsListOperator(_selectedOperator)
+                ? _enumListValues.Count > 0
+                : !string.IsNullOrEmpty(_enumValue),
+            _ => false,
+        };
+    }
+
+    private static bool IsRangeOperator(FilterOperator op) =>
+        op is FilterOperator.Between or FilterOperator.NotBetween;
+
+    private static bool IsListOperator(FilterOperator op) =>
+        op is FilterOperator.In or FilterOperator.NotIn;
+
+    private async Task Apply()
+    {
+        if (_applying || _selectedField is null || !CanApply())
+        {
+            return;
+        }
+
+        _applying = true;
+        try
+        {
+            var (value, valueEnd) = BuildValuePair();
+            var criterion = new FilterCriterion(
+                _selectedField.Key,
+                _selectedOperator,
+                value,
+                valueEnd);
+
+            if (OnApply.HasDelegate)
+            {
+                await OnApply.InvokeAsync(criterion);
+            }
+
+            await CloseAfterApply();
+        }
+        finally
+        {
+            _applying = false;
+        }
+    }
+
+    private (object? Value, object? ValueEnd) BuildValuePair()
+    {
+        if (_selectedField is null || !NeedsValueInput())
+        {
+            return (null, null);
+        }
+
+        switch (_selectedField.DataType)
+        {
+            case ColumnDataType.Text:
+                if (IsListOperator(_selectedOperator))
+                {
+                    var items = _textValue
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Cast<object>()
+                        .ToArray();
+                    return (items, null);
+                }
+                return (_textValue, null);
+
+            case ColumnDataType.Number:
+            case ColumnDataType.Money:
+                return IsRangeOperator(_selectedOperator)
+                    ? (_numberValue, _numberValueEnd)
+                    : (_numberValue, null);
+
+            case ColumnDataType.Date:
+                if (_selectedOperator == FilterOperator.RelativePeriod)
+                {
+                    return (_relativePeriod, null);
+                }
+                if (IsRangeOperator(_selectedOperator))
+                {
+                    return (_dateValue, _dateValueEnd);
+                }
+                return (_dateValue, null);
+
+            case ColumnDataType.Boolean:
+                return (_boolValue, null);
+
+            case ColumnDataType.Enum:
+                if (IsListOperator(_selectedOperator))
+                {
+                    var items = _enumListValues.Cast<object>().ToArray();
+                    return (items, null);
+                }
+                return (_enumValue, null);
+
+            default:
+                return (null, null);
+        }
+    }
+
+    // Close paths:
+    //   CancelAndClose  — user canceled (cancel/close buttons, Escape). Raises OnCancel.
+    //   CloseAfterApply — Apply already emitted OnApply. Only hides the popover.
+    // Never call the two paths on the same tick.
+    private async Task CancelAndClose()
+    {
+        if (VisibleChanged.HasDelegate)
+        {
+            await VisibleChanged.InvokeAsync(false);
+        }
+        if (OnCancel.HasDelegate)
+        {
+            await OnCancel.InvokeAsync();
+        }
+    }
+
+    private async Task CloseAfterApply()
+    {
+        if (VisibleChanged.HasDelegate)
+        {
+            await VisibleChanged.InvokeAsync(false);
+        }
+    }
+
+    private async Task HandleRootKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            await CancelAndClose();
+        }
+        else if (e.Key == "Enter" && _step == BuilderStep.OperatorValue && CanApply())
+        {
+            // Let the focused element handle its own Enter first (e.g. Apply button
+            // click activation). The reentrancy guard in Apply() prevents a double
+            // invocation when this shortcut fires in addition to the button click.
+            await Apply();
+        }
+    }
+
+    private static string GetDataTypeLabel(ColumnDataType type) => type switch
+    {
+        ColumnDataType.Text => "texte",
+        ColumnDataType.Number => "nombre",
+        ColumnDataType.Money => "montant",
+        ColumnDataType.Date => "date",
+        ColumnDataType.Boolean => "oui/non",
+        ColumnDataType.Enum => "liste",
+        _ => "—",
+    };
+
+    // ── Value editors ─────────────────────────────────────────────
+
+    private RenderFragment RenderValueEditor() => builder =>
+    {
+        if (_selectedField is null)
+        {
+            return;
+        }
+
+        switch (_selectedField.DataType)
+        {
+            case ColumnDataType.Text:
+                RenderTextEditor(builder);
+                break;
+            case ColumnDataType.Number:
+            case ColumnDataType.Money:
+                RenderNumberEditor(builder);
+                break;
+            case ColumnDataType.Date:
+                RenderDateEditor(builder);
+                break;
+            case ColumnDataType.Boolean:
+                RenderBooleanEditor(builder);
+                break;
+            case ColumnDataType.Enum:
+                RenderEnumEditor(builder);
+                break;
+        }
+    };
+
+    private void RenderTextEditor(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder)
+    {
+        var placeholder = IsListOperator(_selectedOperator)
+            ? "valeur1, valeur2, …"
+            : "Saisir une valeur";
+
+        builder.OpenElement(0, "input");
+        builder.AddAttribute(1, "type", "text");
+        builder.AddAttribute(2, "class", "simple-filter-builder__input");
+        builder.AddAttribute(3, "placeholder", placeholder);
+        builder.AddAttribute(4, "aria-label", "Valeur");
+        builder.AddAttribute(5, "data-testid", "filter-builder-value-text");
+        builder.AddAttribute(6, "value", _textValue);
+        builder.AddAttribute(7, "oninput", EventCallback.Factory.Create<ChangeEventArgs>(
+            this,
+            e => _textValue = e.Value?.ToString() ?? string.Empty));
+        builder.CloseElement();
+    }
+
+    private void RenderNumberEditor(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder)
+    {
+        builder.OpenElement(0, "input");
+        builder.AddAttribute(1, "type", "number");
+        builder.AddAttribute(2, "class", "simple-filter-builder__input");
+        builder.AddAttribute(3, "placeholder", "Valeur");
+        builder.AddAttribute(4, "aria-label", "Valeur");
+        builder.AddAttribute(5, "data-testid", "filter-builder-value-number");
+        builder.AddAttribute(6, "value", _numberValue?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty);
+        builder.AddAttribute(7, "oninput", EventCallback.Factory.Create<ChangeEventArgs>(
+            this,
+            e => _numberValue = TryConvertDecimal(e.Value?.ToString())));
+        builder.CloseElement();
+
+        if (IsRangeOperator(_selectedOperator))
+        {
+            builder.OpenElement(10, "span");
+            builder.AddAttribute(11, "class", "simple-filter-builder__range-sep");
+            builder.AddContent(12, "—");
+            builder.CloseElement();
+
+            builder.OpenElement(20, "input");
+            builder.AddAttribute(21, "type", "number");
+            builder.AddAttribute(22, "class", "simple-filter-builder__input");
+            builder.AddAttribute(23, "placeholder", "Valeur fin");
+            builder.AddAttribute(24, "aria-label", "Valeur fin");
+            builder.AddAttribute(25, "data-testid", "filter-builder-value-number-end");
+            builder.AddAttribute(26, "value", _numberValueEnd?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty);
+            builder.AddAttribute(27, "oninput", EventCallback.Factory.Create<ChangeEventArgs>(
+                this,
+                e => _numberValueEnd = TryConvertDecimal(e.Value?.ToString())));
+            builder.CloseElement();
+        }
+    }
+
+    private void RenderDateEditor(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder)
+    {
+        if (_selectedOperator == FilterOperator.RelativePeriod)
+        {
+            builder.OpenComponent<RelativeDateSelect>(0);
+            builder.AddAttribute(1, nameof(RelativeDateSelect.Value), _relativePeriod);
+            builder.AddAttribute(2, nameof(RelativeDateSelect.ValueChanged),
+                EventCallback.Factory.Create<RelativeDatePeriod>(this, v => _relativePeriod = v));
+            builder.AddAttribute(3, nameof(RelativeDateSelect.TestId), "filter-builder-value-relative");
+            builder.CloseComponent();
+            return;
+        }
+
+        builder.OpenElement(0, "input");
+        builder.AddAttribute(1, "type", "date");
+        builder.AddAttribute(2, "class", "simple-filter-builder__input");
+        builder.AddAttribute(3, "aria-label", "Date");
+        builder.AddAttribute(4, "data-testid", "filter-builder-value-date");
+        builder.AddAttribute(5, "value", _dateValue?.ToString("yyyy-MM-dd") ?? string.Empty);
+        builder.AddAttribute(6, "oninput", EventCallback.Factory.Create<ChangeEventArgs>(
+            this,
+            e => _dateValue = TryConvertDate(e.Value?.ToString())));
+        builder.CloseElement();
+
+        if (IsRangeOperator(_selectedOperator))
+        {
+            builder.OpenElement(10, "span");
+            builder.AddAttribute(11, "class", "simple-filter-builder__range-sep");
+            builder.AddContent(12, "—");
+            builder.CloseElement();
+
+            builder.OpenElement(20, "input");
+            builder.AddAttribute(21, "type", "date");
+            builder.AddAttribute(22, "class", "simple-filter-builder__input");
+            builder.AddAttribute(23, "aria-label", "Date fin");
+            builder.AddAttribute(24, "data-testid", "filter-builder-value-date-end");
+            builder.AddAttribute(25, "value", _dateValueEnd?.ToString("yyyy-MM-dd") ?? string.Empty);
+            builder.AddAttribute(26, "oninput", EventCallback.Factory.Create<ChangeEventArgs>(
+                this,
+                e => _dateValueEnd = TryConvertDate(e.Value?.ToString())));
+            builder.CloseElement();
+        }
+    }
+
+    private void RenderBooleanEditor(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder)
+    {
+        // DF-04 — two dedicated zones "Oui" / "Non", not a tri-state.
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", "simple-filter-builder__bool-group");
+        builder.AddAttribute(2, "role", "radiogroup");
+        builder.AddAttribute(3, "aria-label", "Valeur booléenne");
+
+        builder.OpenElement(10, "button");
+        builder.AddAttribute(11, "type", "button");
+        builder.AddAttribute(
+            12,
+            "class",
+            _boolValue == true
+                ? "simple-filter-builder__bool-zone simple-filter-builder__bool-zone--selected"
+                : "simple-filter-builder__bool-zone");
+        builder.AddAttribute(13, "role", "radio");
+        builder.AddAttribute(14, "aria-checked", _boolValue == true ? "true" : "false");
+        builder.AddAttribute(15, "data-testid", "filter-builder-value-bool-yes");
+        builder.AddAttribute(16, "onclick", EventCallback.Factory.Create<MouseEventArgs>(
+            this,
+            _ => _boolValue = true));
+        builder.AddContent(17, "Oui");
+        builder.CloseElement();
+
+        builder.OpenElement(20, "button");
+        builder.AddAttribute(21, "type", "button");
+        builder.AddAttribute(
+            22,
+            "class",
+            _boolValue == false
+                ? "simple-filter-builder__bool-zone simple-filter-builder__bool-zone--selected"
+                : "simple-filter-builder__bool-zone");
+        builder.AddAttribute(23, "role", "radio");
+        builder.AddAttribute(24, "aria-checked", _boolValue == false ? "true" : "false");
+        builder.AddAttribute(25, "data-testid", "filter-builder-value-bool-no");
+        builder.AddAttribute(26, "onclick", EventCallback.Factory.Create<MouseEventArgs>(
+            this,
+            _ => _boolValue = false));
+        builder.AddContent(27, "Non");
+        builder.CloseElement();
+
+        builder.CloseElement();
+    }
+
+    private void RenderEnumEditor(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder)
+    {
+        if (IsListOperator(_selectedOperator))
+        {
+            var allowedList = _selectedField?.AllowedValues ?? Array.Empty<string>();
+            builder.OpenComponent<MultiSelectDropdown<string>>(0);
+            builder.AddAttribute(1, nameof(MultiSelectDropdown<string>.Items), allowedList);
+            builder.AddAttribute(2, nameof(MultiSelectDropdown<string>.TextSelector), (Func<string, string>)(s => s));
+            builder.AddAttribute(3, nameof(MultiSelectDropdown<string>.ValueSelector), (Func<string, string>)(s => s));
+            builder.AddAttribute(4, nameof(MultiSelectDropdown<string>.Selected), (IReadOnlyCollection<string>)_enumListValuesArray);
+            builder.AddAttribute(5, nameof(MultiSelectDropdown<string>.SelectedChanged),
+                EventCallback.Factory.Create<IReadOnlyCollection<string>>(
+                    this,
+                    values =>
+                    {
+                        _enumListValues = new HashSet<string>(values, StringComparer.Ordinal);
+                        _enumListValuesArray = _enumListValues.ToArray();
+                    }));
+            builder.AddAttribute(6, nameof(MultiSelectDropdown<string>.TestId), "filter-builder-value-enum-list");
+            builder.AddAttribute(7, nameof(MultiSelectDropdown<string>.Placeholder), "Rechercher…");
+            builder.CloseComponent();
+            return;
+        }
+
+        builder.OpenElement(0, "select");
+        builder.AddAttribute(1, "class", "simple-filter-builder__input");
+        builder.AddAttribute(2, "aria-label", "Valeur");
+        builder.AddAttribute(3, "data-testid", "filter-builder-value-enum");
+        builder.AddAttribute(4, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(
+            this,
+            e => _enumValue = e.Value?.ToString()));
+
+        builder.OpenElement(10, "option");
+        builder.AddAttribute(11, "value", string.Empty);
+        builder.AddContent(12, "— Choisir —");
+        builder.CloseElement();
+
+        // Stable per-iteration sequence numbers (offset = 10 * position + 20).
+        // See RenderDateEditor for the rationale — conditionally skipping a
+        // sequence number breaks Blazor's diff.
+        var allowed = _selectedField?.AllowedValues ?? Array.Empty<string>();
+        var position = 0;
+        foreach (var value in allowed)
+        {
+            var baseSeq = 20 + (position++ * 10);
+            builder.OpenElement(baseSeq, "option");
+            builder.AddAttribute(baseSeq + 1, "value", value);
+            builder.AddAttribute(baseSeq + 2, "selected", string.Equals(_enumValue, value, StringComparison.Ordinal));
+            builder.AddContent(baseSeq + 3, value);
+            builder.CloseElement();
+        }
+        builder.CloseElement();
+    }
+
+}

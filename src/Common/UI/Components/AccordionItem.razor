@@ -1,0 +1,111 @@
+@namespace Stratum.Common.UI.Components
+@implements IDisposable
+
+<div class="accordion__item @(IsOpen ? "accordion__item--open" : "") @(Disabled ? "accordion__item--disabled" : "") @CssClass"
+     data-testid="@(TestId ?? _itemId)">
+    <h3 class="accordion__header">
+        <button @ref="_triggerRef"
+                class="accordion__trigger"
+                type="button"
+                id="@($"accordion-trigger-{_itemId}")"
+                aria-expanded="@IsOpen.ToString().ToLowerInvariant()"
+                aria-controls="@($"accordion-panel-{_itemId}")"
+                disabled="@Disabled"
+                data-testid="@(TestId is not null ? $"{TestId}-trigger" : $"accordion-trigger-{_itemId}")"
+                @onclick="OnClickAsync"
+                @onkeydown="OnKeyDownAsync">
+            @if (TitleContent is not null)
+            {
+                @TitleContent
+            }
+            else
+            {
+                <span class="accordion__trigger-text">@Title</span>
+            }
+            <svg class="accordion__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                 aria-hidden="true" focusable="false">
+                <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+        </button>
+    </h3>
+    <div id="@($"accordion-panel-{_itemId}")"
+         class="accordion__panel @(Accordion?.Animate == true ? "accordion__panel--animate" : "") @(IsOpen ? "accordion__panel--open" : "")"
+         role="region"
+         aria-labelledby="@($"accordion-trigger-{_itemId}")"
+         aria-hidden="@(IsOpen ? "false" : "true")"
+         data-testid="@(TestId is not null ? $"{TestId}-panel" : $"accordion-panel-{_itemId}")">
+        <div class="accordion__panel-inner">
+            @ChildContent
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _itemId = default!;
+    private ElementReference _triggerRef;
+
+    [CascadingParameter] public Accordion? Accordion { get; set; }
+
+    /// <summary>Optional test identifier.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    /// <summary>Unique identifier for this item. Auto-generated if not provided.</summary>
+    [Parameter] public string? Id { get; set; }
+
+    /// <summary>Header title text. Ignored if <see cref="TitleContent"/> is provided.</summary>
+    [Parameter] public string? Title { get; set; }
+
+    /// <summary>Custom header content (replaces <see cref="Title"/>).</summary>
+    [Parameter] public RenderFragment? TitleContent { get; set; }
+
+    /// <summary>Panel body content.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Disables expand/collapse.</summary>
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Additional CSS class.</summary>
+    [Parameter] public string? CssClass { get; set; }
+
+    private bool IsOpen => Accordion?.IsExpanded(_itemId) ?? false;
+
+    protected override void OnInitialized()
+    {
+        _itemId = Id ?? System.Guid.NewGuid().ToString("N")[..8];
+        Accordion?.Register(this);
+    }
+
+    public void Dispose() => Accordion?.Unregister(this);
+
+    internal Task NotifyStateChangedAsync() => InvokeAsync(StateHasChanged);
+
+    internal async Task FocusTriggerAsync() => await _triggerRef.FocusAsync();
+
+    private async Task OnClickAsync()
+    {
+        if (Disabled || Accordion is null) return;
+        await Accordion.ToggleAsync(_itemId);
+    }
+
+    private async Task OnKeyDownAsync(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+    {
+        if (Disabled || Accordion is null) return;
+
+        switch (e.Key)
+        {
+            case "ArrowDown":
+                await Accordion.FocusItemAsync(this, Accordion.FocusDirection.Next);
+                break;
+            case "ArrowUp":
+                await Accordion.FocusItemAsync(this, Accordion.FocusDirection.Previous);
+                break;
+            case "Home":
+                await Accordion.FocusItemAsync(this, Accordion.FocusDirection.First);
+                break;
+            case "End":
+                await Accordion.FocusItemAsync(this, Accordion.FocusDirection.Last);
+                break;
+        }
+    }
+}

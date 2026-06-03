@@ -1,0 +1,12 @@
+/* StratumFilterSplitButton — scoped styles on top of StratumSplitButton.
+ * Tokens only — no raw hex, no pixel borders.
+ *
+ * Note: the separator row ("──────────") relies on SplitButtonItem.Disabled
+ * and Radzen's own .rz-state-disabled class for its muted look + pointer-events:
+ * none. We do not try to restyle it from this scoped file because Radzen
+ * portal-renders .rz-splitbutton-menu outside the component's DOM subtree, so
+ * ::deep cannot reach it. */
+
+.stratum-filter-split-button__inner {
+    font-family: var(--font-family-base);
+}

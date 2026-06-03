@@ -1,0 +1,2843 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TItem where TItem : notnull
+@using Microsoft.Extensions.Localization
+@using Microsoft.Extensions.Logging
+@using Stratum.Common.Abstractions.Display
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Services
+@using Stratum.Common.UI.Models
+@inject IJSRuntime JS
+@inject IDisplayTemplateRegistry DisplayTemplates
+@inject IStringLocalizer<SharedResources> L
+@inject ILogger<StratumDataGrid<TItem>> Logger
+
+@* StratumDataGrid<TItem> — Stratum wrapper around RadzenDataGrid.
+ *
+ * All public parameters use Stratum types. Radzen types are mapped internally.
+ * Provides ARIA attributes, keyboard navigation (↑↓, Enter, Space/x, Home/End).
+ *
+ * Usage:
+ *   <StratumDataGrid TItem="ProductDto" Data="@products" Loading="@_loading"
+ *                    AllowSorting="true" AllowSelection="true"
+ *                    OnSortChanged="@HandleSort" OnRowActivated="@GoToProduct"
+ *                    AriaLabel="Liste des produits">
+ *       <StratumColumn TItem="ProductDto" Property="Name" Title="Nom" Sortable />
+ *   </StratumDataGrid>
+ *
+ * Ref: docs/architecture/ui-architecture-plan.md §4, §5.1.
+ *@
+
+<div class="stratum-datagrid-wrapper"
+     data-testid="@(TestId ?? "stratum-data-grid")"
+     tabindex="-1"
+     @onkeydown="HandleKeyDown"
+     @ref="_wrapperRef">
+
+    @if (AllowExport || AllowAdvancedFilter || AllowColumnChooser || AllowGroupChooser || ToolbarContent is not null || ToolbarEndContent is not null)
+    {
+        <div class="stratum-datagrid__toolbar" role="toolbar" aria-label="@L["Grid_ToolbarAriaLabel"]">
+            <div class="stratum-datagrid__toolbar-start">
+                @if (ToolbarContent is not null)
+                {
+                    @ToolbarContent
+                }
+                @if (AllowAdvancedFilter)
+                {
+                    <StratumFilterSplitButton ActiveFilterCount="@CountActiveFilterCriteria()"
+                                              SavedFilters="@_toolbarSavedFilters"
+                                              OnOpenBuilder="HandleToggleFilterBuilder"
+                                              OnLoadSavedFilter="HandleLoadSavedFilterFromToolbarAsync"
+                                              OnManageSavedFilters="HandleToggleFilterBuilder"
+                                              TestId="filter-btn" />
+                }
+                @if (AllowColumnChooser && ColumnRegistry is not null)
+                {
+                    <StratumButton Icon="view_column"
+                                   Variant="ButtonVariant.Secondary"
+                                   Outline
+                                   Size="ButtonSize.Small"
+                                   OnClick="@(_ => HandleToggleColumnChooser())"
+                                   TestId="column-chooser-btn" />
+                }
+                @if (AllowGroupChooser && ColumnRegistry is not null)
+                {
+                    <StratumButton Icon="account_tree"
+                                   Text="@(_groupKeys.Count > 0 ? _groupKeys.Count.ToString() : null)"
+                                   Variant="@(_groupKeys.Count > 0 ? ButtonVariant.Primary : ButtonVariant.Secondary)"
+                                   Outline="@(_groupKeys.Count == 0)"
+                                   Size="ButtonSize.Small"
+                                   OnClick="@(_ => HandleToggleGroupChooser())"
+                                   TestId="group-chooser-btn" />
+                }
+                @if (AllowExport && ExportFormats.HasFlag(ExportFormat.Csv))
+                {
+                    <StratumButton Icon="download"
+                                   Variant="ButtonVariant.Secondary"
+                                   Outline
+                                   Size="ButtonSize.Small"
+                                   Disabled="@(Loading || Data is null || Data.Count == 0)"
+                                   OnClick="@(_ => HandleExportAsync(ExportFormat.Csv))"
+                                   TestId="export-csv-btn" />
+                }
+                @if (AllowExport && ExportFormats.HasFlag(ExportFormat.Excel))
+                {
+                    <StratumButton Icon="download"
+                                   Variant="ButtonVariant.Secondary"
+                                   Outline
+                                   Size="ButtonSize.Small"
+                                   Disabled="@(Loading || Data is null || Data.Count == 0)"
+                                   OnClick="@(_ => HandleExportAsync(ExportFormat.Excel))"
+                                   TestId="export-excel-btn" />
+                }
+                @if (AllowExport && ExportFormats.HasFlag(ExportFormat.Pdf))
+                {
+                    <StratumButton Icon="download"
+                                   Variant="ButtonVariant.Secondary"
+                                   Outline
+                                   Size="ButtonSize.Small"
+                                   Disabled="@(Loading || Data is null || Data.Count == 0)"
+                                   OnClick="@(_ => HandleExportAsync(ExportFormat.Pdf))"
+                                   TestId="export-pdf-btn" />
+                }
+            </div>
+            <div class="stratum-datagrid__toolbar-end">
+                @if (ToolbarEndContent is not null)
+                {
+                    @ToolbarEndContent
+                }
+            </div>
+        </div>
+    }
+
+    @if (PreGridContent is not null)
+    {
+        @PreGridContent
+    }
+
+    @if (AllowAdvancedFilter && ColumnRegistry is not null)
+    {
+        <StratumFilterBuilder TItem="TItem"
+                              @bind-Visible="_showFilterBuilder"
+                              Registry="@ColumnRegistry"
+                              GridKey="@(GridKey ?? string.Empty)"
+                              UserId="@UserId"
+                              ActiveFilter="@_activeFilter"
+                              OnApply="HandleFilterApplied"
+                              OnSavedFiltersChanged="RefreshToolbarSavedFiltersAsync"
+                              SavedFilterService="@SavedFilterService" />
+    }
+
+    @if (AllowColumnChooser && ColumnRegistry is not null)
+    {
+        <StratumColumnChooser TItem="TItem"
+                              @bind-Visible="_showColumnChooser"
+                              Registry="@ColumnRegistry"
+                              VisibleColumnKeys="@VisibleColumnKeys"
+                              OnApply="HandleColumnChooserApplied" />
+    }
+
+    @if (AllowGroupChooser && ColumnRegistry is not null)
+    {
+        <StratumGroupChooser TItem="TItem"
+                             @bind-Visible="_showGroupChooser"
+                             Registry="@ColumnRegistry"
+                             GroupColumnKeys="@_groupKeys"
+                             OnApply="HandleGroupChooserApplied" />
+    }
+
+    @if (Loading)
+    {
+        <div class="stratum-datagrid__loading" role="status" aria-label="@(AriaLabel ?? L["Loading"])" aria-busy="true">
+            <table class="stratum-datagrid__skeleton" role="presentation">
+                <tbody>
+                    @for (var s = 0; s < _skeletonRowCount; s++)
+                    {
+                        <tr class="stratum-datagrid__skeleton-row" aria-hidden="true">
+                            @for (var c = 0; c < SkeletonColumnCount; c++)
+                            {
+                                <td><span class="stratum-datagrid__skeleton-cell"></span></td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else if (Data is null || Data.Count == 0)
+    {
+        <div class="stratum-datagrid__empty" role="status">
+            @if (EmptyContent is not null)
+            {
+                @EmptyContent
+            }
+            else
+            {
+                <p class="stratum-datagrid__empty-text">Aucun élément.</p>
+            }
+        </div>
+    }
+    else
+    {
+        <CascadingValue Value="@_editingContext" IsFixed="false">
+        <CascadingValue Value="@_aggregateContext" IsFixed="false">
+        <CascadingValue Value="@UiAttributes" IsFixed="false">
+        <Radzen.Blazor.RadzenDataGrid @ref="_radzenGrid"
+            @key="@($"{_columnLayoutKey}-e{_editStateVersion}-t{_treeVersion}")"
+            TItem="TItem"
+            Data="@EffectiveData"
+            Count="@EffectiveCount"
+            AllowVirtualization="@AllowVirtualization"
+            AllowSorting="@AllowSorting"
+            AllowMultiColumnSorting="false"
+            AllowGrouping="@AllowGrouping"
+            AllowColumnResize="@AllowColumnResize"
+            ColumnResized="@HandleRadzenColumnResized"
+            AllowColumnReorder="@AllowColumnReorder"
+            ColumnReordered="@HandleRadzenColumnReordered"
+            ShowColumnFooters="@_showColumnFooters"
+            SelectionMode="@MapSelectionMode()"
+            AllowRowSelectOnRowClick="@(AllowSelection && !UseCustomClickSelection)"
+            Value="@_internalSelectedItems"
+            RowSelect="@HandleRowSelect"
+            RowDeselect="@HandleRowDeselect"
+            RowClick="@HandleRowClick"
+            RowDoubleClick="@HandleRowDoubleClick"
+            RowRender="@OnRowRender"
+            Sort="@HandleRadzenSort"
+            LoadData="@_radzenLoadData"
+            Density="@Radzen.Density.Compact"
+            GridLines="@Radzen.DataGridGridLines.Horizontal"
+            AllowAlternatingRows="true"
+            Groups="@_groupDescriptors"
+            class="stratum-datagrid"
+            aria-label="@AriaLabel">
+            <GroupHeaderTemplate>
+                @if (GroupTemplate is not null)
+                {
+                    @GroupTemplate(new GroupResult(context.Data.Key, context.Data.Count))
+                }
+                else
+                {
+                    <span><strong>@context.Data.Key</strong> (@context.Data.Count)</span>
+                }
+            </GroupHeaderTemplate>
+            <Columns>
+                @if (ReorderEnabled && !AllowGrouping && string.IsNullOrEmpty(GroupBy) && _groupKeys.Count == 0)
+                {
+                    <Radzen.Blazor.RadzenDataGridColumn TItem="TItem" Width="40px" Title=""
+                        Sortable="false" Filterable="false" Reorderable="false" Frozen="true"
+                        CssClass="stratum-datagrid__reorder-cell">
+                        <Template Context="item">
+                            <span class="stratum-datagrid__drag-handle"
+                                  data-testid="drag-handle"
+                                  draggable="true"
+                                  role="button"
+                                  aria-label="@L["Grid_ReorderAriaLabel"]"
+                                  tabindex="0">⠿</span>
+                        </Template>
+                    </Radzen.Blazor.RadzenDataGridColumn>
+                }
+                @if (_isTreeGrid)
+                {
+                    <Radzen.Blazor.RadzenDataGridColumn TItem="TItem" Width="40px" Title=""
+                        Sortable="false" Filterable="false" Reorderable="false" Frozen="true"
+                        CssClass="stratum-datagrid__tree-cell">
+                        <Template Context="item">
+                            @{
+                                var treeLevel = GetTreeLevel(item);
+                                var hasChildren = HasTreeChildren(item);
+                                var isExpanded = IsTreeNodeExpanded(item);
+                            }
+                            <span style="padding-left: @(treeLevel * 20)px; display: inline-flex; align-items: center;">
+                                @if (hasChildren)
+                                {
+                                    <button class="stratum-datagrid__tree-toggle"
+                                            data-testid="tree-toggle"
+                                            @onclick="@(() => ToggleTreeNodeAsync(item))"
+                                            aria-expanded="@(isExpanded ? "true" : "false")"
+                                            aria-label="@(isExpanded ? L["Grid_TreeCollapse"] : L["Grid_TreeExpand"])"
+                                            type="button">
+                                        @(isExpanded ? "▼" : "▶")
+                                    </button>
+                                }
+                                else
+                                {
+                                    <span class="stratum-datagrid__tree-spacer" aria-hidden="true"></span>
+                                }
+                            </span>
+                        </Template>
+                    </Radzen.Blazor.RadzenDataGridColumn>
+                }
+                @if (AllowInlineEdit && EditMode == DataGridEditMode.ButtonOnly)
+                {
+                    <Radzen.Blazor.RadzenDataGridColumn TItem="TItem" Width="120px" Title=""
+                        Sortable="false" Frozen="true">
+                        <Template Context="item">
+                            @if (_editingItem is not null && EqualityComparer<TItem>.Default.Equals(_editingItem, item))
+                            {
+                                <StratumButton Text="@L["Save"]"
+                                               Variant="ButtonVariant.Success"
+                                               Outline
+                                               Size="ButtonSize.Small"
+                                               CssClass="me-1"
+                                               OnClick="@(_ => SaveRowAsync(item))"
+                                               TestId="save-row-btn" />
+                                <StratumButton Text="@L["Cancel"]"
+                                               Variant="ButtonVariant.Secondary"
+                                               Outline
+                                               Size="ButtonSize.Small"
+                                               OnClick="@(_ => CancelEditAsync(item))"
+                                               TestId="cancel-row-btn" />
+                            }
+                            else
+                            {
+                                <StratumButton Text="@L["Edit"]"
+                                               Variant="ButtonVariant.Primary"
+                                               Outline
+                                               Size="ButtonSize.Small"
+                                               OnClick="@(_ => EditRowAsync(item))"
+                                               TestId="edit-row-btn" />
+                            }
+                        </Template>
+                    </Radzen.Blazor.RadzenDataGridColumn>
+                }
+                @if (_resolvedColumns is not null)
+                {
+                    @foreach (var col in _resolvedColumns)
+                    {
+                        var colLocal = col;
+                        @if (col.IsRelatedEntity && col.RelatedEntityType is not null)
+                        {
+                            @if (col.AggregateFunc != AggregateFunc.None)
+                            {
+                                <Radzen.Blazor.RadzenDataGridColumn TItem="TItem"
+                                    Title="@col.Title"
+                                    Sortable="false"
+                                    Width="@GetEffectiveColumnWidth(col)">
+                                    <Template Context="item">
+                                        <span class="stratum-datagrid__cell"
+                                              data-column-key="@colLocal.Key"
+                                              data-testid="@($"grid-cell-{colLocal.Key}")"
+                                              @oncontextmenu:preventDefault="OnCellContextMenu.HasDelegate"
+                                              @oncontextmenu:stopPropagation="OnCellContextMenu.HasDelegate"
+                                              @oncontextmenu="@(e => HandleCellContextMenuAsync(e, colLocal, item))">
+                                            @FormatRelatedEntity(item, colLocal)
+                                        </span>
+                                    </Template>
+                                    <FooterTemplate>
+                                        @RenderDynamicColumnFooter(colLocal)
+                                    </FooterTemplate>
+                                </Radzen.Blazor.RadzenDataGridColumn>
+                            }
+                            else
+                            {
+                                <Radzen.Blazor.RadzenDataGridColumn TItem="TItem"
+                                    Title="@col.Title"
+                                    Sortable="false"
+                                    Width="@GetEffectiveColumnWidth(col)">
+                                    <Template Context="item">
+                                        <span class="stratum-datagrid__cell"
+                                              data-column-key="@colLocal.Key"
+                                              data-testid="@($"grid-cell-{colLocal.Key}")"
+                                              @oncontextmenu:preventDefault="OnCellContextMenu.HasDelegate"
+                                              @oncontextmenu:stopPropagation="OnCellContextMenu.HasDelegate"
+                                              @oncontextmenu="@(e => HandleCellContextMenuAsync(e, colLocal, item))">
+                                            @FormatRelatedEntity(item, colLocal)
+                                        </span>
+                                    </Template>
+                                </Radzen.Blazor.RadzenDataGridColumn>
+                            }
+                        }
+                        else if (col.AggregateFunc != AggregateFunc.None)
+                        {
+                            <Radzen.Blazor.RadzenDataGridColumn TItem="TItem"
+                                Property="@col.Property"
+                                Title="@col.Title"
+                                Sortable="@AllowSorting"
+                                Width="@GetEffectiveColumnWidth(col)">
+                                <Template Context="item">
+                                    <span class="stratum-datagrid__cell"
+                                          data-column-key="@colLocal.Key"
+                                          data-testid="@($"grid-cell-{colLocal.Key}")"
+                                          @oncontextmenu:preventDefault="OnCellContextMenu.HasDelegate"
+                                          @oncontextmenu:stopPropagation="OnCellContextMenu.HasDelegate"
+                                          @oncontextmenu="@(e => HandleCellContextMenuAsync(e, colLocal, item))">
+                                        @FormatCellValueForDisplay(NavigatePropertyPath(item, colLocal.Property), colLocal)
+                                    </span>
+                                </Template>
+                                <FooterTemplate>
+                                    @RenderDynamicColumnFooter(colLocal)
+                                </FooterTemplate>
+                            </Radzen.Blazor.RadzenDataGridColumn>
+                        }
+                        else if (ColumnTemplates is not null && ColumnTemplates.TryGetValue(col.Key, out var customTemplate))
+                        {
+                            var customTemplateLocal = customTemplate;
+                            <Radzen.Blazor.RadzenDataGridColumn TItem="TItem"
+                                Property="@col.Property"
+                                Title="@col.Title"
+                                Sortable="@AllowSorting"
+                                Width="@GetEffectiveColumnWidth(col)">
+                                <Template Context="item">
+                                    <span class="stratum-datagrid__cell"
+                                          data-column-key="@colLocal.Key"
+                                          data-testid="@($"grid-cell-{colLocal.Key}")"
+                                          @oncontextmenu:preventDefault="OnCellContextMenu.HasDelegate"
+                                          @oncontextmenu:stopPropagation="OnCellContextMenu.HasDelegate"
+                                          @oncontextmenu="@(e => HandleCellContextMenuAsync(e, colLocal, item))">
+                                        @customTemplateLocal(item)
+                                    </span>
+                                </Template>
+                            </Radzen.Blazor.RadzenDataGridColumn>
+                        }
+                        else if (col.DataType == ColumnDataType.Boolean)
+                        {
+                            <Radzen.Blazor.RadzenDataGridColumn TItem="TItem"
+                                Title="@col.Title"
+                                Sortable="@AllowSorting"
+                                Width="@GetEffectiveColumnWidth(col)">
+                                <Template Context="item">
+                                    <span class="stratum-datagrid__cell"
+                                          data-column-key="@colLocal.Key"
+                                          data-testid="@($"grid-cell-{colLocal.Key}")"
+                                          @oncontextmenu:preventDefault="OnCellContextMenu.HasDelegate"
+                                          @oncontextmenu:stopPropagation="OnCellContextMenu.HasDelegate"
+                                          @oncontextmenu="@(e => HandleCellContextMenuAsync(e, colLocal, item))">
+                                        @RenderBooleanBadge(item, colLocal)
+                                    </span>
+                                </Template>
+                            </Radzen.Blazor.RadzenDataGridColumn>
+                        }
+                        else
+                        {
+                            <Radzen.Blazor.RadzenDataGridColumn TItem="TItem"
+                                Property="@col.Property"
+                                Title="@col.Title"
+                                Sortable="@AllowSorting"
+                                Width="@GetEffectiveColumnWidth(col)">
+                                <Template Context="item">
+                                    <span class="stratum-datagrid__cell"
+                                          data-column-key="@colLocal.Key"
+                                          data-testid="@($"grid-cell-{colLocal.Key}")"
+                                          @oncontextmenu:preventDefault="OnCellContextMenu.HasDelegate"
+                                          @oncontextmenu:stopPropagation="OnCellContextMenu.HasDelegate"
+                                          @oncontextmenu="@(e => HandleCellContextMenuAsync(e, colLocal, item))">
+                                        @FormatCellValueForDisplay(NavigatePropertyPath(item, colLocal.Property), colLocal)
+                                    </span>
+                                </Template>
+                            </Radzen.Blazor.RadzenDataGridColumn>
+                        }
+                    }
+                }
+                else
+                {
+                    @ChildContent
+                }
+                @if (RowActions is { Count: > 0 })
+                {
+                    <Radzen.Blazor.RadzenDataGridColumn TItem="TItem" Width="@_actionColumnWidth" Title=""
+                        Sortable="false" Filterable="false" Reorderable="false"
+                        TextAlign="Radzen.TextAlign.Center" CssClass="stratum-datagrid__action-cell">
+                        <Template Context="item">
+                            <div class="stratum-datagrid__row-actions" @onclick:stopPropagation="true">
+                                @foreach (var action in _quickActions)
+                                {
+                                    var a = action;
+                                    var enabled = a.EvaluateEnabled(item);
+                                    <button type="button"
+                                            class="stratum-datagrid__quick-action @(a.RequiresConfirmation ? "stratum-datagrid__quick-action--danger" : "")"
+                                            title="@a.Label"
+                                            disabled="@(!enabled)"
+                                            @onclick="@(() => HandleQuickActionAsync(item, a))"
+                                            data-testid="@($"quick-action-{a.Id}")">
+                                        <StratumIcon Name="@(a.Icon!)" />
+                                    </button>
+                                }
+                                <StratumRowActionMenu TItem="TItem"
+                                                      Item="@item"
+                                                      RowActions="@RowActions"
+                                                      AriaItemLabel="@(RowActionLabelSelector?.Invoke(item))"
+                                                      TestId="row-action-menu" />
+                            </div>
+                        </Template>
+                    </Radzen.Blazor.RadzenDataGridColumn>
+                }
+            </Columns>
+        </Radzen.Blazor.RadzenDataGrid>
+        </CascadingValue>
+        </CascadingValue>
+        </CascadingValue>
+    }
+
+    @* Quick-action confirmation dialog *@
+    @if (_quickActionPending is not null)
+    {
+        <StratumDialog Title="@L["Grid_Confirmation"]"
+                       @bind-Visible="_showQuickActionConfirm"
+                       OnClose="CancelQuickAction"
+                       Width="400px">
+            <ChildContent>
+                <p>@string.Format(L["Grid_ConfirmAction"], _quickActionPending.Label)</p>
+            </ChildContent>
+            <Actions>
+                <StratumButton Text="@L["Confirm"]"
+                               Variant="ButtonVariant.Danger"
+                               Size="ButtonSize.Small"
+                               OnClick="@(_ => ConfirmQuickActionAsync())" />
+                <StratumButton Text="@L["Cancel"]"
+                               Variant="ButtonVariant.Secondary"
+                               Size="ButtonSize.Small"
+                               OnClick="@(_ => CancelQuickAction())" />
+            </Actions>
+        </StratumDialog>
+    }
+
+    @* GUX03 — persistent cross-page selection bar *@
+    @if (PersistentSelection is not null && (_internalSelectedItems.Count > 0 || PersistentSelection.TotalCount > 0))
+    {
+        <StratumPersistentSelectionBar CurrentCount="@_internalSelectedItems.Count"
+                                        TotalCount="@PersistentSelection.TotalCount"
+                                        OnAdd="HandlePersistentAdd"
+                                        OnRemove="HandlePersistentRemove"
+                                        OnView="HandlePersistentViewAsync"
+                                        OnClear="HandlePersistentClear"
+                                        TestId="@($"{TestId ?? "stratum-data-grid"}-persistent-bar")" />
+    }
+</div>
+
+@implements IAsyncDisposable
+
+@code {
+    // ── References ──────────────────────────────────────────────────
+    private Radzen.Blazor.RadzenDataGrid<TItem>? _radzenGrid;
+    private ElementReference _wrapperRef;
+    private bool _jsRegistered;
+
+    // ── Skeleton defaults ───────────────────────────────────────────
+    private const int _skeletonRowCount = 5;
+
+    // ── Quick actions ───────────────────────────────────────────────
+    private IReadOnlyList<GridRowAction<TItem>> _quickActions = Array.Empty<GridRowAction<TItem>>();
+    private string _actionColumnWidth = "48px";
+    private TItem? _quickActionItem;
+    private GridRowAction<TItem>? _quickActionPending;
+    private bool _showQuickActionConfirm;
+
+    // ── Test ────────────────────────────────────────────────────────
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    // ── Data ────────────────────────────────────────────────────────
+
+    /// <summary>Items to display. Null or empty triggers the empty state.</summary>
+    [Parameter]
+    public IReadOnlyList<TItem>? Data { get; set; }
+
+    /// <summary>Total item count for server-side paging.</summary>
+    [Parameter]
+    public int Count { get; set; }
+
+    /// <summary>
+    /// Raised when the grid needs data (server-side paging/sorting).
+    /// Uses Stratum <see cref="Models.LoadDataArgs"/>.
+    /// </summary>
+    [Parameter]
+    public EventCallback<LoadDataArgs> LoadData { get; set; }
+
+    // ── Features ────────────────────────────────────────────────────
+
+    /// <summary>Enable virtual scrolling for large datasets.</summary>
+    [Parameter]
+    public bool AllowVirtualization { get; set; }
+
+    /// <summary>Enable column sorting.</summary>
+    [Parameter]
+    public bool AllowSorting { get; set; }
+
+    /// <summary>Enable row selection.</summary>
+    [Parameter]
+    public bool AllowSelection { get; set; }
+
+    /// <summary>Selection mode (One or Multiple). Default: One.</summary>
+    [Parameter]
+    public SelectionMode SelectionMode { get; set; } = SelectionMode.One;
+
+    /// <summary>
+    /// Enable Shift+click range selection and Shift+↑/↓ keyboard range extension.
+    /// Only applies when <see cref="SelectionMode"/> is <c>Multiple</c>.
+    /// Default: true.
+    /// </summary>
+    [Parameter]
+    public bool EnableShiftRange { get; set; } = true;
+
+    // ── Selection ───────────────────────────────────────────────────
+
+    /// <summary>Currently selected items.</summary>
+    [Parameter]
+    public IReadOnlyList<TItem>? SelectedItems { get; set; }
+
+    /// <summary>Raised when selection changes.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<TItem>> OnSelectionChanged { get; set; }
+
+    /// <summary>
+    /// Optional session-scoped persistent selection store (GUX03). When supplied,
+    /// a floating bar renders at the bottom of the grid with counters and
+    /// add/remove/view/clear actions. The binding decouples the grid from the
+    /// underlying <c>IPersistentSelectionService&lt;TKey&gt;</c>'s key type.
+    /// </summary>
+    [Parameter]
+    public IPersistentSelectionBinding<TItem>? PersistentSelection { get; set; }
+
+    /// <summary>
+    /// Raised when the user clicks "Voir la sélection" in the persistent
+    /// selection bar. GUX04 owns the dialog that surfaces the full persistent
+    /// set; GUX03 only exposes the button and the event.
+    /// </summary>
+    [Parameter]
+    public EventCallback OnViewPersistentSelection { get; set; }
+
+    /// <summary>Raised when a row is activated (double-click or Enter).</summary>
+    [Parameter]
+    public EventCallback<TItem> OnRowActivated { get; set; }
+
+    /// <summary>
+    /// Raised when the user right-clicks a data cell bound to the dynamic column
+    /// registry. Consumers typically use this to open a "Filter on value /
+    /// Exclude value / Copy" context menu wired to <c>GridFilterState</c>.
+    /// Only fires for columns resolved via <see cref="ColumnRegistry"/>; static
+    /// <c>ChildContent</c> columns are not instrumented.
+    /// </summary>
+    [Parameter]
+    public EventCallback<GridCellContextMenuArgs<TItem>> OnCellContextMenu { get; set; }
+
+    // ── Display ─────────────────────────────────────────────────────
+
+    /// <summary>When true, a loading skeleton is shown instead of data.</summary>
+    [Parameter]
+    public bool Loading { get; set; }
+
+    /// <summary>Custom content to show when Data is empty.</summary>
+    [Parameter]
+    public RenderFragment? EmptyContent { get; set; }
+
+    /// <summary>Accessible label for the grid.</summary>
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    /// <summary>Column definitions via StratumColumn children.</summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Content rendered at the start (left side) of the grid toolbar.
+    /// Use this to inject a search bar or custom controls into the toolbar.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ToolbarContent { get; set; }
+
+    /// <summary>
+    /// Content rendered at the end (right side) of the grid toolbar,
+    /// after the built-in Filtres/Colonnes/Export buttons.
+    /// Use this to inject a Create button or bulk action controls.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ToolbarEndContent { get; set; }
+
+    /// <summary>
+    /// Content rendered after the toolbar row and before the inline filter bar.
+    /// Use this slot to inject a chip bar or a result counter that belongs
+    /// between the toolbar and the grid body.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? PreGridContent { get; set; }
+
+    /// <summary>Raised when the user clicks a sortable column header (Stratum event).</summary>
+    [Parameter]
+    public EventCallback<SortChangedArgs> OnSortChanged { get; set; }
+
+    /// <summary>Number of columns in the loading skeleton. Default: 4.</summary>
+    [Parameter]
+    public int SkeletonColumnCount { get; set; } = 4;
+
+    // ── Export ─────────────────────────────────────────────────────────
+
+    /// <summary>Show an export toolbar above the grid.</summary>
+    [Parameter]
+    public bool AllowExport { get; set; }
+
+    /// <summary>Export formats to offer. Default: CSV.</summary>
+    [Parameter]
+    public ExportFormat ExportFormats { get; set; } = ExportFormat.Csv;
+
+    /// <summary>Base file name for exports (without extension). Default: "export".</summary>
+    [Parameter]
+    public string ExportFileName { get; set; } = "export";
+
+    /// <summary>
+    /// Optional custom export handler. When set, the grid fires this callback
+    /// instead of performing the default CSV generation.
+    /// </summary>
+    [Parameter]
+    public EventCallback<ExportArgs> OnExport { get; set; }
+
+    /// <summary>
+    /// Optional callback to provide ALL data for export (bypassing pagination).
+    /// When set, export fetches all filtered data via this callback instead of
+    /// exporting only the current page. The page implements this by querying
+    /// with no pagination limit.
+    /// </summary>
+    [Parameter]
+    public Func<Task<IReadOnlyList<TItem>>>? ExportDataProvider { get; set; }
+
+    // ── Grouping ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Field name to group rows by. When set, rows are grouped on this property.
+    /// Pass null to disable grouping.
+    /// </summary>
+    [Parameter]
+    public string? GroupBy { get; set; }
+
+    /// <summary>
+    /// Enable user-interactive grouping (drag column headers to group area).
+    /// When false, only programmatic grouping via <see cref="GroupBy"/> is available.
+    /// </summary>
+    [Parameter]
+    public bool AllowGrouping { get; set; }
+
+    /// <summary>
+    /// Enable the toolbar button + dialog picker for selecting multi-column grouping.
+    /// Requires <see cref="ColumnRegistry"/>. Independent of <see cref="AllowGrouping"/>.
+    /// </summary>
+    [Parameter]
+    public bool AllowGroupChooser { get; set; }
+
+    /// <summary>
+    /// Raised when the user applies a new grouping hierarchy via the group chooser.
+    /// The argument is the ordered list of column keys (outer → inner); an empty list
+    /// means grouping was cleared.
+    /// </summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<string>> OnGroupsChanged { get; set; }
+
+    /// <summary>
+    /// Custom render fragment for group headers.
+    /// When null, Radzen's default group header is used.
+    /// </summary>
+    [Parameter]
+    public RenderFragment<GroupResult>? GroupTemplate { get; set; }
+
+    // ── Dynamic Columns (Registry) ──────────────────────────────────────
+
+    /// <summary>
+    /// Grid identifier for user preference lookup (e.g. "Sales.InvoiceList.Main").
+    /// When set together with <see cref="ColumnRegistry"/>, enables dynamic column rendering.
+    /// </summary>
+    [Parameter]
+    public string? GridKey { get; set; }
+
+    /// <summary>
+    /// Column registry providing available column metadata. When set, the grid renders
+    /// columns dynamically from the registry instead of using static <see cref="ChildContent"/>.
+    /// </summary>
+    [Parameter]
+    public IColumnRegistry<TItem>? ColumnRegistry { get; set; }
+
+    /// <summary>
+    /// Ordered list of visible column keys. When null and <see cref="ColumnRegistry"/> is set,
+    /// the registry's default visible columns are used.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyList<string>? VisibleColumnKeys { get; set; }
+
+    /// <summary>
+    /// Custom render templates keyed by column Key. When a resolved column's Key
+    /// matches an entry, the provided RenderFragment is used instead of the default
+    /// Property-based rendering. Enables rich cell content (badges, links, etc.)
+    /// while still using ColumnRegistry for column metadata.
+    /// </summary>
+    [Parameter]
+    public IDictionary<string, RenderFragment<TItem>>? ColumnTemplates { get; set; }
+
+    /// <summary>
+    /// Raised when visible columns change (e.g. from the column chooser).
+    /// </summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<string>> OnVisibleColumnsChanged { get; set; }
+
+    /// <summary>
+    /// Enable column chooser toolbar button and dialog.
+    /// Requires <see cref="ColumnRegistry"/> to be set.
+    /// </summary>
+    [Parameter]
+    public bool AllowColumnChooser { get; set; }
+
+    // ── Advanced Filter ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Enable advanced filter toolbar button and FilterBuilder dialog.
+    /// Requires <see cref="ColumnRegistry"/> and <see cref="GridKey"/> to be set.
+    /// </summary>
+    [Parameter]
+    public bool AllowAdvancedFilter { get; set; }
+
+    /// <summary>
+    /// User identifier for saved filter ownership. Required when <see cref="AllowAdvancedFilter"/> is true.
+    /// </summary>
+    [Parameter]
+    public Guid UserId { get; set; }
+
+    /// <summary>
+    /// Optional saved filter service. When null, the FilterBuilder renders without save/load capabilities.
+    /// </summary>
+    [Parameter]
+    public ISavedFilterService? SavedFilterService { get; set; }
+
+    /// <summary>
+    /// Raised when the active advanced filter changes (applied or cleared).
+    /// </summary>
+    [Parameter]
+    public EventCallback<FilterGroup?> OnAdvancedFilterChanged { get; set; }
+
+    // ── Inline Edit ───────────────────────────────────────────────────
+
+    /// <summary>Enable inline row editing. Requires EditTemplate on StratumColumn.</summary>
+    [Parameter]
+    public bool AllowInlineEdit { get; set; }
+
+    /// <summary>
+    /// Controls how inline editing is triggered.
+    /// ButtonOnly (default): user must click an explicit edit button.
+    /// Click: single-click on a data row enters edit mode.
+    /// DoubleClick: double-click on a data row enters edit mode.
+    /// </summary>
+    [Parameter]
+    public DataGridEditMode EditMode { get; set; } = DataGridEditMode.ButtonOnly;
+
+    /// <summary>Raised when a row enters edit mode.</summary>
+    [Parameter]
+    public EventCallback<TItem> OnRowEdit { get; set; }
+
+    /// <summary>Raised when a row edit is saved (Enter or Save button).</summary>
+    [Parameter]
+    public EventCallback<TItem> OnRowSave { get; set; }
+
+    /// <summary>Raised when a row edit is cancelled (Esc or Cancel button).</summary>
+    [Parameter]
+    public EventCallback<TItem> OnRowCancel { get; set; }
+
+    // ── Column Resize ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Enable column resize by dragging column borders. Defaults to <c>true</c> (GUX09)
+    /// so every Stratum grid supports the interaction out of the box.
+    /// </summary>
+    [Parameter]
+    public bool AllowColumnResize { get; set; } = true;
+
+    /// <summary>Raised when the user resizes a column by dragging.</summary>
+    [Parameter]
+    public EventCallback<ColumnResizedArgs> OnColumnResized { get; set; }
+
+    // ── Column Reorder ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Enable column reorder by dragging column headers (GUX10). When both
+    /// <see cref="PreferenceService"/> and <see cref="GridKey"/> are set with a
+    /// non-empty <see cref="UserId"/>, the new order is auto-persisted alongside
+    /// column widths and the filter state.
+    /// </summary>
+    [Parameter]
+    public bool AllowColumnReorder { get; set; }
+
+    /// <summary>Raised when the user reorders a column by dragging its header.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<string>> OnColumnReordered { get; set; }
+
+    /// <summary>
+    /// Initial per-column widths keyed by column key (GUX09). When set, each entry
+    /// overrides the default data-type heuristic for that column. Values are CSS
+    /// width tokens (e.g. "240px") and flow directly into Radzen's <c>Width</c> binding.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyDictionary<string, string>? ColumnWidths { get; set; }
+
+    /// <summary>
+    /// Optional preference service used to persist column widths (GUX09). When set
+    /// together with <see cref="GridKey"/> and a non-empty <see cref="UserId"/>, the
+    /// grid debounces column-resize events and persists them automatically.
+    /// </summary>
+    [Parameter]
+    public IGridPreferenceService? PreferenceService { get; set; }
+
+    /// <summary>
+    /// Debounce window applied to column-width persistence, in milliseconds (GUX09).
+    /// Defaults to 500 ms so rapid drag sequences collapse into a single save.
+    /// </summary>
+    [Parameter]
+    public int ColumnWidthSaveDebounceMs { get; set; } = 500;
+
+    // ── DnD Row Reorder ────────────────────────────────────────────────
+
+    /// <summary>Enable drag-and-drop row reorder. Incompatible with grouping (grouping takes priority).</summary>
+    [Parameter]
+    public bool ReorderEnabled { get; set; }
+
+    /// <summary>Raised when the user reorders a row via drag-and-drop.</summary>
+    [Parameter]
+    public EventCallback<RowReorderArgs> OnRowReorder { get; set; }
+
+    // ── Tree-Grid ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Selector returning child items for a given parent. When set, the grid renders
+    /// as a tree-grid with indented hierarchical rows and expand/collapse toggles.
+    /// </summary>
+    [Parameter]
+    public Func<TItem, IEnumerable<TItem>>? ChildrenSelector { get; set; }
+
+    /// <summary>
+    /// Initial depth of expanded tree nodes. Default: 1 (only root nodes expanded).
+    /// Set to 0 to collapse all, or int.MaxValue to expand all.
+    /// </summary>
+    [Parameter]
+    public int InitialExpandDepth { get; set; } = 1;
+
+    // ── Row Actions ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Per-row contextual actions rendered as a kebab menu (⋮) in the rightmost column.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyList<GridRowAction<TItem>>? RowActions { get; set; }
+
+    /// <summary>
+    /// Selector returning a human-readable label for a row item, used in the
+    /// kebab menu's aria-label (e.g. "Actions pour Acme Corp"). When null,
+    /// the aria-label omits the item description.
+    /// </summary>
+    [Parameter]
+    public Func<TItem, string>? RowActionLabelSelector { get; set; }
+
+    // ── Dynamic UI attributes ───────────────────────────────────────
+
+    /// <summary>
+    /// Dynamic UI attributes produced by <see cref="Stratum.Common.Abstractions.UiRules.IUiRuleService{TDto}"/>.
+    /// When set, columns whose <c>Property</c> matches a field name in the set
+    /// will apply the <c>Hidden</c> attribute (column not rendered).
+    /// </summary>
+    [Parameter]
+    public Stratum.Common.Abstractions.UiRules.UiAttributeSet? UiAttributes { get; set; }
+
+    // ── Internal state ──────────────────────────────────────────────
+
+    private IList<TItem> _internalSelectedItems = new List<TItem>();
+    private IReadOnlyList<TItem>? _previousData;
+    private int _focusedRowIndex;
+    private string _columnLayoutKey = "cl-0";
+
+    // GUX03 — current binding we're subscribed to, tracked so we can unsubscribe
+    // when the parameter is swapped or the component disposes.
+    private IPersistentSelectionBinding<TItem>? _subscribedPersistentSelection;
+    private Action? _persistentSelectionHandler;
+    private bool _disposed;
+
+    // GUX09 — widths loaded from IGridPreferenceService on first render.
+    // Consulted by GetEffectiveColumnWidth when the parent did not pass an
+    // explicit ColumnWidths dictionary; the pending-drag dictionary still
+    // wins over this so in-session feedback remains instantaneous.
+    private IReadOnlyDictionary<string, string>? _loadedColumnWidths;
+    private bool _columnWidthsLoaded;
+
+    // ── Shift-range selection state ──────────────────────────────────
+    private int _anchorIndex = -1;
+
+    private bool UseCustomClickSelection => AllowSelection
+        && SelectionMode == SelectionMode.Multiple && EnableShiftRange;
+
+    // ── Tree-grid state ──────────────────────────────────────────────
+    private List<TreeGridNode<TItem>>? _treeNodes;
+    private IReadOnlyList<TItem>? _flattenedTreeData;
+    private bool _isTreeGrid;
+    private IReadOnlyList<TItem>? _previousTreeSourceData;
+    private int _treeVersion;
+
+    // ── DnD Reorder state ────────────────────────────────────────────
+    private bool _reorderJsRegistered;
+    private DotNetObjectReference<StratumDataGrid<TItem>>? _dotnetRef;
+
+    // ── Advanced-grid JS module ──────────────────────────────────────
+    private IJSObjectReference? _advancedGridModule;
+
+    // ── Advanced filter state ─────────────────────────────────────────
+    private bool _showFilterBuilder;
+    private FilterGroup? _activeFilter;
+    private bool _defaultFilterLoaded;
+
+    // Saved filters cached for the toolbar split button dropdown. Refreshed on
+    // first render, after default load, and after OnAdvancedFilterChanged fires
+    // (so newly-saved filters appear without a manual reload).
+    private IReadOnlyList<SavedFilter> _toolbarSavedFilters = Array.Empty<SavedFilter>();
+
+    // ── Column chooser state ─────────────────────────────────────────
+    private bool _showColumnChooser;
+
+    // ── Dynamic columns state ─────────────────────────────────────────
+    private List<ColumnDefinition>? _resolvedColumns;
+
+    // ── Grouping state ───────────────────────────────────────────────
+    private IList<Radzen.GroupDescriptor> _groupDescriptors = new List<Radzen.GroupDescriptor>();
+    private string? _previousGroupBy;
+    private bool _showGroupChooser;
+    private List<string> _groupKeys = [];
+
+    // ── Aggregate state ──────────────────────────────────────────────
+    private readonly DataGridAggregateContext<TItem> _aggregateContext = new();
+    private DataGridEditingContext<TItem> _editingContext = new();
+    private bool _showColumnFooters;
+    private int _editStateVersion; // Incremented on edit state change to force grid @key change
+
+
+    // ── Radzen LoadData binding ─────────────────────────────────────
+    // Only bind LoadData to Radzen when an external delegate is set.
+    // Binding unconditionally puts Radzen in "server-side" mode, which
+    // disables client-side grouping/sorting/filtering.
+    private EventCallback<Radzen.LoadDataArgs> _radzenLoadData;
+
+    // ── Lifecycle ───────────────────────────────────────────────────
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.registerDataGridKeyNav", _wrapperRef);
+                await JS.InvokeVoidAsync("stratumUI.installGridKeyGuard", _wrapperRef);
+                _jsRegistered = true;
+            }
+            catch (Exception ex) when (ex is JSException or OperationCanceledException)
+            {
+                // Non-critical
+            }
+
+            // Apply initial grouping via the Radzen grid ref. Radzen processes groups
+            // added directly to the grid's Groups collection (not via parameter binding).
+            // This also restores chooser-selected groups after a grid recreation
+            // (e.g. when _columnLayoutKey changes and firstRender fires again).
+            if (_radzenGrid is not null && !string.IsNullOrEmpty(GroupBy))
+            {
+                _radzenGrid.Groups.Clear();
+                _radzenGrid.Groups.Add(new Radzen.GroupDescriptor
+                {
+                    Property = GroupBy,
+                    SortOrder = Radzen.SortOrder.Ascending,
+                });
+                await _radzenGrid.Reload();
+            }
+            else if (_radzenGrid is not null && _groupKeys.Count > 0)
+            {
+                await SyncRadzenGroupsAsync();
+            }
+
+            // Auto-load default saved filter on first render
+            if (AllowAdvancedFilter && !_defaultFilterLoaded)
+            {
+                _defaultFilterLoaded = true;
+                await LoadDefaultFilterAsync();
+                if (_activeFilter is not null)
+                {
+                    StateHasChanged();
+                }
+            }
+
+            // Initialize DnD row reorder JS if enabled (and not grouped — incompatible)
+            if (ReorderEnabled && !AllowGrouping && string.IsNullOrEmpty(GroupBy) && _groupKeys.Count == 0)
+            {
+                await InitReorderJsAsync();
+            }
+
+            // GUX09 — hydrate persisted column widths from IGridPreferenceService.
+            // GUX10 — same pass also hydrates persisted column order when the
+            // caller has not already supplied VisibleColumnKeys, so a fresh page
+            // load restores the last drag-reordered layout.
+            // Done here (not OnInitializedAsync) because Radzen has now rendered
+            // the column layout and an extra StateHasChanged will pick up the
+            // new widths on the next frame without triggering a @key rebuild.
+            if (!_columnWidthsLoaded
+                && PreferenceService is not null
+                && !string.IsNullOrEmpty(GridKey)
+                && UserId != Guid.Empty)
+            {
+                _columnWidthsLoaded = true;
+                try
+                {
+                    var pref = await PreferenceService.GetPreferenceAsync(UserId, GridKey!);
+                    if (pref?.ColumnWidths is { Count: > 0 } widths)
+                    {
+                        _loadedColumnWidths = widths;
+                        StateHasChanged();
+                    }
+
+                    // Only emit an order hydration when the caller hasn't
+                    // already pinned VisibleColumnKeys; otherwise the parent
+                    // owns the layout and we must not overwrite it.
+                    if (pref?.ColumnKeys is { Count: > 0 } storedKeys
+                        && (VisibleColumnKeys is null || VisibleColumnKeys.Count == 0)
+                        && OnVisibleColumnsChanged.HasDelegate)
+                    {
+                        await OnVisibleColumnsChanged.InvokeAsync(storedKeys);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(
+                        ex,
+                        "GUX09/GUX10: failed to load persisted grid preferences for grid {GridKey} user {UserId}",
+                        GridKey,
+                        UserId);
+                }
+            }
+        }
+
+        // Check if StratumColumn children signaled aggregation (runs after their OnParametersSet)
+        if (_aggregateContext.HasAggregates && !_showColumnFooters)
+        {
+            _showColumnFooters = true;
+            StateHasChanged();
+        }
+
+        // Edit state is managed by DataGridEditingContext + @key re-render (no Radzen EditRow)
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        // GUX03 — detach persistent selection subscription first so background
+        // notifications don't touch a half-disposed component.
+        _disposed = true;
+        if (_subscribedPersistentSelection is not null && _persistentSelectionHandler is not null)
+        {
+            _subscribedPersistentSelection.Changed -= _persistentSelectionHandler;
+            _subscribedPersistentSelection = null;
+            _persistentSelectionHandler = null;
+        }
+
+        if (_jsRegistered)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.unregisterDataGridKeyNav", _wrapperRef);
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Component teardown — non-critical (circuit may already be disconnected)
+            }
+        }
+
+        if (_reorderJsRegistered && _advancedGridModule is not null)
+        {
+            try
+            {
+                await _advancedGridModule.InvokeVoidAsync("destroyRowReorder", _wrapperRef);
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Non-critical
+            }
+        }
+
+        _dotnetRef?.Dispose();
+
+        // GUX09: cancel any in-flight debounced column-width save.
+        try
+        {
+            _widthSaveCts?.Cancel();
+            _widthSaveCts?.Dispose();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Already disposed — non-critical during teardown.
+        }
+        _widthSaveCts = null;
+
+        if (_advancedGridModule is not null)
+        {
+            try
+            {
+                await _advancedGridModule.DisposeAsync();
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Non-critical
+            }
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        // Compute quick-action list from RowActions flagged with IsQuickAction
+        if (RowActions is { Count: > 0 })
+        {
+            _quickActions = RowActions.Where(a => a.IsQuickAction && a.Icon is not null).ToList();
+            // 40px for kebab + 30px per quick-action button
+            _actionColumnWidth = _quickActions.Count > 0
+                ? $"{40 + _quickActions.Count * 30}px"
+                : "48px";
+        }
+        else
+        {
+            _quickActions = Array.Empty<GridRowAction<TItem>>();
+            _actionColumnWidth = "48px";
+        }
+
+        // Only bind LoadData to Radzen when an external delegate exists.
+        // Binding unconditionally causes Radzen to skip client-side grouping/sorting.
+        _radzenLoadData = LoadData.HasDelegate
+            ? EventCallback.Factory.Create<Radzen.LoadDataArgs>(this, HandleRadzenLoadData)
+            : default;
+
+        // Sync internal selection list from parameter (stable reference for Radzen binding)
+        if (SelectedItems is not null)
+        {
+            _internalSelectedItems.Clear();
+            foreach (var item in SelectedItems)
+                _internalSelectedItems.Add(item);
+        }
+        else if (_internalSelectedItems.Count > 0)
+        {
+            _internalSelectedItems.Clear();
+        }
+
+        // GUX03 — keep subscription to PersistentSelection.Changed in sync with the
+        // current parameter so the floating bar re-renders when external mutations
+        // (e.g. clearing from GUX04 dialog) affect TotalCount.
+        if (!ReferenceEquals(_subscribedPersistentSelection, PersistentSelection))
+        {
+            if (_subscribedPersistentSelection is not null && _persistentSelectionHandler is not null)
+            {
+                _subscribedPersistentSelection.Changed -= _persistentSelectionHandler;
+            }
+
+            _subscribedPersistentSelection = PersistentSelection;
+
+            if (PersistentSelection is not null)
+            {
+                _persistentSelectionHandler ??= OnPersistentSelectionChanged;
+                PersistentSelection.Changed += _persistentSelectionHandler;
+            }
+        }
+
+        // Reset focused row and anchor when data changes
+        if (!ReferenceEquals(Data, _previousData))
+        {
+            _focusedRowIndex = 0;
+            _anchorIndex = -1;
+            _previousData = Data;
+        }
+
+        // Resolve dynamic columns from registry + preferences
+        if (ColumnRegistry is not null)
+        {
+            var keys = VisibleColumnKeys;
+            List<ColumnDefinition> newResolved;
+            if (keys is null || keys.Count == 0)
+            {
+                newResolved = ColumnRegistry.GetDefaultVisibleColumns().ToList();
+            }
+            else
+            {
+                newResolved = new List<ColumnDefinition>(keys.Count);
+                foreach (var key in keys)
+                {
+                    var col = ColumnRegistry.GetColumn(key);
+                    if (col is not null)
+                        newResolved.Add(col);
+                }
+            }
+
+            // Detect column layout change → force Radzen to re-create grid
+            var newLayoutKey = string.Join(",", newResolved.Select(c => c.Key));
+            var layoutChanged = _columnLayoutKey != newLayoutKey;
+            if (layoutChanged)
+            {
+                _columnLayoutKey = newLayoutKey;
+            }
+
+            _resolvedColumns = newResolved;
+        }
+        else
+        {
+            _resolvedColumns = null;
+        }
+
+        // GUX09 — drop any pending (in-session drag) entries that the parent
+        // has explicitly overridden via ColumnWidths, so a "Restore defaults"
+        // push from the parent wins over a stale pending entry.
+        if (_pendingColumnWidths.Count > 0 && ColumnWidths is not null)
+        {
+            var keysToRemove = new List<string>();
+            foreach (var kv in _pendingColumnWidths)
+            {
+                if (ColumnWidths.TryGetValue(kv.Key, out var parentValue) &&
+                    !string.Equals(parentValue, kv.Value, StringComparison.Ordinal))
+                {
+                    keysToRemove.Add(kv.Key);
+                }
+            }
+
+            foreach (var key in keysToRemove)
+            {
+                _pendingColumnWidths.Remove(key);
+            }
+        }
+
+        // Sync aggregate context — columns read Data via CascadingParameter
+        _aggregateContext.Data = Data;
+        _aggregateContext.HasAggregates = false; // Reset; columns will re-set in their OnParametersSet
+
+        // Determine if footer row is needed (from dynamic columns)
+        var hasResolvedAggregates = _resolvedColumns?.Any(c => c.AggregateFunc != AggregateFunc.None) ?? false;
+
+        // Sync group descriptor from GroupBy parameter
+        if (GroupBy != _previousGroupBy)
+        {
+            _previousGroupBy = GroupBy;
+            _groupDescriptors.Clear();
+            if (!string.IsNullOrEmpty(GroupBy))
+            {
+                _groupDescriptors.Add(new Radzen.GroupDescriptor
+                {
+                    Property = GroupBy,
+                    SortOrder = Radzen.SortOrder.Ascending,
+                });
+            }
+        }
+
+        // Show footer row if any column has aggregation (dynamic or ChildContent columns)
+        // Note: _aggregateContext.HasAggregates is set by StratumColumn in its OnParametersSet,
+        // which runs after this. We use OnAfterRender to capture the final state.
+        _showColumnFooters = hasResolvedAggregates || _aggregateContext.HasAggregates;
+
+        // Tree-grid: flatten hierarchy into visible rows
+        _isTreeGrid = ChildrenSelector is not null;
+        if (_isTreeGrid && Data is not null)
+        {
+            // Only rebuild tree nodes when Data changes (not on every re-render,
+            // because that would reset expand/collapse state)
+            if (!ReferenceEquals(Data, _previousTreeSourceData))
+            {
+                _previousTreeSourceData = Data;
+                BuildTreeNodes();
+            }
+        }
+        else
+        {
+            _treeNodes = null;
+            _flattenedTreeData = null;
+            _previousTreeSourceData = null;
+        }
+    }
+
+    // ── Aggregate footer for dynamic columns ─────────────────────────
+
+    private RenderFragment RenderDynamicColumnFooter(ColumnDefinition col) => builder =>
+    {
+        if (Data is null || Data.Count == 0 || col.AggregateFunc == AggregateFunc.None)
+            return;
+
+        var label = AggregateComputer.GetLabel(col.AggregateFunc);
+        var value = AggregateComputer.Compute(Data, col.Property, col.AggregateFunc, col.AggregateFormat);
+
+        if (value is not null)
+        {
+            builder.OpenElement(0, "span");
+            builder.AddAttribute(1, "class", "stratum-datagrid__aggregate");
+            builder.AddContent(2, $"{label}: {value}");
+            builder.CloseElement();
+        }
+    };
+
+    // ── Related entity formatting ──────────────────────────────────
+
+    private string FormatRelatedEntity(TItem item, ColumnDefinition col)
+    {
+        var entity = NavigatePropertyPath(item, col.Property);
+        if (entity is null) return string.Empty;
+        return DisplayTemplates.FormatObject(entity);
+    }
+
+    private static object? NavigatePropertyPath(object? obj, string path)
+    {
+        if (obj is null || string.IsNullOrEmpty(path)) return null;
+
+        var current = obj;
+        foreach (var segment in path.Split('.'))
+        {
+            if (current is null) return null;
+            var prop = current.GetType().GetProperty(segment);
+            if (prop is null) return null;
+            current = prop.GetValue(current);
+        }
+        return current;
+    }
+
+    private RenderFragment RenderBooleanBadge(TItem item, ColumnDefinition col) => __builder =>
+    {
+        var value = NavigatePropertyPath(item, col.Property);
+        var isTrue = value is true or "true" or "True";
+        __builder.OpenComponent<StatusBadge>(0);
+        __builder.AddAttribute(1, "Severity", isTrue ? Severity.Success : Severity.Neutral);
+        __builder.AddAttribute(2, "Label", isTrue ? L["Yes"] : L["No"]);
+        __builder.CloseComponent();
+    };
+
+    // ── Cell context menu ──────────────────────────────────────────
+
+    /// <summary>
+    /// Builds the payload for a right-click on a registry-backed cell and
+    /// raises <see cref="OnCellContextMenu"/>. The cell-level wrapper
+    /// suppresses the default browser menu only when a delegate is wired.
+    /// </summary>
+    private Task HandleCellContextMenuAsync(Microsoft.AspNetCore.Components.Web.MouseEventArgs e, ColumnDefinition col, TItem item)
+    {
+        if (!OnCellContextMenu.HasDelegate) return Task.CompletedTask;
+
+        var rawValue = NavigatePropertyPath(item, col.Property);
+        var display = FormatCellValueForDisplay(rawValue, col);
+        var filterValue = CoerceCellValueForFilter(rawValue, col);
+
+        // GUX13 — when the column declares an EntityReference, resolve the
+        // target id from the configured IdProperty so the context menu can
+        // offer "Ouvrir la fiche" without re-reading the row itself.
+        EntityReferenceTarget? entityTarget = null;
+        if (col.EntityReference is { } entRef && !string.IsNullOrEmpty(entRef.IdProperty))
+        {
+            var idRaw = NavigatePropertyPath(item, entRef.IdProperty);
+            if (idRaw is Guid gid && gid != Guid.Empty)
+            {
+                entityTarget = new EntityReferenceTarget(
+                    entRef.Module,
+                    entRef.Entity,
+                    gid,
+                    entRef.RouteTemplate);
+            }
+        }
+
+        var args = new GridCellContextMenuArgs<TItem>(
+            Item: item,
+            ColumnKey: col.Key,
+            Field: col.Property,
+            Value: filterValue,
+            DisplayValue: display,
+            ClientX: e.ClientX,
+            ClientY: e.ClientY,
+            EntityReferenceTarget: entityTarget);
+
+        return OnCellContextMenu.InvokeAsync(args);
+    }
+
+    private string FormatCellValueForDisplay(object? value, ColumnDefinition col)
+    {
+        if (value is null) return string.Empty;
+
+        if (col.IsRelatedEntity)
+            return DisplayTemplates.FormatObject(value);
+
+        return col.DataType switch
+        {
+            ColumnDataType.Boolean => (value is true or "true" or "True") ? L["Yes"] : L["No"],
+            _ => value.ToString() ?? string.Empty,
+        };
+    }
+
+    private object? CoerceCellValueForFilter(object? value, ColumnDefinition col)
+    {
+        if (value is null) return null;
+
+        // Related-entity cells filter on the displayed text, because the registry
+        // only exposes the navigation property path; downstream filter logic
+        // compares as strings for related cells.
+        if (col.IsRelatedEntity)
+            return DisplayTemplates.FormatObject(value);
+        return value;
+    }
+
+    // ── Radzen → Stratum mapping ────────────────────────────────────
+
+    private Radzen.DataGridSelectionMode MapSelectionMode()
+    {
+        if (!AllowSelection) return Radzen.DataGridSelectionMode.Single;
+        return SelectionMode switch
+        {
+            SelectionMode.Multiple => Radzen.DataGridSelectionMode.Multiple,
+            _ => Radzen.DataGridSelectionMode.Single,
+        };
+    }
+
+    private static string GetColumnWidth(ColumnDataType dataType)
+    {
+        return dataType switch
+        {
+            ColumnDataType.Boolean => "110px",
+            ColumnDataType.Date => "140px",
+            ColumnDataType.Number => "100px",
+            ColumnDataType.Money => "120px",
+            _ => "auto",
+        };
+    }
+
+    /// <summary>
+    /// Returns the width Radzen should apply to the given column — the persisted
+    /// per-user width (GUX09) when available, otherwise the data-type heuristic.
+    /// Pending widths collected by <see cref="HandleRadzenColumnResized"/> take
+    /// priority so a resize stays visually sticky across re-renders that run
+    /// before the debounced save completes.
+    /// </summary>
+    private string GetEffectiveColumnWidth(ColumnDefinition col)
+    {
+        if (_pendingColumnWidths.TryGetValue(col.Key, out var pending) && !string.IsNullOrEmpty(pending))
+        {
+            return pending;
+        }
+
+        if (ColumnWidths is not null && ColumnWidths.TryGetValue(col.Key, out var persisted) && !string.IsNullOrEmpty(persisted))
+        {
+            return persisted;
+        }
+
+        if (_loadedColumnWidths is not null && _loadedColumnWidths.TryGetValue(col.Key, out var loaded) && !string.IsNullOrEmpty(loaded))
+        {
+            return loaded;
+        }
+
+        return GetColumnWidth(col.DataType);
+    }
+
+    private static SortDirection MapRadzenSortDirection(Radzen.SortOrder? order)
+    {
+        return order == Radzen.SortOrder.Descending
+            ? SortDirection.Descending
+            : SortDirection.Ascending;
+    }
+
+    // ── Event handlers ──────────────────────────────────────────────
+
+    private async Task HandleRadzenSort(Radzen.DataGridColumnSortEventArgs<TItem> args)
+    {
+        var property = args.Column?.Property ?? string.Empty;
+        var stratumArgs = new SortChangedArgs(
+            property,
+            MapRadzenSortDirection(args.SortOrder));
+        await OnSortChanged.InvokeAsync(stratumArgs);
+    }
+
+    private async Task HandleRadzenLoadData(Radzen.LoadDataArgs args)
+    {
+        if (!LoadData.HasDelegate) return;
+
+        string? sortField = null;
+        SortDirection? sortDir = null;
+        if (!string.IsNullOrEmpty(args.OrderBy))
+        {
+            var parts = args.OrderBy.Split(' ', 2);
+            sortField = parts[0];
+            sortDir = parts.Length > 1 && parts[1].Equals("desc", StringComparison.OrdinalIgnoreCase)
+                ? SortDirection.Descending
+                : SortDirection.Ascending;
+        }
+
+        var requestedFields = _resolvedColumns is not null
+            ? (IReadOnlyList<string>)_resolvedColumns.Select(c => c.Property).ToList()
+            : Array.Empty<string>();
+
+        var stratumArgs = new LoadDataArgs(args.Skip ?? 0, args.Top ?? 25, sortField, sortDir, requestedFields, _activeFilter);
+        await LoadData.InvokeAsync(stratumArgs);
+    }
+
+    // ── Double-click activation (two paths for reliability) ────────
+    private DateTime _lastRowClickTime;
+    private TItem? _lastRowClickItem;
+    private static readonly TimeSpan _doubleClickThreshold = TimeSpan.FromMilliseconds(400);
+
+    private async Task HandleRowClick(Radzen.DataGridRowMouseEventArgs<TItem> args)
+    {
+        if (args.Data is null) return;
+
+        // Click-to-edit: enter edit mode on single click
+        if (AllowInlineEdit && EditMode == DataGridEditMode.Click)
+        {
+            await EditRowAsync(args.Data);
+            return;
+        }
+
+        // Double-click detection for row activation or double-click-to-edit
+        var now = DateTime.UtcNow;
+        var isDoubleClick = _lastRowClickItem is not null
+            && EqualityComparer<TItem>.Default.Equals(_lastRowClickItem, args.Data)
+            && (now - _lastRowClickTime) < _doubleClickThreshold;
+
+        _lastRowClickTime = now;
+        _lastRowClickItem = args.Data;
+
+        if (isDoubleClick)
+        {
+            _lastRowClickItem = default;
+
+            // Double-click-to-edit takes priority over row activation
+            if (AllowInlineEdit && EditMode == DataGridEditMode.DoubleClick)
+            {
+                await EditRowAsync(args.Data);
+            }
+            else
+            {
+                await OnRowActivated.InvokeAsync(args.Data);
+            }
+            return;
+        }
+
+        // ── Custom click selection (Shift-range, Ctrl-toggle, plain-replace) ──
+        // When UseCustomClickSelection is true, AllowRowSelectOnRowClick is false
+        // so Radzen does NOT call OnRowSelect after this handler. We manage
+        // _internalSelectedItems ourselves, preventing the desync where Radzen
+        // replaces _value with selectedItems.Keys.ToList().
+        if (UseCustomClickSelection)
+        {
+            var effectiveData = EffectiveData;
+            var clickedIndex = -1;
+            for (var i = 0; i < effectiveData.Count; i++)
+            {
+                if (EqualityComparer<TItem>.Default.Equals(effectiveData[i], args.Data))
+                {
+                    clickedIndex = i;
+                    break;
+                }
+            }
+
+            if (clickedIndex >= 0)
+            {
+                _focusedRowIndex = clickedIndex;
+
+                if (args.ShiftKey && _anchorIndex >= 0)
+                {
+                    // Shift+click: range select from anchor to clicked
+                    ApplyRangeSelection(effectiveData, _anchorIndex, clickedIndex);
+                    await FireSelectionChanged();
+                }
+                else if (args.CtrlKey || args.MetaKey)
+                {
+                    // Ctrl+click (or Cmd+click on Mac): toggle item in selection
+                    if (_internalSelectedItems.Contains(args.Data))
+                    {
+                        _internalSelectedItems.Remove(args.Data);
+                    }
+                    else
+                    {
+                        _internalSelectedItems.Add(args.Data);
+                    }
+
+                    _anchorIndex = clickedIndex;
+                    await FireSelectionChanged();
+                }
+                else
+                {
+                    // Plain click (no modifier): replace selection with just this item
+                    _internalSelectedItems.Clear();
+                    _internalSelectedItems.Add(args.Data);
+                    _anchorIndex = clickedIndex;
+                    await FireSelectionChanged();
+                }
+
+                await SyncRowClassesAsync();
+            }
+
+            return;
+        }
+
+        // Workaround: Radzen's RowClick event handler causes internal data loss.
+        // Force grid re-creation via @key change to restore data from the Data parameter.
+        if (AllowInlineEdit)
+        {
+            _editStateVersion++;
+        }
+    }
+
+    private async Task HandleRowDoubleClick(Radzen.DataGridRowMouseEventArgs<TItem> args)
+    {
+        if (args.Data is null) return;
+
+        // Double-click-to-edit: enter edit mode (redundant path with HandleRowClick
+        // double-click detection, ensures both Radzen RowDoubleClick and manual
+        // timing-based detection can trigger edit mode)
+        if (AllowInlineEdit && EditMode == DataGridEditMode.DoubleClick)
+        {
+            if (_editingItem is null)
+            {
+                await EditRowAsync(args.Data);
+            }
+            return;
+        }
+
+        await OnRowActivated.InvokeAsync(args.Data);
+    }
+
+    // ── Quick-action handlers ───────────────────────────────────────
+
+    private async Task HandleQuickActionAsync(TItem item, GridRowAction<TItem> action)
+    {
+        if (!action.EvaluateEnabled(item)) return;
+
+        if (action.RequiresConfirmation)
+        {
+            _quickActionItem = item;
+            _quickActionPending = action;
+            _showQuickActionConfirm = true;
+            return;
+        }
+
+        if (action.Callback is not null)
+            await action.Callback(item);
+    }
+
+    private async Task ConfirmQuickActionAsync()
+    {
+        var action = _quickActionPending;
+        var item = _quickActionItem;
+        _showQuickActionConfirm = false;
+        _quickActionPending = null;
+        _quickActionItem = default;
+
+        if (action?.Callback is not null && item is not null)
+            await action.Callback(item);
+    }
+
+    private void CancelQuickAction()
+    {
+        _showQuickActionConfirm = false;
+        _quickActionPending = null;
+        _quickActionItem = default;
+    }
+
+    // ── GUX03 — persistent selection bar handlers ───────────────────
+
+    private void OnPersistentSelectionChanged()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        // PersistentSelection mutations may fire from a background thread; marshal
+        // back onto the Blazor sync context before touching component state.
+        _ = InvokeAsync(() =>
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            try
+            {
+                StateHasChanged();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Raced with disposal — the circuit is gone.
+            }
+        });
+    }
+
+    private void HandlePersistentAdd()
+    {
+        if (PersistentSelection is null || _internalSelectedItems.Count == 0)
+        {
+            return;
+        }
+
+        PersistentSelection.AddRange(_internalSelectedItems);
+    }
+
+    private void HandlePersistentRemove()
+    {
+        if (PersistentSelection is null || _internalSelectedItems.Count == 0)
+        {
+            return;
+        }
+
+        PersistentSelection.RemoveRange(_internalSelectedItems);
+    }
+
+    private Task HandlePersistentViewAsync()
+        => OnViewPersistentSelection.HasDelegate
+            ? OnViewPersistentSelection.InvokeAsync()
+            : Task.CompletedTask;
+
+    private void HandlePersistentClear() => PersistentSelection?.Clear();
+
+    private async Task HandleRowSelect(TItem item)
+    {
+        await FireSelectionChanged();
+    }
+
+    private async Task HandleRowDeselect(TItem item)
+    {
+        await FireSelectionChanged();
+    }
+
+    private async Task FireSelectionChanged()
+    {
+        var snapshot = (IReadOnlyList<TItem>)_internalSelectedItems.ToList();
+        await OnSelectionChanged.InvokeAsync(snapshot);
+    }
+
+    // ── Row render — applies row--active and row--selected CSS ──────
+
+    private void OnRowRender(Radzen.RowRenderEventArgs<TItem> args)
+    {
+        var index = args.Index;
+
+        // Stable row index marker for JS-based class sync (avoids positional
+        // mismatch when Radzen injects structural rows like group headers).
+        // Also used by E2E POMs as a robust row selector (tbody tr[data-row-index])
+        // because .rz-data-row alone matches extra structural elements Radzen
+        // inserts around the tbody, causing Nth(0) to land on the wrong row.
+        args.Attributes["data-row-index"] = index;
+
+        var isActive = index >= 0 && index == _focusedRowIndex;
+        var isSelected = AllowSelection && args.Data is not null && _internalSelectedItems.Contains(args.Data);
+
+        if (isActive || isSelected)
+        {
+            var existingClass = args.Attributes.TryGetValue("class", out var existing) ? $"{existing} " : string.Empty;
+            var classes = isActive && isSelected
+                ? "row--active row--selected"
+                : isActive ? "row--active" : "row--selected";
+            args.Attributes["class"] = $"{existingClass}{classes}";
+        }
+    }
+
+    // ── Keyboard navigation + Shift-range selection ────────────────
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        var effectiveData = EffectiveData;
+        if (effectiveData.Count == 0) { return; }
+
+        var isMultiShiftRange = AllowSelection && EnableShiftRange
+            && SelectionMode == SelectionMode.Multiple;
+
+        switch (e.Key)
+        {
+            case "ArrowDown":
+            {
+                var prevIndex = _focusedRowIndex;
+                _focusedRowIndex = Math.Min(_focusedRowIndex + 1, effectiveData.Count - 1);
+
+                // Shift+↓: extend selection from anchor
+                if (isMultiShiftRange && e.ShiftKey)
+                {
+                    if (_anchorIndex < 0) _anchorIndex = prevIndex;
+                    ApplyRangeSelection(effectiveData, _anchorIndex, _focusedRowIndex);
+                    await FireSelectionChanged();
+                }
+
+                await FocusRowAsync();
+                break;
+            }
+
+            case "ArrowUp":
+            {
+                var prevIndex = _focusedRowIndex;
+                _focusedRowIndex = Math.Max(_focusedRowIndex - 1, 0);
+
+                // Shift+↑: extend selection from anchor
+                if (isMultiShiftRange && e.ShiftKey)
+                {
+                    if (_anchorIndex < 0) _anchorIndex = prevIndex;
+                    ApplyRangeSelection(effectiveData, _anchorIndex, _focusedRowIndex);
+                    await FireSelectionChanged();
+                }
+
+                await FocusRowAsync();
+                break;
+            }
+
+            case "ArrowRight":
+                // Tree-grid: expand focused node
+                if (_isTreeGrid && _focusedRowIndex >= 0 && _focusedRowIndex < effectiveData.Count)
+                {
+                    var item = effectiveData[_focusedRowIndex];
+                    if (HasTreeChildren(item) && !IsTreeNodeExpanded(item))
+                    {
+                        ToggleTreeNode(item);
+                        _treeVersion++;
+                        await FocusRowAsync();
+                    }
+                }
+                break;
+
+            case "ArrowLeft":
+                // Tree-grid: collapse focused node
+                if (_isTreeGrid && _focusedRowIndex >= 0 && _focusedRowIndex < effectiveData.Count)
+                {
+                    var item = effectiveData[_focusedRowIndex];
+                    if (HasTreeChildren(item) && IsTreeNodeExpanded(item))
+                    {
+                        ToggleTreeNode(item);
+                        _treeVersion++;
+                        await FocusRowAsync();
+                    }
+                }
+                break;
+
+            case "Home":
+                _focusedRowIndex = 0;
+                await FocusRowAsync();
+                break;
+
+            case "End":
+                _focusedRowIndex = effectiveData.Count - 1;
+                await FocusRowAsync();
+                break;
+
+            case "Enter":
+                if (AllowInlineEdit && _editingItem is not null)
+                {
+                    await SaveRowAsync(_editingItem);
+                }
+                else if (_focusedRowIndex >= 0 && _focusedRowIndex < effectiveData.Count)
+                {
+                    await OnRowActivated.InvokeAsync(effectiveData[_focusedRowIndex]);
+                }
+                break;
+
+            case "Escape":
+                if (AllowInlineEdit && _editingItem is not null)
+                {
+                    await CancelEditAsync(_editingItem);
+                }
+                else if (UseCustomClickSelection)
+                {
+                    // Escape: deselect all, reset anchor (only for custom selection mode)
+                    _internalSelectedItems.Clear();
+                    _anchorIndex = -1;
+                    await FireSelectionChanged();
+                }
+                break;
+
+            case " ":
+            case "x":
+                if (AllowSelection && _focusedRowIndex >= 0 && _focusedRowIndex < effectiveData.Count)
+                {
+                    var item = effectiveData[_focusedRowIndex];
+                    var current = SelectedItems?.ToList() ?? new List<TItem>();
+                    if (current.Contains(item))
+                        current.Remove(item);
+                    else
+                    {
+                        if (SelectionMode == SelectionMode.One)
+                            current.Clear();
+                        current.Add(item);
+                    }
+                    _internalSelectedItems.Clear();
+                    foreach (var i in current)
+                        _internalSelectedItems.Add(i);
+                    _anchorIndex = _focusedRowIndex;
+                    await OnSelectionChanged.InvokeAsync(current);
+                }
+                break;
+
+            case "a":
+            case "A":
+                // Ctrl+A: select all items on the current page
+                if (e.CtrlKey && isMultiShiftRange)
+                {
+                    _internalSelectedItems.Clear();
+                    foreach (var item in effectiveData)
+                    {
+                        _internalSelectedItems.Add(item);
+                    }
+
+                    _anchorIndex = 0;
+                    await FireSelectionChanged();
+                }
+                break;
+        }
+
+        // Sync row--active / row--selected CSS classes via JS since keyboard
+        // navigation doesn't trigger Radzen's internal row re-render.
+        await SyncRowClassesAsync();
+    }
+
+    private void ApplyRangeSelection(IReadOnlyList<TItem> data, int from, int to)
+    {
+        var start = Math.Max(0, Math.Min(from, to));
+        var end = Math.Min(data.Count - 1, Math.Max(from, to));
+        _internalSelectedItems.Clear();
+        for (var i = start; i <= end; i++)
+            _internalSelectedItems.Add(data[i]);
+    }
+
+    private async Task FocusRowAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("stratumUI.focusDataGridRow", _wrapperRef, _focusedRowIndex);
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or OperationCanceledException or TaskCanceledException)
+        {
+            // Non-critical: keyboard focus fallback or circuit teardown
+        }
+    }
+
+    private async Task SyncRowClassesAsync()
+    {
+        try
+        {
+            var effectiveData = EffectiveData;
+            var selectedIndices = new List<int>();
+            for (var i = 0; i < effectiveData.Count; i++)
+            {
+                if (_internalSelectedItems.Contains(effectiveData[i]))
+                {
+                    selectedIndices.Add(i);
+                }
+            }
+
+            await JS.InvokeVoidAsync("stratumUI.updateGridRowClasses",
+                _wrapperRef, _focusedRowIndex, selectedIndices);
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or OperationCanceledException or TaskCanceledException)
+        {
+            // Non-critical: visual feedback fallback or circuit teardown
+        }
+    }
+
+    // ── Inline Edit ───────────────────────────────────────────────────
+
+    private TItem? _editingItem;
+
+    private async Task EditRowAsync(TItem item)
+    {
+        if (!AllowInlineEdit) return;
+
+        _editingItem = item;
+        _editingContext = new DataGridEditingContext<TItem>
+        {
+            EditingItem = item,
+            IsEditing = true,
+        };
+        _editStateVersion++;
+        await OnRowEdit.InvokeAsync(item);
+    }
+
+    private async Task SaveRowAsync(TItem item)
+    {
+        _editingItem = default;
+        _editingContext = new DataGridEditingContext<TItem>();
+        _editStateVersion++;
+        await OnRowSave.InvokeAsync(item);
+    }
+
+    private async Task CancelEditAsync(TItem item)
+    {
+        _editingItem = default;
+        _editingContext = new DataGridEditingContext<TItem>();
+        _editStateVersion++;
+        await OnRowCancel.InvokeAsync(item);
+    }
+
+    // ── Column Resize ──────────────────────────────────────────────────
+
+    // Pending widths captured between a user drag and the debounced save.
+    // Keyed by column key (falls back to property when no key is available).
+    private readonly Dictionary<string, string> _pendingColumnWidths = new(StringComparer.Ordinal);
+    private CancellationTokenSource? _widthSaveCts;
+
+    private async Task HandleRadzenColumnResized(Radzen.DataGridColumnResizedEventArgs<TItem> args)
+    {
+        var columnKey = ResolveResizedColumnKey(args.Column);
+        var widthCss = $"{args.Width}px";
+
+        if (!string.IsNullOrEmpty(columnKey))
+        {
+            _pendingColumnWidths[columnKey] = widthCss;
+            ScheduleColumnWidthSave();
+        }
+
+        if (OnColumnResized.HasDelegate)
+        {
+            var stratumArgs = new ColumnResizedArgs(
+                args.Column?.Property,
+                args.Column?.Title ?? string.Empty,
+                widthCss);
+            await OnColumnResized.InvokeAsync(stratumArgs);
+        }
+    }
+
+    private string? ResolveResizedColumnKey(Radzen.Blazor.RadzenDataGridColumn<TItem>? column)
+    {
+        if (column is null) return null;
+
+        // Prefer the logical column key registered on the registry so the saved
+        // payload survives property renames; fall back to the Property string
+        // (which matches the key Radzen exposes natively for static columns).
+        var property = column.Property;
+        if (!string.IsNullOrEmpty(property) && _resolvedColumns is not null)
+        {
+            var match = _resolvedColumns.FirstOrDefault(c =>
+                string.Equals(c.Property, property, StringComparison.Ordinal));
+            if (match is not null) return match.Key;
+        }
+
+        return property;
+    }
+
+    private void ScheduleColumnWidthSave()
+    {
+        if (PreferenceService is null || string.IsNullOrEmpty(GridKey) || UserId == Guid.Empty)
+        {
+            return;
+        }
+
+        // Cancel the previous debounce window — a newer drag supersedes the older save.
+        _widthSaveCts?.Cancel();
+        _widthSaveCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        _widthSaveCts = cts;
+
+        var delay = ColumnWidthSaveDebounceMs <= 0 ? 0 : ColumnWidthSaveDebounceMs;
+        _ = RunColumnWidthSaveAsync(delay, cts.Token);
+    }
+
+    private async Task RunColumnWidthSaveAsync(int delayMs, CancellationToken ct)
+    {
+        try
+        {
+            if (delayMs > 0)
+            {
+                await Task.Delay(delayMs, ct);
+            }
+
+            if (ct.IsCancellationRequested) return;
+            if (PreferenceService is null || string.IsNullOrEmpty(GridKey) || UserId == Guid.Empty) return;
+
+            // Snapshot the current pending widths — the renderer keeps reading
+            // them until the save completes so a late cancellation doesn't
+            // visually revert the column.
+            var snapshot = new Dictionary<string, string>(_pendingColumnWidths, StringComparer.Ordinal);
+
+            await PreferenceService.SaveColumnWidthsAsync(UserId, GridKey!, snapshot, ct);
+
+            // Npgsql / Dapper do not always throw OperationCanceledException when
+            // the CT flips during the actual SQL round-trip — if a newer drag has
+            // cancelled us, skip the merge so we don't clobber its pending value.
+            if (ct.IsCancellationRequested) return;
+
+            // Persist visual state into _loadedColumnWidths so the next
+            // re-render still applies these widths even after pending has
+            // been cleared (P2: stale pending shadowing parent updates).
+            var merged = _loadedColumnWidths is null
+                ? new Dictionary<string, string>(StringComparer.Ordinal)
+                : new Dictionary<string, string>(_loadedColumnWidths, StringComparer.Ordinal);
+            foreach (var kv in snapshot)
+            {
+                merged[kv.Key] = kv.Value;
+
+                // Only drop the pending entry if it still matches what we just
+                // persisted — a newer drag for the same key must win, otherwise
+                // the next save would snapshot an empty dict and revert the user.
+                if (_pendingColumnWidths.TryGetValue(kv.Key, out var current)
+                    && string.Equals(current, kv.Value, StringComparison.Ordinal))
+                {
+                    _pendingColumnWidths.Remove(kv.Key);
+                }
+            }
+
+            _loadedColumnWidths = merged;
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected — debounce window was superseded by a newer drag.
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(
+                ex,
+                "GUX09: failed to persist column widths for grid {GridKey} user {UserId}",
+                GridKey,
+                UserId);
+        }
+    }
+
+
+    // ── Column Reorder (GUX10) ────────────────────────────────────────
+
+    private async Task HandleRadzenColumnReordered(Radzen.DataGridColumnReorderedEventArgs<TItem> args)
+    {
+        if (_resolvedColumns is null || _resolvedColumns.Count == 0) return;
+        if (args.OldIndex == args.NewIndex) return;
+
+        // Radzen reports indices against its internal column collection which may
+        // include a leading non-reorderable row-drag handle when ReorderEnabled is
+        // true. Resolve the moved column via its Property so we work on the
+        // registry-level list regardless of the offset, then apply the same delta.
+        // First try the Radzen column's UniqueID / title, then fall back to
+        // Property. Template columns with a null Property are silently skipped.
+        var property = args.Column?.Property;
+        if (string.IsNullOrEmpty(property)) return;
+
+        var fromIndex = _resolvedColumns.FindIndex(c =>
+            string.Equals(c.Key, property, StringComparison.Ordinal));
+        if (fromIndex < 0)
+        {
+            fromIndex = _resolvedColumns.FindIndex(c =>
+                string.Equals(c.Property, property, StringComparison.Ordinal));
+        }
+
+        if (fromIndex < 0) return;
+
+        var delta = args.NewIndex - args.OldIndex;
+        var toIndex = fromIndex + delta;
+        if (toIndex < 0 || toIndex >= _resolvedColumns.Count) return;
+        if (toIndex == fromIndex) return;
+
+        var newKeys = _resolvedColumns.Select(c => c.Key).ToList();
+        var moved = newKeys[fromIndex];
+        newKeys.RemoveAt(fromIndex);
+        newKeys.Insert(toIndex, moved);
+
+        await ApplyReorderedColumnKeysAsync(newKeys);
+
+        if (OnColumnReordered.HasDelegate)
+        {
+            await OnColumnReordered.InvokeAsync(newKeys.AsReadOnly());
+        }
+    }
+
+    private async Task ApplyReorderedColumnKeysAsync(IReadOnlyList<string> keys)
+    {
+        // Propagate the new order to the parent so VisibleColumnKeys two-way
+        // binding stays in sync and the @key-driven grid rebuild picks it up.
+        await OnVisibleColumnsChanged.InvokeAsync(keys);
+
+        // Auto-persist column order when the preference service is wired up,
+        // mirroring the GUX09 width persistence path.
+        if (PreferenceService is not null
+            && !string.IsNullOrEmpty(GridKey)
+            && UserId != Guid.Empty)
+        {
+            try
+            {
+                await PreferenceService.SavePreferenceAsync(UserId, GridKey!, keys);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(
+                    ex,
+                    "GUX10: failed to persist column order for grid {GridKey} user {UserId}",
+                    GridKey,
+                    UserId);
+            }
+        }
+    }
+
+    // ── Column Chooser ────────────────────────────────────────────────
+
+    private void HandleToggleColumnChooser()
+    {
+        _showColumnChooser = !_showColumnChooser;
+    }
+
+    private async Task HandleColumnChooserApplied(IReadOnlyList<string> keys)
+    {
+        _showColumnChooser = false;
+        await ApplyReorderedColumnKeysAsync(keys);
+    }
+
+    // ── Group Chooser ─────────────────────────────────────────────────
+
+    private void HandleToggleGroupChooser()
+    {
+        _showGroupChooser = !_showGroupChooser;
+    }
+
+    private async Task HandleGroupChooserApplied(IReadOnlyList<string> keys)
+    {
+        _showGroupChooser = false;
+        _groupKeys = [.. keys];
+
+        await SyncRadzenGroupsAsync();
+
+        if (OnGroupsChanged.HasDelegate)
+        {
+            await OnGroupsChanged.InvokeAsync(_groupKeys);
+        }
+    }
+
+    /// <summary>
+    /// Rebuilds the Radzen grid's internal Groups collection from <see cref="_groupKeys"/>
+    /// and reloads. Called from the apply handler and from firstRender so that
+    /// chooser-selected groups survive grid recreations (e.g. when <c>_columnLayoutKey</c>
+    /// changes and a fresh RadzenDataGrid instance is constructed).
+    /// </summary>
+    private async Task SyncRadzenGroupsAsync()
+    {
+        if (_radzenGrid is null)
+        {
+            return;
+        }
+
+        // Radzen's grid reads its own internal Groups collection; mutating an
+        // external list bound via the Groups parameter does not propagate.
+        _radzenGrid.Groups.Clear();
+
+        if (ColumnRegistry is not null)
+        {
+            foreach (var key in _groupKeys)
+            {
+                var col = ColumnRegistry.GetColumn(key);
+                if (col is null || string.IsNullOrEmpty(col.Property))
+                {
+                    continue;
+                }
+
+                _radzenGrid.Groups.Add(new Radzen.GroupDescriptor
+                {
+                    Property = col.Property,
+                    SortOrder = Radzen.SortOrder.Ascending,
+                });
+            }
+        }
+
+        await _radzenGrid.Reload();
+    }
+
+    // ── Advanced Filter ─────────────────────────────────────────────
+
+    private void HandleToggleFilterBuilder()
+    {
+        _showFilterBuilder = !_showFilterBuilder;
+    }
+
+    private async Task HandleFilterApplied(FilterGroup? filter)
+    {
+        _activeFilter = filter;
+        _showFilterBuilder = false;
+
+        // Refresh the toolbar saved-filter cache in case the user just saved or
+        // deleted a filter through the advanced builder (GFI10).
+        await RefreshToolbarSavedFiltersAsync();
+
+        await OnAdvancedFilterChanged.InvokeAsync(filter);
+
+        // Re-trigger LoadData so the page handler receives the new filter
+        if (_radzenGrid is not null)
+        {
+            await _radzenGrid.Reload();
+        }
+    }
+
+    private async Task HandleLoadSavedFilterFromToolbarAsync(Guid savedFilterId)
+    {
+        if (SavedFilterService is null || savedFilterId == Guid.Empty)
+        {
+            return;
+        }
+
+        SavedFilter? saved;
+        try
+        {
+            saved = await SavedFilterService.GetAsync(savedFilterId);
+        }
+        catch (Exception ex)
+        {
+            // Keep the grid state untouched rather than applying a half-loaded
+            // filter, but log the failure so a broken dropdown is not invisible
+            // to operators — the click would otherwise be a silent no-op.
+            Logger.LogError(
+                ex,
+                "Failed to load saved filter {SavedFilterId} from toolbar split button",
+                savedFilterId);
+            return;
+        }
+
+        if (saved is null)
+        {
+            // Filter was deleted between dropdown open and click — refresh the cache.
+            await RefreshToolbarSavedFiltersAsync();
+            return;
+        }
+
+        // DF-02 persistence exception: the saved filter carries its original
+        // Source on disk. Today both sources route through HandleFilterApplied
+        // (the Advanced pipeline) because the Simple builder does not yet
+        // persist filters. The Simple-source branch is wired in GFI11+.
+        // TODO(GFI11): if (saved.Source == SavedFilterSource.Simple) route
+        // through the Simple builder's load path instead.
+        await HandleFilterApplied(saved.FilterGroup);
+    }
+
+    private async Task RefreshToolbarSavedFiltersAsync()
+    {
+        if (!AllowAdvancedFilter || SavedFilterService is null ||
+            UserId == Guid.Empty || string.IsNullOrEmpty(GridKey))
+        {
+            _toolbarSavedFilters = Array.Empty<SavedFilter>();
+            return;
+        }
+
+        try
+        {
+            _toolbarSavedFilters = await SavedFilterService.ListAsync(UserId, GridKey);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(
+                ex,
+                "Failed to list saved filters for grid {GridKey} user {UserId}",
+                GridKey,
+                UserId);
+            _toolbarSavedFilters = Array.Empty<SavedFilter>();
+        }
+    }
+
+    /// <summary>
+    /// Programmatically sets the active filter from outside the grid. Equivalent
+    /// to applying a filter via the advanced filter builder: fires
+    /// <see cref="OnAdvancedFilterChanged"/> and reloads the data.
+    /// </summary>
+    public Task ApplyExternalFilterAsync(FilterGroup? filter) => HandleFilterApplied(filter);
+
+    /// <summary>
+    /// Silently updates the grid's internal advanced filter state to match an external
+    /// owner (e.g. DeclaredListPage editing the filter via its chip bar). Does NOT
+    /// trigger <see cref="OnAdvancedFilterChanged"/> or reload Radzen — the external
+    /// owner is expected to have already applied the filter to its own data source.
+    /// Use <see cref="ApplyExternalFilterAsync"/> instead when the grid should own
+    /// the data refresh.
+    /// </summary>
+    public void SetActiveFilterSilently(FilterGroup? filter)
+    {
+        _activeFilter = filter;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Opens the built-in advanced filter builder dialog. Equivalent to clicking
+    /// the toolbar filter button. Returns a completed task for await-compatibility.
+    /// </summary>
+    public Task OpenAdvancedFilterBuilderAsync()
+    {
+        if (!AllowAdvancedFilter || ColumnRegistry is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        _showFilterBuilder = true;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private int CountActiveFilterCriteria()
+    {
+        if (_activeFilter is null) return 0;
+        return CountCriteria(_activeFilter);
+
+        static int CountCriteria(FilterGroup group)
+        {
+            var count = group.Criteria.Count;
+            if (group.SubGroups is not null)
+            {
+                foreach (var sub in group.SubGroups)
+                    count += CountCriteria(sub);
+            }
+            return count;
+        }
+    }
+
+    private async Task LoadDefaultFilterAsync()
+    {
+        if (!AllowAdvancedFilter || SavedFilterService is null ||
+            UserId == Guid.Empty || string.IsNullOrEmpty(GridKey))
+            return;
+
+        try
+        {
+            var savedFilters = await SavedFilterService.ListAsync(UserId, GridKey);
+            _toolbarSavedFilters = savedFilters;
+
+            var defaultFilter = savedFilters.FirstOrDefault(f => f.IsDefault);
+            if (defaultFilter is not null)
+            {
+                _activeFilter = defaultFilter.FilterGroup;
+                await OnAdvancedFilterChanged.InvokeAsync(_activeFilter);
+            }
+        }
+        catch
+        {
+            // Non-critical: grid works without default filter
+            _toolbarSavedFilters = Array.Empty<SavedFilter>();
+        }
+    }
+
+    // ── Export logic ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Public method for external triggers (e.g. page-level export button).
+    /// Uses ExportDataProvider if available to export all filtered data.
+    /// </summary>
+    public async Task ExportAsync(ExportFormat format)
+    {
+        await HandleExportAsync(format);
+    }
+
+    private async Task HandleExportAsync(ExportFormat format)
+    {
+        if (Data is null || Data.Count == 0) return;
+
+        var args = new ExportArgs(format, ExportFileName);
+
+        // If a custom handler is registered, delegate to it
+        if (OnExport.HasDelegate)
+        {
+            await OnExport.InvokeAsync(args);
+            return;
+        }
+
+        // Default built-in export
+        if (format == ExportFormat.Csv)
+        {
+            await ExportCsvAsync();
+        }
+        else if (format == ExportFormat.Pdf)
+        {
+            await ExportPdfAsync();
+        }
+    }
+
+    private async Task<IReadOnlyList<TItem>> GetExportData()
+    {
+        // Use provider to fetch ALL filtered data (bypasses pagination)
+        if (ExportDataProvider is not null)
+        {
+            return await ExportDataProvider();
+        }
+
+        // Fallback: export current page only
+        return Data ?? Array.Empty<TItem>();
+    }
+
+    private async Task ExportCsvAsync()
+    {
+        var items = await GetExportData();
+        if (items.Count == 0) return;
+
+        var columns = GetExportableColumns();
+        if (columns.Count == 0) return;
+
+        var sb = new System.Text.StringBuilder();
+
+        // Header row (semicolon separator for Excel FR)
+        sb.AppendLine(string.Join(";", columns.Select(c => EscapeCsvField(c.Title))));
+
+        // Data rows
+        foreach (var item in items)
+        {
+            var values = ExtractRowValues(item, columns);
+            sb.AppendLine(string.Join(";", values.Select(EscapeCsvField)));
+        }
+
+        var fileName = string.IsNullOrWhiteSpace(ExportFileName) ? "export" : ExportFileName;
+        try
+        {
+            // Use advanced-grid.js for UTF-8 BOM download (Excel compatibility)
+            var module = await GetAdvancedGridModuleAsync();
+            if (module is not null)
+            {
+                await module.InvokeVoidAsync("downloadCsvWithBom",
+                    fileName + ".csv", sb.ToString());
+            }
+            else
+            {
+                // Fallback: download without BOM
+                await JS.InvokeVoidAsync("stratumUI.downloadFile",
+                    fileName + ".csv", sb.ToString(), "text/csv");
+            }
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+        {
+            // Non-critical: download may fail if circuit is disconnected
+        }
+    }
+
+    private async Task ExportPdfAsync()
+    {
+        var items = await GetExportData();
+        if (items.Count == 0) return;
+
+        var columns = GetExportableColumns();
+        if (columns.Count == 0) return;
+
+        var rows = new List<IReadOnlyList<string>>();
+        foreach (var item in items)
+        {
+            rows.Add(ExtractRowValues(item, columns));
+        }
+
+        var title = string.IsNullOrWhiteSpace(ExportFileName) ? "Export" : ExportFileName;
+        var pdfColumns = columns.Select(c => (c.Property, c.Title)).ToList();
+        var pdfBytes = await Task.Run(() => Services.PdfExportHelper.Generate(title, pdfColumns, rows));
+
+        var fileName = title + ".pdf";
+        try
+        {
+            await JS.InvokeVoidAsync("stratumUI.downloadFileBytes",
+                fileName, pdfBytes, "application/pdf");
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or JSException or InvalidOperationException or OperationCanceledException)
+        {
+            // Circuit disconnected or cancelled — user navigated away, nothing to do
+        }
+    }
+
+    private List<string> ExtractRowValues(
+        TItem item,
+        List<(string Property, string Title, bool IsRelated)> columns)
+    {
+        var values = new List<string>(columns.Count);
+        foreach (var col in columns)
+        {
+            string value;
+            if (col.IsRelated)
+            {
+                // Related entity column: navigate to entity and format via DisplayTemplate
+                var entity = NavigatePropertyPath(item, col.Property);
+                value = entity is not null ? DisplayTemplates.FormatObject(entity) : string.Empty;
+            }
+            else
+            {
+                // Regular column: navigate property path and use ToString
+                var raw = NavigatePropertyPath(item, col.Property);
+                value = raw?.ToString() ?? string.Empty;
+            }
+            values.Add(value);
+        }
+        return values;
+    }
+
+    private List<(string Property, string Title, bool IsRelated)> GetExportableColumns()
+    {
+        var result = new List<(string Property, string Title, bool IsRelated)>();
+
+        // Prefer resolved columns (from registry) which carry IsRelatedEntity metadata
+        if (_resolvedColumns is not null)
+        {
+            foreach (var col in _resolvedColumns)
+            {
+                result.Add((col.Property, col.Title, col.IsRelatedEntity));
+            }
+            return result;
+        }
+
+        // Fallback: extract from Radzen grid columns
+        if (_radzenGrid?.ColumnsCollection is null) return result;
+
+        foreach (var col in _radzenGrid.ColumnsCollection)
+        {
+            if (string.IsNullOrEmpty(col.Property) && string.IsNullOrEmpty(col.Title))
+                continue;
+
+            if (!col.GetVisible()) continue;
+
+            result.Add((col.Property ?? string.Empty, col.Title ?? col.Property ?? string.Empty, false));
+        }
+
+        return result;
+    }
+
+    private static string EscapeCsvField(string field)
+    {
+        if (string.IsNullOrEmpty(field)) return string.Empty;
+
+        // Fields containing semicolon, quote, or newline must be quoted
+        if (field.Contains(';') || field.Contains('"') || field.Contains('\n') || field.Contains('\r'))
+        {
+            return "\"" + field.Replace("\"", "\"\"") + "\"";
+        }
+        return field;
+    }
+
+    // ── Tree-Grid Logic ──────────────────────────────────────────────
+
+    private void BuildTreeNodes()
+    {
+        if (Data is null || ChildrenSelector is null) return;
+
+        _treeNodes = new List<TreeGridNode<TItem>>();
+        foreach (var item in Data)
+        {
+            AddTreeNode(item, 0);
+        }
+
+        RebuildFlattenedTreeData();
+    }
+
+    private const int MaxTreeDepth = 50;
+
+    private void AddTreeNode(TItem item, int level)
+    {
+        if (level > MaxTreeDepth)
+        {
+            throw new InvalidOperationException(
+                $"Tree-grid depth exceeds {MaxTreeDepth}. Check ChildrenSelector for circular references.");
+        }
+
+        var children = ChildrenSelector!(item)?.ToList() ?? new List<TItem>();
+        var node = new TreeGridNode<TItem>
+        {
+            Item = item,
+            Level = level,
+            HasChildren = children.Count > 0,
+            IsExpanded = level < InitialExpandDepth,
+            IsVisible = true,
+        };
+        _treeNodes!.Add(node);
+
+        foreach (var child in children)
+        {
+            AddTreeNode(child, level + 1);
+        }
+    }
+
+    private void RebuildFlattenedTreeData()
+    {
+        if (_treeNodes is null) return;
+
+        // Mark visibility: a node is visible if all ancestors are expanded
+        var visible = new List<TItem>();
+        var parentExpanded = new Stack<bool>();
+        parentExpanded.Push(true); // Root level is always visible
+
+        foreach (var node in _treeNodes)
+        {
+            // Adjust stack to match current level
+            while (parentExpanded.Count > node.Level + 1)
+                parentExpanded.Pop();
+
+            node.IsVisible = parentExpanded.Peek();
+            if (node.IsVisible)
+            {
+                visible.Add(node.Item);
+            }
+
+            if (node.HasChildren)
+            {
+                parentExpanded.Push(node.IsVisible && node.IsExpanded);
+            }
+        }
+
+        _flattenedTreeData = visible;
+    }
+
+    private void ToggleTreeNode(TItem item)
+    {
+        if (_treeNodes is null) return;
+
+        var node = _treeNodes.FirstOrDefault(n => EqualityComparer<TItem>.Default.Equals(n.Item, item));
+        if (node is null || !node.HasChildren) return;
+
+        node.IsExpanded = !node.IsExpanded;
+        RebuildFlattenedTreeData();
+    }
+
+    private Task ToggleTreeNodeAsync(TItem item)
+    {
+        ToggleTreeNode(item);
+        _treeVersion++;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    internal int GetTreeLevel(TItem item)
+    {
+        if (_treeNodes is null) return 0;
+        var node = _treeNodes.FirstOrDefault(n => EqualityComparer<TItem>.Default.Equals(n.Item, item));
+        return node?.Level ?? 0;
+    }
+
+    internal bool IsTreeNodeExpanded(TItem item)
+    {
+        if (_treeNodes is null) return false;
+        var node = _treeNodes.FirstOrDefault(n => EqualityComparer<TItem>.Default.Equals(n.Item, item));
+        return node?.IsExpanded ?? false;
+    }
+
+    internal bool HasTreeChildren(TItem item)
+    {
+        if (_treeNodes is null) return false;
+        var node = _treeNodes.FirstOrDefault(n => EqualityComparer<TItem>.Default.Equals(n.Item, item));
+        return node?.HasChildren ?? false;
+    }
+
+    /// <summary>
+    /// Effective data for the Radzen grid: flattened tree data or original Data.
+    /// </summary>
+    private IReadOnlyList<TItem> EffectiveData => _flattenedTreeData ?? Data ?? Array.Empty<TItem>();
+
+    /// <summary>
+    /// Effective count for Radzen: use explicit Count when set (server-side paging),
+    /// otherwise fall back to the Data collection count. Passing Count=0 to Radzen
+    /// when Data has items causes Radzen to display "No records to display."
+    /// </summary>
+    private int EffectiveCount => Count > 0 ? Count : EffectiveData.Count;
+
+    // ── DnD Reorder JS Interop ───────────────────────────────────────
+
+    private async Task<IJSObjectReference?> GetAdvancedGridModuleAsync()
+    {
+        if (_advancedGridModule is not null) return _advancedGridModule;
+
+        try
+        {
+            _advancedGridModule = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "/_content/Stratum.Common.UI/js/advanced-grid.js");
+            return _advancedGridModule;
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
+    private async Task InitReorderJsAsync()
+    {
+        if (_reorderJsRegistered) return;
+
+        try
+        {
+            var module = await GetAdvancedGridModuleAsync();
+            if (module is null) return;
+
+            _dotnetRef = DotNetObjectReference.Create(this);
+            await module.InvokeVoidAsync("initRowReorder", _wrapperRef, _dotnetRef);
+            _reorderJsRegistered = true;
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+        {
+            // Non-critical
+        }
+    }
+
+    /// <summary>
+    /// Called from JS when a row is dropped at a new position.
+    /// </summary>
+    [JSInvokable]
+    public async Task NotifyRowReorder(int fromIndex, int toIndex)
+    {
+        await OnRowReorder.InvokeAsync(new RowReorderArgs(fromIndex, toIndex));
+    }
+
+}

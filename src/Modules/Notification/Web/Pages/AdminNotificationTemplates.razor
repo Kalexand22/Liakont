@@ -1,0 +1,170 @@
+@page "/admin/notifications/templates"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Stratum.Modules.Notification.Contracts.DTOs
+@using Stratum.Modules.Notification.Contracts.Queries
+@using Stratum.Modules.Notification.Web.Registries
+@inject IEmailTemplateQueries TemplateQueries
+@inject NavigationManager Nav
+
+@*
+ * AdminNotificationTemplates - list page for email templates (Pattern §2: Page liste).
+ *
+ * Migrated to DeclaredListPage (UIX04). Uses ColumnRegistry for dynamic columns.
+ *
+ * Ref: UIA05 → UIX04
+ *@
+
+<DeclaredListPage TItem="EmailTemplateDto"
+                  Title="Templates email"
+                  TestId="notif-templates"
+                  LoadItems="@LoadTemplates"
+                  DetailUrl="@(t => $"/admin/notifications/templates/{t.Id}")"
+                  CreateUrl="/admin/notifications/templates/new"
+                  CreateLabel="+ Nouveau template"
+                  CreatePermission="@NotificationPermissions.Create"
+                  ColumnRegistry="@_registry"
+                  ColumnTemplates="@_columnTemplates"
+                  GridKey="Notification.Templates"
+                  RowActions="@_rowActions"
+                  AriaLabel="Liste des templates email"
+                  DefaultSortColumn="Code"
+                  SearchPlaceholder="Chercher un template… (raccourci : /)"
+                  SearchPredicate="@((t, q) => t.Code.Contains(q, StringComparison.OrdinalIgnoreCase) || t.SubjectTemplate.Contains(q, StringComparison.OrdinalIgnoreCase))"
+                  CustomFilters="@_customFilters"
+                  CustomFilterPredicate="@CustomFilter"
+                  OnCustomFiltersClear="HandleClearCustomFilters"
+                  ActiveCustomFilterCount="@ActiveCustomFilterCount"
+                  CustomFilterVersion="@_filterVersion"
+                  AllowExport="true"
+                  ExportFileName="templates-email" />
+
+@code {
+    private readonly EmailTemplateColumnRegistry _registry = new();
+
+    private IReadOnlyList<GridRowAction<EmailTemplateDto>> _rowActions = Array.Empty<GridRowAction<EmailTemplateDto>>();
+
+    protected override void OnInitialized()
+    {
+        _rowActions =
+        [
+            new GridRowAction<EmailTemplateDto>(
+                Id: "edit",
+                Label: "Modifier",
+                Icon: "edit",
+                IsQuickAction: true,
+                Callback: item =>
+                {
+                    Nav.NavigateTo($"/admin/notifications/templates/{item.Id}");
+                    return Task.CompletedTask;
+                }),
+        ];
+    }
+
+    private readonly Dictionary<string, RenderFragment<EmailTemplateDto>> _columnTemplates = new()
+    {
+        ["EntityType"] = item => __builder =>
+        {
+            __builder.AddContent(0, item.EntityType ?? "—");
+        },
+        ["UpdatedAt"] = item => __builder =>
+        {
+            __builder.AddContent(0, (item.UpdatedAt ?? item.CreatedAt).ToString("dd/MM/yyyy HH:mm"));
+        },
+    };
+
+    private IReadOnlyList<string> _categories = [];
+    private IReadOnlyList<string> _languages = [];
+    private int _filterVersion;
+    private string _categoryFilter = string.Empty;
+    private string _langFilter = string.Empty;
+
+    private int ActiveCustomFilterCount =>
+        (!string.IsNullOrEmpty(_categoryFilter) ? 1 : 0) +
+        (!string.IsNullOrEmpty(_langFilter) ? 1 : 0);
+
+    private RenderFragment _customFilters => __builder =>
+    {
+        __builder.OpenElement(0, "label");
+        __builder.AddAttribute(1, "for", "notif-category-filter");
+        __builder.AddAttribute(2, "class", "visually-hidden");
+        __builder.AddContent(3, "Catégorie");
+        __builder.CloseElement();
+
+        __builder.OpenElement(10, "select");
+        __builder.AddAttribute(11, "id", "notif-category-filter");
+        __builder.AddAttribute(12, "class", "filter-bar__filter-select");
+        __builder.AddAttribute(13, "value", _categoryFilter);
+        __builder.AddAttribute(14, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, HandleCategoryChange));
+        __builder.AddAttribute(15, "aria-label", "Filtrer par catégorie");
+        __builder.AddAttribute(16, "data-testid", "notif-category-filter");
+        __builder.OpenElement(20, "option"); __builder.AddAttribute(21, "value", ""); __builder.AddContent(22, "Toutes catégories"); __builder.CloseElement();
+        foreach (var c in _categories)
+        {
+            __builder.OpenElement(30, "option"); __builder.AddAttribute(31, "value", c); __builder.AddContent(32, c); __builder.CloseElement();
+        }
+        __builder.CloseElement();
+
+        __builder.OpenElement(40, "label");
+        __builder.AddAttribute(41, "for", "notif-lang-filter");
+        __builder.AddAttribute(42, "class", "visually-hidden");
+        __builder.AddContent(43, "Langue");
+        __builder.CloseElement();
+
+        __builder.OpenElement(50, "select");
+        __builder.AddAttribute(51, "id", "notif-lang-filter");
+        __builder.AddAttribute(52, "class", "filter-bar__filter-select");
+        __builder.AddAttribute(53, "value", _langFilter);
+        __builder.AddAttribute(54, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, HandleLangChange));
+        __builder.AddAttribute(55, "aria-label", "Filtrer par langue");
+        __builder.AddAttribute(56, "data-testid", "notif-lang-filter");
+        __builder.OpenElement(60, "option"); __builder.AddAttribute(61, "value", ""); __builder.AddContent(62, "Toutes langues"); __builder.CloseElement();
+        foreach (var l in _languages)
+        {
+            __builder.OpenElement(70, "option"); __builder.AddAttribute(71, "value", l); __builder.AddContent(72, l); __builder.CloseElement();
+        }
+        __builder.CloseElement();
+    };
+
+    private async Task<IReadOnlyList<EmailTemplateDto>> LoadTemplates()
+    {
+        var templates = await TemplateQueries.List();
+        _categories = templates.Select(t => t.Category).Where(c => !string.IsNullOrEmpty(c)).Distinct().OrderBy(c => c).ToList();
+        _languages = templates.Select(t => t.LanguageCode).Distinct().OrderBy(l => l).ToList();
+        return templates;
+    }
+
+    private bool CustomFilter(EmailTemplateDto item)
+    {
+        if (!string.IsNullOrEmpty(_categoryFilter) &&
+            !string.Equals(item.Category, _categoryFilter, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (!string.IsNullOrEmpty(_langFilter) &&
+            !string.Equals(item.LanguageCode, _langFilter, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return true;
+    }
+
+    private void HandleCategoryChange(ChangeEventArgs e)
+    {
+        _categoryFilter = e.Value?.ToString() ?? string.Empty;
+        _filterVersion++;
+    }
+
+    private void HandleLangChange(ChangeEventArgs e)
+    {
+        _langFilter = e.Value?.ToString() ?? string.Empty;
+        _filterVersion++;
+    }
+
+    private void HandleClearCustomFilters()
+    {
+        _categoryFilter = string.Empty;
+        _langFilter = string.Empty;
+    }
+}

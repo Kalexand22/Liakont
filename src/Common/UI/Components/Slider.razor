@@ -1,0 +1,125 @@
+@namespace Stratum.Common.UI.Components
+
+@* Slider — range input with value label, min/max/step, keyboard ←→, ARIA.
+ *
+ * Usage:
+ *   <Slider Value="@_volume"
+ *           ValueChanged="v => _volume = v"
+ *           Min="0" Max="100" Step="1"
+ *           ShowValue />
+ *@
+
+<div class="slider @(Disabled ? "slider--disabled" : string.Empty) @(_hasError ? "slider--error" : string.Empty) @CssClass"
+     data-testid="@(TestId ?? "slider")">
+
+    @if (ShowValue)
+    {
+        <span class="slider__value" aria-hidden="true">@FormatValue(Value)</span>
+    }
+
+    <input id="@_effectiveId"
+           type="range"
+           class="slider__input"
+           min="@Min"
+           max="@Max"
+           step="@Step"
+           value="@Value"
+           disabled="@Disabled"
+           aria-label="@(AriaLabel ?? "Slider")"
+           aria-required="@(_context?.Required == true ? "true" : null)"
+           aria-invalid="@(_hasError ? "true" : null)"
+           aria-describedby="@_context?.DescribedBy"
+           @oninput="HandleInput"
+           @onchange="HandleChange" />
+
+    @if (ShowMinMax)
+    {
+        <div class="slider__range-labels" aria-hidden="true">
+            <span class="slider__range-min">@FormatValue(Min)</span>
+            <span class="slider__range-max">@FormatValue(Max)</span>
+        </div>
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private FormFieldContext? _context { get; set; }
+
+    /// <summary>Current slider value (two-way binding).</summary>
+    [Parameter]
+    public decimal Value { get; set; }
+
+    /// <summary>Raised when the value changes.</summary>
+    [Parameter]
+    public EventCallback<decimal> ValueChanged { get; set; }
+
+    /// <summary>Minimum value. Default: 0.</summary>
+    [Parameter]
+    public decimal Min { get; set; }
+
+    /// <summary>Maximum value. Default: 100.</summary>
+    [Parameter]
+    public decimal Max { get; set; } = 100;
+
+    /// <summary>Step increment. Default: 1.</summary>
+    [Parameter]
+    public decimal Step { get; set; } = 1;
+
+    /// <summary>Show the current value above the slider.</summary>
+    [Parameter]
+    public bool ShowValue { get; set; }
+
+    /// <summary>Show min/max labels under the slider track.</summary>
+    [Parameter]
+    public bool ShowMinMax { get; set; }
+
+    /// <summary>Disabled state.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>Accessible label.</summary>
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    /// <summary>Additional CSS classes on the root element.</summary>
+    [Parameter]
+    public string? CssClass { get; set; }
+
+    /// <summary>Optional test identifier for E2E tests.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Explicit input id. Falls back to FormFieldContext.FieldId when inside FormField.</summary>
+    [Parameter]
+    public string? FieldId { get; set; }
+
+    // ── Internal ────────────────────────────────────────────
+
+    private readonly string _uniqueId = Guid.NewGuid().ToString("N")[..8];
+    private string _effectiveId => FieldId ?? _context?.FieldId ?? $"slider-{_uniqueId}";
+    private bool _hasError => _context?.HasError == true;
+
+    private string FormatValue(decimal val)
+    {
+        // Show integer format if step is whole, otherwise show decimals
+        return Step % 1 == 0 ? val.ToString("0") : val.ToString("0.##");
+    }
+
+    private async Task HandleInput(ChangeEventArgs e)
+    {
+        if (decimal.TryParse(e.Value?.ToString(), System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+        {
+            await ValueChanged.InvokeAsync(parsed);
+        }
+    }
+
+    private async Task HandleChange(ChangeEventArgs e)
+    {
+        if (decimal.TryParse(e.Value?.ToString(), System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+        {
+            await ValueChanged.InvokeAsync(parsed);
+        }
+    }
+}

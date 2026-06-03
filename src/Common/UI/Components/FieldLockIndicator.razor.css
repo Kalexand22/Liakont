@@ -1,0 +1,15 @@
+.field-lock-indicator {
+    position: relative;
+}
+
+.field-lock-indicator__overlay {
+    display: flex;
+    align-items: center;
+    margin-bottom: var(--spacing-1, 4px);
+}
+
+.field-lock-indicator__label {
+    font-size: var(--font-size-xs, 0.75rem);
+    color: var(--color-warning-600, #d97706);
+    font-weight: var(--font-weight-medium, 500);
+}

@@ -1,0 +1,590 @@
+@namespace Stratum.Common.UI.Components
+@using Microsoft.JSInterop
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Models
+@using Stratum.Common.UI.Services.Filters
+@implements IAsyncDisposable
+
+@* NaturalLanguageFilterPanel — GFI11 AI assist panel + GFI12 voice input.
+ *
+ * Lets the user describe a filter in natural language. The text is sent to
+ * IGridFilterAIService, which calls the configured LLM provider, validates
+ * the response against DF-07 (field/operator/value guardrails) and returns
+ * an AIFilterProposal. The user reviews the understood criteria and confirms
+ * before anything is committed to the grid.
+ *
+ * Fallback: when the service reports IsAvailable=false the textarea and
+ * "Interpréter" button are disabled and a message invites the user to use the
+ * builder instead.
+ *
+ * History: the 5 last successfully-applied queries are kept in component state
+ * and shown as quick-reuse chips. Persistence is layered by the host via
+ * OnHistoryChanged / InitialHistory.
+ *
+ * Voice input (GFI12): when the browser exposes SpeechRecognition (Chromium /
+ * Edge / Safari), a mic button sits next to the text area. Clicking it starts
+ * a recognition session in the configured Language (default fr-FR); interim
+ * and final transcripts stream back into the textarea. The button is hidden
+ * when the API is unavailable (Firefox, Blink-free embedders), so the panel
+ * still works without voice.
+ *
+ * Ref: docs/specs/grid-filter-system-v2.md §16, DF-07.
+ *@
+
+<div class="nl-filter-panel"
+     role="dialog"
+     aria-label="Filtrage en langage naturel"
+     data-testid="@(TestId ?? "nl-filter-panel")">
+
+    <div class="nl-filter-panel__header">
+        <StratumIcon Name="auto_awesome" Class="nl-filter-panel__header-icon" AriaHidden />
+        <span class="nl-filter-panel__title">Décrivez votre filtre</span>
+    </div>
+
+    @if (!IsAvailable)
+    {
+        <div class="nl-filter-panel__fallback"
+             role="status"
+             data-testid="nl-filter-fallback">
+            Assistant IA indisponible — utilisez le builder de filtres.
+        </div>
+    }
+
+    <label class="visually-hidden" for="@_textareaId">Décrivez votre filtre</label>
+    <div class="nl-filter-panel__input-row">
+        <textarea id="@_textareaId"
+                  class="nl-filter-panel__input"
+                  placeholder="Ex : les factures impayées de plus de 5 000 €"
+                  rows="3"
+                  disabled="@(!IsAvailable || _isSubmitting)"
+                  data-testid="nl-filter-input"
+                  value="@_userInput"
+                  @oninput="HandleInputChanged" />
+
+        @if (_voiceSupported)
+        {
+            <button type="button"
+                    class="@MicButtonClass"
+                    data-testid="nl-filter-mic"
+                    aria-label="@MicAriaLabel"
+                    aria-pressed="@(_isListening ? "true" : "false")"
+                    title="@MicAriaLabel"
+                    disabled="@(!IsAvailable || _isSubmitting)"
+                    @onclick="ToggleVoiceAsync">
+                <StratumIcon Name="@(_isListening ? "mic" : "mic_none")" AriaHidden />
+            </button>
+        }
+    </div>
+
+    @if (_voiceSupported && !string.IsNullOrEmpty(_voiceError))
+    {
+        <div class="nl-filter-panel__voice-error"
+             role="alert"
+             data-testid="nl-filter-voice-error">
+            @_voiceError
+        </div>
+    }
+
+    @if (_history.Count > 0)
+    {
+        <div class="nl-filter-panel__history" data-testid="nl-filter-history">
+            <span class="nl-filter-panel__history-label">Récent :</span>
+            @foreach (var entry in _history)
+            {
+                var capture = entry;
+                <button type="button"
+                        class="nl-filter-panel__history-chip"
+                        data-testid="nl-filter-history-chip"
+                        disabled="@(!IsAvailable || _isSubmitting)"
+                        @onclick="() => ReuseHistory(capture)">
+                    @Truncate(capture, 48)
+                </button>
+            }
+        </div>
+    }
+
+    @if (_proposal is not null)
+    {
+        <div class="nl-filter-panel__result"
+             role="region"
+             aria-label="Proposition de l'assistant"
+             data-testid="nl-filter-result">
+            @switch (_proposal.Status)
+            {
+                case AIFilterProposalStatus.Success:
+                    <div class="nl-filter-panel__understood">
+                        <span class="nl-filter-panel__understood-title">J'ai compris :</span>
+                        <ul class="nl-filter-panel__criteria-list">
+                            @foreach (var criterion in _proposal.Criteria)
+                            {
+                                <li class="nl-filter-panel__criterion" data-testid="nl-filter-criterion">
+                                    @FormatCriterion(criterion)
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                    break;
+                case AIFilterProposalStatus.Empty:
+                    <div class="nl-filter-panel__empty" data-testid="nl-filter-empty">
+                        Aucun critère valide n'a pu être extrait. Précisez votre demande.
+                    </div>
+                    break;
+                case AIFilterProposalStatus.Failed:
+                    <div class="nl-filter-panel__error" role="alert" data-testid="nl-filter-error">
+                        @_proposal.ErrorMessage
+                    </div>
+                    break;
+                case AIFilterProposalStatus.Unavailable:
+                    <div class="nl-filter-panel__fallback" role="status">
+                        @_proposal.ErrorMessage
+                    </div>
+                    break;
+            }
+
+            @if (_proposal.Warnings.Count > 0)
+            {
+                <ul class="nl-filter-panel__warnings" data-testid="nl-filter-warnings">
+                    @foreach (var warning in _proposal.Warnings)
+                    {
+                        <li class="nl-filter-panel__warning">@warning</li>
+                    }
+                </ul>
+            }
+        </div>
+    }
+
+    <div class="nl-filter-panel__actions">
+        @if (_proposal is { Status: AIFilterProposalStatus.Success })
+        {
+            <StratumButton Variant="ButtonVariant.Primary"
+                           Text="Appliquer"
+                           TestId="nl-filter-apply"
+                           Disabled="@_isSubmitting"
+                           OnClick="ApplyProposalAsync" />
+            <StratumButton Variant="ButtonVariant.Secondary"
+                           Outline
+                           Text="Modifier"
+                           TestId="nl-filter-modify"
+                           Disabled="@_isSubmitting"
+                           OnClick="ModifyProposal" />
+        }
+        else
+        {
+            <StratumButton Variant="ButtonVariant.Primary"
+                           Text="@(_isSubmitting ? "Interprétation…" : "Interpréter")"
+                           TestId="nl-filter-submit"
+                           Disabled="@(!CanSubmit)"
+                           OnClick="SubmitAsync" />
+        }
+
+        <StratumButton Variant="ButtonVariant.Secondary"
+                       Outline
+                       Text="Annuler"
+                       TestId="nl-filter-cancel"
+                       Disabled="@_isSubmitting"
+                       OnClick="CancelAsync" />
+    </div>
+</div>
+
+@code {
+    private const int MaxHistoryEntries = 5;
+
+    private readonly string _textareaId = $"nlf-{Guid.NewGuid():N}"[..12];
+    private readonly List<string> _history = [];
+
+    private string _userInput = string.Empty;
+    private bool _isSubmitting;
+    private AIFilterProposal? _proposal;
+
+    // ── Voice state (GFI12) ───────────────────────────────────────
+    private IJSObjectReference? _jsModule;
+    private IJSObjectReference? _voiceHandle;
+    private DotNetObjectReference<NaturalLanguageFilterPanel>? _dotNetRef;
+    private bool _voiceSupported;
+    private bool _isListening;
+    private string? _voiceError;
+    private string _inputBeforeVoice = string.Empty;
+    private bool _disposed;
+
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+
+    // ── Parameters ────────────────────────────────────────────────
+
+    /// <summary>Optional test identifier rendered as <c>data-testid</c>.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    /// <summary>
+    /// Columns the user can filter on. Typically
+    /// <c>IColumnRegistry&lt;TItem&gt;.GetAvailableColumns()</c> from the host grid.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ColumnDefinition> Columns { get; set; } = Array.Empty<ColumnDefinition>();
+
+    /// <summary>Service that generates and validates the proposal.</summary>
+    [Parameter, EditorRequired]
+    public IGridFilterAIService Service { get; set; } = default!;
+
+    /// <summary>
+    /// Raised when the user clicks <em>Appliquer</em> on a successful proposal.
+    /// Hosts should add each criterion to the current <see cref="GridFilterState"/>.
+    /// </summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<FilterCriterion>> OnApply { get; set; }
+
+    /// <summary>Raised when the user clicks <em>Annuler</em>.</summary>
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    /// <summary>
+    /// Initial recent-queries list (e.g. restored from localStorage). Hosts can
+    /// subscribe to <see cref="OnHistoryChanged"/> to persist updates.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyList<string> InitialHistory { get; set; } = Array.Empty<string>();
+
+    /// <summary>Raised whenever the in-panel history list changes.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<string>> OnHistoryChanged { get; set; }
+
+    /// <summary>
+    /// BCP-47 tag passed to <c>SpeechRecognition.lang</c>. Defaults to French.
+    /// </summary>
+    [Parameter] public string Language { get; set; } = "fr-FR";
+
+    // ── Lifecycle ─────────────────────────────────────────────────
+
+    protected override void OnParametersSet()
+    {
+        if (_history.Count == 0 && InitialHistory.Count > 0)
+        {
+            foreach (var entry in InitialHistory.Take(MaxHistoryEntries))
+            {
+                if (!string.IsNullOrWhiteSpace(entry))
+                {
+                    _history.Add(entry);
+                }
+            }
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _jsModule is not null)
+        {
+            return;
+        }
+
+        try
+        {
+            var module = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./_content/Stratum.Common.UI/Components/NaturalLanguageFilterPanel.razor.js");
+
+            if (_disposed)
+            {
+                try { await module.DisposeAsync(); } catch { }
+                return;
+            }
+
+            _jsModule = module;
+            var supported = await _jsModule.InvokeAsync<bool>("isSupported");
+
+            if (_disposed)
+            {
+                try { await _jsModule.DisposeAsync(); } catch { }
+                _jsModule = null;
+                return;
+            }
+
+            _voiceSupported = supported;
+            if (_voiceSupported)
+            {
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+        {
+            // JS interop unavailable — voice button stays hidden, everything else still works.
+            _voiceSupported = false;
+        }
+    }
+
+    // ── Computed ──────────────────────────────────────────────────
+
+    private bool IsAvailable => Service is not null && Service.IsAvailable;
+
+    private bool CanSubmit =>
+        IsAvailable
+        && !_isSubmitting
+        && !string.IsNullOrWhiteSpace(_userInput);
+
+    // ── Handlers ──────────────────────────────────────────────────
+
+    private void HandleInputChanged(ChangeEventArgs e)
+    {
+        _userInput = e.Value?.ToString() ?? string.Empty;
+        if (_isListening)
+        {
+            _inputBeforeVoice = _userInput;
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (!CanSubmit)
+        {
+            return;
+        }
+
+        _isSubmitting = true;
+        _proposal = null;
+        StateHasChanged();
+
+        try
+        {
+            _proposal = await Service.GenerateAsync(Columns, _userInput).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            _proposal = AIFilterProposal.Failed("Demande annulée.");
+        }
+        catch (Exception)
+        {
+            _proposal = AIFilterProposal.Failed("Une erreur est survenue pendant l'analyse.");
+        }
+        finally
+        {
+            _isSubmitting = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ApplyProposalAsync()
+    {
+        if (_proposal is not { Status: AIFilterProposalStatus.Success } proposal
+            || proposal.Criteria.Count == 0)
+        {
+            return;
+        }
+
+        await OnApply.InvokeAsync(proposal.Criteria);
+        RememberHistory(_userInput);
+        _proposal = null;
+        _userInput = string.Empty;
+        await NotifyHistoryChangedAsync();
+    }
+
+    private void ModifyProposal()
+    {
+        _proposal = null;
+    }
+
+    private async Task CancelAsync()
+    {
+        _userInput = string.Empty;
+        _proposal = null;
+        await OnCancel.InvokeAsync();
+    }
+
+    private void ReuseHistory(string entry)
+    {
+        _userInput = entry;
+        _proposal = null;
+    }
+
+    // ── Voice input (GFI12) ───────────────────────────────────────
+
+    private async Task ToggleVoiceAsync()
+    {
+        if (!_voiceSupported || _jsModule is null || _isSubmitting || !IsAvailable)
+        {
+            return;
+        }
+
+        if (_isListening)
+        {
+            await StopVoiceAsync();
+            return;
+        }
+
+        try
+        {
+            _voiceError = null;
+            _inputBeforeVoice = _userInput;
+            _dotNetRef ??= DotNetObjectReference.Create(this);
+            _voiceHandle = await _jsModule.InvokeAsync<IJSObjectReference>("create", _dotNetRef, Language);
+            var started = await _voiceHandle.InvokeAsync<bool>("start");
+            if (started)
+            {
+                _isListening = true;
+            }
+            else
+            {
+                _voiceError = "Impossible de démarrer la reconnaissance vocale.";
+                await DisposeVoiceHandleAsync();
+            }
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+        {
+            _voiceError = "La reconnaissance vocale a échoué.";
+            _isListening = false;
+            await DisposeVoiceHandleAsync();
+        }
+    }
+
+    private async Task StopVoiceAsync()
+    {
+        if (_voiceHandle is null)
+        {
+            _isListening = false;
+            return;
+        }
+
+        try
+        {
+            await _voiceHandle.InvokeVoidAsync("stop");
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+        {
+            // onend will still fire in most cases; if not, clean up defensively.
+            _isListening = false;
+            await DisposeVoiceHandleAsync();
+        }
+    }
+
+    /// <summary>
+    /// Invoked from JS on every <c>onresult</c>. <paramref name="transcript"/> is
+    /// the current best hypothesis; <paramref name="isFinal"/> flags a final result.
+    /// </summary>
+    [JSInvokable]
+    public Task OnVoiceTranscript(string transcript, bool isFinal)
+    {
+        if (string.IsNullOrEmpty(transcript))
+        {
+            return Task.CompletedTask;
+        }
+
+        var prefix = string.IsNullOrEmpty(_inputBeforeVoice)
+            ? string.Empty
+            : _inputBeforeVoice.TrimEnd() + " ";
+        _userInput = prefix + transcript;
+        _voiceError = null;
+
+        if (isFinal)
+        {
+            _inputBeforeVoice = _userInput;
+        }
+
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Invoked from JS when the recognizer finishes (end of speech or stop()).</summary>
+    [JSInvokable]
+    public async Task OnVoiceEnd()
+    {
+        _isListening = false;
+        await DisposeVoiceHandleAsync();
+        StateHasChanged();
+    }
+
+    /// <summary>Invoked from JS on a SpeechRecognition error event.</summary>
+    [JSInvokable]
+    public async Task OnVoiceError(string message)
+    {
+        _isListening = false;
+        _voiceError = MapVoiceError(message);
+        await DisposeVoiceHandleAsync();
+        StateHasChanged();
+    }
+
+    private async Task DisposeVoiceHandleAsync()
+    {
+        if (_voiceHandle is null)
+        {
+            return;
+        }
+
+        try { await _voiceHandle.InvokeVoidAsync("dispose"); }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException) { }
+        try { await _voiceHandle.DisposeAsync(); }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException) { }
+        _voiceHandle = null;
+    }
+
+    private static string MapVoiceError(string code) => code switch
+    {
+        "not-allowed" or "service-not-allowed" => "Accès au microphone refusé.",
+        "no-speech" => "Aucune parole détectée.",
+        "audio-capture" => "Microphone introuvable.",
+        "network" => "Erreur réseau pendant la reconnaissance vocale.",
+        _ => "Reconnaissance vocale indisponible.",
+    };
+
+    private string MicButtonClass => _isListening
+        ? "nl-filter-panel__mic nl-filter-panel__mic--active"
+        : "nl-filter-panel__mic";
+
+    private string MicAriaLabel => _isListening
+        ? "Arrêter la dictée vocale"
+        : "Démarrer la dictée vocale";
+
+    // ── Helpers ───────────────────────────────────────────────────
+
+    private void RememberHistory(string entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry))
+        {
+            return;
+        }
+
+        var normalized = entry.Trim();
+        _history.RemoveAll(e => string.Equals(e, normalized, StringComparison.OrdinalIgnoreCase));
+        _history.Insert(0, normalized);
+        if (_history.Count > MaxHistoryEntries)
+        {
+            _history.RemoveRange(MaxHistoryEntries, _history.Count - MaxHistoryEntries);
+        }
+    }
+
+    private Task NotifyHistoryChangedAsync()
+    {
+        return OnHistoryChanged.HasDelegate
+            ? OnHistoryChanged.InvokeAsync(_history.ToArray())
+            : Task.CompletedTask;
+    }
+
+    private string FormatCriterion(FilterCriterion criterion)
+    {
+        var column = Columns.FirstOrDefault(c =>
+            string.Equals(c.Key, criterion.Field, StringComparison.OrdinalIgnoreCase));
+        var label = column?.Title ?? criterion.Field;
+        var operatorLabel = criterion.Operator.ToString();
+        return criterion.Value switch
+        {
+            null => $"{label} {operatorLabel}",
+            object[] arr => $"{label} {operatorLabel} [{string.Join(", ", arr)}]",
+            _ when criterion.ValueEnd is not null =>
+                $"{label} {operatorLabel} {criterion.Value} – {criterion.ValueEnd}",
+            _ => $"{label} {operatorLabel} {criterion.Value}",
+        };
+    }
+
+    private static string Truncate(string value, int max)
+        => value.Length <= max ? value : string.Concat(value.AsSpan(0, max - 1), "…");
+
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        await DisposeVoiceHandleAsync();
+
+        if (_jsModule is not null)
+        {
+            try { await _jsModule.DisposeAsync(); }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException) { }
+            _jsModule = null;
+        }
+
+        _dotNetRef?.Dispose();
+        _dotNetRef = null;
+    }
+}

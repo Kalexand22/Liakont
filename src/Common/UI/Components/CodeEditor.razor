@@ -1,0 +1,248 @@
+@namespace Stratum.Common.UI.Components
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+@* CodeEditor — Syntax-highlighted code editor with multiple language support.
+ *
+ * Native Blazor component wrapping a vendored regex tokenizer (textarea/pre overlay).
+ * Two-way text binding via Value/ValueChanged.
+ * Supports 8 languages: C#, JSON, XML, SQL, JavaScript, HTML, Markdown, PlainText.
+ * Light/Dark themes, line numbers, ReadOnly mode.
+ *
+ * Usage:
+ *   <CodeEditor @bind-Value="_code" Language="CodeLanguage.CSharp" />
+ *   <CodeEditor @bind-Value="_json" Language="CodeLanguage.Json" ReadOnly="true" Theme="CodeTheme.Dark" />
+ *
+ * Ref: orchestration/items/UI_G.yaml — UI_G02
+ * ADR: docs/adr/ADR-0007-code-editor-vendor.md
+ *@
+
+<div class="code-editor-field @(ReadOnly ? "code-editor-field--readonly" : "") @(Disabled ? "code-editor-field--disabled" : "") @CssClass"
+     data-testid="@(TestId ?? "code-editor")">
+
+    <div class="code-editor-container"
+         style="height: @Height;"
+         role="group"
+         aria-label="@(AriaLabel ?? "Code editor")"
+         @ref="_editorContainerRef">
+    </div>
+</div>
+
+@code {
+    /// <summary>Code content (two-way binding).</summary>
+    [Parameter]
+    public string? Value { get; set; }
+
+    /// <summary>Raised when the code content changes.</summary>
+    [Parameter]
+    public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Syntax highlighting language. Default: PlainText.</summary>
+    [Parameter]
+    public CodeLanguage Language { get; set; } = CodeLanguage.PlainText;
+
+    /// <summary>Read-only mode — focusable for keyboard navigation but not editable.</summary>
+    [Parameter]
+    public bool ReadOnly { get; set; }
+
+    /// <summary>Disabled mode — grayed out, no interaction.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>Show line numbers in the gutter. Default: true.</summary>
+    [Parameter]
+    public bool LineNumbers { get; set; } = true;
+
+    /// <summary>Visual theme. Default: Light.</summary>
+    [Parameter]
+    public CodeTheme Theme { get; set; } = CodeTheme.Light;
+
+    /// <summary>Height of the editor container as a CSS string. Default: "300px".</summary>
+    [Parameter]
+    public string Height { get; set; } = "300px";
+
+    /// <summary>Additional CSS classes on the root element.</summary>
+    [Parameter]
+    public string? CssClass { get; set; }
+
+    /// <summary>Accessible label for the editor container.</summary>
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    /// <summary>Optional test identifier for E2E tests.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    // ── Internal state ────────────────────────────────────────
+
+    private ElementReference _editorContainerRef;
+    private IJSObjectReference? _jsModule;
+    private DotNetObjectReference<CodeEditor>? _dotNetRef;
+    private bool _editorInitialized;
+
+    private string? _currentValue;
+    private string? _lastValuePushedToJs;
+    private CodeLanguage _lastLanguage;
+    private bool _lastReadOnly;
+    private bool _initialReadOnly;
+    private bool _initializing;
+
+    // ── Lifecycle ─────────────────────────────────────────────
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_jsModule is null && !_initializing)
+        {
+            _initializing = true;
+            try
+            {
+                _jsModule = await JS.InvokeAsync<IJSObjectReference>(
+                    "import", "./_content/Stratum.Common.UI/js/code-editor.js.module");
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                _initializing = false;
+                return;
+            }
+        }
+
+        if (!_editorInitialized && _jsModule is not null)
+        {
+            _currentValue = Value;
+            _lastLanguage = Language;
+            _lastReadOnly = ReadOnly || Disabled;
+            _initialReadOnly = _lastReadOnly;
+            _dotNetRef ??= DotNetObjectReference.Create(this);
+
+            var options = new
+            {
+                language = LanguageKey(Language),
+                readOnly = ReadOnly || Disabled,
+                lineNumbers = LineNumbers,
+                theme = Theme == CodeTheme.Dark ? "dark" : "light",
+                value = Value ?? string.Empty,
+            };
+
+            try
+            {
+                await _jsModule.InvokeVoidAsync("init", _editorContainerRef, _dotNetRef, options);
+                _editorInitialized = true;
+                _lastValuePushedToJs = Value;
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Graceful degradation
+            }
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!_editorInitialized || _jsModule is null) return;
+
+        // Push value change when driven externally from Blazor
+        if (Value != _currentValue && Value != _lastValuePushedToJs)
+        {
+            _currentValue = Value;
+            _lastValuePushedToJs = Value;
+            try
+            {
+                await _jsModule.InvokeVoidAsync("setValue", _editorContainerRef, Value ?? string.Empty);
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Safe to ignore
+            }
+        }
+
+        // Push language change
+        if (Language != _lastLanguage)
+        {
+            _lastLanguage = Language;
+            try
+            {
+                await _jsModule.InvokeVoidAsync("setLanguage", _editorContainerRef, LanguageKey(Language));
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Safe to ignore
+            }
+        }
+
+        // Push ReadOnly/Disabled change.
+        // Note: switching from readonly to editable at runtime is not supported because
+        // the JS bundle only creates a textarea for editable editors. Toggling edit→readonly works.
+        var effectiveReadOnly = ReadOnly || Disabled;
+        if (effectiveReadOnly != _lastReadOnly && !_initialReadOnly)
+        {
+            _lastReadOnly = effectiveReadOnly;
+            try
+            {
+                await _jsModule.InvokeVoidAsync("setReadOnly", _editorContainerRef, effectiveReadOnly);
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Safe to ignore
+            }
+        }
+    }
+
+    // ── JS callbacks ──────────────────────────────────────────
+
+    /// <summary>Called by JS on every editor change event.</summary>
+    [JSInvokable]
+    public async Task OnValueChanged(string value)
+    {
+        _currentValue = value;
+        _lastValuePushedToJs = value;
+        await ValueChanged.InvokeAsync(value);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────
+
+    /// <summary>Maps a CodeLanguage to the JS language key.</summary>
+    internal static string LanguageKey(CodeLanguage language) => language switch
+    {
+        CodeLanguage.CSharp => "csharp",
+        CodeLanguage.Json => "json",
+        CodeLanguage.Xml => "xml",
+        CodeLanguage.Sql => "sql",
+        CodeLanguage.JavaScript => "javascript",
+        CodeLanguage.Html => "html",
+        CodeLanguage.Markdown => "markdown",
+        _ => "plaintext",
+    };
+
+    // ── Disposal ──────────────────────────────────────────────
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_jsModule is not null && _editorInitialized)
+        {
+            try
+            {
+                await _jsModule.InvokeVoidAsync("destroy", _editorContainerRef);
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Circuit disconnected — safe to ignore
+            }
+        }
+
+        _dotNetRef?.Dispose();
+
+        if (_jsModule is not null)
+        {
+            var module = _jsModule;
+            _jsModule = null;
+            try
+            {
+                await module.DisposeAsync();
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Safe to ignore
+            }
+        }
+    }
+}

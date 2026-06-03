@@ -1,0 +1,146 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TValue
+
+<div class="checkbox-group @(_orientation == Orientation.Horizontal ? "checkbox-group--horizontal" : string.Empty) @(_hasError ? "checkbox-group--error" : string.Empty) @CssClass"
+     role="group"
+     aria-required="@(_context?.Required == true ? "true" : null)"
+     aria-invalid="@(_hasError ? "true" : null)"
+     aria-describedby="@_context?.DescribedBy"
+     data-testid="@(TestId ?? "checkboxgroup")">
+
+    @if (ShowSelectAll && Items is { Count: > 0 })
+    {
+        var allChecked = _selectedSet.Count == Items.Count(i => !i.Disabled && !Disabled);
+        var someChecked = _selectedSet.Count > 0 && !allChecked;
+
+        <label class="checkbox-group__option checkbox-group__option--select-all @(Disabled ? "checkbox-group__option--disabled" : string.Empty)"
+               for="@($"{_groupId}-selectall")">
+            <input type="checkbox"
+                   id="@($"{_groupId}-selectall")"
+                   class="checkbox-group__input"
+                   checked="@allChecked"
+                   disabled="@Disabled"
+                   aria-checked="@(someChecked ? "mixed" : allChecked ? "true" : "false")"
+                   @onchange="() => HandleSelectAll(!allChecked)" />
+            <span class="checkbox-group__indicator @(someChecked ? "checkbox-group__indicator--mixed" : string.Empty)" aria-hidden="true"></span>
+            <span class="checkbox-group__label-text">@(SelectAllLabel ?? "Tout sélectionner")</span>
+        </label>
+    }
+
+    @if (Items is not null)
+    {
+        @foreach (var item in Items)
+        {
+            var isChecked = _selectedSet.Contains(item.Value);
+            var isDisabled = Disabled || item.Disabled;
+            var optionId = $"{_groupId}-{item.Value}";
+
+            <label class="checkbox-group__option @(isDisabled ? "checkbox-group__option--disabled" : string.Empty)"
+                   for="@optionId">
+                <input type="checkbox"
+                       id="@optionId"
+                       class="checkbox-group__input"
+                       checked="@isChecked"
+                       disabled="@isDisabled"
+                       aria-checked="@(isChecked ? "true" : "false")"
+                       aria-disabled="@(isDisabled ? "true" : null)"
+                       @onchange="() => HandleToggle(item)" />
+                <span class="checkbox-group__indicator" aria-hidden="true"></span>
+                <span class="checkbox-group__label-text">@item.Label</span>
+            </label>
+        }
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private FormFieldContext? _context { get; set; }
+
+    /// <summary>Currently selected values (two-way).</summary>
+    [Parameter]
+    public IReadOnlyList<TValue> SelectedValues { get; set; } = [];
+
+    /// <summary>Raised when the selection changes.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<TValue>> SelectedValuesChanged { get; set; }
+
+    /// <summary>Available options to display.</summary>
+    [Parameter]
+    public IReadOnlyList<CheckboxOption<TValue>>? Items { get; set; }
+
+    /// <summary>Show a "Select All" checkbox above the options. Default: false.</summary>
+    [Parameter]
+    public bool ShowSelectAll { get; set; }
+
+    /// <summary>Label for the "Select All" checkbox. Default: "Tout sélectionner".</summary>
+    [Parameter]
+    public string? SelectAllLabel { get; set; }
+
+    /// <summary>Layout direction. Default: Vertical.</summary>
+    [Parameter]
+    public Orientation Orientation { get; set; } = Orientation.Vertical;
+
+    /// <summary>Disables all options in the group.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>Additional CSS classes on the root element.</summary>
+    [Parameter]
+    public string? CssClass { get; set; }
+
+    /// <summary>Optional test identifier for E2E tests.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    // ── Stable per-component id ──────────────────────────────────
+
+    private readonly string _uniqueId = Guid.NewGuid().ToString("N")[..8];
+    private string _groupId => _context?.FieldId ?? $"checkboxgroup-{_uniqueId}";
+    private bool _hasError => _context?.HasError == true;
+
+    private Orientation _orientation => Orientation;
+
+    // ── Internal selected set for O(1) lookups ───────────────────
+
+    private HashSet<TValue> _selectedSet = new();
+
+    protected override void OnParametersSet()
+    {
+        _selectedSet = new HashSet<TValue>(SelectedValues ?? []);
+    }
+
+    private async Task HandleToggle(CheckboxOption<TValue> item)
+    {
+        var newSet = new HashSet<TValue>(_selectedSet);
+        if (newSet.Contains(item.Value))
+            newSet.Remove(item.Value);
+        else
+            newSet.Add(item.Value);
+
+        await SelectedValuesChanged.InvokeAsync(newSet.ToList().AsReadOnly());
+    }
+
+    private async Task HandleSelectAll(bool selectAll)
+    {
+        if (Items is null) return;
+
+        List<TValue> newValues;
+        if (selectAll)
+        {
+            newValues = Items
+                .Where(i => !i.Disabled || _selectedSet.Contains(i.Value))
+                .Select(i => i.Value)
+                .ToList();
+        }
+        else
+        {
+            // Keep only disabled items that were already selected
+            newValues = Items
+                .Where(i => i.Disabled && _selectedSet.Contains(i.Value))
+                .Select(i => i.Value)
+                .ToList();
+        }
+
+        await SelectedValuesChanged.InvokeAsync(newValues.AsReadOnly());
+    }
+}

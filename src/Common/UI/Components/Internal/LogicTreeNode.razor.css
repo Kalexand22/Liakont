@@ -1,0 +1,226 @@
+/* LogicTreeNode — UIE01 internal recursive node styles (Civic Blueprint)
+ * No hex colors — all via tokens.css. Border-radius 2px/4px.
+ * Section separation by tonal shift, not 1px borders.
+ */
+
+/* ── Group ── */
+
+.logic-tree-group {
+    background: var(--color-surface-container-low);
+    border-radius: 4px;
+    padding: var(--spacing-3);
+}
+
+/* Nested groups get a subtler surface */
+.logic-tree-group .logic-tree-group {
+    background: var(--color-surface-container);
+    margin-top: var(--spacing-2);
+}
+
+.logic-tree-group .logic-tree-group .logic-tree-group {
+    background: var(--color-surface-container-high);
+}
+
+.logic-tree-group__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-2);
+    margin-bottom: var(--spacing-3);
+}
+
+.logic-tree-group__operator-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.5rem;
+    padding: var(--spacing-1) var(--spacing-2);
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--color-on-primary);
+    background: var(--color-primary);
+    border: none;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: background-color 150ms ease;
+}
+
+.logic-tree-group__operator-toggle:hover {
+    background: var(--color-primary-container);
+}
+
+.logic-tree-group__operator-toggle:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+}
+
+.logic-tree-group__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-1);
+}
+
+/* ── Separator between children ── */
+
+.logic-tree-group__separator {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    padding: var(--spacing-1) 0;
+}
+
+.logic-tree-group__separator::before,
+.logic-tree-group__separator::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--color-border-ghost);
+}
+
+.logic-tree-group__separator-label {
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--color-on-surface-variant);
+    white-space: nowrap;
+}
+
+.logic-tree-group__children {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+}
+
+/* ── Condition (leaf) ── */
+
+.logic-tree-condition {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--spacing-2);
+    padding: var(--spacing-3);
+    background: var(--color-surface-container-lowest);
+    border-radius: 4px;
+    position: relative;
+}
+
+.logic-tree-condition__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1);
+    min-width: 0;
+    flex: 1;
+}
+
+.logic-tree-condition__field--value {
+    flex: 1.2;
+}
+
+.logic-tree-condition__label {
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--color-on-surface-variant);
+}
+
+.logic-tree-condition__select,
+.logic-tree-condition__input {
+    height: 2rem;
+    padding: 0 var(--spacing-2);
+    font-size: 0.8125rem;
+    font-family: var(--font-family-base);
+    color: var(--color-on-surface);
+    background: var(--color-surface-container-lowest);
+    border: 1px solid var(--color-outline-variant);
+    border-radius: 2px;
+    transition: border-color 150ms ease;
+    width: 100%;
+}
+
+.logic-tree-condition__select:hover,
+.logic-tree-condition__input:hover {
+    border-color: var(--color-outline);
+}
+
+.logic-tree-condition__select:focus,
+.logic-tree-condition__input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px var(--color-focus-ring);
+}
+
+.logic-tree-condition__remove {
+    display: flex;
+    align-items: center;
+    padding-bottom: 2px;
+}
+
+/* ── Shared buttons ── */
+
+.logic-tree-node__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-1);
+    padding: var(--spacing-1) var(--spacing-2);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    font-family: var(--font-family-base);
+    border: 1px dashed var(--color-outline-variant);
+    border-radius: 2px;
+    background: transparent;
+    color: var(--color-on-surface-variant);
+    cursor: pointer;
+    transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease;
+    white-space: nowrap;
+}
+
+.logic-tree-node__btn:hover {
+    color: var(--color-primary);
+    border-color: var(--color-primary);
+    background: var(--color-primary-50);
+}
+
+.logic-tree-node__btn:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+}
+
+.logic-tree-node__btn--remove {
+    border-style: solid;
+    border-color: transparent;
+    color: var(--color-on-surface-variant);
+    min-width: 1.5rem;
+    justify-content: center;
+    padding: var(--spacing-1);
+}
+
+.logic-tree-node__btn--remove:hover {
+    color: var(--color-error-600);
+    background: var(--color-error-50);
+    border-color: var(--color-error-300);
+}
+
+/* ── Density: compact ── */
+
+[data-density="compact"] .logic-tree-group {
+    padding: var(--spacing-2);
+}
+
+[data-density="compact"] .logic-tree-condition {
+    padding: var(--spacing-2);
+    gap: var(--spacing-1);
+}
+
+[data-density="compact"] .logic-tree-condition__select,
+[data-density="compact"] .logic-tree-condition__input {
+    height: 1.625rem;
+    font-size: 0.75rem;
+}
+
+[data-density="compact"] .logic-tree-node__btn {
+    font-size: 0.625rem;
+    padding: 2px var(--spacing-1);
+}

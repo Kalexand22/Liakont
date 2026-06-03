@@ -1,0 +1,641 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TItem
+@typeparam TValue
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@* Lookup<TItem, TValue> — Generic combobox: async search, keyboard navigation, accessibility.
+ *
+ * Modes:
+ *   Single (default): Value + ValueChanged.
+ *   MultiSelect: SelectedValues + SelectedValuesChanged. Selected items shown as chips.
+ *
+ * Keyboard: type to search, ↑↓ navigate, Enter choose, Esc close, Backspace on empty input
+ *           clears last selection (multi) or current selection (single).
+ * ARIA: role="combobox", aria-expanded, aria-autocomplete="list", aria-activedescendant.
+ *
+ * Advanced: Grouping (visual groups), QuickCreate (footer button), PreviewTemplate (side panel).
+ *
+ * Usage (single):
+ *   <Lookup TItem="ProductListItemDto" TValue="Guid"
+ *           SearchFunc="@SearchProducts"
+ *           ValueSelector="p => p.Id"
+ *           DisplaySelector="p => p.Name"
+ *           Value="@_productId"
+ *           ValueChanged="id => _productId = id"
+ *           Placeholder="Rechercher un produit…"
+ *           Clearable />
+ *
+ * Ref: docs/ui-components.md §Lookup, orchestration/manifest.yaml item O03.
+ *@
+
+@* Backdrop: closes the dropdown on outside click. Z-index below dropdown. *@
+@if (_isOpen)
+{
+    <div class="lookup__backdrop" @onclick="CloseDropdownAsync" aria-hidden="true"></div>
+}
+
+<div class="lookup @(Disabled ? "lookup--disabled" : string.Empty) @(MultiSelect && _selectedItems.Count > 0 ? "lookup--has-chips" : string.Empty)" data-testid="@(TestId ?? "lookup")">
+    @* Trigger area: chips (multi) + search input + clear/spinner *@
+    <div class="lookup__trigger" @onclick="HandleTriggerClickAsync">
+        @* Multi-select chips *@
+        @if (MultiSelect)
+        {
+            @foreach (var chip in _selectedItems)
+            {
+                var capturedChip = chip;
+                <span class="lookup__chip">
+                    <span class="lookup__chip-label">@(DisplaySelector?.Invoke(capturedChip) ?? string.Empty)</span>
+                    <button type="button"
+                            class="lookup__chip-remove"
+                            @onclick:stopPropagation
+                            @onclick="() => RemoveChipAsync(capturedChip)"
+                            tabindex="-1"
+                            aria-label="@($"Retirer {DisplaySelector?.Invoke(capturedChip) ?? string.Empty}")">×</button>
+                </span>
+            }
+        }
+
+        @* Search input *@
+        <input @ref="_inputRef"
+               id="@_inputId"
+               type="text"
+               class="lookup__input"
+               role="combobox"
+               aria-expanded="@(_isOpen ? "true" : "false")"
+               aria-autocomplete="list"
+               aria-controls="@_listboxId"
+               aria-activedescendant="@GetActiveDescendant()"
+               aria-label="@(Placeholder ?? "Rechercher")"
+               value="@GetInputDisplayValue()"
+               @oninput="HandleInputAsync"
+               @onkeydown="HandleKeyDownAsync"
+               @onfocus="HandleFocusAsync"
+               @onblur="HandleBlurAsync"
+               placeholder="@GetEffectivePlaceholder()"
+               disabled="@Disabled"
+               autocomplete="off"
+               autocorrect="off"
+               spellcheck="false" />
+
+        @* Spinner or clear button *@
+        @if (_searching)
+        {
+            <span class="lookup__spinner" aria-hidden="true"></span>
+        }
+        else if (Clearable && !MultiSelect && _selectedItem is not null)
+        {
+            <button type="button"
+                    class="lookup__clear"
+                    @onclick:stopPropagation
+                    @onclick="ClearSingleSelectionAsync"
+                    tabindex="-1"
+                    aria-label="Effacer la sélection">×</button>
+        }
+
+        @* Dropdown chevron *@
+        <span class="lookup__chevron @(_isOpen ? "lookup__chevron--open" : string.Empty)" aria-hidden="true">▾</span>
+    </div>
+
+    @* Dropdown panel *@
+    @if (_isOpen)
+    {
+        <div class="lookup__dropdown-wrapper">
+            @* Listbox: @onmousedown:preventDefault keeps focus on the input *@
+            <ul id="@_listboxId"
+                class="lookup__listbox"
+                role="listbox"
+                aria-multiselectable="@(MultiSelect ? "true" : "false")"
+                aria-label="@(Placeholder ?? "Résultats")"
+                @onmousedown:preventDefault>
+
+                @if (_results.Count == 0 && !_searching)
+                {
+                    <li class="lookup__empty" role="presentation">
+                        @if (EmptyContent is not null)
+                        {
+                            @EmptyContent
+                        }
+                        else
+                        {
+                            <span>Aucun résultat</span>
+                        }
+                    </li>
+                }
+                else if (Grouping is not null)
+                {
+                    @foreach (var group in GetGroupedResults())
+                    {
+                        <li class="lookup__group-label" role="presentation">@group.Key</li>
+                        @foreach (var (item, globalIdx) in group.Items)
+                        {
+                            var capturedItem = item;
+                            var capturedIndex = globalIdx;
+                            <li id="@GetOptionId(capturedIndex)"
+                                class="lookup__option @(capturedIndex == _focusedIndex ? "lookup__option--focused" : string.Empty) @(IsSelected(capturedItem) ? "lookup__option--selected" : string.Empty)"
+                                role="option"
+                                aria-selected="@(IsSelected(capturedItem) ? "true" : "false")"
+                                @onclick="() => SelectItemAsync(capturedItem)"
+                                @onmouseover="() => _focusedIndex = capturedIndex">
+                                @if (ItemTemplate is not null)
+                                {
+                                    @ItemTemplate(capturedItem)
+                                }
+                                else
+                                {
+                                    <span class="lookup__option-label">@(DisplaySelector?.Invoke(capturedItem) ?? string.Empty)</span>
+                                }
+                                @if (MultiSelect && IsSelected(capturedItem))
+                                {
+                                    <span class="lookup__option-check" aria-hidden="true">✓</span>
+                                }
+                            </li>
+                        }
+                    }
+                }
+                else
+                {
+                    @for (var i = 0; i < _results.Count; i++)
+                    {
+                        var capturedItem = _results[i];
+                        var capturedIndex = i;
+                        <li id="@GetOptionId(capturedIndex)"
+                            class="lookup__option @(capturedIndex == _focusedIndex ? "lookup__option--focused" : string.Empty) @(IsSelected(capturedItem) ? "lookup__option--selected" : string.Empty)"
+                            role="option"
+                            aria-selected="@(IsSelected(capturedItem) ? "true" : "false")"
+                            @onclick="() => SelectItemAsync(capturedItem)"
+                            @onmouseover="() => _focusedIndex = capturedIndex">
+                            @if (ItemTemplate is not null)
+                            {
+                                @ItemTemplate(capturedItem)
+                            }
+                            else
+                            {
+                                <span class="lookup__option-label">@(DisplaySelector?.Invoke(capturedItem) ?? string.Empty)</span>
+                            }
+                            @if (MultiSelect && IsSelected(capturedItem))
+                            {
+                                <span class="lookup__option-check" aria-hidden="true">✓</span>
+                            }
+                        </li>
+                    }
+                }
+
+                @* QuickCreate footer button *@
+                @if (QuickCreate.HasDelegate)
+                {
+                    <li class="lookup__quick-create-row" role="presentation">
+                        <button type="button" class="lookup__quick-create-btn" @onclick="HandleQuickCreateAsync">
+                            + Créer
+                        </button>
+                    </li>
+                }
+            </ul>
+
+            @* Preview panel: shown to the right when PreviewTemplate + focused item *@
+            @if (PreviewTemplate is not null && _focusedIndex >= 0 && _focusedIndex < _results.Count)
+            {
+                <div class="lookup__preview" role="tooltip" aria-hidden="true">
+                    @PreviewTemplate(_results[_focusedIndex])
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    // ── Parameters ────────────────────────────────────────────────
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Async search function. Receives search text and CancellationToken.</summary>
+    [Parameter]
+    public Func<string, CancellationToken, Task<IReadOnlyList<TItem>>>? SearchFunc { get; set; }
+
+    /// <summary>Extracts the binding value from a result item.</summary>
+    [Parameter]
+    public Func<TItem, TValue>? ValueSelector { get; set; }
+
+    /// <summary>Extracts the display string from a result item.</summary>
+    [Parameter]
+    public Func<TItem, string>? DisplaySelector { get; set; }
+
+    /// <summary>Custom template for each result row. Overrides DisplaySelector text.</summary>
+    [Parameter]
+    public RenderFragment<TItem>? ItemTemplate { get; set; }
+
+    /// <summary>Placeholder text for the search input.</summary>
+    [Parameter]
+    public string? Placeholder { get; set; }
+
+    /// <summary>When true, a clear (×) button is shown when a single-select value is chosen.</summary>
+    [Parameter]
+    public bool Clearable { get; set; }
+
+    /// <summary>Debounce delay in ms before the search fires. Default: 300.</summary>
+    [Parameter]
+    public int Debounce { get; set; } = 300;
+
+    /// <summary>Minimum characters required before search fires. Default: 1.</summary>
+    [Parameter]
+    public int MinSearchLength { get; set; } = 1;
+
+    /// <summary>Content rendered in the listbox when there are no results.</summary>
+    [Parameter]
+    public RenderFragment? EmptyContent { get; set; }
+
+    /// <summary>Disables the control.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    // ── Single-select binding ──────────────────────────────────────
+
+    /// <summary>
+    /// Selected value (single mode, two-way).
+    /// When cleared, ValueChanged fires with <c>default(TValue)</c>.
+    /// </summary>
+    [Parameter]
+    public TValue Value { get; set; } = default!;
+
+    /// <summary>Raised when the selected value changes. Fires <c>default(TValue)</c> on clear.</summary>
+    [Parameter]
+    public EventCallback<TValue> ValueChanged { get; set; }
+
+    // ── Multi-select ───────────────────────────────────────────────
+
+    /// <summary>When true, multiple items can be selected (chips mode).</summary>
+    [Parameter]
+    public bool MultiSelect { get; set; }
+
+    /// <summary>Selected values (multi mode, two-way).</summary>
+    [Parameter]
+    public IReadOnlyList<TValue>? SelectedValues { get; set; }
+
+    /// <summary>Raised when the selected values change.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<TValue>> SelectedValuesChanged { get; set; }
+
+    // ── Advanced options ──────────────────────────────────────────
+
+    /// <summary>Groups results by the returned key string. Purely visual — keyboard nav uses flat index.</summary>
+    [Parameter]
+    public Func<TItem, string>? Grouping { get; set; }
+
+    /// <summary>When set, renders a "+ Créer" button at the bottom of the listbox and raises this callback.</summary>
+    [Parameter]
+    public EventCallback QuickCreate { get; set; }
+
+    /// <summary>Template rendered in the preview panel when an item is focused/hovered.</summary>
+    [Parameter]
+    public RenderFragment<TItem>? PreviewTemplate { get; set; }
+
+    // ── Internal state ────────────────────────────────────────────
+
+    private IReadOnlyList<TItem> _results = [];
+    private bool _isOpen;
+    private bool _searching;
+    private int _focusedIndex = -1;
+    private string _searchText = string.Empty;
+    private bool _isFocused;
+    private bool _skipNextBlur;
+
+    // Single select: tracked TItem for display
+    private TItem? _selectedItem;
+
+    // Tracks the last Value we resolved, to avoid redundant lookups.
+    private TValue? _resolvedValue;
+
+    // Multi select: tracked TItem list for chip display
+    private readonly List<TItem> _selectedItems = [];
+
+    private CancellationTokenSource? _debounceCts;
+    private readonly string _inputId = $"lu-{Guid.NewGuid():N}"[..12];
+    private readonly string _listboxId = $"lb-{Guid.NewGuid():N}"[..12];
+    private ElementReference _inputRef;
+
+    // ── Lifecycle ─────────────────────────────────────────────────
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Resolve the initial selected item when Value is set externally
+        // (e.g. edit form loading existing data) and we don't have a matching _selectedItem.
+        if (MultiSelect || SearchFunc is null || ValueSelector is null)
+        {
+            return;
+        }
+
+        var hasValue = Value is not null && !Equals(Value, default(TValue));
+        var alreadyResolved = _selectedItem is not null && Equals(ValueSelector(_selectedItem), Value);
+        var sameAsLast = Equals(Value, _resolvedValue);
+
+        if (!hasValue || alreadyResolved || sameAsLast)
+        {
+            return;
+        }
+
+        _resolvedValue = Value;
+
+        try
+        {
+            // Search with empty string to get all candidates, then match by value.
+            var candidates = await SearchFunc(string.Empty, CancellationToken.None);
+            var match = candidates.FirstOrDefault(item => Equals(ValueSelector(item), Value));
+            if (match is not null)
+            {
+                _selectedItem = match;
+            }
+        }
+        catch
+        {
+            // Best-effort resolve — if search fails, the input just won't show display text.
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _debounceCts?.Cancel();
+        _debounceCts?.Dispose();
+        await Task.CompletedTask;
+    }
+
+    // ── Display helpers ───────────────────────────────────────────
+
+    private string GetInputDisplayValue()
+    {
+        // Multi mode always shows search text (chips show selected items).
+        if (MultiSelect) return _searchText;
+        // Single mode: show selected item display when not focused.
+        if (!_isFocused && _selectedItem is not null && DisplaySelector is not null)
+            return DisplaySelector(_selectedItem);
+        return _searchText;
+    }
+
+    private string GetEffectivePlaceholder()
+    {
+        if (MultiSelect && _selectedItems.Count > 0)
+            return "Sélectionner d'autres…";
+        return Placeholder ?? "Rechercher…";
+    }
+
+    private string? GetActiveDescendant() =>
+        _isOpen && _focusedIndex >= 0 && _focusedIndex < _results.Count
+            ? GetOptionId(_focusedIndex)
+            : null;
+
+    private string GetOptionId(int index) => $"{_listboxId}-opt-{index}";
+
+    private bool IsSelected(TItem item)
+    {
+        if (ValueSelector is null) return false;
+        if (MultiSelect)
+            return _selectedItems.Any(x => Equals(ValueSelector(x), ValueSelector(item)));
+        if (_selectedItem is null) return false;
+        return Equals(ValueSelector(_selectedItem), ValueSelector(item));
+    }
+
+    // ── Grouping helper ───────────────────────────────────────────
+
+    private IReadOnlyList<(string Key, IReadOnlyList<(TItem Item, int GlobalIndex)> Items)> GetGroupedResults()
+    {
+        if (Grouping is null || _results.Count == 0) return [];
+        var groups = new List<(string Key, IReadOnlyList<(TItem, int)> Items)>();
+        var seen = new Dictionary<string, List<(TItem, int)>>();
+        var order = new List<string>();
+        for (var i = 0; i < _results.Count; i++)
+        {
+            var key = Grouping(_results[i]);
+            if (!seen.TryGetValue(key, out var list))
+            {
+                list = [];
+                seen[key] = list;
+                order.Add(key);
+            }
+            list.Add((_results[i], i));
+        }
+        foreach (var key in order)
+            groups.Add((key, seen[key]));
+        return groups;
+    }
+
+    // ── Search ────────────────────────────────────────────────────
+
+    private void FireSearch(string query)
+    {
+        _debounceCts?.Cancel();
+        _debounceCts?.Dispose();
+        _debounceCts = new CancellationTokenSource();
+        var ct = _debounceCts.Token;
+        // Fire and forget — results arrive via InvokeAsync(StateHasChanged).
+        _ = ExecuteSearchAsync(query, ct);
+    }
+
+    private async Task ExecuteSearchAsync(string query, CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(Debounce, ct);
+            ct.ThrowIfCancellationRequested();
+
+            if (SearchFunc is null) return;
+
+            _searching = true;
+            await InvokeAsync(StateHasChanged);
+
+            var results = await SearchFunc(query, ct);
+            ct.ThrowIfCancellationRequested();
+
+            _results = results;
+            _focusedIndex = -1;
+            _isOpen = results.Count > 0 || QuickCreate.HasDelegate;
+            _searching = false;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (OperationCanceledException)
+        {
+            // Superseded by a newer keystroke — intentional.
+        }
+        catch
+        {
+            _searching = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    // ── Event handlers ────────────────────────────────────────────
+
+    private async Task HandleTriggerClickAsync()
+    {
+        if (Disabled) return;
+        if (!_isOpen && _searchText.Length >= MinSearchLength && SearchFunc is not null)
+            FireSearch(_searchText);
+        try
+        {
+            await JS.InvokeVoidAsync("stratumUI.focusElement", _inputId);
+        }
+        catch (JSException) { }
+    }
+
+    private async Task HandleFocusAsync()
+    {
+        _isFocused = true;
+        // Trigger initial population if MinSearchLength is 0 and no results yet.
+        if (_results.Count == 0 && MinSearchLength == 0)
+            FireSearch(string.Empty);
+        await Task.CompletedTask;
+    }
+
+    private async Task HandleBlurAsync()
+    {
+        if (_skipNextBlur)
+        {
+            _skipNextBlur = false;
+            return;
+        }
+        _isFocused = false;
+        _searchText = string.Empty;
+        await CloseDropdownAsync();
+    }
+
+    private async Task HandleInputAsync(ChangeEventArgs e)
+    {
+        _searchText = e.Value?.ToString() ?? string.Empty;
+        _isOpen = false;
+        _results = [];
+        _focusedIndex = -1;
+
+        if (_searchText.Length >= MinSearchLength)
+            FireSearch(_searchText);
+    }
+
+    private async Task HandleKeyDownAsync(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "ArrowDown":
+                if (!_isOpen)
+                {
+                    if (_results.Count > 0)
+                        _isOpen = true;
+                    else if (_searchText.Length >= MinSearchLength)
+                        FireSearch(_searchText);
+                }
+                else
+                {
+                    _focusedIndex = Math.Min(_focusedIndex + 1, _results.Count - 1);
+                    await ScrollFocusedIntoViewAsync();
+                }
+                break;
+
+            case "ArrowUp":
+                if (_isOpen)
+                {
+                    _focusedIndex = Math.Max(_focusedIndex - 1, 0);
+                    await ScrollFocusedIntoViewAsync();
+                }
+                break;
+
+            case "Enter":
+                if (_isOpen && _focusedIndex >= 0 && _focusedIndex < _results.Count)
+                    await SelectItemAsync(_results[_focusedIndex]);
+                break;
+
+            case "Escape":
+                await CloseDropdownAsync();
+                _searchText = string.Empty;
+                break;
+
+            case "Backspace":
+                if (_searchText.Length == 0)
+                {
+                    if (MultiSelect && _selectedItems.Count > 0)
+                        await RemoveChipAsync(_selectedItems[^1]);
+                    else if (!MultiSelect && _selectedItem is not null)
+                        await ClearSingleSelectionAsync();
+                }
+                break;
+
+            case "Tab":
+                await CloseDropdownAsync();
+                _isFocused = false;
+                _searchText = string.Empty;
+                break;
+        }
+    }
+
+    // ── Selection ─────────────────────────────────────────────────
+
+    private async Task SelectItemAsync(TItem item)
+    {
+        if (ValueSelector is null || DisplaySelector is null) return;
+
+        if (MultiSelect)
+        {
+            var value = ValueSelector(item);
+            var existingIdx = _selectedItems.FindIndex(x => Equals(ValueSelector(x), value));
+            if (existingIdx >= 0)
+                _selectedItems.RemoveAt(existingIdx);
+            else
+                _selectedItems.Add(item);
+
+            _searchText = string.Empty;
+            // Keep dropdown open for multi-select.
+            await SelectedValuesChanged.InvokeAsync(
+                _selectedItems.Select(ValueSelector).ToList());
+        }
+        else
+        {
+            _selectedItem = item;
+            _searchText = string.Empty;
+            _isFocused = false;
+            await CloseDropdownAsync();
+            await ValueChanged.InvokeAsync(ValueSelector(item));
+        }
+    }
+
+    private async Task ClearSingleSelectionAsync()
+    {
+        _selectedItem = default;
+        _searchText = string.Empty;
+        await ValueChanged.InvokeAsync(default!);
+    }
+
+    private async Task RemoveChipAsync(TItem item)
+    {
+        if (ValueSelector is null) return;
+        var value = ValueSelector(item);
+        _selectedItems.RemoveAll(x => Equals(ValueSelector(x), value));
+        await SelectedValuesChanged.InvokeAsync(
+            _selectedItems.Select(ValueSelector).ToList());
+    }
+
+    // ── Dropdown ──────────────────────────────────────────────────
+
+    private async Task CloseDropdownAsync()
+    {
+        _isOpen = false;
+        _focusedIndex = -1;
+        await Task.CompletedTask;
+    }
+
+    private async Task HandleQuickCreateAsync()
+    {
+        _skipNextBlur = true;
+        await CloseDropdownAsync();
+        await QuickCreate.InvokeAsync();
+    }
+
+    // ── JS helpers ────────────────────────────────────────────────
+
+    private async Task ScrollFocusedIntoViewAsync()
+    {
+        if (_focusedIndex < 0) return;
+        try
+        {
+            await JS.InvokeVoidAsync("stratumUI.scrollLookupOptionIntoView",
+                _listboxId, GetOptionId(_focusedIndex));
+        }
+        catch (JSException) { }
+    }
+}

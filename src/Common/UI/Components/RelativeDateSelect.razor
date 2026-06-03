@@ -1,0 +1,95 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.Abstractions.Grid
+
+@* RelativeDateSelect — picker for RelativeDatePeriod presets with FR labels.
+ *
+ * A simple native-select wrapper exposing the 8 RelativeDatePeriod values with
+ * localized labels. Used by SimpleFilterBuilder when the Date column operator
+ * is FilterOperator.RelativePeriod, and reusable anywhere a caller needs to
+ * pick a relative period (e.g. dashboards, reports).
+ *
+ * The actual resolution of a preset into concrete date bounds happens later,
+ * at predicate build time, via RelativeDatePeriodResolver. This component is
+ * just the user-facing picker — it holds no timezone state.
+ *
+ * Keyboard (DF-10): native <select> semantics.
+ *   - ↑/↓ or letter keys : navigate options
+ *   - Space / Enter      : open dropdown, confirm
+ *   - Escape             : cancel selection (native)
+ *
+ * ARIA: native <select> with aria-label. role=combobox implicit.
+ *
+ * Usage:
+ *   <RelativeDateSelect Value="@_period"
+ *                       ValueChanged="v => _period = v"
+ *                       TestId="my-relative-select" />
+ *
+ * Ref: docs/specs/grid-filter-system-v2.md §6.5, DF-11.
+ *@
+
+<select class="relative-date-select"
+        aria-label="@(AriaLabel ?? "Période relative")"
+        data-testid="@(TestId ?? "relative-date-select")"
+        disabled="@Disabled"
+        @onchange="HandleChange">
+    @foreach (var period in _periods)
+    {
+        <option value="@period" selected="@(period == Value)">
+            @GetLabel(period)
+        </option>
+    }
+</select>
+
+@code {
+    private static readonly RelativeDatePeriod[] _periods = Enum.GetValues<RelativeDatePeriod>();
+
+    /// <summary>Currently selected period.</summary>
+    [Parameter]
+    public RelativeDatePeriod Value { get; set; } = RelativeDatePeriod.Today;
+
+    /// <summary>Raised when the user picks a different period.</summary>
+    [Parameter]
+    public EventCallback<RelativeDatePeriod> ValueChanged { get; set; }
+
+    /// <summary>Disables the select.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>
+    /// Optional override for the aria-label. Defaults to "Période relative".
+    /// </summary>
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    /// <summary>Optional test id. Defaults to "relative-date-select".</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    private async Task HandleChange(ChangeEventArgs e)
+    {
+        if (Enum.TryParse<RelativeDatePeriod>(e.Value?.ToString(), out var parsed)
+            && parsed != Value
+            && ValueChanged.HasDelegate)
+        {
+            await ValueChanged.InvokeAsync(parsed);
+        }
+    }
+
+    /// <summary>
+    /// Localized FR label for a given <see cref="RelativeDatePeriod"/>.
+    /// Exposed as a static helper so callers (chip projectors, filter labels)
+    /// share the same wording as the picker.
+    /// </summary>
+    public static string GetLabel(RelativeDatePeriod period) => period switch
+    {
+        RelativeDatePeriod.Today => "Aujourd'hui",
+        RelativeDatePeriod.Yesterday => "Hier",
+        RelativeDatePeriod.Last7Days => "7 derniers jours",
+        RelativeDatePeriod.Last30Days => "30 derniers jours",
+        RelativeDatePeriod.ThisMonth => "Ce mois-ci",
+        RelativeDatePeriod.LastMonth => "Mois dernier",
+        RelativeDatePeriod.ThisQuarter => "Ce trimestre",
+        RelativeDatePeriod.ThisYear => "Cette année",
+        _ => period.ToString(),
+    };
+}

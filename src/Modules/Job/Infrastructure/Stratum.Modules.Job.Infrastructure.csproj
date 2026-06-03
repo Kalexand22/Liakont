@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Cronos" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Stratum.Modules.Job.Domain.csproj" />
+    <ProjectReference Include="../Application/Stratum.Modules.Job.Application.csproj" />
+    <ProjectReference Include="../Contracts/Stratum.Modules.Job.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

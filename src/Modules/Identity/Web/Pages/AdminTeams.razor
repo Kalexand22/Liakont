@@ -1,0 +1,93 @@
+@page "/admin/agents/teams"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.Abstractions.Security
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Stratum.Modules.Identity.Contracts
+@using Stratum.Modules.Identity.Contracts.DTOs
+@using Stratum.Modules.Identity.Contracts.Queries
+@using Stratum.Modules.Identity.Contracts.Commands
+@using Stratum.Modules.Identity.Web.Registries
+@inject ITeamQueries TeamQueries
+@inject ISender Sender
+@inject NavigationManager Nav
+@inject IToastService ToastService
+@inject IPermissionService PermissionService
+
+<PageTitle>Équipes — Stratum ERP</PageTitle>
+
+<DeclaredListPage TItem="TeamDto"
+                  Title="Équipes"
+                  TestId="admin-teams"
+                  LoadItems="@(() => TeamQueries.List())"
+                  DetailUrl="@(t => $"/admin/agents/teams/{t.Id}")"
+                  CreateUrl="/admin/agents/teams/new"
+                  CreateLabel="+ Nouvelle équipe"
+                  ColumnRegistry="@_registry"
+                  ColumnTemplates="@_columnTemplates"
+                  GridKey="Identity.Teams"
+                  RowActions="@_rowActions"
+                  AriaLabel="Liste des équipes"
+                  DefaultSortColumn="Code"
+                  SearchPlaceholder="Chercher une équipe… (raccourci : /)"
+                  AllowExport="true"
+                  ExportFileName="equipes">
+</DeclaredListPage>
+
+@code {
+    private readonly TeamColumnRegistry _registry = new();
+
+    private readonly Dictionary<string, RenderFragment<TeamDto>> _columnTemplates = new()
+    {
+        ["IsActive"] = item => __builder =>
+        {
+            __builder.OpenComponent<StatusBadge>(0);
+            __builder.AddAttribute(1, "Severity", item.IsActive ? Severity.Success : Severity.Neutral);
+            __builder.AddAttribute(2, "Label", item.IsActive ? "Actif" : "Inactif");
+            __builder.CloseComponent();
+        },
+    };
+
+    private readonly IReadOnlyList<GridRowAction<TeamDto>> _rowActions;
+
+    public AdminTeams()
+    {
+        _rowActions =
+        [
+            new GridRowAction<TeamDto>(
+                Id: "edit",
+                Label: "Modifier",
+                Icon: "edit",
+                IsQuickAction: true,
+                Callback: item =>
+                {
+                    Nav.NavigateTo($"/admin/agents/teams/{item.Id}/edit");
+                    return Task.CompletedTask;
+                }),
+            new GridRowAction<TeamDto>(
+                Id: "delete",
+                Label: "Supprimer",
+                Icon: "delete",
+                Callback: DeleteItemAsync,
+                RequiresConfirmation: true,
+                IsSeparatorBefore: true,
+                IsQuickAction: true),
+        ];
+    }
+
+    private async Task DeleteItemAsync(TeamDto item)
+    {
+        if (!PermissionService.HasPermission(IdentityPermissions.TeamDelete))
+        {
+            ToastService.Show("Droits insuffisants pour supprimer.", Severity.Error);
+            return;
+        }
+
+        await Sender.Send(new DeleteTeamCommand { TeamId = item.Id });
+        ToastService.Show($"Équipe « {item.Name} » supprimée.", Severity.Success);
+        Nav.NavigateTo(Nav.Uri, forceLoad: true);
+    }
+}

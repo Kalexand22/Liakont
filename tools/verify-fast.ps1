@@ -159,7 +159,11 @@ if ($ok) {
             # Unit + architecture tests only — integration (Testcontainers), Staging, Sandbox,
             # E2E (Playwright) run via run-tests.ps1.
             $ok = Run-Step 'platform: unit-tests' {
-                dotnet test $platformSln --no-build --verbosity quiet --filter "Category!=Integration&Category!=Staging&Category!=Sandbox&Category!=E2E"
+                # Exclude integration tests by BOTH the Category trait (Liakont convention) AND the
+                # FullyQualifiedName ~Tests.Integration (vendored Stratum socle convention — its
+                # integration tests use [Collection(...)] fixtures, not a Category trait). Integration
+                # (Testcontainers) runs in run-tests.ps1. See provenance-socle-stratum.md.
+                dotnet test $platformSln --no-build --verbosity quiet --filter "Category!=Integration&Category!=Staging&Category!=Sandbox&Category!=E2E&FullyQualifiedName!~Tests.Integration"
                 if ($LASTEXITCODE -ne 0) { throw "unit tests failed" }
             }
         }

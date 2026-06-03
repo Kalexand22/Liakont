@@ -1,0 +1,733 @@
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.Extensions.Localization
+@using Microsoft.Extensions.Options
+@using Stratum.Common.Infrastructure.BugCapture
+@* SharedResources marker is in Stratum.Common.UI namespace *@
+@using Stratum.Common.UI.Services.BugCapture
+@implements IAsyncDisposable
+@inject IBugCaptureService BugCaptureService
+@inject IAudioRecorder AudioRecorder
+@inject IScreenRecorder ScreenRecorder
+@inject Stratum.Common.UI.Services.BugCapture.IToastService ToastService
+@inject IStringLocalizer<SharedResources> L
+@inject IOptions<CaptureConfiguration> Config
+
+<div class="bc-panel" role="dialog" aria-label="@(_captureType == CaptureType.Bug ? L["BugCapture_ReportBug"] : L["BugCapture_RequestFeature"])" data-testid="bug-capture-panel">
+    <div class="bc-panel__header">
+        <span class="bc-panel__title">
+            @if (BugCaptureService.State == CaptureState.Previewing)
+            {
+                @L["BugCapture_PreviewTitle"]
+            }
+            else
+            {
+                @(_captureType == CaptureType.Bug ? L["BugCapture_ReportBug"] : L["BugCapture_RequestFeature"])
+            }
+        </span>
+        <button class="bc-panel__close" data-testid="capture-close" @onclick="OnCancelAsync" aria-label="@L["Close"]">&times;</button>
+    </div>
+
+    <div class="bc-panel__body">
+        @if (BugCaptureService.State is CaptureState.Finalizing or CaptureState.Submitting)
+        {
+            @* ── Loading state (AI analysis or GitHub submission) ── *@
+            <div class="bc-preparing" data-testid="capture-preparing">
+                <CircularProgress Indeterminate="true" Size="48" Thickness="4" Color="ProgressColor.Info" />
+                @if (BugCaptureService.State == CaptureState.Submitting)
+                {
+                    <div class="bc-preparing__text">@L["BugCapture_Submitting"]</div>
+                    <div class="bc-preparing__sub">@L["BugCapture_SubmittingHint"]</div>
+                }
+                else
+                {
+                    <div class="bc-preparing__text">@L["BugCapture_Analyzing"]</div>
+                    <div class="bc-preparing__sub">@L["BugCapture_AnalyzingHint"]</div>
+                }
+            </div>
+        }
+        else if (BugCaptureService.State == CaptureState.Previewing && BugCaptureService.PreparedBundle is { } bundle)
+        {
+            @* ── Preview mode ────────────────────────────────────────── *@
+            <div class="bc-preview" data-testid="capture-preview">
+
+                @* Title (editable) *@
+                <div class="bc-preview__section">
+                    <div class="bc-preview__section-title">@L["BugCapture_Title"]</div>
+                    <input type="text"
+                           class="bc-panel__title-input form-control"
+                           data-testid="preview-title"
+                           @bind="_title"
+                           @bind:event="oninput"
+                           maxlength="80"
+                           placeholder="@L["BugCapture_TitlePlaceholder"]" />
+                </div>
+
+                @* Description (editable) *@
+                <div class="bc-preview__section">
+                    <div class="bc-preview__section-title">@L["BugCapture_Description"]</div>
+                    <textarea class="bc-panel__comment form-control"
+                              data-testid="preview-comment"
+                              rows="4"
+                              @bind="_comment"
+                              @bind:event="oninput"></textarea>
+                </div>
+
+                @* Tags (editable) *@
+                <div class="bc-preview__section">
+                    <div class="bc-preview__section-title">@L["BugCapture_Tags"]</div>
+                    <div class="bc-tags">
+                        @foreach (var tag in _tags)
+                        {
+                            var t = tag;
+                            <span class="bc-tag">
+                                @t
+                                <button class="bc-tag__remove" @onclick="() => RemoveTag(t)" aria-label="@L["Remove"] @t">&times;</button>
+                            </span>
+                        }
+                        <input class="bc-tag-input"
+                               data-testid="preview-tag-input"
+                               placeholder="@L["BugCapture_TagPlaceholder"]"
+                               @bind="_tagInput"
+                               @bind:event="oninput"
+                               @onkeydown="OnTagKeyDownAsync" />
+                    </div>
+                </div>
+
+                @* Environment *@
+                <div class="bc-preview__section">
+                    <div class="bc-preview__section-title">@L["BugCapture_Environment"]</div>
+                    <table class="bc-preview__env-table">
+                        <tr><td>Project</td><td>@bundle.Metadata.Project</td></tr>
+                        <tr><td>OS</td><td>@bundle.Metadata.Os</td></tr>
+                        <tr><td>User</td><td>@bundle.Metadata.User</td></tr>
+                        <tr><td>.NET</td><td>@bundle.Metadata.DotNetVersion</td></tr>
+                        <tr><td>Started</td><td>@bundle.Metadata.StartedAt.ToString("u")</td></tr>
+                        <tr><td>Finished</td><td>@bundle.Metadata.FinishedAt.ToString("u")</td></tr>
+                    </table>
+                </div>
+
+                @* Screenshots *@
+                @{ var previewScreenshots = bundle.Medias.Where(m => m.MediaType == "screenshot").OrderBy(m => m.Sequence).ToList(); }
+                @if (previewScreenshots.Count > 0)
+                {
+                    <div class="bc-preview__section">
+                        <div class="bc-preview__section-title">@(string.Format(L["BugCapture_Screenshots"], previewScreenshots.Count))</div>
+                        <div class="bc-screenshot-gallery">
+                            @foreach (var ss in previewScreenshots)
+                            {
+                                @if (_previewThumbnails.TryGetValue(ss.FileName, out var thumb))
+                                {
+                                    <img src="@thumb" class="bc-thumbnail" alt="@(ss.Description ?? ss.FileName)" title="@(ss.Description ?? ss.FileName)" />
+                                }
+                            }
+                        </div>
+                    </div>
+                }
+
+                @* Video *@
+                @{ var previewVideos = bundle.Medias.Where(m => m.MediaType == "video").ToList(); }
+                @if (previewVideos.Count > 0)
+                {
+                    <div class="bc-preview__section">
+                        <div class="bc-preview__section-title">@L["BugCapture_Video"]</div>
+                        @foreach (var v in previewVideos)
+                        {
+                            <span class="bc-preview__file-badge">@v.FileName — @FormatBytes(v.FileSizeBytes)</span>
+                        }
+                    </div>
+                }
+
+                @* AI Analysis (editable) *@
+                @if (_hasAiAnalysis)
+                {
+                    <div class="bc-preview__section">
+                        <div class="bc-preview__section-title">@L["BugCapture_AIAnalysis"]</div>
+                        <textarea class="bc-panel__comment form-control"
+                                  data-testid="preview-ai-summary"
+                                  rows="3"
+                                  @bind="_aiSummary"
+                                  @bind:event="oninput"></textarea>
+                    </div>
+                    <div class="bc-preview__section">
+                        <div class="bc-preview__section-title">@L["BugCapture_StepsToReproduce"]</div>
+                        <textarea class="bc-panel__comment form-control"
+                                  data-testid="preview-ai-steps"
+                                  rows="4"
+                                  @bind="_aiSteps"
+                                  @bind:event="oninput"></textarea>
+                    </div>
+                    @if (bundle.VideoAnalysis is { KeyMoments.Count: > 0 } km)
+                    {
+                        <div class="bc-preview__section">
+                            <details>
+                                <summary>@L["BugCapture_KeyMoments"]</summary>
+                                <ul style="margin: 4px 0; padding-left: 16px;">
+                                    @foreach (var moment in km.KeyMoments)
+                                    {
+                                        <li><strong>@moment.TimestampSeconds.ToString("F1")s</strong> — @moment.Description</li>
+                                    }
+                                </ul>
+                            </details>
+                        </div>
+                    }
+                }
+
+                @* Server Logs *@
+                @if (bundle.Logs.Count > 0)
+                {
+                    <div class="bc-preview__section">
+                        <details>
+                            <summary>@(string.Format(L["BugCapture_ServerLogs"], bundle.Logs.Count))</summary>
+                            <div class="bc-preview__log-block">@foreach (var log in bundle.Logs.TakeLast(30))
+                            {
+                                @($"[{log.Timestamp:HH:mm:ss}] [{log.Level}] {log.Message}\n")
+                            }</div>
+                        </details>
+                    </div>
+                }
+
+                @* Browser Console Logs *@
+                @if (bundle.BrowserConsoleLogs.Count > 0)
+                {
+                    <div class="bc-preview__section">
+                        <details>
+                            <summary>@(string.Format(L["BugCapture_BrowserConsoleLogs"], bundle.BrowserConsoleLogs.Count))</summary>
+                            <div class="bc-preview__log-block">@foreach (var entry in bundle.BrowserConsoleLogs.TakeLast(30))
+                            {
+                                @($"[{entry.Timestamp:HH:mm:ss}] [{entry.Level.ToUpperInvariant()}] {entry.Message}\n")
+                            }</div>
+                        </details>
+                    </div>
+                }
+
+                @* HTTP Traffic *@
+                @if (bundle.HttpTraffic.Count > 0)
+                {
+                    <div class="bc-preview__section">
+                        <details>
+                            <summary>@(string.Format(L["BugCapture_HttpTraffic"], bundle.HttpTraffic.Count))</summary>
+                            <div class="bc-preview__log-block">@foreach (var req in bundle.HttpTraffic.TakeLast(20))
+                            {
+                                @($"{req.Method} {req.Url} → {req.StatusCode} ({req.DurationMs}ms)\n")
+                            }</div>
+                        </details>
+                    </div>
+                }
+
+                @* User Actions *@
+                @if (bundle.UserActions.Count > 0)
+                {
+                    <div class="bc-preview__section">
+                        <details>
+                            <summary>@(string.Format(L["BugCapture_UserActions"], bundle.UserActions.Count))</summary>
+                            <div class="bc-preview__log-block">@foreach (var action in bundle.UserActions.TakeLast(20))
+                            {
+                                @($"[{action.ActionType}] {action.Description}\n")
+                            }</div>
+                        </details>
+                    </div>
+                }
+
+                @* Log files indicator *@
+                @{ var logFiles = bundle.Medias.Where(m => m.MediaType == "log").ToList(); }
+                @if (logFiles.Count > 0)
+                {
+                    <div class="bc-preview__section">
+                        <div class="bc-preview__section-title">@L["BugCapture_LogFiles"]</div>
+                        @foreach (var lf in logFiles)
+                        {
+                            <span class="bc-preview__file-badge">@lf.FileName — @FormatBytes(lf.FileSizeBytes)</span>
+                        }
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            @* ── Capture mode ────────────────────────────────────────── *@
+
+            @* Type selector *@
+            <div class="bc-panel__type-selector">
+                <button class="bc-type-btn @(_captureType == CaptureType.Bug ? "bc-type-btn--active" : "")"
+                        data-testid="capture-type-bug"
+                        @onclick="() => SetTypeAsync(CaptureType.Bug)">
+                    @L["BugCapture_Bug"]
+                </button>
+                <button class="bc-type-btn @(_captureType == CaptureType.Feature ? "bc-type-btn--active" : "")"
+                        data-testid="capture-type-feature"
+                        @onclick="() => SetTypeAsync(CaptureType.Feature)">
+                    @L["BugCapture_Feature"]
+                </button>
+            </div>
+
+            @* Comment textarea *@
+            <textarea class="bc-panel__comment form-control"
+                      data-testid="capture-comment"
+                      rows="4"
+                      placeholder="@L["BugCapture_DescriptionPlaceholder"]"
+                      @bind="_comment"
+                      @bind:event="oninput"></textarea>
+
+            @* Screenshot gallery *@
+            <div class="bc-panel__section">
+                <div class="bc-panel__section-label">@(string.Format(L["BugCapture_Screenshots"], _thumbnails.Count))</div>
+                @if (_thumbnails.Count > 0)
+                {
+                    <div class="bc-screenshot-gallery">
+                        @for (var i = 0; i < _thumbnails.Count; i++)
+                        {
+                            var thumb = _thumbnails[i];
+                            var label = $"Capture {i + 1}";
+                            <img src="@thumb" class="bc-thumbnail" alt="@label" title="@label" />
+                        }
+                    </div>
+                }
+                <button class="btn btn-sm btn-outline-secondary bc-panel__add-btn"
+                        data-testid="capture-add-screenshot"
+                        @onclick="AddScreenshotAsync"
+                        disabled="@(_session == null || BugCaptureService.State == CaptureState.Finalizing)">
+                    @L["BugCapture_AddScreenshot"]
+                </button>
+            </div>
+
+            @* Screen recording *@
+            <div class="bc-panel__section">
+                <div class="bc-panel__section-label">@L["BugCapture_Video"]</div>
+                <button class="btn btn-sm @(ScreenRecorder.IsRecording ? "btn-danger" : "btn-outline-secondary") bc-audio-btn"
+                        data-testid="capture-record-screen"
+                        @onclick="ToggleScreenRecordingAsync"
+                        disabled="@(_session == null || BugCaptureService.State == CaptureState.Finalizing)">
+                    @(ScreenRecorder.IsRecording ? L["BugCapture_StopRecording"] : L["BugCapture_RecordScreen"])
+                </button>
+                @if (_hasVideo && !ScreenRecorder.IsRecording)
+                {
+                    <span class="bc-audio-recorded">@L["BugCapture_VideoRecorded"]</span>
+                }
+            </div>
+
+            @* Audio recording *@
+            <div class="bc-panel__section">
+                <div class="bc-panel__section-label">@L["BugCapture_Audio"]</div>
+                <button class="btn btn-sm @(AudioRecorder.IsRecording ? "btn-danger" : "btn-outline-secondary") bc-audio-btn"
+                        data-testid="capture-record-audio"
+                        @onclick="ToggleAudioAsync"
+                        disabled="@(_session == null || BugCaptureService.State == CaptureState.Finalizing)">
+                    @(AudioRecorder.IsRecording ? L["BugCapture_StopRecording"] : L["BugCapture_RecordAudio"])
+                </button>
+                @if (AudioRecorder.IsRecording)
+                {
+                    <div class="bc-audio-level" title="@L["BugCapture_Audio"]">
+                        <div class="bc-audio-level__bar"
+                             style="width: @((int)(AudioRecorder.AudioLevel * 100))%"></div>
+                    </div>
+                }
+                @if (_hasAudio && !AudioRecorder.IsRecording)
+                {
+                    <span class="bc-audio-recorded">@L["BugCapture_AudioRecorded"]</span>
+                }
+            </div>
+
+            @* Tag chips *@
+            <div class="bc-panel__section">
+                <div class="bc-panel__section-label">@L["BugCapture_Tags"]</div>
+                <div class="bc-tags">
+                    @foreach (var tag in _tags)
+                    {
+                        var t = tag;
+                        <span class="bc-tag">
+                            @t
+                            <button class="bc-tag__remove" @onclick="() => RemoveTag(t)" aria-label="@L["Remove"] @t">&times;</button>
+                        </span>
+                    }
+                    <input class="bc-tag-input"
+                           data-testid="capture-tag-input"
+                           placeholder="@L["BugCapture_TagPlaceholder"]"
+                           @bind="_tagInput"
+                           @bind:event="oninput"
+                           @onkeydown="OnTagKeyDownAsync" />
+                </div>
+            </div>
+        }
+
+    </div>
+
+    <div class="bc-panel__footer" style="@(BugCaptureService.State is CaptureState.Finalizing or CaptureState.Submitting ? "display:none" : "")">
+        @if (BugCaptureService.State == CaptureState.Previewing)
+        {
+            <button class="btn btn-sm btn-secondary" data-testid="capture-back" @onclick="OnBackToEdit">
+                @L["BugCapture_Back"]
+            </button>
+            <button class="btn btn-sm btn-success" data-testid="capture-confirm" @onclick="OnConfirmAsync"
+                    disabled="@(BugCaptureService.State == CaptureState.Finalizing)">
+                @L["BugCapture_Confirm"]
+            </button>
+        }
+        else
+        {
+            <button class="btn btn-sm btn-secondary" data-testid="capture-cancel" @onclick="OnCancelAsync"
+                    disabled="@(BugCaptureService.State == CaptureState.Finalizing)">
+                @L["Cancel"]
+            </button>
+            <button class="btn btn-sm btn-primary" data-testid="capture-submit" @onclick="OnSubmitAsync"
+                    disabled="@(BugCaptureService.State == CaptureState.Finalizing || _session == null)">
+                @(BugCaptureService.State == CaptureState.Finalizing ? L["BugCapture_Preparing"] : L["BugCapture_Send"])
+            </button>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    [Parameter]
+    public EventCallback OnRecordingStarted { get; set; }
+
+    private ICaptureSession? _session;
+    private CaptureType _captureType = CaptureType.Bug;
+
+    /// <summary>
+    /// Called by the parent stop-recording button. Stops video, then auto-prepares (AI analysis).
+    /// </summary>
+    public async Task StopRecordingAndPrepareAsync()
+    {
+        if (_session == null)
+        {
+            return;
+        }
+
+        // Stop screen recording — bytes go into the session.
+        if (ScreenRecorder.IsRecording)
+        {
+            await _session.AddScreenRecordingAsync();
+            _hasVideo = true;
+        }
+
+        StopLevelTimer();
+
+        if (AudioRecorder.IsRecording)
+        {
+            await _session.AddAudioAsync();
+            _hasAudio = true;
+        }
+
+        // Trigger prepare (AI analysis, transcription, etc.) → goes to Finalizing then Previewing.
+        await BugCaptureService.PrepareAsync(_comment, _tags.AsReadOnly());
+
+        if (BugCaptureService.PreparedBundle is { } bundle)
+        {
+            _title = bundle.Title;
+            _aiSummary = bundle.VideoAnalysis?.Summary ?? string.Empty;
+            _aiSteps = bundle.VideoAnalysis?.StepsToReproduce ?? string.Empty;
+            _hasAiAnalysis = bundle.VideoAnalysis is { Summary.Length: > 0 };
+            await LoadPreviewThumbnailsAsync(bundle);
+        }
+
+        StateHasChanged();
+    }
+    private string _title = string.Empty;
+    private string _comment = string.Empty;
+    private string _aiSummary = string.Empty;
+    private string _aiSteps = string.Empty;
+    private bool _hasAiAnalysis;
+    private string _tagInput = string.Empty;
+    private readonly List<string> _tags = [];
+    private readonly List<string> _thumbnails = [];
+    private readonly Dictionary<string, string> _previewThumbnails = new();
+    private bool _hasAudio;
+    private bool _hasVideo;
+    private CancellationTokenSource? _levelTimerCts;
+
+    protected override void OnInitialized()
+    {
+        BugCaptureService.StateChanged += OnServiceStateChanged;
+        _session = BugCaptureService.StartSession(_captureType);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Build preview thumbnails when entering preview state.
+        if (BugCaptureService.State == CaptureState.Previewing
+            && BugCaptureService.PreparedBundle is { } bundle
+            && _previewThumbnails.Count == 0)
+        {
+            await LoadPreviewThumbnailsAsync(bundle);
+        }
+    }
+
+    private async Task LoadPreviewThumbnailsAsync(CaptureBundle bundle)
+    {
+        foreach (var media in bundle.Medias.Where(m => m.MediaType == "screenshot"))
+        {
+            if (_previewThumbnails.ContainsKey(media.FileName))
+            {
+                continue;
+            }
+
+            try
+            {
+                if (File.Exists(media.FilePath))
+                {
+                    var bytes = await File.ReadAllBytesAsync(media.FilePath);
+                    _previewThumbnails[media.FileName] = $"data:{media.MimeType};base64,{Convert.ToBase64String(bytes)}";
+                }
+            }
+            catch
+            {
+                // Best-effort thumbnail loading.
+            }
+        }
+    }
+
+    private async Task SetTypeAsync(CaptureType type)
+    {
+        if (_captureType == type)
+        {
+            return;
+        }
+
+        _captureType = type;
+        StopLevelTimer();
+
+        if (ScreenRecorder.IsRecording)
+        {
+            await ScreenRecorder.StopAsync();
+            _hasVideo = false;
+        }
+
+        if (AudioRecorder.IsRecording)
+        {
+            await AudioRecorder.StopAsync();
+            _hasAudio = false;
+        }
+
+        BugCaptureService.CancelSession();
+        _thumbnails.Clear();
+        _previewThumbnails.Clear();
+        _session = BugCaptureService.StartSession(_captureType);
+    }
+
+    private async Task AddScreenshotAsync()
+    {
+        if (_session == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _session.AddScreenshotAsync();
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError(string.Format(L["BugCapture_ScreenshotFailed"], ex.Message));
+            return;
+        }
+
+        var bundle = _session.GetCurrentBundle();
+        var last = bundle.Medias
+            .Where(static m => m.MediaType == "screenshot")
+            .OrderBy(static m => m.CapturedAt)
+            .LastOrDefault();
+
+        if (last != null && File.Exists(last.FilePath))
+        {
+            var bytes = await File.ReadAllBytesAsync(last.FilePath);
+            _thumbnails.Add($"data:image/png;base64,{Convert.ToBase64String(bytes)}");
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task ToggleAudioAsync()
+    {
+        if (_session == null)
+        {
+            return;
+        }
+
+        if (AudioRecorder.IsRecording)
+        {
+            StopLevelTimer();
+            await _session.AddAudioAsync();
+            _hasAudio = true;
+        }
+        else
+        {
+            await _session.AddAudioAsync();
+            StartLevelTimer();
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task ToggleScreenRecordingAsync()
+    {
+        if (_session == null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (ScreenRecorder.IsRecording)
+            {
+                await _session.AddScreenRecordingAsync();
+                _hasVideo = true;
+            }
+            else
+            {
+                await _session.AddScreenRecordingAsync();
+                // Hide panel while recording so it doesn't obstruct the screen.
+                await OnRecordingStarted.InvokeAsync();
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError(string.Format(L["BugCapture_ScreenshotFailed"], ex.Message));
+            return;
+        }
+
+        StateHasChanged();
+    }
+
+    private void RemoveTag(string tag) => _tags.Remove(tag);
+
+    private async Task OnTagKeyDownAsync(KeyboardEventArgs e)
+    {
+        if ((e.Key == "Enter" || e.Key == ",") && !string.IsNullOrWhiteSpace(_tagInput))
+        {
+            var tag = _tagInput.Trim().TrimEnd(',');
+            if (tag.Length > 0 && !_tags.Contains(tag))
+            {
+                _tags.Add(tag);
+            }
+
+            _tagInput = string.Empty;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task OnSubmitAsync()
+    {
+        if (_session == null || BugCaptureService.State == CaptureState.Finalizing)
+        {
+            return;
+        }
+
+        StopLevelTimer();
+
+        if (ScreenRecorder.IsRecording)
+        {
+            await _session.AddScreenRecordingAsync();
+        }
+
+        if (AudioRecorder.IsRecording)
+        {
+            await _session.AddAudioAsync();
+        }
+
+        await BugCaptureService.PrepareAsync(_comment, _tags.AsReadOnly());
+
+        // State transitions to Previewing → panel re-renders showing preview.
+        if (BugCaptureService.PreparedBundle is { } bundle)
+        {
+            _title = bundle.Title;
+            _aiSummary = bundle.VideoAnalysis?.Summary ?? string.Empty;
+            _aiSteps = bundle.VideoAnalysis?.StepsToReproduce ?? string.Empty;
+            _hasAiAnalysis = bundle.VideoAnalysis is { Summary.Length: > 0 };
+            await LoadPreviewThumbnailsAsync(bundle);
+        }
+    }
+
+    private async Task OnConfirmAsync()
+    {
+        BugCaptureService.UpdatePreparedBundle(_title, _comment, _tags.AsReadOnly(), _aiSummary, _aiSteps);
+        await BugCaptureService.SubmitPreparedAsync();
+        _session = null;
+        await OnClose.InvokeAsync();
+    }
+
+    private void OnBackToEdit()
+    {
+        _previewThumbnails.Clear();
+        BugCaptureService.ReturnToEditing();
+    }
+
+    private async Task OnCancelAsync()
+    {
+        StopLevelTimer();
+
+        if (ScreenRecorder.IsRecording)
+        {
+            await ScreenRecorder.StopAsync();
+        }
+
+        if (AudioRecorder.IsRecording)
+        {
+            await AudioRecorder.StopAsync();
+        }
+
+        BugCaptureService.CancelSession();
+        _session = null;
+        await OnClose.InvokeAsync();
+    }
+
+    private void OnServiceStateChanged(object? sender, EventArgs e)
+        => InvokeAsync(StateHasChanged);
+
+    private void StartLevelTimer()
+    {
+        _levelTimerCts?.Cancel();
+        _levelTimerCts?.Dispose();
+        _levelTimerCts = new CancellationTokenSource();
+        var token = _levelTimerCts.Token;
+
+        _ = Task.Run(
+            async () =>
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    await Task.Delay(200, token).ConfigureAwait(false);
+                    await InvokeAsync(StateHasChanged).ConfigureAwait(false);
+                }
+            },
+            token);
+    }
+
+    private void StopLevelTimer()
+    {
+        _levelTimerCts?.Cancel();
+        _levelTimerCts?.Dispose();
+        _levelTimerCts = null;
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        return bytes switch
+        {
+            < 1024 => $"{bytes} B",
+            < 1024 * 1024 => $"{bytes / 1024.0:F1} KB",
+            _ => $"{bytes / (1024.0 * 1024.0):F1} MB",
+        };
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        BugCaptureService.StateChanged -= OnServiceStateChanged;
+        StopLevelTimer();
+
+        if (AudioRecorder.IsRecording)
+        {
+            try
+            {
+                await AudioRecorder.StopAsync();
+            }
+            catch
+            {
+                // Best-effort; circuit may be disconnecting.
+            }
+        }
+    }
+}

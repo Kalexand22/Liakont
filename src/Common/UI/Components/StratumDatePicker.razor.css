@@ -1,0 +1,48 @@
+/* StratumDatePicker — scoped styles using Stratum design tokens */
+/* Note: Calendar popup styles are NOT here because Radzen renders the popup
+   via a portal outside the component tree. Popup theming is handled by
+   Radzen's CSS variable overrides in tokens.css. */
+
+.stratum-datepicker {
+    position: relative;
+    width: 100%;
+}
+
+/* Error state border */
+.stratum-datepicker--error ::deep .rz-inputtext {
+    border-color: var(--color-error-500);
+}
+
+/* Override Radzen input styling to match Stratum tokens */
+::deep .rz-inputtext {
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-sm);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-2) var(--spacing-3);
+    color: var(--color-text-primary);
+    background: var(--color-bg-surface);
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+::deep .rz-inputtext:focus {
+    border-color: var(--color-primary-500);
+    box-shadow: 0 0 0 2px var(--color-primary-100);
+    outline: none;
+}
+
+::deep .rz-inputtext:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Calendar icon button (rendered inside the component tree) */
+::deep .rz-datepicker-trigger {
+    color: var(--color-text-muted);
+    border: none;
+    background: transparent;
+}
+
+::deep .rz-datepicker-trigger:hover {
+    color: var(--color-primary-500);
+}

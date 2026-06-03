@@ -1,0 +1,107 @@
+/* RadioGroup — scoped styles using Stratum design tokens */
+
+.radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2, 0.5rem);
+}
+
+.radio-group--horizontal {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: var(--spacing-4, 1rem);
+}
+
+/* ── Option row ──────────────────────────────────────── */
+
+.radio-group__option {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-2, 0.5rem);
+    cursor: pointer;
+    user-select: none;
+    font-size: var(--font-size-base, 1rem);
+    color: var(--color-text-primary);
+}
+
+.radio-group__option--disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ── Native radio (visually hidden but accessible) ──── */
+
+.radio-group__input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+    white-space: nowrap;
+}
+
+/* ── Custom indicator ────────────────────────────────── */
+
+.radio-group__indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--color-border, var(--color-neutral-300));
+    border-radius: 50%;
+    background-color: var(--color-bg-surface, #fff);
+    transition: border-color var(--transition-fast, 100ms ease),
+                box-shadow var(--transition-fast, 100ms ease);
+}
+
+.radio-group__indicator::after {
+    content: '';
+    display: block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: transparent;
+    transition: background-color var(--transition-fast, 100ms ease);
+}
+
+/* ── Checked state ───────────────────────────────────── */
+
+.radio-group__input:checked + .radio-group__indicator {
+    border-color: var(--color-primary-600);
+}
+
+.radio-group__input:checked + .radio-group__indicator::after {
+    background-color: var(--color-primary-600);
+}
+
+/* ── Focus ring ──────────────────────────────────────── */
+
+.radio-group__input:focus-visible + .radio-group__indicator {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--color-primary-100);
+}
+
+/* ── Error state ─────────────────────────────────────── */
+
+.radio-group--error .radio-group__indicator {
+    border-color: var(--color-error-500);
+}
+
+.radio-group--error .radio-group__input:checked + .radio-group__indicator {
+    border-color: var(--color-error-500);
+}
+
+.radio-group--error .radio-group__input:checked + .radio-group__indicator::after {
+    background-color: var(--color-error-500);
+}
+
+/* ── Label text ──────────────────────────────────────── */
+
+.radio-group__label-text {
+    line-height: var(--line-height-normal, 1.5);
+}

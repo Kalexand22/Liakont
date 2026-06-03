@@ -1,0 +1,90 @@
+@namespace Stratum.Common.UI.Components.Internal
+
+@*
+ * FormCanvasSection — renders a single section in the FormBuilderCanvas (UIE02).
+ * Internal component — shows section header + field cards with reorder/remove controls.
+ *@
+
+<div class="form-canvas-section @(_sectionCss)"
+     data-testid="@($"{TestIdPrefix}-section-{SectionIndex}")"
+     @onclick="HandleSectionClick"
+     @onclick:stopPropagation>
+
+    <div class="form-canvas-section__header">
+        <span class="form-canvas-section__title" data-testid="@($"{TestIdPrefix}-section-title-{SectionIndex}")">
+            @Section.Title
+        </span>
+        @if (!string.IsNullOrEmpty(Section.VisibilityConditionJson))
+        {
+            <span class="form-canvas-section__condition-badge"
+                  title="Condition de visibilité configurée">
+                ⚡
+            </span>
+        }
+    </div>
+
+    <div class="form-canvas-section__fields">
+        @for (var fi = 0; fi < Section.Fields.Count; fi++)
+        {
+            var field = Section.Fields[fi];
+            var fieldIdx = fi;
+            <FormCanvasField Field="field"
+                             FieldIndex="fieldIdx"
+                             SectionIndex="SectionIndex"
+                             IsSelected="@(SelectedFieldIndex == fieldIdx)"
+                             IsFirst="@(fi == 0)"
+                             IsLast="@(fi == Section.Fields.Count - 1)"
+                             TestIdPrefix="@TestIdPrefix"
+                             OnClick="() => OnFieldClick.InvokeAsync(fieldIdx)"
+                             OnMoveUp="() => OnMoveFieldUp.InvokeAsync(fieldIdx)"
+                             OnMoveDown="() => OnMoveFieldDown.InvokeAsync(fieldIdx)"
+                             OnRemove="() => OnRemoveField.InvokeAsync(fieldIdx)" />
+        }
+
+        @if (Section.Fields.Count == 0)
+        {
+            <div class="form-canvas-section__empty" data-testid="@($"{TestIdPrefix}-section-empty-{SectionIndex}")">
+                Cliquez sur un champ dans la palette pour l'ajouter ici.
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public FormBuilderSectionState Section { get; set; } = null!;
+
+    [Parameter]
+    public int SectionIndex { get; set; }
+
+    [Parameter]
+    public bool IsSelected { get; set; }
+
+    [Parameter]
+    public int SelectedFieldIndex { get; set; } = -1;
+
+    [Parameter]
+    public string TestIdPrefix { get; set; } = "form-builder";
+
+    [Parameter]
+    public EventCallback OnSectionClick { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnFieldClick { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnMoveFieldUp { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnMoveFieldDown { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnRemoveField { get; set; }
+
+    private string _sectionCss => IsSelected ? "form-canvas-section--selected" : "";
+
+    private async Task HandleSectionClick()
+    {
+        await OnSectionClick.InvokeAsync();
+    }
+}

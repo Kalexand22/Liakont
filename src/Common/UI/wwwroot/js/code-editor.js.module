@@ -1,0 +1,150 @@
+// code-editor.js.module — Syntax-highlighted Code Editor wrapper for CodeEditor.razor
+// Wraps the vendored StratumCodeMirror bundle (wwwroot/lib/codemirror/codemirror-bundle.js).
+// Pattern: ES module loaded via IJSRuntime.InvokeAsync<IJSObjectReference>("import", ...)
+
+/** @type {Map<Element, EditorState>} */
+const _editors = new Map();
+
+/**
+ * @typedef {{ view: any, dotNetRef: any }} EditorState
+ */
+
+const _BUNDLE_BASE = '/_content/Stratum.Common.UI/lib/codemirror/';
+
+// Module-level promise serializes concurrent init() calls so the bundle
+// is injected exactly once, even when multiple CodeEditor components mount
+// simultaneously (Blazor Interactive Server renders components in parallel).
+let _loadPromise = null;
+
+/**
+ * Ensures the StratumCodeMirror bundle is loaded and the CSS injected.
+ * Concurrent callers share the same promise — no double-inject.
+ * @returns {Promise<void>}
+ */
+async function _ensureCodeMirror() {
+    if (typeof window.StratumCodeMirror !== 'undefined') return;
+
+    if (!_loadPromise) {
+        // Clear the promise on failure so callers can retry after a transient error
+        // (e.g., bundle 404 due to a network blip on first load).
+        _loadPromise = _loadBundle().catch(e => { _loadPromise = null; throw e; });
+    }
+    await _loadPromise;
+
+    if (typeof window.StratumCodeMirror === 'undefined') {
+        throw new Error('code-editor: StratumCodeMirror not exposed after bundle load');
+    }
+}
+
+/**
+ * Performs the actual DOM injection (called at most once).
+ * @returns {Promise<void>}
+ */
+async function _loadBundle() {
+    // Inject base CSS once.
+    if (!document.querySelector('link[data-cm-css]')) {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = _BUNDLE_BASE + 'codemirror.css';
+        link.setAttribute('data-cm-css', '');
+        document.head.appendChild(link);
+    }
+
+    // Inject bundle script once.
+    if (!document.querySelector('script[data-cm-script]')) {
+        await new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = _BUNDLE_BASE + 'codemirror-bundle.js';
+            script.setAttribute('data-cm-script', '');
+            script.onload = resolve;
+            script.onerror = () => { script.remove(); reject(new Error('code-editor: failed to load codemirror-bundle.js')); };
+            document.head.appendChild(script);
+        });
+    }
+}
+
+/**
+ * Initialises a code editor on the given container element.
+ * @param {Element} container  The div managed by Blazor (@ref)
+ * @param {any}     dotNetRef  DotNetObjectReference<CodeEditor>
+ * @param {{ language: string, readOnly: boolean, lineNumbers: boolean, theme: string, value: string }} options
+ */
+export async function init(container, dotNetRef, options) {
+    await _ensureCodeMirror();
+
+    const cm = window.StratumCodeMirror;
+
+    const view = cm.createEditor(container, {
+        value:       options.value || '',
+        language:    options.language || 'plaintext',
+        readOnly:    options.readOnly ?? false,
+        lineNumbers: options.lineNumbers ?? true,
+        theme:       options.theme || 'light',
+        onChange:    (value) => _invokeAsync(dotNetRef, 'OnValueChanged', value),
+    });
+
+    _editors.set(container, { view, dotNetRef });
+}
+
+/**
+ * Replaces the editor content programmatically (Value changed from Blazor).
+ * Does not trigger OnValueChanged.
+ * @param {Element} container
+ * @param {string}  value
+ */
+export function setValue(container, value) {
+    const state = _editors.get(container);
+    if (!state) return;
+
+    window.StratumCodeMirror.setValue(state.view, value || '');
+}
+
+/**
+ * Replaces the active language/syntax extension dynamically.
+ * @param {Element} container
+ * @param {string}  languageKey
+ */
+export function setLanguage(container, languageKey) {
+    const state = _editors.get(container);
+    if (!state) return;
+
+    window.StratumCodeMirror.setLanguage(state.view, languageKey);
+}
+
+/**
+ * Toggles the read-only mode.
+ * @param {Element} container
+ * @param {boolean} readOnly
+ */
+export function setReadOnly(container, readOnly) {
+    const state = _editors.get(container);
+    if (!state) return;
+
+    window.StratumCodeMirror.setReadOnly(state.view, readOnly);
+}
+
+/**
+ * Destroys the CodeMirror instance and removes it from the registry.
+ * @param {Element} container
+ */
+export function destroy(container) {
+    const state = _editors.get(container);
+    if (!state) return;
+
+    window.StratumCodeMirror.destroy(state.view);
+    _editors.delete(container);
+}
+
+// ── Private helpers ───────────────────────────────────────────────────────────
+
+/**
+ * Fire-and-forget .NET invoke. Errors swallowed to avoid uncaught promise
+ * rejections after circuit disposal.
+ * @param {any}    dotNetRef
+ * @param {string} method
+ * @param {...any} args
+ */
+function _invokeAsync(dotNetRef, method, ...args) {
+    if (!dotNetRef) return;
+    dotNetRef.invokeMethodAsync(method, ...args).catch(() => {});
+}

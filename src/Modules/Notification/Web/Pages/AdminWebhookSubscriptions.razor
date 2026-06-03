@@ -1,0 +1,212 @@
+@page "/admin/notifications/webhooks"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.Abstractions.Security
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Stratum.Modules.Notification.Contracts
+@using Stratum.Modules.Notification.Contracts.DTOs
+@using Stratum.Modules.Notification.Contracts.Queries
+@using Stratum.Modules.Notification.Contracts.Commands
+@using Stratum.Modules.Notification.Web.Registries
+@inject IWebhookQueries WebhookQueries
+@inject IActorContextAccessor ActorContext
+@inject ISender Sender
+@inject NavigationManager Nav
+@inject IToastService ToastService
+
+<PageTitle>Webhooks — Stratum ERP</PageTitle>
+
+<DeclaredListPage TItem="WebhookSubscriptionDto"
+                  Title="Webhooks"
+                  TestId="admin-webhooks"
+                  LoadItems="LoadWebhooks"
+                  DetailUrl="@(w => $"/admin/notifications/webhooks/{w.Id}")"
+                  CreateUrl="/admin/notifications/webhooks/new"
+                  CreateLabel="+ Nouveau webhook"
+                  ColumnRegistry="@_registry"
+                  ColumnTemplates="@_columnTemplates"
+                  GridKey="Notification.Webhooks"
+                  RowActions="@_rowActions"
+                  BulkActions="@_bulkActions"
+                  AriaLabel="Liste des abonnements webhook"
+                  DefaultSortColumn="Name"
+                  SearchPlaceholder="Chercher un webhook… (raccourci : /)"
+                  AllowExport="true"
+                  ExportFileName="webhooks" />
+
+@if (_testFireResult is not null)
+{
+    <StratumDialog @bind-Visible="_showTestFireDialog"
+                   Title="Résultat du test"
+                   TestId="webhook-testfire-dialog">
+        <ChildContent>
+            <div data-testid="webhook-testfire-result">
+                @if (_testFireResult.Success)
+                {
+                    <StatusBadge Severity="Severity.Success" Label="@($"Succès (HTTP {_testFireResult.StatusCode})")" />
+                }
+                else
+                {
+                    <StatusBadge Severity="Severity.Error" Label="Échec" />
+                    <p class="mt-2">@(_testFireResult.ErrorMessage ?? $"HTTP {_testFireResult.StatusCode}")</p>
+                }
+            </div>
+        </ChildContent>
+        <Actions>
+            <StratumButton Text="Fermer"
+                           Variant="ButtonVariant.Secondary"
+                           OnClick="@(() => _showTestFireDialog = false)"
+                           TestId="webhook-testfire-close-btn" />
+        </Actions>
+    </StratumDialog>
+}
+
+@code {
+    private readonly WebhookSubscriptionColumnRegistry _registry = new();
+    private TestFireWebhookResult? _testFireResult;
+    private bool _showTestFireDialog;
+
+    private Guid CompanyId => ActorContext.Current.CompanyId
+        ?? throw new InvalidOperationException("No company context available.");
+
+    private readonly Dictionary<string, RenderFragment<WebhookSubscriptionDto>> _columnTemplates = new()
+    {
+        ["IsActive"] = item => __builder =>
+        {
+            __builder.OpenComponent<StatusBadge>(0);
+            __builder.AddAttribute(1, "Severity", item.IsActive ? Severity.Success : Severity.Neutral);
+            __builder.AddAttribute(2, "Label", item.IsActive ? "Actif" : "Inactif");
+            __builder.CloseComponent();
+        },
+        ["EventType"] = item => __builder =>
+        {
+            __builder.OpenComponent<CategoryBadge>(0);
+            __builder.AddAttribute(1, "Label", item.EventType);
+            __builder.CloseComponent();
+        },
+        ["TargetUrl"] = item => __builder =>
+        {
+            __builder.OpenElement(0, "span");
+            __builder.AddAttribute(1, "title", item.TargetUrl);
+            var display = item.TargetUrl.Length > 50
+                ? string.Concat(item.TargetUrl.AsSpan(0, 47), "…")
+                : item.TargetUrl;
+            __builder.AddContent(2, display);
+            __builder.CloseElement();
+        },
+    };
+
+    private readonly IReadOnlyList<GridRowAction<WebhookSubscriptionDto>> _rowActions;
+    private readonly IReadOnlyList<BulkActionConfig<WebhookSubscriptionDto>> _bulkActions;
+
+    public AdminWebhookSubscriptions()
+    {
+        _rowActions =
+        [
+            new GridRowAction<WebhookSubscriptionDto>(
+                Id: "edit",
+                Label: "Modifier",
+                Icon: "edit",
+                IsQuickAction: true,
+                Callback: item =>
+                {
+                    Nav.NavigateTo($"/admin/notifications/webhooks/{item.Id}/edit");
+                    return Task.CompletedTask;
+                }),
+            new GridRowAction<WebhookSubscriptionDto>(
+                Id: "test-fire",
+                Label: "Test-fire",
+                Icon: "send",
+                IsQuickAction: true,
+                Callback: TestFireAsync),
+            new GridRowAction<WebhookSubscriptionDto>(
+                Id: "activate",
+                Label: "Activer",
+                Icon: "play_arrow",
+                IsQuickAction: false,
+                IsEnabled: w => !w.IsActive,
+                Callback: ToggleActiveAsync,
+                IsSeparatorBefore: true),
+            new GridRowAction<WebhookSubscriptionDto>(
+                Id: "deactivate",
+                Label: "Désactiver",
+                Icon: "pause",
+                IsQuickAction: false,
+                IsEnabled: w => w.IsActive,
+                Callback: ToggleActiveAsync),
+            new GridRowAction<WebhookSubscriptionDto>(
+                Id: "delete",
+                Label: "Supprimer",
+                Icon: "delete",
+                Callback: DeleteAsync,
+                RequiresConfirmation: true,
+                IsQuickAction: true),
+        ];
+
+        _bulkActions =
+        [
+            new BulkActionConfig<WebhookSubscriptionDto>(
+                Id: "deactivate",
+                Label: "Désactiver la sélection",
+                Icon: "pause",
+                Permission: NotificationPermissions.WebhookUpdate,
+                PermissionDisabledReason: "Rôle insuffisant pour désactiver.",
+                Execute: DeactivateAsync,
+                ItemFilter: w => w.IsActive),
+        ];
+    }
+
+    private async Task<IReadOnlyList<WebhookSubscriptionDto>> LoadWebhooks()
+    {
+        return await WebhookQueries.ListByCompany(CompanyId);
+    }
+
+    private async Task TestFireAsync(WebhookSubscriptionDto item)
+    {
+        _testFireResult = await Sender.Send(new TestFireWebhookCommand { SubscriptionId = item.Id, CompanyId = CompanyId });
+        _showTestFireDialog = true;
+    }
+
+    private async Task ToggleActiveAsync(WebhookSubscriptionDto item)
+    {
+        await Sender.Send(new UpdateWebhookSubscriptionCommand
+        {
+            SubscriptionId = item.Id,
+            Name = item.Name,
+            EventType = item.EventType,
+            TargetUrl = item.TargetUrl,
+            IsActive = !item.IsActive,
+        });
+        ToastService.Show(
+            item.IsActive ? "Webhook désactivé." : "Webhook activé.",
+            item.IsActive ? Severity.Warning : Severity.Success);
+        Nav.NavigateTo(Nav.Uri, forceLoad: true);
+    }
+
+    private async Task DeleteAsync(WebhookSubscriptionDto item)
+    {
+        await Sender.Send(new DeleteWebhookSubscriptionCommand { SubscriptionId = item.Id });
+        ToastService.Show("Webhook supprimé.", Severity.Success);
+        Nav.NavigateTo(Nav.Uri, forceLoad: true);
+    }
+
+    private async Task DeactivateAsync(IReadOnlyList<WebhookSubscriptionDto> items)
+    {
+        foreach (var item in items)
+        {
+            await Sender.Send(new UpdateWebhookSubscriptionCommand
+            {
+                SubscriptionId = item.Id,
+                Name = item.Name,
+                EventType = item.EventType,
+                TargetUrl = item.TargetUrl,
+                IsActive = false,
+            });
+        }
+
+        ToastService.Show($"{items.Count} webhook(s) désactivé(s).", Severity.Success);
+    }
+}

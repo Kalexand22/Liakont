@@ -1,0 +1,582 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <!-- Topbar -->
+  <data name="Topbar_Search" xml:space="preserve"><value>Search</value></data>
+  <data name="Topbar_Notifications" xml:space="preserve"><value>Notifications</value></data>
+  <data name="Topbar_ThemeDark" xml:space="preserve"><value>Switch to light theme</value></data>
+  <data name="Topbar_ThemeLight" xml:space="preserve"><value>Switch to dark theme</value></data>
+  <data name="Topbar_Logout" xml:space="preserve"><value>Logout</value></data>
+  <data name="Topbar_Language" xml:space="preserve"><value>Language</value></data>
+  <data name="Topbar_Preferences" xml:space="preserve"><value>Preferences</value></data>
+  <data name="Topbar_DefaultUser" xml:space="preserve"><value>User</value></data>
+  <!-- Navigation sections -->
+  <data name="Nav_Home" xml:space="preserve"><value>Home</value></data>
+  <data name="Nav_Dashboard" xml:space="preserve"><value>Dashboard</value></data>
+  <data name="Nav_Parties" xml:space="preserve"><value>Parties</value></data>
+  <data name="Nav_List" xml:space="preserve"><value>List</value></data>
+  <data name="Nav_Sales" xml:space="preserve"><value>Sales</value></data>
+  <data name="Nav_Quotes" xml:space="preserve"><value>Quotes</value></data>
+  <data name="Nav_SalesDocuments" xml:space="preserve"><value>Documents</value></data>
+  <data name="Nav_Reservation" xml:space="preserve"><value>Reservations</value></data>
+  <data name="Nav_AvailableSpaces" xml:space="preserve"><value>Available Spaces</value></data>
+  <data name="Nav_NewRequest" xml:space="preserve"><value>New Request</value></data>
+  <data name="Nav_MyRequests" xml:space="preserve"><value>My Requests</value></data>
+  <!-- Breadcrumb segments -->
+  <data name="Breadcrumb_Home" xml:space="preserve"><value>Home</value></data>
+  <data name="Breadcrumb_Parties" xml:space="preserve"><value>Parties</value></data>
+  <data name="Breadcrumb_Quotes" xml:space="preserve"><value>Quotes</value></data>
+  <data name="Breadcrumb_Create" xml:space="preserve"><value>New</value></data>
+  <data name="Breadcrumb_Edit" xml:space="preserve"><value>Edit</value></data>
+  <data name="Breadcrumb_Showcase" xml:space="preserve"><value>Showcase</value></data>
+  <data name="Breadcrumb_Components" xml:space="preserve"><value>Components</value></data>
+  <data name="Breadcrumb_Foundations" xml:space="preserve"><value>Foundations</value></data>
+  <data name="Breadcrumb_Products" xml:space="preserve"><value>Products</value></data>
+  <data name="Breadcrumb_Orders" xml:space="preserve"><value>Orders</value></data>
+  <data name="Breadcrumb_StatusBadge" xml:space="preserve"><value>StatusBadge</value></data>
+  <data name="Breadcrumb_PageHeader" xml:space="preserve"><value>PageHeader</value></data>
+  <data name="Breadcrumb_SectionCard" xml:space="preserve"><value>SectionCard</value></data>
+  <data name="Breadcrumb_ActionBar" xml:space="preserve"><value>ActionBar</value></data>
+  <data name="Breadcrumb_FormField" xml:space="preserve"><value>FormField</value></data>
+  <data name="Breadcrumb_Toast" xml:space="preserve"><value>Toast</value></data>
+  <data name="Breadcrumb_ConnectionStatus" xml:space="preserve"><value>ConnectionStatus</value></data>
+  <data name="Breadcrumb_SimpleTable" xml:space="preserve"><value>SimpleTable</value></data>
+  <data name="Breadcrumb_ProductList" xml:space="preserve"><value>Product List</value></data>
+  <data name="Breadcrumb_Lookup" xml:space="preserve"><value>Lookup</value></data>
+  <data name="Breadcrumb_LookupAdvanced" xml:space="preserve"><value>Advanced Lookup</value></data>
+  <data name="Breadcrumb_MoneyField" xml:space="preserve"><value>MoneyField</value></data>
+  <data name="Breadcrumb_PermissionGate" xml:space="preserve"><value>PermissionGate</value></data>
+  <data name="Breadcrumb_WorkflowBar" xml:space="preserve"><value>WorkflowBar</value></data>
+  <data name="Breadcrumb_Shortcuts" xml:space="preserve"><value>Keyboard Shortcuts</value></data>
+  <data name="Breadcrumb_Errors" xml:space="preserve"><value>Errors</value></data>
+  <data name="Breadcrumb_Feedback" xml:space="preserve"><value>Feedback</value></data>
+  <data name="Breadcrumb_I18n" xml:space="preserve"><value>Internationalization</value></data>
+  <data name="Breadcrumb_Snapshot" xml:space="preserve"><value>Snapshots</value></data>
+  <data name="Breadcrumb_Settings" xml:space="preserve"><value>Settings</value></data>
+  <data name="Breadcrumb_Preferences" xml:space="preserve"><value>Preferences</value></data>
+  <!-- Tab titles -->
+  <data name="Tab_RoutingRules" xml:space="preserve"><value>Routing Rules</value></data>
+  <!-- Preferences page -->
+  <data name="Preferences_PageTitle" xml:space="preserve"><value>Preferences</value></data>
+  <data name="Preferences_Subtitle" xml:space="preserve"><value>Customize your experience</value></data>
+  <data name="Preferences_ThemeSection" xml:space="preserve"><value>Theme</value></data>
+  <data name="Preferences_ThemeLabel" xml:space="preserve"><value>Appearance</value></data>
+  <data name="Preferences_ThemeHelp" xml:space="preserve"><value>Choose between light and dark mode.</value></data>
+  <data name="Preferences_ThemeLight" xml:space="preserve"><value>Light</value></data>
+  <data name="Preferences_ThemeDark" xml:space="preserve"><value>Dark</value></data>
+  <data name="Preferences_LanguageSection" xml:space="preserve"><value>Language</value></data>
+  <data name="Preferences_LanguageLabel" xml:space="preserve"><value>Display language</value></data>
+  <data name="Preferences_LanguageHelp" xml:space="preserve"><value>Select your preferred language. The page will reload.</value></data>
+  <data name="Preferences_GridSection" xml:space="preserve"><value>Grid Defaults</value></data>
+  <data name="Preferences_GridPageSizeLabel" xml:space="preserve"><value>Default page size</value></data>
+  <data name="Preferences_GridPageSizeHelp" xml:space="preserve"><value>Number of rows shown per page in data grids.</value></data>
+  <data name="Preferences_DensitySection" xml:space="preserve"><value>Density</value></data>
+  <data name="Preferences_DensityLabel" xml:space="preserve"><value>Interface density</value></data>
+  <data name="Preferences_DensityHelp" xml:space="preserve"><value>Compact fits more on screen; standard gives more breathing room.</value></data>
+  <data name="Preferences_DensityCompact" xml:space="preserve"><value>Compact</value></data>
+  <data name="Preferences_DensityStandard" xml:space="preserve"><value>Standard</value></data>
+  <!-- Public portal layout -->
+  <data name="PublicNav_AriaLabel" xml:space="preserve"><value>Portal navigation</value></data>
+  <data name="PublicNav_Login" xml:space="preserve"><value>Log in</value></data>
+  <data name="PublicNav_MySpace" xml:space="preserve"><value>My space</value></data>
+  <data name="PublicFooter_Legal" xml:space="preserve"><value>Legal notices</value></data>
+  <data name="PublicFooter_Privacy" xml:space="preserve"><value>Privacy policy</value></data>
+  <data name="PublicFooter_Contact" xml:space="preserve"><value>Contact</value></data>
+  <!-- Public home page -->
+  <data name="PublicHome_PageTitle" xml:space="preserve"><value>Reserve a space</value></data>
+  <data name="PublicHome_HeroTitle" xml:space="preserve"><value>Book a public space</value></data>
+  <data name="PublicHome_HeroSubtitle" xml:space="preserve"><value>Find and reserve the ideal space for your event</value></data>
+  <data name="PublicHome_SearchSpaceType" xml:space="preserve"><value>Space type</value></data>
+  <data name="PublicHome_SearchSpaceTypeAll" xml:space="preserve"><value>All types</value></data>
+  <data name="PublicHome_SearchDateFrom" xml:space="preserve"><value>From</value></data>
+  <data name="PublicHome_SearchDateTo" xml:space="preserve"><value>To</value></data>
+  <data name="PublicHome_SearchCapacity" xml:space="preserve"><value>Capacity</value></data>
+  <data name="PublicHome_SearchSubmit" xml:space="preserve"><value>Search</value></data>
+  <data name="PublicHome_PopularSpaces" xml:space="preserve"><value>Popular spaces</value></data>
+  <data name="PublicHome_About" xml:space="preserve"><value>About</value></data>
+  <data name="PublicHome_AboutText" xml:space="preserve"><value>Our booking platform allows you to easily find and reserve public spaces for your events, meetings, and activities.</value></data>
+  <!-- Public spaces search (UIP02) -->
+  <data name="PublicSpaces_PageTitle" xml:space="preserve"><value>Available spaces</value></data>
+  <data name="PublicSpaces_ResultsCount" xml:space="preserve"><value>{0} spaces found</value></data>
+  <data name="PublicSpaces_NoResults" xml:space="preserve"><value>No spaces match your criteria</value></data>
+  <data name="PublicSpaces_FilterType" xml:space="preserve"><value>Space type</value></data>
+  <data name="PublicSpaces_FilterTypeAll" xml:space="preserve"><value>All types</value></data>
+  <data name="PublicSpaces_FilterDateFrom" xml:space="preserve"><value>From</value></data>
+  <data name="PublicSpaces_FilterDateTo" xml:space="preserve"><value>To</value></data>
+  <data name="PublicSpaces_FilterCapacity" xml:space="preserve"><value>Min. capacity</value></data>
+  <data name="PublicSpaces_SortLabel" xml:space="preserve"><value>Sort by</value></data>
+  <data name="PublicSpaces_SortName" xml:space="preserve"><value>Name</value></data>
+  <data name="PublicSpaces_SortCapacity" xml:space="preserve"><value>Capacity</value></data>
+  <data name="PublicSpaces_SearchBtn" xml:space="preserve"><value>Search</value></data>
+  <data name="PublicSpaces_MapLabel" xml:space="preserve"><value>Spaces map</value></data>
+  <data name="PublicSpaces_ViewDetail" xml:space="preserve"><value>View details</value></data>
+  <data name="PublicSpaces_Loading" xml:space="preserve"><value>Loading…</value></data>
+  <!-- Public space detail (UIP03) -->
+  <data name="SpaceDetail_PageTitle" xml:space="preserve"><value>Space details</value></data>
+  <data name="SpaceDetail_Loading" xml:space="preserve"><value>Loading…</value></data>
+  <data name="SpaceDetail_NotFound" xml:space="preserve"><value>Space not found</value></data>
+  <data name="SpaceDetail_BackToSearch" xml:space="preserve"><value>← Back to search results</value></data>
+  <data name="SpaceDetail_TabDescription" xml:space="preserve"><value>Description</value></data>
+  <data name="SpaceDetail_TabCharacteristics" xml:space="preserve"><value>Characteristics</value></data>
+  <data name="SpaceDetail_TabAvailability" xml:space="preserve"><value>Availability</value></data>
+  <data name="SpaceDetail_TabTariffs" xml:space="preserve"><value>Tariffs</value></data>
+  <data name="SpaceDetail_Description" xml:space="preserve"><value>Description</value></data>
+  <data name="SpaceDetail_NoDescription" xml:space="preserve"><value>No description available for this space.</value></data>
+  <data name="SpaceDetail_Location" xml:space="preserve"><value>Location</value></data>
+  <data name="SpaceDetail_LocationLabel" xml:space="preserve"><value>Location</value></data>
+  <data name="SpaceDetail_Characteristics" xml:space="preserve"><value>Characteristics</value></data>
+  <data name="SpaceDetail_Capacity" xml:space="preserve"><value>Capacity</value></data>
+  <data name="SpaceDetail_CapacityValue" xml:space="preserve"><value>{0} persons</value></data>
+  <data name="SpaceDetail_Code" xml:space="preserve"><value>Code</value></data>
+  <data name="SpaceDetail_Type" xml:space="preserve"><value>Type</value></data>
+  <data name="SpaceDetail_Availability" xml:space="preserve"><value>Availability calendar</value></data>
+  <data name="SpaceDetail_Tariffs" xml:space="preserve"><value>Tariffs</value></data>
+  <data name="SpaceDetail_TariffsPlaceholder" xml:space="preserve"><value>Tariff information will be available in a future update.</value></data>
+  <data name="SpaceDetail_CtaTitle" xml:space="preserve"><value>Book this space</value></data>
+  <data name="SpaceDetail_CtaText" xml:space="preserve"><value>Select a time slot on the availability calendar, then submit your request.</value></data>
+  <data name="SpaceDetail_SelectedSlot" xml:space="preserve"><value>Selected slot</value></data>
+  <data name="SpaceDetail_RequestBtn" xml:space="preserve"><value>Make a request</value></data>
+  <!-- Public dashboard (UIP05) -->
+  <data name="PublicDashboard_PageTitle" xml:space="preserve"><value>My space</value></data>
+  <data name="PublicDashboard_Welcome" xml:space="preserve"><value>My space</value></data>
+  <data name="PublicDashboard_Loading" xml:space="preserve"><value>Loading…</value></data>
+  <data name="PublicDashboard_KpiTotal" xml:space="preserve"><value>Total requests</value></data>
+  <data name="PublicDashboard_KpiPending" xml:space="preserve"><value>Pending</value></data>
+  <data name="PublicDashboard_KpiApproved" xml:space="preserve"><value>Approved</value></data>
+  <data name="PublicDashboard_KpiRecent" xml:space="preserve"><value>Last 30 days</value></data>
+  <data name="PublicDashboard_QuickActions" xml:space="preserve"><value>Quick actions</value></data>
+  <data name="PublicDashboard_NewRequest" xml:space="preserve"><value>New request</value></data>
+  <data name="PublicDashboard_ViewRequests" xml:space="preserve"><value>My requests</value></data>
+  <data name="PublicDashboard_SearchSpaces" xml:space="preserve"><value>Search spaces</value></data>
+  <data name="PublicDashboard_RecentRequests" xml:space="preserve"><value>Recent requests</value></data>
+  <!-- Public my requests (UIP05) -->
+  <data name="PublicMyRequests_Title" xml:space="preserve"><value>My requests</value></data>
+  <data name="PublicMyRequests_AriaLabel" xml:space="preserve"><value>List of my reservation requests</value></data>
+  <data name="PublicMyRequests_SearchPlaceholder" xml:space="preserve"><value>Search a request… (shortcut: /)</value></data>
+  <data name="PublicMyRequests_NewRequest" xml:space="preserve"><value>+ New request</value></data>
+  <data name="PublicMyRequests_FilterStatus" xml:space="preserve"><value>Status</value></data>
+  <data name="PublicMyRequests_FilterType" xml:space="preserve"><value>Type</value></data>
+  <data name="PublicMyRequests_FilterYear" xml:space="preserve"><value>Year</value></data>
+  <data name="PublicMyRequests_FilterAll" xml:space="preserve"><value>All</value></data>
+  <data name="PublicMyRequests_BreadcrumbMySpace" xml:space="preserve"><value>My space</value></data>
+  <data name="PublicMyRequests_BreadcrumbMyRequests" xml:space="preserve"><value>My requests</value></data>
+  <data name="PublicMyRequests_CancelReason" xml:space="preserve"><value>Cancelled by the requester</value></data>
+  <data name="PublicMyRequests_CancelSuccess" xml:space="preserve"><value>Request cancelled.</value></data>
+  <!-- Public request detail (UIP06) -->
+  <data name="RequestDetail_PageTitle" xml:space="preserve"><value>Request detail</value></data>
+  <data name="RequestDetail_Loading" xml:space="preserve"><value>Loading...</value></data>
+  <data name="RequestDetail_NotFound" xml:space="preserve"><value>Request not found or you do not have access.</value></data>
+  <data name="RequestDetail_BackToList" xml:space="preserve"><value>Back to my requests</value></data>
+  <data name="RequestDetail_ExportICal" xml:space="preserve"><value>Export iCal</value></data>
+  <data name="RequestDetail_Cancel" xml:space="preserve"><value>Cancel request</value></data>
+  <data name="RequestDetail_SectionEvent" xml:space="preserve"><value>Event information</value></data>
+  <data name="RequestDetail_Reference" xml:space="preserve"><value>Reference</value></data>
+  <data name="RequestDetail_Type" xml:space="preserve"><value>Type</value></data>
+  <data name="RequestDetail_Organizer" xml:space="preserve"><value>Organizer</value></data>
+  <data name="RequestDetail_Email" xml:space="preserve"><value>Email</value></data>
+  <data name="RequestDetail_Phone" xml:space="preserve"><value>Phone</value></data>
+  <data name="RequestDetail_OnSiteContact" xml:space="preserve"><value>On-site contact</value></data>
+  <data name="RequestDetail_CreatedAt" xml:space="preserve"><value>Created</value></data>
+  <data name="RequestDetail_SubmittedAt" xml:space="preserve"><value>Submitted</value></data>
+  <data name="RequestDetail_SectionFinancial" xml:space="preserve"><value>Financial summary</value></data>
+  <data name="RequestDetail_BillingStatus" xml:space="preserve"><value>Billing status</value></data>
+  <data name="RequestDetail_AmountHT" xml:space="preserve"><value>Amount excl. tax</value></data>
+  <data name="RequestDetail_TvaRate" xml:space="preserve"><value>VAT rate</value></data>
+  <data name="RequestDetail_AmountTTC" xml:space="preserve"><value>Amount incl. tax</value></data>
+  <data name="RequestDetail_SectionSpaces" xml:space="preserve"><value>Booked spaces</value></data>
+  <data name="RequestDetail_SpacesAriaLabel" xml:space="preserve"><value>List of booked spaces</value></data>
+  <data name="RequestDetail_NoSpaces" xml:space="preserve"><value>No spaces booked.</value></data>
+  <data name="RequestDetail_SpaceName" xml:space="preserve"><value>Space</value></data>
+  <data name="RequestDetail_SlotStart" xml:space="preserve"><value>Start</value></data>
+  <data name="RequestDetail_SlotEnd" xml:space="preserve"><value>End</value></data>
+  <data name="RequestDetail_SectionEquipment" xml:space="preserve"><value>Equipment</value></data>
+  <data name="RequestDetail_EquipmentAriaLabel" xml:space="preserve"><value>List of booked equipment</value></data>
+  <data name="RequestDetail_NoEquipment" xml:space="preserve"><value>No equipment booked.</value></data>
+  <data name="RequestDetail_EquipmentName" xml:space="preserve"><value>Equipment</value></data>
+  <data name="RequestDetail_Quantity" xml:space="preserve"><value>Quantity</value></data>
+  <data name="RequestDetail_SectionAttachments" xml:space="preserve"><value>Attachments</value></data>
+  <data name="RequestDetail_AttachmentsPlaceholder" xml:space="preserve"><value>Document attachments will be available in a future update.</value></data>
+  <data name="RequestDetail_SectionMessaging" xml:space="preserve"><value>Messages</value></data>
+  <data name="RequestDetail_MessagingPlaceholder" xml:space="preserve"><value>Messaging with the services team will be available in a future update.</value></data>
+  <data name="RequestDetail_SectionTimeline" xml:space="preserve"><value>Status history</value></data>
+  <data name="RequestDetail_TimelineCreated" xml:space="preserve"><value>Request created</value></data>
+  <data name="RequestDetail_TimelineSubmitted" xml:space="preserve"><value>Request submitted</value></data>
+  <data name="RequestDetail_TimelineValidated" xml:space="preserve"><value>Request validated</value></data>
+  <data name="RequestDetail_TimelineCancelled" xml:space="preserve"><value>Request cancelled</value></data>
+  <data name="RequestDetail_ExportSuccess" xml:space="preserve"><value>iCal file exported.</value></data>
+  <data name="RequestDetail_CancelDialogTitle" xml:space="preserve"><value>Cancel request</value></data>
+  <data name="RequestDetail_CancelDialogMessage" xml:space="preserve"><value>Are you sure you want to cancel this request? This action cannot be undone.</value></data>
+  <data name="RequestDetail_CancelDialogNo" xml:space="preserve"><value>Keep</value></data>
+  <data name="RequestDetail_CancelDialogYes" xml:space="preserve"><value>Cancel request</value></data>
+  <data name="RequestDetail_LoadError" xml:space="preserve"><value>An error occurred while loading the request. Please try again.</value></data>
+  <data name="RequestDetail_CancelError" xml:space="preserve"><value>An error occurred while cancelling the request. Please try again.</value></data>
+  <data name="RequestDetail_ExportError" xml:space="preserve"><value>An error occurred while exporting the calendar file.</value></data>
+  <!-- Login page -->
+  <data name="Login_Title" xml:space="preserve"><value>Stratum ERP</value></data>
+  <data name="Login_Submit" xml:space="preserve"><value>Login</value></data>
+  <data name="Login_RedirectingToProvider" xml:space="preserve"><value>Redirecting to your identity provider…</value></data>
+  <data name="Login_Username" xml:space="preserve"><value>Username</value></data>
+  <data name="Login_Password" xml:space="preserve"><value>Password</value></data>
+  <!-- Breadcrumb aria -->
+  <data name="Breadcrumb_AriaLabel" xml:space="preserve"><value>Breadcrumb</value></data>
+  <!-- Sidebar navigation -->
+  <data name="Nav_Brand" xml:space="preserve"><value>Stratum ERP</value></data>
+  <data name="Nav_AriaLabel" xml:space="preserve"><value>Main navigation</value></data>
+  <data name="Nav_TreeAriaLabel" xml:space="preserve"><value>Menu</value></data>
+  <data name="Nav_ExpandSidebar" xml:space="preserve"><value>Expand sidebar (Ctrl+B)</value></data>
+  <data name="Nav_CollapseSidebar" xml:space="preserve"><value>Collapse sidebar (Ctrl+B)</value></data>
+  <data name="Nav_ExpandSidebarAria" xml:space="preserve"><value>Expand sidebar</value></data>
+  <data name="Nav_CollapseSidebarAria" xml:space="preserve"><value>Collapse sidebar</value></data>
+  <data name="Nav_ToggleSidebar" xml:space="preserve"><value>Toggle sidebar</value></data>
+  <!-- Back-office reservation nav -->
+  <data name="Nav_BackofficeReservation" xml:space="preserve"><value>Administration</value></data>
+  <data name="Nav_Reservations" xml:space="preserve"><value>Reservations</value></data>
+  <data name="Nav_ReservationDashboard" xml:space="preserve"><value>Dashboard</value></data>
+  <data name="Nav_ReservationQueue" xml:space="preserve"><value>Requests</value></data>
+  <data name="Nav_SpaceCalendar" xml:space="preserve"><value>Space Calendar</value></data>
+  <data name="Nav_ResourceCalendar" xml:space="preserve"><value>Resource Calendar</value></data>
+  <data name="Nav_WorkOrders" xml:space="preserve"><value>Work Orders</value></data>
+  <data name="Nav_ReservationConfig" xml:space="preserve"><value>Configuration</value></data>
+  <!-- Public request wizard (UIP04) -->
+  <data name="Wizard_PageTitle" xml:space="preserve"><value>New request</value></data>
+  <data name="Wizard_ProcessTitle" xml:space="preserve"><value>Request process</value></data>
+  <data name="Wizard_StepsAriaLabel" xml:space="preserve"><value>Request wizard steps</value></data>
+  <data name="Wizard_HelpText" xml:space="preserve"><value>Need help? Contact technical support or consult the user guide.</value></data>
+  <data name="Wizard_SummaryTitle" xml:space="preserve"><value>Request summary</value></data>
+  <data name="Wizard_Progress" xml:space="preserve"><value>Progress</value></data>
+  <data name="Wizard_PreviousStep" xml:space="preserve"><value>Previous step</value></data>
+  <data name="Wizard_NextStep" xml:space="preserve"><value>Continue</value></data>
+  <data name="Wizard_SaveDraft" xml:space="preserve"><value>Save draft</value></data>
+  <data name="Wizard_Submit" xml:space="preserve"><value>Submit request</value></data>
+  <data name="Wizard_Required" xml:space="preserve"><value>This field is required</value></data>
+  <data name="Wizard_AtLeastOneSpace" xml:space="preserve"><value>Select at least one space</value></data>
+  <data name="Wizard_SlotRequired" xml:space="preserve"><value>Start and end dates are required</value></data>
+  <data name="Wizard_ConflictTitle" xml:space="preserve"><value>Conflicts detected</value></data>
+  <data name="Wizard_ConflictSummary" xml:space="preserve"><value>One or more conflicts were detected for the selected spaces and dates.</value></data>
+  <data name="Wizard_ConflictDetected" xml:space="preserve"><value>Conflict detected</value></data>
+  <data name="Wizard_Step1Title" xml:space="preserve"><value>Qualification</value></data>
+  <data name="Wizard_Step1Subtitle" xml:space="preserve"><value>Describe your event and expected audience.</value></data>
+  <data name="Wizard_EventType" xml:space="preserve"><value>Event type</value></data>
+  <data name="Wizard_SelectType" xml:space="preserve"><value>Select a type…</value></data>
+  <data name="Wizard_Capacity" xml:space="preserve"><value>Expected capacity</value></data>
+  <data name="Wizard_Audience" xml:space="preserve"><value>Audience type</value></data>
+  <data name="Wizard_SelectAudience" xml:space="preserve"><value>Select audience…</value></data>
+  <data name="Wizard_AudiencePublic" xml:space="preserve"><value>General public</value></data>
+  <data name="Wizard_AudiencePrivate" xml:space="preserve"><value>Private</value></data>
+  <data name="Wizard_AudienceAssociation" xml:space="preserve"><value>Association</value></data>
+  <data name="Wizard_AudienceProfessional" xml:space="preserve"><value>Professional</value></data>
+  <data name="Wizard_EventDescription" xml:space="preserve"><value>Event description</value></data>
+  <data name="Wizard_Step2Title" xml:space="preserve"><value>Needs</value></data>
+  <data name="Wizard_Step2Subtitle" xml:space="preserve"><value>Select the spaces and equipment you need for your event.</value></data>
+  <data name="Wizard_AddSpace" xml:space="preserve"><value>Add a space</value></data>
+  <data name="Wizard_Remove" xml:space="preserve"><value>Remove</value></data>
+  <data name="Wizard_From" xml:space="preserve"><value>From</value></data>
+  <data name="Wizard_To" xml:space="preserve"><value>To</value></data>
+  <data name="Wizard_Step3Title" xml:space="preserve"><value>Location &amp; Road use</value></data>
+  <data name="Wizard_Step3Subtitle" xml:space="preserve"><value>Define the perimeter of your intervention on public domain.</value></data>
+  <data name="Wizard_GisPlaceholder" xml:space="preserve"><value>GIS perimeter editor will be available in a future update.</value></data>
+  <data name="Wizard_EnableRecurrence" xml:space="preserve"><value>This is a recurring event</value></data>
+  <data name="Wizard_Frequency" xml:space="preserve"><value>Frequency</value></data>
+  <data name="Wizard_FreqDaily" xml:space="preserve"><value>Daily</value></data>
+  <data name="Wizard_FreqWeekly" xml:space="preserve"><value>Weekly</value></data>
+  <data name="Wizard_FreqMonthly" xml:space="preserve"><value>Monthly</value></data>
+  <data name="Wizard_Interval" xml:space="preserve"><value>Every N periods</value></data>
+  <data name="Wizard_EndDate" xml:space="preserve"><value>End date</value></data>
+  <data name="Wizard_Step4Title" xml:space="preserve"><value>Contact</value></data>
+  <data name="Wizard_Step4Subtitle" xml:space="preserve"><value>Provide organizer and on-site contact information.</value></data>
+  <data name="Wizard_OrganizerName" xml:space="preserve"><value>Organizer name</value></data>
+  <data name="Wizard_OrganizerEmail" xml:space="preserve"><value>Email</value></data>
+  <data name="Wizard_OrganizerPhone" xml:space="preserve"><value>Phone</value></data>
+  <data name="Wizard_OnSiteContact" xml:space="preserve"><value>On-site contact (optional)</value></data>
+  <data name="Wizard_Step5Title" xml:space="preserve"><value>Summary</value></data>
+  <data name="Wizard_Step5Subtitle" xml:space="preserve"><value>Review your request before submitting.</value></data>
+  <data name="Wizard_Edit" xml:space="preserve"><value>Edit</value></data>
+  <data name="Wizard_Spaces" xml:space="preserve"><value>Spaces</value></data>
+  <data name="Wizard_SuccessTitle" xml:space="preserve"><value>Request submitted!</value></data>
+  <data name="Wizard_SuccessMessage" xml:space="preserve"><value>Your request has been submitted successfully. You will receive a confirmation by email.</value></data>
+  <data name="Wizard_ViewRequest" xml:space="preserve"><value>View my request</value></data>
+  <data name="Wizard_BackToHome" xml:space="preserve"><value>Back to home</value></data>
+  <data name="Wizard_TypeSpaceReservation" xml:space="preserve"><value>Space reservation</value></data>
+  <data name="Wizard_TypePublicEvent" xml:space="preserve"><value>Public event</value></data>
+  <data name="Wizard_SubmitFailed" xml:space="preserve"><value>An error occurred while submitting your request. Please try again later.</value></data>
+  <data name="Wizard_Space" xml:space="preserve"><value>Space</value></data>
+  <data name="Wizard_SelectSpace" xml:space="preserve"><value>Select a space…</value></data>
+  <data name="Wizard_SelectSpaceRequired" xml:space="preserve"><value>Please select a space for each booking</value></data>
+  <!-- Agent inbox -->
+  <data name="Nav_AgentSection" xml:space="preserve"><value>Agent</value></data>
+  <data name="Nav_AgentInbox" xml:space="preserve"><value>Inbox</value></data>
+  <data name="Nav_AgentDashboard" xml:space="preserve"><value>Dashboard</value></data>
+  <data name="Nav_AgentPlanning" xml:space="preserve"><value>Planning</value></data>
+  <data name="Nav_AgentResources" xml:space="preserve"><value>Resources</value></data>
+  <data name="AgentInbox_CreateNew" xml:space="preserve"><value>+ Create New</value></data>
+  <data name="AgentInbox_AriaLabel" xml:space="preserve"><value>Agent request inbox</value></data>
+  <data name="AgentInbox_SearchPlaceholder" xml:space="preserve"><value>Search requests… (shortcut: /)</value></data>
+  <data name="AgentInbox_TabAll" xml:space="preserve"><value>All</value></data>
+  <data name="AgentInbox_TabMine" xml:space="preserve"><value>My cases</value></data>
+  <data name="AgentInbox_TabOverdue" xml:space="preserve"><value>Overdue</value></data>
+  <data name="AgentInbox_TabVoirie" xml:space="preserve"><value>Road use</value></data>
+  <data name="AgentInbox_ShortcutNavigate" xml:space="preserve"><value>Navigate</value></data>
+  <data name="AgentInbox_ShortcutAssign" xml:space="preserve"><value>Assign</value></data>
+  <data name="AgentInbox_ShortcutOpen" xml:space="preserve"><value>Open</value></data>
+  <data name="AgentInbox_CmdNavigateDown" xml:space="preserve"><value>Navigate down</value></data>
+  <data name="AgentInbox_CmdNavigateUp" xml:space="preserve"><value>Navigate up</value></data>
+  <data name="AgentInbox_CmdAssign" xml:space="preserve"><value>Assign request</value></data>
+  <data name="AgentInbox_CmdOpen" xml:space="preserve"><value>Open request detail</value></data>
+  <data name="AgentInbox_TagVoirie" xml:space="preserve"><value>ROAD</value></data>
+  <data name="AgentInbox_TagRecurrent" xml:space="preserve"><value>RECURRING</value></data>
+  <data name="AgentInbox_ActionOpen" xml:space="preserve"><value>Open</value></data>
+  <data name="AgentInbox_ActionAssign" xml:space="preserve"><value>Assign</value></data>
+  <data name="AgentInbox_ActionValidate" xml:space="preserve"><value>Validate selection</value></data>
+  <data name="AgentInbox_ActionReject" xml:space="preserve"><value>Reject</value></data>
+  <data name="AgentInbox_ToastAssign" xml:space="preserve"><value>Assignment of {0} to be implemented.</value></data>
+  <data name="AgentInbox_ToastBulkAssign" xml:space="preserve"><value>{0} case(s) to assign.</value></data>
+  <data name="AgentInbox_ToastBulkValidate" xml:space="preserve"><value>{0} case(s) validated.</value></data>
+  <data name="AgentInbox_ToastBulkReject" xml:space="preserve"><value>{0} case(s) rejected.</value></data>
+  <data name="AgentInbox_TypeSpaceReservation" xml:space="preserve"><value>Space reservation</value></data>
+  <data name="AgentInbox_TypePublicEvent" xml:space="preserve"><value>Public event</value></data>
+  <!-- AgentDashboard (UIB03) -->
+  <data name="AgentDashboard_PageTitle" xml:space="preserve"><value>Agent Dashboard — Stratum ERP</value></data>
+  <data name="AgentDashboard_Loading" xml:space="preserve"><value>Loading dashboard…</value></data>
+  <data name="AgentDashboard_KpiToReview" xml:space="preserve"><value>To review</value></data>
+  <data name="AgentDashboard_KpiToReviewHint" xml:space="preserve"><value>Go to inbox</value></data>
+  <data name="AgentDashboard_KpiOverdue" xml:space="preserve"><value>Overdue (SLA)</value></data>
+  <data name="AgentDashboard_KpiOverdueHint" xml:space="preserve"><value>Show overdue cases</value></data>
+  <data name="AgentDashboard_KpiValidated" xml:space="preserve"><value>Validated this month</value></data>
+  <data name="AgentDashboard_KpiActive" xml:space="preserve"><value>Active</value></data>
+  <data name="AgentDashboard_ChartStatusTitle" xml:space="preserve"><value>Distribution by status</value></data>
+  <data name="AgentDashboard_ChartWeeklyTitle" xml:space="preserve"><value>Weekly volume</value></data>
+  <data name="AgentDashboard_FeedTitle" xml:space="preserve"><value>Recent activity</value></data>
+  <data name="AgentDashboard_FeedEmpty" xml:space="preserve"><value>No recent activity.</value></data>
+  <data name="AgentDashboard_ShortcutsTitle" xml:space="preserve"><value>Quick access</value></data>
+  <data name="AgentDashboard_ShortcutResume" xml:space="preserve"><value>Resume last case</value></data>
+  <data name="AgentDashboard_ShortcutUrgent" xml:space="preserve"><value>All urgent cases</value></data>
+  <data name="AgentDashboard_ShortcutNew" xml:space="preserve"><value>New request</value></data>
+  <data name="AgentDashboard_ShortcutInbox" xml:space="preserve"><value>Open inbox</value></data>
+  <data name="AgentDashboard_CmdRefresh" xml:space="preserve"><value>Refresh dashboard</value></data>
+  <data name="AgentDashboard_CmdGoInbox" xml:space="preserve"><value>Go to inbox</value></data>
+  <data name="AgentDashboard_WeekPrefix" xml:space="preserve"><value>W</value></data>
+  <data name="AgentDashboard_TimeMinutes" xml:space="preserve"><value>{0} min</value></data>
+  <data name="AgentDashboard_TimeHours" xml:space="preserve"><value>{0}h</value></data>
+  <data name="AgentDashboard_TimeDays" xml:space="preserve"><value>{0}d</value></data>
+  <data name="AgentDashboard_SeriesCount" xml:space="preserve"><value>Count</value></data>
+  <data name="AgentDashboard_SeriesSubmissions" xml:space="preserve"><value>Submissions</value></data>
+  <data name="AgentDashboard_SeriesValidations" xml:space="preserve"><value>Validations</value></data>
+  <!-- AgentRequestDetail (UIB02a) -->
+  <data name="AgentRequestDetail_PageTitle" xml:space="preserve"><value>Request Detail</value></data>
+  <data name="AgentRequestDetail_Loading" xml:space="preserve"><value>Loading request...</value></data>
+  <data name="AgentRequestDetail_NotFound" xml:space="preserve"><value>Request not found or access denied.</value></data>
+  <data name="AgentRequestDetail_BackToInbox" xml:space="preserve"><value>Back to inbox</value></data>
+  <data name="AgentRequestDetail_WorkflowLabel" xml:space="preserve"><value>Workflow timeline</value></data>
+  <data name="AgentRequestDetail_DetailLabel" xml:space="preserve"><value>Request detail</value></data>
+  <data name="AgentRequestDetail_WorkflowTitle" xml:space="preserve"><value>Lifecycle Workflow</value></data>
+  <data name="AgentRequestDetail_CompletedAt" xml:space="preserve"><value>Completed</value></data>
+  <data name="AgentRequestDetail_Reference" xml:space="preserve"><value>Reference</value></data>
+  <data name="AgentRequestDetail_Organizer" xml:space="preserve"><value>Organizer</value></data>
+  <data name="AgentRequestDetail_BillingStatus" xml:space="preserve"><value>Billing</value></data>
+  <data name="AgentRequestDetail_TabOverview" xml:space="preserve"><value>Overview</value></data>
+  <data name="AgentRequestDetail_TabForm" xml:space="preserve"><value>Submitted Form</value></data>
+  <data name="AgentRequestDetail_TabDocuments" xml:space="preserve"><value>Documents</value></data>
+  <data name="AgentRequestDetail_TabHistory" xml:space="preserve"><value>History</value></data>
+  <data name="AgentRequestDetail_SectionRequestInfo" xml:space="preserve"><value>Request Information</value></data>
+  <data name="AgentRequestDetail_Type" xml:space="preserve"><value>Type</value></data>
+  <data name="AgentRequestDetail_CreatedAt" xml:space="preserve"><value>Created</value></data>
+  <data name="AgentRequestDetail_SubmittedAt" xml:space="preserve"><value>Submitted</value></data>
+  <data name="AgentRequestDetail_Status" xml:space="preserve"><value>Status</value></data>
+  <data name="AgentRequestDetail_SectionSpaces" xml:space="preserve"><value>Space Bookings</value></data>
+  <data name="AgentRequestDetail_SpacesAriaLabel" xml:space="preserve"><value>List of space bookings</value></data>
+  <data name="AgentRequestDetail_SpaceName" xml:space="preserve"><value>Space</value></data>
+  <data name="AgentRequestDetail_SlotStart" xml:space="preserve"><value>Start</value></data>
+  <data name="AgentRequestDetail_SlotEnd" xml:space="preserve"><value>End</value></data>
+  <data name="AgentRequestDetail_SectionEquipment" xml:space="preserve"><value>Equipment</value></data>
+  <data name="AgentRequestDetail_EquipmentAriaLabel" xml:space="preserve"><value>List of equipment bookings</value></data>
+  <data name="AgentRequestDetail_EquipmentName" xml:space="preserve"><value>Equipment</value></data>
+  <data name="AgentRequestDetail_Quantity" xml:space="preserve"><value>Qty</value></data>
+  <data name="AgentRequestDetail_SectionContact" xml:space="preserve"><value>Contact</value></data>
+  <data name="AgentRequestDetail_OrganizerName" xml:space="preserve"><value>Name</value></data>
+  <data name="AgentRequestDetail_Email" xml:space="preserve"><value>Email</value></data>
+  <data name="AgentRequestDetail_Phone" xml:space="preserve"><value>Phone</value></data>
+  <data name="AgentRequestDetail_OnSiteContact" xml:space="preserve"><value>On-site Contact</value></data>
+  <data name="AgentRequestDetail_FormSubmitted" xml:space="preserve"><value>Form data submitted (read-only view pending backend integration).</value></data>
+  <data name="AgentRequestDetail_NoForm" xml:space="preserve"><value>No form was submitted with this request.</value></data>
+  <data name="AgentRequestDetail_NoDocuments" xml:space="preserve"><value>No documents attached.</value></data>
+  <data name="AgentRequestDetail_NoHistory" xml:space="preserve"><value>No workflow history available.</value></data>
+  <data name="AgentRequestDetail_Period" xml:space="preserve"><value>Period</value></data>
+  <data name="AgentRequestDetail_Spaces" xml:space="preserve"><value>Spaces</value></data>
+  <data name="AgentRequestDetail_CloseTab" xml:space="preserve"><value>Close</value></data>
+  <data name="AgentRequestDetail_CmdClose" xml:space="preserve"><value>Close tab</value></data>
+  <data name="AgentRequestDetail_StepDraft" xml:space="preserve"><value>Draft</value></data>
+  <data name="AgentRequestDetail_StepSubmitted" xml:space="preserve"><value>Submitted</value></data>
+  <data name="AgentRequestDetail_StepUnderReview" xml:space="preserve"><value>Under Review</value></data>
+  <data name="AgentRequestDetail_StepValidated" xml:space="preserve"><value>Validated</value></data>
+  <data name="AgentRequestDetail_OpinionConsolidation" xml:space="preserve"><value>Opinions Consolidation</value></data>
+  <data name="AgentRequestDetail_OpinionsRendered" xml:space="preserve"><value>opinions rendered</value></data>
+  <data name="AgentRequestDetail_TabResources" xml:space="preserve"><value>Resources</value></data>
+  <data name="AgentRequestDetail_TabMap" xml:space="preserve"><value>Map</value></data>
+  <data name="AgentRequestDetail_TabWorkOrders" xml:space="preserve"><value>Work Orders</value></data>
+  <data name="AgentRequestDetail_TabCommunication" xml:space="preserve"><value>Communication</value></data>
+  <data name="AgentRequestDetail_ResourceAllocations" xml:space="preserve"><value>Resource Allocations</value></data>
+  <data name="AgentRequestDetail_ResourceAllocationsAria" xml:space="preserve"><value>List of resource allocations for this request</value></data>
+  <data name="AgentRequestDetail_NoAllocations" xml:space="preserve"><value>No resource allocations yet.</value></data>
+  <data name="AgentRequestDetail_MapAria" xml:space="preserve"><value>Map view of request location and perimeter</value></data>
+  <data name="AgentRequestDetail_NoCommunication" xml:space="preserve"><value>No messages yet. Start the conversation below. (Preview — messages are not persisted)</value></data>
+  <data name="AgentRequestDetail_MessagePlaceholder" xml:space="preserve"><value>Type a message to the requester...</value></data>
+  <data name="AgentRequestDetail_SendMessage" xml:space="preserve"><value>Send</value></data>
+  <data name="AgentRequestDetail_ActionValidate" xml:space="preserve"><value>Validate</value></data>
+  <data name="AgentRequestDetail_ActionSupplement" xml:space="preserve"><value>Request Supplement</value></data>
+  <data name="AgentRequestDetail_ActionReject" xml:space="preserve"><value>Reject</value></data>
+  <data name="AgentRequestDetail_ActionAssign" xml:space="preserve"><value>Assign</value></data>
+  <data name="AgentRequestDetail_ActionConfirmAssign" xml:space="preserve"><value>Assign (stub)</value></data>
+  <data name="AgentRequestDetail_ActionNote" xml:space="preserve"><value>Add Note</value></data>
+  <data name="AgentRequestDetail_ActionSendSupplement" xml:space="preserve"><value>Send Request (stub)</value></data>
+  <data name="AgentRequestDetail_ActionSaveNote" xml:space="preserve"><value>Save Note (stub)</value></data>
+  <data name="AgentRequestDetail_RoutingPreview" xml:space="preserve"><value>Routing Preview</value></data>
+  <data name="AgentRequestDetail_ConfirmValidateTitle" xml:space="preserve"><value>Confirm Validation</value></data>
+  <data name="AgentRequestDetail_ConfirmValidateMessage" xml:space="preserve"><value>Are you sure you want to validate this request? The requester will be notified.</value></data>
+  <data name="AgentRequestDetail_ConfirmRejectTitle" xml:space="preserve"><value>Confirm Rejection</value></data>
+  <data name="AgentRequestDetail_ConfirmRejectMessage" xml:space="preserve"><value>Please provide a reason for rejecting this request.</value></data>
+  <data name="AgentRequestDetail_RejectReasonPlaceholder" xml:space="preserve"><value>Reason for rejection...</value></data>
+  <data name="AgentRequestDetail_SupplementTitle" xml:space="preserve"><value>Request Supplement</value></data>
+  <data name="AgentRequestDetail_SupplementMessage" xml:space="preserve"><value>Describe the additional information needed from the requester.</value></data>
+  <data name="AgentRequestDetail_SupplementPlaceholder" xml:space="preserve"><value>What information is needed...</value></data>
+  <data name="AgentRequestDetail_AssignTitle" xml:space="preserve"><value>Assign Request</value></data>
+  <data name="AgentRequestDetail_AssignMessage" xml:space="preserve"><value>Enter the name of the agent to assign this request to.</value></data>
+  <data name="AgentRequestDetail_AssigneePlaceholder" xml:space="preserve"><value>Agent name...</value></data>
+  <data name="AgentRequestDetail_NoteTitle" xml:space="preserve"><value>Internal Note</value></data>
+  <data name="AgentRequestDetail_NotePlaceholder" xml:space="preserve"><value>Write an internal note...</value></data>
+  <data name="AgentRequestDetail_Cancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="AgentRequestDetail_ShortcutValidate" xml:space="preserve"><value>Validate</value></data>
+  <data name="AgentRequestDetail_ShortcutReject" xml:space="preserve"><value>Reject</value></data>
+  <data name="AgentRequestDetail_ShortcutSupplement" xml:space="preserve"><value>Supplement</value></data>
+  <data name="AgentRequestDetail_ShortcutAssign" xml:space="preserve"><value>Assign</value></data>
+  <data name="AgentRequestDetail_ShortcutNote" xml:space="preserve"><value>Note</value></data>
+  <data name="AgentRequestDetail_CmdValidate" xml:space="preserve"><value>Validate request</value></data>
+  <data name="AgentRequestDetail_CmdReject" xml:space="preserve"><value>Reject request</value></data>
+  <data name="AgentRequestDetail_CmdSupplement" xml:space="preserve"><value>Request supplement</value></data>
+  <data name="AgentRequestDetail_CmdAssign" xml:space="preserve"><value>Assign request</value></data>
+  <data name="AgentRequestDetail_CmdNote" xml:space="preserve"><value>Add internal note</value></data>
+  <data name="AgentRequestDetail_WoTodo" xml:space="preserve"><value>Todo</value></data>
+  <data name="AgentRequestDetail_WoInProgress" xml:space="preserve"><value>In Progress</value></data>
+  <data name="AgentRequestDetail_WoDone" xml:space="preserve"><value>Done</value></data>
+  <data name="AgentRequestDetail_RoutingVoirie" xml:space="preserve"><value>Voirie</value></data>
+  <data name="AgentRequestDetail_RoutingEspacesVerts" xml:space="preserve"><value>Espaces Verts</value></data>
+  <data name="AgentRequestDetail_RoutingPatrimoine" xml:space="preserve"><value>Patrimoine</value></data>
+  <!-- Agent planning -->
+  <data name="AgentPlanning_PageTitle" xml:space="preserve"><value>Planning — Stratum ERP</value></data>
+  <data name="AgentPlanning_Loading" xml:space="preserve"><value>Loading planning…</value></data>
+  <data name="AgentPlanning_LegendTitle" xml:space="preserve"><value>Status legend:</value></data>
+  <data name="AgentPlanning_StatusDraft" xml:space="preserve"><value>Draft</value></data>
+  <data name="AgentPlanning_StatusReview" xml:space="preserve"><value>Under review</value></data>
+  <data name="AgentPlanning_StatusValidated" xml:space="preserve"><value>Validated</value></data>
+  <data name="AgentPlanning_StatusSubmitted" xml:space="preserve"><value>Submitted</value></data>
+  <data name="AgentPlanning_Filters" xml:space="preserve"><value>Filters</value></data>
+  <data name="AgentPlanning_ICalSubscribe" xml:space="preserve"><value>iCal Subscribe</value></data>
+  <data name="AgentPlanning_FilterStatus" xml:space="preserve"><value>Status:</value></data>
+  <data name="AgentPlanning_FilterResourceType" xml:space="preserve"><value>Resource type:</value></data>
+  <data name="AgentPlanning_FilterAll" xml:space="preserve"><value>All</value></data>
+  <data name="AgentPlanning_Resources" xml:space="preserve"><value>Resources</value></data>
+  <data name="AgentPlanning_AgentLoad" xml:space="preserve"><value>Agent Load</value></data>
+  <data name="AgentPlanning_GanttAriaLabel" xml:space="preserve"><value>Global planning Gantt chart</value></data>
+  <data name="AgentPlanning_ConfirmResizeTitle" xml:space="preserve"><value>Confirm date change</value></data>
+  <data name="AgentPlanning_ConfirmResizeMessage" xml:space="preserve"><value>Move {0} to {1} – {2}?</value></data>
+  <data name="AgentPlanning_Cancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="AgentPlanning_Confirm" xml:space="preserve"><value>Confirm</value></data>
+  <data name="AgentPlanning_CmdRefresh" xml:space="preserve"><value>Refresh planning</value></data>
+  <data name="AgentPlanning_CmdGoInbox" xml:space="preserve"><value>Go to inbox</value></data>
+  <data name="AgentResources_PageTitle" xml:space="preserve"><value>Resources — Stratum ERP</value></data>
+  <data name="AgentResources_Loading" xml:space="preserve"><value>Loading resources…</value></data>
+  <data name="AgentResources_WeekLabel" xml:space="preserve"><value>Week {0}, {1}</value></data>
+  <data name="AgentResources_PrevWeek" xml:space="preserve"><value>Previous week</value></data>
+  <data name="AgentResources_NextWeek" xml:space="preserve"><value>Next week</value></data>
+  <data name="AgentResources_FilterService" xml:space="preserve"><value>Service:</value></data>
+  <data name="AgentResources_FilterAll" xml:space="preserve"><value>All</value></data>
+  <data name="AgentResources_GridAriaLabel" xml:space="preserve"><value>Weekly resource planning grid</value></data>
+  <data name="AgentResources_Blocked" xml:space="preserve"><value>Blocked</value></data>
+  <data name="AgentResources_StatusInProgress" xml:space="preserve"><value>In progress</value></data>
+  <data name="AgentResources_StatusPlanned" xml:space="preserve"><value>Planned</value></data>
+  <data name="AgentResources_StatusUnavailable" xml:space="preserve"><value>Unavailable</value></data>
+  <data name="AgentResources_TotalWO" xml:space="preserve"><value>Total WO: {0}</value></data>
+  <data name="AgentResources_Availability" xml:space="preserve"><value>Avg. Availability: {0}</value></data>
+  <data name="AgentResources_Unassigned" xml:space="preserve"><value>Unassigned</value></data>
+  <data name="AgentResources_UnassignedSub" xml:space="preserve"><value>Pending requests</value></data>
+  <data name="AgentResources_PriorityUrgent" xml:space="preserve"><value>Urgent</value></data>
+  <data name="AgentResources_PriorityNormal" xml:space="preserve"><value>Normal</value></data>
+  <data name="AgentResources_EstimateHours" xml:space="preserve"><value>{0}h estimated</value></data>
+  <data name="AgentResources_CreateWO" xml:space="preserve"><value>Create Work Order</value></data>
+  <data name="AgentResources_DropHint" xml:space="preserve"><value>Drag a request here to schedule it later</value></data>
+  <data name="AgentResources_NewRequest" xml:space="preserve"><value>New Service Request</value></data>
+  <data name="AgentResources_CmdRefresh" xml:space="preserve"><value>Refresh resources</value></data>
+  <data name="AgentResources_CmdGoInbox" xml:space="preserve"><value>Go to inbox</value></data>
+  <data name="AgentResources_CmdPrevWeek" xml:space="preserve"><value>Previous week</value></data>
+  <data name="AgentResources_CmdNextWeek" xml:space="preserve"><value>Next week</value></data>
+  <!-- Agent blocks -->
+  <data name="Nav_AgentBlocks" xml:space="preserve"><value>Blocks</value></data>
+  <data name="AgentBlocks_PageTitle" xml:space="preserve"><value>Unavailabilities — Agent</value></data>
+  <data name="AgentBlocks_Title" xml:space="preserve"><value>Unavailability Management</value></data>
+  <data name="AgentBlocks_AriaLabel" xml:space="preserve"><value>Unavailability block list</value></data>
+  <data name="AgentBlocks_CreateButton" xml:space="preserve"><value>+ Block Slot</value></data>
+  <data name="AgentBlocks_SearchPlaceholder" xml:space="preserve"><value>Search blocks… (shortcut: /)</value></data>
+  <data name="AgentBlocks_KpiActive" xml:space="preserve"><value>Active Blocks</value></data>
+  <data name="AgentBlocks_KpiMaintenance" xml:space="preserve"><value>Planned Maintenance</value></data>
+  <data name="AgentBlocks_KpiAvailability" xml:space="preserve"><value>Global Availability</value></data>
+  <data name="AgentBlocks_KpiSinceYesterday" xml:space="preserve"><value> since yesterday</value></data>
+  <data name="AgentBlocks_DrawerCreateTitle" xml:space="preserve"><value>Block a Slot</value></data>
+  <data name="AgentBlocks_DrawerEditTitle" xml:space="preserve"><value>Edit Block</value></data>
+  <data name="AgentBlocks_FieldResource" xml:space="preserve"><value>Resource to Block</value></data>
+  <data name="AgentBlocks_SelectResource" xml:space="preserve"><value>All resources</value></data>
+  <data name="AgentBlocks_FieldStartDate" xml:space="preserve"><value>Start Date</value></data>
+  <data name="AgentBlocks_FieldEndDate" xml:space="preserve"><value>End Date</value></data>
+  <data name="AgentBlocks_FieldReason" xml:space="preserve"><value>Block Reason</value></data>
+  <data name="AgentBlocks_SelectReason" xml:space="preserve"><value>Select…</value></data>
+  <data name="AgentBlocks_ReasonMaintenance" xml:space="preserve"><value>Maintenance</value></data>
+  <data name="AgentBlocks_ReasonEvent" xml:space="preserve"><value>Public Event</value></data>
+  <data name="AgentBlocks_ReasonClosure" xml:space="preserve"><value>Exceptional Closure</value></data>
+  <data name="AgentBlocks_ReasonHoliday" xml:space="preserve"><value>Holiday</value></data>
+  <data name="AgentBlocks_ReasonOther" xml:space="preserve"><value>Other</value></data>
+  <data name="AgentBlocks_FieldTitle" xml:space="preserve"><value>Title</value></data>
+  <data name="AgentBlocks_TitlePlaceholder" xml:space="preserve"><value>Block title…</value></data>
+  <data name="AgentBlocks_FieldComment" xml:space="preserve"><value>Comments</value></data>
+  <data name="AgentBlocks_CommentPlaceholder" xml:space="preserve"><value>Additional comments (optional)</value></data>
+  <data name="AgentBlocks_FieldRecurrence" xml:space="preserve"><value>Recurrence (RFC 5545)</value></data>
+  <data name="AgentBlocks_FreqDay" xml:space="preserve"><value>Day</value></data>
+  <data name="AgentBlocks_FreqWeek" xml:space="preserve"><value>Week</value></data>
+  <data name="AgentBlocks_FreqMonth" xml:space="preserve"><value>Month</value></data>
+  <data name="AgentBlocks_ConflictTitle" xml:space="preserve"><value>Reservation conflict detected</value></data>
+  <data name="AgentBlocks_ConflictSummary" xml:space="preserve"><value>{0} existing reservation(s) impacted by this block.</value></data>
+  <data name="AgentBlocks_ConflictCancel" xml:space="preserve"><value>Cancel reservation</value></data>
+  <data name="AgentBlocks_ConflictMove" xml:space="preserve"><value>Move reservation</value></data>
+  <data name="AgentBlocks_ConfirmButton" xml:space="preserve"><value>Confirm Block</value></data>
+  <data name="AgentBlocks_UpdateButton" xml:space="preserve"><value>Update Block</value></data>
+  <data name="AgentBlocks_Saving" xml:space="preserve"><value>Saving…</value></data>
+  <data name="AgentBlocks_ToastCreated" xml:space="preserve"><value>Block created successfully.</value></data>
+  <data name="AgentBlocks_ToastUpdated" xml:space="preserve"><value>Block updated successfully.</value></data>
+  <data name="AgentBlocks_ToastDeactivated" xml:space="preserve"><value>Block deactivated.</value></data>
+  <data name="AgentBlocks_ToastBulkDeactivated" xml:space="preserve"><value>{0} block(s) deactivated.</value></data>
+  <data name="AgentBlocks_ErrorTitleRequired" xml:space="preserve"><value>Title is required.</value></data>
+  <data name="AgentBlocks_ErrorReasonRequired" xml:space="preserve"><value>Reason is required.</value></data>
+  <data name="AgentBlocks_ErrorStartRequired" xml:space="preserve"><value>Start date is required.</value></data>
+  <data name="AgentBlocks_ErrorEndRequired" xml:space="preserve"><value>End date is required.</value></data>
+  <data name="AgentBlocks_ErrorEndBeforeStart" xml:space="preserve"><value>End date must be after start date.</value></data>
+  <data name="AgentBlocks_FilterType" xml:space="preserve"><value>Type</value></data>
+  <data name="AgentBlocks_FilterAllTypes" xml:space="preserve"><value>All types</value></data>
+  <data name="AgentBlocks_FilterStatus" xml:space="preserve"><value>Status</value></data>
+  <data name="AgentBlocks_FilterAllStatuses" xml:space="preserve"><value>All statuses</value></data>
+  <data name="AgentBlocks_StatusActive" xml:space="preserve"><value>Active</value></data>
+  <data name="AgentBlocks_StatusUpcoming" xml:space="preserve"><value>Upcoming</value></data>
+  <data name="AgentBlocks_StatusExpired" xml:space="preserve"><value>Expired</value></data>
+  <data name="AgentBlocks_CmdNew" xml:space="preserve"><value>New block</value></data>
+</root>

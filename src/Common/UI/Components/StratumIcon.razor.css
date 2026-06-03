@@ -1,0 +1,26 @@
+.stratum-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    line-height: 1;
+    vertical-align: middle;
+}
+
+.stratum-icon--material {
+    font-family: "Material Symbols Outlined";
+    font-size: 1em;
+    font-style: normal;
+    font-weight: 400;
+    letter-spacing: normal;
+    text-transform: none;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    font-variation-settings: "FILL" 0, "wght" 500, "GRAD" 0, "opsz" 20;
+    -webkit-font-smoothing: antialiased;
+}
+
+.stratum-icon--bootstrap {
+    font-size: 1em;
+}

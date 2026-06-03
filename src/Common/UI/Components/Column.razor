@@ -1,0 +1,47 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TItem
+
+@* Column<TItem> is a configuration-only component. It emits no markup.
+   It registers itself with the parent SimpleTable<TItem> via the cascaded
+   IColumnHost<TItem> interface during OnInitialized. *@
+
+@code {
+    [CascadingParameter]
+    private IColumnHost<TItem>? Host { get; set; }
+
+    /// <summary>Column header text.</summary>
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Extracts the display value for a cell from the item.
+    /// Mutually exclusive with <see cref="Template"/>.
+    /// </summary>
+    [Parameter]
+    public Func<TItem, object?>? Field { get; set; }
+
+    /// <summary>
+    /// Custom cell template. Overrides <see cref="Field"/> when set.
+    /// </summary>
+    [Parameter]
+    public RenderFragment<TItem>? Template { get; set; }
+
+    /// <summary>
+    /// When <c>true</c>, the column header is a sort button.
+    /// Requires <see cref="FieldName"/> to be set so the sort key can be reported.
+    /// </summary>
+    [Parameter]
+    public bool Sortable { get; set; }
+
+    /// <summary>
+    /// Logical field name reported in <see cref="SortChangedArgs.Column"/>.
+    /// Must match the property name accepted by the query's SortBy parameter.
+    /// </summary>
+    [Parameter]
+    public string? FieldName { get; set; }
+
+    protected override void OnInitialized()
+    {
+        Host?.RegisterColumn(this);
+    }
+}

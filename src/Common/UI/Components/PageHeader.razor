@@ -1,0 +1,67 @@
+@namespace Stratum.Common.UI.Components
+
+<header class="page-header" data-testid="@(TestId ?? "page-header")">
+    @if (Breadcrumbs?.Count > 0)
+    {
+        <nav aria-label="Breadcrumb">
+            <ol class="breadcrumbs">
+                @foreach (var crumb in Breadcrumbs)
+                {
+                    <li class="breadcrumbs__item">
+                        @if (crumb.Href is not null)
+                        {
+                            <a href="@crumb.Href" class="breadcrumbs__link">@crumb.Label</a>
+                        }
+                        else
+                        {
+                            <span class="breadcrumbs__current" aria-current="page">@crumb.Label</span>
+                        }
+                    </li>
+                }
+            </ol>
+        </nav>
+    }
+    <div class="page-header__row">
+        <div class="page-header__title-group">
+            <h1 class="page-header__title">@Title</h1>
+            @if (Subtitle is not null)
+            {
+                <p class="page-header__subtitle">@Subtitle</p>
+            }
+        </div>
+        @if (Status is not null)
+        {
+            <div class="page-header__status">@Status</div>
+        }
+        @if (Actions is not null)
+        {
+            <div class="page-header__actions">@Actions</div>
+        }
+    </div>
+</header>
+
+@code {
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Page title — rendered as the <c>&lt;h1&gt;</c> heading.</summary>
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>Optional subtitle displayed below the title.</summary>
+    [Parameter]
+    public string? Subtitle { get; set; }
+
+    /// <summary>Optional slot for a status indicator (e.g. a <see cref="StatusBadge"/>).</summary>
+    [Parameter]
+    public RenderFragment? Status { get; set; }
+
+    /// <summary>Optional slot for primary action buttons.</summary>
+    [Parameter]
+    public RenderFragment? Actions { get; set; }
+
+    /// <summary>Optional breadcrumb trail. The last item should have <c>Href = null</c>.</summary>
+    [Parameter]
+    public IReadOnlyList<BreadcrumbItem>? Breadcrumbs { get; set; }
+}

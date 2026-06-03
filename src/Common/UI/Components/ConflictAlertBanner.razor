@@ -1,0 +1,164 @@
+@namespace Stratum.Common.UI.Components
+
+@*
+ * ConflictAlertBanner — UIC03
+ *
+ * Bandeau full-width affiché lorsqu'un conflit de ressource est détecté
+ * (via Resource.IAvailabilityEngine, livré par RE02). Consommé par :
+ *   - Assistant de demande public (UIP04)
+ *   - Détail dossier agent (UIB02b)
+ *   - Indisponibilités / blocages (UIB06)
+ *
+ * Spec (orchestration/items/UIC.yaml — UIC03) :
+ *   - Bandeau amber (Warning) ou rouge (Critical) pleine largeur
+ *   - Liste des conflits (resource, time, reason)
+ *   - Bouton action « Résoudre » / « Déplacer » / « Annuler »
+ *   - Animation subtile (pulse léger) côté icône
+ *
+ * Encapsulation (R1) : pas de DTO du module Resource dans l'API publique —
+ * le consommateur projette son ConflictDto dans Stratum.Common.UI.Models.ConflictItem.
+ *@
+
+<div class="conflict-alert-banner conflict-alert-banner--@_severityClass"
+     data-testid="@_testIdPrefix"
+     data-severity="@_severityClass"
+     role="@_role"
+     aria-atomic="true">
+    <div class="conflict-alert-banner__head">
+        <span class="conflict-alert-banner__icon" aria-hidden="true">@_iconGlyph</span>
+        <div class="conflict-alert-banner__head-text">
+            <p class="conflict-alert-banner__title">@_resolvedTitle</p>
+            @if (!string.IsNullOrEmpty(Summary))
+            {
+                <p class="conflict-alert-banner__summary">@Summary</p>
+            }
+        </div>
+    </div>
+
+    @if (Conflicts is { Count: > 0 })
+    {
+        <ul class="conflict-alert-banner__list" data-testid="@($"{_testIdPrefix}-list")">
+            @for (var i = 0; i < Conflicts.Count; i++)
+            {
+                var conflict = Conflicts[i];
+                var index = i;
+                <li @key="conflict.Id"
+                    class="conflict-alert-banner__item"
+                    data-testid="@($"{_testIdPrefix}-item-{index}")">
+                    <div class="conflict-alert-banner__item-body">
+                        <p class="conflict-alert-banner__item-resource">@conflict.Resource</p>
+                        <p class="conflict-alert-banner__item-meta">
+                            <span class="conflict-alert-banner__item-time">@conflict.TimeWindow</span>
+                            <span class="conflict-alert-banner__item-sep" aria-hidden="true">•</span>
+                            <span class="conflict-alert-banner__item-reason">@conflict.Reason</span>
+                        </p>
+                        @if (!string.IsNullOrEmpty(conflict.Detail))
+                        {
+                            <p class="conflict-alert-banner__item-detail">@conflict.Detail</p>
+                        }
+                    </div>
+                    <div class="conflict-alert-banner__item-actions">
+                        @if (OnResolve.HasDelegate)
+                        {
+                            <button type="button"
+                                    class="conflict-alert-banner__action conflict-alert-banner__action--primary"
+                                    data-testid="@($"{_testIdPrefix}-resolve-{index}")"
+                                    @onclick="() => OnResolveAsync(conflict)">
+                                @ResolveLabel
+                            </button>
+                        }
+                        @if (OnMove.HasDelegate)
+                        {
+                            <button type="button"
+                                    class="conflict-alert-banner__action"
+                                    data-testid="@($"{_testIdPrefix}-move-{index}")"
+                                    @onclick="() => OnMoveAsync(conflict)">
+                                @MoveLabel
+                            </button>
+                        }
+                        @if (OnCancel.HasDelegate)
+                        {
+                            <button type="button"
+                                    class="conflict-alert-banner__action conflict-alert-banner__action--ghost"
+                                    data-testid="@($"{_testIdPrefix}-cancel-{index}")"
+                                    @onclick="() => OnCancelAsync(conflict)">
+                                @CancelLabel
+                            </button>
+                        }
+                    </div>
+                </li>
+            }
+        </ul>
+    }
+</div>
+
+@code {
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Conflicts to render. Banner stays mounted but list is empty when this is null/empty.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ConflictItem> Conflicts { get; set; } = [];
+
+    /// <summary>Severity tone — controls colour, icon and ARIA live politeness.</summary>
+    [Parameter, EditorRequired]
+    public ConflictSeverity Severity { get; set; }
+
+    /// <summary>Optional override of the banner title. Defaults to a localised label per severity.</summary>
+    [Parameter]
+    public string? Title { get; set; }
+
+    /// <summary>Optional secondary line under the title (e.g. global stats).</summary>
+    [Parameter]
+    public string? Summary { get; set; }
+
+    /// <summary>Label for the primary "Résoudre" action button. Hidden when <see cref="OnResolve"/> is not bound.</summary>
+    [Parameter]
+    public string ResolveLabel { get; set; } = "Résoudre";
+
+    /// <summary>Label for the "Déplacer" action button. Hidden when <see cref="OnMove"/> is not bound.</summary>
+    [Parameter]
+    public string MoveLabel { get; set; } = "Déplacer";
+
+    /// <summary>Label for the "Annuler" action button. Hidden when <see cref="OnCancel"/> is not bound.</summary>
+    [Parameter]
+    public string CancelLabel { get; set; } = "Annuler";
+
+    /// <summary>Fired when the user clicks the primary "Résoudre" action of a conflict row.</summary>
+    [Parameter]
+    public EventCallback<ConflictItem> OnResolve { get; set; }
+
+    /// <summary>Fired when the user clicks the secondary "Déplacer" action of a conflict row.</summary>
+    [Parameter]
+    public EventCallback<ConflictItem> OnMove { get; set; }
+
+    /// <summary>Fired when the user clicks the tertiary "Annuler" action of a conflict row.</summary>
+    [Parameter]
+    public EventCallback<ConflictItem> OnCancel { get; set; }
+
+    // Per-row testids (item / resolve / move / cancel) prefix this so that
+    // multiple banners on the same page (e.g. the showcase warning + critical +
+    // density comparators) keep unique selectors and don't trip Playwright's
+    // strict-mode locator.
+    private string _testIdPrefix => TestId ?? "conflict-alert-banner";
+
+    private string _severityClass => Severity == ConflictSeverity.Critical ? "critical" : "warning";
+
+    // role="alert" implies aria-live="assertive"; role="status" implies polite.
+    // Splitting by severity gives the correct screen-reader politeness without
+    // an explicit aria-live override (which NVDA/VoiceOver may ignore on alerts).
+    private string _role => Severity == ConflictSeverity.Critical ? "alert" : "status";
+
+    private string _iconGlyph => Severity == ConflictSeverity.Critical ? "!" : "\u26A0"; // ⚠
+
+    private string _resolvedTitle => Title ?? (Severity == ConflictSeverity.Critical
+        ? "Conflit critique détecté"
+        : "Conflit de disponibilité détecté");
+
+    private Task OnResolveAsync(ConflictItem conflict) => OnResolve.InvokeAsync(conflict);
+
+    private Task OnMoveAsync(ConflictItem conflict) => OnMove.InvokeAsync(conflict);
+
+    private Task OnCancelAsync(ConflictItem conflict) => OnCancel.InvokeAsync(conflict);
+}

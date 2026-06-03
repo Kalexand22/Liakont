@@ -1,0 +1,501 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TItem where TItem : notnull
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Models
+@using Stratum.Common.UI.Services
+
+@implements IStratumListView<TItem>
+
+@* StratumKanbanView<TItem> — Column-based board layout.
+ *
+ * Implements IStratumListView<TItem> for multi-view list pages.
+ * Groups items by a configurable property (e.g. "Status") into columns.
+ * Cards inside columns reuse the same card rendering pattern as StratumCardView.
+ *
+ * Usage:
+ *   <StratumKanbanView TItem="QuoteDto" Data="@quotes" Loading="@_loading"
+ *                      GroupByProperty="Status"
+ *                      ColumnRegistry="@_registry"
+ *                      AllowSelection="true" OnRowActivated="@GoToQuote"
+ *                      AriaLabel="Devis par statut" />
+ *
+ * Ref: orchestration/manifest.yaml GV03.
+ *@
+
+<div class="stratum-kanban-view"
+     data-testid="@(TestId ?? "stratum-kanban-view")"
+     @onkeydown="HandleKeyDown"
+     tabindex="0"
+     @ref="_wrapperRef">
+
+    @if (Loading)
+    {
+        <div class="stratum-kanban-view__columns" role="status" aria-label="@(AriaLabel ?? "Chargement")" aria-busy="true">
+            @for (var c = 0; c < _skeletonColumnCount; c++)
+            {
+                <div class="stratum-kanban-view__column stratum-kanban-view__column--skeleton" aria-hidden="true">
+                    <div class="stratum-kanban-view__column-header">
+                        <span class="stratum-kanban-view__skeleton-title"></span>
+                    </div>
+                    @for (var s = 0; s < SkeletonCardCount; s++)
+                    {
+                        <div class="stratum-kanban-view__card stratum-kanban-view__card--skeleton">
+                            <div class="stratum-kanban-view__skeleton-line"></div>
+                            <div class="stratum-kanban-view__skeleton-line stratum-kanban-view__skeleton-line--short"></div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+    else if (Data is null || Data.Count == 0)
+    {
+        <div class="stratum-kanban-view__empty" role="status">
+            @if (EmptyContent is not null)
+            {
+                @EmptyContent
+            }
+            else
+            {
+                <p class="stratum-kanban-view__empty-text">Aucun élément.</p>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="stratum-kanban-view__columns" role="list" aria-label="@AriaLabel">
+            @for (var colIdx = 0; colIdx < _groupedColumns.Count; colIdx++)
+            {
+                var column = _groupedColumns[colIdx];
+                var columnIndex = colIdx;
+
+                <div class="stratum-kanban-view__column"
+                     role="group"
+                     aria-label="@column.GroupValue"
+                     data-testid="@($"kanban-column-{columnIndex}")">
+
+                    <div class="stratum-kanban-view__column-header">
+                        <span class="stratum-kanban-view__column-title">@column.GroupValue</span>
+                        <span class="stratum-kanban-view__column-count"
+                              aria-label="@($"{column.Items.Count} élément{(column.Items.Count != 1 ? "s" : "")}")">
+                            @column.Items.Count
+                        </span>
+                    </div>
+
+                    <div class="stratum-kanban-view__card-container">
+                        @for (var cardIdx = 0; cardIdx < column.Items.Count; cardIdx++)
+                        {
+                            var item = column.Items[cardIdx];
+                            var cIdx = columnIndex;
+                            var rIdx = cardIdx;
+                            var isSelected = _selectedSet.Contains(item);
+                            var isFocused = cIdx == _focusedColumn && rIdx == _focusedRow;
+
+                            <div class="stratum-kanban-view__card @(isSelected ? "stratum-kanban-view__card--selected" : "") @(isFocused ? "stratum-kanban-view__card--focused" : "")"
+                                 role="listitem"
+                                 tabindex="@(isFocused ? 0 : -1)"
+                                 aria-selected="@(isSelected ? "true" : "false")"
+                                 data-testid="@($"kanban-card-{cIdx}-{rIdx}")"
+                                 @onclick="() => HandleCardClick(item, cIdx, rIdx)">
+
+                                <div class="stratum-kanban-view__card-actions">
+                                    @if (AllowSelection)
+                                    {
+                                        <div class="stratum-kanban-view__checkbox" @onclick:stopPropagation="true">
+                                            <input type="checkbox"
+                                                   checked="@isSelected"
+                                                   aria-label="@($"Sélectionner {GetCardTitle(item)}")"
+                                                   @onchange="() => ToggleSelection(item)" />
+                                        </div>
+                                    }
+                                    @if (RowActions is { Count: > 0 })
+                                    {
+                                        <StratumRowActionMenu TItem="TItem"
+                                                              Item="@item"
+                                                              RowActions="@RowActions"
+                                                              AriaItemLabel="@GetCardTitle(item)"
+                                                              TestId="@($"kanban-row-actions-{cIdx}-{rIdx}")" />
+                                    }
+                                </div>
+
+                                @if (CardTemplate is not null)
+                                {
+                                    @CardTemplate(item)
+                                }
+                                else
+                                {
+                                    <div class="stratum-kanban-view__card-content">
+                                        <div class="stratum-kanban-view__card-title">@GetCardTitle(item)</div>
+                                        @if (GetCardSubtitle(item) is { Length: > 0 } subtitle)
+                                        {
+                                            <div class="stratum-kanban-view__card-subtitle">@subtitle</div>
+                                        }
+                                        @foreach (var field in GetCardFields(item))
+                                        {
+                                            <div class="stratum-kanban-view__card-field">
+                                                <span class="stratum-kanban-view__card-field-label">@field.Label</span>
+                                                <span class="stratum-kanban-view__card-field-value">@field.Value</span>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private ElementReference _wrapperRef;
+    private int _focusedColumn;
+    private int _focusedRow;
+    private HashSet<TItem> _selectedSet = new();
+    private List<ColumnDefinition>? _resolvedColumns;
+    private List<KanbanColumn> _groupedColumns = [];
+    private const int _skeletonColumnCount = 3;
+
+    // ── IStratumListView<TItem> ────────────────────────────────
+
+    /// <summary>Items to display.</summary>
+    [Parameter]
+    public IReadOnlyList<TItem> Data { get; set; } = Array.Empty<TItem>();
+
+    /// <summary>Whether the view is loading.</summary>
+    [Parameter]
+    public bool Loading { get; set; }
+
+    /// <summary>Currently selected items.</summary>
+    [Parameter]
+    public IReadOnlyList<TItem> SelectedItems { get; set; } = Array.Empty<TItem>();
+
+    /// <summary>Accessibility label for the kanban board.</summary>
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    // ── Kanban-specific parameters ────────────────────────────
+
+    /// <summary>Optional test identifier.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>
+    /// Property name used to group items into columns (e.g. "Status").
+    /// Each distinct value becomes a Kanban column.
+    /// </summary>
+    [Parameter]
+    public string? GroupByProperty { get; set; }
+
+    /// <summary>Enable item selection via checkboxes.</summary>
+    [Parameter]
+    public bool AllowSelection { get; set; }
+
+    /// <summary>Raised when a card is activated (double-click or Enter).</summary>
+    [Parameter]
+    public EventCallback<TItem> OnRowActivated { get; set; }
+
+    /// <summary>Raised when selection changes.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<TItem>> OnSelectionChanged { get; set; }
+
+    /// <summary>
+    /// Column registry providing field metadata for auto-generated card content.
+    /// When null, cards render using ToString.
+    /// </summary>
+    [Parameter]
+    public IColumnRegistry<TItem>? ColumnRegistry { get; set; }
+
+    /// <summary>
+    /// Ordered list of visible column keys. When null and ColumnRegistry is set,
+    /// the registry's default visible columns are used.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyList<string>? VisibleColumnKeys { get; set; }
+
+    /// <summary>
+    /// Custom template for card content. When set, overrides auto-generated layout.
+    /// </summary>
+    [Parameter]
+    public RenderFragment<TItem>? CardTemplate { get; set; }
+
+    /// <summary>Custom content for empty state.</summary>
+    [Parameter]
+    public RenderFragment? EmptyContent { get; set; }
+
+    /// <summary>Number of skeleton cards per column during loading. Default: 3.</summary>
+    [Parameter]
+    public int SkeletonCardCount { get; set; } = 3;
+
+    /// <summary>
+    /// Per-row contextual actions rendered as a kebab menu on each card.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyList<GridRowAction<TItem>>? RowActions { get; set; }
+
+    // ── Lifecycle ────────────────────────────────────────────────
+
+    protected override void OnParametersSet()
+    {
+        // Sync selected set from parameter
+        _selectedSet.Clear();
+        if (SelectedItems is { Count: > 0 })
+        {
+            foreach (var item in SelectedItems)
+                _selectedSet.Add(item);
+        }
+
+        // Resolve columns from registry
+        if (ColumnRegistry is not null)
+        {
+            if (VisibleColumnKeys is { Count: > 0 })
+            {
+                var list = new List<ColumnDefinition>(VisibleColumnKeys.Count);
+                foreach (var key in VisibleColumnKeys)
+                {
+                    var col = ColumnRegistry.GetColumn(key);
+                    if (col is not null)
+                        list.Add(col);
+                }
+                _resolvedColumns = list;
+            }
+            else
+            {
+                _resolvedColumns = ColumnRegistry.GetDefaultVisibleColumns().ToList();
+            }
+        }
+        else
+        {
+            _resolvedColumns = null;
+        }
+
+        // Group items into columns by GroupByProperty
+        RebuildColumns();
+
+        // Clamp focus indices
+        ClampFocus();
+    }
+
+    // ── Grouping ────────────────────────────────────────────────
+
+    private void RebuildColumns()
+    {
+        _groupedColumns.Clear();
+
+        if (Data is null || Data.Count == 0)
+            return;
+
+        // When GroupByProperty is not set, show all items in a single column
+        if (string.IsNullOrEmpty(GroupByProperty))
+        {
+            _groupedColumns.Add(new KanbanColumn("Tous", Data.ToList()));
+            return;
+        }
+
+        var groups = new Dictionary<string, List<TItem>>(StringComparer.OrdinalIgnoreCase);
+        var order = new List<string>();
+
+        foreach (var item in Data)
+        {
+            var groupValue = GetPropertyValue(item, GroupByProperty!);
+            if (string.IsNullOrEmpty(groupValue))
+                groupValue = "(vide)";
+
+            if (!groups.TryGetValue(groupValue, out var list))
+            {
+                list = [];
+                groups[groupValue] = list;
+                order.Add(groupValue);
+            }
+            list.Add(item);
+        }
+
+        foreach (var key in order)
+        {
+            _groupedColumns.Add(new KanbanColumn(key, groups[key]));
+        }
+    }
+
+    private void ClampFocus()
+    {
+        if (_groupedColumns.Count == 0)
+        {
+            _focusedColumn = 0;
+            _focusedRow = 0;
+            return;
+        }
+
+        _focusedColumn = Math.Clamp(_focusedColumn, 0, _groupedColumns.Count - 1);
+        var currentCol = _groupedColumns[_focusedColumn];
+        _focusedRow = currentCol.Items.Count > 0
+            ? Math.Clamp(_focusedRow, 0, currentCol.Items.Count - 1)
+            : 0;
+    }
+
+    // ── Card field extraction (same pattern as StratumCardView) ──
+
+    private string GetCardTitle(TItem item)
+    {
+        if (_resolvedColumns is { Count: > 0 })
+        {
+            return GetPropertyValue(item, _resolvedColumns[0].Property);
+        }
+        return item.ToString() ?? string.Empty;
+    }
+
+    private string GetCardSubtitle(TItem item)
+    {
+        if (_resolvedColumns is { Count: > 1 })
+        {
+            return GetPropertyValue(item, _resolvedColumns[1].Property);
+        }
+        return string.Empty;
+    }
+
+    private IEnumerable<(string Label, string Value)> GetCardFields(TItem item)
+    {
+        if (_resolvedColumns is null || _resolvedColumns.Count <= 2)
+            yield break;
+
+        for (var i = 2; i < _resolvedColumns.Count && i < 6; i++)
+        {
+            var col = _resolvedColumns[i];
+            var value = GetPropertyValue(item, col.Property);
+            if (!string.IsNullOrEmpty(value))
+            {
+                yield return (col.Title, value);
+            }
+        }
+    }
+
+    private static string GetPropertyValue(TItem item, string propertyPath)
+    {
+        object? current = item;
+        foreach (var segment in propertyPath.Split('.'))
+        {
+            if (current is null) return string.Empty;
+            var prop = current.GetType().GetProperty(segment);
+            if (prop is null) return string.Empty;
+            current = prop.GetValue(current);
+        }
+        return current?.ToString() ?? string.Empty;
+    }
+
+    // ── Event handlers ──────────────────────────────────────────
+
+    // ── Server-side double-click detection ─────────────────────
+    private DateTime _lastClickTime;
+    private TItem? _lastClickedItem;
+    private static readonly TimeSpan DoubleClickThreshold = TimeSpan.FromMilliseconds(400);
+
+    private async Task HandleCardClick(TItem item, int colIdx, int rowIdx)
+    {
+        var now = DateTime.UtcNow;
+        var isDoubleClick = _lastClickedItem is not null
+            && EqualityComparer<TItem>.Default.Equals(_lastClickedItem, item)
+            && (now - _lastClickTime) < DoubleClickThreshold;
+
+        _lastClickTime = now;
+        _lastClickedItem = item;
+        _focusedColumn = colIdx;
+        _focusedRow = rowIdx;
+
+        if (isDoubleClick)
+        {
+            _lastClickedItem = default;
+            await OnRowActivated.InvokeAsync(item);
+        }
+    }
+
+    private async Task ToggleSelection(TItem item)
+    {
+        if (_selectedSet.Contains(item))
+            _selectedSet.Remove(item);
+        else
+            _selectedSet.Add(item);
+
+        await FireSelectionChanged();
+    }
+
+    private async Task FireSelectionChanged()
+    {
+        var snapshot = (IReadOnlyList<TItem>)_selectedSet.ToList();
+        await OnSelectionChanged.InvokeAsync(snapshot);
+    }
+
+    // ── Keyboard navigation ─────────────────────────────────────
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (_groupedColumns.Count == 0) return;
+
+        switch (e.Key)
+        {
+            case "ArrowDown":
+                {
+                    var col = _groupedColumns[_focusedColumn];
+                    _focusedRow = Math.Min(_focusedRow + 1, col.Items.Count - 1);
+                }
+                break;
+
+            case "ArrowUp":
+                _focusedRow = Math.Max(_focusedRow - 1, 0);
+                break;
+
+            case "ArrowRight":
+                if (_focusedColumn < _groupedColumns.Count - 1)
+                {
+                    _focusedColumn++;
+                    var col = _groupedColumns[_focusedColumn];
+                    _focusedRow = Math.Min(_focusedRow, Math.Max(0, col.Items.Count - 1));
+                }
+                break;
+
+            case "ArrowLeft":
+                if (_focusedColumn > 0)
+                {
+                    _focusedColumn--;
+                    var col = _groupedColumns[_focusedColumn];
+                    _focusedRow = Math.Min(_focusedRow, Math.Max(0, col.Items.Count - 1));
+                }
+                break;
+
+            case "Home":
+                _focusedColumn = 0;
+                _focusedRow = 0;
+                break;
+
+            case "End":
+                _focusedColumn = _groupedColumns.Count - 1;
+                _focusedRow = Math.Max(0, _groupedColumns[_focusedColumn].Items.Count - 1);
+                break;
+
+            case "Enter":
+                {
+                    var col = _groupedColumns[_focusedColumn];
+                    if (_focusedRow >= 0 && _focusedRow < col.Items.Count)
+                    {
+                        await OnRowActivated.InvokeAsync(col.Items[_focusedRow]);
+                    }
+                }
+                break;
+
+            case " ":
+            case "x":
+                if (AllowSelection)
+                {
+                    var col = _groupedColumns[_focusedColumn];
+                    if (_focusedRow >= 0 && _focusedRow < col.Items.Count)
+                    {
+                        await ToggleSelection(col.Items[_focusedRow]);
+                    }
+                }
+                break;
+        }
+    }
+
+    // ── Inner types ──────────────────────────────────────────────
+
+    private sealed record KanbanColumn(string GroupValue, List<TItem> Items);
+}

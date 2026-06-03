@@ -1,0 +1,132 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@inject NavigationManager Nav
+
+@* StratumButton — Stratum wrapper around RadzenButton.
+ *
+ * All public parameters use Stratum types. Radzen types are mapped internally.
+ * Provides a unified button API consistent with StratumSplitButton.
+ *
+ * Usage:
+ *   <StratumButton Text="Enregistrer" Variant="ButtonVariant.Primary" OnClick="Save" />
+ *   <StratumButton Text="Annuler" Variant="ButtonVariant.Secondary" Outline OnClick="Cancel" />
+ *   <StratumButton Text="Créer" Variant="ButtonVariant.Primary" Size="ButtonSize.Small" Href="/new" />
+ *
+ * Ref: docs/architecture/ui-architecture-plan.md §4.
+ *@
+
+@if (ChildContent is not null)
+{
+    <Radzen.Blazor.RadzenButton
+        Icon="@Icon"
+        ButtonStyle="@_radzenStyle"
+        Variant="@_radzenVariant"
+        Size="@_radzenSize"
+        Disabled="@Disabled"
+        Click="@HandleClick"
+        class="@($"stratum-button {CssClass}".TrimEnd())"
+        data-testid="@(TestId ?? "stratum-button")"
+        @attributes="@_extraAttributes">
+        @ChildContent
+    </Radzen.Blazor.RadzenButton>
+}
+else
+{
+    <Radzen.Blazor.RadzenButton
+        Text="@Text"
+        Icon="@Icon"
+        ButtonStyle="@_radzenStyle"
+        Variant="@_radzenVariant"
+        Size="@_radzenSize"
+        Disabled="@Disabled"
+        Click="@HandleClick"
+        class="@($"stratum-button {CssClass}".TrimEnd())"
+        data-testid="@(TestId ?? "stratum-button")"
+        @attributes="@_extraAttributes" />
+}
+
+@code {
+    /// <summary>Button label text.</summary>
+    [Parameter] public string Text { get; set; } = string.Empty;
+
+    /// <summary>Optional icon name (Material Symbols).</summary>
+    [Parameter] public string? Icon { get; set; }
+
+    /// <summary>Visual style variant.</summary>
+    [Parameter] public ButtonVariant Variant { get; set; } = ButtonVariant.Primary;
+
+    /// <summary>When true, renders as an outline button (transparent background, colored border).</summary>
+    [Parameter] public bool Outline { get; set; }
+
+    /// <summary>Button size.</summary>
+    [Parameter] public ButtonSize Size { get; set; } = ButtonSize.Default;
+
+    /// <summary>Disables the button.</summary>
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Click handler.</summary>
+    [Parameter] public EventCallback<MouseEventArgs> OnClick { get; set; }
+
+    /// <summary>When set, clicking the button navigates to this URL.</summary>
+    [Parameter] public string? Href { get; set; }
+
+    /// <summary>Optional test identifier.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    /// <summary>Additional CSS class.</summary>
+    [Parameter] public string? CssClass { get; set; }
+
+    /// <summary>Optional child content (for complex button labels).</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>HTML button type attribute.</summary>
+    [Parameter] public string Type { get; set; } = "button";
+
+    // ── Internal mappings ─────────────────────────────────────────
+
+    private bool _hasChildContent => ChildContent is not null;
+
+    private Radzen.ButtonStyle _radzenStyle => Variant switch
+    {
+        ButtonVariant.Primary   => Radzen.ButtonStyle.Primary,
+        ButtonVariant.Secondary => Radzen.ButtonStyle.Secondary,
+        ButtonVariant.Danger    => Radzen.ButtonStyle.Danger,
+        ButtonVariant.Success   => Radzen.ButtonStyle.Success,
+        ButtonVariant.Warning   => Radzen.ButtonStyle.Warning,
+        _                       => Radzen.ButtonStyle.Primary,
+    };
+
+    private Radzen.Variant _radzenVariant => Outline
+        ? Radzen.Variant.Outlined
+        : Radzen.Variant.Filled;
+
+    private Radzen.ButtonSize _radzenSize => Size switch
+    {
+        ButtonSize.Small => Radzen.ButtonSize.Small,
+        _                => Radzen.ButtonSize.Medium,
+    };
+
+    private Dictionary<string, object> _extraAttributes = new();
+
+    protected override void OnParametersSet()
+    {
+        _extraAttributes = new Dictionary<string, object>();
+        if (!string.IsNullOrEmpty(Type) && Type != "button")
+        {
+            _extraAttributes["type"] = Type;
+        }
+    }
+
+    private async Task HandleClick(MouseEventArgs args)
+    {
+        if (!string.IsNullOrEmpty(Href))
+        {
+            Nav.NavigateTo(Href);
+        }
+
+        if (OnClick.HasDelegate)
+        {
+            await OnClick.InvokeAsync(args);
+        }
+    }
+}

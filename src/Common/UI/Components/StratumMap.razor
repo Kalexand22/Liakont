@@ -1,0 +1,217 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.Abstractions.Gis
+@using Stratum.Common.UI.Models
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@*
+    StratumMap — interactive map component backed by Leaflet.js.
+
+    Supports:
+    - Tile layer (OpenStreetMap default)
+    - GeoJSON overlay (via GeoJsonData parameter)
+    - WMS overlay layers
+    - Markers with popups and labels
+    - Responsive (ResizeObserver)
+    - Accessible (role="application", aria-label, keyboard zoom/pan)
+
+    Usage:
+      <StratumMap Center="new(48.39, -4.49)" Zoom="13"
+                  GeoJsonData="@_geoJson"
+                  Markers="@_markers"
+                  OnFeatureSelected="HandleFeatureSelected"
+                  Height="400" />
+*@
+
+<div class="stratum-map" data-testid="@(TestId ?? "stratum-map")">
+    <div id="@_mapId"
+         class="stratum-map__container"
+         style="height: @(Height)px; width: 100%;"
+         role="application"
+         aria-label="@(AriaLabel ?? "Carte interactive")"
+         tabindex="0">
+    </div>
+</div>
+
+@code {
+    private readonly string _mapId = $"stratum-map-{Guid.NewGuid():N}"[..24];
+    private IJSObjectReference? _jsModule;
+    private DotNetObjectReference<StratumMap>? _dotnetRef;
+    private bool _initialized;
+
+    // ── Parameters ────────────────────────────────────────────────
+
+    /// <summary>Map center coordinates (Latitude, Longitude).</summary>
+    [Parameter] public MapCenter Center { get; set; } = new(48.39, -4.49);
+
+    /// <summary>Initial zoom level (1-19).</summary>
+    [Parameter] public int Zoom { get; set; } = 13;
+
+    /// <summary>Tile layer URL template. Default: OpenStreetMap.</summary>
+    [Parameter] public string? TileLayerUrl { get; set; }
+
+    /// <summary>Tile layer attribution HTML.</summary>
+    [Parameter] public string? Attribution { get; set; }
+
+    /// <summary>Map height in pixels.</summary>
+    [Parameter] public int Height { get; set; } = 400;
+
+    /// <summary>GeoJSON data to overlay on the map.</summary>
+    [Parameter] public string? GeoJsonData { get; set; }
+
+    /// <summary>Markers to display on the map.</summary>
+    [Parameter] public IReadOnlyList<MapMarker>? Markers { get; set; }
+
+    /// <summary>WMS overlay layers.</summary>
+    [Parameter] public IReadOnlyList<MapWmsLayer>? WmsLayers { get; set; }
+
+    /// <summary>Raised when a GeoJSON feature is clicked. Returns the geometry as GeoJSON string.</summary>
+    [Parameter] public EventCallback<string> OnFeatureSelected { get; set; }
+
+    /// <summary>Raised when a marker is clicked. Returns the zero-based marker index.</summary>
+    [Parameter] public EventCallback<int> OnMarkerClicked { get; set; }
+
+    /// <summary>Accessible label for the map container.</summary>
+    [Parameter] public string? AriaLabel { get; set; }
+
+    /// <summary>Test ID for E2E tests.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    /// <summary>Additional CSS class(es).</summary>
+    [Parameter] public string? CssClass { get; set; }
+
+    // ── Lifecycle ─────────────────────────────────────────────────
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _jsModule = await JS.InvokeAsync<IJSObjectReference>(
+                    "import", "./_content/Stratum.Common.UI/js/leaflet-interop.js");
+            }
+            catch (Exception ex) when (ex is JSException
+                or JSDisconnectedException
+                or InvalidOperationException
+                or OperationCanceledException)
+            {
+                return;
+            }
+
+            _dotnetRef = DotNetObjectReference.Create(this);
+
+            await _jsModule.InvokeVoidAsync("mapInit",
+                _mapId, Center.Latitude, Center.Longitude, Zoom,
+                TileLayerUrl, Attribution);
+            _initialized = true;
+
+            // Set initial data.
+            await SyncGeoJsonAsync();
+            await SyncMarkersAsync();
+            await SyncWmsLayersAsync();
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!_initialized || _jsModule is null) return;
+
+        try
+        {
+            await SyncGeoJsonAsync();
+            await SyncMarkersAsync();
+            await SyncWmsLayersAsync();
+        }
+        catch (Exception ex) when (ex is JSException
+            or JSDisconnectedException
+            or InvalidOperationException
+            or OperationCanceledException)
+        {
+            // Expected during circuit disconnect or prerendering.
+        }
+    }
+
+    // ── Data sync ─────────────────────────────────────────────────
+
+    private string? _lastGeoJson;
+    private IReadOnlyList<MapMarker>? _lastMarkers;
+    private IReadOnlyList<MapWmsLayer>? _lastWmsLayers;
+
+    private async Task SyncGeoJsonAsync()
+    {
+        if (_jsModule is null || GeoJsonData == _lastGeoJson) return;
+        _lastGeoJson = GeoJsonData;
+        await _jsModule.InvokeVoidAsync("mapSetGeoJson", _mapId, GeoJsonData, _dotnetRef);
+    }
+
+    private async Task SyncMarkersAsync()
+    {
+        if (_jsModule is null || ReferenceEquals(Markers, _lastMarkers)) return;
+        _lastMarkers = Markers;
+        var callbackRef = OnMarkerClicked.HasDelegate ? _dotnetRef : null;
+        await _jsModule.InvokeVoidAsync("mapSetMarkers", _mapId, Markers, callbackRef);
+    }
+
+    private async Task SyncWmsLayersAsync()
+    {
+        if (_jsModule is null || ReferenceEquals(WmsLayers, _lastWmsLayers)) return;
+        _lastWmsLayers = WmsLayers;
+
+        // Clear all existing WMS layers first, then re-add active ones.
+        await _jsModule.InvokeVoidAsync("mapClearWmsLayers", _mapId);
+
+        if (WmsLayers is null || WmsLayers.Count == 0) return;
+
+        foreach (var layer in WmsLayers)
+        {
+            await _jsModule.InvokeVoidAsync("mapAddWmsLayer",
+                _mapId, layer.Name, layer.Url, layer.Layers,
+                layer.Format, layer.Transparent, layer.Opacity);
+        }
+    }
+
+    // ── JS callbacks ──────────────────────────────────────────────
+
+    [JSInvokable]
+    public async Task OnFeatureClicked(string geoJson)
+    {
+        if (OnFeatureSelected.HasDelegate)
+        {
+            await OnFeatureSelected.InvokeAsync(geoJson);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnMarkerClickedJs(int markerIndex)
+    {
+        if (OnMarkerClicked.HasDelegate)
+        {
+            await OnMarkerClicked.InvokeAsync(markerIndex);
+        }
+    }
+
+    // ── Dispose ───────────────────────────────────────────────────
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_jsModule is not null)
+            {
+                if (_initialized)
+                    await _jsModule.InvokeVoidAsync("mapDispose", _mapId);
+                await _jsModule.DisposeAsync();
+            }
+        }
+        catch (Exception ex) when (ex is JSException
+            or JSDisconnectedException
+            or InvalidOperationException
+            or OperationCanceledException)
+        {
+            // Expected during circuit disconnect or prerendering.
+        }
+
+        _dotnetRef?.Dispose();
+    }
+}

@@ -1,0 +1,69 @@
+@namespace Stratum.Common.UI.Components
+@inject IToastService ToastService
+@implements IDisposable
+
+@* Toast container — place once in your layout (e.g. MainLayout.razor).
+   Renders up to 3 stacked toasts in the top-right corner.
+   role="status" + aria-live="polite" so screen readers announce new toasts. *@
+<div class="toast-container" data-testid="@(TestId ?? "toast-container")" role="status" aria-live="polite" aria-atomic="false">
+    @foreach (var toast in _toasts)
+    {
+        <div class="toast toast--@SeverityClass(toast.Severity)">
+            <span class="toast__message">@toast.Message</span>
+            @if (toast.Dismissible)
+            {
+                <button class="toast__dismiss"
+                        type="button"
+                        aria-label="Fermer la notification"
+                        @onclick="() => ToastService.Dismiss(toast.Id)">
+                    ×
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    private volatile bool _disposed;
+    private IReadOnlyList<ToastMessage> _toasts = [];
+
+    protected override void OnInitialized()
+    {
+        _toasts = ToastService.GetActiveToasts();
+        ToastService.OnToastsChanged += HandleToastsChanged;
+    }
+
+    private void HandleToastsChanged()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(() =>
+        {
+            _toasts = ToastService.GetActiveToasts();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        ToastService.OnToastsChanged -= HandleToastsChanged;
+    }
+
+    private static string SeverityClass(Severity severity) => severity switch
+    {
+        Severity.Info    => "info",
+        Severity.Success => "success",
+        Severity.Warning => "warning",
+        Severity.Error   => "error",
+        Severity.Neutral => "neutral",
+        _                => "neutral",
+    };
+}

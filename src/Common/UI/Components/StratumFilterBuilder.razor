@@ -1,0 +1,1026 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TItem where TItem : notnull
+@using Stratum.Common.Abstractions.Grid
+
+@* StratumFilterBuilder<TItem> — advanced filter builder panel.
+ *
+ * Opens in a StratumDialog. Lets the user build multi-criteria filters with
+ * And/Or logic, nested groups, contextual operators per data type, and
+ * saved filter management (load/save/delete/set-default).
+ *
+ * Usage:
+ *   <StratumFilterBuilder TItem="InvoiceDto"
+ *                         @bind-Visible="_showFilter"
+ *                         Registry="@_registry"
+ *                         GridKey="Sales.InvoiceList.Main"
+ *                         UserId="@_userId"
+ *                         ActiveFilter="@_activeFilter"
+ *                         OnApply="HandleFilterApplied" />
+ *
+ * Ref: docs/architecture/ui-architecture-plan.md §4, orchestration/manifest.yaml GF03.
+ *@
+
+<StratumDialog Title="@Title"
+               Visible="@Visible"
+               VisibleChanged="HandleVisibleChanged"
+               Width="680px"
+               TestId="@(TestId ?? "stratum-filter-builder")">
+    <ChildContent>
+        <div class="stratum-filter-builder" role="region" aria-label="@Title">
+
+            @* ── Saved filters ── *@
+            <div class="stratum-filter-builder__saved" role="group" aria-label="Filtres enregistrés">
+                <div class="stratum-filter-builder__saved-row">
+                    <select @key="_savedSelectKey"
+                            class="stratum-filter-builder__saved-select"
+                            data-testid="stratum-filter-builder__saved-select"
+                            value="@_selectedSavedFilterId"
+                            @onchange="HandleSavedFilterSelected"
+                            aria-label="Sélectionner un filtre enregistré">
+                        <option value="">— Filtres enregistrés —</option>
+                        @foreach (var sf in _savedFilters)
+                        {
+                            <option value="@sf.Id">@FormatSavedFilterOption(sf)</option>
+                        }
+                    </select>
+                    @if (_loadedFilter is not null && IsLoadedFilterReadOnly)
+                    {
+                        <span class="stratum-filter-builder__readonly-chip"
+                              data-testid="stratum-filter-builder__readonly-chip"
+                              role="status"
+                              aria-label="Ce filtre est en lecture seule">
+                            Lecture seule
+                        </span>
+                    }
+                    @if (_loadedFilter is not null && IsDirty)
+                    {
+                        <span class="stratum-filter-builder__dirty-chip"
+                              data-testid="stratum-filter-builder__dirty-chip"
+                              role="status"
+                              aria-label="Le filtre chargé a été modifié">
+                            Modifié
+                        </span>
+                    }
+                    <button type="button"
+                            class="btn btn-sm btn-outline-secondary"
+                            disabled="@(_selectedSavedFilterId == Guid.Empty || IsSelectedFilterReadOnly)"
+                            @onclick="HandleDeleteSavedFilter"
+                            aria-label="Supprimer le filtre sélectionné">
+                        ✕
+                    </button>
+                    <button type="button"
+                            class="btn btn-sm btn-outline-secondary"
+                            disabled="@(_selectedSavedFilterId == Guid.Empty || IsSelectedFilterReadOnly)"
+                            @onclick="HandleSetDefault"
+                            aria-label="Définir comme filtre par défaut">
+                        ★
+                    </button>
+                </div>
+            </div>
+
+            @* ── Filter group editor ── *@
+            @RenderFilterGroup(_rootGroup, 0)
+
+            @* ── Save / Save-as name dialog ── *@
+            @if (_showSaveDialog)
+            {
+                <div class="stratum-filter-builder__save-dialog"
+                     data-testid="stratum-filter-builder__save-dialog"
+                     role="dialog"
+                     aria-label="Enregistrer le filtre">
+                    <label class="stratum-filter-builder__save-label" for="@_saveInputId">
+                        Nom du filtre :
+                    </label>
+                    <input id="@_saveInputId"
+                           type="text"
+                           class="stratum-filter-builder__save-input"
+                           @bind="_saveFilterName"
+                           @bind:event="oninput"
+                           @onkeydown="HandleSaveKeyDown"
+                           aria-label="Nom du filtre" />
+                    <label class="stratum-filter-builder__save-share">
+                        <input type="checkbox"
+                               @bind="_saveShared"
+                               data-testid="stratum-filter-builder__save-share" />
+                        Partager ce filtre
+                    </label>
+                    @if (_saveShared)
+                    {
+                        @* Scope radios. Only "Mon tenant" is selectable today;
+                           "Groupe spécifique" is intentionally disabled until
+                           the Identity module ships a group API. The tenant
+                           radio is NOT disabled so screen readers announce it
+                           as a checked, focusable option rather than a
+                           contradictory "disabled, checked" state. *@
+                        <div class="stratum-filter-builder__save-share-scope"
+                             data-testid="stratum-filter-builder__save-share-scope"
+                             role="radiogroup"
+                             aria-label="Portée de partage">
+                            <label class="stratum-filter-builder__share-scope-option">
+                                <input type="radio"
+                                       name="@_shareScopeRadioName"
+                                       data-testid="stratum-filter-builder__share-scope-tenant"
+                                       checked
+                                       readonly />
+                                Mon tenant
+                            </label>
+                            <label class="stratum-filter-builder__share-scope-option stratum-filter-builder__share-scope-option--disabled"
+                                   title="Bientôt disponible">
+                                <input type="radio"
+                                       name="@_shareScopeRadioName"
+                                       data-testid="stratum-filter-builder__share-scope-group"
+                                       disabled />
+                                Groupe spécifique <span class="stratum-filter-builder__share-scope-hint">(bientôt)</span>
+                            </label>
+                        </div>
+                    }
+                    <div class="stratum-filter-builder__save-actions">
+                        <button type="button"
+                                class="btn btn-sm btn-outline-secondary"
+                                @onclick="() => _showSaveDialog = false">
+                            Annuler
+                        </button>
+                        <button type="button"
+                                class="btn btn-sm btn-primary"
+                                disabled="@(string.IsNullOrWhiteSpace(_saveFilterName))"
+                                @onclick="HandleSaveFilter">
+                            Enregistrer
+                        </button>
+                    </div>
+                </div>
+            }
+
+            @* ── Discard-on-switch confirmation dialog ── *@
+            @if (_pendingSelectionId is not null)
+            {
+                <div class="stratum-filter-builder__save-dialog"
+                     data-testid="stratum-filter-builder__switch-confirm"
+                     role="dialog"
+                     aria-label="Confirmer le changement de filtre">
+                    <p class="stratum-filter-builder__save-label">
+                        Des modifications non enregistrées seront perdues. Continuer ?
+                    </p>
+                    <div class="stratum-filter-builder__save-actions">
+                        <button type="button"
+                                class="btn btn-sm btn-outline-secondary"
+                                @onclick="HandleCancelSwitch">
+                            Annuler
+                        </button>
+                        <button type="button"
+                                class="btn btn-sm btn-primary"
+                                @onclick="HandleConfirmDiscardAndSwitch"
+                                data-testid="stratum-filter-builder__confirm-switch">
+                            Continuer
+                        </button>
+                    </div>
+                </div>
+            }
+
+            @* ── Update confirmation dialog ── *@
+            @if (_showUpdateConfirm && _loadedFilter is not null)
+            {
+                <div class="stratum-filter-builder__save-dialog"
+                     data-testid="stratum-filter-builder__update-confirm"
+                     role="dialog"
+                     aria-label="Confirmer la mise à jour du filtre">
+                    <p class="stratum-filter-builder__save-label">
+                        Mettre à jour « @_loadedFilter.Name » ?
+                    </p>
+                    <div class="stratum-filter-builder__save-actions">
+                        <button type="button"
+                                class="btn btn-sm btn-outline-secondary"
+                                @onclick="() => _showUpdateConfirm = false">
+                            Annuler
+                        </button>
+                        <button type="button"
+                                class="btn btn-sm btn-primary"
+                                @onclick="HandleUpdateFilter"
+                                data-testid="stratum-filter-builder__confirm-update">
+                            Mettre à jour
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    </ChildContent>
+    <Actions>
+        <button type="button"
+                class="btn btn-sm btn-outline-secondary"
+                @onclick="HandleClear"
+                aria-label="Effacer tous les critères">
+            Effacer tout
+        </button>
+
+        @if (_loadedFilter is null)
+        {
+            @* No filter loaded — offer plain "Enregistrer" that prompts for a name. *@
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary"
+                    data-testid="stratum-filter-builder__save"
+                    @onclick="HandleOpenSaveDialog"
+                    disabled="@(!HasAnyCriteria)"
+                    aria-label="Enregistrer ce filtre">
+                Enregistrer
+            </button>
+        }
+        else
+        {
+            @* Filter loaded — offer "Mettre à jour" (only when dirty + owned) and "Enregistrer comme…". *@
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary"
+                    data-testid="stratum-filter-builder__update"
+                    @onclick="() => _showUpdateConfirm = true"
+                    disabled="@(!IsDirty || !HasAnyCriteria || IsLoadedFilterReadOnly)"
+                    title="@(IsLoadedFilterReadOnly ? "Lecture seule — utilisez Enregistrer comme…" : null)"
+                    aria-label="Mettre à jour le filtre chargé">
+                Mettre à jour
+            </button>
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary"
+                    data-testid="stratum-filter-builder__save-as"
+                    @onclick="HandleOpenSaveAsDialog"
+                    disabled="@(!HasAnyCriteria)"
+                    aria-label="Enregistrer le filtre sous un nouveau nom">
+                Enregistrer comme…
+            </button>
+        }
+
+        <button type="button"
+                class="btn btn-sm btn-outline-secondary"
+                @onclick="HandleCancel">
+            Annuler
+        </button>
+        <button type="button"
+                class="btn btn-sm btn-primary"
+                @onclick="HandleApply">
+            Appliquer
+        </button>
+    </Actions>
+</StratumDialog>
+
+@code {
+    // ── Parameters ────────────────────────────────────────────────
+
+    /// <summary>Optional test identifier.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Dialog title. Default: "Filtres avancés".</summary>
+    [Parameter]
+    public string Title { get; set; } = "Filtres avancés";
+
+    /// <summary>Whether the filter builder dialog is visible (two-way binding).</summary>
+    [Parameter]
+    public bool Visible { get; set; }
+
+    /// <summary>Raised when visibility changes.</summary>
+    [Parameter]
+    public EventCallback<bool> VisibleChanged { get; set; }
+
+    /// <summary>Column registry providing available fields for filter criteria.</summary>
+    [Parameter]
+    public IColumnRegistry<TItem>? Registry { get; set; }
+
+    /// <summary>
+    /// Grid key for saved filter persistence (e.g. "Sales.InvoiceList.Main").
+    /// Required for save/load/delete/set-default functionality.
+    /// </summary>
+    [Parameter]
+    public string GridKey { get; set; } = string.Empty;
+
+    /// <summary>Current user ID for saved filter ownership.</summary>
+    [Parameter]
+    public Guid UserId { get; set; }
+
+    /// <summary>
+    /// The currently active filter. Used to initialize the builder when opened.
+    /// Null means no filter is active.
+    /// </summary>
+    [Parameter]
+    public FilterGroup? ActiveFilter { get; set; }
+
+    /// <summary>
+    /// Raised when the user clicks Apply. Provides the new filter group,
+    /// or null if the filter was cleared.
+    /// </summary>
+    [Parameter]
+    public EventCallback<FilterGroup?> OnApply { get; set; }
+
+    /// <summary>Raised when the user clicks Cancel or closes the dialog.</summary>
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    /// <summary>
+    /// Raised whenever the saved-filter collection is mutated (save/delete/set-default)
+    /// from inside the builder. Lets the host refresh any cached saved-filter list
+    /// (e.g. the toolbar split-button dropdown) even if the user closes the dialog
+    /// without clicking Apply.
+    /// </summary>
+    [Parameter]
+    public EventCallback OnSavedFiltersChanged { get; set; }
+
+    /// <summary>
+    /// Optional saved filter service. When provided, enables save/load/delete functionality.
+    /// Injected via DI by default but can be overridden for testing.
+    /// </summary>
+    [Parameter]
+    public ISavedFilterService? SavedFilterService { get; set; }
+
+    // ── Injected services ─────────────────────────────────────────
+
+    [Inject]
+    private ISavedFilterService? InjectedSavedFilterService { get; set; }
+
+    // ── Internal state ────────────────────────────────────────────
+
+    private ISavedFilterService? EffectiveFilterService => SavedFilterService ?? InjectedSavedFilterService;
+
+    private WorkingGroup _rootGroup = new();
+    private IReadOnlyDictionary<string, IReadOnlyList<ColumnDefinition>>? _columnsByCategory;
+    private IReadOnlyList<ColumnDefinition>? _allColumns;
+    private List<SavedFilter> _savedFilters = [];
+    private Guid _selectedSavedFilterId;
+    private bool _initialized;
+    private bool _showSaveDialog;
+    private bool _showUpdateConfirm;
+    private string _saveFilterName = string.Empty;
+    private bool _saveShared;
+    private readonly string _saveInputId = $"sf-{Guid.NewGuid():N}"[..12];
+    private readonly string _shareScopeRadioName = $"sf-scope-{Guid.NewGuid():N}"[..16];
+
+    // ── Loaded / dirty tracking (GUX07) ───────────────────────────
+    // _loadedFilter is the SavedFilter currently loaded into the builder,
+    // or null when the user is authoring a fresh filter. _baselineFilter is
+    // the canonical FilterGroup captured at load time and is the reference
+    // against which the current working group is compared to detect dirty
+    // edits. Record equality is not sufficient — the comparer walks criteria
+    // and nested sub-groups structurally.
+    private SavedFilter? _loadedFilter;
+    private FilterGroup? _baselineFilter;
+    private Guid? _pendingSelectionId;
+
+    // Bumped when we need to force Blazor to rebuild the native <select>
+    // so its DOM value resyncs with `_selectedSavedFilterId` after we reject
+    // the user's optimistic pick (cancelled discard-on-switch).
+    private int _savedSelectKey;
+
+    private bool HasAnyCriteria => ToFilterGroup(_rootGroup) is not null;
+
+    /// <summary>
+    /// True when a filter is loaded and the current working state differs
+    /// from the loaded baseline. Exposed for tests and the "Modifié" chip.
+    /// </summary>
+    internal bool IsDirty
+    {
+        get
+        {
+            if (_loadedFilter is null || _baselineFilter is null) return false;
+            var current = ToFilterGroup(_rootGroup);
+            return !FilterGroupStructuralComparer.Equals(_baselineFilter, current);
+        }
+    }
+
+    /// <summary>
+    /// True when the currently loaded filter is owned by another user.
+    /// Shared filters authored by someone else are read-only: Update and Delete
+    /// are disabled, but Save-as (copy) remains available so the user can clone
+    /// and customize the filter for their own account. When <see cref="UserId"/>
+    /// is empty (pre-GUX08 callers that never wired it), the check is skipped so
+    /// legacy hosts keep behaving as before.
+    /// </summary>
+    internal bool IsLoadedFilterReadOnly =>
+        _loadedFilter is not null
+        && UserId != Guid.Empty
+        && _loadedFilter.UserId != UserId;
+
+    /// <summary>
+    /// True when the row currently highlighted in the saved-filter dropdown
+    /// (which may differ from the loaded one while the user is browsing) is
+    /// owned by another user. Drives the Delete / Set default buttons.
+    /// Same <see cref="UserId"/> guard as <see cref="IsLoadedFilterReadOnly"/>.
+    /// </summary>
+    internal bool IsSelectedFilterReadOnly
+    {
+        get
+        {
+            if (_selectedSavedFilterId == Guid.Empty || UserId == Guid.Empty) return false;
+            var selected = _savedFilters.FirstOrDefault(f => f.Id == _selectedSavedFilterId);
+            return selected is not null && selected.UserId != UserId;
+        }
+    }
+
+    // ── Lifecycle ─────────────────────────────────────────────────
+
+    protected override void OnParametersSet()
+    {
+        if (Registry is null) return;
+
+        _columnsByCategory = Registry.GetColumnsByCategory();
+        _allColumns = Registry.GetAvailableColumns();
+
+        if (Visible && !_initialized)
+        {
+            InitializeWorkingGroup();
+            _initialized = true;
+        }
+        else if (!Visible)
+        {
+            _initialized = false;
+            _showSaveDialog = false;
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Visible && _initialized && EffectiveFilterService is not null
+            && !string.IsNullOrEmpty(GridKey) && UserId != Guid.Empty)
+        {
+            await LoadSavedFiltersAsync();
+        }
+    }
+
+    private void InitializeWorkingGroup()
+    {
+        _rootGroup = ActiveFilter is not null
+            ? FromFilterGroup(ActiveFilter)
+            : new WorkingGroup();
+        _selectedSavedFilterId = Guid.Empty;
+        _saveFilterName = string.Empty;
+        _saveShared = false;
+        _loadedFilter = null;
+        _baselineFilter = null;
+        _showSaveDialog = false;
+        _showUpdateConfirm = false;
+    }
+
+    /// <summary>
+    /// Builds the option label shown in the native saved-filter <c>&lt;select&gt;</c>.
+    /// Native HTML options cannot render icons, so we annotate filters shared
+    /// by other users with a "(lecture seule)" suffix and still prefix the
+    /// IsDefault marker. Guards on <see cref="UserId"/> being set so pre-GUX08
+    /// hosts that never wire the parameter keep rendering the legacy label
+    /// (no suffix), matching <see cref="IsLoadedFilterReadOnly"/> semantics.
+    /// </summary>
+    private string FormatSavedFilterOption(SavedFilter sf)
+    {
+        var prefix = sf.IsDefault ? "★ " : string.Empty;
+        var suffix = UserId != Guid.Empty && sf.UserId != UserId
+            ? " (lecture seule)"
+            : string.Empty;
+        return $"{prefix}{sf.Name}{suffix}";
+    }
+
+    // ── Render helper ─────────────────────────────────────────────
+
+    private RenderFragment RenderFilterGroup(WorkingGroup group, int depth) => __builder =>
+    {
+        var isNested = depth > 0;
+        var cssClass = isNested
+            ? "stratum-filter-builder__group stratum-filter-builder__group--nested"
+            : "stratum-filter-builder__group";
+
+        <div class="@cssClass" role="group" aria-label="@(isNested ? "Sous-groupe de filtres" : "Groupe de filtres")">
+            @* Logic toggle *@
+            <div class="stratum-filter-builder__logic">
+                <button type="button"
+                        class="@LogicBtnClass(group, FilterLogic.And)"
+                        @onclick="@(() => group.Logic = FilterLogic.And)"
+                        aria-pressed="@(group.Logic == FilterLogic.And)">
+                    ET
+                </button>
+                <button type="button"
+                        class="@LogicBtnClass(group, FilterLogic.Or)"
+                        @onclick="@(() => group.Logic = FilterLogic.Or)"
+                        aria-pressed="@(group.Logic == FilterLogic.Or)">
+                    OU
+                </button>
+                @if (isNested)
+                {
+                    <button type="button"
+                            class="stratum-filter-builder__remove-group"
+                            @onclick="@(() => RemoveSubGroup(group))"
+                            aria-label="Supprimer ce sous-groupe">
+                        ✕
+                    </button>
+                }
+            </div>
+
+            @* Criteria rows *@
+            @for (var i = 0; i < group.Criteria.Count; i++)
+            {
+                var index = i;
+                var criterion = group.Criteria[index];
+                <div class="stratum-filter-builder__row">
+                    @* Field picker (grouped by category/table) *@
+                    <select class="stratum-filter-builder__field-select"
+                            value="@criterion.Field"
+                            @onchange="@(e => HandleFieldChanged(criterion, e.Value?.ToString() ?? string.Empty))"
+                            aria-label="Champ à filtrer">
+                        <option value="">— Champ —</option>
+                        @if (_columnsByCategory is not null)
+                        {
+                            @foreach (var category in _columnsByCategory)
+                            {
+                                <optgroup label="@category.Key">
+                                    @foreach (var col in category.Value)
+                                    {
+                                        <option value="@col.Key">@col.Title</option>
+                                    }
+                                </optgroup>
+                            }
+                        }
+                    </select>
+
+                    @* Operator picker (contextual to data type) *@
+                    <select class="stratum-filter-builder__operator-select"
+                            value="@criterion.Operator"
+                            @onchange="@(e => HandleOperatorChanged(criterion, e.Value?.ToString() ?? string.Empty))"
+                            disabled="@(string.IsNullOrEmpty(criterion.Field))"
+                            aria-label="Opérateur de comparaison">
+                        @foreach (var op in GetOperatorsForCriterion(criterion))
+                        {
+                            <option value="@op">@FormatOperatorLabel(op)</option>
+                        }
+                    </select>
+
+                    @* Value input(s) *@
+                    @if (!IsNullOperator(criterion.Operator))
+                    {
+                        @RenderValueInput(criterion, false)
+
+                        @if (criterion.Operator == FilterOperator.Between)
+                        {
+                            <span class="stratum-filter-builder__between-sep">et</span>
+                            @RenderValueInput(criterion, true)
+                        }
+                    }
+
+                    @* Remove criterion *@
+                    <button type="button"
+                            class="stratum-filter-builder__remove-btn"
+                            @onclick="@(() => group.Criteria.RemoveAt(index))"
+                            aria-label="Supprimer ce critère">
+                        ✕
+                    </button>
+                </div>
+            }
+
+            @* Add row / add group *@
+            <div class="stratum-filter-builder__add-row">
+                <button type="button"
+                        class="btn btn-sm btn-outline-primary"
+                        @onclick="@(() => group.Criteria.Add(new WorkingCriterion()))"
+                        aria-label="Ajouter un critère">
+                    + Critère
+                </button>
+                @if (depth < 2)
+                {
+                    <button type="button"
+                            class="btn btn-sm btn-outline-secondary"
+                            @onclick="@(() => group.SubGroups.Add(new WorkingGroup()))"
+                            aria-label="Ajouter un sous-groupe">
+                        + Groupe
+                    </button>
+                }
+            </div>
+
+            @* Nested sub-groups *@
+            @foreach (var subGroup in group.SubGroups)
+            {
+                @RenderFilterGroup(subGroup, depth + 1)
+            }
+        </div>
+    };
+
+    private RenderFragment RenderValueInput(WorkingCriterion criterion, bool isEnd) => __builder =>
+    {
+        var dataType = GetDataTypeForField(criterion.Field);
+        var inputType = dataType switch
+        {
+            ColumnDataType.Number or ColumnDataType.Money => "number",
+            ColumnDataType.Date => "date",
+            _ => "text",
+        };
+        var value = isEnd ? criterion.ValueEnd : criterion.Value;
+        var label = isEnd ? "Valeur de fin" : "Valeur";
+
+        if (dataType == ColumnDataType.Boolean)
+        {
+            <select class="stratum-filter-builder__value-input"
+                    value="@value"
+                    @onchange="@(e => SetValue(criterion, isEnd, e.Value?.ToString() ?? string.Empty))"
+                    aria-label="@label">
+                <option value="">—</option>
+                <option value="true">Oui</option>
+                <option value="false">Non</option>
+            </select>
+        }
+        else
+        {
+            <input type="@inputType"
+                   class="stratum-filter-builder__value-input"
+                   value="@value"
+                   @onchange="@(e => SetValue(criterion, isEnd, e.Value?.ToString() ?? string.Empty))"
+                   placeholder="@label"
+                   aria-label="@label" />
+        }
+    };
+
+    // ── Event handlers ────────────────────────────────────────────
+
+    private void HandleFieldChanged(WorkingCriterion criterion, string field)
+    {
+        criterion.Field = field;
+        // Reset operator to first valid one for new field data type
+        var dataType = GetDataTypeForField(field);
+        var validOps = FilterOperatorMap.GetOperators(dataType);
+        if (validOps.Count > 0 && !validOps.Contains(criterion.Operator))
+        {
+            criterion.Operator = validOps[0];
+        }
+        criterion.Value = string.Empty;
+        criterion.ValueEnd = string.Empty;
+    }
+
+    private void HandleOperatorChanged(WorkingCriterion criterion, string operatorStr)
+    {
+        if (Enum.TryParse<FilterOperator>(operatorStr, out var op))
+        {
+            criterion.Operator = op;
+        }
+    }
+
+    private static void SetValue(WorkingCriterion criterion, bool isEnd, string value)
+    {
+        if (isEnd)
+            criterion.ValueEnd = value;
+        else
+            criterion.Value = value;
+    }
+
+    private void RemoveSubGroup(WorkingGroup group)
+    {
+        // Find parent that contains this sub-group
+        RemoveSubGroupRecursive(_rootGroup, group);
+    }
+
+    private static bool RemoveSubGroupRecursive(WorkingGroup parent, WorkingGroup target)
+    {
+        if (parent.SubGroups.Remove(target)) return true;
+        foreach (var sub in parent.SubGroups)
+        {
+            if (RemoveSubGroupRecursive(sub, target)) return true;
+        }
+        return false;
+    }
+
+    // ── Saved filter handlers ─────────────────────────────────────
+
+    private async Task LoadSavedFiltersAsync()
+    {
+        if (EffectiveFilterService is null) return;
+        try
+        {
+            _savedFilters = (await EffectiveFilterService.ListAsync(UserId, GridKey)).ToList();
+        }
+        catch
+        {
+            _savedFilters = [];
+        }
+    }
+
+    private void HandleSavedFilterSelected(ChangeEventArgs e)
+    {
+        var idStr = e.Value?.ToString() ?? string.Empty;
+        Guid.TryParse(idStr, out var nextId);
+
+        // Protect unsaved edits: when a dirty filter is loaded and the user
+        // picks a different saved filter, stash the pending id and open a
+        // discard confirmation instead of overwriting the working group.
+        if (IsDirty && nextId != _selectedSavedFilterId)
+        {
+            _pendingSelectionId = nextId;
+            return;
+        }
+
+        ApplySavedFilterSelection(nextId);
+    }
+
+    private void ApplySavedFilterSelection(Guid id)
+    {
+        if (id == Guid.Empty)
+        {
+            _selectedSavedFilterId = Guid.Empty;
+            _loadedFilter = null;
+            _baselineFilter = null;
+            return;
+        }
+
+        _selectedSavedFilterId = id;
+        var saved = _savedFilters.FirstOrDefault(f => f.Id == id);
+        if (saved is not null)
+        {
+            _loadedFilter = saved;
+            _baselineFilter = saved.FilterGroup;
+            _rootGroup = FromFilterGroup(saved.FilterGroup);
+        }
+    }
+
+    private void HandleConfirmDiscardAndSwitch()
+    {
+        var target = _pendingSelectionId ?? Guid.Empty;
+        _pendingSelectionId = null;
+        ApplySavedFilterSelection(target);
+    }
+
+    private void HandleCancelSwitch()
+    {
+        _pendingSelectionId = null;
+
+        // The user's click already mutated the <select>'s DOM value optimistically.
+        // Bumping the key forces Blazor to rebuild the element so it reads the
+        // C# `value` attribute again and snaps back to the previously loaded id.
+        _savedSelectKey++;
+    }
+
+    private async Task HandleDeleteSavedFilter()
+    {
+        if (EffectiveFilterService is null || _selectedSavedFilterId == Guid.Empty) return;
+        // Defence in depth: the button is disabled via IsSelectedFilterReadOnly,
+        // but any non-UI code path (keyboard, programmatic invocation) must also
+        // refuse to delete a filter owned by another user.
+        if (IsSelectedFilterReadOnly) return;
+        try
+        {
+            var deletedId = _selectedSavedFilterId;
+            await EffectiveFilterService.DeleteAsync(deletedId);
+            _selectedSavedFilterId = Guid.Empty;
+            if (_loadedFilter is not null && _loadedFilter.Id == deletedId)
+            {
+                _loadedFilter = null;
+                _baselineFilter = null;
+            }
+            await LoadSavedFiltersAsync();
+            await OnSavedFiltersChanged.InvokeAsync();
+        }
+        catch
+        {
+            // Silently fail — user sees no change
+        }
+    }
+
+    private async Task HandleSetDefault()
+    {
+        if (EffectiveFilterService is null || _selectedSavedFilterId == Guid.Empty) return;
+        // Defence in depth — see HandleDeleteSavedFilter.
+        if (IsSelectedFilterReadOnly) return;
+        try
+        {
+            await EffectiveFilterService.SetDefaultAsync(_selectedSavedFilterId);
+            await LoadSavedFiltersAsync();
+            await OnSavedFiltersChanged.InvokeAsync();
+        }
+        catch
+        {
+            // Silently fail
+        }
+    }
+
+    private void HandleOpenSaveDialog()
+    {
+        // Reached only when no filter is loaded (button is rendered in the
+        // `_loadedFilter is null` branch), so the name input always starts blank
+        // and sharing defaults to off (private).
+        _saveFilterName = string.Empty;
+        _saveShared = false;
+        _showSaveDialog = true;
+    }
+
+    private void HandleOpenSaveAsDialog()
+    {
+        // Pre-fill with the loaded name + " (copie)" hint so the user can
+        // type a new name quickly. Empty if nothing loaded. Always default
+        // sharing off for copies — the user must opt in explicitly.
+        _saveFilterName = _loadedFilter is not null
+            ? $"{_loadedFilter.Name} (copie)"
+            : string.Empty;
+        _saveShared = false;
+        _showSaveDialog = true;
+    }
+
+    private async Task HandleSaveFilter()
+    {
+        if (EffectiveFilterService is null || string.IsNullOrWhiteSpace(_saveFilterName)) return;
+
+        var filterGroup = ToFilterGroup(_rootGroup);
+        if (filterGroup is null) return;
+
+        var saved = new SavedFilter(
+            Id: Guid.NewGuid(),
+            UserId: UserId,
+            GridKey: GridKey,
+            Name: _saveFilterName.Trim(),
+            FilterGroup: filterGroup,
+            IsDefault: false,
+            SharedWith: _saveShared ? SharedScope.Everyone : SharedScope.None,
+            CreatedAt: DateTimeOffset.UtcNow,
+            UpdatedAt: null,
+            Source: SavedFilterSource.Advanced);
+
+        try
+        {
+            var persisted = await EffectiveFilterService.SaveAsync(saved);
+            _showSaveDialog = false;
+            _saveFilterName = string.Empty;
+            _saveShared = false;
+            // After create, the new filter becomes the loaded one so the
+            // action bar switches to Update / Save-as mode on next edit.
+            _loadedFilter = persisted;
+            _baselineFilter = persisted.FilterGroup;
+            _selectedSavedFilterId = persisted.Id;
+            await LoadSavedFiltersAsync();
+            await OnSavedFiltersChanged.InvokeAsync();
+        }
+        catch
+        {
+            // Silently fail
+        }
+    }
+
+    private async Task HandleUpdateFilter()
+    {
+        if (EffectiveFilterService is null || _loadedFilter is null) return;
+        // Defence in depth — a read-only loaded filter must never round-trip
+        // through SaveAsync. The Update button is already disabled for this
+        // state, but keyboard / programmatic triggers must also be refused.
+        if (IsLoadedFilterReadOnly) return;
+
+        var filterGroup = ToFilterGroup(_rootGroup);
+        if (filterGroup is null) return;
+
+        var updated = _loadedFilter with
+        {
+            FilterGroup = filterGroup,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        };
+
+        try
+        {
+            var persisted = await EffectiveFilterService.SaveAsync(updated);
+            _showUpdateConfirm = false;
+            _loadedFilter = persisted;
+            _baselineFilter = persisted.FilterGroup;
+            _selectedSavedFilterId = persisted.Id;
+            await LoadSavedFiltersAsync();
+            await OnSavedFiltersChanged.InvokeAsync();
+        }
+        catch
+        {
+            // Silently fail
+        }
+    }
+
+    private void HandleSaveKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_saveFilterName))
+        {
+            _ = HandleSaveFilter();
+        }
+    }
+
+    // ── Action handlers ───────────────────────────────────────────
+
+    private async Task HandleApply()
+    {
+        var filter = ToFilterGroup(_rootGroup);
+        await OnApply.InvokeAsync(filter);
+        await VisibleChanged.InvokeAsync(false);
+    }
+
+    private async Task HandleCancel()
+    {
+        await VisibleChanged.InvokeAsync(false);
+        await OnCancel.InvokeAsync();
+    }
+
+    private void HandleClear()
+    {
+        _rootGroup = new WorkingGroup();
+        _selectedSavedFilterId = Guid.Empty;
+        _loadedFilter = null;
+        _baselineFilter = null;
+    }
+
+    private async Task HandleVisibleChanged(bool value)
+    {
+        await VisibleChanged.InvokeAsync(value);
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────
+
+    private ColumnDataType GetDataTypeForField(string field)
+    {
+        if (string.IsNullOrEmpty(field) || _allColumns is null) return ColumnDataType.Text;
+        var col = _allColumns.FirstOrDefault(c => c.Key == field);
+        return col?.DataType ?? ColumnDataType.Text;
+    }
+
+    private IReadOnlyList<FilterOperator> GetOperatorsForCriterion(WorkingCriterion criterion)
+    {
+        var dataType = GetDataTypeForField(criterion.Field);
+        return FilterOperatorMap.GetOperators(dataType);
+    }
+
+    private static bool IsNullOperator(FilterOperator op)
+        => op is FilterOperator.IsNull or FilterOperator.IsNotNull;
+
+    private static string LogicBtnClass(WorkingGroup group, FilterLogic logic)
+    {
+        var active = group.Logic == logic;
+        return active
+            ? "stratum-filter-builder__logic-btn stratum-filter-builder__logic-btn--active"
+            : "stratum-filter-builder__logic-btn";
+    }
+
+    private static string FormatOperatorLabel(FilterOperator op) => op switch
+    {
+        FilterOperator.Equals => "Égal à",
+        FilterOperator.NotEquals => "Différent de",
+        FilterOperator.Contains => "Contient",
+        FilterOperator.StartsWith => "Commence par",
+        FilterOperator.GreaterThan => "Supérieur à",
+        FilterOperator.LessThan => "Inférieur à",
+        FilterOperator.Between => "Entre",
+        FilterOperator.In => "Parmi",
+        FilterOperator.IsNull => "Est vide",
+        FilterOperator.IsNotNull => "N'est pas vide",
+        _ => op.ToString(),
+    };
+
+    // ── Working model ─────────────────────────────────────────────
+
+    private sealed class WorkingGroup
+    {
+        public FilterLogic Logic { get; set; } = FilterLogic.And;
+        public List<WorkingCriterion> Criteria { get; set; } = [];
+        public List<WorkingGroup> SubGroups { get; set; } = [];
+    }
+
+    private sealed class WorkingCriterion
+    {
+        public string Field { get; set; } = string.Empty;
+        public FilterOperator Operator { get; set; } = FilterOperator.Equals;
+        public string Value { get; set; } = string.Empty;
+        public string ValueEnd { get; set; } = string.Empty;
+    }
+
+    // ── Conversion: FilterGroup ↔ WorkingGroup ────────────────────
+
+    private static WorkingGroup FromFilterGroup(FilterGroup group) => new()
+    {
+        Logic = group.Logic,
+        Criteria = group.Criteria
+            .Select(c => new WorkingCriterion
+            {
+                Field = c.Field,
+                Operator = c.Operator,
+                Value = c.Value?.ToString() ?? string.Empty,
+                ValueEnd = c.ValueEnd?.ToString() ?? string.Empty,
+            })
+            .ToList(),
+        SubGroups = (group.SubGroups ?? [])
+            .Select(FromFilterGroup)
+            .ToList(),
+    };
+
+    private static FilterGroup? ToFilterGroup(WorkingGroup group)
+    {
+        var criteria = group.Criteria
+            .Where(c => !string.IsNullOrEmpty(c.Field))
+            .Select(c => new FilterCriterion(
+                Field: c.Field,
+                Operator: c.Operator,
+                Value: IsNullOperator(c.Operator) ? null : ParseValue(c.Value),
+                ValueEnd: c.Operator == FilterOperator.Between ? ParseValue(c.ValueEnd) : null))
+            .ToList();
+
+        var subGroups = group.SubGroups
+            .Select(ToFilterGroup)
+            .Where(sg => sg is not null)
+            .Cast<FilterGroup>()
+            .ToList();
+
+        if (criteria.Count == 0 && subGroups.Count == 0) return null;
+
+        return new FilterGroup(
+            Logic: group.Logic,
+            Criteria: criteria,
+            SubGroups: subGroups.Count > 0 ? subGroups : null);
+    }
+
+    private static object? ParseValue(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return null;
+        return value;
+    }
+}

@@ -1,0 +1,149 @@
+@namespace Stratum.Common.UI.Components
+@inject ICollaborationService CollaborationService
+@implements IDisposable
+
+@if (_others.Count > 0)
+{
+    <span class="field-presence-indicator"
+          data-testid="@(TestId ?? "field-presence-indicator")"
+          role="status"
+          aria-label="@_ariaLabel">
+        @foreach (var entry in _others)
+        {
+            <span class="field-presence-indicator__badge"
+                  style="--badge-color: @GetUserColor(entry.User)"
+                  title="@entry.User">
+                @GetInitials(entry.User)
+            </span>
+        }
+    </span>
+}
+
+@code {
+    private volatile bool _disposed;
+    private IReadOnlyList<FieldFocusEntry> _others = [];
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Entity type to observe field presence for.</summary>
+    [Parameter, EditorRequired]
+    public string EntityType { get; set; } = string.Empty;
+
+    /// <summary>Entity ID to observe field presence for.</summary>
+    [Parameter, EditorRequired]
+    public string EntityId { get; set; } = string.Empty;
+
+    /// <summary>Field name to observe presence for.</summary>
+    [Parameter, EditorRequired]
+    public string FieldName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Circuit ID of the current user. When provided, excludes this circuit
+    /// from the indicator (so the user doesn't see themselves).
+    /// </summary>
+    [Parameter]
+    public string? CurrentCircuitId { get; set; }
+
+    private string _ariaLabel => _others.Count == 1
+        ? $"{_others[0].User} est sur ce champ"
+        : $"{_others.Count} utilisateurs sur ce champ : {string.Join(", ", _others.Select(e => e.User))}";
+
+    protected override void OnInitialized()
+    {
+        CollaborationService.OnFieldPresenceChanged += HandleFieldPresenceChanged;
+        RefreshPresence();
+    }
+
+    protected override void OnParametersSet()
+    {
+        RefreshPresence();
+    }
+
+    private void RefreshPresence()
+    {
+        if (string.IsNullOrWhiteSpace(EntityType)
+            || string.IsNullOrWhiteSpace(EntityId)
+            || string.IsNullOrWhiteSpace(FieldName))
+        {
+            _others = [];
+            return;
+        }
+
+        var all = CollaborationService.GetFieldPresence(EntityType, EntityId, FieldName);
+        _others = string.IsNullOrWhiteSpace(CurrentCircuitId)
+            ? all
+            : all.Where(e => !string.Equals(e.CircuitId, CurrentCircuitId, StringComparison.Ordinal)).ToList();
+    }
+
+    private void HandleFieldPresenceChanged()
+    {
+        if (_disposed) return;
+        _ = InvokeAsync(() =>
+        {
+            RefreshPresence();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>
+    /// Deterministic color from a palette, based on a stable hash of the user name.
+    /// </summary>
+    internal static string GetUserColor(string user)
+    {
+        // 8-color palette — visually distinct, accessible on white backgrounds
+        ReadOnlySpan<string> palette =
+        [
+            "#e11d48", // rose
+            "#2563eb", // blue
+            "#059669", // emerald
+            "#d97706", // amber
+            "#7c3aed", // violet
+            "#0891b2", // cyan
+            "#c026d3", // fuchsia
+            "#ea580c", // orange
+        ];
+
+        var hash = StableHash(user);
+        return palette[(int)(hash % (uint)palette.Length)];
+    }
+
+    /// <summary>
+    /// Extract up to 2 initials from a display name (e.g. "Jean Dupont" → "JD").
+    /// </summary>
+    internal static string GetInitials(string user)
+    {
+        if (string.IsNullOrWhiteSpace(user))
+            return "?";
+
+        var parts = user.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length switch
+        {
+            1 => parts[0][..1].ToUpperInvariant(),
+            _ => $"{char.ToUpperInvariant(parts[0][0])}{char.ToUpperInvariant(parts[^1][0])}"
+        };
+    }
+
+    /// <summary>
+    /// FNV-1a 32-bit hash — simple, deterministic, no allocation.
+    /// </summary>
+    private static uint StableHash(string input)
+    {
+        const uint fnvOffset = 2166136261;
+        const uint fnvPrime = 16777619;
+        var hash = fnvOffset;
+        foreach (var c in input)
+        {
+            hash ^= c;
+            hash *= fnvPrime;
+        }
+        return hash;
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        CollaborationService.OnFieldPresenceChanged -= HandleFieldPresenceChanged;
+    }
+}

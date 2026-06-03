@@ -1,0 +1,134 @@
+/* TagInput — scoped styles using Stratum design tokens */
+
+.tag-input {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--spacing-1, 0.25rem);
+    padding: var(--spacing-1, 0.25rem) var(--spacing-2, 0.5rem);
+    border: 1px solid var(--color-border, var(--color-neutral-300));
+    border-radius: var(--radius-md, 6px);
+    background: var(--color-bg-surface, #fff);
+    min-height: 2.5rem;
+    transition: border-color var(--transition-fast, 100ms ease),
+                box-shadow var(--transition-fast, 100ms ease);
+}
+
+.tag-input:focus-within {
+    border-color: var(--color-border-focus, var(--color-primary-500));
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+/* ── Chip list ───────────────────────────────────────── */
+
+.tag-input__chips {
+    display: contents;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.tag-input__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-1, 0.25rem);
+    padding: var(--spacing-0, 2px) var(--spacing-2, 0.5rem);
+    background: var(--color-primary-100, #e0e7ff);
+    color: var(--color-primary-700, #3730a3);
+    border-radius: var(--radius-full, 9999px);
+    font-size: var(--font-size-sm, 0.875rem);
+    line-height: var(--line-height-tight, 1.25);
+    max-width: 200px;
+}
+
+.tag-input__chip-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tag-input__chip-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1rem;
+    height: 1rem;
+    border: none;
+    border-radius: var(--radius-full, 9999px);
+    background: transparent;
+    color: var(--color-primary-500);
+    font-size: var(--font-size-sm, 0.875rem);
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    transition: background-color var(--transition-fast, 100ms ease),
+                color var(--transition-fast, 100ms ease);
+}
+
+.tag-input__chip-remove:hover {
+    background: var(--color-primary-200);
+    color: var(--color-primary-800);
+}
+
+/* ── Input ───────────────────────────────────────────── */
+
+.tag-input__input {
+    flex: 1;
+    min-width: 80px;
+    border: none;
+    background: transparent;
+    padding: var(--spacing-1, 0.25rem) 0;
+    font-size: var(--font-size-base, 1rem);
+    color: var(--color-text-primary);
+    outline: none;
+    font-family: inherit;
+}
+
+.tag-input__input::placeholder {
+    color: var(--color-text-muted);
+}
+
+.tag-input__input:disabled {
+    cursor: not-allowed;
+}
+
+/* ── Screen reader only ──────────────────────────────── */
+
+.tag-input__sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* ── States ──────────────────────────────────────────── */
+
+.tag-input--disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.tag-input--readonly {
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+}
+
+.tag-input--readonly .tag-input__chip {
+    background: var(--color-neutral-100);
+    color: var(--color-text-secondary);
+}
+
+.tag-input--error {
+    border-color: var(--color-error-500);
+}
+
+.tag-input--error:focus-within {
+    border-color: var(--color-error-500);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-error-500) 15%, transparent);
+}

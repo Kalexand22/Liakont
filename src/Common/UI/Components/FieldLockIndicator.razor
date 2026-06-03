@@ -1,0 +1,98 @@
+@namespace Stratum.Common.UI.Components
+@inject ICollaborationService CollaborationService
+@implements IDisposable
+
+<div class="field-lock-indicator" data-testid="@(TestId ?? "field-lock-indicator")">
+    @if (_lockedBy is not null)
+    {
+        <div class="field-lock-indicator__overlay"
+             data-testid="@(TestId ?? "field-lock-indicator")-locked"
+             role="status"
+             aria-label="@($"Verrouillé par {_lockedBy}")">
+            <span class="field-lock-indicator__label">
+                &#128274; Verrouillé par @_lockedBy
+            </span>
+        </div>
+    }
+    @ChildContent(_lockedBy is not null)
+</div>
+
+@code {
+    private volatile bool _disposed;
+    private string? _lockedBy;
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Entity type to check lock for.</summary>
+    [Parameter, EditorRequired]
+    public string EntityType { get; set; } = string.Empty;
+
+    /// <summary>Entity ID to check lock for.</summary>
+    [Parameter, EditorRequired]
+    public string EntityId { get; set; } = string.Empty;
+
+    /// <summary>Field name to check lock for.</summary>
+    [Parameter, EditorRequired]
+    public string FieldName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Circuit ID of the current user. Used to exclude self from lock detection.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public string CircuitId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Render fragment receiving a boolean indicating whether the field is locked.
+    /// Use this to conditionally apply <c>readonly</c> or <c>disabled</c> on the wrapped input.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public RenderFragment<bool> ChildContent { get; set; } = default!;
+
+    /// <summary>
+    /// Whether the field is currently locked by another user.
+    /// </summary>
+    public bool IsLocked => _lockedBy is not null;
+
+    protected override void OnInitialized()
+    {
+        CollaborationService.OnFieldPresenceChanged += HandleFieldPresenceChanged;
+        RefreshLock();
+    }
+
+    protected override void OnParametersSet()
+    {
+        RefreshLock();
+    }
+
+    private void RefreshLock()
+    {
+        if (string.IsNullOrWhiteSpace(EntityType)
+            || string.IsNullOrWhiteSpace(EntityId)
+            || string.IsNullOrWhiteSpace(FieldName)
+            || string.IsNullOrWhiteSpace(CircuitId))
+        {
+            _lockedBy = null;
+            return;
+        }
+
+        _lockedBy = CollaborationService.IsFieldLocked(EntityType, EntityId, FieldName, CircuitId);
+    }
+
+    private void HandleFieldPresenceChanged()
+    {
+        if (_disposed) return;
+        _ = InvokeAsync(() =>
+        {
+            RefreshLock();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        CollaborationService.OnFieldPresenceChanged -= HandleFieldPresenceChanged;
+    }
+}

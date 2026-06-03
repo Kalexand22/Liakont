@@ -1,0 +1,476 @@
+@page "/admin/identity/users/new"
+@page "/admin/identity/users/{Id:guid}"
+@page "/admin/identity/users/{Id:guid}/edit"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Modules.Identity.Contracts.DTOs
+@using Stratum.Modules.Identity.Contracts.Queries
+@using Stratum.Modules.Identity.Contracts.Commands
+@inject ISender Sender
+@inject IIdentityQueries IdentityQueries
+@inject NavigationManager Nav
+@inject IToastService ToastService
+
+<PageTitle>@PageTitleText — Stratum ERP</PageTitle>
+
+<PermissionGate Permission="@IdentityPermissions.UserView">
+    <DeclaredFormPage @ref="_formRef"
+                      TEntity="UserDto"
+                      Id="@Id"
+                      Title="@BuildTitle"
+                      TestId="user-form"
+                      ListUrl="/admin/identity/users"
+                      DetailUrl="@(id => $"/admin/identity/users/{id}")"
+                      CreateUrl="/admin/identity/users/new"
+                      EntityType="User"
+                      EnableViewMode="true"
+                      InitialMode="@(_isEditRoute ? FormMode.Edit : FormMode.View)"
+                      EditPermission="@IdentityPermissions.UserUpdate"
+                      LoadEntity="LoadUserAsync"
+                      CreateEntity="CreateAsync"
+                      UpdateEntity="UpdateAsync"
+                      Validate="ValidateForm"
+                      ClearErrors="ClearAllErrors"
+                      MapEntity="MapFromDto"
+                      ResetFields="ResetAllFields"
+                      MapDomainError="MapError"
+                      OnEntityChanged="HandleEntityChanged"
+                      @bind-GlobalError="_globalError"
+                      @bind-IsDirty="_isDirty">
+        <StatusContent>
+            @if (Id is not null)
+            {
+                <StatusBadge Severity="@(_isActive ? Severity.Success : Severity.Neutral)"
+                             Label="@(_isActive ? "Actif" : "Inactif")" />
+            }
+        </StatusContent>
+        <HeaderActions Context="ctx">
+            @if (ctx.Mode == FormMode.View && _isActive && Id is not null)
+            {
+                <PermissionGate Permission="@IdentityPermissions.UserDeactivate">
+                    <StratumButton Text="@(_deactivating ? "Désactivation…" : "Désactiver")"
+                                   Variant="ButtonVariant.Warning"
+                                   Outline
+                                   Size="ButtonSize.Small"
+                                   OnClick="DeactivateAsync"
+                                   Disabled="@_deactivating"
+                                   TestId="user-form-deactivate-btn" />
+                </PermissionGate>
+            }
+        </HeaderActions>
+        <Content Context="ctx">
+            <SectionCard Title="Informations" TestId="user-form-info">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <FormField Label="Identifiant" Error="@_usernameError">
+                            <input type="text"
+                                   class="form-control"
+                                   value="@_username"
+                                   @oninput="HandleUsernameInput"
+                                   placeholder="ex: jdupont"
+                                   maxlength="50"
+                                   disabled="@(ctx.Mode == FormMode.View || !ctx.IsCreateMode)"
+                                   data-testid="user-form-username" />
+                        </FormField>
+                    </div>
+                    <div class="col-md-4">
+                        <FormField Label="E-mail" Error="@_emailError">
+                            <input type="email"
+                                   class="form-control"
+                                   value="@_email"
+                                   @oninput="HandleEmailInput"
+                                   placeholder="ex: jean.dupont@exemple.fr"
+                                   maxlength="256"
+                                   disabled="@(ctx.Mode == FormMode.View || !ctx.IsCreateMode)"
+                                   data-testid="user-form-email" />
+                        </FormField>
+                    </div>
+                    <div class="col-md-4">
+                        <FormField Label="Nom affiché" Error="@_displayNameError">
+                            <input type="text"
+                                   class="form-control"
+                                   value="@_displayName"
+                                   @oninput="HandleDisplayNameInput"
+                                   placeholder="ex: Jean Dupont"
+                                   maxlength="200"
+                                   disabled="@(ctx.Mode == FormMode.View)"
+                                   data-testid="user-form-displayname" />
+                        </FormField>
+                    </div>
+                </div>
+                @if (ctx.IsCreateMode)
+                {
+                    <div class="row g-3 mt-1">
+                        <div class="col-md-6">
+                            <FormField Label="ID externe (Keycloak)" Error="@_externalIdError">
+                                <input type="text"
+                                       class="form-control"
+                                       value="@_externalId"
+                                       @oninput="HandleExternalIdInput"
+                                       placeholder="Subject ID du fournisseur d'identité"
+                                       disabled="@(ctx.Mode == FormMode.View)"
+                                       data-testid="user-form-externalid" />
+                            </FormField>
+                        </div>
+                    </div>
+                }
+            </SectionCard>
+
+            @if (!ctx.IsCreateMode)
+            {
+                <SectionCard Title="Rôles" TestId="user-form-roles">
+                    <div class="role-assignment-list" data-testid="user-form-role-list">
+                        @foreach (var role in _availableRoles)
+                        {
+                            var isAssigned = _assignedRoles.Contains(role.Name);
+                            <label class="role-assignment-item @(isAssigned ? "role-assignment-item--assigned" : "")"
+                                   data-testid="@($"user-role-{role.Name.ToLowerInvariant()}")">
+                                <input type="checkbox"
+                                       checked="@isAssigned"
+                                       disabled="@(ctx.Mode == FormMode.View)"
+                                       @onchange="@(e => ToggleRole(role.Name, (bool)(e.Value ?? false)))"
+                                       data-testid="@($"user-role-cb-{role.Name.ToLowerInvariant()}")" />
+                                <span class="role-label">@role.Name</span>
+                                @if (!string.IsNullOrEmpty(role.Description))
+                                {
+                                    <span class="role-description text-muted">@role.Description</span>
+                                }
+                                @if (role.IsSystem)
+                                {
+                                    <StatusBadge Severity="Severity.Info" Label="Système" />
+                                }
+                            </label>
+                        }
+                    </div>
+                    @if (_availableRoles.Count == 0)
+                    {
+                        <p class="text-muted mb-0">Aucun rôle disponible.</p>
+                    }
+                </SectionCard>
+            }
+        </Content>
+        <AuditSection>
+            @if (Id is not null)
+            {
+                <SectionCard Title="Audit" Collapsible DefaultCollapsed TestId="user-form-audit">
+                    <dl class="row mb-0">
+                        <dt class="col-sm-3">Identifiant</dt>
+                        <dd class="col-sm-9"><code class="text-muted small">@Id</code></dd>
+                        @if (_lastLoginAt.HasValue)
+                        {
+                            <dt class="col-sm-3">Dernière connexion</dt>
+                            <dd class="col-sm-9">@_lastLoginAt.Value.ToString("dd/MM/yyyy HH:mm")</dd>
+                        }
+                        @if (!string.IsNullOrEmpty(_externalId))
+                        {
+                            <dt class="col-sm-3">ID externe</dt>
+                            <dd class="col-sm-9"><code class="text-muted small">@_externalId</code></dd>
+                        }
+                    </dl>
+                </SectionCard>
+            }
+        </AuditSection>
+    </DeclaredFormPage>
+</PermissionGate>
+
+@code {
+    [Parameter]
+    public Guid? Id { get; set; }
+
+    private DeclaredFormPage<UserDto>? _formRef;
+    private bool _isEditRoute;
+
+    private string _username = string.Empty;
+    private string _email = string.Empty;
+    private string _displayName = string.Empty;
+    private string _externalId = string.Empty;
+    private bool _isActive = true;
+    private DateTimeOffset? _lastLoginAt;
+    private bool _isDirty;
+    private bool _deactivating;
+
+    private string? _origDisplayName;
+
+    private HashSet<string> _assignedRoles = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _origAssignedRoles = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<RoleDto> _availableRoles = [];
+
+    private string? _usernameError;
+    private string? _emailError;
+    private string? _displayNameError;
+    private string? _externalIdError;
+    private string? _globalError;
+
+    private string PageTitleText => _displayName.Length > 0 ? _displayName : "Nouvel utilisateur";
+
+    private string BuildTitle(bool createMode) => createMode ? "Nouvel utilisateur" : _displayName;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _availableRoles = await IdentityQueries.GetRoles();
+    }
+
+    protected override void OnParametersSet()
+    {
+        _isEditRoute = Nav.Uri.EndsWith("/edit", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<UserDto?> LoadUserAsync(Guid id)
+    {
+        return await IdentityQueries.GetUserById(id);
+    }
+
+    private void MapFromDto(UserDto dto)
+    {
+        _username = dto.Username;
+        _email = dto.Email;
+        _displayName = dto.DisplayName;
+        _externalId = dto.ExternalId ?? string.Empty;
+        _isActive = dto.IsActive;
+        _lastLoginAt = dto.LastLoginAt;
+
+        _origDisplayName = dto.DisplayName;
+        _assignedRoles = new HashSet<string>(dto.Roles, StringComparer.OrdinalIgnoreCase);
+        _origAssignedRoles = new HashSet<string>(dto.Roles, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void ResetAllFields()
+    {
+        _username = string.Empty;
+        _email = string.Empty;
+        _displayName = string.Empty;
+        _externalId = string.Empty;
+        _isActive = true;
+        _lastLoginAt = null;
+        _origDisplayName = null;
+        _assignedRoles = new(StringComparer.OrdinalIgnoreCase);
+        _origAssignedRoles = new(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private bool ValidateForm()
+    {
+        var valid = true;
+
+        if (string.IsNullOrWhiteSpace(_username))
+        {
+            _usernameError = "L'identifiant est obligatoire.";
+            valid = false;
+        }
+
+        if (string.IsNullOrWhiteSpace(_email))
+        {
+            _emailError = "L'e-mail est obligatoire.";
+            valid = false;
+        }
+
+        if (string.IsNullOrWhiteSpace(_displayName))
+        {
+            _displayNameError = "Le nom affiché est obligatoire.";
+            valid = false;
+        }
+
+        if (Id is null && string.IsNullOrWhiteSpace(_externalId))
+        {
+            _externalIdError = "L'ID externe est obligatoire pour la création.";
+            valid = false;
+        }
+
+        return valid;
+    }
+
+    private void ClearAllErrors()
+    {
+        _usernameError = null;
+        _emailError = null;
+        _displayNameError = null;
+        _externalIdError = null;
+        _globalError = null;
+    }
+
+    private async Task<Guid> CreateAsync()
+    {
+        return await Sender.Send(new CreateUserCommand
+        {
+            Username = _username.Trim(),
+            Email = _email.Trim(),
+            DisplayName = _displayName.Trim(),
+            ExternalId = _externalId.Trim(),
+        });
+    }
+
+    private async Task UpdateAsync()
+    {
+        var toAssign = _assignedRoles.Except(_origAssignedRoles, StringComparer.OrdinalIgnoreCase);
+        var toRevoke = _origAssignedRoles.Except(_assignedRoles, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var roleName in toRevoke)
+        {
+            await Sender.Send(new RevokeUserRoleCommand { UserId = Id!.Value, RoleName = roleName });
+        }
+
+        foreach (var roleName in toAssign)
+        {
+            await Sender.Send(new AssignUserRoleCommand { UserId = Id!.Value, RoleName = roleName });
+        }
+
+        _origAssignedRoles = new HashSet<string>(_assignedRoles, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private async Task DeactivateAsync()
+    {
+        if (Id is null || _deactivating)
+        {
+            return;
+        }
+
+        _deactivating = true;
+        try
+        {
+            await Sender.Send(new DeactivateUserCommand { UserId = Id.Value });
+            ToastService.Show("Utilisateur désactivé.", Severity.Success);
+            if (_formRef is not null)
+            {
+                await _formRef.ReloadAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.Show($"Erreur : {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _deactivating = false;
+        }
+    }
+
+    private void ToggleRole(string roleName, bool assigned)
+    {
+        if (assigned)
+        {
+            _assignedRoles.Add(roleName);
+        }
+        else
+        {
+            _assignedRoles.Remove(roleName);
+        }
+
+        _isDirty = true;
+    }
+
+    private void MapError(string message)
+    {
+        var lower = message.ToLowerInvariant();
+        if (lower.Contains("username") || lower.Contains("identifiant"))
+        {
+            _usernameError = message;
+        }
+        else if (lower.Contains("email") || lower.Contains("e-mail"))
+        {
+            _emailError = message;
+        }
+        else if (lower.Contains("display") || lower.Contains("nom"))
+        {
+            _displayNameError = message;
+        }
+        else if (lower.Contains("external") || lower.Contains("externe"))
+        {
+            _externalIdError = message;
+        }
+        else
+        {
+            _globalError = message;
+        }
+    }
+
+    private void HandleUsernameInput(ChangeEventArgs e)
+    {
+        _username = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+        _usernameError = null;
+    }
+
+    private void HandleEmailInput(ChangeEventArgs e)
+    {
+        _email = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+        _emailError = null;
+    }
+
+    private void HandleDisplayNameInput(ChangeEventArgs e)
+    {
+        _displayName = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+        _displayNameError = null;
+    }
+
+    private void HandleExternalIdInput(ChangeEventArgs e)
+    {
+        _externalId = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+        _externalIdError = null;
+    }
+
+    private async Task HandleEntityChanged(EntityChangedEvent evt)
+    {
+        if (!_isDirty && _formRef is not null)
+        {
+            await _formRef.ReloadAsync();
+            ToastService.Show($"Mise à jour par {evt.ChangedBy} appliquée.", Severity.Info);
+            return;
+        }
+
+        UserDto? serverDto;
+        try
+        {
+            serverDto = await IdentityQueries.GetUserById(Id!.Value);
+        }
+        catch
+        {
+            ToastService.Show("Impossible de recharger les données.", Severity.Error);
+            return;
+        }
+
+        if (serverDto is null)
+        {
+            return;
+        }
+
+        var conflicts = new List<string>();
+
+        if (_displayName == _origDisplayName)
+        {
+            _displayName = serverDto.DisplayName;
+        }
+        else if (serverDto.DisplayName != _origDisplayName)
+        {
+            conflicts.Add("Nom affiché");
+        }
+
+        if (_assignedRoles.SetEquals(_origAssignedRoles))
+        {
+            _assignedRoles = new HashSet<string>(serverDto.Roles, StringComparer.OrdinalIgnoreCase);
+        }
+        else if (!new HashSet<string>(serverDto.Roles, StringComparer.OrdinalIgnoreCase).SetEquals(_origAssignedRoles))
+        {
+            conflicts.Add("Rôles");
+        }
+
+        _origDisplayName = serverDto.DisplayName;
+        _isActive = serverDto.IsActive;
+        _lastLoginAt = serverDto.LastLoginAt;
+        _origAssignedRoles = new HashSet<string>(serverDto.Roles, StringComparer.OrdinalIgnoreCase);
+
+        if (conflicts.Count > 0)
+        {
+            ToastService.Show($"Conflit détecté sur : {string.Join(", ", conflicts)}. Vos modifications sont conservées.", Severity.Warning);
+        }
+        else
+        {
+            _isDirty = _displayName != _origDisplayName
+                || !_assignedRoles.SetEquals(_origAssignedRoles);
+            ToastService.Show($"Mise à jour par {evt.ChangedBy} appliquée.", Severity.Info);
+        }
+    }
+}

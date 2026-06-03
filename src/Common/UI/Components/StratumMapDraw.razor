@@ -1,0 +1,201 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.Abstractions.Gis
+@using Stratum.Common.UI.Models
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@*
+    StratumMapDraw — map component with drawing tools (Leaflet.draw).
+
+    Extends the base Leaflet map with polygon/line/point/rectangle drawing.
+    Two-way binding with GeoJSON geometry via @bind-Geometry.
+
+    Usage:
+      <StratumMapDraw Center="new(48.39, -4.49)" Zoom="13"
+                      Mode="DrawMode.Polygon"
+                      @bind-Geometry="_geometry"
+                      OnDrawComplete="HandleDrawComplete"
+                      Height="500" />
+*@
+
+<div class="stratum-map-draw" data-testid="@(TestId ?? "stratum-map-draw")">
+    <div class="stratum-map-draw__toolbar">
+        <span class="stratum-map-draw__mode-label">
+            Mode : <strong>@Mode</strong>
+        </span>
+        <button type="button"
+                class="btn btn-sm btn-outline-secondary"
+                @onclick="ClearAsync"
+                data-testid="stratum-map-draw-clear"
+                aria-label="Effacer le dessin">
+            Effacer
+        </button>
+    </div>
+    <div id="@_mapId"
+         class="stratum-map-draw__container"
+         style="height: @(Height)px; width: 100%;"
+         role="application"
+         aria-label="@(AriaLabel ?? "Carte avec outils de dessin")"
+         tabindex="0">
+    </div>
+</div>
+
+@code {
+    private readonly string _mapId = $"stratum-map-draw-{Guid.NewGuid():N}"[..30];
+    private IJSObjectReference? _jsModule;
+    private DotNetObjectReference<StratumMapDraw>? _dotnetRef;
+    private bool _initialized;
+
+    // ── Parameters ────────────────────────────────────────────────
+
+    /// <summary>Map center coordinates.</summary>
+    [Parameter] public MapCenter Center { get; set; } = new(48.39, -4.49);
+
+    /// <summary>Initial zoom level.</summary>
+    [Parameter] public int Zoom { get; set; } = 13;
+
+    /// <summary>Tile layer URL template.</summary>
+    [Parameter] public string? TileLayerUrl { get; set; }
+
+    /// <summary>Tile layer attribution.</summary>
+    [Parameter] public string? Attribution { get; set; }
+
+    /// <summary>Map height in pixels.</summary>
+    [Parameter] public int Height { get; set; } = 500;
+
+    /// <summary>Drawing mode (Polygon, Line, Point, Rectangle).</summary>
+    [Parameter] public DrawMode Mode { get; set; } = DrawMode.Polygon;
+
+    /// <summary>Current drawn geometry as GeoJSON string (two-way binding).</summary>
+    [Parameter] public string? Geometry { get; set; }
+
+    /// <summary>Raised when Geometry changes.</summary>
+    [Parameter] public EventCallback<string?> GeometryChanged { get; set; }
+
+    /// <summary>Raised when a drawing is completed.</summary>
+    [Parameter] public EventCallback<string?> OnDrawComplete { get; set; }
+
+    /// <summary>Accessible label.</summary>
+    [Parameter] public string? AriaLabel { get; set; }
+
+    /// <summary>Test ID for E2E tests.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    // ── Lifecycle ─────────────────────────────────────────────────
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _jsModule = await JS.InvokeAsync<IJSObjectReference>(
+                    "import", "./_content/Stratum.Common.UI/js/leaflet-interop.js");
+            }
+            catch (Exception ex) when (ex is JSException
+                or JSDisconnectedException
+                or InvalidOperationException
+                or OperationCanceledException)
+            {
+                return;
+            }
+
+            _dotnetRef = DotNetObjectReference.Create(this);
+
+            try
+            {
+                await _jsModule.InvokeVoidAsync("mapInit",
+                    _mapId, Center.Latitude, Center.Longitude, Zoom,
+                    TileLayerUrl, Attribution);
+
+                await _jsModule.InvokeVoidAsync("mapEnableDraw",
+                    _mapId, Mode.ToString().ToLowerInvariant(), Geometry, _dotnetRef);
+
+                _lastMode = Mode;
+                _initialized = true;
+            }
+            catch (Exception ex) when (ex is JSException
+                or JSDisconnectedException
+                or InvalidOperationException
+                or OperationCanceledException)
+            {
+            }
+        }
+    }
+
+    // ── Mode change tracking ─────────────────────────────────────
+
+    private DrawMode _lastMode;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!_initialized || _jsModule is null) return;
+
+        try
+        {
+            if (Mode != _lastMode)
+            {
+                _lastMode = Mode;
+                await _jsModule.InvokeVoidAsync("mapEnableDraw",
+                    _mapId, Mode.ToString().ToLowerInvariant(), Geometry, _dotnetRef);
+            }
+        }
+        catch (Exception ex) when (ex is JSException
+            or JSDisconnectedException
+            or InvalidOperationException
+            or OperationCanceledException)
+        {
+            // Expected during circuit disconnect or prerendering.
+        }
+    }
+
+    // ── JS callbacks ──────────────────────────────────────────────
+
+    [JSInvokable]
+    public async Task OnDrawCompleteJs(string geoJson)
+    {
+        var value = string.IsNullOrWhiteSpace(geoJson) ? null : geoJson;
+        Geometry = value;
+        await GeometryChanged.InvokeAsync(value);
+        if (OnDrawComplete.HasDelegate)
+        {
+            await OnDrawComplete.InvokeAsync(value);
+        }
+        StateHasChanged();
+    }
+
+    // ── Public methods ────────────────────────────────────────────
+
+    private async Task ClearAsync()
+    {
+        if (_jsModule is null || !_initialized) return;
+        await _jsModule.InvokeVoidAsync("mapClearDrawn", _mapId, _dotnetRef);
+    }
+
+    // ── Dispose ───────────────────────────────────────────────────
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_jsModule is not null)
+            {
+                if (_initialized)
+                {
+                    await _jsModule.InvokeVoidAsync("mapDisableDraw", _mapId);
+                    await _jsModule.InvokeVoidAsync("mapDispose", _mapId);
+                }
+                await _jsModule.DisposeAsync();
+            }
+        }
+        catch (Exception ex) when (ex is JSException
+            or JSDisconnectedException
+            or InvalidOperationException
+            or OperationCanceledException)
+        {
+            // Expected during circuit disconnect or prerendering.
+        }
+
+        _dotnetRef?.Dispose();
+    }
+}

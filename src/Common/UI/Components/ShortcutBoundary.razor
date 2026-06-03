@@ -1,0 +1,33 @@
+@namespace Stratum.Common.UI.Components
+
+@*
+ * ShortcutBoundary — marks a region where keyboard shortcuts must NOT be intercepted.
+ *
+ * Usage (wrap a text input or an area with free-text entry):
+ *   <ShortcutBoundary>
+ *       <textarea @bind="notes" />
+ *   </ShortcutBoundary>
+ *
+ * How it works:
+ *   The JS shortcut interceptor (stratumUI.shortcuts) already guards INPUT, TEXTAREA,
+ *   and SELECT elements from shortcut capture (except Ctrl+/Alt+ combos). ShortcutBoundary
+ *   adds the `data-shortcut-boundary` attribute to its container <div>, which the JS layer
+ *   uses as an additional guard to skip interception for contentEditable areas or custom
+ *   rich-text editors that are not covered by the tag-name check.
+ *
+ * Ref: docs/ui-foundations.md §4, orchestration/manifest.yaml item P02.
+ *@
+
+<div data-shortcut-boundary="true" class="@Class">
+    @ChildContent
+</div>
+
+@code {
+    /// <summary>Content rendered inside this boundary. Shortcuts are not intercepted here.</summary>
+    [Parameter, EditorRequired]
+    public RenderFragment ChildContent { get; set; } = default!;
+
+    /// <summary>Optional additional CSS classes for the wrapper div.</summary>
+    [Parameter]
+    public string? Class { get; set; }
+}

@@ -1,0 +1,418 @@
+/* StratumDataGrid — scoped styles using Stratum design tokens */
+
+.stratum-datagrid-wrapper {
+    position: relative;
+    width: 100%;
+}
+
+/* Flush controls strip — tied directly to the column-filter row below.
+   No card border/radius; that card look was designed for an inset page,
+   and the list page is now edge-to-edge. */
+.stratum-datagrid__toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    flex-wrap: wrap;
+    margin-bottom: 0;
+    padding: var(--spacing-2) var(--spacing-3);
+    border: 0;
+    border-radius: 0;
+    background: var(--color-surface-container-low);
+    box-shadow: none;
+}
+
+.stratum-datagrid__toolbar-start {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    flex: 1;
+    min-width: 0;
+}
+
+.stratum-datagrid__toolbar-end {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    margin-left: auto;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+
+@media (max-width: 767.98px) {
+    .stratum-datagrid__toolbar-end {
+        margin-left: 0;
+    }
+}
+
+
+/* Empty state */
+.stratum-datagrid__empty {
+    padding: var(--spacing-8) var(--spacing-4);
+    text-align: center;
+    color: var(--color-text-muted);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-surface);
+}
+
+.stratum-datagrid__empty-text {
+    margin: 0;
+    font-size: var(--font-size-sm);
+}
+
+/* Loading skeleton */
+.stratum-datagrid__loading {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.stratum-datagrid__skeleton {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.stratum-datagrid__skeleton-row td {
+    padding: var(--spacing-3) var(--spacing-3);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.stratum-datagrid__skeleton-cell {
+    display: block;
+    height: 1rem;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(90deg,
+        var(--color-neutral-100) 25%,
+        var(--color-neutral-200) 50%,
+        var(--color-neutral-100) 75%);
+    background-size: 200% 100%;
+    animation: stratum-skeleton-shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes stratum-skeleton-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* Radzen DataGrid overrides within this component scope */
+::deep .rz-datatable {
+    border-radius: var(--radius-md);
+    overflow: visible;
+}
+
+/* Header — strong visual separation from data rows */
+::deep .rz-datatable-thead > tr > th {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--color-neutral-600);
+    background: #f8fafc !important;
+    border-bottom: 1px solid #e2e8f0 !important;
+    padding: 0.5rem 0.75rem !important;
+}
+
+/* ── Compact density overrides (WPF-like) ────────────────────────── */
+
+:global([data-density="compact"]) ::deep .rz-datatable-thead > tr > th {
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 0.625rem;
+    font-weight: 600;
+    padding: 0 0.25rem !important;
+    height: 1.25rem;
+    line-height: 1.25rem;
+}
+
+:global([data-density="compact"]) ::deep .rz-datatable-tbody > tr > td {
+    padding: 0 0.25rem !important;
+    font-size: 0.6875rem;
+    line-height: 1.15;
+    height: 1.125rem;
+}
+
+:global([data-density="compact"]) ::deep .rz-datatable-tbody > tr > td:nth-child(2),
+:global([data-density="compact"]) ::deep .rz-datatable-tbody > tr > td:nth-child(3) {
+    font-weight: 500;
+}
+
+/* Toolbar in compact: keep the fused look (shared surface + zero bottom
+   margin) introduced in the base rule, only tighten vertical padding. */
+:global([data-density="compact"]) .stratum-datagrid__toolbar {
+    padding: 0.125rem var(--spacing-3);
+    gap: 0.125rem;
+    margin-bottom: 0;
+    border: 0;
+    border-radius: 0;
+    background: var(--color-surface-container-low);
+    box-shadow: none;
+}
+
+/* Wrapper — zero margin */
+:global([data-density="compact"]) .stratum-datagrid-wrapper {
+    margin: 0;
+}
+
+/* Row actions wrapper — minimal gap */
+:global([data-density="compact"]) .stratum-datagrid__row-actions {
+    gap: 0;
+}
+
+/* Drag handle — tiny */
+:global([data-density="compact"]) .stratum-datagrid__drag-handle {
+    width: 14px;
+    height: 14px;
+    font-size: 0.625rem;
+}
+
+/* Tree toggle — tiny */
+:global([data-density="compact"]) .stratum-datagrid__tree-toggle {
+    width: 14px;
+    height: 14px;
+    font-size: 0.5rem;
+}
+
+:global([data-density="compact"]) .stratum-datagrid__tree-spacer {
+    width: 14px;
+    height: 14px;
+}
+
+/* Empty state — tighter */
+:global([data-density="compact"]) .stratum-datagrid__empty {
+    padding: 0.25rem;
+}
+
+/* Loading skeleton — tighter */
+:global([data-density="compact"]) .stratum-datagrid__skeleton-row td {
+    padding: 0 0.25rem;
+}
+
+:global([data-density="compact"]) .stratum-datagrid__skeleton-cell {
+    height: 0.625rem;
+}
+
+/* Group header — tighter */
+:global([data-density="compact"]) ::deep .rz-group-header td {
+    padding: 0 0.25rem;
+    font-size: 0.6875rem;
+}
+
+/* Aggregate footer — tighter */
+:global([data-density="compact"]) ::deep .rz-datatable-tfoot > tr > td {
+    padding: 0 0.25rem;
+    font-size: 0.625rem;
+}
+
+/* Compact density — force tight rows */
+::deep .rz-datatable-tbody > tr > td {
+    padding: 0.375rem 0.75rem !important;
+    font-size: var(--font-size-sm);
+}
+
+/* First two data columns (Code, Nom) — semi-bold for visual hierarchy.
+ * nth-child(2) & (3) because checkbox column is (1) in multi-select mode. */
+::deep .rz-datatable-tbody > tr > td:nth-child(2),
+::deep .rz-datatable-tbody > tr > td:nth-child(3) {
+    font-weight: 500;
+    color: var(--color-neutral-800);
+}
+
+/* Row hover — strong tonal shift */
+::deep .rz-datatable-tbody > tr {
+    transition: background-color 0.12s ease;
+    cursor: pointer;
+}
+
+/* Hover background is set via --rz-grid-hover-background-color in radzen-overrides.css */
+
+/* Focused row highlight (Radzen native) */
+::deep .rz-datatable-tbody > tr.rz-state-highlight {
+    outline: 2px solid var(--color-primary-500);
+    outline-offset: -2px;
+}
+
+/* ── DevExpress-grade selection feedback ────────────���─────────────
+ * row--active  = keyboard focus indicator (one row at a time)
+ * row--selected = in the selection set (zero or more rows)
+ * Both states can co-exist on the same row.
+ */
+
+::deep .rz-datatable-tbody > tr.row--active {
+    border-left: 3px solid var(--color-primary-500);
+    background-color: color-mix(in srgb, var(--color-primary-100) 25%, transparent);
+}
+
+::deep .rz-datatable-tbody > tr.row--selected {
+    background-color: color-mix(in srgb, var(--color-primary-100) 40%, transparent);
+}
+
+::deep .rz-datatable-tbody > tr.row--active.row--selected {
+    border-left: 3px solid var(--color-primary-500);
+    background-color: color-mix(in srgb, var(--color-primary-100) 55%, transparent);
+}
+
+/* Compact density — thinner active indicator */
+:global([data-density="compact"]) ::deep .rz-datatable-tbody > tr.row--active {
+    border-left-width: 2px;
+}
+
+:global([data-density="compact"]) ::deep .rz-datatable-tbody > tr.row--active.row--selected {
+    border-left-width: 2px;
+}
+
+/* Kebab menu — styled in StratumRowActionMenu.razor.css (scoped). */
+
+/* Inline edit buttons */
+.stratum-datagrid__edit-btn,
+.stratum-datagrid__save-btn,
+.stratum-datagrid__cancel-btn {
+    font-size: var(--font-size-xs);
+    padding: var(--spacing-1) var(--spacing-2);
+}
+
+/* Row in edit mode */
+::deep .rz-datatable-tbody > tr.rz-datatable-edit {
+    background: var(--color-bg-surface-alt, var(--color-neutral-50));
+    outline: 1px solid var(--color-primary-300);
+    outline-offset: -1px;
+}
+
+/* Group header rows */
+::deep .rz-group-header td {
+    background: var(--color-neutral-50, #f8f9fa);
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    padding: var(--spacing-2) var(--spacing-3);
+}
+
+::deep .rz-group-header td:hover {
+    background: var(--color-neutral-100, #e9ecef);
+}
+
+/* Group toggle icon */
+::deep .rz-group-toggler {
+    color: var(--color-text-muted);
+    margin-right: var(--spacing-2);
+}
+
+/* Aggregate footer */
+::deep .stratum-datagrid__aggregate {
+    font-weight: 600;
+    font-size: var(--font-size-xs);
+    color: var(--color-text-secondary, var(--color-neutral-600));
+    white-space: nowrap;
+}
+
+::deep .rz-datatable-tfoot > tr > td {
+    background: var(--color-neutral-50, #f8f9fa);
+    border-top: 2px solid var(--color-border);
+    padding: var(--spacing-2) var(--spacing-3);
+}
+
+/* Row action column (kebab menu + quick actions) */
+::deep .stratum-datagrid__action-cell {
+    padding: 0 !important;
+    vertical-align: middle;
+    text-align: center !important;
+}
+
+.stratum-datagrid__row-actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    position: relative;
+    height: 100%;
+}
+
+/* Quick-action styles are in components.css (global)
+ * because Blazor scoped [b-xxxxx] attributes create specificity
+ * conflicts with global hover rules inside Radzen template slots. */
+
+/* ── DnD Row Reorder ──────────────────────────────────────────────── */
+
+.stratum-datagrid__drag-handle {
+    cursor: grab;
+    user-select: none;
+    font-size: var(--font-size-sm);
+    color: var(--color-text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: var(--radius-sm);
+    transition: background-color 0.15s;
+}
+
+.stratum-datagrid__drag-handle:hover {
+    background: var(--color-neutral-100);
+    color: var(--color-text-primary);
+}
+
+.stratum-datagrid__drag-handle:active {
+    cursor: grabbing;
+}
+
+::deep .stratum-datagrid__reorder-cell {
+    padding: 0 var(--spacing-1) !important;
+    vertical-align: middle;
+}
+
+::deep .stratum-datagrid__row--dragging {
+    opacity: 0.4;
+}
+
+::deep .stratum-datagrid__drop-indicator > td {
+    height: 3px;
+    padding: 0 !important;
+    background: var(--color-primary-500);
+    border: none;
+}
+
+/* ── Tree-Grid ────────────────────────────────────────────────────── */
+
+::deep .stratum-datagrid__tree-cell {
+    padding: 0 !important;
+    vertical-align: middle;
+}
+
+.stratum-datagrid__tree-toggle {
+    background: none;
+    border: none;
+    padding: var(--spacing-1);
+    cursor: pointer;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-xs);
+    line-height: 1;
+    border-radius: var(--radius-sm);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    transition: background-color 0.15s, color 0.15s;
+}
+
+.stratum-datagrid__tree-toggle:hover {
+    background: var(--color-neutral-100);
+    color: var(--color-text-primary);
+}
+
+.stratum-datagrid__tree-spacer {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+}
+
+/* ── Inline column filter bar ──────────────────────────────────────
+   Fused with the toolbar above: shared background, a subtle 1px
+   divider on top, and a bottom border to separate from the data rows. */
+/* GFI09 — cell right-click wrapper: block + min-height so empty cells are right-clickable */
+::deep .stratum-datagrid__cell {
+    display: block;
+    min-height: 1em;
+    width: 100%;
+}
+

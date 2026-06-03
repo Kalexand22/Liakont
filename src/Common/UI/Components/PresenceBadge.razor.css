@@ -1,0 +1,23 @@
+.presence-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-1, 4px);
+    padding: var(--spacing-1, 4px) var(--spacing-3, 12px);
+    border-radius: var(--radius-full, 9999px);
+    background-color: var(--color-info-50, #f0f9ff);
+    color: var(--color-info-700, #0369a1);
+    border: 1px solid var(--color-info-200, #bae6fd);
+    font-size: var(--font-size-sm, 0.875rem);
+    font-weight: var(--font-weight-medium, 500);
+    line-height: 1;
+    cursor: default;
+    white-space: nowrap;
+}
+
+.presence-badge__icon {
+    font-size: 0.85em;
+}
+
+.presence-badge__text {
+    /* inherits from parent */
+}

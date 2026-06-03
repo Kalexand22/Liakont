@@ -1,0 +1,210 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Models
+
+@if (HasContent)
+{
+    <div class="stratum-action-toolbar"
+         role="toolbar"
+         aria-label="@AriaLabel"
+         data-testid="@(TestId ?? "stratum-action-toolbar")">
+        @if (Actions is not null)
+        {
+            @foreach (var action in Actions)
+            {
+                var enabled = action.EvaluateEnabled(SelectedCount);
+                <button type="button"
+                        class="@GetActionButtonClass(action)"
+                        disabled="@(!enabled)"
+                        aria-disabled="@(!enabled ? "true" : null)"
+                        data-testid="@($"action-{action.Id}")"
+                        @onclick="() => HandleActionClickAsync(action)">
+                    @if (action.Icon is not null)
+                    {
+                        <StratumIcon Name="@action.Icon" Class="stratum-action-toolbar__button-icon" />
+                    }
+                    <span class="stratum-action-toolbar__button-label">@action.Label</span>
+                </button>
+            }
+        }
+
+        @if (ActionGroups is not null)
+        {
+            var groupIndex = 0;
+            @foreach (var group in ActionGroups)
+            {
+                var idx = groupIndex;
+                var isOpen = _openGroupIndex == idx;
+
+                <div class="stratum-action-toolbar__group">
+                    <button type="button"
+                            class="stratum-action-toolbar__button stratum-action-toolbar__button--secondary stratum-action-toolbar__button--group @(isOpen ? "is-open" : null)"
+                            aria-expanded="@(isOpen ? "true" : "false")"
+                            aria-haspopup="true"
+                            data-testid="@($"action-group-{idx}")"
+                            @onclick="() => ToggleGroup(idx)"
+                            @onclick:stopPropagation="true">
+                        @if (group.Icon is not null)
+                        {
+                            <StratumIcon Name="@group.Icon" Class="stratum-action-toolbar__button-icon" />
+                        }
+                        <span class="stratum-action-toolbar__button-label">@group.Label</span>
+                        <StratumIcon Name="expand_more"
+                                     Class="@($"stratum-action-toolbar__chevron{(isOpen ? " is-open" : "")}")" />
+                    </button>
+
+                    @if (isOpen)
+                    {
+                        <div class="stratum-action-toolbar__backdrop"
+                             @onclick="CloseGroup"
+                             @onclick:stopPropagation="true"></div>
+                        <ul class="stratum-action-toolbar__menu" role="menu">
+                            @foreach (var action in group.Actions)
+                            {
+                                var enabled = action.EvaluateEnabled(SelectedCount);
+                                <li role="none">
+                                    <button type="button"
+                                            class="stratum-action-toolbar__menu-item"
+                                            role="menuitem"
+                                            disabled="@(!enabled)"
+                                            aria-disabled="@(!enabled ? "true" : null)"
+                                            data-testid="@($"action-{action.Id}")"
+                                            @onclick="() => HandleGroupActionClickAsync(action)">
+                                        @if (action.Icon is not null)
+                                        {
+                                            <StratumIcon Name="@action.Icon" Class="stratum-action-toolbar__menu-icon" />
+                                        }
+                                        else
+                                        {
+                                            <span class="stratum-action-toolbar__menu-icon-spacer" aria-hidden="true"></span>
+                                        }
+                                        <span class="stratum-action-toolbar__menu-label">@action.Label</span>
+                                    </button>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+
+                groupIndex++;
+            }
+        }
+    </div>
+}
+
+@if (_confirmAction is not null)
+{
+    <StratumDialog Title="Confirmation"
+                   @bind-Visible="_showConfirmDialog"
+                   OnClose="HandleConfirmCancel"
+                   Width="400px">
+        <ChildContent>
+            <p>Voulez-vous vraiment exécuter l'action « @_confirmAction.Label » ?</p>
+        </ChildContent>
+        <Actions>
+            <StratumButton Text="Confirmer"
+                           Variant="ButtonVariant.Danger"
+                           OnClick="HandleConfirmOkClickAsync"
+                           TestId="stratum-action-toolbar-confirm-ok" />
+            <StratumButton Text="Annuler"
+                           Variant="ButtonVariant.Secondary"
+                           Outline="true"
+                           OnClick="HandleConfirmCancelAsync"
+                           TestId="stratum-action-toolbar-confirm-cancel" />
+        </Actions>
+    </StratumDialog>
+}
+
+@code {
+    [Parameter]
+    public string? TestId { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<GridAction>? Actions { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<GridActionGroup>? ActionGroups { get; set; }
+
+    [Parameter]
+    public int SelectedCount { get; set; }
+
+    [Parameter]
+    public string AriaLabel { get; set; } = "Actions";
+
+    private bool _showConfirmDialog;
+    private GridAction? _confirmAction;
+    private int? _openGroupIndex;
+
+    private bool HasContent =>
+        (Actions is { Count: > 0 }) || (ActionGroups is { Count: > 0 });
+
+    private static string GetActionButtonClass(GridAction action) =>
+        action.IsPrimary
+            ? "stratum-action-toolbar__button stratum-action-toolbar__button--primary"
+            : "stratum-action-toolbar__button stratum-action-toolbar__button--secondary";
+
+    private void ToggleGroup(int index)
+    {
+        _openGroupIndex = _openGroupIndex == index ? null : index;
+    }
+
+    private void CloseGroup()
+    {
+        _openGroupIndex = null;
+    }
+
+    private async Task HandleGroupActionClickAsync(GridAction action)
+    {
+        _openGroupIndex = null;
+        await HandleActionClickAsync(action);
+    }
+
+    private async Task HandleActionClickAsync(GridAction action)
+    {
+        if (!action.EvaluateEnabled(SelectedCount))
+        {
+            return;
+        }
+
+        if (action.RequiresConfirmation)
+        {
+            _confirmAction = action;
+            _showConfirmDialog = true;
+            return;
+        }
+
+        if (action.Callback is not null)
+        {
+            await action.Callback();
+        }
+    }
+
+    private async Task HandleConfirmOkAsync()
+    {
+        var action = _confirmAction;
+        _showConfirmDialog = false;
+        _confirmAction = null;
+
+        if (action?.Callback is not null)
+        {
+            await action.Callback();
+        }
+    }
+
+    private Task HandleConfirmOkClickAsync(MouseEventArgs _)
+    {
+        return HandleConfirmOkAsync();
+    }
+
+    private void HandleConfirmCancel()
+    {
+        _showConfirmDialog = false;
+        _confirmAction = null;
+    }
+
+    private Task HandleConfirmCancelAsync(MouseEventArgs _)
+    {
+        HandleConfirmCancel();
+        return Task.CompletedTask;
+    }
+}

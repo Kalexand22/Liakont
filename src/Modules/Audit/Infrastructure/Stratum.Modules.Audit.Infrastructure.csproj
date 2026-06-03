@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Stratum.Modules.Audit.Domain.csproj" />
+    <ProjectReference Include="../Application/Stratum.Modules.Audit.Application.csproj" />
+    <ProjectReference Include="../Contracts/Stratum.Modules.Audit.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

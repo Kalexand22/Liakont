@@ -1,0 +1,108 @@
+@namespace Stratum.Common.UI.Components.Internal
+
+@*
+ * FormCanvasField — renders a single field card in the FormBuilderCanvas (UIE02).
+ * Internal component — shows field label, type badge, reorder/remove buttons.
+ *@
+
+<div class="form-canvas-field @(_fieldCss)"
+     data-testid="@($"{TestIdPrefix}-field-{SectionIndex}-{FieldIndex}")"
+     tabindex="0"
+     role="button"
+     aria-label="@($"Champ {Field.Label}")"
+     @onclick="HandleClick"
+     @onclick:stopPropagation>
+
+    <div class="form-canvas-field__info">
+        <span class="form-canvas-field__type-badge"
+              data-testid="@($"{TestIdPrefix}-field-type-{SectionIndex}-{FieldIndex}")">
+            @_typeLabel
+        </span>
+        <span class="form-canvas-field__label"
+              data-testid="@($"{TestIdPrefix}-field-label-{SectionIndex}-{FieldIndex}")">
+            @Field.Label
+        </span>
+        @if (Field.IsRequired)
+        {
+            <span class="form-canvas-field__required" aria-label="Obligatoire">*</span>
+        }
+        @if (!string.IsNullOrEmpty(Field.VisibilityConditionJson))
+        {
+            <span class="form-canvas-field__condition-indicator" title="Condition de visibilité">⚡</span>
+        }
+    </div>
+
+    <div class="form-canvas-field__actions">
+        <button type="button"
+                class="form-canvas-field__action-btn"
+                title="Monter"
+                disabled="@IsFirst"
+                data-testid="@($"{TestIdPrefix}-field-up-{SectionIndex}-{FieldIndex}")"
+                @onclick="HandleMoveUp"
+                @onclick:stopPropagation>
+            ↑
+        </button>
+        <button type="button"
+                class="form-canvas-field__action-btn"
+                title="Descendre"
+                disabled="@IsLast"
+                data-testid="@($"{TestIdPrefix}-field-down-{SectionIndex}-{FieldIndex}")"
+                @onclick="HandleMoveDown"
+                @onclick:stopPropagation>
+            ↓
+        </button>
+        <button type="button"
+                class="form-canvas-field__action-btn form-canvas-field__action-btn--danger"
+                title="Supprimer"
+                data-testid="@($"{TestIdPrefix}-field-remove-{SectionIndex}-{FieldIndex}")"
+                @onclick="HandleRemove"
+                @onclick:stopPropagation>
+            ×
+        </button>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public FormBuilderFieldState Field { get; set; } = null!;
+
+    [Parameter]
+    public int FieldIndex { get; set; }
+
+    [Parameter]
+    public int SectionIndex { get; set; }
+
+    [Parameter]
+    public bool IsSelected { get; set; }
+
+    [Parameter]
+    public bool IsFirst { get; set; }
+
+    [Parameter]
+    public bool IsLast { get; set; }
+
+    [Parameter]
+    public string TestIdPrefix { get; set; } = "form-builder";
+
+    [Parameter]
+    public EventCallback OnClick { get; set; }
+
+    [Parameter]
+    public EventCallback OnMoveUp { get; set; }
+
+    [Parameter]
+    public EventCallback OnMoveDown { get; set; }
+
+    [Parameter]
+    public EventCallback OnRemove { get; set; }
+
+    private string _fieldCss => IsSelected ? "form-canvas-field--selected" : "";
+
+    private string _typeLabel => FormBuilderCanvas.FieldTypeLabels
+        .TryGetValue(Field.FieldType, out var lbl) ? lbl : Field.FieldType;
+
+    private async Task HandleClick() => await OnClick.InvokeAsync();
+    private async Task HandleMoveUp() => await OnMoveUp.InvokeAsync();
+    private async Task HandleMoveDown() => await OnMoveDown.InvokeAsync();
+    private async Task HandleRemove() => await OnRemove.InvokeAsync();
+}

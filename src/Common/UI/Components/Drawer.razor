@@ -1,0 +1,322 @@
+@namespace Stratum.Common.UI.Components
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@* Drawer — side panel that slides in from any edge.
+ *
+ * Supports two modes:
+ * - Overlay: backdrop + z-index stacking + scroll lock (default)
+ * - Push: shifts page content via margin (no backdrop)
+ *
+ * Usage:
+ *   <Drawer @bind-IsOpen="_drawerOpen" Placement="DrawerPlacement.Right">
+ *       <HeaderContent><h3>Details</h3></HeaderContent>
+ *       <ChildContent>
+ *           <p>Drawer content here</p>
+ *       </ChildContent>
+ *   </Drawer>
+ *@
+
+@if (IsOpen)
+{
+    @if (Mode == DrawerMode.Overlay && ShowBackdrop)
+    {
+        <div class="stratum-drawer-backdrop"
+             style="z-index: @(_zIndex - 1)"
+             @onclick="HandleBackdropClick"
+             aria-hidden="true"
+             data-testid="@(TestId is not null ? $"{TestId}-backdrop" : "stratum-drawer-backdrop")"></div>
+    }
+
+    <div class="@DrawerCssClass"
+         id="@_drawerId"
+         data-testid="@(TestId ?? "stratum-drawer")"
+         role="@(Mode == DrawerMode.Overlay ? "dialog" : "complementary")"
+         aria-modal="@(Mode == DrawerMode.Overlay ? "true" : null)"
+         aria-labelledby="@_titleId"
+         style="@DrawerStyle"
+         @onkeydown="HandleKeyDown"
+         tabindex="-1"
+         @ref="_drawerRef">
+
+        @if (HeaderContent is not null)
+        {
+            <div class="stratum-drawer__header">
+                <div id="@_titleId" class="stratum-drawer__header-content">@HeaderContent</div>
+                <button type="button"
+                        class="stratum-drawer__close"
+                        @onclick="CloseAsync"
+                        aria-label="Fermer"
+                        data-testid="@(TestId is not null ? $"{TestId}-close" : "stratum-drawer-close")">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            </div>
+        }
+
+        <div class="stratum-drawer__body">
+            @ChildContent
+        </div>
+    </div>
+}
+
+@code {
+    // ── Parameters ────────────────────────────────────────────────
+
+    /// <summary>Optional test identifier.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Whether the drawer is open (two-way binding).</summary>
+    [Parameter]
+    public bool IsOpen { get; set; }
+
+    /// <summary>Raised when IsOpen changes.</summary>
+    [Parameter]
+    public EventCallback<bool> IsOpenChanged { get; set; }
+
+    /// <summary>Which edge the drawer slides from (default Right).</summary>
+    [Parameter]
+    public DrawerPlacement Placement { get; set; } = DrawerPlacement.Right;
+
+    /// <summary>Overlay (with backdrop) or Push (shifts content). Default Overlay.</summary>
+    [Parameter]
+    public DrawerMode Mode { get; set; } = DrawerMode.Overlay;
+
+    /// <summary>Width (Left/Right) or height (Top/Bottom). Default "400px".</summary>
+    [Parameter]
+    public string Size { get; set; } = "400px";
+
+    /// <summary>CSS selector of the element to push in Push mode. Default ".stratum-push-container".</summary>
+    [Parameter]
+    public string PushContainerSelector { get; set; } = ".stratum-push-container";
+
+    /// <summary>Header content (rendered with a close button).</summary>
+    [Parameter]
+    public RenderFragment? HeaderContent { get; set; }
+
+    /// <summary>Body content.</summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Close on backdrop click (Overlay mode only, default true).</summary>
+    [Parameter]
+    public bool CloseOnBackdrop { get; set; } = true;
+
+    /// <summary>Close on Escape key (default true).</summary>
+    [Parameter]
+    public bool CloseOnEscape { get; set; } = true;
+
+    /// <summary>Show backdrop in Overlay mode (default true).</summary>
+    [Parameter]
+    public bool ShowBackdrop { get; set; } = true;
+
+    /// <summary>Additional CSS class(es).</summary>
+    [Parameter]
+    public string? CssClass { get; set; }
+
+    // ── Internal state ──────────────────────────────────────────
+
+    private readonly string _drawerId = $"stratum-drawer-{Guid.NewGuid():N}"[..28];
+    private readonly string _titleId = $"stratum-drawer-title-{Guid.NewGuid():N}"[..34];
+    private ElementReference _drawerRef;
+    private bool _wasOpen;
+    private bool _focusTrapRegistered;
+    private bool _scrollLocked;
+    private bool _pushApplied;
+    private int _zIndex = 1050;
+    private DrawerMode _openedInMode;
+
+    // ── Computed CSS ──────────────────────────────────────────────
+
+    private string DrawerCssClass
+    {
+        get
+        {
+            var placement = Placement.ToString().ToLowerInvariant();
+            var cls = $"stratum-drawer stratum-drawer--{placement}";
+            if (!string.IsNullOrWhiteSpace(CssClass))
+                cls += $" {CssClass}";
+            return cls;
+        }
+    }
+
+    private string DrawerStyle
+    {
+        get
+        {
+            var parts = new System.Collections.Generic.List<string>();
+            parts.Add($"z-index: {_zIndex}");
+
+            // Width for left/right, height for top/bottom
+            if (Placement is DrawerPlacement.Left or DrawerPlacement.Right)
+                parts.Add($"width: {Size}");
+            else
+                parts.Add($"height: {Size}");
+
+            return string.Join("; ", parts);
+        }
+    }
+
+    // ── Lifecycle ───────────────────────────────────────────────
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (IsOpen && !_wasOpen)
+        {
+            _wasOpen = true;
+            _openedInMode = Mode;
+            try
+            {
+                _zIndex = await JS.InvokeAsync<int>("stratumUI.overlay.acquireZIndex");
+
+                if (_openedInMode == DrawerMode.Overlay)
+                {
+                    await JS.InvokeVoidAsync("stratumUI.overlay.acquireScrollLock");
+                    _scrollLocked = true;
+                }
+                else
+                {
+                    // Push mode — apply margin to container
+                    var (property, value) = GetPushStyle();
+                    await JS.InvokeVoidAsync("stratumUI.overlay.applyPush", PushContainerSelector, property, value);
+                    _pushApplied = true;
+                }
+
+                await JS.InvokeVoidAsync("stratumUI.saveFocus");
+                await JS.InvokeVoidAsync("stratumUI.registerDialogFocusTrap", _drawerId);
+                _focusTrapRegistered = true;
+
+                // Re-render with the acquired z-index so the style attribute updates.
+                StateHasChanged();
+
+                await _drawerRef.FocusAsync();
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Non-critical.
+            }
+        }
+        else if (!IsOpen && _wasOpen)
+        {
+            _wasOpen = false;
+            await CleanupOverlayAsync();
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.restoreFocus");
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Non-critical.
+            }
+        }
+    }
+
+    // ── Event handling ──────────────────────────────────────────
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (CloseOnEscape && e.Key == "Escape")
+        {
+            await CloseAsync();
+        }
+    }
+
+    private async Task HandleBackdropClick()
+    {
+        if (CloseOnBackdrop)
+        {
+            await CloseAsync();
+        }
+    }
+
+    private async Task CloseAsync()
+    {
+        await IsOpenChanged.InvokeAsync(false);
+    }
+
+    // ── Push mode helpers ────────────────────────────────────────
+
+    private (string property, string value) GetPushStyle()
+    {
+        return Placement switch
+        {
+            DrawerPlacement.Left   => ("margin-left", Size),
+            DrawerPlacement.Right  => ("margin-right", Size),
+            DrawerPlacement.Top    => ("margin-top", Size),
+            DrawerPlacement.Bottom => ("margin-bottom", Size),
+            _ => ("margin-right", Size),
+        };
+    }
+
+    // ── Cleanup ─────────────────────────────────────────────────
+
+    private async Task CleanupOverlayAsync()
+    {
+        if (_focusTrapRegistered)
+        {
+            _focusTrapRegistered = false;
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.unregisterDialogFocusTrap", _drawerId);
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Non-critical.
+            }
+        }
+
+        if (_scrollLocked)
+        {
+            _scrollLocked = false;
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.overlay.releaseScrollLock");
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Non-critical.
+            }
+        }
+
+        if (_pushApplied)
+        {
+            _pushApplied = false;
+            try
+            {
+                var (property, _) = GetPushStyle();
+                await JS.InvokeVoidAsync("stratumUI.overlay.removePush", PushContainerSelector, property);
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Non-critical.
+            }
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("stratumUI.overlay.releaseZIndex");
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+        {
+            // Non-critical.
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_wasOpen)
+        {
+            await CleanupOverlayAsync();
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.restoreFocus");
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Non-critical.
+            }
+        }
+    }
+}

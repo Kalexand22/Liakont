@@ -1,0 +1,270 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@*
+ * ResourceAllocationTable — UIC06
+ *
+ * Compact table listing resource allocations (spaces + equipment) for a
+ * reservation request, with status chips (CONFLICT / VALIDATED / PROVISIONAL),
+ * TTL expiry, and a contextual kebab menu per row.
+ *
+ * Spec (orchestration/items/UIC.yaml — UIC06):
+ *   - Ghost borders 15% opacity, tabular-nums, row height 28px (compact)
+ *   - Columns: Resource, Type, Quantity, Period, Status, TTL, Actions
+ *   - Status chip + icon alert if conflict
+ *   - Menu kebab (more_vert): Edit, Release, Convert to reserved
+ *
+ * Encapsulation (R1): No Radzen or domain types in public API.
+ * Consumers project into AllocationItem (Common.UI.Models).
+ *@
+
+<div class="rat-wrapper" data-testid="@(TestId ?? "resource-allocation-table")">
+    @if (Title is not null || ShowAddButton)
+    {
+        <div class="rat-header">
+            @if (Title is not null)
+            {
+                <h3 class="rat-header__title">@Title</h3>
+            }
+            <div class="rat-header__actions">
+                @if (!string.IsNullOrEmpty(OptionTtlLabel))
+                {
+                    <span class="rat-header__ttl-badge" data-testid="@($"{_testIdRoot}-ttl-badge")">Option TTL: @OptionTtlLabel</span>
+                }
+                @if (ShowAddButton)
+                {
+                    <button type="button"
+                            class="rat-header__add-btn"
+                            data-testid="@($"{_testIdRoot}-add-btn")"
+                            @onclick="OnAdd">
+                        <span class="material-symbols-outlined" aria-hidden="true">add</span>
+                        AJOUTER
+                    </button>
+                }
+            </div>
+        </div>
+    }
+
+    <div class="rat-container">
+        <table class="rat" role="grid" aria-label="@(AriaLabel ?? "Allocations de ressources")"
+               data-testid="@($"{_testIdRoot}-grid")">
+            <thead>
+                <tr role="row">
+                    <th role="columnheader" class="rat__th">Ressource</th>
+                    <th role="columnheader" class="rat__th">Type</th>
+                    <th role="columnheader" class="rat__th">Quantité</th>
+                    <th role="columnheader" class="rat__th">Période</th>
+                    <th role="columnheader" class="rat__th">Statut</th>
+                    <th role="columnheader" class="rat__th">TTL</th>
+                    <th role="columnheader" class="rat__th rat__th--actions">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (Allocations is null || Allocations.Count == 0)
+                {
+                    <tr role="row" class="rat__row--empty">
+                        <td role="gridcell" colspan="7" class="rat__empty-cell">
+                            @EmptyText
+                        </td>
+                    </tr>
+                }
+                else
+                {
+                    @for (var i = 0; i < Allocations.Count; i++)
+                    {
+                        var allocation = Allocations[i];
+                        var index = i;
+                        var isConflict = allocation.Status == AllocationItemStatus.Conflict;
+
+                        <tr @key="allocation.Id"
+                            role="row"
+                            class="rat__row @(isConflict ? "rat__row--conflict" : "")"
+                            data-testid="@($"{_testIdRoot}-row-{index}")"
+                            data-status="@StatusSlug(allocation.Status)">
+                            <td role="gridcell" class="rat__td rat__td--resource">@allocation.Resource</td>
+                            <td role="gridcell" class="rat__td rat__td--type">@allocation.Type</td>
+                            <td role="gridcell" class="rat__td rat__td--quantity">@allocation.Quantity</td>
+                            <td role="gridcell" class="rat__td rat__td--period">@allocation.Period</td>
+                            <td role="gridcell" class="rat__td rat__td--status">
+                                <span class="rat__status-chip rat__status-chip--@StatusSlug(allocation.Status)"
+                                      data-testid="@($"{_testIdRoot}-status-{index}")">
+                                    <span class="material-symbols-outlined rat__status-icon" aria-hidden="true">@StatusIcon(allocation.Status)</span>
+                                    @StatusLabel(allocation.Status)
+                                    @if (isConflict && !string.IsNullOrEmpty(allocation.ConflictRef))
+                                    {
+                                        <span class="rat__conflict-ref">(@allocation.ConflictRef)</span>
+                                    }
+                                </span>
+                            </td>
+                            <td role="gridcell" class="rat__td rat__td--ttl">
+                                @if (!string.IsNullOrEmpty(allocation.Ttl))
+                                {
+                                    <span class="rat__ttl" data-testid="@($"{_testIdRoot}-ttl-{index}")">@allocation.Ttl</span>
+                                }
+                                else
+                                {
+                                    <span class="rat__ttl--empty">—</span>
+                                }
+                            </td>
+                            <td role="gridcell" class="rat__td rat__td--actions">
+                                <div class="rat__menu-anchor" @onkeydown="HandleMenuKeyDown">
+                                    <button type="button"
+                                            class="rat__menu-btn"
+                                            data-testid="@($"{_testIdRoot}-menu-{index}")"
+                                            aria-label="Actions pour @allocation.Resource"
+                                            @onclick="() => ToggleMenu(index)"
+                                            @onclick:stopPropagation>
+                                        <span class="material-symbols-outlined" aria-hidden="true">more_vert</span>
+                                    </button>
+                                    @if (_openMenuIndex == index)
+                                    {
+                                        <div class="rat__backdrop" @onclick="CloseMenu" @onclick:stopPropagation></div>
+                                        <div class="rat__menu" data-testid="@($"{_testIdRoot}-menu-panel-{index}")" role="menu">
+                                            <button type="button" role="menuitem" class="rat__menu-item"
+                                                    data-testid="@($"{_testIdRoot}-action-edit-{index}")"
+                                                    @onclick="() => HandleAction(allocation, AllocationAction.Edit)">
+                                                <span class="material-symbols-outlined" aria-hidden="true">edit</span>
+                                                Modifier
+                                            </button>
+                                            <button type="button" role="menuitem" class="rat__menu-item"
+                                                    data-testid="@($"{_testIdRoot}-action-release-{index}")"
+                                                    @onclick="() => HandleAction(allocation, AllocationAction.Release)">
+                                                <span class="material-symbols-outlined" aria-hidden="true">cancel</span>
+                                                Libérer
+                                            </button>
+                                            @if (allocation.Status != AllocationItemStatus.Validated)
+                                            {
+                                                <button type="button" role="menuitem" class="rat__menu-item"
+                                                        data-testid="@($"{_testIdRoot}-action-confirm-{index}")"
+                                                        @onclick="() => HandleAction(allocation, AllocationAction.Confirm)">
+                                                    <span class="material-symbols-outlined" aria-hidden="true">check_circle</span>
+                                                    Confirmer
+                                                </button>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private int? _openMenuIndex;
+
+    private string _testIdRoot => TestId ?? "resource-allocation-table";
+
+    /// <summary>List of allocation items to display. Required.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<AllocationItem>? Allocations { get; set; }
+
+    /// <summary>Optional section title above the table.</summary>
+    [Parameter]
+    public string? Title { get; set; }
+
+    /// <summary>Optional accessible label for the grid. Defaults to "Allocations de ressources".</summary>
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    /// <summary>Optional <c>data-testid</c> prefix. Defaults to <c>resource-allocation-table</c>.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Text shown when no allocations are present.</summary>
+    [Parameter]
+    public string EmptyText { get; set; } = "Aucune allocation.";
+
+    /// <summary>Optional TTL badge label shown in the header (e.g. "48h").</summary>
+    [Parameter]
+    public string? OptionTtlLabel { get; set; }
+
+    /// <summary>Whether to show the "Add resource" button in the header.</summary>
+    [Parameter]
+    public bool ShowAddButton { get; set; }
+
+    /// <summary>Raised when the "Add resource" button is clicked.</summary>
+    [Parameter]
+    public EventCallback OnAdd { get; set; }
+
+    /// <summary>Raised when Edit is selected from the row kebab menu.</summary>
+    [Parameter]
+    public EventCallback<AllocationItem> OnEdit { get; set; }
+
+    /// <summary>Raised when Release is selected from the row kebab menu.</summary>
+    [Parameter]
+    public EventCallback<AllocationItem> OnRelease { get; set; }
+
+    /// <summary>Raised when Confirm (convert to reserved) is selected.</summary>
+    [Parameter]
+    public EventCallback<AllocationItem> OnConfirm { get; set; }
+
+    // ── Helpers ───────────────────────────────────────────────────────
+
+    private void ToggleMenu(int index)
+    {
+        _openMenuIndex = _openMenuIndex == index ? null : index;
+    }
+
+    private void CloseMenu()
+    {
+        _openMenuIndex = null;
+    }
+
+    private void HandleMenuKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            _openMenuIndex = null;
+        }
+    }
+
+    private async Task HandleAction(AllocationItem item, AllocationAction action)
+    {
+        _openMenuIndex = null;
+        switch (action)
+        {
+            case AllocationAction.Edit:
+                await OnEdit.InvokeAsync(item);
+                break;
+            case AllocationAction.Release:
+                await OnRelease.InvokeAsync(item);
+                break;
+            case AllocationAction.Confirm:
+                await OnConfirm.InvokeAsync(item);
+                break;
+        }
+    }
+
+    /// <summary>Maps status to kebab-case slug used in CSS class names and data-status attribute.</summary>
+    public static string StatusSlug(AllocationItemStatus status) => status switch
+    {
+        AllocationItemStatus.Conflict    => "conflict",
+        AllocationItemStatus.Validated   => "validated",
+        AllocationItemStatus.Provisional => "provisional",
+        _                                => "provisional",
+    };
+
+    /// <summary>Maps status to French uppercase label.</summary>
+    public static string StatusLabel(AllocationItemStatus status) => status switch
+    {
+        AllocationItemStatus.Conflict    => "CONFLIT",
+        AllocationItemStatus.Validated   => "VALIDÉ",
+        AllocationItemStatus.Provisional => "PROVISOIRE",
+        _                                => "PROVISOIRE",
+    };
+
+    /// <summary>Maps status to Material Symbol icon glyph.</summary>
+    public static string StatusIcon(AllocationItemStatus status) => status switch
+    {
+        AllocationItemStatus.Conflict    => "warning",
+        AllocationItemStatus.Validated   => "check_circle",
+        AllocationItemStatus.Provisional => "info",
+        _                                => "info",
+    };
+
+    private enum AllocationAction { Edit, Release, Confirm }
+}

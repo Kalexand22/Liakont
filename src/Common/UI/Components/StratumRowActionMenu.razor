@@ -1,0 +1,150 @@
+@namespace Stratum.Common.UI.Components
+@typeparam TItem where TItem : notnull
+@using Microsoft.Extensions.Localization
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Models
+@inject IStringLocalizer<SharedResources> L
+
+@* StratumRowActionMenu<TItem> — per-row kebab menu (⋮) for contextual actions.
+ *
+ * Bridges GridRowAction<TItem> definitions to MenuItem items rendered via StratumMenu.
+ * Used inside StratumDataGrid (action column) and StratumCardView (card corner).
+ * Shows a confirmation dialog before invoking destructive actions.
+ *
+ * Usage:
+ *   <StratumRowActionMenu TItem="PartyDto" Item="@party" RowActions="@_rowActions" />
+ *
+ * Ref: orchestration/manifest.yaml GA02.
+ *@
+
+@if (RowActions is { Count: > 0 })
+{
+    <div class="stratum-row-action-menu" @onclick:stopPropagation="true">
+        <StratumMenu Items="@_menuItems"
+                     Trigger="MenuTrigger.Click"
+                     OnItemClick="HandleMenuItemClick"
+                     AnchorRight="true"
+                     AriaLabel="@($"Actions pour {AriaItemLabel}")"
+                     TestId="@(TestId ?? "row-action-menu")">
+            <button type="button"
+                    class="stratum-row-action-menu__trigger"
+                    aria-label="@($"Actions pour {AriaItemLabel}")"
+                    aria-haspopup="true"
+                    data-testid="@($"{TestId ?? "row-action-menu"}-trigger")">
+                <StratumIcon Name="more_vert" Class="stratum-row-action-menu__trigger-icon" />
+            </button>
+        </StratumMenu>
+    </div>
+}
+
+@* Confirmation dialog *@
+@if (_confirmAction is not null)
+{
+    <StratumDialog Title="@L["Grid_Confirmation"]"
+                   @bind-Visible="_showConfirmDialog"
+                   OnClose="HandleConfirmCancel"
+                   Width="400px">
+        <ChildContent>
+            <p>@string.Format(L["Grid_ConfirmAction"], _confirmAction.Label)</p>
+        </ChildContent>
+        <Actions>
+            <StratumButton Text="@L["Confirm"]"
+                           Variant="ButtonVariant.Danger"
+                           Size="ButtonSize.Small"
+                           OnClick="@(_ => HandleConfirmOkAsync())" />
+            <StratumButton Text="@L["Cancel"]"
+                           Variant="ButtonVariant.Secondary"
+                           Size="ButtonSize.Small"
+                           OnClick="@(_ => HandleConfirmCancel())" />
+        </Actions>
+    </StratumDialog>
+}
+
+@code {
+    private IReadOnlyList<MenuItem> _menuItems = Array.Empty<MenuItem>();
+    private Dictionary<MenuItem, GridRowAction<TItem>> _menuItemToAction = new(ReferenceEqualityComparer.Instance);
+    private bool _showConfirmDialog;
+    private GridRowAction<TItem>? _confirmAction;
+
+    /// <summary>The row item this menu operates on.</summary>
+    [Parameter, EditorRequired]
+    public TItem Item { get; set; } = default!;
+
+    /// <summary>Row-level action definitions.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<GridRowAction<TItem>> RowActions { get; set; } = Array.Empty<GridRowAction<TItem>>();
+
+    /// <summary>Accessible label describing the item (used in aria-label).</summary>
+    [Parameter]
+    public string? AriaItemLabel { get; set; }
+
+    /// <summary>Optional test identifier.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        RebuildMenuItems();
+    }
+
+    private void RebuildMenuItems()
+    {
+        var items = new List<MenuItem>();
+        _menuItemToAction = new Dictionary<MenuItem, GridRowAction<TItem>>(ReferenceEqualityComparer.Instance);
+
+        foreach (var action in RowActions)
+        {
+            if (action.IsSeparatorBefore && items.Count > 0)
+            {
+                items.Add(new MenuItem(Text: "", Separator: true));
+            }
+
+            var enabled = action.EvaluateEnabled(Item);
+            var menuItem = new MenuItem(
+                Text: action.Label,
+                Icon: action.Icon,
+                Disabled: !enabled,
+                DisabledReason: !enabled ? L["Grid_ActionNotAvailable"].Value : null);
+            items.Add(menuItem);
+            _menuItemToAction[menuItem] = action;
+        }
+
+        _menuItems = items;
+    }
+
+    private async Task HandleMenuItemClick(MenuItem menuItem)
+    {
+        if (menuItem.Disabled || menuItem.Separator) return;
+        if (!_menuItemToAction.TryGetValue(menuItem, out var action)) return;
+
+        if (action.RequiresConfirmation)
+        {
+            _confirmAction = action;
+            _showConfirmDialog = true;
+            return;
+        }
+
+        if (action.Callback is not null)
+        {
+            await action.Callback(Item);
+        }
+    }
+
+    private async Task HandleConfirmOkAsync()
+    {
+        var action = _confirmAction;
+        _showConfirmDialog = false;
+        _confirmAction = null;
+
+        if (action?.Callback is not null)
+        {
+            await action.Callback(Item);
+        }
+    }
+
+    private void HandleConfirmCancel()
+    {
+        _showConfirmDialog = false;
+        _confirmAction = null;
+    }
+}

@@ -1,0 +1,24 @@
+@inherits LayoutComponentBase
+@using Stratum.Common.UI.Components
+
+<ConnectionStatus />
+<Toast @rendermode="InteractiveServer" />
+<GlobalShortcutHandler @rendermode="InteractiveServer" />
+<BugCaptureButton @rendermode="InteractiveServer" />
+
+<div class="erp-shell">
+    <ErpNav @rendermode="InteractiveServer" />
+    @* Raw onclick is intentional: layout is static SSR, @onclick requires InteractiveServer.
+       The backdrop only removes a CSS class — no Blazor state involved. *@
+    <div class="erp-sidebar-backdrop" onclick="document.querySelector('.erp-shell')?.classList.remove('sidebar-open')"></div>
+    <div class="erp-content">
+        <header class="erp-header">
+            <TabBar @rendermode="InteractiveServer" />
+            <ErpTopBar />
+        </header>
+        <main class="erp-main p-4">
+            @Body
+        </main>
+    </div>
+</div>
+

@@ -1,0 +1,102 @@
+/* Switch — scoped styles using Stratum design tokens */
+
+.switch-field {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-2, 0.5rem);
+    cursor: pointer;
+}
+
+.switch-field--disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.switch-field__label {
+    font-size: var(--font-size-base, 1rem);
+    color: var(--color-text-primary);
+    cursor: inherit;
+    user-select: none;
+}
+
+/* ── Toggle track ─────────────────────────────────────── */
+
+.switch-field__toggle {
+    appearance: none;
+    position: relative;
+    border: none;
+    border-radius: var(--radius-full, 9999px);
+    background-color: var(--color-neutral-300);
+    cursor: inherit;
+    transition: background-color var(--transition-normal, 200ms ease);
+    flex-shrink: 0;
+}
+
+/* Size variants */
+.switch-field__toggle--sm {
+    width: 28px;
+    height: 16px;
+}
+
+.switch-field__toggle--md {
+    width: 36px;
+    height: 20px;
+}
+
+.switch-field__toggle--lg {
+    width: 44px;
+    height: 24px;
+}
+
+/* ── Thumb (pseudo-element) ───────────────────────────── */
+
+.switch-field__toggle::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    border-radius: 50%;
+    background-color: #fff;
+    transition: transform var(--transition-normal, 200ms ease);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.2);
+}
+
+.switch-field__toggle--sm::before {
+    width: 12px;
+    height: 12px;
+}
+
+.switch-field__toggle--md::before {
+    width: 16px;
+    height: 16px;
+}
+
+.switch-field__toggle--lg::before {
+    width: 20px;
+    height: 20px;
+}
+
+/* ── Checked state ────────────────────────────────────── */
+
+.switch-field__toggle:checked {
+    background-color: var(--color-primary-600);
+}
+
+.switch-field__toggle--sm:checked::before {
+    transform: translateX(12px);
+}
+
+.switch-field__toggle--md:checked::before {
+    transform: translateX(16px);
+}
+
+.switch-field__toggle--lg:checked::before {
+    transform: translateX(20px);
+}
+
+/* ── Focus ring ───────────────────────────────────────── */
+
+.switch-field__toggle:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--color-primary-100);
+}

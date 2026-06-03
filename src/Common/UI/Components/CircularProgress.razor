@@ -1,0 +1,131 @@
+@namespace Stratum.Common.UI.Components
+
+@{
+    var clamped       = ClampValue(Value);
+    var r             = ComputeRadius(Size, Thickness);
+    var circumference = ComputeCircumference(Size, Thickness);
+    var dashOffset    = ComputeDashOffset(clamped, circumference);
+    var cx            = Size / 2.0;
+    var cy            = Size / 2.0;
+}
+
+<svg role="progressbar"
+     class="@BuildRootClass(Color, Indeterminate, CssClass)"
+     viewBox="0 0 @Size @Size"
+     width="@Size"
+     height="@Size"
+     data-testid="@(TestId ?? "circular-progress")"
+     aria-valuemin="0"
+     aria-valuemax="100"
+     aria-valuenow="@(Indeterminate ? null : (object)(int)Math.Round(clamped))"
+     aria-label="@(AriaLabel ?? (Indeterminate ? "Loading" : "Progress"))">
+    <circle aria-hidden="true"
+            class="circular-progress__track"
+            cx="@F(cx)"
+            cy="@F(cy)"
+            r="@F(r)"
+            stroke-width="@Thickness"
+            fill="none" />
+    @if (Indeterminate)
+    {
+        <circle aria-hidden="true"
+                class="circular-progress__bar circular-progress__bar--indeterminate"
+                cx="@F(cx)"
+                cy="@F(cy)"
+                r="@F(r)"
+                stroke-width="@Thickness"
+                fill="none"
+                pathLength="100"
+                stroke-dasharray="1 100"
+                transform="rotate(-90 @F(cx) @F(cy))" />
+    }
+    else
+    {
+        <circle aria-hidden="true"
+                class="circular-progress__bar"
+                cx="@F(cx)"
+                cy="@F(cy)"
+                r="@F(r)"
+                stroke-width="@Thickness"
+                fill="none"
+                stroke-dasharray="@F(circumference)"
+                stroke-dashoffset="@F(dashOffset)"
+                transform="rotate(-90 @F(cx) @F(cy))" />
+    }
+    @if (ChildContent is not null)
+    {
+        <foreignObject x="@F(Size / 4.0)"
+                       y="@F(Size / 4.0)"
+                       width="@F(Size / 2.0)"
+                       height="@F(Size / 2.0)">
+            <div xmlns="http://www.w3.org/1999/xhtml"
+                 style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
+                @ChildContent
+            </div>
+        </foreignObject>
+    }
+</svg>
+
+@code {
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    /// <summary>Accessible label for the progress indicator. Default: "Progress" (or "Loading" when indeterminate).</summary>
+    [Parameter] public string? AriaLabel { get; set; }
+
+    /// <summary>Value 0–100 in determinate mode. Ignored when <see cref="Indeterminate"/> is true.</summary>
+    [Parameter] public double Value { get; set; }
+
+    /// <summary>Indeterminate mode: rotation animation, <see cref="Value"/> is ignored.</summary>
+    [Parameter] public bool Indeterminate { get; set; }
+
+    /// <summary>Diameter of the SVG circle in pixels.</summary>
+    [Parameter] public int Size { get; set; } = 40;
+
+    /// <summary>Stroke width of the circle in pixels.</summary>
+    [Parameter] public int Thickness { get; set; } = 4;
+
+    /// <summary>Color variant.</summary>
+    [Parameter] public ProgressColor Color { get; set; } = ProgressColor.Default;
+
+    /// <summary>Center content slot (displayed inside the circle).</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Additional CSS classes on the root SVG element.</summary>
+    [Parameter] public string? CssClass { get; set; }
+
+    private static string F(double v) =>
+        v.ToString("F4", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>Clamps <paramref name="value"/> to [0, 100].</summary>
+    internal static double ClampValue(double value) => Math.Clamp(value, 0, 100);
+
+    /// <summary>Computes the circle radius: (size/2) − (thickness/2).</summary>
+    internal static double ComputeRadius(int size, int thickness) =>
+        (size / 2.0) - (thickness / 2.0);
+
+    /// <summary>Computes the full circle circumference: 2π × r.</summary>
+    internal static double ComputeCircumference(int size, int thickness) =>
+        2 * Math.PI * ComputeRadius(size, thickness);
+
+    /// <summary>Computes the stroke-dashoffset for a given value: circumference × (1 − value/100).</summary>
+    internal static double ComputeDashOffset(double value, double circumference) =>
+        circumference * (1 - value / 100.0);
+
+    /// <summary>Builds the root SVG element CSS class string.</summary>
+    internal static string BuildRootClass(ProgressColor color, bool indeterminate, string? cssClass)
+    {
+        var colorClass = color switch
+        {
+            ProgressColor.Info    => "info",
+            ProgressColor.Success => "success",
+            ProgressColor.Warning => "warning",
+            ProgressColor.Danger  => "danger",
+            _                     => "default",
+        };
+        var sb = new System.Text.StringBuilder("circular-progress circular-progress--").Append(colorClass);
+        if (indeterminate) sb.Append(" circular-progress--indeterminate");
+        if (!string.IsNullOrWhiteSpace(cssClass)) sb.Append(' ').Append(cssClass);
+        return sb.ToString();
+    }
+}

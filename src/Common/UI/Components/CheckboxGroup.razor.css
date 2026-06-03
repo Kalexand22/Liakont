@@ -1,0 +1,136 @@
+/* CheckboxGroup — scoped styles using Stratum design tokens */
+
+.checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2, 0.5rem);
+}
+
+.checkbox-group--horizontal {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: var(--spacing-4, 1rem);
+}
+
+/* ── Option row ──────────────────────────────────────── */
+
+.checkbox-group__option {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-2, 0.5rem);
+    cursor: pointer;
+    user-select: none;
+    font-size: var(--font-size-base, 1rem);
+    color: var(--color-text-primary);
+}
+
+.checkbox-group__option--select-all {
+    padding-bottom: var(--spacing-1, 0.25rem);
+    margin-bottom: var(--spacing-1, 0.25rem);
+    border-bottom: 1px solid var(--color-border, var(--color-neutral-200));
+    font-weight: var(--font-weight-medium, 500);
+}
+
+.checkbox-group__option--disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ── Native checkbox (visually hidden but accessible) ── */
+
+.checkbox-group__input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+    white-space: nowrap;
+}
+
+/* ── Custom indicator ────────────────────────────────── */
+
+.checkbox-group__indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--color-border, var(--color-neutral-300));
+    border-radius: var(--radius-sm, 0.25rem);
+    background-color: var(--color-bg-surface, #fff);
+    transition: border-color var(--transition-fast, 100ms ease),
+                background-color var(--transition-fast, 100ms ease),
+                box-shadow var(--transition-fast, 100ms ease);
+}
+
+/* Checkmark icon via pseudo-element */
+.checkbox-group__indicator::after {
+    content: '';
+    display: block;
+    width: 6px;
+    height: 10px;
+    border: solid transparent;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+    margin-top: -2px;
+    transition: border-color var(--transition-fast, 100ms ease);
+}
+
+/* Mixed/indeterminate state (dash instead of check) */
+.checkbox-group__indicator--mixed::after {
+    width: 10px;
+    height: 0;
+    border-width: 0 0 2px 0;
+    transform: none;
+    margin-top: 0;
+    border-color: var(--color-primary-600);
+}
+
+/* ── Checked state ───────────────────────────────────── */
+
+.checkbox-group__input:checked + .checkbox-group__indicator {
+    border-color: var(--color-primary-600);
+    background-color: var(--color-primary-600);
+}
+
+.checkbox-group__input:checked + .checkbox-group__indicator::after {
+    border-color: #fff;
+}
+
+/* Mixed state background */
+.checkbox-group__input:checked + .checkbox-group__indicator--mixed {
+    background-color: var(--color-bg-surface, #fff);
+    border-color: var(--color-primary-600);
+}
+
+.checkbox-group__input:checked + .checkbox-group__indicator--mixed::after {
+    border-color: var(--color-primary-600);
+}
+
+/* ── Focus ring ──────────────────────────────────────── */
+
+.checkbox-group__input:focus-visible + .checkbox-group__indicator {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--color-primary-100);
+}
+
+/* ── Error state ─────────────────────────────────────── */
+
+.checkbox-group--error .checkbox-group__indicator {
+    border-color: var(--color-error-500);
+}
+
+.checkbox-group--error .checkbox-group__input:checked + .checkbox-group__indicator {
+    border-color: var(--color-error-500);
+    background-color: var(--color-error-500);
+}
+
+/* ── Label text ──────────────────────────────────────── */
+
+.checkbox-group__label-text {
+    line-height: var(--line-height-normal, 1.5);
+}

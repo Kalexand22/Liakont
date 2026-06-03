@@ -1,0 +1,22 @@
+.field-presence-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-1, 4px);
+    vertical-align: middle;
+}
+
+.field-presence-indicator__badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: var(--radius-full, 9999px);
+    background-color: var(--badge-color, var(--color-neutral-400, #9ca3af));
+    color: #fff;
+    font-size: var(--font-size-xs, 0.75rem);
+    font-weight: var(--font-weight-semibold, 600);
+    line-height: 1;
+    cursor: default;
+    user-select: none;
+}

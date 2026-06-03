@@ -1,0 +1,499 @@
+@page "/admin/jobs/new"
+@page "/admin/jobs/{Id:guid}"
+@page "/admin/jobs/{Id:guid}/edit"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Common.Abstractions.Collaboration
+@using Stratum.Common.Abstractions.Security
+@using Stratum.Modules.Job.Contracts.Commands
+@using Stratum.Modules.Job.Contracts.Services
+@inject ISender Sender
+@inject IScheduleQueries ScheduleQueries
+@inject IActorContextAccessor ActorContext
+@inject ICronPreviewService CronPreview
+@inject NavigationManager Nav
+@inject IToastService ToastService
+
+<PageTitle>@PageTitleText — Stratum ERP</PageTitle>
+
+<PermissionGate Permission="@JobPermissions.View">
+<DeclaredFormPage @ref="_formRef"
+                  TEntity="ScheduleDto"
+                  Id="@Id"
+                  Title="@BuildTitle"
+                  TestId="job-schedule-form"
+                  ListUrl="/admin/jobs"
+                  DetailUrl="@(id => $"/admin/jobs/{id}")"
+                  CreateUrl="/admin/jobs/new"
+                  EntityType="JobSchedule"
+                  EnableViewMode="true"
+                  InitialMode="@(_isEditRoute ? FormMode.Edit : FormMode.View)"
+                  EditPermission="@JobPermissions.ManageSchedules"
+                  LoadEntity="@(id => ScheduleQueries.GetByIdAsync(id))"
+                  CreateEntity="CreateAsync"
+                  UpdateEntity="UpdateAsync"
+                  Validate="ValidateForm"
+                  ClearErrors="ClearAllErrors"
+                  MapEntity="MapFromDto"
+                  ResetFields="ResetAllFields"
+                  MapDomainError="MapError"
+                  OnEntityChanged="HandleEntityChanged"
+                  @bind-GlobalError="_globalError"
+                  @bind-IsDirty="_isDirty">
+    <StatusContent>
+        @if (!IsCreateMode)
+        {
+            <StatusBadge Severity="@(_isActive ? Severity.Success : Severity.Neutral)"
+                         Label="@(_isActive ? "Actif" : "Inactif")" />
+        }
+    </StatusContent>
+    <HeaderActions Context="ctx">
+        @if (ctx.Mode == FormMode.View && _isActive)
+        {
+            <PermissionGate Permission="@JobPermissions.ManageSchedules">
+                <StratumButton Text="@(_toggling ? "Désactivation…" : "Désactiver")"
+                               Variant="ButtonVariant.Warning" Outline Size="ButtonSize.Small"
+                               OnClick="ToggleAsync"
+                               Disabled="@_toggling"
+                               TestId="job-schedule-form-toggle-btn" />
+            </PermissionGate>
+        }
+        @if (ctx.Mode == FormMode.View && !_isActive)
+        {
+            <PermissionGate Permission="@JobPermissions.ManageSchedules">
+                <StratumButton Text="@(_toggling ? "Activation…" : "Activer")"
+                               Variant="ButtonVariant.Primary" Outline Size="ButtonSize.Small"
+                               OnClick="ToggleAsync"
+                               Disabled="@_toggling"
+                               TestId="job-schedule-form-toggle-btn" />
+            </PermissionGate>
+        }
+    </HeaderActions>
+    <Content Context="ctx">
+        <SectionCard Title="Planification" TestId="job-schedule-form-info">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <FormField Label="Nom" Required Error="@_nameError">
+                        <input type="text"
+                               class="form-control"
+                               value="@_name"
+                               @oninput="HandleNameInput"
+                               placeholder="Ex : Nettoyage quotidien, Relance hebdomadaire"
+                               maxlength="200"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="job-schedule-form-name" />
+                    </FormField>
+                </div>
+                <div class="col-md-6">
+                    <FormField Label="Type de job" Required Error="@_jobTypeError">
+                        <input type="text"
+                               class="form-control"
+                               value="@_jobType"
+                               @oninput="HandleJobTypeInput"
+                               placeholder="Ex : cleanup, reminder, sync"
+                               maxlength="200"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="job-schedule-form-job-type" />
+                    </FormField>
+                </div>
+                <div class="col-md-6">
+                    <FormField Label="Expression cron" Required Error="@_cronError"
+                               HelpText="Format : minute heure jour mois jour-semaine (ex : 0 2 * * * = tous les jours à 2h)">
+                        <input type="text"
+                               class="form-control"
+                               value="@_cronExpression"
+                               @oninput="HandleCronInput"
+                               placeholder="0 2 * * *"
+                               maxlength="100"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="job-schedule-form-cron" />
+                    </FormField>
+                </div>
+                <div class="col-md-6">
+                    <FormField Label="Actif">
+                        <Switch Value="@_isActive"
+                                ValueChanged="HandleActiveChange"
+                                Disabled="@(ctx.Mode == FormMode.View)"
+                                TestId="job-schedule-form-active" />
+                    </FormField>
+                </div>
+                <div class="col-12">
+                    <FormField Label="Template payload (JSON)" Error="@_payloadError"
+                               HelpText="Données JSON transmises au job. Vide = {}">
+                        <textarea class="form-control"
+                                  rows="3"
+                                  value="@_payloadTemplate"
+                                  @oninput="HandlePayloadInput"
+                                  placeholder="{}"
+                                  disabled="@(ctx.Mode == FormMode.View)"
+                                  data-testid="job-schedule-form-payload"></textarea>
+                    </FormField>
+                </div>
+            </div>
+        </SectionCard>
+
+        @if (_cronPreviewLines.Count > 0 || _cronPreviewError is not null)
+        {
+            <SectionCard Title="Aperçu des 5 prochaines exécutions" TestId="job-schedule-form-cron-preview">
+                @if (_cronPreviewError is not null)
+                {
+                    <p class="text-danger small" data-testid="job-schedule-form-cron-preview-error">@_cronPreviewError</p>
+                }
+                else
+                {
+                    <ol class="mb-0" data-testid="job-schedule-form-cron-preview-list">
+                        @foreach (var line in _cronPreviewLines)
+                        {
+                            <li class="small text-muted">@line</li>
+                        }
+                    </ol>
+                }
+            </SectionCard>
+        }
+    </Content>
+    <AuditSection>
+        @if (!IsCreateMode)
+        {
+            <SectionCard Title="Audit" Collapsible DefaultCollapsed TestId="job-schedule-form-audit">
+                <dl class="row mb-0">
+                    <dt class="col-sm-3">Identifiant</dt>
+                    <dd class="col-sm-9"><code class="text-muted small">@Id</code></dd>
+                    <dt class="col-sm-3">Créé le</dt>
+                    <dd class="col-sm-9">@_createdAt.ToString("dd/MM/yyyy HH:mm")</dd>
+                    @if (_updatedAt != default)
+                    {
+                        <dt class="col-sm-3">Modifié le</dt>
+                        <dd class="col-sm-9">@_updatedAt.ToString("dd/MM/yyyy HH:mm")</dd>
+                    }
+                </dl>
+            </SectionCard>
+        }
+    </AuditSection>
+</DeclaredFormPage>
+</PermissionGate>
+
+@code {
+    [Parameter]
+    public Guid? Id { get; set; }
+
+    private DeclaredFormPage<ScheduleDto>? _formRef;
+
+    private bool IsCreateMode => Id is null;
+    private bool _isEditRoute;
+
+    private string _name = string.Empty;
+    private string _cronExpression = string.Empty;
+    private string _jobType = string.Empty;
+    private string _payloadTemplate = "{}";
+    private bool _isActive = true;
+    private DateTimeOffset _createdAt;
+    private DateTimeOffset _updatedAt;
+    private bool _isDirty;
+    private bool _toggling;
+
+    private string _origName = string.Empty;
+    private string _origCronExpression = string.Empty;
+    private string _origJobType = string.Empty;
+    private string _origPayloadTemplate = "{}";
+    private bool _origIsActive = true;
+
+    private string? _nameError;
+    private string? _cronError;
+    private string? _jobTypeError;
+    private string? _payloadError;
+    private string? _globalError;
+
+    private List<string> _cronPreviewLines = [];
+    private string? _cronPreviewError;
+
+    private string PageTitleText =>
+        IsCreateMode ? "Nouvelle planification" :
+        _isEditRoute ? "Modifier planification" :
+        _name.Length > 0 ? _name : "Planification";
+
+    private string BuildTitle(bool createMode) =>
+        createMode ? "Nouvelle planification" : _name.Length > 0 ? _name : "Planification";
+
+    protected override void OnParametersSet()
+    {
+        _isEditRoute = new Uri(Nav.Uri).AbsolutePath.EndsWith("/edit", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void MapFromDto(ScheduleDto dto)
+    {
+        _name = dto.Name;
+        _cronExpression = dto.CronExpression;
+        _jobType = dto.JobType;
+        _payloadTemplate = dto.PayloadTemplate;
+        _isActive = dto.IsActive;
+        _createdAt = dto.CreatedAt;
+        _updatedAt = dto.UpdatedAt;
+        _origName = dto.Name;
+        _origCronExpression = dto.CronExpression;
+        _origJobType = dto.JobType;
+        _origPayloadTemplate = dto.PayloadTemplate;
+        _origIsActive = dto.IsActive;
+        UpdateCronPreview();
+    }
+
+    private void ResetAllFields()
+    {
+        _name = string.Empty;
+        _cronExpression = string.Empty;
+        _jobType = string.Empty;
+        _payloadTemplate = "{}";
+        _isActive = true;
+        _createdAt = default;
+        _updatedAt = default;
+        _origName = string.Empty;
+        _origCronExpression = string.Empty;
+        _origJobType = string.Empty;
+        _origPayloadTemplate = "{}";
+        _origIsActive = true;
+        _cronPreviewLines = [];
+        _cronPreviewError = null;
+    }
+
+    private bool ValidateForm()
+    {
+        var valid = true;
+        if (string.IsNullOrWhiteSpace(_name))
+        {
+            _nameError = "Le nom est obligatoire.";
+            valid = false;
+        }
+
+        var cronResult = CronPreview.Validate(_cronExpression);
+        if (!cronResult.IsValid)
+        {
+            _cronError = cronResult.ErrorMessage;
+            valid = false;
+        }
+
+        if (string.IsNullOrWhiteSpace(_jobType))
+        {
+            _jobTypeError = "Le type de job est obligatoire.";
+            valid = false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_payloadTemplate))
+        {
+            try
+            {
+                System.Text.Json.JsonDocument.Parse(_payloadTemplate);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                _payloadError = "Le payload doit être un JSON valide.";
+                valid = false;
+            }
+        }
+
+        return valid;
+    }
+
+    private void ClearAllErrors()
+    {
+        _nameError = null;
+        _cronError = null;
+        _jobTypeError = null;
+        _payloadError = null;
+    }
+
+    private async Task<Guid> CreateAsync()
+    {
+        var companyId = ActorContext.Current.CompanyId
+            ?? throw new InvalidOperationException("Aucune société sélectionnée.");
+
+        return await Sender.Send(new CreateScheduleCommand
+        {
+            Name = _name.Trim(),
+            CronExpression = _cronExpression.Trim(),
+            JobType = _jobType.Trim(),
+            PayloadTemplate = string.IsNullOrWhiteSpace(_payloadTemplate) ? "{}" : _payloadTemplate.Trim(),
+            CompanyId = companyId,
+        });
+    }
+
+    private async Task UpdateAsync()
+    {
+        await Sender.Send(new UpdateScheduleCommand
+        {
+            ScheduleId = Id!.Value,
+            Name = _name.Trim(),
+            CronExpression = _cronExpression.Trim(),
+            JobType = _jobType.Trim(),
+            PayloadTemplate = string.IsNullOrWhiteSpace(_payloadTemplate) ? "{}" : _payloadTemplate.Trim(),
+        });
+    }
+
+    private void MapError(string message)
+    {
+        var lower = message.ToLowerInvariant();
+        if (lower.Contains("name") || lower.Contains("nom") || lower.Contains("inv-job-005"))
+            _nameError = message;
+        else if (lower.Contains("cron") || lower.Contains("inv-job-004"))
+            _cronError = message;
+        else if (lower.Contains("job type") || lower.Contains("type"))
+            _jobTypeError = message;
+        else if (lower.Contains("payload") || lower.Contains("json"))
+            _payloadError = message;
+        else
+            _globalError = message;
+    }
+
+    private void HandleNameInput(ChangeEventArgs e)
+    {
+        _name = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+        _nameError = null;
+    }
+
+    private void HandleCronInput(ChangeEventArgs e)
+    {
+        _cronExpression = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+        _cronError = null;
+        UpdateCronPreview();
+    }
+
+    private void HandleJobTypeInput(ChangeEventArgs e)
+    {
+        _jobType = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+        _jobTypeError = null;
+    }
+
+    private void HandlePayloadInput(ChangeEventArgs e)
+    {
+        _payloadTemplate = e.Value?.ToString() ?? "{}";
+        _isDirty = true;
+        _payloadError = null;
+    }
+
+    private void HandleActiveChange(bool value)
+    {
+        _isActive = value;
+        _isDirty = true;
+    }
+
+    private void UpdateCronPreview()
+    {
+        _cronPreviewLines = [];
+        _cronPreviewError = null;
+
+        if (string.IsNullOrWhiteSpace(_cronExpression))
+            return;
+
+        var result = CronPreview.Validate(_cronExpression);
+        if (!result.IsValid)
+        {
+            _cronPreviewError = "Expression cron invalide — aperçu indisponible.";
+            return;
+        }
+
+        var occurrences = CronPreview.GetNextOccurrences(_cronExpression, 5);
+        _cronPreviewLines = occurrences
+            .Select(o => o.ToLocalTime().ToString("dddd dd MMMM yyyy à HH:mm"))
+            .ToList();
+    }
+
+    private async Task ToggleAsync()
+    {
+        if (Id is null || _toggling) return;
+
+        _toggling = true;
+        try
+        {
+            await Sender.Send(new ToggleScheduleCommand { ScheduleId = Id.Value });
+            var label = _isActive ? "désactivée" : "activée";
+            ToastService.Show($"Planification {label}.", Severity.Success);
+            if (_formRef is not null)
+            {
+                await _formRef.ReloadAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.Show($"Erreur : {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _toggling = false;
+        }
+    }
+
+    private async Task HandleEntityChanged(EntityChangedEvent evt)
+    {
+        if (!_isDirty && _formRef is not null)
+        {
+            await _formRef.ReloadAsync();
+            ToastService.Show($"Mise à jour par {evt.ChangedBy} appliquée.", Severity.Info);
+            return;
+        }
+
+        ScheduleDto? serverDto;
+        try
+        {
+            serverDto = await ScheduleQueries.GetByIdAsync(Id!.Value);
+        }
+        catch
+        {
+            ToastService.Show("Impossible de recharger les données.", Severity.Error);
+            return;
+        }
+
+        if (serverDto is null) return;
+
+        var conflicts = new List<string>();
+
+        if (_name == _origName)
+            _name = serverDto.Name;
+        else if (serverDto.Name != _origName)
+            conflicts.Add("Nom");
+
+        if (_cronExpression == _origCronExpression)
+        {
+            _cronExpression = serverDto.CronExpression;
+            UpdateCronPreview();
+        }
+        else if (serverDto.CronExpression != _origCronExpression)
+            conflicts.Add("Expression cron");
+
+        if (_jobType == _origJobType)
+            _jobType = serverDto.JobType;
+        else if (serverDto.JobType != _origJobType)
+            conflicts.Add("Type de job");
+
+        if (_payloadTemplate == _origPayloadTemplate)
+            _payloadTemplate = serverDto.PayloadTemplate;
+        else if (serverDto.PayloadTemplate != _origPayloadTemplate)
+            conflicts.Add("Template payload");
+
+        if (_isActive == _origIsActive)
+            _isActive = serverDto.IsActive;
+        else if (serverDto.IsActive != _origIsActive)
+            conflicts.Add("Actif");
+
+        _createdAt = serverDto.CreatedAt;
+        _updatedAt = serverDto.UpdatedAt;
+        _origName = serverDto.Name;
+        _origCronExpression = serverDto.CronExpression;
+        _origJobType = serverDto.JobType;
+        _origPayloadTemplate = serverDto.PayloadTemplate;
+        _origIsActive = serverDto.IsActive;
+
+        if (conflicts.Count > 0)
+        {
+            ToastService.Show($"Conflit détecté sur : {string.Join(", ", conflicts)}. Vos modifications sont conservées.", Severity.Warning);
+        }
+        else
+        {
+            _isDirty = _name != _origName || _cronExpression != _origCronExpression ||
+                       _jobType != _origJobType || _payloadTemplate != _origPayloadTemplate ||
+                       _isActive != _origIsActive;
+            ToastService.Show($"Mise à jour par {evt.ChangedBy} appliquée.", Severity.Info);
+        }
+    }
+}

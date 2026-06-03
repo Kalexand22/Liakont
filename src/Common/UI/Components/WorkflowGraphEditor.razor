@@ -1,0 +1,735 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.UI.Components.Internal
+
+@*
+ * WorkflowGraphEditor — UIE03
+ *
+ * Éditeur graphique de workflows FSM. Canvas dot-grid avec nœuds (états)
+ * draggables et edges (transitions) SVG.
+ *
+ * Features:
+ *   - Canvas avec grille radiale subtile
+ *   - Nœuds = états FSM (cards avec label, couleur par catégorie)
+ *   - Edges = transitions (SVG path dashed, label sur la flèche)
+ *   - Ajout d'un nœud : toolbar flottante "Ajouter état"
+ *   - Ajout d'une transition : cliquer sur source → cible
+ *   - Click sur nœud/edge → panneau propriétés
+ *   - Zoom/pan via transform
+ *   - Validation : pas d'état orphelin, exactement un état initial
+ *   - Round-trip WorkflowGraphDefinition
+ *
+ * API :
+ *   <WorkflowGraphEditor Value="..." OnChange="..."
+ *                        ConditionVariables="..." ConditionOperators="..." />
+ *
+ * All public parameters use Stratum types only (R2). No Radzen dependency.
+ *@
+
+<div class="wf-graph-editor"
+     data-testid="@(TestId ?? "workflow-graph-editor")"
+     aria-label="@(AriaLabel ?? "Éditeur de workflow")">
+
+    @* ── Canvas ── *@
+    <div class="wf-graph-editor__canvas-wrapper"
+         @onmousemove="HandleMouseMove"
+         @onmouseup="HandleMouseUp">
+        <div class="wf-graph-editor__canvas"
+             data-testid="@($"{_testIdPrefix}-canvas")"
+             style="transform: scale(@Fmt2(_zoom)) translate(@Fmt0(_panX)px, @Fmt0(_panY)px);"
+             @onclick="HandleCanvasClick"
+             @onclick:stopPropagation="true">
+
+            @* SVG overlay for edges *@
+            <svg class="wf-graph-editor__edges"
+                 data-testid="@($"{_testIdPrefix}-edges-svg")"
+                 aria-hidden="true">
+                <defs>
+                    <marker id="@($"{_testIdPrefix}-arrowhead")"
+                            markerWidth="10" markerHeight="7"
+                            refX="10" refY="3.5"
+                            orient="auto" markerUnits="strokeWidth">
+                        <polygon points="0 0, 10 3.5, 0 7" class="wf-graph-editor__arrow-fill" />
+                    </marker>
+                </defs>
+                @foreach (var edge in _graph.Edges)
+                {
+                    var fromNode = _graph.Nodes.FirstOrDefault(n => n.Id == edge.FromId);
+                    var toNode = _graph.Nodes.FirstOrDefault(n => n.Id == edge.ToId);
+                    if (fromNode is not null && toNode is not null)
+                    {
+                        var isSelected = _selectedEdgeId == edge.Id;
+                        var edgeCss = isSelected ? "wf-graph-editor__edge-group wf-graph-editor__edge-group--selected" : "wf-graph-editor__edge-group";
+                        var x1 = FmtD(fromNode.X + NodeWidth / 2);
+                        var y1 = FmtD(fromNode.Y + NodeHeight);
+                        var x2 = FmtD(toNode.X + NodeWidth / 2);
+                        var y2 = FmtD(toNode.Y);
+                        var labelX = FmtD((fromNode.X + toNode.X) / 2 + NodeWidth / 2);
+                        var labelY = FmtD((fromNode.Y + NodeHeight + toNode.Y) / 2);
+                        <g class="@edgeCss"
+                           data-testid="@($"{_testIdPrefix}-edge-{edge.Id}")"
+                           @onclick="() => SelectEdge(edge.Id)"
+                           @onclick:stopPropagation="true">
+                            <line x1="@x1" y1="@y1" x2="@x2" y2="@y2"
+                                  class="wf-graph-editor__edge-line"
+                                  marker-end="@($"url(#{_testIdPrefix}-arrowhead)")" />
+                            @if (!string.IsNullOrEmpty(edge.Label))
+                            {
+                                <svg x="@labelX" y="@labelY" overflow="visible">
+                                    <foreignObject width="1" height="1" overflow="visible">
+                                        <span class="wf-graph-editor__edge-label-html">@edge.Label</span>
+                                    </foreignObject>
+                                </svg>
+                            }
+                        </g>
+                    }
+                }
+            </svg>
+
+            @* Node cards *@
+            @foreach (var node in _graph.Nodes)
+            {
+                var isSelected = _selectedNodeId == node.Id;
+                var isInitial = node.Id == _graph.InitialNodeId;
+                var isLinking = _linkSourceId is not null && _linkSourceId != node.Id;
+                var nodeCss = $"wf-graph-editor__node wf-graph-editor__node--{node.Category}" +
+                    (isSelected ? " wf-graph-editor__node--selected" : "") +
+                    (isInitial ? " wf-graph-editor__node--initial" : "");
+                var nodeStyle = $"left: {Fmt0(node.X)}px; top: {Fmt0(node.Y)}px;";
+                <div class="@nodeCss"
+                     data-testid="@($"{_testIdPrefix}-node-{node.Id}")"
+                     style="@nodeStyle"
+                     @onclick="() => HandleNodeClick(node.Id)"
+                     @onclick:stopPropagation="true"
+                     @onmousedown="e => HandleNodeMouseDown(e, node.Id)"
+                     role="button"
+                     tabindex="0"
+                     aria-label="@($"État {node.Label}")">
+                    <div class="wf-graph-editor__node-header">
+                        <span class="wf-graph-editor__node-category-badge">@GetCategoryLabel(node.Category)</span>
+                        @if (isInitial)
+                        {
+                            <span class="wf-graph-editor__node-initial-badge"
+                                  data-testid="@($"{_testIdPrefix}-initial-badge-{node.Id}")">Initial</span>
+                        }
+                    </div>
+                    <div class="wf-graph-editor__node-label">@node.Label</div>
+                    @if (!string.IsNullOrEmpty(node.Description))
+                    {
+                        <div class="wf-graph-editor__node-desc">@node.Description</div>
+                    }
+                    @if (isLinking)
+                    {
+                        <button type="button"
+                                class="wf-graph-editor__node-link-target"
+                                data-testid="@($"{_testIdPrefix}-link-target-{node.Id}")"
+                                @onclick="() => CompleteLinkTo(node.Id)"
+                                @onclick:stopPropagation="true">
+                            Lier ici
+                        </button>
+                    }
+                </div>
+            }
+        </div>
+
+        @* Floating toolbar *@
+        <div class="wf-graph-editor__toolbar"
+             data-testid="@($"{_testIdPrefix}-toolbar")">
+            <button type="button"
+                    class="wf-graph-editor__toolbar-btn"
+                    data-testid="@($"{_testIdPrefix}-add-node-btn")"
+                    title="Ajouter un état"
+                    @onclick="AddNode">
+                <span class="material-symbols-outlined">add_circle</span>
+                État
+            </button>
+            <button type="button"
+                    class="wf-graph-editor__toolbar-btn @(_linkSourceId is not null ? "wf-graph-editor__toolbar-btn--active" : "")"
+                    data-testid="@($"{_testIdPrefix}-add-edge-btn")"
+                    title="@(_linkSourceId is not null ? "Annuler la liaison" : "Ajouter une transition")"
+                    @onclick="ToggleLinkMode">
+                <span class="material-symbols-outlined">@(_linkSourceId is not null ? "close" : "arrow_forward")</span>
+                @(_linkSourceId is not null ? "Annuler" : "Transition")
+            </button>
+            <div class="wf-graph-editor__toolbar-separator"></div>
+            <button type="button"
+                    class="wf-graph-editor__toolbar-btn"
+                    data-testid="@($"{_testIdPrefix}-zoom-in-btn")"
+                    title="Zoom +"
+                    @onclick="ZoomIn">
+                <span class="material-symbols-outlined">zoom_in</span>
+            </button>
+            <button type="button"
+                    class="wf-graph-editor__toolbar-btn"
+                    data-testid="@($"{_testIdPrefix}-zoom-out-btn")"
+                    title="Zoom -"
+                    @onclick="ZoomOut">
+                <span class="material-symbols-outlined">zoom_out</span>
+            </button>
+            <button type="button"
+                    class="wf-graph-editor__toolbar-btn"
+                    data-testid="@($"{_testIdPrefix}-center-btn")"
+                    title="Centrer"
+                    @onclick="CenterView">
+                <span class="material-symbols-outlined">center_focus_strong</span>
+            </button>
+        </div>
+    </div>
+
+    @* ── Properties panel ── *@
+    <div class="wf-graph-editor__properties"
+         data-testid="@($"{_testIdPrefix}-properties")">
+        @if (_selectedNodeId is not null)
+        {
+            var selectedNode = _graph.Nodes.FirstOrDefault(n => n.Id == _selectedNodeId);
+            if (selectedNode is not null)
+            {
+                <div class="wf-graph-editor__prop-section"
+                     data-testid="@($"{_testIdPrefix}-node-props")">
+                    <h4 class="wf-graph-editor__prop-title">Propriétés de l'état</h4>
+
+                    <label class="wf-graph-editor__prop-label">Label</label>
+                    <input type="text"
+                           class="form-control form-control-sm"
+                           data-testid="@($"{_testIdPrefix}-prop-label")"
+                           value="@selectedNode.Label"
+                           @onchange="e => UpdateNodeLabel(selectedNode.Id, Str(e))" />
+
+                    <label class="wf-graph-editor__prop-label">Catégorie</label>
+                    <select class="form-select form-select-sm"
+                            data-testid="@($"{_testIdPrefix}-prop-category")"
+                            value="@selectedNode.Category"
+                            @onchange="@(e => UpdateNodeCategory(selectedNode.Id, StrOr(e, "standard")))">
+                        <option value="initial">Initial</option>
+                        <option value="standard">Standard</option>
+                        <option value="decision">Décision</option>
+                        <option value="terminal">Terminal</option>
+                        <option value="error">Erreur</option>
+                    </select>
+
+                    <label class="wf-graph-editor__prop-label">Description</label>
+                    <textarea class="form-control form-control-sm"
+                              data-testid="@($"{_testIdPrefix}-prop-description")"
+                              rows="2"
+                              @onchange="e => UpdateNodeDescription(selectedNode.Id, StrNull(e))">@selectedNode.Description</textarea>
+
+                    <label class="wf-graph-editor__prop-label">Permissions requises</label>
+                    <input type="text"
+                           class="form-control form-control-sm"
+                           data-testid="@($"{_testIdPrefix}-prop-permissions")"
+                           placeholder="Ex: admin, reviewer (virgules)"
+                           value="@string.Join(", ", selectedNode.RequiredPermissions)"
+                           @onchange="e => UpdateNodePermissions(selectedNode.Id, Str(e))" />
+
+                    <label class="wf-graph-editor__prop-label">Timeout escalade (heures)</label>
+                    <input type="number"
+                           class="form-control form-control-sm"
+                           data-testid="@($"{_testIdPrefix}-prop-escalation")"
+                           value="@selectedNode.EscalationTimeoutHours"
+                           @onchange="e => UpdateNodeEscalation(selectedNode.Id, StrNull(e))" />
+
+                    <div class="wf-graph-editor__prop-actions">
+                        @if (selectedNode.Id != _graph.InitialNodeId)
+                        {
+                            <button type="button"
+                                    class="btn btn-sm btn-outline-primary"
+                                    data-testid="@($"{_testIdPrefix}-set-initial-btn")"
+                                    @onclick="() => SetInitialNode(selectedNode.Id)">
+                                Définir comme initial
+                            </button>
+                        }
+                        <button type="button"
+                                class="btn btn-sm btn-outline-danger"
+                                data-testid="@($"{_testIdPrefix}-delete-node-btn")"
+                                @onclick="() => DeleteNode(selectedNode.Id)">
+                            Supprimer
+                        </button>
+                    </div>
+                </div>
+            }
+        }
+        else if (_selectedEdgeId is not null)
+        {
+            var selectedEdge = _graph.Edges.FirstOrDefault(e => e.Id == _selectedEdgeId);
+            if (selectedEdge is not null)
+            {
+                var fromNode = _graph.Nodes.FirstOrDefault(n => n.Id == selectedEdge.FromId);
+                var toNode = _graph.Nodes.FirstOrDefault(n => n.Id == selectedEdge.ToId);
+
+                <div class="wf-graph-editor__prop-section"
+                     data-testid="@($"{_testIdPrefix}-edge-props")">
+                    <h4 class="wf-graph-editor__prop-title">Propriétés de la transition</h4>
+
+                    <div class="wf-graph-editor__prop-edge-path">
+                        <span>@(fromNode?.Label ?? selectedEdge.FromId)</span>
+                        <span class="material-symbols-outlined">arrow_forward</span>
+                        <span>@(toNode?.Label ?? selectedEdge.ToId)</span>
+                    </div>
+
+                    <label class="wf-graph-editor__prop-label">Label</label>
+                    <input type="text"
+                           class="form-control form-control-sm"
+                           data-testid="@($"{_testIdPrefix}-prop-edge-label")"
+                           value="@selectedEdge.Label"
+                           @onchange="e => UpdateEdgeLabel(selectedEdge.Id, StrNull(e))" />
+
+                    <label class="wf-graph-editor__prop-label">Action callback</label>
+                    <input type="text"
+                           class="form-control form-control-sm"
+                           data-testid="@($"{_testIdPrefix}-prop-edge-callback")"
+                           value="@selectedEdge.CallbackAction"
+                           @onchange="e => UpdateEdgeCallback(selectedEdge.Id, StrNull(e))" />
+
+                    <label class="wf-graph-editor__prop-label">Condition (garde)</label>
+                    <LogicTreeEditor TestId="@($"{_testIdPrefix}-edge-guard")"
+                                     Variables="ConditionVariables"
+                                     Operators="ConditionOperators"
+                                     Value="selectedEdge.Guard"
+                                     OnChange="node => UpdateEdgeGuard(selectedEdge.Id, node)"
+                                     AriaLabel="Condition de garde de la transition" />
+
+                    <div class="wf-graph-editor__prop-actions">
+                        <button type="button"
+                                class="btn btn-sm btn-outline-danger"
+                                data-testid="@($"{_testIdPrefix}-delete-edge-btn")"
+                                @onclick="() => DeleteEdge(selectedEdge.Id)">
+                            Supprimer
+                        </button>
+                    </div>
+                </div>
+            }
+        }
+        else
+        {
+            <div class="wf-graph-editor__prop-empty"
+                 data-testid="@($"{_testIdPrefix}-prop-empty")">
+                <span class="material-symbols-outlined">touch_app</span>
+                <p>Sélectionnez un état ou une transition pour voir ses propriétés.</p>
+            </div>
+        }
+
+        @* Validation *@
+        @if (_validationErrors.Count > 0)
+        {
+            <div class="wf-graph-editor__validation"
+                 data-testid="@($"{_testIdPrefix}-validation")"
+                 role="alert">
+                <h5 class="wf-graph-editor__validation-title">Validation</h5>
+                <ul class="wf-graph-editor__validation-list">
+                    @foreach (var err in _validationErrors)
+                    {
+                        <li>@err</li>
+                    }
+                </ul>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private const double NodeWidth = 180;
+    private const double NodeHeight = 100;
+
+    /// <summary>Optional test identifier.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    /// <summary>Optional ARIA label.</summary>
+    [Parameter] public string? AriaLabel { get; set; }
+
+    /// <summary>The workflow graph definition (two-way bindable).</summary>
+    [Parameter] public WorkflowGraphDefinition? Value { get; set; }
+
+    /// <summary>Raised whenever the graph changes.</summary>
+    [Parameter] public EventCallback<WorkflowGraphDefinition> ValueChanged { get; set; }
+
+    /// <summary>Alias for ValueChanged — explicit change handler.</summary>
+    [Parameter] public EventCallback<WorkflowGraphDefinition> OnChange { get; set; }
+
+    /// <summary>Available variables for transition guard conditions (LogicTreeEditor).</summary>
+    [Parameter] public IReadOnlyList<LogicVariable> ConditionVariables { get; set; } = [];
+
+    /// <summary>Available operators for transition guard conditions.</summary>
+    [Parameter] public IReadOnlyList<LogicOperatorDef> ConditionOperators { get; set; } = [];
+
+    /// <summary>When true, validation errors are shown. Default: true.</summary>
+    [Parameter] public bool ShowValidation { get; set; } = true;
+
+    // ── Internal state ──
+
+    private WorkflowGraphDefinition _graph = WorkflowGraphDefinition.Default();
+    private string _testIdPrefix => TestId ?? "workflow-graph-editor";
+    private string? _selectedNodeId;
+    private string? _selectedEdgeId;
+    private string? _linkSourceId;
+    private double _zoom = 1.0;
+    private double _panX = 0;
+    private double _panY = 0;
+    private int _nodeCounter;
+    private int _edgeCounter;
+    private List<string> _validationErrors = [];
+
+    // Drag state
+    private string? _draggingNodeId;
+    private double _dragStartX;
+    private double _dragStartY;
+    private double _nodeStartX;
+    private double _nodeStartY;
+
+    protected override void OnParametersSet()
+    {
+        _graph = Value ?? WorkflowGraphDefinition.Default();
+        _nodeCounter = _graph.Nodes.Count;
+        _edgeCounter = _graph.Edges.Count;
+
+        if (ShowValidation)
+        {
+            _validationErrors = Validate(_graph);
+        }
+    }
+
+    // ── Graph mutations ──
+
+    private async Task NotifyChanged()
+    {
+        if (ShowValidation)
+        {
+            _validationErrors = Validate(_graph);
+        }
+
+        await ValueChanged.InvokeAsync(_graph);
+        await OnChange.InvokeAsync(_graph);
+    }
+
+    private async Task AddNode()
+    {
+        _nodeCounter++;
+        var newNode = new WorkflowGraphNode
+        {
+            Id = $"state_{_nodeCounter}",
+            Label = $"État {_nodeCounter}",
+            Category = "standard",
+            X = 100 + (_nodeCounter % 4) * 220,
+            Y = 80 + (_nodeCounter / 4) * 150,
+        };
+
+        _graph = _graph with { Nodes = [.. _graph.Nodes, newNode] };
+        _selectedNodeId = newNode.Id;
+        _selectedEdgeId = null;
+        await NotifyChanged();
+    }
+
+    private async Task DeleteNode(string nodeId)
+    {
+        if (_graph.Nodes.Count <= 1)
+        {
+            return; // Cannot delete the last remaining node
+        }
+
+        if (nodeId == _graph.InitialNodeId)
+        {
+            return; // Cannot delete the initial node
+        }
+
+        _graph = _graph with
+        {
+            Nodes = _graph.Nodes.Where(n => n.Id != nodeId).ToList(),
+            Edges = _graph.Edges.Where(e => e.FromId != nodeId && e.ToId != nodeId).ToList(),
+        };
+
+        if (_selectedNodeId == nodeId) _selectedNodeId = null;
+        await NotifyChanged();
+    }
+
+    private async Task SetInitialNode(string nodeId)
+    {
+        // Update category of old initial to standard if it was 'initial'
+        var updatedNodes = _graph.Nodes.Select(n =>
+        {
+            if (n.Id == _graph.InitialNodeId && n.Category == "initial")
+                return n with { Category = "standard" };
+            if (n.Id == nodeId)
+                return n with { Category = "initial" };
+            return n;
+        }).ToList();
+
+        _graph = _graph with { Nodes = updatedNodes, InitialNodeId = nodeId };
+        await NotifyChanged();
+    }
+
+    private async Task UpdateNodeLabel(string nodeId, string label)
+    {
+        _graph = _graph with
+        {
+            Nodes = _graph.Nodes.Select(n => n.Id == nodeId ? n with { Label = label } : n).ToList(),
+        };
+        await NotifyChanged();
+    }
+
+    private async Task UpdateNodeCategory(string nodeId, string category)
+    {
+        _graph = _graph with
+        {
+            Nodes = _graph.Nodes.Select(n => n.Id == nodeId ? n with { Category = category } : n).ToList(),
+        };
+        await NotifyChanged();
+    }
+
+    private async Task UpdateNodeDescription(string nodeId, string? description)
+    {
+        _graph = _graph with
+        {
+            Nodes = _graph.Nodes.Select(n => n.Id == nodeId ? n with { Description = description } : n).ToList(),
+        };
+        await NotifyChanged();
+    }
+
+    private async Task UpdateNodePermissions(string nodeId, string permissions)
+    {
+        var perms = permissions.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+        _graph = _graph with
+        {
+            Nodes = _graph.Nodes.Select(n => n.Id == nodeId ? n with { RequiredPermissions = perms } : n).ToList(),
+        };
+        await NotifyChanged();
+    }
+
+    private async Task UpdateNodeEscalation(string nodeId, string? value)
+    {
+        int? hours = int.TryParse(value, out var h) ? h : null;
+        _graph = _graph with
+        {
+            Nodes = _graph.Nodes.Select(n => n.Id == nodeId ? n with { EscalationTimeoutHours = hours } : n).ToList(),
+        };
+        await NotifyChanged();
+    }
+
+    // ── Edge mutations ──
+
+    private void ToggleLinkMode()
+    {
+        if (_linkSourceId is not null)
+        {
+            _linkSourceId = null;
+        }
+        else
+        {
+            _linkSourceId = _selectedNodeId;
+        }
+    }
+
+    private async Task CompleteLinkTo(string targetId)
+    {
+        if (_linkSourceId is null || _linkSourceId == targetId) return;
+
+        // Check duplicate
+        if (_graph.Edges.Any(e => e.FromId == _linkSourceId && e.ToId == targetId)) return;
+
+        _edgeCounter++;
+        var newEdge = new WorkflowGraphEdge
+        {
+            Id = $"edge_{_edgeCounter}",
+            FromId = _linkSourceId,
+            ToId = targetId,
+        };
+
+        _graph = _graph with { Edges = [.. _graph.Edges, newEdge] };
+        _selectedEdgeId = newEdge.Id;
+        _selectedNodeId = null;
+        _linkSourceId = null;
+        await NotifyChanged();
+    }
+
+    private async Task DeleteEdge(string edgeId)
+    {
+        _graph = _graph with
+        {
+            Edges = _graph.Edges.Where(e => e.Id != edgeId).ToList(),
+        };
+        if (_selectedEdgeId == edgeId) _selectedEdgeId = null;
+        await NotifyChanged();
+    }
+
+    private async Task UpdateEdgeLabel(string edgeId, string? label)
+    {
+        _graph = _graph with
+        {
+            Edges = _graph.Edges.Select(e => e.Id == edgeId ? e with { Label = label } : e).ToList(),
+        };
+        await NotifyChanged();
+    }
+
+    private async Task UpdateEdgeCallback(string edgeId, string? callback)
+    {
+        _graph = _graph with
+        {
+            Edges = _graph.Edges.Select(e => e.Id == edgeId ? e with { CallbackAction = callback } : e).ToList(),
+        };
+        await NotifyChanged();
+    }
+
+    private async Task UpdateEdgeGuard(string edgeId, LogicNode guard)
+    {
+        _graph = _graph with
+        {
+            Edges = _graph.Edges.Select(e => e.Id == edgeId ? e with { Guard = guard } : e).ToList(),
+        };
+        await NotifyChanged();
+    }
+
+    // ── Selection ──
+
+    private void HandleNodeClick(string nodeId)
+    {
+        if (_linkSourceId is not null)
+        {
+            // In link mode, clicking a node completes the link (handled by CompleteLinkTo)
+            return;
+        }
+        _selectedNodeId = nodeId;
+        _selectedEdgeId = null;
+    }
+
+    private void SelectEdge(string edgeId)
+    {
+        _selectedEdgeId = edgeId;
+        _selectedNodeId = null;
+    }
+
+    private void HandleCanvasClick()
+    {
+        _selectedNodeId = null;
+        _selectedEdgeId = null;
+        _linkSourceId = null;
+    }
+
+    // ── Drag (basic — updates position on mousedown offset) ──
+
+    private void HandleNodeMouseDown(MouseEventArgs e, string nodeId)
+    {
+        _draggingNodeId = nodeId;
+        _dragStartX = e.ClientX;
+        _dragStartY = e.ClientY;
+        var node = _graph.Nodes.FirstOrDefault(n => n.Id == nodeId);
+        if (node is not null)
+        {
+            _nodeStartX = node.X;
+            _nodeStartY = node.Y;
+        }
+    }
+
+    private void HandleMouseMove(MouseEventArgs e)
+    {
+        if (_draggingNodeId is null) return;
+
+        var dx = e.ClientX - _dragStartX;
+        var dy = e.ClientY - _dragStartY;
+        var newX = Math.Max(0, _nodeStartX + dx / _zoom);
+        var newY = Math.Max(0, _nodeStartY + dy / _zoom);
+
+        _graph = _graph with
+        {
+            Nodes = _graph.Nodes.Select(n => n.Id == _draggingNodeId
+                ? n with { X = newX, Y = newY }
+                : n).ToList(),
+        };
+    }
+
+    private async Task HandleMouseUp(MouseEventArgs e)
+    {
+        if (_draggingNodeId is not null)
+        {
+            _draggingNodeId = null;
+            await NotifyChanged();
+        }
+    }
+
+    // ── Zoom/Pan ──
+
+    private void ZoomIn()
+    {
+        _zoom = Math.Min(_zoom + 0.1, 2.0);
+    }
+
+    private void ZoomOut()
+    {
+        _zoom = Math.Max(_zoom - 0.1, 0.3);
+    }
+
+    private void CenterView()
+    {
+        _zoom = 1.0;
+        _panX = 0;
+        _panY = 0;
+    }
+
+    // ── Formatting helpers (avoid inline ToString in Razor attributes) ──
+
+    private static string Fmt0(double v) => v.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+    private static string Fmt2(double v) => v.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+    private static string FmtD(double v) => v.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    private static string Str(ChangeEventArgs e) => e.Value?.ToString() ?? "";
+    private static string StrOr(ChangeEventArgs e, string fallback) => e.Value?.ToString() ?? fallback;
+    private static string? StrNull(ChangeEventArgs e) => e.Value?.ToString();
+
+    // ── Helpers ──
+
+    private static string GetCategoryLabel(string category) => category switch
+    {
+        "initial" => "Initial",
+        "standard" => "Standard",
+        "decision" => "Décision",
+        "terminal" => "Terminal",
+        "error" => "Erreur",
+        _ => category,
+    };
+
+    // ── Validation ──
+
+    private static List<string> Validate(WorkflowGraphDefinition graph)
+    {
+        var errors = new List<string>();
+
+        if (graph.Nodes.Count == 0)
+        {
+            errors.Add("Le workflow doit contenir au moins un état.");
+            return errors;
+        }
+
+        // Check initial node exists
+        if (!graph.Nodes.Any(n => n.Id == graph.InitialNodeId))
+        {
+            errors.Add("L'état initial spécifié n'existe pas dans le graphe.");
+        }
+
+        // Check for orphan nodes (no incoming or outgoing edges, except initial)
+        foreach (var node in graph.Nodes)
+        {
+            if (node.Id == graph.InitialNodeId) continue;
+            var hasIncoming = graph.Edges.Any(e => e.ToId == node.Id);
+            var hasOutgoing = graph.Edges.Any(e => e.FromId == node.Id);
+            if (!hasIncoming && !hasOutgoing)
+            {
+                errors.Add($"L'état « {node.Label} » est orphelin (aucune transition entrante ni sortante).");
+            }
+        }
+
+        // Check for duplicate edges
+        var edgePairs = graph.Edges.Select(e => $"{e.FromId}->{e.ToId}").ToList();
+        var duplicates = edgePairs.GroupBy(x => x).Where(g => g.Count() > 1).Select(g => g.Key);
+        foreach (var dup in duplicates)
+        {
+            errors.Add($"Transition en double : {dup}.");
+        }
+
+        // Check that nodes referenced by edges exist
+        foreach (var edge in graph.Edges)
+        {
+            if (!graph.Nodes.Any(n => n.Id == edge.FromId))
+                errors.Add($"La transition « {edge.Id} » référence un état source inexistant « {edge.FromId} ».");
+            if (!graph.Nodes.Any(n => n.Id == edge.ToId))
+                errors.Add($"La transition « {edge.Id} » référence un état cible inexistant « {edge.ToId} ».");
+        }
+
+        return errors;
+    }
+}

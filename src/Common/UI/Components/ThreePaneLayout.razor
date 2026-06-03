@@ -1,0 +1,115 @@
+@namespace Stratum.Common.UI.Components
+
+@*
+ * ThreePaneLayout — réutilisable layout master/detail.
+ *
+ * Civic Blueprint UIF07. À insérer DANS ErpShellLayout (ou n'importe quel
+ * layout/page) — il occupe la zone disponible (flex children) et n'embarque
+ * pas la nav primaire. Le shell ErpShellLayout fournit déjà la nav latérale,
+ * la TabBar et la TopBar ; ThreePaneLayout n'y touche pas.
+ *
+ * Conformité Civic Blueprint :
+ * - No-Line Rule respectée : la frontière master/detail est obtenue par un
+ *   shift de surface (`surface-container` → `surface-container-lowest`),
+ *   pas par une bordure 1 px en position de section divider.
+ * - Tonal Stacking : pas d'ombre statique entre les panneaux. Le drawer
+ *   responsive sous 1024 px s'autorise une ombre flottante (élément flottant).
+ * - Density-aware : consomme `--density-row-padding-block` côté contenus.
+ *
+ * API publique : RenderFragment + types Stratum uniquement, jamais Radzen.
+ *
+ * Usage :
+ *   <ThreePaneLayout MasterLabel="Dossiers" DetailLabel="Détail dossier">
+ *       <MasterPane>
+ *           ... liste / inbox ...
+ *       </MasterPane>
+ *       <DetailPane>
+ *           ... contenu sélectionné ...
+ *       </DetailPane>
+ *   </ThreePaneLayout>
+ *@
+
+<div class="three-pane @(_masterOpenMobile ? "three-pane--master-open" : null)"
+     data-testid="@(TestId ?? "three-pane")">
+
+    @if (ShowMobileToggle)
+    {
+        <button type="button"
+                class="three-pane__master-toggle"
+                @onclick="ToggleMaster"
+                aria-expanded="@(_masterOpenMobile ? "true" : "false")"
+                aria-controls="@_masterId"
+                aria-label="@MasterToggleLabel"
+                data-testid="@(TestId is not null ? $"{TestId}-master-toggle" : "three-pane-master-toggle")">
+            <span aria-hidden="true">☰</span>
+        </button>
+
+        @if (_masterOpenMobile)
+        {
+            <div class="three-pane__backdrop"
+                 @onclick="CloseMaster"
+                 aria-hidden="true"
+                 data-testid="@(TestId is not null ? $"{TestId}-backdrop" : "three-pane-backdrop")"></div>
+        }
+    }
+
+    <aside class="three-pane__master"
+           id="@_masterId"
+           role="complementary"
+           aria-label="@MasterLabel"
+           style="--three-pane-master-size: @MasterSize"
+           data-testid="@(TestId is not null ? $"{TestId}-master" : "three-pane-master")">
+        @MasterPane
+    </aside>
+
+    <section class="three-pane__detail"
+             role="region"
+             aria-label="@DetailLabel"
+             data-testid="@(TestId is not null ? $"{TestId}-detail" : "three-pane-detail")">
+        @DetailPane
+    </section>
+</div>
+
+@code {
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root and propagated to inner panes.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Master pane content (typically a list / inbox / tree).</summary>
+    [Parameter]
+    public RenderFragment? MasterPane { get; set; }
+
+    /// <summary>Detail pane content (typically the focused record).</summary>
+    [Parameter]
+    public RenderFragment? DetailPane { get; set; }
+
+    /// <summary>Width of the master pane on desktop. Default <c>"400px"</c>.</summary>
+    [Parameter]
+    public string MasterSize { get; set; } = "400px";
+
+    /// <summary>Whether the responsive toggle button is shown below the collapse breakpoint. Default <c>true</c>.</summary>
+    [Parameter]
+    public bool ShowMobileToggle { get; set; } = true;
+
+    /// <summary>Accessible label for the master pane (used on the <c>aside</c>).</summary>
+    [Parameter]
+    public string MasterLabel { get; set; } = "Liste";
+
+    /// <summary>Accessible label for the detail pane (used on the <c>section</c>).</summary>
+    [Parameter]
+    public string DetailLabel { get; set; } = "Détail";
+
+    /// <summary>Accessible label for the responsive toggle button (used as <c>aria-label</c>).</summary>
+    [Parameter]
+    public string MasterToggleLabel { get; set; } = "Ouvrir la liste";
+
+    private bool _masterOpenMobile;
+
+    // Full 32-hex Guid suffix — slicing risks id collisions when several
+    // ThreePaneLayout instances coexist on the same page (codex P2 round 2).
+    private readonly string _masterId = $"three-pane-master-{Guid.NewGuid():N}";
+
+    private void ToggleMaster() => _masterOpenMobile = !_masterOpenMobile;
+
+    private void CloseMaster() => _masterOpenMobile = false;
+}

@@ -1,0 +1,416 @@
+/* Stratum ERP - minimal custom styles */
+
+html, body {
+    height: 100%;
+    margin: 0;
+    background-color: var(--color-bg-page);
+    color: var(--color-text-primary);
+}
+
+.error-message {
+    color: var(--color-error-500);
+    font-size: 0.875rem;
+    margin-top: 0.25rem;
+}
+
+/* ── ERP Shell Layout ──────────────────────────────────────────────────── */
+
+.erp-shell {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.erp-nav {
+    width: 220px;
+    flex-shrink: 0;
+    overflow-y: auto;
+    transition: width 0.3s ease;
+}
+
+.sidebar-collapsed .erp-nav {
+    width: 60px;
+}
+
+/* Pre-collapse: applied by inline <script> before Blazor hydrates to prevent FOUC */
+.sidebar-pre-collapsed .erp-nav {
+    width: 60px;
+}
+
+.erp-content {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0; /* prevent flex blowout */
+    min-height: 0; /* allow flex child to shrink for overflow scroll */
+}
+
+/* ── Mobile sidebar (drawer overlay) ─────────────────────────────────── */
+
+@media (max-width: 767.98px) {
+    .erp-nav {
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 200;
+        width: 220px;
+        height: 100vh;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+    }
+
+    .erp-shell.sidebar-open .erp-nav {
+        transform: translateX(0);
+    }
+
+    .sidebar-collapsed .erp-nav {
+        width: 220px; /* on mobile, collapsed = hidden drawer, not icons-only */
+        transform: translateX(-100%);
+    }
+
+    .erp-shell.sidebar-open.sidebar-collapsed .erp-nav {
+        transform: translateX(0);
+    }
+
+    .erp-content {
+        width: 100%;
+    }
+}
+
+/* Mobile overlay backdrop */
+.erp-sidebar-backdrop {
+    display: none;
+}
+
+@media (max-width: 767.98px) {
+    .erp-sidebar-backdrop {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 199;
+    }
+
+    .erp-shell.sidebar-open .erp-sidebar-backdrop {
+        display: block;
+    }
+}
+
+.erp-header {
+    display: flex;
+    align-items: stretch;
+    gap: var(--spacing-3);
+    background:
+        linear-gradient(180deg, var(--color-bg-surface) 0%, var(--color-surface-container-low) 100%);
+    box-shadow: 0 10px 22px -20px rgb(0 27 68 / 0.35);
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.erp-topbar-controls {
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.erp-main {
+    flex: 1;
+    overflow-x: auto;
+    overflow-y: auto;
+    background: linear-gradient(180deg, var(--color-bg-page) 0%, var(--color-surface) 100%);
+}
+
+/* Compact density — crush main content padding (overrides Bootstrap p-4) */
+[data-density="compact"] .erp-main.p-4 {
+    padding: 0.375rem !important;
+}
+
+[data-density="compact"] .erp-header {
+    gap: 0.125rem;
+}
+
+/* Top-level list pages in the ERP shell: drop the erp-main.p-4 breathing
+   room entirely when a DeclaredListPage is the direct child, so the grid
+   fills edge-to-edge. Uses :has() (direct-child) instead of a negative
+   margin on the child, which would escape the scroll container and add
+   horizontal overflow. DeclaredListPage instances nested inside a
+   SectionCard or hosted under PublicLayout keep their container's padding. */
+.erp-main.p-4:has(> .declared-list-page) {
+    padding: 0 !important;
+}
+
+[data-density="compact"] .erp-main.p-4:has(> .declared-list-page) {
+    padding: 0 !important;
+}
+
+/* ── Global Search Overlay ──────────────────────────────────────────────── */
+
+.search-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 200;
+}
+
+.search-overlay {
+    position: fixed;
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(640px, calc(100vw - 2rem));
+    z-index: 201;
+}
+
+.search-box {
+    max-height: calc(100vh - 160px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.search-results {
+    overflow-y: auto;
+    max-height: 400px;
+}
+
+.search-group-header {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.7rem;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.search-result-item {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.1s;
+}
+
+.search-result-item:hover {
+    background-color: var(--color-primary-50);
+}
+
+/* ── Notification Center ────────────────────────────────────────────────── */
+
+.notification-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+}
+
+.notification-panel {
+    position: fixed;
+    top: 36px;
+    right: 0;
+    width: 340px;
+    max-height: calc(100vh - 36px);
+    overflow-y: auto;
+    z-index: 201;
+    border-left: 1px solid var(--color-border);
+    background-color: var(--color-bg-surface);
+}
+
+.notification-unread {
+    background-color: var(--color-severity-info-bg);
+}
+
+.notification-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.notification-dot-success { background-color: #22c55e; }
+.notification-dot-warning  { background-color: #f59e0b; }
+.notification-dot-info     { background-color: #0ea5e9; }
+
+/* ── WorkflowBar ──────────────────────────────────────────────────────────── */
+.workflow-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: 0.375rem;
+    background-color: var(--color-bg-subtle);
+}
+
+.workflow-bar__status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.workflow-bar__status-label {
+    color: var(--color-text-secondary);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.workflow-bar__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-left: auto;
+}
+
+.workflow-bar__btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    border-radius: 0.25rem;
+    border: 1px solid transparent;
+    cursor: pointer;
+    background-color: transparent;
+    transition: color 0.15s, background-color 0.15s, border-color 0.15s;
+}
+
+.workflow-bar__btn:focus-visible {
+    outline: 2px solid var(--color-primary-600);
+    outline-offset: 2px;
+}
+
+.workflow-bar__btn--outline {
+    color: var(--color-primary-700);
+    border-color: var(--color-primary-700);
+}
+
+.workflow-bar__btn--outline:hover {
+    color: var(--color-text-on-dark);
+    background-color: var(--color-primary-700);
+}
+
+.workflow-bar__btn--danger {
+    color: var(--color-error-700);
+    border-color: var(--color-error-700);
+}
+
+.workflow-bar__btn--danger:hover {
+    color: var(--color-text-on-dark);
+    background-color: var(--color-error-700);
+}
+
+.workflow-bar__btn--success {
+    color: var(--color-text-on-dark);
+    background-color: var(--color-success-600);
+    border-color: var(--color-success-600);
+}
+
+.workflow-bar__btn--success:hover {
+    background-color: var(--color-success-700);
+    border-color: var(--color-success-700);
+}
+
+.workflow-bar__btn--primary {
+    color: var(--color-text-on-dark);
+    background-color: var(--color-primary-600);
+    border-color: var(--color-primary-600);
+}
+
+.workflow-bar__btn--primary:hover {
+    background-color: var(--color-primary-700);
+    border-color: var(--color-primary-700);
+}
+
+.workflow-bar__btn--secondary {
+    color: var(--color-text-secondary);
+    border-color: var(--color-text-secondary);
+}
+
+.workflow-bar__btn--secondary:hover {
+    color: var(--color-text-on-dark);
+    background-color: var(--color-neutral-600);
+}
+
+.workflow-bar__btn--disabled {
+    color: var(--color-text-muted);
+    border-color: var(--color-text-muted);
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.workflow-bar__backdrop {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 1040;
+}
+
+.workflow-bar__confirm {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--color-bg-surface);
+    border-radius: 0.5rem;
+    box-shadow: var(--shadow-lg);
+    width: 28rem;
+    max-width: 90vw;
+    z-index: 1050;
+}
+
+.workflow-bar__confirm-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.workflow-bar__confirm-title {
+    font-size: 1rem;
+    font-weight: 500;
+    margin: 0;
+}
+
+.workflow-bar__confirm-close {
+    background: none;
+    border: none;
+    font-size: 1rem;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    padding: 0.25rem;
+    line-height: 1;
+    min-width: 1.5rem;   /* 24px — WCAG 2.5.8 target size minimum */
+    min-height: 1.5rem;
+    border-radius: 0.25rem;
+}
+
+.workflow-bar__confirm-close:focus-visible {
+    outline: 2px solid var(--color-primary-600);
+    outline-offset: 2px;
+}
+
+.workflow-bar__confirm-close:hover {
+    color: var(--color-text-primary);
+}
+
+.workflow-bar__confirm-body {
+    padding: 1rem;
+}
+
+.workflow-bar__confirm-muted {
+    color: var(--color-text-muted);
+    font-size: 0.875rem;
+    margin-bottom: 0;
+}
+
+.workflow-bar__confirm-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-top: 1px solid var(--color-border);
+}

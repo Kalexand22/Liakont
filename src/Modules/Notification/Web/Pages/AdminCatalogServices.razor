@@ -1,0 +1,155 @@
+@page "/admin/catalog/services"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Stratum.Modules.Notification.Contracts
+@using Stratum.Modules.Notification.Contracts.DTOs
+@using Stratum.Modules.Notification.Contracts.Queries
+@using Stratum.Modules.Notification.Contracts.Commands
+@using Stratum.Modules.Notification.Web.Registries
+@inject IServiceDefinitionQueries ServiceQueries
+@inject ISender Sender
+@inject NavigationManager Nav
+@inject IToastService ToastService
+@using Stratum.Common.Abstractions.Security
+@inject IPermissionService PermissionService
+
+<PageTitle>Services instructeurs — Stratum ERP</PageTitle>
+
+<DeclaredListPage TItem="ServiceDefinitionDto"
+                  Title="Services instructeurs"
+                  TestId="catalog-services"
+                  LoadItems="@(() => ServiceQueries.List(null))"
+                  DetailUrl="@(s => $"/admin/catalog/services/{s.Id}")"
+                  CreateUrl="/admin/catalog/services/new"
+                  CreateLabel="+ Nouveau service"
+                  ColumnRegistry="@_registry"
+                  ColumnTemplates="@_columnTemplates"
+                  GridKey="Notification.Services"
+                  RowActions="@_rowActions"
+                  BulkActions="@_bulkActions"
+                  AriaLabel="Liste des services instructeurs"
+                  DefaultSortColumn="Code"
+                  SearchPlaceholder="Chercher un service… (raccourci : /)"
+                  AllowExport="true"
+                  ExportFileName="services-instructeurs">
+</DeclaredListPage>
+
+@code {
+    private readonly ServiceDefinitionColumnRegistry _registry = new();
+
+    private readonly Dictionary<string, RenderFragment<ServiceDefinitionDto>> _columnTemplates = new()
+    {
+        ["IsActive"] = item => __builder =>
+        {
+            __builder.OpenComponent<StatusBadge>(0);
+            __builder.AddAttribute(1, "Severity", item.IsActive ? Severity.Success : Severity.Neutral);
+            __builder.AddAttribute(2, "Label", item.IsActive ? "Actif" : "Inactif");
+            __builder.CloseComponent();
+        },
+        ["DefaultSlaHours"] = item => __builder =>
+        {
+            if (item.DefaultSlaHours.HasValue)
+            {
+                __builder.AddContent(0, $"{item.DefaultSlaHours}h");
+            }
+            else
+            {
+                __builder.AddContent(0, "—");
+            }
+        },
+        ["Competences"] = item => __builder =>
+        {
+            if (!string.IsNullOrWhiteSpace(item.Competences))
+            {
+                var tags = item.Competences.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var seq = 0;
+                foreach (var tag in tags)
+                {
+                    __builder.OpenComponent<CategoryBadge>(seq++);
+                    __builder.AddAttribute(seq++, "Label", tag);
+                    __builder.CloseComponent();
+                }
+            }
+            else
+            {
+                __builder.AddContent(0, "—");
+            }
+        },
+    };
+
+    private readonly IReadOnlyList<GridRowAction<ServiceDefinitionDto>> _rowActions;
+    private readonly IReadOnlyList<BulkActionConfig<ServiceDefinitionDto>> _bulkActions;
+
+    public AdminCatalogServices()
+    {
+        _rowActions =
+        [
+            new GridRowAction<ServiceDefinitionDto>(
+                Id: "edit",
+                Label: "Modifier",
+                Icon: "edit",
+                IsQuickAction: true,
+                Callback: item =>
+                {
+                    Nav.NavigateTo($"/admin/catalog/services/{item.Id}/edit");
+                    return Task.CompletedTask;
+                }),
+            new GridRowAction<ServiceDefinitionDto>(
+                Id: "delete",
+                Label: "Supprimer",
+                Icon: "delete",
+                Callback: DeleteItemAsync,
+                RequiresConfirmation: true,
+                IsSeparatorBefore: true,
+                IsQuickAction: true),
+        ];
+
+        _bulkActions =
+        [
+            new BulkActionConfig<ServiceDefinitionDto>(
+                Id: "deactivate",
+                Label: "Désactiver la sélection",
+                Icon: "pause",
+                Permission: NotificationPermissions.ServiceUpdate,
+                PermissionDisabledReason: "Rôle insuffisant pour désactiver.",
+                Execute: DeactivateAsync,
+                ItemFilter: s => s.IsActive),
+        ];
+    }
+
+    private async Task DeleteItemAsync(ServiceDefinitionDto item)
+    {
+        if (!PermissionService.HasPermission(NotificationPermissions.ServiceDelete))
+        {
+            ToastService.Show("Droits insuffisants pour supprimer un service.", Severity.Error);
+            return;
+        }
+
+        await Sender.Send(new DeleteServiceDefinitionCommand { ServiceDefinitionId = item.Id });
+        ToastService.Show($"Service « {item.Name} » supprimé.", Severity.Success);
+        Nav.NavigateTo(Nav.Uri, forceLoad: true);
+    }
+
+    private async Task DeactivateAsync(IReadOnlyList<ServiceDefinitionDto> items)
+    {
+        foreach (var item in items)
+        {
+            await Sender.Send(new UpdateServiceDefinitionCommand
+            {
+                Id = item.Id,
+                Name = item.Name,
+                Email = item.Email,
+                Description = item.Description,
+                IsActive = false,
+                ManagerName = item.ManagerName,
+                DefaultSlaHours = item.DefaultSlaHours,
+                Color = item.Color,
+                Competences = item.Competences,
+            });
+        }
+    }
+}

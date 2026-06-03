@@ -1,0 +1,44 @@
+namespace Stratum.Common.Abstractions.MultiTenancy;
+
+/// <summary>
+/// Request to provision a Keycloak realm for a tenant.
+/// </summary>
+public sealed class KeycloakRealmProvisionRequest
+{
+    /// <summary>Stratum tenant ID (e.g., "acme").</summary>
+    public required string TenantId { get; init; }
+
+    /// <summary>Human-readable display name for the realm.</summary>
+    public required string DisplayName { get; init; }
+
+    /// <summary>Keycloak realm name (e.g., "stratum-acme").</summary>
+    public required string RealmName { get; init; }
+
+    /// <summary>OIDC client secret for the "stratum" client in this realm.</summary>
+    public required string ClientSecret { get; init; }
+
+    /// <summary>Admin user email for the initial realm user.</summary>
+    public required string AdminEmail { get; init; }
+
+    /// <summary>Admin username for the initial realm user.</summary>
+    public required string AdminUsername { get; init; }
+
+    /// <summary>Temporary password for the admin user.</summary>
+    public required string AdminPassword { get; init; }
+
+    /// <summary>
+    /// Stratum user ID (Guid) to set as the <c>stratum_user_id</c> attribute
+    /// on the Keycloak admin user, linking it to the seeded DB user.
+    /// </summary>
+    public required string StratumUserId { get; init; }
+
+    /// <summary>
+    /// Allowed redirect URIs for the OIDC client (e.g., "https://localhost:55995/*").
+    /// </summary>
+    public required IReadOnlyList<string> RedirectUris { get; init; }
+
+    /// <summary>
+    /// Allowed web origins for CORS (e.g., "https://localhost:55995").
+    /// </summary>
+    public required IReadOnlyList<string> WebOrigins { get; init; }
+}

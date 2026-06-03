@@ -1,0 +1,385 @@
+/* WorkflowGraphEditor — UIE03 scoped styles
+ * All colors via CSS tokens from tokens.css. No hardcoded hex.
+ * Border-radius: 2px (sm) or 4px (lg) per Civic Blueprint. */
+
+.wf-graph-editor {
+    display: flex;
+    gap: var(--spacing-4, 16px);
+    height: 600px;
+    border: 1px solid var(--color-outline-variant, #c4c6cf);
+    border-radius: var(--radius-lg, 4px);
+    background: var(--color-surface, #f8fafb);
+    overflow: hidden;
+}
+
+/* ── Canvas wrapper ── */
+
+.wf-graph-editor__canvas-wrapper {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+}
+
+.wf-graph-editor__canvas {
+    position: relative;
+    width: 2000px;
+    height: 1500px;
+    background-image: radial-gradient(var(--color-outline-variant, #c4c6cf) 1px, transparent 1px);
+    background-size: 24px 24px;
+    transform-origin: 0 0;
+    cursor: default;
+}
+
+/* ── SVG edges ── */
+
+.wf-graph-editor__edges {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.wf-graph-editor__edge-group {
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+.wf-graph-editor__edge-line {
+    stroke: var(--color-outline, #74777f);
+    stroke-width: 2;
+    stroke-dasharray: 6 4;
+    fill: none;
+}
+
+.wf-graph-editor__edge-group--selected .wf-graph-editor__edge-line {
+    stroke: var(--color-primary, #001b44);
+    stroke-width: 3;
+    stroke-dasharray: none;
+}
+
+.wf-graph-editor__edge-label-html {
+    display: inline-block;
+    transform: translate(-50%, -50%);
+    padding: 1px var(--spacing-1, 4px);
+    font-size: var(--font-size-label-sm, 0.75rem);
+    font-family: var(--font-family-base, 'Inter', sans-serif);
+    color: var(--color-on-surface, #191c1e);
+    background: var(--color-surface, #f8fafb);
+    border-radius: var(--radius-sm, 2px);
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* ── Node cards ── */
+
+.wf-graph-editor__node {
+    position: absolute;
+    width: 180px;
+    min-height: 80px;
+    padding: var(--spacing-3, 12px);
+    background: var(--color-surface-container-low, #f1f4f8);
+    border: 1px solid var(--color-outline-variant, #c4c6cf);
+    border-radius: var(--radius-lg, 4px);
+    box-shadow: var(--shadow-sm, 0 1px 2px rgba(0,0,0,.05));
+    cursor: grab;
+    user-select: none;
+    transition: box-shadow 150ms ease, border-color 150ms ease;
+}
+
+.wf-graph-editor__node:hover {
+    box-shadow: var(--shadow-md, 0 2px 8px rgba(0,0,0,.1));
+}
+
+.wf-graph-editor__node--selected {
+    border-color: var(--color-primary, #001b44);
+    border-width: 2px;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary, #001b44) 10%, transparent);
+}
+
+.wf-graph-editor__node--initial {
+    border-left: 3px solid var(--fsm-draft-fg, #001b44);
+}
+
+/* Category coloring via FSM tokens */
+
+.wf-graph-editor__node--initial .wf-graph-editor__node-category-badge {
+    background: var(--fsm-draft-bg, #e3e8f0);
+    color: var(--fsm-draft-fg, #001b44);
+}
+
+.wf-graph-editor__node--standard .wf-graph-editor__node-category-badge {
+    background: var(--fsm-submitted-bg, #dce4f5);
+    color: var(--fsm-submitted-fg, #1a3a6b);
+}
+
+.wf-graph-editor__node--decision .wf-graph-editor__node-category-badge {
+    background: var(--fsm-qualifying-bg, #fdf4e7);
+    color: var(--fsm-qualifying-fg, #6b4400);
+}
+
+.wf-graph-editor__node--terminal .wf-graph-editor__node-category-badge {
+    background: var(--fsm-validated-bg, #e6f4ea);
+    color: var(--fsm-validated-fg, #1b5e20);
+}
+
+.wf-graph-editor__node--error .wf-graph-editor__node-category-badge {
+    background: var(--fsm-refused-bg, #fce8e8);
+    color: var(--fsm-refused-fg, #7f1d1d);
+}
+
+.wf-graph-editor__node-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2, 8px);
+    margin-bottom: var(--spacing-1, 4px);
+}
+
+.wf-graph-editor__node-category-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px var(--spacing-2, 8px);
+    font-size: var(--font-size-label-sm, 0.75rem);
+    font-weight: 500;
+    border-radius: var(--radius-sm, 2px);
+    line-height: 1.5;
+}
+
+.wf-graph-editor__node-initial-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px var(--spacing-1, 4px);
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-radius: var(--radius-sm, 2px);
+    background: var(--color-primary, #001b44);
+    color: var(--color-on-primary, #fff);
+}
+
+.wf-graph-editor__node-label {
+    font-size: var(--font-size-body-sm, 0.875rem);
+    font-weight: 600;
+    color: var(--color-on-surface, #191c1e);
+    line-height: 1.3;
+}
+
+.wf-graph-editor__node-desc {
+    font-size: var(--font-size-label-sm, 0.75rem);
+    color: var(--color-on-surface-variant, #44474e);
+    margin-top: var(--spacing-1, 4px);
+    line-height: 1.3;
+}
+
+.wf-graph-editor__node-link-target {
+    display: block;
+    width: 100%;
+    margin-top: var(--spacing-2, 8px);
+    padding: var(--spacing-1, 4px);
+    font-size: var(--font-size-label-sm, 0.75rem);
+    font-weight: 600;
+    text-align: center;
+    border: 1px dashed var(--color-primary, #001b44);
+    border-radius: var(--radius-sm, 2px);
+    background: color-mix(in srgb, var(--color-primary, #001b44) 5%, transparent);
+    color: var(--color-primary, #001b44);
+    cursor: pointer;
+}
+
+.wf-graph-editor__node-link-target:hover {
+    background: color-mix(in srgb, var(--color-primary, #001b44) 12%, transparent);
+}
+
+/* ── Floating toolbar ── */
+
+.wf-graph-editor__toolbar {
+    position: absolute;
+    bottom: var(--spacing-4, 16px);
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-1, 4px);
+    padding: var(--spacing-2, 8px) var(--spacing-3, 12px);
+    background: var(--color-surface-container, #eceef3);
+    border: 1px solid var(--color-outline-variant, #c4c6cf);
+    border-radius: var(--radius-lg, 4px);
+    box-shadow: var(--shadow-md, 0 2px 8px rgba(0,0,0,.1));
+    z-index: var(--z-raised, 10);
+}
+
+.wf-graph-editor__toolbar-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-1, 4px);
+    padding: var(--spacing-1, 4px) var(--spacing-2, 8px);
+    font-size: var(--font-size-label-sm, 0.75rem);
+    font-weight: 500;
+    color: var(--color-on-surface, #191c1e);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm, 2px);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.wf-graph-editor__toolbar-btn:hover {
+    background: var(--color-surface-container-high, #e0e3e8);
+}
+
+.wf-graph-editor__toolbar-btn--active {
+    background: color-mix(in srgb, var(--color-primary, #001b44) 10%, transparent);
+    color: var(--color-primary, #001b44);
+    border-color: var(--color-primary, #001b44);
+}
+
+.wf-graph-editor__toolbar-btn .material-symbols-outlined {
+    font-size: 18px;
+}
+
+.wf-graph-editor__toolbar-separator {
+    width: 1px;
+    height: 24px;
+    background: var(--color-outline-variant, #c4c6cf);
+    margin: 0 var(--spacing-1, 4px);
+}
+
+/* ── Properties panel ── */
+
+.wf-graph-editor__properties {
+    width: 320px;
+    min-width: 320px;
+    padding: var(--spacing-4, 16px);
+    background: var(--color-surface-container-low, #f1f4f8);
+    border-left: 1px solid var(--color-outline-variant, #c4c6cf);
+    overflow-y: auto;
+}
+
+.wf-graph-editor__prop-title {
+    font-size: var(--font-size-title-sm, 1rem);
+    font-weight: 600;
+    color: var(--color-on-surface, #191c1e);
+    margin: 0 0 var(--spacing-4, 16px);
+}
+
+.wf-graph-editor__prop-label {
+    display: block;
+    font-size: var(--font-size-label-sm, 0.75rem);
+    font-weight: 500;
+    color: var(--color-on-surface-variant, #44474e);
+    margin: var(--spacing-3, 12px) 0 var(--spacing-1, 4px);
+}
+
+.wf-graph-editor__prop-label:first-of-type {
+    margin-top: 0;
+}
+
+.wf-graph-editor__prop-actions {
+    display: flex;
+    gap: var(--spacing-2, 8px);
+    margin-top: var(--spacing-4, 16px);
+}
+
+.wf-graph-editor__prop-edge-path {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2, 8px);
+    padding: var(--spacing-2, 8px);
+    background: var(--color-surface-container, #eceef3);
+    border-radius: var(--radius-sm, 2px);
+    font-size: var(--font-size-body-sm, 0.875rem);
+    font-weight: 500;
+    margin-bottom: var(--spacing-3, 12px);
+}
+
+.wf-graph-editor__prop-edge-path .material-symbols-outlined {
+    font-size: 16px;
+    color: var(--color-outline, #74777f);
+}
+
+.wf-graph-editor__prop-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    text-align: center;
+    color: var(--color-on-surface-variant, #44474e);
+}
+
+.wf-graph-editor__prop-empty .material-symbols-outlined {
+    font-size: 48px;
+    opacity: 0.3;
+    margin-bottom: var(--spacing-3, 12px);
+}
+
+.wf-graph-editor__prop-empty p {
+    font-size: var(--font-size-body-sm, 0.875rem);
+    margin: 0;
+}
+
+/* ── Validation ── */
+
+.wf-graph-editor__validation {
+    margin-top: var(--spacing-4, 16px);
+    padding: var(--spacing-3, 12px);
+    background: var(--fsm-refused-bg, #fce8e8);
+    border-radius: var(--radius-sm, 2px);
+}
+
+.wf-graph-editor__validation-title {
+    font-size: var(--font-size-label-sm, 0.75rem);
+    font-weight: 600;
+    color: var(--fsm-refused-fg, #7f1d1d);
+    margin: 0 0 var(--spacing-2, 8px);
+}
+
+.wf-graph-editor__validation-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: var(--font-size-label-sm, 0.75rem);
+    color: var(--fsm-refused-fg, #7f1d1d);
+}
+
+.wf-graph-editor__validation-list li {
+    padding: var(--spacing-1, 4px) 0;
+}
+
+.wf-graph-editor__validation-list li::before {
+    content: "⚠ ";
+}
+
+/* ── Density support ── */
+
+[data-density="compact"] .wf-graph-editor {
+    height: 480px;
+}
+
+[data-density="compact"] .wf-graph-editor__node {
+    padding: var(--spacing-2, 8px);
+    min-height: 60px;
+}
+
+[data-density="compact"] .wf-graph-editor__node-label {
+    font-size: var(--font-size-label-sm, 0.75rem);
+}
+
+[data-density="compact"] .wf-graph-editor__properties {
+    width: 280px;
+    min-width: 280px;
+    padding: var(--spacing-3, 12px);
+}
+
+/* ── Focus visible ── */
+
+.wf-graph-editor__node:focus-visible {
+    outline: 2px solid var(--color-focus-ring, #005fcc);
+    outline-offset: 2px;
+}
+
+.wf-graph-editor__toolbar-btn:focus-visible {
+    outline: 2px solid var(--color-focus-ring, #005fcc);
+    outline-offset: 2px;
+}

@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <NoWarn>$(NoWarn);CA1707</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../../src/Modules/Job/Domain/Stratum.Modules.Job.Domain.csproj" />
+    <ProjectReference Include="../../../../src/Modules/Job/Application/Stratum.Modules.Job.Application.csproj" />
+    <ProjectReference Include="../../../../src/Modules/Job/Contracts/Stratum.Modules.Job.Contracts.csproj" />
+    <ProjectReference Include="../../../../src/Modules/Job/Infrastructure/Stratum.Modules.Job.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

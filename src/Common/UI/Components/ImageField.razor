@@ -1,0 +1,571 @@
+@namespace Stratum.Common.UI.Components
+@using Microsoft.AspNetCore.Components.Forms
+@using Stratum.Common.UI.Models
+@implements IAsyncDisposable
+@inject Microsoft.JSInterop.IJSRuntime JS
+
+@* ImageField — image display + upload, preview, optional crop.
+ *
+ * Native Blazor component (no Radzen dependency).
+ * Two-way binding via Value/ValueChanged.
+ * JS interop for file reading and crop.
+ *
+ * Usage:
+ *   <ImageField @bind-Value="_myImage"
+ *               MaxFileSizeBytes="2_097_152"
+ *               AltText="Photo du produit" />
+ *
+ * Keyboard: Tab to focus, Enter/Space to edit.
+ *
+ * Ref: docs/architecture/ui-architecture-plan.md §4.
+ *@
+
+<div class="image-field @(Disabled ? "image-field--disabled" : "") @(ReadOnly ? "image-field--readonly" : "") @CssClass"
+     data-testid="@(TestId ?? "image-field")">
+
+    @* Image display + edit overlay *@
+    <div class="image-field__display"
+         style="@DisplayStyle"
+         tabindex="@(Disabled || ReadOnly ? -1 : 0)"
+         role="img"
+         aria-label="@EffectiveAltText"
+         @onkeydown="HandleKeyDown">
+
+        @if (Value is not null)
+        {
+            <img class="image-field__img"
+                 src="data:@Value.ContentType;base64,@Value.Base64Content"
+                 alt="@EffectiveAltText"
+                 style="width:100%;height:100%;object-fit:contain" />
+        }
+        else
+        {
+            <div class="image-field__placeholder">
+                <span class="image-field__placeholder-icon" aria-hidden="true">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                        <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                        <polyline points="21 15 16 10 5 21"></polyline>
+                    </svg>
+                </span>
+                <span class="image-field__placeholder-text">@(PlaceholderText ?? "Aucune image")</span>
+            </div>
+        }
+
+        @* Edit/delete overlay *@
+        @if (!ReadOnly && !Disabled)
+        {
+            <div class="image-field__overlay">
+                <button type="button"
+                        class="image-field__overlay-btn"
+                        aria-label="Modifier l'image"
+                        data-testid="@(TestId ?? "image-field")-edit"
+                        @onclick="StartEdit">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                    </svg>
+                </button>
+                @if (Value is not null)
+                {
+                    <button type="button"
+                            class="image-field__overlay-btn image-field__overlay-btn--delete"
+                            aria-label="Supprimer l'image"
+                            data-testid="@(TestId ?? "image-field")-delete"
+                            @onclick="DeleteImage">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                    </button>
+                }
+            </div>
+        }
+    </div>
+
+    @* Selection panel *@
+    @if (_isPanelOpen)
+    {
+        <div class="image-field__panel"
+             role="dialog"
+             aria-modal="true"
+             aria-label="Sélection d'image"
+             tabindex="-1"
+             @ref="_panelRef"
+             data-testid="@(TestId ?? "image-field")-panel">
+
+            <div class="image-field__panel-actions">
+                <InputFile @ref="_fileInputRef"
+                           class="image-field__hidden-input"
+                           accept="@AcceptTypes"
+                           OnChange="OnFileSelected"
+                           aria-hidden="true"
+                           tabindex="-1" />
+                <button type="button" class="image-field__btn image-field__btn--browse"
+                        data-testid="@(TestId ?? "image-field")-browse"
+                        @onclick="OpenFileBrowser">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    Parcourir...
+                </button>
+
+                @if (AllowUrlInput)
+                {
+                    <input type="url"
+                           class="image-field__url-input"
+                           placeholder="https://..."
+                           @bind="_urlInput"
+                           data-testid="@(TestId ?? "image-field")-url-input" />
+                    <button type="button" class="image-field__btn"
+                            @onclick="LoadFromUrl"
+                            disabled="@string.IsNullOrWhiteSpace(_urlInput)">Charger URL</button>
+                }
+
+                <button type="button" class="image-field__btn image-field__btn--cancel"
+                        @onclick="CancelEdit">Annuler</button>
+            </div>
+
+            @if (_validationError is not null)
+            {
+                <p class="image-field__error" role="alert" aria-live="polite">@_validationError</p>
+            }
+
+            @if (_previewBase64 is not null && !_isCropping)
+            {
+                <div class="image-field__preview" data-testid="@(TestId ?? "image-field")-preview">
+                    <img class="image-field__preview-img"
+                         src="data:@_previewContentType;base64,@_previewBase64"
+                         alt="Aperçu de la sélection" />
+                    <p class="image-field__preview-dims">
+                        @_previewWidthPx × @_previewHeightPx px
+                        @if ((MaxWidthPx.HasValue && _previewWidthPx > MaxWidthPx.Value)
+                            || (MaxHeightPx.HasValue && _previewHeightPx > MaxHeightPx.Value))
+                        {
+                            <span class="image-field__preview-warn"> — dépasse la taille maximale</span>
+                        }
+                    </p>
+                    <div class="image-field__preview-buttons">
+                        @if (EnableCrop)
+                        {
+                            <button type="button" class="image-field__btn"
+                                    @onclick="StartCrop">Recadrer</button>
+                        }
+                        <button type="button" class="image-field__btn image-field__btn--confirm"
+                                data-testid="@(TestId ?? "image-field")-confirm"
+                                @onclick="ConfirmImage">Confirmer</button>
+                    </div>
+                </div>
+            }
+
+            @if (_isCropping && _previewBase64 is not null)
+            {
+                <div class="image-field__crop-wrap">
+                    <img class="image-field__crop-img"
+                         src="data:@_previewContentType;base64,@_previewBase64"
+                         alt="Image à recadrer"
+                         @ref="_cropImgRef" />
+                </div>
+                <div class="image-field__crop-buttons">
+                    <button type="button" class="image-field__btn image-field__btn--confirm"
+                            @onclick="ApplyCrop">Confirmer</button>
+                    <button type="button" class="image-field__btn image-field__btn--cancel"
+                            @onclick="CancelCrop">Annuler</button>
+                </div>
+            }
+        </div>
+    }
+
+    @* Inline error (when panel is closed) *@
+    @if (!_isPanelOpen && _validationError is not null)
+    {
+        <p class="image-field__error" role="alert" aria-live="polite">@_validationError</p>
+    }
+</div>
+
+@code {
+    // ── Parameters ────────────────────────────────────────────────
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    /// <summary>Current image value (two-way).</summary>
+    [Parameter] public ImageValue? Value { get; set; }
+
+    /// <summary>Raised when the image changes.</summary>
+    [Parameter] public EventCallback<ImageValue?> ValueChanged { get; set; }
+
+    /// <summary>Display width in px. <c>null</c> = 100%.</summary>
+    [Parameter] public int? Width { get; set; }
+
+    /// <summary>Display height in px. <c>null</c> = auto (min 120px).</summary>
+    [Parameter] public int? Height { get; set; }
+
+    /// <summary>Maximum accepted upload width in px (validation only, does not reject).</summary>
+    [Parameter] public int? MaxWidthPx { get; set; }
+
+    /// <summary>Maximum accepted upload height in px (validation only, does not reject).</summary>
+    [Parameter] public int? MaxHeightPx { get; set; }
+
+    /// <summary>
+    /// Maximum upload file size in bytes. Default: 2 MB.
+    /// Keep low to limit Blazor Server circuit heap (~1.37× file size in Base64).
+    /// </summary>
+    [Parameter] public long? MaxFileSizeBytes { get; set; } = 2_097_152;
+
+    /// <summary>Accepted MIME types. Default: <c>"image/*"</c>.</summary>
+    [Parameter] public string AcceptTypes { get; set; } = "image/*";
+
+    /// <summary>Allow URL input in addition to file upload. Default: false.</summary>
+    [Parameter] public bool AllowUrlInput { get; set; }
+
+    /// <summary>Show crop UI after image selection. Default: false.</summary>
+    [Parameter] public bool EnableCrop { get; set; }
+
+    /// <summary>Forced crop aspect ratio (width/height). <c>null</c> = free.</summary>
+    [Parameter] public double? CropAspectRatio { get; set; }
+
+    /// <summary>
+    /// Alt text for the displayed image.
+    /// WCAG 2.2 AA 1.1.1: provide meaningful alt for significant images.
+    /// </summary>
+    [Parameter] public string? AltText { get; set; }
+
+    /// <summary>Text shown when no image is set.</summary>
+    [Parameter] public string? PlaceholderText { get; set; }
+
+    /// <summary>Disabled — no interaction.</summary>
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Read-only — shows the image without edit controls.</summary>
+    [Parameter] public bool ReadOnly { get; set; }
+
+    /// <summary>Additional CSS classes on the root element.</summary>
+    [Parameter] public string? CssClass { get; set; }
+
+    // ── Internal state ──────────────────────────────────────────
+
+    private bool _isPanelOpen;
+    private bool _isCropping;
+    private string? _previewBase64;
+    private string? _previewContentType;
+    private int _previewWidthPx;
+    private int _previewHeightPx;
+    private string? _urlInput;
+    private string? _validationError;
+
+    private InputFile? _fileInputRef;
+    private ElementReference _cropImgRef;
+    private ElementReference _panelRef;
+    private bool _shouldFocusPanel;
+    private Microsoft.JSInterop.IJSObjectReference? _jsModule;
+    private bool _cropInitialized;
+
+    private string EffectiveAltText => AltText ?? PlaceholderText ?? "Image";
+
+    private string DisplayStyle
+    {
+        get
+        {
+            var w = Width.HasValue ? $"{Width}px" : "100%";
+            var h = Height.HasValue ? $"{Height}px" : "auto";
+            return $"width:{w};height:{h}";
+        }
+    }
+
+    // ── Lifecycle ─────────────────────────────────────────────────
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_shouldFocusPanel)
+        {
+            _shouldFocusPanel = false;
+            try { await _panelRef.FocusAsync(); }
+            catch (Exception) { /* panel may not be rendered yet */ }
+        }
+
+        if (_jsModule is null && !ReadOnly && !Disabled)
+        {
+            try
+            {
+                _jsModule = await JS.InvokeAsync<Microsoft.JSInterop.IJSObjectReference>(
+                    "import", "./_content/Stratum.Common.UI/js/image-field.js.module");
+            }
+            catch (Exception ex) when (ex is Microsoft.JSInterop.JSException
+                or Microsoft.JSInterop.JSDisconnectedException
+                or InvalidOperationException
+                or OperationCanceledException)
+            {
+                // Blazor Server: circuit may be disconnected during prerender
+            }
+        }
+
+        if (_isCropping && !_cropInitialized && _jsModule is not null)
+        {
+            _cropInitialized = true;
+            try
+            {
+                await _jsModule.InvokeVoidAsync("initCrop", _cropImgRef, (object?)CropAspectRatio, null);
+            }
+            catch (Exception ex) when (ex is Microsoft.JSInterop.JSException
+                or Microsoft.JSInterop.JSDisconnectedException
+                or InvalidOperationException
+                or OperationCanceledException)
+            {
+                // Ignored
+            }
+        }
+    }
+
+    // ── Keyboard ──────────────────────────────────────────────────
+
+    private void HandleKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+    {
+        if (Disabled || ReadOnly) return;
+        if (e.Key is "Enter" or " ")
+        {
+            StartEdit();
+        }
+    }
+
+    // ── Edit flow ─────────────────────────────────────────────────
+
+    private void StartEdit()
+    {
+        _isPanelOpen = true;
+        _shouldFocusPanel = true;
+        _previewBase64 = null;
+        _previewContentType = null;
+        _isCropping = false;
+        _cropInitialized = false;
+        _validationError = null;
+        _urlInput = null;
+    }
+
+    private async Task OpenFileBrowser()
+    {
+        if (_jsModule is not null && _fileInputRef?.Element is { } el)
+        {
+            try
+            {
+                await _jsModule.InvokeVoidAsync("clickElement", el);
+            }
+            catch (Exception ex) when (ex is Microsoft.JSInterop.JSException
+                or Microsoft.JSInterop.JSDisconnectedException
+                or InvalidOperationException
+                or OperationCanceledException)
+            {
+                // Ignored
+            }
+        }
+    }
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        _validationError = null;
+        var file = e.File;
+
+        if (MaxFileSizeBytes.HasValue && file.Size > MaxFileSizeBytes.Value)
+        {
+            _validationError = $"Fichier trop grand ({FormatSize(file.Size)}, max {FormatSize(MaxFileSizeBytes.Value)}).";
+            StateHasChanged();
+            return;
+        }
+
+        if (!IsImageMimeAllowed(file.ContentType))
+        {
+            _validationError = $"Type non supporté : {file.ContentType}";
+            StateHasChanged();
+            return;
+        }
+
+        if (_jsModule is not null && _fileInputRef?.Element is { } inputEl)
+        {
+            try
+            {
+                var result = await _jsModule.InvokeAsync<System.Text.Json.JsonElement>(
+                    "readImageFile", inputEl, 0);
+                ApplyImageReadResult(result);
+            }
+            catch (Exception ex) when (ex is Microsoft.JSInterop.JSException
+                or Microsoft.JSInterop.JSDisconnectedException
+                or InvalidOperationException
+                or OperationCanceledException)
+            {
+                _validationError = "Erreur de lecture du fichier.";
+            }
+        }
+    }
+
+    private async Task LoadFromUrl()
+    {
+        if (string.IsNullOrWhiteSpace(_urlInput) || _jsModule is null) return;
+        _validationError = null;
+        try
+        {
+            var result = await _jsModule.InvokeAsync<System.Text.Json.JsonElement>(
+                "readImageUrl", _urlInput);
+            ApplyImageReadResult(result);
+        }
+        catch (Exception ex) when (ex is Microsoft.JSInterop.JSException
+            or Microsoft.JSInterop.JSDisconnectedException
+            or InvalidOperationException
+            or OperationCanceledException)
+        {
+            _validationError = "Erreur de chargement de l'URL.";
+        }
+    }
+
+    private void ApplyImageReadResult(System.Text.Json.JsonElement result)
+    {
+        if (result.TryGetProperty("error", out var errProp))
+        {
+            _validationError = errProp.GetString() ?? "Erreur inconnue.";
+            return;
+        }
+
+        var contentType = result.GetProperty("contentType").GetString() ?? "image/jpeg";
+        if (!IsImageMimeAllowed(contentType))
+        {
+            _validationError = $"Type non supporté : {contentType}";
+            return;
+        }
+
+        _previewBase64 = result.GetProperty("base64").GetString();
+        _previewContentType = contentType;
+        _previewWidthPx = result.GetProperty("widthPx").GetInt32();
+        _previewHeightPx = result.GetProperty("heightPx").GetInt32();
+
+        if ((MaxWidthPx.HasValue && _previewWidthPx > MaxWidthPx.Value)
+            || (MaxHeightPx.HasValue && _previewHeightPx > MaxHeightPx.Value))
+        {
+            _validationError =
+                $"L'image ({_previewWidthPx}×{_previewHeightPx} px) dépasse les dimensions maximales " +
+                $"({MaxWidthPx?.ToString() ?? "∞"}×{MaxHeightPx?.ToString() ?? "∞"} px).";
+        }
+    }
+
+    private void StartCrop()
+    {
+        _isCropping = true;
+        _cropInitialized = false;
+    }
+
+    private async Task ApplyCrop()
+    {
+        if (_jsModule is null) return;
+        try
+        {
+            var result = await _jsModule.InvokeAsync<System.Text.Json.JsonElement>("applyCrop", _cropImgRef);
+            if (result.ValueKind == System.Text.Json.JsonValueKind.Object
+                && !result.TryGetProperty("error", out _))
+            {
+                _previewBase64 = result.GetProperty("base64").GetString();
+                _previewContentType = "image/jpeg";
+                _previewWidthPx = result.GetProperty("widthPx").GetInt32();
+                _previewHeightPx = result.GetProperty("heightPx").GetInt32();
+            }
+
+            await DestroyCrop();
+            _isCropping = false;
+            _cropInitialized = false;
+        }
+        catch (Exception ex) when (ex is Microsoft.JSInterop.JSException
+            or Microsoft.JSInterop.JSDisconnectedException
+            or InvalidOperationException
+            or OperationCanceledException)
+        {
+            _validationError = "Erreur de recadrage.";
+        }
+    }
+
+    private void CancelCrop()
+    {
+        _ = DestroyCrop();
+        _isCropping = false;
+        _cropInitialized = false;
+    }
+
+    private async Task DestroyCrop()
+    {
+        if (_jsModule is null) return;
+        try
+        {
+            await _jsModule.InvokeVoidAsync("destroyCrop", _cropImgRef);
+        }
+        catch (Exception ex) when (ex is Microsoft.JSInterop.JSException
+            or Microsoft.JSInterop.JSDisconnectedException
+            or InvalidOperationException
+            or OperationCanceledException)
+        {
+            // Ignored
+        }
+    }
+
+    private async Task ConfirmImage()
+    {
+        if (_previewBase64 is null) return;
+        var newValue = new ImageValue(
+            _previewBase64,
+            _previewContentType ?? "image/jpeg",
+            _previewWidthPx,
+            _previewHeightPx,
+            null);
+        await ValueChanged.InvokeAsync(newValue);
+        _isPanelOpen = false;
+        _validationError = null;
+    }
+
+    private void CancelEdit()
+    {
+        _isPanelOpen = false;
+        _previewBase64 = null;
+        _isCropping = false;
+        _cropInitialized = false;
+        _validationError = null;
+    }
+
+    private async Task DeleteImage()
+    {
+        if (ReadOnly || Disabled) return;
+        await ValueChanged.InvokeAsync(null);
+    }
+
+    // ── Pure helpers ──────────────────────────────────────────────
+
+    internal static bool IsImageMimeAllowed(string? contentType)
+    {
+        if (string.IsNullOrWhiteSpace(contentType)) return false;
+        return contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
+            && !contentType.Equals("image/svg+xml", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} o",
+        < 1024 * 1024 => $"{bytes / 1024.0:F0} Ko",
+        < 1024 * 1024 * 1024 => $"{bytes / (1024.0 * 1024.0):F1} Mo",
+        _ => $"{bytes / (1024.0 * 1024.0 * 1024.0):F1} Go"
+    };
+
+    // ── Disposal ──────────────────────────────────────────────────
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_jsModule is not null)
+        {
+            try
+            {
+                await _jsModule.InvokeVoidAsync("destroyCrop", _cropImgRef);
+                await _jsModule.DisposeAsync();
+            }
+            catch (Exception ex) when (ex is Microsoft.JSInterop.JSException
+                or Microsoft.JSInterop.JSDisconnectedException
+                or InvalidOperationException
+                or OperationCanceledException)
+            {
+                // Blazor Server: circuit may be disconnected
+            }
+        }
+    }
+}

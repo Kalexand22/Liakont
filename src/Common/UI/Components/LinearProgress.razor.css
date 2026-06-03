@@ -1,0 +1,87 @@
+.linear-progress {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: var(--spacing-2, 0.5rem);
+}
+
+.linear-progress__track {
+  flex: 1;
+  background-color: var(--color-neutral-200, #e5e7eb);
+  border-radius: var(--radius-full, 9999px);
+  overflow: hidden;
+  height: 100%;
+}
+
+.linear-progress__bar {
+  height: 100%;
+  background-color: var(--lp-color, var(--color-primary-500, #3b82f6));
+  border-radius: var(--radius-full, 9999px);
+  transition: width 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* Indeterminate */
+@keyframes progress-indeterminate {
+  0%   { transform: translateX(-200%); width: 40%; }
+  100% { transform: translateX(350%); width: 40%; }
+}
+
+.linear-progress--indeterminate .linear-progress__bar {
+  width: 40%;
+  animation: progress-indeterminate 1.4s ease-in-out infinite;
+  transition: none;
+}
+
+/* Striped */
+.linear-progress__bar--striped {
+  background-image: linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.15) 25%,
+    transparent 25%,
+    transparent 50%,
+    rgba(255, 255, 255, 0.15) 50%,
+    rgba(255, 255, 255, 0.15) 75%,
+    transparent 75%,
+    transparent
+  );
+  background-size: 1rem 1rem;
+}
+
+/* Animated stripes */
+@keyframes progress-bar-stripes {
+  0%   { background-position: 1rem 0; }
+  100% { background-position: 0 0; }
+}
+
+.linear-progress__bar--animated {
+  animation: progress-bar-stripes 1s linear infinite;
+}
+
+/* Color variants */
+.linear-progress--default { --lp-color: var(--color-primary-500, #3b82f6); }
+.linear-progress--info    { --lp-color: var(--color-info-500, #0ea5e9); }
+.linear-progress--success { --lp-color: var(--color-success-500, #22c55e); }
+.linear-progress--warning { --lp-color: var(--color-warning-500, #f59e0b); }
+.linear-progress--danger  { --lp-color: var(--color-error-500, #ef4444); }
+
+/* Labels */
+.linear-progress__label {
+  font-size: var(--font-size-xs, 0.75rem);
+  font-weight: var(--font-weight-medium, 500);
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.linear-progress__label--inside {
+  color: #fff;
+}
+
+.linear-progress__label--outside {
+  color: var(--color-text-primary, #111827);
+  flex-shrink: 0;
+}

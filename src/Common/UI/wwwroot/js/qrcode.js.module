@@ -1,0 +1,59 @@
+// qrcode.js.module — QR Code renderer for QRCode.razor
+// Wraps the vendored qrcode library (wwwroot/lib/qrcode/qrcode.min.js).
+// Pattern: ES module loaded via IJSRuntime.InvokeAsync<IJSObjectReference>("import", ...)
+
+const _LIB_BASE = '_content/Stratum.Common.UI/lib/qrcode/';
+
+// Serializes concurrent loads so the bundle is injected exactly once.
+let _loadPromise = null;
+
+/**
+ * Ensures the qrcode library is available on window as window.QRCode.
+ * @returns {Promise<void>}
+ */
+async function _ensureQRCode() {
+    if (typeof window.QRCode !== 'undefined') return;
+
+    if (!_loadPromise) {
+        _loadPromise = _loadBundle().catch(e => { _loadPromise = null; throw e; });
+    }
+    await _loadPromise;
+}
+
+/**
+ * Performs the actual script injection (called at most once).
+ * @returns {Promise<void>}
+ */
+async function _loadBundle() {
+    if (document.querySelector('script[data-qrcode]')) return;
+
+    await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = _LIB_BASE + 'qrcode.min.js';
+        script.setAttribute('data-qrcode', '');
+        script.onload  = resolve;
+        script.onerror = () => reject(new Error('qrcode: failed to load qrcode.min.js'));
+        document.head.appendChild(script);
+    });
+}
+
+/**
+ * Renders a QR code onto the given canvas element.
+ * @param {HTMLCanvasElement} element   The canvas element managed by Blazor (@ref)
+ * @param {string}            value     The content to encode
+ * @param {{ errorCorrectionLevel: string, margin: number, width: number }} options
+ */
+export async function render(element, value, options) {
+    await _ensureQRCode();
+
+    await new Promise((resolve, reject) => {
+        window.QRCode.toCanvas(element, value ?? '', {
+            errorCorrectionLevel: options.errorCorrectionLevel ?? 'M',
+            margin:               options.margin               ?? 4,
+            width:                options.width                ?? 128,
+        }, (err) => {
+            if (err) reject(err);
+            else     resolve();
+        });
+    });
+}

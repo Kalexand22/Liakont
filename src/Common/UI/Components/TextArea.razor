@@ -1,0 +1,139 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.UI.Helpers
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<textarea id="@_fieldId"
+          class="form-control textarea-field @(_hasError ? "textarea-field--error" : string.Empty) @CssClass"
+          rows="@Rows"
+          maxlength="@MaxLength"
+          placeholder="@Placeholder"
+          disabled="@Disabled"
+          readonly="@ReadOnly"
+          data-auto-resize="@(AutoResize ? "true" : null)"
+          data-testid="@(TestId ?? "textarea")"
+          aria-multiline="true"
+          aria-required="@(_context?.Required == true ? "true" : null)"
+          aria-invalid="@(_context?.HasError == true ? "true" : null)"
+          aria-describedby="@_ariaDescribedBy"
+          @ref="_textAreaRef"
+          value="@Value"
+          @oninput="HandleInput">
+</textarea>
+
+@if (ShowCharCount)
+{
+    <div class="textarea-field__char-count @(TextAreaCharCount.IsOverLimit(Value, MaxLength) ? "textarea-field__char-count--over" : string.Empty)"
+         id="@_charCountId"
+         aria-live="polite">
+        @TextAreaCharCount.Format(Value, MaxLength)
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    private FormFieldContext? _context { get; set; }
+
+    /// <summary>Current text value (two-way).</summary>
+    [Parameter]
+    public string? Value { get; set; }
+
+    /// <summary>Raised on every keystroke (oninput).</summary>
+    [Parameter]
+    public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Placeholder text.</summary>
+    [Parameter]
+    public string? Placeholder { get; set; }
+
+    /// <summary>Number of visible text rows. Default: 3.</summary>
+    [Parameter]
+    public int Rows { get; set; } = 3;
+
+    /// <summary>Maximum character count (HTML maxlength). Null = no limit.</summary>
+    [Parameter]
+    public int? MaxLength { get; set; }
+
+    /// <summary>Show character counter below the textarea. Default: false.</summary>
+    [Parameter]
+    public bool ShowCharCount { get; set; }
+
+    /// <summary>
+    /// Expand height to fit content automatically via JS interop. Default: false.
+    /// </summary>
+    [Parameter]
+    public bool AutoResize { get; set; }
+
+    /// <summary>Renders the textarea as disabled.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>Renders the textarea as read-only.</summary>
+    [Parameter]
+    public bool ReadOnly { get; set; }
+
+    /// <summary>Additional CSS classes on the root element.</summary>
+    [Parameter]
+    public string? CssClass { get; set; }
+
+    /// <summary>Optional test identifier for E2E tests.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    // ── Stable per-component ids ─────────────────────────────────
+
+    private readonly string _uniqueId = Guid.NewGuid().ToString("N")[..8];
+    private string _fieldId => _context?.FieldId ?? $"textarea-{_uniqueId}";
+    private string _charCountId => $"{_fieldId}-charcount";
+    private bool _hasError => _context?.HasError == true;
+
+    private string? _ariaDescribedBy
+    {
+        get
+        {
+            var parts = new List<string>(2);
+            if (_context?.DescribedBy is { } described) parts.Add(described);
+            if (ShowCharCount) parts.Add(_charCountId);
+            return parts.Count > 0 ? string.Join(" ", parts) : null;
+        }
+    }
+
+    private ElementReference _textAreaRef;
+    private bool _autoResizeInitialized;
+
+    private async Task HandleInput(ChangeEventArgs e)
+    {
+        await ValueChanged.InvokeAsync(e.Value as string);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (AutoResize && !_autoResizeInitialized)
+        {
+            _autoResizeInitialized = true;
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.textArea.initAutoResize", _textAreaRef);
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Circuit disconnected or prerendering — safe to ignore
+            }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (AutoResize && _autoResizeInitialized)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.textArea.disposeAutoResize", _textAreaRef);
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Circuit disconnected or prerendering — safe to ignore
+            }
+        }
+    }
+}

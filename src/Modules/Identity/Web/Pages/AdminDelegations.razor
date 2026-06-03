@@ -1,0 +1,94 @@
+@page "/admin/agents/delegations"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.Abstractions.Security
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Stratum.Modules.Identity.Contracts
+@using Stratum.Modules.Identity.Contracts.DTOs
+@using Stratum.Modules.Identity.Contracts.Queries
+@using Stratum.Modules.Identity.Contracts.Commands
+@using Stratum.Modules.Identity.Web.Registries
+@inject IDelegationQueries DelegationQueries
+@inject ISender Sender
+@inject NavigationManager Nav
+@inject IToastService ToastService
+@inject IPermissionService PermissionService
+
+<PageTitle>Délégations — Stratum ERP</PageTitle>
+
+<DeclaredListPage TItem="DelegationDto"
+                  Title="Délégations de signature"
+                  TestId="admin-delegations"
+                  LoadItems="@(() => DelegationQueries.List())"
+                  DetailUrl="@(d => $"/admin/agents/delegations/{d.Id}")"
+                  CreateUrl="/admin/agents/delegations/new"
+                  CreateLabel="+ Nouvelle délégation"
+                  ColumnRegistry="@_registry"
+                  ColumnTemplates="@_columnTemplates"
+                  GridKey="Identity.Delegations"
+                  RowActions="@_rowActions"
+                  AriaLabel="Liste des délégations"
+                  DefaultSortColumn="ValidFrom"
+                  DefaultSortDirection="SortDirection.Descending"
+                  SearchPlaceholder="Chercher une délégation… (raccourci : /)"
+                  AllowExport="true"
+                  ExportFileName="delegations">
+</DeclaredListPage>
+
+@code {
+    private readonly DelegationColumnRegistry _registry = new();
+
+    private readonly Dictionary<string, RenderFragment<DelegationDto>> _columnTemplates = new()
+    {
+        ["IsActive"] = item => __builder =>
+        {
+            __builder.OpenComponent<StatusBadge>(0);
+            var now = DateTimeOffset.UtcNow;
+            var isCurrentlyActive = item.IsActive && item.ValidFrom <= now && item.ValidUntil > now;
+            __builder.AddAttribute(1, "Severity", isCurrentlyActive ? Severity.Success : Severity.Neutral);
+            __builder.AddAttribute(2, "Label", isCurrentlyActive ? "Active" : item.IsActive ? "Planifiée" : "Révoquée");
+            __builder.CloseComponent();
+        },
+        ["ValidFrom"] = item => __builder =>
+        {
+            __builder.AddContent(0, item.ValidFrom.ToString("dd/MM/yyyy"));
+        },
+        ["ValidUntil"] = item => __builder =>
+        {
+            __builder.AddContent(0, item.ValidUntil.ToString("dd/MM/yyyy"));
+        },
+    };
+
+    private readonly IReadOnlyList<GridRowAction<DelegationDto>> _rowActions;
+
+    public AdminDelegations()
+    {
+        _rowActions =
+        [
+            new GridRowAction<DelegationDto>(
+                Id: "revoke",
+                Label: "Révoquer",
+                Icon: "block",
+                Callback: RevokeAsync,
+                RequiresConfirmation: true,
+                IsQuickAction: true,
+                IsEnabled: d => d.IsActive),
+        ];
+    }
+
+    private async Task RevokeAsync(DelegationDto item)
+    {
+        if (!PermissionService.HasPermission(IdentityPermissions.DelegationRevoke))
+        {
+            ToastService.Show("Droits insuffisants pour révoquer.", Severity.Error);
+            return;
+        }
+
+        await Sender.Send(new RevokeDelegationCommand { DelegationId = item.Id });
+        ToastService.Show("Délégation révoquée.", Severity.Success);
+        Nav.NavigateTo(Nav.Uri, forceLoad: true);
+    }
+}

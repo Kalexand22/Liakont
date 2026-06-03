@@ -1,0 +1,193 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.UI.Helpers
+@using Stratum.Common.UI.Models
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+@* RichTextEditor — WYSIWYG HTML editor with toolbar presets.
+ *
+ * Native Blazor component wrapping Quill.js (vendored, no CDN).
+ * Two-way HTML binding via Value/ValueChanged.
+ * Server-side HTML sanitization via HtmlSanitizer.
+ * Toolbar presets: Minimal, Standard, Full.
+ * ReadOnly mode, optional MaxLength (plain-text count).
+ *
+ * Usage:
+ *   <RichTextEditor @bind-Value="_html" ToolbarPreset="ToolbarPreset.Standard" />
+ *   <RichTextEditor @bind-Value="_html" ReadOnly="true" />
+ *
+ * Ref: orchestration/items/UI_G.yaml — UI_G01
+ *@
+
+<div class="rte-field @(_hasError ? "rte-field--error" : "") @(ReadOnly ? "rte-field--readonly" : "") @(Disabled ? "rte-field--disabled" : "") @CssClass"
+     data-testid="@(TestId ?? "rich-text-editor")"
+     role="group"
+     aria-label="@(AriaLabel ?? "Rich text editor")">
+
+    <div id="@_editorId" class="rte-field__editor"></div>
+
+    @if (MaxLength.HasValue)
+    {
+        <div class="rte-field__char-count @(_isOverLimit ? "rte-field__char-count--over" : "")"
+             aria-live="polite">
+            @_charCount / @MaxLength
+        </div>
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private FormFieldContext? _context { get; set; }
+
+    /// <summary>HTML content (two-way binding). Sanitized on output.</summary>
+    [Parameter]
+    public string? Value { get; set; }
+
+    /// <summary>Raised when the editor content changes.</summary>
+    [Parameter]
+    public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Toolbar configuration. Default: Standard.</summary>
+    [Parameter]
+    public ToolbarPreset Toolbar { get; set; } = ToolbarPreset.Standard;
+
+    /// <summary>Placeholder text shown when the editor is empty.</summary>
+    [Parameter]
+    public string? Placeholder { get; set; }
+
+    /// <summary>Renders the editor as read-only (no toolbar, no editing).</summary>
+    [Parameter]
+    public bool ReadOnly { get; set; }
+
+    /// <summary>Renders the editor as disabled (grayed out).</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>Maximum plain-text character count. Null = no limit.</summary>
+    [Parameter]
+    public int? MaxLength { get; set; }
+
+    /// <summary>Accessible label for the editor. Default: "Rich text editor".</summary>
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    /// <summary>Additional CSS classes on the root element.</summary>
+    [Parameter]
+    public string? CssClass { get; set; }
+
+    /// <summary>Optional test identifier for E2E tests.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    // ── Internal state ────────────────────────────────────────
+
+    private readonly string _uniqueId = Guid.NewGuid().ToString("N")[..8];
+    private string _editorId => $"rte-{_uniqueId}";
+    private bool _hasError => _context?.HasError == true;
+
+    private IJSObjectReference? _jsModule;
+    private DotNetObjectReference<RichTextEditor>? _dotNetRef;
+    private bool _initialized;
+    private int _charCount;
+    private bool _isOverLimit => MaxLength.HasValue && _charCount > MaxLength.Value;
+    private string? _lastValueFromJs;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_initialized)
+        {
+            _initialized = true;
+            try
+            {
+                _jsModule = await JS.InvokeAsync<IJSObjectReference>(
+                    "import", "./_content/Stratum.Common.UI/js/rte-editor.js.module");
+
+                _dotNetRef = DotNetObjectReference.Create(this);
+
+                await _jsModule.InvokeVoidAsync("init",
+                    _editorId,
+                    Value,
+                    Toolbar.ToString(),
+                    ReadOnly || Disabled,
+                    Placeholder,
+                    _dotNetRef);
+
+                if (MaxLength.HasValue)
+                {
+                    _charCount = await _jsModule.InvokeAsync<int>("getTextLength", _editorId);
+                    StateHasChanged();
+                }
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Circuit disconnected or prerendering — safe to ignore
+            }
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_initialized && _jsModule is not null)
+        {
+            // Push Value changes from Blazor to JS (e.g., parent resets the value)
+            if (Value != _lastValueFromJs)
+            {
+                try
+                {
+                    await _jsModule.InvokeVoidAsync("setContent", _editorId, Value);
+                }
+                catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+                {
+                    // Safe to ignore
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Called from JS when Quill content changes (debounced).
+    /// </summary>
+    [JSInvokable]
+    public async Task OnContentChanged(string html)
+    {
+        var sanitized = string.IsNullOrEmpty(html) ? null : HtmlSanitizer.Sanitize(html);
+        _lastValueFromJs = sanitized;
+
+        if (Value != sanitized)
+        {
+            Value = sanitized;
+            await ValueChanged.InvokeAsync(sanitized);
+        }
+
+        if (MaxLength.HasValue && _jsModule is not null)
+        {
+            try
+            {
+                _charCount = await _jsModule.InvokeAsync<int>("getTextLength", _editorId);
+                StateHasChanged();
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Safe to ignore
+            }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_jsModule is not null)
+        {
+            try
+            {
+                await _jsModule.InvokeVoidAsync("dispose", _editorId);
+                await _jsModule.DisposeAsync();
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Circuit disconnected — safe to ignore
+            }
+        }
+
+        _dotNetRef?.Dispose();
+    }
+}

@@ -1,0 +1,62 @@
+.stratum-list-container {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-3, 12px);
+}
+
+.stratum-list-container__toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2, 8px);
+    flex-wrap: wrap;
+}
+
+.stratum-list-container__title {
+    font-size: var(--font-size-lg, 1.125rem);
+    font-weight: var(--font-weight-semibold, 600);
+    margin-bottom: 0;
+    white-space: nowrap;
+}
+
+.stratum-list-container__toolbar-end {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-1, 4px);
+    margin-left: auto;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+
+.stratum-list-container__view-switcher {
+    flex-shrink: 0;
+}
+
+/* Bulk action bar — visible when items are selected */
+.stratum-list-container__bulk-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2, 8px);
+    padding: var(--spacing-2, 8px) var(--spacing-3, 12px);
+    background-color: var(--color-primary-50, #eff6ff);
+    border: 1px solid var(--color-primary-200, #bfdbfe);
+    border-radius: var(--radius-sm, 0.25rem);
+    flex-wrap: wrap;
+}
+
+.stratum-list-container__bulk-count {
+    font-size: var(--font-size-sm, 0.875rem);
+    white-space: nowrap;
+}
+
+/* Responsive: on small screens, stack toolbar vertically */
+@media (max-width: 575.98px) {
+    .stratum-list-container__toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .stratum-list-container__toolbar-end {
+        margin-left: 0;
+        justify-content: flex-end;
+    }
+}

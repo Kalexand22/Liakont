@@ -1,0 +1,128 @@
+@namespace Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* StratumDatePicker — Stratum wrapper around RadzenDatePicker.
+ *
+ * All public parameters use Stratum types (DateOnly?, not DateTime?).
+ * Radzen types are mapped internally. Integrates with FormField cascaded context.
+ *
+ * Usage:
+ *   <StratumDatePicker Value="@_date"
+ *                      ValueChanged="d => _date = d"
+ *                      Min="DateOnly.FromDateTime(DateTime.Today)"
+ *                      Max="DateOnly.FromDateTime(DateTime.Today.AddYears(1))"
+ *                      Placeholder="jj/mm/aaaa" />
+ *
+ * Keyboard (calendar picker):
+ *   ←→ day, ↑↓ week, PageUp/PageDown month, Enter select, Esc close.
+ *
+ * Ref: docs/architecture/ui-architecture-plan.md §4.
+ *@
+
+<div class="stratum-datepicker @(_hasError ? "stratum-datepicker--error" : string.Empty)" data-testid="@(TestId ?? "stratum-date-picker")">
+    <Radzen.Blazor.RadzenDatePicker
+        TValue="DateTime?"
+        Value="@ToDateTime(Value)"
+        DateFormat="@_displayFormat"
+        Placeholder="@(Placeholder ?? "jj/mm/aaaa")"
+        Disabled="@Disabled"
+        Min="@ToDateTimeMin(Min)"
+        Max="@ToDateTimeMax(Max)"
+        Change="@HandleChange"
+        InputAttributes="@_inputAttributes"
+        class="stratum-datepicker__inner" />
+</div>
+
+@code {
+    // ── Parameters ────────────────────────────────────────────────
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Selected date (two-way binding). Uses DateOnly, not DateTime.</summary>
+    [Parameter]
+    public DateOnly? Value { get; set; }
+
+    /// <summary>Raised when the selected date changes.</summary>
+    [Parameter]
+    public EventCallback<DateOnly?> ValueChanged { get; set; }
+
+    /// <summary>Earliest selectable date (inclusive).</summary>
+    [Parameter]
+    public DateOnly? Min { get; set; }
+
+    /// <summary>Latest selectable date (inclusive).</summary>
+    [Parameter]
+    public DateOnly? Max { get; set; }
+
+    /// <summary>Placeholder text shown when empty.</summary>
+    [Parameter]
+    public string? Placeholder { get; set; }
+
+    /// <summary>Disables the control.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    // ── Cascade from FormField ────────────────────────────────────
+
+    [CascadingParameter]
+    private FormFieldContext? _context { get; set; }
+
+    // ── Internal ──────────────────────────────────────────────────
+
+    private readonly string _uniqueId = Guid.NewGuid().ToString("N")[..8];
+
+    private string _effectiveId => _context?.FieldId ?? $"datepicker-{_uniqueId}";
+    private bool _hasError => _context?.HasError == true;
+    private string _displayFormat => "dd/MM/yyyy";
+
+    private Dictionary<string, object> _inputAttributes = new();
+
+    // ── Lifecycle ─────────────────────────────────────────────────
+
+    protected override void OnParametersSet()
+    {
+        // Build ARIA attributes for the inner input
+        _inputAttributes = new Dictionary<string, object>
+        {
+            ["id"] = _effectiveId,
+        };
+        if (_context?.DescribedBy is not null)
+            _inputAttributes["aria-describedby"] = _context.DescribedBy;
+        if (_context?.Required == true)
+            _inputAttributes["aria-required"] = "true";
+        if (_hasError)
+            _inputAttributes["aria-invalid"] = "true";
+    }
+
+    // ── Radzen → Stratum mapping ──────────────────────────────────
+
+    private static DateTime? ToDateTime(DateOnly? value)
+    {
+        return value?.ToDateTime(TimeOnly.MinValue);
+    }
+
+    private static DateTime ToDateTimeMin(DateOnly? value)
+    {
+        return value?.ToDateTime(TimeOnly.MinValue) ?? DateTime.MinValue;
+    }
+
+    private static DateTime ToDateTimeMax(DateOnly? value)
+    {
+        return value?.ToDateTime(TimeOnly.MaxValue) ?? DateTime.MaxValue;
+    }
+
+    private async Task HandleChange(DateTime? newValue)
+    {
+        if (newValue.HasValue)
+        {
+            var dateOnly = DateOnly.FromDateTime(newValue.Value);
+            await ValueChanged.InvokeAsync(dateOnly);
+        }
+        else
+        {
+            await ValueChanged.InvokeAsync(null);
+        }
+    }
+}

@@ -1,0 +1,215 @@
+@namespace Stratum.Common.UI.Components
+@using Microsoft.Extensions.Localization
+@inject IShortcutService ShortcutService
+@inject ICommandRegistry CommandRegistry
+@inject IJSRuntime JS
+@inject ITabManagerService TabManager
+@inject IToastService ToastService
+@inject NavigationManager Nav
+@inject IStringLocalizer<SharedResources> L
+@inject IEnumerable<INavSectionProvider> NavProviders
+@implements IAsyncDisposable
+
+@*
+ * GlobalShortcutHandler — root component that wires the keyboard shortcut system.
+ *
+ * Add exactly once in your layout (after the other Common.UI components):
+ *   <GlobalShortcutHandler />
+ *
+ * Responsibilities:
+ *   1. Initialises the JS global keydown listener (stratumUI.shortcuts.init).
+ *   2. Handles invocations from JS via [JSInvokable] ExecuteCommand.
+ *   3. Synchronises the active JS key map whenever the scope stack changes.
+ *   4. Registers default global commands in ICommandRegistry (open-help, open-search, etc.).
+ *   5. Pushes the "?" → open-help global scope binding.
+ *   6. Renders ShortcutHelpDialog (opened/closed by the open-help handler).
+ *
+ * Ref: docs/ui-foundations.md §4, orchestration/manifest.yaml item P02.
+ *@
+
+<ShortcutHelpDialog IsOpen="@_helpOpen" OnClose="@CloseHelp" />
+<CommandPalette IsOpen="@_searchOpen"
+                OnClose="@CloseSearch"
+                NavNodes="@_navNodes"
+                OnNavigate="@HandleSearchNavigate" />
+
+@code {
+    private DotNetObjectReference<GlobalShortcutHandler>? _dotNetRef;
+    private bool _helpOpen;
+    private bool _searchOpen;
+    private IReadOnlyList<NavNode> _navNodes = [];
+
+    // ── Global scope bindings ─────────────────────────────────────────────
+    private readonly string _globalScopeId = "global-shortcut-handler";
+
+    private IReadOnlyList<ScopeBinding> GlobalBindings => [
+        new ScopeBinding("open-help", "?", handler: OpenHelpAsync),
+        new ScopeBinding("new-tab", "t", ctrl: true, handler: OpenNewTabAsync),
+        new ScopeBinding("open-search", "k", ctrl: true, handler: OpenSearchAsync),
+    ];
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────
+
+    protected override void OnInitialized()
+    {
+        _navNodes = NavProviders.BuildNavTree();
+        RegisterDefaultCommands();
+        ShortcutService.PushScope(_globalScopeId, ShortcutScopeType.Global, GlobalBindings);
+        ShortcutService.ScopeChanged += OnScopeChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        _dotNetRef = DotNetObjectReference.Create(this);
+        var bindings = ShortcutService.ComputeActiveBindings();
+        try
+        {
+            await JS.InvokeVoidAsync("stratumUI.shortcuts.init", _dotNetRef, bindings);
+        }
+        catch (JSException)
+        {
+            // Non-critical: shortcuts won't work but the rest of the UI is unaffected.
+        }
+    }
+
+    // ── JS interop callback ───────────────────────────────────────────────
+
+    /// <summary>
+    /// Called from JS when a matched shortcut key is pressed.
+    /// The JS layer has already called preventDefault/stopPropagation.
+    /// </summary>
+    [JSInvokable]
+    public async Task ExecuteCommand(string commandId)
+    {
+        await ShortcutService.ExecuteCommandAsync(commandId);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ── Scope change → update JS bindings ────────────────────────────────
+
+    private void OnScopeChanged()
+    {
+        _ = SyncBindingsAsync();
+    }
+
+    private async Task SyncBindingsAsync()
+    {
+        try
+        {
+            var bindings = ShortcutService.ComputeActiveBindings();
+            await JS.InvokeVoidAsync("stratumUI.shortcuts.updateBindings", bindings);
+        }
+        catch (Exception)
+        {
+            // Non-critical — circuit may be disconnecting or component already disposed.
+        }
+    }
+
+    // ── Handlers ─────────────────────────────────────────────────────────
+
+    private async Task OpenNewTabAsync()
+    {
+        if (!TabManager.OpenTab("/", L["Tab_NewTab"]))
+        {
+            ToastService.Show(L["Tab_LimitReached"], Severity.Warning);
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        Nav.NavigateTo("/");
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OpenHelpAsync()
+    {
+        // Save the currently focused element so focus is restored when the dialog closes.
+        try { await JS.InvokeVoidAsync("stratumUI.saveFocus"); }
+        catch (Exception ex) when (ex is JSException or OperationCanceledException) { }
+        _helpOpen = true;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void CloseHelp()
+    {
+        _helpOpen = false;
+        // Restore focus to the element focused before the dialog opened.
+        _ = TryRestoreFocusAsync();
+        StateHasChanged();
+    }
+
+    private async Task TryRestoreFocusAsync()
+    {
+        try { await JS.InvokeVoidAsync("stratumUI.restoreFocus"); }
+        catch (Exception ex) when (ex is JSException or OperationCanceledException) { }
+    }
+
+    // ── Search (command palette) ──────────────────────────────────────────
+
+    private async Task OpenSearchAsync()
+    {
+        try { await JS.InvokeVoidAsync("stratumUI.saveFocus"); }
+        catch (Exception ex) when (ex is JSException or OperationCanceledException) { }
+        _searchOpen = true;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void CloseSearch()
+    {
+        _searchOpen = false;
+        _ = TryRestoreFocusAsync();
+        StateHasChanged();
+    }
+
+    private void HandleSearchNavigate(string href)
+    {
+        _searchOpen = false;
+        Nav.NavigateTo(href);
+        StateHasChanged();
+    }
+
+    // ── Default command registration ──────────────────────────────────────
+
+    private void RegisterDefaultCommands()
+    {
+        CommandRegistry.Register(new CommandDefinition("open-help", L["Shortcut_OpenHelp"], ShortcutScopeType.Global, "?"));
+        CommandRegistry.Register(new CommandDefinition("new-tab", L["Shortcut_NewTab"], ShortcutScopeType.Global, "Ctrl+T"));
+        CommandRegistry.Register(new CommandDefinition("open-search", L["Shortcut_OpenSearch"], ShortcutScopeType.Global, "Ctrl+K"));
+        CommandRegistry.Register(new CommandDefinition("save", L["Shortcut_Save"], ShortcutScopeType.Page, "Ctrl+S"));
+        CommandRegistry.Register(new CommandDefinition("cancel", L["Shortcut_Cancel"], ShortcutScopeType.Page, "Esc"));
+        CommandRegistry.Register(new CommandDefinition("validate-document", L["Shortcut_ValidateDocument"], ShortcutScopeType.Page, "Ctrl+Shift+Enter"));
+        CommandRegistry.Register(new CommandDefinition("next-row", L["Shortcut_NextRow"], ShortcutScopeType.Widget, "↓ / j"));
+        CommandRegistry.Register(new CommandDefinition("previous-row", L["Shortcut_PreviousRow"], ShortcutScopeType.Widget, "↑ / k"));
+        CommandRegistry.Register(new CommandDefinition("open-item", L["Shortcut_OpenItem"], ShortcutScopeType.Widget, "Enter"));
+        CommandRegistry.Register(new CommandDefinition("select-toggle", L["Shortcut_SelectToggle"], ShortcutScopeType.Widget, "x / Space"));
+    }
+
+    // ── Disposal ──────────────────────────────────────────────────────────
+
+    public async ValueTask DisposeAsync()
+    {
+        ShortcutService.ScopeChanged -= OnScopeChanged;
+        ShortcutService.PopScope(_globalScopeId);
+
+        // Unregister default commands
+        foreach (var id in new[] { "open-help", "new-tab", "open-search", "save", "cancel",
+                                    "validate-document", "next-row", "previous-row",
+                                    "open-item", "select-toggle" })
+        {
+            CommandRegistry.Unregister(id);
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("stratumUI.shortcuts.dispose");
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+        {
+            // Non-critical: component may be disposed during static prerendering
+            // or circuit may already be disconnected.
+        }
+
+        _dotNetRef?.Dispose();
+    }
+}

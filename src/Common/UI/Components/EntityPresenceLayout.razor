@@ -1,0 +1,148 @@
+@namespace Stratum.Common.UI.Components
+@inject ICollaborationService CollaborationService
+@inject IActorContextAccessor ActorContextAccessor
+@inject NavigationManager NavigationManager
+@inject Stratum.Common.UI.Services.CircuitPresenceRegistry CircuitPresenceRegistry
+@implements IAsyncDisposable
+
+@*
+    EntityPresenceLayout — layout wrapper for entity detail/edit pages.
+    Registers presence on mount, unregisters on dispose or navigation away.
+    Renders PresenceBadge + EntityChangeToast above the child content.
+
+    Two notification modes:
+      - OnReloadRequested: manual reload (detail pages). Shows toast with Recharger button.
+      - OnEntityChanged: auto-merge (edit forms). Fires immediately, page handles merge.
+*@
+
+<div class="entity-presence-layout" data-testid="@(TestId ?? "entity-presence-layout")">
+    <div class="entity-presence-layout__header">
+        <PresenceBadge EntityType="@EntityType"
+                       EntityId="@EntityId"
+                       CurrentCircuitId="@_circuitId"
+                       TestId="@(TestId is not null ? $"{TestId}-badge" : "presence-layout-badge")" />
+        <EntityChangeToast CircuitId="@_circuitId"
+                           OnReloadRequested="OnReloadRequested"
+                           OnEntityChanged="OnEntityChanged"
+                           TestId="@(TestId is not null ? $"{TestId}-toast" : "presence-layout-toast")" />
+    </div>
+    @ChildContent
+</div>
+
+@code {
+    private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(30);
+
+    private string _circuitId = string.Empty;
+    private bool _tracked;
+    private CancellationTokenSource? _heartbeatCts;
+
+    /// <summary>Entity type for presence tracking (e.g. "Party", "Quote").</summary>
+    [Parameter, EditorRequired]
+    public string EntityType { get; set; } = string.Empty;
+
+    /// <summary>Entity ID for presence tracking.</summary>
+    [Parameter, EditorRequired]
+    public string EntityId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Manual reload mode: invoked when the user clicks Recharger.
+    /// Use for read-only detail pages.
+    /// </summary>
+    [Parameter]
+    public EventCallback OnReloadRequested { get; set; }
+
+    /// <summary>
+    /// Auto-merge mode: invoked immediately when another user modifies the entity.
+    /// The page receives the event and handles field-level merge.
+    /// </summary>
+    [Parameter]
+    public EventCallback<EntityChangedEvent> OnEntityChanged { get; set; }
+
+    /// <summary>Optional test identifier.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Child content (the entity page body).</summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    protected override void OnInitialized()
+    {
+        _circuitId = Guid.NewGuid().ToString("N")[..8];
+        NavigationManager.LocationChanged += HandleLocationChanged;
+        CircuitPresenceRegistry.Register(_circuitId);
+        TrackPresence();
+        StartHeartbeat();
+    }
+
+    protected override void OnParametersSet()
+    {
+        // If EntityType or EntityId changed, re-track with new values.
+        if (_tracked)
+        {
+            CollaborationService.Untrack(_circuitId);
+            _tracked = false;
+        }
+        TrackPresence();
+    }
+
+    private void TrackPresence()
+    {
+        if (string.IsNullOrWhiteSpace(EntityType) || string.IsNullOrWhiteSpace(EntityId))
+            return;
+
+        var displayName = ActorContextAccessor.Current.DisplayName ?? "Utilisateur";
+        CollaborationService.Track(EntityType, EntityId, _circuitId, displayName);
+        _tracked = true;
+    }
+
+    private void StartHeartbeat()
+    {
+        _heartbeatCts = new CancellationTokenSource();
+        _ = HeartbeatLoopAsync(_heartbeatCts.Token);
+    }
+
+    private async Task HeartbeatLoopAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(HeartbeatInterval);
+
+        try
+        {
+            while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
+            {
+                CollaborationService.RenewFieldFocus(_circuitId);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected on dispose
+        }
+    }
+
+    private void HandleLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        UntrackPresence();
+    }
+
+    private void UntrackPresence()
+    {
+        if (!_tracked) return;
+        CollaborationService.Untrack(_circuitId);
+        CircuitPresenceRegistry.Unregister(_circuitId);
+        _tracked = false;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        NavigationManager.LocationChanged -= HandleLocationChanged;
+
+        if (_heartbeatCts is not null)
+        {
+            await _heartbeatCts.CancelAsync().ConfigureAwait(false);
+            _heartbeatCts.Dispose();
+            _heartbeatCts = null;
+        }
+
+        UntrackPresence();
+    }
+}

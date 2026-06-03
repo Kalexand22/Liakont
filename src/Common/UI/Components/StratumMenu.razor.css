@@ -1,0 +1,114 @@
+/* StratumMenu — scoped styles using Stratum design tokens */
+
+.stratum-menu-trigger {
+    display: contents;
+}
+
+/* Transparent backdrop to catch click-outside */
+.stratum-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+}
+
+/* Menu popup */
+.stratum-menu {
+    position: fixed;
+    z-index: 1000;
+    min-width: 180px;
+    max-width: 320px;
+    background: var(--color-bg-surface);
+    border: 1px solid var(--color-border-ghost);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg, 0 4px 16px rgba(0, 0, 0, 0.15));
+    padding: var(--spacing-1);
+    outline: none;
+}
+
+/* Menu item */
+.stratum-menu__item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    padding: var(--spacing-2) var(--spacing-3);
+    cursor: pointer;
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-sm);
+    color: var(--color-text-primary);
+    position: relative;
+    user-select: none;
+    border-radius: var(--radius-sm);
+    transition: background-color var(--transition-fast);
+}
+
+.stratum-menu__item:hover,
+.stratum-menu__item--focused {
+    background-color: var(--color-bg-subtle);
+}
+
+/* Disabled item */
+.stratum-menu__item--disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.stratum-menu__item--disabled:hover {
+    background-color: transparent;
+}
+
+/* Icon (rendered by the nested StratumIcon child component). */
+::deep .stratum-menu__icon {
+    font-size: 18px;
+    width: 20px;
+    text-align: center;
+    flex-shrink: 0;
+    color: var(--color-text-secondary);
+}
+
+.stratum-menu__icon-spacer {
+    width: 20px;
+    flex-shrink: 0;
+}
+
+/* Text */
+.stratum-menu__text {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Submenu arrow */
+.stratum-menu__arrow {
+    flex-shrink: 0;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-xs);
+    margin-left: var(--spacing-2);
+}
+
+/* Separator */
+.stratum-menu__separator {
+    height: 1px;
+    background-color: var(--color-border-ghost);
+    margin: var(--spacing-1) 0;
+}
+
+/* Submenu panel */
+.stratum-menu__submenu {
+    position: absolute;
+    left: 100%;
+    top: 0;
+    min-width: 160px;
+    max-width: 280px;
+    background: var(--color-bg-surface);
+    border: 1px solid var(--color-border-ghost);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg, 0 4px 16px rgba(0, 0, 0, 0.15));
+    padding: var(--spacing-1);
+    z-index: 1001;
+}
+
+/* Focus ring for the menu container */
+.stratum-menu:focus-visible {
+    box-shadow: var(--shadow-lg, 0 4px 16px rgba(0, 0, 0, 0.15)), 0 0 0 2px var(--color-primary-500);
+}

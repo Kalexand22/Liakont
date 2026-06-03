@@ -1,0 +1,130 @@
+/* DurationField — scoped styles using Stratum design tokens */
+
+.duration-field {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-1, 0.25rem);
+}
+
+/* ── Segment (H / M / S) ────────────────────────────── */
+
+.duration-field__segment {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.duration-field__label {
+    font-size: var(--font-size-xs, 0.75rem);
+    font-weight: var(--font-weight-medium, 500);
+    color: var(--color-text-muted);
+    line-height: 1;
+}
+
+.duration-field__input {
+    width: 3.5rem;
+    padding: var(--spacing-1, 0.25rem) var(--spacing-2, 0.5rem);
+    border: 1px solid var(--color-border, var(--color-neutral-300));
+    border-radius: var(--radius-md, 6px);
+    background: var(--color-bg-surface, #fff);
+    font-size: var(--font-size-base, 1rem);
+    color: var(--color-text-primary);
+    text-align: center;
+    outline: none;
+    font-family: inherit;
+    -moz-appearance: textfield;
+    transition: border-color var(--transition-fast, 100ms ease),
+                box-shadow var(--transition-fast, 100ms ease);
+}
+
+.duration-field__input::-webkit-inner-spin-button,
+.duration-field__input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.duration-field__input:focus {
+    border-color: var(--color-border-focus, var(--color-primary-500));
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+/* ── Separator ───────────────────────────────────────── */
+
+.duration-field__sep {
+    font-size: var(--font-size-lg, 1.125rem);
+    font-weight: var(--font-weight-bold, 700);
+    color: var(--color-text-muted);
+    line-height: 1;
+    padding-top: var(--spacing-3, 0.75rem);
+}
+
+/* ── FreeForm input ──────────────────────────────────── */
+
+.duration-field--freeform {
+    display: inline-flex;
+    flex-direction: column;
+    gap: var(--spacing-1, 0.25rem);
+}
+
+.duration-field__free-input {
+    padding: var(--spacing-2, 0.5rem) var(--spacing-3, 0.75rem);
+    border: 1px solid var(--color-border, var(--color-neutral-300));
+    border-radius: var(--radius-md, 6px);
+    background: var(--color-bg-surface, #fff);
+    font-size: var(--font-size-base, 1rem);
+    color: var(--color-text-primary);
+    outline: none;
+    font-family: inherit;
+    transition: border-color var(--transition-fast, 100ms ease),
+                box-shadow var(--transition-fast, 100ms ease);
+}
+
+.duration-field__free-input:focus {
+    border-color: var(--color-border-focus, var(--color-primary-500));
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.duration-field__free-input::placeholder {
+    color: var(--color-text-muted);
+}
+
+.duration-field__free-input--error {
+    border-color: var(--color-error-500);
+}
+
+/* ── Error ───────────────────────────────────────────── */
+
+.duration-field__error {
+    font-size: var(--font-size-xs, 0.75rem);
+    color: var(--color-error-500);
+    margin: 0;
+}
+
+/* ── States ──────────────────────────────────────────── */
+
+.duration-field--disabled {
+    opacity: 0.5;
+}
+
+.duration-field--disabled .duration-field__input,
+.duration-field--disabled .duration-field__free-input {
+    cursor: not-allowed;
+}
+
+.duration-field--readonly .duration-field__input,
+.duration-field--readonly .duration-field__free-input {
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+    cursor: default;
+}
+
+.duration-field--error .duration-field__input {
+    border-color: var(--color-error-500);
+}
+
+.duration-field--error .duration-field__input:focus {
+    border-color: var(--color-error-500);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-error-500) 15%, transparent);
+}

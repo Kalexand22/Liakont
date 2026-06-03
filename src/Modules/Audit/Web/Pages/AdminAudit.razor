@@ -1,0 +1,174 @@
+@page "/admin/audit"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Stratum.Modules.Audit.Contracts
+@using Stratum.Modules.Audit.Contracts.DTOs
+@using Stratum.Modules.Audit.Web.Registries
+@inject IAuditQueries AuditQueries
+@inject NavigationManager Nav
+
+<PermissionGate Permission="@AuditPermissions.AuditView">
+<DeclaredListPage @key="_filterVersion"
+                  TItem="AuditSearchResultDto"
+                  Title="Journal d'audit"
+                  TestId="audit-trail"
+                  LoadItems="@LoadEntriesAsync"
+                  DetailUrl="@(e => $"/admin/audit/{e.Id}")"
+                  ColumnRegistry="@_registry"
+                  ColumnTemplates="@_columnTemplates"
+                  GridKey="Audit.Trail"
+                  DefaultSortColumn="CreatedAt"
+                  DefaultSortDirection="SortDirection.Descending"
+                  AriaLabel="Journal d'audit"
+                  SearchPlaceholder="Chercher dans le journal… (raccourci : /)"
+                  AllowExport="true"
+                  ExportFileName="audit-trail">
+    <ToolbarActions>
+        <div class="d-flex gap-2 align-items-end flex-wrap" data-testid="audit-trail-filters">
+            <FormField Label="Utilisateur">
+                <input type="text" class="form-control form-control-sm"
+                       value="@_filterActor" @oninput="HandleActorInput"
+                       placeholder="ID utilisateur"
+                       data-testid="audit-trail-filter-actor" />
+            </FormField>
+            <FormField Label="Entité">
+                <input type="text" class="form-control form-control-sm"
+                       value="@_filterEntityType" @oninput="HandleEntityTypeInput"
+                       placeholder="Type d'entité"
+                       data-testid="audit-trail-filter-entity" />
+            </FormField>
+            <FormField Label="Action">
+                <select class="form-select form-select-sm"
+                        value="@_filterActivityType" @onchange="HandleActivityTypeChange"
+                        aria-label="Filtrer par action"
+                        data-testid="audit-trail-filter-action">
+                    <option value="">Toutes</option>
+                    <option value="created">Création</option>
+                    <option value="updated">Modification</option>
+                    <option value="deleted">Suppression</option>
+                    <option value="status_changed">Changement statut</option>
+                    <option value="exported">Export</option>
+                    <option value="imported">Import</option>
+                </select>
+            </FormField>
+            <FormField Label="Depuis">
+                <input type="date" class="form-control form-control-sm"
+                       value="@_filterDateFrom?.ToString("yyyy-MM-dd")"
+                       @onchange="HandleDateFromChange"
+                       aria-label="Date de début"
+                       data-testid="audit-trail-filter-from" />
+            </FormField>
+            <FormField Label="Jusqu'à">
+                <input type="date" class="form-control form-control-sm"
+                       value="@_filterDateTo?.ToString("yyyy-MM-dd")"
+                       @onchange="HandleDateToChange"
+                       aria-label="Date de fin"
+                       data-testid="audit-trail-filter-to" />
+            </FormField>
+            <StratumButton Text="Filtrer"
+                           Variant="ButtonVariant.Primary"
+                           Size="ButtonSize.Small"
+                           OnClick="ApplyFilters"
+                           TestId="audit-trail-filter-apply" />
+            <StratumButton Text="Réinitialiser"
+                           Variant="ButtonVariant.Secondary"
+                           Outline
+                           Size="ButtonSize.Small"
+                           OnClick="ResetFilters"
+                           TestId="audit-trail-filter-reset" />
+        </div>
+    </ToolbarActions>
+</DeclaredListPage>
+</PermissionGate>
+
+@code {
+    private readonly AuditEntryColumnRegistry _registry = new();
+    private int _filterVersion;
+
+    private string? _filterActor;
+    private string? _filterEntityType;
+    private string? _filterActivityType;
+    private DateTimeOffset? _filterDateFrom;
+    private DateTimeOffset? _filterDateTo;
+
+    private readonly Dictionary<string, RenderFragment<AuditSearchResultDto>> _columnTemplates = new()
+    {
+        ["ActivityType"] = item => __builder =>
+        {
+            var (severity, label) = item.ActivityType switch
+            {
+                "created" => (Severity.Success, "Création"),
+                "updated" => (Severity.Info, "Modification"),
+                "deleted" => (Severity.Error, "Suppression"),
+                "status_changed" => (Severity.Warning, "Changement statut"),
+                "exported" => (Severity.Neutral, "Export"),
+                "imported" => (Severity.Neutral, "Import"),
+                _ => (Severity.Neutral, item.ActivityType),
+            };
+            __builder.OpenComponent<StatusBadge>(0);
+            __builder.AddAttribute(1, "Severity", severity);
+            __builder.AddAttribute(2, "Label", label);
+            __builder.CloseComponent();
+        },
+        ["ChangeCount"] = item => __builder =>
+        {
+            if (item.ChangeCount > 0)
+            {
+                __builder.OpenComponent<CategoryBadge>(0);
+                __builder.AddAttribute(1, "Label", $"{item.ChangeCount} champ{(item.ChangeCount > 1 ? "s" : "")}");
+                __builder.CloseComponent();
+            }
+            else
+            {
+                __builder.AddContent(0, "—");
+            }
+        },
+    };
+
+    private Task<IReadOnlyList<AuditSearchResultDto>> LoadEntriesAsync()
+        => AuditQueries.SearchEntries(
+            actorId: NullIfEmpty(_filterActor),
+            entityType: NullIfEmpty(_filterEntityType),
+            activityType: NullIfEmpty(_filterActivityType),
+            dateFrom: _filterDateFrom,
+            dateTo: _filterDateTo);
+
+    private void HandleActorInput(ChangeEventArgs e) => _filterActor = e.Value?.ToString();
+    private void HandleEntityTypeInput(ChangeEventArgs e) => _filterEntityType = e.Value?.ToString();
+    private void HandleActivityTypeChange(ChangeEventArgs e) => _filterActivityType = e.Value?.ToString();
+
+    private void HandleDateFromChange(ChangeEventArgs e)
+    {
+        _filterDateFrom = DateTime.TryParse(e.Value?.ToString(), out var d)
+            ? new DateTimeOffset(d, TimeSpan.Zero)
+            : null;
+    }
+
+    private void HandleDateToChange(ChangeEventArgs e)
+    {
+        _filterDateTo = DateTime.TryParse(e.Value?.ToString(), out var d)
+            ? new DateTimeOffset(d.Date.AddDays(1).AddTicks(-1), TimeSpan.Zero)
+            : null;
+    }
+
+    private Task ApplyFilters()
+    {
+        _filterVersion++;
+        return Task.CompletedTask;
+    }
+
+    private Task ResetFilters()
+    {
+        _filterActor = null;
+        _filterEntityType = null;
+        _filterActivityType = null;
+        _filterDateFrom = null;
+        _filterDateTo = null;
+        _filterVersion++;
+        return Task.CompletedTask;
+    }
+
+    private static string? NullIfEmpty(string? v) => string.IsNullOrWhiteSpace(v) ? null : v;
+}

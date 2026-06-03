@@ -1,0 +1,64 @@
+@using System
+@namespace Stratum.Common.UI.Components
+
+@if (!string.IsNullOrWhiteSpace(Name))
+{
+    if (UseBootstrapIcon)
+    {
+        <i class="@BootstrapClass"
+           aria-hidden="@(AriaHidden ? "true" : null)"
+           title="@Title"
+           data-icon-library="bootstrap"
+           data-icon-name="@Name"></i>
+    }
+    else
+    {
+        <span class="@MaterialClass"
+              aria-hidden="@(AriaHidden ? "true" : null)"
+              title="@Title"
+              data-icon-library="material"
+              data-icon-name="@Name">@Name</span>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public string Name { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    [Parameter]
+    public bool AriaHidden { get; set; } = true;
+
+    [Parameter]
+    public string? Title { get; set; }
+
+    private bool UseBootstrapIcon => IsBootstrapIcon(Name);
+
+    private string BootstrapClass =>
+        string.IsNullOrWhiteSpace(Class)
+            ? $"stratum-icon stratum-icon--bootstrap {NormalizeBootstrapClass(Name)}"
+            : $"stratum-icon stratum-icon--bootstrap {NormalizeBootstrapClass(Name)} {Class}";
+
+    private string MaterialClass =>
+        string.IsNullOrWhiteSpace(Class)
+            ? "stratum-icon stratum-icon--material"
+            : $"stratum-icon stratum-icon--material {Class}";
+
+    private static bool IsBootstrapIcon(string iconName) =>
+        iconName.StartsWith("bi-", StringComparison.OrdinalIgnoreCase) ||
+        iconName.StartsWith("bi ", StringComparison.OrdinalIgnoreCase) ||
+        iconName.StartsWith("bi bi-", StringComparison.OrdinalIgnoreCase);
+
+    private static string NormalizeBootstrapClass(string iconName)
+    {
+        if (iconName.StartsWith("bi ", StringComparison.OrdinalIgnoreCase) ||
+            iconName.StartsWith("bi bi-", StringComparison.OrdinalIgnoreCase))
+        {
+            return iconName;
+        }
+
+        return $"bi {iconName}";
+    }
+}

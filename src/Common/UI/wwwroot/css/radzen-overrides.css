@@ -1,0 +1,686 @@
+/* Stratum ERP — Radzen CSS Overrides
+ * Imports Radzen's base structural styles, then maps all Radzen --rz-* CSS
+ * variables to Stratum design tokens from tokens.css.
+ *
+ * Load order in App.razor:
+ *   1. bootstrap.min.css
+ *   2. tokens.css
+ *   3. components.css
+ *   4. radzen-overrides.css  ← this file (imports Radzen base internally)
+ *   5. app.css
+ *
+ * Ref: docs/architecture/ui-architecture-plan.md §6
+ */
+
+@import '/_content/Radzen.Blazor/css/default-base.css';
+
+:root {
+  /* ── Core Colors ──────────────────────────────────────────────── */
+
+  --rz-primary:         var(--color-primary-600);
+  --rz-primary-light:   var(--color-primary-400);
+  --rz-primary-lighter: var(--color-primary-100);
+  --rz-primary-dark:    var(--color-primary-700);
+  --rz-primary-darker:  var(--color-primary-900);
+
+  --rz-secondary:         var(--color-neutral-500);
+  --rz-secondary-light:   var(--color-neutral-300);
+  --rz-secondary-lighter: var(--color-neutral-100);
+  --rz-secondary-dark:    var(--color-neutral-600);
+  --rz-secondary-darker:  var(--color-neutral-800);
+
+  --rz-info:         var(--color-info-500);
+  --rz-info-light:   var(--color-info-100);
+  --rz-info-lighter: var(--color-info-50);
+
+  --rz-success:         var(--color-success-500);
+  --rz-success-light:   var(--color-success-100);
+  --rz-success-lighter: var(--color-success-50);
+
+  --rz-danger:         var(--color-error-500);
+  --rz-danger-light:   var(--color-error-100);
+  --rz-danger-lighter: var(--color-error-50);
+
+  --rz-warning:         var(--color-warning-500);
+  --rz-warning-light:   var(--color-warning-100);
+  --rz-warning-lighter: var(--color-warning-50);
+
+  /* Contrast colors on semantic backgrounds */
+  --rz-on-primary:   var(--color-text-on-dark);
+  --rz-on-secondary: var(--color-text-on-dark);
+  --rz-on-info:      var(--color-neutral-900);
+  --rz-on-success:   var(--color-text-on-dark);
+  --rz-on-danger:    var(--color-text-on-dark);
+  --rz-on-warning:   var(--color-neutral-900);
+
+  /* On-light variants (for lighter backgrounds where text must be dark) */
+  --rz-on-primary-light:    var(--color-primary-800);
+  --rz-on-primary-lighter:  var(--color-primary-700);
+  --rz-on-secondary-light:  var(--color-neutral-800);
+  --rz-on-secondary-lighter: var(--color-neutral-700);
+  --rz-on-secondary-dark:   var(--color-text-on-dark);
+
+  /* Base neutral scale */
+  --rz-base-50:  var(--color-neutral-50);
+  --rz-base-100: var(--color-neutral-100);
+  --rz-base-200: var(--color-neutral-200);
+  --rz-base-300: var(--color-neutral-300);
+  --rz-base-400: var(--color-neutral-400);
+  --rz-base-500: var(--color-neutral-500);
+  --rz-base-600: var(--color-neutral-600);
+  --rz-base-700: var(--color-neutral-700);
+  --rz-base-800: var(--color-neutral-800);
+  --rz-base-900: var(--color-neutral-900);
+
+  --rz-base:         var(--color-neutral-300);
+  --rz-base-light:   var(--color-neutral-200);
+  --rz-base-lighter: var(--color-neutral-100);
+  --rz-base-dark:    var(--color-neutral-600);
+  --rz-base-darker:  var(--color-neutral-900);
+
+  --rz-white: #ffffff;
+  --rz-black: var(--color-neutral-900);
+
+  /* ── Text Colors ──────────────────────────────────────────────── */
+
+  --rz-text-color:           var(--color-text-primary);
+  --rz-text-title-color:     var(--color-text-primary);
+  --rz-text-secondary-color: var(--color-text-secondary);
+  --rz-text-tertiary-color:  var(--color-text-muted);
+  --rz-text-disabled-color:  var(--color-neutral-400);
+
+  /* ── Typography ───────────────────────────────────────────────── */
+
+  --rz-text-font-family: var(--font-family-base);
+  --rz-body-font-size:   var(--font-size-sm);
+  --rz-body-line-height: var(--line-height-normal);
+
+  /* ── Backgrounds ──────────────────────────────────────────────── */
+
+  --rz-base-background-color: var(--color-bg-surface);
+  --rz-body-background-color: var(--color-bg-page);
+
+  /* ── Borders (Civic Blueprint — UIF04) ────────────────────────────
+   * "No-Line Rule": Radzen's default 1px wireframes are remapped to the
+   * Civic ghost-border (--color-border-ghost = outline-variant @ 15%).
+   * Sectioning happens via surface shifts on the Stratum-side wrappers
+   * (.section-card, .filter-bar, …) — Radzen still draws structural
+   * lines on grids, dropdowns, popovers, but they're now visual
+   * suggestions rather than rigid frames. */
+
+  --rz-border-width:  1px;
+  --rz-border-radius: var(--radius-md);
+  --rz-border-color:  var(--color-border-ghost);
+
+  /* Pre-composed border shorthands (Radzen uses these internally) */
+  --rz-border-normal:   var(--rz-border-width) solid var(--color-border-ghost);
+  --rz-border-focus:    var(--rz-border-width) solid var(--color-border-focus);
+  --rz-border-hover:    var(--rz-border-width) solid var(--color-outline);
+  /* Disabled keeps the un-ghosted outline-variant so the state stays
+   * legible against the neutral-100 fill (would otherwise collapse into
+   * the same value as --rz-border-normal). */
+  --rz-border-disabled: var(--rz-border-width) solid var(--color-outline-variant);
+
+  /* ── Shadows ──────────────────────────────────────────────────── */
+
+  --rz-shadow-0: none;
+  --rz-shadow-1: var(--shadow-sm);
+  --rz-shadow-2: var(--shadow-sm);
+  --rz-shadow-3: var(--shadow-md);
+  --rz-shadow-4: var(--shadow-md);
+  --rz-shadow-5: var(--shadow-lg);
+  --rz-shadow-6: var(--shadow-lg);
+  --rz-shadow-7: var(--shadow-lg);
+  --rz-shadow-8: var(--shadow-lg);
+  --rz-shadow-9: var(--shadow-lg);
+  --rz-shadow-10: var(--shadow-lg);
+
+  /* ── Transitions ──────────────────────────────────────────────── */
+
+  --rz-transition:     var(--transition-normal);
+  --rz-transition-all: all var(--transition-normal);
+
+  /* ── Focus / Outline ──────────────────────────────────────────── */
+
+  --rz-outline-width: 2px;
+  --rz-outline-color: var(--color-primary-500);
+  --rz-outline-focus: var(--rz-outline-width) solid var(--rz-outline-color);
+
+  /* ── Icon Size ────────────────────────────────────────────────── */
+
+  --rz-icon-size: 1.25rem;
+
+  /* ── DataGrid (Civic Blueprint — compact, zebra, ghost frame) ─── */
+
+  --rz-grid-border:        var(--rz-border-normal);
+  --rz-grid-border-radius: var(--radius-md);
+
+  /* Header — neutral-50 background, clear separation from data rows. */
+  --rz-grid-header-background-color: var(--color-neutral-100);
+  --rz-grid-header-color:            var(--color-text-secondary);
+  --rz-grid-header-font-size:        var(--font-size-label-sm);
+  --rz-grid-header-font-weight:      var(--font-weight-semibold);
+  --rz-grid-header-padding:          var(--spacing-2) var(--spacing-3);
+
+  /* Cells — DESIGN.md §5: 0.25rem (var(--spacing-1)) vertical padding. */
+  --rz-grid-cell-color:     var(--color-text-primary);
+  --rz-grid-cell-font-size: var(--font-size-sm);
+  --rz-grid-cell-padding:   0.125rem var(--spacing-3);
+  --rz-grid-cell-border:    var(--rz-border-normal);
+
+  /* Row hover / selection — subtle blue tint, distinct from grey zebra. */
+  --rz-grid-hover-background-color:    #eff6ff;
+  --rz-grid-hover-color:               var(--color-text-primary);
+  --rz-grid-selected-background-color: var(--color-primary-50);
+  --rz-grid-selected-color:            var(--color-primary-900);
+
+  /* Cell focus — uses surface-container-highest so keyboard cell focus
+   * is visually distinct from mouse hover (--rz-grid-hover-background
+   * sits on surface-container). The 2px primary outline stays as the
+   * primary affordance; the tonal step is a secondary cue. */
+  --rz-grid-cell-focus-background-color: var(--color-surface-container-highest);
+  --rz-grid-cell-focus-color:            var(--color-text-primary);
+  --rz-grid-cell-focus-outline:          var(--rz-outline-focus);
+
+  /* Zebra striping uses surface-container-low (DESIGN.md §5). */
+  --rz-grid-stripe-background-color:     var(--color-surface-container-low);
+  --rz-grid-stripe-odd-background-color: var(--color-surface-container-lowest);
+
+  /* Sort icon */
+  --rz-grid-sort-icon-color: var(--color-neutral-400);
+
+  /* Filter */
+  --rz-grid-filter-background-color: var(--color-bg-subtle);
+  --rz-grid-filter-border:           var(--rz-border-normal);
+  --rz-grid-filter-color:            var(--color-text-muted);
+  --rz-grid-filter-focus-color:      var(--color-primary-600);
+
+  /* Loading */
+  --rz-grid-loading-indicator-background-color:   var(--color-neutral-600);
+  --rz-grid-loading-indicator-background-opacity:  0.5;
+
+  /* Group header */
+  --rz-grid-group-header-item-background-color: var(--color-bg-surface);
+  --rz-grid-group-header-item-border:           var(--rz-border-normal);
+  --rz-grid-group-header-item-border-radius:    var(--radius-md);
+  --rz-grid-group-header-item-color:            var(--color-text-primary);
+
+  /* ── Pager ────────────────────────────────────────────────────── */
+
+  --rz-pager-background-color: var(--color-bg-surface);
+  --rz-pager-border:           var(--rz-border-normal);
+  --rz-pager-padding:          var(--spacing-2);
+
+  /* ── Input / Form Fields (Civic Blueprint — DESIGN.md §5) ────────
+   * Resting state: NO background, only a ghost border. The focus state
+   * shifts the background to surface-container-lowest and adds a crisp
+   * primary underline (1px navy bottom edge) — never a glow halo. */
+
+  --rz-input-background-color:          transparent;
+  --rz-input-border:                    var(--rz-border-normal);
+  --rz-input-border-radius:             var(--radius-sm);
+  --rz-input-border-block-end:          var(--rz-border-normal);
+  --rz-input-font-size:                 var(--font-size-sm);
+  --rz-input-placeholder-color:         var(--color-text-muted);
+  --rz-input-shadow:                    none;
+
+  --rz-input-hover-background-color:    var(--color-surface-container-low);
+  --rz-input-hover-border:              var(--rz-border-hover);
+  --rz-input-hover-border-block-end:    var(--rz-border-hover);
+  --rz-input-hover-shadow:              none;
+
+  --rz-input-focus-background-color:    var(--color-surface-container-lowest);
+  --rz-input-focus-border:              var(--rz-border-focus);
+  --rz-input-focus-border-block-end:    var(--rz-border-focus);
+  --rz-input-focus-outline:             none;
+  --rz-input-focus-shadow:              inset 0 -2px 0 0 var(--color-primary);
+
+  --rz-input-disabled-background-color: var(--color-neutral-100);
+  --rz-input-disabled-border:           var(--rz-border-disabled);
+  --rz-input-disabled-border-block-end: var(--rz-border-disabled);
+  --rz-input-disabled-color:            var(--color-text-muted);
+  --rz-input-disabled-placeholder-color: var(--color-neutral-400);
+  --rz-input-disabled-shadow:           none;
+  --rz-input-disabled-opacity:          1;
+
+  /* ── Button ───────────────────────────────────────────────────── */
+
+  --rz-button-base-background-color: var(--color-primary-600);
+  --rz-button-base-color:            var(--color-text-on-dark);
+  --rz-button-border-radius:         var(--radius-sm);
+  --rz-button-disabled-opacity:      0.4;
+
+  /* ── Dialog ───────────────────────────────────────────────────── */
+
+  --rz-dialog-background-color: var(--color-surface-container-lowest);
+  --rz-dialog-border-radius:    var(--radius-md);
+  --rz-dialog-shadow:           var(--shadow-lg);
+  --rz-dialog-content-padding:  var(--spacing-5);
+
+  /* ── Dropdown ─────────────────────────────────────────────────── */
+
+  --rz-dropdown-item-font-size:                       var(--font-size-sm);
+  --rz-dropdown-item-padding:                         var(--spacing-2);
+  --rz-dropdown-item-hover-background-color:          var(--color-primary-50);
+  --rz-dropdown-item-hover-color:                     var(--color-text-primary);
+  --rz-dropdown-item-selected-background-color:       var(--color-primary-100);
+  --rz-dropdown-item-selected-color:                  var(--color-primary-900);
+  --rz-dropdown-item-selected-hover-background-color: var(--color-primary-200);
+  --rz-dropdown-item-selected-hover-color:            var(--color-primary-900);
+  --rz-dropdown-item-disabled-opacity:                0.4;
+
+  /* ── DatePicker ───────────────────────────────────────────────── */
+
+  --rz-datepicker-header-background-color: var(--color-bg-subtle);
+  --rz-datepicker-header-color:            var(--color-text-secondary);
+  --rz-datepicker-header-border:           none;
+  --rz-datepicker-header-padding-block:    var(--spacing-2);
+  --rz-datepicker-header-padding-inline:   var(--spacing-2);
+  --rz-datepicker-border-radius:           var(--radius-md);
+  --rz-datepicker-shadow:                  var(--shadow-lg);
+
+  /* ── Tabs (Civic Blueprint — surface shift, no rule frame) ────── */
+
+  --rz-tabs-background-color:   var(--color-surface-container-lowest);
+  --rz-tabs-border:             var(--rz-border-width) solid var(--color-border-ghost);
+  --rz-tabs-border-radius:      var(--radius-md);
+  --rz-tabs-shadow:             none;
+  --rz-tabs-padding:            var(--spacing-4);
+
+  --rz-tabs-tab-background-color:          var(--color-surface-container-low);
+  --rz-tabs-tab-color:                     var(--color-text-secondary);
+  --rz-tabs-tab-font-size:                 var(--font-size-sm);
+  --rz-tabs-tab-font-weight:              var(--font-weight-medium);
+  --rz-tabs-tab-padding-block:             var(--spacing-2);
+  --rz-tabs-tab-padding-inline:            var(--spacing-4);
+
+  --rz-tabs-tab-hover-background-color:    var(--color-surface-container-lowest);
+  --rz-tabs-tab-hover-color:              var(--color-text-primary);
+
+  --rz-tabs-tab-selected-background-color:    var(--color-surface-container-lowest);
+  --rz-tabs-tab-selected-color:               var(--color-text-primary);
+  --rz-tabs-tab-selected-top-border-color:    var(--color-primary-600);
+
+  --rz-tabs-tab-focus-outline:        var(--rz-outline-focus);
+  --rz-tabs-tab-focus-background-color: var(--color-surface-container-lowest);
+  --rz-tabs-tab-focus-color:          var(--color-text-primary);
+
+  /* ── Menu ─────────────────────────────────────────────────────── */
+
+  --rz-menu-background-color:                 var(--color-bg-surface);
+  --rz-menu-border:                           var(--rz-border-normal);
+  --rz-menu-border-radius:                    var(--radius-md);
+  --rz-menu-item-color:                       var(--color-text-primary);
+  --rz-menu-item-icon-color:                  var(--color-text-secondary);
+  --rz-menu-item-border-radius:               var(--radius-sm);
+  --rz-menu-item-hover-background-color:      var(--color-primary-50);
+  --rz-menu-item-hover-color:                 var(--color-text-primary);
+  --rz-menu-item-icon-hover-color:            var(--color-primary-600);
+  --rz-menu-item-selected-background-color:   transparent;
+  --rz-menu-item-selected-color:              var(--color-primary-600);
+  --rz-menu-item-padding-block:               var(--spacing-2);
+  --rz-menu-item-padding-inline:              var(--spacing-2) var(--spacing-3);
+  --rz-menu-item-disabled-opacity:            0.4;
+  --rz-menu-item-focus-outline:               var(--rz-outline-focus);
+
+  /* ── Scheduler ────────────────────────────────────────────────── */
+
+  --rz-scheduler-background-color:        var(--color-bg-surface);
+  --rz-scheduler-border:                  var(--rz-border-normal);
+  --rz-scheduler-border-color:            var(--color-border-ghost);
+  --rz-scheduler-border-radius:           var(--radius-md);
+  --rz-scheduler-color:                   var(--color-text-muted);
+  --rz-scheduler-header-background-color: var(--color-bg-subtle);
+  --rz-scheduler-header-border:           var(--rz-border-normal);
+  --rz-scheduler-header-font-size:        var(--font-size-xs);
+  --rz-scheduler-shadow:                  var(--shadow-sm);
+
+  /* ── Accordion ────────────────────────────────────────────────── */
+
+  --rz-accordion-border-radius:                var(--radius-md);
+  --rz-accordion-item-background-color:        var(--color-bg-surface);
+  --rz-accordion-item-color:                   var(--color-text-primary);
+  --rz-accordion-item-font-size:               var(--font-size-sm);
+  --rz-accordion-hover-color:                  var(--color-primary-600);
+  --rz-accordion-selected-color:               var(--color-primary-600);
+  --rz-accordion-item-focus-outline:           var(--rz-outline-focus);
+
+  /* ── Alert ────────────────────────────────────────────────────── */
+
+  --rz-alert-border-radius: var(--radius-md);
+  --rz-alert-padding:       var(--spacing-4);
+  --rz-alert-gap:           var(--spacing-4);
+
+  /* ── Badge ────────────────────────────────────────────────────── */
+
+  --rz-badge-border-radius: var(--radius-md);
+  --rz-badge-font-size:     var(--font-size-xs);
+  --rz-badge-font-weight:   var(--font-weight-semibold);
+}
+
+/* ── Dark Theme Radzen Adjustments ────────────────────────────────────────── */
+/* These tokens don't derive from Stratum semantic tokens automatically. */
+
+[data-theme="dark"] {
+  --rz-white: var(--color-bg-surface);
+  --rz-on-info:    var(--color-neutral-100);
+  --rz-on-warning: var(--color-neutral-100);
+}
+
+/* ── DatePicker Calendar Popup (rendered via portal, outside component tree) ── */
+
+.rz-datepicker-calendar {
+  font-family: var(--font-family-base);
+  background: var(--color-surface-container-lowest);
+  border: 1px solid var(--color-border-ghost);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+/* Today highlight */
+.rz-datepicker-calendar .rz-state-default.rz-datepicker-today > span {
+  background: var(--color-primary-100);
+  color: var(--color-primary-700);
+  border-radius: var(--radius-sm);
+}
+
+/* Selected day */
+.rz-datepicker-calendar .rz-state-active > span {
+  background: var(--color-primary-500);
+  color: #fff;
+  border-radius: var(--radius-sm);
+}
+
+/* Hover state */
+.rz-datepicker-calendar td > span:hover {
+  background: var(--color-primary-50);
+  border-radius: var(--radius-sm);
+}
+
+/* Disabled days */
+.rz-datepicker-calendar .rz-state-disabled > span {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── DataGrid: preserve selection tint on hover ──────────────────────────
+ * Radzen applies the hover background on top of the selection background,
+ * which would temporarily blank the navy tint of a selected row while the
+ * mouse is over it. We darken the selected tint instead of replacing it
+ * so the affordance survives the hover. */
+.rz-data-row.rz-selected:hover,
+.rz-grid-table tr.rz-selected:hover,
+.rz-datatable-data tr.rz-state-highlight:hover {
+  background-color: var(--color-primary-100) !important;
+  color: var(--color-primary-900) !important;
+}
+
+/* ── Density (UIF06) — Radzen input / dropdown / datepicker / numeric ────
+ * Radzen does not expose a `--rz-input-height` variable, so density is
+ * enforced at the concrete-class level. These selectors are intentionally
+ * not `.rz-textbox.form-control` scoped — Radzen textboxes do NOT always
+ * carry `.form-control`, and the density contract must hold independently
+ * of Bootstrap.
+ *
+ * All rules consume the same `--density-*` tokens as `.form-control`, so
+ * toggling `[data-density]` on <html> flips Radzen and Bootstrap inputs
+ * in lock-step. No JS is involved — it is pure cascade.
+ *
+ * `!important` is used sparingly but is necessary here: Radzen's own
+ * stylesheets hard-code padding/height in their bundled default-base.css,
+ * and we import that file at the top of this overrides sheet. Without
+ * `!important` the density tokens lose on specificity during hover and
+ * focus state changes. */
+
+.rz-textbox,
+.rz-numeric,
+.rz-datepicker,
+.rz-autocomplete,
+.rz-spinner,
+.rz-mask {
+  height: var(--density-input-height) !important;
+  min-height: var(--density-input-height) !important;
+  padding-block: var(--density-input-padding-y) !important;
+  font-size: var(--density-input-font-size) !important;
+  line-height: var(--density-input-line-height) !important;
+}
+
+/* `.rz-textbox` has no affix trigger, so it can also adopt the density
+ * horizontal padding. We do NOT touch padding-inline on .rz-numeric /
+ * .rz-spinner / .rz-datepicker / .rz-autocomplete because those carry
+ * built-in affix buttons (calendar, increment/decrement, search) and
+ * Radzen's default-base.css computes the right-hand padding to make
+ * room for them — overriding it would push the affix into the text. */
+.rz-textbox {
+  padding-inline: var(--density-input-padding-x) !important;
+}
+
+/* RadzenDropDown: single-select adopts the density height contract; the
+ * multi-select variant must grow vertically to show its chip strip, so
+ * we use `min-height` instead of `height` here. The inner `.rz-dropdown-label`
+ * rule below clamps the trigger label to a single density-token row, so the
+ * single-select case still resolves to exactly 28 / 36 px. Without this
+ * relaxation, `<RadzenDropDown Multiple="true">` would be capped at one row
+ * and chips would overflow horizontally instead of stacking. */
+.rz-dropdown {
+  min-height: var(--density-input-height) !important;
+  padding-block: var(--density-input-padding-y) !important;
+  font-size: var(--density-input-font-size) !important;
+  line-height: var(--density-input-line-height) !important;
+}
+
+/* Radzen Dropdown: the inner trigger text is laid out via flex, which
+ * collapses the `height` we set on the host. Force the inner label to
+ * honour the density tokens too. */
+.rz-dropdown .rz-dropdown-label,
+.rz-dropdown .rz-inputtext {
+  height: calc(var(--density-input-height) - 2px) !important;
+  line-height: calc(var(--density-input-height) - 2px) !important;
+  padding-block: 0 !important;
+}
+
+/* Radzen DatePicker wraps its input in .rz-datepicker-input-wrapper.
+ * The inner <input> must inherit the same height or the trigger button
+ * floats above the ghost border. */
+.rz-datepicker .rz-inputtext,
+.rz-datepicker-input-wrapper .rz-inputtext {
+  height: calc(var(--density-input-height) - 2px) !important;
+  line-height: calc(var(--density-input-height) - 2px) !important;
+  padding-block: 0 !important;
+}
+
+/* Radzen DataGrid: row height is controlled by the cell padding, not the
+ * <tr> element. Use padding-block on .rz-data-cell so the density token
+ * flows through to both the body and the aggregate footer rows. */
+.rz-data-grid .rz-data-row > td,
+.rz-data-grid .rz-grid-table > tbody > tr > td,
+.rz-datatable .rz-datatable-data > tr > td {
+  padding-block: var(--density-row-padding-y) !important;
+}
+
+/* GUX02 — Block browser text highlighting inside data cells so Shift-click
+ * row range selection does not also paint the cell text blue. Inline editors
+ * below re-enable selection so typing, highlighting, and clipboard still
+ * work. GFI09 right-click Copy is unaffected because it uses the programmatic
+ * clipboard API with a pre-computed DisplayValue, not the browser selection. */
+.rz-data-grid .rz-data-row > td,
+.rz-data-grid .rz-grid-table > tbody > tr > td,
+.rz-datatable .rz-datatable-data > tr > td {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+.rz-data-grid .rz-data-row > td input,
+.rz-data-grid .rz-data-row > td textarea,
+.rz-data-grid .rz-data-row > td [contenteditable="true"],
+.rz-data-grid .rz-grid-table > tbody > tr > td input,
+.rz-data-grid .rz-grid-table > tbody > tr > td textarea,
+.rz-data-grid .rz-grid-table > tbody > tr > td [contenteditable="true"],
+.rz-datatable .rz-datatable-data > tr > td input,
+.rz-datatable .rz-datatable-data > tr > td textarea,
+.rz-datatable .rz-datatable-data > tr > td [contenteditable="true"] {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+/* Radzen Button — secondary / icon variants honour the density height.
+ * Primary CTAs (.rz-button-md) keep their larger click target so they
+ * remain thumb-friendly on touch. */
+.rz-button.rz-button-sm {
+  height: var(--density-button-height) !important;
+  min-height: var(--density-button-height) !important;
+  padding-block: var(--density-button-padding-y) !important;
+  padding-inline: var(--density-button-padding-x) !important;
+}
+
+/* ── Compact Density — WPF-like grid overrides (UIF06) ─────────────────
+ * When [data-density="compact"] is active, the grid must be ultra-dense:
+ * minimal padding, smaller font, tighter header. These rules complement
+ * the generic density tokens in tokens.css with grid-specific selectors
+ * that Radzen's bundled CSS doesn't expose as variables. */
+
+/* Grid cells — zero vertical padding, 11px font, tight line-height */
+[data-density="compact"] .rz-data-grid .rz-data-row > td,
+[data-density="compact"] .rz-data-grid .rz-grid-table > tbody > tr > td,
+[data-density="compact"] .rz-datatable .rz-datatable-data > tr > td {
+  padding: 0 0.25rem !important;
+  font-size: 0.6875rem !important;
+  line-height: 1.15 !important;
+  height: 1.125rem !important;
+}
+
+/* Grid header — flush, 10px uppercase */
+[data-density="compact"] .rz-data-grid .rz-grid-table > thead > tr > th,
+[data-density="compact"] .rz-datatable .rz-datatable-thead > tr > th {
+  padding: 0 0.25rem !important;
+  font-size: 0.625rem !important;
+  letter-spacing: 0.04em;
+  height: 1.25rem !important;
+  line-height: 1.25rem !important;
+}
+
+/* Grid border — tighter radius */
+[data-density="compact"] .rz-datatable {
+  border-radius: 0.25rem !important;
+}
+
+/* Pager — ultra-tight, font size unchanged */
+[data-density="compact"] .rz-pager {
+  padding: 0 !important;
+  min-height: auto !important;
+}
+
+[data-density="compact"] .rz-pager .rz-pager-element {
+  min-width: 1rem !important;
+  height: 1rem !important;
+  padding: 0 !important;
+}
+
+/* Inputs inside grid (filter row, inline edit) */
+[data-density="compact"] .rz-data-grid .rz-textbox,
+[data-density="compact"] .rz-data-grid .rz-numeric,
+[data-density="compact"] .rz-data-grid .rz-dropdown {
+  height: 1.125rem !important;
+  min-height: 1.125rem !important;
+  font-size: 0.6875rem !important;
+}
+
+/* Standard mode row height — pin .rz-cell-data min-height so text-only rows
+ * reserve the same vertical space as rows that contain a StatusBadge.
+ * A row in AdminNotificationRouting (badges) renders at 40px because the
+ * status-badge cell-data expands to ~31px; a row in AdminNotificationTemplates
+ * (text only) would otherwise render at 35px because text cell-data collapses
+ * to 26px (line-height strut). Forcing min-height on cell-data brings every
+ * row to a uniform 40px regardless of whether the page has any badge column.
+ * The value (31px = ~1.9375rem) is empirical — it is the measured rendered
+ * height of a StatusBadge inside .rz-cell-data in standard density (inline-flex
+ * badge inside a `display:block` span; vertical baseline + font ascent put
+ * the rendered height above the badge's own 28px outer box). `min-height` is
+ * used rather than `height` so oversized children can still expand the row. */
+html:not([data-density="compact"]) .rz-data-grid .rz-cell-data,
+html:not([data-density="compact"]) .rz-datatable .rz-cell-data {
+  min-height: 31px !important;
+  line-height: 31px !important;
+}
+
+/* Grid cells — hard row-height clamp. Radzen's .rz-cell-data span has
+ * overflow:hidden by default; we pin its height so any oversized child
+ * (badge, icon, chip) is clipped instead of inflating the row. This is
+ * what makes rows with badges visually match rows without. */
+[data-density="compact"] .rz-data-grid .rz-data-row > td > .rz-cell-data,
+[data-density="compact"] .rz-datatable .rz-datatable-data > tr > td > .rz-cell-data,
+[data-density="compact"] .rz-data-row > td > .rz-cell-data {
+  height: 1.125rem !important;
+  max-height: 1.125rem !important;
+  line-height: 1.125rem !important;
+  display: block !important;
+  overflow: hidden !important;
+}
+
+/* Cell in inline-edit mode — release the clamp so editors (textbox, dropdown,
+ * datepicker, numeric, lookup) render at their natural height instead of being
+ * clipped to 18px. The clamp above exists to keep badges from inflating display
+ * rows; an editing cell is no longer a display cell, so the clamp must not
+ * apply.
+ *
+ * Radzen 10.x does not mark the edit row with a class — it replaces the cell
+ * content with the EditTemplate. We detect the edit state via :has() by
+ * looking for a known editor element as a direct child of .rz-cell-data.
+ * Using the direct-child combinator (not descendants) avoids matching display
+ * cells that happen to contain a hidden checkbox input via .rz-chkbox. */
+[data-density="compact"] .rz-data-row > td > .rz-cell-data:has(> input,
+                                                               > textarea,
+                                                               > select,
+                                                               > .form-control,
+                                                               > .rz-textbox,
+                                                               > .rz-numeric,
+                                                               > .rz-dropdown,
+                                                               > .rz-calendar,
+                                                               > .rz-datepicker,
+                                                               > .rz-switch,
+                                                               > .lookup,
+                                                               > .stratum-datepicker) {
+  height: auto !important;
+  max-height: none !important;
+  line-height: normal !important;
+  overflow: visible !important;
+}
+
+/* All badge types inside grid cells — become plain inline text in compact.
+ * Strip every box property so nothing pushes the cell-data span past its
+ * clamped height. Targeted by wildcard to catch palette variants. */
+[data-density="compact"] .rz-data-row .status-badge,
+[data-density="compact"] .rz-data-row .service-badge,
+[data-density="compact"] .rz-data-row .category-badge,
+[data-density="compact"] .rz-data-row [class*="status-badge--"],
+[data-density="compact"] .rz-data-row [class*="category-badge--"],
+[data-density="compact"] .rz-cell-data .status-badge,
+[data-density="compact"] .rz-cell-data .service-badge,
+[data-density="compact"] .rz-cell-data .category-badge,
+[data-density="compact"] .rz-cell-data [class*="status-badge--"],
+[data-density="compact"] .rz-cell-data [class*="category-badge--"] {
+  display: inline !important;
+  background: none !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  font-size: inherit !important;
+  line-height: inherit !important;
+  font-weight: 600;
+  box-shadow: none !important;
+  vertical-align: baseline !important;
+}
+
+/* Checkbox column — tighter */
+[data-density="compact"] .rz-data-grid .rz-cell-data .rz-chkbox {
+  width: 14px !important;
+  height: 14px !important;
+}
+
+/* Sort icon — smaller */
+[data-density="compact"] .rz-data-grid .rz-sortable-column .rz-cell-sort-icon {
+  font-size: 0.625rem !important;
+}

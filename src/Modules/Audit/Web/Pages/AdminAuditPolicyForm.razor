@@ -1,0 +1,504 @@
+@page "/admin/audit/policies/new"
+@page "/admin/audit/policies/{Id:guid}"
+@page "/admin/audit/policies/{Id:guid}/edit"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using MediatR
+@using Stratum.Common.Abstractions.Collaboration
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Stratum.Modules.Audit.Contracts
+@using Stratum.Modules.Audit.Contracts.DTOs
+@using Stratum.Modules.Audit.Contracts.Commands
+@inject ISender Sender
+@inject IAuditQueries AuditQueries
+@inject NavigationManager Nav
+@inject IToastService ToastService
+
+<PageTitle>@PageTitleText — Stratum ERP</PageTitle>
+
+<PermissionGate Permission="@AuditPermissions.AuditView">
+@if (IsCreateMode)
+{
+    <PermissionGate Permission="@AuditPermissions.AuditPolicyWrite">
+        <DeclaredFormPage @ref="_formRef"
+                  TEntity="AuditPolicyDto"
+                  Id="@Id"
+                  Title="@BuildTitle"
+                  TestId="audit-policy-form"
+                  ListUrl="/admin/audit/policies"
+                  DetailUrl="@(id => $"/admin/audit/policies/{id}")"
+                  CreateUrl="/admin/audit/policies/new"
+                  EntityType="AuditPolicy"
+                  EnableViewMode="true"
+                  InitialMode="@(_isEditRoute ? FormMode.Edit : FormMode.View)"
+                  EditPermission="@AuditPermissions.AuditPolicyWrite"
+                  LoadEntity="@(id => AuditQueries.GetPolicyById(id))"
+                  CreateEntity="CreateAsync"
+                  UpdateEntity="UpdateAsync"
+                  Validate="ValidateForm"
+                  ClearErrors="ClearAllErrors"
+                  MapEntity="MapFromDto"
+                  ResetFields="ResetAllFields"
+                  MapDomainError="MapError"
+                  OnEntityChanged="HandleEntityChanged"
+                  @bind-GlobalError="_globalError"
+                  @bind-IsDirty="_isDirty">
+    <StatusContent>
+        @if (!IsCreateMode)
+        {
+            <StatusBadge Severity="@(_isEnabled ? Severity.Success : Severity.Neutral)"
+                         Label="@(_isEnabled ? "Actif" : "Inactif")" />
+        }
+    </StatusContent>
+    <HeaderActions Context="ctx">
+        @if (ctx.Mode == FormMode.View && _isEnabled)
+        {
+            <PermissionGate Permission="@AuditPermissions.AuditPolicyWrite">
+                <StratumButton Text="@(_disabling ? "Désactivation…" : "Désactiver")"
+                               Variant="ButtonVariant.Warning" Outline Size="ButtonSize.Small"
+                               OnClick="DisableAsync"
+                               Disabled="@_disabling"
+                               TestId="audit-policy-form-disable-btn" />
+            </PermissionGate>
+        }
+    </HeaderActions>
+    <Content Context="ctx">
+        <SectionCard Title="Politique d'audit" TestId="audit-policy-form-info">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <FormField Label="Type d'entité" Required Error="@_entityTypeError">
+                        <input type="text"
+                               class="form-control"
+                               value="@_entityType"
+                               @oninput="HandleEntityTypeInput"
+                               placeholder="Ex : Product, Order, User"
+                               maxlength="200"
+                               disabled="@(ctx.Mode == FormMode.View || !IsCreateMode)"
+                               data-testid="audit-policy-form-entity-type" />
+                    </FormField>
+                </div>
+                <div class="col-md-6">
+                    <FormField Label="Module source" Required Error="@_moduleSourceError">
+                        <input type="text"
+                               class="form-control"
+                               value="@_moduleSource"
+                               @oninput="HandleModuleSourceInput"
+                               placeholder="Ex : Showcase, Identity, Company"
+                               maxlength="200"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="audit-policy-form-module-source" />
+                    </FormField>
+                </div>
+                <div class="col-md-4">
+                    <FormField Label="Audit actif">
+                        <Switch Value="@_isEnabled"
+                                ValueChanged="HandleEnabledChange"
+                                Disabled="@(ctx.Mode == FormMode.View)"
+                                TestId="audit-policy-form-enabled" />
+                    </FormField>
+                </div>
+                <div class="col-12">
+                    <FormField Label="Champs suivis" Error="@_trackedFieldsError"
+                               HelpText="Laisser vide pour suivre tous les champs. Séparer par des virgules.">
+                        <input type="text"
+                               class="form-control"
+                               value="@_trackedFieldsText"
+                               @oninput="HandleTrackedFieldsInput"
+                               placeholder="Ex : Name, Price, Status (vide = tous)"
+                               disabled="@(ctx.Mode == FormMode.View)"
+                               data-testid="audit-policy-form-tracked-fields" />
+                    </FormField>
+                </div>
+            </div>
+        </SectionCard>
+    </Content>
+    <AuditSection>
+        @if (!IsCreateMode)
+        {
+            <SectionCard Title="Audit" Collapsible DefaultCollapsed TestId="audit-policy-form-audit">
+                <dl class="row mb-0">
+                    <dt class="col-sm-3">Identifiant</dt>
+                    <dd class="col-sm-9"><code class="text-muted small">@Id</code></dd>
+                    <dt class="col-sm-3">Créé le</dt>
+                    <dd class="col-sm-9">@_createdAt.ToString("dd/MM/yyyy HH:mm")</dd>
+                    @if (_updatedAt.HasValue)
+                    {
+                        <dt class="col-sm-3">Modifié le</dt>
+                        <dd class="col-sm-9">@_updatedAt.Value.ToString("dd/MM/yyyy HH:mm")</dd>
+                    }
+                </dl>
+            </SectionCard>
+        }
+    </AuditSection>
+</DeclaredFormPage>
+    </PermissionGate>
+}
+else
+{
+    <DeclaredFormPage @ref="_formRef"
+                  TEntity="AuditPolicyDto"
+                  Id="@Id"
+                  Title="@BuildTitle"
+                  TestId="audit-policy-form"
+                  ListUrl="/admin/audit/policies"
+                  DetailUrl="@(id => $"/admin/audit/policies/{id}")"
+                  CreateUrl="/admin/audit/policies/new"
+                  EntityType="AuditPolicy"
+                  EnableViewMode="true"
+                  InitialMode="@(_isEditRoute ? FormMode.Edit : FormMode.View)"
+                  EditPermission="@AuditPermissions.AuditPolicyWrite"
+                  LoadEntity="@(id => AuditQueries.GetPolicyById(id))"
+                  CreateEntity="CreateAsync"
+                  UpdateEntity="UpdateAsync"
+                  Validate="ValidateForm"
+                  ClearErrors="ClearAllErrors"
+                  MapEntity="MapFromDto"
+                  ResetFields="ResetAllFields"
+                  MapDomainError="MapError"
+                  OnEntityChanged="HandleEntityChanged"
+                  @bind-GlobalError="_globalError"
+                  @bind-IsDirty="_isDirty">
+        <StatusContent>
+            @if (!IsCreateMode)
+            {
+                <StatusBadge Severity="@(_isEnabled ? Severity.Success : Severity.Neutral)"
+                             Label="@(_isEnabled ? "Actif" : "Inactif")" />
+            }
+        </StatusContent>
+        <HeaderActions Context="ctx">
+            @if (ctx.Mode == FormMode.View && _isEnabled)
+            {
+                <PermissionGate Permission="@AuditPermissions.AuditPolicyWrite">
+                    <StratumButton Text="@(_disabling ? "Désactivation…" : "Désactiver")"
+                                   Variant="ButtonVariant.Warning" Outline Size="ButtonSize.Small"
+                                   OnClick="DisableAsync"
+                                   Disabled="@_disabling"
+                                   TestId="audit-policy-form-disable-btn" />
+                </PermissionGate>
+            }
+        </HeaderActions>
+        <Content Context="ctx">
+            <SectionCard Title="Politique d'audit" TestId="audit-policy-form-info">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <FormField Label="Type d'entité" Required Error="@_entityTypeError">
+                            <input type="text"
+                                   class="form-control"
+                                   value="@_entityType"
+                                   @oninput="HandleEntityTypeInput"
+                                   placeholder="Ex : Product, Order, User"
+                                   maxlength="200"
+                                   disabled="@(ctx.Mode == FormMode.View || !IsCreateMode)"
+                                   data-testid="audit-policy-form-entity-type" />
+                        </FormField>
+                    </div>
+                    <div class="col-md-6">
+                        <FormField Label="Module source" Required Error="@_moduleSourceError">
+                            <input type="text"
+                                   class="form-control"
+                                   value="@_moduleSource"
+                                   @oninput="HandleModuleSourceInput"
+                                   placeholder="Ex : Showcase, Identity, Company"
+                                   maxlength="200"
+                                   disabled="@(ctx.Mode == FormMode.View)"
+                                   data-testid="audit-policy-form-module-source" />
+                        </FormField>
+                    </div>
+                    <div class="col-md-4">
+                        <FormField Label="Audit actif">
+                            <Switch Value="@_isEnabled"
+                                    ValueChanged="HandleEnabledChange"
+                                    Disabled="@(ctx.Mode == FormMode.View)"
+                                    TestId="audit-policy-form-enabled" />
+                        </FormField>
+                    </div>
+                    <div class="col-12">
+                        <FormField Label="Champs suivis" Error="@_trackedFieldsError"
+                                   HelpText="Laisser vide pour suivre tous les champs. Séparer par des virgules.">
+                            <input type="text"
+                                   class="form-control"
+                                   value="@_trackedFieldsText"
+                                   @oninput="HandleTrackedFieldsInput"
+                                   placeholder="Ex : Name, Price, Status (vide = tous)"
+                                   disabled="@(ctx.Mode == FormMode.View)"
+                                   data-testid="audit-policy-form-tracked-fields" />
+                        </FormField>
+                    </div>
+                </div>
+            </SectionCard>
+        </Content>
+        <AuditSection>
+            @if (!IsCreateMode)
+            {
+                <SectionCard Title="Audit" Collapsible DefaultCollapsed TestId="audit-policy-form-audit">
+                    <dl class="row mb-0">
+                        <dt class="col-sm-3">Identifiant</dt>
+                        <dd class="col-sm-9"><code class="text-muted small">@Id</code></dd>
+                        <dt class="col-sm-3">Créé le</dt>
+                        <dd class="col-sm-9">@_createdAt.ToString("dd/MM/yyyy HH:mm")</dd>
+                        @if (_updatedAt.HasValue)
+                        {
+                            <dt class="col-sm-3">Modifié le</dt>
+                            <dd class="col-sm-9">@_updatedAt.Value.ToString("dd/MM/yyyy HH:mm")</dd>
+                        }
+                    </dl>
+                </SectionCard>
+            }
+        </AuditSection>
+    </DeclaredFormPage>
+}
+</PermissionGate>
+
+@code {
+    [Parameter]
+    public Guid? Id { get; set; }
+
+    private DeclaredFormPage<AuditPolicyDto>? _formRef;
+
+    private bool IsCreateMode => Id is null;
+
+    private bool _isEditRoute;
+
+    private string _entityType = string.Empty;
+    private string _moduleSource = string.Empty;
+    private bool _isEnabled = true;
+    private string _trackedFieldsText = string.Empty;
+    private bool _isDirty;
+    private DateTimeOffset _createdAt;
+    private DateTimeOffset? _updatedAt;
+    private bool _disabling;
+
+    private string _origEntityType = string.Empty;
+    private string _origModuleSource = string.Empty;
+    private bool _origIsEnabled = true;
+    private string _origTrackedFieldsText = string.Empty;
+
+    private string? _entityTypeError;
+    private string? _moduleSourceError;
+    private string? _trackedFieldsError;
+    private string? _globalError;
+
+    private string PageTitleText =>
+        IsCreateMode ? "Nouvelle politique" :
+        _isEditRoute ? "Modifier politique" :
+        _entityType.Length > 0 ? $"Politique : {_entityType}" : "Politique d'audit";
+
+    private string BuildTitle(bool createMode) =>
+        createMode ? "Nouvelle politique d'audit" : _entityType.Length > 0 ? $"Politique : {_entityType}" : "Politique d'audit";
+
+    protected override void OnParametersSet()
+    {
+        _isEditRoute = new Uri(Nav.Uri).AbsolutePath.EndsWith("/edit", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void MapFromDto(AuditPolicyDto policy)
+    {
+        _entityType = policy.EntityType;
+        _moduleSource = policy.ModuleSource;
+        _isEnabled = policy.IsEnabled;
+        _trackedFieldsText = string.Join(", ", policy.TrackedFields);
+        _createdAt = policy.CreatedAt;
+        _updatedAt = policy.UpdatedAt;
+        _origEntityType = policy.EntityType;
+        _origModuleSource = policy.ModuleSource;
+        _origIsEnabled = policy.IsEnabled;
+        _origTrackedFieldsText = _trackedFieldsText;
+    }
+
+    private void ResetAllFields()
+    {
+        _entityType = string.Empty;
+        _moduleSource = string.Empty;
+        _isEnabled = true;
+        _trackedFieldsText = string.Empty;
+        _createdAt = default;
+        _updatedAt = null;
+        _origEntityType = string.Empty;
+        _origModuleSource = string.Empty;
+        _origIsEnabled = true;
+        _origTrackedFieldsText = string.Empty;
+    }
+
+    private IReadOnlyList<string> ParseTrackedFields()
+    {
+        if (string.IsNullOrWhiteSpace(_trackedFieldsText))
+            return [];
+
+        return _trackedFieldsText
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(f => f.Length > 0)
+            .ToList();
+    }
+
+    private bool ValidateForm()
+    {
+        var valid = true;
+        if (string.IsNullOrWhiteSpace(_entityType))
+        {
+            _entityTypeError = "Le type d'entité est obligatoire.";
+            valid = false;
+        }
+
+        if (string.IsNullOrWhiteSpace(_moduleSource))
+        {
+            _moduleSourceError = "Le module source est obligatoire.";
+            valid = false;
+        }
+
+        return valid;
+    }
+
+    private void ClearAllErrors()
+    {
+        _entityTypeError = null;
+        _moduleSourceError = null;
+        _trackedFieldsError = null;
+    }
+
+    private async Task<Guid> CreateAsync()
+    {
+        await Sender.Send(new SetAuditPolicyCommand
+        {
+            EntityType = _entityType.Trim(),
+            ModuleSource = _moduleSource.Trim(),
+            IsEnabled = _isEnabled,
+            TrackedFields = ParseTrackedFields(),
+        });
+
+        var created = await AuditQueries.GetPolicyByEntityType(_entityType.Trim());
+        return created!.Id;
+    }
+
+    private async Task UpdateAsync()
+    {
+        await Sender.Send(new SetAuditPolicyCommand
+        {
+            EntityType = _entityType.Trim(),
+            ModuleSource = _moduleSource.Trim(),
+            IsEnabled = _isEnabled,
+            TrackedFields = ParseTrackedFields(),
+        });
+    }
+
+    private void MapError(string message)
+    {
+        var lower = message.ToLowerInvariant();
+        if (lower.Contains("entity") || lower.Contains("entité"))
+            _entityTypeError = message;
+        else if (lower.Contains("module"))
+            _moduleSourceError = message;
+        else if (lower.Contains("field") || lower.Contains("champ"))
+            _trackedFieldsError = message;
+        else
+            _globalError = message;
+    }
+
+    private void HandleEntityTypeInput(ChangeEventArgs e)
+    {
+        _entityType = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+        _entityTypeError = null;
+    }
+
+    private void HandleModuleSourceInput(ChangeEventArgs e)
+    {
+        _moduleSource = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+        _moduleSourceError = null;
+    }
+
+    private void HandleEnabledChange(bool value)
+    {
+        _isEnabled = value;
+        _isDirty = true;
+    }
+
+    private void HandleTrackedFieldsInput(ChangeEventArgs e)
+    {
+        _trackedFieldsText = e.Value?.ToString() ?? string.Empty;
+        _isDirty = true;
+        _trackedFieldsError = null;
+    }
+
+    private async Task DisableAsync()
+    {
+        if (Id is null || _disabling) return;
+
+        _disabling = true;
+        try
+        {
+            await Sender.Send(new DisableAuditPolicyCommand { EntityType = _entityType });
+            ToastService.Show("Politique désactivée.", Severity.Success);
+            if (_formRef is not null)
+            {
+                await _formRef.ReloadAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.Show($"Erreur : {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _disabling = false;
+        }
+    }
+
+    private async Task HandleEntityChanged(EntityChangedEvent evt)
+    {
+        if (!_isDirty && _formRef is not null)
+        {
+            await _formRef.ReloadAsync();
+            ToastService.Show($"Mise à jour par {evt.ChangedBy} appliquée.", Severity.Info);
+            return;
+        }
+
+        AuditPolicyDto? serverPolicy;
+        try
+        {
+            serverPolicy = await AuditQueries.GetPolicyById(Id!.Value);
+        }
+        catch
+        {
+            ToastService.Show("Impossible de recharger les données.", Severity.Error);
+            return;
+        }
+
+        if (serverPolicy is null) return;
+
+        var conflicts = new List<string>();
+
+        if (_moduleSource == _origModuleSource)
+            _moduleSource = serverPolicy.ModuleSource;
+        else if (serverPolicy.ModuleSource != _origModuleSource)
+            conflicts.Add("Module source");
+
+        if (_isEnabled == _origIsEnabled)
+            _isEnabled = serverPolicy.IsEnabled;
+        else if (serverPolicy.IsEnabled != _origIsEnabled)
+            conflicts.Add("Actif");
+
+        var serverTrackedText = string.Join(", ", serverPolicy.TrackedFields);
+        if (_trackedFieldsText == _origTrackedFieldsText)
+            _trackedFieldsText = serverTrackedText;
+        else if (serverTrackedText != _origTrackedFieldsText)
+            conflicts.Add("Champs suivis");
+
+        _createdAt = serverPolicy.CreatedAt;
+        _updatedAt = serverPolicy.UpdatedAt;
+        _origModuleSource = serverPolicy.ModuleSource;
+        _origIsEnabled = serverPolicy.IsEnabled;
+        _origTrackedFieldsText = serverTrackedText;
+
+        if (conflicts.Count > 0)
+        {
+            ToastService.Show($"Conflit détecté sur : {string.Join(", ", conflicts)}. Vos modifications sont conservées.", Severity.Warning);
+        }
+        else
+        {
+            _isDirty = _moduleSource != _origModuleSource || _isEnabled != _origIsEnabled || _trackedFieldsText != _origTrackedFieldsText;
+            ToastService.Show($"Mise à jour par {evt.ChangedBy} appliquée.", Severity.Info);
+        }
+    }
+}

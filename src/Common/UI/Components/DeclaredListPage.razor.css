@@ -1,0 +1,151 @@
+/* ── Bulk action bar: sticky bottom-centered overlay ───────────────
+ * Floats above the grid instead of inserting between the filter bar
+ * and the rows. Inline positioning caused the grid to shift downward
+ * when a row was selected, which broke row-click navigation (the
+ * second click landed on a different row because the viewport had
+ * just reflowed). See AdminSpacesE2ETests.ListPage_RowClick_*.
+ */
+.declared-list__bulk-bar {
+    position: fixed;
+    bottom: var(--spacing-6, 24px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1020;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-4, 16px);
+    padding: var(--spacing-3, 12px) var(--spacing-5, 20px);
+    background-color: color-mix(in srgb, var(--color-surface-container-highest, #ffffff) 92%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--color-border-ghost, rgba(0, 0, 0, 0.12));
+    border-radius: var(--radius-md, 8px);
+    box-shadow: var(--shadow-lg, 0 10px 25px rgba(0, 0, 0, 0.15));
+    animation: declared-list__bulk-bar-slide 200ms ease-out;
+}
+
+.declared-list__bulk-bar__count {
+    font-weight: 600;
+    color: var(--color-on-surface, #111827);
+    white-space: nowrap;
+    padding-right: var(--spacing-4, 16px);
+    border-right: 1px solid var(--color-border-ghost, rgba(0, 0, 0, 0.12));
+}
+
+@keyframes declared-list__bulk-bar-slide {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(16px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .declared-list__bulk-bar {
+        animation: none;
+    }
+}
+
+/* ── GUX04 — selection view bar: inline banner above the grid ──────── */
+.declared-list__selection-view-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-4, 16px);
+    padding: var(--spacing-2, 8px) var(--spacing-4, 16px);
+    background-color: var(--color-surface-container-low, #f5f5f5);
+    border: 1px solid var(--color-primary, #1a56db);
+    border-radius: var(--radius-sm, 4px);
+    margin-bottom: var(--spacing-2, 8px);
+}
+
+.declared-list__selection-view-bar__count {
+    font-weight: 600;
+    color: var(--color-primary, #1a56db);
+    white-space: nowrap;
+}
+
+/* ── GFI06 — filter slot (chip bar, counter, popover anchor) ──────── */
+.declared-list-page__filter-slot {
+    margin: var(--spacing-2) 0;
+    padding-left: var(--spacing-3);
+}
+
+.declared-list-page__result-counter {
+    margin-top: var(--spacing-1);
+    font-size: var(--font-size-label-sm);
+    color: var(--color-on-surface-variant);
+}
+
+.declared-list-page__empty-msg {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-1);
+}
+
+.declared-list-page__clear-link {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--color-primary);
+    text-decoration: underline;
+    cursor: pointer;
+    font: inherit;
+}
+
+.declared-list-page__clear-link:hover {
+    color: var(--color-primary-700);
+}
+
+.declared-list-page__clear-link:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--color-focus-ring);
+    border-radius: var(--radius-default);
+}
+
+/* ── GFI09 — cell right-click context menu ──────────────────────── */
+.declared-list-page__cell-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    background: transparent;
+}
+
+.declared-list-page__cell-menu {
+    z-index: 1101;
+    min-width: 200px;
+    padding: var(--spacing-1, 4px) 0;
+    background-color: var(--color-surface-container-highest, #ffffff);
+    border: 1px solid var(--color-border-ghost, rgba(0, 0, 0, 0.12));
+    border-radius: var(--radius-md, 8px);
+    box-shadow: var(--shadow-lg, 0 10px 25px rgba(0, 0, 0, 0.15));
+    font-size: var(--font-size-body-md, 14px);
+    color: var(--color-on-surface, #111827);
+}
+
+.declared-list-page__cell-menu-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: var(--spacing-2, 8px) var(--spacing-4, 16px);
+    background: none;
+    border: none;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.declared-list-page__cell-menu-item:hover,
+.declared-list-page__cell-menu-item:focus-visible {
+    outline: none;
+    background-color: var(--color-surface-container-high, rgba(0, 0, 0, 0.06));
+}
+
+.declared-list-page__cell-menu-separator {
+    height: 1px;
+    margin: var(--spacing-1, 4px) 0;
+    background-color: var(--color-border-ghost, rgba(0, 0, 0, 0.12));
+}

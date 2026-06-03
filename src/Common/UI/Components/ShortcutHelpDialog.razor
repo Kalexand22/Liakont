@@ -1,0 +1,172 @@
+@namespace Stratum.Common.UI.Components
+@inject IShortcutService ShortcutService
+@inject ICommandRegistry CommandRegistry
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@*
+ * ShortcutHelpDialog — modal listing all keyboard shortcuts available in the current context.
+ *
+ * Opened by the global "?" shortcut registered in GlobalShortcutHandler.
+ * Groups shortcuts by scope type (Global, Page, Widget, Modal).
+ *
+ * Usage (add once in your layout via GlobalShortcutHandler — do not instantiate manually):
+ *   <ShortcutHelpDialog IsOpen="@_showHelp" OnClose="@(() => _showHelp = false)" />
+ *
+ * Ref: docs/ui-foundations.md §4, orchestration/manifest.yaml item P02.
+ *@
+
+@if (IsOpen)
+{
+    <div class="shortcut-dialog-backdrop" @onclick="HandleBackdropClick" aria-hidden="true"></div>
+    <div class="shortcut-dialog"
+         id="@_dialogId"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="@($"{_dialogId}-title")"
+         @onkeydown="HandleKeyDown"
+         tabindex="-1"
+         @ref="_dialogRef">
+        <div class="shortcut-dialog__header">
+            <h2 id="@($"{_dialogId}-title")" class="shortcut-dialog__title">Raccourcis clavier</h2>
+            <button type="button"
+                    class="shortcut-dialog__close"
+                    @onclick="Close"
+                    aria-label="Fermer l'aide">
+                ✕
+            </button>
+        </div>
+        <div class="shortcut-dialog__body">
+            @{
+                var groups = ShortcutService.GetVisibleCommands(CommandRegistry);
+            }
+            @if (groups.Count == 0)
+            {
+                <p class="shortcut-dialog__empty">Aucun raccourci actif dans ce contexte.</p>
+            }
+            else
+            {
+                @foreach (var group in groups)
+                {
+                    <section class="shortcut-dialog__group">
+                        <h3 class="shortcut-dialog__group-title">@group.ScopeLabel</h3>
+                        <table class="shortcut-dialog__table" role="presentation">
+                            <tbody>
+                                @foreach (var (def, hint) in group.Commands)
+                                {
+                                    var enabled = def.IsEnabled?.Invoke() ?? true;
+                                    <tr class="@(!enabled ? "shortcut-dialog__row--disabled" : null)">
+                                        <td class="shortcut-dialog__label">@def.Label</td>
+                                        <td class="shortcut-dialog__key">
+                                            <kbd>@hint</kbd>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </section>
+                }
+            }
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>Whether the dialog is visible.</summary>
+    [Parameter]
+    public bool IsOpen { get; set; }
+
+    /// <summary>Invoked when the user closes the dialog (Esc key or close button).</summary>
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    private ElementReference _dialogRef;
+    private bool _wasOpen;
+    private bool _focusTrapRegistered;
+    private volatile bool _disposed;
+    private readonly string _dialogId = $"shortcut-help-{Guid.NewGuid():N}"[..22];
+
+    protected override void OnInitialized()
+    {
+        CommandRegistry.Changed += StateHasChanged;
+        ShortcutService.ScopeChanged += StateHasChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_disposed) return;
+
+        if (IsOpen && !_wasOpen)
+        {
+            _wasOpen = true;
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.saveFocus");
+                await JS.InvokeVoidAsync("stratumUI.registerDialogFocusTrap", _dialogId);
+                _focusTrapRegistered = true;
+                await _dialogRef.FocusAsync();
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Non-critical: dialog is rendered even if focus management fails.
+            }
+        }
+        else if (!IsOpen && _wasOpen)
+        {
+            _wasOpen = false;
+            await CleanupFocusTrapAsync();
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.restoreFocus");
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Non-critical.
+            }
+        }
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") Close();
+    }
+
+    private void HandleBackdropClick() => Close();
+
+    private void Close() => _ = OnClose.InvokeAsync();
+
+    private async Task CleanupFocusTrapAsync()
+    {
+        if (_focusTrapRegistered)
+        {
+            _focusTrapRegistered = false;
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.unregisterDialogFocusTrap", _dialogId);
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Non-critical.
+            }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        CommandRegistry.Changed -= StateHasChanged;
+        ShortcutService.ScopeChanged -= StateHasChanged;
+        await CleanupFocusTrapAsync();
+        if (_wasOpen)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("stratumUI.restoreFocus");
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+            {
+                // Non-critical.
+            }
+        }
+    }
+}

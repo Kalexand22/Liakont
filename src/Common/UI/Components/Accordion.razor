@@ -1,0 +1,83 @@
+@namespace Stratum.Common.UI.Components
+
+<div class="accordion @CssClass"
+     data-testid="@(TestId ?? "accordion")"
+     role="presentation">
+    <CascadingValue Value="this" IsFixed="false">
+        @ChildContent
+    </CascadingValue>
+</div>
+
+@code {
+    private readonly List<AccordionItem> _items = new();
+    private readonly HashSet<string> _expandedIds = new();
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root element.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    /// <summary>Allow multiple items to be expanded simultaneously.</summary>
+    [Parameter] public bool MultiExpand { get; set; }
+
+    /// <summary>Enable smooth height animation on expand/collapse.</summary>
+    [Parameter] public bool Animate { get; set; } = true;
+
+    /// <summary>Additional CSS class for the root element.</summary>
+    [Parameter] public string? CssClass { get; set; }
+
+    /// <summary>AccordionItem children.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Callback when the set of expanded items changes.</summary>
+    [Parameter] public EventCallback<IReadOnlySet<string>> ExpandedItemsChanged { get; set; }
+
+    internal void Register(AccordionItem item)
+    {
+        if (!_items.Contains(item))
+            _items.Add(item);
+    }
+
+    internal void Unregister(AccordionItem item) => _items.Remove(item);
+
+    internal bool IsExpanded(string itemId) => _expandedIds.Contains(itemId);
+
+    internal async Task ToggleAsync(string itemId)
+    {
+        if (_expandedIds.Contains(itemId))
+        {
+            _expandedIds.Remove(itemId);
+        }
+        else
+        {
+            if (!MultiExpand)
+                _expandedIds.Clear();
+            _expandedIds.Add(itemId);
+        }
+
+        await ExpandedItemsChanged.InvokeAsync(_expandedIds);
+
+        // Notify all items to re-render (CascadingValue="this" doesn't change reference).
+        foreach (var item in _items)
+            await item.NotifyStateChangedAsync();
+    }
+
+    internal async Task FocusItemAsync(AccordionItem current, FocusDirection direction)
+    {
+        var enabledItems = _items.Where(i => !i.Disabled).ToList();
+        if (enabledItems.Count == 0) return;
+
+        var index = enabledItems.IndexOf(current);
+        AccordionItem? target = direction switch
+        {
+            FocusDirection.Next => enabledItems[(index + 1) % enabledItems.Count],
+            FocusDirection.Previous => enabledItems[(index - 1 + enabledItems.Count) % enabledItems.Count],
+            FocusDirection.First => enabledItems[0],
+            FocusDirection.Last => enabledItems[^1],
+            _ => null,
+        };
+
+        if (target is not null)
+            await target.FocusTriggerAsync();
+    }
+
+    internal enum FocusDirection { Next, Previous, First, Last }
+}

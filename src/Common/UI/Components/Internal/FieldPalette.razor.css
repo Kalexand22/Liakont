@@ -1,0 +1,66 @@
+/* FieldPalette — scoped styles for FormBuilderCanvas palette sidebar */
+
+.field-palette {
+    padding: var(--spacing-2) var(--spacing-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-4);
+}
+
+.field-palette__group-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--primary);
+    opacity: 0.6;
+    padding: 0 var(--spacing-1);
+    margin: 0 0 var(--spacing-1) 0;
+    letter-spacing: 0.04em;
+}
+
+.field-palette__items {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.field-palette__item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    padding: var(--spacing-2);
+    background: var(--surface);
+    border: 1px solid transparent;
+    border-radius: var(--radius-default, 2px);
+    cursor: pointer;
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-body);
+    color: var(--on-surface);
+    transition: border-color var(--transition-fast, 150ms), background var(--transition-fast, 150ms);
+    text-align: left;
+    width: 100%;
+}
+
+.field-palette__item:hover {
+    border-color: var(--primary);
+    background: var(--surface-container);
+}
+
+.field-palette__icon {
+    width: 20px;
+    text-align: center;
+    font-size: 14px;
+    color: var(--on-surface-variant);
+    flex-shrink: 0;
+}
+
+/* Density: compact */
+[data-density="compact"] .field-palette {
+    padding: var(--spacing-1) var(--spacing-2);
+    gap: var(--spacing-2);
+}
+
+[data-density="compact"] .field-palette__item {
+    padding: var(--spacing-1) var(--spacing-2);
+    font-size: var(--font-size-label);
+}

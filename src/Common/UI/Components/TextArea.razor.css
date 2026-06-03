@@ -1,0 +1,58 @@
+/* TextArea — scoped styles using Stratum design tokens */
+
+.textarea-field {
+    width: 100%;
+    padding: var(--spacing-2) var(--spacing-3);
+    font-family: var(--font-family-base, inherit);
+    font-size: var(--font-size-base, 1rem);
+    line-height: var(--line-height-normal, 1.5);
+    color: var(--color-text-primary);
+    background-color: var(--color-bg-surface, #fff);
+    border: 1px solid var(--color-border, var(--color-neutral-300));
+    border-radius: var(--radius-md, 0.375rem);
+    transition: border-color var(--transition-fast, 100ms ease),
+                box-shadow var(--transition-fast, 100ms ease);
+    resize: vertical;
+}
+
+.textarea-field:focus {
+    outline: none;
+    border-color: var(--color-primary-500);
+    box-shadow: 0 0 0 3px var(--color-primary-100);
+}
+
+.textarea-field:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background-color: var(--color-neutral-50);
+}
+
+.textarea-field[readonly] {
+    background-color: var(--color-neutral-50);
+}
+
+.textarea-field--error {
+    border-color: var(--color-error-500);
+}
+
+.textarea-field--error:focus {
+    box-shadow: 0 0 0 3px var(--color-error-100);
+}
+
+/* Auto-resize: prevent manual resize when JS handles height */
+.textarea-field[data-auto-resize="true"] {
+    resize: none;
+    overflow: hidden;
+}
+
+.textarea-field__char-count {
+    margin-top: var(--spacing-1);
+    font-size: var(--font-size-sm, 0.875rem);
+    color: var(--color-text-secondary, var(--color-neutral-500));
+    text-align: right;
+}
+
+.textarea-field__char-count--over {
+    color: var(--color-error-600);
+    font-weight: var(--font-weight-medium, 500);
+}

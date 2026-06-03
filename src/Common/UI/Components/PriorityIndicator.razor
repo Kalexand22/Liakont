@@ -1,0 +1,30 @@
+@namespace Stratum.Common.UI.Components
+
+@* PriorityIndicator — colour-coded numeric priority display.
+ * High = red bold, Medium = orange semi-bold, Low = green normal.
+ * Thresholds are configurable per usage context. *@
+
+<span class="priority-indicator priority-indicator--@_level"
+      data-testid="@(TestId ?? "priority-indicator")">@Value</span>
+
+@code {
+    /// <summary>Numeric priority value to display.</summary>
+    [Parameter, EditorRequired]
+    public int Value { get; set; }
+
+    /// <summary>Values >= this threshold are rendered as high priority (red). Default: 80.</summary>
+    [Parameter]
+    public int HighThreshold { get; set; } = 80;
+
+    /// <summary>Values >= this threshold (and below High) are rendered as medium priority (orange). Default: 50.</summary>
+    [Parameter]
+    public int MediumThreshold { get; set; } = 50;
+
+    /// <summary>Optional test identifier.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    private string _level => Value >= HighThreshold ? "high"
+                           : Value >= MediumThreshold ? "medium"
+                           : "low";
+}

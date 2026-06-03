@@ -1,0 +1,30 @@
+/* StratumSplitButton — scoped styles using Stratum design tokens.
+ * Most styling flows through Radzen's CSS variables (radzen-overrides.css)
+ * and the Variant/Size parameters on RadzenSplitButton.
+ * This file only contains Stratum-specific overrides. */
+
+.stratum-split-button {
+    display: inline-flex;
+}
+
+/* Font consistency */
+::deep .rz-splitbutton {
+    font-family: var(--font-family-base);
+}
+
+::deep .rz-splitbutton .rz-button {
+    font-family: var(--font-family-base);
+}
+
+/* Focus ring */
+::deep .rz-splitbutton .rz-button:focus-visible {
+    box-shadow: 0 0 0 2px var(--color-bg-surface), 0 0 0 4px var(--color-primary-500);
+    outline: none;
+}
+
+/* Disabled state */
+::deep .rz-splitbutton.rz-state-disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}

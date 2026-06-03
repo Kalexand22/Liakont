@@ -1,0 +1,231 @@
+@namespace Stratum.Common.UI.Components
+@implements IDisposable
+
+@*
+ * SlaCountdown — UIC02 (Civic Blueprint).
+ *
+ * Chip dynamique affichant le temps restant avant une deadline SLA.
+ * Trois modes container/on-container (pas de fill saturé) :
+ *   - healthy   : neutre (--color-surface-container)
+ *   - warning   : amber Civic (--fsm-under-review-bg/-fg) — déclenché quand
+ *                 il reste moins que WarningThreshold avant la deadline.
+ *   - breached  : rouge Civic (--fsm-cancelled-bg/-fg) — déclenché lorsque
+ *                 Now >= Deadline (ou via override Breached=true).
+ *
+ * Auto-refresh : un Timer interne re-rendre toutes les 60 s. Quand le
+ * paramètre `Now` est fourni (mode test), le timer reste désactivé pour
+ * laisser le test piloter l'horloge explicitement via re-render Blazor.
+ *
+ * API publique (zéro type Radzen) :
+ *   <SlaCountdown Deadline="@deadline"
+ *                 WarningThreshold="@TimeSpan.FromHours(1)"
+ *                 OnEscalate="@HandleEscalate" />
+ *@
+
+<span class="sla-countdown sla-countdown--@_modeClass"
+      data-testid="@(TestId ?? "sla-countdown")"
+      data-mode="@_modeClass"
+      role="@(_isBreached ? "alert" : "group")"
+      aria-live="@(_isBreached ? "assertive" : "off")"
+      aria-label="@_ariaLabel">
+    <i class="bi bi-clock sla-countdown__icon" aria-hidden="true"></i>
+    <span class="sla-countdown__time">@_displayText</span>
+    @if (_isBreached && OnEscalate.HasDelegate)
+    {
+        <button type="button"
+                class="sla-countdown__escalate"
+                data-testid="@($"{TestId ?? "sla-countdown"}-escalate")"
+                @onclick="HandleEscalateAsync">
+            Escalader
+        </button>
+    }
+</span>
+
+@code {
+    private System.Threading.Timer? _timer;
+    private bool _disposed;
+
+    /// <summary>Optional test identifier. Rendered as <c>data-testid</c> on the root.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Deadline (UTC) before which the SLA must be met.</summary>
+    [Parameter, EditorRequired]
+    public DateTimeOffset Deadline { get; set; }
+
+    /// <summary>
+    /// Optional warning window. When the remaining time falls below this
+    /// threshold (and the deadline has not yet passed), the chip switches
+    /// from healthy to warning. Defaults to 1 hour.
+    /// </summary>
+    [Parameter]
+    public TimeSpan? WarningThreshold { get; set; }
+
+    /// <summary>
+    /// Explicit "now" for tests / deterministic rendering. When set, the
+    /// auto-refresh Timer is disabled and the component renders relative
+    /// to this value instead of <c>DateTimeOffset.UtcNow</c>.
+    /// </summary>
+    [Parameter]
+    public DateTimeOffset? Now { get; set; }
+
+    /// <summary>
+    /// Explicit breached override. When set, takes precedence over the
+    /// computed <c>Now &gt;= Deadline</c> check (e.g. server already marked
+    /// the SLA breached even though the deadline window hasn't elapsed
+    /// client-side, or vice versa).
+    /// </summary>
+    [Parameter]
+    public bool? Breached { get; set; }
+
+    /// <summary>
+    /// Optional callback fired when the user clicks the escalate button.
+    /// The button only renders when the chip is breached AND a delegate
+    /// is wired up.
+    /// </summary>
+    [Parameter]
+    public EventCallback OnEscalate { get; set; }
+
+    private string _modeClass = "healthy";
+    private string _displayText = string.Empty;
+    private string _ariaLabel = string.Empty;
+    private bool _isBreached;
+
+    protected override void OnParametersSet()
+    {
+        Recompute();
+        SyncTimerLifecycle();
+    }
+
+    /// <summary>
+    /// Idempotent timer reconciliation. Called from OnParametersSet so that
+    /// flipping <c>Now</c> from null → value (or back) at runtime turns the
+    /// auto-refresh on/off correctly. The previous one-shot wiring in
+    /// <c>OnInitialized</c> trapped consumers building a "live / paused"
+    /// toggle: the chip would never re-attach (or re-detach) the timer.
+    /// </summary>
+    private void SyncTimerLifecycle()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (Now is null && _timer is null)
+        {
+            _timer = new System.Threading.Timer(
+                OnTimerTick,
+                state: null,
+                dueTime: TimeSpan.FromSeconds(60),
+                period: TimeSpan.FromSeconds(60));
+        }
+        else if (Now is not null && _timer is not null)
+        {
+            _timer.Dispose();
+            _timer = null;
+        }
+    }
+
+    private void OnTimerTick(object? state)
+    {
+        // Bridge timer-thread → render-thread. We observe the Task and
+        // swallow the dispatch exceptions that can race with circuit
+        // teardown so they don't surface as UnobservedTaskException. The
+        // _disposed guard inside the dispatched delegate covers the case
+        // where Dispose() runs between InvokeAsync queueing and execution.
+        _ = ObserveTickAsync();
+    }
+
+    private async Task ObserveTickAsync()
+    {
+        try
+        {
+            await InvokeAsync(() =>
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+                Recompute();
+                StateHasChanged();
+            });
+        }
+        catch (ObjectDisposedException)
+        {
+            // Circuit disposed mid-tick — nothing to do.
+        }
+        catch (TaskCanceledException)
+        {
+            // Renderer cancelled mid-dispatch — nothing to do.
+        }
+    }
+
+    private void Recompute()
+    {
+        var now = Now ?? DateTimeOffset.UtcNow;
+        var remaining = Deadline - now;
+        var threshold = WarningThreshold ?? TimeSpan.FromHours(1);
+
+        _isBreached = Breached ?? remaining <= TimeSpan.Zero;
+
+        if (_isBreached)
+        {
+            _modeClass = "breached";
+            // When breached, remaining is negative (or forced). Show how
+            // much time we are past the deadline so agents can prioritise.
+            // The aria-label kept here is short on purpose: when the chip
+            // flips to breached we expose role="alert" + aria-live="assertive"
+            // so the screen reader announces the *transition* once, not the
+            // continuously-changing duration.
+            _ariaLabel = "SLA dépassé";
+            var overdue = remaining < TimeSpan.Zero ? -remaining : TimeSpan.Zero;
+            _displayText = "−" + FormatDuration(overdue);
+        }
+        else if (remaining < threshold)
+        {
+            _modeClass = "warning";
+            _displayText = FormatDuration(remaining);
+            _ariaLabel = "SLA proche de la limite";
+        }
+        else
+        {
+            _modeClass = "healthy";
+            _displayText = FormatDuration(remaining);
+            _ariaLabel = "SLA respecté";
+        }
+    }
+
+    private static string FormatDuration(TimeSpan span)
+    {
+        // Compact tabular form: "DJ HH" / "HHh MMm" / "MMm".
+        if (span.TotalDays >= 1)
+        {
+            var days = (int)span.TotalDays;
+            var hours = span.Hours;
+            return $"{days}j {hours:00}h";
+        }
+        if (span.TotalHours >= 1)
+        {
+            var hours = (int)span.TotalHours;
+            var minutes = span.Minutes;
+            return $"{hours:00}h {minutes:00}m";
+        }
+        var totalMinutes = (int)Math.Ceiling(span.TotalMinutes);
+        return $"{totalMinutes:00}m";
+    }
+
+    private async Task HandleEscalateAsync()
+    {
+        if (OnEscalate.HasDelegate)
+        {
+            await OnEscalate.InvokeAsync();
+        }
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _timer?.Dispose();
+        _timer = null;
+    }
+}

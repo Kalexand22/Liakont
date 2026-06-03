@@ -1,0 +1,177 @@
+@namespace Stratum.Common.UI.Components
+
+@* TagInput — token/chip input with add/remove, autocomplete, max tags limit.
+ *
+ * Usage:
+ *   <TagInput Values="@_tags"
+ *             ValuesChanged="v => _tags = v"
+ *             Placeholder="Ajouter un tag..."
+ *             MaxTags="5" />
+ *@
+
+<div class="tag-input @(Disabled ? "tag-input--disabled" : string.Empty) @(ReadOnly ? "tag-input--readonly" : string.Empty) @(_hasError ? "tag-input--error" : string.Empty) @CssClass"
+     role="group"
+     aria-label="@(AriaLabel ?? "Tags")"
+     data-testid="@(TestId ?? "tag-input")">
+
+    @* Chip list *@
+    @if (Values.Count > 0)
+    {
+        <ul class="tag-input__chips" role="list">
+            @for (int i = 0; i < Values.Count; i++)
+            {
+                var idx = i;
+                var tag = Values[idx];
+                <li class="tag-input__chip" role="listitem">
+                    <span class="tag-input__chip-label">@tag</span>
+                    @if (!ReadOnly && !Disabled)
+                    {
+                        <button type="button"
+                                class="tag-input__chip-remove"
+                                aria-label="Supprimer @tag"
+                                tabindex="-1"
+                                @onclick="@(() => RemoveTagAsync(idx))">×</button>
+                    }
+                </li>
+            }
+        </ul>
+    }
+
+    @* Input field *@
+    @if (!ReadOnly)
+    {
+        var inputHidden = MaxTags.HasValue && Values.Count >= MaxTags.Value;
+        <input type="text"
+               class="tag-input__input"
+               role="textbox"
+               aria-label="Ajouter un tag"
+               aria-disabled="@(inputHidden || Disabled ? "true" : null)"
+               disabled="@(inputHidden || Disabled)"
+               placeholder="@(inputHidden ? string.Empty : Placeholder)"
+               value="@_inputText"
+               @oninput="OnInput"
+               @onkeydown="OnKeyDown"
+               @onblur="OnBlur" />
+    }
+
+    @* ARIA live region *@
+    <span class="tag-input__sr-only" aria-live="polite" aria-atomic="true">@_liveMessage</span>
+</div>
+
+@code {
+    [CascadingParameter]
+    private FormFieldContext? _context { get; set; }
+
+    /// <summary>Current tag list (two-way binding).</summary>
+    [Parameter] public IReadOnlyList<string> Values { get; set; } = [];
+
+    /// <summary>Raised when the tag list changes.</summary>
+    [Parameter] public EventCallback<IReadOnlyList<string>> ValuesChanged { get; set; }
+
+    /// <summary>Maximum number of tags allowed. Null = unlimited.</summary>
+    [Parameter] public int? MaxTags { get; set; }
+
+    /// <summary>Characters that confirm a tag. Default: comma, semicolon.</summary>
+    [Parameter] public char[] Delimiters { get; set; } = [',', ';'];
+
+    /// <summary>Allow duplicate tags. Default: false.</summary>
+    [Parameter] public bool AllowDuplicates { get; set; }
+
+    /// <summary>Placeholder text for the input.</summary>
+    [Parameter] public string? Placeholder { get; set; }
+
+    /// <summary>Disabled state.</summary>
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Read-only — tags visible, no add/remove.</summary>
+    [Parameter] public bool ReadOnly { get; set; }
+
+    /// <summary>Accessible label for the tag group.</summary>
+    [Parameter] public string? AriaLabel { get; set; }
+
+    /// <summary>Additional CSS classes on root element.</summary>
+    [Parameter] public string? CssClass { get; set; }
+
+    /// <summary>Optional test identifier for E2E tests.</summary>
+    [Parameter] public string? TestId { get; set; }
+
+    // ── Internal state ──────────────────────────────────────
+
+    private string _inputText = string.Empty;
+    private string _liveMessage = string.Empty;
+    private bool _hasError => _context?.HasError == true;
+
+    // ── Input handling ──────────────────────────────────────
+
+    private async Task OnInput(ChangeEventArgs e)
+    {
+        _inputText = e.Value?.ToString() ?? string.Empty;
+
+        // Check for delimiter at the end
+        if (_inputText.Length > 0 && Delimiters.Contains(_inputText[^1]))
+        {
+            var tag = _inputText[..^1].Trim();
+            _inputText = string.Empty;
+            if (!string.IsNullOrEmpty(tag))
+                await TryAddTagAsync(tag);
+        }
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "Enter":
+                var tag = _inputText.Trim();
+                if (!string.IsNullOrEmpty(tag))
+                {
+                    _inputText = string.Empty;
+                    await TryAddTagAsync(tag);
+                }
+                break;
+
+            case "Backspace" when string.IsNullOrEmpty(_inputText) && Values.Count > 0:
+                await RemoveTagAsync(Values.Count - 1);
+                break;
+        }
+    }
+
+    private async Task OnBlur()
+    {
+        // Commit any remaining text on blur
+        var tag = _inputText.Trim();
+        if (!string.IsNullOrEmpty(tag))
+        {
+            _inputText = string.Empty;
+            await TryAddTagAsync(tag);
+        }
+    }
+
+    // ── Tag management ──────────────────────────────────────
+
+    private async Task TryAddTagAsync(string tag)
+    {
+        if (MaxTags.HasValue && Values.Count >= MaxTags.Value)
+        {
+            _liveMessage = "Nombre maximum de tags atteint.";
+            return;
+        }
+        if (!AllowDuplicates && Values.Contains(tag, StringComparer.OrdinalIgnoreCase))
+        {
+            _liveMessage = $"Le tag \"{tag}\" existe déjà.";
+            return;
+        }
+        var next = Values.Append(tag).ToList().AsReadOnly();
+        _liveMessage = $"Tag \"{tag}\" ajouté.";
+        await ValuesChanged.InvokeAsync(next);
+    }
+
+    private async Task RemoveTagAsync(int index)
+    {
+        if (index < 0 || index >= Values.Count) return;
+        var removed = Values[index];
+        var next = Values.Where((_, i) => i != index).ToList().AsReadOnly();
+        _liveMessage = $"Tag \"{removed}\" supprimé.";
+        await ValuesChanged.InvokeAsync(next);
+    }
+}
