@@ -2,7 +2,7 @@
 
 **Date :** 2026-06-03
 
-**Statut :** Proposé (2026-06-03) — à valider en équipe
+**Statut :** Accepté (2026-06-03)
 
 ---
 
@@ -62,13 +62,16 @@ sémantiquement ; le **contrat** et **~8 hypothèses de champ** sont à découpl
 Aucun changement de cible. La généricité se gagne en **ne coupant pas** du sous-ensemble V1
 les emplacements qu'EN 16931 fournit déjà (cf. D4), pas en s'éloignant de la norme.
 
-### D2 — Introduire `ExtractorCapabilities`, symétrique à `PaCapabilities`
+### D2 — Étendre `ExtractorCapabilities` (symétrique à `PaCapabilities`)
 
 Le blueprint pilote déjà le comportement côté PA par des **capacités déclarées**
-(`PaCapabilities`), jamais par `if (pa is B2Brouter)` (règle métier #8). **La même discipline
-manque côté source.** On introduit un `ExtractorCapabilities` : chaque adaptateur **déclare**
-ce que sa source sait fournir, et la plateforme (Validation F4, Ingestion, Transmission)
-s'adapte aux capacités déclarées — **jamais** par `if (source is NAV)`.
+(`PaCapabilities`), jamais par `if (pa is B2Brouter)` (règle métier #8). Côté source, le
+**mécanisme existe déjà** mais reste embryonnaire : `ExtractorCapabilities` (contrat `IExtractor`,
+item AGT02) ne déclare aujourd'hui que les capacités **pièces jointes PDF**
+(`ProvidesSourceDocuments` / `ProvidesUnlinkedDocumentPool`). On l'**étend** aux dimensions qui
+varient réellement d'une source à l'autre : chaque adaptateur **déclare** ce que sa source sait
+fournir, et la plateforme (Validation F4, Ingestion, Transmission) s'adapte aux capacités
+déclarées — **jamais** par `if (source is NAV)`.
 
 Capacités minimales à déclarer (issues du panel) :
 

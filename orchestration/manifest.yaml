@@ -11,7 +11,8 @@ meta:
   phase: 1
   # version 7 = backlog v6 (pivot plateforme+agent) corrigé après les reviews indépendantes
   # v6/v8 du 2026-06-03 (voir tasks/review-independante-v6-v8-reponses.md)
-  version: 7
+  # version 8 = + OPS08 (installateur GUI agent + profils intégrateur, F13)
+  version: 8
   host: multi_agent_v1
 
 segments:
@@ -216,6 +217,7 @@ items:
   - { id: OPS03, lot: OPS, blueprint: blazor-page-item, priority: 7040, depends_on: [OPS05] }
   - { id: OPS06, lot: OPS, priority: 7050, depends_on: [OPS03] }
   - { id: OPS07, lot: OPS, priority: 7055, depends_on: [OPS05] }
+  - { id: OPS08, lot: OPS, blueprint: tooling-item, priority: 7035, depends_on: [OPS05, AGT05] }
 
   # ── BRD ──
   - { id: BRD01, lot: BRD, priority: 7060, depends_on: [] }
@@ -224,7 +226,7 @@ items:
   - { id: DOC01, lot: DOC, blueprint: docs-spec-item, priority: 7100, depends_on: [OPS01, OPS05] }
   - { id: DOC02, lot: DOC, blueprint: docs-spec-item, priority: 7110, depends_on: [DOC01] }
   - { id: DOC03, lot: DOC, blueprint: docs-spec-item, priority: 7120, depends_on: [] }
-  - { id: GATE_TOOLKIT, type: gate, executor: human, priority: 7400, depends_on: [OPS03, OPS04, OPS06, OPS07, BRD01, DOC01, DOC02, DOC03] }
+  - { id: GATE_TOOLKIT, type: gate, executor: human, priority: 7400, depends_on: [OPS03, OPS04, OPS06, OPS07, OPS08, BRD01, DOC01, DOC02, DOC03] }
 
   # ── CMP ──
   - { id: CMP01, lot: CMP, blueprint: docs-spec-item, priority: 8000, depends_on: [] }

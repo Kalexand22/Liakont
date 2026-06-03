@@ -7,6 +7,12 @@
 >
 > Ce document absorbe le « F12 — Configuration / déploiement » prévu dans l'index (jamais rédigé) :
 > la configuration et le déploiement sont des facettes de l'architecture plateforme/agent.
+>
+> **Amendement 2026-06-03** : l'installateur **GUI à écrans guidés** et son **paramétrage par
+> profil intégrateur** sont spécifiés à part dans **F13**. L'agent est destiné à un **dépôt Git
+> séparé** (`liakont-agent`), son contrat partagé via **NuGet versionné** — voir **ADR-0005** ; la
+> bascule outillage/orchestration est différée aux lots AGT/SOL02 (jusque-là l'agent reste dans
+> `agent/` et `verify-fast` build les deux solutions).
 
 ---
 
@@ -34,6 +40,7 @@ Les specs métier (F01-F09) restent la référence pour le contenu des données 
 | `Liakont.Agent.Core` | IExtractor (contrat), file locale SQLite, client HTTP, config DPAPI |
 | `Liakont.Agent.Adapters.EncheresV6` | Plug-in source #1 (ODBC Pervasive, x86) |
 | `Liakont.Agent.Cli` | Diagnostic : `check-config`, `test-odbc`, `test-api`, `run` manuel, `show-queue` |
+| `Liakont.Agent.Installer` | Installateur GUI à écrans + moteur de profil intégrateur (F13) — réutilise `Core` + commandes CLI |
 | `Liakont.Agent.Contracts` | (référencé, pas contenu — vit dans `src/Contracts/`, netstandard2.0) DTOs du contrat |
 
 ### 2.2 Cycle d'un run d'extraction (local, planifié)

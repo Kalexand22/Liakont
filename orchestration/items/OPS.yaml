@@ -180,6 +180,10 @@ items:
          (OPS03 étape 4) — agent.json pré-rempli avec platformUrl + clé API chiffrée à
          l'installation (la clé transite dans le package de façon sécurisée : chiffrement
          par mot de passe à usage unique communiqué séparément, documenté par ADR).
+         NOTE : la génération d'un installateur GUI *par profil intégrateur* (un .exe par
+         intégrateur — branding + visibilité d'écrans/options) est portée par OPS08 (conception
+         F13), qui réutilise ce packaging. OPS05 ne porte pas cette dimension — évite une
+         dépendance circulaire OPS05<->OPS08.
       4. docs/installation-agent.md : prérequis (Windows 7 SP1+, .NET Framework 4.8, driver
          ODBC source), installation pas à pas, configuration, vérification (CLI check-config /
          test-odbc / test-api), dépannage des erreurs courantes. Public : intégrateur/éditeur.
@@ -274,5 +278,50 @@ items:
       - "La réponse heartbeat PIV05 est alimentée par le registre (testé de bout en bout)"
       - "Cycle complet update testé : publication → heartbeat → download → vérification signature (avec AGT04)"
       - "Tests d'intégration incluant le déploiement progressif"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  OPS08:
+    title: "Installateur GUI de l'agent + moteur de profil intégrateur"
+    description: |
+      Implémenter l'installateur à écrans guidés de l'agent dans
+      agent/src/Liakont.Agent.Installer/ (WinForms net48) — conception F13, ADR-0005.
+      Réutilise Liakont.Agent.Core + les commandes AGT05 (test-odbc / test-api / encrypt) :
+      AUCUNE logique dupliquée, AUCUNE logique métier (blueprint §6).
+      1. Bootstrapper GUI : pose des binaires + création du service Windows (self-install AGT01),
+         ACL ProgramData (OPS05), écriture de agent.json avec secrets chiffrés DPAPI
+         (SecretProtector AGT01). Un mode silencieux (fichier de réponses) partage le même moteur
+         de configuration que le wizard.
+      2. Écrans guidés (F13 §4) : connexion base source (adaptateur + ODBC + bouton « Tester » =
+         CheckHealth, LECTURE SEULE) ; connexion serveur central (URL plateforme + clé API +
+         « Tester » = heartbeat à blanc). Messages 100 % français orientés intégrateur.
+      3. Moteur de profil intégrateur (F13 §5) : profil DÉCLARATIF (branding + par champ un état
+         affiché|verrouillé|masqué + valeur par défaut). Le moteur ITÈRE sur les champs déclarés
+         (liste NON figée : ajouter une option = ajouter une clé, sans toucher au moteur). DÉFAUT
+         OUVERT (champ non déclaré = affiché + éditable). AUCUN if(integrateur) dans le code —
+         piloté par les données du profil (même principe que PaCapabilities, blueprint §2).
+      4. Validation du schéma de profil (réutilisée par le packaging) : clé inconnue, masquage sans
+         valeur, ou champ requis non résolu = ERREUR. platformUrl/apiKey requis toujours résolus ;
+         apiKey JAMAIS imposée par le profil (secret).
+      5. PACKAGING PAR PROFIL (F13 §7) : à partir du MÊME binaire + N profils intégrateur, produire
+         N installateurs (profil embarqué en ressource + branding), en réutilisant le packaging
+         OPS05. Profil invalide = ÉCHEC du build (jamais de masquage silencieux). « Générique par
+         intégrateur ».
+      6. SÉCURITÉ (F13 §6) : aucun secret en clair dans le binaire versionné (clé API + ODBC saisis
+         au wizard, chiffrés DPAPI) ; le profil = branding + visibilité only (aucun secret, aucune
+         donnée client) ; signature de profil optionnelle. Profil d'EXEMPLE FICTIF dans
+         config/exemples/ (jamais de donnée client).
+      7. Tests : wizard déroulé (Core mocké) ; profil pilotant la visibilité (3 états + défaut
+         ouvert) ; garde-fous (masquage sans valeur rejeté, apiKey non imposable, champ requis
+         résolu) ; absence de secret dans le binaire ; échec du build sur profil invalide ; mode
+         silencieux.
+    acceptance:
+      - "Wizard : connexion source (CheckHealth lecture seule) + serveur central (heartbeat à blanc) avec tests"
+      - "Profil intégrateur pilote la visibilité (affiché/verrouillé/masqué + valeur par défaut), défaut ouvert"
+      - "Garde-fous testés : masquage sans valeur rejeté ; platformUrl/apiKey requis ; apiKey jamais imposée par le profil"
+      - "Un installateur par profil (même binaire, profil embarqué) ; profil invalide = échec du build (testé)"
+      - "Aucun secret en clair dans le binaire (clé API + ODBC saisis au wizard, chiffrés DPAPI) — vérifié"
+      - "Aucun if(integrateur) dans le code (review) ; profil d'exemple FICTIF dans config/exemples/"
+      - "Installation testée sur machine propre (service démarre, check-config passe)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
