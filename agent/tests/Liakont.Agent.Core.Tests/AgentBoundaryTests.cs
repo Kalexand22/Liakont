@@ -8,15 +8,17 @@ using Liakont.Agent.Contracts;
 using Xunit;
 
 /// <summary>
-/// Vérifie la frontière agent/plateforme (blueprint.md §6, CLAUDE.md n°6) : aucun assembly
-/// de l'agent ne référence le code plateforme (Stratum.*, Liakont.Host, modules, plug-ins PA).
-/// IExtractor (Liakont.Agent.Core) est visible sans using : Core est un namespace englobant
-/// de Liakont.Agent.Core.Tests.
+/// Vérifie la frontière agent/plateforme (blueprint.md §6, CLAUDE.md n°6) par liste BLANCHE
+/// (échec fermé) : chaque assembly « bibliothèque » de l'agent ne référence QUE le BCL, les
+/// assemblies Liakont.Agent.* et le sérialiseur de transport déclaré (Newtonsoft.Json). Toute
+/// autre référence (Stratum.*, module ou plug-in PA de la plateforme, sous n'importe quel nom)
+/// est une fuite. IExtractor (Liakont.Agent.Core) est visible sans using : Core est un namespace
+/// englobant de Liakont.Agent.Core.Tests.
 /// </summary>
 public class AgentBoundaryTests
 {
     [Fact]
-    public void No_agent_assembly_references_the_platform()
+    public void Agent_assemblies_reference_only_BCL_agent_and_the_declared_serializer()
     {
         var agentAssemblies = new[]
         {
@@ -25,20 +27,21 @@ public class AgentBoundaryTests
             typeof(EncheresV6Extractor).Assembly,
         };
 
-        bool IsPlatform(string? name) =>
+        var bclPrefixes = new[] { "mscorlib", "netstandard", "System", "Microsoft.CSharp", "WindowsBase" };
+
+        bool IsAllowed(string? name) =>
             name != null &&
-            (name.StartsWith("Stratum.", StringComparison.Ordinal) ||
-             name.StartsWith("Liakont.Host", StringComparison.Ordinal) ||
-             name.StartsWith("Liakont.Modules", StringComparison.Ordinal) ||
-             name.StartsWith("Liakont.PaClients", StringComparison.Ordinal) ||
-             name.StartsWith("Liakont.Common", StringComparison.Ordinal));
+            (bclPrefixes.Any(p => name == p || name.StartsWith(p + ".", StringComparison.Ordinal)) ||
+             name == "Liakont.Agent" ||
+             name.StartsWith("Liakont.Agent.", StringComparison.Ordinal) ||
+             name == "Newtonsoft.Json");
 
         var leaks = agentAssemblies
             .SelectMany(asm => asm.GetReferencedAssemblies().Select(r => new { Agent = asm.GetName().Name, Reference = r.Name }))
-            .Where(x => IsPlatform(x.Reference))
+            .Where(x => !IsAllowed(x.Reference))
             .Select(x => $"{x.Agent} -> {x.Reference}")
             .ToArray();
 
-        leaks.Should().BeEmpty("l'agent ne référence jamais le code plateforme (blueprint.md §6)");
+        leaks.Should().BeEmpty("l'agent ne référence que le BCL, Liakont.Agent.* et son sérialiseur (blueprint.md §6)");
     }
 }

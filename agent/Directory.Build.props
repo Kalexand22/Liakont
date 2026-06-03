@@ -15,9 +15,11 @@
     <AnalysisLevel>latest-recommended</AnalysisLevel>
   </PropertyGroup>
 
-  <!-- Permet de compiler net48 via le SDK .NET sans pack de ciblage installé (CI / poste sans VS). -->
+  <!-- Permet de compiler net48 via le SDK .NET sans pack de ciblage installé (CI / poste sans VS).
+       StyleCop.Analyzers : aligne l'enforcement de style avec la plateforme (ADR-0003). -->
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" PrivateAssets="all" />
+    <PackageReference Include="StyleCop.Analyzers" PrivateAssets="all" />
   </ItemGroup>
 
 </Project>

@@ -7,6 +7,8 @@
   <ItemGroup>
     <!-- Ciblage net48 via le SDK .NET (pas de pack de ciblage requis sur la machine de build/CI). -->
     <PackageVersion Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" />
+    <!-- Enforcement de style aligné avec la plateforme (ADR-0003). -->
+    <PackageVersion Include="StyleCop.Analyzers" Version="1.2.0-beta.556" />
     <!-- Sérialisation du pivot côté agent (Newtonsoft.Json — blueprint.md §5).
          Déclaré ici (catalogue central) ; référencé par les items AGT (client HTTP / transport). -->
     <PackageVersion Include="Newtonsoft.Json" Version="13.0.3" />
