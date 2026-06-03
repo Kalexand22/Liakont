@@ -30,6 +30,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# On pwsh 7.4+ (the GitHub runners) $PSNativeCommandUseErrorActionPreference defaults to $true, so a
+# native command returning a non-zero exit code would THROW under ErrorActionPreference='Stop' —
+# before `$testExit = $LASTEXITCODE` runs, making the explicit exit-code branch (and its diagnostic)
+# dead. We handle dotnet's exit code ourselves, so disable that behaviour. Harmless on Windows
+# PowerShell 5.1 (the variable does not exist there; assigning it is a no-op).
+$PSNativeCommandUseErrorActionPreference = $false
+
 # Force the dotnet CLI summary to English so the test-count regexes below are locale-independent
 # (a French runner prints "Réussi! ... total : N", which the English patterns would miss) — same
 # fix as tools/run-tests.ps1.
