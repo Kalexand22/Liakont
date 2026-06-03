@@ -133,11 +133,33 @@ déclarées (`PaCapabilities`), jamais par un `if (pa is …)` (voir `module-rul
 
 - **Décision D3** (2026-06-03) : les E2E sont une suite **séparée**, exécutée par
   `tools/run-e2e.ps1` (livré par **SOL05**), **jamais** par `run-tests.ps1` ni `verify-fast.ps1`.
-- Catégorie `[Trait("Category","E2E")]`, projet `tests/Liakont.Tests.E2E`.
-- Infra démarrée par Testcontainers (PostgreSQL + Keycloak, realm `liakont-dev` seedé par SOL01) ;
-  navigateurs installés via `playwright install` dans le setup.
+- Catégorie `[Trait("Category","E2E")]`, projet `tests/Liakont.Tests.E2E` (dans `src/Liakont.sln`
+  pour être compilé par `verify-fast`/`run-tests`, mais ses tests `E2E` y sont **exclus** par le
+  filtre — seul `run-e2e.ps1` les exécute).
+- Infra démarrée par Testcontainers (PostgreSQL `postgres:16-alpine` + Keycloak
+  `quay.io/keycloak/keycloak:26.0`, realm `liakont-dev` seedé par SOL01) via la collection-fixture
+  `KeycloakE2EWebFactory` ; navigateurs installés par `run-e2e.ps1` (`playwright install chromium`).
 - `run-e2e.ps1` **échoue avec un message explicite** si Docker ou les navigateurs manquent —
-  **jamais de skip silencieux** (un test E2E écrit mais jamais exécuté est un faux vert).
+  **jamais de skip silencieux** (un test E2E écrit mais jamais exécuté est un faux vert). Il porte la
+  même garde anti-faux-vert que `run-tests` : un PASS qui n'exécute **aucun** test E2E est un échec.
+
+**Comment lancer** (Docker requis) :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/run-e2e.ps1
+# Un scénario ciblé (items blazor-page-item) :
+powershell -ExecutionPolicy Bypass -File tools/run-e2e.ps1 -Filter "Category=E2E&FullyQualifiedName~LoginShell"
+```
+
+Le harness (`tests/Liakont.Tests.E2E`) fournit : `KeycloakE2EWebFactory` (app + PostgreSQL +
+Keycloak), `PlaywrightFixture` (navigateur Chromium partagé), `KeycloakBaseE2ETest`
+(helper `LoginViaKeycloakAsync` + capture d'écran à l'échec), les POM `KeycloakLoginPage` /
+`ErpShellPage`, et un test de preuve (`LoginShellE2ETests` : login OIDC de l'utilisateur de rôle
+`lecture` → shell `.erp-shell`). Chaque item `blazor-page-item` ajoute ses scénarios en héritant de
+`KeycloakBaseE2ETest`. **Contrainte** : le username Keycloak doit être un identifiant court
+(alphanumérique + underscores, 3-50 car. — INV-IDENTITY-007), pas un email ; le harness en tient
+compte (handles `lecture`/`operateur`/… avec email en champ séparé).
+
 - **Prérequis de tous les items `blazor-page-item`** (WEB01-09, SUP02, OPS03) : leur Definition of
   Done exige des tests bUnit **et** E2E Playwright écrits **et exécutés** (`definition-of-done.md`
   §blazor-page-item). Les anciennes checklists smoke manuelles sont supprimées (gain du pivot).
