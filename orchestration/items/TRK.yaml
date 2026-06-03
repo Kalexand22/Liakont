@@ -141,13 +141,25 @@ items:
     title: "Module Archive : coffre WORM + chaîne de hashes + addenda chaînés"
     description: |
       Implémenter src/Modules/Archive/ selon F06 :
-      1. IArchiveStore (abstraction — F12 §7, décision sur le stockage d'archive) avec deux implémentations :
+      1. IArchiveStore — 3ᵉ AXE DE GÉNÉRICITÉ ENFICHABLE (F12 §7 décision D9 du 2026-06-03 ;
+         blueprint §2 règle 6) : le coffre est agnostique du stockage, choisi par l'éditeur au
+         niveau INSTANCE. L'abstraction expose des CAPACITÉS déclarées (ArchiveStoreCapabilities :
+         SupportsObjectLock, SupportsLegalHold) — le module n'écrit JAMAIS `if (store is S3)`.
+         Implémentations V1 :
          - FileSystemArchiveStore (défaut, appliance self-hosted) : volume de l'instance,
-           un répertoire par tenant
-         - S3ArchiveStore (instances hébergées) : object storage S3-compatible avec
-           Object Lock (vrai WORM matériel) — OVH/Scaleway. ADR : choix de la bibliothèque
-           S3 (AWSSDK.S3 = ADR de dépendance).
-         Le choix est une configuration d'INSTANCE ; le comportement est identique.
+           un répertoire par tenant (aucune capacité de verrou natif — l'intégrité repose
+           sur la chaîne de hashes, cf. point 3)
+         - S3ArchiveStore (S3-compatible, UN SEUL code pour Amazon S3, MinIO, OVH, Scaleway,
+           Wasabi…) : Object Lock en mode compliance quand le backend déclare la capacité
+           (vrai WORM matériel, utilisé EN PLUS de la chaîne de hashes). ADR : bibliothèque
+           AWSSDK.S3 (dépendance) ; endpoint/credentials = configuration d'instance.
+         FAST-FOLLOW (hors V1, à la demande d'un éditeur — mêmes capacités, nouveau plug-in,
+         AUCUN changement du module) : AzureBlobArchiveStore (immutable blob + legal hold) et
+         GcsArchiveStore (bucket lock / retention policy).
+         Le choix est une configuration d'INSTANCE ; le comportement métier est identique.
+         RÈGLE WORM : l'intégrité produit (points 3-5) ne dépend JAMAIS du verrou natif du
+         backend ; le verrou matériel, quand la capacité est présente, est une protection
+         supplémentaire (ceinture + bretelles).
       2. Pour chaque document Issued, créer un paquet d'archive
          <tenant>/<année>/<mois>/<numéro-document>/ contenant :
          - payload.json (ce qui a été transmis à la PA, exact)
@@ -173,7 +185,8 @@ items:
          Un addendum n'est JAMAIS hors chaîne.
       6. ArchiveEntry en base (TRK01) référence chaque paquet ET chaque addendum.
     acceptance:
-      - "IArchiveStore avec FileSystemArchiveStore + S3ArchiveStore (Object Lock), choix par config d'instance"
+      - "IArchiveStore = axe enfichable à capacités : FileSystemArchiveStore + S3ArchiveStore (Object Lock quand déclaré), choix par config d'instance ; aucun `if (store is ...)`"
+      - "Extension fast-follow documentée (Azure Blob, GCS = nouveau plug-in sans toucher au module) ; intégrité produit indépendante du WORM natif du backend"
       - "Paquet d'archive complet créé pour chaque document émis"
       - "Facture PA et bordereau source intégrés quand les capacités le permettent, absence documentée sinon"
       - "Rendu HTML lisible autonome (ouvrable dans 10 ans sans le logiciel)"

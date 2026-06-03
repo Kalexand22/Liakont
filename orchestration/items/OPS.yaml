@@ -31,12 +31,14 @@ items:
          lien avec la méta-supervision OPS04 (alerte sauvegarde en échec).
       8. Documentation deploy/docker/README.md : prérequis (Docker, RAM — voir mesure ADR),
          installation pas à pas pour un éditeur self-hosted, mise à jour (pull + up), restauration.
-      9. ADR : stratégie Keycloak (par instance vs mutualisé — question ouverte F12 §7,
-         tranchée ICI après MESURE de l'empreinte réelle de Keycloak 26 en mode prod
-         heap-borné ; la RAM plancher réaliste conditionne le pricing des instances hébergées).
-         NOTE : le Keycloak de dev de SOL01 (realm conformat-dev) est PROVISOIRE — cet ADR
-         peut faire évoluer la topologie sans remettre en cause les fondations (même realm,
-         même mécanique de rôles).
+      9. ADR : TOPOLOGIE de l'IdP retenu (par instance vs mutualisé). NOTE : la DIRECTION
+         (Keycloak vs IdP in-process léger type OpenIddict) est tranchée EN AMONT — l'auth est
+         derrière une abstraction dès SOL01 (décision D10) + spike d'empreinte ; cet ADR ne
+         décide donc que la topologie de déploiement du fournisseur retenu et son empreinte
+         réelle heap-bornée (qui conditionne le pricing des instances hébergées). Le Keycloak
+         de dev de SOL01 (realm conformat-dev) reste l'implémentation par défaut tant que le
+         spike n'a pas justifié une bascule ; le seam rend la bascule possible sans remettre
+         en cause les fondations (même mécanique de rôles, même mapping tenant).
       10. Test : l'appliance démarre sur une machine propre (docker compose up), le Host
           répond, un tenant de test se crée, le login Keycloak fonctionne.
     acceptance:
@@ -45,7 +47,7 @@ items:
       - "Clés Data Protection et données persistées en volumes (survivent au redéploiement)"
       - "Sauvegardes par base (système + chaque tenant) ; restauration bout-en-bout testée : restore → ArchiveVerifier vert"
       - "PRA documenté : RTO/RPO cibles + procédure de reprise testée"
-      - "ADR Keycloak rédigé (empreinte mesurée, décision tranchée)"
+      - "ADR topologie IdP rédigé (empreinte mesurée ; direction Keycloak/alternative déjà tranchée par le seam+spike SOL01)"
       - "README d'installation exécutable par un éditeur (cible : profil « serveur chez un hébergeur »)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"

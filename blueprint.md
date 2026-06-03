@@ -32,7 +32,7 @@ Agréées (PA)** qui portent le routage, l'interopérabilité et la déclaration
 - Pas un SaaS mondial unique : **la marque grise = une instance de plateforme PAR éditeur** ;
   IT Innovations ne voit jamais le parc client d'un éditeur
 
-## 2. Le principe fondateur : la généricité sur DEUX axes
+## 2. Le principe fondateur : la généricité sur DEUX axes de plug-ins (+ stockage d'archive enfichable)
 
 ```
                               LE PRODUIT CONFORMAT (générique)
@@ -68,6 +68,15 @@ Agréées (PA)** qui portent le routage, l'interopérabilité et la déclaration
 5. **L'agent n'a AUCUNE logique métier.** Pas de TVA, pas de validation, pas de machine à
    états : extraction + transport, c'est tout. Toute l'intelligence est sur la plateforme
    (où elle se met à jour sans toucher au parc d'agents).
+6. **Le coffre d'archive est agnostique du stockage** (3ᵉ axe enfichable, choisi par
+   l'éditeur au niveau instance) : le module `Archive` ne dépend que de l'abstraction
+   `IArchiveStore` à capacités déclarées (`ArchiveStoreCapabilities` : Object Lock, legal
+   hold…), jamais d'un backend concret (`if (store is S3)` interdit). L'**intégrité reste au
+   niveau produit** (chaîne de hashes + addenda chaînés + ancrage temporel) et ne dépend
+   JAMAIS du WORM natif du backend ; quand le backend l'offre (S3 Object Lock, Azure immutable
+   blob, GCS bucket lock), il est utilisé EN PLUS (ceinture + bretelles). V1 = FileSystem
+   (appliance) + S3-compatible (Amazon, MinIO, OVH, Scaleway — un seul code) ; Azure Blob et
+   GCS sont des plug-ins fast-follow à la demande.
 
 ## 3. Architecture d'exécution : plateforme multi-tenant + agent léger
 
@@ -205,7 +214,8 @@ plus tard). Les modules et le Host Conformat suivent les conventions du socle
 | Hôte | ASP.NET Core (Kestrel), Docker | Service Windows |
 | UI | **Blazor Server + Radzen** (socle Stratum) | Aucune (CLI de diagnostic uniquement) |
 | Persistence | **PostgreSQL** (database-per-tenant) via **Dapper** + DbUp | **SQLite** (buffer local uniquement, WAL) |
-| Auth humains | **Keycloak OIDC** + RBAC permissions (module Identity) | — |
+| Coffre d'archive | **`IArchiveStore` à capacités** : FileSystem + S3-compatible (V1) ; Azure Blob / GCS fast-follow | — |
+| Auth humains | **OIDC via abstraction d'IdP** (Keycloak en dev/V1) + RBAC permissions (module Identity) ; alternative légère in-process (OpenIddict) évaluée par spike d'empreinte dès SOL01 | — |
 | Auth machine | Clés API agents (préfixe + hash, scopées tenant) | Clé API stockée chiffrée **DPAPI** |
 | Messaging interne | MediatR + outbox (socle Stratum) | — |
 | Sérialisation | System.Text.Json (conventions socle) | Newtonsoft.Json |
@@ -231,10 +241,10 @@ plus tard). Les modules et le Host Conformat suivent les conventions du socle
 | `Transmission` | Contrat IPaClient + capacités, envoi, suivi | Référencer un plug-in PA concret |
 | Plug-ins PA (`Conformat.PaClients.*`) | Implémenter IPaClient pour UNE plateforme | Fuiter leurs types hors de leur assembly, référencer un autre plug-in ou module métier |
 | `Payments` | Agrégats de paiement, e-reporting Flux 10.2/10.4 | — |
-| `Archive` | Coffre WORM, hashes chaînés, ancrage, export/réversibilité | Tout chemin d'update/delete (WORM) |
+| `Archive` | Coffre WORM, hashes chaînés, ancrage, export/réversibilité ; **`IArchiveStore` à capacités** (FS, S3-compatible ; Azure/GCS fast-follow) | Tout chemin d'update/delete (WORM) ; référencer un backend de stockage concret hors de son implémentation (`if (store is S3)`) |
 | `Reconciliation` | Rapprochement PDF ↔ documents | Lien automatique en confiance moyenne/basse |
 | `Supervision` | Heartbeats, alertes, dashboards | — |
-| Modules Stratum vendored | Identity, Job, Notification, Audit | Modification non consignée dans la provenance |
+| Modules Stratum vendored | Identity (auth OIDC **derrière une abstraction d'IdP** — Keycloak ou alternative légère), Job, Notification, Audit | Modification non consignée dans la provenance ; coupler le code à un IdP concret hors de la couche d'auth |
 | `Conformat.Host` | Composition root, branding d'instance, enregistrement modules + plug-ins | Logique métier |
 | Pages Blazor (Web de chaque module) | UI cliente des handlers MediatR | Logique métier dans les pages, accès direct à la base |
 
@@ -308,8 +318,8 @@ La CI construit **les deux solutions** (plateforme .NET 10 + agent net48 x86/x64
 |---|---|---|
 | CMP : tenant mutualisé, instance dédiée ou appliance on-premise ? | ISATECH/CMP | Lot CMP, urgence de l'appliance |
 | Hébergeur des instances hébergées (France/UE) | Karl | deploy/, contrats, RGPD |
-| Auth : Keycloak par instance vs mutualisé (un realm par instance) vs alternative | ADR (début du dev) | Empreinte mémoire par instance, OPS01/02 |
-| Stockage du coffre d'archive : système de fichiers (appliance) vs object storage S3 + object lock (instances hébergées) | ADR (lot Archive) | Abstraction IArchiveStore à capacités |
+| Auth : direction tranchée (2026-06-03, D10) — **IdP derrière une abstraction dès SOL01** + spike d'empreinte (Keycloak vs OpenIddict) ; choix final sur mesure, topologie à l'ADR OPS01 | ADR (SOL01 → OPS01) | Empreinte mémoire par instance |
+| Stockage du coffre : V1 tranché (D9) — FS + S3-compatible ; backend par éditeur (Amazon/MinIO/OVH/Scaleway en V1 ; Azure/GCS fast-follow) | Éditeur (par instance) / ADR lot Archive | `IArchiveStore` à capacités |
 | Régime 6 EncheresV6 = marge EU-J ou hors champ ? | Expert-comptable CMP | Paramétrage CMP — pas le produit |
 | TVA sur les débits / OperationCategory / volume B2B du CMP | Expert-comptable CMP | Paramétrage CMP |
 | Transmission Flux 10.2/10.4 chez B2Brouter / Super PDP | Supports PA | Capacités des plug-ins (le produit, lui, est prêt) |

@@ -89,6 +89,12 @@ automatiques en review** :
    - Un module n'accède à un autre module que par ses **Contracts** (NetArchTest l'impose)
    - L'agent ne référence que `Conformat.Agent.Contracts`, jamais le code plateforme
    - **L'agent n'a AUCUNE logique métier** (pas de TVA, pas de validation, pas de machine à états)
+   - Le module `Archive` ne dépend que de l'abstraction `IArchiveStore` à capacités, jamais
+     d'un backend de stockage concret (`if (store is S3)` interdit ; V1 = FileSystem +
+     S3-compatible, Azure/GCS = plug-ins fast-follow). L'intégrité (hashes chaînés + ancrage)
+     reste produit, indépendante du WORM natif du backend
+   - L'authentification est consommée derrière une **abstraction d'IdP** (Keycloak = une
+     implémentation) — aucun appel IdP-spécifique hors de la couche d'auth du module Identity
 7. **Aucune donnée client dans le code.** Table TVA réelle, SIREN, chaîne ODBC, compte PA :
    tout est paramétrage de TENANT (en base) ou seed versionné dans `deployments/<client>/`.
    Le code n'embarque que des EXEMPLES fictifs dans `config/exemples/`.
@@ -150,7 +156,7 @@ Claude owns the entire verification + review loop. The human only gives the obje
 11. **Affaiblissement d'une validation Blocking est un P1.**
 12. **Chemin d'update/delete sur DocumentEvent, MappingChangeLog, le coffre d'archive (WORM) ou purge d'une table d'audit est un P1.**
 13. **Écriture (ou verrou) sur la base source dans un adaptateur est un P1.**
-14. **Violation des frontières est un P1 :** module → Domain/Application/Infrastructure d'un autre module (hors Contracts), Transmission → plug-in PA concret, plug-in → plug-in, agent → code plateforme, logique métier dans l'agent.
+14. **Violation des frontières est un P1 :** module → Domain/Application/Infrastructure d'un autre module (hors Contracts), Transmission → plug-in PA concret, plug-in → plug-in, agent → code plateforme, logique métier dans l'agent, `Archive` → backend de stockage concret hors implémentation (`if (store is S3)`), couplage à un IdP concret hors de la couche d'auth.
 15. **Donnée client dans le code est un P1 :** SIREN réel, table TVA réelle, chaîne ODBC, compte PA hors de deployments/.**
 16. **Dépendance à un PA concret hors de son plug-in est un P1 :** `if (pa is B2Brouter)`, flag produit doublonnant une capacité, fonctionnalité désactivée parce qu'« un PA ne le supporte pas ».
 17. **Requête métier non tenant-scopée est un P1** (fuite de données entre tenants — seul le module Supervision a des vues cross-tenant, en lecture seule).

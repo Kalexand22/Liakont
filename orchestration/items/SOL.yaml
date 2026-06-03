@@ -49,6 +49,17 @@ items:
          - Seed du realm de dev (realm conformat-dev : client, client roles, un utilisateur de
            test par rôle) + mécanique de mapping utilisateur→tenant (réutilise le pattern
            Identity/tenancy du socle ; le mapping concret par client final arrive avec OPS03)
+         - ABSTRACTION D'IdP (décision D10 du 2026-06-03 — NE PAS figer l'auth sur Keycloak) :
+           l'authentification OIDC et le provisioning utilisateur/rôle du module Identity sont
+           consommés DERRIÈRE une couche d'abstraction (Keycloak = UNE implémentation, pas un
+           couplage en dur — aucun appel Keycloak-spécifique hors de cette couche). Le realm
+           conformat-dev reste l'implémentation de dev/V1. But : pouvoir basculer vers un IdP
+           in-process léger (OpenIddict) sans rouvrir le code métier.
+         - SPIKE D'EMPREINTE (déliverable, time-boxé) : mesurer Keycloak 26 heap-borné vs
+           OpenIddict in-process (RAM plancher, démarrage, surface d'ops), consigné dans un ADR.
+           La DÉCISION FINALE de l'IdP est prise sur MESURE ; elle peut être finalisée en début
+           de segment plateforme sans re-figer l'auth (le seam le permet). La topologie du
+           retenu (par instance vs mutualisé) reste tranchée à l'ADR OPS01.
       5. Directory.Packages.props + Directory.Build.props copiés/adaptés de Stratum
          (versions de packages centralisées).
       6. La solution compile (dotnet build src/Conformat.sln) et le Host démarre en mode dev
@@ -70,6 +81,8 @@ items:
       - "Migrations Notification V009/V010 (seeds réservation) neutralisées + consignées dans la provenance"
       - "ADR Stratum copiés sans collision de numéro (0010 dédupliqué)"
       - "Permissions conformat.* + rôles standard + seed realm dev Keycloak en place (matrice documentée)"
+      - "Auth Identity consommée derrière une abstraction d'IdP (Keycloak = une implémentation ; aucun couplage Keycloak hors de la couche d'auth) — décision D10"
+      - "Spike d'empreinte Keycloak vs OpenIddict consigné dans un ADR (décision IdP prise sur mesure, non figée)"
       - "provenance-socle-stratum.md créé : commit source, date, dossiers copiés, modifications locales"
       - "Les tests du socle vendored (Common + modules copiés) passent"
       - "ADR-0001 rédigé dans docs/adr/"

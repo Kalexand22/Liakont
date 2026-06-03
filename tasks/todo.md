@@ -45,6 +45,13 @@ l'architecture on-premise. Voir `tasks/analyse-impact-pivot-plateforme.md` et `t
   - [x] state.yaml (dépôt d'état) : 7 nouveaux items en pending (98 entrées alignées)
   - [x] Vérification : cohérence croisée (98=98, priorités OK) + verify-fast PASS + codex-review
   - [x] Table de correspondance finding→correction : tasks/review-independante-v6-v8-reponses.md
+- [x] **Ajustements de validation Karl (2026-06-03, soir)** : D9 (coffre WORM = 3ᵉ axe
+      enfichable à capacités `IArchiveStore` ; V1 = FileSystem + S3-compatible couvrant
+      Amazon/MinIO/OVH/Scaleway ; Azure Blob + GCS fast-follow) + D10 (auth derrière une
+      abstraction d'IdP dès SOL01 + spike empreinte Keycloak vs OpenIddict — ne pas figer
+      l'auth). Branding self-hosted déjà couvert par BRD01 (confirmé, inchangé). Gravé dans
+      decisions.md (D9/D10), TRK05, SOL01, OPS01, blueprint §2/5/6/12, F12 §7, CLAUDE/AGENTS.
+      **Manifest inchangé** (98 entrées, aucun nouvel item, meta.version reste 7).
 - [ ] **Relancer l'orchestration** : `Lis orchestration/prompt.md et exécute-le.` dans une nouvelle
       fenêtre Claude Code → l'agent prendra SOL01 (vendoring du socle Stratum + Conformat.Host)
 
