@@ -1,0 +1,40 @@
+namespace Liakont.Modules.Documents.Tests.Integration;
+
+using System;
+using Liakont.Modules.Documents.Domain.Entities;
+
+/// <summary>Fabriques de documents de test (partagées par les tests d'intégration).</summary>
+internal static class DocumentTestData
+{
+    public static readonly DateTimeOffset DetectedAt = new(2026, 5, 14, 8, 0, 0, TimeSpan.Zero);
+
+    public static Document NewDetected(
+        Guid? id = null,
+        string documentNumber = "F-2026-001",
+        string sourceReference = "SRC-1",
+        string documentType = "FAC",
+        string? supplierSiren = "123456789",
+        string? customerName = "Client SARL",
+        bool customerIsCompanyHint = true,
+        decimal totalNet = 100.00m,
+        decimal totalTax = 20.00m,
+        decimal totalGross = 120.00m,
+        string payloadHash = "hash-1",
+        DateTimeOffset? detectedAt = null)
+    {
+        return Document.CreateDetected(
+            id ?? Guid.NewGuid(),
+            sourceReference,
+            documentNumber,
+            documentType,
+            new DateOnly(2026, 5, 14),
+            supplierSiren,
+            customerName,
+            customerIsCompanyHint,
+            totalNet,
+            totalTax,
+            totalGross,
+            payloadHash,
+            detectedAt ?? DetectedAt);
+    }
+}
