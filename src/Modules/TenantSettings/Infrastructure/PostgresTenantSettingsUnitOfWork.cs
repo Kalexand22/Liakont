@@ -56,25 +56,27 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
                  @ContactEmailAlerte, @Statut, @CreatedAt, @UpdatedAt)
             """;
 
-        await _txn.Connection.ExecuteAsync(new CommandDefinition(
-            sql,
-            new
-            {
-                profile.Id,
-                profile.CompanyId,
-                profile.Siren,
-                profile.RaisonSociale,
-                profile.Address.Street,
-                profile.Address.PostalCode,
-                profile.Address.City,
-                profile.Address.Country,
-                profile.ContactEmailAlerte,
-                Statut = (int)profile.Statut,
-                profile.CreatedAt,
-                profile.UpdatedAt,
-            },
-            _txn.Transaction,
-            cancellationToken: ct));
+        await ExecuteInsertAsync(
+            new CommandDefinition(
+                sql,
+                new
+                {
+                    profile.Id,
+                    profile.CompanyId,
+                    profile.Siren,
+                    profile.RaisonSociale,
+                    profile.Address.Street,
+                    profile.Address.PostalCode,
+                    profile.Address.City,
+                    profile.Address.Country,
+                    profile.ContactEmailAlerte,
+                    Statut = (int)profile.Statut,
+                    profile.CreatedAt,
+                    profile.UpdatedAt,
+                },
+                _txn.Transaction,
+                cancellationToken: ct),
+            "Un profil de tenant existe déjà pour cette société.");
     }
 
     public async Task UpdateTenantProfileAsync(TenantProfile profile, CancellationToken ct = default)
@@ -137,20 +139,22 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
                 (@Id, @CompanyId, @VatOnDebits, @OperationCategory, @ReportingFrequency, @CreatedAt, @UpdatedAt)
             """;
 
-        await _txn.Connection.ExecuteAsync(new CommandDefinition(
-            sql,
-            new
-            {
-                settings.Id,
-                settings.CompanyId,
-                settings.VatOnDebits,
-                OperationCategory = ToNullableInt(settings.OperationCategory),
-                settings.ReportingFrequency,
-                settings.CreatedAt,
-                settings.UpdatedAt,
-            },
-            _txn.Transaction,
-            cancellationToken: ct));
+        await ExecuteInsertAsync(
+            new CommandDefinition(
+                sql,
+                new
+                {
+                    settings.Id,
+                    settings.CompanyId,
+                    settings.VatOnDebits,
+                    OperationCategory = ToNullableInt(settings.OperationCategory),
+                    settings.ReportingFrequency,
+                    settings.CreatedAt,
+                    settings.UpdatedAt,
+                },
+                _txn.Transaction,
+                cancellationToken: ct),
+            "Un paramétrage fiscal existe déjà pour cette société.");
     }
 
     public async Task UpdateFiscalSettingsAsync(FiscalSettings settings, CancellationToken ct = default)
@@ -230,9 +234,8 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
                  @IsActive, @CreatedAt, @UpdatedAt)
             """;
 
-        try
-        {
-            await _txn.Connection.ExecuteAsync(new CommandDefinition(
+        await ExecuteInsertAsync(
+            new CommandDefinition(
                 sql,
                 new
                 {
@@ -247,13 +250,8 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
                     account.UpdatedAt,
                 },
                 _txn.Transaction,
-                cancellationToken: ct));
-        }
-        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
-        {
-            throw new Stratum.Common.Abstractions.Exceptions.ConflictException(
-                "Un compte PA existe déjà pour ce type de plug-in et cet environnement.", ex);
-        }
+                cancellationToken: ct),
+            "Un compte PA existe déjà pour ce type de plug-in et cet environnement.");
     }
 
     public async Task UpdatePaAccountAsync(PaAccount account, CancellationToken ct = default)
@@ -312,19 +310,21 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
                 (@Id, @CompanyId, @Hours, @CatchUpOnStart, @CreatedAt, @UpdatedAt)
             """;
 
-        await _txn.Connection.ExecuteAsync(new CommandDefinition(
-            sql,
-            new
-            {
-                schedule.Id,
-                schedule.CompanyId,
-                Hours = schedule.Hours.ToArray(),
-                schedule.CatchUpOnStart,
-                schedule.CreatedAt,
-                schedule.UpdatedAt,
-            },
-            _txn.Transaction,
-            cancellationToken: ct));
+        await ExecuteInsertAsync(
+            new CommandDefinition(
+                sql,
+                new
+                {
+                    schedule.Id,
+                    schedule.CompanyId,
+                    Hours = schedule.Hours.ToArray(),
+                    schedule.CatchUpOnStart,
+                    schedule.CreatedAt,
+                    schedule.UpdatedAt,
+                },
+                _txn.Transaction,
+                cancellationToken: ct),
+            "Une planification d'extraction existe déjà pour cette société.");
     }
 
     public async Task UpdateExtractionScheduleAsync(ExtractionSchedule schedule, CancellationToken ct = default)
@@ -383,24 +383,26 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
                  @AlertTenantContact, @CreatedAt, @UpdatedAt)
             """;
 
-        await _txn.Connection.ExecuteAsync(new CommandDefinition(
-            sql,
-            new
-            {
-                thresholds.Id,
-                thresholds.CompanyId,
-                thresholds.AgentSilentHours,
-                thresholds.MissedRunHours,
-                thresholds.PushQueueMaxItems,
-                thresholds.PushQueueMaxAgeHours,
-                thresholds.BlockedDocumentsDays,
-                thresholds.PaRejectionsDays,
-                thresholds.AlertTenantContact,
-                thresholds.CreatedAt,
-                thresholds.UpdatedAt,
-            },
-            _txn.Transaction,
-            cancellationToken: ct));
+        await ExecuteInsertAsync(
+            new CommandDefinition(
+                sql,
+                new
+                {
+                    thresholds.Id,
+                    thresholds.CompanyId,
+                    thresholds.AgentSilentHours,
+                    thresholds.MissedRunHours,
+                    thresholds.PushQueueMaxItems,
+                    thresholds.PushQueueMaxAgeHours,
+                    thresholds.BlockedDocumentsDays,
+                    thresholds.PaRejectionsDays,
+                    thresholds.AlertTenantContact,
+                    thresholds.CreatedAt,
+                    thresholds.UpdatedAt,
+                },
+                _txn.Transaction,
+                cancellationToken: ct),
+            "Des seuils d'alerte existent déjà pour cette société.");
     }
 
     public async Task UpdateAlertThresholdsAsync(AlertThresholds thresholds, CancellationToken ct = default)
@@ -535,6 +537,18 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
         if (rowsAffected != 1)
         {
             throw new Stratum.Common.Abstractions.Exceptions.NotFoundException(entityName, id);
+        }
+    }
+
+    private async Task ExecuteInsertAsync(CommandDefinition command, string conflictMessage)
+    {
+        try
+        {
+            await _txn.Connection.ExecuteAsync(command);
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            throw new Stratum.Common.Abstractions.Exceptions.ConflictException(conflictMessage, ex);
         }
     }
 }
