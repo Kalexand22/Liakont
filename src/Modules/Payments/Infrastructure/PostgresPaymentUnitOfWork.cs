@@ -101,6 +101,13 @@ internal sealed class PostgresPaymentUnitOfWork : IPaymentUnitOfWork
         ArgumentNullException.ThrowIfNull(aggregate);
         ArgumentNullException.ThrowIfNull(genesisEvent);
 
+        if (genesisEvent.AggregateId != aggregate.Id)
+        {
+            throw new ArgumentException(
+                "L'événement de genèse doit référencer l'agrégat créé (AggregateId == aggregate.Id) — sinon la piste d'audit serait mal attribuée (CLAUDE.md n°4).",
+                nameof(genesisEvent));
+        }
+
         var inserted = await _txn.Connection.ExecuteAsync(new CommandDefinition(
             InsertAggregateIfAbsentSql,
             ToAggregateParameters(aggregate),

@@ -116,6 +116,21 @@ public sealed class PaymentPersistenceIntegrationTests
         events.Should().ContainSingle("aucun événement de genèse dupliqué.");
     }
 
+    [Fact]
+    public async Task CreateAggregate_Rejects_GenesisEvent_With_Mismatched_AggregateId()
+    {
+        var harness = new PaymentsHarness(_fixture);
+        var aggregateA = PaymentTestData.NewAggregate();
+        var aggregateB = PaymentTestData.NewAggregate();
+        var genesisMisrouted = PaymentAggregateEvent.Genesis(aggregateA.Id, PaymentTestData.ReceivedAt);
+
+        await using var uow = await harness.UowFactory.BeginAsync();
+        var act = () => uow.CreateAggregateAsync(aggregateB, genesisMisrouted);
+
+        await act.Should().ThrowAsync<ArgumentException>()
+            .WithParameterName("genesisEvent");
+    }
+
     private static async Task<long> CountPaymentsAsync(PaymentsHarness harness, Guid id)
     {
         using var conn = await harness.ConnectionFactory.OpenAsync();
