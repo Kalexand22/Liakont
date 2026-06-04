@@ -1,4 +1,4 @@
--- File d'attente de réconciliation PDF ↔ documents émis (item TRK07, F06 §7 §3). Une entrée par PDF du
+-- File d'attente de réconciliation PDF ↔ documents émis (item TRK07). Une entrée par PDF du
 -- pool découvert et traité : rapproché automatiquement (confiance haute), proposé (confiance moyenne, en
 -- attente de confirmation opérateur), ou orphelin (aucune correspondance / ambiguïté).
 --

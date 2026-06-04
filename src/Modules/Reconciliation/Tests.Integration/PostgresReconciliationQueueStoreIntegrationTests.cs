@@ -10,8 +10,8 @@ using Liakont.Modules.Reconciliation.Tests.Integration.Fixtures;
 using Xunit;
 
 /// <summary>
-/// Tests d'intégration de la file d'attente de réconciliation sur PostgreSQL réel (item TRK07,
-/// F06 §7 §3) : insertion des trois catégories, lectures par état, identifiants des documents
+/// Tests d'intégration de la file d'attente de réconciliation sur PostgreSQL réel (item TRK07) :
+/// insertion des trois catégories, lectures par état, identifiants des documents
 /// rapprochés, et confirmation manuelle (mise à jour). Prouve la persistance réelle (INV-RECONCILIATION-006).
 /// </summary>
 [Collection("ReconciliationIntegration")]

@@ -1,7 +1,7 @@
 namespace Liakont.Modules.Reconciliation.Domain;
 
 /// <summary>
-/// État d'un PDF du pool dans la file d'attente de réconciliation (item TRK07, F06 §7 §3). Persisté en
+/// État d'un PDF du pool dans la file d'attente de réconciliation (item TRK07). Persisté en
 /// TEXTE (lisibilité d'audit, même motif que <c>DocumentState</c>).
 /// </summary>
 public enum ReconciliationStatus

@@ -7,7 +7,7 @@ using Stratum.Common.Abstractions.Jobs;
 using Stratum.Modules.Job.Contracts;
 
 /// <summary>
-/// Handler du job SYSTÈME de réconciliation (item TRK07, F06 §7 §6) : il fait le FAN-OUT de la passe de
+/// Handler du job SYSTÈME de réconciliation (item TRK07) : il fait le FAN-OUT de la passe de
 /// réconciliation sur tous les tenants actifs via <see cref="ITenantJobRunner"/> (SOL06). Un module ne
 /// planifie pas un job par tenant : il planifie UN job système dont le handler appelle le runner
 /// (tenant-jobs.md §4). Les échecs par tenant sont isolés et remontés dans le bilan du runner.

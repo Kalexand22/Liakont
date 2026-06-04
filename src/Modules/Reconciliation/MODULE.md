@@ -1,6 +1,6 @@
 # Module Reconciliation
 
-> Rapprochement des PDF du pool non lié ↔ documents émis (F06 §7 ; item TRK07). Certains logiciels
+> Rapprochement des PDF du pool non lié ↔ documents émis (item TRK07). Certains logiciels
 > source déposent tous leurs PDF au même endroit, sans lien fiable avec le document : ce module
 > propose/établit le lien, ajoute le PDF au paquet d'archive en addendum (WORM) et journalise le fait
 > d'audit. Décision 2026-06-02 : lien automatique en confiance HAUTE uniquement ; confiance moyenne =
@@ -10,7 +10,7 @@
 ## Purpose
 
 Pour chaque PDF du pool de réconciliation d'un tenant, proposer ou établir une correspondance avec un
-document ÉMIS via trois stratégies (F06 §7 §1) : numéro de document dans le **nom de fichier** (confiance
+document ÉMIS via trois stratégies (TRK07) : numéro de document dans le **nom de fichier** (confiance
 haute), numéro dans le **texte du PDF** (confiance haute), **date + montant TTC** candidat unique
 (confiance moyenne). Une correspondance de confiance haute est liée AUTOMATIQUEMENT : le PDF rejoint le
 paquet d'archive du document en **addendum chaîné** (WORM, TRK05) et un `DocumentReconciledAuto`

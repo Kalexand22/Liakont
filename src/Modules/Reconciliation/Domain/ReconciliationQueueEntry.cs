@@ -3,7 +3,7 @@ namespace Liakont.Modules.Reconciliation.Domain;
 using System;
 
 /// <summary>
-/// Entrée de la FILE D'ATTENTE de réconciliation (item TRK07, F06 §7 §3) : un PDF du pool et son sort.
+/// Entrée de la FILE D'ATTENTE de réconciliation (item TRK07) : un PDF du pool et son sort.
 /// Persistée dans la base du tenant (table mutable — un orphelin/une proposition peut être confirmé après
 /// coup, contrairement à la piste d'audit append-only). La preuve définitive du rapprochement reste le
 /// <c>DocumentEvent</c> (Documents) et l'addendum d'archive (WORM) ; cette file est l'état OPÉRATIONNEL,
@@ -160,13 +160,13 @@ public sealed class ReconciliationQueueEntry
     {
         if (string.IsNullOrWhiteSpace(operatorIdentity))
         {
-            throw new ArgumentException("L'identité de l'opérateur est obligatoire pour une confirmation manuelle (F06 §7 §5).", nameof(operatorIdentity));
+            throw new ArgumentException("L'identité de l'opérateur est obligatoire pour une confirmation manuelle (TRK07).", nameof(operatorIdentity));
         }
 
         if (Status is ReconciliationStatus.ReconciledAuto or ReconciliationStatus.ReconciledManual)
         {
             throw new InvalidOperationException(
-                $"Le PDF « {FileName} » est déjà rapproché (état {Status}) : un rapprochement archivé en WORM ne se défait pas (F06 §7).");
+                $"Le PDF « {FileName} » est déjà rapproché (état {Status}) : un rapprochement archivé en WORM ne se défait pas (TRK07).");
         }
 
         Status = ReconciliationStatus.ReconciledManual;

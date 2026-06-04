@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using Liakont.Modules.Reconciliation.Contracts.DTOs;
 
 /// <summary>
-/// Surface publique d'ACTION du module Reconciliation (item TRK07, F06 §7). Rapproche les PDF du pool non
+/// Surface publique d'ACTION du module Reconciliation (item TRK07). Rapproche les PDF du pool non
 /// lié des documents émis du tenant et applique les effets (addendum d'archive WORM, fait d'audit,
 /// mise à jour de la file d'attente). TENANT-SCOPÉE par construction (la base et le coffre routent vers
 /// le tenant courant — blueprint §7). Consommée par le job de réconciliation (module Job, à la demande
@@ -16,7 +16,7 @@ public interface IReconciliationService
 {
     /// <summary>
     /// Exécute une passe de réconciliation pour le TENANT COURANT : énumère les PDF du pool non encore
-    /// traités, applique les trois stratégies (F06 §7 §1), lie automatiquement les correspondances de
+    /// traités, applique les trois stratégies (TRK07), lie automatiquement les correspondances de
     /// confiance haute (addendum + audit), propose les confiances moyennes, classe le reste en orphelins.
     /// </summary>
     Task<ReconciliationRunResult> RunForCurrentTenantAsync(CancellationToken cancellationToken = default);

@@ -17,7 +17,7 @@ using Liakont.Modules.Reconciliation.Domain;
 using Stratum.Common.Abstractions.MultiTenancy;
 
 /// <summary>
-/// Orchestrateur du rapprochement PDF ↔ documents émis (item TRK07, F06 §7). Énumère le pool de PDF non
+/// Orchestrateur du rapprochement PDF ↔ documents émis (item TRK07). Énumère le pool de PDF non
 /// liés du tenant, applique le moteur PUR <see cref="ReconciliationEngine"/>, puis matérialise les effets :
 /// pour une correspondance de CONFIANCE HAUTE, ajoute le PDF au paquet d'archive en addendum (WORM, TRK05)
 /// et inscrit un fait d'audit append-only (Documents), avant de tracer l'état dans la file d'attente. Une
@@ -88,7 +88,9 @@ public sealed class ReconciliationService : IReconciliationService, IReconciliat
         int processed = 0, autoLinked = 0, proposed = 0, orphans = 0;
         foreach (PooledPdfReference pdf in pooled)
         {
-            // Idempotence de la passe : un PDF déjà présent dans la file (déjà traité) n'est pas re-traité.
+            await using IAsyncDisposable processingLock = await _queue.AcquireProcessingLockAsync(pdf.PoolPdfId, cancellationToken);
+
+            // Re-vérifie SOUS LE VERROU : une passe concurrente a pu traiter ce PDF entre-temps.
             if (await _queue.FindByPoolPdfIdAsync(pdf.PoolPdfId, cancellationToken) is not null)
             {
                 continue;
@@ -105,10 +107,11 @@ public sealed class ReconciliationService : IReconciliationService, IReconciliat
                     DocumentCandidate matched = candidatesById[decision.MatchedDocumentId!.Value];
 
                     // Ordre : addendum WORM (preuve) → fait d'audit append-only → marqueur de file d'attente.
-                    // La passe est ré-entrante (garde FindByPoolPdfId ci-dessus) ; un arrêt entre l'addendum et
-                    // l'insertion en file fait au pire ré-ajouter un addendum chaîné (sans corruption : la chaîne
-                    // et la piste d'audit restent valides — append-only). L'idempotence fine est un durcissement
-                    // ultérieur, hors périmètre V1.
+                    // Le verrou advisory (pg_advisory_lock) sérialise les passes concurrentes sur ce PDF :
+                    // aucune double écriture d'addendum ou de fait d'audit possible. Un crash ENTRE l'addendum et
+                    // l'AddAsync (mono-processus, repasse ultérieure) peut au pire ré-ajouter un addendum chaîné
+                    // (accepté V1 : append-only + chaîne intacte, aucune corruption). Ce cas reste distingué du
+                    // cas concurrent, maintenant sérialisé par le verrou.
                     await AddArchiveAddendumAsync(matched.DocumentId, matched.DocumentNumber, matched.IssueDate, pdf.FileName, bytes, cancellationToken);
                     await _journal.RecordAutomaticReconciliationAsync(matched.DocumentId, decision.Reason, cancellationToken);
                     await _queue.AddAsync(
@@ -146,12 +149,19 @@ public sealed class ReconciliationService : IReconciliationService, IReconciliat
     {
         if (string.IsNullOrWhiteSpace(operatorIdentity))
         {
-            throw new ArgumentException("L'identité de l'opérateur est obligatoire (F06 §7 §5).", nameof(operatorIdentity));
+            throw new ArgumentException("L'identité de l'opérateur est obligatoire (TRK07).", nameof(operatorIdentity));
         }
 
         string tenant = RequireTenant();
 
         ReconciliationQueueEntry entry = await _queue.GetByIdAsync(queueEntryId, cancellationToken)
+            ?? throw new InvalidOperationException($"Entrée de réconciliation {queueEntryId} introuvable dans ce tenant.");
+
+        // Sérialise la confirmation manuelle sous verrou advisory pour éviter un double effet si deux
+        // requêtes concurrentes confirment le même PDF. Re-lecture de l'entrée sous verrou pour détecter
+        // une course gagnée par une autre passe.
+        await using IAsyncDisposable processingLock = await _queue.AcquireProcessingLockAsync(entry.PoolPdfId, cancellationToken);
+        entry = await _queue.GetByIdAsync(queueEntryId, cancellationToken)
             ?? throw new InvalidOperationException($"Entrée de réconciliation {queueEntryId} introuvable dans ce tenant.");
 
         DocumentDto document = await _documentQueries.GetByIdAsync(documentId, cancellationToken)
@@ -160,13 +170,13 @@ public sealed class ReconciliationService : IReconciliationService, IReconciliat
         if (!string.Equals(document.State, IssuedState, StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
-                $"Le document {document.DocumentNumber} n'est pas émis (état {document.State}) : seul un document émis peut recevoir un PDF réconcilié (F06 §7).");
+                $"Le document {document.DocumentNumber} n'est pas émis (état {document.State}) : seul un document émis peut recevoir un PDF réconcilié (TRK07).");
         }
 
         string reason = $"Rapprochement manuel du PDF « {entry.FileName} » vers le document {document.DocumentNumber} par l'opérateur {operatorIdentity}.";
 
-        // Valide AVANT tout effet (lève si l'entrée est déjà rapprochée) ; la mutation n'est persistée
-        // qu'après l'addendum WORM et le fait d'audit.
+        // Valide AVANT tout effet (lève si l'entrée est déjà rapprochée — course gagnée par une autre passe
+        // sous verrou) ; la mutation n'est persistée qu'après l'addendum WORM et le fait d'audit.
         entry.ConfirmManually(documentId, operatorIdentity, reason, _timeProvider.GetUtcNow());
 
         byte[] bytes = await ReadPoolPdfBytesAsync(tenant, entry.PoolPdfId, cancellationToken);
@@ -229,13 +239,17 @@ public sealed class ReconciliationService : IReconciliationService, IReconciliat
     private async Task<IReadOnlyList<DocumentCandidate>> LoadIssuedCandidatesAsync(CancellationToken cancellationToken)
     {
         var candidates = new List<DocumentCandidate>();
+        var seen = new HashSet<Guid>();
         int page = 1;
         while (true)
         {
             IReadOnlyList<DocumentSummaryDto> batch = await _documentQueries.GetByStateAsync(IssuedState, page, IssuedPageSize, cancellationToken);
             foreach (DocumentSummaryDto document in batch)
             {
-                candidates.Add(new DocumentCandidate(document.Id, document.DocumentNumber, document.IssueDate, document.TotalGross));
+                if (seen.Add(document.Id))
+                {
+                    candidates.Add(new DocumentCandidate(document.Id, document.DocumentNumber, document.IssueDate, document.TotalGross));
+                }
             }
 
             if (batch.Count < IssuedPageSize)

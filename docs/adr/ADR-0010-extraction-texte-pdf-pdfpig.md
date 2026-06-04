@@ -10,7 +10,7 @@
 
 Le module `Reconciliation` (TRK07) rapproche les PDF du pool non lié (poussés par l'agent via
 `/pdf-pool` quand l'adaptateur déclare `ProvidesUnlinkedDocumentPool`) des documents émis. La
-**stratégie 2** de F06 §7 §1 cherche le **numéro de document dans le TEXTE du PDF** (confiance haute) —
+**stratégie 2** (TRK07) cherche le **numéro de document dans le TEXTE du PDF** (confiance haute) —
 elle exige donc d'extraire le texte d'un PDF. Tout nouveau package nécessite un ADR (blueprint.md §5).
 
 Quatre contraintes encadrent ce choix :

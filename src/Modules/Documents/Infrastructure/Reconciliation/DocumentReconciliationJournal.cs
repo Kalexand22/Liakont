@@ -48,7 +48,7 @@ internal sealed class DocumentReconciliationJournal : IDocumentReconciliationJou
         if (document is null)
         {
             throw new InvalidOperationException(
-                $"Document {documentId} introuvable : impossible de journaliser un rapprochement PDF (F06 §7).");
+                $"Document {documentId} introuvable : impossible de journaliser un rapprochement PDF (TRK07).");
         }
 
         await unitOfWork.AppendEventAsync(documentEvent, cancellationToken);

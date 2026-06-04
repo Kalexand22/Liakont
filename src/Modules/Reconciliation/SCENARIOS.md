@@ -16,11 +16,12 @@
   orphelin (sans document) ; `ConfirmManually` sur orphelin → ReconciledManual (opérateur, résolution) ;
   `ConfirmManually` sur déjà rapproché → exception ; `ConfirmManually` sans opérateur → exception.
 
-### Orchestration du service (INV-RECONCILIATION-002, 004, 005, 008)
+### Orchestration du service (INV-RECONCILIATION-002, 004, 005, 006, 008)
 - `ReconciliationServiceTests` (doubles en mémoire) — confiance haute (nom) → addendum + audit auto +
   entrée auto ; **confiance moyenne → proposition SANS addendum ni audit** (jamais de lien auto) ; aucune
   correspondance → orphelin ; PDF déjà traité → ignoré ; confirmation manuelle → addendum + audit manuel +
-  entrée résolue ; documents émis sans PDF excluent les documents rapprochés ; tenant non résolu → exception.
+  entrée résolue ; documents émis sans PDF excluent les documents rapprochés ; propositions mappées en DTO
+  (confiance/stratégie) ; orphelins mappés en DTO (pool PDF id + nom de fichier) ; tenant non résolu → exception.
 
 ### Job multi-tenant (INV-RECONCILIATION-008)
 - `ReconciliationJobTests` — `ReconciliationTenantJob` résout le service depuis le scope du tenant et lance

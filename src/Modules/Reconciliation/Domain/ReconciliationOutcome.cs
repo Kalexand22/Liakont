@@ -1,7 +1,7 @@
 namespace Liakont.Modules.Reconciliation.Domain;
 
 /// <summary>
-/// Verdict du moteur de rapprochement pour un PDF du pool (item TRK07, F06 §7 §1-§2).
+/// Verdict du moteur de rapprochement pour un PDF du pool (item TRK07).
 /// </summary>
 public enum ReconciliationOutcome
 {

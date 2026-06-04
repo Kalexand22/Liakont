@@ -2,6 +2,9 @@ namespace Liakont.Modules.Reconciliation.Infrastructure;
 
 using System;
 using System.Collections.Generic;
+using System.Data;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Dapper;
@@ -11,7 +14,7 @@ using Stratum.Common.Infrastructure.Database;
 
 /// <summary>
 /// Persistance de la file d'attente de réconciliation dans <c>reconciliation.reconciliation_queue</c>
-/// (item TRK07, F06 §7 §3). Tenant-scopée par la connexion (<see cref="IConnectionFactory"/> → base du
+/// (item TRK07). Tenant-scopée par la connexion (<see cref="IConnectionFactory"/> → base du
 /// tenant courant ; pas de colonne tenant — database-per-tenant). Table MUTABLE (une proposition/un
 /// orphelin peut être confirmé), à la différence de la piste d'audit append-only.
 /// </summary>
@@ -44,6 +47,22 @@ internal sealed class PostgresReconciliationQueueStore : IReconciliationQueueSto
     public PostgresReconciliationQueueStore(IConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
+    }
+
+    public async Task<IAsyncDisposable> AcquireProcessingLockAsync(string poolPdfId, CancellationToken cancellationToken = default)
+    {
+        IDbConnection connection = await _connectionFactory.OpenAsync(cancellationToken);
+        try
+        {
+            long key = LockKey(poolPdfId);
+            await connection.ExecuteAsync(new CommandDefinition("SELECT pg_advisory_lock(@Key)", new { Key = key }, cancellationToken: cancellationToken));
+            return new AdvisoryLock(connection, key);
+        }
+        catch
+        {
+            connection.Dispose();
+            throw;
+        }
     }
 
     public async Task<ReconciliationQueueEntry?> FindByPoolPdfIdAsync(string poolPdfId, CancellationToken cancellationToken = default)
@@ -113,6 +132,13 @@ internal sealed class PostgresReconciliationQueueStore : IReconciliationQueueSto
         return [.. rows];
     }
 
+    // Clé déterministe (SHA-256) — String.GetHashCode est randomisé par processus et ne sérialiserait pas entre passes.
+    private static long LockKey(string poolPdfId)
+    {
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(poolPdfId));
+        return BitConverter.ToInt64(hash, 0);
+    }
+
     private static object ToParameters(ReconciliationQueueEntry entry) => new
     {
         entry.Id,
@@ -148,5 +174,29 @@ internal sealed class PostgresReconciliationQueueStore : IReconciliationQueueSto
             ReconciliationRowReader.ToDateTimeOffset((object)row.created_utc),
             resolved is null ? null : ReconciliationRowReader.ToDateTimeOffset(resolved),
             operatorIdentity is null ? null : (string)operatorIdentity);
+    }
+
+    private sealed class AdvisoryLock : IAsyncDisposable
+    {
+        private readonly IDbConnection _connection;
+        private readonly long _key;
+
+        public AdvisoryLock(IDbConnection connection, long key)
+        {
+            _connection = connection;
+            _key = key;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            try
+            {
+                await _connection.ExecuteAsync(new CommandDefinition("SELECT pg_advisory_unlock(@Key)", new { Key = _key }));
+            }
+            finally
+            {
+                _connection.Dispose();
+            }
+        }
     }
 }

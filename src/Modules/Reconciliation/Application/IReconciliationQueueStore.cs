@@ -7,12 +7,19 @@ using System.Threading.Tasks;
 using Liakont.Modules.Reconciliation.Domain;
 
 /// <summary>
-/// Port de persistance de la FILE D'ATTENTE de réconciliation (item TRK07, F06 §7 §3), dans la base du
+/// Port de persistance de la FILE D'ATTENTE de réconciliation (item TRK07), dans la base du
 /// tenant. Table MUTABLE (une proposition/un orphelin peut être confirmé après coup) — à distinguer de
 /// la piste d'audit append-only. TENANT-SCOPÉ par construction (la connexion EST la base du tenant).
 /// </summary>
 public interface IReconciliationQueueStore
 {
+    /// <summary>
+    /// Verrou d'avis PostgreSQL (pg_advisory_lock) qui SÉRIALISE le traitement d'un même PDF du pool
+    /// entre passes concurrentes (TRK07) ; libéré au Dispose. Retourne un <see cref="IAsyncDisposable"/>
+    /// dont le Dispose libère le verrou et la connexion sous-jacente.
+    /// </summary>
+    Task<System.IAsyncDisposable> AcquireProcessingLockAsync(string poolPdfId, CancellationToken cancellationToken = default);
+
     /// <summary>Entrée existante pour un PDF du pool (clé <c>PoolPdfId</c>), ou <c>null</c> si non encore traité.</summary>
     Task<ReconciliationQueueEntry?> FindByPoolPdfIdAsync(string poolPdfId, CancellationToken cancellationToken = default);
 

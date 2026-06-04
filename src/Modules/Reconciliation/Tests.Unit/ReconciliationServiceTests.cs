@@ -1,6 +1,8 @@
 namespace Liakont.Modules.Reconciliation.Tests.Unit;
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using FluentAssertions;
@@ -108,5 +110,44 @@ public sealed class ReconciliationServiceTests
         Func<Task> act = () => service.RunForCurrentTenantAsync();
 
         await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Fact]
+    public async Task GetIssuedDocumentsWithoutPdf_ExcludesReconciledDocuments()
+    {
+        _documents.AddIssued(DocA, "FAC-A", new DateOnly(2026, 1, 1), 10m);
+        var docB = Guid.NewGuid();
+        _documents.AddIssued(docB, "FAC-B", new DateOnly(2026, 1, 2), 20m);
+        await _queue.AddAsync(ReconciliationQueueEntry.AutoReconciled("p1", "FAC-A.pdf", DocA, MatchStrategy.FileName, "auto", DateTimeOffset.UtcNow));
+
+        IReadOnlyList<DocumentWithoutPdfDto> without = await CreateService().GetIssuedDocumentsWithoutPdfAsync();
+
+        without.Select(d => d.DocumentId).Should().Contain(docB);
+        without.Select(d => d.DocumentId).Should().NotContain(DocA);
+    }
+
+    [Fact]
+    public async Task GetPendingProposals_MapsProposalToDto()
+    {
+        await _queue.AddAsync(ReconciliationQueueEntry.PendingProposal("p2", "doc.pdf", DocA, "proposition", DateTimeOffset.UtcNow));
+
+        IReadOnlyList<ReconciliationProposalDto> proposals = await CreateService().GetPendingProposalsAsync();
+
+        proposals.Should().ContainSingle().Which.Should().Match<ReconciliationProposalDto>(p =>
+            p.ProposedDocumentId == DocA &&
+            p.Confidence == "Medium" &&
+            p.Strategy == "DateAndAmount");
+    }
+
+    [Fact]
+    public async Task GetOrphanPdfs_MapsOrphanToDto()
+    {
+        await _queue.AddAsync(ReconciliationQueueEntry.Orphan("p3", "orphan.pdf", "aucune correspondance", DateTimeOffset.UtcNow));
+
+        IReadOnlyList<OrphanPdfDto> orphans = await CreateService().GetOrphanPdfsAsync();
+
+        orphans.Should().ContainSingle().Which.Should().Match<OrphanPdfDto>(o =>
+            o.FileName == "orphan.pdf" &&
+            o.PoolPdfId == "p3");
     }
 }

@@ -4,7 +4,7 @@ using System;
 
 /// <summary>
 /// Détecte la présence d'un NUMÉRO DE DOCUMENT dans un texte (nom de fichier ou contenu PDF) — stratégies
-/// 1 et 2 du rapprochement (item TRK07, F06 §7 §1). La correspondance est délimitée : les caractères qui
+/// 1 et 2 du rapprochement (item TRK07). La correspondance est délimitée : les caractères qui
 /// bordent immédiatement le numéro trouvé ne doivent pas être alphanumériques, afin que « FAC-2026-0042 »
 /// ne soit pas reconnu à tort à l'intérieur de « FAC-2026-00421 ». Comparaison insensible à la casse
 /// (ordinale) — un numéro de document n'a pas de sémantique de casse.

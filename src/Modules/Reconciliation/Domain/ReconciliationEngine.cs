@@ -5,15 +5,15 @@ using System.Collections.Generic;
 using System.Globalization;
 
 /// <summary>
-/// Moteur PUR de rapprochement PDF ↔ document émis (item TRK07, F06 §7 §1-§2). Aucune E/S : il reçoit un
+/// Moteur PUR de rapprochement PDF ↔ document émis (item TRK07). Aucune E/S : il reçoit un
 /// PDF du pool (nom + texte déjà extrait) et la liste des documents émis candidats, et produit une
-/// <see cref="ReconciliationDecision"/>. Les trois stratégies de F06 §7 §1, dans l'ordre de confiance :
+/// <see cref="ReconciliationDecision"/>. Les trois stratégies (TRK07), dans l'ordre de confiance :
 /// <list type="number">
 ///   <item>numéro de document dans le NOM DE FICHIER (confiance HAUTE) ;</item>
 ///   <item>numéro de document dans le TEXTE du PDF (confiance HAUTE) ;</item>
 ///   <item>date d'émission + montant TTC présents, candidat UNIQUE (confiance MOYENNE).</item>
 /// </list>
-/// Règle d'or (décision 2026-06-02) : AMBIGUÏTÉ (≥ 2 candidats) ou absence de correspondance ⇒ NON
+/// Règle d'or (TRK07, décision 2026-06-02) : AMBIGUÏTÉ (≥ 2 candidats) ou absence de correspondance ⇒ NON
 /// RÉCONCILIÉ. Jamais de lien automatique en dessous de la confiance haute (un rapprochement erroné
 /// archivé en WORM serait incorrigible).
 /// </summary>
@@ -44,13 +44,13 @@ public static class ReconciliationEngine
             return ReconciliationDecision.AutoLinked(
                 candidate.DocumentId,
                 strategy,
-                $"Numéro de document « {candidate.DocumentNumber} » trouvé dans {where} (confiance haute, F06 §7 §1).");
+                $"Numéro de document « {candidate.DocumentNumber} » trouvé dans {where} (confiance haute, TRK07).");
         }
 
         if (highMatches.Count >= 2)
         {
             return ReconciliationDecision.NotReconciled(
-                $"Ambiguïté : {highMatches.Count} documents portent un numéro présent dans le PDF — rapprochement automatique refusé (F06 §7 §1).");
+                $"Ambiguïté : {highMatches.Count} documents portent un numéro présent dans le PDF — rapprochement automatique refusé (TRK07).");
         }
 
         // Stratégie 3 (confiance MOYENNE) : date d'émission ET montant TTC présents, candidat UNIQUE.
@@ -72,14 +72,14 @@ public static class ReconciliationEngine
             DocumentCandidate candidate = mediumMatches[0];
             string reason = $"Correspondance date ({candidate.IssueDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}) "
                 + $"+ montant TTC ({candidate.TotalGross.ToString("0.00", CultureInfo.InvariantCulture)}) — "
-                + "candidat unique, confirmation opérateur requise (F06 §7 §2).";
+                + "candidat unique, confirmation opérateur requise (TRK07).";
             return ReconciliationDecision.ProposeManual(candidate.DocumentId, reason);
         }
 
         if (mediumMatches.Count >= 2)
         {
             return ReconciliationDecision.NotReconciled(
-                $"Ambiguïté : {mediumMatches.Count} documents correspondent par date et montant — aucun rapprochement automatique (F06 §7 §1).");
+                $"Ambiguïté : {mediumMatches.Count} documents correspondent par date et montant — aucun rapprochement automatique (TRK07).");
         }
 
         return ReconciliationDecision.NotReconciled("Aucune correspondance avec un document émis (orphelin, file d'attente manuelle).");

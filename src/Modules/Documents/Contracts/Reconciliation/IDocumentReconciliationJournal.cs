@@ -5,7 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 /// <summary>
-/// Port exposé par le module Documents au module Reconciliation (item TRK07, F06 §7) pour INSCRIRE sur
+/// Port exposé par le module Documents au module Reconciliation (item TRK07) pour INSCRIRE sur
 /// un document émis le fait d'audit d'un rapprochement PDF. La piste d'audit (<c>DocumentEvent</c>) est
 /// interne au module Documents (append-only, garantie par triggers base — CLAUDE.md n°4) : un autre
 /// module ne peut pas écrire un <c>DocumentEvent</c> directement (frontière Contracts-only, CLAUDE.md

@@ -1,7 +1,7 @@
 namespace Liakont.Modules.Reconciliation.Application;
 
 /// <summary>
-/// Port d'EXTRACTION DE TEXTE d'un PDF (item TRK07, stratégie 2 — F06 §7 §1). Abstrait la bibliothèque
+/// Port d'EXTRACTION DE TEXTE d'un PDF (item TRK07, stratégie 2). Abstrait la bibliothèque
 /// d'extraction (ADR-0010 : PdfPig, Apache-2.0, dans l'Infrastructure uniquement) pour garder le moteur
 /// et l'orchestrateur PURS et testables. Pas d'OCR en V1 : un PDF scanné (image) n'a pas de texte
 /// exploitable.

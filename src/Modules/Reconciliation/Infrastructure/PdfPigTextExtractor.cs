@@ -8,7 +8,7 @@ using UglyToad.PdfPig.Content;
 
 /// <summary>
 /// Extraction de texte d'un PDF via PdfPig (Apache-2.0 — ADR-0010), pour la stratégie 2 du rapprochement
-/// (numéro de document dans le texte du PDF, item TRK07, F06 §7 §1). Pas d'OCR en V1 : un PDF scanné
+/// (numéro de document dans le texte du PDF, item TRK07). Pas d'OCR en V1 : un PDF scanné
 /// (image) ne renvoie pas de texte. Conformément au contrat du port, un PDF illisible ou malformé ne
 /// lève JAMAIS — il renvoie <c>null</c> et le PDF devient un orphelin (la passe de réconciliation n'est
 /// pas interrompue par un fichier corrompu).

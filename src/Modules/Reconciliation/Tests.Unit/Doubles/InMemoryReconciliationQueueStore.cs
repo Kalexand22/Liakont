@@ -15,6 +15,9 @@ internal sealed class InMemoryReconciliationQueueStore : IReconciliationQueueSto
 
     public IReadOnlyList<ReconciliationQueueEntry> Entries => _entries;
 
+    public Task<IAsyncDisposable> AcquireProcessingLockAsync(string poolPdfId, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IAsyncDisposable>(new NoopLock());
+
     public Task<ReconciliationQueueEntry?> FindByPoolPdfIdAsync(string poolPdfId, CancellationToken cancellationToken = default) =>
         Task.FromResult(_entries.FirstOrDefault(e => e.PoolPdfId == poolPdfId));
 
@@ -44,5 +47,10 @@ internal sealed class InMemoryReconciliationQueueStore : IReconciliationQueueSto
             .Distinct()
             .ToList();
         return Task.FromResult(ids);
+    }
+
+    private sealed class NoopLock : IAsyncDisposable
+    {
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }
