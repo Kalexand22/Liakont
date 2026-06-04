@@ -20,4 +20,11 @@
     <ProjectReference Include="..\..\..\src\Contracts\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj" />
   </ItemGroup>
 
+  <!-- Tests de contrat CROSS-RUNTIME (PIV02) partagés avec la solution agent (net48) : un seul code,
+       lié des deux côtés, garantit une sérialisation/empreinte identiques (F12 §3.4). -->
+  <ItemGroup>
+    <Compile Include="..\..\_shared\contract-v1\PivotCanonicalReader.cs" Link="ContractV1\PivotCanonicalReader.cs" />
+    <Compile Include="..\..\_shared\contract-v1\PivotContractGoldenTests.cs" Link="ContractV1\PivotContractGoldenTests.cs" />
+  </ItemGroup>
+
 </Project>

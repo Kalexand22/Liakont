@@ -21,4 +21,11 @@
     <ProjectReference Include="..\..\..\src\Contracts\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj" />
   </ItemGroup>
 
+  <!-- Tests de contrat CROSS-RUNTIME (PIV02) partagés avec la solution plateforme (.NET 10) : le MÊME
+       code golden + lecteur, lié des deux côtés, prouve la sérialisation/empreinte identiques (F12 §3.4). -->
+  <ItemGroup>
+    <Compile Include="..\..\..\tests\_shared\contract-v1\PivotCanonicalReader.cs" Link="ContractV1\PivotCanonicalReader.cs" />
+    <Compile Include="..\..\..\tests\_shared\contract-v1\PivotContractGoldenTests.cs" Link="ContractV1\PivotContractGoldenTests.cs" />
+  </ItemGroup>
+
 </Project>
