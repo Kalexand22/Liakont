@@ -73,5 +73,6 @@ internal sealed class IngestionHarness
 
     public RecordingDocumentIntake DocumentIntake { get; }
 
-    public IngestDocumentBatchHandler BatchHandler => new(ReceivedDocumentUowFactory, SourceTaxRegimeWriter, DocumentIntake);
+    public IngestDocumentBatchHandler BatchHandler =>
+        new(ReceivedDocumentUowFactory, SourceTaxRegimeWriter, DocumentIntake, NullLogger<IngestDocumentBatchHandler>.Instance);
 }

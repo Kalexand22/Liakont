@@ -135,7 +135,7 @@ public sealed class DocumentBatchIngestionIntegrationTests
     }
 
     [Fact]
-    public async Task Source_Tax_Regimes_Are_Persisted_Per_Tenant_And_Accumulate()
+    public async Task Source_Tax_Regimes_Are_Persisted_Per_Tenant_With_Idempotent_Last_Observation()
     {
         var harness = new IngestionHarness(_fixture, NewTenant());
 
@@ -143,14 +143,19 @@ public sealed class DocumentBatchIngestionIntegrationTests
             Batch(harness, new[] { Doc("ref-1") }, regimes: new SourceTaxRegimeDto("20", "Taux normal", 3)),
             CancellationToken.None);
         await harness.BatchHandler.Handle(
-            Batch(harness, new[] { Doc("ref-2") }, regimes: new SourceTaxRegimeDto("20", "Taux normal", 2)),
+            Batch(harness, new[] { Doc("ref-2") }, regimes: new SourceTaxRegimeDto("20", "Taux normal", 5)),
+            CancellationToken.None);
+
+        // Rejeu d'un même push (retry réseau) : NE doit PAS gonfler les occurrences (idempotent).
+        await harness.BatchHandler.Handle(
+            Batch(harness, new[] { Doc("ref-3") }, regimes: new SourceTaxRegimeDto("20", "Taux normal", 5)),
             CancellationToken.None);
 
         var regimes = await harness.SourceTaxRegimeQueries.ListByTenantAsync(harness.TenantId);
 
         var normal = regimes.Single(r => r.Code == "20");
         normal.Label.Should().Be("Taux normal");
-        normal.Occurrences.Should().Be(5, "les occurrences se cumulent sur les pushes.");
+        normal.Occurrences.Should().Be(5, "occurrences = dernière observation (remplacée), jamais cumulée → idempotent.");
     }
 
     private static IngestDocumentBatchCommand Batch(IngestionHarness harness, params PivotDocumentDto[] documents) =>

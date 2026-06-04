@@ -70,6 +70,28 @@ public sealed class IngestedPdfStoreTests : IDisposable
         Path.GetFileName(pooled).Should().NotContain("/").And.NotContain("\\");
     }
 
+    [Theory]
+    [InlineData(".")]
+    [InlineData("..")]
+    public async Task Dot_Only_Tenant_Segment_Is_Rejected(string tenant)
+    {
+        // Un segment uniquement composé de points remonterait hors racine via Path.Combine → rejeté.
+        var linked = async () => await _store.SaveLinkedPdfAsync(tenant, "ref-1", Bytes("x"));
+        var pooled = async () => await _store.SavePooledPdfAsync(tenant, "scan.pdf", Bytes("x"));
+
+        await linked.Should().ThrowAsync<ArgumentException>();
+        await pooled.Should().ThrowAsync<ArgumentException>();
+    }
+
+    [Fact]
+    public async Task Tenant_With_Slashes_Is_Sanitized_To_A_Safe_Segment_Under_Root()
+    {
+        // « ../.. » : les séparateurs sont neutralisés en « _ » → segment sûr, AUCune remontée.
+        var pooled = await _store.SavePooledPdfAsync("../..", "scan.pdf", Bytes("x"));
+
+        ResolvedUnderRoot(pooled).Should().BeTrue();
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))

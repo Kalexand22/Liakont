@@ -1,7 +1,7 @@
 namespace Liakont.Host.AgentApi;
 
 using Liakont.Agent.Contracts.Transport;
-using Liakont.Modules.Ingestion.Application;
+using Liakont.Modules.Ingestion.Contracts;
 using Liakont.Modules.Ingestion.Contracts.Commands;
 using Liakont.Modules.Ingestion.Contracts.Queries;
 using MediatR;

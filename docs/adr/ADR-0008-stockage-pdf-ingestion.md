@@ -32,8 +32,10 @@ module `Archive`, hors périmètre PIV04.
 
 ## Décision
 
-L'ingestion stocke les PDF derrière l'abstraction **`IIngestedPdfStore`** (couche Application du
-module Ingestion). L'implémentation V1 est **`FileSystemIngestedPdfStore`** : système de fichiers,
+L'ingestion stocke les PDF derrière l'abstraction **`IIngestedPdfStore`** (surface `Contracts` du
+module Ingestion — consommée directement par le Host comme `IAgentAuthenticator`, car les endpoints
+streament le corps de la requête et un `Stream` ne se modélise pas en commande MediatR). L'implémentation
+V1 est **`FileSystemIngestedPdfStore`** : système de fichiers,
 sous une **racine de déploiement** paramétrable (`Ingestion:Storage:PdfRootPath`, jamais une donnée
 client en dur — `CLAUDE.md` n°7 ; repli sous le content root de l'instance si non configurée).
 

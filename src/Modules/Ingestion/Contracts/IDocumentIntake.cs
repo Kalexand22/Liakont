@@ -10,10 +10,18 @@ using Liakont.Agent.Contracts.Pivot;
 /// <remarks>
 /// L'interface est définie ici à titre TRANSITOIRE (description PIV04) : le module <c>Documents</c>
 /// (TRK01/TRK02) n'existe pas encore. Tant qu'il n'est pas livré, l'implémentation par défaut est un
-/// no-op sûr (<c>NoOpDocumentIntake</c>) qui ne crée rien et renvoie un identifiant placeholder ; le
-/// câblage réel (et le déplacement éventuel vers <c>Documents.Contracts</c>) arrive avec TRK02. Les
-/// tests d'ingestion la doublent par un espion. Le déclenchement du pipeline aval (PIP01) reste, lui,
-/// porté par l'événement d'intégration <see cref="Events.DocumentReceivedV1"/> publié via l'outbox.
+/// no-op sûr (<c>NoOpDocumentIntake</c>) qui ne crée rien ; le câblage réel (et le déplacement éventuel
+/// vers <c>Documents.Contracts</c>) arrive avec TRK02. Les tests d'ingestion la doublent par un espion.
+/// <para>
+/// <strong>Contrat de cohérence (prérequis BLOQUANT de TRK02).</strong> Le déclencheur DURABLE et
+/// AUTORITAIRE de la création du document est l'événement d'intégration
+/// <see cref="Events.DocumentReceivedV1"/>, écrit dans l'outbox DANS LA MÊME TRANSACTION que
+/// l'inscription au registre de réception. Ce port n'est qu'un FAST-PATH synchrone, appelé en
+/// BEST-EFFORT APRÈS le commit de la réception (jamais avant, pour ne pas créer de document orphelin
+/// en cas de course/échec d'inscription). Son implémentation par TRK02 DOIT donc être idempotente sur
+/// <see cref="DetectedDocumentIntake.DocumentId"/> et traiter l'événement comme la source de vérité —
+/// un échec de ce port est rattrapé par la consommation de l'événement, jamais une perte de document.
+/// </para>
 /// </remarks>
 public interface IDocumentIntake
 {

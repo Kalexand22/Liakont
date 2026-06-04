@@ -4,9 +4,10 @@ using System.Collections.Generic;
 
 /// <summary>
 /// Persiste (upsert) les régimes de TVA source observés, par tenant, dans la base SYSTÈME (schéma
-/// <c>ingestion</c>) — F12 / PIV04. Métadonnée de push idempotente : un même code ré-observé cumule
-/// ses occurrences et rafraîchit son libellé/horodatage. Valeur BRUTE, jamais interprétée
-/// (CLAUDE.md n°2). Consommé par TVA03 (détection de couverture) via <c>ISourceTaxRegimeQueries</c>.
+/// <c>ingestion</c>) — F12 / PIV04. Métadonnée de push IDEMPOTENTE : un même code ré-observé remplace
+/// ses <c>occurrences</c> par la dernière observation (jamais cumulé → un retry ne double-compte pas)
+/// et rafraîchit son libellé/horodatage. Valeur BRUTE, jamais interprétée (CLAUDE.md n°2). Consommé
+/// par TVA03 (détection de couverture — qui ne consomme que la PRÉSENCE) via <c>ISourceTaxRegimeQueries</c>.
 /// </summary>
 public interface ISourceTaxRegimeWriter
 {
@@ -20,6 +21,6 @@ public sealed record SourceTaxRegimeObservation
 
     public string? Label { get; init; }
 
-    /// <summary>Occurrences observées sur ce push (cumulées à l'existant côté plateforme).</summary>
+    /// <summary>Occurrences observées sur ce push (la DERNIÈRE observation remplace la précédente — non cumulé).</summary>
     public required int Occurrences { get; init; }
 }

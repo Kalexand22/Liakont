@@ -7,8 +7,9 @@ using Stratum.Common.Infrastructure.Database;
 
 /// <summary>
 /// Upsert des régimes de TVA source observés (métadonnée de push, PIV04), base SYSTÈME (schéma
-/// <c>ingestion</c>), scopé tenant. Idempotent : un même code cumule ses occurrences et rafraîchit son
-/// libellé/horodatage. Le code source est conservé BRUT (jamais interprété, CLAUDE.md n°2).
+/// <c>ingestion</c>), scopé tenant. IDEMPOTENT : <c>occurrences</c> est la DERNIÈRE observation (remplacée,
+/// jamais cumulée) — un lot rejoué (retry réseau) ne double-compte donc pas. Libellé et horodatage sont
+/// rafraîchis. Le code source est conservé BRUT (jamais interprété, CLAUDE.md n°2).
 /// </summary>
 internal sealed class PostgresSourceTaxRegimeWriter : ISourceTaxRegimeWriter
 {
@@ -30,7 +31,7 @@ internal sealed class PostgresSourceTaxRegimeWriter : ISourceTaxRegimeWriter
             INSERT INTO ingestion.source_tax_regimes (tenant_id, code, label, occurrences, last_seen_at)
             VALUES (@TenantId, @Code, @Label, @Occurrences, @LastSeenAt)
             ON CONFLICT (tenant_id, code) DO UPDATE
-            SET occurrences  = ingestion.source_tax_regimes.occurrences + EXCLUDED.occurrences,
+            SET occurrences  = EXCLUDED.occurrences,
                 label        = COALESCE(EXCLUDED.label, ingestion.source_tax_regimes.label),
                 last_seen_at = EXCLUDED.last_seen_at
             """;

@@ -5,6 +5,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using Liakont.Modules.Ingestion.Application;
+using Liakont.Modules.Ingestion.Contracts;
 using Microsoft.Extensions.Options;
 
 /// <summary>
@@ -57,7 +58,18 @@ internal sealed class FileSystemIngestedPdfStore : IIngestedPdfStore
             throw new ArgumentException("Le tenant est obligatoire.", nameof(tenantId));
         }
 
-        return Sanitize(tenantId.Trim());
+        var safe = Sanitize(tenantId.Trim());
+
+        // Un segment composé uniquement de points (« . », « .. »…) remonterait hors de la racine via
+        // Path.Combine : on le refuse (le slug vient de l'identité authentifiée, mais le store ne
+        // présume jamais la sûreté de son entrée). Défense complétée par le contrôle « sous la racine »
+        // de WriteAsync.
+        if (safe.Trim('.').Length == 0)
+        {
+            throw new ArgumentException("Slug de tenant invalide pour un chemin de stockage.", nameof(tenantId));
+        }
+
+        return safe;
     }
 
     private static string SafeFileName(string? fileName)
@@ -106,7 +118,18 @@ internal sealed class FileSystemIngestedPdfStore : IIngestedPdfStore
                 "Le chemin racine de stockage des PDF (Ingestion:Storage:PdfRootPath) n'est pas configuré.");
         }
 
-        var fullPath = Path.Combine(root, relativePath);
+        // Contrôle « sous la racine » (défense en profondeur, anti path-traversal) : le chemin résolu
+        // doit rester strictement sous la racine de stockage, quel que soit le contenu des segments.
+        var rootFull = Path.GetFullPath(root);
+        var rootWithSeparator = rootFull.EndsWith(Path.DirectorySeparatorChar)
+            ? rootFull
+            : rootFull + Path.DirectorySeparatorChar;
+        var fullPath = Path.GetFullPath(Path.Combine(rootFull, relativePath));
+        if (!fullPath.StartsWith(rootWithSeparator, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Chemin de stockage PDF résolu hors de la racine de stockage.");
+        }
+
         var directory = Path.GetDirectoryName(fullPath)
             ?? throw new InvalidOperationException($"Chemin de stockage PDF invalide : {fullPath}");
         Directory.CreateDirectory(directory);

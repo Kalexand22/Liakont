@@ -13,7 +13,7 @@ public sealed record SourceTaxRegimeSummaryDto
     /// <summary>Libellé du régime dans le système source, si connu.</summary>
     public string? Label { get; init; }
 
-    /// <summary>Nombre cumulé d'occurrences observées (à travers les pushes).</summary>
+    /// <summary>Occurrences de la DERNIÈRE observation (remplacée à chaque push, non cumulée — valeur indicative).</summary>
     public required long Occurrences { get; init; }
 
     /// <summary>Horodatage de la dernière observation (UTC).</summary>

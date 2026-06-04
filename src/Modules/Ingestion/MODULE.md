@@ -69,7 +69,8 @@ système et l'accès passe par `ISystemConnectionFactory`.
   `(tenant_id, payload_hash)` = anti-doublon par tenant ; index `(tenant_id, source_reference, received_at DESC)`
   = détection d'altération + dernier hash connu.
 - `source_tax_regimes` (base SYSTÈME) : régimes source observés ; clé `(tenant_id, code)`, `label`,
-  `occurrences` (cumulées), `last_seen_at`. Code BRUT, jamais interprété.
+  `occurrences` (DERNIÈRE observation — remplacée, non cumulée → upsert idempotent au retry), `last_seen_at`.
+  Code BRUT, jamais interprété.
 
 ## Endpoints (API agent → plateforme)
 
@@ -96,6 +97,7 @@ par IP). En-tête `X-Contract-Version` négocié (426 si inconnue/trop ancienne)
 | `IAgentQueries` | Contracts | Liste les agents d'un tenant (console, supervision). |
 | `ISourceTaxRegimeQueries` | Contracts | Liste les régimes source observés d'un tenant (consommé par TVA03). |
 | `IDocumentIntake` | Contracts | Port de création d'un document en état `Detected` (implémenté par TRK02 ; no-op sûr d'ici là). |
+| `IIngestedPdfStore` | Contracts | Stockage fichier des PDF reçus par tenant (consommé directement par le Host, comme `IAgentAuthenticator` — streaming, non-MediatR). |
 | Commandes/Requêtes MediatR | Contracts | `RegisterAgent`, `RevokeAgent`, `RotateAgentKey`, `RecordHeartbeat`, `GetAgentConfiguration`, `GetAgents`, `IngestDocumentBatch`. |
 
 ## Published Events
