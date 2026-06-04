@@ -51,15 +51,25 @@ Toute la logique de validation vit sur la **plateforme**, jamais dans l'agent (C
   VAL02 (frontière inter-modules : TenantSettings ne peut pas référencer `Validation.Domain`).
 - **Le SIREN émetteur de référence vient du profil tenant**, lu via `ITenantSettingsQueries`
   (`TenantSettings.Contracts`) scopé par `CompanyId` (note v6, item VAL02) — pas du document. La règle
-  vérifie présence + validité + cohérence document↔profil ; tout écart est **bloquant** (CLAUDE.md n°3).
+  vérifie présence + validité + cohérence document↔profil ; le **SIRET émetteur** porté par le document
+  est validé s'il est fourni (F04 §3.1). Tout écart est **bloquant** (CLAUDE.md n°3).
+- **`FrenchVatNumberValidator` est une brique réutilisable**, pas une règle bloquante VAL02 : F04 §3
+  ne liste aucun contrôle de **format** de n° de TVA. Il est livré au titre de l'item VAL02 (point 3)
+  et consommé par VAL05 (indice « société » fort) et par un futur contrôle de cohérence TVA. La
+  vérification « SIREN intégré au n° TVA = SIREN émetteur » (F04 §4.2) relèvera de cette règle future,
+  pas du validateur seul — c'est tracé ici pour éviter toute fausse impression de couverture.
 - **`SupplierIdentityRule` / `BuyerIdentityRule`** implémentent `IDocumentRule` (asynchrone côté
   émetteur car il lit le profil tenant ; pur côté acheteur). **Câblage différé** : l'enregistrement DI
   des règles et le branchement du `ValidationPipeline` dans le pipeline d'envoi (lot PIP) ne sont pas
   portés par VAL02 — cohérent avec la posture « persistance/câblage différés » de VAL01. Les règles
   sont consommées par le `ValidationPipeline` existant une fois enregistrées.
 - **Code pays = liste ISO 3166-1 alpha-2 officielle (249 codes) embarquée**. `BUYER_COUNTRY_INVALID`
-  étant bloquant, une liste incomplète provoquerait un faux blocage : la liste est figée et testée.
-  Le Kosovo (XK, user-assigned) n'est pas reconnu — évolution par mise à jour explicite, jamais devinée.
+  étant bloquant, une liste incomplète provoquerait un faux blocage : la liste est figée et testée
+  (échantillons valides/invalides). Le Kosovo (XK, user-assigned) n'est pas reconnu — évolution par
+  mise à jour explicite, jamais devinée. **Compromis V1 assumé** (F04 §6, décision 1/2) : on n'embarque
+  pas le moteur genericode/Schematron normatif en V1 ; la dérivation de la codelist genericode versionnée
+  (source unique, détection de dérive) est un chantier **phase 2**, au même titre que les artefacts
+  FNFE-MPE (F04 §6, décision 2). Le risque de dérive ISO est faible (révisions rares) et borné par les tests.
 
 ## Published Events
 

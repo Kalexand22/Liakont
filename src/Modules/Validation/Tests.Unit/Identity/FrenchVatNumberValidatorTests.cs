@@ -9,6 +9,7 @@ public sealed class FrenchVatNumberValidatorTests
     [Theory]
     [InlineData("FR11123456782")] // clé 11 = (12 + 3 × (123456782 mod 97)) mod 97
     [InlineData("FR12000000000")] // clé 12 = (12 + 0) mod 97
+    [InlineData("fr11123456782")] // préfixe FR insensible à la casse (cohérent avec CountryCodeValidator)
     public void IsValid_with_correct_key_returns_true(string vatNumber)
     {
         FrenchVatNumberValidator.IsValid(vatNumber).Should().BeTrue("la clé est cohérente avec le SIREN (F04 §4.2).");

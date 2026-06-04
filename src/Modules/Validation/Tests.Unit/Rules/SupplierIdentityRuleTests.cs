@@ -87,6 +87,32 @@ public sealed class SupplierIdentityRuleTests
     }
 
     [Fact]
+    public async Task Invalid_supplier_siret_in_document_is_blocking()
+    {
+        var companyId = Guid.NewGuid();
+        var rule = new SupplierIdentityRule(new FakeTenantSettingsQueries(Profile(companyId, IssuerSiren)));
+
+        // SIRET émetteur fourni par le document mais à clé de Luhn invalide (F04 §3.1).
+        var issues = await rule.ValidateAsync(Context(companyId, supplierSiren: IssuerSiren, supplierSiret: "12345678200001"));
+
+        var issue = issues.Should().ContainSingle().Subject;
+        issue.Code.Should().Be(SupplierIdentityRule.SiretInvalid);
+        issue.Severity.Should().Be(ValidationSeverity.Blocking);
+        issue.MessageOperateur.Should().Contain("2019");
+    }
+
+    [Fact]
+    public async Task Valid_supplier_siret_in_document_has_no_issue()
+    {
+        var companyId = Guid.NewGuid();
+        var rule = new SupplierIdentityRule(new FakeTenantSettingsQueries(Profile(companyId, IssuerSiren)));
+
+        var issues = await rule.ValidateAsync(Context(companyId, supplierSiren: IssuerSiren, supplierSiret: "12345678200002"));
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Profile_is_read_scoped_to_the_context_tenant()
     {
         var companyId = Guid.NewGuid();
@@ -98,14 +124,14 @@ public sealed class SupplierIdentityRuleTests
         fake.RequestedCompanyId.Should().Be(companyId, "la lecture du profil doit être scopée au tenant du document (CLAUDE.md n°9).");
     }
 
-    private static DocumentValidationContext Context(Guid companyId, string? supplierSiren = null)
+    private static DocumentValidationContext Context(Guid companyId, string? supplierSiren = null, string? supplierSiret = null)
     {
         var document = new PivotDocumentDto(
             sourceDocumentKind: "BORDEREAU",
             number: "2019",
             issueDate: new DateTime(2024, 1, 15),
             sourceReference: "src-2019",
-            supplier: new PivotPartyDto("Étude Fictive SVV", siren: supplierSiren),
+            supplier: new PivotPartyDto("Étude Fictive SVV", siren: supplierSiren, siret: supplierSiret),
             totals: new PivotTotalsDto(1160.00m, 0m, 1160.00m),
             operationCategory: OperationCategory.LivraisonBiens);
         return new DocumentValidationContext(document, companyId);

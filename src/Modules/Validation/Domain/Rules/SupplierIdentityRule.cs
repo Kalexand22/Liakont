@@ -8,7 +8,8 @@ using Liakont.Modules.Validation.Domain.Identity;
 /// Contrôle d'identité de l'émetteur (F04 §3.1). Le SIREN émetteur de référence vient du PROFIL DU
 /// TENANT (CFG02), jamais du document (note v6, item VAL02) : la règle vérifie que ce SIREN est
 /// paramétré, valide (Luhn), et — si le document porte lui-même un SIREN émetteur — qu'il est
-/// cohérent avec le profil. Toutes les anomalies sont BLOQUANTES (jamais affaiblies — CLAUDE.md n°3).
+/// cohérent avec le profil. Le SIRET émetteur porté par le document est validé s'il est fourni
+/// (F04 §3.1, 14 chiffres + Luhn). Toutes les anomalies sont BLOQUANTES (jamais affaiblies — CLAUDE.md n°3).
 /// </summary>
 public sealed class SupplierIdentityRule : IDocumentRule
 {
@@ -20,6 +21,9 @@ public sealed class SupplierIdentityRule : IDocumentRule
 
     /// <summary>Le SIREN émetteur porté par le document ne correspond pas au profil du tenant.</summary>
     public const string SirenMismatch = "SUPPLIER_SIREN_MISMATCH";
+
+    /// <summary>Le SIRET émetteur porté par le document est invalide (14 chiffres + clé de Luhn — F04 §3.1).</summary>
+    public const string SiretInvalid = "SUPPLIER_SIRET_INVALID";
 
     private readonly ITenantSettingsQueries _tenantSettingsQueries;
 
@@ -40,6 +44,18 @@ public sealed class SupplierIdentityRule : IDocumentRule
 
         var document = context.Document;
         var issues = new List<ValidationIssue>();
+
+        // SIRET émetteur porté par le document, contrôlé s'il est fourni (F04 §3.1, 14 chiffres + Luhn).
+        // Indépendant du profil tenant : évalué avant la résolution du SIREN émetteur de référence.
+        var documentSiret = document.Supplier.Siret;
+        if (!string.IsNullOrWhiteSpace(documentSiret) && !SiretValidator.IsValid(documentSiret))
+        {
+            issues.Add(ValidationIssue.Blocking(
+                SiretInvalid,
+                $"Le SIRET de l'émetteur ({documentSiret}) du document n° {document.Number} est invalide (clé de Luhn). Vérifiez l'identité de l'émetteur dans le logiciel source.",
+                $"Document Supplier.Siret='{documentSiret}' échoue la validation Luhn (F04 §3.1/§4.1).",
+                "BT-30"));
+        }
 
         var profile = await _tenantSettingsQueries.GetTenantProfile(context.CompanyId, cancellationToken);
         var issuerSiren = profile?.Siren;

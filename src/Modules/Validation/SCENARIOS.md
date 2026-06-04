@@ -40,7 +40,7 @@
 - Mauvaise forme (null, vide, longueur ≠ 14, non numérique) → invalide — INV-VALIDATION-008
 
 #### FrenchVatNumberValidatorTests
-- Clé cohérente avec le SIREN (FR11123456782, FR12000000000) → valide — INV-VALIDATION-009
+- Clé cohérente avec le SIREN (FR11123456782, FR12000000000), préfixe insensible à la casse (fr…) → valide — INV-VALIDATION-009
 - Clé incohérente → invalide — INV-VALIDATION-009
 - Mauvaise forme (préfixe ≠ FR, longueur ≠ 13, clé/SIREN non numériques) → invalide — INV-VALIDATION-009
 
@@ -57,6 +57,7 @@
 - Profil tenant absent → `SUPPLIER_SIREN_MISSING` bloquant (cite le n° de document) — INV-VALIDATION-011
 - SIREN émetteur du profil invalide (Luhn) → `SUPPLIER_SIREN_INVALID` bloquant — INV-VALIDATION-011
 - SIREN document ≠ SIREN profil → `SUPPLIER_SIREN_MISMATCH` bloquant (cite les deux SIREN) — INV-VALIDATION-011
+- SIRET émetteur du document invalide (Luhn) → `SUPPLIER_SIRET_INVALID` bloquant ; SIRET valide → accepté — INV-VALIDATION-011
 - La lecture du profil est scopée au `CompanyId` du contexte — INV-VALIDATION-011, INV-VALIDATION-006
 - Constructeur : `ITenantSettingsQueries` nul rejeté (`ArgumentNullException`)
 

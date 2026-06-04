@@ -24,7 +24,8 @@ public static class FrenchVatNumberValidator
             return false;
         }
 
-        if (vatNumber[0] != 'F' || vatNumber[1] != 'R')
+        // Préfixe pays « FR » comparé sans tenir compte de la casse, par cohérence avec CountryCodeValidator.
+        if (!vatNumber.StartsWith("FR", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
