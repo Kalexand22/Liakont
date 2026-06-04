@@ -59,6 +59,9 @@
 - Avoir dont l'original est connu mais non émis → BLOQUANT `CREDIT_NOTE_ORIGINAL_NOT_ISSUED`
 - Avoir à montant de ligne négatif → BLOQUANT `CREDIT_NOTE_NEGATIVE_AMOUNT` — INV-VALIDATION-011
 - Avoir à total négatif seul → BLOQUANT `CREDIT_NOTE_NEGATIVE_AMOUNT`
+- Avoir à prix unitaire HT (BT-146) négatif → BLOQUANT `CREDIT_NOTE_NEGATIVE_AMOUNT`
+- Avoir à charge/remise de document négative → BLOQUANT `CREDIT_NOTE_NEGATIVE_AMOUNT`
+- Avoir à encaissement négatif → BLOQUANT `CREDIT_NOTE_NEGATIVE_AMOUNT`
 - Avoir à référence d'origine sans numéro → BLOQUANT `CREDIT_NOTE_REF_MISSING`
 - Avoir groupé (multi-références) : seule la référence non résolue est signalée
 - Lookup `null` au constructeur → `ArgumentNullException`

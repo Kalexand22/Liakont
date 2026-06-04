@@ -19,7 +19,9 @@ internal static class PivotDocumentBuilder
         IReadOnlyList<PivotLineDto>? lines = null,
         IReadOnlyList<PivotDocumentRefDto>? creditNoteRefs = null,
         PivotTotalsDto? totals = null,
-        decimal? prepaidAmount = null)
+        decimal? prepaidAmount = null,
+        IReadOnlyList<PivotDocumentChargeDto>? documentCharges = null,
+        IReadOnlyList<PivotPaymentDto>? payments = null)
         => new(
             sourceDocumentKind: "BORDEREAU",
             number: number,
@@ -30,6 +32,8 @@ internal static class PivotDocumentBuilder
             operationCategory: OperationCategory.LivraisonBiens,
             lines: lines,
             creditNoteRefs: creditNoteRefs,
+            payments: payments,
+            documentCharges: documentCharges,
             prepaidAmount: prepaidAmount);
 
     /// <summary>Construit une ligne pivot fictive.</summary>
@@ -37,8 +41,9 @@ internal static class PivotDocumentBuilder
         decimal netAmount = 100m,
         IReadOnlyList<string>? sourceRegimeCodes = null,
         IReadOnlyList<PivotLineTaxDto>? taxes = null,
-        string description = "Adjudication lot fictif")
-        => new(description, netAmount, sourceRegimeCodes: sourceRegimeCodes, taxes: taxes);
+        string description = "Adjudication lot fictif",
+        decimal? unitPriceNet = null)
+        => new(description, netAmount, unitPriceNet: unitPriceNet, sourceRegimeCodes: sourceRegimeCodes, taxes: taxes);
 
     /// <summary>Construit une ventilation de TVA de ligne (résultat de mapping simulé).</summary>
     public static PivotLineTaxDto Tax(

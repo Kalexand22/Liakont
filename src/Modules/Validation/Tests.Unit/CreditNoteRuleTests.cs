@@ -94,6 +94,51 @@ public sealed class CreditNoteRuleTests
     }
 
     [Fact]
+    public async Task Credit_note_with_negative_unit_price_is_blocking()
+    {
+        var rule = new CreditNoteRule(new FakeLookup(OriginalInvoiceStatus.KnownIssued));
+        var doc = Document(
+            number: "AV-100",
+            lines: new[] { Line(netAmount: 100m, unitPriceNet: -100m, taxes: new[] { Tax(taxAmount: 20m, rate: 20m, category: VatCategory.S) }) },
+            creditNoteRefs: new[] { OriginalRef("2018") },
+            totals: new PivotTotalsDto(100m, 20m, 120m));
+
+        var issues = await rule.ValidateAsync(Context(doc));
+
+        issues.Should().ContainSingle(i => i.Code == CreditNoteRule.NegativeAmountCode);
+    }
+
+    [Fact]
+    public async Task Credit_note_with_negative_document_charge_is_blocking()
+    {
+        var rule = new CreditNoteRule(new FakeLookup(OriginalInvoiceStatus.KnownIssued));
+        var doc = Document(
+            number: "AV-100",
+            creditNoteRefs: new[] { OriginalRef("2018") },
+            totals: new PivotTotalsDto(100m, 20m, 120m),
+            documentCharges: new[] { new PivotDocumentChargeDto(isCharge: true, amount: -5m, reason: "éco-contribution") });
+
+        var issues = await rule.ValidateAsync(Context(doc));
+
+        issues.Should().ContainSingle(i => i.Code == CreditNoteRule.NegativeAmountCode);
+    }
+
+    [Fact]
+    public async Task Credit_note_with_negative_payment_is_blocking()
+    {
+        var rule = new CreditNoteRule(new FakeLookup(OriginalInvoiceStatus.KnownIssued));
+        var doc = Document(
+            number: "AV-100",
+            creditNoteRefs: new[] { OriginalRef("2018") },
+            totals: new PivotTotalsDto(100m, 20m, 120m),
+            payments: new[] { new PivotPaymentDto(new DateTime(2024, 1, 12), -50m) });
+
+        var issues = await rule.ValidateAsync(Context(doc));
+
+        issues.Should().ContainSingle(i => i.Code == CreditNoteRule.NegativeAmountCode);
+    }
+
+    [Fact]
     public async Task Credit_note_with_blank_reference_number_is_blocking()
     {
         var rule = new CreditNoteRule(new FakeLookup(OriginalInvoiceStatus.KnownIssued));

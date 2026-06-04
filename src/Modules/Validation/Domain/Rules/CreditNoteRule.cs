@@ -152,12 +152,37 @@ public sealed class CreditNoteRule : IDocumentRule
                 negatives.Add($"ligne #{lineIndex + 1} HT {line.NetAmount}");
             }
 
+            if (line.UnitPriceNet is { } unitPrice && unitPrice < 0m)
+            {
+                negatives.Add($"ligne #{lineIndex + 1} PU HT {unitPrice}");
+            }
+
             foreach (var tax in line.Taxes)
             {
                 if (tax.TaxAmount < 0m)
                 {
                     negatives.Add($"ligne #{lineIndex + 1} TVA {tax.TaxAmount}");
                 }
+            }
+        }
+
+        for (var chargeIndex = 0; chargeIndex < document.DocumentCharges.Count; chargeIndex++)
+        {
+            var charge = document.DocumentCharges[chargeIndex];
+            if (charge.Amount < 0m)
+            {
+                // EN 16931 : une charge (BG-21) comme une remise (BG-20) est portée par un montant POSITIF
+                // + un indicateur, jamais par le signe — un montant négatif est donc anormal sur un avoir.
+                negatives.Add($"charge/remise #{chargeIndex + 1} {charge.Amount}");
+            }
+        }
+
+        for (var paymentIndex = 0; paymentIndex < document.Payments.Count; paymentIndex++)
+        {
+            var payment = document.Payments[paymentIndex];
+            if (payment.Amount < 0m)
+            {
+                negatives.Add($"encaissement #{paymentIndex + 1} {payment.Amount}");
             }
         }
 

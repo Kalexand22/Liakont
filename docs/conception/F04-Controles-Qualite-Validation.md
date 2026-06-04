@@ -9,6 +9,20 @@
 > Motif : une catégorie incohérente avec son taux est soit une erreur de mapping, soit une donnée
 > source fausse — dans les deux cas, l'envoyer transmettrait un motif de taxation erroné
 > (règle produit « bloquer plutôt qu'envoyer faux »). Le backlog (orchestration/items/VAL.yaml, VAL04) fait foi.
+>
+> **⚠️ AMENDEMENT (2026-06-04 — extension du contrôle §3.4 aux 9 catégories, item VAL04)** : la cohérence
+> catégorie/taux 🛑 BLOCKING s'applique aux **9 catégories UNCL5305 du pivot** (liste F03 §2.1), pas
+> seulement à S et E. Attente de taux par catégorie (la nature de chaque catégorie vient de F03 §2.1 ;
+> aucune règle inventée, CLAUDE.md n°2) :
+>
+> | Catégorie | Attente de taux |
+> |---|---|
+> | S (normal), AA (réduit), AAA (super réduit) | taux **> 0** |
+> | Z (taux zéro), E (exonéré), AE (autoliquidation), G (export hors UE), K (intra-UE), O (hors champ) | taux **= 0** (ou absent) |
+>
+> Implémenté par `CategoryRateConsistencyRule` (module Validation). **QUESTION OUVERTE** (expert-comptable) :
+> existe-t-il un cas légitime de catégorie AA/AAA à taux 0 ? Si oui, cette table sera **amendée** —
+> jamais assouplie silencieusement (CLAUDE.md n°2/3).
 
 ---
 
@@ -69,7 +83,7 @@ Classés en **🛑 Bloquant** (pas d'envoi) / **⚠️ Alerte** (envoi possible,
 | Régime source mappé dans la table TVA | 🛑 | régime inconnu → blocage (jamais d'envoi à l'aveugle) |
 | Si catégorie E (exonéré) et taux 0 → **code VATEX présent** | 🛑 | ✅ validé staging : absence = blocage silencieux côté PA |
 | Catégorie TVA ∈ énumération valide (S/E/Z/AE/G/K/O…) | 🛑 | |
-| Taux cohérent avec la catégorie (S ⇒ taux > 0 ; E ⇒ 0) | ⚠️ | 🔶 règles BR-S-*/BR-E-* |
+| Taux cohérent avec la catégorie, 9 catégories UNCL5305 (S/AA/AAA ⇒ taux > 0 ; Z/E/AE/G/K/O ⇒ 0) | 🛑 | BLOCKING — voir amendements 2026-06-02 / 2026-06-04 en tête ; règles BR-S-*/BR-E-*, liste F03 §2.1 |
 
 ### 3.5 Avoirs (lien avec F7)
 | Contrôle | Niveau | Détail |
