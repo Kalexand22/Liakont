@@ -84,7 +84,7 @@ public sealed class PostgresDocumentQueries : IDocumentQueries
                    total_gross, state, last_update_utc
             FROM documents.documents
             WHERE state = @State
-            ORDER BY last_update_utc DESC
+            ORDER BY last_update_utc DESC, id
             LIMIT @PageSize OFFSET @Offset
             """;
 

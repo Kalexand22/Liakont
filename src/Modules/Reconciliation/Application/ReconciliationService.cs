@@ -107,11 +107,14 @@ public sealed class ReconciliationService : IReconciliationService, IReconciliat
                     DocumentCandidate matched = candidatesById[decision.MatchedDocumentId!.Value];
 
                     // Ordre : addendum WORM (preuve) → fait d'audit append-only → marqueur de file d'attente.
-                    // Le verrou advisory (pg_advisory_lock) sérialise les passes concurrentes sur ce PDF :
-                    // aucune double écriture d'addendum ou de fait d'audit possible. Un crash ENTRE l'addendum et
-                    // l'AddAsync (mono-processus, repasse ultérieure) peut au pire ré-ajouter un addendum chaîné
-                    // (accepté V1 : append-only + chaîne intacte, aucune corruption). Ce cas reste distingué du
-                    // cas concurrent, maintenant sérialisé par le verrou.
+                    // CONCURRENCE : le verrou advisory (pg_advisory_lock) sérialise les passes concurrentes sur
+                    // ce PDF — aucune double écriture possible (la 2e passe voit l'entrée de file et saute).
+                    // CRASH mono-processus ENTRE le fait d'audit et l'AddAsync : la repasse ultérieure ne trouve
+                    // pas d'entrée de file et re-traite le PDF — elle peut alors ré-ajouter un addendum chaîné ET
+                    // un second DocumentReconciledAuto. Accepté V1 : append-only + chaîne intacte (aucune
+                    // corruption, un auditeur lit deux faits de rapprochement pour le même PDF). L'idempotence
+                    // stricte au crash (marqueur de file « en cours » écrit AVANT les effets) est un durcissement
+                    // ultérieur, hors périmètre V1.
                     await AddArchiveAddendumAsync(matched.DocumentId, matched.DocumentNumber, matched.IssueDate, pdf.FileName, bytes, cancellationToken);
                     await _journal.RecordAutomaticReconciliationAsync(matched.DocumentId, decision.Reason, cancellationToken);
                     await _queue.AddAsync(
@@ -212,6 +215,11 @@ public sealed class ReconciliationService : IReconciliationService, IReconciliat
         RequireTenant();
 
         var reconciled = new HashSet<Guid>(await _queue.ListReconciledDocumentIdsAsync(cancellationToken));
+
+        // Déduplication par DocumentId : la pagination par offset porte sur une clé mutable
+        // (last_update_utc) — un même document peut revenir sur deux pages (même garde que
+        // LoadIssuedCandidatesAsync, pour que les deux consommateurs soient cohérents).
+        var seen = new HashSet<Guid>();
         var result = new List<DocumentWithoutPdfDto>();
         int page = 1;
         while (true)
@@ -219,7 +227,7 @@ public sealed class ReconciliationService : IReconciliationService, IReconciliat
             IReadOnlyList<DocumentSummaryDto> batch = await _documentQueries.GetByStateAsync(IssuedState, page, IssuedPageSize, cancellationToken);
             foreach (DocumentSummaryDto document in batch)
             {
-                if (!reconciled.Contains(document.Id))
+                if (!reconciled.Contains(document.Id) && seen.Add(document.Id))
                 {
                     result.Add(new DocumentWithoutPdfDto(document.Id, document.DocumentNumber, document.IssueDate, document.TotalGross));
                 }
