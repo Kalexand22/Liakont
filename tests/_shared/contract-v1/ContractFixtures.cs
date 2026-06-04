@@ -24,11 +24,20 @@ using Liakont.Agent.Contracts.Transport;
 /// côtés (F12 §3.4, ADR-0007).
 ///
 /// <para>Frontière hash : seul le PAYLOAD PAR DOCUMENT (<see cref="PivotDocumentDto"/>) porte une
-/// empreinte canonique (anti-doublon PIV04). Les enveloppes de transport (batch, heartbeat) ne sont
-/// PAS hashées : leurs composeurs ci-dessous produisent une référence ILLUSTRATIVE du format fil,
-/// avec les noms de propriété exacts des DTOs (<see cref="PushBatchRequestDto"/>,
-/// <see cref="HeartbeatRequestDto"/>) et les règles de format figées d'ADR-0007. L'encodage fil
-/// définitif des enveloppes reste porté par l'ingestion (PIV04/PIV05).</para>
+/// empreinte canonique (rupture-de-contrat anchor, anti-doublon PIV04). Les enveloppes de transport
+/// (batch, heartbeat) ne sont PAS hashées : leurs composeurs ci-dessous produisent une référence
+/// ILLUSTRATIVE du format fil, avec les noms de propriété exacts des DTOs
+/// (<see cref="PushBatchRequestDto"/>, <see cref="HeartbeatRequestDto"/>) et les règles de format
+/// figées d'ADR-0007. L'encodage fil définitif des enveloppes reste porté par l'ingestion
+/// (PIV04/PIV05).</para>
+///
+/// <para>Les fixtures exercent le modèle pivot COMPLET — à la fois la forme push agent réelle
+/// (<c>facture-push-agent-brut</c>, <see cref="PivotLineTaxDto.CategoryCode"/> /
+/// <see cref="PivotLineTaxDto.VatexCode"/> nuls, forme hashée par l'anti-doublon PIV04) ET des
+/// documents avec les champs de mapping renseignés (<c>CategoryCode</c>/<c>VatexCode</c> peuplés),
+/// pour verrouiller les chemins enum/champ-optionnel du sérialiseur cross-runtime. L'agent lui-même
+/// ne remplit JAMAIS <c>CategoryCode</c>/<c>VatexCode</c> — cette frontière appartient à la
+/// plateforme (lot F03/TVA).</para>
 /// </summary>
 public static class ContractFixtures
 {
@@ -135,6 +144,7 @@ public static class ContractFixtures
             new DocumentFixture("avoir-groupe-multi-refs", BuildAvoirGroupeMultiRefs()),
             new DocumentFixture("facture-b2b-pro", BuildFactureB2BPro()),
             new DocumentFixture("facture-prestation-paiements", BuildFacturePrestationPaiements()),
+            new DocumentFixture("facture-push-agent-brut", BuildFacturePushAgentBrut()),
         };
 
     // ── Cas 1 : facture B2C standard, taux normal (le cas le plus fréquent ~20%) ──
@@ -405,6 +415,40 @@ public static class ContractFixtures
             payee: payee,
             isSelfBilled: true,
             prepaidAmount: 150.00m);
+    }
+
+    // ── Cas 8 : forme push agent RÉELLE — CategoryCode/VatexCode nuls (mapping plateforme absent) ──
+    // Cette fixture représente le payload EXACT tel qu'un agent l'envoie : seul SourceRegimeCodes est
+    // renseigné ; CategoryCode et VatexCode restent nuls. C'est la forme hashée par l'anti-doublon PIV04.
+    private static PivotDocumentDto BuildFacturePushAgentBrut()
+    {
+        var supplier = new PivotPartyDto(
+            name: "Étude Fictïve SVV",
+            siren: "111111111",
+            address: new PivotAddressDto(city: "Rennes", countryCode: "FR"));
+
+        // agent push : pas de catégorie/VATEX mappés
+        var tax = new PivotLineTaxDto(taxAmount: 24.00m, rate: 20m);
+        var line = new PivotLineDto(
+            description: "Adjudication lot 9 — push agent brut",
+            netAmount: 120.00m,
+            quantity: 1m,
+            unitPriceNet: 120.00m,
+            sourceRegimeCodes: new[] { "NORMAL" },
+            taxes: new[] { tax },
+            sourceLineRef: "ligne#1");
+
+        var totals = new PivotTotalsDto(totalNet: 120.00m, totalTax: 24.00m, totalGross: 144.00m, sourceTotalGross: 144.00m);
+
+        return new PivotDocumentDto(
+            sourceDocumentKind: "F",
+            number: "F-2026-0500",
+            issueDate: new DateTime(2026, 1, 12),
+            sourceReference: "no_ba=4500",
+            supplier: supplier,
+            totals: totals,
+            operationCategory: OperationCategory.LivraisonBiens,
+            lines: new[] { line });
     }
 
     /// <summary>Une fixture document : son nom (= nom de fichier golden) et le document pivot.</summary>

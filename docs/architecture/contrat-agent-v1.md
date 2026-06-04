@@ -64,7 +64,12 @@ produit le JSON hashé pour l'anti-doublon : membres dans l'ordre de déclaratio
 `null` optionnel OMIS, collections toujours émises (`[]`), enums par nom, `decimal` invariant à
 échelle préservée sans exposant, dates `yyyy-MM-dd`, **sortie ASCII pure** (non-ASCII échappé
 `\uXXXX`). `PayloadHasher` en calcule le SHA-256 (hex minuscule, 64 car.). Le résultat est IDENTIQUE
-octet par octet entre net48 et .NET 10 (preuve : golden files exécutés des deux côtés).
+octet par octet entre net48 et .NET 10 (preuve : golden files exécutés des deux côtés). Les golden
+fixtures exercent le modèle pivot complet — à la fois la forme push agent réelle
+(`facture-push-agent-brut`, `CategoryCode`/`VatexCode` nuls, forme hashée par l'anti-doublon PIV04)
+ET des documents avec les champs de mapping renseignés, pour verrouiller les chemins
+enum/champ-optionnel du sérialiseur cross-runtime ; l'agent lui-même ne remplit jamais
+`CategoryCode`/`VatexCode` — cette frontière appartient à la plateforme (lot F03/TVA).
 
 ### 3.2 Enveloppes de transport (F12 §3.4)
 
@@ -109,7 +114,8 @@ octet par octet entre net48 et .NET 10 (preuve : golden files exécutés des deu
 
 Jeu de référence FICTIF (aucune donnée client — CLAUDE.md n°7), généré par les builders de
 `ContractFixtures` et vérifié par `ContractFixtureTests`, **liés dans les deux projets de test**
-(plateforme `.NET 10` + agent `net48`).
+(plateforme `.NET 10` + agent `net48`). L'ensemble représente le **modèle pivot partagé** ; la forme
+push agent réelle (champs de mapping nuls) est spécifiquement `facture-push-agent-brut`.
 
 | Fichier | Cas représentatif |
 |---|---|
@@ -120,6 +126,7 @@ Jeu de référence FICTIF (aucune donnée client — CLAUDE.md n°7), généré 
 | `avoir-groupe-multi-refs.json` | Avoir groupé multi-références (`Number` + `IssueDate` par référence). |
 | `facture-b2b-pro.json` | Acheteur professionnel identifié, multi-lignes, multi-taxes (S + AA), charge document. |
 | `facture-prestation-paiements.json` | Prestation de services + encaissements (F09), auto-facturation + affacturage, acompte. |
+| `facture-push-agent-brut.json` | Push agent RÉEL : régime source brut, champs de mapping (`CategoryCode`/`VatexCode`) nuls — la forme hashée par l'anti-doublon PIV04. |
 | `batch-mixte.json` | Lot illustratif portant deux documents (enveloppe, non hashée). |
 | `heartbeat.json` | Heartbeat illustratif (enveloppe, non hashée). |
 

@@ -8,6 +8,7 @@ using FluentAssertions;
 using Liakont.Agent.Contracts;
 using Liakont.Agent.Contracts.Pivot;
 using Liakont.Agent.Contracts.Serialization;
+using Liakont.Agent.Contracts.Transport;
 using Xunit;
 
 /// <summary>
@@ -42,6 +43,7 @@ public sealed class ContractFixtureTests
         ["avoir-groupe-multi-refs"] = "04eef3e2e4f470f094b8f71f19da360c4481661b2415eb534c8eee2ceb3b7d39",
         ["facture-b2b-pro"] = "9ef37f38c06112225dfedebf855136af9fe5eefc5b30608d43310dd1b631bf8d",
         ["facture-prestation-paiements"] = "b30d6a942afe250efb26c48711c85bc91aa6de949148e52e00d07c1d6331be81",
+        ["facture-push-agent-brut"] = "cefc4ed66002ce4305e1a3b3b38dc35f0e16f12399840d3c7fc07115dcf2b4a6",
     };
 
     private static string FixturesDirectory => Path.Combine(AppContext.BaseDirectory, "fixtures", "contrat-v1");
@@ -110,6 +112,9 @@ public sealed class ContractFixtureTests
         var documents = (List<object?>)map["Documents"]!;
         documents.Should().HaveCount(2, "le lot illustratif porte deux documents");
 
+        map.ContainsKey(nameof(PushBatchRequestDto.ContractVersion)).Should().BeTrue("la clé d'enveloppe doit suivre le nom de propriété du DTO");
+        map.ContainsKey(nameof(PushBatchRequestDto.Documents)).Should().BeTrue("la clé d'enveloppe doit suivre le nom de propriété du DTO");
+
         // Les documents embarqués sont EXACTEMENT les golden canoniques correspondants : le lot
         // transporte des payloads dont l'empreinte par document reste celle figée plus haut.
         golden.Should().Contain(CanonicalJson.Serialize(ContractFixtures.GetDocument("facture-standard-b2c")));
@@ -129,13 +134,20 @@ public sealed class ContractFixtureTests
         ((string)map["SentAtUtc"]!).Should().MatchRegex(
             @"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", "horodatage UTC au format figé yyyy-MM-ddTHH:mm:ssZ (ADR-0007)");
         ((string)map["LastSuccessfulSyncUtc"]!).Should().MatchRegex(@"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$");
+
+        map.ContainsKey(nameof(HeartbeatRequestDto.ContractVersion)).Should().BeTrue();
+        map.ContainsKey(nameof(HeartbeatRequestDto.AgentVersion)).Should().BeTrue();
+        map.ContainsKey(nameof(HeartbeatRequestDto.SentAtUtc)).Should().BeTrue();
+        map.ContainsKey(nameof(HeartbeatRequestDto.LastSuccessfulSyncUtc)).Should().BeTrue();
     }
 
     /// <summary>
     /// Présence des golden files — OU régénération sur demande explicite. En mode normal (CI), ce
     /// test ÉCHOUE si un golden manque. Pour régénérer après une évolution VOLONTAIRE du contrat :
-    /// <c>LIAKONT_REGEN_FIXTURES=1</c> + <c>LIAKONT_FIXTURE_OUT=&lt;tests/fixtures/contrat-v1&gt;</c>
-    /// (écrit les fichiers, à committer + reporter les empreintes dans <see cref="FrozenHashes"/>).
+    /// <c>LIAKONT_REGEN_FIXTURES=1</c> + <c>LIAKONT_FIXTURE_OUT=&lt;tests/fixtures/contrat-v1&gt;</c>.
+    /// La régénération écrit les fichiers PUIS FAIT ÉCHOUER LE TEST VOLONTAIREMENT — un flag qui fuite
+    /// dans CI échoue bruyamment au lieu de passer silencieusement. Après écriture, reporter les
+    /// empreintes dans <see cref="FrozenHashes"/> et committer les fichiers (gate humaine).
     /// </summary>
     [Fact]
     public void Fixtures_are_present_or_regenerated()
@@ -153,7 +165,9 @@ public sealed class ContractFixtureTests
 
             WriteCanonical(outDir!, ContractFixtures.BatchFixtureName, ContractFixtures.ComposeBatchRequestJson());
             WriteCanonical(outDir!, ContractFixtures.HeartbeatFixtureName, ContractFixtures.ComposeHeartbeatJson());
-            return;
+            throw new InvalidOperationException(
+                "Golden files régénérés dans " + outDir + ". Retirez LIAKONT_REGEN_FIXTURES/LIAKONT_FIXTURE_OUT, "
+                + "reportez les empreintes dans FrozenHashes, puis committez — un run de tests ne doit jamais régénérer silencieusement.");
         }
 
         foreach (ContractFixtures.DocumentFixture fixture in ContractFixtures.Documents)
