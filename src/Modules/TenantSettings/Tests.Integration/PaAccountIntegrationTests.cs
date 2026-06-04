@@ -114,6 +114,27 @@ public sealed class PaAccountIntegrationTests
     }
 
     [Fact]
+    public async Task Update_To_Existing_Plugin_And_Environment_Throws_Conflict()
+    {
+        var harness = new TenantSettingsHarness(_fixture, Guid.NewGuid(), Guid.NewGuid());
+        var addHandler = new AddPaAccountHandler(harness.UowFactory, harness.CompanyFilter, harness.SecretProtector, harness.Journal);
+        var updateHandler = new UpdatePaAccountHandler(harness.UowFactory, harness.CompanyFilter, harness.SecretProtector, harness.Journal);
+
+        await addHandler.Handle(
+            new AddPaAccountCommand { PluginType = "Fake", Environment = "Staging", AccountIdentifiers = "{}", ApiKey = null },
+            CancellationToken.None);
+        var prodId = await addHandler.Handle(
+            new AddPaAccountCommand { PluginType = "Fake", Environment = "Production", AccountIdentifiers = "{}", ApiKey = null },
+            CancellationToken.None);
+
+        var act = () => updateHandler.Handle(
+            new UpdatePaAccountCommand { PaAccountId = prodId, Environment = "Staging", AccountIdentifiers = "{}", ApiKey = null },
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<ConflictException>("faire collisionner (tenant, plug-in, environnement) via update est interdit (index unique).");
+    }
+
+    [Fact]
     public async Task Update_Rotates_Key_When_Provided()
     {
         var harness = new TenantSettingsHarness(_fixture, Guid.NewGuid(), Guid.NewGuid());

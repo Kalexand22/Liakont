@@ -56,7 +56,7 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
                  @ContactEmailAlerte, @Statut, @CreatedAt, @UpdatedAt)
             """;
 
-        await ExecuteInsertAsync(
+        await ExecuteWriteAsync(
             new CommandDefinition(
                 sql,
                 new
@@ -139,7 +139,7 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
                 (@Id, @CompanyId, @VatOnDebits, @OperationCategory, @ReportingFrequency, @CreatedAt, @UpdatedAt)
             """;
 
-        await ExecuteInsertAsync(
+        await ExecuteWriteAsync(
             new CommandDefinition(
                 sql,
                 new
@@ -234,7 +234,7 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
                  @IsActive, @CreatedAt, @UpdatedAt)
             """;
 
-        await ExecuteInsertAsync(
+        await ExecuteWriteAsync(
             new CommandDefinition(
                 sql,
                 new
@@ -267,21 +267,23 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
             WHERE id = @Id AND company_id = @CompanyId
             """;
 
-        var rows = await _txn.Connection.ExecuteAsync(new CommandDefinition(
-            sql,
-            new
-            {
-                account.Id,
-                account.CompanyId,
-                account.PluginType,
-                Environment = (int)account.Environment,
-                account.AccountIdentifiers,
-                account.EncryptedApiKey,
-                account.IsActive,
-                account.UpdatedAt,
-            },
-            _txn.Transaction,
-            cancellationToken: ct));
+        var rows = await ExecuteWriteAsync(
+            new CommandDefinition(
+                sql,
+                new
+                {
+                    account.Id,
+                    account.CompanyId,
+                    account.PluginType,
+                    Environment = (int)account.Environment,
+                    account.AccountIdentifiers,
+                    account.EncryptedApiKey,
+                    account.IsActive,
+                    account.UpdatedAt,
+                },
+                _txn.Transaction,
+                cancellationToken: ct),
+            "Un compte PA existe déjà pour ce type de plug-in et cet environnement.");
 
         EnsureUpdated(rows, "PaAccount", account.Id);
     }
@@ -310,7 +312,7 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
                 (@Id, @CompanyId, @Hours, @CatchUpOnStart, @CreatedAt, @UpdatedAt)
             """;
 
-        await ExecuteInsertAsync(
+        await ExecuteWriteAsync(
             new CommandDefinition(
                 sql,
                 new
@@ -383,7 +385,7 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
                  @AlertTenantContact, @CreatedAt, @UpdatedAt)
             """;
 
-        await ExecuteInsertAsync(
+        await ExecuteWriteAsync(
             new CommandDefinition(
                 sql,
                 new
@@ -540,11 +542,11 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
         }
     }
 
-    private async Task ExecuteInsertAsync(CommandDefinition command, string conflictMessage)
+    private async Task<int> ExecuteWriteAsync(CommandDefinition command, string conflictMessage)
     {
         try
         {
-            await _txn.Connection.ExecuteAsync(command);
+            return await _txn.Connection.ExecuteAsync(command);
         }
         catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
         {
