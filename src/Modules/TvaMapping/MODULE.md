@@ -9,8 +9,20 @@ système source** en triplet normalisé **{catégorie EN 16931 (UNCL5305), taux,
 
 **Périmètre de l'item TVA01** : le **modèle** de la table (`MappingTable` + `MappingRule`), sa
 **persistance** PostgreSQL par tenant, et sa **validation structurelle** à l'écriture comme au
-chargement. Le moteur d'application (TVA02), la détection des régimes non mappés (TVA03), le seed
-d'exemple (TVA04) et l'édition console + journal append-only (TVA05) sont des items distincts.
+chargement.
+
+**Périmètre de l'item TVA02** : le **moteur** `TvaMapper` (`Domain/Services`) + ses types
+(`Domain/Mapping` : `MappingRequest`, `MappingResult`, `MappingTrace`). Service de domaine PUR et
+SANS ÉTAT : il applique la table du tenant à `(code régime source, part, flags)` et produit soit le
+triplet `{catégorie UNCL5305, taux, VATEX}` avec une `MappingTrace` d'audit, soit un blocage
+(régime non couvert ou flags non satisfaits → `block`, jamais de mapping deviné — INV-007). Le taux
+`ComputedFromSource` est signalé par le moteur ; sa valeur numérique est résolue en aval (pipeline
+PIP01) à partir des montants de la ligne (F03 §4.1). Le moteur est testé **en direct** (unitaire) ;
+son câblage à l'ingestion (événement `DocumentReceived`) arrive avec PIP01, et son passage sur les
+golden files via le seed d'exemple avec TVA04.
+
+La détection des régimes non mappés (TVA03), le seed d'exemple (TVA04) et l'édition console +
+journal append-only (TVA05) sont des items distincts.
 
 ## Boundaries
 
@@ -25,8 +37,9 @@ d'exemple (TVA04) et l'édition console + journal append-only (TVA05) sont des i
 
 ## Published Events
 
-Aucun (TVA01). Le moteur (TVA02) attachera une `MappingTrace` aux lignes mappées via le module
-Documents ; ce n'est pas le périmètre de TVA01.
+Aucun. Le moteur (TVA02) PRODUIT une `MappingTrace` par ligne mappée, mais ne la persiste pas
+lui-même : elle est attachée à la ligne et persistée par le module Documents (TRK01/04) lors du
+câblage du pipeline (PIP01). Le module TvaMapping reste sans événement publié.
 
 ## Consumed Events
 
