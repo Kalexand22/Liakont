@@ -28,7 +28,7 @@ public sealed class AwsS3BlobClient : IS3BlobClient
         _retentionYears = options.Value.ObjectLockRetentionYears;
     }
 
-    public async Task PutAsync(string key, byte[] content, bool applyObjectLock, CancellationToken cancellationToken)
+    public async Task<bool> TryPutIfAbsentAsync(string key, byte[] content, bool applyObjectLock, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(content);
         using var stream = new MemoryStream(content);
@@ -38,6 +38,10 @@ public sealed class AwsS3BlobClient : IS3BlobClient
             Key = key,
             InputStream = stream,
             AutoCloseStream = false,
+
+            // Création ATOMIQUE : S3 rejette en 412 PreconditionFailed si un objet existe déjà à la clé.
+            // C'est la garantie write-once native (pas de read-puis-write sujet aux courses).
+            IfNoneMatch = "*",
         };
 
         if (applyObjectLock)
@@ -46,7 +50,22 @@ public sealed class AwsS3BlobClient : IS3BlobClient
             request.ObjectLockRetainUntilDate = DateTime.UtcNow.AddYears(_retentionYears);
         }
 
-        await _s3.PutObjectAsync(request, cancellationToken);
+        try
+        {
+            await _s3.PutObjectAsync(request, cancellationToken);
+            return true;
+        }
+        catch (AmazonS3Exception exception)
+            when (exception.StatusCode is HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict)
+        {
+            // Création atomique refusée. Deux issues d'une écriture conditionnelle S3 concurrente :
+            //   412 PreconditionFailed → un objet est DÉJÀ commité à la clé (write-once respecté) ;
+            //   409 Conflict           → une écriture concurrente est EN VOL sur la même clé.
+            // Dans les deux cas on retourne false : l'arbitrage par relecture du store
+            // (S3ArchiveStore.WriteAsync, étape 3) tranche idempotence (même contenu) vs conflit WORM
+            // (contenu différent), plutôt que de laisser l'exception remonter hors de WriteAsync.
+            return false;
+        }
     }
 
     public async Task<bool> ExistsAsync(string key, CancellationToken cancellationToken)

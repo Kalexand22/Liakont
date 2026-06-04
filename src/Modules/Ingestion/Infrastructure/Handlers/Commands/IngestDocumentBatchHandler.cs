@@ -170,6 +170,10 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
             if (!decision.IsAccepted)
             {
                 // Doublon : aucun effet (idempotence — re-push complet après réinstallation d'agent).
+                // TODO(ADR-0012) : sous l'acquittement agent en deux temps, ce `duplicate` devra DISTINGUER
+                // « déjà rangé (Detected existe) » → terminal, de « reçu mais non rangé » → RE-TENTER le
+                // rangement (idempotent). Sans cette distinction, un renvoi d'un document non rangé est
+                // écarté ici et la fuite reste ouverte. Implémenté avec AGT + le point de statut (Ingestion).
                 return new DocumentPushResultDto(sourceReference, DocumentPushStatus.Duplicate);
             }
 
@@ -277,6 +281,11 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            // TODO(ADR-0012) : avaler l'échec ici n'est SÛR que sous l'acquittement agent en deux temps —
+            // l'agent garde l'élément « en cours » et le RENVOIE tant que le point de statut ne confirme pas
+            // un état terminal, ce qui re-tente le rangement (idempotent). NE PAS « corriger » en rendant
+            // cet intake bloquant (ré-introduirait le risque de document orphelin, prérequis TRK02) : le
+            // bon correctif est le protocole de statut (AGT + Ingestion + PIP01), pas une transaction ici.
             LogDocumentIntakeFailed(_logger, documentId, ex);
         }
     }

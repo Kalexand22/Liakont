@@ -17,11 +17,17 @@ public sealed class FakeS3BlobClient : IS3BlobClient
 
     public Dictionary<string, bool> ObjectLockApplied { get; } = new(StringComparer.Ordinal);
 
-    public Task PutAsync(string key, byte[] content, bool applyObjectLock, CancellationToken cancellationToken)
+    public Task<bool> TryPutIfAbsentAsync(string key, byte[] content, bool applyObjectLock, CancellationToken cancellationToken)
     {
+        // Création atomique : si la clé existe déjà, on REFUSE (write-once), sans écraser le contenu.
+        if (_objects.ContainsKey(key))
+        {
+            return Task.FromResult(false);
+        }
+
         _objects[key] = content.ToArray();
         ObjectLockApplied[key] = applyObjectLock;
-        return Task.CompletedTask;
+        return Task.FromResult(true);
     }
 
     public Task<bool> ExistsAsync(string key, CancellationToken cancellationToken) =>

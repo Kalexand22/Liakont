@@ -11,8 +11,15 @@ using System.Threading.Tasks;
 /// </summary>
 public interface IS3BlobClient
 {
-    /// <summary>Écrit un objet ; <paramref name="applyObjectLock"/> active le verrou objet natif quand la capacité est déclarée.</summary>
-    Task PutAsync(string key, byte[] content, bool applyObjectLock, CancellationToken cancellationToken);
+    /// <summary>
+    /// Écrit un objet UNIQUEMENT s'il n'existe pas encore (création ATOMIQUE — <c>If-None-Match: *</c>).
+    /// Retourne <c>true</c> si l'objet a été créé, <c>false</c> si un objet existait déjà à la clé
+    /// (précondition échouée). C'est ce qui garantit le write-once même sous écriture concurrente : deux
+    /// écrivains ne peuvent pas tous deux « créer » la même clé (pas de fenêtre de course entre un test
+    /// d'existence et l'écriture). <paramref name="applyObjectLock"/> active le verrou objet natif quand
+    /// la capacité est déclarée.
+    /// </summary>
+    Task<bool> TryPutIfAbsentAsync(string key, byte[] content, bool applyObjectLock, CancellationToken cancellationToken);
 
     /// <summary>Indique si un objet existe à la clé donnée.</summary>
     Task<bool> ExistsAsync(string key, CancellationToken cancellationToken);

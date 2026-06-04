@@ -1,7 +1,9 @@
 # Lot AGT — L'agent local (.NET Framework 4.8) : extraction + transport
 # Spec : docs/conception/F12-Architecture-Plateforme-Agent.md (§2 agent, §3 contrat d'ingestion) ;
 #        docs/adr/ADR-0004 (la frontière IExtractor naît AVEC ses capacités déclarées : ExtractorCapabilities
-#        existe déjà mais limité au PDF — ADR-0004 D2 l'ÉTEND aux dimensions qui varient vraiment ; voir AGT02)
+#        existe déjà mais limité au PDF — ADR-0004 D2 l'ÉTEND aux dimensions qui varient vraiment ; voir AGT02) ;
+#        docs/adr/ADR-0012 (acquittement agent en DEUX TEMPS : push « en cours » + réconciliation par
+#        GET /documents/status ; amende F12 §3.3 « retrait de la file après ACK » — voir AGT02)
 # L'agent est le SEUL composant installé chez le client final. Il n'a AUCUNE logique métier :
 # extraction (via plug-ins IExtractor) + buffer local + push HTTPS + heartbeat. Toute
 # l'intelligence (TVA, validation, états, envoi PA) est sur la plateforme.
@@ -95,11 +97,20 @@ items:
            (accepted / duplicate / rejected + motif)
          - POST .../documents/{sourceReference}/pdf et POST .../pdf-pool pour les PDF
          - auth header X-Agent-Key, version du contrat dans les headers
-         - un élément n'est retiré de push_queue QU'APRÈS un ACK (accepted ou duplicate) ;
-           rejected (400) = marqué en erreur, signalé au heartbeat, PAS de retry infini
+         - ACQUITTEMENT EN DEUX TEMPS (ADR-0012, amende F12 §3.3) : un `accepted` au push
+           signifie « reçu, en cours », PAS « supprimer ». L'élément est marqué « en cours »
+           dans push_queue et N'EST PAS purgé sur le seul retour du push. AVANT chaque push,
+           l'agent interroge GET /api/agent/v1/documents/status (clé (source_reference,
+           payload_hash)) et applique une règle MÉCANIQUE (l'agent n'interprète aucun état
+           métier) : Processed (terminal) → purge ; Rejected (terminal) → purge + signalement
+           opérateur (jamais de re-push d'un payload invalide = pas de boucle) ; Pending/inconnu
+           → renvoi au prochain push. C'est ce qui ferme la perte silencieuse d'un document
+           reçu côté plateforme mais non rangé dans le pipeline (le point de statut côté
+           plateforme est porté par PIP01).
          - codes d'erreur selon F12 §3.3 : 401/403 = stop + erreur explicite ; 413 = re-découpe ;
            426 = déclenche l'auto-update (AGT04) ; 429/5xx/réseau = backoff exponentiel,
-           les éléments restent en file
+           les éléments restent en file (un `rejected` au push = marqué en erreur, signalé au
+           heartbeat, jamais de retry infini)
       3. Boucle de drainage : tourne après chaque run ET périodiquement (rattrapage des
          éléments en attente après une coupure réseau).
       4. Exceptions d'extraction typées (héritées du contrat IExtractor) :
@@ -110,7 +121,9 @@ items:
          dans la file).
     acceptance:
       - "Cycle extract → collect → enqueue → push conforme à F12 §2.2"
-      - "Les éléments ne quittent la file qu'après ACK de la plateforme (testé : coupure réseau = rien perdu)"
+      - "Acquittement en DEUX TEMPS (ADR-0012) : un élément ne quitte la file qu'après un état TERMINAL confirmé par GET /documents/status (Processed→purge ; Rejected→purge+signalement) ; un `accepted` au push = « en cours », jamais purge"
+      - "Le point de statut est interrogé AVANT chaque push ; un document reçu mais non rangé est RENVOYÉ (testé : intake échoué côté plateforme → document re-poussé, pas perdu)"
+      - "Coupure réseau = rien perdu, rattrapage automatique"
       - "Batching 100 max + re-découpe sur 413"
       - "Backoff exponentiel sur 429/5xx/réseau ; pas de retry sur 400"
       - "Régimes TVA source collectés et transmis dans les métadonnées de push"

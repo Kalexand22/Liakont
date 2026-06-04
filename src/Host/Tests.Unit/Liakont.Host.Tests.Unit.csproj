@@ -15,4 +15,9 @@
   <ItemGroup>
     <ProjectReference Include="../Liakont.Host/Liakont.Host.csproj" />
   </ItemGroup>
+  <!-- Fixtures de contrat partagées (golden) : sert à vérifier que la liaison JSON du Host lie bien
+       le format documenté (enums par leur nom). Même fichier lié côté agent et côté contrat. -->
+  <ItemGroup>
+    <Compile Include="../../../tests/_shared/contract-v1/ContractFixtures.cs" Link="ContractV1/ContractFixtures.cs" />
+  </ItemGroup>
 </Project>

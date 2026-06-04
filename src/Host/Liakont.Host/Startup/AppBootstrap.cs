@@ -193,6 +193,13 @@ public static class AppBootstrap
                     }));
         });
 
+        // Liaison JSON du contrat agent (F12 §3) : le contrat émet ses énumérations par leur NOM
+        // (cf. CanonicalJson / fixtures contrat-v1). Sans convertisseur string→enum, System.Text.Json
+        // attend un nombre et rejette un lot au format documenté en 400 au model-binding (requête) et
+        // émet le statut de réponse en nombre. Scopé aux trois enums du contrat (deux en requête, un en
+        // réponse — voir AgentApiJson) pour ne pas toucher le format des autres enums.
+        builder.Services.ConfigureHttpJsonOptions(options => AgentApiJson.ConfigureContractEnums(options.SerializerOptions));
+
         // Le module ERP Party n'est pas vendoré (seul Party.Contracts — décision D1). Identity
         // dépend de IPartyQueries par injection ; Liakont ne lie pas ses utilisateurs à des Party
         // ERP (PartyId toujours null). Shim no-op pour satisfaire la validation du graphe DI.
