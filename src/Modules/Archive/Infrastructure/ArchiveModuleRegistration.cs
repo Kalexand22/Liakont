@@ -48,16 +48,24 @@ public static class ArchiveModuleRegistration
 
     /// <summary>
     /// Ancrage temporel (TRK06) : ancrage choisi par config d'instance (NoAnchor par défaut), vérifieur
-    /// d'intégrité, export contrôle fiscal et handler de fan-out du job quotidien. Le job système lui-même
-    /// est planifié côté Host (AddJobHandler + JobScheduler) — voir ADR-0010.
+    /// d'intégrité et export contrôle fiscal. Le handler de fan-out du job quotidien
+    /// (<see cref="DailyAnchoringFanOutHandler"/>) est enregistré par le HOST via
+    /// <c>AddJobHandler&lt;DailyAnchoringTrigger, DailyAnchoringFanOutHandler&gt;()</c> (l'extension vit dans
+    /// le module Job ; l'appeler ici franchirait une frontière de module). Une méthode d'ancrage inconnue
+    /// fait ÉCHOUER le démarrage (jamais un repli silencieux sur NoAnchor) — voir ADR-0010.
     /// </summary>
     private static void AddAnchoring(IServiceCollection services, IConfiguration configuration)
     {
         IConfigurationSection section = configuration.GetSection(TimestampAnchorOptions.SectionName);
         services.Configure<TimestampAnchorOptions>(section);
 
-        string method = section["Method"] ?? "None";
-        if (string.Equals(method, "Rfc3161", StringComparison.OrdinalIgnoreCase))
+        string? method = section["Method"];
+        if (string.IsNullOrWhiteSpace(method) || string.Equals(method, "None", StringComparison.OrdinalIgnoreCase))
+        {
+            // Défaut : aucune sortie réseau. L'intégrité reste portée par la chaîne de hashes.
+            services.TryAddSingleton<ITimestampAnchor, NoAnchorTimestampAnchor>();
+        }
+        else if (string.Equals(method, "Rfc3161", StringComparison.OrdinalIgnoreCase))
         {
             services.AddHttpClient(HttpTsaClient.HttpClientName)
                 .ConfigureHttpClient((sp, client) =>
@@ -75,16 +83,15 @@ public static class ArchiveModuleRegistration
         }
         else
         {
-            // Défaut : aucune sortie réseau. L'intégrité reste portée par la chaîne de hashes.
-            services.TryAddSingleton<ITimestampAnchor, NoAnchorTimestampAnchor>();
+            // Mauvaise configuration d'une fonctionnalité de sécurité : on bloque au démarrage plutôt que de
+            // dégrader silencieusement vers « aucun ancrage » (une faute de frappe désactiverait le scellement).
+            throw new InvalidOperationException(
+                $"Méthode d'ancrage « {method} » inconnue (Archive:Anchor:Method). Valeurs acceptées : None, Rfc3161, OpenTimestamps.");
         }
 
         services.AddScoped<IArchiveAnchorStore, PostgresArchiveAnchorStore>();
         services.AddScoped<IArchiveAnchoringService, ArchiveAnchoringService>();
         services.AddScoped<IArchiveVerifier, ArchiveVerifier>();
         services.AddScoped<IFiscalControlExportService, FiscalControlExportService>();
-
-        // Handler du job système d'ancrage quotidien : le Host le planifie (AddJobHandler + JobScheduler).
-        services.AddScoped<DailyAnchoringFanOutHandler>();
     }
 }

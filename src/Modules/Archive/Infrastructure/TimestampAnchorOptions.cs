@@ -25,5 +25,14 @@ public sealed class TimestampAnchorOptions
 
         /// <summary>Délai d'attente de l'appel TSA, en secondes.</summary>
         public int TimeoutSeconds { get; set; } = 30;
+
+        /// <summary>
+        /// Certificat de la TSA qualifiée À ÉPINGLER (DER encodé en base64), paramétrage d'INSTANCE. Quand
+        /// il est renseigné, la vérification exige que le certificat signataire du jeton ait CETTE empreinte
+        /// (authentifie la TSA, ferme la forge d'un jeton auto-signé). Quand il est absent, la vérification
+        /// in-produit confirme signature + empreinte mais NON l'identité de la TSA (caveat reporté à
+        /// l'opérateur ; vérification autoritaire par contrôle externe). Jamais de certificat client en dur.
+        /// </summary>
+        public string? TrustedCertificateBase64 { get; set; }
     }
 }

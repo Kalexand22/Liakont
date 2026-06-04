@@ -131,14 +131,14 @@ public sealed class ArchiveAnchorIntegrationTests : IDisposable
             _entryStore,
             _anchorStore,
             _store,
-            new Rfc3161TimestampAnchor(new ThrowingTsaClient()),
+            new Rfc3161TimestampAnchor(new ThrowingTsaClient(), Options.Create(new TimestampAnchorOptions())),
             new StubTenantContext(Tenant));
 
         ArchiveVerificationReport report = await verifier.VerifyTenantVaultAsync();
 
         report.Chain.IsIntact.Should().BeTrue();
         report.Anchors.Should().ContainSingle();
-        report.Anchors[0].IsValid.Should().BeFalse();
+        report.Anchors[0].Status.Should().Be(ArchiveAnchorVerificationStatus.Invalid);
         report.Anchors[0].Detail.Should().Contain("manquante");
         report.IsFullyVerified.Should().BeFalse();
     }

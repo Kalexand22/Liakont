@@ -6,6 +6,7 @@ using Liakont.Modules.Archive.Application;
 using Liakont.Modules.Archive.Domain;
 using Liakont.Modules.Archive.Infrastructure;
 using Liakont.Modules.Archive.Tests.Unit.Doubles;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 /// <summary>Tests du service d'ancrage de la tête de chaîne (TRK06) : preuve archivée, idempotence, modes.</summary>
@@ -14,6 +15,9 @@ public sealed class ArchiveAnchoringServiceTests
     private readonly InMemoryArchiveStore _store = new();
     private readonly FakeArchiveEntryStore _entryStore = new();
     private readonly FakeArchiveAnchorStore _anchorStore = new();
+
+    private static Rfc3161TimestampAnchor Rfc3161(ITsaClient client) =>
+        new(client, Options.Create(new TimestampAnchorOptions()));
 
     private ArchiveAnchoringService Create(ITimestampAnchor anchor) =>
         new(_entryStore, _anchorStore, _store, anchor, new StubTenantContext(ArchiveTestData.Tenant));
@@ -29,7 +33,7 @@ public sealed class ArchiveAnchoringServiceTests
     {
         using var tsa = new TestTimestampAuthority();
         await SeedChainAsync();
-        ArchiveAnchoringService service = Create(new Rfc3161TimestampAnchor(FakeTsaClient.Backed(tsa)));
+        ArchiveAnchoringService service = Create(Rfc3161(FakeTsaClient.Backed(tsa)));
 
         AnchoringOutcome outcome = await service.AnchorChainHeadAsync();
 
@@ -47,7 +51,7 @@ public sealed class ArchiveAnchoringServiceTests
         using var tsa = new TestTimestampAuthority();
         await SeedChainAsync();
         var tsaClient = FakeTsaClient.Backed(tsa);
-        ArchiveAnchoringService service = Create(new Rfc3161TimestampAnchor(tsaClient));
+        ArchiveAnchoringService service = Create(Rfc3161(tsaClient));
 
         await service.AnchorChainHeadAsync();
         AnchoringOutcome second = await service.AnchorChainHeadAsync();
@@ -86,7 +90,7 @@ public sealed class ArchiveAnchoringServiceTests
     public async Task Anchor_EmptyChain_NothingToAnchor()
     {
         using var tsa = new TestTimestampAuthority();
-        ArchiveAnchoringService service = Create(new Rfc3161TimestampAnchor(FakeTsaClient.Backed(tsa)));
+        ArchiveAnchoringService service = Create(Rfc3161(FakeTsaClient.Backed(tsa)));
 
         AnchoringOutcome outcome = await service.AnchorChainHeadAsync();
 

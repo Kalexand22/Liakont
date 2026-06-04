@@ -12,7 +12,8 @@ using Stratum.Common.Abstractions.MultiTenancy;
 /// Vérifieur d'intégrité COMPLET du coffre d'un tenant (TRK06). Réutilise la vérification contenu +
 /// chaînage de TRK05 (<see cref="IArchiveService.VerifyTenantChainAsync"/>) et l'enrichit de la
 /// vérification des preuves d'ancrage temporel : chaque ancrage doit pointer une tête de chaîne RÉELLE du
-/// tenant et sa preuve doit être cryptographiquement valide. Tenant-scopé par construction.
+/// tenant et sa preuve doit être valide. Une preuve d'une méthode que l'instance ne sait pas vérifier est
+/// marquée NON VÉRIFIABLE (jamais « invalide ») : confondre les deux serait un faux négatif alarmant.
 /// </summary>
 public sealed class ArchiveVerifier : IArchiveVerifier
 {
@@ -56,7 +57,8 @@ public sealed class ArchiveVerifier : IArchiveVerifier
         string? currentHead = entries.Count > 0 ? entries[^1].ChainHash : null;
 
         var anchorVerifications = new List<ArchiveAnchorVerification>(anchors.Count);
-        bool allAnchorsValid = true;
+        bool anyInvalid = false;
+        bool anyNotVerifiable = false;
         bool currentHeadAnchored = false;
 
         foreach (ArchiveAnchorRecord anchor in anchors)
@@ -64,29 +66,39 @@ public sealed class ArchiveVerifier : IArchiveVerifier
             ArchiveAnchorVerification verification = await VerifyAnchorAsync(tenant, anchor, knownHeads, cancellationToken);
             anchorVerifications.Add(verification);
 
-            if (!verification.IsValid)
+            switch (verification.Status)
             {
-                allAnchorsValid = false;
-            }
-            else if (string.Equals(anchor.ChainHeadHash, currentHead, StringComparison.Ordinal))
-            {
-                currentHeadAnchored = true;
+                case ArchiveAnchorVerificationStatus.Invalid:
+                    anyInvalid = true;
+                    break;
+                case ArchiveAnchorVerificationStatus.NotVerifiable:
+                    anyNotVerifiable = true;
+                    break;
+                case ArchiveAnchorVerificationStatus.Valid when string.Equals(anchor.ChainHeadHash, currentHead, StringComparison.Ordinal):
+                    currentHeadAnchored = true;
+                    break;
             }
         }
 
-        bool isFullyVerified = chain.IsIntact && allAnchorsValid;
-        string summary = BuildSummary(chain, anchors.Count, allAnchorsValid, currentHeadAnchored, currentHead is not null);
+        bool isFullyVerified = chain.IsIntact && !anyInvalid;
+        string summary = BuildSummary(chain, anchors.Count, anyInvalid, anyNotVerifiable, currentHeadAnchored, currentHead is not null);
 
         return new ArchiveVerificationReport(chain, anchorVerifications, currentHeadAnchored, isFullyVerified, summary);
     }
 
-    private static ArchiveAnchorVerification Invalid(ArchiveAnchorRecord anchor, string method, string detail) =>
-        new(anchor.AnchorId, method, anchor.ChainHeadHash, anchor.ProofPath, IsValid: false, anchor.AnchoredUtc, detail);
+    private static ArchiveAnchorVerification Result(
+        ArchiveAnchorRecord anchor,
+        string method,
+        ArchiveAnchorVerificationStatus status,
+        DateTimeOffset? anchoredUtc,
+        string? detail) =>
+        new(anchor.AnchorId, method, anchor.ChainHeadHash, anchor.ProofPath, status, anchoredUtc, detail);
 
     private static string BuildSummary(
         ArchiveIntegrityReport chain,
         int anchorCount,
-        bool allAnchorsValid,
+        bool anyInvalid,
+        bool anyNotVerifiable,
         bool currentHeadAnchored,
         bool hasEntries)
     {
@@ -99,15 +111,24 @@ public sealed class ArchiveVerifier : IArchiveVerifier
             ? $"Chaîne intacte ({chain.EntryCount} entrée(s))."
             : $"CHAÎNE ROMPUE : {chain.FirstBreakDetail}";
 
-        string anchorPart = anchorCount == 0
-            ? "Aucun ancrage temporel (intégrité portée par la chaîne de hashes)."
-            : allAnchorsValid
-                ? currentHeadAnchored
-                    ? $"{anchorCount} ancrage(s) valide(s) ; la tête de chaîne actuelle est ancrée."
-                    : $"{anchorCount} ancrage(s) valide(s) ; la tête de chaîne actuelle n'est pas encore ancrée."
-                : "AU MOINS UNE PREUVE D'ANCRAGE EST INVALIDE.";
+        if (anchorCount == 0)
+        {
+            return $"{chainPart} Aucun ancrage temporel (intégrité portée par la chaîne de hashes).";
+        }
 
-        return $"{chainPart} {anchorPart}";
+        if (anyInvalid)
+        {
+            return $"{chainPart} AU MOINS UNE PREUVE D'ANCRAGE EST INVALIDE.";
+        }
+
+        string headPart = currentHeadAnchored
+            ? "la tête de chaîne actuelle est ancrée."
+            : "la tête de chaîne actuelle n'est pas encore ancrée.";
+        string notVerifiablePart = anyNotVerifiable
+            ? " Certaines preuves relèvent d'une méthode non configurée (conservées, non vérifiées par cette instance)."
+            : string.Empty;
+
+        return $"{chainPart} {anchorCount} ancrage(s) vérifié(s) ; {headPart}{notVerifiablePart}";
     }
 
     private async Task<ArchiveAnchorVerification> VerifyAnchorAsync(
@@ -118,23 +139,27 @@ public sealed class ArchiveVerifier : IArchiveVerifier
     {
         string method = anchor.Method.ToString();
 
+        ArchiveAnchorVerification Fail(ArchiveAnchorVerificationStatus status, string detail) =>
+            Result(anchor, method, status, anchor.AnchoredUtc, detail);
+
         // 1. La tête ancrée doit être une tête réelle de la chaîne du tenant (sinon : preuve orpheline).
         if (!knownHeads.Contains(anchor.ChainHeadHash))
         {
-            return Invalid(anchor, method, "La tête de chaîne ancrée est inconnue de la chaîne du tenant (preuve orpheline ou chaîne altérée).");
+            return Fail(
+                ArchiveAnchorVerificationStatus.Invalid,
+                "La tête de chaîne ancrée est inconnue de la chaîne du tenant (preuve orpheline ou chaîne altérée).");
         }
 
         if (string.IsNullOrEmpty(anchor.ProofPath))
         {
-            return Invalid(anchor, method, "Ancrage sans preuve dans le coffre : rien à vérifier.");
+            return Fail(ArchiveAnchorVerificationStatus.Invalid, "Ancrage sans preuve dans le coffre : rien à vérifier.");
         }
 
-        // 2. La preuve n'est vérifiable que par l'ancrage de la MÊME méthode (capacité, jamais un test de type).
+        // 2. Une preuve d'une autre méthode que l'ancrage configuré n'est pas une altération : NON vérifiable.
         if (_anchor.Capabilities.Method != anchor.Method)
         {
-            return Invalid(
-                anchor,
-                method,
+            return Fail(
+                ArchiveAnchorVerificationStatus.NotVerifiable,
                 $"Preuve produite par une méthode ({method}) différente de l'ancrage configuré ({_anchor.Capabilities.Method}) : non vérifiable par cette instance.");
         }
 
@@ -145,7 +170,9 @@ public sealed class ArchiveVerifier : IArchiveVerifier
         }
         catch (ArchiveObjectNotFoundException)
         {
-            return Invalid(anchor, method, $"Preuve d'ancrage manquante dans le coffre ({anchor.ProofPath}).");
+            return Fail(
+                ArchiveAnchorVerificationStatus.Invalid,
+                $"Preuve d'ancrage manquante dans le coffre ({anchor.ProofPath}).");
         }
 
         byte[] digest;
@@ -155,18 +182,16 @@ public sealed class ArchiveVerifier : IArchiveVerifier
         }
         catch (FormatException)
         {
-            return Invalid(anchor, method, "Empreinte de tête de chaîne non hexadécimale.");
+            return Fail(ArchiveAnchorVerificationStatus.Invalid, "Empreinte de tête de chaîne non hexadécimale.");
         }
 
         TimestampVerification verification = await _anchor.VerifyAsync(proof, digest, cancellationToken);
-        return new ArchiveAnchorVerification(
-            anchor.AnchorId,
-            method,
-            anchor.ChainHeadHash,
-            anchor.ProofPath,
-            verification.IsValid,
-            verification.AnchoredUtc ?? anchor.AnchoredUtc,
-            verification.IsValid ? null : verification.Detail);
+        ArchiveAnchorVerificationStatus verifiedStatus = verification.IsValid
+            ? ArchiveAnchorVerificationStatus.Valid
+            : ArchiveAnchorVerificationStatus.Invalid;
+
+        // On remonte le détail même quand valide : il porte le caveat d'authentification de la TSA.
+        return Result(anchor, method, verifiedStatus, verification.AnchoredUtc ?? anchor.AnchoredUtc, verification.Detail);
     }
 
     private string RequireTenant()

@@ -8,6 +8,7 @@ using Liakont.Modules.Archive.Contracts;
 using Liakont.Modules.Archive.Domain;
 using Liakont.Modules.Archive.Infrastructure;
 using Liakont.Modules.Archive.Tests.Unit.Doubles;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 /// <summary>Tests du vérifieur complet du coffre (TRK06) : chaîne + preuves d'ancrage.</summary>
@@ -23,6 +24,9 @@ public sealed class ArchiveVerifierTests
         _archiveService = new ArchiveService(_store, _entryStore, new StubTenantContext(ArchiveTestData.Tenant));
     }
 
+    private static Rfc3161TimestampAnchor Rfc3161(ITsaClient client) =>
+        new(client, Options.Create(new TimestampAnchorOptions()));
+
     private ArchiveVerifier Create(ITimestampAnchor anchor) =>
         new(_archiveService, _entryStore, _anchorStore, _store, anchor, new StubTenantContext(ArchiveTestData.Tenant));
 
@@ -33,7 +37,7 @@ public sealed class ArchiveVerifierTests
             _entryStore,
             _anchorStore,
             _store,
-            new Rfc3161TimestampAnchor(FakeTsaClient.Backed(tsa)),
+            Rfc3161(FakeTsaClient.Backed(tsa)),
             new StubTenantContext(ArchiveTestData.Tenant));
         return await anchoring.AnchorChainHeadAsync();
     }
@@ -43,13 +47,13 @@ public sealed class ArchiveVerifierTests
     {
         using var tsa = new TestTimestampAuthority();
         await SeedAndAnchorAsync(tsa);
-        ArchiveVerifier verifier = Create(new Rfc3161TimestampAnchor(FakeTsaClient.Backed(tsa)));
+        ArchiveVerifier verifier = Create(Rfc3161(FakeTsaClient.Backed(tsa)));
 
         ArchiveVerificationReport report = await verifier.VerifyTenantVaultAsync();
 
         report.Chain.IsIntact.Should().BeTrue();
         report.Anchors.Should().ContainSingle();
-        report.Anchors[0].IsValid.Should().BeTrue();
+        report.Anchors[0].Status.Should().Be(ArchiveAnchorVerificationStatus.Valid);
         report.IsChainAnchored.Should().BeTrue();
         report.IsFullyVerified.Should().BeTrue();
     }
@@ -60,7 +64,7 @@ public sealed class ArchiveVerifierTests
         using var tsa = new TestTimestampAuthority();
         await SeedAndAnchorAsync(tsa);
         _store.Tamper(ArchiveTestData.Tenant, "2026/05/F-2026-001/payload.json", Encoding.UTF8.GetBytes("FAUX"));
-        ArchiveVerifier verifier = Create(new Rfc3161TimestampAnchor(FakeTsaClient.Backed(tsa)));
+        ArchiveVerifier verifier = Create(Rfc3161(FakeTsaClient.Backed(tsa)));
 
         ArchiveVerificationReport report = await verifier.VerifyTenantVaultAsync();
 
@@ -74,14 +78,29 @@ public sealed class ArchiveVerifierTests
         using var tsa = new TestTimestampAuthority();
         AnchoringOutcome outcome = await SeedAndAnchorAsync(tsa);
         _store.Remove(ArchiveTestData.Tenant, outcome.Record!.ProofPath!);
-        ArchiveVerifier verifier = Create(new Rfc3161TimestampAnchor(FakeTsaClient.Backed(tsa)));
+        ArchiveVerifier verifier = Create(Rfc3161(FakeTsaClient.Backed(tsa)));
 
         ArchiveVerificationReport report = await verifier.VerifyTenantVaultAsync();
 
         report.Chain.IsIntact.Should().BeTrue(); // la chaîne des paquets n'inclut pas les preuves d'ancrage
-        report.Anchors[0].IsValid.Should().BeFalse();
+        report.Anchors[0].Status.Should().Be(ArchiveAnchorVerificationStatus.Invalid);
         report.Anchors[0].Detail.Should().Contain("manquante");
         report.IsFullyVerified.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Verify_OtherMethodProof_IsNotVerifiable_NotInvalid()
+    {
+        // Preuve archivée par RFC 3161, mais l'instance est maintenant configurée en NoAnchor.
+        using var tsa = new TestTimestampAuthority();
+        await SeedAndAnchorAsync(tsa);
+        ArchiveVerifier verifier = Create(new NoAnchorTimestampAnchor());
+
+        ArchiveVerificationReport report = await verifier.VerifyTenantVaultAsync();
+
+        report.Anchors[0].Status.Should().Be(ArchiveAnchorVerificationStatus.NotVerifiable);
+        report.IsFullyVerified.Should().BeTrue(); // non vérifiable ≠ altération : ne fait pas chuter l'intégrité
+        report.IsChainAnchored.Should().BeFalse();
     }
 
     [Fact]

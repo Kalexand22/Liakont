@@ -33,6 +33,9 @@ internal sealed class TestTimestampAuthority : IDisposable
     /// <summary>Instant attesté par les jetons émis (UTC fixe pour des tests déterministes).</summary>
     public DateTimeOffset Timestamp { get; }
 
+    /// <summary>Certificat de la TSA (DER base64) — pour épingler la TSA dans les tests de confiance.</summary>
+    public string CertificateBase64 => Convert.ToBase64String(_certificate.RawData);
+
     /// <summary>Émet une réponse RFC 3161 (TimeStampResp DER) signée pour la requête fournie.</summary>
     public byte[] IssueResponse(byte[] requestDer)
     {

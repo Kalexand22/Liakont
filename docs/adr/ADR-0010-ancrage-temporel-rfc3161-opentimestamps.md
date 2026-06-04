@@ -41,6 +41,15 @@ comme preuve dans le coffre. La vérification est **100 % hors-ligne** (signatur
 l'empreinte). La confiance dans la TSA (qualifiée eIDAS) est établie par la **configuration d'instance**
 (URL, certificat) — jamais codée en dur, aucun secret versionné (CLAUDE.md n°7/n°10).
 
+**Authentification de la TSA (épinglage).** La seule vérification signature+empreinte ne distingue pas un
+jeton émis par la TSA qualifiée d'un jeton **forgé** avec un certificat auto-signé porteur de l'EKU
+timeStamping (exactement la menace de l'adversaire qui peut réécrire la chaîne). L'instance épingle donc
+le certificat de la TSA (`Archive:Anchor:Rfc3161:TrustedCertificateBase64`) : quand il est présent, le
+signataire du jeton doit avoir cette empreinte, sinon la preuve est rapportée **invalide**. Quand il est
+absent, la vérification confirme signature+empreinte mais **signale explicitement** que l'identité de la
+TSA n'est pas épinglée (caveat dans le rapport ; la vérification autoritaire reste le contrôle externe
+`openssl ts -verify`) — jamais une garantie surévaluée.
+
 ### 3. NoAnchor = défaut PROGRAMMATIQUE
 
 Le défaut programmatique est `NoAnchor` : une instance non configurée ne tente **aucun appel sortant**
@@ -74,8 +83,12 @@ même méthode (clé `(chain_head_hash, method)`). Le cycle `pending → complet
 L'ancrage quotidien passe par `TenantJobRunner` (SOL06) : un job SYSTÈME (`DailyAnchoringTrigger`) dont le
 handler (`DailyAnchoringFanOutHandler`) fait le fan-out sur tous les tenants via `RunForAllTenantsAsync`,
 chaque tenant exécutant `DailyAnchoringTenantJob`. Aucun module ne réinvente sa boucle multi-tenant
-(module-rules §6). La **planification** du job système (cron) est câblée côté Host (`AddJobHandler` +
-JobScheduler) — hors du module.
+(module-rules §6). Le handler est enregistré **côté Host** via
+`AddJobHandler<DailyAnchoringTrigger, DailyAnchoringFanOutHandler>()` (l'extension vit dans le module Job ;
+l'appeler depuis le module Archive franchirait une frontière). Le **déclenchement récurrent** (cron
+quotidien) est une entrée `job.schedules` créée par l'opérateur via l'admin des schedules, comme **tout job
+récurrent de la plateforme** (aucun schedule n'est seedé en dur) : la fréquence et l'activation relèvent du
+déploiement, au même titre que l'URL de la TSA.
 
 ## Conséquences
 
