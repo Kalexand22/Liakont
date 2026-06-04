@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- Le document transmis est le pivot enrichi (PivotDocumentDto) : la plateforme y a écrit le
+         résultat du mapping TVA (CategoryCode/VatexCode sur PivotLineTaxDto) avant transmission. Le
+         contrat agent partagé est référencé exactement comme par Ingestion.Contracts/Validation.Contracts.
+         AUCUNE référence à un plug-in PA concret (CLAUDE.md n°6/16) ni à un autre module métier. -->
+    <ProjectReference Include="../../../Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
+  </ItemGroup>
+</Project>
