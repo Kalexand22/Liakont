@@ -1,0 +1,141 @@
+// Table de mapping TVA d'EXEMPLE (F03 — lot TVA, item TVA04).
+//
+// Données STRICTEMENT FICTIVES (codes régimes inventés : NORMAL, MARGE, EXPORT-HORS-UE...) :
+// AUCUNE donnée d'un client réel (table validée par son expert-comptable, CMP, EncheresV6 réel).
+// La table réelle d'un déploiement vit dans deployments/<client>/ (lot CMP), JAMAIS dans le code
+// (blueprint.md §2, CLAUDE.md n°7/15). Ce fichier exerce le moteur de mapping (TVA02) sans exposer
+// de donnée réelle, et sert de patron de format pour deployments/<client>/.
+//
+// MARQUEUR « table d'exemple » (item TVA04 §2) : validatedBy porte le marqueur explicite et
+// validatedDate reste absent → la table est « NON VALIDÉE » (IsValidated = false). Le garde-fou
+// d'envoi en production (PIP01) refuse tout envoi réel tant que la table n'est pas validée par
+// l'expert-comptable ; cet exemple ne doit donc JAMAIS être utilisé pour un envoi de production.
+//
+// Couverture : un cas par catégorie UNCL5305 supportée (S, AA, AAA, Z, E, AE, G, K, O — F03 §2.1),
+// le découpage adjudication/frais du régime de la marge (F03 §2.3), un taux calculé depuis la
+// source (F03 §4.1), et la levée d'ambiguïté par flags source (F03 §3). Le régime fictif
+// « REGIME-NON-MAPPE » est VOLONTAIREMENT absent de la table : il sert à exercer la détection
+// proactive des régimes non mappés (TVA03) et le blocage par défaut (defaultBehavior = block).
+{
+  "mappingVersion": "exemple-v1",
+  "validatedBy": "Table d'exemple — usage démo/tests uniquement",
+  "validatedDate": null,
+  "defaultBehavior": "Block",
+  "rules": [
+    {
+      "sourceRegimeCode": "NORMAL",
+      "label": "Taux normal (assujetti) — adjudication",
+      "part": "Adjudication",
+      "category": "S",
+      "rateMode": "Fixed",
+      "rateValue": 20
+    },
+    {
+      "sourceRegimeCode": "REDUIT",
+      "label": "Taux réduit — adjudication",
+      "part": "Adjudication",
+      "category": "AA",
+      "rateMode": "Fixed",
+      "rateValue": 5.5
+    },
+    {
+      "sourceRegimeCode": "SUPER-REDUIT",
+      "label": "Taux super-réduit — adjudication",
+      "part": "Adjudication",
+      "category": "AAA",
+      "rateMode": "Fixed",
+      "rateValue": 2.1
+    },
+    {
+      "sourceRegimeCode": "TAUX-ZERO",
+      "label": "Taux zéro (assujetti, sans exonération)",
+      "part": "Adjudication",
+      "category": "Z",
+      "rateMode": "Fixed",
+      "rateValue": 0
+    },
+    {
+      "sourceRegimeCode": "MARGE",
+      "label": "Régime de la marge — objets de collection (art. 297 A CGI)",
+      "part": "Adjudication",
+      "category": "E",
+      "vatex": "VATEX-EU-J",
+      "rateMode": "Fixed",
+      "rateValue": 0,
+      "note": "Adjudication exonérée : la TVA porte sur la marge, jamais distincte (F03 §2.3)."
+    },
+    {
+      "sourceRegimeCode": "MARGE-OCCASION",
+      "label": "Régime de la marge — biens d'occasion",
+      "part": "Adjudication",
+      "category": "E",
+      "vatex": "VATEX-EU-F",
+      "rateMode": "Fixed",
+      "rateValue": 0
+    },
+    {
+      "sourceRegimeCode": "MARGE-ART",
+      "label": "Régime de la marge — œuvres d'art",
+      "part": "Adjudication",
+      "category": "E",
+      "vatex": "VATEX-EU-I",
+      "rateMode": "Fixed",
+      "rateValue": 0
+    },
+    {
+      "sourceRegimeCode": "VENDEUR-NON-ASSUJETTI",
+      "label": "Vendeur non assujetti — déclencheur du régime de la marge",
+      "part": "Adjudication",
+      "sourceFlags": { "assujetti_tva": "false" },
+      "category": "E",
+      "vatex": "VATEX-EU-F",
+      "rateMode": "Fixed",
+      "rateValue": 0,
+      "note": "F03 §3 : un libellé « non assujetti » correspond souvent à une vente au régime de la marge. La règle ne s'applique que si le flag source assujetti_tva = false ; sinon le document est bloqué (à valider régime par régime par l'expert-comptable)."
+    },
+    {
+      "sourceRegimeCode": "AUTOLIQUIDATION",
+      "label": "Autoliquidation (reverse charge)",
+      "part": "Adjudication",
+      "category": "AE",
+      "vatex": "VATEX-EU-AE",
+      "rateMode": "Fixed",
+      "rateValue": 0
+    },
+    {
+      "sourceRegimeCode": "EXPORT-HORS-UE",
+      "label": "Export hors UE (détaxé)",
+      "part": "Adjudication",
+      "category": "G",
+      "vatex": "VATEX-EU-G",
+      "rateMode": "Fixed",
+      "rateValue": 0
+    },
+    {
+      "sourceRegimeCode": "LIVRAISON-INTRA-UE",
+      "label": "Livraison intracommunautaire",
+      "part": "Adjudication",
+      "category": "K",
+      "vatex": "VATEX-EU-IC",
+      "rateMode": "Fixed",
+      "rateValue": 0
+    },
+    {
+      "sourceRegimeCode": "HORS-CHAMP",
+      "label": "Hors champ d'application de la TVA",
+      "part": "Adjudication",
+      "category": "O",
+      "vatex": "VATEX-EU-O",
+      "rateMode": "Fixed",
+      "rateValue": 0
+    },
+    {
+      "sourceRegimeCode": "NORMAL",
+      "label": "Frais acheteur — taux calculé depuis la source",
+      "part": "Frais",
+      "category": "S",
+      "rateMode": "ComputedFromSource",
+      "note": "Frais toujours taxables ; taux = montant_tva_frais / montant_frais_ht (F03 §4.1), résolu en aval par le pipeline."
+    }
+  ]
+}
