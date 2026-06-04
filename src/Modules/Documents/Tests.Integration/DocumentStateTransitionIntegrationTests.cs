@@ -153,6 +153,83 @@ public sealed class DocumentStateTransitionIntegrationTests
         (await uow.GetForUpdateAsync(Guid.NewGuid())).Should().BeNull();
     }
 
+    [Fact]
+    public async Task Concurrent_GetForUpdate_Serializes_Transitions_And_Prevents_Lost_Update()
+    {
+        var harness = new DocumentsHarness(_fixture);
+        var id = await SeedDetectedAsync(harness);
+
+        await using var uow1 = await harness.UowFactory.BeginAsync();
+        var doc1 = await uow1.GetForUpdateAsync(id); // T1 verrouille la ligne (FOR UPDATE).
+        doc1.Should().NotBeNull();
+        var evt1 = doc1!.MarkReadyToSend(T0.AddMinutes(1));
+        await uow1.UpsertDocumentAsync(doc1);
+        await uow1.AppendEventAsync(evt1);
+
+        // T1 NON commité : le verrou de ligne est tenu.
+
+        // T2 charge le MÊME document avec verrou : doit BLOQUER tant que T1 n'a pas commité.
+        await using var uow2 = await harness.UowFactory.BeginAsync();
+        var t2 = uow2.GetForUpdateAsync(id);
+
+        var completedFirst = await Task.WhenAny(t2, Task.Delay(TimeSpan.FromSeconds(1)));
+        completedFirst.Should().NotBeSameAs(t2, "T2 doit être bloqué par le verrou de ligne de T1, pas le contourner.");
+        t2.IsCompleted.Should().BeFalse("le verrou FOR UPDATE sérialise les transitions du même document.");
+
+        // T1 commit -> libère le verrou ; T2 doit alors voir l'ÉTAT AVANCÉ (pas de lost-update).
+        await uow1.CommitAsync();
+
+        var doc2 = await t2.WaitAsync(TimeSpan.FromSeconds(10));
+        doc2!.State.Should().Be(DocumentState.ReadyToSend, "T2 part de l'état laissé par T1 commité, jamais de l'état initial.");
+
+        var evt2 = doc2.BeginSending(T0.AddMinutes(2));
+        await uow2.UpsertDocumentAsync(doc2);
+        await uow2.AppendEventAsync(evt2);
+        await uow2.CommitAsync();
+
+        var dto = await harness.Queries.GetByIdAsync(id);
+        dto!.State.Should().Be(nameof(DocumentState.Sending));
+        (await harness.Queries.GetEventsAsync(id)).Should().HaveCount(3, "genèse + ReadyToSend (T1) + Sending (T2).");
+    }
+
+    [Fact]
+    public async Task Transition_Preserves_All_Non_State_Fields()
+    {
+        var harness = new DocumentsHarness(_fixture);
+
+        var seeded = DocumentTestData.NewDetected(
+            documentNumber: $"TRK02-PRESERVE-{Guid.NewGuid():N}",
+            sourceReference: "SRC-PRESERVE",
+            supplierSiren: "987654321",
+            customerName: "Acheteur SAS",
+            customerIsCompanyHint: true,
+            totalNet: 1000.00m,
+            totalTax: 162.80m,
+            totalGross: 1162.80m,
+            payloadHash: "hash-preserve");
+
+        await using (var uow = await harness.UowFactory.BeginAsync())
+        {
+            await uow.CreateDetectedAsync(seeded, DocumentEvent.Detected(seeded.Id, T0));
+            await uow.CommitAsync();
+        }
+
+        await TransitionAsync(harness, seeded.Id, (doc, at) => doc.MarkReadyToSend(at), T0.AddMinutes(1));
+
+        var dto = await harness.Queries.GetByIdAsync(seeded.Id);
+        dto!.State.Should().Be(nameof(DocumentState.ReadyToSend));
+        dto.SourceReference.Should().Be("SRC-PRESERVE");
+        dto.DocumentNumber.Should().Be(seeded.DocumentNumber);
+        dto.SupplierSiren.Should().Be("987654321");
+        dto.CustomerName.Should().Be("Acheteur SAS");
+        dto.CustomerIsCompanyHint.Should().BeTrue();
+        dto.TotalNet.Should().Be(1000.00m, "un changement d'état ne doit JAMAIS altérer un montant audité (CLAUDE.md n°1/4).");
+        dto.TotalTax.Should().Be(162.80m);
+        dto.TotalGross.Should().Be(1162.80m);
+        dto.PayloadHash.Should().Be("hash-preserve");
+        dto.FirstSeenUtc.Should().Be(T0, "first_seen_utc n'est jamais écrasé par une transition.");
+    }
+
     private static async Task<Guid> SeedDetectedAsync(DocumentsHarness harness)
     {
         var document = DocumentTestData.NewDetected(documentNumber: $"TRK02-{Guid.NewGuid():N}");
