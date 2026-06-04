@@ -30,6 +30,16 @@ transactionnel** (`IDocumentUnitOfWork.GetForUpdateAsync` en `SELECT … FOR UPD
 restent des colonnes `text` (le nouvel état `ManuallyHandled` et les nouveaux types d'événement sont des
 libellés, pas un changement de schéma).
 
+**Périmètre de l'item TRK04 (côté Documents)** : les **snapshots de preuve** de la piste d'audit. Tout
+document **émis** archive ses **trois** snapshots dans son `DocumentEvent` d'émission — payload pivot
+transmis, réponse PA brute, trace de mapping TVA (F06 §3) ; tout document **rejeté** archive payload envoyé
++ réponse de rejet brute (la tentative ratée fait partie de l'audit — un contrôle fiscal peut exiger de
+prouver ce qui a été *tenté*). Les value objects `IssuanceSnapshots` (3 obligatoires) / `RejectionSnapshots`
+(2 obligatoires) rendent les snapshots **non optionnels** : `Document.MarkIssued` / `MarkRejectedByPa` les
+exigent et produisent l'événement via `DocumentEvent.IssuanceTransition`. **Aucune migration** : les
+colonnes `payload_snapshot` / `pa_response_snapshot` / `mapping_trace` (jsonb) existent depuis TRK01 (`V003`).
+La piste d'audit des **agrégats de paiement** (volet Payments de TRK04) vit dans le module `Payments` séparé.
+
 ## Boundaries
 
 - **Schéma owné** : `documents` (PostgreSQL, base **par tenant**).

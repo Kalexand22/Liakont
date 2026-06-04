@@ -16,6 +16,16 @@ public sealed class DocumentTransitionTests
 {
     private static readonly DateTimeOffset T0 = new(2026, 5, 14, 8, 0, 0, TimeSpan.Zero);
 
+    // Preuves d'émission / de rejet (F06 §3 / TRK04) — JSON fictifs, valides pour exercer la capture des snapshots.
+    private static readonly IssuanceSnapshots Issuance = new(
+        payloadSnapshot: "{\"documentNumber\":\"F-2026-001\",\"totalGross\":120.00}",
+        paResponseSnapshot: "{\"paDocumentId\":\"PA-123\",\"taxReportId\":\"TR-9\"}",
+        mappingTrace: "{\"rule\":\"S->20\",\"version\":\"2026.1\"}");
+
+    private static readonly RejectionSnapshots Rejection = new(
+        payloadSnapshot: "{\"documentNumber\":\"F-2026-001\",\"totalGross\":120.00}",
+        paResponseSnapshot: "{\"error\":\"INVALID_FORMAT\",\"message\":\"Format rejeté\"}");
+
     [Fact]
     public void Nominal_Cycle_Detected_To_Issued_Writes_One_Event_Per_Transition()
     {
@@ -34,10 +44,79 @@ public sealed class DocumentTransitionTests
         doc.State.Should().Be(DocumentState.Sending);
         sending.EventType.Should().Be(DocumentEventType.DocumentSending);
 
-        var issued = doc.MarkIssued(T0.AddMinutes(3));
+        var issued = doc.MarkIssued(Issuance, T0.AddMinutes(3));
         doc.State.Should().Be(DocumentState.Issued);
         doc.LastUpdateUtc.Should().Be(T0.AddMinutes(3));
         issued.EventType.Should().Be(DocumentEventType.DocumentIssued);
+    }
+
+    [Fact]
+    public void Issued_Event_Carries_The_Three_Proof_Snapshots()
+    {
+        var doc = InState(DocumentState.Sending);
+
+        var issued = doc.MarkIssued(Issuance, T0.AddMinutes(1));
+
+        // Les trois snapshots (F06 §3 / TRK04) constituent la preuve complète d'un document émis.
+        issued.PayloadSnapshot.Should().Be(Issuance.PayloadSnapshot);
+        issued.PaResponseSnapshot.Should().Be(Issuance.PaResponseSnapshot);
+        issued.MappingTrace.Should().Be(Issuance.MappingTrace);
+        issued.OperatorIdentity.Should().BeNull("la décision de la PA n'est pas une action opérateur.");
+    }
+
+    [Fact]
+    public void Rejected_Event_Carries_Payload_And_Pa_Response_But_No_Mapping_Trace()
+    {
+        var doc = InState(DocumentState.Sending);
+
+        var rejected = doc.MarkRejectedByPa(Rejection, T0.AddMinutes(1), reason: "Format rejeté");
+
+        doc.State.Should().Be(DocumentState.RejectedByPa);
+        rejected.PayloadSnapshot.Should().Be(Rejection.PayloadSnapshot);
+        rejected.PaResponseSnapshot.Should().Be(Rejection.PaResponseSnapshot);
+        rejected.MappingTrace.Should().BeNull("un document rejeté n'a pas été émis : la trace de mapping n'est pas requise (F06 §3).");
+        rejected.Detail.Should().Contain("Format rejeté");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Issuance_Snapshots_Require_A_Non_Blank_Payload(string blank)
+    {
+        var act = () => new IssuanceSnapshots(blank, "{\"pa\":1}", "{\"map\":1}");
+
+        act.Should().Throw<ArgumentException>().WithParameterName("payloadSnapshot");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Issuance_Snapshots_Require_A_Non_Blank_Mapping_Trace(string blank)
+    {
+        var act = () => new IssuanceSnapshots("{\"payload\":1}", "{\"pa\":1}", blank);
+
+        act.Should().Throw<ArgumentException>().WithParameterName("mappingTrace");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Rejection_Snapshots_Require_A_Non_Blank_Pa_Response(string blank)
+    {
+        var act = () => new RejectionSnapshots("{\"payload\":1}", blank);
+
+        act.Should().Throw<ArgumentException>().WithParameterName("paResponseSnapshot");
+    }
+
+    [Fact]
+    public void MarkIssued_Rejects_Null_Snapshots()
+    {
+        var doc = InState(DocumentState.Sending);
+
+        var act = () => doc.MarkIssued(null!, T0.AddMinutes(1));
+
+        act.Should().Throw<ArgumentNullException>();
+        doc.State.Should().Be(DocumentState.Sending, "snapshots manquants : l'état n'a pas changé.");
     }
 
     [Fact]
@@ -195,8 +274,8 @@ public sealed class DocumentTransitionTests
         DocumentState.Blocked => doc.MarkBlocked(T0.AddMinutes(5)),
         DocumentState.ReadyToSend => doc.MarkReadyToSend(T0.AddMinutes(5)),
         DocumentState.Sending => doc.BeginSending(T0.AddMinutes(5)),
-        DocumentState.Issued => doc.MarkIssued(T0.AddMinutes(5)),
-        DocumentState.RejectedByPa => doc.MarkRejectedByPa(T0.AddMinutes(5)),
+        DocumentState.Issued => doc.MarkIssued(Issuance, T0.AddMinutes(5)),
+        DocumentState.RejectedByPa => doc.MarkRejectedByPa(Rejection, T0.AddMinutes(5)),
         DocumentState.TechnicalError => doc.MarkTechnicalError(T0.AddMinutes(5)),
         DocumentState.Superseded => doc.Supersede("F-REMPL", "op", T0.AddMinutes(5)),
         DocumentState.ManuallyHandled => doc.MarkManuallyHandled("motif", "op", T0.AddMinutes(5)),

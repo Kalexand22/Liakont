@@ -32,6 +32,10 @@
 - `RejectedByPa_To_Superseded_Records_Replacement_Reference_And_Operator` — remplacement après rejet (terminal), lien remplaçant + opérateur journalisés.
 - `Supersede_Requires_A_Replacement_Reference` — référence du remplaçant obligatoire.
 - `States_Without_Successor_Reject_Every_Transition` — toute tentative de sortie d'un état sans suite (Issued/terminaux) échoue, même avec des arguments valides.
+- `Issued_Event_Carries_The_Three_Proof_Snapshots` — un document émis archive les 3 snapshots de preuve (payload + réponse PA + trace de mapping) dans son événement (TRK04, INV-011).
+- `Rejected_Event_Carries_Payload_And_Pa_Response_But_No_Mapping_Trace` — un document rejeté archive payload + réponse de rejet, sans trace de mapping (la tentative ratée fait partie de l'audit).
+- `Issuance_Snapshots_Require_A_Non_Blank_Payload` / `..._Mapping_Trace` / `Rejection_Snapshots_Require_A_Non_Blank_Pa_Response` — snapshots obligatoires (impossible d'enregistrer une preuve vide).
+- `MarkIssued_Rejects_Null_Snapshots` — émission sans snapshots refusée, état inchangé.
 
 ## Integration (`Tests.Integration`, Testcontainers PostgreSQL)
 
@@ -52,6 +56,8 @@
 ### DocumentStateTransitionIntegrationTests (transitions persistées atomiquement — INV-DOCUMENTS-009/010)
 - `Transition_Persists_New_State_And_Audit_Event_Atomically` — `GetForUpdateAsync` (verrou) → transition → upsert état + append événement dans la même transaction ; relu : nouvel état + événement typé.
 - `Full_Nominal_Cycle_Is_Persisted_With_One_Event_Per_Transition` — Detected→…→Issued sur plusieurs transactions ; 4 événements dans l'ordre chronologique.
+- `Issued_Event_Persists_The_Three_Proof_Snapshots_As_Jsonb` — les 3 snapshots d'émission relus sans perte depuis les colonnes jsonb (TRK04, INV-011).
+- `Rejected_Event_Persists_Payload_And_Pa_Response_Without_Mapping_Trace` — rejet : payload + réponse archivés, trace de mapping `null`.
 - `Operator_Supersede_Persists_Replacement_Link_And_Operator_Identity` — remplacement après rejet : lien remplaçant + identité opérateur relus en base.
 - `Transition_Is_Not_Visible_Until_Commit` — read-modify-write SANS commit (dispose → rollback) : ni l'état ni l'événement ne subsistent (atomicité tout-ou-rien).
 - `Illegal_Transition_Leaves_Document_And_Audit_Untouched` — transition refusée (exception avant écriture) : document et piste d'audit intacts.

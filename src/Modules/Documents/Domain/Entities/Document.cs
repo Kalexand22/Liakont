@@ -195,13 +195,43 @@ public sealed class Document
     public DocumentEvent BeginSending(DateTimeOffset occurredAtUtc, string? detail = null)
         => ApplyTransition(DocumentState.Sending, DocumentEventType.DocumentSending, occurredAtUtc, detail, operatorIdentity: null);
 
-    /// <summary>Sending → Issued : émission acceptée par la Plateforme Agréée (état d'émission réussie, sans suite).</summary>
-    public DocumentEvent MarkIssued(DateTimeOffset occurredAtUtc, string? detail = null)
-        => ApplyTransition(DocumentState.Issued, DocumentEventType.DocumentIssued, occurredAtUtc, detail, operatorIdentity: null);
+    /// <summary>
+    /// Sending → Issued : émission acceptée par la Plateforme Agréée (état d'émission réussie, sans suite).
+    /// Les <paramref name="snapshots"/> de preuve (payload transmis, réponse PA brute, trace de mapping TVA)
+    /// sont OBLIGATOIRES et portés par le <see cref="DocumentEvent"/> d'émission (item TRK04, F06 §3) : on
+    /// n'enregistre jamais une émission sans sa preuve complète.
+    /// </summary>
+    public DocumentEvent MarkIssued(IssuanceSnapshots snapshots, DateTimeOffset occurredAtUtc, string? detail = null)
+    {
+        ArgumentNullException.ThrowIfNull(snapshots);
+        return ApplyIssuanceTransition(
+            DocumentState.Issued,
+            DocumentEventType.DocumentIssued,
+            occurredAtUtc,
+            detail,
+            snapshots.PayloadSnapshot,
+            snapshots.PaResponseSnapshot,
+            snapshots.MappingTrace);
+    }
 
-    /// <summary>Sending → RejectedByPa : la Plateforme Agréée a rejeté le document. <paramref name="reason"/> = motif de rejet (optionnel, journalisé).</summary>
-    public DocumentEvent MarkRejectedByPa(DateTimeOffset occurredAtUtc, string? reason = null)
-        => ApplyTransition(DocumentState.RejectedByPa, DocumentEventType.DocumentRejectedByPa, occurredAtUtc, reason, operatorIdentity: null);
+    /// <summary>
+    /// Sending → RejectedByPa : la Plateforme Agréée a rejeté le document. Les <paramref name="snapshots"/>
+    /// de la tentative (payload envoyé + réponse de rejet brute) sont OBLIGATOIRES et archivés dans le
+    /// <see cref="DocumentEvent"/> de rejet (item TRK04, F06 §3) : un contrôle fiscal peut exiger de prouver
+    /// ce qui a été TENTÉ. <paramref name="reason"/> = motif de rejet lisible (optionnel, journalisé en plus).
+    /// </summary>
+    public DocumentEvent MarkRejectedByPa(RejectionSnapshots snapshots, DateTimeOffset occurredAtUtc, string? reason = null)
+    {
+        ArgumentNullException.ThrowIfNull(snapshots);
+        return ApplyIssuanceTransition(
+            DocumentState.RejectedByPa,
+            DocumentEventType.DocumentRejectedByPa,
+            occurredAtUtc,
+            reason,
+            snapshots.PayloadSnapshot,
+            snapshots.PaResponseSnapshot,
+            mappingTrace: null);
+    }
 
     /// <summary>Sending → TechnicalError : erreur technique de transmission, re-tentable (TechnicalError → ReadyToSend au prochain traitement).</summary>
     public DocumentEvent MarkTechnicalError(DateTimeOffset occurredAtUtc, string? detail = null)
@@ -313,5 +343,40 @@ public sealed class Document
             : $"Transition {from} → {target}. {detail.Trim()}";
 
         return DocumentEvent.Transition(Id, eventType, occurredAtUtc, auditDetail, operatorIdentity);
+    }
+
+    /// <summary>
+    /// Variante de <see cref="ApplyTransition"/> pour les transitions d'ÉMISSION et de REJET (item TRK04) :
+    /// même contrôle de légalité AVANT toute mutation, mais l'événement d'audit produit PORTE LES SNAPSHOTS de
+    /// preuve (payload transmis, réponse PA, et trace de mapping pour une émission ; <paramref name="mappingTrace"/>
+    /// <c>null</c> pour un rejet). La légalité est vérifiée d'abord : une transition refusée ne capture aucun snapshot.
+    /// </summary>
+    private DocumentEvent ApplyIssuanceTransition(
+        DocumentState target,
+        DocumentEventType eventType,
+        DateTimeOffset occurredAtUtc,
+        string? detail,
+        string payloadSnapshot,
+        string paResponseSnapshot,
+        string? mappingTrace)
+    {
+        var from = State;
+        DocumentStateMachine.EnsureCanTransition(from, target);
+
+        State = target;
+        LastUpdateUtc = occurredAtUtc;
+
+        var auditDetail = string.IsNullOrWhiteSpace(detail)
+            ? $"Transition {from} → {target}."
+            : $"Transition {from} → {target}. {detail.Trim()}";
+
+        return DocumentEvent.IssuanceTransition(
+            Id,
+            eventType,
+            occurredAtUtc,
+            auditDetail,
+            payloadSnapshot,
+            paResponseSnapshot,
+            mappingTrace);
     }
 }

@@ -18,6 +18,7 @@ using Liakont.Host.Services;
 using Liakont.Modules.Documents.Infrastructure;
 using Liakont.Modules.Ingestion.Application;
 using Liakont.Modules.Ingestion.Infrastructure;
+using Liakont.Modules.Payments.Infrastructure;
 using Liakont.Modules.TenantSettings.Infrastructure;
 using Liakont.Modules.TvaMapping.Infrastructure;
 using MediatR;
@@ -116,6 +117,10 @@ public static class AppBootstrap
         // Documents utilise Replace — la vraie implémentation gagne toujours). Conservé après Ingestion
         // pour la lisibilité du registre.
         builder.Services.AddDocumentsModule();
+
+        // Payments (F09, TRK04) : encaissements bruts + agrégats jour × taux + piste d'audit append-only.
+        // Modèle et persistance uniquement ; l'agrégation et la transmission arrivent avec le pipeline (PIP03).
+        builder.Services.AddPaymentsModule();
 
         // Stockage des PDF reçus (PIV04) : chemin racine = PARAMÉTRAGE de déploiement (jamais en dur,
         // CLAUDE.md n°7). Lié depuis la config ; à défaut, repli sous le content root de l'instance.
