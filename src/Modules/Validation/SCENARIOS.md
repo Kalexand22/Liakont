@@ -153,6 +153,27 @@
 - Lookup `null` au constructeur → `ArgumentNullException`
 - Annulation propagée (`OperationCanceledException`)
 
+### Garde-fou B2B/B2C (VAL05 — Domain/Detection, Domain/Rules)
+
+#### CompanyHintDetectorTests
+- Particulier (ni `societe`, ni n° TVA, ni forme juridique) → non professionnel — INV-VALIDATION-023
+- Indice « société » brut (`IsCompanyHint`, transcription source) → indice FORT, professionnel — INV-VALIDATION-023
+- n° de TVA présent (y compris étranger, « présent » ≠ « valide FR ») → indice FORT, professionnel — INV-VALIDATION-023
+- n° de TVA vide / blancs → pas un indice — INV-VALIDATION-023
+- Forme juridique en token (`SARL, SAS, SA, EURL, EI`, casse indifférente) → indice MOYEN, professionnel — INV-VALIDATION-023
+- Forme juridique en sous-chaîne (« EI » dans « BEIGNET », « SA » dans « SABATIER »/« Saint ») → non détectée — INV-VALIDATION-023
+- Acheteur `null` rejeté (`ArgumentNullException`)
+
+#### BuyerLooksProfessionalRuleTests
+- Pas d'acheteur identifié (Customer = null) → aucune anomalie — INV-VALIDATION-023
+- Acheteur particulier → aucune anomalie — INV-VALIDATION-023
+- Nom ambigu sans token de forme juridique → aucune anomalie — INV-VALIDATION-023
+- Forme juridique dans la raison sociale → `BUYER_LOOKS_PROFESSIONAL` bloquant (message citant le nom et le n° de document) — INV-VALIDATION-023
+- n° de TVA présent → `BUYER_LOOKS_PROFESSIONAL` bloquant — INV-VALIDATION-023
+- Indice « société » brut → `BUYER_LOOKS_PROFESSIONAL` bloquant — INV-VALIDATION-023
+- Montant élevé + acheteur particulier → aucune anomalie (le montant n'est jamais un critère) — INV-VALIDATION-023
+- Contexte `null` rejeté (`ArgumentNullException`)
+
 ## Integration Tests
 
 Aucun pour VAL01-VAL04 : framework et règles en mémoire (aucune base). VAL03 et VAL04 interrogent le module

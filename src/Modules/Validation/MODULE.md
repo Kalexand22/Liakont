@@ -122,6 +122,34 @@ Toute la logique de validation vit sur la **plateforme**, jamais dans l'agent (C
   enregistrement (avec l'implémentation réelle de `IIssuedInvoiceLookup`) est branché par le consommateur
   du pipeline (PIP01), comme pour le socle VAL01. Aucun nouveau projet ni modification de la solution.
 
+## Decisions VAL05
+
+- **Garde-fou B2B/B2C, pas reclassement** (F08) : `BuyerLooksProfessionalRule` DÉTECTE un acheteur
+  qui semble professionnel et **bloque** (`BUYER_LOOKS_PROFESSIONAL`, Blocking) ; elle ne reclasse ni
+  ne corrige jamais le document. Le verdict opérateur (« confirmer B2C » / « traiter manuellement »)
+  et sa journalisation relèvent de l'endpoint verdict (API02), de la console (WEB03) et de la piste
+  d'audit (lot TRK) — **câblage différé**, comme VAL01/VAL02. VAL05 livre la détection + l'anomalie
+  qui déclenche ce verdict, pas la persistance du verdict.
+- **Toute l'heuristique vit sur la plateforme** (`CompanyHintDetector`, `Domain/Detection`). L'agent
+  ne transmet que des champs source BRUTS (`PivotPartyDto.IsCompanyHint` = transcription du champ
+  `societe`) — aucune décision côté agent (frontière agent/plateforme, amendement F01-F02 du
+  2026-06-03 ; CLAUDE.md n°6). Les indices et la liste de formes juridiques sont EXACTEMENT ceux de
+  F07-F08 §A.4 : 2 indices FORTS (`societe` brut ; n° de TVA intracommunautaire présent), 1 indice
+  MOYEN (forme juridique). `LooksProfessional` = au moins un indice fort OU la forme juridique (la
+  spec ne définit qu'un seul indice moyen — un seuil « deux indices moyens » serait inatteignable).
+- **Forme juridique = liste figée et non extensible** : `SARL, SAS, SA, EURL, EI` (F07-F08 §A.4),
+  repérées par `[GeneratedRegex]` avec limites de mot (`\b`) pour ne pas matcher en sous-chaîne
+  (« EI » dans « BEIGNET », « SA » dans « SABATIER »). Le « … » de la spec est traité comme
+  illustratif : ajouter une forme serait inventer une règle (CLAUDE.md n°2) → amendement de spec requis.
+- **n° de TVA « présent », pas « valide »** : F07-F08 §A.4 dit « présent ». On ne filtre pas via
+  `FrenchVatNumberValidator` (qui rejetterait un n° étranger ou non encore vérifié) : un n° de TVA
+  renseigné, fût-il étranger, signale tout autant un professionnel ; filtrer sous-détecterait et
+  affaiblirait le garde-fou (CLAUDE.md n°3). `FrenchVatNumberValidator` reste réservé à un futur
+  contrôle de cohérence de format (note VAL02), distinct de ce garde-fou.
+- **Le montant n'est jamais un critère** (F07-F08 §A.4) : garanti **structurellement** — le détecteur
+  ne reçoit que l'acheteur (`PivotPartyDto`), jamais les totaux. Un test le verrouille (bordereau à
+  montant élevé + acheteur particulier = aucune anomalie).
+
 ## Published Events
 
 Aucun. (Le résultat de validation est consommé par le pipeline d'envoi — lot PIP — via les `Contracts`.)
