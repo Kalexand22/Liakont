@@ -16,15 +16,24 @@ using Stratum.Common.Infrastructure.Database;
 /// insertions et des lectures.
 ///
 /// Ordonnancement strict de la chaîne : chaque ajout prend un <c>pg_advisory_xact_lock</c> (la base étant
-/// PAR TENANT, une seule clé suffit) qui SÉRIALISE les ajouts du tenant. Sous ce verrou, on lit la tête,
-/// on dérive le <c>chain_hash</c> et un <c>archived_utc</c> STRICTEMENT croissant, on fait écrire les
-/// artefacts du coffre, puis on insère — le tout dans une transaction (atomique).
+/// PAR TENANT, une seule clé suffit) qui SÉRIALISE les ajouts du tenant. Sous ce verrou, on lit d'abord
+/// si une ligne existe déjà pour ce <c>package_path</c> (idempotence) ; sinon on lit la tête, on dérive le
+/// <c>chain_hash</c> et un <c>archived_utc</c> STRICTEMENT croissant, puis on insère — sans aucune E/S
+/// coffre dans la transaction (le manifest est écrit par le service, APRÈS commit, déterministe depuis
+/// la ligne committée).
 /// </summary>
 internal sealed class PostgresArchiveEntryStore : IArchiveEntryStore
 {
     // Clé de verrou consultatif de la chaîne d'archive (constante : 'ARCH'). La base étant par tenant,
     // une clé globale suffit à sérialiser tous les ajouts du tenant courant.
     private const long ArchiveChainLockKey = 0x41524348;
+
+    private const string ExistingByPathSql = """
+        SELECT id, document_id, package_path, package_hash, chain_hash, archived_utc
+        FROM documents.archive_entries
+        WHERE package_path = @PackagePath
+        LIMIT 1
+        """;
 
     private const string HeadSql = """
         SELECT chain_hash, archived_utc
@@ -53,14 +62,14 @@ internal sealed class PostgresArchiveEntryStore : IArchiveEntryStore
         _connectionFactory = connectionFactory;
     }
 
-    public async Task<ArchiveEntryRecord> AppendAsync(
+    public async Task<ArchiveEntryRecord> ReserveAsync(
         Guid documentId,
+        string packagePath,
         string packageHash,
-        Func<ArchiveSealContext, CancellationToken, Task<string>> writeArtifacts,
         CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrEmpty(packagePath);
         ArgumentException.ThrowIfNullOrEmpty(packageHash);
-        ArgumentNullException.ThrowIfNull(writeArtifacts);
 
         await using var scope = await TransactionScope.BeginAsync(_connectionFactory, cancellationToken);
 
@@ -70,6 +79,27 @@ internal sealed class PostgresArchiveEntryStore : IArchiveEntryStore
             scope.Transaction,
             cancellationToken: cancellationToken));
 
+        // Idempotence : si une ligne existe déjà pour ce chemin, on la retourne sans ré-insérer.
+        // (package_path n'a pas encore d'index sur documents.archive_entries — acceptable pour le
+        // faible taux d'ajout par tenant en V1 ; un index peut être ajouté plus tard par ops.)
+        var existing = await scope.Connection.QueryFirstOrDefaultAsync(new CommandDefinition(
+            ExistingByPathSql,
+            new { PackagePath = packagePath },
+            scope.Transaction,
+            cancellationToken: cancellationToken));
+
+        if (existing is not null)
+        {
+            await scope.CommitAsync(cancellationToken);
+            return new ArchiveEntryRecord(
+                (Guid)existing.id,
+                (Guid)existing.document_id,
+                (string)existing.package_path,
+                (string)existing.package_hash,
+                (string)existing.chain_hash,
+                ToUtcOffset((object)existing.archived_utc));
+        }
+
         var head = await scope.Connection.QueryFirstOrDefaultAsync(new CommandDefinition(
             HeadSql, transaction: scope.Transaction, cancellationToken: cancellationToken));
 
@@ -78,8 +108,6 @@ internal sealed class PostgresArchiveEntryStore : IArchiveEntryStore
 
         string chainHash = HashChain.Next(previousChainHash, packageHash);
         DateTimeOffset archivedUtc = NextArchivedUtc(previousArchivedUtc);
-
-        string packagePath = await writeArtifacts(new ArchiveSealContext(chainHash, archivedUtc), cancellationToken);
 
         var entryId = Guid.NewGuid();
         await scope.Connection.ExecuteAsync(new CommandDefinition(

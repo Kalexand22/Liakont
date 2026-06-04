@@ -38,16 +38,13 @@ public static class ArchivePackageLayout
         return $"{year}/{month}/{number}/";
     }
 
-    /// <summary>Construit le nom de fichier d'addendum chaîné (numéroté à partir de 1), assaini.</summary>
-    public static string AddendumManifestFileName(int sequence)
-    {
-        if (sequence < 1)
-        {
-            throw new ArgumentOutOfRangeException(nameof(sequence), sequence, "Le numéro d'addendum commence à 1.");
-        }
+    /// <summary>Nom du manifest d'addendum, indexé par l'empreinte (préfixe) de son contenu — déterministe, idempotent.</summary>
+    public static string AddendumManifestFileName(string contentHashPrefix) =>
+        $"manifest-addendum-{SanitizeSegment(contentHashPrefix)}.json";
 
-        return $"manifest-addendum-{sequence.ToString("D3", CultureInfo.InvariantCulture)}.json";
-    }
+    /// <summary>Nom du fichier de données d'addendum, préfixé par l'empreinte de contenu (anti-collision, déterministe).</summary>
+    public static string AddendumDataFileName(string contentHashPrefix, string fileName) =>
+        SanitizeSegment($"addendum-{contentHashPrefix}-{fileName}");
 
     /// <summary>Combine un répertoire de paquet et un nom de fichier (assaini) en un chemin relatif au tenant.</summary>
     public static string Combine(string packageDirectory, string fileName)

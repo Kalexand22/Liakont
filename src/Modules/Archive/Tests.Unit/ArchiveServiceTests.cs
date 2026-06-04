@@ -76,7 +76,10 @@ public sealed class ArchiveServiceTests
             ArchiveTestData.AddendumRequest(package.DocumentId));
 
         addendum.ChainHash.Should().Be(HashChain.Next(package.ChainHash, addendum.PackageHash));
-        addendum.PackagePath.Should().Be(PackageDir + "manifest-addendum-001.json");
+
+        // Le chemin du manifest d'addendum est dérivé du préfixe (16 hex) du hash de contenu — déterministe.
+        addendum.PackagePath.Should().StartWith(PackageDir + "manifest-addendum-");
+        addendum.PackagePath.Should().EndWith(".json");
 
         ArchiveIntegrityReport report = await service.VerifyTenantChainAsync();
         report.IsIntact.Should().BeTrue();
@@ -123,7 +126,11 @@ public sealed class ArchiveServiceTests
         ArchivePackageResult package = await service.ArchiveIssuedDocumentAsync(ArchiveTestData.PackageRequest());
         await service.AddAddendumAsync(ArchiveTestData.AddendumRequest(package.DocumentId));
 
-        _store.Tamper(ArchiveTestData.Tenant, PackageDir + "addendum-001-tax-report.xml", Encoding.UTF8.GetBytes("<faux/>"));
+        // Le nom de stockage est dérivé du préfixe de hash de contenu ("<ledger/>") + nom de fichier logique.
+        string addendumContent = "<ledger/>";
+        string hashPrefix = Sha256Hex.OfBytes(Encoding.UTF8.GetBytes(addendumContent))[..16];
+        string storedName = ArchivePackageLayout.AddendumDataFileName(hashPrefix, "tax-report.xml");
+        _store.Tamper(ArchiveTestData.Tenant, PackageDir + storedName, Encoding.UTF8.GetBytes("<faux/>"));
 
         ArchiveIntegrityReport report = await service.VerifyTenantChainAsync();
 

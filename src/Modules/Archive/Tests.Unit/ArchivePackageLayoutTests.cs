@@ -45,10 +45,17 @@ public sealed class ArchivePackageLayoutTests
     }
 
     [Fact]
-    public void AddendumManifestFileName_IsSequenced()
+    public void AddendumManifestFileName_UsesContentHashPrefix()
     {
-        ArchivePackageLayout.AddendumManifestFileName(1).Should().Be("manifest-addendum-001.json");
-        ArchivePackageLayout.AddendumManifestFileName(42).Should().Be("manifest-addendum-042.json");
+        ArchivePackageLayout.AddendumManifestFileName("abc123").Should().Be("manifest-addendum-abc123.json");
+        ArchivePackageLayout.AddendumManifestFileName("3122b57597b53441").Should().Be("manifest-addendum-3122b57597b53441.json");
+    }
+
+    [Fact]
+    public void AddendumDataFileName_PrefixesWithHashAndFileName()
+    {
+        ArchivePackageLayout.AddendumDataFileName("abc123", "tax-report.xml")
+            .Should().Be("addendum-abc123-tax-report.xml");
     }
 
     [Fact]

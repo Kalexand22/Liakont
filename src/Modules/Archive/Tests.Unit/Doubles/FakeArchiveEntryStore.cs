@@ -10,8 +10,8 @@ using Liakont.Modules.Archive.Domain;
 /// <summary>
 /// Réplique fidèle EN MÉMOIRE de <see cref="IArchiveEntryStore"/> : même calcul de chaîne
 /// (<see cref="HashChain.Next"/>) et même horodatage strictement croissant que le store PostgreSQL réel,
-/// pour exercer la vraie logique de chaînage de <c>ArchiveService</c> sans base. Les ajouts sont
-/// sérialisés (un verrou) comme côté production.
+/// pour exercer la vraie logique de chaînage de <c>ArchiveService</c> sans base. Idempotent par
+/// <c>packagePath</c> : un second appel pour le même chemin retourne l'entrée existante.
 /// </summary>
 public sealed class FakeArchiveEntryStore : IArchiveEntryStore
 {
@@ -19,23 +19,28 @@ public sealed class FakeArchiveEntryStore : IArchiveEntryStore
 
     public IReadOnlyList<ArchiveEntryRecord> Records => _records;
 
-    public async Task<ArchiveEntryRecord> AppendAsync(
+    public Task<ArchiveEntryRecord> ReserveAsync(
         Guid documentId,
+        string packagePath,
         string packageHash,
-        Func<ArchiveSealContext, CancellationToken, Task<string>> writeArtifacts,
         CancellationToken cancellationToken = default)
     {
+        // Idempotence : retourner l'entrée existante si le chemin est déjà réservé.
+        ArchiveEntryRecord? existing = _records.FirstOrDefault(r => r.PackagePath == packagePath);
+        if (existing is not null)
+        {
+            return Task.FromResult(existing);
+        }
+
         string? previousChain = _records.Count == 0 ? null : _records[^1].ChainHash;
         DateTimeOffset archivedUtc = _records.Count == 0
             ? DateTimeOffset.UnixEpoch
             : _records[^1].ArchivedUtc.AddTicks(10);
 
         string chainHash = HashChain.Next(previousChain, packageHash);
-        string packagePath = await writeArtifacts(new ArchiveSealContext(chainHash, archivedUtc), cancellationToken);
-
         var record = new ArchiveEntryRecord(Guid.NewGuid(), documentId, packagePath, packageHash, chainHash, archivedUtc);
         _records.Add(record);
-        return record;
+        return Task.FromResult(record);
     }
 
     public Task<IReadOnlyList<ArchiveEntryRecord>> GetChainAsync(CancellationToken cancellationToken = default) =>

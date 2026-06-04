@@ -1,7 +1,6 @@
 namespace Liakont.Modules.Archive.Application;
 
 using System.Collections.Generic;
-using System.Globalization;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,11 +13,13 @@ using Stratum.Common.Abstractions.MultiTenancy;
 /// coffre (<see cref="IArchiveStore"/>), scellement de l'entrée dans la chaîne du tenant
 /// (<see cref="IArchiveEntryStore"/>), addenda chaînés et vérification d'intégrité. Tenant-scopé : le
 /// coffre est rooté sur le tenant courant, la base route vers la base du tenant courant (blueprint §7).
+///
+/// Ordre garanti sans orphelins : (1) fichiers de contenu écrits dans le coffre (idempotents), (2)
+/// réservation de la ligne de chaîne sous verrou/transaction (idempotente par packagePath), (3) manifest
+/// écrit APRÈS commit, dérivé du (chain_hash, archived_utc) committé — rejouable à l'identique.
 /// </summary>
 public sealed class ArchiveService : IArchiveService
 {
-    private const int MaxAddendaPerPackage = 100_000;
-
     private readonly IArchiveStore _store;
     private readonly IArchiveEntryStore _entryStore;
     private readonly ITenantContext _tenantContext;
@@ -43,23 +44,25 @@ public sealed class ArchiveService : IArchiveService
             request.IssueDate.Year,
             request.IssueDate.Month,
             request.DocumentNumber);
+        string manifestPath = ArchivePackageLayout.Combine(packageDir, ArchivePackageLayout.ManifestFileName);
 
-        ArchiveEntryRecord record = await _entryStore.AppendAsync(
+        // 1. Fichiers de contenu — idempotents (write-once), HORS verrou/transaction.
+        foreach (ArchiveFile file in content.ContentFiles)
+        {
+            await _store.WriteAsync(tenant, ArchivePackageLayout.Combine(packageDir, file.Name), file.Content, cancellationToken);
+        }
+
+        // 2. Réservation de la ligne de chaîne, idempotente par manifestPath.
+        ArchiveEntryRecord record = await _entryStore.ReserveAsync(
             request.DocumentId,
+            manifestPath,
             content.PackageHash,
-            async (seal, token) =>
-            {
-                foreach (ArchiveFile file in content.ContentFiles)
-                {
-                    await _store.WriteAsync(tenant, ArchivePackageLayout.Combine(packageDir, file.Name), file.Content, token);
-                }
-
-                byte[] manifest = ArchivePackageBuilder.BuildPackageManifest(request, content, seal);
-                string manifestPath = ArchivePackageLayout.Combine(packageDir, ArchivePackageLayout.ManifestFileName);
-                await _store.WriteAsync(tenant, manifestPath, manifest, token);
-                return manifestPath;
-            },
             cancellationToken);
+
+        // 3. Manifest APRÈS commit, déterministe depuis la ligne committée.
+        byte[] manifest = ArchivePackageBuilder.BuildPackageManifest(
+            request, content, new ArchiveSealContext(record.ChainHash, record.ArchivedUtc));
+        await _store.WriteAsync(tenant, manifestPath, manifest, cancellationToken);
 
         return ToResult(record);
     }
@@ -78,26 +81,26 @@ public sealed class ArchiveService : IArchiveService
             request.IssueDate.Month,
             request.DocumentNumber);
 
-        ArchiveEntryRecord record = await _entryStore.AppendAsync(
+        // Chemin dérivé du hash de contenu : déterministe, anti-collision, idempotent (pas de sondage).
+        string hashPrefix = content.PackageHash[..16];
+        string storedName = ArchivePackageLayout.AddendumDataFileName(hashPrefix, logicalFile.Name);
+        string manifestPath = ArchivePackageLayout.Combine(packageDir, ArchivePackageLayout.AddendumManifestFileName(hashPrefix));
+
+        // 1. Fichier de données — idempotent (write-once), HORS verrou/transaction.
+        await _store.WriteAsync(tenant, ArchivePackageLayout.Combine(packageDir, storedName), logicalFile.Content, cancellationToken);
+
+        // 2. Réservation de la ligne de chaîne, idempotente par manifestPath.
+        ArchiveEntryRecord record = await _entryStore.ReserveAsync(
             request.DocumentId,
+            manifestPath,
             content.PackageHash,
-            async (seal, token) =>
-            {
-                int sequence = await NextAddendumSequenceAsync(tenant, packageDir, token);
-
-                // Nom de stockage séquencé (anti-collision si deux addenda portent le même nom de fichier).
-                string storedName = ArchivePackageLayout.SanitizeSegment(
-                    $"addendum-{sequence.ToString("D3", CultureInfo.InvariantCulture)}-{logicalFile.Name}");
-                var storedFile = new ArchiveFile(storedName, logicalFile.ContentType, logicalFile.Content, logicalFile.Sha256);
-
-                await _store.WriteAsync(tenant, ArchivePackageLayout.Combine(packageDir, storedName), storedFile.Content, token);
-
-                byte[] manifest = ArchivePackageBuilder.BuildAddendumManifest(request, storedFile, content.PackageHash, seal);
-                string manifestPath = ArchivePackageLayout.Combine(packageDir, ArchivePackageLayout.AddendumManifestFileName(sequence));
-                await _store.WriteAsync(tenant, manifestPath, manifest, token);
-                return manifestPath;
-            },
             cancellationToken);
+
+        // 3. Manifest APRÈS commit, déterministe depuis la ligne committée.
+        var storedFile = new ArchiveFile(storedName, logicalFile.ContentType, logicalFile.Content, logicalFile.Sha256);
+        byte[] manifest = ArchivePackageBuilder.BuildAddendumManifest(
+            request, storedFile, content.PackageHash, new ArchiveSealContext(record.ChainHash, record.ArchivedUtc));
+        await _store.WriteAsync(tenant, manifestPath, manifest, cancellationToken);
 
         return ToResult(record);
     }
@@ -237,20 +240,6 @@ public sealed class ArchiveService : IArchiveService
             var entry = new ArchiveIntegrityEntry(record.EntryId, record.DocumentId, record.PackagePath, ContentValid: false, ChainValid: false, $"Manifest illisible : {jsonError.Message}");
             return new VerifiedEntry(entry, recomputedChain);
         }
-    }
-
-    private async Task<int> NextAddendumSequenceAsync(string tenant, string packageDirectory, CancellationToken cancellationToken)
-    {
-        for (int sequence = 1; sequence <= MaxAddendaPerPackage; sequence++)
-        {
-            string manifestPath = ArchivePackageLayout.Combine(packageDirectory, ArchivePackageLayout.AddendumManifestFileName(sequence));
-            if (!await _store.ExistsAsync(tenant, manifestPath, cancellationToken))
-            {
-                return sequence;
-            }
-        }
-
-        throw new InvalidOperationException($"Nombre maximal d'addenda atteint pour le paquet « {packageDirectory} ».");
     }
 
     private string RequireTenant()
