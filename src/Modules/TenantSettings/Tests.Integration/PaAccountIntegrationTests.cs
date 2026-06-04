@@ -5,6 +5,7 @@ using FluentAssertions;
 using Liakont.Modules.TenantSettings.Contracts.Commands;
 using Liakont.Modules.TenantSettings.Infrastructure.Handlers.Commands;
 using Liakont.Modules.TenantSettings.Tests.Integration.Fixtures;
+using Stratum.Common.Abstractions.Exceptions;
 using Xunit;
 
 [Collection("TenantSettingsIntegration")]
@@ -93,6 +94,23 @@ public sealed class PaAccountIntegrationTests
 
         var accounts = await harness.Queries.GetPaAccounts(harness.CompanyId);
         accounts[0].IsActive.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Add_Duplicate_Plugin_And_Environment_Throws_Conflict()
+    {
+        var harness = new TenantSettingsHarness(_fixture, Guid.NewGuid(), Guid.NewGuid());
+        var addHandler = new AddPaAccountHandler(harness.UowFactory, harness.CompanyFilter, harness.SecretProtector, harness.Journal);
+
+        await addHandler.Handle(
+            new AddPaAccountCommand { PluginType = "Fake", Environment = "Staging", AccountIdentifiers = "{}", ApiKey = null },
+            CancellationToken.None);
+
+        var act = () => addHandler.Handle(
+            new AddPaAccountCommand { PluginType = "Fake", Environment = "Staging", AccountIdentifiers = "{}", ApiKey = null },
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<ConflictException>("un doublon (tenant, plug-in, environnement) est interdit (index unique).");
     }
 
     [Fact]

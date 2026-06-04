@@ -24,11 +24,12 @@ public static class TenantSettingsModuleRegistration
         services.Configure<MigrationAssembliesOptions>(opts =>
             opts.Add(typeof(TenantSettingsModuleRegistration).Assembly));
 
-        // Chiffrement des secrets PA : ASP.NET Core Data Protection. Garantit la disponibilité du
-        // provider. La PERSISTANCE des clés de protection (par instance/appliance) et le nom
-        // d'application stable sont configurés au niveau hôte par OPS01 (F12-A §4) — pas ici, pour
-        // ne pas qu'un module dicte une décision d'instance.
-        services.AddDataProtection();
+        // Chiffrement des secrets PA : ASP.NET Core Data Protection. Le nom d'application est
+        // fixé ici pour que le discriminant de clé soit stable quel que soit le content-root du
+        // conteneur. IMPORTANT : le STORE de persistance des clés (par instance/appliance) DOIT
+        // être configuré par OPS01 en production — sans cela, les clés sont éphémères et chaque
+        // clé API PA chiffrée devient indéchiffrable après un redémarrage de l'instance.
+        services.AddDataProtection().SetApplicationName("Liakont");
 
         services.AddScoped<ITenantSettingsUnitOfWorkFactory, PostgresTenantSettingsUnitOfWorkFactory>();
         services.AddScoped<ITenantSettingsQueries, PostgresTenantSettingsQueries>();

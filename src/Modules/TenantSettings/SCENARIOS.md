@@ -24,12 +24,6 @@
 ### ExtractionScheduleTests
 - Heure au mauvais format rejetée — INV-TENANTSETTINGS-002
 
-### Handler Tests (avec fakes)
-- `AddPaAccountHandler` : la clé API en clair est chiffrée (jamais persistée telle quelle) ;
-  l'entité ne contient pas le clair — INV-TENANTSETTINGS-003
-- `SaveTenantProfileHandler` : journalise la mutation avec l'identité opérateur — INV-TENANTSETTINGS-005
-- `SaveTenantProfileHandler` : changement de SIREN sur profil existant rejeté — INV-TENANTSETTINGS-001
-
 ## Integration Tests (Tests.Integration/ — PostgreSQL Testcontainers)
 
 ### TenantProfileIntegrationTests
@@ -44,6 +38,13 @@
 - Le DTO de lecture n'expose jamais la clé (`HasApiKey` seulement) — INV-TENANTSETTINGS-003
 - Déchiffrement round-trip via `ISecretProtector`
 - Désactivation d'un compte
+- Doublon (tenant, plug-in, environnement) rejeté avec `ConflictException` — F12-A §4
+
+### Handler behaviours (covered by integration tests)
+- `AddPaAccountHandler` : la clé API en clair est chiffrée (jamais persistée telle quelle) ;
+  l'entité ne contient pas le clair — INV-TENANTSETTINGS-003
+- `SaveTenantProfileHandler` : journalise la mutation avec l'identité opérateur — INV-TENANTSETTINGS-005
+- `SaveTenantProfileHandler` : changement de SIREN sur profil existant rejeté — INV-TENANTSETTINGS-001
 
 ### SeedImportIntegrationTests
 - Import idempotent (rejouable) du profil + fiscal + planification + seuils — F12-A §8.2

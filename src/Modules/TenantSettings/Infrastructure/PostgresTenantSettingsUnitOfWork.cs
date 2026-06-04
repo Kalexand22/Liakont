@@ -4,6 +4,7 @@ using Dapper;
 using Liakont.Modules.TenantSettings.Application;
 using Liakont.Modules.TenantSettings.Domain.Entities;
 using Liakont.Modules.TenantSettings.Domain.ValueObjects;
+using Npgsql;
 using Stratum.Common.Infrastructure.Database;
 
 /// <summary>
@@ -229,22 +230,30 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
                  @IsActive, @CreatedAt, @UpdatedAt)
             """;
 
-        await _txn.Connection.ExecuteAsync(new CommandDefinition(
-            sql,
-            new
-            {
-                account.Id,
-                account.CompanyId,
-                account.PluginType,
-                Environment = (int)account.Environment,
-                account.AccountIdentifiers,
-                account.EncryptedApiKey,
-                account.IsActive,
-                account.CreatedAt,
-                account.UpdatedAt,
-            },
-            _txn.Transaction,
-            cancellationToken: ct));
+        try
+        {
+            await _txn.Connection.ExecuteAsync(new CommandDefinition(
+                sql,
+                new
+                {
+                    account.Id,
+                    account.CompanyId,
+                    account.PluginType,
+                    Environment = (int)account.Environment,
+                    account.AccountIdentifiers,
+                    account.EncryptedApiKey,
+                    account.IsActive,
+                    account.CreatedAt,
+                    account.UpdatedAt,
+                },
+                _txn.Transaction,
+                cancellationToken: ct));
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            throw new Stratum.Common.Abstractions.Exceptions.ConflictException(
+                "Un compte PA existe déjà pour ce type de plug-in et cet environnement.", ex);
+        }
     }
 
     public async Task UpdatePaAccountAsync(PaAccount account, CancellationToken ct = default)
