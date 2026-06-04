@@ -70,8 +70,51 @@
 - SIREN ET pays invalides → deux anomalies bloquantes — INV-VALIDATION-012
 - Contexte `null` rejeté (`ArgumentNullException`)
 
+### LineTotalsRuleTests (VAL03)
+- Document cohérent (Σ lignes HT/TVA = totaux) → aucune anomalie — INV-VALIDATION-013
+- Σ lignes HT ≠ total HT → BLOQUANT `DOC_TOTAL_MISMATCH` — INV-VALIDATION-013
+- Σ lignes TVA ≠ total TVA → BLOQUANT `DOC_VAT_TOTAL_MISMATCH` — INV-VALIDATION-013
+- Écart d'arrondi d'un centime → BLOQUANT (aucune tolérance, EN 16931) — INV-VALIDATION-013
+- Arrondi half-up appliqué à la somme des lignes (1160,005 → 1160,01) → cohérent — INV-VALIDATION-013
+- Document sans ligne → ignoré par cette règle (blocage porté par StructureRule) — INV-VALIDATION-013
+- Charge document incluse dans la réconciliation HT (BR-CO-13) → cohérent — INV-VALIDATION-013
+- Remise document incluse dans la réconciliation HT (BR-CO-13) → cohérent — INV-VALIDATION-013
+- Écart HT avec charge document → BLOQUANT (réconciliation stricte) — INV-VALIDATION-013
+- Réconciliation TVA court-circuitée si charge/remise document présente (TVA non résolue avant TVA04) → pas de faux positif — INV-VALIDATION-013
+
+### ArithmeticRuleTests (VAL03)
+- TTC = HT + TVA → aucune anomalie — INV-VALIDATION-013
+- TTC ≠ HT + TVA (BR-CO-15) → BLOQUANT `DOC_ARITHMETIC_MISMATCH` — INV-VALIDATION-013
+- Écart d'arrondi d'un centime → BLOQUANT (tolérance 0) — INV-VALIDATION-013
+
+### SourceTotalsRuleTests (VAL03)
+- Pas de total source (`null`) → aucune anomalie — INV-VALIDATION-014
+- Total source = total passerelle → aucune anomalie — INV-VALIDATION-014
+- Total source ≠ total passerelle → ALERTE `DOC_TOTAL_SOURCE_MISMATCH` (Warning, n'invalide pas) — INV-VALIDATION-014
+
+### StructureRuleTests (VAL03)
+- Document cohérent (1 ligne, date 2024, EUR) → aucune anomalie — INV-VALIDATION-015
+- Aucune ligne → BLOQUANT `DOC_NO_LINES` — INV-VALIDATION-015
+- Date dans le futur → BLOQUANT `DOC_DATE_FUTURE` (horloge injectée) — INV-VALIDATION-015, INV-VALIDATION-016
+- Date du jour / J+1 → pas considérée comme future (marge de fuseau) — INV-VALIDATION-016
+- Date antérieure à 2000 → ALERTE `DOC_DATE_TOO_OLD` — INV-VALIDATION-015
+- Devise hors ISO 4217 → BLOQUANT `DOC_CURRENCY_INVALID` — INV-VALIDATION-015
+- Devise vide → BLOQUANT `DOC_CURRENCY_INVALID` — INV-VALIDATION-015
+- Devise en minuscules (« eur ») → acceptée (insensible à la casse) — INV-VALIDATION-015
+
+### UniquenessRuleTests (VAL03)
+- Numéro unique (non émis) → aucune anomalie — INV-VALIDATION-017
+- Numéro déjà émis → BLOQUANT `DOC_NUMBER_DUPLICATE` — INV-VALIDATION-017
+- Numéro absent → BLOQUANT `DOC_NUMBER_MISSING` ET le module Documents n'est pas interrogé — INV-VALIDATION-017
+- La recherche est tenant-scopée (CompanyId du contexte) via le port `IIssuedDocumentLookup` — INV-VALIDATION-018
+
+### Iso4217CurrenciesTests (VAL03)
+- Codes ISO 4217 valides (EUR, USD, GBP, XOF, casse indifférente) → acceptés — INV-VALIDATION-015
+- Codes inconnus, mal formés ou vides (ZZZ, XYZ, EU, EURO, vide, espaces, null) → rejetés — INV-VALIDATION-015
+
 ## Integration Tests
 
-Aucun pour VAL01 : le framework est en mémoire (aucune base, aucune dépendance externe). Les tests
-d'intégration apparaîtront avec les règles consommant d'autres modules (VAL03/VAL04) et la persistance
-des anomalies avec le document (module Documents, lot TRK).
+Aucun pour VAL01-VAL03 : le framework et les règles de cohérence sont en mémoire. VAL03 interroge le
+module Documents via le port `IIssuedDocumentLookup` mais avec un **faux d'essai** (acceptance VAL03) ;
+aucune base ni dépendance externe. Les tests d'intégration apparaîtront avec l'implémentation réelle du
+port (module Documents, lot TRK — TRK03) et la persistance des anomalies avec le document.
