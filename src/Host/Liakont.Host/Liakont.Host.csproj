@@ -6,6 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Host.Tests.Unit" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Asp.Versioning.Http" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" />
@@ -25,6 +29,9 @@
     <ProjectReference Include="..\..\Modules\Audit\Infrastructure\Stratum.Modules.Audit.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Audit\Web\Stratum.Modules.Audit.Web.csproj" />
     <ProjectReference Include="..\..\Modules\TenantSettings\Infrastructure\Liakont.Modules.TenantSettings.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Ingestion\Infrastructure\Liakont.Modules.Ingestion.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Ingestion\Contracts\Liakont.Modules.Ingestion.Contracts.csproj" />
+    <ProjectReference Include="..\..\Contracts\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj" />
   </ItemGroup>
 
 </Project>

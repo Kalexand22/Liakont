@@ -3,7 +3,9 @@ namespace Liakont.Host.Startup;
 using System.Globalization;
 using System.Security.Claims;
 using System.Text;
+using System.Threading.RateLimiting;
 using Asp.Versioning;
+using Liakont.Host.AgentApi;
 using Liakont.Host.Behaviors;
 using Liakont.Host.Components;
 using Liakont.Host.Localization;
@@ -13,6 +15,7 @@ using Liakont.Host.Security;
 using Liakont.Host.Security.Abstractions;
 using Liakont.Host.Security.Keycloak;
 using Liakont.Host.Services;
+using Liakont.Modules.Ingestion.Infrastructure;
 using Liakont.Modules.TenantSettings.Infrastructure;
 using MediatR;
 using Microsoft.AspNetCore.Authentication;
@@ -20,6 +23,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Localization;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 using Stratum.Common.Abstractions.MultiTenancy;
@@ -102,6 +106,33 @@ public static class AppBootstrap
         builder.Services.AddJobHandler<DeliveryRetryJobPayload, DeliveryRetryJobHandler>();
         builder.Services.AddAuditModule();
         builder.Services.AddTenantSettingsModule();
+        builder.Services.AddIngestionModule();
+
+        // Rate limiting de l'API agent (F12 §3.3) — défense en profondeur, PROTECTION ANTI-FLOOD : le
+        // vrai rempart contre le brute force est la clé cryptographique (secret 256 bits) + la
+        // révocation ; un secret ne se devine pas par volume de requêtes. La fenêtre fixe par IP est
+        // donc dimensionnée GÉNÉREUSEMENT pour ne jamais rejeter du trafic légitime (heartbeats,
+        // configuration), même agrégé derrière un proxy — un 429 sur un heartbeat légitime
+        // déclencherait un FAUX POSITIF du dead-man's switch (F12 §5).
+        // NOTE déploiement : derrière le reverse proxy de l'appliance (F12 §6.2/6.6), RemoteIpAddress
+        // est l'IP du proxy tant que ForwardedHeaders n'est pas configuré → la fenêtre dégrade en
+        // throttle GLOBAL plutôt que par-IP. Activer ForwardedHeaders relève d'OPS et EXIGE une liste
+        // de proxys de confiance (sinon X-Forwarded-For est usurpable et la limite contournable).
+        // NOTE PIV04 : l'ingestion de documents par lots (gros débit) ajoutera SA PROPRE policy
+        // dimensionnée pour le débit, plutôt que de partager ce quota anti-flood.
+        builder.Services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            options.AddPolicy(AgentApiEndpoints.RateLimiterPolicy, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 600,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                    }));
+        });
 
         // Le module ERP Party n'est pas vendoré (seul Party.Contracts — décision D1). Identity
         // dépend de IPartyQueries par injection ; Liakont ne lie pas ses utilisateurs à des Party
@@ -272,6 +303,7 @@ public static class AppBootstrap
         app.UseStratumMultiTenancy();
         app.UseAuthorization();
         app.UseAntiforgery();
+        app.UseRateLimiter();
 
         // OpenAPI & Swagger UI (Development and Test only)
         if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Test"))
@@ -433,6 +465,10 @@ public static class AppBootstrap
         v1.MapNotificationEndpoints();
         v1.MapAuditEndpoints();
         v1.MapTenantAdminEndpoints();
+
+        // API agent → plateforme (contrat d'ingestion, F12 §3) : groupe /api/agent/v1 distinct de
+        // l'API console OIDC, authentifié par clé API (filtre) et protégé par rate limiting.
+        app.MapAgentApi();
 
         app.MapRazorComponents<App>()
             .AddAdditionalAssemblies(
