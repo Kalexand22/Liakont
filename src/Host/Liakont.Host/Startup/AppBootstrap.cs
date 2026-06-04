@@ -22,6 +22,7 @@ using Liakont.Modules.Ingestion.Infrastructure;
 using Liakont.Modules.Payments.Infrastructure;
 using Liakont.Modules.Reconciliation.Infrastructure;
 using Liakont.Modules.TenantSettings.Infrastructure;
+using Liakont.Modules.Transmission.Infrastructure;
 using Liakont.Modules.TvaMapping.Infrastructure;
 using MediatR;
 using Microsoft.AspNetCore.Authentication;
@@ -139,6 +140,12 @@ public static class AppBootstrap
         // système fait le fan-out de la passe sur tous les tenants via le TenantJobRunner (SOL06).
         builder.Services.AddReconciliationModule();
         builder.Services.AddJobHandler<ReconciliationFanOutJobPayload, ReconciliationFanOutJobHandler>();
+
+        // Transmission (PAA01) : registre de types des plug-ins PA. Aucun plug-in n'est référencé ici
+        // (le module ne connaît AUCUNE PA concrète — CLAUDE.md n°6) ; chaque plug-in PA (PAA02 Fake,
+        // PAB B2Brouter, PAS Super PDP) ajoutera sa propre IPaClientFactory en singleton et le registre
+        // la découvrira. Le pipeline (PIP) consomme IPaClientRegistry pour résoudre la PA du tenant.
+        builder.Services.AddTransmissionModule();
 
         // Stockage des PDF reçus (PIV04) : chemin racine = PARAMÉTRAGE de déploiement (jamais en dur,
         // CLAUDE.md n°7). Lié depuis la config ; à défaut, repli sous le content root de l'instance.
