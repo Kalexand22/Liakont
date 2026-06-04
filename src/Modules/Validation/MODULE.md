@@ -95,6 +95,33 @@ Toute la logique de validation vit sur la **plateforme**, jamais dans l'agent (C
   instanciation directe. Leur enregistrement dans le conteneur (pour alimenter `ValidationPipeline`)
   se fera au moment où le pipeline d'envoi est composé (Host / lot PIP) — prématuré ici.
 
+## Decisions VAL04
+
+- **Les règles TVA valident le pivot DÉJÀ MAPPÉ (post-F03).** `CategoryCode` / `Rate` / `VatexCode`
+  d'une ventilation sont le RÉSULTAT du mapping plateforme (l'agent les laisse toujours nuls — frontière
+  contrat). Conséquence assumée et FAIL-SAFE : une catégorie non résolue à ce stade = régime non mappé →
+  `MappingCoverageRule` bloque (jamais d'envoi à l'aveugle, CLAUDE.md n°3). Le pipeline (PIP01) mappe
+  avant de valider.
+- **Détection d'un avoir = présence de `CreditNoteRefs`** (signal structurel EN 16931 BG-3 / BT-25). La
+  classification générale facture/avoir à partir du type source brut (`SourceDocumentKind`) est un concern
+  plateforme DISTINCT, non encore bâti et NON spécifié (la correspondance type-source → avoir varie par
+  logiciel) : VAL04 ne l'invente pas (CLAUDE.md n°2). Le cas orphelin couvert ici est l'avoir qui
+  RÉFÉRENCE un original absent de la plateforme (F07-F08 §B.4, cas réel : original pré-réforme / hors
+  passerelle).
+- **Lookup de la facture d'origine derrière une abstraction.** `IIssuedInvoiceLookup`
+  (`Contracts/CreditNotes`) tranche `KnownIssued` / `KnownNotIssued` / `Unknown` (F07-F08 §B.5),
+  tenant-scopé par `CompanyId`. L'implémentation réelle (module Documents / suivi des émissions) arrive
+  avec **TRK03** ; jusque-là un double de test suffit (même schéma que l'unicité de VAL03). Frontière
+  Contracts-only : la règle ne référence jamais le module Documents directement (module-rules.md §3).
+- **Aucune règle fiscale inventée (CLAUDE.md n°2) :** liste des 9 catégories UNCL5305 = F03 §2.1 ;
+  cohérence catégorie/taux en BLOCKING = F04 §3.4 (amendée 2026-06-02) ; VATEX obligatoire sur E à taux 0 =
+  F04 §3.4 ; montants positifs sur avoir = F07-F08 §B.2. QUESTION OUVERTE tracée (catégorie AA/AAA à
+  taux 0 légitime ?) : déférée à l'expert-comptable ; la règle applique la spec actuelle, à AMENDER
+  jamais à assouplir silencieusement.
+- **Pas de wiring DI dans VAL04.** Les règles implémentent le contrat publié `IDocumentRule` ; leur
+  enregistrement (avec l'implémentation réelle de `IIssuedInvoiceLookup`) est branché par le consommateur
+  du pipeline (PIP01), comme pour le socle VAL01. Aucun nouveau projet ni modification de la solution.
+
 ## Published Events
 
 Aucun. (Le résultat de validation est consommé par le pipeline d'envoi — lot PIP — via les `Contracts`.)
