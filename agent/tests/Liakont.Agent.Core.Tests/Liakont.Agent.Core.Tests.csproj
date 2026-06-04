@@ -26,6 +26,14 @@
   <ItemGroup>
     <Compile Include="..\..\..\tests\_shared\contract-v1\PivotCanonicalReader.cs" Link="ContractV1\PivotCanonicalReader.cs" />
     <Compile Include="..\..\..\tests\_shared\contract-v1\PivotContractGoldenTests.cs" Link="ContractV1\PivotContractGoldenTests.cs" />
+    <Compile Include="..\..\..\tests\_shared\contract-v1\ContractFixtures.cs" Link="ContractV1\ContractFixtures.cs" />
+    <Compile Include="..\..\..\tests\_shared\contract-v1\ContractFixtureTests.cs" Link="ContractV1\ContractFixtureTests.cs" />
+  </ItemGroup>
+
+  <!-- Golden files du contrat v1 (PIV03) : copiés en sortie pour être lus côté agent (net48) avec
+       les MÊMES fichiers et les MÊMES empreintes que la plateforme — preuve cross-runtime. -->
+  <ItemGroup>
+    <None Include="..\..\..\tests\fixtures\contrat-v1\*.json" Link="fixtures\contrat-v1\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
