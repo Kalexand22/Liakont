@@ -24,8 +24,11 @@ public sealed class ArchiveVerifierTests
         _archiveService = new ArchiveService(_store, _entryStore, new StubTenantContext(ArchiveTestData.Tenant));
     }
 
-    private static Rfc3161TimestampAnchor Rfc3161(ITsaClient client) =>
-        new(client, Options.Create(new TimestampAnchorOptions()));
+    private static Rfc3161TimestampAnchor Rfc3161(ITsaClient client, string? trustedCertificateBase64 = null) =>
+        new(client, Options.Create(new TimestampAnchorOptions
+        {
+            Rfc3161 = new TimestampAnchorOptions.Rfc3161Options { TrustedCertificateBase64 = trustedCertificateBase64 },
+        }));
 
     private ArchiveVerifier Create(ITimestampAnchor anchor) =>
         new(_archiveService, _entryStore, _anchorStore, _store, anchor, new StubTenantContext(ArchiveTestData.Tenant));
@@ -43,11 +46,13 @@ public sealed class ArchiveVerifierTests
     }
 
     [Fact]
-    public async Task Verify_FullyVerified_WhenChainIntactAndAnchorValid()
+    public async Task Verify_FullyVerified_WhenChainIntactAndAnchorAuthenticated()
     {
         using var tsa = new TestTimestampAuthority();
         await SeedAndAnchorAsync(tsa);
-        ArchiveVerifier verifier = Create(Rfc3161(FakeTsaClient.Backed(tsa)));
+
+        // Le vérifieur épingle la TSA : la preuve est authentifiée → « coffre ancré ».
+        ArchiveVerifier verifier = Create(Rfc3161(FakeTsaClient.Backed(tsa), tsa.CertificateBase64));
 
         ArchiveVerificationReport report = await verifier.VerifyTenantVaultAsync();
 
@@ -56,6 +61,23 @@ public sealed class ArchiveVerifierTests
         report.Anchors[0].Status.Should().Be(ArchiveAnchorVerificationStatus.Valid);
         report.IsChainAnchored.Should().BeTrue();
         report.IsFullyVerified.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Verify_UnpinnedAnchor_IsValidUnauthenticated_NotChainAnchored()
+    {
+        using var tsa = new TestTimestampAuthority();
+        await SeedAndAnchorAsync(tsa);
+
+        // TSA non épinglée : signature cohérente mais identité non garantie → pas « coffre ancré ».
+        ArchiveVerifier verifier = Create(Rfc3161(FakeTsaClient.Backed(tsa)));
+
+        ArchiveVerificationReport report = await verifier.VerifyTenantVaultAsync();
+
+        report.Anchors[0].Status.Should().Be(ArchiveAnchorVerificationStatus.ValidUnauthenticated);
+        report.Anchors[0].Detail.Should().Contain("NON épinglée");
+        report.IsChainAnchored.Should().BeFalse();
+        report.IsFullyVerified.Should().BeTrue(); // chaîne intacte, aucune altération détectée
     }
 
     [Fact]

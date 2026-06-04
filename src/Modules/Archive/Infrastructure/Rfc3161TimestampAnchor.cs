@@ -75,38 +75,42 @@ public sealed class Rfc3161TimestampAnchor : ITimestampAnchor
 
         if (!Rfc3161TimestampToken.TryDecode(new ReadOnlyMemory<byte>(proof), out Rfc3161TimestampToken? token, out _) || token is null)
         {
-            return Task.FromResult(new TimestampVerification(IsValid: false, AnchoredUtc: null, "Jeton d'horodatage RFC 3161 illisible."));
+            return Task.FromResult(new TimestampVerification(IsValid: false, IsAuthorityAuthenticated: false, AnchoredUtc: null, "Jeton d'horodatage RFC 3161 illisible."));
         }
 
         bool signatureValid = token.VerifySignatureForHash(chainHeadDigest, HashAlgorithm, out X509Certificate2? signerCertificate);
         DateTimeOffset anchoredUtc = token.TokenInfo.Timestamp;
 
-        if (!signatureValid)
+        // `signerCertificate` est IDisposable : on le libère sur TOUS les chemins de sortie (handle natif).
+        using (signerCertificate)
         {
-            return Task.FromResult(new TimestampVerification(
-                IsValid: false,
-                anchoredUtc,
-                "Le jeton RFC 3161 n'atteste pas cette empreinte de tête de chaîne (signature ou empreinte invalide)."));
+            if (!signatureValid)
+            {
+                return Task.FromResult(new TimestampVerification(
+                    IsValid: false,
+                    IsAuthorityAuthenticated: false,
+                    anchoredUtc,
+                    "Le jeton RFC 3161 n'atteste pas cette empreinte de tête de chaîne (signature ou empreinte invalide)."));
+            }
+
+            // La signature est valide pour cette empreinte ; reste à AUTHENTIFIER la TSA selon la config d'instance.
+            if (_trustedThumbprint is null)
+            {
+                const string unpinnedCaveat = "Jeton RFC 3161 valide (signature + empreinte). Identité de la TSA NON épinglée (Archive:Anchor:Rfc3161:TrustedCertificateBase64 absent) : authentification autoritaire par contrôle externe.";
+                return Task.FromResult(new TimestampVerification(IsValid: true, IsAuthorityAuthenticated: false, anchoredUtc, unpinnedCaveat));
+            }
+
+            bool pinned = signerCertificate is not null
+                && string.Equals(signerCertificate.Thumbprint, _trustedThumbprint, StringComparison.OrdinalIgnoreCase);
+
+            return Task.FromResult(pinned
+                ? new TimestampVerification(IsValid: true, IsAuthorityAuthenticated: true, anchoredUtc, "Jeton RFC 3161 valide ; TSA épinglée authentifiée.")
+                : new TimestampVerification(
+                    IsValid: false,
+                    IsAuthorityAuthenticated: false,
+                    anchoredUtc,
+                    "Le certificat signataire du jeton ne correspond pas à la TSA épinglée (jeton potentiellement forgé)."));
         }
-
-        // La signature est valide pour cette empreinte ; reste à AUTHENTIFIER la TSA selon la config d'instance.
-        if (_trustedThumbprint is null)
-        {
-            const string unpinnedCaveat = "Jeton RFC 3161 valide (signature + empreinte). Identité de la TSA NON épinglée (Archive:Anchor:Rfc3161:TrustedCertificateBase64 absent) : authentification autoritaire par contrôle externe.";
-            return Task.FromResult(new TimestampVerification(IsValid: true, anchoredUtc, unpinnedCaveat));
-        }
-
-        bool pinned = signerCertificate is not null
-            && string.Equals(signerCertificate.Thumbprint, _trustedThumbprint, StringComparison.OrdinalIgnoreCase);
-
-        signerCertificate?.Dispose();
-
-        return Task.FromResult(pinned
-            ? new TimestampVerification(IsValid: true, anchoredUtc, "Jeton RFC 3161 valide ; TSA épinglée authentifiée.")
-            : new TimestampVerification(
-                IsValid: false,
-                anchoredUtc,
-                "Le certificat signataire du jeton ne correspond pas à la TSA épinglée (jeton potentiellement forgé)."));
     }
 
     private static string? ResolveTrustedThumbprint(string? trustedCertificateBase64)

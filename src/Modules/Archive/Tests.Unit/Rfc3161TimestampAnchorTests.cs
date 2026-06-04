@@ -41,6 +41,7 @@ public sealed class Rfc3161TimestampAnchorTests
 
         TimestampVerification verification = await anchor.VerifyAsync(result.Proof!, digest);
         verification.IsValid.Should().BeTrue();
+        verification.IsAuthorityAuthenticated.Should().BeFalse();
         verification.AnchoredUtc.Should().Be(tsa.Timestamp);
         verification.Detail.Should().Contain("NON épinglée");
     }
@@ -55,6 +56,7 @@ public sealed class Rfc3161TimestampAnchorTests
         TimestampVerification verification = await anchor.VerifyAsync(result.Proof!, Digest());
 
         verification.IsValid.Should().BeTrue();
+        verification.IsAuthorityAuthenticated.Should().BeTrue();
         verification.Detail.Should().Contain("épinglée authentifiée");
     }
 

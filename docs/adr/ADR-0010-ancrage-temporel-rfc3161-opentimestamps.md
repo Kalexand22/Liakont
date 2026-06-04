@@ -95,10 +95,10 @@ déploiement, au même titre que l'URL de la TSA.
 - **Généricité respectée.** Le module ne voit que `ITimestampAnchor` + capacités. Azure/GCS de stockage et
   OpenTimestamps d'ancrage sont des plug-ins fast-follow, sans changement du module.
 - **Aucune dépendance TIERCE.** RFC 3161 utilise les API in-box `System.Security.Cryptography.Pkcs`,
-  référencé comme package .NET **first-party** (support fourni par le runtime, pas une bibliothèque
-  externe). La TSA de test ajoute `System.Formats.Asn1` (idem, first-party) au seul projet de tests.
-  Ces deux références sont documentées ici (repo-standards §4) ; aucune dépendance OpenTimestamps n'est
-  introduite (déférée).
+  référencé par `Archive.Infrastructure` comme package .NET **first-party** (support fourni par le runtime,
+  pas une bibliothèque externe). `System.Formats.Asn1` (utilisé par la TSA de test pour l'encodage ASN.1)
+  arrive **transitivement** via Pkcs — pas de référence séparée (NU1510 rejette une référence redondante).
+  Cette référence est documentée ici (repo-standards §4) ; aucune dépendance OpenTimestamps n'est introduite (déférée).
 - **Intégrité indépendante du backend et de la TSA.** L'ancrage RENFORCE la chaîne de hashes (la borne dans
   le temps), il ne la remplace pas. Une instance NoAnchor reste intègre (détection d'altération par la chaîne).
 - **Vérifiable par l'opérateur.** `IArchiveVerifier` vérifie chaîne + preuves d'ancrage ; l'export contrôle

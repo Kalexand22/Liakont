@@ -2,15 +2,20 @@ namespace Liakont.Modules.Archive.Contracts;
 
 /// <summary>
 /// État de vérification d'une preuve d'ancrage temporel (TRK06). Distingue une preuve réellement
-/// INVALIDE (altérée, manquante, orpheline, ou forgée) d'une preuve simplement NON VÉRIFIABLE par la
-/// configuration courante (méthode différente de l'ancrage configuré) : confondre les deux ferait
-/// conclure à tort à une falsification du coffre (faux négatif alarmant) et casserait le « ceinture-bretelles »
-/// (ancrages simultanés) prévu par la spec.
+/// INVALIDE d'une preuve simplement NON VÉRIFIABLE par la configuration courante, et — parmi les preuves
+/// valides — celles dont la TSA est AUTHENTIFIÉE (certificat épinglé) de celles seulement
+/// cohérentes mais non authentifiées : seul un ancrage <see cref="Valid"/> allume le « coffre ancré ».
 /// </summary>
 public enum ArchiveAnchorVerificationStatus
 {
-    /// <summary>Preuve valide (signature + empreinte) et authentifiée selon la configuration d'instance.</summary>
+    /// <summary>Preuve valide (signature + empreinte) ET TSA authentifiée (certificat épinglé vérifié).</summary>
     Valid,
+
+    /// <summary>
+    /// Preuve cohérente (signature + empreinte valides) mais TSA NON épinglée : l'identité de l'autorité
+    /// n'est pas garantie (un jeton forgé auto-signé reste possible). Ne compte pas comme « coffre ancré ».
+    /// </summary>
+    ValidUnauthenticated,
 
     /// <summary>Preuve INVALIDE : altérée, manquante, orpheline, ou signataire non conforme à la TSA épinglée.</summary>
     Invalid,

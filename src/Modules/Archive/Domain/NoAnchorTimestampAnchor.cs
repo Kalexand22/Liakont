@@ -28,6 +28,7 @@ public sealed class NoAnchorTimestampAnchor : ITimestampAnchor
     public Task<TimestampVerification> VerifyAsync(byte[] proof, byte[] chainHeadDigest, CancellationToken cancellationToken = default) =>
         Task.FromResult(new TimestampVerification(
             IsValid: false,
+            IsAuthorityAuthenticated: false,
             AnchoredUtc: null,
             Detail: "NoAnchor ne produit pas de preuve d'ancrage : il n'y a rien à vérifier."));
 }

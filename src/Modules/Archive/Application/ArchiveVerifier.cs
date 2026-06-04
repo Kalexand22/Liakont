@@ -59,6 +59,7 @@ public sealed class ArchiveVerifier : IArchiveVerifier
         var anchorVerifications = new List<ArchiveAnchorVerification>(anchors.Count);
         bool anyInvalid = false;
         bool anyNotVerifiable = false;
+        bool anyUnauthenticated = false;
         bool currentHeadAnchored = false;
 
         foreach (ArchiveAnchorRecord anchor in anchors)
@@ -74,14 +75,18 @@ public sealed class ArchiveVerifier : IArchiveVerifier
                 case ArchiveAnchorVerificationStatus.NotVerifiable:
                     anyNotVerifiable = true;
                     break;
+                case ArchiveAnchorVerificationStatus.ValidUnauthenticated:
+                    anyUnauthenticated = true;
+                    break;
                 case ArchiveAnchorVerificationStatus.Valid when string.Equals(anchor.ChainHeadHash, currentHead, StringComparison.Ordinal):
+                    // Seule une preuve AUTHENTIFIÉE (TSA épinglée) allume « coffre ancré ».
                     currentHeadAnchored = true;
                     break;
             }
         }
 
         bool isFullyVerified = chain.IsIntact && !anyInvalid;
-        string summary = BuildSummary(chain, anchors.Count, anyInvalid, anyNotVerifiable, currentHeadAnchored, currentHead is not null);
+        string summary = BuildSummary(chain, anchors.Count, anyInvalid, anyNotVerifiable, anyUnauthenticated, currentHeadAnchored, currentHead is not null);
 
         return new ArchiveVerificationReport(chain, anchorVerifications, currentHeadAnchored, isFullyVerified, summary);
     }
@@ -99,6 +104,7 @@ public sealed class ArchiveVerifier : IArchiveVerifier
         int anchorCount,
         bool anyInvalid,
         bool anyNotVerifiable,
+        bool anyUnauthenticated,
         bool currentHeadAnchored,
         bool hasEntries)
     {
@@ -122,13 +128,16 @@ public sealed class ArchiveVerifier : IArchiveVerifier
         }
 
         string headPart = currentHeadAnchored
-            ? "la tête de chaîne actuelle est ancrée."
-            : "la tête de chaîne actuelle n'est pas encore ancrée.";
+            ? "la tête de chaîne actuelle est ancrée (TSA authentifiée)."
+            : "la tête de chaîne actuelle n'est pas ancrée par une TSA authentifiée.";
+        string unauthenticatedPart = anyUnauthenticated
+            ? " Des preuves sont cohérentes mais leur TSA n'est pas épinglée (identité non garantie ; vérification autoritaire externe)."
+            : string.Empty;
         string notVerifiablePart = anyNotVerifiable
             ? " Certaines preuves relèvent d'une méthode non configurée (conservées, non vérifiées par cette instance)."
             : string.Empty;
 
-        return $"{chainPart} {anchorCount} ancrage(s) vérifié(s) ; {headPart}{notVerifiablePart}";
+        return $"{chainPart} {anchorCount} ancrage(s) examiné(s) ; {headPart}{unauthenticatedPart}{notVerifiablePart}";
     }
 
     private async Task<ArchiveAnchorVerification> VerifyAnchorAsync(
@@ -186,9 +195,20 @@ public sealed class ArchiveVerifier : IArchiveVerifier
         }
 
         TimestampVerification verification = await _anchor.VerifyAsync(proof, digest, cancellationToken);
-        ArchiveAnchorVerificationStatus verifiedStatus = verification.IsValid
-            ? ArchiveAnchorVerificationStatus.Valid
-            : ArchiveAnchorVerificationStatus.Invalid;
+
+        ArchiveAnchorVerificationStatus verifiedStatus;
+        if (!verification.IsValid)
+        {
+            verifiedStatus = ArchiveAnchorVerificationStatus.Invalid;
+        }
+        else if (verification.IsAuthorityAuthenticated)
+        {
+            verifiedStatus = ArchiveAnchorVerificationStatus.Valid;
+        }
+        else
+        {
+            verifiedStatus = ArchiveAnchorVerificationStatus.ValidUnauthenticated;
+        }
 
         // On remonte le détail même quand valide : il porte le caveat d'authentification de la TSA.
         return Result(anchor, method, verifiedStatus, verification.AnchoredUtc ?? anchor.AnchoredUtc, verification.Detail);
