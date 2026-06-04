@@ -254,6 +254,29 @@ vendored) prend le claim `preferred_username` **brut** et ne le passe PAS par `S
 `preferred_username`, soit le realm dev passe à des usernames courts — décision plateforme touchant
 le module Identity vendoré. La fixture E2E à handles est compatible avec les deux résolutions.
 
+### 4.14 Mécanique de jobs multi-tenant Liakont (SOL06) — fichiers AJOUTÉS aux projets Common vendored
+SOL06 ajoute la mécanique `TenantJobRunner` (jobs multi-tenant — voir
+`docs/adr/ADR-0006-mecanique-jobs-multi-tenant.md` et `docs/architecture/tenant-jobs.md`) **sous les
+dossiers vendored `src/Common`**, conformément au choix de placement de l'ADR-0006 (réutilisable par
+tous les modules sans dépendance circulaire). Ce sont des **fichiers AJOUTÉS**, pas des modifications
+de fichiers `Stratum.*` existants : le baseline de provenance (§4.12) n'épingle que les fichiers
+vendorés existants, donc ces ajouts **ne dérivent pas** et ne figurent PAS dans le bloc
+`SOCLE-CONSIGNED-DRIFT` (réservé aux fichiers épinglés modifiés/supprimés). Ils sont consignés ici
+pour la re-convergence NuGet et marqués `// Liakont addition (SOL06)` en tête de fichier.
+
+Fichiers ajoutés (namespaces cohérents avec l'assembly hôte ; code **Liakont**, pas Stratum amont) :
+- `src/Common/Abstractions/Jobs/` : `ITenantJob.cs`, `TenantJobContext.cs`, `ITenantJobRunner.cs`,
+  `TenantJobRunSummary.cs`, `TenantJobFailure.cs` (projet `Stratum.Common.Abstractions`)
+- `src/Common/Abstractions/MultiTenancy/` : `ITenantScope.cs`, `ITenantScopeFactory.cs` (seam de
+  basculement de tenant, implémenté côté Host)
+- `src/Common/Infrastructure/Jobs/` : `TenantJobRunner.cs`, `ServiceCollectionExtensions.cs`
+  (`AddTenantJobs()`) (projet `Stratum.Common.Infrastructure`)
+
+Code Liakont **hors** socle (pas de consignation requise, mais cité pour le contexte) :
+`src/Host/Liakont.Host/MultiTenancy/TenantScopeFactory.cs` (implémentation du seam, positionne le
+`MutableTenantContext` interne au Host) + son enregistrement dans `MultiTenantServiceCollectionExtensions`
+et `AppBootstrap`. **Aucun fichier `Stratum.*` existant n'a été modifié par SOL06.**
+
 ## 5. ADR du socle hérités
 
 Les ADR Stratum pertinents au socle sont copiés dans `docs/adr/socle/` (référence, non re-décidés).
