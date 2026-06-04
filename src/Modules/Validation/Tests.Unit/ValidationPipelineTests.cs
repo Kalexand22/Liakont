@@ -101,6 +101,20 @@ public sealed class ValidationPipelineTests
     }
 
     [Fact]
+    public async Task Rule_timeout_when_token_not_cancelled_produces_blocking_rule_crashed()
+    {
+        // Une règle lève TaskCanceledException (dérive de OperationCanceledException) due à un
+        // timeout aval (HttpClient, commande DB) alors que le token appelant n'est PAS annulé.
+        // Le pipeline doit traiter ça comme un crash de règle (RULE_CRASHED), jamais propager.
+        var pipeline = new ValidationPipeline(new IDocumentRule[] { new TimeoutRule() });
+
+        var result = await pipeline.ValidateAsync(Context(), CancellationToken.None);
+
+        result.HasBlockingIssue.Should().BeTrue();
+        result.Issues.Should().ContainSingle(issue => issue.Code == ValidationIssueCodes.RuleCrashed);
+    }
+
+    [Fact]
     public void Empty_rule_set_is_allowed()
     {
         var act = () => new ValidationPipeline(Array.Empty<IDocumentRule>());
@@ -163,6 +177,18 @@ public sealed class ValidationPipelineTests
         public Task<IReadOnlyList<ValidationIssue>> ValidateAsync(DocumentValidationContext context, CancellationToken cancellationToken = default)
         {
             throw new InvalidOperationException(_marker);
+        }
+    }
+
+    private sealed class TimeoutRule : IDocumentRule
+    {
+        public string Code => "TIMEOUT_RULE";
+
+        public Task<IReadOnlyList<ValidationIssue>> ValidateAsync(DocumentValidationContext context, CancellationToken cancellationToken = default)
+        {
+            // Simule un timeout HttpClient / commande DB : lève OperationCanceledException
+            // alors que le token appelant n'est PAS annulé.
+            throw new TaskCanceledException("Simulated downstream timeout.");
         }
     }
 

@@ -47,7 +47,11 @@ public sealed class ValidationPipeline
                     issues.AddRange(ruleIssues);
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
             {
                 issues.Add(CreateRuleCrashedIssue(rule, context, ex));
             }

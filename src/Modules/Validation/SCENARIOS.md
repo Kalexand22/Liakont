@@ -13,6 +13,11 @@
 - Un ensemble de règles vide est accepté à la construction
 - Un contexte `null` est rejeté (`ArgumentNullException`)
 
+### DocumentValidationContextTests
+- Document `null` rejeté (`ArgumentNullException`) — INV-VALIDATION-006
+- `companyId` vide (`Guid.Empty`) rejeté (`ArgumentException`) — INV-VALIDATION-006
+- Arguments valides acceptés (document et companyId non vide accessibles) — INV-VALIDATION-006
+
 ### ValidationResultTests
 - Résultat avec uniquement des alertes → valide — INV-VALIDATION-003
 - Résultat avec au moins une anomalie bloquante → invalide — INV-VALIDATION-003
