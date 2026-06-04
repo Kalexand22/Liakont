@@ -1,0 +1,35 @@
+namespace Liakont.Modules.Ingestion.Infrastructure;
+
+using Liakont.Modules.Ingestion.Application;
+using Liakont.Modules.Ingestion.Contracts.Authentication;
+using Liakont.Modules.Ingestion.Contracts.Queries;
+using Liakont.Modules.Ingestion.Infrastructure.Queries;
+using Microsoft.Extensions.DependencyInjection;
+using Stratum.Common.Infrastructure.Database;
+
+/// <summary>
+/// Enregistrement DI du module Ingestion (registre d'agents, authentification par clé API, heartbeat,
+/// configuration d'agent). Le registre et l'historique des heartbeats vivent dans la base SYSTÈME
+/// (résolution clé → tenant avant tout contexte tenant, F12 §3.1).
+/// </summary>
+public static class IngestionModuleRegistration
+{
+    public static IServiceCollection AddIngestionModule(this IServiceCollection services)
+    {
+        services.AddMediatR(cfg =>
+        {
+            cfg.RegisterServicesFromAssembly(typeof(IIngestionApplicationMarker).Assembly);
+            cfg.RegisterServicesFromAssembly(typeof(IngestionModuleRegistration).Assembly);
+        });
+
+        services.Configure<MigrationAssembliesOptions>(opts =>
+            opts.Add(typeof(IngestionModuleRegistration).Assembly));
+
+        services.AddScoped<IAgentRegistryUnitOfWorkFactory, PostgresAgentRegistryUnitOfWorkFactory>();
+        services.AddScoped<IAgentQueries, PostgresAgentQueries>();
+        services.AddScoped<IAgentAuthenticator, AgentAuthenticator>();
+        services.AddScoped<IAgentConfigurationProvider, SafeDefaultAgentConfigurationProvider>();
+
+        return services;
+    }
+}

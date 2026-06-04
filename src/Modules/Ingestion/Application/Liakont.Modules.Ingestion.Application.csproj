@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="MediatR" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.Ingestion.Domain.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.Ingestion.Contracts.csproj" />
+  </ItemGroup>
+</Project>
