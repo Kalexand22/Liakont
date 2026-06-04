@@ -17,6 +17,7 @@
 - `Create_E_Computed_Without_Vatex_Throws` — E exige un VATEX même en taux calculé (INV-002).
 - `Create_E_With_Fixed_NonZero_Rate_Throws` — E (exonéré) avec taux fixe non nul rejeté (INV-002/004).
 - `Create_Same_Code_And_Part_Different_Flags_Still_Throws` — l'unicité (code, part) ignore les flags (INV-003).
+- `Create_Wildcard_Code_Throws` — le joker `*` pré-v6 est refusé (INV-011, amendement F03 §4.1 du 2026-06-04).
 - `IsValidated_Is_False_When_Validation_Absent` / `..._True_When_Both_Set` /
   `..._False_When_Only_ValidatedBy_Set` — état « NON VALIDÉE » (INV-006).
 - `Reconstitute_Invalid_Table_Throws_At_Load` — re-validation au chargement (INV-005).
@@ -26,6 +27,22 @@
 - `Parse_Trims_Whitespace` — espaces de bord tolérés.
 - `Parse_Unknown_Or_Empty_Throws` / `Parse_Null_Throws` / `Parse_Numeric_Value_Is_Rejected` —
   toute valeur hors liste (dont une valeur numérique) rejetée, jamais devinée.
+
+### TvaMapperTests (moteur TVA02 — INV-TVAMAPPING-007/008/010)
+- `Map_FixedStandardRate_ProducesCategoryRateAndTrace` — régime assujetti → S/20 % + trace complète (rang, libellé, version).
+- `Map_MargeExoneration_ProducesE_WithVatex` — adjudication marge → E/0 %/VATEX-EU-J (F03 §2.3).
+- `Map_ReducedRate_ProducesAA` — taux réduit AA/10 %.
+- `Map_UnknownRegime_IsBlocked` — régime non couvert → block (motif opérateur FR + action), jamais deviné (INV-007).
+- `Map_KnownCodeButWrongPart_IsBlocked` — code connu mais part non couverte → block.
+- `Map_SameCodeDifferentPart_SelectsCorrectRule` — marge : même code → adjudication (E) + frais (S), sélection par part.
+- `Map_RuleWithFlags_AllSatisfied_IsMapped` — flags requis satisfaits (extras ignorés) → règle appliquée (F03 §3).
+- `Map_RuleWithFlags_NotSatisfied_IsBlocked` / `..._DocumentHasNoFlags_IsBlocked` — flags non satisfaits → block (jamais une 2ᵉ règle, INV-003).
+- `Map_RuleWithoutFlags_DocumentExtraFlagsIgnored_IsMapped` — règle sans flag = inconditionnelle.
+- `Map_ComputedRateRule_LeavesRateNullWithComputedMode` — taux calculé : mode signalé, valeur résolue en aval (F03 §4.1).
+- `Map_ValidatedTable_TraceCarriesValidationIdentity` / `Map_NonValidatedTable_StillMaps_TraceFlaggedNonValidee` — état de validation porté par la trace (INV-006).
+- `Map_TenantIsolation_UsesOnlyProvidedTable` — moteur sans état : ne consulte que la table fournie (INV-008/010).
+- `Map_FraisOfUnmappedRegime_IsBlocked` — pas de joker : la part frais d'un régime sans règle explicite est bloquée (INV-011).
+- `Map_NullTable_Throws` / `Map_NullRequest_Throws` / `Map_EmptyTable_BlocksEveryRegime` — garde-fous d'entrée.
 
 ## Integration (`Tests.Integration`, Testcontainers PostgreSQL)
 

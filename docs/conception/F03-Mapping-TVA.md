@@ -59,6 +59,16 @@ L'enjeu : une erreur de mapping = un motif d'exonération erroné transmis à la
 
 ### 4.1 La table de mapping (paramétrable, par déploiement)
 
+> **Amendement v6 (2026-06-04, item TVA02) :** le modèle v6 (table EN BASE, par tenant) est clé par
+> le couple **(code régime source, part)** avec unicité (INV-TVAMAPPING-003) et match **EXACT** par le
+> moteur (`TvaMapper`). Le **joker `"*"`** de l'exemple ci-dessous (forme fichier pré-v6) est
+> **obsolète et REFUSÉ** par `MappingTableValidator` : il ouvrait un piège silencieux (table acceptée
+> à l'écriture, puis sur-blocage de toutes les lignes « frais » à l'exécution). La couverture des frais
+> s'exprime donc par une règle **explicite (code régime, part frais)** pour chaque régime réel — ce qui
+> est cohérent avec le §3 (« le mapping doit être validé **régime par régime** par l'expert-comptable »).
+> L'exemple JSON ci-dessous est conservé pour mémoire ; sa ligne `"sourceRegimeCode": "*"` ne doit pas
+> être reproduite telle quelle.
+
 Format JSON, externe au code, versionné et horodaté :
 
 ```json

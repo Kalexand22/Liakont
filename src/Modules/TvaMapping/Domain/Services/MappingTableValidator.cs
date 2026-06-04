@@ -55,6 +55,19 @@ public static class MappingTableValidator
             {
                 violations.Add($"règle #{n} : code régime source obligatoire");
             }
+            else if (rule.SourceRegimeCode.Trim() == "*")
+            {
+                // Le modèle v6 (table en base, clé (code, part) — INV-003) n'a PAS de joker : le moteur
+                // (TVA02) fait un match EXACT. Le « * » de l'exemple pré-v6 de F03 §4.1 est obsolète et
+                // refusé ici pour fermer un piège silencieux (table acceptée puis sur-blocage des frais).
+                // F03 §3 impose un mapping validé RÉGIME PAR RÉGIME — donc une règle explicite par régime
+                // réel, jamais un joker fourre-tout (CLAUDE.md n°2 : aucune règle fiscale devinée).
+                violations.Add(
+                    $"règle #{n} : le code régime source « * » (joker) n'est pas supporté — le modèle v6 " +
+                    "exige une règle EXPLICITE par régime source et par part (F03 §3 : mapping validé régime " +
+                    "par régime). Déclarez une règle pour chaque code régime source réel (y compris la part " +
+                    "frais), jamais un joker.");
+            }
 
             if (!Enum.IsDefined(rule.Category))
             {
