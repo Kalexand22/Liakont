@@ -15,7 +15,10 @@ chargement.
 (`Domain/Mapping` : `MappingRequest`, `MappingResult`, `MappingTrace`). Service de domaine PUR et
 SANS ÉTAT : il applique la table du tenant à `(code régime source, part, flags)` et produit soit le
 triplet `{catégorie UNCL5305, taux, VATEX}` avec une `MappingTrace` d'audit, soit un blocage
-(régime non couvert ou flags non satisfaits → `block`, jamais de mapping deviné — INV-007). Le taux
+(régime non couvert ou flags non satisfaits → `block`, jamais de mapping deviné — INV-007). Le
+matching est **EXACT** sur `(code régime source, part)` : pas de joker (le `"*"` pré-v6 de F03 §4.1
+est obsolète et rejeté par le validateur — amendement F03 §4.1 du 2026-06-04, INV-011) ; la couverture
+des frais s'exprime par une règle explicite par régime (F03 §3, « régime par régime »). Le taux
 `ComputedFromSource` est signalé par le moteur ; sa valeur numérique est résolue en aval (pipeline
 PIP01) à partir des montants de la ligne (F03 §4.1). Le moteur est testé **en direct** (unitaire) ;
 son câblage à l'ingestion (événement `DocumentReceived`) arrive avec PIP01, et son passage sur les

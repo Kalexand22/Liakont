@@ -312,4 +312,20 @@ public sealed class TvaMapperTests
 
         result.IsMapped.Should().BeFalse();
     }
+
+    [Fact]
+    public void Map_FraisOfUnmappedRegime_IsBlocked()
+    {
+        // Pas de joker (INV-011, F03 §3 « régime par régime ») : la part frais d'un régime sans règle
+        // (code, Frais) explicite est bloquée, jamais couverte implicitement. REGIME-5 a une règle
+        // frais explicite ; REGIME-6 (frais) n'en a pas → block.
+        var table = ValidatedTable(
+            Guid.NewGuid(),
+            Fixed("REGIME-5", VatCategory.S, 20m, MappingPart.Adjudication),
+            Fixed("REGIME-5", VatCategory.S, 20m, MappingPart.Frais));
+
+        var result = TvaMapper.Map(table, Request("REGIME-6", MappingPart.Frais), MappedAt);
+
+        result.IsMapped.Should().BeFalse();
+    }
 }

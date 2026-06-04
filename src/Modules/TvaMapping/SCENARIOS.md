@@ -17,6 +17,7 @@
 - `Create_E_Computed_Without_Vatex_Throws` — E exige un VATEX même en taux calculé (INV-002).
 - `Create_E_With_Fixed_NonZero_Rate_Throws` — E (exonéré) avec taux fixe non nul rejeté (INV-002/004).
 - `Create_Same_Code_And_Part_Different_Flags_Still_Throws` — l'unicité (code, part) ignore les flags (INV-003).
+- `Create_Wildcard_Code_Throws` — le joker `*` pré-v6 est refusé (INV-011, amendement F03 §4.1 du 2026-06-04).
 - `IsValidated_Is_False_When_Validation_Absent` / `..._True_When_Both_Set` /
   `..._False_When_Only_ValidatedBy_Set` — état « NON VALIDÉE » (INV-006).
 - `Reconstitute_Invalid_Table_Throws_At_Load` — re-validation au chargement (INV-005).
@@ -40,6 +41,7 @@
 - `Map_ComputedRateRule_LeavesRateNullWithComputedMode` — taux calculé : mode signalé, valeur résolue en aval (F03 §4.1).
 - `Map_ValidatedTable_TraceCarriesValidationIdentity` / `Map_NonValidatedTable_StillMaps_TraceFlaggedNonValidee` — état de validation porté par la trace (INV-006).
 - `Map_TenantIsolation_UsesOnlyProvidedTable` — moteur sans état : ne consulte que la table fournie (INV-008/010).
+- `Map_FraisOfUnmappedRegime_IsBlocked` — pas de joker : la part frais d'un régime sans règle explicite est bloquée (INV-011).
 - `Map_NullTable_Throws` / `Map_NullRequest_Throws` / `Map_EmptyTable_BlocksEveryRegime` — garde-fous d'entrée.
 
 ## Integration (`Tests.Integration`, Testcontainers PostgreSQL)

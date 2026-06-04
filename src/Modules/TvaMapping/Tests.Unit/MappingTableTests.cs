@@ -149,6 +149,17 @@ public sealed class MappingTableTests
     }
 
     [Fact]
+    public void Create_Wildcard_Code_Throws()
+    {
+        // Amendement F03 §4.1 (2026-06-04, INV-011) : le joker « * » pré-v6 est refusé — le modèle v6
+        // exige une règle explicite par régime et par part (F03 §3, régime par régime).
+        var act = () => Create(FixedRule("*", VatCategory.S, 20m, MappingPart.Frais));
+
+        act.Should().Throw<InvalidMappingTableException>()
+            .Which.Violations.Should().Contain(v => v.Contains("joker", System.StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void Create_Unknown_Category_Throws()
     {
         var rule = new MappingRule
