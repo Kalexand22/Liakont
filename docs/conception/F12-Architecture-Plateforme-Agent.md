@@ -229,6 +229,10 @@ de l'instance.
 | **Tenant** | En base (par tenant), édité via la console | SIREN, raison sociale, table TVA (+ validation expert-comptable), compte(s) PA + clés chiffrées, planification, seuils d'alerte, contact | Droit « paramétrage » (journalisé, revalidation) |
 | **Agent** | Fichier local + DPAPI chez le client | URL plateforme, clé API, ODBC, planification locale | Installateur / CLI agent |
 
+> Le **détail du niveau Tenant** (profil, paramétrage fiscal, comptes PA, planification, seuils,
+> droits par section, seed `deployments/<client>/`) est spécifié dans l'annexe
+> [F12-A — Paramétrage par tenant](F12-A-Parametrage-Tenant.md).
+
 ### 6.2 L'appliance Docker (lot OPS)
 
 ```yaml
