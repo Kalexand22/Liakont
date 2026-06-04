@@ -98,6 +98,14 @@ public sealed class Document
         Require(documentType, nameof(documentType), "Le type de document source est obligatoire.");
         Require(payloadHash, nameof(payloadHash), "L'empreinte du payload est obligatoire.");
 
+        // Intégrité de stockage (CLAUDE.md n°4) : la colonne numeric(18,2) tronque silencieusement tout
+        // montant à plus de 2 décimales, ce qui altérerait un montant audité sans erreur visible. Ce garde-fou
+        // rejette l'entrée avant persistance. Il ne juge pas la CORRECTION fiscale des montants (contrôle
+        // des totaux délégué à Validation, F04) — uniquement leur stockage SANS PERTE.
+        RequireMonetaryScale(totalNet, nameof(totalNet));
+        RequireMonetaryScale(totalTax, nameof(totalTax));
+        RequireMonetaryScale(totalGross, nameof(totalGross));
+
         return new Document
         {
             Id = id,
@@ -175,6 +183,16 @@ public sealed class Document
         if (string.IsNullOrWhiteSpace(value))
         {
             throw new ArgumentException(message, paramName);
+        }
+    }
+
+    private static void RequireMonetaryScale(decimal value, string paramName)
+    {
+        if (decimal.Round(value, 2) != value)
+        {
+            throw new ArgumentException(
+                $"Le montant '{paramName}' ({value}) dépasse 2 décimales : la colonne numeric(18,2) le tronquerait silencieusement, altérant un montant audité (CLAUDE.md n°4).",
+                paramName);
         }
     }
 }

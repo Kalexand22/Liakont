@@ -50,7 +50,8 @@ public sealed class DocumentEventAppendOnlyIntegrationTests
             "DELETE FROM documents.document_events WHERE document_id = @d",
             new { d = documentId });
 
-        await delete.Should().ThrowAsync<PostgresException>();
+        (await delete.Should().ThrowAsync<PostgresException>())
+            .Which.MessageText.Should().Contain("append-only");
         (await EventCountAsync(harness, documentId)).Should().Be(1, "le DELETE a été rejeté.");
     }
 
@@ -63,7 +64,8 @@ public sealed class DocumentEventAppendOnlyIntegrationTests
         using var conn = await harness.ConnectionFactory.OpenAsync();
         var truncate = async () => await conn.ExecuteAsync("TRUNCATE documents.document_events");
 
-        await truncate.Should().ThrowAsync<PostgresException>();
+        (await truncate.Should().ThrowAsync<PostgresException>())
+            .Which.MessageText.Should().Contain("append-only");
         (await EventCountAsync(harness, documentId)).Should().Be(1, "le TRUNCATE de masse a été rejeté.");
     }
 

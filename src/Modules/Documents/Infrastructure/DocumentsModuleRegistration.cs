@@ -31,9 +31,10 @@ public static class DocumentsModuleRegistration
         services.AddScoped<IDocumentUnitOfWorkFactory, PostgresDocumentUnitOfWorkFactory>();
         services.AddScoped<IDocumentQueries, PostgresDocumentQueries>();
 
-        // Port de création du document en état Detected (PIV04). Remplace le défaut SÛR NoOpDocumentIntake
-        // enregistré par le module Ingestion : Replace garantit que la vraie implémentation gagne quel que
-        // soit l'ordre d'enregistrement des modules (et reste un no-op côté Ingestion seul, hors plateforme).
+        // Port de création du document en état Detected (PIV04). Replace écrase le défaut sûr NoOpDocumentIntake ;
+        // combiné au TryAdd du module Ingestion, le câblage est indépendant de l'ordre d'enregistrement des
+        // modules : la vraie implémentation (DocumentIntake) gagne toujours (et le no-op sert côté Ingestion
+        // seul, hors plateforme).
         services.Replace(ServiceDescriptor.Scoped<IDocumentIntake, DocumentIntake>());
 
         return services;

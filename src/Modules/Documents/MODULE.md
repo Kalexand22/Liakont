@@ -33,8 +33,10 @@ tables sont **créées** ici (schéma) mais **alimentées** par leurs items.
   connexion scopée au tenant courant ; l'ingestion (port d'ingestion) cible le tenant par **slug** (la
   résolution clé API → tenant précède tout contexte tenant, F12 §3.1).
 - **Interdits** (module-rules §2) : tout chemin d'update/delete sur `document_events` (append-only),
-  toute purge automatique d'une table d'audit, tout type flottant sur un montant, tout calcul/validation
-  fiscale (délégués à Validation/TvaMapping), toute classification facture/avoir (Validation).
+  tout chemin d'update/delete sur `archive_entries` (WORM — write-once, chaque paquet/addendum = nouvelle
+  ligne, TRK05 n'écrase jamais une référence existante), toute purge automatique d'une table d'audit,
+  tout type flottant sur un montant, tout calcul/validation fiscale (délégués à Validation/TvaMapping),
+  toute classification facture/avoir (Validation).
 - **Surface publique** : `Contracts/` uniquement (`IDocumentQueries` + DTOs). L'unité de travail
   d'écriture (`IDocumentUnitOfWork`) est **interne** au module (consommée par le port d'ingestion et,
   à terme, par le pipeline).

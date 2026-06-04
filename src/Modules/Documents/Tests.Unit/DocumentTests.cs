@@ -110,6 +110,60 @@ public sealed class DocumentTests
         evt.MappingTrace.Should().BeNull();
     }
 
+    [Fact]
+    public void CreateDetected_Rejects_TotalNet_With_More_Than_2_Decimals()
+    {
+        var act = () => Build(totalNet: 100.999m);
+        act.Should().Throw<ArgumentException>().WithParameterName("totalNet");
+    }
+
+    [Fact]
+    public void CreateDetected_Rejects_TotalTax_With_More_Than_2_Decimals()
+    {
+        var act = () => Build(totalTax: 100.999m);
+        act.Should().Throw<ArgumentException>().WithParameterName("totalTax");
+    }
+
+    [Fact]
+    public void CreateDetected_Rejects_TotalGross_With_More_Than_2_Decimals()
+    {
+        var act = () => Build(totalGross: 100.999m);
+        act.Should().Throw<ArgumentException>().WithParameterName("totalGross");
+    }
+
+    [Theory]
+    [InlineData("100.990")]
+    [InlineData("100")]
+    [InlineData("0.10")]
+    public void CreateDetected_Accepts_TotalNet_With_Two_Or_Fewer_Decimals(string value)
+    {
+        var amount = decimal.Parse(value, System.Globalization.CultureInfo.InvariantCulture);
+        var act = () => Build(totalNet: amount);
+        act.Should().NotThrow();
+    }
+
+    [Theory]
+    [InlineData("100.990")]
+    [InlineData("100")]
+    [InlineData("0.10")]
+    public void CreateDetected_Accepts_TotalTax_With_Two_Or_Fewer_Decimals(string value)
+    {
+        var amount = decimal.Parse(value, System.Globalization.CultureInfo.InvariantCulture);
+        var act = () => Build(totalTax: amount);
+        act.Should().NotThrow();
+    }
+
+    [Theory]
+    [InlineData("100.990")]
+    [InlineData("100")]
+    [InlineData("0.10")]
+    public void CreateDetected_Accepts_TotalGross_With_Two_Or_Fewer_Decimals(string value)
+    {
+        var amount = decimal.Parse(value, System.Globalization.CultureInfo.InvariantCulture);
+        var act = () => Build(totalGross: amount);
+        act.Should().NotThrow();
+    }
+
     private static Document CreateValid() => Build();
 
     private static Document Build(

@@ -4,6 +4,7 @@ using System;
 using Dapper;
 using FluentAssertions;
 using Liakont.Modules.Documents.Domain.Entities;
+using Npgsql;
 using Xunit;
 
 /// <summary>
@@ -94,6 +95,38 @@ public sealed class TaxReportAndArchiveSchemaIntegrationTests
         ((string)row.chain_hash).Should().Be("sha256:bbb");
     }
 
+    [Fact]
+    public async Task ArchiveEntry_Update_Is_Rejected()
+    {
+        var harness = new DocumentsHarness(_fixture);
+        var documentId = await SeedDocumentAsync(harness);
+        var entryId = await SeedArchiveEntryAsync(harness, documentId);
+
+        using var conn = await harness.ConnectionFactory.OpenAsync();
+        var update = async () => await conn.ExecuteAsync(
+            "UPDATE documents.archive_entries SET package_path = 'altéré' WHERE id = @Id",
+            new { Id = entryId });
+
+        (await update.Should().ThrowAsync<PostgresException>())
+            .Which.MessageText.Should().Contain("WORM");
+    }
+
+    [Fact]
+    public async Task ArchiveEntry_Delete_Is_Rejected()
+    {
+        var harness = new DocumentsHarness(_fixture);
+        var documentId = await SeedDocumentAsync(harness);
+        var entryId = await SeedArchiveEntryAsync(harness, documentId);
+
+        using var conn = await harness.ConnectionFactory.OpenAsync();
+        var delete = async () => await conn.ExecuteAsync(
+            "DELETE FROM documents.archive_entries WHERE id = @Id",
+            new { Id = entryId });
+
+        (await delete.Should().ThrowAsync<PostgresException>())
+            .Which.MessageText.Should().Contain("WORM");
+    }
+
     private static async Task<Guid> SeedDocumentAsync(DocumentsHarness harness)
     {
         var document = DocumentTestData.NewDetected(documentNumber: $"SCH-{Guid.NewGuid():N}");
@@ -101,5 +134,27 @@ public sealed class TaxReportAndArchiveSchemaIntegrationTests
         await uow.CreateDetectedAsync(document, DocumentEvent.Detected(document.Id, DocumentTestData.DetectedAt));
         await uow.CommitAsync();
         return document.Id;
+    }
+
+    private static async Task<Guid> SeedArchiveEntryAsync(DocumentsHarness harness, Guid documentId)
+    {
+        var entryId = Guid.NewGuid();
+        using var conn = await harness.ConnectionFactory.OpenAsync();
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO documents.archive_entries
+                (id, document_id, package_path, package_hash, chain_hash, archived_utc)
+            VALUES (@Id, @DocumentId, @Path, @PackageHash, @ChainHash, @Archived)
+            """,
+            new
+            {
+                Id = entryId,
+                DocumentId = documentId,
+                Path = $"acme/2026/05/{entryId:N}/",
+                PackageHash = "sha256:ccc",
+                ChainHash = "sha256:ddd",
+                Archived = DocumentTestData.DetectedAt,
+            });
+        return entryId;
     }
 }

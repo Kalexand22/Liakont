@@ -112,8 +112,9 @@ public static class AppBootstrap
         builder.Services.AddIngestionModule();
         builder.Services.AddTvaMappingModule();
 
-        // Documents APRÈS Ingestion : AddDocumentsModule REMPLACE (services.Replace) le défaut sûr
-        // NoOpDocumentIntake enregistré par AddIngestionModule par la vraie implémentation (TRK01).
+        // Documents après Ingestion (ordre sans impact sur la correction : Ingestion utilise TryAdd,
+        // Documents utilise Replace — la vraie implémentation gagne toujours). Conservé après Ingestion
+        // pour la lisibilité du registre.
         builder.Services.AddDocumentsModule();
 
         // Stockage des PDF reçus (PIV04) : chemin racine = PARAMÉTRAGE de déploiement (jamais en dur,

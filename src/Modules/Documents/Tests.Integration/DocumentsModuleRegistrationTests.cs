@@ -53,4 +53,26 @@ public sealed class DocumentsModuleRegistrationTests
         services.Should().ContainSingle(d => d.ServiceType == typeof(IDocumentIntake))
             .Which.ImplementationType.Should().Be<DocumentIntake>();
     }
+
+    [Fact]
+    public void AddDocumentsModule_Replace_Overrides_Any_Prior_IDocumentIntake_Registration()
+    {
+        // Simule un enregistrement préalable (ex. NoOpDocumentIntake du module Ingestion).
+        var services = new ServiceCollection();
+        services.AddScoped<IDocumentIntake, StubIntake>();
+
+        services.AddDocumentsModule();
+
+        // Replace doit écraser le stub : un seul descripteur, pointant sur la vraie implémentation.
+        services.Should().ContainSingle(d => d.ServiceType == typeof(IDocumentIntake))
+            .Which.ImplementationType.Should().Be<DocumentIntake>();
+    }
+
+    private sealed class StubIntake : IDocumentIntake
+    {
+        public System.Threading.Tasks.Task RegisterDetectedDocumentAsync(
+            Liakont.Modules.Ingestion.Contracts.DetectedDocumentIntake input,
+            System.Threading.CancellationToken cancellationToken = default)
+            => System.Threading.Tasks.Task.CompletedTask;
+    }
 }

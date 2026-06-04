@@ -208,6 +208,11 @@ public sealed class DocumentPersistenceIntegrationTests
         firstPage.Should().HaveCount(2);
         firstPage.Should().OnlyContain(d => d.State == state);
         firstPage[0].LastUpdateUtc.Should().BeOnOrAfter(firstPage[1].LastUpdateUtc, "tri par dernière mise à jour décroissante.");
+
+        var secondPage = await harness.Queries.GetByStateAsync(state, page: 2, pageSize: 2);
+        secondPage.Should().HaveCount(1, "3 documents ReadyToSend au total, pageSize=2 → page 2 retourne 1 élément.");
+        var firstPageIds = firstPage.Select(d => d.Id).ToHashSet();
+        firstPageIds.Should().NotContain(secondPage[0].Id, "l'OFFSET est effectif : la page 2 ne répète pas la page 1.");
     }
 
     private static Document MakeAt(string number, DocumentState state, DateTimeOffset lastUpdate)

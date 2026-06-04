@@ -6,6 +6,7 @@ using Liakont.Modules.Ingestion.Contracts.Authentication;
 using Liakont.Modules.Ingestion.Contracts.Queries;
 using Liakont.Modules.Ingestion.Infrastructure.Queries;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Stratum.Common.Infrastructure.Database;
 
 /// <summary>
@@ -37,9 +38,10 @@ public static class IngestionModuleRegistration
         services.AddScoped<ISourceTaxRegimeQueries, PostgresSourceTaxRegimeQueries>();
         services.AddSingleton<IIngestedPdfStore, FileSystemIngestedPdfStore>();
 
-        // Port de création du document en état Detected : no-op SÛR tant que le module Documents
-        // (TRK01/TRK02) n'est pas livré ; le déclencheur durable du pipeline reste l'événement outbox.
-        services.AddScoped<IDocumentIntake, NoOpDocumentIntake>();
+        // Port de création du document en état Detected : défaut sûr enregistré via TryAdd — si le module
+        // Documents (TRK01) est présent, son enregistrement via Replace prime toujours, quel que soit l'ordre
+        // d'enregistrement des modules. Le déclencheur durable du pipeline reste l'événement outbox.
+        services.TryAddScoped<IDocumentIntake, NoOpDocumentIntake>();
 
         // Correspondance type d'événement → payload CLR pour le worker d'outbox (DocumentReceived, SourceAltered).
         services.AddHostedService<IngestionEventTypeRegistrar>();

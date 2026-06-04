@@ -75,7 +75,7 @@ public sealed class PostgresDocumentQueries : IDocumentQueries
     {
         var boundedPage = page < 1 ? 1 : page;
         var boundedPageSize = pageSize < 1 ? 1 : Math.Min(pageSize, MaxPageSize);
-        var offset = (boundedPage - 1) * boundedPageSize;
+        var offset = (long)(boundedPage - 1) * boundedPageSize;
 
         using var conn = await _connectionFactory.OpenAsync(cancellationToken);
 
