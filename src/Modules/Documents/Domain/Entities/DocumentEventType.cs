@@ -40,4 +40,12 @@ public enum DocumentEventType
 
     /// <summary>Document passé en état terminal <c>ManuallyHandled</c> (traité manuellement hors passerelle, motif journalisé).</summary>
     DocumentManuallyHandled,
+
+    /// <summary>
+    /// Altération de la source détectée APRÈS émission (item TRK03, F06 §3 « double usage du
+    /// payload_hash ») : une <c>source_reference</c> déjà émise a été re-soumise avec une empreinte
+    /// différente. Fait d'audit append-only inscrit SUR le document émis ; jamais de réémission ni de
+    /// mise à jour du document émis (DR6 point 2 : toute altération laisse une trace horodatée).
+    /// </summary>
+    DocumentSourceAlteredAfterIssue,
 }

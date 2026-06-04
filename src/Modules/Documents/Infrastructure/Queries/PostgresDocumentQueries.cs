@@ -96,6 +96,30 @@ public sealed class PostgresDocumentQueries : IDocumentQueries
         return rows.Select(MapSummary).ToList();
     }
 
+    public async Task<IReadOnlyList<DocumentSummaryDto>> GetPotentiallySentDocumentsAsync(CancellationToken cancellationToken = default)
+    {
+        using var conn = await _connectionFactory.OpenAsync(cancellationToken);
+
+        // F06 §5 : un document en cours d'envoi (Sending) dont l'issue n'est pas encore connue peut avoir
+        // été émis côté PA malgré un timeout réseau. On retourne TOUS les documents Sending du tenant (file
+        // attendue petite) pour que le pipeline (PIP01) raccroche avant de retenter — jamais de pagination
+        // qui masquerait un document à vérifier.
+        var sql = $"""
+            SELECT id, document_number, document_type, issue_date, customer_name,
+                   total_gross, state, last_update_utc
+            FROM documents.documents
+            WHERE state = @State
+            ORDER BY last_update_utc DESC
+            """;
+
+        var rows = await conn.QueryAsync(new CommandDefinition(
+            sql,
+            new { State = nameof(Domain.Entities.DocumentState.Sending) },
+            cancellationToken: cancellationToken));
+
+        return rows.Select(MapSummary).ToList();
+    }
+
     public async Task<IReadOnlyList<DocumentEventDto>> GetEventsAsync(Guid documentId, CancellationToken cancellationToken = default)
     {
         using var conn = await _connectionFactory.OpenAsync(cancellationToken);

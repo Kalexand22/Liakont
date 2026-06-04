@@ -15,5 +15,7 @@
     <!-- Câblage du port d'ingestion (DetectedDocumentIntake + PivotDocumentDto) testé en direct. -->
     <ProjectReference Include="../../Ingestion/Contracts/Liakont.Modules.Ingestion.Contracts.csproj" />
     <ProjectReference Include="../../../Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
+    <!-- Ports d'unicité (VAL03) / avoirs (VAL04) implémentés par TRK03, exercés en direct par les tests. -->
+    <ProjectReference Include="../../Validation/Contracts/Liakont.Modules.Validation.Contracts.csproj" />
   </ItemGroup>
 </Project>
