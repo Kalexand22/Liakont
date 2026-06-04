@@ -2,6 +2,7 @@ namespace Liakont.Modules.Documents.Tests.Integration;
 
 using System;
 using System.Threading.Tasks;
+using Dapper;
 using FluentAssertions;
 using Liakont.Modules.Documents.Domain.Entities;
 using Liakont.Modules.Documents.Domain.StateMachine;
@@ -18,6 +19,16 @@ using Xunit;
 public sealed class DocumentStateTransitionIntegrationTests
 {
     private static readonly DateTimeOffset T0 = DocumentTestData.DetectedAt;
+
+    // Preuves d'émission / de rejet (F06 §3 / TRK04) — JSON fictifs valides pour la persistance jsonb.
+    private static readonly IssuanceSnapshots Issuance = new(
+        payloadSnapshot: "{\"documentNumber\":\"F-2026-001\",\"totalGross\":1162.80}",
+        paResponseSnapshot: "{\"paDocumentId\":\"PA-123\",\"taxReportId\":\"TR-9\"}",
+        mappingTrace: "{\"rule\":\"S->20\",\"version\":\"2026.1\"}");
+
+    private static readonly RejectionSnapshots Rejection = new(
+        payloadSnapshot: "{\"documentNumber\":\"F-2026-001\",\"totalGross\":1162.80}",
+        paResponseSnapshot: "{\"error\":\"INVALID_FORMAT\"}");
 
     private readonly Fixtures.DocumentsDatabaseFixture _fixture;
 
@@ -61,7 +72,7 @@ public sealed class DocumentStateTransitionIntegrationTests
 
         await TransitionAsync(harness, id, (doc, at) => doc.MarkReadyToSend(at), T0.AddMinutes(1));
         await TransitionAsync(harness, id, (doc, at) => doc.BeginSending(at), T0.AddMinutes(2));
-        await TransitionAsync(harness, id, (doc, at) => doc.MarkIssued(at), T0.AddMinutes(3));
+        await TransitionAsync(harness, id, (doc, at) => doc.MarkIssued(Issuance, at), T0.AddMinutes(3));
 
         var dto = await harness.Queries.GetByIdAsync(id);
         dto!.State.Should().Be(nameof(DocumentState.Issued));
@@ -75,6 +86,44 @@ public sealed class DocumentStateTransitionIntegrationTests
     }
 
     [Fact]
+    public async Task Issued_Event_Persists_The_Three_Proof_Snapshots_As_Jsonb()
+    {
+        var harness = new DocumentsHarness(_fixture);
+        var id = await SeedDetectedAsync(harness);
+
+        await TransitionAsync(harness, id, (doc, at) => doc.MarkReadyToSend(at), T0.AddMinutes(1));
+        await TransitionAsync(harness, id, (doc, at) => doc.BeginSending(at), T0.AddMinutes(2));
+        await TransitionAsync(harness, id, (doc, at) => doc.MarkIssued(Issuance, at), T0.AddMinutes(3));
+
+        var (payload, paResponse, mappingTrace) = await ReadSnapshotsAsync(
+            harness, id, nameof(DocumentEventType.DocumentIssued));
+
+        // Les 3 snapshots (F06 §3 / TRK04) sont persistés et relus sans perte depuis les colonnes jsonb.
+        payload.Should().NotBeNull().And.Contain("1162.80");
+        paResponse.Should().NotBeNull().And.Contain("PA-123");
+        mappingTrace.Should().NotBeNull().And.Contain("2026.1");
+    }
+
+    [Fact]
+    public async Task Rejected_Event_Persists_Payload_And_Pa_Response_Without_Mapping_Trace()
+    {
+        var harness = new DocumentsHarness(_fixture);
+        var id = await SeedDetectedAsync(harness);
+
+        await TransitionAsync(harness, id, (doc, at) => doc.MarkReadyToSend(at), T0.AddMinutes(1));
+        await TransitionAsync(harness, id, (doc, at) => doc.BeginSending(at), T0.AddMinutes(2));
+        await TransitionAsync(harness, id, (doc, at) => doc.MarkRejectedByPa(Rejection, at, "Format rejeté"), T0.AddMinutes(3));
+
+        var (payload, paResponse, mappingTrace) = await ReadSnapshotsAsync(
+            harness, id, nameof(DocumentEventType.DocumentRejectedByPa));
+
+        // La tentative ratée est archivée (payload + réponse de rejet) ; pas de trace de mapping pour un rejet.
+        payload.Should().NotBeNull().And.Contain("F-2026-001");
+        paResponse.Should().NotBeNull().And.Contain("INVALID_FORMAT");
+        mappingTrace.Should().BeNull("un document rejeté n'a pas été émis : aucune trace de mapping (F06 §3).");
+    }
+
+    [Fact]
     public async Task Operator_Supersede_Persists_Replacement_Link_And_Operator_Identity()
     {
         var harness = new DocumentsHarness(_fixture);
@@ -83,7 +132,7 @@ public sealed class DocumentStateTransitionIntegrationTests
         // Amène le document jusqu'à RejectedByPa, seul état d'où le remplacement est permis (F06 §4).
         await TransitionAsync(harness, id, (doc, at) => doc.MarkReadyToSend(at), T0.AddMinutes(1));
         await TransitionAsync(harness, id, (doc, at) => doc.BeginSending(at), T0.AddMinutes(2));
-        await TransitionAsync(harness, id, (doc, at) => doc.MarkRejectedByPa(at, "Format rejeté"), T0.AddMinutes(3));
+        await TransitionAsync(harness, id, (doc, at) => doc.MarkRejectedByPa(Rejection, at, "Format rejeté"), T0.AddMinutes(3));
 
         await TransitionAsync(harness, id, (doc, at) => doc.Supersede("F-2026-002", "carol@cmp", at), T0.AddMinutes(4));
 
@@ -130,8 +179,8 @@ public sealed class DocumentStateTransitionIntegrationTests
         {
             var doc = await uow.GetForUpdateAsync(id);
 
-            // Detected → Issued est interdit : l'exception survient AVANT toute écriture.
-            var act = () => doc!.MarkIssued(T0.AddMinutes(1));
+            // Detected → Issued est interdit : l'exception survient AVANT toute écriture (et avant la capture des snapshots).
+            var act = () => doc!.MarkIssued(Issuance, T0.AddMinutes(1));
             act.Should().Throw<InvalidDocumentTransitionException>();
 
             await uow.CommitAsync();
@@ -228,6 +277,25 @@ public sealed class DocumentStateTransitionIntegrationTests
         dto.TotalGross.Should().Be(1162.80m);
         dto.PayloadHash.Should().Be("hash-preserve");
         dto.FirstSeenUtc.Should().Be(T0, "first_seen_utc n'est jamais écrasé par une transition.");
+    }
+
+    private static async Task<(string? Payload, string? PaResponse, string? MappingTrace)> ReadSnapshotsAsync(
+        DocumentsHarness harness,
+        Guid documentId,
+        string eventType)
+    {
+        using var conn = await harness.ConnectionFactory.OpenAsync();
+        var row = await conn.QuerySingleAsync(
+            """
+            SELECT payload_snapshot::text     AS payload,
+                   pa_response_snapshot::text AS paresponse,
+                   mapping_trace::text        AS mappingtrace
+            FROM documents.document_events
+            WHERE document_id = @d AND event_type = @t
+            """,
+            new { d = documentId, t = eventType });
+
+        return ((string?)row.payload, (string?)row.paresponse, (string?)row.mappingtrace);
     }
 
     private static async Task<Guid> SeedDetectedAsync(DocumentsHarness harness)

@@ -91,6 +91,38 @@ public sealed class DocumentEvent
         };
     }
 
+    /// <summary>
+    /// Crée l'événement d'audit d'une transition d'ÉMISSION (Issued) ou de REJET (RejectedByPa) PORTANT SES
+    /// SNAPSHOTS de preuve (item TRK04, F06 §3) : pour une émission, les trois snapshots sont présents
+    /// (<paramref name="payloadSnapshot"/> transmis, <paramref name="paResponseSnapshot"/> brute,
+    /// <paramref name="mappingTrace"/> TVA) ; pour un rejet, <paramref name="mappingTrace"/> est <c>null</c>
+    /// (le document n'a pas été émis — la trace de mapping n'est pas requise). Événement SYSTÈME (la décision
+    /// PA n'est pas une action opérateur). Les snapshots sont écrits dans les colonnes jsonb append-only et
+    /// ne sont jamais modifiés après coup (CLAUDE.md n°4).
+    /// </summary>
+    public static DocumentEvent IssuanceTransition(
+        Guid documentId,
+        DocumentEventType eventType,
+        DateTimeOffset occurredAtUtc,
+        string detail,
+        string payloadSnapshot,
+        string paResponseSnapshot,
+        string? mappingTrace)
+    {
+        return new DocumentEvent
+        {
+            Id = Guid.NewGuid(),
+            DocumentId = documentId,
+            TimestampUtc = occurredAtUtc,
+            EventType = eventType,
+            Detail = detail,
+            PayloadSnapshot = payloadSnapshot,
+            PaResponseSnapshot = paResponseSnapshot,
+            MappingTrace = mappingTrace,
+            OperatorIdentity = null,
+        };
+    }
+
     /// <summary>Reconstitue une entrée d'audit depuis la persistance (lecture).</summary>
     public static DocumentEvent Reconstitute(
         Guid id,
