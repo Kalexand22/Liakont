@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../Contracts/Liakont.Modules.Validation.Contracts.csproj" />
+    <!-- Frontière inter-modules : Validation lit le profil émetteur via les Contracts de
+         TenantSettings (CFG02), scopé par CompanyId (module-rules.md §3 ; MODULE.md). -->
+    <ProjectReference Include="../../TenantSettings/Contracts/Liakont.Modules.TenantSettings.Contracts.csproj" />
   </ItemGroup>
 </Project>
