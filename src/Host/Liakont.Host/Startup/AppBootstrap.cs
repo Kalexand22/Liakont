@@ -15,6 +15,7 @@ using Liakont.Host.Security;
 using Liakont.Host.Security.Abstractions;
 using Liakont.Host.Security.Keycloak;
 using Liakont.Host.Services;
+using Liakont.Modules.Documents.Infrastructure;
 using Liakont.Modules.Ingestion.Application;
 using Liakont.Modules.Ingestion.Infrastructure;
 using Liakont.Modules.TenantSettings.Infrastructure;
@@ -110,6 +111,10 @@ public static class AppBootstrap
         builder.Services.AddTenantSettingsModule();
         builder.Services.AddIngestionModule();
         builder.Services.AddTvaMappingModule();
+
+        // Documents APRÈS Ingestion : AddDocumentsModule REMPLACE (services.Replace) le défaut sûr
+        // NoOpDocumentIntake enregistré par AddIngestionModule par la vraie implémentation (TRK01).
+        builder.Services.AddDocumentsModule();
 
         // Stockage des PDF reçus (PIV04) : chemin racine = PARAMÉTRAGE de déploiement (jamais en dur,
         // CLAUDE.md n°7). Lié depuis la config ; à défaut, repli sous le content root de l'instance.
