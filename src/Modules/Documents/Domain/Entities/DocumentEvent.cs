@@ -123,6 +123,40 @@ public sealed class DocumentEvent
         };
     }
 
+    /// <summary>
+    /// Crée le fait d'audit d'une ALTÉRATION DE LA SOURCE DÉTECTÉE APRÈS ÉMISSION (item TRK03, F06 §3) :
+    /// une <c>source_reference</c> déjà émise a été re-soumise avec une empreinte différente. Inscrit SUR
+    /// le document émis (<paramref name="issuedDocumentId"/>), append-only — le document émis n'est NI
+    /// réémis NI mis à jour. Événement SYSTÈME (aucun opérateur), sans snapshot. L'identifiant de l'entrée
+    /// est PASSÉ par l'appelant (l'identifiant de l'événement d'intégration consommé) pour rendre la
+    /// consommation IDEMPOTENTE : un rejeu de l'événement d'outbox heurte la clé primaire et n'inscrit
+    /// jamais deux fois la même altération.
+    /// </summary>
+    public static DocumentEvent SourceAlteredAfterIssue(
+        Guid id,
+        Guid issuedDocumentId,
+        DateTimeOffset occurredAtUtc,
+        string detail)
+    {
+        if (string.IsNullOrWhiteSpace(detail))
+        {
+            throw new ArgumentException("Le détail de l'altération est obligatoire (piste d'audit, F06 §3).", nameof(detail));
+        }
+
+        return new DocumentEvent
+        {
+            Id = id,
+            DocumentId = issuedDocumentId,
+            TimestampUtc = occurredAtUtc,
+            EventType = DocumentEventType.DocumentSourceAlteredAfterIssue,
+            Detail = detail.Trim(),
+            PayloadSnapshot = null,
+            PaResponseSnapshot = null,
+            MappingTrace = null,
+            OperatorIdentity = null,
+        };
+    }
+
     /// <summary>Reconstitue une entrée d'audit depuis la persistance (lecture).</summary>
     public static DocumentEvent Reconstitute(
         Guid id,

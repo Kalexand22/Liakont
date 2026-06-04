@@ -36,4 +36,12 @@ public interface IDocumentQueries
 
     /// <summary>Piste d'audit complète d'un document (ordre chronologique).</summary>
     Task<IReadOnlyList<DocumentEventDto>> GetEventsAsync(Guid documentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Documents dont l'envoi est ENGAGÉ mais dont l'issue est INCERTAINE (état <c>Sending</c>) — F06 §5,
+    /// item TRK03. Un timeout réseau sur un POST peut masquer une émission qui a RÉUSSI côté Plateforme
+    /// Agréée : avant de retenter, le pipeline (PIP01) doit vérifier côté PA, sinon un renvoi crée un
+    /// doublon. Cette lecture fournit la liste à raccrocher. Triés par dernière mise à jour décroissante.
+    /// </summary>
+    Task<IReadOnlyList<DocumentSummaryDto>> GetPotentiallySentDocumentsAsync(CancellationToken cancellationToken = default);
 }

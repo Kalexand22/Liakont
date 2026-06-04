@@ -37,6 +37,20 @@
 - `Issuance_Snapshots_Require_A_Non_Blank_Payload` / `..._Mapping_Trace` / `Rejection_Snapshots_Require_A_Non_Blank_Pa_Response` — snapshots obligatoires (impossible d'enregistrer une preuve vide).
 - `MarkIssued_Rejects_Null_Snapshots` — émission sans snapshots refusée, état inchangé.
 
+### DocumentDuplicatePolicyTests (anti-doublon F06 §4 — INV-DOCUMENTS-012)
+- `Rule_42_Prior_Issued_By_Functional_Key_Blocks_As_Duplicate` — un Issued de même `(siren, numéro)` bloque (4.2).
+- `Rule_43_Prior_RejectedByPa_Allows_Resend_And_Exposes_Document_To_Supersede` — un rejeté autorise le renvoi et désigne l'ancien à superséder (4.3).
+- `Rule_44_Same_Payload_Hash_Already_Issued_Blocks_As_Strict_Duplicate` — empreinte identique à un émis = doublon strict (4.4).
+- `Rule_45_No_Blocking_Prior_Authorizes_Send` — document inédit : envoi autorisé (4.5).
+- `Issued_Takes_Precedence_Over_Rejected_On_The_Same_Functional_Key` / `Functional_Key_Match_Takes_Precedence_Over_The_Hash_Guard` — précédence dans l'ordre de la spec.
+- `Non_Issued_Non_Rejected_Priors_Do_Not_Block_Without_A_Hash_Twin` — seuls Issued/RejectedByPa changent le verdict.
+- `In_Flight_Prior_Plus_Hash_Twin_Falls_Through_To_The_Strict_Duplicate_Guard` — antécédent en vol + empreinte jumelle = doublon strict.
+- `Decide_Rejects_A_Null_Prior_Collection` — garde d'argument.
+
+### DocumentEventSourceAlteredTests (fait d'audit d'altération — INV-DOCUMENTS-013)
+- `SourceAlteredAfterIssue_Is_A_System_Audit_Fact_Without_Snapshot` — type, id porté, document émis ciblé, aucun opérateur, sans snapshot, détail nettoyé.
+- `SourceAlteredAfterIssue_Requires_A_Detail` — détail obligatoire.
+
 ## Integration (`Tests.Integration`, Testcontainers PostgreSQL)
 
 ### DocumentPersistenceIntegrationTests (repository + lectures — INV-DOCUMENTS-001/003/006)
@@ -72,6 +86,23 @@
 ### TaxReportAndArchiveSchemaIntegrationTests (schéma des tables complémentaires — item TRK01)
 - `TaxReport_RoundTrips_All_Columns` — `documents.tax_reports` : colonnes + FK vers `documents` (alimentée par TRK06).
 - `ArchiveEntry_RoundTrips_All_Columns` — `documents.archive_entries` : colonnes + FK vers `documents` (alimentée par TRK05).
+
+### AntiDuplicateIntegrationTests (anti-doublon + lookups VAL03/VAL04 + reprise timeout — INV-DOCUMENTS-012/014)
+- `Rule_42_Document_Already_Issued_Is_A_Duplicate_And_Is_Blocked` — doublon émis bloqué, document bloquant désigné (F06 §4.2).
+- `Rule_43_Resend_After_Rejection_Is_Allowed_And_Names_The_Document_To_Supersede` — renvoi après rejet autorisé, ancien à superséder (F06 §4.3).
+- `Rule_44_Same_Payload_Hash_As_An_Issued_Document_Is_A_Strict_Duplicate` — empreinte jumelle déjà émise (autre clé) = doublon strict (F06 §4.4).
+- `Rule_45_A_New_Document_Is_Authorized_To_Send` — document inédit autorisé (F06 §4.5).
+- `A_Document_Is_Never_A_Duplicate_Of_Itself` — exclusion du candidat de ses propres antécédents.
+- `Without_A_Supplier_Siren_The_Functional_Key_Does_Not_Match_A_Prior` — sans SIREN, pas de rapprochement par clé fonctionnelle.
+- `IssuedDocumentLookup_Reports_An_Issued_Number_As_Already_Issued` / `..._Does_Not_Report_A_Non_Issued_Or_Unknown_Number` — VAL03 : émis vs non-émis/inconnu.
+- `IssuedInvoiceLookup_Maps_Original_Invoice_State` — VAL04 : KnownIssued / KnownNotIssued / Unknown (avoir orphelin, fail-safe).
+- `IssuedInvoiceLookup_Discriminates_By_Issue_Date_When_Number_Collides` — numéro homonyme à une autre date = pas la même facture (numéro non unique, F07-F08 §B.2.5 / fail-safe).
+- `GetPotentiallySentDocuments_Returns_Only_Sending_Documents` — reprise sur timeout : seuls les documents en cours d'envoi (F06 §5).
+
+### SourceAlterationConsumerIntegrationTests (altération source après émission — INV-DOCUMENTS-013)
+- `Alteration_After_Issue_Records_An_Append_Only_Audit_Fact_On_The_Issued_Document` — fait d'audit inscrit sur l'émis, document émis INCHANGÉ (jamais réémis).
+- `Consuming_The_Same_Event_Twice_Records_The_Alteration_Only_Once` — consommation idempotente (rejeu d'outbox at-least-once).
+- `Alteration_Of_A_Source_Without_An_Issued_Document_Records_Nothing` — pas d'émis pour la référence = rien à inscrire.
 
 ### DocumentsModuleRegistrationTests (garde anti faux-vert d'enregistrement)
 - `AddDocumentsModule_Enrolls_Module_Assembly_For_Migrations` — l'assembly est enrôlé pour la migration (création des tables `documents.*` en production).

@@ -30,6 +30,20 @@ transactionnel** (`IDocumentUnitOfWork.GetForUpdateAsync` en `SELECT … FOR UPD
 restent des colonnes `text` (le nouvel état `ManuallyHandled` et les nouveaux types d'événement sont des
 libellés, pas un changement de schéma).
 
+**Périmètre de l'item TRK03** : l'**anti-doublon avant envoi** (F06 §4) et la **détection d'altération
+source après émission** (F06 §3). L'anti-doublon est une fonction **pure** (`Domain/Deduplication/DocumentDuplicatePolicy`,
+les quatre règles de F06 §4 transcrites verbatim — aucune règle inventée) que le module expose au pipeline
+via le port `Contracts/Deduplication/IDuplicateDocumentCheck` (consommé par **PIP01**) : avant transmission,
+le pipeline obtient un verdict (envoi, renvoi après rejet en supersédant l'ancien, doublon émis, doublon
+strict par empreinte). Le module fournit aussi les **implémentations réelles** des ports déclarés par
+Validation : `IIssuedDocumentLookup` (unicité de numéro, VAL03) et `IIssuedInvoiceLookup` (état de la
+facture d'origine d'un avoir, VAL04). La **reprise sur timeout d'envoi** (F06 §5) est servie par
+`IDocumentQueries.GetPotentiallySentDocumentsAsync` (documents en cours d'envoi à raccrocher — câblé PIP01).
+Enfin, le **consommateur** `SourceAlterationDetectedConsumer` réagit à l'événement d'intégration
+`ingestion.source.altered` (produit par PIV04) : si la référence source est déjà **émise**, il inscrit un
+fait d'audit **append-only** `DocumentSourceAlteredAfterIssue` SUR le document émis — **jamais** de
+réémission ni de mise à jour de l'émis. **Aucune migration** : `event_type` reste `text`.
+
 **Périmètre de l'item TRK04 (côté Documents)** : les **snapshots de preuve** de la piste d'audit. Tout
 document **émis** archive ses **trois** snapshots dans son `DocumentEvent` d'émission — payload pivot
 transmis, réponse PA brute, trace de mapping TVA (F06 §3) ; tout document **rejeté** archive payload envoyé
@@ -57,9 +71,11 @@ La piste d'audit des **agrégats de paiement** (volet Payments de TRK04) vit dan
   ligne, TRK05 n'écrase jamais une référence existante), toute purge automatique d'une table d'audit,
   tout type flottant sur un montant, tout calcul/validation fiscale (délégués à Validation/TvaMapping),
   toute classification facture/avoir (Validation).
-- **Surface publique** : `Contracts/` uniquement (`IDocumentQueries` + DTOs). L'unité de travail
-  d'écriture (`IDocumentUnitOfWork`) est **interne** au module (consommée par le port d'ingestion et,
-  à terme, par le pipeline).
+- **Surface publique** : `Contracts/` uniquement (`IDocumentQueries` + DTOs ; `IDuplicateDocumentCheck`
+  + DTOs d'anti-doublon, TRK03). Le module **implémente** en outre les ports déclarés par
+  `Validation.Contracts` (`IIssuedDocumentLookup`, `IIssuedInvoiceLookup`) — accès inter-module par les
+  Contracts uniquement (module-rules §3). L'unité de travail d'écriture (`IDocumentUnitOfWork`) est
+  **interne** au module (consommée par le port d'ingestion et, à terme, par le pipeline).
 
 ## Published Events
 
@@ -67,18 +83,29 @@ Aucun (item TRK01). Le document est créé en réaction à l'ingestion ; il ne p
 
 ## Consumed Events
 
-Aucun. Le déclencheur DURABLE du pipeline aval est l'événement d'intégration
-`ingestion.document.received` publié par l'ingestion (PIV04) **consommé par PIP01** (segment `pipeline`).
-Le module Documents reste idempotent sur l'identifiant côté écriture (`CreateDetectedAsync`,
-INV-DOCUMENTS-003) — filet de rattrapage du port synchrone — sans s'abonner lui-même à l'événement.
-La machine à états (TRK02) n'introduit **aucun** nouvel événement publié ni consommé : elle expose des
-transitions appelées par les consommateurs (pipeline pour les transitions système, API/console pour les
-actions opérateur), chacune écrivant son `DocumentEvent` d'audit.
+`ingestion.source.altered` (`SourceAlterationDetectedV1`, produit par l'ingestion PIV04) — **consommé par
+TRK03** (`SourceAlterationDetectedConsumer`) : si la référence source concernée a déjà un document **émis**,
+un fait d'audit append-only `DocumentSourceAlteredAfterIssue` est inscrit sur ce document émis (jamais de
+réémission). Le worker d'outbox du socle dispatche ce consommateur dans un scope **système** (sans contexte
+tenant) ; le tenant est résolu par le **slug** porté par l'événement. La consommation est **idempotente**
+(l'identifiant de l'entrée d'audit est celui de l'événement d'intégration).
+
+Le déclencheur DURABLE du pipeline aval est l'événement d'intégration `ingestion.document.received` publié
+par l'ingestion (PIV04) **consommé par PIP01** (segment `pipeline`) — pas par ce module. Le module Documents
+reste idempotent sur l'identifiant côté écriture (`CreateDetectedAsync`, INV-DOCUMENTS-003). La machine à
+états (TRK02) n'introduit **aucun** événement publié/consommé : elle expose des transitions appelées par les
+consommateurs (pipeline pour les transitions système, API/console pour les actions opérateur), chacune
+écrivant son `DocumentEvent` d'audit.
 
 ## Dependencies
 
 - `Liakont.Agent.Contracts` (`PivotDocumentDto` et ses sous-DTO — porté par `DetectedDocumentIntake`).
 - `Liakont.Modules.Ingestion.Contracts` (`IDocumentIntake`, `DetectedDocumentIntake` — port implémenté ;
-  accès inter-module par les Contracts uniquement, module-rules §3 / CLAUDE.md n°14).
+  `SourceAlterationDetectedV1` + `IngestionEventTypes` — événement consommé, TRK03 ; accès inter-module
+  par les Contracts uniquement, module-rules §3 / CLAUDE.md n°14).
+- `Liakont.Modules.Validation.Contracts` (`IIssuedDocumentLookup`, `IIssuedInvoiceLookup` — ports
+  **implémentés** par TRK03 ; accès inter-module par les Contracts uniquement, module-rules §3).
+- `Stratum.Common.Abstractions` (`IIntegrationEventConsumer<T>`, `IntegrationEvent<T>` — consommation
+  d'événement d'intégration, TRK03).
 - `Stratum.Common.Infrastructure` (`IConnectionFactory`, `ITenantConnectionFactory`, `TransactionScope`,
   `MigrationAssembliesOptions`, Dapper/Npgsql/DbUp).

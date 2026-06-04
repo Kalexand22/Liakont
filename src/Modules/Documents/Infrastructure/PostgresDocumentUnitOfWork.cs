@@ -61,6 +61,15 @@ internal sealed class PostgresDocumentUnitOfWork : IDocumentUnitOfWork
         FOR UPDATE
         """;
 
+    private const string SelectMostRecentIssuedBySourceReferenceSql = """
+        SELECT id, document_number
+        FROM documents.documents
+        WHERE source_reference = @SourceReference
+          AND state = @IssuedState
+        ORDER BY last_update_utc DESC
+        LIMIT 1
+        """;
+
     private const string InsertEventSql = """
         INSERT INTO documents.document_events
             (id, document_id, timestamp_utc, event_type, detail, payload_snapshot,
@@ -116,6 +125,26 @@ internal sealed class PostgresDocumentUnitOfWork : IDocumentUnitOfWork
             cancellationToken: cancellationToken));
 
         return row is null ? null : MapDocument(row);
+    }
+
+    /// <summary>
+    /// Identifiant et numéro du document <c>Issued</c> le plus récent pour une <c>source_reference</c>
+    /// donnée, dans la transaction courante (base du tenant), ou <c>null</c> s'il n'existe aucun document
+    /// émis pour cette référence (item TRK03, consommation de l'altération source après émission). Lecture
+    /// SIMPLE (pas de verrou) : <c>Issued</c> est terminal-succès — il n'a aucune transition sortante
+    /// (INV-DOCUMENTS-009), donc l'état lu ne peut pas changer entre la lecture et l'ajout de l'événement.
+    /// </summary>
+    public async Task<(Guid Id, string DocumentNumber)?> FindMostRecentIssuedBySourceReferenceAsync(
+        string sourceReference,
+        CancellationToken cancellationToken = default)
+    {
+        var row = await _txn.Connection.QueryFirstOrDefaultAsync(new CommandDefinition(
+            SelectMostRecentIssuedBySourceReferenceSql,
+            new { SourceReference = sourceReference, IssuedState = nameof(DocumentState.Issued) },
+            _txn.Transaction,
+            cancellationToken: cancellationToken));
+
+        return row is null ? null : ((Guid)row.id, (string)row.document_number);
     }
 
     public async Task UpsertDocumentAsync(Document document, CancellationToken cancellationToken = default)

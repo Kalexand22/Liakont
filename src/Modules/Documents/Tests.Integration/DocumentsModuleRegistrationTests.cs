@@ -3,12 +3,19 @@ namespace Liakont.Modules.Documents.Tests.Integration;
 using System.Linq;
 using FluentAssertions;
 using Liakont.Modules.Documents.Application;
+using Liakont.Modules.Documents.Contracts.Deduplication;
 using Liakont.Modules.Documents.Contracts.Queries;
 using Liakont.Modules.Documents.Infrastructure;
+using Liakont.Modules.Documents.Infrastructure.Deduplication;
+using Liakont.Modules.Documents.Infrastructure.Lookups;
 using Liakont.Modules.Documents.Infrastructure.Queries;
 using Liakont.Modules.Ingestion.Contracts;
+using Liakont.Modules.Ingestion.Contracts.Events;
+using Liakont.Modules.Validation.Contracts;
+using Liakont.Modules.Validation.Contracts.CreditNotes;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Stratum.Common.Abstractions.Events;
 using Stratum.Common.Infrastructure.Database;
 using Xunit;
 
@@ -52,6 +59,32 @@ public sealed class DocumentsModuleRegistrationTests
         // Le port de création du document est branché sur la VRAIE implémentation (pas le no-op).
         services.Should().ContainSingle(d => d.ServiceType == typeof(IDocumentIntake))
             .Which.ImplementationType.Should().Be<DocumentIntake>();
+    }
+
+    [Fact]
+    public void AddDocumentsModule_Registers_TRK03_Antiduplicate_Lookups_And_Alteration_Consumer()
+    {
+        var services = new ServiceCollection();
+
+        services.AddDocumentsModule();
+
+        // Anti-doublon F06 §4 (port consommé par PIP01).
+        services.Should().ContainSingle(d =>
+            d.ServiceType == typeof(IDuplicateDocumentCheck) &&
+            d.ImplementationType == typeof(PostgresDuplicateDocumentCheck));
+
+        // Ports déclarés par Validation, implémentés par TRK03 (VAL03 / VAL04).
+        services.Should().ContainSingle(d =>
+            d.ServiceType == typeof(IIssuedDocumentLookup) &&
+            d.ImplementationType == typeof(IssuedDocumentLookup));
+        services.Should().ContainSingle(d =>
+            d.ServiceType == typeof(IIssuedInvoiceLookup) &&
+            d.ImplementationType == typeof(IssuedInvoiceLookup));
+
+        // Consommateur de l'altération source après émission (événement produit par PIV04).
+        services.Should().ContainSingle(d =>
+            d.ServiceType == typeof(IIntegrationEventConsumer<SourceAlterationDetectedV1>) &&
+            d.ImplementationType == typeof(SourceAlterationDetectedConsumer));
     }
 
     [Fact]

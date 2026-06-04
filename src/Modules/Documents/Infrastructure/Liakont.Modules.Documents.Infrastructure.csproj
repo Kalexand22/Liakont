@@ -23,5 +23,10 @@
     <ProjectReference Include="../../Ingestion/Contracts/Liakont.Modules.Ingestion.Contracts.csproj" />
     <!-- PivotDocumentDto (modèle pivot porté par DetectedDocumentIntake) — contrat agent partagé. -->
     <ProjectReference Include="../../../Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
+    <!-- Le module Documents (TRK03) implémente les ports d'unicité/avoirs déclarés par le module
+         Validation (IIssuedDocumentLookup VAL03, IIssuedInvoiceLookup VAL04) — accès inter-module
+         autorisé uniquement par les Contracts (module-rules §3, CLAUDE.md n°14). Aucune référence à
+         Validation.Domain/Application/Infrastructure. -->
+    <ProjectReference Include="../../Validation/Contracts/Liakont.Modules.Validation.Contracts.csproj" />
   </ItemGroup>
 </Project>
