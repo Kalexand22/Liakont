@@ -82,7 +82,7 @@ public sealed class ArchiveAnchoringServiceTests
         AnchoringOutcome outcome = await service.AnchorChainHeadAsync();
 
         outcome.Status.Should().Be(AnchoringStatus.NotAnchoredByConfiguration);
-        outcome.Detail.Should().Contain("ADR-0010");
+        outcome.Detail.Should().Contain("ADR-0011");
         _anchorStore.Records.Should().BeEmpty();
     }
 

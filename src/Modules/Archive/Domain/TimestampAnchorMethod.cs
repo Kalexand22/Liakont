@@ -14,6 +14,6 @@ public enum TimestampAnchorMethod
     /// <summary>Horodatage qualifié RFC 3161 via une TSA configurable (eIDAS), API natives .NET, sans dépendance.</summary>
     Rfc3161 = 1,
 
-    /// <summary>Ancrage blockchain OpenTimestamps — reporté en V1.1 (ADR-0010), non opérationnel en V1.</summary>
+    /// <summary>Ancrage blockchain OpenTimestamps — reporté en V1.1 (ADR-0011), non opérationnel en V1.</summary>
     OpenTimestamps = 2,
 }

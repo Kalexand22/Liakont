@@ -1,4 +1,4 @@
-# ADR-0010 — Ancrage temporel du coffre : RFC 3161 natif par défaut, OpenTimestamps reporté en V1.1 (TRK06)
+# ADR-0011 — Ancrage temporel du coffre : RFC 3161 natif par défaut, OpenTimestamps reporté en V1.1 (TRK06)
 
 **Date :** 2026-06-04
 

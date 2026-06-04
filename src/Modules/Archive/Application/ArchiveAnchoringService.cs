@@ -69,11 +69,11 @@ public sealed class ArchiveAnchoringService : IArchiveAnchoringService
 
         if (!_anchor.Capabilities.IsOperational)
         {
-            // Ancrage présent mais non opérationnel en V1 (ex. OpenTimestamps, ADR-0010) : on NE l'appelle
+            // Ancrage présent mais non opérationnel en V1 (ex. OpenTimestamps, ADR-0011) : on NE l'appelle
             // pas (il lèverait) ; on le signale au lieu d'un no-op silencieux (pas de faux vert).
             return new AnchoringOutcome(
                 AnchoringStatus.NotAnchoredByConfiguration,
-                $"Ancrage {method} non opérationnel en V1 (voir ADR-0010) : aucune preuve produite.",
+                $"Ancrage {method} non opérationnel en V1 (voir ADR-0011) : aucune preuve produite.",
                 Record: null);
         }
 

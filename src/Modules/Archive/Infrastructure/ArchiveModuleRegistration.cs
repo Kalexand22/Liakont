@@ -52,7 +52,7 @@ public static class ArchiveModuleRegistration
     /// (<see cref="DailyAnchoringFanOutHandler"/>) est enregistré par le HOST via
     /// <c>AddJobHandler&lt;DailyAnchoringTrigger, DailyAnchoringFanOutHandler&gt;()</c> (l'extension vit dans
     /// le module Job ; l'appeler ici franchirait une frontière de module). Une méthode d'ancrage inconnue
-    /// fait ÉCHOUER le démarrage (jamais un repli silencieux sur NoAnchor) — voir ADR-0010.
+    /// fait ÉCHOUER le démarrage (jamais un repli silencieux sur NoAnchor) — voir ADR-0011.
     /// </summary>
     private static void AddAnchoring(IServiceCollection services, IConfiguration configuration)
     {
@@ -78,7 +78,7 @@ public static class ArchiveModuleRegistration
         }
         else if (string.Equals(method, "OpenTimestamps", StringComparison.OrdinalIgnoreCase))
         {
-            // Présent mais non opérationnel en V1 (ADR-0010) : lève à l'usage, jamais un no-op silencieux.
+            // Présent mais non opérationnel en V1 (ADR-0011) : lève à l'usage, jamais un no-op silencieux.
             services.TryAddSingleton<ITimestampAnchor, OpenTimestampsTimestampAnchor>();
         }
         else

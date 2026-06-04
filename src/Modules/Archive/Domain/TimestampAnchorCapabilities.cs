@@ -8,7 +8,7 @@ namespace Liakont.Modules.Archive.Domain;
 /// <param name="Method">La méthode d'ancrage (pour étiqueter la preuve, jamais pour brancher du code).</param>
 /// <param name="IsOperational">
 /// <c>false</c> pour un ancrage présent mais non disponible en V1 (ex. OpenTimestamps reporté en V1.1,
-/// ADR-0010) : l'enregistrement et le job le signalent au lieu de l'utiliser silencieusement (pas de faux vert).
+/// ADR-0011) : l'enregistrement et le job le signalent au lieu de l'utiliser silencieusement (pas de faux vert).
 /// </param>
 /// <param name="ProducesImmediateProof">
 /// <c>true</c> si <see cref="ITimestampAnchor.AnchorAsync"/> renvoie une preuve COMPLÈTE et vérifiable

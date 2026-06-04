@@ -130,7 +130,7 @@ public static class AppBootstrap
         // Job d'ancrage temporel quotidien du coffre (TRK06) : le handler de fan-out est résolu par le
         // module Job (même mécanique que EmailSend/DeliveryRetry). La PLANIFICATION (cron quotidien) est
         // créée par l'opérateur via l'admin des schedules (job.schedules), comme tout job récurrent de la
-        // plateforme — la fréquence et l'activation relèvent du déploiement (ADR-0010).
+        // plateforme — la fréquence et l'activation relèvent du déploiement (ADR-0011).
         builder.Services.AddJobHandler<DailyAnchoringTrigger, DailyAnchoringFanOutHandler>();
 
         // Stockage des PDF reçus (PIV04) : chemin racine = PARAMÉTRAGE de déploiement (jamais en dur,

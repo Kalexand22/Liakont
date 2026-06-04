@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <!-- Jeton d'horodatage RFC 3161 natif (ADR-0010, TRK06) — package .NET first-party, in-box. -->
+    <!-- Jeton d'horodatage RFC 3161 natif (ADR-0011, TRK06) — package .NET first-party, in-box. -->
     <PackageReference Include="System.Security.Cryptography.Pkcs" />
   </ItemGroup>
   <ItemGroup>

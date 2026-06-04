@@ -7,7 +7,7 @@ Branche : `feat/core-foundation-TRK06` (slot-3). Spec : `orchestration/items/TRK
   `TimestampAnchorCapabilities`, jamais par `if (anchor is ...)`.
 - **RFC 3161** : API natives `System.Security.Cryptography.Pkcs` (aucune dépendance). On horodate la
   tête de chaîne (les 32 octets du `chain_hash`). Appel TSA via couture HTTP `ITsaClient` (testable).
-- **OpenTimestamps** : reporté en V1.1 (ADR-0010) — aucune lib .NET mûre et licence-compatible, le
+- **OpenTimestamps** : reporté en V1.1 (ADR-0011) — aucune lib .NET mûre et licence-compatible, le
   sous-ensemble Merkle/Bitcoin maison serait non vérifiable pour un produit de conformité. Type présent,
   capacité `IsOperational=false`, lève une `NotSupportedException` française à l'usage (jamais silencieux).
 - **NoAnchor** : défaut programmatique (instance sans internet sortant) ; la chaîne de hashes reste
@@ -33,7 +33,7 @@ Branche : `feat/core-foundation-TRK06` (slot-3). Spec : `orchestration/items/TRK
 - [ ] Infrastructure : `Rfc3161TimestampAnchor`, `ITsaClient`+`HttpTsaClient`, `TimestampAnchorOptions`,
       `PostgresArchiveAnchorStore`, câblage `AddArchiveAnchoring` dans `ArchiveModuleRegistration`.
 - [ ] Migration V006 `documents.archive_anchors` (append-only/WORM) dans Documents.Infrastructure.
-- [ ] ADR-0010 (ancrage temporel) + limite NF Z42-013 documentée.
+- [ ] ADR-0011 (ancrage temporel) + limite NF Z42-013 documentée.
 - [ ] Tests Unit : TSA de test réelle (jetons RFC 3161), RFC3161 (sain/altéré), NoAnchor, OTS déféré,
       ArchiveVerifier (chaîne saine/altérée/preuve manquante), service d'ancrage (idempotence),
       tenant job + fan-out handler, export fiscal.
