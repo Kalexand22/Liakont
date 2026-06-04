@@ -1,0 +1,100 @@
+# Blueprint: auto-gate-item
+# Automated integration gate. Runs at the end of a segment whose verification is
+# FULLY AUTOMATED — i.e. no human can discover anything structurally new by testing
+# (the discovery filter: would a test reveal something that profoundly alters the
+# upstream? If yes → human gate. If it just gets fixed without disruption → this).
+#
+# It performs a final, segment-level verification (verify + full test suite +
+# integration review of the WHOLE segment diff against main), then MERGES the segment
+# branch into main. This is the SINGLE sanctioned exception to protocol rule
+# "never merge to main" — scoped to gates with executor != human.
+#
+# Remote present  → gh pr create --base main + gh pr merge (PR auto-merged, audit trail).
+# No remote yet   → local git merge --no-ff into main.
+# Any failure or non-trivial conflict → the gate is marked `blocked` and left to a human.
+# Auto-integration NEVER force-merges and NEVER bypasses a red verify/test/review.
+#
+# Used by (manifest v9): GATE_SOCLE, GATE_CORE_FOUNDATION, GATE_PA_FRAMEWORK,
+#                        GATE_PIPELINE, GATE_ADAPTER_ENCHERESV6.
+
+name: auto-gate-item
+description: Automated integration gate — final segment verification, then merge segment branch to main
+
+nodes:
+  - id: checkout_segment
+    type: deterministic
+    action: gate-checkout-segment
+    description: "Find the segment whose `gate` equals this gate id, `git fetch origin`, checkout that segment branch, `git pull`. NO sub-branch — the auto-gate operates on the segment branch itself and merges it to main (Step 5c). See protocol.md Step 3 (auto-gate variant)."
+
+  - id: verify
+    type: deterministic
+    action: verify-fast
+    retry: { max: 3, on_exhaust: fail }
+    description: "verify-fast.ps1 on the full segment branch (platform .NET 10 + agent net48). The whole segment must be green before it touches main."
+
+  - id: fix_verify
+    type: agentic
+    subagent: orch-fix-verify
+    condition: "verify failed"
+    loop_back_to: verify
+    description: "Delegate to orch-fix-verify (sonnet) — fix verification failures (committed to the segment branch), then re-run verify."
+
+  - id: commit_compose
+    type: agentic
+    subagent: orch-commit
+    condition: "a fix node modified the working tree"
+    description: "Delegate to orch-commit (haiku) — write a conventional commit message for the gate-level fix to .orch-commit-msg (gitignored). Skipped when nothing changed (the common case: segment already green)."
+
+  - id: commit_apply
+    type: deterministic
+    action: git-commit-apply
+    condition: ".orch-commit-msg exists"
+    description: "git add -A + git commit -F .orch-commit-msg + rm .orch-commit-msg, on the segment branch. Pure shell."
+
+  - id: integration_tests
+    type: deterministic
+    action: run-tests
+    retry: { max: 2, on_exhaust: blocked }
+    description: "Full unit + integration suite (tools/run-tests.ps1) on the segment branch. A segment never integrates to main on an untested tree — even if each item passed individually, cross-item integration is re-proven here."
+
+  - id: fix_tests
+    type: agentic
+    subagent: orch-fix-tests
+    condition: "integration_tests failed"
+    loop_back_to: verify
+    description: "Delegate to orch-fix-tests (sonnet), then loop back to verify → commit → integration_tests."
+
+  - id: e2e
+    type: deterministic
+    action: run-e2e
+    condition: "the segment ships E2E tests (tools/run-e2e.ps1 present AND Category=E2E tests exist for this segment — notably GATE_SOCLE's login+shell proof, SOL05)"
+    retry: { max: 2, on_exhaust: blocked }
+    description: "Playwright E2E proof, for segments that ship UI/E2E. run-tests excludes Category=E2E, so the E2E proof a gate's acceptance requires (e.g. SOCLE) runs here. Skipped for back-end-only segments with no E2E tests. On exhaustion → blocked (E2E failures degrade to a human, not an auto-fix loop)."
+
+  - id: integration_review
+    type: deterministic
+    action: codex-review
+    retry: { max: 3, on_exhaust: blocked }
+    description: "codex-review.ps1 -Base main : reviews the COMPLETE segment diff against main. This is broader than the per-item reviews (which only saw the segment branch) — it catches cross-item integration issues. -Base main is MANDATORY (the tree is clean; without -Base the script exits 3). Round 1 = full segment review."
+
+  - id: fix_review
+    type: agentic
+    subagent: orch-fix-review
+    condition: "review exited 2 (has P1/P2 findings)"
+    loop_back_to: verify
+    description: "Delegate to orch-fix-review (sonnet), then loop back to verify → commit → integration_review (re-run with -Base main -Round N)."
+
+  - id: integrate_to_main
+    type: deterministic
+    action: integrate-to-main
+    description: "Merge the segment branch into main. See protocol.md Step 5c. Remote present: gh pr create --base main --head <segment-branch> + gh pr merge --merge (PR auto-merged once required checks pass). No remote: git checkout main && git merge --no-ff <segment-branch>. Non-trivial conflict → abort/close PR, mark the gate `blocked`, EXIT 1 (degrade to human). The ONLY node allowed to touch main."
+
+  - id: finalize_compose_log
+    type: agentic
+    subagent: orch-finalize
+    description: "Delegate to orch-finalize (haiku) — compose and write the gate session log to $ORCH_REPO/session-log/<session>_<gate-id>.md. No git, no slot release."
+
+  - id: finalize_publish
+    type: deterministic
+    action: finalize-publish
+    description: "Mark the gate `done`, append events.jsonl, commit $ORCH_REPO, release the slot lease, EXIT 0. After this, downstream segments (base: main) branch from a main that now contains this segment. See protocol.md Step 5b."

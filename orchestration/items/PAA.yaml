@@ -121,14 +121,21 @@ items:
 
   GATE_PA_FRAMEWORK:
     type: gate
-    executor: human
-    title: "Gate : framework PA validé"
+    executor: claude
+    blueprint: auto-gate-item
+    title: "Gate (auto) : framework PA intégré"
     description: |
-      Validation humaine de l'abstraction PA. C'est la gate la plus structurante du produit :
-      elle fige le contrat que tous les plug-ins PA devront respecter.
-      Points de revue : le produit ne peut JAMAIS être bloqué par les limites d'un PA ;
-      les capacités couvrent les besoins commerciaux (B2C, paiement, B2B futur) ;
-      la résolution de plug-in par compte de tenant fonctionne.
+      Gate d'INTÉGRATION AUTOMATIQUE (executor claude, blueprint auto-gate-item). L'abstraction
+      PA est la plus structurante du produit, mais sa propriété clé — « le produit ne peut JAMAIS
+      être bloqué par les limites d'un PA » — est un INVARIANT D'ARCHITECTURE vérifié par
+      NetArchTest + le plug-in Fake + la suite de contrat PAA03, pas par une démo qu'un humain
+      regarde. Un test humain n'y révélerait rien de plus. La gate enchaîne verify + run-tests +
+      review d'intégration (diff complet vs main), puis merge dans main ; échec/conflit = blocked.
+      Points de vigilance (review d'intégration) : aucune référence à un PA concret dans le module
+      Transmission ; capacité manquante = résultat typé (jamais d'exception/blocage) ; résolution
+      de plug-in par registre.
     acceptance:
       - "Tous les items PAA sont done"
-      - "PR du segment feat/pa-framework revue et mergée dans main"
+      - "Suite de contrat PAA03 verte contre le plug-in Fake (invariant 'jamais bloqué par un PA' prouvé)"
+      - "Review d'intégration (codex-review -Base main) clean ou P2 acceptés justifiés"
+      - "Segment feat/pa-framework intégré automatiquement dans main (Step 5c) — pas de PR humaine"

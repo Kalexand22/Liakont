@@ -36,6 +36,11 @@ TestResults/
 coverage/
 tests/fixtures/**/output/
 
+## E2E (Playwright) — browser cache, HTML reports, traces & failure screenshots
+.playwright/
+playwright-report/
+test-results/
+
 ## SQLite runtime (jamais versionner une base de tracking réelle — piste d'audit client)
 *.db
 *.db-wal
@@ -53,6 +58,7 @@ orchestration/state/*.yaml
 ## Tool output logs (consommés par les agents, non versionnés)
 .verify-fast.log
 .run-tests.log
+.run-e2e.log
 .codex-review.log
 
 ## Orchestration transient files

@@ -12,7 +12,18 @@ meta:
   # version 7 = backlog v6 (pivot plateforme+agent) corrigé après les reviews indépendantes
   # v6/v8 du 2026-06-03 (voir tasks/review-independante-v6-v8-reponses.md)
   # version 8 = + OPS08 (installateur GUI agent + profils intégrateur, F13)
-  version: 8
+  # version 9 = gates d'intégration AUTOMATIQUES (SOCLE, CORE_FOUNDATION, PA_FRAMEWORK,
+  #   PIPELINE, ADAPTER_ENCHERESV6) : blueprint auto-gate-item, merge auto vers main sur vert
+  #   (verify + tests + review d'intégration). Gates HUMAINES conservées là où un test réel
+  #   peut révéler du structurel : AGENT, PA_B2BROUTER, PA_SUPERPDP, CONSOLE_WEB, TOOLKIT,
+  #   DEMO_ISATECH, PROD_CMP. Le test ODBC réel EncheresV6 est porté par DEMO_ISATECH (serveur
+  #   dédié), pas par ADAPTER (fixtures only).
+  # version 10 = GATE_SOCLE repassée HUMAINE (cas PONCTUEL) : la review d'intégration -Base main
+  #   du segment socle dépasse 1M tokens (tout le socle Stratum vendored dans le diff). Aucun
+  #   segment ultérieur n'a autant à reviewer ; le socle vendored est considéré OK (reviewé à
+  #   l'origine, hors périmètre CLAUDE.md/SOL01). La gate humaine valide l'ADAPTATION Liakont +
+  #   merge. Auto-gates restantes : CORE_FOUNDATION, PA_FRAMEWORK, PIPELINE, ADAPTER_ENCHERESV6.
+  version: 10
   host: multi_agent_v1
 
 segments:
@@ -139,13 +150,13 @@ items:
   - { id: TRK05, lot: TRK, priority: 2340, depends_on: [TRK02] }
   - { id: TRK06, lot: TRK, priority: 2350, depends_on: [TRK05] }
   - { id: TRK07, lot: TRK, priority: 2360, depends_on: [TRK05, PIV04] }
-  - { id: GATE_CORE_FOUNDATION, type: gate, executor: human, priority: 2900, depends_on: [PIV02, PIV03, PIV04, TVA03, TVA04, TVA05, VAL02, VAL03, VAL04, VAL05, TRK03, TRK04, TRK06, TRK07, CFG02] }
+  - { id: GATE_CORE_FOUNDATION, type: gate, blueprint: auto-gate-item, priority: 2900, depends_on: [PIV02, PIV03, PIV04, TVA03, TVA04, TVA05, VAL02, VAL03, VAL04, VAL05, TRK03, TRK04, TRK06, TRK07, CFG02] }
 
   # ── PAA ──
   - { id: PAA01, lot: PAA, priority: 3000, depends_on: [] }
   - { id: PAA02, lot: PAA, priority: 3010, depends_on: [PAA01] }
   - { id: PAA03, lot: PAA, priority: 3020, depends_on: [PAA01, PAA02] }
-  - { id: GATE_PA_FRAMEWORK, type: gate, executor: human, priority: 3900, depends_on: [PAA03] }
+  - { id: GATE_PA_FRAMEWORK, type: gate, blueprint: auto-gate-item, priority: 3900, depends_on: [PAA03] }
 
   # ── PAB ──
   - { id: PAB01, lot: PAB, priority: 4000, depends_on: [] }
@@ -165,7 +176,7 @@ items:
   - { id: PIP02, lot: PIP, priority: 5010, depends_on: [PIP01] }
   - { id: PIP03, lot: PIP, priority: 5020, depends_on: [PIP01] }
   - { id: PIP04, lot: PIP, priority: 5030, depends_on: [PIP02, PIP03] }
-  - { id: GATE_PIPELINE, type: gate, executor: human, priority: 5400, depends_on: [PIP02, PIP03, PIP04] }
+  - { id: GATE_PIPELINE, type: gate, blueprint: auto-gate-item, priority: 5400, depends_on: [PIP02, PIP03, PIP04] }
 
   # ── AGT ──
   - { id: AGT01, lot: AGT, priority: 5500, depends_on: [] }
@@ -181,7 +192,7 @@ items:
   - { id: ADP03, lot: ADP, priority: 6020, depends_on: [ADP02] }
   - { id: ADP04, lot: ADP, priority: 6030, depends_on: [ADP02] }
   - { id: ADP05, lot: ADP, priority: 6040, depends_on: [ADP02] }
-  - { id: GATE_ADAPTER_ENCHERESV6, type: gate, executor: human, priority: 6400, depends_on: [ADP03, ADP04, ADP05] }
+  - { id: GATE_ADAPTER_ENCHERESV6, type: gate, blueprint: auto-gate-item, priority: 6400, depends_on: [ADP03, ADP04, ADP05] }
 
   # ── API ──
   - { id: API01, lot: API, priority: 6500, depends_on: [] }

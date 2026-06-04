@@ -137,17 +137,25 @@ items:
 
   GATE_ADAPTER_ENCHERESV6:
     type: gate
-    executor: human
-    title: "Gate : adaptateur EncheresV6 validé"
+    executor: claude
+    blueprint: auto-gate-item
+    title: "Gate (auto) : adaptateur EncheresV6 intégré (fixtures)"
     description: |
-      Validation humaine du premier plug-in source. Démonstration attendue : un agent avec
-      l'adaptateur EncheresV6 en mode fixtures extrait un jeu complet → push vers la plateforme
-      de dev → pipeline → FakePaClient, et si possible une extraction ODBC réelle sur la base
-      de test CMP (si accès disponible).
-      Rappel généricité : l'adaptateur ne contient AUCUNE donnée client (le SIREN CMP, la chaîne
-      ODBC réelle sont du paramétrage — lot CMP) ; il contient la connaissance du SCHÉMA EncheresV6.
+      Gate d'INTÉGRATION AUTOMATIQUE (executor claude, blueprint auto-gate-item). Ce qui est
+      vérifiable SUR CETTE MACHINE est entièrement automatisé : extraction fixtures → pivot,
+      parité fixtures/ODBC mocké, test-espion lecture seule, frontières (NetArchTest). La gate
+      enchaîne verify + run-tests + review d'intégration (diff complet vs main), puis merge dans
+      main ; échec/conflit = blocked.
+      RÉSERVE ASSUMÉE ET TRACÉE : la base Pervasive réelle n'est JAMAIS sur la machine d'orchestration.
+      « Validé sur fixtures » ≠ « validé sur le schéma réel ». Le test ODBC réel EncheresV6 est porté
+      par GATE_DEMO_ISATECH (serveur dédié) — un écart de schéma découvert là PEUT altérer l'adaptateur
+      voire le contrat, c'est pourquoi DEMO_ISATECH reste une gate HUMAINE.
+      Rappel généricité : l'adaptateur ne contient AUCUNE donnée client (SIREN CMP, chaîne ODBC réelle
+      = paramétrage, lot CMP) ; il contient la connaissance du SCHÉMA EncheresV6.
     acceptance:
       - "Tous les items ADP sont done"
       - "Aucune donnée client dans le code de l'adaptateur (uniquement la connaissance du schéma)"
-      - "Démonstration extraction fixtures → push → pipeline plateforme réussie"
-      - "PR du segment feat/adapter-encheresv6 revue et mergée dans main"
+      - "Tests d'intégration verts : extraction fixtures → pivot, parité fixtures/ODBC mocké, test-espion lecture seule"
+      - "Review d'intégration (codex-review -Base main) clean ou P2 acceptés justifiés"
+      - "Réserve tracée : test ODBC réel NON couvert ici, porté par GATE_DEMO_ISATECH (serveur dédié)"
+      - "Segment feat/adapter-encheresv6 intégré automatiquement dans main (Step 5c) — pas de PR humaine"

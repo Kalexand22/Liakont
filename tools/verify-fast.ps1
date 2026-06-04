@@ -142,6 +142,21 @@ if ($ok) {
     }
 }
 
+# ── Step 2b: socle provenance guard (when the vendored tree exists) ──
+# Any silent modification of a vendored Stratum.* file that is not consigned in
+# docs/architecture/provenance-socle-stratum.md is a P1 (CLAUDE.md rule 11). The check pins
+# every vendored file to tools/socle-baseline.sha1. It runs only once the platform solution
+# exists (vendored tree present, post-SOL01); a missing baseline at that point is a FAILURE,
+# not a skip — that closes the "delete the baseline to disable the guard" false-green.
+if ($ok -and (Test-Path $platformSln)) {
+    $ok = Run-Step 'socle: provenance' {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot 'tools\socle-provenance-check.ps1')
+        if ($LASTEXITCODE -ne 0) {
+            throw "vendored Stratum drift not consigned in provenance (exit $LASTEXITCODE) — see provenance-socle-stratum.md"
+        }
+    }
+}
+
 # ── Step 3: PLATFORM build + unit tests (when src/Liakont.sln exists) ──
 if ($ok) {
     if (Test-Path $platformSln) {

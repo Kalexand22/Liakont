@@ -1,0 +1,154 @@
+{
+  "id": "liakont-dev",
+  "realm": "liakont-dev",
+  "displayName": "Liakont E2E",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "bruteForceProtected": false,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "roles": {
+    "realm": [
+      { "name": "lecture", "description": "Consultation (liakont.read)" },
+      { "name": "operateur", "description": "Actions operateur (liakont.read + liakont.actions)" },
+      { "name": "parametrage", "description": "Parametrage fiscal du tenant (liakont.read + liakont.actions + liakont.settings)" },
+      { "name": "superviseur", "description": "Supervision cross-tenant en lecture seule (toutes les permissions liakont.*)" }
+    ]
+  },
+  "defaultRoles": ["lecture"],
+  "clients": [
+    {
+      "clientId": "liakont",
+      "name": "Liakont E2E",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "liakont-dev-secret",
+      "redirectUris": [
+        "http://127.0.0.1:*/*",
+        "http://localhost:*/*"
+      ],
+      "webOrigins": [
+        "http://127.0.0.1:*",
+        "http://localhost:*"
+      ],
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": true,
+      "defaultClientScopes": ["openid", "profile", "email"],
+      "attributes": {
+        "post.logout.redirect.uris": "+"
+      },
+      "protocolMappers": [
+        {
+          "name": "company_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "company_id",
+            "claim.name": "company_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "stratum_user_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "stratum_user_id",
+            "claim.name": "stratum_user_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "realm roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "liakont",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "lecture",
+      "email": "lecture@liakont.local",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Lea",
+      "lastName": "Lecture",
+      "credentials": [
+        { "type": "password", "value": "Test@1234", "temporary": false }
+      ],
+      "realmRoles": ["lecture"]
+    },
+    {
+      "username": "operateur",
+      "email": "operateur@liakont.local",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Olivier",
+      "lastName": "Operateur",
+      "credentials": [
+        { "type": "password", "value": "Test@1234", "temporary": false }
+      ],
+      "realmRoles": ["lecture", "operateur"]
+    },
+    {
+      "username": "parametrage",
+      "email": "parametrage@liakont.local",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Paul",
+      "lastName": "Parametrage",
+      "credentials": [
+        { "type": "password", "value": "Test@1234", "temporary": false }
+      ],
+      "realmRoles": ["lecture", "operateur", "parametrage"]
+    },
+    {
+      "username": "superviseur",
+      "email": "superviseur@liakont.local",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Sophie",
+      "lastName": "Superviseur",
+      "credentials": [
+        { "type": "password", "value": "Test@1234", "temporary": false }
+      ],
+      "realmRoles": ["lecture", "operateur", "parametrage", "superviseur"]
+    }
+  ],
+  "scopeMappings": [],
+  "clientScopeMappings": {}
+}

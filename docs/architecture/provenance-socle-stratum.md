@@ -185,6 +185,98 @@ Sur un Windows FR, ce résumé est en français (« Réussi! … total : N ») q
 matche → faux « 0 test / format non reconnu ». Ajout de `$env:DOTNET_CLI_UI_LANGUAGE = 'en'` en
 tête de run-tests.ps1 pour rendre le parsing indépendant de la locale (le garde reste intact).
 
+### 4.12 `tools/socle-provenance-check.ps1` + `tools/socle-baseline.sha1` — garde automatique (SOL03)
+La règle « le socle vendored ne se modifie pas silencieusement » (CLAUDE.md n.11) est désormais
+**vérifiée automatiquement**. `tools/socle-baseline.sha1` épingle le hash de blob git
+(`git hash-object`, indépendant de la plateforme) de chacun des 1226 fichiers vendored
+(`src/Common` + `src/Modules/{Identity,Party,Job,Notification,Audit}` ; le Host adapté `Liakont.Host`
+est exclu — code Liakont, pas `Stratum.*`). À chaque `verify-fast`, le script recalcule les hashes :
+tout fichier épinglé qui a dérivé du baseline (modifié ou supprimé) DOIT figurer, **par son chemin
+repo-relatif EXACT**, dans le bloc de consignation balisé ci-dessous (`SOCLE-CONSIGNED-DRIFT`), sinon
+`verify-fast` échoue (exit 2).
+
+**Matching par chemin exact, jamais par nom de fichier** (correctif review SOL03 round 1, P1) : les
+noms de fichiers vendored sont très souvent en collision (`ServiceCollectionExtensions.cs` ×14,
+`_Imports.razor` ×6, `MODULE.md`/`INVARIANTS.md`/`SCENARIOS.md` ×4 chacun, `NullPartyQueries.cs`,
+`AssemblyInfo.cs`…). Un match par leaf ou par sous-chaîne laisserait passer une modification
+silencieuse du fichier B dès qu'un homonyme A est consigné — exactement le faux-vert corrigé ici.
+
+Workflow d'une modification légitime future d'un fichier `Stratum.*` : (1) éditer le fichier,
+(2) ajouter une sous-section 4.x narrative ci-dessus, (3) ajouter son **chemin repo-relatif exact**
+dans le bloc `SOCLE-CONSIGNED-DRIFT` ci-dessous. (Optionnel : régénérer le baseline avec
+`tools/socle-provenance-check.ps1 -Generate` pour « cuire » le nouvel état — il ne dérive alors plus
+et peut être retiré du bloc.) Limite assumée : un fichier AJOUTÉ sous un dossier vendored (ex.
+mécanique multi-tenant Liakont de SOL06) n'est pas épinglé par le baseline — la garde cible la
+modification/suppression silencieuse d'un fichier vendored existant, exactement la règle n.11.
+
+Le baseline a été généré sur l'état consigné courant (vendoring SOL01 + les modifications des sections
+4.1–4.11 ci-dessus) : ces modifications sont déjà **incorporées** dans le baseline et ne dérivent donc
+pas — le bloc de consignation est par conséquent **vide** tant qu'aucune dérive POST-baseline n'a été
+introduite.
+
+Format du bloc : un chemin repo-relatif EXACT par ligne (ex. `src/Modules/Identity/Infrastructure/
+Security/ReflectionPermissionCatalog.cs`). Les lignes vides et les lignes de commentaire (`<!--`,
+`#`, `//`) sont ignorées par le parseur. Ne jamais mettre un nom de fichier seul : le matching est
+ancré sur le chemin complet.
+
+<!-- SOCLE-CONSIGNED-DRIFT:START -->
+<!-- SOCLE-CONSIGNED-DRIFT:END -->
+
+### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
+Le harness de tests E2E (`tests/Liakont.Tests.E2E`) est **adapté** du harness Stratum
+`tests/Stratum.Tests.E2E` — **hors périmètre du vendoring SOL01** (qui ne copie que `src/`), d'où
+sa consignation ici (adaptation, pas copie brute). Le nouveau projet porte le namespace
+**`Liakont.Tests.E2E`** (code Liakont, pas `Stratum.*`). Infrastructure reprise et adaptée :
+`KeycloakE2EWebFactory` (démarre `Liakont.Host` sur PostgreSQL `postgres:16-alpine` + Keycloak
+`quay.io/keycloak/keycloak:26.0` via Testcontainers, ports dynamiques), `PlaywrightFixture`,
+`KeycloakE2ECollection`, `KeycloakBaseE2ETest`, `E2EAuthenticationStateProvider` (pont SSR↔circuit),
+`Pages/KeycloakLoginPage`. **Retiré du portage** (spécifique ERP Stratum, hors périmètre Liakont) :
+la configuration `BugCapture` + `MockGitHubHandler`/`GitHubIssueReporter`, et les ~130 Page Objects /
+Scenarios ERP. **Adapté aux clés réelles du Host Liakont** : `Database:ConnectionString` +
+`TenantConnections:ConnectionStrings:default` (même base — le tenant `default` partage la base
+système, cohérent avec `appsettings.Development.json`), `Keycloak:{Authority,ClientId,ClientSecret,
+UseKeycloak,RealmTenantMap}`. Fixture realm `Fixtures/keycloak-e2e-realm.json` dérivée du realm dev
+`deploy/docker/keycloak/realm-export.json` (realm `liakont-dev`, client `liakont`, 4 rôles, 4
+utilisateurs de test SOL01) avec redirect URIs en joker de port (substitués au runtime). Le projet
+est dans `src/Liakont.sln` (compilé par `verify-fast`/`run-tests`) mais ses tests `Category=E2E` y
+sont exclus ; seul `tools/run-e2e.ps1` (livré par SOL05) les exécute. POM `ErpShellPage` et test de
+preuve `LoginShellE2ETests` = code Liakont neuf (pas d'origine Stratum).
+
+**Écart assumé vs realm dev + défaut signalé (hors périmètre SOL05).** Dans la fixture E2E, le
+`username` Keycloak des utilisateurs de test est un identifiant court (`lecture`, `operateur`,
+`parametrage`, `superviseur`) avec l'email en champ séparé — alors que le realm dev SOL01 fixe
+`username = email` (`lecture@liakont.local`). Raison : le sync OIDC (`UserSyncService.SyncFromOidcClaimsAsync`,
+vendored) prend le claim `preferred_username` **brut** et ne le passe PAS par `SanitizeUsername`
+(qui n'est appliqué qu'au *fallback* email) ; le value object `Username` rejette alors un email
+(« 3-50 car. alphanumériques + underscores », INV-IDENTITY-007). **Conséquence : le login OIDC
+échoue avec le realm dev tel quel** (jamais exercé par SOL01 qui ne testait que `/health`). C'est un
+**défaut réel à corriger hors SOL05** (item dédié) : soit `UserSyncService` sanitise aussi
+`preferred_username`, soit le realm dev passe à des usernames courts — décision plateforme touchant
+le module Identity vendoré. La fixture E2E à handles est compatible avec les deux résolutions.
+
+### 4.14 Mécanique de jobs multi-tenant Liakont (SOL06) — fichiers AJOUTÉS aux projets Common vendored
+SOL06 ajoute la mécanique `TenantJobRunner` (jobs multi-tenant — voir
+`docs/adr/ADR-0006-mecanique-jobs-multi-tenant.md` et `docs/architecture/tenant-jobs.md`) **sous les
+dossiers vendored `src/Common`**, conformément au choix de placement de l'ADR-0006 (réutilisable par
+tous les modules sans dépendance circulaire). Ce sont des **fichiers AJOUTÉS**, pas des modifications
+de fichiers `Stratum.*` existants : le baseline de provenance (§4.12) n'épingle que les fichiers
+vendorés existants, donc ces ajouts **ne dérivent pas** et ne figurent PAS dans le bloc
+`SOCLE-CONSIGNED-DRIFT` (réservé aux fichiers épinglés modifiés/supprimés). Ils sont consignés ici
+pour la re-convergence NuGet et marqués `// Liakont addition (SOL06)` en tête de fichier.
+
+Fichiers ajoutés (namespaces cohérents avec l'assembly hôte ; code **Liakont**, pas Stratum amont) :
+- `src/Common/Abstractions/Jobs/` : `ITenantJob.cs`, `TenantJobContext.cs`, `ITenantJobRunner.cs`,
+  `TenantJobRunSummary.cs`, `TenantJobFailure.cs` (projet `Stratum.Common.Abstractions`)
+- `src/Common/Abstractions/MultiTenancy/` : `ITenantScope.cs`, `ITenantScopeFactory.cs` (seam de
+  basculement de tenant, implémenté côté Host)
+- `src/Common/Infrastructure/Jobs/` : `TenantJobRunner.cs`, `ServiceCollectionExtensions.cs`
+  (`AddTenantJobs()`) (projet `Stratum.Common.Infrastructure`)
+
+Code Liakont **hors** socle (pas de consignation requise, mais cité pour le contexte) :
+`src/Host/Liakont.Host/MultiTenancy/TenantScopeFactory.cs` (implémentation du seam, positionne le
+`MutableTenantContext` interne au Host) + son enregistrement dans `MultiTenantServiceCollectionExtensions`
+et `AppBootstrap`. **Aucun fichier `Stratum.*` existant n'a été modifié par SOL06.**
+
 ## 5. ADR du socle hérités
 
 Les ADR Stratum pertinents au socle sont copiés dans `docs/adr/socle/` (référence, non re-décidés).
