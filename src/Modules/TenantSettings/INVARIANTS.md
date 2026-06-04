@@ -1,0 +1,12 @@
+# TenantSettings Module — Invariants
+
+| ID | Rule | Enforcement |
+|---|---|---|
+| INV-TENANTSETTINGS-001 | Le SIREN comporte 9 chiffres et satisfait la clé de Luhn ; il est immuable une fois le profil créé (clé fonctionnelle) | `SirenValidator.IsValid` + `TenantProfile.Create` ; `ConflictException` sur tentative de changement (`SaveTenantProfileHandler`, `ImportTenantSeedHandler`) |
+| INV-TENANTSETTINGS-002 | Champs obligatoires validés : raison sociale non vide, adresse complète + pays ISO 3166-1 alpha-2, heures de planification au format `HH:mm`, seuils strictement positifs | Fabriques du domaine (`TenantProfile`, `TenantAddress`, `ExtractionSchedule`, `AlertThresholds`) — `ArgumentException` |
+| INV-TENANTSETTINGS-003 | La clé API d'un compte PA n'est JAMAIS stockée ni renvoyée en clair (chiffrée via Data Protection) ; les lectures ne sélectionnent même pas la colonne chiffrée | `ISecretProtector` (chiffrement dans les handlers) ; `PaAccountDto` expose `HasApiKey` (booléen) ; `PostgresTenantSettingsQueries.GetPaAccounts` ne SELECT pas `encrypted_api_key` |
+| INV-TENANTSETTINGS-004 | Les paramètres fiscaux sont nullables ; `null` = décision de l'expert-comptable en attente = suspension. Aucune valeur par défaut n'est inventée | `FiscalSettings` (champs nullables, `null` préservé) ; `TenantSettingsParsing.ParseOperationCategory` conserve `null` |
+| INV-TENANTSETTINGS-005 | Toute mutation de paramétrage est journalisée (piste append-only) avec l'identité de l'opérateur, après le commit | `TenantSettingsJournal` (`IActivityLogger` + `IActorContextAccessor`) appelé par chaque handler de commande après `CommitAsync` |
+| INV-TENANTSETTINGS-006 | Toute requête est scopée par `company_id` ; jamais de lecture/écriture cross-tenant | `ICompanyFilter.GetRequiredCompanyId()` dans chaque handler + clause `WHERE company_id` dans toutes les requêtes |
+| INV-TENANTSETTINGS-007 | L'import de seed n'écrit jamais un secret en clair : la clé API de chaque compte PA est laissée vide (placeholder à compléter via la console) | `ImportTenantSeedHandler.ImportPaAccountsAsync` (toujours `encryptedApiKey: null` + avertissement) ; `PaAccountSeed` ne modélise pas la clé |
+| INV-TENANTSETTINGS-008 | `reportingFrequency` est stocké en chaîne opaque ; l'énumération n'est pas figée et n'est jamais interprétée par le module (aucune règle fiscale inventée — F12-A §3.3) | `FiscalSettings.ReportingFrequency` (`string?`) ; aucune dérivation de comportement à partir de sa valeur |
