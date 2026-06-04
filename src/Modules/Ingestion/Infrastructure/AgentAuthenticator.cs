@@ -7,8 +7,11 @@ using Stratum.Common.Infrastructure.Database;
 
 /// <summary>
 /// Authentifie une clé API d'agent contre le registre SYSTÈME (F12 §3.1). Lecture seule sans
-/// transaction (l'authentification précède tout contexte tenant). Ne révèle jamais si l'échec vient
-/// d'un préfixe inconnu ou d'une empreinte non concordante (anti-énumération).
+/// transaction (l'authentification précède tout contexte tenant). Au niveau de l'ISSUE, « préfixe
+/// inconnu » et « empreinte non concordante » sont indistinguables (les deux → InvalidKey). Le coût
+/// dominant (calcul SHA-256 + comparaison à temps constant) est égalisé entre ces deux chemins via
+/// <see cref="Agent.SpendKeyComparisonTime"/> ; une différence résiduelle de temps d'accès en base
+/// subsiste, rendue non exploitable par le préfixe aléatoire (~9 octets) et le rate limiting par IP.
 /// </summary>
 internal sealed class AgentAuthenticator : IAgentAuthenticator
 {
@@ -34,6 +37,9 @@ internal sealed class AgentAuthenticator : IAgentAuthenticator
 
         if (row is null)
         {
+            // Égalise le temps de réponse avec le chemin « préfixe connu » (calcul d'empreinte) afin
+            // de ne pas révéler par le timing l'existence d'un préfixe (anti-énumération).
+            Agent.SpendKeyComparisonTime(presentedKey!);
             return AgentAuthenticationResult.InvalidKey();
         }
 

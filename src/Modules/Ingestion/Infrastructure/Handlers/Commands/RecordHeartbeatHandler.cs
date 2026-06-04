@@ -28,7 +28,6 @@ public sealed class RecordHeartbeatHandler : IRequestHandler<RecordHeartbeatComm
     public async Task<HeartbeatResponseDto> Handle(RecordHeartbeatCommand request, CancellationToken cancellationToken)
     {
         var receivedAt = DateTimeOffset.UtcNow;
-        var heartbeat = request.Heartbeat;
 
         string tenantId;
         await using (var uow = await _uowFactory.BeginAsync(cancellationToken))
@@ -36,16 +35,16 @@ public sealed class RecordHeartbeatHandler : IRequestHandler<RecordHeartbeatComm
             var agent = await uow.GetByIdAsync(request.AgentId, cancellationToken)
                 ?? throw new NotFoundException("Agent", request.AgentId);
 
-            agent.RecordHeartbeat(heartbeat.AgentVersion, receivedAt);
+            agent.RecordHeartbeat(request.AgentVersion, receivedAt);
             await uow.UpdateAsync(agent, cancellationToken);
 
             var entry = HeartbeatLogEntry.Create(
                 agent.Id,
                 agent.TenantId,
-                heartbeat.ContractVersion,
-                heartbeat.AgentVersion,
-                ToUtcOffset(heartbeat.SentAtUtc),
-                ToNullableUtcOffset(heartbeat.LastSuccessfulSyncUtc),
+                request.ContractVersion,
+                request.AgentVersion,
+                ToUtcOffset(request.SentAtUtc),
+                ToNullableUtcOffset(request.LastSuccessfulSyncUtc),
                 receivedAt);
             await uow.AppendHeartbeatAsync(entry, cancellationToken);
 

@@ -17,6 +17,11 @@ using Stratum.Common.Abstractions.Exceptions;
 /// </remarks>
 public sealed class Agent
 {
+    // Empreinte factice (64 hex) pour égaliser le temps de réponse du chemin « préfixe inconnu »
+    // avec celui d'une vraie vérification (voir SpendKeyComparisonTime) — anti-oracle temporel.
+    private const string DummyKeyHash =
+        "0000000000000000000000000000000000000000000000000000000000000000";
+
     private Agent()
     {
     }
@@ -78,6 +83,15 @@ public sealed class Agent
     /// </summary>
     public static bool TryExtractKeyPrefix(string? presentedFullKey, out string prefix) =>
         AgentKey.TryExtractPrefix(presentedFullKey, out prefix);
+
+    /// <summary>
+    /// Calcule une empreinte (résultat ignoré) pour dépenser le même temps qu'une vraie vérification
+    /// de clé quand AUCUN agent ne correspond au préfixe présenté. Égalise le coût dominant
+    /// (SHA-256 + comparaison à temps constant) entre « préfixe inconnu » et « empreinte non
+    /// concordante », réduisant l'oracle temporel d'énumération des clés.
+    /// </summary>
+    public static void SpendKeyComparisonTime(string presentedFullKey) =>
+        AgentKey.HashesMatch(DummyKeyHash, presentedFullKey);
 
     public static Agent Reconstitute(
         Guid id,

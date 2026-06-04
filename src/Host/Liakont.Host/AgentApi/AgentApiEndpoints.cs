@@ -38,8 +38,27 @@ internal static class AgentApiEndpoints
             CancellationToken ct) =>
         {
             var identity = AgentApiContext.GetIdentity(http);
+
+            // Corps validé à la frontière : un corps malformé (champ obligatoire absent → null)
+            // est rejeté en 400, jamais propagé en violation NOT NULL (500) à l'insert.
+            if (string.IsNullOrWhiteSpace(request.AgentVersion))
+            {
+                return Results.BadRequest("Le champ agentVersion est obligatoire.");
+            }
+
+            // La version de contrat PERSISTÉE est celle NÉGOCIÉE (en-tête déjà validé par le filtre),
+            // pas celle du corps : les deux pourraient diverger, l'en-tête fait foi.
+            var contractVersion = http.Request.Headers[AgentApiHeaders.ContractVersion].ToString();
+
             var response = await sender.Send(
-                new RecordHeartbeatCommand { AgentId = identity.AgentId, Heartbeat = request },
+                new RecordHeartbeatCommand
+                {
+                    AgentId = identity.AgentId,
+                    ContractVersion = contractVersion,
+                    AgentVersion = request.AgentVersion,
+                    SentAtUtc = request.SentAtUtc,
+                    LastSuccessfulSyncUtc = request.LastSuccessfulSyncUtc,
+                },
                 ct);
             return Results.Ok(response);
         });

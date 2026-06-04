@@ -193,6 +193,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.Modules.Ingestion.T
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.Modules.Ingestion.Tests.Integration", "Modules\Ingestion\Tests.Integration\Liakont.Modules.Ingestion.Tests.Integration.csproj", "{11D00D2A-39D6-4F9B-8203-D08A08D4A468}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.Host.Tests.Unit", "Host\Tests.Unit\Liakont.Host.Tests.Unit.csproj", "{52AB5FC4-B809-40DD-A54A-372768573D13}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -839,6 +841,18 @@ Global
 		{11D00D2A-39D6-4F9B-8203-D08A08D4A468}.Release|x64.Build.0 = Release|Any CPU
 		{11D00D2A-39D6-4F9B-8203-D08A08D4A468}.Release|x86.ActiveCfg = Release|Any CPU
 		{11D00D2A-39D6-4F9B-8203-D08A08D4A468}.Release|x86.Build.0 = Release|Any CPU
+		{52AB5FC4-B809-40DD-A54A-372768573D13}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{52AB5FC4-B809-40DD-A54A-372768573D13}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{52AB5FC4-B809-40DD-A54A-372768573D13}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{52AB5FC4-B809-40DD-A54A-372768573D13}.Debug|x64.Build.0 = Debug|Any CPU
+		{52AB5FC4-B809-40DD-A54A-372768573D13}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{52AB5FC4-B809-40DD-A54A-372768573D13}.Debug|x86.Build.0 = Debug|Any CPU
+		{52AB5FC4-B809-40DD-A54A-372768573D13}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{52AB5FC4-B809-40DD-A54A-372768573D13}.Release|Any CPU.Build.0 = Release|Any CPU
+		{52AB5FC4-B809-40DD-A54A-372768573D13}.Release|x64.ActiveCfg = Release|Any CPU
+		{52AB5FC4-B809-40DD-A54A-372768573D13}.Release|x64.Build.0 = Release|Any CPU
+		{52AB5FC4-B809-40DD-A54A-372768573D13}.Release|x86.ActiveCfg = Release|Any CPU
+		{52AB5FC4-B809-40DD-A54A-372768573D13}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -927,5 +941,6 @@ Global
 		{8F39B146-8178-4728-A70F-B5ADB80DE0F5} = {7D83C21F-6D40-ACB7-2891-D69728460AF8}
 		{26EF298A-981E-45D5-AA9A-07071B4FF55E} = {7D83C21F-6D40-ACB7-2891-D69728460AF8}
 		{11D00D2A-39D6-4F9B-8203-D08A08D4A468} = {7D83C21F-6D40-ACB7-2891-D69728460AF8}
+		{52AB5FC4-B809-40DD-A54A-372768573D13} = {7226ABEA-787E-1D09-10EA-A2ECF996D6A6}
 	EndGlobalSection
 EndGlobal

@@ -110,6 +110,12 @@ public static class AppBootstrap
 
         // Rate limiting de l'API agent (brute force par IP, F12 §3.3) — protège l'authentification
         // par clé API. Fenêtre fixe par adresse IP ; au-delà du quota → 429.
+        // NOTE déploiement : derrière le reverse proxy de l'appliance (F12 §6.2/6.6), RemoteIpAddress
+        // est l'IP du proxy tant que ForwardedHeaders n'est pas configuré → la fenêtre dégrade en
+        // throttle GLOBAL (repli sûr) plutôt que par-IP. Activer ForwardedHeaders relève du
+        // déploiement (OPS) et EXIGE une liste de proxys de confiance : sans elle, X-Forwarded-For
+        // serait usurpable et la limite contournable. Ce rate limiting est une défense en profondeur ;
+        // le contrôle d'accès primaire reste la clé API cryptographique + la révocation.
         builder.Services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;

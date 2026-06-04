@@ -2,7 +2,6 @@ namespace Liakont.Modules.Ingestion.Tests.Integration;
 
 using Dapper;
 using FluentAssertions;
-using Liakont.Agent.Contracts.Transport;
 using Liakont.Modules.Ingestion.Contracts.Commands;
 using Liakont.Modules.Ingestion.Contracts.Queries;
 using Liakont.Modules.Ingestion.Tests.Integration.Fixtures;
@@ -25,14 +24,16 @@ public sealed class HeartbeatIntegrationTests
         var issued = await harness.RegisterHandler.Handle(
             new RegisterAgentCommand { Name = "Poste 1" }, CancellationToken.None);
 
-        var request = new HeartbeatRequestDto(
-            contractVersion: "1",
-            agentVersion: "2.3.1",
-            sentAtUtc: new DateTime(2026, 6, 4, 10, 0, 0, DateTimeKind.Utc),
-            lastSuccessfulSyncUtc: null);
-
         var response = await harness.HeartbeatHandler.Handle(
-            new RecordHeartbeatCommand { AgentId = issued.AgentId, Heartbeat = request }, CancellationToken.None);
+            new RecordHeartbeatCommand
+            {
+                AgentId = issued.AgentId,
+                ContractVersion = "1",
+                AgentVersion = "2.3.1",
+                SentAtUtc = new DateTime(2026, 6, 4, 10, 0, 0, DateTimeKind.Utc),
+                LastSuccessfulSyncUtc = null,
+            },
+            CancellationToken.None);
 
         // La réponse renvoie une configuration au défaut sûr (registre de versions vide).
         response.Configuration.UpdateRequired.Should().BeFalse();
