@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Contracts/Liakont.Modules.Validation.Contracts.csproj" />
+  </ItemGroup>
+</Project>
