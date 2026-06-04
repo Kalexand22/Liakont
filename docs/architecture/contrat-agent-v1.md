@@ -134,7 +134,7 @@ push agent réelle (champs de mapping nuls) est spécifiquement `facture-push-ag
 
 ```powershell
 $env:LIAKONT_REGEN_FIXTURES = "1"
-$env:LIAKONT_FIXTURE_OUT = "tests/fixtures/contrat-v1"   # chemin absolu
+$env:LIAKONT_FIXTURE_OUT = "$PWD\tests\fixtures\contrat-v1"   # chemin absolu — exécuter depuis la racine du repo
 dotnet test tests/Contracts/Liakont.Agent.Contracts.Tests.Unit `
   --filter "FullyQualifiedName~Fixtures_are_present_or_regenerated"
 ```
