@@ -12,6 +12,10 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
     <PackageReference Include="FluentAssertions" />
+    <!-- Référence directe : garantit la copie du natif SQLite.Interop.dll (x86/x64) dans la sortie
+         de test pour les tests réels de la file locale (System.Data.SQLite est tiré transitivement
+         par Core, mais on force ici la propagation des cibles de copie du natif). -->
+    <PackageReference Include="System.Data.SQLite.Core" />
   </ItemGroup>
 
   <!-- Référence les trois assemblies « bibliothèque » de l'agent pour vérifier leurs frontières. -->
