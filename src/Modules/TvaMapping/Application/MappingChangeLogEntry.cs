@@ -9,6 +9,15 @@ using Liakont.Modules.TvaMapping.Domain.Entities;
 /// même discipline que <c>DocumentEvent</c>, CLAUDE.md n°4). Les valeurs avant/après sont sérialisées
 /// en JSON par l'infrastructure (<c>MappingChangeLogFactory</c>).
 /// </summary>
+/// <remarks>
+/// Traçabilité document→règle : l'édition est EN PLACE (item TVA05 §1) — <c>mapping_version</c>
+/// n'est PAS auto-incrémenté à chaque mutation. La preuve fiscale « quelle règle a produit quel motif
+/// d'exonération » est figée à l'émission par la <c>MappingTrace</c> (F03 §4.2, item TVA02), et le
+/// présent journal horodaté (<c>occurred_at</c> + avant/après + auteur) reconstitue l'état de la table
+/// à toute date. Le versionnage humain de la table (cmp-v1 → cmp-v2, F03 décision #6.5, ❓ non tranchée)
+/// est un workflow expert-comptable hors périmètre TVA05 : aucun schéma d'incrément n'est inventé ici
+/// (CLAUDE.md n°2).
+/// </remarks>
 public sealed record MappingChangeLogEntry
 {
     /// <summary>Tenant propriétaire (isolation par société — CLAUDE.md n°9).</summary>

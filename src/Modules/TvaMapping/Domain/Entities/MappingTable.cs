@@ -147,6 +147,18 @@ public sealed class MappingTable
     {
         ArgumentNullException.ThrowIfNull(replacement);
 
+        // Le remplacement ne ré-clé PAS la règle : la clé (code, part) identifie la règle à modifier et
+        // reste inchangée. Sans cette garde, un appelant mal câblé re-clérait la règle silencieusement,
+        // et le journal enregistrerait une « modification en place » trompeuse.
+        if (!string.Equals(replacement.SourceRegimeCode?.Trim(), sourceRegimeCode?.Trim(), StringComparison.Ordinal)
+            || replacement.Part != part)
+        {
+            throw new ArgumentException(
+                "Le remplacement d'une règle ne peut pas changer sa clé (code régime + part). " +
+                "Pour changer la clé, supprimez la règle puis ajoutez-la.",
+                nameof(replacement));
+        }
+
         var index = RequireRuleIndex(sourceRegimeCode, part);
         var previous = Rules[index];
 
@@ -233,7 +245,7 @@ public sealed class MappingTable
         UpdatedAt = DateTimeOffset.UtcNow;
     }
 
-    private int RequireRuleIndex(string sourceRegimeCode, MappingPart part)
+    private int RequireRuleIndex(string? sourceRegimeCode, MappingPart part)
     {
         var code = sourceRegimeCode?.Trim();
         for (var i = 0; i < Rules.Count; i++)

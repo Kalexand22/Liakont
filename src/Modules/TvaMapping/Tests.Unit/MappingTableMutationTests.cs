@@ -92,6 +92,20 @@ public sealed class MappingTableMutationTests
     }
 
     [Fact]
+    public void UpdateRule_Changing_Key_Throws_And_Leaves_Table_Unchanged()
+    {
+        var table = ValidatedTable(FixedRule("REGIME-A", VatCategory.S, 20m));
+
+        // Le remplacement re-clérait la règle (REGIME-A → REGIME-B) : refusé (clé immuable).
+        var act = () => table.UpdateRule(
+            "REGIME-A", MappingPart.Adjudication, FixedRule("REGIME-B", VatCategory.S, 20m));
+
+        act.Should().Throw<ArgumentException>();
+        table.Rules[0].SourceRegimeCode.Should().Be("REGIME-A");
+        table.IsValidated.Should().BeTrue();
+    }
+
+    [Fact]
     public void UpdateRule_Not_Found_Throws_NotFound()
     {
         var table = ValidatedTable(FixedRule("REGIME-A", VatCategory.S, 20m));
@@ -152,11 +166,15 @@ public sealed class MappingTableMutationTests
             [FixedRule("REGIME-A", VatCategory.S, 20m)]);
         table.IsValidated.Should().BeFalse();
 
+        var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
         table.Validate("Expert-comptable CMP");
 
         table.IsValidated.Should().BeTrue();
         table.ValidatedBy.Should().Be("Expert-comptable CMP");
-        table.ValidatedDate.Should().Be(DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime));
+
+        // Capturée AVANT l'appel : la date posée est « aujourd'hui » au moment de la mutation, donc
+        // today ou today+1 si l'exécution franchit minuit UTC entre la capture et l'appel (anti-flake).
+        table.ValidatedDate.Should().BeOneOf(today, today.AddDays(1));
     }
 
     [Fact]

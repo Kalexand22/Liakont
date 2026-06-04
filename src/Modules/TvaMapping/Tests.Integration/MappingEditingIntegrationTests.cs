@@ -170,12 +170,15 @@ public sealed class MappingEditingIntegrationTests
 
         var (filter, accessor) = Deps(operatorId, companyId);
         var handler = new ValidateMappingTableHandler(harness.UowFactory, filter, accessor);
+        var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
         await handler.Handle(new ValidateMappingTableCommand { ValidatedBy = "Expert-comptable CMP" }, CancellationToken.None);
 
         var dto = await harness.Queries.GetMappingTable(companyId);
         dto!.IsValidated.Should().BeTrue();
         dto.ValidatedBy.Should().Be("Expert-comptable CMP");
-        dto.ValidatedDate.Should().Be(DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime));
+
+        // today ou today+1 si l'exécution franchit minuit UTC entre la capture et l'appel (anti-flake).
+        dto.ValidatedDate.Should().BeOneOf(today, today.AddDays(1));
 
         var log = await ReadChangeLogAsync(harness, companyId);
         log.Should().ContainSingle();
