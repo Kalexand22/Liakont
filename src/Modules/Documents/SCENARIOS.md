@@ -56,6 +56,8 @@
 - `Transition_Is_Not_Visible_Until_Commit` — read-modify-write SANS commit (dispose → rollback) : ni l'état ni l'événement ne subsistent (atomicité tout-ou-rien).
 - `Illegal_Transition_Leaves_Document_And_Audit_Untouched` — transition refusée (exception avant écriture) : document et piste d'audit intacts.
 - `GetForUpdate_Returns_Null_When_Document_Absent` — chargement d'un identifiant inconnu = `null`.
+- `Concurrent_GetForUpdate_Serializes_Transitions_And_Prevents_Lost_Update` — deux UoW sur le même document : T2 (`GetForUpdateAsync`) reste bloqué tant que T1 n'a pas commit, puis repart de l'état avancé (verrou `FOR UPDATE` : sérialisation, pas de lost-update).
+- `Transition_Preserves_All_Non_State_Fields` — un changement d'état (read-modify-write) n'altère ni les montants `decimal` ni `supplier_siren` / `payload_hash` / `first_seen_utc` (garde-fou anti-corruption silencieuse d'un montant audité, CLAUDE.md n°1/4).
 
 ### DocumentIntakeIntegrationTests (port d'ingestion PIV04 — INV-DOCUMENTS-003/004/008)
 - `Agent_Push_Creates_Detected_Document_With_Genesis_Event` — un push agent crée un document `Detected` + son événement de genèse.
