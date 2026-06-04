@@ -52,6 +52,15 @@ internal sealed class PostgresDocumentUnitOfWork : IDocumentUnitOfWork
             last_update_utc          = excluded.last_update_utc
         """;
 
+    private const string SelectForUpdateSql = """
+        SELECT id, source_reference, document_number, document_type, issue_date, supplier_siren,
+               customer_name, customer_is_company_hint, total_net, total_tax, total_gross, state,
+               payload_hash, pa_document_id, mapping_version, first_seen_utc, last_update_utc
+        FROM documents.documents
+        WHERE id = @Id
+        FOR UPDATE
+        """;
+
     private const string InsertEventSql = """
         INSERT INTO documents.document_events
             (id, document_id, timestamp_utc, event_type, detail, payload_snapshot,
@@ -98,6 +107,17 @@ internal sealed class PostgresDocumentUnitOfWork : IDocumentUnitOfWork
         return true;
     }
 
+    public async Task<Document?> GetForUpdateAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var row = await _txn.Connection.QueryFirstOrDefaultAsync(new CommandDefinition(
+            SelectForUpdateSql,
+            new { Id = id },
+            _txn.Transaction,
+            cancellationToken: cancellationToken));
+
+        return row is null ? null : MapDocument(row);
+    }
+
     public async Task UpsertDocumentAsync(Document document, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -139,6 +159,31 @@ internal sealed class PostgresDocumentUnitOfWork : IDocumentUnitOfWork
     public async ValueTask DisposeAsync()
     {
         await _txn.DisposeAsync();
+    }
+
+    private static Document MapDocument(dynamic row)
+    {
+        // Reconstitution de l'agrégat pour un read-modify-write (transition d'état) : la colonne textuelle
+        // `state` est reparsée vers l'énumération. Un libellé inconnu (rétro-incompatibilité) lève — on
+        // n'avance jamais un état non modélisé en silence (CLAUDE.md n°3).
+        return Document.Reconstitute(
+            (Guid)row.id,
+            (string)row.source_reference,
+            (string)row.document_number,
+            (string)row.document_type,
+            DocumentRowReader.ToDateOnly((object)row.issue_date),
+            (string?)row.supplier_siren,
+            (string?)row.customer_name,
+            (bool)row.customer_is_company_hint,
+            (decimal)row.total_net,
+            (decimal)row.total_tax,
+            (decimal)row.total_gross,
+            Enum.Parse<DocumentState>((string)row.state),
+            (string)row.payload_hash,
+            (string?)row.pa_document_id,
+            (string?)row.mapping_version,
+            DocumentRowReader.ToDateTimeOffset((object)row.first_seen_utc),
+            DocumentRowReader.ToDateTimeOffset((object)row.last_update_utc));
     }
 
     private static object ToDocumentParameters(Document document)

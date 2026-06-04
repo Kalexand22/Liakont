@@ -20,6 +20,16 @@ d'émission/rejet de la piste d'audit + le module Payments (TRK04), le coffre WO
 alimentée par TRK05) et les tax reports DGFiP (`tax_reports` alimentée par TRK06). Ces deux dernières
 tables sont **créées** ici (schéma) mais **alimentées** par leurs items.
 
+**Périmètre de l'item TRK02** : la **machine à états** explicite du document (`Domain/StateMachine/DocumentStateMachine`
++ les transitions de l'agrégat `Document`), ses deux états **terminaux** `Superseded` (remplacement après
+rejet — référence du remplaçant journalisée ; la source est le seul créateur de numéros, F06 §4) et
+`ManuallyHandled` (traitement manuel hors passerelle — motif obligatoire), et le **read-modify-write
+transactionnel** (`IDocumentUnitOfWork.GetForUpdateAsync` en `SELECT … FOR UPDATE`, puis upsert de l'état
++ ajout de l'événement d'audit dans la **même transaction**). Chaque transition **produit** son
+`DocumentEvent` (on ne transite jamais sans fait d'audit). **Aucune migration** : `state` / `event_type`
+restent des colonnes `text` (le nouvel état `ManuallyHandled` et les nouveaux types d'événement sont des
+libellés, pas un changement de schéma).
+
 ## Boundaries
 
 - **Schéma owné** : `documents` (PostgreSQL, base **par tenant**).
@@ -47,10 +57,13 @@ Aucun (item TRK01). Le document est créé en réaction à l'ingestion ; il ne p
 
 ## Consumed Events
 
-Aucun (item TRK01). Le déclencheur DURABLE du pipeline aval est l'événement d'intégration
-`ingestion.document.received` publié par l'ingestion (PIV04) **consommé par PIP01** ; la consommation
-idempotente de cet événement par le module Documents (filet de rattrapage du port synchrone) est câblée
-avec **TRK02** (contrat de cohérence d'`IDocumentIntake`). En TRK01, seul le port synchrone est branché.
+Aucun. Le déclencheur DURABLE du pipeline aval est l'événement d'intégration
+`ingestion.document.received` publié par l'ingestion (PIV04) **consommé par PIP01** (segment `pipeline`).
+Le module Documents reste idempotent sur l'identifiant côté écriture (`CreateDetectedAsync`,
+INV-DOCUMENTS-003) — filet de rattrapage du port synchrone — sans s'abonner lui-même à l'événement.
+La machine à états (TRK02) n'introduit **aucun** nouvel événement publié ni consommé : elle expose des
+transitions appelées par les consommateurs (pipeline pour les transitions système, API/console pour les
+actions opérateur), chacune écrivant son `DocumentEvent` d'audit.
 
 ## Dependencies
 
