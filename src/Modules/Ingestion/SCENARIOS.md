@@ -52,7 +52,7 @@
 - Lot mixte (nouveau + doublon + malformé) → résultats individuels respectifs, le malformé n'affecte pas les autres — INV-INGESTION-013
 - Document malformé (référence/numéro manquant) → `Rejected` avec motif, aucune écriture — INV-INGESTION-013
 - Isolation tenant : un payload reçu pour le tenant A n'est pas un doublon pour le tenant B (chaque tenant a son propre anti-doublon) — INV-INGESTION-012
-- Régimes de TVA source du push persistés par tenant, occurrences cumulées au re-push, lisibles via `ISourceTaxRegimeQueries` — INV-INGESTION-015
+- Régimes de TVA source du push persistés par tenant ; occurrences = dernière observation (remplacée, non cumulée → idempotent au retry), lisibles via `ISourceTaxRegimeQueries` — INV-INGESTION-015
 
 ### IngestedPdfStoreTests (PIV04)
 - PDF rattaché écrit sous `{tenant}/linked/{sha256(sourceReference)}.pdf` ; re-push écrase — INV-INGESTION-014

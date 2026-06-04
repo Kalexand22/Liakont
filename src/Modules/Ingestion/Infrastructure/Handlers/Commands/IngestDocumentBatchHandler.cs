@@ -162,6 +162,9 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
         {
             var payloadKnown = await uow.PayloadHashExistsAsync(request.TenantId, payloadHash, cancellationToken);
             var existingHash = await uow.GetLatestHashForSourceReferenceAsync(request.TenantId, sourceReference, cancellationToken);
+
+            // Décision lue AVANT insertion : correcte pour un drainage SÉRIE de l'agent (F12 §3.1).
+            // Limite assumée sous concurrence sur une référence inédite : voir INV-INGESTION-016.
             var decision = DocumentIngestionDecision.Evaluate(payloadKnown, existingHash, payloadHash);
 
             if (!decision.IsAccepted)
