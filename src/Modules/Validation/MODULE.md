@@ -41,6 +41,30 @@ Toute la logique de validation vit sur la **plateforme**, jamais dans l'agent (C
 - **Persistance différée :** la persistance des anomalies avec le document (F04, console WEB03) relève du
   module **Documents** (lot TRK), absent à ce stade. VAL01 ne porte aucune persistance.
 
+## Decisions VAL03
+
+- **Règles de cohérence du document (F04 §3.3)** dans `Domain/Rules/` : `LineTotalsRule`
+  (Σ lignes HT/TVA = totaux, BLOQUANT), `ArithmeticRule` (BR-CO-15 : TTC = HT + TVA, BLOQUANT, fatale
+  EN 16931), `SourceTotalsRule` (total passerelle ≠ total source = ALERTE, décision F04 #3/D5),
+  `StructureRule` (≥ 1 ligne, date plausible, devise ISO 4217), `UniquenessRule` (numéro présent et
+  non déjà émis pour le tenant).
+- **Réconciliation SANS tolérance, en `decimal`, après arrondi half-up 2 décimales** via
+  `PivotRounding.RoundAmount` (CLAUDE.md n°1 ; EN 16931 : aucune tolérance sur l'arithmétique). Un
+  écart d'un centime BLOQUE — jamais de rattrapage silencieux.
+- **Niveaux de sévérité repris de la spec, jamais durcis ni affaiblis** (CLAUDE.md n°2, n°3) :
+  l'écart passerelle/source est un Warning PARCE QUE la spec le dit (F04 §3.3, décision #3), pas par
+  affaiblissement ; date future = BLOQUANT, date < 2000 = ALERTE (décision F04 #4).
+- **Devise validée contre un référentiel ISO 4217** (`Iso4217Currencies`) — donnée de référence
+  (genericode v17.0, F04 §2.4), pas une règle fiscale inventée. Comparaison insensible à la casse.
+- **Horloge injectée (`TimeProvider`)** dans `StructureRule` pour une détection « date dans le
+  futur » déterministe et testable.
+- **Anti-doublon via le port `IIssuedDocumentLookup`** (Contracts) : Validation DÉCLARE le besoin,
+  l'implémentation réelle est livrée par le module Documents/Tracking (TRK03). Tant qu'il n'existe
+  pas, un faux d'essai suffit (acceptance VAL03). La frontière Contracts-only est préservée.
+- **Pas encore de câblage DI** : comme VAL01, les règles sont des classes `Domain` testées en
+  instanciation directe. Leur enregistrement dans le conteneur (pour alimenter `ValidationPipeline`)
+  se fera au moment où le pipeline d'envoi est composé (Host / lot PIP) — prématuré ici.
+
 ## Published Events
 
 Aucun. (Le résultat de validation est consommé par le pipeline d'envoi — lot PIP — via les `Contracts`.)
@@ -51,5 +75,8 @@ Aucun.
 
 ## Dependencies
 
-- `Liakont.Agent.Contracts` (modèle pivot du document en entrée — `PivotDocumentDto`).
-- Aucune dépendance vers un autre module métier (frontière Contracts-only respectée).
+- `Liakont.Agent.Contracts` (modèle pivot du document en entrée — `PivotDocumentDto`, `PivotRounding`).
+- Aucune dépendance vers un autre module métier (frontière Contracts-only respectée). Le besoin
+  d'unicité de numéro est exprimé par le port `IIssuedDocumentLookup` (dans **Validation.Contracts**),
+  implémenté à l'exécution par le module Documents/Tracking (TRK03) — inversion de dépendance, donc
+  aucune référence sortante de Validation vers un autre module.
