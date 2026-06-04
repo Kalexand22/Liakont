@@ -13,6 +13,10 @@ internal static class TestDoc
     public static PivotLineDto Line(decimal net, decimal tax, decimal? rate = 20m) =>
         new("Lot", net, taxes: new[] { new PivotLineTaxDto(tax, rate) });
 
+    /// <summary>Crée une charge (par défaut) ou remise de niveau document (montant HT).</summary>
+    public static PivotDocumentChargeDto Charge(decimal amount, bool isCharge = true) =>
+        new(isCharge, amount);
+
     /// <summary>Crée un contexte de validation, chaque facette étant surchargeable.</summary>
     public static DocumentValidationContext Context(
         string number = "2019",
@@ -23,6 +27,7 @@ internal static class TestDoc
         decimal totalGross = 1200m,
         decimal? sourceTotalGross = null,
         IReadOnlyList<PivotLineDto>? lines = null,
+        IReadOnlyList<PivotDocumentChargeDto>? charges = null,
         Guid? companyId = null)
     {
         var document = new PivotDocumentDto(
@@ -34,6 +39,7 @@ internal static class TestDoc
             totals: new PivotTotalsDto(totalNet, totalTax, totalGross, sourceTotalGross),
             operationCategory: OperationCategory.LivraisonBiens,
             currencyCode: currencyCode,
+            documentCharges: charges,
             lines: lines ?? new[] { Line(1000m, 200m) });
         return new DocumentValidationContext(document, companyId ?? Guid.NewGuid());
     }

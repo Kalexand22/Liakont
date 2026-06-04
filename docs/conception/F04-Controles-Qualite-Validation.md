@@ -65,6 +65,8 @@ Classés en **🛑 Bloquant** (pas d'envoi) / **⚠️ Alerte** (envoi possible,
 
 > **Précision (2026-06-04 — VAL03)** : le seuil « date invraisemblablement ancienne » (⚠️ alerte de la ligne ci-dessus) est fixé à **antérieure au 1er janvier 2000**, conformément au backlog `orchestration/items/VAL.yaml` (VAL03, « pas avant 2000 »). C'est une borne d'invraisemblance **technique** (date manifestement erronée ou non initialisée), distincte du cas « rattrapage légitime » de la décision #4 (§6) — qui reste une simple alerte sans seuil chiffré. Aucune incidence fiscale (seuil non chiffré au sens TVA/CA). La détection « date dans le futur » (🛑) tolère un jour de marge pour absorber l'écart de fuseau horaire (dates civiles locales d'un ERP français vs date UTC) — voir `StructureRule`.
 
+> **Précision (2026-06-04 — VAL03, réconciliation des totaux)** : la réconciliation HT suit **BR-CO-13** — Total HT (BT-109) = Σ lignes HT (BT-131) − Σ remises document (BG-20) + Σ charges document (BG-21) ; les remises/charges de niveau document (`PivotDocumentChargeDto`, HT) sont donc intégrées. La réconciliation **TVA** (Σ TVA lignes = Total TVA) n'est exécutée **que lorsque le document ne porte aucune charge/remise de niveau document** : leur TVA n'est pas encore résolue en VAL03 (mapping des codes régime source = TVA04), donc l'exécuter produirait un faux positif bloquant sur un document conforme. Le contrôle TVA complet (charges incluses) reprendra avec le mapping (TVA04).
+
 ### 3.4 TVA / mapping (lien avec F3)
 | Contrôle | Niveau | Détail |
 |---|---|---|

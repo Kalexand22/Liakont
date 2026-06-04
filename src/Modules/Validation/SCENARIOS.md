@@ -33,6 +33,10 @@
 - Écart d'arrondi d'un centime → BLOQUANT (aucune tolérance, EN 16931) — INV-VALIDATION-008
 - Arrondi half-up appliqué à la somme des lignes (1160,005 → 1160,01) → cohérent — INV-VALIDATION-008
 - Document sans ligne → ignoré par cette règle (blocage porté par StructureRule) — INV-VALIDATION-008
+- Charge document incluse dans la réconciliation HT (BR-CO-13) → cohérent — INV-VALIDATION-008
+- Remise document incluse dans la réconciliation HT (BR-CO-13) → cohérent — INV-VALIDATION-008
+- Écart HT avec charge document → BLOQUANT (réconciliation stricte) — INV-VALIDATION-008
+- Réconciliation TVA court-circuitée si charge/remise document présente (TVA non résolue avant TVA04) → pas de faux positif — INV-VALIDATION-008
 
 ### ArithmeticRuleTests (VAL03)
 - TTC = HT + TVA → aucune anomalie — INV-VALIDATION-008
