@@ -181,6 +181,24 @@ public sealed class AntiDuplicateIntegrationTests
             .Should().Be(OriginalInvoiceStatus.Unknown, "facture d'origine inconnue = avoir orphelin (fail-safe).");
     }
 
+    [Fact]
+    public async Task IssuedInvoiceLookup_Discriminates_By_Issue_Date_When_Number_Collides()
+    {
+        var harness = new DocumentsHarness(_fixture);
+        var lookup = new IssuedInvoiceLookup(harness.ConnectionFactory);
+        var number = Unique("FAC");
+
+        // Un Issued porte ce numéro à la date du seed (2026-05-14). Le document_number n'étant pas unique en
+        // base (remplacement F06 §4), une référence d'avoir au MÊME numéro mais à une AUTRE date ne doit PAS
+        // être rapprochée : sinon avoir orphelin transmis à tort (F07-F08 §B.2.5, fail-safe CLAUDE.md n°3).
+        await SeedAsync(harness, DocumentTestData.Reconstituted(DocumentState.Issued, documentNumber: number, payloadHash: Unique("h")));
+
+        (await lookup.FindOriginalStatusAsync(Guid.NewGuid(), Ref(number)))
+            .Should().Be(OriginalInvoiceStatus.KnownIssued, "même numéro ET même date : c'est bien cette facture.");
+        (await lookup.FindOriginalStatusAsync(Guid.NewGuid(), Ref(number, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc))))
+            .Should().Be(OriginalInvoiceStatus.Unknown, "numéro homonyme mais date différente : pas la même facture.");
+    }
+
     // ── F06 §5 : reprise sur timeout d'envoi (GetPotentiallySentDocuments) ───────────────────────────────
 
     [Fact]
@@ -224,7 +242,8 @@ public sealed class AntiDuplicateIntegrationTests
         await uow.CommitAsync();
     }
 
-    private static PivotDocumentRefDto Ref(string number) => new(number, new DateTime(2026, 5, 14, 0, 0, 0, DateTimeKind.Utc));
+    private static PivotDocumentRefDto Ref(string number, DateTime? issueDate = null) =>
+        new(number, issueDate ?? new DateTime(2026, 5, 14, 0, 0, 0, DateTimeKind.Utc));
 
     private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}";
 }

@@ -90,6 +90,7 @@
 - `Without_A_Supplier_Siren_The_Functional_Key_Does_Not_Match_A_Prior` — sans SIREN, pas de rapprochement par clé fonctionnelle.
 - `IssuedDocumentLookup_Reports_An_Issued_Number_As_Already_Issued` / `..._Does_Not_Report_A_Non_Issued_Or_Unknown_Number` — VAL03 : émis vs non-émis/inconnu.
 - `IssuedInvoiceLookup_Maps_Original_Invoice_State` — VAL04 : KnownIssued / KnownNotIssued / Unknown (avoir orphelin, fail-safe).
+- `IssuedInvoiceLookup_Discriminates_By_Issue_Date_When_Number_Collides` — numéro homonyme à une autre date = pas la même facture (numéro non unique, F07-F08 §B.2.5 / fail-safe).
 - `GetPotentiallySentDocuments_Returns_Only_Sending_Documents` — reprise sur timeout : seuls les documents en cours d'envoi (F06 §5).
 
 ### SourceAlterationConsumerIntegrationTests (altération source après émission — INV-DOCUMENTS-012)
