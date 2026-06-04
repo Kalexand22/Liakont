@@ -17,8 +17,8 @@ internal static class AgentKey
     /// <summary>Génère une nouvelle clé d'agent (prefix aléatoire + secret 256 bits).</summary>
     public static Material Generate()
     {
-        var prefix = PrefixMarker + ToUrlSafeBase64(RandomNumberGenerator.GetBytes(9));
-        var secret = ToUrlSafeBase64(RandomNumberGenerator.GetBytes(32));
+        var prefix = PrefixMarker + ToCompactToken(RandomNumberGenerator.GetBytes(9));
+        var secret = ToCompactToken(RandomNumberGenerator.GetBytes(32));
         var fullKey = $"{prefix}.{secret}";
         return new Material(prefix, fullKey, ComputeHash(fullKey));
     }
@@ -63,7 +63,13 @@ internal static class AgentKey
         return true;
     }
 
-    private static string ToUrlSafeBase64(byte[] bytes)
+    // Produit un JETON OPAQUE compact (alphanumérique) à partir d'octets aléatoires : base64 dont on
+    // RETIRE les caractères non alphanumériques (+, /, =). Ce n'est PAS un encodage base64url
+    // réversible — le jeton ne sert qu'à porter de l'entropie (préfixe identifiant, secret), jamais à
+    // retrouver les octets. Le retrait raccourcit le jeton ; l'entropie résiduelle reste largement
+    // suffisante (secret 32 octets → ~40 caractères [A-Za-z0-9]), et l'unicité du préfixe est garantie
+    // par l'index unique (sinon ConflictException).
+    private static string ToCompactToken(byte[] bytes)
     {
         return Convert.ToBase64String(bytes)
             .Replace("+", string.Empty, StringComparison.Ordinal)

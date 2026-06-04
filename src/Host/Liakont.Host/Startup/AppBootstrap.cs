@@ -108,14 +108,18 @@ public static class AppBootstrap
         builder.Services.AddTenantSettingsModule();
         builder.Services.AddIngestionModule();
 
-        // Rate limiting de l'API agent (brute force par IP, F12 §3.3) — protège l'authentification
-        // par clé API. Fenêtre fixe par adresse IP ; au-delà du quota → 429.
+        // Rate limiting de l'API agent (F12 §3.3) — défense en profondeur, PROTECTION ANTI-FLOOD : le
+        // vrai rempart contre le brute force est la clé cryptographique (secret 256 bits) + la
+        // révocation ; un secret ne se devine pas par volume de requêtes. La fenêtre fixe par IP est
+        // donc dimensionnée GÉNÉREUSEMENT pour ne jamais rejeter du trafic légitime (heartbeats,
+        // configuration), même agrégé derrière un proxy — un 429 sur un heartbeat légitime
+        // déclencherait un FAUX POSITIF du dead-man's switch (F12 §5).
         // NOTE déploiement : derrière le reverse proxy de l'appliance (F12 §6.2/6.6), RemoteIpAddress
         // est l'IP du proxy tant que ForwardedHeaders n'est pas configuré → la fenêtre dégrade en
-        // throttle GLOBAL (repli sûr) plutôt que par-IP. Activer ForwardedHeaders relève du
-        // déploiement (OPS) et EXIGE une liste de proxys de confiance : sans elle, X-Forwarded-For
-        // serait usurpable et la limite contournable. Ce rate limiting est une défense en profondeur ;
-        // le contrôle d'accès primaire reste la clé API cryptographique + la révocation.
+        // throttle GLOBAL plutôt que par-IP. Activer ForwardedHeaders relève d'OPS et EXIGE une liste
+        // de proxys de confiance (sinon X-Forwarded-For est usurpable et la limite contournable).
+        // NOTE PIV04 : l'ingestion de documents par lots (gros débit) ajoutera SA PROPRE policy
+        // dimensionnée pour le débit, plutôt que de partager ce quota anti-flood.
         builder.Services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -124,7 +128,7 @@ public static class AppBootstrap
                     partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
                     factory: _ => new FixedWindowRateLimiterOptions
                     {
-                        PermitLimit = 100,
+                        PermitLimit = 600,
                         Window = TimeSpan.FromMinutes(1),
                         QueueLimit = 0,
                     }));
