@@ -17,6 +17,22 @@
 - `Maps_Null_Customer_To_Null_Name_And_False_Hint` — B2C sans tiers : destinataire `null` (INV-005).
 - `Maps_Null_Supplier_Siren` — SIREN fournisseur absent = `null` (INV-005).
 
+### DocumentStateMachineTests (table des transitions — INV-DOCUMENTS-009)
+- `Allows_Exactly_The_Specified_Transitions_And_No_Other` — balaie toutes les paires (from, to) : la table autorise EXACTEMENT les 11 transitions de la spec (F06 §3), ni plus, ni moins.
+- `States_Without_Successor_Have_No_Outgoing_Transition` — `Issued` / `Superseded` / `ManuallyHandled` n'ont aucune sortie.
+- `EnsureCanTransition_Throws_On_An_Illegal_Transition` / `..._Does_Not_Throw_On_A_Legal_Transition` — contrôle de légalité (exception ciblée `from`/`to`).
+
+### DocumentTransitionTests (machine à états de l'agrégat — INV-DOCUMENTS-009/010)
+- `Nominal_Cycle_Detected_To_Issued_Writes_One_Event_Per_Transition` — Detected→ReadyToSend→Sending→Issued ; chaque transition produit son événement typé et avance `LastUpdateUtc`.
+- `Detected_Can_Be_Blocked_With_Reason_Then_Made_ReadyToSend` — blocage avec motif puis remise en file.
+- `Illegal_Transition_Is_Rejected_And_Leaves_State_Unchanged` — transitions interdites rejetées, état inchangé (contrôle avant mutation).
+- `TechnicalError_Can_Be_Retried_To_ReadyToSend` — reprise re-tentable après erreur technique.
+- `Blocked_To_ManuallyHandled_Records_Reason_And_Operator_Identity` / `RejectedByPa_Can_Also_Be_Manually_Handled` — traitement manuel (terminal) avec motif + opérateur.
+- `ManuallyHandled_Requires_A_Reason` / `..._An_Operator_Identity` — motif et identité opérateur obligatoires.
+- `RejectedByPa_To_Superseded_Records_Replacement_Reference_And_Operator` — remplacement après rejet (terminal), lien remplaçant + opérateur journalisés.
+- `Supersede_Requires_A_Replacement_Reference` — référence du remplaçant obligatoire.
+- `States_Without_Successor_Reject_Every_Transition` — toute tentative de sortie d'un état sans suite (Issued/terminaux) échoue, même avec des arguments valides.
+
 ## Integration (`Tests.Integration`, Testcontainers PostgreSQL)
 
 ### DocumentPersistenceIntegrationTests (repository + lectures — INV-DOCUMENTS-001/003/006)
@@ -32,6 +48,14 @@
 - `Update_Of_An_Event_Is_Rejected` — UPDATE rejeté par trigger (message « append-only »), entrée intacte.
 - `Delete_Of_An_Event_Is_Rejected` — DELETE rejeté par trigger, entrée intacte.
 - `Truncate_Of_The_Audit_Table_Is_Rejected` — TRUNCATE de masse rejeté par trigger d'instruction.
+
+### DocumentStateTransitionIntegrationTests (transitions persistées atomiquement — INV-DOCUMENTS-009/010)
+- `Transition_Persists_New_State_And_Audit_Event_Atomically` — `GetForUpdateAsync` (verrou) → transition → upsert état + append événement dans la même transaction ; relu : nouvel état + événement typé.
+- `Full_Nominal_Cycle_Is_Persisted_With_One_Event_Per_Transition` — Detected→…→Issued sur plusieurs transactions ; 4 événements dans l'ordre chronologique.
+- `Operator_Supersede_Persists_Replacement_Link_And_Operator_Identity` — remplacement après rejet : lien remplaçant + identité opérateur relus en base.
+- `Transition_Is_Not_Visible_Until_Commit` — read-modify-write SANS commit (dispose → rollback) : ni l'état ni l'événement ne subsistent (atomicité tout-ou-rien).
+- `Illegal_Transition_Leaves_Document_And_Audit_Untouched` — transition refusée (exception avant écriture) : document et piste d'audit intacts.
+- `GetForUpdate_Returns_Null_When_Document_Absent` — chargement d'un identifiant inconnu = `null`.
 
 ### DocumentIntakeIntegrationTests (port d'ingestion PIV04 — INV-DOCUMENTS-003/004/008)
 - `Agent_Push_Creates_Detected_Document_With_Genesis_Event` — un push agent crée un document `Detected` + son événement de genèse.

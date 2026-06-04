@@ -2,9 +2,10 @@ namespace Liakont.Modules.Documents.Domain.Entities;
 
 /// <summary>
 /// États d'un document dans la passerelle (F06 §3). Le document est créé en <see cref="Detected"/>
-/// par l'ingestion (PIV04, item TRK01) ; la MACHINE À ÉTATS (transitions autorisées, supersede,
-/// traitement manuel) et l'état terminal <c>ManuallyHandled</c> arrivent avec TRK02 — ils ne sont pas
-/// définis ici pour rester dans le périmètre « schéma + Document/DocumentEvent » de TRK01.
+/// par l'ingestion (PIV04, item TRK01) ; les transitions autorisées entre ces états sont portées par la
+/// MACHINE À ÉTATS explicite (<c>DocumentStateMachine</c>, item TRK02). <see cref="Superseded"/> et
+/// <see cref="ManuallyHandled"/> sont les deux états TERMINAUX : un document n'en sort jamais (il reste
+/// visible et auditable, mais ne pollue plus les compteurs d'attente).
 /// </summary>
 /// <remarks>
 /// La valeur est persistée en TEXTE (nom de l'énumération) dans la colonne <c>state</c> : un état est
@@ -34,6 +35,12 @@ public enum DocumentState
     /// <summary>Erreur technique de transmission, re-tentable au prochain traitement.</summary>
     TechnicalError,
 
-    /// <summary>Remplacé par un nouveau document (état terminal — mécanique de remplacement TRK02).</summary>
+    /// <summary>Remplacé par un nouveau document (état TERMINAL — mécanique de remplacement après rejet, TRK02).</summary>
     Superseded,
+
+    /// <summary>
+    /// Traité manuellement hors passerelle par un opérateur (état TERMINAL, motif obligatoire et journalisé,
+    /// TRK02) — cas d'un avoir orphelin ou d'un document non transmissible.
+    /// </summary>
+    ManuallyHandled,
 }

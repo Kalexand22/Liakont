@@ -1,6 +1,7 @@
 namespace Liakont.Modules.Documents.Domain.Entities;
 
 using System;
+using Liakont.Modules.Documents.Domain.StateMachine;
 
 /// <summary>
 /// Document métier de la passerelle (F06 §3, item TRK01). Agrégat racine du module <c>Documents</c> :
@@ -8,7 +9,10 @@ using System;
 /// CLAUDE.md n°1) et l'empreinte du payload pivot. Il vit dans la base DU TENANT (database-per-tenant,
 /// blueprint §7) : aucune colonne de tenant n'est nécessaire, l'isolation est ASSURÉE PAR LA CONNEXION
 /// (la connexion EST le tenant — F06 amendement stockage 2026-06-03). Le document est créé en état
-/// <see cref="DocumentState.Detected"/> par l'ingestion (PIV04) ; la machine à états arrive avec TRK02.
+/// <see cref="DocumentState.Detected"/> par l'ingestion (PIV04) ; son cycle de vie est ensuite régi par la
+/// machine à états explicite (<see cref="DocumentStateMachine"/>, item TRK02). Chaque transition PRODUIT
+/// automatiquement le <see cref="DocumentEvent"/> de la piste d'audit qui la matérialise — changement
+/// d'état et fait d'audit forment un tout, persisté dans la même transaction (atomicité, F06 §3).
 /// </summary>
 /// <remarks>
 /// Les montants sont ceux CALCULÉS PAR LA SOURCE (portés par le pivot) — le module Documents ne calcule
@@ -173,6 +177,96 @@ public sealed class Document
         };
     }
 
+    // ── Machine à états (item TRK02, F06 §3) ──────────────────────────────────────────────────────────
+    // Chaque transition VALIDE sa légalité via DocumentStateMachine (refus = InvalidDocumentTransitionException
+    // AVANT toute mutation), change l'état, avance LastUpdateUtc, et RETOURNE le DocumentEvent qui matérialise
+    // la transition. Le retour n'est pas optionnel : on ne peut pas transiter sans obtenir son fait d'audit, que
+    // l'appelant persiste dans la MÊME transaction que l'état (atomicité — UoW du module).
+
+    /// <summary>Detected → Blocked : une validation pré-envoi a refusé le document. <paramref name="reason"/> = motif de blocage (optionnel, journalisé).</summary>
+    public DocumentEvent MarkBlocked(DateTimeOffset occurredAtUtc, string? reason = null)
+        => ApplyTransition(DocumentState.Blocked, DocumentEventType.DocumentBlocked, occurredAtUtc, reason, operatorIdentity: null);
+
+    /// <summary>→ ReadyToSend : prêt à être transmis (depuis Detected, depuis Blocked après correction source, ou reprise depuis TechnicalError).</summary>
+    public DocumentEvent MarkReadyToSend(DateTimeOffset occurredAtUtc, string? detail = null)
+        => ApplyTransition(DocumentState.ReadyToSend, DocumentEventType.DocumentReadyToSend, occurredAtUtc, detail, operatorIdentity: null);
+
+    /// <summary>ReadyToSend → Sending : la transmission à la Plateforme Agréée est engagée.</summary>
+    public DocumentEvent BeginSending(DateTimeOffset occurredAtUtc, string? detail = null)
+        => ApplyTransition(DocumentState.Sending, DocumentEventType.DocumentSending, occurredAtUtc, detail, operatorIdentity: null);
+
+    /// <summary>Sending → Issued : émission acceptée par la Plateforme Agréée (état d'émission réussie, sans suite).</summary>
+    public DocumentEvent MarkIssued(DateTimeOffset occurredAtUtc, string? detail = null)
+        => ApplyTransition(DocumentState.Issued, DocumentEventType.DocumentIssued, occurredAtUtc, detail, operatorIdentity: null);
+
+    /// <summary>Sending → RejectedByPa : la Plateforme Agréée a rejeté le document. <paramref name="reason"/> = motif de rejet (optionnel, journalisé).</summary>
+    public DocumentEvent MarkRejectedByPa(DateTimeOffset occurredAtUtc, string? reason = null)
+        => ApplyTransition(DocumentState.RejectedByPa, DocumentEventType.DocumentRejectedByPa, occurredAtUtc, reason, operatorIdentity: null);
+
+    /// <summary>Sending → TechnicalError : erreur technique de transmission, re-tentable (TechnicalError → ReadyToSend au prochain traitement).</summary>
+    public DocumentEvent MarkTechnicalError(DateTimeOffset occurredAtUtc, string? detail = null)
+        => ApplyTransition(DocumentState.TechnicalError, DocumentEventType.DocumentTechnicalError, occurredAtUtc, detail, operatorIdentity: null);
+
+    /// <summary>
+    /// → ManuallyHandled (état TERMINAL) : action OPÉRATEUR « traité manuellement hors passerelle » (depuis
+    /// Blocked ou RejectedByPa). Le <paramref name="reason"/> est OBLIGATOIRE (motif journalisé, F06 §3) et
+    /// l'identité de l'opérateur tracée. Cas : avoir orphelin, document non transmissible.
+    /// </summary>
+    public DocumentEvent MarkManuallyHandled(string reason, string operatorIdentity, DateTimeOffset occurredAtUtc)
+    {
+        var motif = RequireText(
+            reason,
+            nameof(reason),
+            "Le motif du traitement manuel est obligatoire et journalisé (F06 §3 / TRK02).");
+        var op = RequireText(
+            operatorIdentity,
+            nameof(operatorIdentity),
+            "L'identité de l'opérateur est obligatoire pour une action de traitement manuel (piste d'audit, F06 §3).");
+
+        return ApplyTransition(
+            DocumentState.ManuallyHandled,
+            DocumentEventType.DocumentManuallyHandled,
+            occurredAtUtc,
+            $"Traité manuellement hors passerelle. Motif : {motif}",
+            op);
+    }
+
+    /// <summary>
+    /// RejectedByPa → Superseded (état TERMINAL) : action OPÉRATEUR liant le document rejeté à son remplaçant.
+    /// La <paramref name="replacementReference"/> (numéro/référence du nouveau document créé par le LOGICIEL
+    /// SOURCE — seul créateur de numéros, F06 §4) est OBLIGATOIRE et inscrite dans la piste d'audit ; l'identité
+    /// de l'opérateur est tracée. La passerelle n'invente jamais de numéro de remplacement (amendement F05 du
+    /// 2026-06-03 : remplace le « suffixe -R1 »).
+    /// </summary>
+    public DocumentEvent Supersede(string replacementReference, string operatorIdentity, DateTimeOffset occurredAtUtc)
+    {
+        var remplacant = RequireText(
+            replacementReference,
+            nameof(replacementReference),
+            "La référence du document de remplacement est obligatoire (lien vers le remplaçant, F06 §4 / TRK02).");
+        var op = RequireText(
+            operatorIdentity,
+            nameof(operatorIdentity),
+            "L'identité de l'opérateur est obligatoire pour lier un document à son remplaçant (piste d'audit, F06 §3).");
+
+        return ApplyTransition(
+            DocumentState.Superseded,
+            DocumentEventType.DocumentSuperseded,
+            occurredAtUtc,
+            $"Remplacé par le document « {remplacant} » (la source est le seul créateur de numéros, F06 §4).",
+            op);
+    }
+
+    private static string RequireText(string value, string paramName, string message)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException(message, paramName);
+        }
+
+        return value.Trim();
+    }
+
     private static string? NullIfBlank(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
@@ -194,5 +288,30 @@ public sealed class Document
                 $"Le montant '{paramName}' ({value}) dépasse 2 décimales : la colonne numeric(18,2) le tronquerait silencieusement, altérant un montant audité (CLAUDE.md n°4).",
                 paramName);
         }
+    }
+
+    /// <summary>
+    /// Cœur de la machine à états : contrôle la légalité de la transition <c>State → target</c> (refus AVANT
+    /// toute mutation), applique le nouvel état, avance l'horodatage de mise à jour, et retourne le
+    /// <see cref="DocumentEvent"/> d'audit (provenance <c>from → to</c> systématiquement tracée dans le détail).
+    /// </summary>
+    private DocumentEvent ApplyTransition(
+        DocumentState target,
+        DocumentEventType eventType,
+        DateTimeOffset occurredAtUtc,
+        string? detail,
+        string? operatorIdentity)
+    {
+        var from = State;
+        DocumentStateMachine.EnsureCanTransition(from, target);
+
+        State = target;
+        LastUpdateUtc = occurredAtUtc;
+
+        var auditDetail = string.IsNullOrWhiteSpace(detail)
+            ? $"Transition {from} → {target}."
+            : $"Transition {from} → {target}. {detail.Trim()}";
+
+        return DocumentEvent.Transition(Id, eventType, occurredAtUtc, auditDetail, operatorIdentity);
     }
 }

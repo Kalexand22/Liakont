@@ -23,6 +23,15 @@ public interface IDocumentUnitOfWork : System.IAsyncDisposable
     Task<bool> CreateDetectedAsync(Document document, DocumentEvent genesisEvent, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Charge l'agrégat <see cref="Document"/> DANS la transaction courante, AVEC un verrou de ligne
+    /// (<c>SELECT … FOR UPDATE</c>), pour un read-modify-write sûr : appliquer une transition d'état (TRK02)
+    /// puis persister l'état et son événement d'audit sans qu'une transition concurrente ne s'intercale
+    /// (transitions d'état sérialisées par tenant). Retourne <c>null</c> si le document n'existe pas dans
+    /// ce tenant. Le verrou est tenu jusqu'au <see cref="CommitAsync"/> (ou au rollback de l'unité de travail).
+    /// </summary>
+    Task<Document?> GetForUpdateAsync(System.Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Insère ou met à jour un document par identifiant (primitive de repository utilisée par le
     /// pipeline aval : transitions d'état, identifiants PA, version de mapping). N'écrit PAS d'événement
     /// d'audit — c'est <see cref="AppendEventAsync"/> qui le fait, dans la même transaction.

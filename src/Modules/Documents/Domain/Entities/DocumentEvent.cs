@@ -63,6 +63,34 @@ public sealed class DocumentEvent
         };
     }
 
+    /// <summary>
+    /// Crée l'événement d'audit d'une TRANSITION D'ÉTAT (item TRK02), produit AUTOMATIQUEMENT par chaque
+    /// transition de l'agrégat <c>Document</c> : une transition ne peut pas survenir sans son fait d'audit.
+    /// Sans snapshot (les snapshots d'émission/rejet sont alimentés par TRK04). <paramref name="operatorIdentity"/>
+    /// porte l'identité de l'opérateur pour une action opérateur (traitement manuel, remplacement), <c>null</c>
+    /// pour une transition système (pipeline).
+    /// </summary>
+    public static DocumentEvent Transition(
+        Guid documentId,
+        DocumentEventType eventType,
+        DateTimeOffset occurredAtUtc,
+        string detail,
+        string? operatorIdentity)
+    {
+        return new DocumentEvent
+        {
+            Id = Guid.NewGuid(),
+            DocumentId = documentId,
+            TimestampUtc = occurredAtUtc,
+            EventType = eventType,
+            Detail = detail,
+            PayloadSnapshot = null,
+            PaResponseSnapshot = null,
+            MappingTrace = null,
+            OperatorIdentity = operatorIdentity,
+        };
+    }
+
     /// <summary>Reconstitue une entrée d'audit depuis la persistance (lecture).</summary>
     public static DocumentEvent Reconstitute(
         Guid id,
