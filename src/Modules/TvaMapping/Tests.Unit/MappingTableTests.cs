@@ -234,4 +234,63 @@ public sealed class MappingTableTests
 
         act.Should().Throw<InvalidMappingTableException>();
     }
+
+    [Fact]
+    public void Create_E_Computed_Without_Vatex_Throws()
+    {
+        // F03 §2.2 : E exige un VATEX quel que soit le mode de taux (y compris calculé).
+        var rule = new MappingRule
+        {
+            SourceRegimeCode = "REGIME-X",
+            Part = MappingPart.Adjudication,
+            Category = VatCategory.E,
+            Vatex = null,
+            RateMode = RateMode.ComputedFromSource,
+            RateValue = null,
+        };
+
+        var act = () => Create(rule);
+        act.Should().Throw<InvalidMappingTableException>()
+            .Which.Violations.Should().Contain(v => v.Contains("VATEX"));
+    }
+
+    [Fact]
+    public void Create_E_With_Fixed_NonZero_Rate_Throws()
+    {
+        // Une exonération est à 0 % : un taux fixe non nul sur E est incohérent (VATEX fourni pour
+        // isoler la violation de taux).
+        var act = () => Create(FixedRule("REGIME-X", VatCategory.E, 5m, vatex: "VATEX-EU-J"));
+
+        act.Should().Throw<InvalidMappingTableException>();
+    }
+
+    [Fact]
+    public void Create_Same_Code_And_Part_Different_Flags_Still_Throws()
+    {
+        // L'unicité (code, part) ignore les flags (item TVA01 §3) : deux règles ne se distinguant que
+        // par leurs flags restent un doublon.
+        var ruleA = new MappingRule
+        {
+            SourceRegimeCode = "REGIME-6",
+            Part = MappingPart.Adjudication,
+            SourceFlags = new Dictionary<string, string> { ["RegimeMarge"] = "true" },
+            Category = VatCategory.E,
+            Vatex = "VATEX-EU-J",
+            RateMode = RateMode.Fixed,
+            RateValue = 0m,
+        };
+        var ruleB = new MappingRule
+        {
+            SourceRegimeCode = "REGIME-6",
+            Part = MappingPart.Adjudication,
+            SourceFlags = new Dictionary<string, string> { ["RegimeMarge"] = "false" },
+            Category = VatCategory.O,
+            RateMode = RateMode.Fixed,
+            RateValue = 0m,
+        };
+
+        var act = () => Create(ruleA, ruleB);
+        act.Should().Throw<InvalidMappingTableException>()
+            .Which.Violations.Should().Contain(v => v.Contains("doublon", System.StringComparison.OrdinalIgnoreCase));
+    }
 }

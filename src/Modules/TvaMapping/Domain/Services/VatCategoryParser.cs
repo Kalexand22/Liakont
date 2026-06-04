@@ -10,11 +10,12 @@ using Liakont.Agent.Contracts.Pivot;
 /// </summary>
 public static class VatCategoryParser
 {
-    /// <summary>Liste des codes catégorie admis (F03 §2.1), pour les messages opérateur.</summary>
-    public static readonly IReadOnlyList<string> AllowedCodes = new[]
-    {
-        "S", "AA", "AAA", "Z", "E", "AE", "G", "K", "O",
-    };
+    /// <summary>
+    /// Liste des codes catégorie admis (F03 §2.1), DÉRIVÉE de l'enum <see cref="VatCategory"/> :
+    /// source unique de vérité partagée avec <c>MappingTableValidator</c> (qui valide via
+    /// <c>Enum.IsDefined</c>). Les deux chemins d'écriture ne peuvent plus diverger.
+    /// </summary>
+    public static readonly IReadOnlyList<string> AllowedCodes = Enum.GetNames<VatCategory>();
 
     /// <summary>
     /// Parse un code catégorie. Lève <see cref="ArgumentException"/> (message opérateur français)

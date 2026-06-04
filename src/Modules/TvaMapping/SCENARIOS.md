@@ -14,6 +14,9 @@
 - `Create_Unknown_Category_Throws` — catégorie hors UNCL5305 rejetée (INV-001).
 - `Create_Empty_Version_Throws` — version obligatoire.
 - `Create_Aggregates_All_Violations` — toutes les violations remontées d'un coup.
+- `Create_E_Computed_Without_Vatex_Throws` — E exige un VATEX même en taux calculé (INV-002).
+- `Create_E_With_Fixed_NonZero_Rate_Throws` — E (exonéré) avec taux fixe non nul rejeté (INV-002/004).
+- `Create_Same_Code_And_Part_Different_Flags_Still_Throws` — l'unicité (code, part) ignore les flags (INV-003).
 - `IsValidated_Is_False_When_Validation_Absent` / `..._True_When_Both_Set` /
   `..._False_When_Only_ValidatedBy_Set` — état « NON VALIDÉE » (INV-006).
 - `Reconstitute_Invalid_Table_Throws_At_Load` — re-validation au chargement (INV-005).

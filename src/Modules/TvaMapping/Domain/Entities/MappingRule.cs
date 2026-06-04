@@ -4,10 +4,12 @@ using Liakont.Agent.Contracts.Pivot;
 
 /// <summary>
 /// Règle de mapping TVA (F03 §4.1, item TVA01 §2) : condition riche sur le régime source →
-/// triplet normalisé {catégorie EN 16931, taux, VATEX}. Une règle matche sur le code régime, la
-/// <see cref="Part"/> et, optionnellement, des <see cref="SourceFlags"/> supplémentaires — pas
-/// seulement sur le code (F03 §3 : un même code peut produire des mappings différents selon
-/// <c>RegimeMarge</c> / <c>assujetti_tva</c>).
+/// triplet normalisé {catégorie EN 16931, taux, VATEX}. Il existe AU PLUS UNE règle par couple
+/// (code régime source, <see cref="Part"/>) — item TVA01 §3. Les <see cref="SourceFlags"/>
+/// restreignent quand cette règle unique s'applique (F03 §3 : la bonne issue d'un code dépend
+/// parfois de <c>RegimeMarge</c> / <c>assujetti_tva</c>) ; si les flags d'une règle ne sont pas
+/// satisfaits, la règle ne s'applique pas et le régime tombe sur le comportement par défaut
+/// (<c>block</c>) — jamais une seconde règle pour le même (code, part).
 /// </summary>
 /// <remarks>
 /// Value object immuable. La cohérence fiscale (catégorie UNCL5305, E+0 % → VATEX, mode de taux)
@@ -26,10 +28,13 @@ public sealed record MappingRule
     public required MappingPart Part { get; init; }
 
     /// <summary>
-    /// Conditions supplémentaires sur des flags du document source (nom du flag → valeur attendue),
-    /// <c>null</c> si la règle ne dépend que du code et de la part. GÉNÉRIQUE : les noms de flags
-    /// (ex. <c>RegimeMarge</c>, <c>assujetti_tva</c> d'un logiciel d'enchères) sont des EXEMPLES de
-    /// paramétrage tenant, jamais codés en dur dans le produit (CLAUDE.md n°7).
+    /// Conditions supplémentaires RESTRICTIVES sur des flags du document source (nom du flag →
+    /// valeur attendue) qui doivent toutes être satisfaites pour que la règle s'applique ; <c>null</c>
+    /// si la règle ne dépend que du code et de la part. Une non-correspondance ne sélectionne pas une
+    /// autre règle (il n'y en a qu'une par (code, part)) : le régime tombe alors sur le comportement
+    /// par défaut (block). GÉNÉRIQUE : les noms de flags (ex. <c>RegimeMarge</c>, <c>assujetti_tva</c>
+    /// d'un logiciel d'enchères) sont des EXEMPLES de paramétrage tenant, jamais codés en dur dans le
+    /// produit (CLAUDE.md n°7).
     /// </summary>
     public IReadOnlyDictionary<string, string>? SourceFlags { get; init; }
 

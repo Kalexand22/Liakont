@@ -70,17 +70,23 @@ public static class MappingTableValidator
 
             ValidateRate(rule, n, violations);
 
-            // F03 §2.2 / item TVA01 §3 : une exonération à 0 % (catégorie E, taux fixe 0) exige un
-            // motif VATEX — sinon la table est invalide. Sans VATEX, l'administration recevrait une
-            // exonération sans justification.
-            if (Enum.IsDefined(rule.Category)
-                && rule.Category == VatCategory.E
-                && rule.RateMode == RateMode.Fixed
-                && rule.RateValue == 0m
-                && string.IsNullOrWhiteSpace(rule.Vatex))
+            // F03 §2.2 : le motif VATEX est obligatoire DÈS QUE la catégorie est E (exonéré), quel
+            // que soit le mode de taux — sans VATEX, l'administration recevrait une exonération sans
+            // justification. Une exonération étant par définition à 0 %, un taux fixe non nul sur E
+            // est fiscalement incohérent.
+            if (Enum.IsDefined(rule.Category) && rule.Category == VatCategory.E)
             {
-                violations.Add(
-                    $"règle #{n} : catégorie E (exonéré) à 0 % sans code VATEX — un motif d'exonération est obligatoire (F03 §2.2)");
+                if (string.IsNullOrWhiteSpace(rule.Vatex))
+                {
+                    violations.Add(
+                        $"règle #{n} : catégorie E (exonéré) sans code VATEX — un motif d'exonération est obligatoire (F03 §2.2)");
+                }
+
+                if (rule.RateMode == RateMode.Fixed && rule.RateValue is { } exemptRate && exemptRate != 0m)
+                {
+                    violations.Add(
+                        $"règle #{n} : catégorie E (exonéré) avec un taux fixe non nul ({rule.RateValue}) — une exonération est à 0 %");
+                }
             }
 
             if (!string.IsNullOrWhiteSpace(rule.SourceRegimeCode)
