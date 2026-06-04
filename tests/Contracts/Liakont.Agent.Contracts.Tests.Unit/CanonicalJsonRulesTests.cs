@@ -1,7 +1,9 @@
 namespace Liakont.Agent.Contracts.Tests.Unit;
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using FluentAssertions;
 using Liakont.Agent.Contracts.Pivot;
 using Liakont.Agent.Contracts.Serialization;
@@ -138,6 +140,162 @@ public sealed class CanonicalJsonRulesTests
         Action act = () => CanonicalJson.Serialize(null!);
 
         act.Should().Throw<ArgumentNullException>();
+    }
+
+    /// <summary>
+    /// Garantit que chaque propriété publique de chaque DTO pivot apparaît comme clé JSON dans
+    /// la sortie canonique d'un document entièrement peuplé. Un champ ajouté à un DTO sans mise
+    /// à jour du writer serait détecté immédiatement (PIV04 / TRK03).
+    /// </summary>
+    [Fact]
+    public void All_public_properties_of_every_pivot_dto_appear_as_json_keys_in_fully_populated_document()
+    {
+        string json = CanonicalJson.Serialize(BuildFullyPopulated());
+
+        var pivotDtoTypes = new[]
+        {
+            typeof(PivotDocumentDto),
+            typeof(PivotPartyDto),
+            typeof(PivotAddressDto),
+            typeof(PivotTotalsDto),
+            typeof(PivotLineDto),
+            typeof(PivotLineTaxDto),
+            typeof(PivotDocumentRefDto),
+            typeof(PivotPaymentDto),
+            typeof(PivotDocumentChargeDto),
+        };
+
+        foreach (Type dtoType in pivotDtoTypes)
+        {
+            foreach (PropertyInfo property in dtoType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                json.Should().Contain(
+                    $"\"{property.Name}\"",
+                    $"la propriété {dtoType.Name}.{property.Name} doit apparaître comme clé JSON dans le document entièrement peuplé");
+            }
+        }
+    }
+
+    private static PivotDocumentDto BuildFullyPopulated()
+    {
+        var address = new PivotAddressDto(
+            line1: "1 rue de la Paix",
+            line2: "Bât B",
+            postalCode: "75001",
+            city: "Paris",
+            countryCode: "FR");
+
+        var supplier = new PivotPartyDto(
+            name: "Fournisseur Fictif SA",
+            siren: "123456789",
+            siret: "12345678900012",
+            vatNumber: "FR12345678901",
+            address: address,
+            email: "contact@fournisseur-fictif.example",
+            isCompanyHint: true);
+
+        var customer = new PivotPartyDto(
+            name: "Client Fictif SARL",
+            siren: "987654321",
+            siret: "98765432100099",
+            vatNumber: "FR98765432109",
+            address: new PivotAddressDto(
+                line1: "2 avenue de l'Opéra",
+                line2: "Étage 3",
+                postalCode: "69001",
+                city: "Lyon",
+                countryCode: "FR"),
+            email: "facturation@client-fictif.example",
+            isCompanyHint: true);
+
+        var invoicer = new PivotPartyDto(
+            name: "Emetteur Fictif SAS",
+            siren: "111222333",
+            siret: "11122233300011",
+            vatNumber: "FR11122233301",
+            address: new PivotAddressDto(
+                line1: "3 boulevard Haussmann",
+                line2: "Suite 12",
+                postalCode: "75009",
+                city: "Paris",
+                countryCode: "FR"),
+            email: "emission@emetteur-fictif.example",
+            isCompanyHint: true);
+
+        var payee = new PivotPartyDto(
+            name: "Bénéficiaire Fictif SNC",
+            siren: "444555666",
+            siret: "44455566600044",
+            vatNumber: "FR44455566604",
+            address: new PivotAddressDto(
+                line1: "4 place Vendôme",
+                line2: "RDC",
+                postalCode: "75001",
+                city: "Paris",
+                countryCode: "FR"),
+            email: "paiement@beneficiaire-fictif.example",
+            isCompanyHint: true);
+
+        var totals = new PivotTotalsDto(
+            totalNet: 1000.00m,
+            totalTax: 200.00m,
+            totalGross: 1200.00m,
+            sourceTotalGross: 1200.00m);
+
+        var lineTax = new PivotLineTaxDto(
+            taxAmount: 200.00m,
+            rate: 20.00m,
+            categoryCode: VatCategory.S,
+            vatexCode: "VATEX-EU-G");
+
+        var line = new PivotLineDto(
+            description: "Prestation fictive de test",
+            netAmount: 1000.00m,
+            quantity: 2m,
+            unitPriceNet: 500.00m,
+            sourceRegimeCodes: new[] { "TVA_20" },
+            taxes: new[] { lineTax },
+            sourceLineRef: "LIG-001",
+            sourceData: "{\"raw\":\"line\"}");
+
+        var creditNoteRef = new PivotDocumentRefDto(
+            number: "FA-2026-001",
+            issueDate: new DateTime(2026, 1, 15),
+            sourceReference: "SRC-FA-001");
+
+        var payment = new PivotPaymentDto(
+            paymentDate: new DateTime(2026, 2, 1),
+            amount: 1200.00m,
+            method: "virement",
+            relatedDocumentNumber: "FA-2026-001",
+            sourceReference: "PAY-001");
+
+        var documentCharge = new PivotDocumentChargeDto(
+            isCharge: true,
+            amount: 10.00m,
+            reason: "éco-contribution",
+            reasonCode: "ECO",
+            sourceRegimeCodes: new[] { "ECO_CONTRIB" });
+
+        return new PivotDocumentDto(
+            sourceDocumentKind: "FA",
+            number: "FA-2026-TEST",
+            issueDate: new DateTime(2026, 3, 1),
+            sourceReference: "SRC-2026-TEST",
+            supplier: supplier,
+            totals: totals,
+            operationCategory: OperationCategory.PrestationServices,
+            currencyCode: "EUR",
+            customer: customer,
+            lines: new[] { line },
+            creditNoteRefs: new[] { creditNoteRef },
+            payments: new[] { payment },
+            documentCharges: new[] { documentCharge },
+            invoicer: invoicer,
+            payee: payee,
+            isSelfBilled: true,
+            prepaidAmount: 100.00m,
+            sourceData: "{\"raw\":\"doc\"}");
     }
 
     private static PivotDocumentDto Build(

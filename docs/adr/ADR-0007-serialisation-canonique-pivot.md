@@ -80,6 +80,29 @@ d'être que `PivotRounding`. Aucune règle fiscale n'est portée ici.
 - Le **format canonique est la base du HASH**, pas nécessairement le format de la requête HTTP. PIV04
   recalcule l'empreinte côté plateforme à partir du DTO reçu (et non du JSON HTTP brut).
 
+### Champs de traçabilité dans l'empreinte (`SourceData`, `SourceReference`)
+
+L'empreinte porte sur le **pivot ENTIER**, y compris `SourceData` (données source brutes) et
+`SourceReference` — c'est la décision de F01-F02 §3.7.4 (« chaque objet pivot est sérialisable en
+JSON tel quel → c'est ce JSON qui est hashé pour l'anti-doublon et archivé pour la piste d'audit »).
+Conséquences voulues :
+
+- **Détection d'altération (TRK03)** : inclure `SourceData` est un atout — une modification de la
+  source après envoi change l'empreinte, donc se signale (F01-F02 §6, « document modifié dans la
+  source APRÈS envoi → détecté par le hash »).
+- **Anti-doublon (PIV04)** : la reconnaissance d'un re-push repose sur le fait que **deux extractions
+  du même document produisent les MÊMES octets** — c'est l'obligation d'**idempotence de l'adaptateur
+  (R2, F01-F02 §4.2)** : « deux extractions de la même période retournent les mêmes documents ».
+  `SourceData` doit donc être déterministe pour une ligne source donnée (pas d'horodatage
+  d'extraction ni d'ordre de champ instable). Cette stabilité est une **responsabilité de
+  l'adaptateur** (lot ADP), pas du sérialiseur : PIV02 hashe fidèlement le payload défini par le
+  contrat, sans en exclure de champ.
+
+Exclure des champs de l'empreinte serait une **dérogation à F01-F02 §3.7.4** : non décidée ici (pas
+de source). Si une source réelle s'avérait incapable de produire un `SourceData` déterministe, le
+traitement relèverait d'une décision sourcée au niveau de l'adaptateur concerné (ADP), pas d'un
+contournement silencieux dans la sérialisation du contrat (CLAUDE.md n°2).
+
 ## Alternatives écartées
 
 - **Deux sérialiseurs (Newtonsoft + STJ) « configurés à l'identique »** : c'est précisément le piège
