@@ -6,9 +6,13 @@ namespace Liakont.Modules.Validation.Domain.Identity;
 /// autorisé (F04 §4.1) — aucune règle n'est inventée, la valeur vient de la spec.
 /// </summary>
 /// <remarks>
-/// Validateur élémentaire du lot VAL (item VAL02). Il remplace à terme la copie temporaire portée
-/// par <c>TenantSettings.Domain.Services.SirenValidator</c> (CFG02) ; les deux implémentations ne
-/// doivent pas diverger d'ici la consolidation.
+/// Validateur élémentaire du lot VAL (item VAL02), destiné à remplacer la copie temporaire de CFG02
+/// (<c>TenantSettings.Domain.Services.SirenValidator</c>). La consolidation est hors périmètre VAL02 :
+/// la frontière inter-modules interdit à TenantSettings de référencer <c>Validation.Domain</c>, elle
+/// passera par une brique partagée. Les deux implémentations restent équivalentes en comportement :
+/// le SIREN de La Poste (356000000) satisfait DÉJÀ la clé de Luhn standard, donc la dérogation
+/// explicite ci-dessous (F04 §4.1) ne crée AUCUNE divergence avec la copie CFG02 — elle rend
+/// simplement l'autorisation de la spec explicite et traçable.
 /// </remarks>
 public static class SirenValidator
 {
