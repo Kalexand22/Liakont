@@ -32,11 +32,4 @@ public sealed class PivotRoundingTests
     {
         PivotRounding.AmountScale.Should().Be(2);
     }
-
-    [Fact]
-    public void FromSourceDouble_Should_Convert_And_Round_Dirty_Float()
-    {
-        // 8.329999999999998 (double sale) → 8.33 en decimal arrondi (frontière adaptateur).
-        PivotRounding.FromSourceDouble(8.329999999999998d).Should().Be(8.33m);
-    }
 }

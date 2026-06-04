@@ -1,12 +1,16 @@
 namespace Liakont.Agent.Contracts.Pivot;
 
 /// <summary>
-/// Catégorie de TVA (code UNCL5305 — EN 16931 BT-151, F01-F02 §3.4). C'est le RÉSULTAT du
-/// mapping TVA, réalisé sur la PLATEFORME (module TVA, lot F03) à partir du régime source brut
+/// Catégorie de TVA (code UNCL5305 — EN 16931 BT-151). C'est le RÉSULTAT du mapping TVA, réalisé
+/// sur la PLATEFORME (module TVA, lot F03) à partir du régime source brut
 /// (<see cref="PivotLineDto.SourceRegimeCodes"/>). L'agent ne renseigne PAS cette valeur : elle
 /// est nullable côté contrat et reste nulle tant que le mapping plateforme n'a pas tranché
-/// (note v6 PIV01 : la trace de mapping n'est pas dans le contrat). Les valeurs proviennent
-/// exclusivement du référentiel UNCL5305 — aucune catégorie n'est inventée (CLAUDE.md n°2).
+/// (note v6 PIV01 : la trace de mapping n'est pas dans le contrat). La liste S/AA/AAA/Z/E/AE/G/K/O
+/// est celle de F03-Mapping-TVA.md §2.1 (catégories UNCL5305 acceptées par la PA, cohérentes
+/// staging) — aucune n'est inventée (CLAUDE.md n°2). ⚠️ AA (taux réduit) et AAA (super réduit) ne
+/// figurent pas dans toutes les listes EN 16931 strictes (BT-151) ; ils sont acceptés par
+/// B2Brouter avec ses taux FR préchargés, mais restent À CONFIRMER sur le profil EXTENDED-CTC-FR
+/// (F03 §2.1 + décision 4) avant figeage du mapping de production.
 /// </summary>
 public enum VatCategory
 {
