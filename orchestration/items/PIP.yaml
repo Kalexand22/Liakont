@@ -1,10 +1,19 @@
 # Lot PIP — Pipeline de traitement de la plateforme (F11 amendée + F07 + F09)
 # Specs : docs/conception/F11 (amendée 2026-06-03 : exécution répartie agent/plateforme),
-#         F07-F08-Avoirs-Frontiere-B2B-B2C.md, F09-E-Reporting-Paiement.md, F12 §4
+#         F07-F08-Avoirs-Frontiere-B2B-B2C.md, F09-E-Reporting-Paiement.md, F12 §4 ;
+#         docs/adr/ADR-0012 (acquittement agent en deux temps : PIP01 porte le point de statut
+#         agent + l'affinage du dédoublonnage côté plateforme — voir PIP01 point 7)
 # Le pipeline tourne sur la PLATEFORME : déclenché par les événements d'ingestion
 # (DocumentReceived) + des jobs planifiés (module Job du socle). L'extraction n'en fait
 # plus partie (c'est l'agent). Il parle aux PA via IPaClient + capacités — JAMAIS à un
 # PA concret. Tout est tenant-scopé.
+#
+# DÉPENDANCE INTER-SEGMENT À ARBITRER (révélée par ADR-0012) : la garantie « aucune perte
+# sur coupure réseau » démontrée à GATE_AGENT (segment `agent`) repose sur le point de statut
+# GET /documents/status, porté ici par PIP01 (segment `pipeline`). Or le manifest ne fait PAS
+# dépendre `agent` de `pipeline`. À trancher par l'opérateur : (a) avancer le seul point de
+# statut + l'affinage du dédoublonnage dans un item du segment core-foundation/agent, ou
+# (b) ajouter une dépendance de gate, ou (c) assumer que la démo AGENT précède le no-loss réel.
 
 items:
   PIP01:
@@ -49,8 +58,25 @@ items:
          (vérifié par le journal d'appels du plug-in Fake).
       6. Concurrence : le module Job garantit qu'un seul job send/sync par tenant tourne à
          la fois (pas de mutex système — c'est le job scheduler qui sérialise).
+      7. ACQUITTEMENT AGENT EN DEUX TEMPS — côté plateforme (ADR-0012, amende F12 §3.3/§4.1).
+         Le CHECK est le consommateur DURABLE de l'événement DocumentReceived ; c'est donc ici
+         que vit l'état « terminal » que l'agent réconcilie :
+         - exposer GET /api/agent/v1/documents/status (lecture seule, tenant-scopé, clé
+           (source_reference, payload_hash)) qui rapporte à l'agent : Processed = le document est
+           durablement créé (Detected) ET entré dans le pipeline (« la plateforme a pris la
+           responsabilité » — PAS « transmis à la PA ») ; Rejected = payload non conforme ;
+           Pending = reçu mais pas encore confirmé / inconnu.
+         - AFFINER le dédoublonnage de l'ingestion (IngestDocumentBatchHandler, marqueurs
+           TODO(ADR-0012)) : un renvoi d'un document REÇU MAIS NON RANGÉ doit RE-TENTER le
+           rangement (idempotent sur DocumentId/payload_hash), au lieu d'être écarté en
+           `duplicate`. C'est ce qui ferme la perte silencieuse côté plateforme, et NE PAS
+           rendre l'intake best-effort bloquant (ré-introduirait le risque d'orphelin, prérequis
+           TRK02). DÉPENDANCE INTER-SEGMENT : la garantie « aucune perte sur coupure » démontrée
+           à GATE_AGENT repose sur ce point de statut — voir l'en-tête de lot.
     acceptance:
       - "CHECK déclenché par événement d'ingestion : mapping + validation → ReadyToSend/Blocked"
+      - "Point de statut agent GET /documents/status (ADR-0012) : Processed/Rejected/Pending par (source_reference, payload_hash), tenant-scopé, lecture seule"
+      - "Dédoublonnage affiné (ADR-0012) : un renvoi d'un document reçu mais non rangé RE-TENTE le rangement (idempotent), jamais écarté en duplicate (testé : intake échoué puis renvoi = document rangé, pas perdu)"
       - "Garde-fou production : table TVA non validée + compte PA production = tout reste Blocked (testé)"
       - "PRE-SEND : anti-doublon inter-traitement (timeout au traitement N, vérification PA au N+1 — testé)"
       - "Reprise après crash : documents restés en Sending repris et vérifiés côté PA dès le premier cycle après redémarrage (testé)"

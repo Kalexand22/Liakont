@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Infrastructure/Liakont.Modules.Documents.Infrastructure.csproj" />
+    <ProjectReference Include="../../../Common/Testing/Stratum.Common.Testing.csproj" />
+    <!-- Câblage du port d'ingestion (DetectedDocumentIntake + PivotDocumentDto) testé en direct. -->
+    <ProjectReference Include="../../Ingestion/Contracts/Liakont.Modules.Ingestion.Contracts.csproj" />
+    <ProjectReference Include="../../../Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
+    <!-- Ports d'unicité (VAL03) / avoirs (VAL04) implémentés par TRK03, exercés en direct par les tests. -->
+    <ProjectReference Include="../../Validation/Contracts/Liakont.Modules.Validation.Contracts.csproj" />
+  </ItemGroup>
+</Project>

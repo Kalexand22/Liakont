@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.Validation.Domain.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.Validation.Contracts.csproj" />
+    <!-- Le fake d'ITenantSettingsQueries (SupplierIdentityRuleTests) référence TenantSettings.Contracts. -->
+    <ProjectReference Include="../../TenantSettings/Contracts/Liakont.Modules.TenantSettings.Contracts.csproj" />
+  </ItemGroup>
+</Project>

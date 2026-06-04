@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- Conventions xUnit + relâchements StyleCop/Code-Analysis du fichier de fixtures de contrat
+         PIV03 LIÉ ci-dessous : son chemin physique (tests/_shared/) n'est pas couvert par les
+         relaxations .editorconfig des répertoires Tests.* ; on reprend donc le même NoWarn que
+         Liakont.Agent.Contracts.Tests.Unit, seul consommateur historique de ce fichier. -->
+    <NoWarn>$(NoWarn);CA1707;SA1116;SA1117;SA1202;SA1210;SA1512</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Infrastructure/Liakont.Modules.TvaMapping.Infrastructure.csproj" />
+    <ProjectReference Include="../../../Common/Testing/Stratum.Common.Testing.csproj" />
+    <ProjectReference Include="../../../Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
+  </ItemGroup>
+  <!-- Jeu de documents pivot de référence (golden files PIV03), partagé avec la solution agent.
+       Utilisé pour prouver que la table de mapping d'EXEMPLE (TVA04) couvre les régimes des
+       documents golden et produit les catégories attendues. -->
+  <ItemGroup>
+    <Compile Include="../../../../tests/_shared/contract-v1/ContractFixtures.cs" Link="ContractV1/ContractFixtures.cs" />
+  </ItemGroup>
+  <!-- Table de mapping d'exemple (config/exemples/) copiée en sortie pour être importée par les
+       tests d'intégration (import dans un tenant de test, puis mapping des golden PIV03). -->
+  <ItemGroup>
+    <None Include="../../../../config/exemples/mapping-exemple.json" Link="config/exemples/mapping-exemple.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

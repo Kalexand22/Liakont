@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- Microsoft.Extensions.* (DI, Options) + DI.Extensions (Replace) du framework partagé — aucun
+         package NuGet nouveau, aucun ADR (repo-standards §4). Pas de Data Protection : TRK01 ne porte
+         aucun secret (les snapshots d'audit ne contiennent pas de secret ; chiffrement des clés PA = TenantSettings). -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.Documents.Tests.Unit" />
+    <InternalsVisibleTo Include="Liakont.Modules.Documents.Tests.Integration" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.Documents.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.Documents.Application.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.Documents.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+    <!-- Câblage du port d'ingestion (PIV04) : le module Documents implémente IDocumentIntake défini dans
+         les Contracts du module Ingestion — accès inter-module autorisé uniquement par les Contracts
+         (module-rules §3, CLAUDE.md n°14). Aucune référence à Ingestion.Domain/Application/Infrastructure. -->
+    <ProjectReference Include="../../Ingestion/Contracts/Liakont.Modules.Ingestion.Contracts.csproj" />
+    <!-- PivotDocumentDto (modèle pivot porté par DetectedDocumentIntake) — contrat agent partagé. -->
+    <ProjectReference Include="../../../Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
+    <!-- Le module Documents (TRK03) implémente les ports d'unicité/avoirs déclarés par le module
+         Validation (IIssuedDocumentLookup VAL03, IIssuedInvoiceLookup VAL04) — accès inter-module
+         autorisé uniquement par les Contracts (module-rules §3, CLAUDE.md n°14). Aucune référence à
+         Validation.Domain/Application/Infrastructure. -->
+    <ProjectReference Include="../../Validation/Contracts/Liakont.Modules.Validation.Contracts.csproj" />
+  </ItemGroup>
+</Project>

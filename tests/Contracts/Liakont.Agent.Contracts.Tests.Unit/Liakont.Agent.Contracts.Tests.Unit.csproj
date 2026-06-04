@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- xUnit naming conventions (Method_Should_X_When_Y) — same relaxations the .editorconfig
+         grants to **/Tests.*/** directories, applied here via NoWarn because this project's name
+         does not start with "Tests." (cf. Liakont.Host.Tests.Unit). -->
+    <NoWarn>$(NoWarn);CA1707;SA1116;SA1117;SA1202;SA1210;SA1512</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\Contracts\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj" />
+  </ItemGroup>
+
+  <!-- Tests de contrat CROSS-RUNTIME (PIV02) partagés avec la solution agent (net48) : un seul code,
+       lié des deux côtés, garantit une sérialisation/empreinte identiques (F12 §3.4). -->
+  <ItemGroup>
+    <Compile Include="..\..\_shared\contract-v1\PivotCanonicalReader.cs" Link="ContractV1\PivotCanonicalReader.cs" />
+    <Compile Include="..\..\_shared\contract-v1\PivotContractGoldenTests.cs" Link="ContractV1\PivotContractGoldenTests.cs" />
+    <Compile Include="..\..\_shared\contract-v1\ContractFixtures.cs" Link="ContractV1\ContractFixtures.cs" />
+    <Compile Include="..\..\_shared\contract-v1\ContractFixtureTests.cs" Link="ContractV1\ContractFixtureTests.cs" />
+  </ItemGroup>
+
+  <!-- Golden files du contrat v1 (PIV03) : copiés en sortie pour être lus par les tests des deux
+       côtés (mêmes fichiers, mêmes empreintes — preuve de compatibilité cross-runtime). -->
+  <ItemGroup>
+    <None Include="..\..\fixtures\contrat-v1\*.json" Link="fixtures\contrat-v1\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

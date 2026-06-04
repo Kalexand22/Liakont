@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <!-- Jeton d'horodatage RFC 3161 natif (ADR-0011, TRK06) — package .NET first-party, in-box. -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.Archive.Tests.Unit" />
+    <InternalsVisibleTo Include="Liakont.Modules.Archive.Tests.Integration" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.Archive.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.Archive.Application.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.Archive.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+    <!-- Module → Contracts d'un autre module uniquement (CLAUDE.md n°6) : le fan-out d'ancrage quotidien
+         (TRK06) est un IJobHandler système, planifié par le module Job (mécanique SOL06). -->
+    <ProjectReference Include="../../Job/Contracts/Stratum.Modules.Job.Contracts.csproj" />
+  </ItemGroup>
+</Project>

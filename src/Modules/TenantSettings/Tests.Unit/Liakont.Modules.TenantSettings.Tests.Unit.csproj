@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Application/Liakont.Modules.TenantSettings.Application.csproj" />
+    <ProjectReference Include="../Domain/Liakont.Modules.TenantSettings.Domain.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.TenantSettings.Contracts.csproj" />
+    <ProjectReference Include="../Infrastructure/Liakont.Modules.TenantSettings.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

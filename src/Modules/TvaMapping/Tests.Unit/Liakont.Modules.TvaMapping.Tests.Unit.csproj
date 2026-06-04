@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Application/Liakont.Modules.TvaMapping.Application.csproj" />
+    <ProjectReference Include="../Domain/Liakont.Modules.TvaMapping.Domain.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.TvaMapping.Contracts.csproj" />
+    <ProjectReference Include="../Infrastructure/Liakont.Modules.TvaMapping.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

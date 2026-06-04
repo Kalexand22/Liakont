@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- Microsoft.Extensions.* (DI, Options) du framework partagé — aucun package NuGet nouveau, aucun ADR
+         (repo-standards §4). Pas de Data Protection : TRK04 ne porte aucun secret (les snapshots d'audit ne
+         contiennent pas de secret ; chiffrement des clés PA = TenantSettings). -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.Payments.Tests.Unit" />
+    <InternalsVisibleTo Include="Liakont.Modules.Payments.Tests.Integration" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.Payments.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.Payments.Application.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.Payments.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+    <!-- PivotPaymentDto (encaissement brut porté par le contrat agent) — projeté par PivotPaymentMapper. -->
+    <ProjectReference Include="../../../Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
+  </ItemGroup>
+</Project>

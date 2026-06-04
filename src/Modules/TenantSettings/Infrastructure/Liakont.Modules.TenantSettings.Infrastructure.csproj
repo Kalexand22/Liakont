@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- ASP.NET Core Data Protection (chiffrement des secrets PA) vit dans le framework partagé
+         Microsoft.AspNetCore.App — aucun package NuGet nouveau, aucun ADR requis (repo-standards §4). -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.TenantSettings.Tests.Unit" />
+    <InternalsVisibleTo Include="Liakont.Modules.TenantSettings.Tests.Integration" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.TenantSettings.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.TenantSettings.Application.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.TenantSettings.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

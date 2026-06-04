@@ -3,7 +3,9 @@ namespace Liakont.Host.Startup;
 using System.Globalization;
 using System.Security.Claims;
 using System.Text;
+using System.Threading.RateLimiting;
 using Asp.Versioning;
+using Liakont.Host.AgentApi;
 using Liakont.Host.Behaviors;
 using Liakont.Host.Components;
 using Liakont.Host.Localization;
@@ -13,12 +15,21 @@ using Liakont.Host.Security;
 using Liakont.Host.Security.Abstractions;
 using Liakont.Host.Security.Keycloak;
 using Liakont.Host.Services;
+using Liakont.Modules.Archive.Infrastructure;
+using Liakont.Modules.Documents.Infrastructure;
+using Liakont.Modules.Ingestion.Application;
+using Liakont.Modules.Ingestion.Infrastructure;
+using Liakont.Modules.Payments.Infrastructure;
+using Liakont.Modules.Reconciliation.Infrastructure;
+using Liakont.Modules.TenantSettings.Infrastructure;
+using Liakont.Modules.TvaMapping.Infrastructure;
 using MediatR;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Localization;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 using Stratum.Common.Abstractions.MultiTenancy;
@@ -100,6 +111,94 @@ public static class AppBootstrap
         builder.Services.AddJobHandler<EmailSendJobPayload, EmailSendJobHandler>();
         builder.Services.AddJobHandler<DeliveryRetryJobPayload, DeliveryRetryJobHandler>();
         builder.Services.AddAuditModule();
+        builder.Services.AddTenantSettingsModule();
+        builder.Services.AddIngestionModule();
+        builder.Services.AddTvaMappingModule();
+
+        // Documents après Ingestion (ordre sans impact sur la correction : Ingestion utilise TryAdd,
+        // Documents utilise Replace — la vraie implémentation gagne toujours). Conservé après Ingestion
+        // pour la lisibilité du registre.
+        builder.Services.AddDocumentsModule();
+
+        // Payments (F09, TRK04) : encaissements bruts + agrégats jour × taux + piste d'audit append-only.
+        // Modèle et persistance uniquement ; l'agrégation et la transmission arrivent avec le pipeline (PIP03).
+        builder.Services.AddPaymentsModule();
+
+        // Archive (TRK05) après Documents : alimente documents.archive_entries (table créée par TRK01).
+        // Store par défaut = FileSystem (appliance) ; une instance choisit S3 via AddS3ArchiveStore (ADR-0009).
+        builder.Services.AddArchiveModule(builder.Configuration);
+
+        // Job d'ancrage temporel quotidien du coffre (TRK06) : le handler de fan-out est résolu par le
+        // module Job (même mécanique que EmailSend/DeliveryRetry). La PLANIFICATION (cron quotidien) est
+        // créée par l'opérateur via l'admin des schedules (job.schedules), comme tout job récurrent de la
+        // plateforme — la fréquence et l'activation relèvent du déploiement (ADR-0011).
+        builder.Services.AddJobHandler<DailyAnchoringTrigger, DailyAnchoringFanOutHandler>();
+
+        // Reconciliation (TRK07) après Archive : rapproche les PDF du pool non lié des documents émis et
+        // ajoute le PDF réconcilié au paquet d'archive en addendum (consomme IArchiveService). Le job
+        // système fait le fan-out de la passe sur tous les tenants via le TenantJobRunner (SOL06).
+        builder.Services.AddReconciliationModule();
+        builder.Services.AddJobHandler<ReconciliationFanOutJobPayload, ReconciliationFanOutJobHandler>();
+
+        // Stockage des PDF reçus (PIV04) : chemin racine = PARAMÉTRAGE de déploiement (jamais en dur,
+        // CLAUDE.md n°7). Lié depuis la config ; à défaut, repli sous le content root de l'instance.
+        builder.Services.Configure<IngestionStorageOptions>(
+            builder.Configuration.GetSection(IngestionStorageOptions.SectionName));
+        builder.Services.PostConfigure<IngestionStorageOptions>(opts =>
+        {
+            if (string.IsNullOrWhiteSpace(opts.PdfRootPath))
+            {
+                opts.PdfRootPath = System.IO.Path.Combine(builder.Environment.ContentRootPath, "App_Data", "ingestion-pdf");
+            }
+        });
+
+        // Rate limiting de l'API agent (F12 §3.3) — défense en profondeur, PROTECTION ANTI-FLOOD : le
+        // vrai rempart contre le brute force est la clé cryptographique (secret 256 bits) + la
+        // révocation ; un secret ne se devine pas par volume de requêtes. La fenêtre fixe par IP est
+        // donc dimensionnée GÉNÉREUSEMENT pour ne jamais rejeter du trafic légitime (heartbeats,
+        // configuration), même agrégé derrière un proxy — un 429 sur un heartbeat légitime
+        // déclencherait un FAUX POSITIF du dead-man's switch (F12 §5).
+        // NOTE déploiement : derrière le reverse proxy de l'appliance (F12 §6.2/6.6), RemoteIpAddress
+        // est l'IP du proxy tant que ForwardedHeaders n'est pas configuré → la fenêtre dégrade en
+        // throttle GLOBAL plutôt que par-IP. Activer ForwardedHeaders relève d'OPS et EXIGE une liste
+        // de proxys de confiance (sinon X-Forwarded-For est usurpable et la limite contournable).
+        // NOTE PIV04 : l'ingestion de documents par lots (gros débit) ajoutera SA PROPRE policy
+        // dimensionnée pour le débit, plutôt que de partager ce quota anti-flood.
+        builder.Services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            options.AddPolicy(AgentApiEndpoints.RateLimiterPolicy, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 600,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                    }));
+
+            // Policy d'INGESTION (PIV04) : le drainage d'un backlog pousse des lots en rafale ; la
+            // limite est dimensionnée pour le DÉBIT (et non l'anti-flood) afin de ne jamais rejeter un
+            // drainage légitime. Le vrai rempart anti-brute-force reste la clé cryptographique + le
+            // filtre d'authentification (déjà appliqués au groupe). Même réserve « derrière proxy »
+            // que la policy anti-flood : sans ForwardedHeaders, la fenêtre dégrade en throttle global.
+            options.AddPolicy(AgentApiEndpoints.IngestionRateLimiterPolicy, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 1200,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                    }));
+        });
+
+        // Liaison JSON du contrat agent (F12 §3) : le contrat émet ses énumérations par leur NOM
+        // (cf. CanonicalJson / fixtures contrat-v1). Sans convertisseur string→enum, System.Text.Json
+        // attend un nombre et rejette un lot au format documenté en 400 au model-binding (requête) et
+        // émet le statut de réponse en nombre. Scopé aux trois enums du contrat (deux en requête, un en
+        // réponse — voir AgentApiJson) pour ne pas toucher le format des autres enums.
+        builder.Services.ConfigureHttpJsonOptions(options => AgentApiJson.ConfigureContractEnums(options.SerializerOptions));
 
         // Le module ERP Party n'est pas vendoré (seul Party.Contracts — décision D1). Identity
         // dépend de IPartyQueries par injection ; Liakont ne lie pas ses utilisateurs à des Party
@@ -270,6 +369,7 @@ public static class AppBootstrap
         app.UseStratumMultiTenancy();
         app.UseAuthorization();
         app.UseAntiforgery();
+        app.UseRateLimiter();
 
         // OpenAPI & Swagger UI (Development and Test only)
         if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Test"))
@@ -431,6 +531,10 @@ public static class AppBootstrap
         v1.MapNotificationEndpoints();
         v1.MapAuditEndpoints();
         v1.MapTenantAdminEndpoints();
+
+        // API agent → plateforme (contrat d'ingestion, F12 §3) : groupe /api/agent/v1 distinct de
+        // l'API console OIDC, authentifié par clé API (filtre) et protégé par rate limiting.
+        app.MapAgentApi();
 
         app.MapRazorComponents<App>()
             .AddAdditionalAssemblies(

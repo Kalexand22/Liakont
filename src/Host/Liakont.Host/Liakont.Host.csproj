@@ -6,6 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Host.Tests.Unit" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Asp.Versioning.Http" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" />
@@ -24,6 +28,15 @@
     <ProjectReference Include="..\..\Modules\Notification\Web\Stratum.Modules.Notification.Web.csproj" />
     <ProjectReference Include="..\..\Modules\Audit\Infrastructure\Stratum.Modules.Audit.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Audit\Web\Stratum.Modules.Audit.Web.csproj" />
+    <ProjectReference Include="..\..\Modules\TenantSettings\Infrastructure\Liakont.Modules.TenantSettings.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Ingestion\Infrastructure\Liakont.Modules.Ingestion.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Ingestion\Contracts\Liakont.Modules.Ingestion.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\TvaMapping\Infrastructure\Liakont.Modules.TvaMapping.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Documents\Infrastructure\Liakont.Modules.Documents.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Payments\Infrastructure\Liakont.Modules.Payments.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Archive\Infrastructure\Liakont.Modules.Archive.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Reconciliation\Infrastructure\Liakont.Modules.Reconciliation.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Contracts\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj" />
   </ItemGroup>
 
 </Project>

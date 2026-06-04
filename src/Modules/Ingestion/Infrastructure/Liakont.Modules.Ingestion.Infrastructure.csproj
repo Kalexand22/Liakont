@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.Ingestion.Tests.Unit" />
+    <InternalsVisibleTo Include="Liakont.Modules.Ingestion.Tests.Integration" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.Ingestion.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.Ingestion.Application.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.Ingestion.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

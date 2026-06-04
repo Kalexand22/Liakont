@@ -9,6 +9,31 @@
 > Motif : une catégorie incohérente avec son taux est soit une erreur de mapping, soit une donnée
 > source fausse — dans les deux cas, l'envoyer transmettrait un motif de taxation erroné
 > (règle produit « bloquer plutôt qu'envoyer faux »). Le backlog (orchestration/items/VAL.yaml, VAL04) fait foi.
+>
+> **⚠️ AMENDEMENT (2026-06-04 — extension du contrôle §3.4 aux 9 catégories, item VAL04)** : la cohérence
+> catégorie/taux 🛑 BLOCKING s'applique aux **9 catégories UNCL5305 du pivot** (liste F03 §2.1), pas
+> seulement à S et E. Attente de taux par catégorie (la nature de chaque catégorie vient de F03 §2.1 ;
+> aucune règle inventée, CLAUDE.md n°2) :
+>
+> | Catégorie | Attente de taux |
+> |---|---|
+> | S (normal), AA (réduit), AAA (super réduit) | taux **> 0** |
+> | Z (taux zéro), E (exonéré), AE (autoliquidation), G (export hors UE), K (intra-UE), O (hors champ) | taux **= 0** (ou absent) |
+>
+> Implémenté par `CategoryRateConsistencyRule` (module Validation). **QUESTION OUVERTE** (expert-comptable) :
+> existe-t-il un cas légitime de catégorie AA/AAA à taux 0 ? Si oui, cette table sera **amendée** —
+> jamais assouplie silencieusement (CLAUDE.md n°2/3).
+>
+> **⚠️ QUESTION OUVERTE (2026-06-04 — périmètre du contrôle VATEX §3.4, item VAL04)** : la règle
+> `VatexRequiredRule` exige aujourd'hui un code VATEX (BT-121) pour la **seule catégorie E** à taux 0 —
+> c'est le cas confirmé en staging (absence de VATEX = blocage SILENCIEUX côté PA) et la lettre de §3.4.
+> Or les Schematron EN 16931 (BR-AE-10 / BR-G-10 / BR-IC-10 / BR-O-10) imposent aussi BT-121 pour **AE**
+> (autoliquidation), **G** (export hors UE), **K** (intra-UE) et **O** (hors champ). En V1, le produit
+> N'EMBARQUE PAS le moteur Schematron (§2, décision 1) : c'est B2Brouter qui génère et valide le XML, donc
+> ces BR-*-10 sont déjà appliqués côté PA. **À TRANCHER avec l'expert-comptable / au vu du taux de rejet
+> réel** : faut-il pré-valider VATEX aussi sur AE/G/K/O (comme pour E) pour attraper le rejet AVANT envoi ?
+> Si oui, élargir la condition de `VatexRequiredRule` — jamais en silence, toujours par cet amendement
+> (CLAUDE.md n°2). Tant que ce n'est pas tranché, le périmètre reste « E uniquement ».
 
 ---
 
@@ -63,13 +88,17 @@ Classés en **🛑 Bloquant** (pas d'envoi) / **⚠️ Alerte** (envoi possible,
 | Date présente et plausible (pas dans le futur, pas absurde) | 🛑 / ⚠️ | futur = 🛑 ; très ancienne = ⚠️ |
 | Devise = ISO 4217 valide | 🛑 | défaut EUR |
 
+> **Précision (2026-06-04 — VAL03)** : le seuil « date invraisemblablement ancienne » (⚠️ alerte de la ligne ci-dessus) est fixé à **antérieure au 1er janvier 2000**, conformément au backlog `orchestration/items/VAL.yaml` (VAL03, « pas avant 2000 »). C'est une borne d'invraisemblance **technique** (date manifestement erronée ou non initialisée), distincte du cas « rattrapage légitime » de la décision #4 (§6) — qui reste une simple alerte sans seuil chiffré. Aucune incidence fiscale (seuil non chiffré au sens TVA/CA). La détection « date dans le futur » (🛑) tolère un jour de marge pour absorber l'écart de fuseau horaire (dates civiles locales d'un ERP français vs date UTC) — voir `StructureRule`.
+
+> **Précision (2026-06-04 — VAL03, réconciliation des totaux)** : la réconciliation HT suit **BR-CO-13** — Total HT (BT-109) = Σ lignes HT (BT-131) − Σ remises document (BG-20) + Σ charges document (BG-21) ; les remises/charges de niveau document (`PivotDocumentChargeDto`, HT) sont donc intégrées. La réconciliation **TVA** (Σ TVA lignes = Total TVA) n'est exécutée **que lorsque le document ne porte aucune charge/remise de niveau document** : leur TVA n'est pas encore résolue en VAL03 (mapping des codes régime source = TVA04), donc l'exécuter produirait un faux positif bloquant sur un document conforme. Le contrôle TVA complet (charges incluses) reprendra avec le mapping (TVA04).
+
 ### 3.4 TVA / mapping (lien avec F3)
 | Contrôle | Niveau | Détail |
 |---|---|---|
 | Régime source mappé dans la table TVA | 🛑 | régime inconnu → blocage (jamais d'envoi à l'aveugle) |
 | Si catégorie E (exonéré) et taux 0 → **code VATEX présent** | 🛑 | ✅ validé staging : absence = blocage silencieux côté PA |
 | Catégorie TVA ∈ énumération valide (S/E/Z/AE/G/K/O…) | 🛑 | |
-| Taux cohérent avec la catégorie (S ⇒ taux > 0 ; E ⇒ 0) | ⚠️ | 🔶 règles BR-S-*/BR-E-* |
+| Taux cohérent avec la catégorie, 9 catégories UNCL5305 (S/AA/AAA ⇒ taux > 0 ; Z/E/AE/G/K/O ⇒ 0) | 🛑 | BLOCKING — voir amendements 2026-06-02 / 2026-06-04 en tête ; règles BR-S-*/BR-E-*, liste F03 §2.1 |
 
 ### 3.5 Avoirs (lien avec F7)
 | Contrôle | Niveau | Détail |

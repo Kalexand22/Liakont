@@ -4,18 +4,29 @@
 # (the discovery filter: would a test reveal something that profoundly alters the
 # upstream? If yes → human gate. If it just gets fixed without disruption → this).
 #
-# It performs a final, segment-level verification (verify + full test suite +
-# integration review of the WHOLE segment diff against main), then MERGES the segment
-# branch into main. This is the SINGLE sanctioned exception to protocol rule
-# "never merge to main" — scoped to gates with executor != human.
+# It performs a final, segment-level verification (verify + full test suite), then
+# MERGES the segment branch into main. This is the SINGLE sanctioned exception to
+# protocol rule "never merge to main" — scoped to gates with executor != human.
+#
+# NO segment-wide integration review (decision 2026-06-05). The integration review
+# (codex-review -Base main on the COMPLETE segment diff) is STRUCTURALLY impossible:
+# every segment diff exceeds the reviewer's 1M-token context window (measured >1M on
+# both SOCLE and CORE_FOUNDATION — even excluding the vendored Stratum socle). A retry
+# is futile (deterministic, not transient). The accepted review basis for an auto-gate
+# is therefore: the PER-ITEM codex-reviews (each item already passed a clean review on
+# its sub-branch during its own session) + segment-level verify + the full test suite.
+# That is enough to merge. If a future need arises to review the integrated whole,
+# do it with a CHUNKED reviewer (per module/folder under the context limit), not by
+# re-adding a single oversized -Base main pass. GATE_SOCLE / GATE_CORE_FOUNDATION were
+# the empirical proof of this limit (both degraded to a human/manual merge on it).
 #
 # Remote present  → gh pr create --base main + gh pr merge (PR auto-merged, audit trail).
 # No remote yet   → local git merge --no-ff into main.
 # Any failure or non-trivial conflict → the gate is marked `blocked` and left to a human.
-# Auto-integration NEVER force-merges and NEVER bypasses a red verify/test/review.
+# Auto-integration NEVER force-merges and NEVER bypasses a red verify/test.
 #
-# Used by (manifest v9): GATE_SOCLE, GATE_CORE_FOUNDATION, GATE_PA_FRAMEWORK,
-#                        GATE_PIPELINE, GATE_ADAPTER_ENCHERESV6.
+# Used by (manifest v10): GATE_CORE_FOUNDATION, GATE_PA_FRAMEWORK, GATE_PIPELINE,
+#                         GATE_ADAPTER_ENCHERESV6. (GATE_SOCLE is human since v10.)
 
 name: auto-gate-item
 description: Automated integration gate — final segment verification, then merge segment branch to main
@@ -71,18 +82,12 @@ nodes:
     retry: { max: 2, on_exhaust: blocked }
     description: "Playwright E2E proof, for segments that ship UI/E2E. run-tests excludes Category=E2E, so the E2E proof a gate's acceptance requires (e.g. SOCLE) runs here. Skipped for back-end-only segments with no E2E tests. On exhaustion → blocked (E2E failures degrade to a human, not an auto-fix loop)."
 
-  - id: integration_review
-    type: deterministic
-    action: codex-review
-    retry: { max: 3, on_exhaust: blocked }
-    description: "codex-review.ps1 -Base main : reviews the COMPLETE segment diff against main. This is broader than the per-item reviews (which only saw the segment branch) — it catches cross-item integration issues. -Base main is MANDATORY (the tree is clean; without -Base the script exits 3). Round 1 = full segment review."
-
-  - id: fix_review
-    type: agentic
-    subagent: orch-fix-review
-    condition: "review exited 2 (has P1/P2 findings)"
-    loop_back_to: verify
-    description: "Delegate to orch-fix-review (sonnet), then loop back to verify → commit → integration_review (re-run with -Base main -Round N)."
+  # NOTE: no `integration_review` node (decision 2026-06-05). A segment-wide
+  # codex-review -Base main structurally exceeds the reviewer's 1M-token context for
+  # every segment, so it cannot run. The review basis is the per-item codex-reviews
+  # (already clean on each sub-branch) + the segment-level `verify` and `integration_tests`
+  # nodes above. See the header for the full rationale. integrate_to_main therefore
+  # follows directly once verify + tests (+ e2e if any) are green.
 
   - id: integrate_to_main
     type: deterministic

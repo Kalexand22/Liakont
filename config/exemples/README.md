@@ -18,7 +18,8 @@ dans ce dossier (ou dans `src/`) est un **P1** en review (CLAUDE.md n°15).
 
 ## Contenu attendu (au fil des lots)
 
-- Table TVA d'exemple (codes régime → catégorie/taux/VATEX fictifs) — lot TVA.
+- Table TVA d'exemple (codes régime → catégorie/taux/VATEX fictifs) — lot TVA :
+  [`mapping-exemple.json`](mapping-exemple.json) (livré par TVA04, marqué « NON VALIDÉE »).
 - Profil tenant d'exemple (SIREN fictif, régime) — lot CFG.
 - Paramétrage PA d'exemple (compte fictif de la PA Fake) — lots PA.
 
