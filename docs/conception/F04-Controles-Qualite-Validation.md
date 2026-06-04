@@ -23,6 +23,17 @@
 > Implémenté par `CategoryRateConsistencyRule` (module Validation). **QUESTION OUVERTE** (expert-comptable) :
 > existe-t-il un cas légitime de catégorie AA/AAA à taux 0 ? Si oui, cette table sera **amendée** —
 > jamais assouplie silencieusement (CLAUDE.md n°2/3).
+>
+> **⚠️ QUESTION OUVERTE (2026-06-04 — périmètre du contrôle VATEX §3.4, item VAL04)** : la règle
+> `VatexRequiredRule` exige aujourd'hui un code VATEX (BT-121) pour la **seule catégorie E** à taux 0 —
+> c'est le cas confirmé en staging (absence de VATEX = blocage SILENCIEUX côté PA) et la lettre de §3.4.
+> Or les Schematron EN 16931 (BR-AE-10 / BR-G-10 / BR-IC-10 / BR-O-10) imposent aussi BT-121 pour **AE**
+> (autoliquidation), **G** (export hors UE), **K** (intra-UE) et **O** (hors champ). En V1, le produit
+> N'EMBARQUE PAS le moteur Schematron (§2, décision 1) : c'est B2Brouter qui génère et valide le XML, donc
+> ces BR-*-10 sont déjà appliqués côté PA. **À TRANCHER avec l'expert-comptable / au vu du taux de rejet
+> réel** : faut-il pré-valider VATEX aussi sur AE/G/K/O (comme pour E) pour attraper le rejet AVANT envoi ?
+> Si oui, élargir la condition de `VatexRequiredRule` — jamais en silence, toujours par cet amendement
+> (CLAUDE.md n°2). Tant que ce n'est pas tranché, le périmètre reste « E uniquement ».
 
 ---
 

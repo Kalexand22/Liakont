@@ -70,8 +70,12 @@ Aucune source primaire ne décrit la procédure officielle quand un SIREN est r�
 > non encore bâti, dont la correspondance type→avoir n'est PAS spécifiée (elle varie par logiciel source) ;
 > VAL04 ne l'invente pas (CLAUDE.md n°2). Cette classification + le rapprochement de l'original relèvent du
 > **pipeline d'envoi (lot PIP, §B.5)** : c'est là que le blocage de l'avoir sans référence doit être câblé.
-> Tant que PIP ne le couvre pas, ce cas reste un trou fonctionnel connu (à reprendre par l'item du lot PIP
-> qui orchestre validation + rapprochement avoir↔original).
+> Item concret porteur : **PIP02 « Pipeline des avoirs (F07) »** — il rapproche l'avoir de sa facture
+> d'origine (renseigne `CreditNoteRef` si trouvée, bloque « facture d'origine inconnue » si introuvable)
+> et doit, pour cela, classer le document source en avoir. **Action de suivi pour PIP02** : couvrir le cas
+> de l'avoir dont la source porte le type « avoir » SANS aucune référence (classification
+> `SourceDocumentKind` → avoir), pour qu'il soit bloqué et non silencieusement laissé passer. Tant que
+> PIP02 ne le couvre pas, ce cas reste un trou fonctionnel connu et tracé ici.
 
 ### B.1 Deux logiques de correction, selon le flux (✅ confirmé, cahier des charges v3.0)
 

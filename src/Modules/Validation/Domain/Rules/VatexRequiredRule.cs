@@ -15,6 +15,9 @@ using Liakont.Modules.Validation.Contracts;
 /// <see cref="PivotLineTaxDto.VatexCode"/> sont le résultat du mapping plateforme (l'agent les laisse nuls
 /// — frontière contrat). Pure : aucune dépendance externe, aucune écriture (détection seule). Aucune règle
 /// fiscale inventée (CLAUDE.md n°2) : la condition vient mot pour mot de F04 §3.4.
+/// PÉRIMÈTRE = catégorie E uniquement (cas confirmé en staging). EN 16931 (BR-AE-10/BR-G-10/BR-IC-10/BR-O-10)
+/// exige aussi BT-121 pour AE/G/K/O ; étendre cette règle à ces catégories est une QUESTION OUVERTE tracée
+/// dans F04 §3.4 (à trancher par l'expert-comptable) — jamais d'extension silencieuse (CLAUDE.md n°2).
 /// </remarks>
 public sealed class VatexRequiredRule : IDocumentRule
 {
