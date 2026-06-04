@@ -13,6 +13,7 @@ using Liakont.Host.Security;
 using Liakont.Host.Security.Abstractions;
 using Liakont.Host.Security.Keycloak;
 using Liakont.Host.Services;
+using Liakont.Modules.TenantSettings.Infrastructure;
 using MediatR;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -100,6 +101,7 @@ public static class AppBootstrap
         builder.Services.AddJobHandler<EmailSendJobPayload, EmailSendJobHandler>();
         builder.Services.AddJobHandler<DeliveryRetryJobPayload, DeliveryRetryJobHandler>();
         builder.Services.AddAuditModule();
+        builder.Services.AddTenantSettingsModule();
 
         // Le module ERP Party n'est pas vendoré (seul Party.Contracts — décision D1). Identity
         // dépend de IPartyQueries par injection ; Liakont ne lie pas ses utilisateurs à des Party
