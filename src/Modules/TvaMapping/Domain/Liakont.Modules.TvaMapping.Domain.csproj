@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../../Common/Abstractions/Stratum.Common.Abstractions.csproj" />
+    <!-- VatCategory (UNCL5305, EN 16931 BT-151) est le RÉSULTAT du mapping : il est défini une
+         seule fois dans le contrat agent↔plateforme (Liakont.Agent.Contracts, BCL-only) et
+         réutilisé ici (F03 §2.1). Aucune catégorie n'est redéfinie ni inventée (CLAUDE.md n°2). -->
+    <ProjectReference Include="../../../Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- Microsoft.Extensions.* (DI, Options) du framework partagé — aucun package NuGet nouveau,
+         aucun ADR requis (repo-standards §4). Pas de Data Protection ici (TVA01 ne porte aucun
+         secret ; le chiffrement des clés PA reste au module TenantSettings). -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.TvaMapping.Tests.Unit" />
+    <InternalsVisibleTo Include="Liakont.Modules.TvaMapping.Tests.Integration" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.TvaMapping.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.TvaMapping.Application.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.TvaMapping.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

@@ -17,6 +17,7 @@ using Liakont.Host.Security.Keycloak;
 using Liakont.Host.Services;
 using Liakont.Modules.Ingestion.Infrastructure;
 using Liakont.Modules.TenantSettings.Infrastructure;
+using Liakont.Modules.TvaMapping.Infrastructure;
 using MediatR;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -107,6 +108,7 @@ public static class AppBootstrap
         builder.Services.AddAuditModule();
         builder.Services.AddTenantSettingsModule();
         builder.Services.AddIngestionModule();
+        builder.Services.AddTvaMappingModule();
 
         // Rate limiting de l'API agent (F12 §3.3) — défense en profondeur, PROTECTION ANTI-FLOOD : le
         // vrai rempart contre le brute force est la clé cryptographique (secret 256 bits) + la
