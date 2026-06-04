@@ -284,6 +284,36 @@ public sealed class MappingEditingIntegrationTests
     }
 
     [Fact]
+    public async Task ChangeLog_Truncate_Is_Rejected()
+    {
+        // TRUNCATE ne déclenche pas un trigger de ligne : le trigger d'instruction BEFORE TRUNCATE doit
+        // rejeter la purge en masse du journal d'audit (CLAUDE.md n°4).
+        var harness = new TvaMappingHarness(_fixture);
+        var companyId = Guid.NewGuid();
+        var operatorId = Guid.NewGuid();
+        await SeedTableAsync(harness, companyId, validatedBy: "Expert", FixedRule("REGIME-A", VatCategory.S, 20m));
+
+        var (filter, accessor) = Deps(operatorId, companyId);
+        var handler = new AddMappingRuleHandler(harness.UowFactory, filter, accessor);
+        await handler.Handle(
+            new AddMappingRuleCommand
+            {
+                SourceRegimeCode = "REGIME-B",
+                Part = "Adjudication",
+                Category = "AA",
+                RateMode = "Fixed",
+                RateValue = 10m,
+            },
+            CancellationToken.None);
+
+        using var conn = await harness.ConnectionFactory.OpenAsync();
+        var truncate = async () => await conn.ExecuteAsync("TRUNCATE tvamapping.mapping_change_log");
+
+        await truncate.Should().ThrowAsync<PostgresException>();
+        (await ChangeLogCountAsync(harness, companyId)).Should().Be(1, "le TRUNCATE a été rejeté.");
+    }
+
+    [Fact]
     public async Task Mutation_And_ChangeLog_Are_Atomic_Abandoned_Transaction_Persists_Nothing()
     {
         // Atomicité (item TVA05 §5) : mutation + entrée de journal dans la MÊME transaction. Une

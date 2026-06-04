@@ -1,7 +1,8 @@
 -- Journal append-only des modifications de la table de mapping TVA (item TVA05 §3). Écrit EN BASE
--- dans la MÊME transaction que la mutation décrite (atomicité, item TVA05 §5). Immuable : un trigger
--- REJETTE tout UPDATE/DELETE d'une entrée existante (même discipline que DocumentEvent, CLAUDE.md n°4)
--- — la garantie est au niveau base (vérifiée par test), indépendante du code applicatif.
+-- dans la MÊME transaction que la mutation décrite (atomicité, item TVA05 §5). Immuable : des triggers
+-- REJETTENT tout UPDATE/DELETE d'une entrée existante ET tout TRUNCATE de la table (même discipline que
+-- DocumentEvent, CLAUDE.md n°4 : aucune purge d'une table d'audit) — la garantie est au niveau base
+-- (vérifiée par test), indépendante du code applicatif.
 --
 -- change_type : 0=AddRule, 1=UpdateRule, 2=RemoveRule, 3=Validate.
 -- source_regime_code / part : règle concernée (NULL pour une validation de table).
@@ -47,4 +48,11 @@ $$;
 CREATE OR REPLACE TRIGGER trg_mapping_change_log_append_only
     BEFORE UPDATE OR DELETE ON tvamapping.mapping_change_log
     FOR EACH ROW
+    EXECUTE FUNCTION tvamapping.reject_change_log_mutation();
+
+-- TRUNCATE ne déclenche PAS un trigger de ligne (FOR EACH ROW) : un trigger d'INSTRUCTION séparé ferme
+-- ce vecteur de purge en masse du journal d'audit (CLAUDE.md n°4).
+CREATE OR REPLACE TRIGGER trg_mapping_change_log_no_truncate
+    BEFORE TRUNCATE ON tvamapping.mapping_change_log
+    FOR EACH STATEMENT
     EXECUTE FUNCTION tvamapping.reject_change_log_mutation();
