@@ -17,5 +17,9 @@
     <ProjectReference Include="../Application/Liakont.Modules.TvaMapping.Application.csproj" />
     <ProjectReference Include="../Contracts/Liakont.Modules.TvaMapping.Contracts.csproj" />
     <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+    <!-- TVA03 : la détection de couverture lit les régimes source observés via le CONTRAT du module
+         Ingestion (ISourceTaxRegimeQueries) — accès inter-module autorisé uniquement par les Contracts
+         (module-rules §3, CLAUDE.md n°14). Aucune référence à Ingestion.Domain/Application/Infrastructure. -->
+    <ProjectReference Include="../../Ingestion/Contracts/Liakont.Modules.Ingestion.Contracts.csproj" />
   </ItemGroup>
 </Project>
