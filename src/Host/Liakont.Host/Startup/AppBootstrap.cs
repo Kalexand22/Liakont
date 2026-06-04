@@ -128,6 +128,12 @@ public static class AppBootstrap
         // Store par défaut = FileSystem (appliance) ; une instance choisit S3 via AddS3ArchiveStore (ADR-0009).
         builder.Services.AddArchiveModule(builder.Configuration);
 
+        // Job d'ancrage temporel quotidien du coffre (TRK06) : le handler de fan-out est résolu par le
+        // module Job (même mécanique que EmailSend/DeliveryRetry). La PLANIFICATION (cron quotidien) est
+        // créée par l'opérateur via l'admin des schedules (job.schedules), comme tout job récurrent de la
+        // plateforme — la fréquence et l'activation relèvent du déploiement (ADR-0011).
+        builder.Services.AddJobHandler<DailyAnchoringTrigger, DailyAnchoringFanOutHandler>();
+
         // Reconciliation (TRK07) après Archive : rapproche les PDF du pool non lié des documents émis et
         // ajoute le PDF réconcilié au paquet d'archive en addendum (consomme IArchiveService). Le job
         // système fait le fan-out de la passe sur tous les tenants via le TenantJobRunner (SOL06).

@@ -2,5 +2,8 @@
   <ItemGroup>
     <ProjectReference Include="../Domain/Liakont.Modules.Archive.Domain.csproj" />
     <ProjectReference Include="../Contracts/Liakont.Modules.Archive.Contracts.csproj" />
+    <!-- Module → Contracts d'un autre module uniquement (CLAUDE.md n°6) : la chronologie de l'export
+         contrôle fiscal (TRK06) lit les DocumentEvents via la surface de lecture du module Documents. -->
+    <ProjectReference Include="../../Documents/Contracts/Liakont.Modules.Documents.Contracts.csproj" />
   </ItemGroup>
 </Project>
