@@ -44,6 +44,33 @@
 - `Map_FraisOfUnmappedRegime_IsBlocked` — pas de joker : la part frais d'un régime sans règle explicite est bloquée (INV-011).
 - `Map_NullTable_Throws` / `Map_NullRequest_Throws` / `Map_EmptyTable_BlocksEveryRegime` — garde-fous d'entrée.
 
+### MappingCoverageAnalyzerTests (détection de couverture TVA03 — INV-TVAMAPPING-012)
+- `Analyze_AllObservedRegimesMapped_VerdictComplete` — tous les régimes observés couverts → complet.
+- `Analyze_SomeObservedRegimesUnmapped_VerdictIncomplete_ListsAbsent` — régime absent listé avec code/libellé/occurrences/horodatage.
+- `Analyze_NoObservedRegimes_VerdictComplete_EmptyLists` — tenant sans régime remonté → complet, listes vides.
+- `Analyze_NoTableConfigured_AllObservedAbsent_VerdictIncomplete` — aucune table → tous absents, `IsTableConfigured=false`.
+- `Analyze_NoTable_NoObservedRegimes_VerdictComplete` — ni table ni régime → complet, rien à faire.
+- `Analyze_CodeMatchingIsOrdinalCaseSensitive` — comparaison EXACTE : casse différente → absent (cohérence moteur INV-011).
+- `Analyze_CodeCoveredAcrossMultipleParts_CountedOnceAsCovered` — code présent dans plusieurs règles (adjudication + frais) → couvert une fois.
+- `Analyze_ReflectsTableVersionAndValidationState` — version + état « NON VALIDÉE » portés par le rapport (INV-006).
+- `Analyze_NullObservedRegimes_Throws` — garde-fou d'entrée.
+
+### GetMappingCoverageReportHandlerTests (câblage TVA03 — INV-TVAMAPPING-008/012)
+- `Handle_RoutesResolvedSlugToRegimeQuery_AndCompanyIdToMappingQuery` — **isolation tenant** : slug (`ITenantContext`) vers les régimes observés, `company_id` (`ICompanyFilter`) vers la table ; jamais de clé croisée.
+- `Handle_AllRegimesMapped_ReturnsCompleteDto` / `Handle_SomeRegimesUnmapped_ReturnsIncompleteDto_WithAbsentList` — verdict + listes mappés en DTO.
+- `Handle_NoTableConfigured_ReturnsIncompleteNotConfigured` — aucune table → incomplet, `IsTableConfigured=false`.
+- `Handle_NoObservedRegimes_ReturnsComplete` — tenant sans régime remonté → complet.
+- `Handle_UnresolvedTenant_Throws` (slug `null`/vide/blanc) — aucune lecture tant que le tenant n'est pas résolu (message opérateur FR + action).
+
+> **Tests d'intégration (Testcontainers) : non requis pour TVA03 (node `integration_tests` sauté).**
+> La détection est du croisement PUR (analyseur de domaine) au-dessus de DEUX lectures déjà couvertes
+> par des tests d'intégration Postgres en amont : la table de mapping par `company_id`
+> (`MappingTablePersistenceIntegrationTests`, TVA01, dont `Tenant_Isolation_Is_Enforced`) et les
+> régimes source observés par slug (`SourceTaxRegime*` du module Ingestion, PIV04, isolation tenant
+> incluse). Le risque propre à TVA03 — passer la BONNE clé de tenant à chaque lecture — est vérifié
+> EN DIRECT par `Handle_RoutesResolvedSlugToRegimeQuery_AndCompanyIdToMappingQuery`. Aucun nouveau
+> schéma ni nouvelle requête SQL n'est introduit. (Même justification que TVA02 « moteur pur ».)
+
 ## Integration (`Tests.Integration`, Testcontainers PostgreSQL)
 
 ### MappingTablePersistenceIntegrationTests (INV-TVAMAPPING-004..008)
