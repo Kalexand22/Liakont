@@ -255,22 +255,24 @@ items:
 
   GATE_SOCLE:
     type: gate
-    executor: claude
-    blueprint: auto-gate-item
-    title: "Gate (auto) : socle plateforme + agent intégré"
+    executor: human
+    title: "Gate : socle plateforme + agent validé (humaine — exception ponctuelle)"
     description: |
-      Gate d'INTÉGRATION AUTOMATIQUE (executor claude, blueprint auto-gate-item) : la
-      vérification du socle est entièrement automatisée (compilation des deux solutions, Host
-      qui démarre, harness E2E, mécanique de jobs multi-tenant, conventions) — un test humain
-      n'y révélerait rien de structurel qui ne soit déjà prouvé par verify + tests + E2E. La
-      gate enchaîne verify-fast + run-tests + review d'intégration (diff complet vs main), puis
-      merge la branche dans main. Échec/conflit non trivial = blocked (repris par un humain).
+      Validation HUMAINE — EXCEPTION PONCTUELLE assumée (manifest v10). Le socle est le SEUL
+      segment dont le diff vs main contient tout le socle Stratum vendored (~50k+ LOC) : la
+      review d'intégration automatique (codex-review -Base main) dépasse la limite de 1M tokens
+      du reviewer. Aucun segment ultérieur n'aura autant à reviewer — c'est ponctuel. Et le code
+      Stratum vendored est CONSIDÉRÉ OK (déjà reviewé dans son dépôt d'origine) ; CLAUDE.md et
+      SOL01 le placent HORS périmètre de review.
+      L'humain valide donc UNIQUEMENT l'ADAPTATION Liakont (Liakont.Host, csproj, neutralisations,
+      provenance, ADR, seed) — jamais le code copié — puis merge la PR du segment dans main.
+      Déjà automatisé et VERT : compilation des deux solutions, Host qui démarre, harness E2E,
+      jobs multi-tenant (verify-fast + run-tests + run-e2e). Points de vigilance : provenance
+      complète, aucun module ERP embarqué (hors Party.Contracts — décision D1), frontières
+      agent/plateforme.
       Cette gate débloque le segment core-foundation.
-      Points de vigilance (vérifiés par la review d'intégration) : provenance du socle complète,
-      aucun module ERP embarqué (hors Party.Contracts — décision D1), frontières agent/plateforme.
     acceptance:
       - "Tous les items SOL sont done"
-      - "verify-fast + run-tests verts sur feat/socle-v6 (deux solutions)"
-      - "Le test E2E de preuve passe via tools/run-e2e.ps1"
-      - "Review d'intégration (codex-review -Base main) clean ou P2 acceptés justifiés"
-      - "Segment feat/socle-v6 intégré automatiquement dans main (Step 5c) — pas de PR humaine"
+      - "verify-fast + run-tests + E2E de preuve verts sur feat/socle-v6 (déjà automatisés)"
+      - "Revue humaine SCOPÉE sur l'adaptation Liakont (vendored Stratum hors scope, considéré OK)"
+      - "PR du segment feat/socle-v6 revue et mergée dans main par un humain"

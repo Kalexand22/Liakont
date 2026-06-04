@@ -43,8 +43,9 @@ YAML inline minimal. Un item par ligne :
    restent uniquement dans `orchestration/archive/` (dépôt source — jamais dans `$ORCH_REPO`).
 4. **Pas de `executor: claude`** — c'est le défaut. Spécifier `executor: human` sur les gates HUMAINES.
    Une gate AUTOMATIQUE (intégration auto vers main, voir protocol.md Step 5c) garde le défaut
-   `claude` et porte `blueprint: auto-gate-item` (ex. GATE_SOCLE, GATE_CORE_FOUNDATION,
-   GATE_PA_FRAMEWORK, GATE_PIPELINE, GATE_ADAPTER_ENCHERESV6).
+   `claude` et porte `blueprint: auto-gate-item` (ex. GATE_CORE_FOUNDATION, GATE_PA_FRAMEWORK,
+   GATE_PIPELINE, GATE_ADAPTER_ENCHERESV6). GATE_SOCLE est HUMAINE par exception (manifest v10) :
+   son diff vs main contient tout le socle Stratum vendored → review d'intégration > 1M tokens.
 5. **Pas de `type: work`** — c'est le défaut. Spécifier uniquement `type: gate` sur les gates.
 6. **Pas de `blueprint: module-work-item`** — c'est le défaut. Spécifier uniquement les blueprints
    non-défaut (`docs-spec-item`, `tooling-item`, `blazor-page-item`).

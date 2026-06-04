@@ -18,7 +18,12 @@ meta:
   #   peut révéler du structurel : AGENT, PA_B2BROUTER, PA_SUPERPDP, CONSOLE_WEB, TOOLKIT,
   #   DEMO_ISATECH, PROD_CMP. Le test ODBC réel EncheresV6 est porté par DEMO_ISATECH (serveur
   #   dédié), pas par ADAPTER (fixtures only).
-  version: 9
+  # version 10 = GATE_SOCLE repassée HUMAINE (cas PONCTUEL) : la review d'intégration -Base main
+  #   du segment socle dépasse 1M tokens (tout le socle Stratum vendored dans le diff). Aucun
+  #   segment ultérieur n'a autant à reviewer ; le socle vendored est considéré OK (reviewé à
+  #   l'origine, hors périmètre CLAUDE.md/SOL01). La gate humaine valide l'ADAPTATION Liakont +
+  #   merge. Auto-gates restantes : CORE_FOUNDATION, PA_FRAMEWORK, PIPELINE, ADAPTER_ENCHERESV6.
+  version: 10
   host: multi_agent_v1
 
 segments:
@@ -106,7 +111,7 @@ items:
   - { id: SOL04, lot: SOL, blueprint: docs-spec-item, priority: 1030, depends_on: [SOL01] }
   - { id: SOL05, lot: SOL, blueprint: tooling-item, priority: 1040, depends_on: [SOL01] }
   - { id: SOL06, lot: SOL, priority: 1050, depends_on: [SOL01] }
-  - { id: GATE_SOCLE, type: gate, blueprint: auto-gate-item, priority: 1100, depends_on: [SOL03, SOL04, SOL05, SOL06] }
+  - { id: GATE_SOCLE, type: gate, executor: human, priority: 1100, depends_on: [SOL03, SOL04, SOL05, SOL06] }
 
   # ── PIV ──
   # PIV05 (cycle de vie agents + clés API + middleware auth) précède PIV04 (ingestion) :
