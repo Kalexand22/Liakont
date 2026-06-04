@@ -9,8 +9,9 @@ using Stratum.Common.Infrastructure.Database;
 
 /// <summary>
 /// Assemble les vraies dépendances de persistance du module (UoW Postgres + requêtes) sur le
-/// conteneur de test. TVA01 ne porte ni journal d'audit ni handler MediatR (ceux-ci arrivent avec
-/// TVA05), d'où un harness volontairement minimal.
+/// conteneur de test. Les handlers d'édition (item TVA05) sont construits directement dans les tests
+/// avec des doubles de contexte acteur / filtre tenant (voir <c>MappingEditingIntegrationTests</c>),
+/// d'où un harness volontairement minimal.
 /// </summary>
 internal sealed class TvaMappingHarness
 {

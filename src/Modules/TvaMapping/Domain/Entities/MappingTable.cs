@@ -1,6 +1,7 @@
 namespace Liakont.Modules.TvaMapping.Domain.Entities;
 
 using Liakont.Modules.TvaMapping.Domain.Services;
+using Stratum.Common.Abstractions.Exceptions;
 
 /// <summary>
 /// Table de mapping TVA d'un tenant (F03 §4.1, item TVA01 §1) : régime source → {catégorie, taux,
@@ -117,6 +118,92 @@ public sealed class MappingTable
         };
     }
 
+    /// <summary>
+    /// Ajoute une règle (édition console, item TVA05 §1). Re-valide TOUTE la table après ajout
+    /// (doublon (code, part), E à 0 % → VATEX, cohérence du taux…) : une règle invalide lève
+    /// <see cref="InvalidMappingTableException"/> et l'état de la table reste inchangé. Toute mutation
+    /// repasse la table « NON VALIDÉE » (item TVA05 §2) — les envois en production sont suspendus
+    /// jusqu'à revalidation.
+    /// </summary>
+    public void AddRule(MappingRule rule)
+    {
+        ArgumentNullException.ThrowIfNull(rule);
+
+        var newRules = new List<MappingRule>(Rules) { rule };
+        MappingTableValidator.EnsureValid(MappingVersion, DefaultBehavior, newRules);
+
+        Rules = newRules;
+        Invalidate();
+    }
+
+    /// <summary>
+    /// Remplace la règle identifiée par (<paramref name="sourceRegimeCode"/>, <paramref name="part"/>)
+    /// par <paramref name="replacement"/> (item TVA05 §1). Lève <see cref="NotFoundException"/> si
+    /// aucune règle ne correspond, <see cref="InvalidMappingTableException"/> si le remplacement rend la
+    /// table invalide (l'état reste alors inchangé). Repasse la table « NON VALIDÉE » (item TVA05 §2).
+    /// </summary>
+    /// <returns>La règle remplacée (valeur « avant », pour la journalisation).</returns>
+    public MappingRule UpdateRule(string sourceRegimeCode, MappingPart part, MappingRule replacement)
+    {
+        ArgumentNullException.ThrowIfNull(replacement);
+
+        var index = RequireRuleIndex(sourceRegimeCode, part);
+        var previous = Rules[index];
+
+        var newRules = new List<MappingRule>(Rules);
+        newRules[index] = replacement;
+        MappingTableValidator.EnsureValid(MappingVersion, DefaultBehavior, newRules);
+
+        Rules = newRules;
+        Invalidate();
+        return previous;
+    }
+
+    /// <summary>
+    /// Supprime la règle identifiée par (<paramref name="sourceRegimeCode"/>, <paramref name="part"/>)
+    /// (item TVA05 §1). Lève <see cref="NotFoundException"/> si aucune règle ne correspond. Repasse la
+    /// table « NON VALIDÉE » (item TVA05 §2).
+    /// </summary>
+    /// <returns>La règle supprimée (valeur « avant », pour la journalisation).</returns>
+    public MappingRule RemoveRule(string sourceRegimeCode, MappingPart part)
+    {
+        var index = RequireRuleIndex(sourceRegimeCode, part);
+        var previous = Rules[index];
+
+        var newRules = new List<MappingRule>(Rules);
+        newRules.RemoveAt(index);
+
+        // Re-validation par symétrie : retirer une règle ne crée pas de violation, mais on conserve
+        // l'invariant « toute écriture passe par le validateur ».
+        MappingTableValidator.EnsureValid(MappingVersion, DefaultBehavior, newRules);
+
+        Rules = newRules;
+        Invalidate();
+        return previous;
+    }
+
+    /// <summary>
+    /// Marque la table comme validée humainement par l'expert-comptable (workflow de validation,
+    /// item TVA05 §4). La date de validation est la date courante (UTC). Une table doit être
+    /// structurellement valide pour être validée (re-vérifié ici). <paramref name="validatedBy"/> est
+    /// obligatoire.
+    /// </summary>
+    public void Validate(string validatedBy)
+    {
+        if (string.IsNullOrWhiteSpace(validatedBy))
+        {
+            throw new ArgumentException(
+                "L'identité du valideur (expert-comptable) est obligatoire pour valider la table de mapping TVA.",
+                nameof(validatedBy));
+        }
+
+        MappingTableValidator.EnsureValid(MappingVersion, DefaultBehavior, Rules);
+
+        ValidatedBy = validatedBy.Trim();
+        ValidatedDate = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
     private static MappingRule[] NormalizeRules(IReadOnlyList<MappingRule> rules)
     {
         ArgumentNullException.ThrowIfNull(rules);
@@ -132,5 +219,34 @@ public sealed class MappingTable
 
         var trimmed = validatedBy.Trim();
         return trimmed.Length == 0 ? null : trimmed;
+    }
+
+    /// <summary>
+    /// Efface l'état de validation (item TVA05 §2) : toute mutation des règles invalide la validation
+    /// humaine. La table repasse « NON VALIDÉE » et le garde-fou d'envoi en production (PIP01) suspend
+    /// les envois réels jusqu'à revalidation.
+    /// </summary>
+    private void Invalidate()
+    {
+        ValidatedBy = null;
+        ValidatedDate = null;
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
+    private int RequireRuleIndex(string sourceRegimeCode, MappingPart part)
+    {
+        var code = sourceRegimeCode?.Trim();
+        for (var i = 0; i < Rules.Count; i++)
+        {
+            var rule = Rules[i];
+            if (string.Equals(rule.SourceRegimeCode, code, StringComparison.Ordinal) && rule.Part == part)
+            {
+                return i;
+            }
+        }
+
+        throw new NotFoundException(
+            $"Aucune règle de mapping pour le code régime « {sourceRegimeCode} » et la part « {part} » " +
+            "dans la table de cette société. Action opérateur : vérifiez le code et la part dans la console (Paramétrage › TVA).");
     }
 }
