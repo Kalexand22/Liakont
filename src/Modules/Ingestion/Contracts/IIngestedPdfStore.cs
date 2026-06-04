@@ -1,5 +1,6 @@
 namespace Liakont.Modules.Ingestion.Contracts;
 
+using System.Collections.Generic;
 using System.IO;
 
 /// <summary>
@@ -30,4 +31,19 @@ public interface IIngestedPdfStore
     /// chemin de stockage relatif. Chaque dépôt est conservé distinctement (pas d'écrasement).
     /// </summary>
     Task<string> SavePooledPdfAsync(string tenantId, string fileName, Stream content, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Énumère les PDF présents dans le POOL de réconciliation du tenant (F06/TRK07). La réconciliation
+    /// découvre le pool en l'énumérant (ADR-0008 : le système de fichiers EST le registre du pool ; le
+    /// suivi « déjà rapproché » est porté par la file d'attente du module Reconciliation, pas ici). Un
+    /// pool inexistant renvoie une liste vide (jamais d'exception).
+    /// </summary>
+    Task<IReadOnlyList<PooledPdfReference>> ListPooledPdfsAsync(string tenantId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Ouvre en LECTURE SEULE le flux d'un PDF du pool du tenant, identifié par son
+    /// <see cref="PooledPdfReference.PoolPdfId"/>. Lève si l'identifiant ne désigne pas un dépôt du pool
+    /// (anti path-traversal). L'appelant dispose le flux.
+    /// </summary>
+    Task<Stream> OpenPooledPdfAsync(string tenantId, string poolPdfId, CancellationToken cancellationToken = default);
 }

@@ -3,9 +3,11 @@ namespace Liakont.Modules.Documents.Infrastructure;
 using Liakont.Modules.Documents.Application;
 using Liakont.Modules.Documents.Contracts.Deduplication;
 using Liakont.Modules.Documents.Contracts.Queries;
+using Liakont.Modules.Documents.Contracts.Reconciliation;
 using Liakont.Modules.Documents.Infrastructure.Deduplication;
 using Liakont.Modules.Documents.Infrastructure.Lookups;
 using Liakont.Modules.Documents.Infrastructure.Queries;
+using Liakont.Modules.Documents.Infrastructure.Reconciliation;
 using Liakont.Modules.Ingestion.Contracts;
 using Liakont.Modules.Ingestion.Contracts.Events;
 using Liakont.Modules.Validation.Contracts;
@@ -46,6 +48,10 @@ public static class DocumentsModuleRegistration
         // production n'existe ailleurs : le module Documents est leur unique fournisseur.
         services.AddScoped<IIssuedDocumentLookup, IssuedDocumentLookup>();
         services.AddScoped<IIssuedInvoiceLookup, IssuedInvoiceLookup>();
+
+        // Journal de rapprochement PDF (TRK07, F06 §7) : seule surface autorisée pour que le module
+        // Reconciliation inscrive un fait d'audit append-only sur un document émis (frontière Contracts-only).
+        services.AddScoped<IDocumentReconciliationJournal, DocumentReconciliationJournal>();
 
         // Consommateur de l'altération source après émission (TRK03) : inscrit un fait d'audit append-only
         // sur le document émis, jamais de réémission. L'événement est produit par l'ingestion (PIV04) ;
