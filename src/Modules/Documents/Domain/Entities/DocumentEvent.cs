@@ -157,6 +157,69 @@ public sealed class DocumentEvent
         };
     }
 
+    /// <summary>
+    /// Crée le fait d'audit d'un RAPPROCHEMENT AUTOMATIQUE d'un PDF du pool non lié (item TRK07) :
+    /// correspondance de CONFIANCE HAUTE (numéro de document dans le nom de fichier ou le texte du PDF),
+    /// liée sans intervention. Événement SYSTÈME (aucun opérateur), sans snapshot — la preuve (le PDF
+    /// lui-même) est ajoutée au paquet d'archive en addendum chaîné (WORM, TRK05).
+    /// </summary>
+    public static DocumentEvent ReconciledAutomatically(Guid documentId, DateTimeOffset occurredAtUtc, string detail)
+    {
+        if (string.IsNullOrWhiteSpace(detail))
+        {
+            throw new ArgumentException("Le détail du rapprochement est obligatoire (piste d'audit, TRK07).", nameof(detail));
+        }
+
+        return new DocumentEvent
+        {
+            Id = Guid.NewGuid(),
+            DocumentId = documentId,
+            TimestampUtc = occurredAtUtc,
+            EventType = DocumentEventType.DocumentReconciledAuto,
+            Detail = detail.Trim(),
+            PayloadSnapshot = null,
+            PaResponseSnapshot = null,
+            MappingTrace = null,
+            OperatorIdentity = null,
+        };
+    }
+
+    /// <summary>
+    /// Crée le fait d'audit d'un RAPPROCHEMENT MANUEL d'un PDF du pool non lié par un opérateur (item
+    /// TRK07) : confirmation d'une proposition de confiance moyenne, ou rattachement manuel d'un
+    /// orphelin. L'identité de l'opérateur est OBLIGATOIRE (un rapprochement manuel n'est jamais anonyme).
+    /// Sans snapshot — la preuve (le PDF) rejoint le paquet d'archive en addendum chaîné (WORM, TRK05).
+    /// </summary>
+    public static DocumentEvent ReconciledManually(
+        Guid documentId,
+        DateTimeOffset occurredAtUtc,
+        string detail,
+        string operatorIdentity)
+    {
+        if (string.IsNullOrWhiteSpace(detail))
+        {
+            throw new ArgumentException("Le détail du rapprochement est obligatoire (piste d'audit, TRK07).", nameof(detail));
+        }
+
+        if (string.IsNullOrWhiteSpace(operatorIdentity))
+        {
+            throw new ArgumentException("L'identité de l'opérateur est obligatoire pour un rapprochement manuel (TRK07).", nameof(operatorIdentity));
+        }
+
+        return new DocumentEvent
+        {
+            Id = Guid.NewGuid(),
+            DocumentId = documentId,
+            TimestampUtc = occurredAtUtc,
+            EventType = DocumentEventType.DocumentReconciledManual,
+            Detail = detail.Trim(),
+            PayloadSnapshot = null,
+            PaResponseSnapshot = null,
+            MappingTrace = null,
+            OperatorIdentity = operatorIdentity.Trim(),
+        };
+    }
+
     /// <summary>Reconstitue une entrée d'audit depuis la persistance (lecture).</summary>
     public static DocumentEvent Reconstitute(
         Guid id,

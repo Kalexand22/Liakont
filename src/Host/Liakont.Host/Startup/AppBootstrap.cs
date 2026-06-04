@@ -20,6 +20,7 @@ using Liakont.Modules.Documents.Infrastructure;
 using Liakont.Modules.Ingestion.Application;
 using Liakont.Modules.Ingestion.Infrastructure;
 using Liakont.Modules.Payments.Infrastructure;
+using Liakont.Modules.Reconciliation.Infrastructure;
 using Liakont.Modules.TenantSettings.Infrastructure;
 using Liakont.Modules.TvaMapping.Infrastructure;
 using MediatR;
@@ -126,6 +127,12 @@ public static class AppBootstrap
         // Archive (TRK05) après Documents : alimente documents.archive_entries (table créée par TRK01).
         // Store par défaut = FileSystem (appliance) ; une instance choisit S3 via AddS3ArchiveStore (ADR-0009).
         builder.Services.AddArchiveModule(builder.Configuration);
+
+        // Reconciliation (TRK07) après Archive : rapproche les PDF du pool non lié des documents émis et
+        // ajoute le PDF réconcilié au paquet d'archive en addendum (consomme IArchiveService). Le job
+        // système fait le fan-out de la passe sur tous les tenants via le TenantJobRunner (SOL06).
+        builder.Services.AddReconciliationModule();
+        builder.Services.AddJobHandler<ReconciliationFanOutJobPayload, ReconciliationFanOutJobHandler>();
 
         // Stockage des PDF reçus (PIV04) : chemin racine = PARAMÉTRAGE de déploiement (jamais en dur,
         // CLAUDE.md n°7). Lié depuis la config ; à défaut, repli sous le content root de l'instance.

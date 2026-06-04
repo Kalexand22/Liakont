@@ -50,6 +50,59 @@ internal sealed class FileSystemIngestedPdfStore : IIngestedPdfStore
         return relativePath;
     }
 
+    public Task<IReadOnlyList<PooledPdfReference>> ListPooledPdfsAsync(string tenantId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var poolDirectory = ResolvePoolDirectory(tenantId);
+        if (!Directory.Exists(poolDirectory))
+        {
+            // Pool inexistant (l'adaptateur ne pousse pas de PDF non liés, ou aucun dépôt encore) : vide,
+            // jamais d'exception (la réconciliation n'a simplement rien à rapprocher).
+            return Task.FromResult<IReadOnlyList<PooledPdfReference>>([]);
+        }
+
+        var references = new List<PooledPdfReference>();
+        foreach (var path in Directory.EnumerateFiles(poolDirectory))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var poolPdfId = Path.GetFileName(path);
+            references.Add(new PooledPdfReference(poolPdfId, DisplayName(poolPdfId)));
+        }
+
+        return Task.FromResult<IReadOnlyList<PooledPdfReference>>(references);
+    }
+
+    public Task<Stream> OpenPooledPdfAsync(string tenantId, string poolPdfId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (string.IsNullOrWhiteSpace(poolPdfId))
+        {
+            throw new ArgumentException("L'identifiant du PDF du pool est obligatoire.", nameof(poolPdfId));
+        }
+
+        // Anti path-traversal : l'identifiant doit être un nom de fichier nu (jamais un chemin), et le
+        // chemin résolu doit rester strictement sous le répertoire du pool du tenant.
+        if (Path.GetFileName(poolPdfId) != poolPdfId)
+        {
+            throw new ArgumentException("Identifiant de PDF du pool invalide (un nom de fichier est attendu).", nameof(poolPdfId));
+        }
+
+        var poolDirectory = ResolvePoolDirectory(tenantId);
+        var poolWithSeparator = poolDirectory.EndsWith(Path.DirectorySeparatorChar)
+            ? poolDirectory
+            : poolDirectory + Path.DirectorySeparatorChar;
+        var fullPath = Path.GetFullPath(Path.Combine(poolDirectory, poolPdfId));
+        if (!fullPath.StartsWith(poolWithSeparator, StringComparison.Ordinal) || !File.Exists(fullPath))
+        {
+            throw new FileNotFoundException($"PDF du pool introuvable pour ce tenant : {poolPdfId}.");
+        }
+
+        Stream stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        return Task.FromResult(stream);
+    }
+
     /// <summary>Slug de tenant sécurisé pour un segment de chemin (anti path-traversal).</summary>
     private static string SafeTenant(string tenantId)
     {
@@ -105,6 +158,38 @@ internal sealed class FileSystemIngestedPdfStore : IIngestedPdfStore
         }
 
         return hex.ToString();
+    }
+
+    /// <summary>Nom lisible d'un dépôt du pool : la partie après le préfixe d'unicité « {guid}__ ».</summary>
+    private static string DisplayName(string poolPdfId)
+    {
+        var separator = poolPdfId.IndexOf("__", StringComparison.Ordinal);
+        return separator >= 0 && separator + 2 < poolPdfId.Length
+            ? poolPdfId[(separator + 2)..]
+            : poolPdfId;
+    }
+
+    /// <summary>Chemin complet (validé sous la racine) du répertoire de pool d'un tenant.</summary>
+    private string ResolvePoolDirectory(string tenantId)
+    {
+        var root = _options.PdfRootPath;
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            throw new InvalidOperationException(
+                "Le chemin racine de stockage des PDF (Ingestion:Storage:PdfRootPath) n'est pas configuré.");
+        }
+
+        var rootFull = Path.GetFullPath(root);
+        var rootWithSeparator = rootFull.EndsWith(Path.DirectorySeparatorChar)
+            ? rootFull
+            : rootFull + Path.DirectorySeparatorChar;
+        var fullPath = Path.GetFullPath(Path.Combine(rootFull, SafeTenant(tenantId), PoolFolder));
+        if (!fullPath.StartsWith(rootWithSeparator, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Chemin de pool PDF résolu hors de la racine de stockage.");
+        }
+
+        return fullPath;
     }
 
     private async Task WriteAsync(string relativePath, Stream content, bool overwrite, CancellationToken cancellationToken)

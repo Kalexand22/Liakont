@@ -48,4 +48,20 @@ public enum DocumentEventType
     /// mise à jour du document émis (DR6 point 2 : toute altération laisse une trace horodatée).
     /// </summary>
     DocumentSourceAlteredAfterIssue,
+
+    /// <summary>
+    /// PDF du pool non lié rapproché AUTOMATIQUEMENT du document (item TRK07, décision
+    /// 2026-06-02) : correspondance de CONFIANCE HAUTE (numéro de document trouvé dans le nom de
+    /// fichier ou le texte du PDF), liée sans intervention. Le PDF rejoint le paquet d'archive en
+    /// addendum chaîné (WORM, TRK05). Événement SYSTÈME (aucun opérateur).
+    /// </summary>
+    DocumentReconciledAuto,
+
+    /// <summary>
+    /// PDF du pool non lié rapproché MANUELLEMENT du document par un opérateur (item TRK07) :
+    /// proposition de confiance moyenne (date + montant) confirmée, ou rattachement manuel
+    /// d'un PDF orphelin. Porte l'identité de l'opérateur. Le PDF rejoint le paquet d'archive en
+    /// addendum chaîné (WORM, TRK05).
+    /// </summary>
+    DocumentReconciledManual,
 }
