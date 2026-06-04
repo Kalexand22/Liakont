@@ -153,14 +153,21 @@ internal sealed class PostgresArchiveEntryStore : IArchiveEntryStore
         DateTimeOffset now = DateTimeOffset.UtcNow;
         if (previousArchivedUtc is not { } previous)
         {
-            return now;
+            // Genèse : tronquer à la microseconde pour que la valeur soit bit-identique à ce que PostgreSQL
+            // restockera et renverra (timestamptz à précision µs — 10 ticks = 1 µs).
+            return Truncate(now);
         }
 
-        // Strictement croissant : au moins 1 microseconde (précision PostgreSQL timestamptz) après la tête,
-        // pour que l'ordre archived_utc reflète exactement l'ordre d'ajout (déterminisme de la chaîne).
+        // Strictement croissant : au moins 1 microseconde (précision PostgreSQL timestamptz) après la tête.
+        // previous est déjà µs-aligné (relu depuis la base). On tronque now avant de comparer, afin que la
+        // valeur écrite ET la valeur relue depuis la base soient bit-identiques (idempotence de rejeu).
         DateTimeOffset floor = previous.AddTicks(10);
-        return now > floor ? now : floor;
+        DateTimeOffset candidate = Truncate(now);
+        return candidate > floor ? candidate : floor;
     }
+
+    private static DateTimeOffset Truncate(DateTimeOffset value) =>
+        new(value.Ticks - (value.Ticks % 10), value.Offset);
 
     private static DateTimeOffset ToUtcOffset(object value)
     {

@@ -122,6 +122,23 @@ public sealed class ArchiveChainIntegrationTests : IDisposable
     }
 
     [Fact]
+    public async Task ArchiveIssuedDocument_IsIdempotent_OnReplay()
+    {
+        Guid documentId = await SeedDocumentAsync("F-2026-001");
+        var request = PackageRequest(documentId, "F-2026-001");
+
+        ArchivePackageResult first = await _service.ArchiveIssuedDocumentAsync(request);
+        ArchivePackageResult second = await _service.ArchiveIssuedDocumentAsync(request);
+
+        second.EntryId.Should().Be(first.EntryId);
+        second.ChainHash.Should().Be(first.ChainHash);
+
+        using var connection = await _connectionFactory.OpenAsync();
+        long count = await connection.QueryFirstAsync<long>("SELECT count(*) FROM documents.archive_entries");
+        count.Should().Be(1);
+    }
+
+    [Fact]
     public async Task ArchivedUtc_IsStrictlyIncreasing_AcrossEntries()
     {
         Guid first = await SeedDocumentAsync("F-2026-001");

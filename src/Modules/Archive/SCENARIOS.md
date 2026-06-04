@@ -20,7 +20,7 @@
 - `S3ArchiveStoreTests` — mapping clé (tenant/chemin) ; Object Lock appliqué SSI la capacité est déclarée ; conflit WORM ; lecture absente → introuvable.
 
 ### Service (INV-ARCHIVE-002, 003, 007, 008)
-- `ArchiveServiceTests` — création de paquet (5 fichiers + manifest), scellement de l'entrée chaînée ; tenant non résolu → exception ; pièce absente sans motif → exception ; addendum chaîné sur le paquet ; vérification intacte d'une chaîne honnête ; **détection d'altération de contenu + cascade** sur l'entrée suivante ; détection d'altération d'addendum ; détection de pièce manquante.
+- `ArchiveServiceTests` — création de paquet (6 fichiers de contenu dont `archive-metadata.json` + manifest), scellement de l'entrée chaînée ; tenant non résolu → exception ; pièce absente sans motif → exception ; addendum chaîné sur le paquet (chemin dérivé du hash de contenu) ; vérification intacte d'une chaîne honnête ; **détection d'altération de contenu + cascade** sur l'entrée suivante ; **détection d'altération des métadonnées d'audit** (`archive-metadata.json`) ; détection d'altération d'addendum ; détection de pièce manquante.
 
 ## Integration (`Liakont.Modules.Archive.Tests.Integration`, PostgreSQL réel + FileSystem réel)
 
@@ -28,6 +28,7 @@ Chaque test tourne sur sa PROPRE base (la table `documents.archive_entries` est 
 possible entre tests ; la chaîne est globale au tenant).
 
 - `ArchiveIssuedDocument_PersistsEntry_InDocumentsArchiveEntries` — la ligne est écrite dans `documents.archive_entries` (document_id, package_path `…/manifest.json`, package_hash, chain_hash). (INV-ARCHIVE-002, 005)
+- `ArchiveIssuedDocument_IsIdempotent_OnReplay` — rejouer la même opération est un no-op : même `EntryId`/`chain_hash`, aucune exception WORM, une seule ligne en base. Garde la régression d'idempotence (précision µs de l'horodatage) invisible au double de test. (INV-ARCHIVE-005)
 - `PackageThenAddendum_ChainsAndVerifiesIntact` — paquet puis addendum chaîné ; `VerifyTenantChainAsync` intact, 2 entrées. (INV-ARCHIVE-003)
 - `ArchiveEntry_Update_IsRejectedByWormTrigger` / `ArchiveEntry_Delete_IsRejectedByWormTrigger` — la garde WORM base (triggers V005) rejette tout UPDATE/DELETE (`PostgresException` « WORM »). (INV-ARCHIVE-001)
 - `VerifyTenantChain_DetectsFileAlteration_OnRealStore` — altération directe sur disque d'une pièce → rapport non intact, contenu invalide. (INV-ARCHIVE-002)

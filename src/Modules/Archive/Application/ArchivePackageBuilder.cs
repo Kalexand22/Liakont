@@ -43,14 +43,18 @@ public static class ArchivePackageBuilder
         AddOptionalPiece(files, absent, "facture-pa", request.PaInvoice, request.PaInvoiceAbsenceReason);
         AddOptionalPiece(files, absent, "bordereau-source", request.SourceDocument, request.SourceDocumentAbsenceReason);
 
+        // Métadonnées d'audit dans un fichier haché (INV-ARCHIVE-002) : mappingTrace + absentPieces couverts par packageHash.
+        byte[] metadataBytes = BuildArchiveMetadataBytes(request.DocumentId, request.DocumentNumber, request.IssueDate, request.MappingTraceJson, absent);
+        files.Add(CreateFile("archive-metadata.json", "application/json", metadataBytes));
+
         string packageHash = PackageHasher.Compute(files.Select(f => new ArchiveFileFingerprint(f.Name, f.Sha256)).ToList());
         return new ArchivePackageContent(files, packageHash, absent);
     }
 
     /// <summary>
     /// Compose le fichier unique d'un addendum et calcule son empreinte (addendum_hash). L'empreinte est
-    /// l'empreinte du CONTENU (indépendante du nom) : le nom de stockage réel n'est connu qu'une fois sous
-    /// verrou (numéro de séquence anti-collision), il ne peut donc pas entrer dans le calcul scellé en amont.
+    /// l'empreinte du CONTENU (indépendante du nom) : le nom de stockage est dérivé de cette empreinte
+    /// (préfixe de hash, anti-collision et déterministe), il ne peut donc pas entrer dans son propre calcul.
     /// </summary>
     public static ArchivePackageContent BuildAddendumContent(ArchiveAddendumRequest request)
     {
@@ -75,8 +79,6 @@ public static class ArchivePackageBuilder
         ArgumentNullException.ThrowIfNull(seal);
 
         var manifest = BaseManifest("package", request.DocumentId, request.DocumentNumber, request.IssueDate, content.PackageHash, content.ContentFiles, seal);
-        manifest["mappingTrace"] = ParseTraceOrNull(request.MappingTraceJson);
-        manifest["absentPieces"] = AbsentPiecesNode(content.AbsentPieces);
         return Serialize(manifest);
     }
 
@@ -140,6 +142,24 @@ public static class ArchivePackageBuilder
         }
 
         return array;
+    }
+
+    private static byte[] BuildArchiveMetadataBytes(
+        Guid documentId,
+        string documentNumber,
+        DateOnly issueDate,
+        string? mappingTraceJson,
+        IReadOnlyList<ArchiveAbsentPiece> absentPieces)
+    {
+        var obj = new JsonObject
+        {
+            ["documentId"] = documentId.ToString(),
+            ["documentNumber"] = documentNumber,
+            ["issueDate"] = issueDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            ["mappingTrace"] = ParseTraceOrNull(mappingTraceJson),
+            ["absentPieces"] = AbsentPiecesNode(absentPieces),
+        };
+        return Encoding.UTF8.GetBytes(obj.ToJsonString(ManifestJsonOptions));
     }
 
     private static JsonArray AbsentPiecesNode(IReadOnlyList<ArchiveAbsentPiece> absentPieces)

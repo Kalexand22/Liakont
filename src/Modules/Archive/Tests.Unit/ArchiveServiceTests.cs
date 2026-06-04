@@ -31,8 +31,8 @@ public sealed class ArchiveServiceTests
         result.ChainHash.Should().Be(HashChain.Next(null, result.PackageHash));
         result.PackagePath.Should().Be(PackageDir + "manifest.json");
 
-        // 5 fichiers de contenu (payload, réponse, html, facture-pa, bordereau) + manifest.
-        _store.ObjectCount.Should().Be(6);
+        // 6 fichiers de contenu (payload, réponse, html, facture-pa, bordereau, archive-metadata) + manifest.
+        _store.ObjectCount.Should().Be(7);
         _entryStore.Records.Should().ContainSingle();
     }
 
@@ -145,6 +145,21 @@ public sealed class ArchiveServiceTests
         await service.ArchiveIssuedDocumentAsync(ArchiveTestData.PackageRequest());
 
         _store.Remove(ArchiveTestData.Tenant, PackageDir + "payload.json");
+
+        ArchiveIntegrityReport report = await service.VerifyTenantChainAsync();
+
+        report.IsIntact.Should().BeFalse();
+        report.Entries[0].ContentValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task VerifyTenantChain_DetectsMetadataAlteration()
+    {
+        ArchiveService service = CreateService();
+        await service.ArchiveIssuedDocumentAsync(ArchiveTestData.PackageRequest());
+
+        // Altération de archive-metadata.json (contourne le produit, attaquant backend).
+        _store.Tamper(ArchiveTestData.Tenant, PackageDir + "archive-metadata.json", Encoding.UTF8.GetBytes("{\"mappingTrace\":\"FAUX\"}"));
 
         ArchiveIntegrityReport report = await service.VerifyTenantChainAsync();
 

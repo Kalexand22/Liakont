@@ -45,22 +45,34 @@ public sealed class FileSystemArchiveStore : IArchiveStore
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-
+        string tempPath = fullPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            await using (var stream = new FileStream(fullPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            await using (var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
                 await stream.WriteAsync(content, cancellationToken);
             }
-        }
-        catch (IOException) when (File.Exists(fullPath))
-        {
-            // Course perdue contre une écriture concurrente : idempotent si contenu identique, conflit sinon.
-            await EnsureIdenticalOrConflictAsync(fullPath, relativePath, content, cancellationToken);
-            return;
-        }
 
-        File.SetAttributes(fullPath, FileAttributes.ReadOnly);
+            try
+            {
+                File.Move(tempPath, fullPath); // atomique sur le même volume ; jamais de fichier partiel au chemin canonique
+            }
+            catch (IOException) when (File.Exists(fullPath))
+            {
+                // Course perdue : une autre écriture a posé le fichier — idempotent si identique, conflit sinon.
+                await EnsureIdenticalOrConflictAsync(fullPath, relativePath, content, cancellationToken);
+                return; // le finally nettoie le temp
+            }
+
+            File.SetAttributes(fullPath, FileAttributes.ReadOnly);
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                File.Delete(tempPath);
+            }
+        }
     }
 
     public Task<bool> ExistsAsync(string tenant, string relativePath, CancellationToken cancellationToken = default)

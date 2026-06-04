@@ -240,6 +240,13 @@ public sealed class ArchiveService : IArchiveService
             var entry = new ArchiveIntegrityEntry(record.EntryId, record.DocumentId, record.PackagePath, ContentValid: false, ChainValid: false, $"Manifest illisible : {jsonError.Message}");
             return new VerifiedEntry(entry, recomputedChain);
         }
+        catch (ArgumentException)
+        {
+            // Manifest sans fichier (liste vide) : PackageHasher.Compute ne peut pas s'exécuter — entrée altérée.
+            string recomputedChain = HashChain.Next(recomputedPreviousChain, "emptyfiles:" + record.EntryId.ToString("N"));
+            var entry = new ArchiveIntegrityEntry(record.EntryId, record.DocumentId, record.PackagePath, ContentValid: false, ChainValid: false, $"Manifest sans fichier : entrée altérée ({record.PackagePath}).");
+            return new VerifiedEntry(entry, recomputedChain);
+        }
     }
 
     private string RequireTenant()
