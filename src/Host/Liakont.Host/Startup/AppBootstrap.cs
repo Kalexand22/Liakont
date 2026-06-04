@@ -15,6 +15,7 @@ using Liakont.Host.Security;
 using Liakont.Host.Security.Abstractions;
 using Liakont.Host.Security.Keycloak;
 using Liakont.Host.Services;
+using Liakont.Modules.Archive.Infrastructure;
 using Liakont.Modules.Documents.Infrastructure;
 using Liakont.Modules.Ingestion.Application;
 using Liakont.Modules.Ingestion.Infrastructure;
@@ -116,6 +117,10 @@ public static class AppBootstrap
         // Documents utilise Replace — la vraie implémentation gagne toujours). Conservé après Ingestion
         // pour la lisibilité du registre.
         builder.Services.AddDocumentsModule();
+
+        // Archive (TRK05) après Documents : alimente documents.archive_entries (table créée par TRK01).
+        // Store par défaut = FileSystem (appliance) ; une instance choisit S3 via AddS3ArchiveStore (ADR-0009).
+        builder.Services.AddArchiveModule(builder.Configuration);
 
         // Stockage des PDF reçus (PIV04) : chemin racine = PARAMÉTRAGE de déploiement (jamais en dur,
         // CLAUDE.md n°7). Lié depuis la config ; à défaut, repli sous le content root de l'instance.

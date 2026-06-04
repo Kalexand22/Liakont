@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.Archive.Tests.Unit" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.S3" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.Archive.Domain.csproj" />
+  </ItemGroup>
+</Project>

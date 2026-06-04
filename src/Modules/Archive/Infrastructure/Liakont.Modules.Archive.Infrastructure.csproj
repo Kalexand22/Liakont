@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.Archive.Tests.Unit" />
+    <InternalsVisibleTo Include="Liakont.Modules.Archive.Tests.Integration" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.Archive.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.Archive.Application.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.Archive.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

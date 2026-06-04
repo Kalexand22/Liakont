@@ -47,6 +47,8 @@
     <PackageVersion Include="QuestPDF" Version="2024.12.3" />
     <!-- Cron expression parsing -->
     <PackageVersion Include="Cronos" Version="0.8.4" />
+    <!-- Coffre d'archive S3-compatible (ADR-0009) — plug-in Stores.S3 uniquement -->
+    <PackageVersion Include="AWSSDK.S3" Version="4.0.24" />
     <!-- GIS spatial operations (ADR-0016) -->
     <PackageVersion Include="NetTopologySuite" Version="2.6.0" />
     <PackageVersion Include="NetTopologySuite.IO.GeoJSON4STJ" Version="4.0.0" />
