@@ -9,7 +9,7 @@ repris du projet Stratum :
 
 ```
 liakont-orchestration/    ← Dépôt d'état central ($ORCH_REPO)
-  ├── config.yaml             max_parallel: 3
+  ├── config.yaml             max_parallel: 2
   ├── state.yaml              Statuts des items (runtime, versionné git)
   ├── events.jsonl            Journal d'audit append-only
   ├── leases/                 slot-N.yaml (verrous d'agents, TTL = lease_duration_minutes)
@@ -27,7 +27,7 @@ Liakont/                  ← Dépôt source (ce dépôt) — slot-1
   │   └── settings.json       ORCH_REPO=C:\Source\liakont-orchestration
   └── src/, tests/, docs/     Le produit
 
-Liakont2/, Liakont3/    ← Clones pour le parallélisme (slots 2 et 3)
+Liakont2/                 ← Clone pour le parallélisme (slot 2)
 ```
 
 ## Cycle de vie d'un item
