@@ -23,7 +23,13 @@ public sealed class StructureRule : IDocumentRule
     /// <summary>Devise absente ou hors ISO 4217.</summary>
     public const string CurrencyInvalidCode = "DOC_CURRENCY_INVALID";
 
-    /// <summary>Date plancher en deçà de laquelle une date d'émission est jugée invraisemblable (alerte).</summary>
+    /// <summary>
+    /// Date plancher en deçà de laquelle une date d'émission est jugée invraisemblable (ALERTE, non
+    /// bloquant). Seuil = 1er janvier 2000, repris du backlog VAL03 (orchestration/items/VAL.yaml,
+    /// « pas avant 2000 ») et tracé dans docs/conception/F04 §3.3 (note du 2026-06-04). C'est une borne
+    /// d'invraisemblance TECHNIQUE (date manifestement erronée / non initialisée), distincte du cas
+    /// « rattrapage légitime » de la décision F04 #4 qui reste une simple alerte.
+    /// </summary>
     private static readonly DateTime MinPlausibleDate = new(2000, 1, 1);
 
     private readonly TimeProvider _timeProvider;
@@ -55,13 +61,18 @@ public sealed class StructureRule : IDocumentRule
                 "Document.Lines est vide."));
         }
 
-        var today = _timeProvider.GetUtcNow().UtcDateTime.Date;
-        if (document.IssueDate.Date > today)
+        // Marge d'un jour pour absorber l'écart de fuseau : les dates d'émission sont des dates civiles
+        // locales (ERP français, UTC+1/+2, donc en avance sur UTC). Sans marge, un document daté du jour
+        // même (heure locale) près de minuit serait vu « dans le futur » face à la date UTC et BLOQUÉ à
+        // tort. On ne bloque donc que les dates strictement au-delà de demain (J+2 et plus). Le contrôle
+        // reste BLOQUANT (sévérité inchangée) ; seule la borne tolère le décalage de fuseau.
+        var futureThreshold = _timeProvider.GetUtcNow().UtcDateTime.Date.AddDays(1);
+        if (document.IssueDate.Date > futureThreshold)
         {
             issues.Add(ValidationIssue.Blocking(
                 DateInFutureCode,
                 $"La date d'émission du document n° {document.Number} ({RuleMessageFormat.FormatDate(document.IssueDate)}) est dans le futur. Corrigez la date dans le logiciel source avant l'envoi.",
-                $"IssueDate = {RuleMessageFormat.FormatDate(document.IssueDate)} > aujourd'hui ({RuleMessageFormat.FormatDate(today)}).",
+                $"IssueDate = {RuleMessageFormat.FormatDate(document.IssueDate)} > seuil futur toléré ({RuleMessageFormat.FormatDate(futureThreshold)}, = demain UTC pour absorber le fuseau).",
                 "BT-2"));
         }
         else if (document.IssueDate < MinPlausibleDate)

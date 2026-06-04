@@ -63,6 +63,8 @@ Classés en **🛑 Bloquant** (pas d'envoi) / **⚠️ Alerte** (envoi possible,
 | Date présente et plausible (pas dans le futur, pas absurde) | 🛑 / ⚠️ | futur = 🛑 ; très ancienne = ⚠️ |
 | Devise = ISO 4217 valide | 🛑 | défaut EUR |
 
+> **Précision (2026-06-04 — VAL03)** : le seuil « date invraisemblablement ancienne » (⚠️ alerte de la ligne ci-dessus) est fixé à **antérieure au 1er janvier 2000**, conformément au backlog `orchestration/items/VAL.yaml` (VAL03, « pas avant 2000 »). C'est une borne d'invraisemblance **technique** (date manifestement erronée ou non initialisée), distincte du cas « rattrapage légitime » de la décision #4 (§6) — qui reste une simple alerte sans seuil chiffré. Aucune incidence fiscale (seuil non chiffré au sens TVA/CA). La détection « date dans le futur » (🛑) tolère un jour de marge pour absorber l'écart de fuseau horaire (dates civiles locales d'un ERP français vs date UTC) — voir `StructureRule`.
+
 ### 3.4 TVA / mapping (lien avec F3)
 | Contrôle | Niveau | Détail |
 |---|---|---|

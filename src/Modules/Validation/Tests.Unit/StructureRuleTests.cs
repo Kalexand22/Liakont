@@ -55,6 +55,29 @@ public sealed class StructureRuleTests
     }
 
     [Fact]
+    public async Task Issue_date_tomorrow_is_tolerated_by_timezone_margin()
+    {
+        // J+1 (heure UTC) reste toléré : marge d'un jour pour l'écart de fuseau (ERP français en avance sur UTC).
+        var context = TestDoc.Context(issueDate: Now.UtcDateTime.Date.AddDays(1));
+
+        var issues = await _rule.ValidateAsync(context);
+
+        issues.Should().NotContain(i => i.Code == StructureRule.DateInFutureCode);
+    }
+
+    [Fact]
+    public async Task Issue_date_two_days_ahead_is_blocking()
+    {
+        // J+2 dépasse la marge de fuseau : c'est une vraie date future -> BLOQUANT.
+        var context = TestDoc.Context(issueDate: Now.UtcDateTime.Date.AddDays(2));
+
+        var issues = await _rule.ValidateAsync(context);
+
+        issues.Should().ContainSingle(i => i.Code == StructureRule.DateInFutureCode)
+            .Which.Severity.Should().Be(ValidationSeverity.Blocking);
+    }
+
+    [Fact]
     public async Task Very_old_issue_date_is_a_warning()
     {
         var context = TestDoc.Context(issueDate: new DateTime(1999, 12, 31));
