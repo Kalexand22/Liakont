@@ -15,6 +15,7 @@ using Liakont.Host.Security;
 using Liakont.Host.Security.Abstractions;
 using Liakont.Host.Security.Keycloak;
 using Liakont.Host.Services;
+using Liakont.Modules.Ingestion.Application;
 using Liakont.Modules.Ingestion.Infrastructure;
 using Liakont.Modules.TenantSettings.Infrastructure;
 using MediatR;
@@ -108,6 +109,18 @@ public static class AppBootstrap
         builder.Services.AddTenantSettingsModule();
         builder.Services.AddIngestionModule();
 
+        // Stockage des PDF reçus (PIV04) : chemin racine = PARAMÉTRAGE de déploiement (jamais en dur,
+        // CLAUDE.md n°7). Lié depuis la config ; à défaut, repli sous le content root de l'instance.
+        builder.Services.Configure<IngestionStorageOptions>(
+            builder.Configuration.GetSection(IngestionStorageOptions.SectionName));
+        builder.Services.PostConfigure<IngestionStorageOptions>(opts =>
+        {
+            if (string.IsNullOrWhiteSpace(opts.PdfRootPath))
+            {
+                opts.PdfRootPath = System.IO.Path.Combine(builder.Environment.ContentRootPath, "App_Data", "ingestion-pdf");
+            }
+        });
+
         // Rate limiting de l'API agent (F12 §3.3) — défense en profondeur, PROTECTION ANTI-FLOOD : le
         // vrai rempart contre le brute force est la clé cryptographique (secret 256 bits) + la
         // révocation ; un secret ne se devine pas par volume de requêtes. La fenêtre fixe par IP est
@@ -129,6 +142,21 @@ public static class AppBootstrap
                     factory: _ => new FixedWindowRateLimiterOptions
                     {
                         PermitLimit = 600,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                    }));
+
+            // Policy d'INGESTION (PIV04) : le drainage d'un backlog pousse des lots en rafale ; la
+            // limite est dimensionnée pour le DÉBIT (et non l'anti-flood) afin de ne jamais rejeter un
+            // drainage légitime. Le vrai rempart anti-brute-force reste la clé cryptographique + le
+            // filtre d'authentification (déjà appliqués au groupe). Même réserve « derrière proxy »
+            // que la policy anti-flood : sans ForwardedHeaders, la fenêtre dégrade en throttle global.
+            options.AddPolicy(AgentApiEndpoints.IngestionRateLimiterPolicy, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 1200,
                         Window = TimeSpan.FromMinutes(1),
                         QueueLimit = 0,
                     }));

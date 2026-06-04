@@ -75,7 +75,7 @@ enum/champ-optionnel du sérialiseur cross-runtime ; l'agent lui-même ne rempli
 
 | DTO | Champs |
 |---|---|
-| `PushBatchRequestDto` | `ContractVersion`, `Documents` (liste de `PivotDocumentDto`). |
+| `PushBatchRequestDto` | `ContractVersion`, `Documents` (liste de `PivotDocumentDto`), `SourceTaxRegimes` (liste de `SourceTaxRegimeDto` — métadonnée de push, ajout add-only §4.1, optionnel/en fin de DTO, enveloppe non hashée). |
 | `PushBatchResponseDto` | `Results` (liste de `DocumentPushResultDto`). |
 | `DocumentPushResultDto` | `SourceReference`, `Status` (`Accepted`/`Duplicate`/`Rejected`), `Reason?`. |
 | `HeartbeatRequestDto` | `ContractVersion`, `AgentVersion`, `SentAtUtc`, `LastSuccessfulSyncUtc?`. |

@@ -9,8 +9,10 @@ using Liakont.Modules.Ingestion.Infrastructure.Handlers.Queries;
 using Liakont.Modules.Ingestion.Infrastructure.Queries;
 using Liakont.Modules.Ingestion.Tests.Integration.Doubles;
 using Liakont.Modules.Ingestion.Tests.Integration.Fixtures;
+using Microsoft.Extensions.Logging.Abstractions;
 using Stratum.Common.Abstractions.MultiTenancy;
 using Stratum.Common.Infrastructure.Database;
+using Stratum.Common.Infrastructure.Outbox;
 
 /// <summary>
 /// Assemble les vraies dépendances du module (UoW système, authentificateur, requêtes, fournisseur de
@@ -27,6 +29,14 @@ internal sealed class IngestionHarness
         Queries = new PostgresAgentQueries(ConnectionFactory);
         ConfigurationProvider = new SafeDefaultAgentConfigurationProvider();
         TenantContext = new TestTenantContext(tenantId);
+
+        // Réception (PIV04) : vrai outbox writer (écrit dans outbox.pending_events de la même base),
+        // registre de réception, régimes source, et espion du port de création de document.
+        var outboxWriter = new OutboxWriter(NullLogger<OutboxWriter>.Instance);
+        ReceivedDocumentUowFactory = new PostgresReceivedDocumentUnitOfWorkFactory(ConnectionFactory, outboxWriter);
+        SourceTaxRegimeWriter = new PostgresSourceTaxRegimeWriter(ConnectionFactory);
+        SourceTaxRegimeQueries = new PostgresSourceTaxRegimeQueries(ConnectionFactory);
+        DocumentIntake = new RecordingDocumentIntake();
     }
 
     public string TenantId { get; }
@@ -54,4 +64,14 @@ internal sealed class IngestionHarness
     public GetAgentsHandler AgentsHandler => new(Queries, TenantContext);
 
     public GetAgentConfigurationHandler ConfigurationHandler => new(ConfigurationProvider);
+
+    public IReceivedDocumentUnitOfWorkFactory ReceivedDocumentUowFactory { get; }
+
+    public ISourceTaxRegimeWriter SourceTaxRegimeWriter { get; }
+
+    public ISourceTaxRegimeQueries SourceTaxRegimeQueries { get; }
+
+    public RecordingDocumentIntake DocumentIntake { get; }
+
+    public IngestDocumentBatchHandler BatchHandler => new(ReceivedDocumentUowFactory, SourceTaxRegimeWriter, DocumentIntake);
 }

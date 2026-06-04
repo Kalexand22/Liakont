@@ -47,6 +47,29 @@ public sealed class TransportDtoTests
     }
 
     [Fact]
+    public void PushBatchRequest_Should_Default_SourceTaxRegimes_To_Empty()
+    {
+        // Compatibilité add-only (contrat §4.1) : un agent N-1 qui omet le champ obtient une
+        // collection vide, jamais null — la plateforme traite l'absence comme « aucun régime transmis ».
+        var request = new PushBatchRequestDto("1");
+
+        request.SourceTaxRegimes.Should().NotBeNull();
+        request.SourceTaxRegimes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void PushBatchRequest_Should_Carry_SourceTaxRegimes_Metadata()
+    {
+        var request = new PushBatchRequestDto(
+            "1",
+            documents: null,
+            sourceTaxRegimes: new[] { new SourceTaxRegimeDto(code: "20", label: "Taux normal", occurrences: 7) });
+
+        request.SourceTaxRegimes.Should().ContainSingle()
+            .Which.Code.Should().Be("20");
+    }
+
+    [Fact]
     public void PushBatchResponse_Should_Carry_Per_Document_Results()
     {
         var response = new PushBatchResponseDto(new[]
