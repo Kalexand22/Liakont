@@ -151,30 +151,36 @@ public sealed class CanonicalJsonRulesTests
     public void All_public_properties_of_every_pivot_dto_appear_as_json_keys_in_fully_populated_document()
     {
         string json = CanonicalJson.Serialize(BuildFullyPopulated());
+        var root = ContractTests.PivotCanonicalReader.ParseToMap(json);
 
-        var pivotDtoTypes = new[]
-        {
-            typeof(PivotDocumentDto),
-            typeof(PivotPartyDto),
-            typeof(PivotAddressDto),
-            typeof(PivotTotalsDto),
-            typeof(PivotLineDto),
-            typeof(PivotLineTaxDto),
-            typeof(PivotDocumentRefDto),
-            typeof(PivotPaymentDto),
-            typeof(PivotDocumentChargeDto),
-        };
+        AssertAllPropertiesArePresent(root, typeof(PivotDocumentDto));
+        var supplier = Child(root, "Supplier");
+        AssertAllPropertiesArePresent(supplier, typeof(PivotPartyDto));
+        AssertAllPropertiesArePresent(Child(supplier, "Address"), typeof(PivotAddressDto));
+        AssertAllPropertiesArePresent(Child(root, "Totals"), typeof(PivotTotalsDto));
+        var line = Element(root, "Lines", 0);
+        AssertAllPropertiesArePresent(line, typeof(PivotLineDto));
+        AssertAllPropertiesArePresent(Element(line, "Taxes", 0), typeof(PivotLineTaxDto));
+        AssertAllPropertiesArePresent(Element(root, "CreditNoteRefs", 0), typeof(PivotDocumentRefDto));
+        AssertAllPropertiesArePresent(Element(root, "Payments", 0), typeof(PivotPaymentDto));
+        AssertAllPropertiesArePresent(Element(root, "DocumentCharges", 0), typeof(PivotDocumentChargeDto));
+    }
 
-        foreach (Type dtoType in pivotDtoTypes)
+    private static void AssertAllPropertiesArePresent(IDictionary<string, object?> node, Type dtoType)
+    {
+        foreach (PropertyInfo property in dtoType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
-            foreach (PropertyInfo property in dtoType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
-            {
-                json.Should().Contain(
-                    $"\"{property.Name}\"",
-                    $"la propriété {dtoType.Name}.{property.Name} doit apparaître comme clé JSON dans le document entièrement peuplé");
-            }
+            node.Keys.Should().Contain(
+                property.Name,
+                $"la propriété {dtoType.Name}.{property.Name} doit être une clé de SON objet JSON (complétude par-DTO : anti-doublon PIV04 / détection d'altération TRK03)");
         }
     }
+
+    private static IDictionary<string, object?> Child(IDictionary<string, object?> node, string key) =>
+        (IDictionary<string, object?>)node[key]!;
+
+    private static IDictionary<string, object?> Element(IDictionary<string, object?> node, string key, int index) =>
+        (IDictionary<string, object?>)((List<object?>)node[key]!)[index]!;
 
     private static PivotDocumentDto BuildFullyPopulated()
     {

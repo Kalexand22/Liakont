@@ -37,6 +37,20 @@ public static class PivotCanonicalReader
         return BuildDocument(root);
     }
 
+    /// <summary>Désérialise le JSON canonique en arbre générique (objets, tableaux, valeurs) pour
+    /// inspection structurelle par les tests (clés par nœud).</summary>
+    /// <param name="json">Le JSON canonique.</param>
+    /// <returns>L'objet racine sous forme de dictionnaire clé → valeur.</returns>
+    public static IDictionary<string, object?> ParseToMap(string json)
+    {
+        if (json is null)
+        {
+            throw new ArgumentNullException(nameof(json));
+        }
+
+        return (IDictionary<string, object?>)new Parser(json).ParseValue()!;
+    }
+
     private static PivotDocumentDto BuildDocument(IDictionary<string, object?> map)
     {
         return new PivotDocumentDto(
