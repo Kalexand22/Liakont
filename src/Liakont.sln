@@ -163,6 +163,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.Tests.E2E", "..\tes
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.Host.Tests.Unit", "..\tests\Host\Liakont.Host.Tests.Unit\Liakont.Host.Tests.Unit.csproj", "{A577F108-450E-438E-919A-D2D048311365}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.Agent.Contracts.Tests.Unit", "..\tests\Contracts\Liakont.Agent.Contracts.Tests.Unit\Liakont.Agent.Contracts.Tests.Unit.csproj", "{D2AD6A10-7FEF-4833-901E-05B0F4B9240B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -653,6 +655,18 @@ Global
 		{A577F108-450E-438E-919A-D2D048311365}.Release|x64.Build.0 = Release|Any CPU
 		{A577F108-450E-438E-919A-D2D048311365}.Release|x86.ActiveCfg = Release|Any CPU
 		{A577F108-450E-438E-919A-D2D048311365}.Release|x86.Build.0 = Release|Any CPU
+		{D2AD6A10-7FEF-4833-901E-05B0F4B9240B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D2AD6A10-7FEF-4833-901E-05B0F4B9240B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D2AD6A10-7FEF-4833-901E-05B0F4B9240B}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D2AD6A10-7FEF-4833-901E-05B0F4B9240B}.Debug|x64.Build.0 = Debug|Any CPU
+		{D2AD6A10-7FEF-4833-901E-05B0F4B9240B}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D2AD6A10-7FEF-4833-901E-05B0F4B9240B}.Debug|x86.Build.0 = Debug|Any CPU
+		{D2AD6A10-7FEF-4833-901E-05B0F4B9240B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D2AD6A10-7FEF-4833-901E-05B0F4B9240B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D2AD6A10-7FEF-4833-901E-05B0F4B9240B}.Release|x64.ActiveCfg = Release|Any CPU
+		{D2AD6A10-7FEF-4833-901E-05B0F4B9240B}.Release|x64.Build.0 = Release|Any CPU
+		{D2AD6A10-7FEF-4833-901E-05B0F4B9240B}.Release|x86.ActiveCfg = Release|Any CPU
+		{D2AD6A10-7FEF-4833-901E-05B0F4B9240B}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
