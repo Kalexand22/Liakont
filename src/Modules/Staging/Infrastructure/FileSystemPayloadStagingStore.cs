@@ -78,7 +78,17 @@ public sealed class FileSystemPayloadStagingStore : IPayloadStagingStore
 
             // Renommage atomique (même volume) : jamais de fichier partiel au chemin canonique. Idempotent
             // sur la clé — ré-écrire le même contenu logique remplace proprement (filet de sécurité au renvoi).
-            File.Move(tempPath, fullPath, overwrite: true);
+            try
+            {
+                File.Move(tempPath, fullPath, overwrite: true);
+            }
+            catch (IOException) when (File.Exists(fullPath))
+            {
+                // Course perdue avec une écriture concurrente de la MÊME clé (même payload_hash → même chemin,
+                // donc contenu logiquement identique par adressage de contenu) : le fichier canonique est déjà
+                // en place avec le bon contenu → no-op idempotent (aligné sur FileSystemArchiveStore). Le bloc
+                // finally nettoie le fichier temporaire.
+            }
         }
         finally
         {
@@ -111,7 +121,8 @@ public sealed class FileSystemPayloadStagingStore : IPayloadStagingStore
         }
         catch (CryptographicException ex)
         {
-            // Blob altéré : l'authentification AEAD du chiffrement échoue → rejet d'intégrité.
+            // Déchiffrement/AEAD échoué : cause indistinguable ici entre altération du blob chiffré ET clé Data
+            // Protection indisponible (rotation/éphémère) → rejet d'intégrité (cf. StagedPayloadIntegrityException.Undecryptable ; routage PIP01).
             throw StagedPayloadIntegrityException.Undecryptable(key, ex);
         }
 
