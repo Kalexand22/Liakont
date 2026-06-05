@@ -97,6 +97,27 @@ public class AgentConfigLoaderTests
     }
 
     [Fact]
+    public void Cleartext_http_platform_url_is_rejected()
+    {
+        const string json = @"{ ""platformUrl"": ""http://liakont.editeur-x.fr"", ""apiKey"": ""k"", ""extraction"": { ""adapter"": ""Fixture"" } }";
+
+        Action act = () => AgentConfigLoader.Parse(json, "agent.json");
+
+        act.Should().Throw<AgentConfigException>("http en clair exposerait la clé API et les données fiscales (F12 §2.6)")
+            .Which.Errors.Should().Contain(e => e.Contains("platformUrl"));
+    }
+
+    [Fact]
+    public void Loopback_http_platform_url_is_accepted_for_diagnostics()
+    {
+        const string json = @"{ ""platformUrl"": ""http://localhost:5000"", ""apiKey"": ""k"", ""extraction"": { ""adapter"": ""Fixture"" } }";
+
+        AgentConfig config = AgentConfigLoader.Parse(json, "agent.json");
+
+        config.PlatformUrl.Should().Be("http://localhost:5000");
+    }
+
+    [Fact]
     public void Missing_api_key_is_reported()
     {
         const string json = @"{ ""platformUrl"": ""https://x.fr"", ""extraction"": { ""adapter"": ""Fixture"" } }";

@@ -9,12 +9,19 @@ using Liakont.Agent.Core.Time;
 /// <summary>
 /// Journal fichiers de l'agent : un fichier par jour (<c>yyyy-MM-dd_agent.log</c>) dans le répertoire
 /// fourni, lignes horodatées et lisibles, rotation à <see cref="RetentionDays"/> jours. Thread-safe
-/// (service + écritures concurrentes). L'horloge est injectée pour rendre datation et rotation testables.
+/// (intra-process) et tolérant à l'écriture CONCURRENTE cross-process (service LocalSystem + CLI
+/// intégrateur écrivent dans le même fichier journalier : ouverture en partage ReadWrite). L'écriture
+/// est BEST-EFFORT : un échec d'E/S (violation de partage, disque plein, ACL) ne lève jamais — la
+/// journalisation de diagnostic ne doit pas faire tomber l'hôte de l'agent. L'horloge est injectée
+/// pour rendre datation et rotation testables.
 /// </summary>
 public sealed class FileAgentLog : IAgentLog
 {
     /// <summary>Rétention des fichiers de journal, en jours (F12 §2).</summary>
     public const int RetentionDays = 90;
+
+    // UTF-8 sans BOM : l'append ne doit pas réinsérer un préambule à chaque ligne.
+    private static readonly Encoding _utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
     private readonly string _directory;
     private readonly IClock _clock;
@@ -57,16 +64,34 @@ public sealed class FileAgentLog : IAgentLog
 
         lock (_sync)
         {
-            Directory.CreateDirectory(_directory);
-            string file = Path.Combine(_directory, now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + "_agent.log");
-            File.AppendAllText(file, line.ToString() + Environment.NewLine, Encoding.UTF8);
-
-            // Purge au plus une fois par jour UTC (pas à chaque ligne) : évite d'énumérer le
-            // répertoire sur le chemin chaud, notamment lors d'une rafale d'erreurs.
-            if (now.Date != _lastPurgeDateUtc)
+            try
             {
-                PurgeOldFiles(now);
-                _lastPurgeDateUtc = now.Date;
+                Directory.CreateDirectory(_directory);
+                string file = Path.Combine(_directory, now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + "_agent.log");
+
+                // Append en partage ReadWrite : tolère les écritures concurrentes service/CLI sur
+                // le même fichier (sinon violation de partage → IOException).
+                using (var stream = new FileStream(file, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
+                using (var writer = new StreamWriter(stream, _utf8NoBom))
+                {
+                    writer.WriteLine(line.ToString());
+                }
+
+                // Purge au plus une fois par jour UTC (pas à chaque ligne) : évite d'énumérer le
+                // répertoire sur le chemin chaud, notamment lors d'une rafale d'erreurs.
+                if (now.Date != _lastPurgeDateUtc)
+                {
+                    PurgeOldFiles(now);
+                    _lastPurgeDateUtc = now.Date;
+                }
+            }
+            catch (IOException)
+            {
+                // Best-effort : un échec d'écriture (partage, disque plein) ne fait pas tomber l'hôte.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Best-effort : une ACL insuffisante n'interrompt pas l'agent pour un échec de log.
             }
         }
     }

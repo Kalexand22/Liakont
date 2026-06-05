@@ -66,10 +66,9 @@ public static class AgentConfigLoader
         {
             errors.Add("Le champ « platformUrl » est absent. Indiquez l'URL HTTPS de la plateforme (ex. https://liakont.editeur-x.fr).");
         }
-        else if (!Uri.TryCreate(dto.PlatformUrl, UriKind.Absolute, out Uri? uri) ||
-                 (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp))
+        else if (!Uri.TryCreate(dto.PlatformUrl, UriKind.Absolute, out Uri? uri) || !IsSecurePlatformUri(uri))
         {
-            errors.Add($"Le champ « platformUrl » (« {dto.PlatformUrl} ») n'est pas une URL HTTP(S) absolue valide. Corrigez-le (ex. https://liakont.editeur-x.fr).");
+            errors.Add($"Le champ « platformUrl » (« {dto.PlatformUrl} ») doit être une URL HTTPS absolue (http n'est toléré que sur la boucle locale, pour le diagnostic). Corrigez-le (ex. https://liakont.editeur-x.fr).");
         }
 
         if (string.IsNullOrWhiteSpace(dto.ApiKey))
@@ -144,6 +143,19 @@ public static class AgentConfigLoader
             string.IsNullOrWhiteSpace(extraction.PdfPoolPath) ? null : extraction.PdfPoolPath!.Trim(),
             schedule,
             extraction.CatchUpOnStart ?? false);
+    }
+
+    // HTTPS sortant uniquement (F12 §2.6) : la clé API (header X-Agent-Key) et les payloads fiscaux
+    // ne doivent jamais transiter en clair (CLAUDE.md n°10). http n'est toléré que sur la boucle
+    // locale (diagnostic / démo Liakont.Host local) — un trafic loopback ne quitte jamais la machine.
+    private static bool IsSecurePlatformUri(Uri uri)
+    {
+        if (uri.Scheme == Uri.UriSchemeHttps)
+        {
+            return true;
+        }
+
+        return uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback;
     }
 
     // DTO de désérialisation (tolérant : tous les champs nullables, validés ensuite). Privé : la
