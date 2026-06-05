@@ -29,6 +29,8 @@ public sealed class AutoUpdateCoordinator : IAutoUpdateService
 
     private int _inProgress;
     private int _pushUpgradeRequired;
+    private string? _currentRequestKey;
+    private string? _lastRefusalKey;
 
     /// <summary>Crée un coordinateur d'auto-update.</summary>
     /// <param name="packageSource">Source de téléchargement (manifeste + paquet).</param>
@@ -132,6 +134,17 @@ public sealed class AutoUpdateCoordinator : IAutoUpdateService
         string? attemptDir = null;
         try
         {
+            _currentRequestKey = (configuration.UpdateUrl ?? string.Empty) + "|" + (configuration.VersionManifestSignature ?? string.Empty);
+
+            // Dédup : updateRequired persiste tant que la plateforme n'a pas vu la nouvelle version. Une demande
+            // IDENTIQUE déjà traitée de façon terminale (refus, ou "déjà à jour") n'est ni re-téléchargée ni
+            // re-journalisée à chaque heartbeat ; on attend un manifeste corrigé (clé = updateUrl|signature).
+            if (string.Equals(_currentRequestKey, _lastRefusalKey, StringComparison.Ordinal))
+            {
+                Interlocked.Exchange(ref _pushUpgradeRequired, 0);
+                return new AutoUpdateResult(AutoUpdateOutcome.AlreadyHandled, "Demande de mise à jour inchangée et déjà traitée — aucun nouveau téléchargement (en attente d'un manifeste corrigé).");
+            }
+
             if (string.IsNullOrWhiteSpace(configuration.UpdateUrl))
             {
                 return Signal(AutoUpdateOutcome.NoManifestUrl, null, false, "Mise à jour requise mais aucune URL de manifeste fournie par la plateforme.");
@@ -281,6 +294,13 @@ public sealed class AutoUpdateCoordinator : IAutoUpdateService
         }
 
         _statusStore.Record(new AutoUpdateStatus(version, outcome.ToString(), succeeded, message, _clock.UtcNow));
+
+        // Mémorise la demande comme TERMINALE (sauf le différé, qui doit réessayer au cycle suivant) pour la dédup.
+        if (outcome != AutoUpdateOutcome.DeferredRunInProgress)
+        {
+            _lastRefusalKey = _currentRequestKey;
+        }
+
         return new AutoUpdateResult(outcome, message, version);
     }
 }

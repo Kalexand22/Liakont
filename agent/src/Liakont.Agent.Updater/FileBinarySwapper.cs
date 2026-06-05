@@ -6,6 +6,9 @@ using System.IO;
 /// Remplacement réel des binaires par copie de fichiers (ADR-0013). L'updater tourne depuis un dossier
 /// SÉPARÉ : le service étant arrêté, les binaires du dossier d'installation ne sont plus chargés et
 /// peuvent être écrasés. La sauvegarde conserve l'ancienne version pour le rollback.
+/// Le paquet de mise à jour est un ENSEMBLE COMPLET auto-suffisant (contrat de packaging du poste de release,
+/// ADR-0013) : le remplacement est une copie par-dessus, il ne tente pas de mirroring du dossier
+/// d'installation (qui risquerait de supprimer des fichiers co-localisés).
 /// </summary>
 public sealed class FileBinarySwapper : IBinarySwapper
 {

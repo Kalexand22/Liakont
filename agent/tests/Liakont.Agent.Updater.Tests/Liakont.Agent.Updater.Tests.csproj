@@ -16,6 +16,7 @@
 
   <!-- Teste le moteur de l'updater (séquence swap + rollback) avec des coutures mockées. -->
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Liakont.Agent.Core\Liakont.Agent.Core.csproj" />
     <ProjectReference Include="..\..\src\Liakont.Agent.Updater\Liakont.Agent.Updater.csproj" />
   </ItemGroup>
 

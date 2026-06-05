@@ -41,4 +41,7 @@ public enum AutoUpdateOutcome
 
     /// <summary>Une mise à jour est déjà en cours dans ce processus (garde de ré-entrance).</summary>
     AlreadyInProgress = 11,
+
+    /// <summary>Demande identique déjà traitée/refusée — court-circuitée (ni re-téléchargement, ni re-journalisation).</summary>
+    AlreadyHandled = 12,
 }
