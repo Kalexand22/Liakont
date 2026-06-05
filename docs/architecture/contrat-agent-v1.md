@@ -78,7 +78,7 @@ enum/champ-optionnel du sérialiseur cross-runtime ; l'agent lui-même ne rempli
 | `PushBatchRequestDto` | `ContractVersion`, `Documents` (liste de `PivotDocumentDto`), `SourceTaxRegimes` (liste de `SourceTaxRegimeDto` — métadonnée de push, ajout add-only §4.1, optionnel/en fin de DTO, enveloppe non hashée). |
 | `PushBatchResponseDto` | `Results` (liste de `DocumentPushResultDto`). |
 | `DocumentPushResultDto` | `SourceReference`, `Status` (`Accepted`/`Duplicate`/`Rejected`), `Reason?`. |
-| `HeartbeatRequestDto` | `ContractVersion`, `AgentVersion`, `SentAtUtc`, `LastSuccessfulSyncUtc?`. |
+| `HeartbeatRequestDto` | `ContractVersion`, `AgentVersion`, `SentAtUtc`, `LastSuccessfulSyncUtc?`, puis **télémétrie d'exploitation ajoutée add-only (AGT03, §4.1)** : `ServiceState?`, `PushQueueDepth?`, `PushQueueErrorCount?`, `LastRunStartedUtc?`, `LastRunCompletedUtc?`, `LastRunOutcome?`, `LastError?`, `DiskFreeBytes?`. Tous optionnels (un agent N-1 les omet) ; exigés par F12 §2.5 et consommés par la supervision (F12 §5.2 « file qui grossit »/« run manqué », §5.3 dashboard). Enveloppe NON hashée → aucun impact d'empreinte. |
 | `HeartbeatResponseDto` | `ServerTimeUtc`, `Configuration`. |
 | `AgentConfigurationDto` | `ExtractionSchedule?`, `ExtractFromUtc?`, `ExtractToUtc?`, `LatestAgentVersion?`, `UpdateRequired` (défaut `false`, sûr), `UpdateUrl?`, `VersionManifestSignature?`. |
 | `SourceTaxRegimeDto` | `Code` (brut), `Label?`, `Occurrences` — métadonnée de push pour la détection de couverture TVA03. |

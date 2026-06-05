@@ -22,6 +22,21 @@ public sealed class HttpPlatformClient : IPlatformClient
     private const string BatchPath = "api/agent/v1/documents/batch";
     private const string StatusPath = "api/agent/v1/documents/status";
     private const string PdfPoolPath = "api/agent/v1/pdf-pool";
+    private const string HeartbeatPath = "api/agent/v1/heartbeat";
+    private const string ConfigurationPath = "api/agent/v1/configuration";
+
+    // Émission du heartbeat : on OMET les champs de télémétrie nuls (un agent qui ne connaît pas
+    // encore son dernier run n'envoie pas de bruit) ; lecture des réponses en UTC (la plateforme
+    // sérialise des horodatages « Z », à préserver tels quels).
+    private static readonly JsonSerializerSettings SendSettings = new JsonSerializerSettings
+    {
+        NullValueHandling = NullValueHandling.Ignore,
+    };
+
+    private static readonly JsonSerializerSettings ReadSettings = new JsonSerializerSettings
+    {
+        DateTimeZoneHandling = DateTimeZoneHandling.Utc,
+    };
 
     private readonly HttpClient _httpClient;
     private readonly string _apiKey;
@@ -145,6 +160,72 @@ public sealed class HttpPlatformClient : IPlatformClient
         catch (Exception ex) when (IsTransport(ex))
         {
             return new DocumentStatusOutcome(PlatformResponseKind.TransportError, reason: ex.Message);
+        }
+    }
+
+    /// <inheritdoc />
+    public HeartbeatOutcome SendHeartbeat(HeartbeatRequestDto heartbeat)
+    {
+        if (heartbeat is null)
+        {
+            throw new ArgumentNullException(nameof(heartbeat));
+        }
+
+        string body = JsonConvert.SerializeObject(heartbeat, SendSettings);
+
+        try
+        {
+            using (var request = CreateRequest(HttpMethod.Post, HeartbeatPath))
+            {
+                request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+                using (HttpResponseMessage response = Send(request))
+                {
+                    PlatformResponseKind kind = Categorize((int)response.StatusCode);
+                    if (kind != PlatformResponseKind.Ok)
+                    {
+                        return new HeartbeatOutcome(kind, reason: ReasonFor(response));
+                    }
+
+                    HeartbeatResponseDto? parsed =
+                        JsonConvert.DeserializeObject<HeartbeatResponseDto>(ReadBody(response), ReadSettings);
+
+                    // 200 sans corps exploitable : la plateforme a accepté le heartbeat mais n'a pas
+                    // renvoyé de configuration — succès, configuration inconnue (l'agent garde la sienne).
+                    return new HeartbeatOutcome(
+                        PlatformResponseKind.Ok,
+                        parsed?.Configuration,
+                        parsed?.ServerTimeUtc);
+                }
+            }
+        }
+        catch (Exception ex) when (IsTransport(ex))
+        {
+            return new HeartbeatOutcome(PlatformResponseKind.TransportError, reason: ex.Message);
+        }
+    }
+
+    /// <inheritdoc />
+    public ConfigurationOutcome GetConfiguration()
+    {
+        try
+        {
+            using (var request = CreateRequest(HttpMethod.Get, ConfigurationPath))
+            using (HttpResponseMessage response = Send(request))
+            {
+                PlatformResponseKind kind = Categorize((int)response.StatusCode);
+                if (kind != PlatformResponseKind.Ok)
+                {
+                    return new ConfigurationOutcome(kind, reason: ReasonFor(response));
+                }
+
+                AgentConfigurationDto? configuration =
+                    JsonConvert.DeserializeObject<AgentConfigurationDto>(ReadBody(response), ReadSettings);
+                return new ConfigurationOutcome(PlatformResponseKind.Ok, configuration);
+            }
+        }
+        catch (Exception ex) when (IsTransport(ex))
+        {
+            return new ConfigurationOutcome(PlatformResponseKind.TransportError, reason: ex.Message);
         }
     }
 
