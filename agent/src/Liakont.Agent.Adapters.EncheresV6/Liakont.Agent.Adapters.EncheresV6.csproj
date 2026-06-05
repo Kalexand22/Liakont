@@ -7,4 +7,11 @@
     <ProjectReference Include="..\Liakont.Agent.Core\Liakont.Agent.Core.csproj" />
   </ItemGroup>
 
+  <!-- Sérialiseur du rejeu de fixtures + traçabilité SourceData (Newtonsoft.Json, net48 — catalogue
+       central, blueprint.md §5). Toléré par la liste blanche de AgentBoundaryTests (dépendance tierce
+       déclarée) ; aucune frontière plateforme ouverte. -->
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" />
+  </ItemGroup>
+
 </Project>

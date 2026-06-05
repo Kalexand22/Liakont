@@ -1,0 +1,131 @@
+{
+  "regimes": [
+    { "code_regime": "5", "libelle": "Assujetti normal 20%", "taux": 20.0, "assujetti_tva": true, "regime_marge": false },
+    { "code_regime": "6", "libelle": "Regime de la marge", "taux": 0.0, "assujetti_tva": true, "regime_marge": true }
+  ],
+  "bordereaux": [
+    {
+      "no_ba": "4500",
+      "numero_piece": "F-2026-0500",
+      "bordereau_ou_avoir": "B",
+      "date_vente": "2026-01-12",
+      "acheteur_nom": "Acheteur Particulier (fictif)",
+      "acheteur_societe": null,
+      "acheteur_ville": "Rennes",
+      "acheteur_code_postal": "35000",
+      "acheteur_pays": "FR",
+      "total_ht": 108.33,
+      "total_tva": 21.67,
+      "total_ttc": 130.00,
+      "lignes": [
+        {
+          "type_ligne": "4",
+          "designation": "Adjudication lot 9 — vase Art deco",
+          "montant_ht": 100.00,
+          "montant_tva": 20.00,
+          "taux_tva": 20.0,
+          "quantite": 1,
+          "prix_unitaire": 100.00,
+          "code_regime": "5",
+          "no_ligne": "ligne#1"
+        },
+        {
+          "type_ligne": "2",
+          "designation": "Frais acheteur",
+          "montant_ht": 8.329999999999998,
+          "montant_tva": 1.666,
+          "taux_tva": 20.0,
+          "quantite": 1,
+          "code_regime": "5",
+          "no_ligne": "ligne#2"
+        },
+        {
+          "type_ligne": "3",
+          "designation": "Reglement CB",
+          "montant_ht": 130.00,
+          "montant_tva": 0.0,
+          "code_regime": null,
+          "no_ligne": "ligne#3",
+          "date_reglement": "2026-01-15",
+          "mode_reglement": "CB",
+          "no_remise": "REM-0500"
+        }
+      ]
+    },
+    {
+      "no_ba": "4042",
+      "numero_piece": "F-2026-0042",
+      "bordereau_ou_avoir": "B",
+      "date_vente": "2026-01-14",
+      "acheteur_nom": "Acheteur Particulier 2 (fictif)",
+      "acheteur_societe": null,
+      "acheteur_ville": "Nantes",
+      "acheteur_code_postal": "44000",
+      "acheteur_pays": "FR",
+      "total_ht": 880.00,
+      "total_tva": 16.00,
+      "total_ttc": 896.00,
+      "lignes": [
+        {
+          "type_ligne": "4",
+          "designation": "Tableau ancien — regime de la marge",
+          "montant_ht": 800.00,
+          "montant_tva": 0.0,
+          "taux_tva": 0.0,
+          "quantite": 1,
+          "prix_unitaire": 800.00,
+          "code_regime": "6",
+          "no_ligne": "ligne#1"
+        },
+        {
+          "type_ligne": "2",
+          "designation": "Frais acheteur",
+          "montant_ht": 80.00,
+          "montant_tva": 16.00,
+          "taux_tva": 20.0,
+          "quantite": 1,
+          "code_regime": "5",
+          "no_ligne": "ligne#2"
+        }
+      ]
+    },
+    {
+      "no_ba": "4501",
+      "numero_piece": "F-2026-0501",
+      "bordereau_ou_avoir": "B",
+      "date_vente": "2026-01-16",
+      "acheteur_nom": "Galerie Cliente (fictif)",
+      "acheteur_societe": "Galerie Cliente SARL (fictif)",
+      "acheteur_siren": "523456789",
+      "acheteur_ville": "Rennes",
+      "acheteur_code_postal": "35000",
+      "acheteur_pays": "FR",
+      "total_ht": 2750.00,
+      "total_tva": 550.00,
+      "total_ttc": 3300.00,
+      "lignes": [
+        {
+          "type_ligne": "4",
+          "designation": "Adjudication lot 12 — sculpture",
+          "montant_ht": 2500.00,
+          "montant_tva": 500.00,
+          "taux_tva": 20.0,
+          "quantite": 1,
+          "prix_unitaire": 2500.00,
+          "code_regime": "5",
+          "no_ligne": "ligne#1"
+        },
+        {
+          "type_ligne": "2",
+          "designation": "Frais acheteur",
+          "montant_ht": 250.00,
+          "montant_tva": 50.00,
+          "taux_tva": 20.0,
+          "quantite": 1,
+          "code_regime": "5",
+          "no_ligne": "ligne#2"
+        }
+      ]
+    }
+  ]
+}
