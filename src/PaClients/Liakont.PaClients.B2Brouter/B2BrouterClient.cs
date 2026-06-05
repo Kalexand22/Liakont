@@ -14,11 +14,14 @@ using Liakont.PaClients.B2Brouter.Wire;
 /// — la fabrique le rend derrière l'abstraction <see cref="IPaClient"/>.
 /// <para>
 /// PÉRIMÈTRE PAB01+PAB02 = l'ENVOI de document (<see cref="SendDocumentAsync"/> : auth, transformation
-/// pivot → JSON, POST) AVEC la gestion fine des 3 familles d'erreurs de F05 §4.1 (retry/backoff sur le
-/// transitoire, pas de retry sur les rejets métier ni l'auth) et l'idempotence anti-doublon de F05 §4.2
-/// (relecture de la liste du compte avant tout re-POST), plus la relecture d'état
-/// (<see cref="GetDocumentStatusAsync"/>). Les tax reports, le réglage et la facture générée sont livrés
-/// par PAB03. Les capacités déclarées (<see cref="B2BrouterCapabilities"/>) reflètent CE périmètre : un
+/// pivot → JSON, POST) AVEC la gestion des 3 familles d'erreurs de F05 §4.1 (transitoire / rejet métier
+/// 4xx / erreur silencieuse 200 + <c>errors[]</c>) et l'idempotence anti-doublon de F05 §4.2. Sur un
+/// transitoire (réseau / 5xx / timeout), le client NE re-POSTe PAS à l'aveugle : il relit la liste du
+/// compte pour RACCROCHER une facture déjà créée, sinon il dégrade en TechnicalError re-tentable au
+/// prochain run (le re-POST automatique 3× backoff sera activé par PAB04 quand la relecture filtrée par
+/// numéro rendra l'absence fiable). Le retry backoff F05 §4.1 s'applique dès maintenant à la relecture
+/// d'état (<see cref="GetDocumentStatusAsync"/>), une lecture idempotente donc sûre à ré-essayer. Les
+/// tax reports, le réglage et la facture générée sont livrés par PAB03. Les capacités déclarées (<see cref="B2BrouterCapabilities"/>) reflètent CE périmètre : un
 /// appel non encore livré dont la capacité est déclarée <c>false</c> dégrade en résultat TYPÉ (jamais
 /// d'exception, jamais de blocage produit — invariant PAA01) ou lève une
 /// <see cref="System.NotImplementedException"/> traçable pour les lectures livrées plus tard.
@@ -71,47 +74,27 @@ internal sealed class B2BrouterClient : IPaClient
         var payload = B2BrouterPayloadBuilder.Build(document, sendAfterImport);
         var json = JsonSerializer.Serialize(payload, B2BrouterJson.Options);
         var url = $"accounts/{Uri.EscapeDataString(_options.AccountId)}/invoices.json";
-        var policy = _options.RetryPolicy;
 
-        // Boucle de retry des erreurs TRANSITOIRES (réseau / 5xx / timeout — F05 §4.1), gardée par
-        // l'idempotence (F05 §4.2) : avant CHAQUE re-POST, on relit la liste du compte pour ne JAMAIS
-        // recréer un numéro déjà émis (un doublon de facture serait une faute fiscale — CLAUDE.md n°3).
-        // Les rejets métier (4xx, 200 + errors[]) et l'authentification (401/403) ne sont JAMAIS
-        // ré-essayés : ils retournent immédiatement (F05 §4.1).
-        for (var attempt = 0; ; attempt++)
+        var outcome = await TryPostAsync(url, json, cancellationToken).ConfigureAwait(false);
+        if (!outcome.IsTransient)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var outcome = await TryPostAsync(url, json, cancellationToken).ConfigureAwait(false);
-            if (!outcome.IsTransient)
-            {
-                return outcome.Result;
-            }
-
-            // Plus de réessai disponible → dégradation en erreur technique re-tentable au prochain run.
-            if (attempt >= policy.RetryCount)
-            {
-                return outcome.Result;
-            }
-
-            // Garde d'idempotence avant re-POST (F05 §4.2).
-            var reconnect = await TryReconnectByNumberAsync(document.Number, cancellationToken).ConfigureAwait(false);
-            if (reconnect.Found)
-            {
-                // La facture existe déjà côté PA (créée par une tentative précédente) → on raccroche.
-                return reconnect.Result!;
-            }
-
-            if (!reconnect.Confirmed)
-            {
-                // Relecture NON CONCLUANTE (liste illisible / en échec) : impossible de garantir l'absence
-                // d'un doublon → on n'ose pas re-POSTer, on dégrade en technique re-tentable (le contrôle
-                // d'unicité côté Tracking, AVANT l'appel, est la garde primaire — F05 §4.2).
-                return outcome.Result;
-            }
-
-            // Absence CONFIRMÉE → re-POST sûr après backoff.
-            await Task.Delay(policy.Backoffs[attempt], cancellationToken).ConfigureAwait(false);
+            // Terminal : émis (issued/new/sending), rejet métier (4xx, 200 + errors[]) ou
+            // authentification (401/403). Aucun de ces cas ne se re-tente (F05 §4.1).
+            return outcome.Result;
         }
+
+        // Erreur TRANSITOIRE (réseau / 5xx / timeout — F05 §4.1) : on NE re-POSTe PAS à l'aveugle.
+        // Re-POSTer suppose de prouver que la facture n'a PAS déjà été créée par la tentative qui a
+        // « timeouté » (F05 §4.2 : « envoyé ou pas ? »). Or la relecture de liste ne peut pas le prouver
+        // de façon fiable tant que sa forme exacte (filtre par numéro, pagination) n'est pas validée en
+        // staging (PAB04) : conclure « absent » à tort puis re-POSTer risquerait un doublon — faute
+        // fiscale (CLAUDE.md n°3). On fait donc UNE relecture d'idempotence : si la facture existe déjà,
+        // on raccroche son état ; sinon on dégrade en TechnicalError, RE-TENTABLE AU PROCHAIN RUN. La
+        // garde d'unicité PRIMAIRE est le contrôle Tracking AVANT l'appel (F05 §4.2), doublé de la clé
+        // d'unicité du numéro côté B2Brouter. Le re-POST automatique intra-appel (3 réessais backoff
+        // F05 §4.1) sera activé par PAB04 quand la relecture filtrée par numéro rendra l'absence fiable.
+        var reconnect = await TryReconnectByNumberAsync(document.Number, cancellationToken).ConfigureAwait(false);
+        return reconnect.Found ? reconnect.Result! : outcome.Result;
     }
 
     /// <inheritdoc />
@@ -286,18 +269,22 @@ internal sealed class B2BrouterClient : IPaClient
         }
     }
 
-    // Garde d'idempotence (F05 §4.2) : relit la liste des factures du compte pour savoir si le numéro a
-    // DÉJÀ été créé par une tentative précédente (cas du timeout : « envoyé ou pas ? »). Trois issues :
-    //   Found       → la facture existe → on raccroche son état (pas de re-POST) ;
-    //   Absent      → liste lue et numéro ABSENT → re-POST sûr ;
-    //   non Confirmé → relecture illisible/en échec → NON CONCLUANT : on ne re-POSTe pas (anti-doublon).
+    // Relecture d'idempotence (F05 §4.2) : relit la liste des factures du compte pour RACCROCHER une
+    // facture qui aurait DÉJÀ été créée par la tentative qui a échoué (cas du timeout : « envoyé ou
+    // pas ? »). Deux issues seulement :
+    //   Found    → la facture est présente dans la liste lue → on raccroche son état réel ;
+    //   NotFound → tout le reste (non-200, forme illisible, échec réseau, OU numéro absent d'une page
+    //              potentiellement INCOMPLÈTE) → on NE raccroche PAS et on NE re-POSTe PAS.
+    // « Numéro absent » n'est volontairement PAS traité comme « facture absente » : tant que la forme de
+    // la liste (filtre par numéro, pagination) n'est pas validée en staging (PAB04), une page incomplète
+    // ne contenant pas le numéro ne prouve rien — re-POSTer sur cette base risquerait un doublon fiscal
+    // (CLAUDE.md n°3). PAB04 ajoutera une relecture filtrée par numéro qui rendra l'absence fiable et
+    // permettra alors le re-POST automatique de F05 §4.1.
     private async Task<ReconnectOutcome> TryReconnectByNumberAsync(string number, CancellationToken cancellationToken)
     {
-        // Sans numéro fiable, l'idempotence est impossible à garantir → non concluant (jamais de re-POST
-        // à l'aveugle). Un document sans numéro ne devrait pas arriver ici (validation amont).
         if (string.IsNullOrWhiteSpace(number))
         {
-            return ReconnectOutcome.Inconclusive;
+            return ReconnectOutcome.NotFound;
         }
 
         var url = $"accounts/{Uri.EscapeDataString(_options.AccountId)}/invoices.json";
@@ -306,26 +293,24 @@ internal sealed class B2BrouterClient : IPaClient
             using var response = await _httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
-            // Toute relecture non-200 ou de forme inconnue est NON CONCLUANTE : on préfère re-tenter au
-            // prochain run plutôt que risquer un doublon (CLAUDE.md n°3).
             if (!response.IsSuccessStatusCode
                 || !B2BrouterResponseMapper.TryParseInvoiceList(body, out var invoices))
             {
-                return ReconnectOutcome.Inconclusive;
+                return ReconnectOutcome.NotFound;
             }
 
             var match = invoices.FirstOrDefault(i => string.Equals(i.Number, number, StringComparison.Ordinal));
             return match is null
-                ? ReconnectOutcome.Absent
+                ? ReconnectOutcome.NotFound
                 : ReconnectOutcome.AsFound(B2BrouterResponseMapper.MapReconnected(match, body));
         }
         catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return ReconnectOutcome.Inconclusive;
+            return ReconnectOutcome.NotFound;
         }
         catch (HttpRequestException)
         {
-            return ReconnectOutcome.Inconclusive;
+            return ReconnectOutcome.NotFound;
         }
     }
 
@@ -364,14 +349,12 @@ internal sealed class B2BrouterClient : IPaClient
     // Issue d'une tentative de relecture d'état : le statut classé + s'il est re-tentable (transitoire).
     private readonly record struct StatusOutcome(PaDocumentStatus Status, bool IsTransient);
 
-    // Issue de la garde d'idempotence. <c>Confirmed</c> = réponse définitive (trouvée ou absente) ;
-    // <c>Found</c> = facture retrouvée (alors <c>Result</c> porte l'état raccroché).
-    private readonly record struct ReconnectOutcome(bool Confirmed, bool Found, PaSendResult? Result)
+    // Issue de la relecture d'idempotence. <c>Found</c> = facture retrouvée dans la liste (alors
+    // <c>Result</c> porte l'état raccroché) ; sinon on ne raccroche pas et on ne re-POSTe pas.
+    private readonly record struct ReconnectOutcome(bool Found, PaSendResult? Result)
     {
-        public static ReconnectOutcome Inconclusive => new(Confirmed: false, Found: false, Result: null);
+        public static ReconnectOutcome NotFound => new(Found: false, Result: null);
 
-        public static ReconnectOutcome Absent => new(Confirmed: true, Found: false, Result: null);
-
-        public static ReconnectOutcome AsFound(PaSendResult result) => new(Confirmed: true, Found: true, result);
+        public static ReconnectOutcome AsFound(PaSendResult result) => new(Found: true, result);
     }
 }

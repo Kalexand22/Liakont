@@ -37,7 +37,10 @@ internal static class B2BrouterResponseMapper
         // rejet métier du document (F05 §4.1 : « 401 → bloquer tout le run, pas juste le document »).
         // On la classe re-tentable (TechnicalError) plutôt que RejectedByPa TERMINAL : sous le modèle
         // supersede, un rejet figerait des documents VALIDES qu'il faudrait recréer alors qu'une simple
-        // correction de clé suffit. PAB02 ajoutera l'escalade run-level + alerte SUP01 par-dessus.
+        // correction de clé suffit. Le code HTTP (401/403) est porté comme code d'erreur → l'auth reste
+        // DISTINGUABLE d'un 5xx/réseau. L'escalade run-level (bloquer le run) + l'alerte SUP01 sont du
+        // ressort du CONSOMMATEUR (pipeline PIP01) : ni le pipeline ni SUP01 n'existent dans le périmètre
+        // PAB02 ; le client se borne à surfacer le signal, pas à orchestrer le run (frontière du plug-in).
         if (IsAuthError(statusCode))
         {
             var authErrors = errors.Count > 0
@@ -207,9 +210,6 @@ internal static class B2BrouterResponseMapper
 
     /// <summary>Vrai si le code HTTP est une erreur TRANSITOIRE re-tentable (5xx — F05 §4.1).</summary>
     public static bool IsRetryableStatus(HttpStatusCode statusCode) => IsServerError(statusCode);
-
-    /// <summary>Vrai si le code HTTP est une erreur d'AUTHENTIFICATION/config (401/403 — F05 §4.1, jamais ré-essayée).</summary>
-    public static bool IsAuthStatus(HttpStatusCode statusCode) => IsAuthError(statusCode);
 
     // Mappe une chaîne d'état B2Brouter (F05 §3) vers l'état neutre. Jamais « émis » par défaut : un
     // état inconnu reste « en cours » (Sending), « error » est un rejet — correction fiscale/audit.
