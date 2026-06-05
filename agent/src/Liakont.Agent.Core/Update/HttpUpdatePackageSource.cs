@@ -29,7 +29,7 @@ public sealed class HttpUpdatePackageSource : IUpdatePackageSource, IDisposable
     /// <inheritdoc/>
     public byte[]? TryDownloadManifest(string manifestUrl)
     {
-        if (string.IsNullOrWhiteSpace(manifestUrl))
+        if (string.IsNullOrWhiteSpace(manifestUrl) || !IsHttps(manifestUrl))
         {
             return null;
         }
@@ -60,7 +60,7 @@ public sealed class HttpUpdatePackageSource : IUpdatePackageSource, IDisposable
     /// <inheritdoc/>
     public bool TryDownloadPackage(string packageUrl, string destinationPath)
     {
-        if (string.IsNullOrWhiteSpace(packageUrl) || string.IsNullOrWhiteSpace(destinationPath))
+        if (string.IsNullOrWhiteSpace(packageUrl) || !IsHttps(packageUrl) || string.IsNullOrWhiteSpace(destinationPath))
         {
             return false;
         }
@@ -116,4 +116,7 @@ public sealed class HttpUpdatePackageSource : IUpdatePackageSource, IDisposable
             ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
         }
     }
+
+    private static bool IsHttps(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out Uri? parsed) && parsed.Scheme == Uri.UriSchemeHttps;
 }

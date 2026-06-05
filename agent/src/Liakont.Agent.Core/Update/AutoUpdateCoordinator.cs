@@ -105,6 +105,20 @@ public sealed class AutoUpdateCoordinator : IAutoUpdateService
         return true;
     }
 
+    private static void TryDeleteDirectory(string directory)
+    {
+        try
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
     private AutoUpdateResult Run(AgentConfigurationDto configuration)
     {
         if (Interlocked.CompareExchange(ref _inProgress, 1, 0) != 0)
@@ -112,7 +126,10 @@ public sealed class AutoUpdateCoordinator : IAutoUpdateService
             return new AutoUpdateResult(AutoUpdateOutcome.AlreadyInProgress, "Une mise à jour est déjà en cours dans ce processus.");
         }
 
+        TryPurgeStaleWorkDirectories();
+
         bool launched = false;
+        string? attemptDir = null;
         try
         {
             if (string.IsNullOrWhiteSpace(configuration.UpdateUrl))
@@ -160,7 +177,7 @@ public sealed class AutoUpdateCoordinator : IAutoUpdateService
                 return Signal(AutoUpdateOutcome.AlreadyCurrent, manifest.Version, true, $"Aucune mise à jour : la version proposée ({manifest.Version}) n'est pas plus récente que l'actuelle ({_environment.CurrentVersion}).");
             }
 
-            string attemptDir = Path.Combine(_environment.WorkRootDirectory, "attempt-" + Guid.NewGuid().ToString("N"));
+            attemptDir = Path.Combine(_environment.WorkRootDirectory, "attempt-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(attemptDir);
             string packagePath = Path.Combine(attemptDir, "package.zip");
 
@@ -195,7 +212,16 @@ public sealed class AutoUpdateCoordinator : IAutoUpdateService
             }
 
             launched = true;
-            return Signal(AutoUpdateOutcome.Launched, manifest.Version, true, $"Mise à jour vers {manifest.Version} lancée (updater détaché) — le service va redémarrer.");
+
+            // Statut « lancé » NON succès : seul l'updater confirmera (Applied) ou infirmera (RolledBack)
+            // en réécrivant ce fichier. Si l'updater meurt avant, ce statut « en attente » remonte au
+            // heartbeat plutôt qu'un faux succès. Le verrou _inProgress reste tenu (le process va être
+            // remplacé) ; un updater qui meurt instantanément laisse l'agent dans cet état jusqu'au
+            // prochain (re)démarrage du service — surfacé, donc diagnosticable.
+            string launchMessage = $"Mise à jour vers {manifest.Version} lancée (updater détaché) — en attente de confirmation du redémarrage.";
+            _log.Info(launchMessage);
+            _statusStore.Record(new AutoUpdateStatus(manifest.Version, AutoUpdateOutcome.Launched.ToString(), succeeded: false, launchMessage, _clock.UtcNow));
+            return new AutoUpdateResult(AutoUpdateOutcome.Launched, launchMessage, manifest.Version);
         }
         catch (Exception ex)
         {
@@ -208,7 +234,38 @@ public sealed class AutoUpdateCoordinator : IAutoUpdateService
             if (!launched)
             {
                 Interlocked.Exchange(ref _inProgress, 0);
+                if (attemptDir != null)
+                {
+                    TryDeleteDirectory(attemptDir);
+                }
             }
+        }
+    }
+
+    private void TryPurgeStaleWorkDirectories()
+    {
+        try
+        {
+            if (!Directory.Exists(_environment.WorkRootDirectory))
+            {
+                return;
+            }
+
+            foreach (string directory in Directory.GetDirectories(_environment.WorkRootDirectory))
+            {
+                string name = Path.GetFileName(directory);
+                if (name.StartsWith("attempt-", StringComparison.Ordinal) || name.StartsWith("updater-", StringComparison.Ordinal))
+                {
+                    TryDeleteDirectory(directory);
+                }
+            }
+        }
+        catch (IOException)
+        {
+            // Purge best-effort : un dossier encore verrouillé sera repris au prochain passage.
+        }
+        catch (UnauthorizedAccessException)
+        {
         }
     }
 

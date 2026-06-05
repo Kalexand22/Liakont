@@ -62,6 +62,31 @@ public class HeartbeatReporterAutoUpdateTests
         }
     }
 
+    [Fact]
+    public void Each_heartbeat_refreshes_the_local_marker_watched_by_the_updater()
+    {
+        using (var db = new TempDatabase())
+        using (var queue = new LocalQueue(db.Path, new MutableClock(Now)))
+        using (var workspace = new TempDirectory())
+        {
+            string markerPath = workspace.Combine("heartbeat.marker");
+            var reporter = new HeartbeatReporter(
+                new FakePlatformClient(),
+                queue,
+                new AgentRunJournal(queue),
+                new FakeDiskFreeSpaceProbe(4096L),
+                new PlatformConfigurationStore(queue),
+                new MutableClock(Now),
+                new CapturingAgentLog(),
+                agentVersion: "1.0.0",
+                heartbeatMarker: new HeartbeatMarker(markerPath));
+
+            reporter.SendHeartbeat();
+
+            System.IO.File.Exists(markerPath).Should().BeTrue("l'updater s'appuie sur la fraîcheur de ce marqueur pour confirmer un redémarrage sain");
+        }
+    }
+
     private static HeartbeatReporter CreateReporter(LocalQueue queue, FakePlatformClient client, FakeAutoUpdateService autoUpdate) =>
         new HeartbeatReporter(
             client,

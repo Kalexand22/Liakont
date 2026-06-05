@@ -79,7 +79,21 @@ public sealed class DetachedUpdaterLauncher : IUpdaterLauncher
 
     private static void AppendOption(StringBuilder builder, string name, string value)
     {
-        builder.Append(name).Append(" \"").Append(value).Append("\" ");
+        builder.Append(name).Append(" \"").Append(EscapeForQuoting(value)).Append("\" ");
+    }
+
+    // Règle de CommandLineToArgvW : un antislash terminal collé au guillemet fermant serait pris pour
+    // un guillemet littéral. On double la série d'antislashes en fin de valeur (les valeurs ne
+    // contiennent pas de guillemet interne : chemins, version, nom de service).
+    private static string EscapeForQuoting(string value)
+    {
+        int trailing = 0;
+        for (int i = value.Length - 1; i >= 0 && value[i] == '\\'; i--)
+        {
+            trailing++;
+        }
+
+        return value + new string('\\', trailing);
     }
 
     private static void CopyDirectory(string sourceDir, string destinationDir)

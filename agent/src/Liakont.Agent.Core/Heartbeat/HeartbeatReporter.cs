@@ -40,6 +40,7 @@ public sealed class HeartbeatReporter
     private readonly string _contractVersion;
     private readonly string _serviceState;
     private readonly IAutoUpdateService? _autoUpdate;
+    private readonly HeartbeatMarker? _heartbeatMarker;
 
     /// <summary>Crée un rapporteur de heartbeat.</summary>
     /// <param name="client">Couture de transport vers la plateforme.</param>
@@ -53,6 +54,7 @@ public sealed class HeartbeatReporter
     /// <param name="serviceState">État du service à remonter (défaut « Running »).</param>
     /// <param name="contractVersion">Version de contrat émise (défaut : celle de l'assembly).</param>
     /// <param name="autoUpdate">Service d'auto-update (AGT04) : déclenché quand la config porte une mise à jour, et source du signalement d'échec. Optionnel (câblé par la racine de composition).</param>
+    /// <param name="heartbeatMarker">Marqueur de heartbeat local (AGT04) : rafraîchi à chaque heartbeat et au démarrage ; surveillé par l'updater détaché pour juger un redémarrage sain. Optionnel.</param>
     public HeartbeatReporter(
         IPlatformClient client,
         LocalQueue queue,
@@ -64,7 +66,8 @@ public sealed class HeartbeatReporter
         string agentVersion,
         string serviceState = "Running",
         string? contractVersion = null,
-        IAutoUpdateService? autoUpdate = null)
+        IAutoUpdateService? autoUpdate = null,
+        HeartbeatMarker? heartbeatMarker = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _queue = queue ?? throw new ArgumentNullException(nameof(queue));
@@ -82,6 +85,7 @@ public sealed class HeartbeatReporter
         _serviceState = string.IsNullOrWhiteSpace(serviceState) ? "Running" : serviceState;
         _contractVersion = string.IsNullOrWhiteSpace(contractVersion) ? AgentContractVersion.ContractVersion : contractVersion!;
         _autoUpdate = autoUpdate;
+        _heartbeatMarker = heartbeatMarker;
     }
 
     /// <summary>
@@ -124,6 +128,8 @@ public sealed class HeartbeatReporter
     {
         try
         {
+            // Preuve de vie de CETTE version de l'agent (AGT04) : surveillée par l'updater pour confirmer un redémarrage sain.
+            _heartbeatMarker?.Touch();
             AgentHealthSnapshot snapshot = GatherSnapshot();
             var request = new HeartbeatRequestDto(
                 contractVersion: _contractVersion,
@@ -164,6 +170,8 @@ public sealed class HeartbeatReporter
     {
         try
         {
+            // Preuve de vie de CETTE version de l'agent (AGT04) : surveillée par l'updater pour confirmer un redémarrage sain.
+            _heartbeatMarker?.Touch();
             ConfigurationOutcome outcome = _client.GetConfiguration();
             ApplyConfiguration(outcome.Kind, outcome.Configuration, outcome.Reason, "démarrage");
             return outcome;

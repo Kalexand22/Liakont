@@ -37,7 +37,7 @@ public class AutoUpdateCoordinatorTests
             launcher.Captured.Should().NotBeNull();
             launcher.Captured!.TargetVersion.Should().Be("2.0.0");
             Directory.Exists(launcher.Captured.StagingDirectory).Should().BeTrue("le paquet vérifié est extrait avant le lancement");
-            store.TryGetLatest()!.Succeeded.Should().BeTrue();
+            store.TryGetLatest()!.Succeeded.Should().BeFalse("le succès n'est confirmé que par l'updater, pas au lancement");
         }
     }
 
