@@ -7,6 +7,12 @@ using System.Runtime.Serialization;
 /// Le schéma de la source est incompatible (table/colonne attendue absente, version non supportée) :
 /// échec FATAL, NON réessayable (F01-F02 §4.2 R7). Une intervention est requise (mise à jour de
 /// l'adaptateur, correction de la base). Signalé au heartbeat, jamais repris en boucle.
+/// <para>
+/// CONTRAINTE DE SÉCURITÉ (CLAUDE.md n°10) : le <see cref="System.Exception.Message"/> est remonté à
+/// la plateforme (heartbeat <c>LastError</c>, AGT03) et persisté/journalisé localement. Les
+/// implémentations d'<c>IExtractor</c> (lot ADP) NE DOIVENT JAMAIS y inclure de secret — en
+/// particulier la chaîne de connexion ODBC (mot de passe). Décrire la cause, jamais les identifiants.
+/// </para>
 /// </summary>
 [Serializable]
 public class SourceSchemaException : Exception

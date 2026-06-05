@@ -383,6 +383,92 @@ public sealed class LocalQueue : IDisposable
         }
     }
 
+    /// <summary>
+    /// Lit plusieurs valeurs de <c>agent_state</c> sous UN SEUL verrou : aucun rédacteur ne peut
+    /// s'intercaler entre les lectures, garantissant un INSTANTANÉ COHÉRENT multi-clés (utilisé par le
+    /// heartbeat AGT03 pour ne pas mélanger l'état d'un run et celui du suivant). Une clé absente est
+    /// associée à <c>null</c>.
+    /// </summary>
+    /// <param name="keys">Les clés à lire (non nulles, non vides).</param>
+    /// <returns>La valeur de chaque clé (ou <c>null</c> si absente).</returns>
+    public IReadOnlyDictionary<string, string?> GetStates(IReadOnlyList<string> keys)
+    {
+        if (keys is null)
+        {
+            throw new ArgumentNullException(nameof(keys));
+        }
+
+        var result = new Dictionary<string, string?>(StringComparer.Ordinal);
+        lock (_operationLock)
+        {
+            foreach (string key in keys)
+            {
+                if (string.IsNullOrEmpty(key))
+                {
+                    throw new ArgumentException("La clé d'état est requise.", nameof(keys));
+                }
+
+                using (SQLiteCommand cmd = _connection.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT value FROM agent_state WHERE key = @key;";
+                    cmd.Parameters.AddWithValue("@key", key);
+                    object? value = cmd.ExecuteScalar();
+                    result[key] = value == null || value == DBNull.Value ? null : (string)value;
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Écrit (ou remplace) plusieurs valeurs d'<c>agent_state</c> ATOMIQUEMENT : une seule transaction
+    /// sous un seul verrou, donc un lecteur (<see cref="GetStates"/>) ne peut jamais observer une mise à
+    /// jour multi-clés à moitié appliquée (symétrique de la lecture groupée — utilisé par le heartbeat
+    /// AGT03 pour que l'issue d'un run, écrite en plusieurs clés, ne soit jamais lue « déchirée »).
+    /// Une valeur <c>null</c> efface la valeur de la clé.
+    /// </summary>
+    /// <param name="values">Les couples clé/valeur à écrire (clés non nulles, non vides).</param>
+    public void SetStates(IReadOnlyDictionary<string, string?> values)
+    {
+        if (values is null)
+        {
+            throw new ArgumentNullException(nameof(values));
+        }
+
+        foreach (string key in values.Keys)
+        {
+            if (string.IsNullOrEmpty(key))
+            {
+                throw new ArgumentException("La clé d'état est requise.", nameof(values));
+            }
+        }
+
+        lock (_operationLock)
+        {
+            string now = FormatUtc(_clock.UtcNow);
+            using (SQLiteTransaction tx = _connection.BeginTransaction())
+            {
+                foreach (KeyValuePair<string, string?> entry in values)
+                {
+                    using (SQLiteCommand cmd = _connection.CreateCommand())
+                    {
+                        cmd.Transaction = tx;
+                        cmd.CommandText =
+                            "INSERT INTO agent_state (key, value, updated_at_utc) VALUES (@key, @value, @updated) " +
+                            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at_utc = excluded.updated_at_utc;";
+                        cmd.Parameters.AddWithValue("@key", entry.Key);
+                        cmd.Parameters.AddWithValue("@value", (object?)entry.Value ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@updated", now);
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+                tx.Commit();
+            }
+        }
+    }
+
     /// <summary>Lit le filigrane d'extraction (dernière période traitée), null si jamais posé.</summary>
     public DateTime? GetExtractionWatermarkUtc()
     {

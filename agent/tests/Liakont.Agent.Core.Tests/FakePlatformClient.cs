@@ -20,7 +20,15 @@ internal sealed class FakePlatformClient : IPlatformClient
 
     public Func<string, PdfPushOutcome>? OnPushPoolPdf { get; set; }
 
+    public Func<HeartbeatRequestDto, HeartbeatOutcome>? OnSendHeartbeat { get; set; }
+
+    public Func<ConfigurationOutcome>? OnGetConfiguration { get; set; }
+
     public List<PushedBatch> PushedBatches { get; } = new List<PushedBatch>();
+
+    public List<HeartbeatRequestDto> Heartbeats { get; } = new List<HeartbeatRequestDto>();
+
+    public int ConfigurationReads { get; private set; }
 
     public List<(string SourceReference, string PayloadHash)> StatusQueries { get; } = new List<(string, string)>();
 
@@ -54,6 +62,22 @@ internal sealed class FakePlatformClient : IPlatformClient
         return OnGetStatus != null
             ? OnGetStatus(sourceReference, payloadHash)
             : new DocumentStatusOutcome(PlatformResponseKind.Ok, DocumentIntakeStatus.Processed);
+    }
+
+    public HeartbeatOutcome SendHeartbeat(HeartbeatRequestDto heartbeat)
+    {
+        Heartbeats.Add(heartbeat);
+        return OnSendHeartbeat != null
+            ? OnSendHeartbeat(heartbeat)
+            : new HeartbeatOutcome(PlatformResponseKind.Ok, new AgentConfigurationDto());
+    }
+
+    public ConfigurationOutcome GetConfiguration()
+    {
+        ConfigurationReads++;
+        return OnGetConfiguration != null
+            ? OnGetConfiguration()
+            : new ConfigurationOutcome(PlatformResponseKind.Ok, new AgentConfigurationDto());
     }
 
     internal sealed class PushedBatch

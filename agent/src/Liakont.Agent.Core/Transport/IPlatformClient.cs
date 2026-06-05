@@ -41,4 +41,21 @@ public interface IPlatformClient
     /// <param name="payloadHash">Empreinte canonique du payload.</param>
     /// <returns>Le statut de prise en charge rapporté.</returns>
     DocumentStatusOutcome GetDocumentStatus(string sourceReference, string payloadHash);
+
+    /// <summary>
+    /// Émet un battement de cœur (POST /api/agent/v1/heartbeat — F12 §3.2) et restitue la
+    /// configuration effective renvoyée par la plateforme. Sortie typée : un échec (réseau, clé
+    /// invalide…) ne lève JAMAIS — l'agent conserve sa configuration locale et réessaie (F12 §2.5).
+    /// </summary>
+    /// <param name="heartbeat">L'état de l'agent à transmettre.</param>
+    /// <returns>La catégorie de réponse + la configuration effective si la plateforme a répondu 200.</returns>
+    HeartbeatOutcome SendHeartbeat(HeartbeatRequestDto heartbeat);
+
+    /// <summary>
+    /// Lit la configuration courante de l'agent (GET /api/agent/v1/configuration — F12 §3.2),
+    /// interrogée au démarrage du service. Sortie typée : un échec ne lève JAMAIS — l'agent démarre
+    /// avec sa configuration locale (F12 §2.5).
+    /// </summary>
+    /// <returns>La catégorie de réponse + la configuration courante si la plateforme a répondu 200.</returns>
+    ConfigurationOutcome GetConfiguration();
 }
