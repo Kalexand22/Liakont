@@ -3,7 +3,9 @@ namespace Liakont.Agent.Core.Tests.Extraction;
 using System;
 using System.Collections.Generic;
 using FluentAssertions;
+using Liakont.Agent.Contracts.Pivot;
 using Liakont.Agent.Contracts.Transport;
+using Liakont.Agent.Core;
 using Liakont.Agent.Core.Extraction;
 using Liakont.Agent.Core.Storage;
 using Xunit;
@@ -158,5 +160,76 @@ public class ExtractionCycleTests
             queue.GetState(LocalQueue.SourceTaxRegimesKey).Should().Contain("\"0\"");
             queue.GetExtractionWatermarkUtc().Should().Be(To);
         }
+    }
+
+    [Fact]
+    public void Run_advances_watermark_when_regime_listing_is_momentarily_unavailable()
+    {
+        using (var db = new TempDatabase())
+        using (var queue = new LocalQueue(db.Path, new MutableClock(Clock)))
+        {
+            var extractor = new RegimeFailingExtractor(
+                new[] { PivotTestData.Document("REF-1", Mid) },
+                () => new SourceUnavailableException("source momentanément indisponible (test)."));
+            var cycle = new ExtractionCycle(queue, new NullAgentLog());
+
+            ExtractionResult result = cycle.Run(extractor, From, To);
+
+            result.DocumentsEnqueued.Should().Be(1);
+            result.SourceTaxRegimesCollected.Should().Be(0, "le rafraîchissement des régimes est best-effort");
+            queue.GetExtractionWatermarkUtc().Should().Be(To, "un échec PASSAGER de listage des régimes ne bloque pas le filigrane");
+        }
+    }
+
+    [Fact]
+    public void Run_propagates_and_holds_watermark_when_regime_listing_is_fatally_broken()
+    {
+        using (var db = new TempDatabase())
+        using (var queue = new LocalQueue(db.Path, new MutableClock(Clock)))
+        {
+            var extractor = new RegimeFailingExtractor(
+                new[] { PivotTestData.Document("REF-1", Mid) },
+                () => new SourceSchemaException("schéma des régimes incompatible (test)."));
+            var cycle = new ExtractionCycle(queue, new NullAgentLog());
+
+            Action act = () => cycle.Run(extractor, From, To);
+
+            act.Should().Throw<SourceSchemaException>("une erreur de SCHÉMA des régimes est FATALE, jamais avalée par le best-effort");
+            queue.GetExtractionWatermarkUtc().Should().BeNull("un échec fatal du listage des régimes bloque l'avancée du filigrane (intervention requise)");
+        }
+    }
+
+    // Extracteur qui réussit l'extraction des documents mais dont le listage des régimes échoue avec
+    // l'exception fournie — éprouve les DEUX branches du stash best-effort (passagère vs fatale).
+    private sealed class RegimeFailingExtractor : IExtractor
+    {
+        private readonly IReadOnlyList<PivotDocumentDto> _documents;
+        private readonly Func<Exception> _onListRegimes;
+
+        public RegimeFailingExtractor(IReadOnlyList<PivotDocumentDto> documents, Func<Exception> onListRegimes)
+        {
+            _documents = documents;
+            _onListRegimes = onListRegimes;
+        }
+
+        public string SourceName => "RegimeFailing";
+
+        public ExtractorCapabilities Capabilities { get; } = new ExtractorCapabilities();
+
+        public ExtractorInfo GetInfo() => new ExtractorInfo("RegimeFailing", "1.0.0", "Test");
+
+        public HealthCheckResult CheckHealth() => HealthCheckResult.Healthy("test");
+
+        public IEnumerable<PivotDocumentDto> ExtractDocuments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc) => _documents;
+
+        public IEnumerable<PivotPaymentDto> ExtractPayments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc) =>
+            Array.Empty<PivotPaymentDto>();
+
+        public IReadOnlyList<SourceTaxRegimeDto> ListSourceTaxRegimes() => throw _onListRegimes();
+
+        public IReadOnlyList<SourceAttachment> GetAttachments(string sourceReference) => Array.Empty<SourceAttachment>();
+
+        public IEnumerable<PoolDocument> ListPoolDocuments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc) =>
+            Array.Empty<PoolDocument>();
     }
 }

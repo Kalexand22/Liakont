@@ -94,8 +94,14 @@ internal static class EncheresV6Schema
     /// <summary>Colonne <c>prix_unitaire</c> de la ligne (flottant source, nullable).</summary>
     internal const string ColPrixUnitaire = "prix_unitaire";
 
-    /// <summary>Colonne <c>code_regime</c> de la ligne (code régime TVA brut, R3).</summary>
+    /// <summary>Colonne <c>code_regime</c> (code régime TVA brut, R3) — portée par <c>lignes_ba</c> ET clé de <c>Regime_tva</c>.</summary>
     internal const string ColCodeRegime = "code_regime";
+
+    /// <summary>Colonne <c>libelle</c> de la table <c>Regime_tva</c> (libellé du régime tel que stocké en source).</summary>
+    internal const string ColLibelleRegime = "libelle";
+
+    /// <summary>Alias de l'agrégat <c>COUNT</c> des occurrences d'un régime dans <c>lignes_ba</c> (requête <see cref="SelectTaxRegimesSql"/>).</summary>
+    internal const string ColRegimeOccurrences = "occurrences";
 
     /// <summary>Colonne <c>no_ligne</c> (référence de la ligne dans la source).</summary>
     internal const string ColNoLigne = "no_ligne";
@@ -200,6 +206,27 @@ internal static class EncheresV6Schema
         + " WHERE l." + ColTypeLigne + " = '" + EncheresV6RowMapper.LigneReglement + "'"
         + " AND l." + ColDateReglement + " >= ? AND l." + ColDateReglement + " < ?"
         + " ORDER BY e." + ColNoBa + ", l." + ColNoLigne;
+
+    /// <summary>
+    /// Requête de listage des RÉGIMES de TVA source (ADP04, F03/TVA03) : tous les régimes déclarés dans
+    /// <c>Regime_tva</c> (code BRUT + libellé), avec le nombre d'occurrences de chaque code dans
+    /// <c>lignes_ba</c>. Le <c>LEFT JOIN</c> garantit qu'un régime déclaré mais jamais utilisé ressort
+    /// avec <c>occurrences = 0</c> (jamais omis) ; <c>COUNT(l.code_regime)</c> (et non <c>COUNT(*)</c>)
+    /// compte 0 pour la ligne d'entête seule produite par le <c>LEFT JOIN</c> sans correspondance.
+    /// <para>
+    /// LECTURE SEULE STRICTE (<c>SELECT</c> + <c>GROUP BY</c>, aucune écriture). L'adaptateur n'interprète
+    /// jamais le régime (R3, CLAUDE.md n°2) : il transporte le code et le libellé bruts ; le mapping F03
+    /// et la détection de couverture (TVA03) sont plateforme. Tri par <c>code_regime</c> pour un résultat
+    /// DÉTERMINISTE. Même intention que le mode fixtures (<see cref="EncheresV6FixtureExtractor.ListSourceTaxRegimes"/>) :
+    /// liste pilotée par <c>Regime_tva</c> (dont <c>code_regime</c> est la clé — une ligne par code), occurrences comptées sur <c>lignes_ba</c> ; une entrée à code vide est ignorée des deux côtés. PERFORMANCE / RÉSERVE GATE_DEMO_ISATECH : ce <c>GROUP BY</c> balaie <c>lignes_ba</c> ; sur une base réelle volumineuse, un index sur <c>lignes_ba.code_regime</c> est attendu. Le coût réel n'est pas mesurable sur fixtures.
+    /// </para>
+    /// </summary>
+    internal const string SelectTaxRegimesSql =
+        "SELECT r." + ColCodeRegime + ", r." + ColLibelleRegime + ", COUNT(l." + ColCodeRegime + ") AS " + ColRegimeOccurrences
+        + " FROM " + TableRegimes + " r"
+        + " LEFT JOIN " + TableLignes + " l ON l." + ColCodeRegime + " = r." + ColCodeRegime
+        + " GROUP BY r." + ColCodeRegime + ", r." + ColLibelleRegime
+        + " ORDER BY r." + ColCodeRegime;
 
     /// <summary>Tables dont la présence est contrôlée par <c>CheckHealth</c> (accès + comptage rapide).</summary>
     internal static readonly string[] ExpectedTables = { TableEntete, TableLignes, TableRegimes };

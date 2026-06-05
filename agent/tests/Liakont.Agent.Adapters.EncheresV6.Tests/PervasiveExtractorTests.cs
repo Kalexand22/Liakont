@@ -9,6 +9,7 @@ using Liakont.Agent.Adapters.EncheresV6.Source;
 using Liakont.Agent.Adapters.EncheresV6.Tests.Fakes;
 using Liakont.Agent.Contracts.Pivot;
 using Liakont.Agent.Contracts.Serialization;
+using Liakont.Agent.Contracts.Transport;
 using Liakont.Agent.Core.Extraction;
 using Newtonsoft.Json;
 using Xunit;
@@ -449,10 +450,95 @@ public class PervasiveExtractorTests
     }
 
     [Fact]
-    public void ListSourceTaxRegimes_is_deferred_to_ADP04_and_returns_empty()
+    public void ListSourceTaxRegimes_returns_declared_regimes_with_occurrences()
     {
-        Extractor(Connection()).ListSourceTaxRegimes()
-            .Should().BeEmpty("différé à ADP04 mais JAMAIS throw : ExtractionCycle l'appelle à chaque cycle avant le filigrane");
+        var connection = Connection(regimeRows: new[]
+        {
+            RegimeRow("5", "Assujetti normal", 5),
+            RegimeRow("6", "Régime de la marge", 1),
+            RegimeRow("9", "Régime jamais utilisé", 0),
+        });
+
+        IReadOnlyList<SourceTaxRegimeDto> regimes = Extractor(connection).ListSourceTaxRegimes();
+
+        regimes.Should().HaveCount(3);
+        regimes.Single(r => r.Code == "5").Occurrences.Should().Be(5);
+        regimes.Single(r => r.Code == "6").Label.Should().Be("Régime de la marge");
+        regimes.Single(r => r.Code == "9").Occurrences
+            .Should().Be(0, "un régime déclaré mais jamais utilisé ressort à 0, jamais omis (LEFT JOIN)");
+    }
+
+    [Fact]
+    public void ListSourceTaxRegimes_keeps_codes_raw_without_interpreting_them()
+    {
+        var connection = Connection(regimeRows: new[] { RegimeRow("6", "Régime de la marge", 3) });
+
+        SourceTaxRegimeDto regime = Extractor(connection).ListSourceTaxRegimes().Single();
+
+        regime.Code.Should().Be("6", "le code régime est transporté brut, jamais mappé (R3, CLAUDE.md n°2)");
+        regime.Label.Should().Be("Régime de la marge");
+        regime.Occurrences.Should().Be(3);
+    }
+
+    [Fact]
+    public void ListSourceTaxRegimes_query_matches_documented_schema_and_is_read_only()
+    {
+        var connection = Connection(regimeRows: new[] { RegimeRow("5", "Assujetti normal", 2) });
+
+        Extractor(connection).ListSourceTaxRegimes();
+
+        RecordingCommand command = connection.Commands.Single();
+        command.CommandText.Should().Be(EncheresV6Schema.SelectTaxRegimesSql);
+        command.CommandText.Should().Contain("FROM Regime_tva");
+        command.CommandText.Should().Contain("LEFT JOIN lignes_ba");
+        command.CommandText.Should().Contain("GROUP BY");
+        connection.ExecutedCommandTexts.Should().OnlyContain(
+            t => t.TrimStart().StartsWith("SELECT", StringComparison.OrdinalIgnoreCase),
+            "lecture seule stricte (CLAUDE.md n°5)");
+        connection.NonQueryExecutions.Should().Be(0, "aucun INSERT/UPDATE/DELETE n'est émis");
+        connection.TransactionsBegun.Should().Be(0, "aucune transaction d'écriture ni verrou");
+    }
+
+    [Fact]
+    public void ListSourceTaxRegimes_throws_SourceUnavailable_when_connection_open_fails()
+    {
+        var connection = Connection(openException: new FakeDbException("DSN=cmp;PWD=secret-injoignable"));
+
+        Action act = () => Extractor(connection).ListSourceTaxRegimes();
+
+        act.Should().Throw<SourceUnavailableException>()
+            .Which.Message.Should().NotContain("secret-injoignable", "le message opérateur ne fuite jamais la chaîne de connexion (CLAUDE.md n°10)");
+    }
+
+    [Fact]
+    public void ListSourceTaxRegimes_skips_blank_code_regime_rows_like_fixture_mode()
+    {
+        var connection = Connection(regimeRows: new[]
+        {
+            RegimeRow("5", "Assujetti normal", 4),
+            RegimeRow("   ", "Entrée sans code", 0),
+        });
+
+        IReadOnlyList<SourceTaxRegimeDto> regimes = Extractor(connection).ListSourceTaxRegimes();
+
+        regimes.Should().ContainSingle("une entrée Regime_tva à code vide est ignorée, jamais bloquée (parité avec le mode fixtures)");
+        regimes[0].Code.Should().Be("5");
+    }
+
+    [Fact]
+    public void ListSourceTaxRegimes_throws_SourceSchema_when_occurrences_is_not_numeric()
+    {
+        var badRow = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [EncheresV6Schema.ColCodeRegime] = "5",
+            [EncheresV6Schema.ColLibelleRegime] = "Assujetti normal",
+            [EncheresV6Schema.ColRegimeOccurrences] = "pas-un-nombre",
+        };
+        var connection = Connection(regimeRows: new[] { badRow });
+
+        Action act = () => Extractor(connection).ListSourceTaxRegimes();
+
+        act.Should().Throw<SourceSchemaException>();
     }
 
     [Fact]
@@ -494,8 +580,29 @@ public class PervasiveExtractorTests
     private static RecordingConnection Connection(
         IReadOnlyList<IReadOnlyDictionary<string, object?>>? rows = null,
         Func<string, object?>? scalarResolver = null,
-        Exception? openException = null) =>
-        new RecordingConnection(rows, scalarResolver, openException);
+        Exception? openException = null,
+        IReadOnlyList<IReadOnlyDictionary<string, object?>>? regimeRows = null)
+    {
+        // Confort de test : `regimeRows` alimente le résolveur de lecteur partagé (approche d'ADP03) — la
+        // requête de listage des régimes (SelectTaxRegimesSql) reçoit ces lignes, toute autre requête reçoit
+        // les lignes de documents.
+        Func<string, IReadOnlyList<IReadOnlyDictionary<string, object?>>>? readerResolver =
+            regimeRows is null
+                ? (Func<string, IReadOnlyList<IReadOnlyDictionary<string, object?>>>?)null
+                : commandText => string.Equals(commandText, EncheresV6Schema.SelectTaxRegimesSql, StringComparison.Ordinal)
+                    ? regimeRows
+                    : rows ?? Array.Empty<IReadOnlyDictionary<string, object?>>();
+
+        return new RecordingConnection(rows, scalarResolver, openException, readerResolver);
+    }
+
+    private static Dictionary<string, object?> RegimeRow(string code, string? libelle, int occurrences) =>
+        new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [EncheresV6Schema.ColCodeRegime] = code,
+            [EncheresV6Schema.ColLibelleRegime] = libelle,
+            [EncheresV6Schema.ColRegimeOccurrences] = occurrences,
+        };
 
     private static Func<string, object?> CountResolver(IReadOnlyDictionary<string, long> counts) =>
         commandText =>

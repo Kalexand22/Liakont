@@ -92,7 +92,7 @@ internal sealed class RecordingConnection : IDbConnection, IEncheresV6Connection
     public void Dispose() => Close();
 
     // Sans résolveur : un seul jeu de lignes pour toute requête (comportement historique des tests ADP02).
-    // Avec résolveur : le jeu de lignes est routé par le texte de la commande (documents vs paiements, ADP03).
+    // Avec résolveur : le jeu de lignes est routé par le texte de la commande (documents, paiements, régimes…).
     internal IDataReader CreateReader(string commandText) =>
         new FakeDataReader(_readerResolver != null ? _readerResolver(commandText) : _documentRows);
 

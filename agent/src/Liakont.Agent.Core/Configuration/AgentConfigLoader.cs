@@ -142,7 +142,8 @@ public static class AgentConfigLoader
             string.IsNullOrWhiteSpace(extraction.OdbcConnectionString) ? null : extraction.OdbcConnectionString!.Trim(),
             string.IsNullOrWhiteSpace(extraction.PdfPoolPath) ? null : extraction.PdfPoolPath!.Trim(),
             schedule,
-            extraction.CatchUpOnStart ?? false);
+            extraction.CatchUpOnStart ?? false,
+            string.IsNullOrWhiteSpace(extraction.FixturesPath) ? null : extraction.FixturesPath!.Trim());
     }
 
     // HTTPS sortant uniquement (F12 §2.6) : la clé API (header X-Agent-Key) et les payloads fiscaux
@@ -185,6 +186,9 @@ public static class AgentConfigLoader
 
         [JsonProperty("pdfPoolPath")]
         public string? PdfPoolPath { get; set; }
+
+        [JsonProperty("fixturesPath")]
+        public string? FixturesPath { get; set; }
 
         [JsonProperty("schedule")]
         public IList<string>? Schedule { get; set; }
