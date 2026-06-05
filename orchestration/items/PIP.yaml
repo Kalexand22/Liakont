@@ -2,7 +2,9 @@
 # Specs : docs/conception/F11 (amendée 2026-06-03 : exécution répartie agent/plateforme),
 #         F07-F08-Avoirs-Frontiere-B2B-B2C.md, F09-E-Reporting-Paiement.md, F12 §4 ;
 #         docs/adr/ADR-0012 (acquittement agent en deux temps : PIP01 porte le point de statut
-#         agent + l'affinage du dédoublonnage côté plateforme — voir PIP01 point 7)
+#         agent + l'affinage du dédoublonnage côté plateforme — voir PIP01 point 7) ;
+#         docs/adr/ADR-0014 (staging durable du contenu pivot à l'intake : PIP00 est le prérequis
+#         de PIP01 — la plateforme détient le contenu, l'agent redevient un filet de sécurité)
 # Le pipeline tourne sur la PLATEFORME : déclenché par les événements d'ingestion
 # (DocumentReceived) + des jobs planifiés (module Job du socle). L'extraction n'en fait
 # plus partie (c'est l'agent). Il parle aux PA via IPaClient + capacités — JAMAIS à un
@@ -14,8 +16,67 @@
 # dépendre `agent` de `pipeline`. À trancher par l'opérateur : (a) avancer le seul point de
 # statut + l'affinage du dédoublonnage dans un item du segment core-foundation/agent, ou
 # (b) ajouter une dépendance de gate, ou (c) assumer que la démo AGENT précède le no-loss réel.
+#
+# CRITICITÉ ALLÉGÉE PAR ADR-0014 (décision opérateur 2026-06-05) : avec le staging plateforme à
+# l'intake (PIP00), le CONTENU du document est désormais détenu DURABLEMENT par la plateforme,
+# donc la file locale de l'agent redevient un FILET DE SÉCURITÉ et n'est plus le détenteur unique.
+# Le « no perte » de bout en bout ne dépend plus de l'agent restant en ligne. Le point de statut
+# reste porté par PIP01 (réconciliation), mais le risque structurel de la dépendance ci-dessus est
+# fortement réduit. PIP00 (prérequis, manifest prio 4990) précède PIP01.
 
 items:
+  PIP00:
+    title: "Staging durable du contenu pivot à l'intake (ADR-0014)"
+    description: |
+      Prérequis de PIP01 (ADR-0014, amende ADR-0012). Le pipeline (CHECK/SEND) exige le pivot
+      COMPLET (lignes, ventilation TVA ligne par ligne, parties), or l'intake ne persiste
+      aujourd'hui que métadonnées + payload_hash : le contenu n'est durable nulle part avant
+      l'émission. PIP00 fait de la PLATEFORME le détenteur durable du contenu pendant le
+      traitement (l'agent redevient un filet de sécurité), sans aucune logique métier dans l'agent.
+      1. Magasin de staging — abstraction à capacités IPayloadStagingStore (V1 FileSystem ;
+         S3-compatible fast-follow comme le coffre), NON-WORM / PURGEABLE (capacité DISTINCTE de
+         IArchiveStore qui, lui, reste WORM/immuable). Stocke le PivotDocumentDto sérialisé
+         (sérialisation canonique ADR-0007), CHIFFRÉ AU REPOS, TENANT-SCOPÉ, clé
+         (tenant_id, source_reference, payload_hash) / document_id. Accédé via Contracts par
+         Ingestion (write) et Pipeline (read) — aucun accès cross-module Domain/Infra, aucun
+         `if (store is …)`.
+      2. Intake (IngestDocumentBatchHandler) : ÉCRIRE ET FLUSHER le blob de staging AVANT de
+         commiter l'inscription au registre received_documents + l'événement outbox
+         DocumentReceivedV1 — invariant d'ORDRE, PAS d'atomicité (aucune transaction distribuée
+         XA/2PC entre un blob store et Postgres ; ne PAS écrire « même unité de cohérence »). Un
+         DocumentReceivedV1 n'est ainsi JAMAIS publié sans contenu déjà stagé. Crash entre
+         l'écriture du blob et le commit = au pire un blob ORPHELIN (purgeable, ré-écrit
+         idempotemment au renvoi de l'agent), jamais un événement sans contenu. Le contenu N'EST
+         PLUS jeté ; seul le rangement Detected reste best-effort post-commit (inchangé).
+         Idempotent sur la clé.
+      3. Lecture au traitement : API interne (Contracts) pour que le pipeline relise le pivot par
+         document_id/payload_hash, AVEC re-vérification du payload_hash à la lecture (intégrité —
+         toute altération détectée par l'empreinte existante ; pas de WORM sur le staging). Une
+         entrée ABSENTE est traitée comme « pas encore stagé / retry » (transitoire), JAMAIS
+         comme terminal/perdu.
+      4. Purge : l'entrée n'est purgée QUE lorsque le contenu est PROUVÉ préservé ailleurs —
+         concrètement quand le paquet d'archive WORM existe EFFECTIVEMENT (IArchiveStore.ExistsAsync),
+         PAS sur la simple étiquette d'état Issued : la transition Issued puis l'écriture WORM (TRK05)
+         ne sont pas atomiques, purger sur l'état seul détruirait le contenu avant qu'il soit dans le
+         coffre (et l'agent a déjà purgé son filet). CONSERVÉE pour tous les autres états —
+         Detected/ReadyToSend/Blocked/Sending/TechnicalError ET RejectedByPa (refusé par la PA :
+         contenu encore nécessaire à la correction/resoumission, PAS archivé en WORM par le SEND).
+         Un document définitivement abandonné par l'opérateur (annulation explicite) est purgé par
+         cette action DÉLIBÉRÉE, jamais par un balayage d'état. Purge LÉGITIME : magasin transitoire
+         de TRAITEMENT, NI table d'audit NI coffre WORM (append-only/WORM inchangés).
+    acceptance:
+      - "IPayloadStagingStore : abstraction à capacités, V1 FileSystem, purgeable (distincte du coffre WORM IArchiveStore) — aucun `if (store is …)` (NetArchTest sur la frontière)"
+      - "Pivot complet sérialisé (canonique ADR-0007), chiffré au repos, tenant-scopé — round-trip write→read fidèle, decimal préservés, aucun float (testé)"
+      - "Ordre d'intake : blob de staging écrit+flushé AVANT le commit registre+outbox — un DocumentReceivedV1 n'est jamais publié sans contenu stagé (testé : crash simulé entre écriture blob et commit = jamais d'événement sans contenu ; rollback = blob orphelin purgeable, pas d'événement)"
+      - "Entrée de staging absente au CHECK = traitée comme retry transitoire, jamais comme terminal/perdu (testé)"
+      - "Relecture re-vérifie le payload_hash : un contenu altéré est rejeté à la lecture (testé)"
+      - "Purge subordonnée à la présence EFFECTIVE du paquet WORM (IArchiveStore.ExistsAsync), jamais à l'étiquette Issued seule (testé : entre transition Issued et écriture TRK05 = staging conservé) ; purge sinon uniquement sur abandon opérateur explicite"
+      - "CONSERVATION à Detected/ReadyToSend/Blocked/Sending/TechnicalError ET RejectedByPa (testé chaque état — Detected = premier état où le contenu doit survivre avant tout CHECK ; RejectedByPa = pas archivé en WORM, contenu requis pour correction/resoumission)"
+      - "Isolation tenant : un tenant ne lit jamais le staging d'un autre (testé 2 tenants)"
+      - "Accès uniquement via Contracts (Ingestion write, Pipeline read) — aucun accès cross-module Domain/Infra (NetArchTest)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
   PIP01:
     title: "Pipeline check → send → sync (événements + jobs)"
     description: |
@@ -23,8 +84,10 @@ items:
       Documents/Transmission avec un orchestrateur — choix d'implémentation à justifier
       au plan, critère : respecter les frontières de modules via Contracts) :
       1. CHECK (déclenché par l'événement DocumentReceived de l'ingestion, via outbox) :
-         document Detected → mapping TVA (TVA02, table du tenant) → ValidationPipeline (VAL)
-         → OK : ReadyToSend ; KO : Blocked avec motifs persistés.
+         document Detected → RELECTURE du pivot COMPLET depuis le magasin de staging (PIP00,
+         clé document_id/payload_hash, re-vérif du hash) → mapping TVA (TVA02, table du tenant)
+         → ValidationPipeline (VAL) → OK : ReadyToSend ; KO : Blocked avec motifs persistés.
+         Le pipeline ne suppose JAMAIS le contenu « déjà là » : il le lit depuis le staging.
          GARDE-FOU PRODUCTION : si le compte PA actif du tenant est en environnement
          « production » et que la table de mapping TVA n'est PAS validée (validatedBy absent,
          table modifiée non revalidée, ou table d'exemple), TOUS les documents restent Blocked
@@ -45,8 +108,11 @@ items:
            tax_report_setting est actif (PAB03 Get/EnsureTaxReportSetting) — si non :
            alerte Warning + documents maintenus en ReadyToSend avec motif explicite
            (« SIREN non publié côté <PA> — aucun envoi possible »), jamais d'envoi à l'aveugle.
-         - ENVOI : IPaClient.SendDocumentAsync → succès : Issued (+ création du paquet
-           d'archive TRK05) ; errors[] : RejectedByPa ; réseau : TechnicalError.
+         - ENVOI : pivot relu depuis le staging (PIP00) → IPaClient.SendDocumentAsync → succès :
+           Issued + création du paquet d'archive TRK05, PUIS — une fois le paquet WORM CONFIRMÉ
+           présent (IArchiveStore.ExistsAsync) — purge de l'entrée de staging ; errors[] :
+           RejectedByPa (staging CONSERVÉ : pas en WORM, contenu nécessaire à la correction) ;
+           réseau : TechnicalError.
       3. SYNC (job planifié) : pour chaque document Issued du tenant :
          - tax report manquant → ListTaxReportsAsync → archivage xml_base64
            (si le PA déclare SupportsTaxReportRetrieval)
@@ -62,10 +128,12 @@ items:
          Le CHECK est le consommateur DURABLE de l'événement DocumentReceived ; c'est donc ici
          que vit l'état « terminal » que l'agent réconcilie :
          - exposer GET /api/agent/v1/documents/status (lecture seule, tenant-scopé, clé
-           (source_reference, payload_hash)) qui rapporte à l'agent : Processed = le document est
-           durablement créé (Detected) ET entré dans le pipeline (« la plateforme a pris la
-           responsabilité » — PAS « transmis à la PA ») ; Rejected = payload non conforme ;
-           Pending = reçu mais pas encore confirmé / inconnu.
+           (source_reference, payload_hash)) qui rapporte à l'agent : Processed = déterminé par
+           l'ÉTAT DURABLE du Document (Detected et au-delà, Issued INCLUS) — le contenu a été stagé
+           (PIP00) AVANT l'événement (invariant happened-before), ce N'EST PAS un contrôle de
+           présence vive du staging (purgé à Issued) : un document déjà Issued répond TOUJOURS
+           Processed, jamais Pending. Rejected = payload non conforme à l'intake (DISTINCT de l'état
+           pipeline RejectedByPa) ; Pending = reçu mais pas encore confirmé / inconnu.
          - CONTRAT HTTP DU STATUT — hygiène sémantique du 404 (robustesse de contrat, PAS le
            mécanisme anti-perte) : sur la route EXISTANTE, une clé (source_reference, payload_hash)
            inconnue répond 200 + Pending, JAMAIS 404 ; le 404 reste réservé à une route absente.
@@ -85,7 +153,9 @@ items:
            à GATE_AGENT repose sur ce point de statut — voir l'en-tête de lot.
     acceptance:
       - "CHECK déclenché par événement d'ingestion : mapping + validation → ReadyToSend/Blocked"
-      - "Point de statut agent GET /documents/status (ADR-0012) : Processed/Rejected/Pending par (source_reference, payload_hash), tenant-scopé, lecture seule"
+      - "Contenu lu depuis le staging PIP00 au CHECK ET au SEND (pivot complet relu, payload_hash re-vérifié) — le pipeline ne suppose jamais le contenu « déjà là » (testé)"
+      - "Purge du staging subordonnée à la présence EFFECTIVE du paquet WORM (IArchiveStore.ExistsAsync), jamais à l'étiquette Issued seule — testé : balayage entre transition Issued et écriture TRK05 = staging conservé ; RejectedByPa = staging conservé (pas en WORM)"
+      - "Point de statut agent GET /documents/status (ADR-0012/ADR-0014) : Processed déterminé par l'état durable du Document (Issued inclus, staging purgé) — un Issued répond toujours Processed jamais Pending (testé) ; Rejected/Pending par (source_reference, payload_hash), tenant-scopé, lecture seule"
       - "Contrat 404 du point de statut (élaboration PIP01 ; sémantique Pending/inconnu d'ADR-0012, le mapping HTTP n'est PAS dans l'ADR) : clé inconnue sur la route existante = 200 + Pending, jamais 404 (404 réservé à une route absente) — hygiène de contrat, pas la garantie no-loss (testé : GET d'une clé jamais vue répond 200/Pending, pas 404)"
       - "Dédoublonnage affiné (ADR-0012) : un renvoi d'un document reçu mais non rangé RE-TENTE le rangement (idempotent), jamais écarté en duplicate (testé : intake échoué puis renvoi = document rangé, pas perdu)"
       - "Garde-fou production : table TVA non validée + compte PA production = tout reste Blocked (testé)"

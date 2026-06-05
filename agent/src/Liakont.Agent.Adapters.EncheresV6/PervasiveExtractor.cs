@@ -1,0 +1,419 @@
+namespace Liakont.Agent.Adapters.EncheresV6;
+
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Data.Common;
+using System.Globalization;
+using Liakont.Agent.Adapters.EncheresV6.Source;
+using Liakont.Agent.Contracts.Pivot;
+using Liakont.Agent.Contracts.Transport;
+using Liakont.Agent.Core;
+using Liakont.Agent.Core.Extraction;
+
+/// <summary>
+/// Extracteur EncheresV6 RÉEL en ODBC (Magic XPA / Pervasive / Zen), net48/x86 — ADP02. Lit les
+/// DOCUMENTS (bordereaux de vente, <c>bordereau_ou_avoir='B'</c>) d'une période par requêtes
+/// <see cref="System.Data.Odbc"/> en LECTURE SEULE STRICTE, puis les transforme en pivot par la MÊME
+/// classe de mapping que le mode fixtures (<see cref="EncheresV6RowMapper"/>, ADP01) — seule la source
+/// des lignes diffère (F01-F02 §4.4).
+/// <para>
+/// LECTURE SEULE STRICTE (CLAUDE.md n°5, F01-F02 R1), prouvée par les tests (test-espion sur
+/// <c>IDbCommand</c>) ET garantie par construction : uniquement des <c>SELECT</c> (garde
+/// <see cref="EncheresV6Schema.EnsureSelectOnly"/>), jamais d'<c>INSERT/UPDATE/DELETE</c>, jamais de
+/// transaction d'écriture, jamais de verrou explicite, timeouts courts. L'extraction est idempotente
+/// (R2) : la même période renvoie les mêmes <see cref="PivotDocumentDto.SourceReference"/>.
+/// </para>
+/// <para>
+/// Portée d'ADP02 : <see cref="ExtractDocuments"/> + <see cref="CheckHealth"/>. Les avoirs et les
+/// encaissements (<see cref="ExtractPayments"/>, F07/F09) arrivent avec ADP03, la liste des régimes
+/// (<see cref="ListSourceTaxRegimes"/>) + la configuration avec ADP04, les PDF avec ADP05 : ces méthodes
+/// échouent explicitement (jamais en silence) ou renvoient une liste vide tant que leur capacité n'est
+/// pas déclarée. Les capacités déclarées (<see cref="Capabilities"/>) grandissent au fil des items :
+/// la plateforme ne s'appuie que sur ce qui est réellement honoré.
+/// </para>
+/// <para>
+/// Aucune donnée client n'est embarquée (CLAUDE.md n°7) : le SIREN émetteur vient du paramétrage
+/// (<see cref="EncheresV6EmitterIdentity"/>, absent du schéma EncheresV6) ; la chaîne ODBC est fournie
+/// par la fabrique (<see cref="IEncheresV6ConnectionFactory"/>). L'adaptateur ne porte que la
+/// connaissance du SCHÉMA (un produit).
+/// </para>
+/// </summary>
+public sealed class PervasiveExtractor : IExtractor
+{
+    // Timeout court (CLAUDE.md / ADP02) : ne jamais bloquer l'agent sur une base verrouillée ou injoignable.
+    private const int QueryTimeoutSeconds = 30;
+
+    // Message opérateur d'indisponibilité (réessayable) — SANS la chaîne de connexion ni aucun secret
+    // (CLAUDE.md n°10 : ce message est remonté à la plateforme et journalisé). La cause technique reste
+    // dans l'innerException (locale uniquement).
+    private const string SourceUnavailableMessage =
+        "La source EncheresV6 est momentanément indisponible (connexion ou requête ODBC). Vérifiez que la "
+        + "base et le pilote ODBC sont accessibles ; le prochain cycle d'extraction réessaiera automatiquement.";
+
+    private readonly IEncheresV6ConnectionFactory _connectionFactory;
+    private readonly EncheresV6EmitterIdentity _emitter;
+    private readonly OperationCategory _operationCategory;
+
+    /// <summary>Crée l'extracteur ODBC EncheresV6.</summary>
+    /// <param name="connectionFactory">Fabrique de connexions ODBC (paramétrage tenant — ADP04).</param>
+    /// <param name="emitter">Identité de l'émetteur (SIREN issu du paramétrage tenant — absent de la base).</param>
+    /// <param name="operationCategory">Nature d'opération de la source (paramétrage — F01-F02 §7 #3).</param>
+    /// <exception cref="ArgumentNullException">Si <paramref name="connectionFactory"/> ou <paramref name="emitter"/> est nul.</exception>
+    public PervasiveExtractor(
+        IEncheresV6ConnectionFactory connectionFactory,
+        EncheresV6EmitterIdentity emitter,
+        OperationCategory operationCategory)
+    {
+        _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
+        _emitter = emitter ?? throw new ArgumentNullException(nameof(emitter));
+        _operationCategory = operationCategory;
+    }
+
+    /// <inheritdoc />
+    public string SourceName => "EncheresV6";
+
+    /// <inheritdoc />
+    public ExtractorCapabilities Capabilities { get; } = new ExtractorCapabilities(
+        providesSourceDocuments: false,
+        providesUnlinkedDocumentPool: false,
+        hasDetailedLines: true,
+        hasCreditNoteLink: false,
+        exposesPayments: false,
+        regimeKeyShape: RegimeKeyShape.Simple,
+        emitterIdentitySource: EmitterIdentitySource.FromConfig,
+        hasStoredHeaderTotal: true,
+        isMutableAfterIssue: false,
+        numberUniquenessScope: NumberUniquenessScope.Global);
+
+    /// <inheritdoc />
+    public ExtractorInfo GetInfo() =>
+        new ExtractorInfo("EncheresV6", "1.0.0-odbc", "Magic XPA / Pervasive (ODBC, lecture seule)");
+
+    /// <inheritdoc />
+    public HealthCheckResult CheckHealth()
+    {
+        IDbConnection connection;
+        try
+        {
+            connection = OpenConnection();
+        }
+        catch (SourceUnavailableException)
+        {
+            return HealthCheckResult.Unhealthy(
+                "Connexion à la source EncheresV6 impossible : vérifiez que le pilote ODBC (en 32 bits si le "
+                + "service tourne en 32 bits) est installé et que la chaîne de connexion du tenant est correcte.");
+        }
+
+        using (connection)
+        {
+            var counts = new List<string>();
+            foreach (string table in EncheresV6Schema.ExpectedTables)
+            {
+                try
+                {
+                    long count = CountTable(connection, table);
+                    counts.Add(table + " (" + count.ToString(CultureInfo.InvariantCulture) + ")");
+                }
+                catch (Exception ex) when (ex is DbException || ex is InvalidOperationException)
+                {
+                    return HealthCheckResult.Unhealthy(
+                        "Table source attendue « " + table + " » introuvable ou inaccessible : vérifiez le schéma "
+                        + "EncheresV6 et les droits de lecture seule du compte ODBC.");
+                }
+            }
+
+            return HealthCheckResult.Healthy(
+                "Source EncheresV6 (ODBC, lecture seule) accessible — " + string.Join(", ", counts) + ".");
+        }
+    }
+
+    /// <inheritdoc />
+    public IEnumerable<PivotDocumentDto> ExtractDocuments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc)
+    {
+        // Streaming + regroupement par no_ba (R8) : la requête est triée par no_ba puis no_ligne, donc
+        // les lignes d'un même bordereau se suivent. On accumule les lignes du bordereau courant et on
+        // émet le document dès que le no_ba change — mémoire O(1 document), jamais tout en mémoire.
+        using (IDbConnection connection = OpenConnection())
+        using (IDbCommand command = CreatePeriodSelect(connection, EncheresV6Schema.SelectDocumentsSql, fromInclusiveUtc, toExclusiveUtc))
+        using (IDataReader reader = ExecuteReader(command))
+        {
+            EncheresV6Bordereau? current = null;
+            while (ReadNext(reader))
+            {
+                string noBa = ReadRequiredKey(reader, EncheresV6Schema.ColNoBa);
+                if (current is null || !string.Equals(current.NoBa, noBa, StringComparison.Ordinal))
+                {
+                    if (current != null)
+                    {
+                        yield return MapDocument(current);
+                    }
+
+                    current = ReadBordereauHeader(reader, noBa);
+                }
+
+                // LEFT JOIN : une vente sans ligne de document (type 4/2) produit une ligne d'entête seule
+                // (colonnes ligne NULL). On n'ajoute alors aucune ligne — le document est tout de même émis
+                // (lignes vides), comme en mode fixtures : jamais d'omission silencieuse d'une vente
+                // (« bloquer plutôt qu'envoyer faux » ; la cohérence lignes↔total est tranchée par la
+                // Validation plateforme, pas par l'adaptateur).
+                if (!string.IsNullOrEmpty(ReadString(reader, EncheresV6Schema.ColTypeLigne)))
+                {
+                    current.Lignes.Add(ReadLigne(reader));
+                }
+            }
+
+            if (current != null)
+            {
+                yield return MapDocument(current);
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public IEnumerable<PivotPaymentDto> ExtractPayments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc)
+    {
+        // Différé à ADP03 (lignes type 3, F09) : énumération vide, JAMAIS d'exception (symétrie avec
+        // GetAttachments/ListPoolDocuments). La capacité ExposesPayments=false signale déjà l'absence ;
+        // un consommateur reçoit un flux vide plutôt qu'un crash non typé (contrat IExtractor R7).
+        return Array.Empty<PivotPaymentDto>();
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<SourceTaxRegimeDto> ListSourceTaxRegimes()
+    {
+        // Différé à ADP04 (lecture de Regime_tva) : liste vide, JAMAIS d'exception. ExtractionCycle.Run
+        // appelle ListSourceTaxRegimes inconditionnellement à chaque cycle (avant d'avancer le filigrane) —
+        // throw ici bloquerait l'extraction. Comportement aligné sur les autres extracteurs (placeholder,
+        // fixtures) qui renvoient vide pour le cas non encore livré.
+        return Array.Empty<SourceTaxRegimeDto>();
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<SourceAttachment> GetAttachments(string sourceReference)
+    {
+        // Capacité PDF non déclarée en ODBC tant qu'ADP05 ne l'a pas livrée : liste vide, jamais d'exception (contrat IExtractor).
+        return Array.Empty<SourceAttachment>();
+    }
+
+    /// <inheritdoc />
+    public IEnumerable<PoolDocument> ListPoolDocuments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc)
+    {
+        // Capacité pool non déclarée en ODBC tant qu'ADP05 ne l'a pas livrée : vide, jamais d'exception (contrat IExtractor).
+        return Array.Empty<PoolDocument>();
+    }
+
+    private static IDbCommand CreatePeriodSelect(IDbConnection connection, string sql, DateTime fromInclusive, DateTime toExclusive)
+    {
+        EncheresV6Schema.EnsureSelectOnly(sql);
+
+        IDbCommand command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.CommandType = CommandType.Text;
+        command.CommandTimeout = QueryTimeoutSeconds;
+        AddParameter(command, fromInclusive);
+        AddParameter(command, toExclusive);
+        return command;
+    }
+
+    private static void AddParameter(IDbCommand command, object value)
+    {
+        IDbDataParameter parameter = command.CreateParameter();
+        parameter.Value = value;
+        command.Parameters.Add(parameter);
+    }
+
+    private static IDataReader ExecuteReader(IDbCommand command)
+    {
+        try
+        {
+            return command.ExecuteReader();
+        }
+        catch (DbException ex)
+        {
+            throw new SourceUnavailableException(SourceUnavailableMessage, ex);
+        }
+    }
+
+    private static bool ReadNext(IDataReader reader)
+    {
+        try
+        {
+            return reader.Read();
+        }
+        catch (DbException ex)
+        {
+            throw new SourceUnavailableException(SourceUnavailableMessage, ex);
+        }
+    }
+
+    private static long CountTable(IDbConnection connection, string table)
+    {
+        string sql = EncheresV6Schema.CountSql(table);
+        EncheresV6Schema.EnsureSelectOnly(sql);
+
+        using (IDbCommand command = connection.CreateCommand())
+        {
+            command.CommandText = sql;
+            command.CommandType = CommandType.Text;
+            command.CommandTimeout = QueryTimeoutSeconds;
+            object? result = command.ExecuteScalar();
+            return result is null || result == DBNull.Value
+                ? 0L
+                : Convert.ToInt64(result, CultureInfo.InvariantCulture);
+        }
+    }
+
+    private static object Cell(IDataReader reader, string column)
+    {
+        try
+        {
+            return reader[column];
+        }
+        catch (DbException ex)
+        {
+            throw new SourceUnavailableException(SourceUnavailableMessage, ex);
+        }
+        catch (IndexOutOfRangeException ex)
+        {
+            throw new SourceSchemaException(
+                "Colonne source attendue « " + column + " » absente du résultat EncheresV6 : schéma "
+                + "incompatible. Vérifiez la requête d'extraction et le schéma de la base.",
+                ex);
+        }
+    }
+
+    private static string? ReadString(IDataReader reader, string column)
+    {
+        object value = Cell(reader, column);
+        return value == DBNull.Value ? null : Convert.ToString(value, CultureInfo.InvariantCulture);
+    }
+
+    private static string ReadRequiredKey(IDataReader reader, string column)
+    {
+        string? value = ReadString(reader, column);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new SourceSchemaException(
+                "Champ source obligatoire « " + column + " » absent : un bordereau sans référence ne peut "
+                + "être ni regroupé ni rendu idempotent (R2). Vérifiez l'extraction des données source.");
+        }
+
+        return value!;
+    }
+
+    private static double ReadRequiredDouble(IDataReader reader, string column)
+    {
+        object value = Cell(reader, column);
+        if (value == DBNull.Value)
+        {
+            throw new SourceSchemaException(
+                "Montant source obligatoire « " + column + " » absent (NULL) : document bloqué, jamais de "
+                + "valeur devinée (ADR-0004 D3-3). Vérifiez l'extraction des montants source.");
+        }
+
+        return ConvertDouble(value, column);
+    }
+
+    private static double? ReadNullableDouble(IDataReader reader, string column)
+    {
+        object value = Cell(reader, column);
+        return value == DBNull.Value ? (double?)null : ConvertDouble(value, column);
+    }
+
+    private static double ConvertDouble(object value, string column)
+    {
+        try
+        {
+            return Convert.ToDouble(value, CultureInfo.InvariantCulture);
+        }
+        catch (Exception ex) when (ex is FormatException || ex is InvalidCastException || ex is OverflowException)
+        {
+            throw new SourceSchemaException(
+                "Valeur source illisible pour le champ « " + column + " » (type inattendu) : schéma "
+                + "EncheresV6 incompatible. Vérifiez l'extraction des données source.",
+                ex);
+        }
+    }
+
+    private static DateTime? ReadNullableDate(IDataReader reader, string column)
+    {
+        object value = Cell(reader, column);
+        if (value == DBNull.Value)
+        {
+            return null;
+        }
+
+        try
+        {
+            return Convert.ToDateTime(value, CultureInfo.InvariantCulture);
+        }
+        catch (Exception ex) when (ex is FormatException || ex is InvalidCastException)
+        {
+            throw new SourceSchemaException(
+                "Date source illisible pour le champ « " + column + " » : schéma EncheresV6 incompatible. "
+                + "Vérifiez l'extraction des données source.",
+                ex);
+        }
+    }
+
+    private static EncheresV6Bordereau ReadBordereauHeader(IDataReader reader, string noBa)
+    {
+        return new EncheresV6Bordereau
+        {
+            NoBa = noBa,
+            NumeroPiece = ReadString(reader, EncheresV6Schema.ColNumeroPiece),
+            BordereauOuAvoir = ReadString(reader, EncheresV6Schema.ColBordereauOuAvoir),
+            DateVente = ReadNullableDate(reader, EncheresV6Schema.ColDateVente) ?? default(DateTime),
+            NoBaLettrage = ReadString(reader, EncheresV6Schema.ColNoBaLettrage),
+            AcheteurNom = ReadString(reader, EncheresV6Schema.ColAcheteurNom),
+            AcheteurSociete = ReadString(reader, EncheresV6Schema.ColSociete),
+            AcheteurSiren = ReadString(reader, EncheresV6Schema.ColAcheteurSiren),
+            AcheteurVille = ReadString(reader, EncheresV6Schema.ColAcheteurVille),
+            AcheteurCodePostal = ReadString(reader, EncheresV6Schema.ColAcheteurCodePostal),
+            AcheteurPays = ReadString(reader, EncheresV6Schema.ColAcheteurPays),
+            TotalHt = ReadRequiredDouble(reader, EncheresV6Schema.ColTotalHt),
+            TotalTva = ReadRequiredDouble(reader, EncheresV6Schema.ColTotalTva),
+            TotalTtc = ReadRequiredDouble(reader, EncheresV6Schema.ColTotalBordereau),
+        };
+    }
+
+    private static EncheresV6Ligne ReadLigne(IDataReader reader)
+    {
+        return new EncheresV6Ligne
+        {
+            TypeLigne = ReadString(reader, EncheresV6Schema.ColTypeLigne),
+            Designation = ReadString(reader, EncheresV6Schema.ColDesignation),
+            MontantHt = ReadRequiredDouble(reader, EncheresV6Schema.ColMontantHt),
+            MontantTva = ReadRequiredDouble(reader, EncheresV6Schema.ColMontantTva),
+            TauxTva = ReadNullableDouble(reader, EncheresV6Schema.ColTauxTva),
+            Quantite = ReadNullableDouble(reader, EncheresV6Schema.ColQuantite),
+            PrixUnitaire = ReadNullableDouble(reader, EncheresV6Schema.ColPrixUnitaire),
+            CodeRegime = ReadString(reader, EncheresV6Schema.ColCodeRegime),
+            NoLigne = ReadString(reader, EncheresV6Schema.ColNoLigne),
+        };
+    }
+
+    private IDbConnection OpenConnection()
+    {
+        IDbConnection connection = _connectionFactory.CreateConnection();
+        try
+        {
+            connection.Open();
+        }
+        catch (Exception ex) when (ex is DbException || ex is InvalidOperationException)
+        {
+            connection.Dispose();
+            throw new SourceUnavailableException(SourceUnavailableMessage, ex);
+        }
+
+        return connection;
+    }
+
+    private PivotDocumentDto MapDocument(EncheresV6Bordereau bordereau)
+    {
+        // ExtractDocuments ne renvoie que des ventes ('B') en ADP02 : pas d'origine d'avoir à résoudre
+        // (les avoirs et leur lettrage no_ba_lettrage → CreditNoteRef arrivent avec ADP03).
+        return EncheresV6RowMapper.MapDocument(bordereau, _emitter, _operationCategory, creditNoteOrigin: null);
+    }
+}
