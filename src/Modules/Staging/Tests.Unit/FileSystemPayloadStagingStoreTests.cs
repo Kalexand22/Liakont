@@ -2,6 +2,7 @@ namespace Liakont.Modules.Staging.Tests.Unit;
 
 using System;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using FluentAssertions;
@@ -93,15 +94,20 @@ public sealed class FileSystemPayloadStagingStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Read_Avec_Empreinte_Attendue_Differente_Rejette_En_Integrite() // INV-STAGING-003
+    public async Task Read_Contenu_Ne_Correspondant_Pas_A_L_Empreinte_Rejette_En_Integrite() // INV-STAGING-003
     {
-        var (key, json) = Sample();
-        await _store.WriteAsync(key, json);
+        // Deux contenus DIFFÉRENTS, MÊME tenant (donc même protecteur, tous deux déchiffrables).
+        var (keyA, jsonA) = Sample(net: 100.00m);
+        var (keyB, jsonB) = Sample(net: 200.00m);
+        await _store.WriteAsync(keyA, jsonA);
+        await _store.WriteAsync(keyB, jsonB);
 
-        // Même tenant + document (donc même fichier, déchiffrable) mais empreinte attendue erronée.
-        var wrongHashKey = new StagedPayloadKey(key.TenantId, key.DocumentId, ZeroHash);
-        Func<Task> act = () => _store.ReadAsync(wrongHashKey);
+        // On place le chiffré de B au chemin (empreinte) de A : le contenu relu ne correspond plus au hash.
+        string fileA = StagedFiles(_root).Single(f => Path.GetFileName(f).StartsWith(keyA.PayloadHash, StringComparison.Ordinal));
+        string fileB = StagedFiles(_root).Single(f => Path.GetFileName(f).StartsWith(keyB.PayloadHash, StringComparison.Ordinal));
+        await File.WriteAllBytesAsync(fileA, await File.ReadAllBytesAsync(fileB));
 
+        Func<Task> act = () => _store.ReadAsync(keyA);
         await act.Should().ThrowAsync<StagedPayloadIntegrityException>();
     }
 

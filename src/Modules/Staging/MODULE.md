@@ -40,6 +40,13 @@ Aucun. Le module ne consomme pas d'événements ; il est un magasin de contenu s
   ADR-0007), utilitaires BCL-only, aucune logique métier.
 - ASP.NET Core Data Protection (framework partagé `Microsoft.AspNetCore.App`) : chiffrement au repos,
   même mécanisme que les secrets PA — aucun package NuGet nouveau, aucun ADR (repo-standards §4).
+  **PRÉREQUIS DE DÉPLOIEMENT (OPS)** : un magasin de clés Data Protection PERSISTANT (même exigence que
+  les secrets PA — cf. `TenantSettingsModuleRegistration`). Tant qu'il est éphémère, un redémarrage
+  d'instance (ou une rotation de clé) rend un blob stagé en cours indéchiffrable
+  (`StagedPayloadIntegrityException`). Ce n'est PAS une perte : le contenu reste détenu par le FILET DE
+  SÉCURITÉ de l'agent (ADR-0014), qui re-pousse tant que le statut n'est pas `Processed` — le document
+  est alors re-stagé puis traité. La façon dont le pipeline (PIP01) réagit à une relecture indéchiffrable
+  (re-demander à l'agent vs erreur) relève de PIP01.
 - `IArchivedDocumentProbe` : port OWNED par ce module ; implémenté au Host
   (`ArchiveStoreArchivedDocumentProbe`) en sondant `IArchiveStore.ExistsAsync`. La frontière inter-modules
   (Contracts uniquement) reste intacte — le câblage cross-module est le rôle du composition root.

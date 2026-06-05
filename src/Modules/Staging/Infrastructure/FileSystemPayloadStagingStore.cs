@@ -155,8 +155,12 @@ public sealed class FileSystemPayloadStagingStore : IPayloadStagingStore
         string tenantSegment = StagingPathLayout.SanitizeSegment(key.TenantId);
         string tenantRoot = Path.GetFullPath(Path.Combine(_rootPath, tenantSegment));
 
-        // Le DocumentId (Guid « N ») est intrinsèquement sûr ; on garde la vérification de périmètre tenant.
-        string fileName = key.DocumentId.ToString("N") + StagingPathLayout.PayloadFileExtension;
+        // ADRESSAGE PAR CONTENU (payload_hash), PAS par DocumentId (ADR-0014 §2). Une nouvelle tentative
+        // après un crash regénère un DocumentId mais conserve le MÊME payload_hash (même contenu) → même
+        // chemin → ré-écriture idempotente qui RÉCLAME le blob orphelin au renvoi de l'agent (sans quoi un
+        // DocumentId neuf laisserait l'orphelin s'accumuler sans jamais le réutiliser). L'empreinte (64 hex)
+        // est intrinsèquement sûre ; on l'assainit par défense et on vérifie le périmètre tenant.
+        string fileName = StagingPathLayout.SanitizeSegment(key.PayloadHash) + StagingPathLayout.PayloadFileExtension;
         string fullPath = Path.GetFullPath(Path.Combine(tenantRoot, fileName));
 
         if (!fullPath.StartsWith(tenantRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal))

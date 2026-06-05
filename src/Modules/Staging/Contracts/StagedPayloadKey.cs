@@ -6,8 +6,11 @@ using System;
 /// Clé d'une entrée du magasin de staging (ADR-0014) : le tenant propriétaire, l'identifiant de document
 /// attribué à l'intake, et l'empreinte canonique du payload (ADR-0007). La clé est <b>tenant-scopée</b> par
 /// construction (blueprint §7 ; CLAUDE.md n°9) : un tenant ne peut jamais désigner l'entrée d'un autre.
-/// L'empreinte n'entre pas dans le chemin de stockage — elle sert d'étiquette d'INTÉGRITÉ re-vérifiée à la
-/// lecture (<see cref="IPayloadStagingStore.ReadAsync"/>), aucun WORM n'étant appliqué au staging.
+/// L'ADRESSAGE de l'entrée se fait par <b>contenu</b> — le couple (tenant, <see cref="PayloadHash"/>) — pour
+/// qu'un renvoi de l'agent (DocumentId régénéré, même contenu) réclame le blob idempotemment (ADR-0014 §2) ;
+/// l'empreinte sert AUSSI d'étiquette d'INTÉGRITÉ re-vérifiée à la lecture (<see cref="IPayloadStagingStore.ReadAsync"/>),
+/// aucun WORM n'étant appliqué au staging. Le <see cref="DocumentId"/> est porté pour la corrélation
+/// (événement, journalisation), pas pour l'adressage.
 /// </summary>
 public sealed record StagedPayloadKey
 {
