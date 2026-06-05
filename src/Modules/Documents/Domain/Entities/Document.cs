@@ -194,19 +194,23 @@ public sealed class Document
     /// <summary>
     /// → ReadyToSend en CONSIGNANT la version de table de mapping TVA appliquée (F03/F06 §3, PIP01) : le
     /// mapping a été résolu et la version est tracée sur le document (justification de la TVA appliquée).
-    /// <paramref name="mappingVersion"/> est OBLIGATOIRE ; pour une mise en ReadyToSend SANS mapping
-    /// (reprise technique), utiliser la surcharge à deux arguments. Appeler avec l'argument nommé
-    /// (<c>mappingVersion:</c>) lève toute ambiguïté avec cette surcharge à deux arguments.
+    /// <paramref name="mappingVersion"/> est OBLIGATOIRE. NOM DISTINCT (et non une surcharge de
+    /// <see cref="MarkReadyToSend(DateTimeOffset, string?)"/>) afin qu'aucun appelant ne puisse passer la
+    /// version en positionnel et la voir liée au paramètre <c>detail</c> — perte de traçabilité F03 silencieuse.
     /// </summary>
-    public DocumentEvent MarkReadyToSend(DateTimeOffset occurredAtUtc, string mappingVersion, string? detail = null)
+    public DocumentEvent MarkReadyToSendWithMapping(DateTimeOffset occurredAtUtc, string mappingVersion, string? detail = null)
     {
         var version = RequireText(
             mappingVersion,
             nameof(mappingVersion),
             "La version de table de mapping TVA appliquée est obligatoire au passage ReadyToSend (traçabilité F03/F06 §3).");
 
+        // Garde de légalité AVANT toute mutation (cohérent avec les autres transitions, F06 §3) : la version
+        // n'est consignée qu'une fois la transition ReadyToSend acceptée — une transition refusée ne laisse
+        // aucune trace, même en mémoire.
+        var documentEvent = ApplyTransition(DocumentState.ReadyToSend, DocumentEventType.DocumentReadyToSend, occurredAtUtc, detail, operatorIdentity: null);
         MappingVersion = version;
-        return ApplyTransition(DocumentState.ReadyToSend, DocumentEventType.DocumentReadyToSend, occurredAtUtc, detail, operatorIdentity: null);
+        return documentEvent;
     }
 
     /// <summary>ReadyToSend → Sending : la transmission à la Plateforme Agréée est engagée.</summary>

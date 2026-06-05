@@ -6,19 +6,19 @@ using Liakont.Modules.Documents.Domain.Entities;
 using Xunit;
 
 /// <summary>
-/// Surcharge <c>MarkReadyToSend(occurredAt, mappingVersion, detail)</c> (PIP01a) : consigne la version de
-/// table de mapping TVA appliquée au passage ReadyToSend (traçabilité F03/F06 §3).
+/// <c>MarkReadyToSendWithMapping(occurredAt, mappingVersion, detail)</c> (PIP01a) : consigne la version de
+/// table de mapping TVA appliquée au passage ReadyToSend (traçabilité F03/F06 §3), après la garde de légalité.
 /// </summary>
 public sealed class DocumentMappingVersionTests
 {
     private static readonly DateTimeOffset At = new(2026, 5, 14, 8, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void MarkReadyToSend_With_Mapping_Version_Records_It()
+    public void MarkReadyToSendWithMapping_Records_The_Version()
     {
         var document = Detected();
 
-        var documentEvent = document.MarkReadyToSend(At.AddMinutes(1), mappingVersion: "2026.1");
+        var documentEvent = document.MarkReadyToSendWithMapping(At.AddMinutes(1), "2026.1");
 
         document.State.Should().Be(DocumentState.ReadyToSend);
         document.MappingVersion.Should().Be("2026.1");
@@ -26,21 +26,21 @@ public sealed class DocumentMappingVersionTests
     }
 
     [Fact]
-    public void MarkReadyToSend_Trims_The_Mapping_Version()
+    public void MarkReadyToSendWithMapping_Trims_The_Version()
     {
         var document = Detected();
 
-        document.MarkReadyToSend(At.AddMinutes(1), mappingVersion: "  2026.2  ");
+        document.MarkReadyToSendWithMapping(At.AddMinutes(1), "  2026.2  ");
 
         document.MappingVersion.Should().Be("2026.2");
     }
 
     [Fact]
-    public void MarkReadyToSend_With_Blank_Mapping_Version_Throws_And_Leaves_State_Untouched()
+    public void MarkReadyToSendWithMapping_With_Blank_Version_Throws_And_Leaves_State_Untouched()
     {
         var document = Detected();
 
-        var act = () => document.MarkReadyToSend(At.AddMinutes(1), mappingVersion: "   ");
+        var act = () => document.MarkReadyToSendWithMapping(At.AddMinutes(1), "   ");
 
         act.Should().Throw<ArgumentException>();
         document.State.Should().Be(DocumentState.Detected);

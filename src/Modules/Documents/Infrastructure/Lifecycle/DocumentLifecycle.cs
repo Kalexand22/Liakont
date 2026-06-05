@@ -35,7 +35,7 @@ internal sealed class DocumentLifecycle : IDocumentLifecycle
         TransitionAsync(documentId, (document, at) => document.MarkBlocked(at, reason), cancellationToken);
 
     public Task MarkReadyToSendAsync(Guid documentId, string mappingVersion, CancellationToken cancellationToken = default) =>
-        TransitionAsync(documentId, (document, at) => document.MarkReadyToSend(at, mappingVersion: mappingVersion), cancellationToken);
+        TransitionAsync(documentId, (document, at) => document.MarkReadyToSendWithMapping(at, mappingVersion), cancellationToken);
 
     public Task BeginSendingAsync(Guid documentId, CancellationToken cancellationToken = default) =>
         TransitionAsync(documentId, (document, at) => document.BeginSending(at), cancellationToken);
