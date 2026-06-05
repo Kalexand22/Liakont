@@ -65,3 +65,17 @@ Aucun. Le module ne consomme pas d'événements ; il est un magasin de contenu s
 - **PIP01** (pipeline) : relit le pivot au CHECK/SEND via `ReadAsync` ; purge après émission via
   `IStagingPurgeService.PurgeIfArchivedAsync` (subordonnée au paquet WORM).
 - **Ingestion** (déjà câblé, PIP00) : `IngestDocumentBatchHandler` écrit via `WriteAsync` avant le commit.
+
+## Cycle de vie & dette connue
+
+La purge via `IStagingPurgeService.PurgeIfArchivedAsync` est **subordonnée à la présence WORM** (par design,
+ADR-0014 §4) : un document stagé n'est purgé que si son paquet d'archive est effectivement dans le coffre
+(`IArchiveStore.ExistsAsync`). Ce comportement est correct pour le chemin nominal (émis → archivé → purgé).
+
+**Cas non couvert :** un document stagé + committé à l'intake qui n'atteint JAMAIS le coffre WORM (rejet PA
+terminal, abandon du traitement) ne sera JAMAIS purgé par `PurgeIfArchivedAsync`. En l'absence de politique
+de rétention, le staging croît de façon non bornée pour ces documents.
+
+**Prérequis PIP01 (propriétaire du cycle de vie) :** définir et appliquer une politique bornant cette
+croissance (purge sur échec terminal OU balayage d'expiration borné). La durée de rétention et les critères
+d'éligibilité DOIVENT être issus de `docs/conception/` et ne sont PAS définis ici.
