@@ -118,6 +118,57 @@ public class AgentRunCycleTests
         }
     }
 
+    [Fact]
+    public void Run_records_drain_incomplete_when_extraction_succeeds_but_the_push_is_rejected()
+    {
+        using (var db = new TempDatabase())
+        using (var queue = new LocalQueue(db.Path, new MutableClock(Now)))
+        {
+            queue.SetExtractionWatermarkUtc(new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc));
+            var extractor = new FixtureExtractor(
+                "Fixture",
+                documents: new[] { PivotTestData.Document("REF-1", new DateTime(2026, 6, 3, 0, 0, 0, DateTimeKind.Utc)) });
+            var client = new FakePlatformClient
+            {
+                // 401 arrête le drainage immédiatement (StoppedBy = Unauthorized, sans backoff).
+                OnPushDocuments = (docs, regimes) => new PushBatchOutcome(PlatformResponseKind.Unauthorized),
+            };
+            var journal = new AgentRunJournal(queue);
+            AgentRunCycle cycle = CreateCycle(extractor, queue, client, journal: journal);
+
+            cycle.Run(CancellationToken.None);
+
+            journal.LastRunOutcome.Should().Be("DrainIncomplete:Unauthorized");
+            journal.LastError.Should().NotBeNullOrEmpty();
+            journal.LastSuccessfulSyncUtc.Should().BeNull("aucun push abouti → pas de synchronisation");
+        }
+    }
+
+    [Fact]
+    public void Run_records_a_failed_extraction_but_still_syncs_when_the_backlog_drains()
+    {
+        using (var db = new TempDatabase())
+        using (var queue = new LocalQueue(db.Path, new MutableClock(Now)))
+        {
+            queue.Enqueue(QueueItem.ForDocument("PREV-1", "h-prev", "{}")); // backlog d'un run précédent
+            var extractor = new ThrowingExtractor(() => new SourceUnavailableException("ODBC coupé"));
+            var client = new FakePlatformClient
+            {
+                OnPushDocuments = (docs, regimes) => new PushBatchOutcome(
+                    PlatformResponseKind.Ok,
+                    new[] { new DocumentPushResultDto("PREV-1", DocumentPushStatus.Accepted) }),
+            };
+            var journal = new AgentRunJournal(queue);
+            AgentRunCycle cycle = CreateCycle(extractor, queue, client, journal: journal);
+
+            cycle.Run(CancellationToken.None);
+
+            // L'issue reflète l'échec d'extraction, mais le backlog a bien été poussé → sync enregistrée.
+            journal.LastRunOutcome.Should().Be("SourceUnavailable");
+            journal.LastSuccessfulSyncUtc.Should().Be(Now);
+        }
+    }
+
     private static AgentRunCycle CreateCycle(
         Liakont.Agent.Core.IExtractor extractor,
         LocalQueue queue,

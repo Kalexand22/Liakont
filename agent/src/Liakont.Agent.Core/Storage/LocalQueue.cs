@@ -421,6 +421,54 @@ public sealed class LocalQueue : IDisposable
         return result;
     }
 
+    /// <summary>
+    /// Écrit (ou remplace) plusieurs valeurs d'<c>agent_state</c> ATOMIQUEMENT : une seule transaction
+    /// sous un seul verrou, donc un lecteur (<see cref="GetStates"/>) ne peut jamais observer une mise à
+    /// jour multi-clés à moitié appliquée (symétrique de la lecture groupée — utilisé par le heartbeat
+    /// AGT03 pour que l'issue d'un run, écrite en plusieurs clés, ne soit jamais lue « déchirée »).
+    /// Une valeur <c>null</c> efface la valeur de la clé.
+    /// </summary>
+    /// <param name="values">Les couples clé/valeur à écrire (clés non nulles, non vides).</param>
+    public void SetStates(IReadOnlyDictionary<string, string?> values)
+    {
+        if (values is null)
+        {
+            throw new ArgumentNullException(nameof(values));
+        }
+
+        foreach (string key in values.Keys)
+        {
+            if (string.IsNullOrEmpty(key))
+            {
+                throw new ArgumentException("La clé d'état est requise.", nameof(values));
+            }
+        }
+
+        lock (_operationLock)
+        {
+            string now = FormatUtc(_clock.UtcNow);
+            using (SQLiteTransaction tx = _connection.BeginTransaction())
+            {
+                foreach (KeyValuePair<string, string?> entry in values)
+                {
+                    using (SQLiteCommand cmd = _connection.CreateCommand())
+                    {
+                        cmd.Transaction = tx;
+                        cmd.CommandText =
+                            "INSERT INTO agent_state (key, value, updated_at_utc) VALUES (@key, @value, @updated) " +
+                            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at_utc = excluded.updated_at_utc;";
+                        cmd.Parameters.AddWithValue("@key", entry.Key);
+                        cmd.Parameters.AddWithValue("@value", (object?)entry.Value ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@updated", now);
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+                tx.Commit();
+            }
+        }
+    }
+
     /// <summary>Lit le filigrane d'extraction (dernière période traitée), null si jamais posé.</summary>
     public DateTime? GetExtractionWatermarkUtc()
     {

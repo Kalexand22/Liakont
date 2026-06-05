@@ -69,11 +69,14 @@ public sealed class AgentRunJournal
     public DateTime? LastSuccessfulSyncUtc => ParseUtc(_queue.GetState(LastSuccessfulSyncKey));
 
     /// <summary>
-    /// Lit toute l'issue du dernier run en UN SEUL verrou (instantané COHÉRENT) : aucun run ne peut
-    /// s'intercaler entre les lectures, donc le heartbeat ne mélange jamais l'état de deux runs
-    /// (p. ex. début du nouveau avec fin/résultat du précédent).
+    /// Lit toute l'issue du dernier run en UN SEUL verrou (lecture non « déchirée »). Combinée à
+    /// l'écriture ATOMIQUE de la fin de run (<see cref="RecordRunFinished"/> via
+    /// <see cref="LocalQueue.SetStates"/>), elle garantit que le trio fin/résultat/erreur provient
+    /// toujours du même run. NB : pendant un run EN COURS, <see cref="AgentRunJournalSnapshot.LastRunStartedUtc"/>
+    /// peut être postérieur à <see cref="AgentRunJournalSnapshot.LastRunCompletedUtc"/> (le nouveau run
+    /// a démarré, l'ancien est la dernière fin connue) — c'est l'état RÉEL, pas une incohérence.
     /// </summary>
-    /// <returns>Une photographie cohérente de l'issue du dernier run.</returns>
+    /// <returns>Une photographie non déchirée de l'issue du dernier run.</returns>
     public AgentRunJournalSnapshot ReadSnapshot()
     {
         IReadOnlyDictionary<string, string?> states = _queue.GetStates(AllKeys);
@@ -103,9 +106,14 @@ public sealed class AgentRunJournal
             throw new ArgumentException("Le résultat du run est requis.", nameof(outcome));
         }
 
-        _queue.SetState(LastRunCompletedKey, FormatUtc(completedUtc));
-        _queue.SetState(LastRunOutcomeKey, outcome);
-        _queue.SetState(LastErrorKey, error);
+        // Trio écrit ATOMIQUEMENT (une transaction, un verrou) : un heartbeat concurrent ne lit jamais
+        // une fin de run « déchirée » (p. ex. completed = run N+1 avec outcome = run N).
+        _queue.SetStates(new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            [LastRunCompletedKey] = FormatUtc(completedUtc),
+            [LastRunOutcomeKey] = outcome,
+            [LastErrorKey] = error,
+        });
     }
 
     /// <summary>Enregistre une synchronisation réussie (au moins un push abouti) avec la plateforme.</summary>
