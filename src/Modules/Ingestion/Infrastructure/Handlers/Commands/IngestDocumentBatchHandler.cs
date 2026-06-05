@@ -10,6 +10,7 @@ using Liakont.Modules.Ingestion.Contracts.Commands;
 using Liakont.Modules.Ingestion.Contracts.Events;
 using Liakont.Modules.Ingestion.Domain;
 using Liakont.Modules.Ingestion.Domain.Entities;
+using Liakont.Modules.Staging.Contracts;
 using MediatR;
 using Microsoft.Extensions.Logging;
 using Stratum.Common.Abstractions.Events;
@@ -40,17 +41,20 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
     private readonly IReceivedDocumentUnitOfWorkFactory _uowFactory;
     private readonly ISourceTaxRegimeWriter _sourceTaxRegimeWriter;
     private readonly IDocumentIntake _documentIntake;
+    private readonly IPayloadStagingStore _stagingStore;
     private readonly ILogger<IngestDocumentBatchHandler> _logger;
 
     public IngestDocumentBatchHandler(
         IReceivedDocumentUnitOfWorkFactory uowFactory,
         ISourceTaxRegimeWriter sourceTaxRegimeWriter,
         IDocumentIntake documentIntake,
+        IPayloadStagingStore stagingStore,
         ILogger<IngestDocumentBatchHandler> logger)
     {
         _uowFactory = uowFactory;
         _sourceTaxRegimeWriter = sourceTaxRegimeWriter;
         _documentIntake = documentIntake;
+        _stagingStore = stagingStore;
         _logger = logger;
     }
 
@@ -139,10 +143,13 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
                 "Numéro de document manquant (EN 16931 BT-1, champ obligatoire du contrat).");
         }
 
+        string canonicalJson;
         string payloadHash;
         try
         {
-            payloadHash = PayloadHasher.ComputeHash(document);
+            // Sérialisation canonique UNE seule fois (ADR-0007) : sert l'empreinte ET le contenu stagé (PIP00).
+            canonicalJson = CanonicalJson.Serialize(document);
+            payloadHash = PayloadHasher.ComputeHash(canonicalJson);
         }
         catch (Exception)
         {
@@ -241,6 +248,22 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
                     },
                     cancellationToken);
             }
+
+            // PIP00 / ADR-0014 — INVARIANT D'ORDRE (pas d'atomicité) : le pivot COMPLET est stagé
+            // DURABLEMENT (écrit + flushé sur disque) AVANT le commit du registre + de l'événement outbox.
+            // Il n'existe pas de transaction distribuée (XA/2PC) entre un blob store et Postgres : c'est
+            // un ordre, pas une atomicité. Conséquences :
+            //  - un DocumentReceivedV1 n'est JAMAIS committé sans contenu déjà stagé (le pipeline CHECK/SEND
+            //    relira le pivot depuis le staging — fin de la supposition « le contenu est déjà là ») ;
+            //  - un crash ENTRE cette écriture et le commit annule la transaction (rollback) → au pire un
+            //    blob ORPHELIN (purgeable, ré-écrit idempotemment au renvoi de l'agent), jamais un événement
+            //    sans contenu ;
+            //  - un échec de staging (disque) remonte comme un échec de commit : la transaction est annulée,
+            //    rien n'est publié (le contenu n'est plus jamais jeté — ADR-0014 §2).
+            await _stagingStore.WriteAsync(
+                new StagedPayloadKey(request.TenantId, documentId, payloadHash),
+                canonicalJson,
+                cancellationToken);
 
             await uow.CommitAsync(cancellationToken);
         }
