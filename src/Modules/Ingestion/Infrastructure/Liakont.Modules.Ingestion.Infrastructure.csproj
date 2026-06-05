@@ -10,6 +10,8 @@
     <ProjectReference Include="../Domain/Liakont.Modules.Ingestion.Domain.csproj" />
     <ProjectReference Include="../Application/Liakont.Modules.Ingestion.Application.csproj" />
     <ProjectReference Include="../Contracts/Liakont.Modules.Ingestion.Contracts.csproj" />
+    <!-- Magasin de staging du contenu pivot (PIP00, ADR-0014) — Contracts uniquement (CLAUDE.md n°14). -->
+    <ProjectReference Include="../../Staging/Contracts/Liakont.Modules.Staging.Contracts.csproj" />
     <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

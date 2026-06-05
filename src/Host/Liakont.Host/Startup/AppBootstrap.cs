@@ -15,12 +15,15 @@ using Liakont.Host.Security;
 using Liakont.Host.Security.Abstractions;
 using Liakont.Host.Security.Keycloak;
 using Liakont.Host.Services;
+using Liakont.Host.Staging;
 using Liakont.Modules.Archive.Infrastructure;
 using Liakont.Modules.Documents.Infrastructure;
 using Liakont.Modules.Ingestion.Application;
 using Liakont.Modules.Ingestion.Infrastructure;
 using Liakont.Modules.Payments.Infrastructure;
 using Liakont.Modules.Reconciliation.Infrastructure;
+using Liakont.Modules.Staging.Contracts;
+using Liakont.Modules.Staging.Infrastructure;
 using Liakont.Modules.TenantSettings.Infrastructure;
 using Liakont.Modules.Transmission.Infrastructure;
 using Liakont.Modules.TvaMapping.Infrastructure;
@@ -134,6 +137,14 @@ public static class AppBootstrap
         // créée par l'opérateur via l'admin des schedules (job.schedules), comme tout job récurrent de la
         // plateforme — la fréquence et l'activation relèvent du déploiement (ADR-0011).
         builder.Services.AddJobHandler<DailyAnchoringTrigger, DailyAnchoringFanOutHandler>();
+
+        // Staging du contenu pivot (PIP00, ADR-0014) : la plateforme détient DURABLEMENT le pivot dès
+        // l'intake (l'agent redevient un filet de sécurité). Magasin transitoire purgeable, chiffré au
+        // repos, tenant-scopé — distinct du coffre WORM. La sonde de présence WORM est l'adaptateur du
+        // coffre concret câblé au composition root (seul endroit autorisé à référencer IArchiveStore hors
+        // du module Archive) : elle subordonne la purge du staging à l'écriture WORM effective.
+        builder.Services.AddStagingModule(builder.Configuration);
+        builder.Services.AddScoped<IArchivedDocumentProbe, ArchiveStoreArchivedDocumentProbe>();
 
         // Reconciliation (TRK07) après Archive : rapproche les PDF du pool non lié des documents émis et
         // ajoute le PDF réconcilié au paquet d'archive en addendum (consomme IArchiveService). Le job

@@ -37,6 +37,7 @@ internal sealed class IngestionHarness
         SourceTaxRegimeWriter = new PostgresSourceTaxRegimeWriter(ConnectionFactory);
         SourceTaxRegimeQueries = new PostgresSourceTaxRegimeQueries(ConnectionFactory);
         DocumentIntake = new RecordingDocumentIntake();
+        PayloadStagingStore = new RecordingPayloadStagingStore();
     }
 
     public string TenantId { get; }
@@ -73,6 +74,8 @@ internal sealed class IngestionHarness
 
     public RecordingDocumentIntake DocumentIntake { get; }
 
+    public RecordingPayloadStagingStore PayloadStagingStore { get; }
+
     public IngestDocumentBatchHandler BatchHandler =>
-        new(ReceivedDocumentUowFactory, SourceTaxRegimeWriter, DocumentIntake, NullLogger<IngestDocumentBatchHandler>.Instance);
+        new(ReceivedDocumentUowFactory, SourceTaxRegimeWriter, DocumentIntake, PayloadStagingStore, NullLogger<IngestDocumentBatchHandler>.Instance);
 }
