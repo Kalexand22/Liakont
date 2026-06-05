@@ -17,10 +17,19 @@ using Liakont.Agent.Core.Time;
 ///   rétention <see cref="PushedLogRetentionDays"/> jours, purgée automatiquement.</item>
 ///   <item><c>agent_state</c> — filigrane d'extraction + dernière config ; JAMAIS purgé automatiquement.</item>
 /// </list>
-/// Accès multi-process (service LocalSystem + CLI intégrateur) : chaque processus ouvre sa propre
-/// connexion ; WAL autorise lecteurs concurrents + un rédacteur, <c>busy_timeout</c> absorbe la
-/// contention. La sérialisation des RUNS est portée par le mutex nommé
-/// (<see cref="Hosting.InterProcessRunLock"/>), pas par cette base.
+/// <para>
+/// Concurrence — deux niveaux :
+/// <list type="bullet">
+///   <item>INTER-process (service LocalSystem + CLI intégrateur) : chaque processus ouvre sa propre
+///   connexion ; WAL autorise lecteurs concurrents + un rédacteur, <c>busy_timeout</c> absorbe la
+///   contention. La sérialisation des RUNS est portée par le mutex nommé
+///   (<see cref="Hosting.InterProcessRunLock"/>), pas par cette base.</item>
+///   <item>INTRA-process : une instance détient une UNIQUE connexion ; tous les accès sont
+///   sérialisés par un verrou interne, de sorte que plusieurs threads du même processus (p. ex. la
+///   boucle de run et le thread de heartbeat introduits par AGT02/AGT03) peuvent l'utiliser sans
+///   corrompre l'état ADO.NET.</item>
+/// </list>
+/// </para>
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -37,6 +46,9 @@ public sealed class LocalQueue : IDisposable
     /// <summary>Clé de la dernière configuration reçue de la plateforme dans <c>agent_state</c>.</summary>
     public const string LastConfigurationKey = "platform.last_configuration";
 
+    // Sérialise tous les accès à l'unique connexion (sûreté intra-process). Réentrant : un appelant
+    // public qui en délègue un autre (MarkError → SetStatus) ne se bloque pas lui-même.
+    private readonly object _operationLock = new object();
     private readonly IClock _clock;
     private readonly SQLiteConnection _connection;
 
@@ -79,23 +91,26 @@ public sealed class LocalQueue : IDisposable
             throw new ArgumentNullException(nameof(item));
         }
 
-        string now = FormatUtc(_clock.UtcNow);
-        using (SQLiteCommand cmd = _connection.CreateCommand())
+        lock (_operationLock)
         {
-            cmd.CommandText =
-                "INSERT OR IGNORE INTO push_queue " +
-                "(kind, source_reference, payload_hash, payload_json, file_path, status, attempts, last_error, created_at_utc, updated_at_utc) " +
-                "VALUES (@kind, @sref, @hash, @payload, @file, @status, 0, NULL, @created, @updated);";
-            cmd.Parameters.AddWithValue("@kind", item.Kind.ToString());
-            cmd.Parameters.AddWithValue("@sref", item.SourceReference);
-            cmd.Parameters.AddWithValue("@hash", (object?)item.PayloadHash ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@payload", (object?)item.PayloadJson ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@file", (object?)item.FilePath ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@status", QueueItemStatus.Pending.ToString());
-            cmd.Parameters.AddWithValue("@created", now);
-            cmd.Parameters.AddWithValue("@updated", now);
-            int affected = cmd.ExecuteNonQuery();
-            return affected > 0 ? EnqueueResult.Enqueued : EnqueueResult.AlreadyQueued;
+            string now = FormatUtc(_clock.UtcNow);
+            using (SQLiteCommand cmd = _connection.CreateCommand())
+            {
+                cmd.CommandText =
+                    "INSERT OR IGNORE INTO push_queue " +
+                    "(kind, source_reference, payload_hash, payload_json, file_path, status, attempts, last_error, created_at_utc, updated_at_utc) " +
+                    "VALUES (@kind, @sref, @hash, @payload, @file, @status, 0, NULL, @created, @updated);";
+                cmd.Parameters.AddWithValue("@kind", item.Kind.ToString());
+                cmd.Parameters.AddWithValue("@sref", item.SourceReference);
+                cmd.Parameters.AddWithValue("@hash", (object?)item.PayloadHash ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@payload", (object?)item.PayloadJson ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@file", (object?)item.FilePath ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@status", QueueItemStatus.Pending.ToString());
+                cmd.Parameters.AddWithValue("@created", now);
+                cmd.Parameters.AddWithValue("@updated", now);
+                int affected = cmd.ExecuteNonQuery();
+                return affected > 0 ? EnqueueResult.Enqueued : EnqueueResult.AlreadyQueued;
+            }
         }
     }
 
@@ -107,34 +122,40 @@ public sealed class LocalQueue : IDisposable
             throw new ArgumentOutOfRangeException(nameof(max), "Le nombre d'éléments demandé doit être positif.");
         }
 
-        var result = new List<QueuedItem>();
-        using (SQLiteCommand cmd = _connection.CreateCommand())
+        lock (_operationLock)
         {
-            cmd.CommandText =
-                "SELECT id, kind, source_reference, payload_hash, payload_json, file_path, status, attempts, last_error, created_at_utc, updated_at_utc " +
-                "FROM push_queue WHERE status IN (@pending, @error) ORDER BY id LIMIT @max;";
-            cmd.Parameters.AddWithValue("@pending", QueueItemStatus.Pending.ToString());
-            cmd.Parameters.AddWithValue("@error", QueueItemStatus.Error.ToString());
-            cmd.Parameters.AddWithValue("@max", max);
-            using (SQLiteDataReader reader = cmd.ExecuteReader())
+            var result = new List<QueuedItem>();
+            using (SQLiteCommand cmd = _connection.CreateCommand())
             {
-                while (reader.Read())
+                cmd.CommandText =
+                    "SELECT id, kind, source_reference, payload_hash, payload_json, file_path, status, attempts, last_error, created_at_utc, updated_at_utc " +
+                    "FROM push_queue WHERE status IN (@pending, @error) ORDER BY id LIMIT @max;";
+                cmd.Parameters.AddWithValue("@pending", QueueItemStatus.Pending.ToString());
+                cmd.Parameters.AddWithValue("@error", QueueItemStatus.Error.ToString());
+                cmd.Parameters.AddWithValue("@max", max);
+                using (SQLiteDataReader reader = cmd.ExecuteReader())
                 {
-                    result.Add(ReadQueuedItem(reader));
+                    while (reader.Read())
+                    {
+                        result.Add(ReadQueuedItem(reader));
+                    }
                 }
             }
-        }
 
-        return result;
+            return result;
+        }
     }
 
     /// <summary>Compte les éléments présents dans la file (tous statuts).</summary>
     public int Count()
     {
-        using (SQLiteCommand cmd = _connection.CreateCommand())
+        lock (_operationLock)
         {
-            cmd.CommandText = "SELECT COUNT(*) FROM push_queue;";
-            return Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+            using (SQLiteCommand cmd = _connection.CreateCommand())
+            {
+                cmd.CommandText = "SELECT COUNT(*) FROM push_queue;";
+                return Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+            }
         }
     }
 
@@ -151,69 +172,75 @@ public sealed class LocalQueue : IDisposable
     /// </summary>
     public void Acknowledge(long id)
     {
-        using (SQLiteTransaction tx = _connection.BeginTransaction())
+        lock (_operationLock)
         {
-            string kind;
-            string sourceReference;
-            string? payloadHash;
-            using (SQLiteCommand read = _connection.CreateCommand())
+            using (SQLiteTransaction tx = _connection.BeginTransaction())
             {
-                read.Transaction = tx;
-                read.CommandText = "SELECT kind, source_reference, payload_hash FROM push_queue WHERE id = @id;";
-                read.Parameters.AddWithValue("@id", id);
-                using (SQLiteDataReader reader = read.ExecuteReader())
+                string kind;
+                string sourceReference;
+                string? payloadHash;
+                using (SQLiteCommand read = _connection.CreateCommand())
                 {
-                    if (!reader.Read())
+                    read.Transaction = tx;
+                    read.CommandText = "SELECT kind, source_reference, payload_hash FROM push_queue WHERE id = @id;";
+                    read.Parameters.AddWithValue("@id", id);
+                    using (SQLiteDataReader reader = read.ExecuteReader())
                     {
-                        tx.Rollback();
-                        return;
+                        if (!reader.Read())
+                        {
+                            tx.Rollback();
+                            return;
+                        }
+
+                        kind = reader.GetString(0);
+                        sourceReference = reader.GetString(1);
+                        payloadHash = reader.IsDBNull(2) ? null : reader.GetString(2);
                     }
-
-                    kind = reader.GetString(0);
-                    sourceReference = reader.GetString(1);
-                    payloadHash = reader.IsDBNull(2) ? null : reader.GetString(2);
                 }
-            }
 
-            if (payloadHash != null)
-            {
-                using (SQLiteCommand insert = _connection.CreateCommand())
+                if (payloadHash != null)
                 {
-                    insert.Transaction = tx;
-                    insert.CommandText =
-                        "INSERT OR REPLACE INTO pushed_log (kind, source_reference, payload_hash, acked_at_utc) " +
-                        "VALUES (@kind, @sref, @hash, @acked);";
-                    insert.Parameters.AddWithValue("@kind", kind);
-                    insert.Parameters.AddWithValue("@sref", sourceReference);
-                    insert.Parameters.AddWithValue("@hash", payloadHash);
-                    insert.Parameters.AddWithValue("@acked", FormatUtc(_clock.UtcNow));
-                    insert.ExecuteNonQuery();
+                    using (SQLiteCommand insert = _connection.CreateCommand())
+                    {
+                        insert.Transaction = tx;
+                        insert.CommandText =
+                            "INSERT OR REPLACE INTO pushed_log (kind, source_reference, payload_hash, acked_at_utc) " +
+                            "VALUES (@kind, @sref, @hash, @acked);";
+                        insert.Parameters.AddWithValue("@kind", kind);
+                        insert.Parameters.AddWithValue("@sref", sourceReference);
+                        insert.Parameters.AddWithValue("@hash", payloadHash);
+                        insert.Parameters.AddWithValue("@acked", FormatUtc(_clock.UtcNow));
+                        insert.ExecuteNonQuery();
+                    }
                 }
-            }
 
-            using (SQLiteCommand delete = _connection.CreateCommand())
-            {
-                delete.Transaction = tx;
-                delete.CommandText = "DELETE FROM push_queue WHERE id = @id;";
-                delete.Parameters.AddWithValue("@id", id);
-                delete.ExecuteNonQuery();
-            }
+                using (SQLiteCommand delete = _connection.CreateCommand())
+                {
+                    delete.Transaction = tx;
+                    delete.CommandText = "DELETE FROM push_queue WHERE id = @id;";
+                    delete.Parameters.AddWithValue("@id", id);
+                    delete.ExecuteNonQuery();
+                }
 
-            tx.Commit();
+                tx.Commit();
+            }
         }
     }
 
     /// <summary>Indique si un document de cette clé a déjà été acquitté (anti re-push, F12 §2.2).</summary>
     public bool IsAlreadyPushed(QueueItemKind kind, string sourceReference, string payloadHash)
     {
-        using (SQLiteCommand cmd = _connection.CreateCommand())
+        lock (_operationLock)
         {
-            cmd.CommandText =
-                "SELECT 1 FROM pushed_log WHERE kind = @kind AND source_reference = @sref AND payload_hash = @hash LIMIT 1;";
-            cmd.Parameters.AddWithValue("@kind", kind.ToString());
-            cmd.Parameters.AddWithValue("@sref", sourceReference);
-            cmd.Parameters.AddWithValue("@hash", payloadHash);
-            return cmd.ExecuteScalar() != null;
+            using (SQLiteCommand cmd = _connection.CreateCommand())
+            {
+                cmd.CommandText =
+                    "SELECT 1 FROM pushed_log WHERE kind = @kind AND source_reference = @sref AND payload_hash = @hash LIMIT 1;";
+                cmd.Parameters.AddWithValue("@kind", kind.ToString());
+                cmd.Parameters.AddWithValue("@sref", sourceReference);
+                cmd.Parameters.AddWithValue("@hash", payloadHash);
+                return cmd.ExecuteScalar() != null;
+            }
         }
     }
 
@@ -223,12 +250,15 @@ public sealed class LocalQueue : IDisposable
     /// </summary>
     public int PurgeExpiredPushedLog()
     {
-        DateTime cutoff = _clock.UtcNow.AddDays(-PushedLogRetentionDays);
-        using (SQLiteCommand cmd = _connection.CreateCommand())
+        lock (_operationLock)
         {
-            cmd.CommandText = "DELETE FROM pushed_log WHERE acked_at_utc < @cutoff;";
-            cmd.Parameters.AddWithValue("@cutoff", FormatUtc(cutoff));
-            return cmd.ExecuteNonQuery();
+            DateTime cutoff = _clock.UtcNow.AddDays(-PushedLogRetentionDays);
+            using (SQLiteCommand cmd = _connection.CreateCommand())
+            {
+                cmd.CommandText = "DELETE FROM pushed_log WHERE acked_at_utc < @cutoff;";
+                cmd.Parameters.AddWithValue("@cutoff", FormatUtc(cutoff));
+                return cmd.ExecuteNonQuery();
+            }
         }
     }
 
@@ -240,12 +270,15 @@ public sealed class LocalQueue : IDisposable
             throw new ArgumentException("La clé d'état est requise.", nameof(key));
         }
 
-        using (SQLiteCommand cmd = _connection.CreateCommand())
+        lock (_operationLock)
         {
-            cmd.CommandText = "SELECT value FROM agent_state WHERE key = @key;";
-            cmd.Parameters.AddWithValue("@key", key);
-            object? value = cmd.ExecuteScalar();
-            return value == null || value == DBNull.Value ? null : (string)value;
+            using (SQLiteCommand cmd = _connection.CreateCommand())
+            {
+                cmd.CommandText = "SELECT value FROM agent_state WHERE key = @key;";
+                cmd.Parameters.AddWithValue("@key", key);
+                object? value = cmd.ExecuteScalar();
+                return value == null || value == DBNull.Value ? null : (string)value;
+            }
         }
     }
 
@@ -257,15 +290,18 @@ public sealed class LocalQueue : IDisposable
             throw new ArgumentException("La clé d'état est requise.", nameof(key));
         }
 
-        using (SQLiteCommand cmd = _connection.CreateCommand())
+        lock (_operationLock)
         {
-            cmd.CommandText =
-                "INSERT INTO agent_state (key, value, updated_at_utc) VALUES (@key, @value, @updated) " +
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at_utc = excluded.updated_at_utc;";
-            cmd.Parameters.AddWithValue("@key", key);
-            cmd.Parameters.AddWithValue("@value", (object?)value ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@updated", FormatUtc(_clock.UtcNow));
-            cmd.ExecuteNonQuery();
+            using (SQLiteCommand cmd = _connection.CreateCommand())
+            {
+                cmd.CommandText =
+                    "INSERT INTO agent_state (key, value, updated_at_utc) VALUES (@key, @value, @updated) " +
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at_utc = excluded.updated_at_utc;";
+                cmd.Parameters.AddWithValue("@key", key);
+                cmd.Parameters.AddWithValue("@value", (object?)value ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@updated", FormatUtc(_clock.UtcNow));
+                cmd.ExecuteNonQuery();
+            }
         }
     }
 
@@ -288,16 +324,22 @@ public sealed class LocalQueue : IDisposable
     /// <summary>Renvoie le mode de journalisation effectif de SQLite (« wal » attendu) — utilitaire de diagnostic/test.</summary>
     public string GetJournalMode()
     {
-        using (SQLiteCommand cmd = _connection.CreateCommand())
+        lock (_operationLock)
         {
-            cmd.CommandText = "PRAGMA journal_mode;";
-            return Convert.ToString(cmd.ExecuteScalar(), CultureInfo.InvariantCulture) ?? string.Empty;
+            using (SQLiteCommand cmd = _connection.CreateCommand())
+            {
+                cmd.CommandText = "PRAGMA journal_mode;";
+                return Convert.ToString(cmd.ExecuteScalar(), CultureInfo.InvariantCulture) ?? string.Empty;
+            }
         }
     }
 
     public void Dispose()
     {
-        _connection.Dispose();
+        lock (_operationLock)
+        {
+            _connection.Dispose();
+        }
     }
 
     private static QueuedItem ReadQueuedItem(SQLiteDataReader reader)
@@ -361,17 +403,20 @@ public sealed class LocalQueue : IDisposable
 
     private void SetStatus(long id, QueueItemStatus status, string? error, bool incrementAttempts)
     {
-        using (SQLiteCommand cmd = _connection.CreateCommand())
+        lock (_operationLock)
         {
-            cmd.CommandText =
-                "UPDATE push_queue SET status = @status, updated_at_utc = @updated" +
-                (incrementAttempts ? ", attempts = attempts + 1" : string.Empty) +
-                ", last_error = @error WHERE id = @id;";
-            cmd.Parameters.AddWithValue("@status", status.ToString());
-            cmd.Parameters.AddWithValue("@updated", FormatUtc(_clock.UtcNow));
-            cmd.Parameters.AddWithValue("@error", (object?)error ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@id", id);
-            cmd.ExecuteNonQuery();
+            using (SQLiteCommand cmd = _connection.CreateCommand())
+            {
+                cmd.CommandText =
+                    "UPDATE push_queue SET status = @status, updated_at_utc = @updated" +
+                    (incrementAttempts ? ", attempts = attempts + 1" : string.Empty) +
+                    ", last_error = @error WHERE id = @id;";
+                cmd.Parameters.AddWithValue("@status", status.ToString());
+                cmd.Parameters.AddWithValue("@updated", FormatUtc(_clock.UtcNow));
+                cmd.Parameters.AddWithValue("@error", (object?)error ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@id", id);
+                cmd.ExecuteNonQuery();
+            }
         }
     }
 }

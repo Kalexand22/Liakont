@@ -1,6 +1,7 @@
 namespace Liakont.Agent.Core.Hosting;
 
 using System;
+using System.Diagnostics;
 using System.Threading;
 using Liakont.Agent.Core.Logging;
 
@@ -53,15 +54,29 @@ public sealed class AgentBackgroundRunner : IDisposable
     }
 
     /// <summary>
-    /// Demande l'arrêt et attend la fin du run EN COURS (au plus <paramref name="gracePeriod"/>).
+    /// Demande l'arrêt et attend la fin du run EN COURS (au plus <paramref name="gracePeriod"/> AU TOTAL).
     /// Renvoie <c>true</c> si la file de travail est revenue au repos dans le délai imparti.
+    /// <para>
+    /// Le budget est borné à <paramref name="gracePeriod"/> pour les DEUX attentes (fin du run puis
+    /// jonction du thread) : le service peut ainsi annoncer ce même budget au SCM sans risquer d'être
+    /// tué pendant un arrêt propre légitime.
+    /// </para>
     /// </summary>
     public bool Stop(TimeSpan gracePeriod)
     {
         _gate.RequestShutdown();
         _cts.Cancel();
+
+        Stopwatch elapsed = Stopwatch.StartNew();
         bool idle = _gate.WaitForIdle(gracePeriod);
-        _thread?.Join(gracePeriod);
+
+        TimeSpan remaining = gracePeriod - elapsed.Elapsed;
+        if (remaining < TimeSpan.Zero)
+        {
+            remaining = TimeSpan.Zero;
+        }
+
+        _thread?.Join(remaining);
         return idle;
     }
 
