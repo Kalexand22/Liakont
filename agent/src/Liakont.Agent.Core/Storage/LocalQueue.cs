@@ -146,6 +146,29 @@ public sealed class LocalQueue : IDisposable
         }
     }
 
+    /// <summary>Renvoie le nombre d'éléments par statut en une seule requête SQL (SELECT GROUP BY).</summary>
+    public IReadOnlyDictionary<QueueItemStatus, int> CountByStatus()
+    {
+        lock (_operationLock)
+        {
+            var result = new Dictionary<QueueItemStatus, int>();
+            using (SQLiteCommand cmd = _connection.CreateCommand())
+            {
+                cmd.CommandText = "SELECT status, COUNT(*) FROM push_queue GROUP BY status;";
+                using (SQLiteDataReader reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        var status = (QueueItemStatus)Enum.Parse(typeof(QueueItemStatus), reader.GetString(0));
+                        result[status] = reader.GetInt32(1);
+                    }
+                }
+            }
+
+            return result;
+        }
+    }
+
     /// <summary>Compte les éléments présents dans la file (tous statuts).</summary>
     public int Count()
     {
