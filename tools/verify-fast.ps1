@@ -96,7 +96,9 @@ if ($ok) {
     $ok = Run-Step 'manifest-sanity' {
         $manifest = Get-Content (Join-Path $repoRoot 'orchestration\manifest.yaml') -Raw
         # Every item id referenced in depends_on must be declared
-        $declared = [regex]::Matches($manifest, '\{\s*id:\s*([A-Z_0-9]+)') | ForEach-Object { $_.Groups[1].Value }
+        # IDs may carry a lowercase suffix (e.g. PIP01a-d after a re-split) — allow [a-z] so the
+        # declared-id set isn't truncated to "PIP01" while depends_on references "PIP01a".
+        $declared = [regex]::Matches($manifest, '\{\s*id:\s*([A-Za-z0-9_]+)') | ForEach-Object { $_.Groups[1].Value }
         $referenced = [regex]::Matches($manifest, 'depends_on:\s*\[([^\]]*)\]') | ForEach-Object { $_.Groups[1].Value -split ',' } |
             ForEach-Object { $_.Trim() } | Where-Object { $_ }
         $missing = $referenced | Where-Object { $declared -notcontains $_ } | Select-Object -Unique
@@ -108,7 +110,7 @@ if ($ok) {
             if (-not (Test-Path $lotFile)) { throw "Lot file missing: orchestration/items/$lot.yaml" }
         }
         # Every work item must be defined in its lot file (reciprocity manifest → lots)
-        $itemLotPairs = [regex]::Matches($manifest, '\{\s*id:\s*([A-Z_0-9]+),\s*lot:\s*([A-Z]+)')
+        $itemLotPairs = [regex]::Matches($manifest, '\{\s*id:\s*([A-Za-z0-9_]+),\s*lot:\s*([A-Z]+)')
         foreach ($m in $itemLotPairs) {
             $iid = $m.Groups[1].Value; $ilot = $m.Groups[2].Value
             $lotContent = Get-Content (Join-Path $repoRoot "orchestration\items\$ilot.yaml") -Raw
@@ -134,7 +136,7 @@ if ($ok) {
         $statePath2 = Join-Path $orchRepo 'state.yaml'
         if (Test-Path $statePath2) {
             $state = Get-Content $statePath2 -Raw
-            $stateIds = [regex]::Matches($state, '(?m)^  ([A-Z_0-9]+):\s*\{\s*status:') | ForEach-Object { $_.Groups[1].Value }
+            $stateIds = [regex]::Matches($state, '(?m)^  ([A-Za-z0-9_]+):\s*\{\s*status:') | ForEach-Object { $_.Groups[1].Value }
             $orphans = $stateIds | Where-Object { $declared -notcontains $_ } | Select-Object -Unique
             if ($orphans) { throw "state.yaml contains items absent from the manifest: $($orphans -join ', ')" }
         }
