@@ -204,10 +204,22 @@ if ($ok) {
             if ($LASTEXITCODE -ne 0) { throw "restore failed" }
         }
         if ($ok) {
-            # x86 is the constraining platform (32-bit Pervasive ODBC drivers).
-            # The x64 build is covered by run-tests / CI (SOL03) to keep verify-fast fast.
+            # x86 is the constraining RUNTIME platform (32-bit Pervasive ODBC drivers); its
+            # unit tests run below. The agent ships BOTH RIDs, so we also build x64 (next step):
+            # an x64-only break (e.g. an exe missing win-x64 in <RuntimeIdentifiers>) silently
+            # passes an x86-only build and previously surfaced only in CI.
             $ok = Run-Step 'agent: build+analyzers (x86)' {
                 dotnet build $agentSln --no-restore --verbosity quiet /p:Platform=x86
+                if ($LASTEXITCODE -ne 0) { throw "build failed" }
+            }
+        }
+        if ($ok) {
+            # x64 build — build-only (x86 covers the unit suite; x64 runtime tests stay in
+            # run-tests/CI). Cheap: the single restore above already produced both-RID assets.
+            # Local guard that catches x64-only build regressions before CI (mirrors the CI's
+            # restore-once + build x86 + build x64 sequence).
+            $ok = Run-Step 'agent: build+analyzers (x64)' {
+                dotnet build $agentSln --no-restore --verbosity quiet /p:Platform=x64
                 if ($LASTEXITCODE -ne 0) { throw "build failed" }
             }
         }
