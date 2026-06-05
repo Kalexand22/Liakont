@@ -100,22 +100,61 @@ internal static class EncheresV6Schema
     /// <summary>Colonne <c>no_ligne</c> (référence de la ligne dans la source).</summary>
     internal const string ColNoLigne = "no_ligne";
 
-    /// <summary>Type de pièce source « bordereau de vente » (filtre des documents extraits en ADP02).</summary>
+    /// <summary>
+    /// Colonne <c>montant_ligne</c> (lignes type 3 — montant ENCAISSÉ, nommée explicitement par F09 §5.1 :
+    /// « <c>lignes_ba.type_ligne='3'</c> → <c>montant_ligne</c>, <c>date_reglement</c>… »). DISTINCTE de
+    /// <see cref="ColMontantHt"/> (montant des lignes de DOCUMENT type 4/2, F01-F02 §4.3) : lire <c>montant_ht</c>
+    /// pour un règlement sous-déclarerait l'encaissement si le schéma réel place le montant dans
+    /// <c>montant_ligne</c>. RÉSERVE : validé sur fixtures uniquement, réconcilié au schéma Pervasive réel par
+    /// GATE_DEMO_ISATECH (cf. en-tête de cette classe).
+    /// </summary>
+    internal const string ColMontantLigne = "montant_ligne";
+
+    /// <summary>Colonne <c>date_reglement</c> (lignes type 3 — date d'encaissement, F09 ; axe de période des paiements).</summary>
+    internal const string ColDateReglement = "date_reglement";
+
+    /// <summary>Colonne <c>mode_reglement</c> (lignes type 3 — CB, chèque, espèces, virement ; informatif F09).</summary>
+    internal const string ColModeReglement = "mode_reglement";
+
+    /// <summary>Colonne <c>no_remise</c> (lignes type 3 — référence source de l'encaissement, F09).</summary>
+    internal const string ColNoRemise = "no_remise";
+
+    /// <summary>Alias <c>origin_no_ba</c> : <c>no_ba</c> du bordereau d'origine d'un avoir (auto-jointure via <c>no_ba_lettrage</c>, ADP03).</summary>
+    internal const string ColOriginNoBa = "origin_no_ba";
+
+    /// <summary>Alias <c>origin_numero_piece</c> : numéro de pièce de la facture d'origine d'un avoir (lien EN 16931 BT-25, ADP03).</summary>
+    internal const string ColOriginNumeroPiece = "origin_numero_piece";
+
+    /// <summary>Alias <c>origin_date_vente</c> : date d'émission de la facture d'origine d'un avoir (ADP03).</summary>
+    internal const string ColOriginDateVente = "origin_date_vente";
+
+    /// <summary>Type de pièce source « bordereau de vente » (filtre des documents extraits).</summary>
     internal const string PieceVente = "B";
 
+    /// <summary>Type de pièce source « avoir » (« copie en positif » lettrée à son origine — F07-F08 §B.2, ADP03).</summary>
+    internal const string PieceAvoir = "A";
+
     /// <summary>
-    /// Requête d'extraction des DOCUMENTS (ventes) d'une période — F01-F02 §4.3 :
-    /// <c>entete_ba WHERE bordereau_ou_avoir='B' AND date_vente ∈ [from, to[</c>, jointe en LEFT JOIN à ses lignes
-    /// de document (<c>type_ligne IN ('4','2')</c> dans la clause ON), triée par <c>no_ba</c> puis <c>no_ligne</c> pour
-    /// permettre un regroupement par bordereau EN STREAMING (R8 — un seul lecteur, mémoire O(1 doc)).
+    /// Requête d'extraction des DOCUMENTS (ventes ET avoirs) d'une période — F01-F02 §4.3, F07-F08 §B.5 :
+    /// <c>entete_ba WHERE bordereau_ou_avoir IN ('B','A') AND date_vente ∈ [from, to[</c>, jointe en LEFT JOIN à ses
+    /// lignes de document (<c>type_ligne IN ('4','2')</c> dans la clause ON), triée par <c>no_ba</c> puis <c>no_ligne</c>
+    /// pour permettre un regroupement par bordereau EN STREAMING (R8 — un seul lecteur, mémoire O(1 doc)).
     /// <para>
-    /// Le LEFT JOIN (filtre de type dans le ON) garantit qu'une vente sans ligne 4/2 N'EST PAS omise silencieusement : elle ressort en ligne d'entête seule (colonnes ligne NULL) et le document est émis sans ligne (jamais de perte d'une vente — « bloquer plutôt qu'envoyer faux »). Les avoirs (<c>'A'</c>) et les règlements (<c>type_ligne='3'</c>) sont volontairement EXCLUS ici :
-    /// ils relèvent d'ADP03. Le code régime brut est porté par <c>lignes_ba.code_regime</c> (R3 — aucune
+    /// Le LEFT JOIN (filtre de type dans le ON) garantit qu'une vente sans ligne 4/2 N'EST PAS omise silencieusement : elle ressort en ligne d'entête seule (colonnes ligne NULL) et le document est émis sans ligne (jamais de perte d'une vente — « bloquer plutôt qu'envoyer faux »). Les règlements (<c>type_ligne='3'</c>) restent EXCLUS ici : ils sont extraits par <see cref="SelectPaymentsSql"/> (F09). Le code régime brut est porté par <c>lignes_ba.code_regime</c> (R3 — aucune
     /// jointure <c>Regime_tva</c> nécessaire pour le document ; le libellé du régime est exposé par
     /// <c>ListSourceTaxRegimes</c>, ADP04). Période sur <c>date_vente</c> conformément à la requête
     /// documentée : un document antidaté saisi tardivement reste extractible via la fenêtre de
     /// recouvrement de l'ordonnanceur agent + l'idempotence anti-re-push (contrat IExtractor « DISPONIBLE
     /// DEPUIS ») — EncheresV6 n'expose aucun horodatage d'insertion monotone (ne pas inventer de colonne).
+    /// </para>
+    /// <para>
+    /// AVOIRS (ADP03, F07-F08 §B.2/§B.5) : un avoir (<c>'A'</c>) référence sa facture d'origine via
+    /// <c>no_ba_lettrage</c>. La SECONDE auto-jointure LEFT JOIN (<c>o.no_ba = e.no_ba_lettrage</c>, restreinte aux
+    /// avoirs par <c>e.bordereau_ou_avoir='A'</c> dans le ON) rapporte l'entête d'origine SANS requête supplémentaire
+    /// ni second lecteur (lecture seule, O(1 doc) préservé) : un même lecteur, jamais de MARS. Les colonnes
+    /// <c>origin_no_ba/origin_numero_piece/origin_date_vente</c> sont NULL pour une vente et pour un avoir dont le
+    /// lettrage ne résout pas (avoir alors BLOQUÉ par le mapper, jamais deviné — ADR-0004 D3-3, F07-F08 §B.4).
+    /// Le sens « crédit » est porté par le TYPE de pièce, jamais par le signe : les montants restent positifs (F07-F08 §B.2).
     /// </para>
     /// Bornes positionnelles ODBC (<c>?</c>) : <c>date_vente &gt;= from</c> (incluse), <c>&lt; to</c> (exclue).
     /// </summary>
@@ -124,14 +163,42 @@ internal static class EncheresV6Schema
         + ", e." + ColNoBaLettrage + ", e." + ColAcheteurNom + ", e." + ColSociete + ", e." + ColAcheteurSiren
         + ", e." + ColAcheteurVille + ", e." + ColAcheteurCodePostal + ", e." + ColAcheteurPays
         + ", e." + ColTotalHt + ", e." + ColTotalTva + ", e." + ColTotalBordereau
+        + ", o." + ColNoBa + " AS " + ColOriginNoBa + ", o." + ColNumeroPiece + " AS " + ColOriginNumeroPiece
+        + ", o." + ColDateVente + " AS " + ColOriginDateVente
         + ", l." + ColTypeLigne + ", l." + ColDesignation + ", l." + ColMontantHt + ", l." + ColMontantTva
         + ", l." + ColTauxTva + ", l." + ColQuantite + ", l." + ColPrixUnitaire + ", l." + ColCodeRegime
         + ", l." + ColNoLigne
         + " FROM " + TableEntete + " e"
         + " LEFT JOIN " + TableLignes + " l ON l." + ColNoBa + " = e." + ColNoBa
         + " AND l." + ColTypeLigne + " IN ('" + EncheresV6RowMapper.LigneAdjudication + "', '" + EncheresV6RowMapper.LigneFrais + "')"
-        + " WHERE e." + ColBordereauOuAvoir + " = '" + PieceVente + "'"
+        + " LEFT JOIN " + TableEntete + " o ON e." + ColBordereauOuAvoir + " = '" + PieceAvoir + "'"
+        + " AND o." + ColNoBa + " = e." + ColNoBaLettrage
+        + " WHERE e." + ColBordereauOuAvoir + " IN ('" + PieceVente + "', '" + PieceAvoir + "')"
         + " AND e." + ColDateVente + " >= ? AND e." + ColDateVente + " < ?"
+        + " ORDER BY e." + ColNoBa + ", l." + ColNoLigne;
+
+    /// <summary>
+    /// Requête d'extraction des ENCAISSEMENTS d'une période — F09 (e-reporting de paiement), ADP03 :
+    /// <c>lignes_ba WHERE type_ligne='3' AND date_reglement ∈ [from, to[</c>, jointe (INNER JOIN) à son
+    /// bordereau (<c>entete_ba</c>) pour rapporter le numéro de pièce d'origine (rattachement par lettrage), triée
+    /// par <c>no_ba</c> puis <c>no_ligne</c> (ordre stable).
+    /// <para>
+    /// Le montant encaissé est lu dans <see cref="ColMontantLigne"/> (<c>montant_ligne</c>) — colonne nommée
+    /// explicitement par F09 §5.1 pour les lignes type 3, distincte du <c>montant_ht</c> des lignes de document.
+    /// Période sur <c>date_reglement</c> (la date d'encaissement, pas la date de vente). L'INNER JOIN exige qu'un
+    /// règlement soit rattaché à un bordereau : un encaissement orphelin n'est pas transmis (jamais inventé).
+    /// L'AGRÉGATION jour × taux est faite par la PLATEFORME (PIP03) ; l'adaptateur transmet les paiements BRUTS (F09).
+    /// </para>
+    /// Bornes positionnelles ODBC (<c>?</c>) : <c>date_reglement &gt;= from</c> (incluse), <c>&lt; to</c> (exclue).
+    /// </summary>
+    internal const string SelectPaymentsSql =
+        "SELECT e." + ColNoBa + ", e." + ColNumeroPiece
+        + ", l." + ColNoLigne + ", l." + ColMontantLigne + ", l." + ColDateReglement
+        + ", l." + ColModeReglement + ", l." + ColNoRemise
+        + " FROM " + TableLignes + " l"
+        + " INNER JOIN " + TableEntete + " e ON e." + ColNoBa + " = l." + ColNoBa
+        + " WHERE l." + ColTypeLigne + " = '" + EncheresV6RowMapper.LigneReglement + "'"
+        + " AND l." + ColDateReglement + " >= ? AND l." + ColDateReglement + " < ?"
         + " ORDER BY e." + ColNoBa + ", l." + ColNoLigne;
 
     /// <summary>Tables dont la présence est contrôlée par <c>CheckHealth</c> (accès + comptage rapide).</summary>

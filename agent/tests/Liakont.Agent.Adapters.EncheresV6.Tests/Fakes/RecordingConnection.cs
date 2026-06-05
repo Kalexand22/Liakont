@@ -16,14 +16,17 @@ internal sealed class RecordingConnection : IDbConnection, IEncheresV6Connection
 {
     private readonly IReadOnlyList<IReadOnlyDictionary<string, object?>> _documentRows;
     private readonly Func<string, object?> _scalarResolver;
+    private readonly Func<string, IReadOnlyList<IReadOnlyDictionary<string, object?>>>? _readerResolver;
 
     public RecordingConnection(
         IReadOnlyList<IReadOnlyDictionary<string, object?>>? documentRows = null,
         Func<string, object?>? scalarResolver = null,
-        Exception? openException = null)
+        Exception? openException = null,
+        Func<string, IReadOnlyList<IReadOnlyDictionary<string, object?>>>? readerResolver = null)
     {
         _documentRows = documentRows ?? Array.Empty<IReadOnlyDictionary<string, object?>>();
         _scalarResolver = scalarResolver ?? (_ => 0L);
+        _readerResolver = readerResolver;
         OpenException = openException;
     }
 
@@ -88,7 +91,10 @@ internal sealed class RecordingConnection : IDbConnection, IEncheresV6Connection
 
     public void Dispose() => Close();
 
-    internal IDataReader CreateReader() => new FakeDataReader(_documentRows);
+    // Sans résolveur : un seul jeu de lignes pour toute requête (comportement historique des tests ADP02).
+    // Avec résolveur : le jeu de lignes est routé par le texte de la commande (documents vs paiements, ADP03).
+    internal IDataReader CreateReader(string commandText) =>
+        new FakeDataReader(_readerResolver != null ? _readerResolver(commandText) : _documentRows);
 
     internal object? ResolveScalar(string commandText) => _scalarResolver(commandText);
 

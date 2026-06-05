@@ -8,7 +8,9 @@ using Liakont.Agent.Adapters.EncheresV6;
 using Liakont.Agent.Adapters.EncheresV6.Source;
 using Liakont.Agent.Adapters.EncheresV6.Tests.Fakes;
 using Liakont.Agent.Contracts.Pivot;
+using Liakont.Agent.Contracts.Serialization;
 using Liakont.Agent.Core.Extraction;
+using Newtonsoft.Json;
 using Xunit;
 
 /// <summary>
@@ -40,7 +42,7 @@ public class PervasiveExtractorTests
     }
 
     [Fact]
-    public void Capabilities_declare_only_what_ADP02_honours()
+    public void Capabilities_declare_what_ADP03_honours()
     {
         ExtractorCapabilities caps = Extractor(Connection()).Capabilities;
 
@@ -48,8 +50,8 @@ public class PervasiveExtractorTests
         caps.HasStoredHeaderTotal.Should().BeTrue();
         caps.RegimeKeyShape.Should().Be(RegimeKeyShape.Simple);
         caps.EmitterIdentitySource.Should().Be(EmitterIdentitySource.FromConfig);
-        caps.HasCreditNoteLink.Should().BeFalse("les avoirs arrivent avec ADP03");
-        caps.ExposesPayments.Should().BeFalse("les encaissements arrivent avec ADP03");
+        caps.HasCreditNoteLink.Should().BeTrue("les avoirs (lien no_ba_lettrage → origine) sont livrés par ADP03");
+        caps.ExposesPayments.Should().BeTrue("les encaissements (lignes type 3, F09) sont livrés par ADP03");
         caps.ProvidesSourceDocuments.Should().BeFalse("les PDF arrivent avec ADP05");
         caps.ProvidesUnlinkedDocumentPool.Should().BeFalse();
     }
@@ -133,9 +135,11 @@ public class PervasiveExtractorTests
         docs.Should().HaveCount(2);
         RecordingCommand command = connection.Commands.Single();
         command.CommandText.Should().Be(EncheresV6Schema.SelectDocumentsSql);
-        command.CommandText.Should().Contain("bordereau_ou_avoir = 'B'");
+        command.CommandText.Should().Contain("bordereau_ou_avoir IN ('B', 'A')", "ADP03 extrait aussi les avoirs");
         command.CommandText.Should().Contain("type_ligne IN ('4', '2')");
         command.CommandText.Should().Contain("LEFT JOIN");
+        command.CommandText.Should().Contain("o.no_ba = e.no_ba_lettrage", "auto-jointure de l'entête d'origine d'un avoir");
+        command.CommandText.Should().Contain("AS origin_no_ba");
         command.CommandText.Should().Contain("e.date_vente >= ? AND e.date_vente < ?");
         command.Parameters.Count.Should().Be(2, "période bornée par deux paramètres positionnels");
         ((FakeParameter)command.Parameters[0]!).Value.Should().Be(PeriodFrom);
@@ -311,10 +315,137 @@ public class PervasiveExtractorTests
     }
 
     [Fact]
-    public void ExtractPayments_is_deferred_to_ADP03_and_returns_empty()
+    public void ExtractDocuments_includes_credit_notes_with_link_to_origin_invoice()
     {
-        Extractor(Connection()).ExtractPayments(PeriodFrom, PeriodTo)
-            .Should().BeEmpty("différé à ADP03 mais JAMAIS throw (symétrie pièces jointes/pool, contrat R7)");
+        // L'avoir 4600 lettré au bordereau d'origine 4500 (colonnes origin_* via l'auto-jointure).
+        var connection = Connection(SaleAndCreditNote());
+
+        List<PivotDocumentDto> docs = Extractor(connection).ExtractDocuments(PeriodFrom, PeriodTo).ToList();
+
+        PivotDocumentDto avoir = docs.Single(d => d.SourceDocumentKind == "A");
+        avoir.SourceReference.Should().Be("no_ba=4600");
+        avoir.CreditNoteRefs.Should().ContainSingle("F07-F08 : un avoir référence sa facture d'origine (BT-25)");
+        avoir.CreditNoteRefs[0].Number.Should().Be("F-2026-0500");
+        avoir.CreditNoteRefs[0].IssueDate.Should().Be(new DateTime(2026, 1, 12));
+        avoir.CreditNoteRefs[0].SourceReference.Should().Be("no_ba=4500");
+        avoir.Totals.TotalGross.Should().Be(130.00m, "le sens « crédit » vient du type, jamais du signe (montants positifs)");
+    }
+
+    [Fact]
+    public void ExtractDocuments_blocks_credit_note_whose_lettrage_does_not_resolve()
+    {
+        // Avoir de type 'A' SANS origine résoluble (origin_* NULL) : bloqué, jamais deviné (ADR-0004 D3-3,
+        // F07-F08 §B.4) — parité avec le mode fixtures qui laisse le mapper bloquer.
+        var orphan = CreditNoteRow("4601", "AV-2026-0008", lettrage: "9999", originNoBa: null, originNumeroPiece: null, originDateVente: null, "4", "Annulation lot", 100.0, 20.0, "5", "ligne#1");
+
+        Action act = () => Drain(Extractor(Connection(new[] { orphan })).ExtractDocuments(PeriodFrom, PeriodTo));
+
+        act.Should().Throw<SourceSchemaException>();
+    }
+
+    [Fact]
+    public void ExtractDocuments_blocks_credit_note_whose_origin_date_is_missing()
+    {
+        // Origine RÉSOLUE (origin_no_ba + origin_numero_piece présents) mais SANS date d'émission
+        // (origin_date_vente NULL) : la date de référence d'avoir (amended_date, BT-25) est obligatoire et ne
+        // doit jamais être fabriquée (0001-01-01). L'avoir est bloqué, jamais envoyé faux (ADR-0004 D3-3).
+        var missingOriginDate = CreditNoteRow("4602", "AV-2026-0009", lettrage: "4500", originNoBa: "4500", originNumeroPiece: "F-2026-0500", originDateVente: null, "4", "Annulation lot", 100.0, 20.0, "5", "ligne#1");
+
+        Action act = () => Drain(Extractor(Connection(new[] { missingOriginDate })).ExtractDocuments(PeriodFrom, PeriodTo));
+
+        act.Should().Throw<SourceSchemaException>();
+    }
+
+    [Fact]
+    public void ExtractDocuments_reads_credit_notes_read_only()
+    {
+        var connection = Connection(SaleAndCreditNote());
+
+        Drain(Extractor(connection).ExtractDocuments(PeriodFrom, PeriodTo));
+
+        connection.ExecutedCommandTexts.Should().OnlyContain(
+            t => t.TrimStart().StartsWith("SELECT", StringComparison.OrdinalIgnoreCase));
+        connection.NonQueryExecutions.Should().Be(0);
+        connection.TransactionsBegun.Should().Be(0);
+    }
+
+    [Fact]
+    public void ExtractPayments_returns_raw_payment_attached_to_its_bordereau()
+    {
+        var connection = Connection(OnePayment());
+
+        List<PivotPaymentDto> payments = Extractor(connection).ExtractPayments(PeriodFrom, PeriodTo).ToList();
+
+        payments.Should().ContainSingle();
+        PivotPaymentDto payment = payments[0];
+        payment.PaymentDate.Should().Be(new DateTime(2026, 1, 15));
+        payment.Amount.Should().Be(130.00m);
+        payment.Method.Should().Be("CB");
+        payment.RelatedDocumentNumber.Should().Be("F-2026-0500", "rattachement au bordereau via no_ba (INNER JOIN)");
+        payment.SourceReference.Should().Be("no_remise=REM-0500");
+    }
+
+    [Fact]
+    public void ExtractPayments_query_targets_type3_lines_and_binds_the_period()
+    {
+        var connection = Connection(OnePayment());
+
+        Drain(Extractor(connection).ExtractPayments(PeriodFrom, PeriodTo));
+
+        RecordingCommand command = connection.Commands.Single();
+        command.CommandText.Should().Be(EncheresV6Schema.SelectPaymentsSql);
+        command.CommandText.Should().Contain("type_ligne = '3'");
+        command.CommandText.Should().Contain("date_reglement >= ? AND l.date_reglement < ?");
+        command.Parameters.Count.Should().Be(2);
+        ((FakeParameter)command.Parameters[0]!).Value.Should().Be(PeriodFrom);
+        ((FakeParameter)command.Parameters[1]!).Value.Should().Be(PeriodTo);
+    }
+
+    [Fact]
+    public void ExtractPayments_is_read_only_no_write_command_or_transaction()
+    {
+        var connection = Connection(OnePayment());
+
+        Drain(Extractor(connection).ExtractPayments(PeriodFrom, PeriodTo));
+
+        connection.ExecutedCommandTexts.Should().OnlyContain(
+            t => t.TrimStart().StartsWith("SELECT", StringComparison.OrdinalIgnoreCase));
+        connection.NonQueryExecutions.Should().Be(0);
+        connection.TransactionsBegun.Should().Be(0);
+    }
+
+    [Fact]
+    public void Fixtures_and_odbc_produce_identical_pivot_for_the_same_dataset()
+    {
+        // Acceptance ADP03 : « test de parité fixtures vs ODBC mocké sur le même jeu de données ». Un SEUL
+        // jeu de données (vente + avoir lettré + règlement) dérive les DEUX chemins : le JSON de fixtures et
+        // les lignes du lecteur ODBC routées par requête. La preuve de parité est l'empreinte canonique.
+        EncheresV6SourceSnapshot dataset = ParityDataset();
+
+        EncheresV6FixtureExtractor fixtures = EncheresV6FixtureExtractor.FromJson(
+            JsonConvert.SerializeObject(dataset), Emitter(), OperationCategory.LivraisonBiens);
+        var odbc = new PervasiveExtractor(ParityConnection(dataset), Emitter(), OperationCategory.LivraisonBiens);
+
+        Dictionary<string, PivotDocumentDto> fixtureDocs =
+            fixtures.ExtractDocuments(PeriodFrom, PeriodTo).ToDictionary(d => d.SourceReference);
+        Dictionary<string, PivotDocumentDto> odbcDocs =
+            odbc.ExtractDocuments(PeriodFrom, PeriodTo).ToDictionary(d => d.SourceReference);
+
+        odbcDocs.Keys.Should().BeEquivalentTo(fixtureDocs.Keys);
+        odbcDocs.Should().HaveCount(2, "1 vente + 1 avoir");
+        foreach (string sourceReference in fixtureDocs.Keys)
+        {
+            PayloadHasher.ComputeHash(odbcDocs[sourceReference])
+                .Should().Be(
+                    PayloadHasher.ComputeHash(fixtureDocs[sourceReference]),
+                    "fixtures et ODBC produisent un pivot byte-à-byte identique pour " + sourceReference);
+        }
+
+        List<PivotPaymentDto> fixturePayments = fixtures.ExtractPayments(PeriodFrom, PeriodTo).ToList();
+        List<PivotPaymentDto> odbcPayments = odbc.ExtractPayments(PeriodFrom, PeriodTo).ToList();
+
+        odbcPayments.Should().ContainSingle();
+        odbcPayments[0].Should().BeEquivalentTo(fixturePayments[0], "même encaissement brut dans les deux chemins");
     }
 
     [Fact]
@@ -440,5 +571,218 @@ public class PervasiveExtractorTests
             [EncheresV6Schema.ColCodeRegime] = codeRegime,
             [EncheresV6Schema.ColNoLigne] = noLigne,
         };
+    }
+
+    private static Dictionary<string, object?>[] SaleAndCreditNote()
+    {
+        return new[]
+        {
+            SaleRow("4500", "F-2026-0500", null, null, "4", "Adjudication lot 9", 100.00, 20.00, "5", "ligne#1"),
+            SaleRow("4500", "F-2026-0500", null, null, "2", "Frais acheteur", 8.33, 1.67, "5", "ligne#2"),
+
+            // Avoir 4600 lettré au bordereau d'origine 4500 (colonnes origin_* renseignées par l'auto-jointure).
+            CreditNoteRow("4600", "AV-2026-0007", "4500", "4500", "F-2026-0500", new DateTime(2026, 1, 12), "4", "Annulation adjudication lot 9", 100.00, 20.00, "5", "ligne#1"),
+            CreditNoteRow("4600", "AV-2026-0007", "4500", "4500", "F-2026-0500", new DateTime(2026, 1, 12), "2", "Annulation frais acheteur", 8.33, 1.67, "5", "ligne#2"),
+        };
+    }
+
+    private static Dictionary<string, object?> CreditNoteRow(
+        string noBa,
+        string numeroPiece,
+        string lettrage,
+        string? originNoBa,
+        string? originNumeroPiece,
+        DateTime? originDateVente,
+        string typeLigne,
+        string designation,
+        double montantHt,
+        double montantTva,
+        string codeRegime,
+        string noLigne)
+    {
+        return new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [EncheresV6Schema.ColNoBa] = noBa,
+            [EncheresV6Schema.ColNumeroPiece] = numeroPiece,
+            [EncheresV6Schema.ColBordereauOuAvoir] = "A",
+            [EncheresV6Schema.ColDateVente] = new DateTime(2026, 2, 2),
+            [EncheresV6Schema.ColNoBaLettrage] = lettrage,
+            [EncheresV6Schema.ColAcheteurNom] = "Acheteur Particulier (fictif)",
+            [EncheresV6Schema.ColSociete] = null,
+            [EncheresV6Schema.ColAcheteurSiren] = null,
+            [EncheresV6Schema.ColAcheteurVille] = "Rennes",
+            [EncheresV6Schema.ColAcheteurCodePostal] = "35000",
+            [EncheresV6Schema.ColAcheteurPays] = "FR",
+            [EncheresV6Schema.ColTotalHt] = 108.33,
+            [EncheresV6Schema.ColTotalTva] = 21.67,
+            [EncheresV6Schema.ColTotalBordereau] = 130.00,
+            [EncheresV6Schema.ColOriginNoBa] = originNoBa,
+            [EncheresV6Schema.ColOriginNumeroPiece] = originNumeroPiece,
+            [EncheresV6Schema.ColOriginDateVente] = originDateVente,
+            [EncheresV6Schema.ColTypeLigne] = typeLigne,
+            [EncheresV6Schema.ColDesignation] = designation,
+            [EncheresV6Schema.ColMontantHt] = montantHt,
+            [EncheresV6Schema.ColMontantTva] = montantTva,
+            [EncheresV6Schema.ColTauxTva] = 20.0,
+            [EncheresV6Schema.ColQuantite] = 1.0,
+            [EncheresV6Schema.ColPrixUnitaire] = null,
+            [EncheresV6Schema.ColCodeRegime] = codeRegime,
+            [EncheresV6Schema.ColNoLigne] = noLigne,
+        };
+    }
+
+    private static Dictionary<string, object?>[] OnePayment()
+    {
+        return new[] { PaymentRow("4500", "F-2026-0500", "ligne#3", 130.00, new DateTime(2026, 1, 15), "CB", "REM-0500") };
+    }
+
+    private static Dictionary<string, object?> PaymentRow(
+        string noBa,
+        string numeroPiece,
+        string noLigne,
+        double montantHt,
+        DateTime dateReglement,
+        string mode,
+        string noRemise)
+    {
+        return new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [EncheresV6Schema.ColNoBa] = noBa,
+            [EncheresV6Schema.ColNumeroPiece] = numeroPiece,
+            [EncheresV6Schema.ColNoLigne] = noLigne,
+            [EncheresV6Schema.ColMontantLigne] = montantHt,
+            [EncheresV6Schema.ColDateReglement] = dateReglement,
+            [EncheresV6Schema.ColModeReglement] = mode,
+            [EncheresV6Schema.ColNoRemise] = noRemise,
+        };
+    }
+
+    // Un SEUL jeu de données (vente 4500 + son règlement type 3, avoir 4600 lettré à 4500) dérive les deux
+    // chemins du test de parité : sérialisé en JSON pour le FixtureExtractor, converti en lignes de lecteur
+    // pour le PervasiveExtractor (ODBC mocké). Mêmes valeurs source → même pivot attendu.
+    private static EncheresV6SourceSnapshot ParityDataset()
+    {
+        var snapshot = new EncheresV6SourceSnapshot();
+
+        var sale = new EncheresV6Bordereau
+        {
+            NoBa = "4500",
+            NumeroPiece = "F-2026-0500",
+            BordereauOuAvoir = "B",
+            DateVente = new DateTime(2026, 1, 12),
+            AcheteurNom = "Acheteur Particulier (fictif)",
+            AcheteurVille = "Rennes",
+            AcheteurCodePostal = "35000",
+            AcheteurPays = "FR",
+            TotalHt = 108.33,
+            TotalTva = 21.67,
+            TotalTtc = 130.00,
+        };
+        sale.Lignes.Add(new EncheresV6Ligne { TypeLigne = "4", Designation = "Adjudication lot 9", MontantHt = 100.00, MontantTva = 20.00, TauxTva = 20.0, Quantite = 1.0, PrixUnitaire = 100.00, CodeRegime = "5", NoLigne = "ligne#1" });
+        sale.Lignes.Add(new EncheresV6Ligne { TypeLigne = "2", Designation = "Frais acheteur", MontantHt = 8.33, MontantTva = 1.67, TauxTva = 20.0, Quantite = 1.0, CodeRegime = "5", NoLigne = "ligne#2" });
+        sale.Lignes.Add(new EncheresV6Ligne { TypeLigne = "3", Designation = "Reglement CB", MontantHt = 130.00, MontantTva = 0.0, NoLigne = "ligne#3", DateReglement = new DateTime(2026, 1, 15), ModeReglement = "CB", NoRemise = "REM-0500" });
+
+        var avoir = new EncheresV6Bordereau
+        {
+            NoBa = "4600",
+            NumeroPiece = "AV-2026-0007",
+            BordereauOuAvoir = "A",
+            DateVente = new DateTime(2026, 2, 2),
+            NoBaLettrage = "4500",
+            AcheteurNom = "Acheteur Particulier (fictif)",
+            AcheteurVille = "Rennes",
+            AcheteurCodePostal = "35000",
+            AcheteurPays = "FR",
+            TotalHt = 108.33,
+            TotalTva = 21.67,
+            TotalTtc = 130.00,
+        };
+        avoir.Lignes.Add(new EncheresV6Ligne { TypeLigne = "4", Designation = "Annulation adjudication lot 9", MontantHt = 100.00, MontantTva = 20.00, TauxTva = 20.0, Quantite = 1.0, PrixUnitaire = 100.00, CodeRegime = "5", NoLigne = "ligne#1" });
+        avoir.Lignes.Add(new EncheresV6Ligne { TypeLigne = "2", Designation = "Annulation frais acheteur", MontantHt = 8.33, MontantTva = 1.67, TauxTva = 20.0, Quantite = 1.0, CodeRegime = "5", NoLigne = "ligne#2" });
+
+        snapshot.Bordereaux.Add(sale);
+        snapshot.Bordereaux.Add(avoir);
+        return snapshot;
+    }
+
+    private static RecordingConnection ParityConnection(EncheresV6SourceSnapshot dataset)
+    {
+        IReadOnlyList<IReadOnlyDictionary<string, object?>> documentRows = ToDocumentRows(dataset);
+        IReadOnlyList<IReadOnlyDictionary<string, object?>> paymentRows = ToPaymentRows(dataset);
+
+        return new RecordingConnection(readerResolver: sql =>
+            sql == EncheresV6Schema.SelectPaymentsSql ? paymentRows
+            : sql == EncheresV6Schema.SelectDocumentsSql ? documentRows
+            : Array.Empty<IReadOnlyDictionary<string, object?>>());
+    }
+
+    // Projette le jeu de données comme la requête documents (ventes + avoirs, lignes type 4/2, entête d'origine
+    // d'un avoir en colonnes origin_*). Les règlements (type 3) sont exclus — ils relèvent de ToPaymentRows.
+    private static List<IReadOnlyDictionary<string, object?>> ToDocumentRows(EncheresV6SourceSnapshot dataset)
+    {
+        Dictionary<string, EncheresV6Bordereau> byNoBa = dataset.Bordereaux.ToDictionary(b => b.NoBa!, b => b, StringComparer.Ordinal);
+        var rows = new List<IReadOnlyDictionary<string, object?>>();
+        foreach (EncheresV6Bordereau b in dataset.Bordereaux.OrderBy(b => b.NoBa, StringComparer.Ordinal))
+        {
+            EncheresV6Bordereau? origin = null;
+            if (string.Equals(b.BordereauOuAvoir, "A", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(b.NoBaLettrage))
+            {
+                byNoBa.TryGetValue(b.NoBaLettrage!, out origin);
+            }
+
+            foreach (EncheresV6Ligne line in b.Lignes.Where(l => l.TypeLigne == "4" || l.TypeLigne == "2"))
+            {
+                rows.Add(DocumentRow(b, origin, line));
+            }
+        }
+
+        return rows;
+    }
+
+    private static Dictionary<string, object?> DocumentRow(EncheresV6Bordereau b, EncheresV6Bordereau? origin, EncheresV6Ligne line)
+    {
+        return new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [EncheresV6Schema.ColNoBa] = b.NoBa,
+            [EncheresV6Schema.ColNumeroPiece] = b.NumeroPiece,
+            [EncheresV6Schema.ColBordereauOuAvoir] = b.BordereauOuAvoir,
+            [EncheresV6Schema.ColDateVente] = b.DateVente,
+            [EncheresV6Schema.ColNoBaLettrage] = b.NoBaLettrage,
+            [EncheresV6Schema.ColAcheteurNom] = b.AcheteurNom,
+            [EncheresV6Schema.ColSociete] = b.AcheteurSociete,
+            [EncheresV6Schema.ColAcheteurSiren] = b.AcheteurSiren,
+            [EncheresV6Schema.ColAcheteurVille] = b.AcheteurVille,
+            [EncheresV6Schema.ColAcheteurCodePostal] = b.AcheteurCodePostal,
+            [EncheresV6Schema.ColAcheteurPays] = b.AcheteurPays,
+            [EncheresV6Schema.ColTotalHt] = b.TotalHt,
+            [EncheresV6Schema.ColTotalTva] = b.TotalTva,
+            [EncheresV6Schema.ColTotalBordereau] = b.TotalTtc,
+            [EncheresV6Schema.ColOriginNoBa] = origin?.NoBa,
+            [EncheresV6Schema.ColOriginNumeroPiece] = origin?.NumeroPiece,
+            [EncheresV6Schema.ColOriginDateVente] = origin is null ? (object?)null : origin.DateVente,
+            [EncheresV6Schema.ColTypeLigne] = line.TypeLigne,
+            [EncheresV6Schema.ColDesignation] = line.Designation,
+            [EncheresV6Schema.ColMontantHt] = line.MontantHt,
+            [EncheresV6Schema.ColMontantTva] = line.MontantTva,
+            [EncheresV6Schema.ColTauxTva] = line.TauxTva,
+            [EncheresV6Schema.ColQuantite] = line.Quantite,
+            [EncheresV6Schema.ColPrixUnitaire] = line.PrixUnitaire,
+            [EncheresV6Schema.ColCodeRegime] = line.CodeRegime,
+            [EncheresV6Schema.ColNoLigne] = line.NoLigne,
+        };
+    }
+
+    private static List<IReadOnlyDictionary<string, object?>> ToPaymentRows(EncheresV6SourceSnapshot dataset)
+    {
+        var rows = new List<IReadOnlyDictionary<string, object?>>();
+        foreach (EncheresV6Bordereau b in dataset.Bordereaux.OrderBy(b => b.NoBa, StringComparer.Ordinal))
+        {
+            foreach (EncheresV6Ligne line in b.Lignes.Where(l => l.TypeLigne == "3"))
+            {
+                rows.Add(PaymentRow(b.NoBa!, b.NumeroPiece!, line.NoLigne!, line.MontantHt, line.DateReglement!.Value, line.ModeReglement!, line.NoRemise!));
+            }
+        }
+
+        return rows;
     }
 }

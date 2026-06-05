@@ -42,7 +42,7 @@ internal sealed class RecordingCommand : IDbCommand
     public IDataReader ExecuteReader()
     {
         _connection.RecordExecution(CommandText);
-        return _connection.CreateReader();
+        return _connection.CreateReader(CommandText);
     }
 
     public IDataReader ExecuteReader(CommandBehavior behavior) => ExecuteReader();
