@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- DI abstractions du framework partagé pour l'extension AddFakePaClient (enregistrement du
+         plug-in, exactement comme B2Brouter/Super PDP s'enregistreront) — aucun package NuGet
+         nouveau, aucun ADR (repo-standards §4 ; déjà géré centralement, Directory.Packages.props). -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Un plug-in PA ne référence QUE Transmission.Contracts (+ Common) — jamais un autre plug-in,
+         jamais un module métier, jamais l'Infrastructure du module (blueprint.md §2 règle 4 ;
+         module-rules §6 ; CLAUDE.md n°6/16). Frontière verrouillée par FakePaClientBoundaryTests. -->
+    <ProjectReference Include="../../Modules/Transmission/Contracts/Liakont.Modules.Transmission.Contracts.csproj" />
+  </ItemGroup>
+</Project>

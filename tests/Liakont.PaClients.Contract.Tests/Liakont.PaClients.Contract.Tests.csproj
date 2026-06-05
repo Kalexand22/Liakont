@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- Projet de test « porteur du CONTRAT » : il livre la BASE ABSTRAITE du contrat PA, héritée par
+         le projet de test de CHAQUE plug-in (Fake, puis B2Brouter / Super PDP). Il ne référence AUCUN
+         plug-in concret — c'est ce qui le rend héritable sans tirer une PA en dépendance transitive
+         (faille relevée en review round 1). La suite abstraite s'EXÉCUTE dans l'assembly du plug-in
+         (ex. Liakont.PaClients.Fake.Tests.Unit) ; ce projet ne porte que ses propres tests autoportants
+         (ContractTestDocumentsTests : garde des fabriques de documents partagées). -->
+    <!-- Conventions de nommage xUnit (Method_Scenario_Expected) — l'.editorconfig ne relâche CA1707
+         que pour **/Tests.*/ ; ce dossier ne correspond pas (cf. Liakont.PaClients.Fake.Tests.Unit). -->
+    <NoWarn>$(NoWarn);CA1707;SA1116;SA1117;SA1202;SA1210;SA1512</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- L'abstraction PA + les DTOs : la suite n'asserte QUE la surface publique IPaClient. AUCUN
+         plug-in concret référencé ici (frontière de réutilisabilité). -->
+    <ProjectReference Include="../../src/Modules/Transmission/Contracts/Liakont.Modules.Transmission.Contracts.csproj" />
+    <!-- PivotDocumentDto pour construire les documents de test (facture, avoir). -->
+    <ProjectReference Include="../../src/Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
+  </ItemGroup>
+</Project>
