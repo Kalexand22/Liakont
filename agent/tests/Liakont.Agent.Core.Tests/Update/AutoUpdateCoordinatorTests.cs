@@ -210,6 +210,29 @@ public class AutoUpdateCoordinatorTests
         }
     }
 
+    [Fact]
+    public void A_transient_download_failure_is_retried_on_the_next_heartbeat()
+    {
+        using (var workspace = new TempDirectory())
+        {
+            var source = new FakeUpdatePackageSource();
+            GivenValidSignedPackage(source, "2.0.0");
+            source.FailManifest = true; // hoquet réseau : le manifeste n'est pas joignable
+            var launcher = new FakeUpdaterLauncher();
+            var store = NewStatusStore(workspace);
+            AutoUpdateCoordinator coordinator = BuildCoordinator(workspace, source, new StubManifestSignatureVerifier(), new FakeRunActivityProbe(), launcher, store, "1.0.0");
+
+            coordinator.ConsiderHeartbeatConfiguration(UpdateRequiredConfig()).Outcome.Should().Be(AutoUpdateOutcome.DownloadFailed);
+
+            // L'aléa se résorbe : le MÊME updateUrl/signature doit être RÉ-essayé (pas court-circuité en AlreadyHandled).
+            source.FailManifest = false;
+            AutoUpdateResult retry = coordinator.ConsiderHeartbeatConfiguration(UpdateRequiredConfig());
+
+            retry.Outcome.Should().Be(AutoUpdateOutcome.Launched);
+            launcher.Captured.Should().NotBeNull();
+        }
+    }
+
     private static AgentConfigurationDto UpdateRequiredConfig() =>
         new AgentConfigurationDto(updateRequired: true, updateUrl: ManifestUrl, versionManifestSignature: "c2ln");
 

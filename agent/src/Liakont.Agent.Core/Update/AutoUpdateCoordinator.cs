@@ -295,8 +295,13 @@ public sealed class AutoUpdateCoordinator : IAutoUpdateService
 
         _statusStore.Record(new AutoUpdateStatus(version, outcome.ToString(), succeeded, message, _clock.UtcNow));
 
-        // Mémorise la demande comme TERMINALE (sauf le différé, qui doit réessayer au cycle suivant) pour la dédup.
-        if (outcome != AutoUpdateOutcome.DeferredRunInProgress)
+        // Mémorise la demande comme TERMINALE pour la dédup — UNIQUEMENT les refus qui exigent un manifeste
+        // CORRIGÉ par la plateforme. Le différé (run en cours) et les défaillances TRANSITOIRES
+        // (DownloadFailed = aléa réseau, Failed = exception inattendue type extraction) doivent être RETENTÉS
+        // au cycle suivant, sinon un simple hoquet réseau bloquerait définitivement la mise à jour.
+        if (outcome != AutoUpdateOutcome.DeferredRunInProgress
+            && outcome != AutoUpdateOutcome.DownloadFailed
+            && outcome != AutoUpdateOutcome.Failed)
         {
             _lastRefusalKey = _currentRequestKey;
         }
