@@ -152,6 +152,27 @@ public class EncheresV6RowMapperTests
     }
 
     [Fact]
+    public void RoundAmount_throws_schema_exception_on_NaN_or_infinity()
+    {
+        Action actNaN = () => EncheresV6RowMapper.RoundAmount(double.NaN);
+        Action actInfPos = () => EncheresV6RowMapper.RoundAmount(double.PositiveInfinity);
+
+        actNaN.Should().Throw<SourceSchemaException>("un flottant NaN ne doit jamais être arrondi à l'aveugle (ADR-0004 D3-7)");
+        actInfPos.Should().Throw<SourceSchemaException>("un flottant infini ne doit jamais être arrondi à l'aveugle (ADR-0004 D3-7)");
+    }
+
+    [Fact]
+    public void MapDocument_throws_schema_exception_when_date_vente_is_default()
+    {
+        EncheresV6Bordereau bordereau = SaleWithAdjudicationAndFees();
+        bordereau.DateVente = default;
+
+        Action act = () => EncheresV6RowMapper.MapDocument(bordereau, Emitter(), OperationCategory.LivraisonBiens, null);
+
+        act.Should().Throw<SourceSchemaException>("une date_vente manquante doit bloquer le document, jamais le laisser passer silencieusement");
+    }
+
+    [Fact]
     public void MapPayment_maps_type3_line_to_raw_pivot_payment()
     {
         EncheresV6Bordereau bordereau = SaleWithAdjudicationAndFees();

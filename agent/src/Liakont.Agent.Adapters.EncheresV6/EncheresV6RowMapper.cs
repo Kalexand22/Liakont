@@ -3,6 +3,7 @@ namespace Liakont.Agent.Adapters.EncheresV6;
 using System;
 using System.Collections.Generic;
 using Liakont.Agent.Adapters.EncheresV6.Source;
+using Liakont.Agent.Contracts;
 using Liakont.Agent.Contracts.Pivot;
 using Liakont.Agent.Core.Extraction;
 using Newtonsoft.Json;
@@ -77,6 +78,14 @@ internal static class EncheresV6RowMapper
         string kind = RequireField(bordereau.BordereauOuAvoir, "bordereau_ou_avoir", bordereau.NoBa);
         string number = RequireField(bordereau.NumeroPiece, "numero_piece", bordereau.NoBa);
         string noBa = RequireField(bordereau.NoBa, "no_ba", bordereau.NoBa);
+
+        if (bordereau.DateVente == default(DateTime))
+        {
+            throw new SourceSchemaException(
+                $"Champ source obligatoire « date_vente » absent ou invalide (no_ba « {noBa} ») : "
+                + "la date est manquante ou illisible dans EncheresV6. Document bloqué, la date n'est "
+                + "jamais devinée (ADR-0004 D3-3). Vérifiez l'extraction des données source.");
+        }
 
         var lines = new List<PivotLineDto>();
         foreach (EncheresV6Ligne ligne in bordereau.Lignes)
@@ -164,11 +173,46 @@ internal static class EncheresV6RowMapper
     /// (half-up / away-from-zero) — ADR-0004 D3-7, CLAUDE.md n°1. Les bases Pervasive stockent des
     /// flottants « sales » (p. ex. 8.329999999999998) : la cast double→decimal de .NET arrondit à
     /// 15 chiffres significatifs (nettoyant le bruit binaire), puis l'arrondi au centime fixe l'échelle.
+    /// Un flottant NaN, infini ou hors de la plage decimal lève une <see cref="SourceSchemaException"/>
+    /// typée (F01-F02 R7) — jamais arrondi à l'aveugle (ADR-0004 D3-7).
     /// </summary>
     /// <param name="raw">Le montant brut (flottant source).</param>
     /// <returns>Le montant en <c>decimal</c> arrondi à 2 décimales (half-up).</returns>
-    internal static decimal RoundAmount(double raw) =>
-        Math.Round((decimal)raw, 2, MidpointRounding.AwayFromZero);
+    internal static decimal RoundAmount(double raw)
+    {
+        if (double.IsNaN(raw) || double.IsInfinity(raw)
+            || raw > (double)decimal.MaxValue || raw < (double)decimal.MinValue)
+        {
+            throw new SourceSchemaException(
+                $"Montant source illisible (NaN/Infini/hors plage) : valeur brute « {raw} » reçue. "
+                + "Document bloqué, jamais arrondi à l'aveugle (ADR-0004 D3-7). "
+                + "Vérifiez l'extraction des montants en source.");
+        }
+
+        return PivotRounding.RoundAmount((decimal)raw);
+    }
+
+    /// <summary>
+    /// Conversion gardée d'un flottant non-montant (taux, quantité) en <c>decimal</c> sans arrondi
+    /// supplémentaire (ADR-0004 D3-7). Lève une <see cref="SourceSchemaException"/> typée si la valeur
+    /// est NaN, infinie ou hors de la plage decimal (F01-F02 R7).
+    /// </summary>
+    /// <param name="raw">La valeur brute (flottant source).</param>
+    /// <param name="field">Le nom du champ source, inclus dans le message opérateur.</param>
+    /// <returns>La valeur convertie en <c>decimal</c> sans arrondi.</returns>
+    internal static decimal SanitizeNonAmount(double raw, string field)
+    {
+        if (double.IsNaN(raw) || double.IsInfinity(raw)
+            || raw > (double)decimal.MaxValue || raw < (double)decimal.MinValue)
+        {
+            throw new SourceSchemaException(
+                $"Valeur source illisible pour le champ « {field} » (NaN/Infini/hors plage) : "
+                + $"valeur brute « {raw} » reçue. Document bloqué (ADR-0004 D3-7). "
+                + "Vérifiez l'extraction des données source.");
+        }
+
+        return (decimal)raw;
+    }
 
     private static string SourceRef(string noBa) => "no_ba=" + noBa;
 
@@ -206,7 +250,7 @@ internal static class EncheresV6RowMapper
         {
             new PivotLineTaxDto(
                 taxAmount: RoundAmount(ligne.MontantTva),
-                rate: ligne.TauxTva.HasValue ? (decimal)ligne.TauxTva.Value : (decimal?)null,
+                rate: ligne.TauxTva.HasValue ? SanitizeNonAmount(ligne.TauxTva.Value, "taux_tva") : (decimal?)null,
                 categoryCode: null,
                 vatexCode: null),
         };
@@ -214,7 +258,7 @@ internal static class EncheresV6RowMapper
         return new PivotLineDto(
             description: description,
             netAmount: RoundAmount(ligne.MontantHt),
-            quantity: ligne.Quantite.HasValue ? (decimal)ligne.Quantite.Value : 1m,
+            quantity: ligne.Quantite.HasValue ? SanitizeNonAmount(ligne.Quantite.Value, "quantite") : 1m,
             unitPriceNet: ligne.PrixUnitaire.HasValue ? RoundAmount(ligne.PrixUnitaire.Value) : (decimal?)null,
             sourceRegimeCodes: regimeCodes,
             taxes: taxes,
