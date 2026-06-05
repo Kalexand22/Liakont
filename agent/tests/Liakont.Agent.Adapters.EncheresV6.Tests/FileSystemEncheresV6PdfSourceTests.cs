@@ -175,16 +175,48 @@ public sealed class FileSystemEncheresV6PdfSourceTests : IDisposable
     }
 
     [Fact]
-    public void ListPoolDocuments_filters_out_files_outside_the_period()
+    public void ListPoolDocuments_excludes_only_files_at_or_after_the_upper_bound()
     {
         string pool = CreateFolder("pool");
         WritePdfAt(pool, "in.pdf", new DateTime(2026, 1, 15, 0, 0, 0, DateTimeKind.Utc));
-        WritePdfAt(pool, "before.pdf", new DateTime(2025, 12, 31, 0, 0, 0, DateTimeKind.Utc));
+
+        // mtime ANCIEN (préservé à la copie) mais déposé tardivement : ne doit JAMAIS être perdu (pas de borne basse).
+        WritePdfAt(pool, "old-deposit.pdf", new DateTime(2025, 12, 31, 0, 0, 0, DateTimeKind.Utc));
+
+        // mtime >= to : exclu (anti-futur), il sera repris quand le filigrane dépassera sa date.
         WritePdfAt(pool, "after.pdf", new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc));
 
         List<PoolDocument> documents = PoolSource(pool).ListPoolDocuments(PeriodFrom, PeriodTo).ToList();
 
-        documents.Select(d => d.FileName).Should().ContainSingle().Which.Should().Be("in.pdf");
+        documents.Select(d => d.FileName).Should().BeEquivalentTo("old-deposit.pdf", "in.pdf");
+    }
+
+    [Fact]
+    public void ListPoolDocuments_warns_and_returns_empty_when_search_pattern_is_invalid()
+    {
+        string pool = CreateFolder("pool");
+        WritePdf(pool, "scan.pdf");
+
+        // Motif contenant un caractère interdit (NUL) : Directory.EnumerateFiles lève ArgumentException sous net48.
+        // Paramétrage erroné → Warning + liste vide, JAMAIS d'échec du run (acceptance ADP05).
+        var source = new FileSystemEncheresV6PdfSource(
+            new EncheresV6PdfSourceOptions(poolFolderPath: pool, searchPattern: "x\u0000.pdf"), _log);
+
+        source.ListPoolDocuments(PeriodFrom, PeriodTo).Should().BeEmpty();
+        _log.Warnings.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void GetAttachments_warns_and_returns_empty_when_search_pattern_is_invalid()
+    {
+        string linked = CreateFolder("linked");
+        WritePdf(linked, "bordereau-4500.pdf");
+
+        var source = new FileSystemEncheresV6PdfSource(
+            new EncheresV6PdfSourceOptions(linkedFolderPath: linked, searchPattern: "x\u0000.pdf"), _log);
+
+        source.GetAttachments("no_ba=4500").Should().BeEmpty();
+        _log.Warnings.Should().ContainSingle();
     }
 
     [Fact]

@@ -100,7 +100,7 @@ public sealed class FileSystemEncheresV6PdfSource : IEncheresV6PdfSource
 
         // Matérialisé (pas un iterator paresseux) pour que toute erreur d'E/S de listage soit captée et
         // journalisée ICI (jamais propagée hors du run), tout en restant O(nombre de fichiers du pool).
-        return BuildPoolDocuments(fromInclusiveUtc, toExclusiveUtc);
+        return BuildPoolDocuments(toExclusiveUtc);
     }
 
     /// <summary>
@@ -159,7 +159,7 @@ public sealed class FileSystemEncheresV6PdfSource : IEncheresV6PdfSource
 
     private static bool IsTokenChar(char c) => char.IsLetterOrDigit(c);
 
-    private List<PoolDocument> BuildPoolDocuments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc)
+    private List<PoolDocument> BuildPoolDocuments(DateTime toExclusiveUtc)
     {
         string folder = _options.PoolFolderPath!;
         List<string>? files = EnumeratePdfFiles(folder, "PDF pool");
@@ -179,8 +179,14 @@ public sealed class FileSystemEncheresV6PdfSource : IEncheresV6PdfSource
                 continue;
             }
 
-            // Période sur la date de dépôt (dernière écriture) : [from, to[ — borne haute exclue.
-            if (lastWriteUtc.Value >= fromInclusiveUtc && lastWriteUtc.Value < toExclusiveUtc)
+            // PAS DE BORNE BASSE sur la période : la date de dernière écriture (mtime) est PRÉSERVÉE par une
+            // copie de fichier (Explorer / copy / robocopy), donc un PDF ancien déposé TARDIVEMENT dans le pool
+            // garderait un mtime antérieur au filigrane et deviendrait DÉFINITIVEMENT INVISIBLE — exactement le
+            // piège que le contrat IExtractor interdit (« aucun document définitivement invisible une fois le
+            // filigrane avancé »). On ne filtre donc que la borne haute (< to, anti-futur) ; l'idempotence est
+            // garantie en AVAL par l'anti-re-push (par PoolReference, ExtractionCycle.CollectPoolPdfs) : chaque
+            // PDF du pool n'est poussé qu'une seule fois, sans jamais en perdre un.
+            if (lastWriteUtc.Value < toExclusiveUtc)
             {
                 // PoolReference = nom de fichier : clé STABLE d'idempotence de file (PoolDocument), inchangée
                 // d'un run à l'autre tant que le fichier n'est pas renommé.
@@ -193,8 +199,9 @@ public sealed class FileSystemEncheresV6PdfSource : IEncheresV6PdfSource
 
     /// <summary>
     /// Liste les fichiers PDF d'un dossier (motif de la config, niveau supérieur uniquement) en LECTURE
-    /// SEULE. Renvoie <c>null</c> (et journalise un Warning) si le dossier est absent ou en erreur d'E/S —
-    /// jamais d'exception (acceptance ADP05 : jamais d'échec du run).
+    /// SEULE. Renvoie <c>null</c> (et journalise un Warning) si le dossier est absent, le motif de recherche
+    /// invalide (<see cref="ArgumentException"/>) ou une erreur d'E/S survient — jamais d'exception
+    /// (acceptance ADP05 : jamais d'échec du run, même sur un paramétrage erroné).
     /// </summary>
     private List<string>? EnumeratePdfFiles(string folder, string contextLabel)
     {
@@ -210,11 +217,13 @@ public sealed class FileSystemEncheresV6PdfSource : IEncheresV6PdfSource
         {
             return Directory.EnumerateFiles(folder, _options.SearchPattern, SearchOption.TopDirectoryOnly).ToList();
         }
-        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException)
         {
+            // ArgumentException : motif de recherche invalide (caractères interdits) — paramétrage erroné, à
+            // corriger dans la config ; on dégrade en Warning + liste vide, jamais en échec du run (ADP05).
             _log.Warn(
                 contextLabel + " EncheresV6 : lecture du dossier « " + folder + " » impossible (" + ex.Message
-                + "). Aucun PDF transmis pour ce cycle.");
+                + "). Vérifiez le dossier et le motif de recherche dans la configuration. Aucun PDF transmis pour ce cycle.");
             return null;
         }
     }
