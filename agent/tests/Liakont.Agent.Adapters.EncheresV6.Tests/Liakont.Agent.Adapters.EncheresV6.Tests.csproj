@@ -16,6 +16,15 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Liakont.Agent.Adapters.EncheresV6\Liakont.Agent.Adapters.EncheresV6.csproj" />
+    <!-- Contrat partagé (PivotDocumentDto, sérialisation canonique CanonicalJson/PayloadHasher) pour
+         les assertions de stabilité d'empreinte. Référence autorisée (AgentProjectReferenceTests). -->
+    <ProjectReference Include="..\..\..\src\Contracts\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj" />
+  </ItemGroup>
+
+  <!-- Fixtures EncheresV6 (format source brut) copiées en sortie : lues par le FixtureExtractor
+       depuis AppContext.BaseDirectory au runtime des tests. -->
+  <ItemGroup>
+    <None Include="..\fixtures\encheresv6\*.json" Link="fixtures\encheresv6\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -14,13 +14,15 @@ public sealed class ExtractionConfig
         string? odbcConnectionStringProtected,
         string? pdfPoolPath,
         IReadOnlyList<string> schedule,
-        bool catchUpOnStart)
+        bool catchUpOnStart,
+        string? fixturesPath = null)
     {
         Adapter = adapter;
         OdbcConnectionStringProtected = odbcConnectionStringProtected;
         PdfPoolPath = pdfPoolPath;
         Schedule = schedule;
         CatchUpOnStart = catchUpOnStart;
+        FixturesPath = fixturesPath;
     }
 
     /// <summary>Identifiant de l'adaptateur source (ex. « EncheresV6 », « Fixture »).</summary>
@@ -37,4 +39,11 @@ public sealed class ExtractionConfig
 
     /// <summary>Rattrapage au démarrage du service si un run planifié a été manqué.</summary>
     public bool CatchUpOnStart { get; }
+
+    /// <summary>
+    /// Chemin (fichier ou répertoire) des fixtures JSON pour un adaptateur en mode dev/démo, optionnel.
+    /// L'adaptateur qui le sait l'interprète (ex. EncheresV6 : chaîne ODBC OU chemin fixtures requis) ;
+    /// le chargeur ne fait que le transporter.
+    /// </summary>
+    public string? FixturesPath { get; }
 }
