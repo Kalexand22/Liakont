@@ -21,6 +21,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.Agent.Core.Tests", 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.Agent.Adapters.EncheresV6.Tests", "tests\Liakont.Agent.Adapters.EncheresV6.Tests\Liakont.Agent.Adapters.EncheresV6.Tests.csproj", "{59EFEE7F-252B-442A-8BC4-9CE019298333}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.Agent.Cli.Tests", "tests\Liakont.Agent.Cli.Tests\Liakont.Agent.Cli.Tests.csproj", "{092173CD-8D7A-4499-A094-8D4FD2E87A71}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -115,6 +117,18 @@ Global
 		{59EFEE7F-252B-442A-8BC4-9CE019298333}.Release|x64.Build.0 = Release|x64
 		{59EFEE7F-252B-442A-8BC4-9CE019298333}.Release|x86.ActiveCfg = Release|x86
 		{59EFEE7F-252B-442A-8BC4-9CE019298333}.Release|x86.Build.0 = Release|x86
+		{092173CD-8D7A-4499-A094-8D4FD2E87A71}.Debug|Any CPU.ActiveCfg = Debug|x86
+		{092173CD-8D7A-4499-A094-8D4FD2E87A71}.Debug|Any CPU.Build.0 = Debug|x86
+		{092173CD-8D7A-4499-A094-8D4FD2E87A71}.Debug|x64.ActiveCfg = Debug|x64
+		{092173CD-8D7A-4499-A094-8D4FD2E87A71}.Debug|x64.Build.0 = Debug|x64
+		{092173CD-8D7A-4499-A094-8D4FD2E87A71}.Debug|x86.ActiveCfg = Debug|x86
+		{092173CD-8D7A-4499-A094-8D4FD2E87A71}.Debug|x86.Build.0 = Debug|x86
+		{092173CD-8D7A-4499-A094-8D4FD2E87A71}.Release|Any CPU.ActiveCfg = Release|x86
+		{092173CD-8D7A-4499-A094-8D4FD2E87A71}.Release|Any CPU.Build.0 = Release|x86
+		{092173CD-8D7A-4499-A094-8D4FD2E87A71}.Release|x64.ActiveCfg = Release|x64
+		{092173CD-8D7A-4499-A094-8D4FD2E87A71}.Release|x64.Build.0 = Release|x64
+		{092173CD-8D7A-4499-A094-8D4FD2E87A71}.Release|x86.ActiveCfg = Release|x86
+		{092173CD-8D7A-4499-A094-8D4FD2E87A71}.Release|x86.Build.0 = Release|x86
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -126,5 +140,6 @@ Global
 		{4DEEA170-7596-4CE6-A6FB-822820AAE13C} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{791C3466-EFC4-4992-9604-75173C588B45} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{59EFEE7F-252B-442A-8BC4-9CE019298333} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{092173CD-8D7A-4499-A094-8D4FD2E87A71} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal

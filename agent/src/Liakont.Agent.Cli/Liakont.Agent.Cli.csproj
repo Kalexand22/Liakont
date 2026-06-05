@@ -7,8 +7,30 @@
     <RuntimeIdentifiers>win-x86;win-x64</RuntimeIdentifiers>
   </PropertyGroup>
 
+  <!-- Les types du CLI restent internal ; le projet de test y accède (commandes mockées, AGT05). -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Agent.Cli.Tests" />
+  </ItemGroup>
+
+  <!-- Le CLI est le composition root du diagnostic : il câble le cœur (file locale, config, DPAPI,
+       verrou de run) ET les adaptateurs source embarqués (registre « adaptateur connu » de
+       check-config). Références internes à agent/ + contrat partagé : frontière respectée (blueprint.md §6). -->
   <ItemGroup>
     <ProjectReference Include="..\Liakont.Agent.Core\Liakont.Agent.Core.csproj" />
+    <ProjectReference Include="..\Liakont.Agent.Adapters.EncheresV6\Liakont.Agent.Adapters.EncheresV6.csproj" />
+    <ProjectReference Include="..\..\..\src\Contracts\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj" />
+  </ItemGroup>
+
+  <!-- Sérialisation du heartbeat à blanc (test-api), déjà au catalogue central de l'agent. -->
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" />
+  </ItemGroup>
+
+  <!-- Assemblies du framework net48 : System.Data.Odbc (sonde test-odbc, lecture seule) et
+       System.Net.Http (sonde test-api). HTTPS sortant uniquement (F12 §2.6). -->
+  <ItemGroup>
+    <Reference Include="System.Data" />
+    <Reference Include="System.Net.Http" />
   </ItemGroup>
 
 </Project>
