@@ -106,7 +106,7 @@ items:
            opérateur (jamais de re-push d'un payload invalide = pas de boucle) ; Pending/inconnu
            → renvoi au prochain push. C'est ce qui ferme la perte silencieuse d'un document
            reçu côté plateforme mais non rangé dans le pipeline (le point de statut côté
-           plateforme est porté par PIP01).
+           plateforme est porté par PIP01d).
          - codes d'erreur selon F12 §3.3 : 401/403 = stop + erreur explicite ; 413 = re-découpe ;
            426 = déclenche l'auto-update (AGT04) ; 429/5xx/réseau = backoff exponentiel,
            les éléments restent en file (un `rejected` au push = marqué en erreur, signalé au

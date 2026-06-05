@@ -229,8 +229,8 @@ items:
       Le module Job du socle Stratum crée un scope SANS résolution de tenant (constat review
       2026-06-03 : aucune référence à ITenantContext dans le module, tables dans la base système).
       Avec database-per-tenant, un job ne peut ni s'exécuter dans la base d'un tenant ni itérer
-      sur les tenants sans mécanique supplémentaire. Quatre items en dépendent : TRK06 (ancrage
-      quotidien par tenant), PIP01/PIP03 (jobs planifiés par tenant), SUP01 (job d'évaluation
+      sur les tenants sans mécanique supplémentaire. Cinq items en dépendent : TRK06 (ancrage
+      quotidien par tenant), PIP01c/PIP01d/PIP03 (jobs planifiés par tenant), SUP01 (job d'évaluation
       de tous les tenants). Cet item spécifie et implémente cette mécanique UNE SEULE FOIS.
       1. src/Common/ ou src/Modules/ (choix par ADR — critère : réutilisable par tous les
          modules sans dépendance circulaire) : TenantJobRunner —
@@ -243,13 +243,13 @@ items:
          TenantJobRunner l'exécute pour chaque tenant selon la planification du module.
       3. Tests d'intégration (Testcontainers PostgreSQL, 2 bases tenant) : exécution sur 2 tenants,
          isolation des échecs, jamais de fuite de connexion entre tenants.
-      RÈGLE : les items TRK06/PIP01/PIP03/SUP01 RÉFÉRENCENT cette mécanique — aucun item ne
+      RÈGLE : les items TRK06/PIP01c/PIP01d/PIP03/SUP01 RÉFÉRENCENT cette mécanique — aucun item ne
       réinvente sa propre boucle multi-tenant.
     acceptance:
       - "TenantJobRunner exécute un ITenantJob pour chaque tenant actif, connexion basculée par tenant"
       - "Échec d'un tenant isolé (les autres continuent), journalisé avec TenantId"
       - "Tests d'intégration sur 2 bases tenant (exécution, isolation des échecs, pas de fuite de connexion)"
-      - "Patron ITenantJob documenté (consommé par TRK06, PIP01, PIP03, SUP01)"
+      - "Patron ITenantJob documenté (consommé par TRK06, PIP01c, PIP01d, PIP03, SUP01)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 

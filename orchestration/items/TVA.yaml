@@ -64,7 +64,7 @@ items:
       3. Comportement régime inconnu : selon defaultBehavior de la table — `block` = le document
          porteur passe en blocage, jamais d'envoi à l'aveugle, jamais de valeur par défaut.
       4. Le mapping s'exécute dans le pipeline aval de l'ingestion (déclenché par l'événement
-         DocumentReceived — le câblage complet arrive avec PIP01 ; ici le moteur est testé
+         DocumentReceived — le câblage complet arrive avec PIP01b ; ici le moteur est testé
          en direct).
     acceptance:
       - "TvaMapper transforme (code source, part, flags) en {catégorie, taux, VATEX} via la table du tenant"
@@ -110,18 +110,18 @@ items:
          - une règle volontairement absente (pour tester la détection TVA03)
       2. validatedBy = "Table d'exemple — usage démo/tests uniquement" : le module TvaMapping
          PORTE ce marqueur (état exposé, comme « NON VALIDÉE »). Le REFUS d'envoi en production
-         est le garde-fou de PIP01 (croisement environnement du compte PA × état de la table) —
+         est le garde-fou de PIP01b (croisement environnement du compte PA × état de la table) —
          cet item ne fait qu'exposer le marqueur ; la preuve du refus effectif est le test
-         d'intégration du garde-fou PIP01, qui référence ce marqueur.
+         d'intégration du garde-fou PIP01b, qui référence ce marqueur.
       3. Tests d'intégration : importer le seed dans un tenant de test, mapper les golden files
          PIV03, vérifier chaque catégorie produite, vérifier le blocage sur le régime absent,
          vérifier que le marqueur « table d'exemple » est exposé (le refus d'envoi production
-         lui-même est testé dans PIP01).
+         lui-même est testé dans PIP01b).
       RAPPEL : la table réelle du CMP est l'item CMP01 (paramétrage), pas ici.
     acceptance:
       - "mapping-exemple.json dans config/exemples/ avec des codes régimes fictifs uniquement"
       - "Tous les cas UNCL5305 supportés sont couverts par l'exemple"
-      - "Le marqueur « table d'exemple » est porté par le modèle et exposé (le refus d'envoi production est prouvé par le test du garde-fou PIP01)"
+      - "Le marqueur « table d'exemple » est porté par le modèle et exposé (le refus d'envoi production est prouvé par le test du garde-fou PIP01b)"
       - "Tests d'intégration sur les golden files PIV03 verts"
       - "Aucune donnée client (CMP, EncheresV6 réel) dans le fichier"
       - "verify-fast passes"
@@ -137,7 +137,7 @@ items:
          obligatoire, catégories UNCL5305, pas de doublon).
       2. TOUTE mutation invalide la validation : validatedBy/validatedDate sont effacés, la table
          repasse « NON VALIDÉE » → les envois en production sont suspendus tant que la table
-         n'est pas revalidée (cohérent avec le garde-fou de TVA04/PIP01).
+         n'est pas revalidée (cohérent avec le garde-fou de TVA04/PIP01b).
       3. MappingChangeLog : journal append-only des modifications EN BASE — qui (identité
          Keycloak de l'opérateur), quand, quelle règle, valeur avant/après. Jamais de
          modification/suppression d'une entrée existante (même discipline que DocumentEvent —

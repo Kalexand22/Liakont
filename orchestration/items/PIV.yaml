@@ -169,7 +169,7 @@ items:
       4. Validation du contrat : payload non conforme aux DTOs = 400 avec détail —
          JAMAIS d'acceptation partielle d'un document malformé.
       5. Publication d'un événement (outbox du socle) DocumentReceived par document accepté →
-         déclenchera le pipeline aval (PIP01).
+         déclenchera le pipeline aval (PIP01b).
       6. Tests d'intégration (Testcontainers PostgreSQL) : batch nominal, doublons, altération,
          re-push complet après réinstallation d'agent, lot mixte, payload malformé,
          tenant isolation (un agent ne peut pas écrire chez un autre tenant).

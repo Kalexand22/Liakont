@@ -92,7 +92,7 @@ items:
          - sinon → envoi autorisé
       2. IIssuedDocumentLookup (interface utilisée par VAL03) implémentée sur le repository.
       3. Reprise sur timeout d'envoi : GetPotentiallySentDocuments() pour que le pipeline
-         puisse vérifier côté PA avant de retenter (câblé dans PIP01 — un timeout réseau peut
+         puisse vérifier côté PA avant de retenter (câblé dans PIP01c — un timeout réseau peut
          masquer un envoi qui a réussi côté PA : retenter sans vérifier = doublon).
       4. Détection d'altération source APRÈS émission (F06 : double usage du payload_hash) :
          l'ingestion (PIV04) publie un événement AlterationDetected quand une source_reference
