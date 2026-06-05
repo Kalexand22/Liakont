@@ -173,6 +173,24 @@ public class EncheresV6RowMapperTests
     }
 
     [Fact]
+    public void RoundAmount_throws_schema_exception_on_overflow()
+    {
+        // 1e30 > decimal.MaxValue (≈ 7.9e28) → OverflowException sur le cast → SourceSchemaException typée
+        Action act = () => EncheresV6RowMapper.RoundAmount(1e30);
+
+        act.Should().Throw<SourceSchemaException>("un montant hors de la plage decimal est bloqué (ADR-0004 D3-7)");
+    }
+
+    [Fact]
+    public void SanitizeNonAmount_throws_schema_exception_on_overflow()
+    {
+        // 1e30 > decimal.MaxValue → OverflowException sur le cast → SourceSchemaException typée
+        Action act = () => EncheresV6RowMapper.SanitizeNonAmount(1e30, "taux_tva");
+
+        act.Should().Throw<SourceSchemaException>("une valeur non-montant hors de la plage decimal est bloquée (ADR-0004 D3-7)");
+    }
+
+    [Fact]
     public void MapPayment_maps_type3_line_to_raw_pivot_payment()
     {
         EncheresV6Bordereau bordereau = SaleWithAdjudicationAndFees();

@@ -294,6 +294,45 @@ public class EncheresV6FixtureExtractorTests
         payments.Should().BeEmpty("le règlement du 2026-01-15 est hors de la période [2026-02-01, 2026-03-01)");
     }
 
+    [Fact]
+    public void ListSourceTaxRegimes_dedup_last_wins_on_label_and_sums_occurrences()
+    {
+        // Deux entrées dans « regimes » avec le même code_regime "5" mais des libellés différents.
+        // Résultat attendu : une seule entrée pour le code "5", libellé = dernier vu (last-wins),
+        // occurrences = nombre de lignes de type document référençant le code "5".
+        const string json = @"{
+  ""regimes"": [
+    { ""code_regime"": ""5"", ""libelle"": ""Normal v1"" },
+    { ""code_regime"": ""5"", ""libelle"": ""Normal v2"" }
+  ],
+  ""bordereaux"": [
+    {
+      ""no_ba"": ""BA-DEDUP-001"",
+      ""numero_piece"": ""F-2026-9001"",
+      ""bordereau_ou_avoir"": ""B"",
+      ""date_vente"": ""2026-01-20"",
+      ""total_ht"": 100.0,
+      ""total_tva"": 20.0,
+      ""total_ttc"": 120.0,
+      ""lignes"": [
+        { ""type_ligne"": ""4"", ""designation"": ""Lot A"", ""montant_ht"": 60.0, ""montant_tva"": 12.0, ""code_regime"": ""5"" },
+        { ""type_ligne"": ""4"", ""designation"": ""Lot B"", ""montant_ht"": 40.0, ""montant_tva"": 8.0, ""code_regime"": ""5"" }
+      ]
+    }
+  ]
+}";
+
+        EncheresV6FixtureExtractor extractor =
+            EncheresV6FixtureExtractor.FromJson(json, Emitter(), OperationCategory.LivraisonBiens);
+
+        IReadOnlyList<SourceTaxRegimeDto> regimes = extractor.ListSourceTaxRegimes();
+
+        regimes.Should().ContainSingle("deux déclarations du même code_regime fusionnent en une seule entrée");
+        SourceTaxRegimeDto regime5 = regimes.Single(r => r.Code == "5");
+        regime5.Label.Should().Be("Normal v2", "last-wins sur le libellé (dernière déclaration du code_regime)");
+        regime5.Occurrences.Should().Be(2, "deux lignes de document référencent le code_regime « 5 »");
+    }
+
     private static EncheresV6EmitterIdentity Emitter() =>
         new EncheresV6EmitterIdentity(
             name: "Étude Fictïve SVV",
