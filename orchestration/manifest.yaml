@@ -172,7 +172,11 @@ items:
   - { id: GATE_PA_SUPERPDP, type: gate, executor: human, priority: 4900, depends_on: [PAS03] }
 
   # ── PIP ──
-  - { id: PIP01, lot: PIP, priority: 5000, depends_on: [] }
+  # PIP00 (staging durable du contenu à l'intake, ADR-0014) précède PIP01 : le pipeline lit le
+  # pivot complet depuis le magasin de staging au lieu de le supposer « déjà là » (le contenu
+  # n'est durable nulle part avant l'émission sans ce prérequis).
+  - { id: PIP00, lot: PIP, priority: 4990, depends_on: [] }
+  - { id: PIP01, lot: PIP, priority: 5000, depends_on: [PIP00] }
   - { id: PIP02, lot: PIP, priority: 5010, depends_on: [PIP01] }
   - { id: PIP03, lot: PIP, priority: 5020, depends_on: [PIP01] }
   - { id: PIP04, lot: PIP, priority: 5030, depends_on: [PIP02, PIP03] }
