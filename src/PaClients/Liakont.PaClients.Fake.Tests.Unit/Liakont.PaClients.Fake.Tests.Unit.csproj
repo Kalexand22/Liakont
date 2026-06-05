@@ -21,6 +21,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Liakont.PaClients.Fake/Liakont.PaClients.Fake.csproj" />
+    <!-- La suite de contrat PA abstraite (PAA03), exécutée ici contre le plug-in Fake (FakePaClientContractTests). -->
+    <ProjectReference Include="../../../tests/Liakont.PaClients.Contract.Tests/Liakont.PaClients.Contract.Tests.csproj" />
     <!-- Le registre du module (AddTransmissionModule) pour prouver la résolution du plug-in par clé. -->
     <ProjectReference Include="../../Modules/Transmission/Infrastructure/Liakont.Modules.Transmission.Infrastructure.csproj" />
     <!-- PivotDocumentDto pour construire des documents de test (facture, avoir). -->

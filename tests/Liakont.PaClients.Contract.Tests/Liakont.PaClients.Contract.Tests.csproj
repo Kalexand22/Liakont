@@ -2,9 +2,14 @@
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <!-- Conventions de nommage xUnit (Method_Scenario_Expected avec underscores) — même relaxation
-         que les projets de test dont le dossier ne commence pas par « Tests. » (cf.
-         Liakont.PaClients.Fake.Tests.Unit) : l'.editorconfig n'applique son scope test qu'à **/Tests.*/. -->
+    <!-- Projet de test « porteur du CONTRAT » : il livre la BASE ABSTRAITE du contrat PA, héritée par
+         le projet de test de CHAQUE plug-in (Fake, puis B2Brouter / Super PDP). Il ne référence AUCUN
+         plug-in concret — c'est ce qui le rend héritable sans tirer une PA en dépendance transitive
+         (faille relevée en review round 1). La suite abstraite s'EXÉCUTE dans l'assembly du plug-in
+         (ex. Liakont.PaClients.Fake.Tests.Unit) ; ce projet ne porte que ses propres tests autoportants
+         (ContractTestDocumentsTests : garde des fabriques de documents partagées). -->
+    <!-- Conventions de nommage xUnit (Method_Scenario_Expected) — l'.editorconfig ne relâche CA1707
+         que pour **/Tests.*/ ; ce dossier ne correspond pas (cf. Liakont.PaClients.Fake.Tests.Unit). -->
     <NoWarn>$(NoWarn);CA1707;SA1116;SA1117;SA1202;SA1210;SA1512</NoWarn>
   </PropertyGroup>
   <ItemGroup>
@@ -14,13 +19,10 @@
     <PackageReference Include="FluentAssertions" />
   </ItemGroup>
   <ItemGroup>
-    <!-- L'abstraction PA + les DTOs : la suite de contrat n'asserte QUE la surface publique IPaClient
-         (aucune dépendance à un plug-in concret dans la classe de base — c'est ce qui la rend
-         héritable par B2Brouter et Super PDP). -->
+    <!-- L'abstraction PA + les DTOs : la suite n'asserte QUE la surface publique IPaClient. AUCUN
+         plug-in concret référencé ici (frontière de réutilisabilité). -->
     <ProjectReference Include="../../src/Modules/Transmission/Contracts/Liakont.Modules.Transmission.Contracts.csproj" />
     <!-- PivotDocumentDto pour construire les documents de test (facture, avoir). -->
     <ProjectReference Include="../../src/Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
-    <!-- Le plug-in factice (PAA02) : preuve que la suite de contrat est exécutable (PAA03). -->
-    <ProjectReference Include="../../src/PaClients/Liakont.PaClients.Fake/Liakont.PaClients.Fake.csproj" />
   </ItemGroup>
 </Project>

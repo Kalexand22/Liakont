@@ -65,14 +65,18 @@ Les capacités sont la **seule** source de vérité du comportement du produit.
 
 ### 4. Hériter la suite de contrat
 
-Créer le projet de test du plug-in (`<Nom>.Tests.Unit` ou `tests/…`) qui hérite de
-`PaClientContractTests` (`tests/Liakont.PaClients.Contract.Tests/`) et implémente `CreateClient` :
-mapper chaque `PaClientContractSetup` (issue + capacités) vers un client de votre plug-in **piloté par
-un mock HTTP** (les PA réelles n'ont pas de mode mémoire). La suite commune vérifie alors, sans aucun
-test réécrit, l'envoi valide, l'avoir, le rejet, l'erreur silencieuse, le timeout, l'idempotence et —
-surtout — que **toute capacité absente dégrade en résultat typé, jamais une exception**. Ajouter aussi
-une garde de frontière NetArchTest (cf. `FakePaClientBoundaryTests`) : le plug-in ne référence que
-`Transmission.Contracts`.
+La base abstraite `PaClientContractTests` vit dans la bibliothèque **sans plug-in**
+`tests/Liakont.PaClients.Contract.Tests/` (elle ne référence que `Transmission.Contracts` + le pivot —
+c'est ce qui permet de l'hériter sans tirer une autre PA en dépendance transitive). Dans le projet de
+test de **votre** plug-in (`<Nom>.Tests.Unit`), ajoutez une `ProjectReference` vers cette bibliothèque,
+dérivez `PaClientContractTests` et implémentez `CreateClient` : mappez chaque `PaClientContractSetup`
+(issue + capacités) vers un client de votre plug-in **piloté par un mock HTTP** (les PA réelles n'ont
+pas de mode mémoire). L'exemple vivant est `FakePaClientContractTests` dans
+`Liakont.PaClients.Fake.Tests.Unit`. La suite commune vérifie alors, sans aucun test réécrit, l'envoi
+valide, l'avoir, le rejet, l'erreur silencieuse, le timeout, l'idempotence, la conservation de la
+réponse brute (audit F06/DR6) et — surtout — que **toute capacité absente dégrade en résultat typé,
+jamais une exception**. Ajoutez aussi une garde de frontière NetArchTest (cf. `FakePaClientBoundaryTests`) :
+le plug-in ne référence que `Transmission.Contracts`.
 
 ### 5. Fournir la suite réelle (Staging / Sandbox), séparée
 

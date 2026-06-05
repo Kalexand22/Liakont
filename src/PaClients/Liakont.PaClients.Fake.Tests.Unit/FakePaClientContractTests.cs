@@ -1,13 +1,14 @@
-namespace Liakont.PaClients.Contract.Tests;
+namespace Liakont.PaClients.Fake.Tests.Unit;
 
 using Liakont.Modules.Transmission.Contracts;
-using Liakont.PaClients.Fake;
+using Liakont.PaClients.Contract.Tests;
 
 /// <summary>
 /// Exécute la suite de contrat commune (<see cref="PaClientContractTests"/>) contre le plug-in FACTICE
 /// (PAA02) — la PREUVE que la suite est exécutable (PAA03) et que le plug-in livré avec le produit
-/// honore le contrat PA. B2Brouter (PAB04) et Super PDP (PAS03) hériteront la même suite via un mock
-/// HTTP, sans réécrire un seul test (testing-strategy §6).
+/// honore le contrat PA. C'est aussi le PATRON que suivront les projets de test de B2Brouter (PAB04) et
+/// Super PDP (PAS03) : référencer la base abstraite (sans plug-in) et la piloter via un mock HTTP
+/// (testing-strategy §6).
 /// </summary>
 public sealed class FakePaClientContractTests : PaClientContractTests
 {
@@ -30,6 +31,7 @@ public sealed class FakePaClientContractTests : PaClientContractTests
         PaSendOutcome.SilentError => FakePaScenario.SilentError,
         PaSendOutcome.TechnicalError => FakePaScenario.TechnicalError,
         PaSendOutcome.Timeout => FakePaScenario.Timeout,
-        _ => FakePaScenario.Success,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(outcome), outcome, "Issue de contrat non mappée vers un scénario du plug-in factice."),
     };
 }

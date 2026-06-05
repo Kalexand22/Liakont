@@ -3,7 +3,6 @@ namespace Liakont.PaClients.Contract.Tests;
 using System;
 using System.Threading.Tasks;
 using FluentAssertions;
-using Liakont.Agent.Contracts.Pivot;
 using Liakont.Modules.Transmission.Contracts;
 using Xunit;
 
@@ -46,7 +45,7 @@ public abstract class PaClientContractTests
     {
         var client = CreateClient(new PaClientContractSetup());
 
-        var result = await client.SendDocumentAsync(Invoice("CT-1"));
+        var result = await client.SendDocumentAsync(ContractTestDocuments.Invoice("CT-1"));
 
         result.State.Should().Be(PaSendState.Issued);
         result.PaDocumentId.Should().NotBeNullOrWhiteSpace(
@@ -64,7 +63,7 @@ public abstract class PaClientContractTests
 
         // L'avoir porte la référence de sa facture d'origine (lien transmis AU plug-in) ; le format
         // « fil » est vérifié par les tests propres du plug-in, pas au niveau du contrat observable.
-        var result = await client.SendDocumentAsync(CreditNote("CT-AV-1"));
+        var result = await client.SendDocumentAsync(ContractTestDocuments.CreditNote("CT-AV-1"));
 
         if (client.Capabilities.SupportsCreditNotes)
         {
@@ -90,7 +89,7 @@ public abstract class PaClientContractTests
             RejectionErrors = errors,
         });
 
-        var result = await client.SendDocumentAsync(Invoice("CT-2"));
+        var result = await client.SendDocumentAsync(ContractTestDocuments.Invoice("CT-2"));
 
         result.State.Should().Be(PaSendState.RejectedByPa);
         result.Errors.Should().NotBeEmpty("les erreurs de la PA remontent intactes (F05 §3)");
@@ -106,7 +105,7 @@ public abstract class PaClientContractTests
     {
         var client = CreateClient(new PaClientContractSetup { Outcome = PaSendOutcome.SilentError });
 
-        var result = await client.SendDocumentAsync(Invoice("CT-3"));
+        var result = await client.SendDocumentAsync(ContractTestDocuments.Invoice("CT-3"));
 
         result.State.Should().Be(
             PaSendState.RejectedByPa,
@@ -123,7 +122,7 @@ public abstract class PaClientContractTests
     {
         var client = CreateClient(new PaClientContractSetup { Outcome = outcome });
 
-        var result = await client.SendDocumentAsync(Invoice("CT-4"));
+        var result = await client.SendDocumentAsync(ContractTestDocuments.Invoice("CT-4"));
 
         result.State.Should().Be(
             PaSendState.TechnicalError,
@@ -136,14 +135,34 @@ public abstract class PaClientContractTests
     {
         var client = CreateClient(new PaClientContractSetup());
 
-        var first = await client.SendDocumentAsync(Invoice("CT-DUP"));
-        var second = await client.SendDocumentAsync(Invoice("CT-DUP"));
+        var first = await client.SendDocumentAsync(ContractTestDocuments.Invoice("CT-DUP"));
+        var second = await client.SendDocumentAsync(ContractTestDocuments.Invoice("CT-DUP"));
 
         first.State.Should().Be(PaSendState.Issued);
         second.State.Should().Be(PaSendState.Issued);
         second.PaDocumentId.Should().Be(
             first.PaDocumentId,
             "le même numéro ne produit jamais une seconde émission (idempotence F05)");
+    }
+
+    /// <summary>
+    /// La réponse brute de la PA (<see cref="PaSendResult.RawResponse"/>) est conservée sur une émission
+    /// ET sur un rejet — c'est une pièce de la piste d'audit (F06/DR6) : un plug-in qui la perd casse
+    /// l'auditabilité de l'envoi.
+    /// </summary>
+    [Fact]
+    public async Task Issued_And_Rejected_Results_Preserve_The_Raw_Response_For_Audit()
+    {
+        var issued = await CreateClient(new PaClientContractSetup()).SendDocumentAsync(ContractTestDocuments.Invoice("CT-RAW-1"));
+        issued.State.Should().Be(PaSendState.Issued);
+        issued.RawResponse.Should().NotBeNullOrEmpty(
+            "la réponse brute de la PA est conservée pour la piste d'audit (F06/DR6)");
+
+        var rejected = await CreateClient(new PaClientContractSetup { Outcome = PaSendOutcome.Rejected })
+            .SendDocumentAsync(ContractTestDocuments.Invoice("CT-RAW-2"));
+        rejected.State.Should().Be(PaSendState.RejectedByPa);
+        rejected.RawResponse.Should().NotBeNullOrEmpty(
+            "la réponse brute du rejet est conservée pour la piste d'audit (F06/DR6)");
     }
 
     /// <summary>
@@ -159,7 +178,7 @@ public abstract class PaClientContractTests
         var restricted = nominal with { SupportsCreditNotes = false, SupportsDocumentRetrieval = false };
         var client = CreateClient(new PaClientContractSetup { Capabilities = restricted });
 
-        var send = await client.SendDocumentAsync(CreditNote("CT-AV-2"));
+        var send = await client.SendDocumentAsync(ContractTestDocuments.CreditNote("CT-AV-2"));
         send.State.Should().Be(PaSendState.CapabilityNotSupported);
         send.CapabilityNotSupported!.Capability.Should().Be(PaCapability.CreditNotes);
         send.CapabilityNotSupported.OperatorMessage.Should().NotBeNullOrWhiteSpace(
@@ -181,14 +200,21 @@ public abstract class PaClientContractTests
         var client = CreateClient(new PaClientContractSetup());
         var caps = client.Capabilities;
 
+        // Émettre une facture pour disposer d'un identifiant RÉELLEMENT attribué par la PA (aller-retour
+        // réaliste : un mock de PA réelle ne rend une facture générée que pour un document qu'il a émis).
+        var issued = await client.SendDocumentAsync(ContractTestDocuments.Invoice("CT-CAP-0"));
+        issued.State.Should().Be(PaSendState.Issued);
+        issued.PaDocumentId.Should().NotBeNullOrWhiteSpace();
+
         // Avoir : émis si déclaré, résultat typé sinon.
-        var creditNote = await client.SendDocumentAsync(CreditNote("CT-CAP-1"));
+        var creditNote = await client.SendDocumentAsync(ContractTestDocuments.CreditNote("CT-CAP-1"));
         creditNote.State.Should().Be(
             caps.SupportsCreditNotes ? PaSendState.Issued : PaSendState.CapabilityNotSupported,
             "le comportement de l'avoir suit la capacité déclarée SupportsCreditNotes");
 
-        // Téléchargement de la facture générée : contenu si déclaré, résultat typé sinon (TRK05).
-        var generated = await client.GetGeneratedDocumentAsync("CT-CAP-2");
+        // Téléchargement de la facture générée pour un document RÉELLEMENT émis : contenu si déclaré,
+        // résultat typé sinon (TRK05).
+        var generated = await client.GetGeneratedDocumentAsync(issued.PaDocumentId!);
         if (caps.SupportsDocumentRetrieval)
         {
             generated.Content.Should().NotBeNull("la capacité DocumentRetrieval est déclarée");
@@ -232,27 +258,4 @@ public abstract class PaClientContractTests
                 $"le flux de paiement {flux} non déclaré dégrade en résultat typé (jamais d'exception)");
         }
     }
-
-    // ── Documents pivot de test (montants en decimal — CLAUDE.md n°1 ; données fictives — n°7) ──
-
-    /// <summary>Facture de vente simple identifiée par son numéro (BT-1).</summary>
-    private static PivotDocumentDto Invoice(string number) => new(
-        sourceDocumentKind: "FACTURE",
-        number: number,
-        issueDate: new DateTime(2026, 1, 15),
-        sourceReference: $"SRC-{number}",
-        supplier: new PivotPartyDto("SVV Démo", siren: "123456789"),
-        totals: new PivotTotalsDto(100m, 20m, 120m),
-        operationCategory: OperationCategory.LivraisonBiens);
-
-    /// <summary>Avoir rattaché à une facture d'origine (porte une <see cref="PivotDocumentRefDto"/>).</summary>
-    private static PivotDocumentDto CreditNote(string number) => new(
-        sourceDocumentKind: "AVOIR",
-        number: number,
-        issueDate: new DateTime(2026, 2, 1),
-        sourceReference: $"SRC-{number}",
-        supplier: new PivotPartyDto("SVV Démo", siren: "123456789"),
-        totals: new PivotTotalsDto(-50m, -10m, -60m),
-        operationCategory: OperationCategory.LivraisonBiens,
-        creditNoteRefs: [new PivotDocumentRefDto("F-ORIGINE", new DateTime(2026, 1, 10))]);
 }
