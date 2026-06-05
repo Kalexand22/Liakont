@@ -27,7 +27,7 @@ internal sealed class TestTimestampAuthority : IDisposable
     {
         Timestamp = timestamp ?? new DateTimeOffset(2026, 6, 4, 12, 0, 0, TimeSpan.Zero);
         _rsa = RSA.Create(2048);
-        _certificate = CreateCertificate(_rsa);
+        _certificate = CreateCertificate(_rsa, Timestamp);
     }
 
     /// <summary>Instant attesté par les jetons émis (UTC fixe pour des tests déterministes).</summary>
@@ -105,13 +105,20 @@ internal sealed class TestTimestampAuthority : IDisposable
         return serial;
     }
 
-    private static X509Certificate2 CreateCertificate(RSA rsa)
+    private static X509Certificate2 CreateCertificate(RSA rsa, DateTimeOffset tokenTimestamp)
     {
         var request = new CertificateRequest("CN=Liakont Test TSA", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         request.CertificateExtensions.Add(new X509BasicConstraintsExtension(certificateAuthority: false, hasPathLengthConstraint: false, pathLengthConstraint: 0, critical: true));
         request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, critical: true));
         request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection { TimeStampingEku }, critical: true));
-        return request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(2));
+
+        // La fenêtre de validité doit ENGLOBER l'instant attesté par le jeton (Timestamp, possiblement FIXE
+        // dans le passé) ET l'instant courant. Ancrer NotBefore sur « maintenant - 1 jour » seul était un
+        // bug FLAKY selon l'heure : dès que l'heure UTC du jour dépasse celle du Timestamp fixe, NotBefore
+        // passait APRÈS le genTime du jeton → ProcessResponse rejetait « response not understood ». On ancre
+        // NotBefore sur le PLUS ANCIEN des deux instants (jeton vs maintenant) moins une marge d'un jour.
+        DateTimeOffset notBefore = (tokenTimestamp < DateTimeOffset.UtcNow ? tokenTimestamp : DateTimeOffset.UtcNow).AddDays(-1);
+        return request.CreateSelfSigned(notBefore, DateTimeOffset.UtcNow.AddYears(2));
     }
 
     private byte[] BuildSigningCertificateV2()
