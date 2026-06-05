@@ -57,7 +57,7 @@ internal sealed class CheckConfigCommand : ICliCommand
 
         if (config.Extraction.OdbcConnectionStringProtected is null)
         {
-            output.WriteLine(CliFormat.Ok($"Aucune chaîne ODBC (l'adaptateur « {config.Extraction.Adapter} » n'en utilise pas)."));
+            output.WriteLine($"  (i) Aucune chaîne ODBC configurée — non vérifiable tant que l'adaptateur « {config.Extraction.Adapter} » ne déclare pas ce besoin (capacité prévue en AGT02).");
         }
         else
         {

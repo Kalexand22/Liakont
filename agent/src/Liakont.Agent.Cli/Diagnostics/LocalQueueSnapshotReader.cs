@@ -1,7 +1,6 @@
 namespace Liakont.Agent.Cli.Diagnostics;
 
 using System.Collections.Generic;
-using System.Linq;
 using Liakont.Agent.Core.Storage;
 using Liakont.Agent.Core.Time;
 
@@ -20,22 +19,19 @@ internal static class LocalQueueSnapshotReader
     {
         using (var queue = new LocalQueue(databasePath, new SystemClock()))
         {
-            int total = queue.Count();
+            IReadOnlyDictionary<QueueItemStatus, int> counts = queue.CountByStatus();
+            int pending = GetCount(counts, QueueItemStatus.Pending);
+            int inProgress = GetCount(counts, QueueItemStatus.InProgress);
+            int error = GetCount(counts, QueueItemStatus.Error);
+            int total = pending + inProgress + error;
 
-            // PeekPending ne renvoie que les éléments à pousser (En attente + En erreur) ; on les compte
-            // tous pour des chiffres exacts, puis on déduit « en cours » du total (3 statuts possibles).
-            IReadOnlyList<QueuedItem> actionable = queue.PeekPending(int.MaxValue);
-            int pending = actionable.Count(i => i.Status == QueueItemStatus.Pending);
-            int error = actionable.Count(i => i.Status == QueueItemStatus.Error);
-
-            int inProgress = total - pending - error;
-            if (inProgress < 0)
-            {
-                inProgress = 0;
-            }
-
-            IReadOnlyList<QueuedItem> listed = actionable.Take(MaxItemsListed).ToList();
+            IReadOnlyList<QueuedItem> listed = queue.PeekPending(MaxItemsListed);
             return new QueueSnapshot(total, pending, inProgress, error, listed);
         }
+    }
+
+    private static int GetCount(IReadOnlyDictionary<QueueItemStatus, int> counts, QueueItemStatus status)
+    {
+        return counts.TryGetValue(status, out int value) ? value : 0;
     }
 }

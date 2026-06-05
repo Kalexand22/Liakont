@@ -14,11 +14,11 @@ using Liakont.Agent.Core.Hosting;
 /// </summary>
 internal sealed class RunCommand : ICliCommand
 {
-    private readonly Func<bool> _runCycle;
+    private readonly Func<TextWriter, bool> _runCycle;
     private readonly string _mutexName;
     private readonly TimeSpan _acquireTimeout;
 
-    public RunCommand(Func<bool> runCycle, string mutexName, TimeSpan acquireTimeout)
+    public RunCommand(Func<TextWriter, bool> runCycle, string mutexName, TimeSpan acquireTimeout)
     {
         _runCycle = runCycle ?? throw new ArgumentNullException(nameof(runCycle));
         _mutexName = mutexName ?? throw new ArgumentNullException(nameof(mutexName));
@@ -43,7 +43,7 @@ internal sealed class RunCommand : ICliCommand
             output.WriteLine("Run d'extraction manuel démarré…");
             try
             {
-                bool success = _runCycle();
+                bool success = _runCycle(output);
                 if (success)
                 {
                     output.WriteLine("Run d'extraction terminé.");

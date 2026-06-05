@@ -21,7 +21,7 @@ public class RunCommandTests
     public void Runs_cycle_when_lock_is_free_and_returns_ok()
     {
         bool ran = false;
-        Func<bool> cycle = () =>
+        Func<TextWriter, bool> cycle = _ =>
         {
             ran = true;
             return true;
@@ -61,7 +61,7 @@ public class RunCommandTests
         held.Should().NotBeNull();
 
         bool ran = false;
-        Func<bool> cycle = () =>
+        Func<TextWriter, bool> cycle = _ =>
         {
             ran = true;
             return true;
@@ -82,7 +82,7 @@ public class RunCommandTests
     [Fact]
     public void Cycle_returning_false_returns_problem_detected()
     {
-        var command = new RunCommand(() => false, UniqueName(), TimeSpan.FromSeconds(1));
+        var command = new RunCommand(_ => false, UniqueName(), TimeSpan.FromSeconds(1));
         using var output = new StringWriter();
 
         int code = command.Execute(Array.Empty<string>(), output);
@@ -94,7 +94,7 @@ public class RunCommandTests
     public void Cycle_throwing_returns_execution_error_and_releases_the_lock()
     {
         string name = UniqueName();
-        var command = new RunCommand(() => throw new InvalidOperationException("boom"), name, TimeSpan.FromSeconds(1));
+        var command = new RunCommand(_ => throw new InvalidOperationException("boom"), name, TimeSpan.FromSeconds(1));
         using var output = new StringWriter();
 
         int code = command.Execute(Array.Empty<string>(), output);

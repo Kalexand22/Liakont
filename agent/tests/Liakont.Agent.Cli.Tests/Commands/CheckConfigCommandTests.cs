@@ -77,7 +77,7 @@ public class CheckConfigCommandTests
     }
 
     [Fact]
-    public void Absent_odbc_is_informational_and_returns_ok()
+    public void Absent_odbc_is_reported_as_not_verifiable_and_returns_ok()
     {
         const string json = @"{ ""platformUrl"": ""https://x.fr"", ""apiKey"": ""k"", ""extraction"": { ""adapter"": ""EncheresV6"" } }";
         using var file = TempFile.WithContent(json);
@@ -87,6 +87,6 @@ public class CheckConfigCommandTests
         int code = command.Execute(Array.Empty<string>(), output);
 
         code.Should().Be(CliExitCode.Ok);
-        output.ToString().Should().Contain("Aucune chaîne ODBC");
+        output.ToString().Should().Contain("non vérifiable");
     }
 }

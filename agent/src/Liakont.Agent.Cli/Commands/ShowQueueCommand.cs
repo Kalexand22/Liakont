@@ -55,6 +55,13 @@ internal sealed class ShowQueueCommand : ICliCommand
             output.WriteLine(line);
         }
 
+        int listed = snapshot.Items.Count;
+        int actionable = snapshot.Pending + snapshot.Error;
+        if (actionable > listed)
+        {
+            output.WriteLine($"  … ({actionable - listed} élément(s) supplémentaire(s) non affiché(s)).");
+        }
+
         return CliExitCode.Ok;
     }
 }

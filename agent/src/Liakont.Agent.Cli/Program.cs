@@ -1,6 +1,7 @@
 namespace Liakont.Agent.Cli;
 
 using System;
+using System.IO;
 using System.Linq;
 using System.Text;
 using Liakont.Agent.Adapters.EncheresV6;
@@ -79,7 +80,11 @@ internal static class Program
     // Cycle de run NEUTRE tant qu'AGT02 n'a pas câblé l'extraction/le push (même seam que
     // AgentHost.Create côté service). La commande `run` porte ici la sérialisation par verrou partagé
     // et le rapport ; le contenu réel du cycle sera injecté avec AGT02.
-    private static bool NeutralRunCycle() => true;
+    private static bool NeutralRunCycle(TextWriter output)
+    {
+        output.WriteLine("Extraction non encore câblée dans cette version (fournie par AGT02) — aucun document traité.");
+        return true;
+    }
 
     private static void TryEnableUtf8Console()
     {
