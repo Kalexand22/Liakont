@@ -31,6 +31,20 @@ internal static class B2BrouterPayloadBuilder
     public static B2BrouterInvoiceRequest Build(PivotDocumentDto document, bool sendAfterImport)
     {
         var isCreditNote = document.CreditNoteRefs.Count > 0;
+
+        if (document.CreditNoteRefs.Count > 1)
+        {
+            // Avoir GROUPÉ (plusieurs factures d'origine, F07-F08 §B.5 cardinalité 0..n). L'API B2Brouter
+            // (F05 §2) n'expose qu'un amended_number/amended_date SINGULIER : on BLOQUE plutôt que de
+            // tronquer en silence les N-1 autres liens fiscaux (même choix fail-closed que la ligne
+            // multi-ventilations BG-30 ci-dessous — CLAUDE.md n°3). Le format « fil » multi-origine
+            // (tableau ?) est à confirmer en staging avant d'autoriser ce cas (PAB04).
+            throw new InvalidOperationException(
+                "Avoir à plusieurs références d'origine (avoir groupé, F07-F08 §B.5) — la forme d'envoi " +
+                "multi-origine de B2Brouter n'est pas confirmée (F05 §2 n'expose qu'amended_number/" +
+                "amended_date singuliers) ; envoi bloqué tant que le format n'est pas validé en staging (PAB04).");
+        }
+
         var originalRef = isCreditNote ? document.CreditNoteRefs[0] : null;
 
         var invoice = new B2BrouterInvoice

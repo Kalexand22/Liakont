@@ -222,13 +222,55 @@ public sealed class B2BrouterClientSendTests
     [Fact]
     public async Task SendDocument_4xx_Without_Body_Is_Rejected_With_Status_Detail()
     {
-        var handler = StubHttpMessageHandler.Returns(HttpStatusCode.Unauthorized, string.Empty);
+        var handler = StubHttpMessageHandler.Returns(HttpStatusCode.NotFound, string.Empty);
         var client = B2BrouterTestData.CreateClient(handler);
 
         var result = await client.SendDocumentAsync(B2BrouterTestData.Invoice20());
 
         result.State.Should().Be(PaSendState.RejectedByPa);
-        result.Errors.Should().ContainSingle().Which.Code.Should().Be("401");
+        result.Errors.Should().ContainSingle().Which.Code.Should().Be("404");
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    public async Task SendDocument_Auth_Error_Is_Technical_Not_Terminal_Reject(HttpStatusCode status)
+    {
+        var handler = StubHttpMessageHandler.Returns(status, string.Empty);
+        var client = B2BrouterTestData.CreateClient(handler);
+
+        var result = await client.SendDocumentAsync(B2BrouterTestData.Invoice20());
+
+        result.State.Should().Be(
+            PaSendState.TechnicalError,
+            "401/403 = erreur d'auth/config re-tentable, jamais un rejet terminal qui figerait des documents valides (F05 §4.1)");
+    }
+
+    [Fact]
+    public async Task SendDocument_Grouped_CreditNote_With_Multiple_Origins_Is_Blocked()
+    {
+        var handler = StubHttpMessageHandler.Returns(HttpStatusCode.OK, B2BrouterTestData.IssuedJson);
+        var client = B2BrouterTestData.CreateClient(handler);
+        var grouped = new PivotDocumentDto(
+            sourceDocumentKind: "AVOIR",
+            number: "A-GROUPE",
+            issueDate: new DateTime(2026, 2, 1),
+            sourceReference: "SRC-A-GROUPE",
+            supplier: new PivotPartyDto("SVV Démo", siren: "123456789"),
+            totals: new PivotTotalsDto(80m, 16m, 96m),
+            operationCategory: OperationCategory.LivraisonBiens,
+            lines: [new PivotLineDto("Remboursement groupé", 80m, taxes: [new PivotLineTaxDto(16m, 20m, VatCategory.S)])],
+            creditNoteRefs:
+            [
+                new PivotDocumentRefDto("F-ORIG-1", new DateTime(2026, 1, 5)),
+                new PivotDocumentRefDto("F-ORIG-2", new DateTime(2026, 1, 6)),
+            ]);
+
+        var act = () => client.SendDocumentAsync(grouped);
+
+        await act.Should().ThrowAsync<InvalidOperationException>(
+            "un avoir groupé multi-origine est bloqué (B2Brouter n'expose qu'un amended_* singulier), jamais tronqué en silence (CLAUDE.md n°3)");
+        handler.CallCount.Should().Be(0);
     }
 
     [Fact]

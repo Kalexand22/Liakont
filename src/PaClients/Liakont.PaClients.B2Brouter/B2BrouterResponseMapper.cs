@@ -33,13 +33,31 @@ internal static class B2BrouterResponseMapper
             return PaSendResult.Technical(errors, rawBody);
         }
 
-        // (2) errors[] non vide (4xx OU 200 silencieux) → rejet, jamais une émission (F05 §4.1).
+        // (2) 401/403 = erreur d'AUTHENTIFICATION/configuration (clé invalide ou en rotation), PAS un
+        // rejet métier du document (F05 §4.1 : « 401 → bloquer tout le run, pas juste le document »).
+        // On la classe re-tentable (TechnicalError) plutôt que RejectedByPa TERMINAL : sous le modèle
+        // supersede, un rejet figerait des documents VALIDES qu'il faudrait recréer alors qu'une simple
+        // correction de clé suffit. PAB02 ajoutera l'escalade run-level + alerte SUP01 par-dessus.
+        if (IsAuthError(statusCode))
+        {
+            var authErrors = errors.Count > 0
+                ? errors
+                : new List<PaError>
+                {
+                    new(
+                        ((int)statusCode).ToString(CultureInfo.InvariantCulture),
+                        $"Erreur d'authentification/configuration B2Brouter (HTTP {(int)statusCode}) — re-tentable après correction de la clé."),
+                };
+            return PaSendResult.Technical(authErrors, rawBody);
+        }
+
+        // (3) errors[] non vide (4xx OU 200 silencieux) → rejet, jamais une émission (F05 §4.1).
         if (errors.Count > 0)
         {
             return PaSendResult.Rejected(errors, paDocumentId: parsed?.Id, rawResponse: rawBody);
         }
 
-        // (3) 2xx : l'ÉTAT RÉEL pilote le résultat (F05 §3). Un document « new » (créé sans envoi,
+        // (4) 2xx : l'ÉTAT RÉEL pilote le résultat (F05 §3). Un document « new » (créé sans envoi,
         // NON facturable — F05 §2) ou « sending » (envoi async en cours) n'est PAS « émis » : ne jamais
         // compter émis un document non transmis (correction fiscale/audit — CLAUDE.md n°3).
         if (IsSuccess(statusCode))
@@ -54,10 +72,8 @@ internal static class B2BrouterResponseMapper
             return MapSuccessState(parsed!, rawBody);
         }
 
-        // 4xx sans errors[] (ex. 404 sans corps détaillé) → rejet, pas de retry (F05 §4.1).
-        // NOTE : la distinction 401/403 « erreur de configuration → bloquer TOUT le run + alerte SUP01 »
-        // (F05 §4.1) est portée par PAB02 (gestion d'erreurs) ; ici le code HTTP est conservé dans
-        // Errors pour que PAB02 le distingue du rejet métier — report explicite, pas un oubli.
+        // (5) 4xx métier sans errors[] (ex. 404, 422 sans corps détaillé) → rejet, pas de retry (F05 §4.1).
+        // Les codes d'AUTH (401/403) sont déjà traités en (2) ; ce rejet est document-level.
         var httpCode = (int)statusCode;
         var statusError = new PaError(
             httpCode.ToString(CultureInfo.InvariantCulture),
@@ -129,4 +145,7 @@ internal static class B2BrouterResponseMapper
 
     private static bool IsServerError(HttpStatusCode statusCode) =>
         (int)statusCode is >= 500 and <= 599;
+
+    private static bool IsAuthError(HttpStatusCode statusCode) =>
+        statusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden;
 }
