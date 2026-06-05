@@ -1,15 +1,20 @@
 namespace Liakont.Modules.Pipeline.Infrastructure;
 
+using Liakont.Modules.Ingestion.Contracts.Events;
 using Liakont.Modules.Pipeline.Application;
 using Liakont.Modules.Pipeline.Contracts.Queries;
+using Liakont.Modules.Pipeline.Infrastructure.Check;
+using Liakont.Modules.Pipeline.Infrastructure.Persistence;
 using Liakont.Modules.Pipeline.Infrastructure.Queries;
 using Microsoft.Extensions.DependencyInjection;
+using Stratum.Common.Abstractions.Events;
 using Stratum.Common.Infrastructure.Database;
 
 /// <summary>
-/// Enregistrement DI du module Pipeline (PIP01a — fondations). Enrôle les migrations DbUp (la table
-/// <c>pipeline.run_logs</c> est CRÉÉE ici, écrite par PIP01b+), ancre MediatR (handlers CHECK/SEND/SYNC
-/// à venir) et expose la lecture du journal d'exécutions. AUCUN comportement de pipeline ici.
+/// Enregistrement DI du module Pipeline. PIP01a a posé les fondations (migrations DbUp — la table
+/// <c>pipeline.run_logs</c> est CRÉÉE par le module, ancre MediatR, lecture du journal d'exécutions).
+/// PIP01b ajoute le CHECK : le consommateur durable de <see cref="DocumentReceivedV1"/> et l'écriture du
+/// journal d'exécutions. Le pipeline ne consomme les autres modules que par leurs Contracts (frontière P1).
 /// </summary>
 public static class PipelineModuleRegistration
 {
@@ -30,6 +35,11 @@ public static class PipelineModuleRegistration
             opts.Add(typeof(PipelineModuleRegistration).Assembly));
 
         services.AddScoped<IPipelineRunQueries, PostgresPipelineRunQueries>();
+
+        // PIP01b — CHECK : écriture du journal d'exécutions + consommateur durable de DocumentReceivedV1
+        // (dispatché par l'OutboxWorker en scope SYSTÈME ; le consommateur résout un scope TENANT par slug).
+        services.AddScoped<IPipelineRunLogStore, PostgresPipelineRunLogStore>();
+        services.AddScoped<IIntegrationEventConsumer<DocumentReceivedV1>, DocumentReceivedConsumer>();
 
         return services;
     }
