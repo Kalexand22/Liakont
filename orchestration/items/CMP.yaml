@@ -23,7 +23,7 @@ items:
       2. validatedBy = null (la table N'EST PAS validée tant que l'expert-comptable n'a pas
          tranché — le seed indique explicitement « EN ATTENTE — Expert-comptable CMP » en note).
          La mise en production (GATE_PROD_CMP) est conditionnée à cette validation,
-         et le garde-fou production (PIP01) bloque les envois tant qu'elle n'est pas faite.
+         et le garde-fou production (PIP01b) bloque les envois tant qu'elle n'est pas faite.
       3. Document deployments/cmp/DECISIONS-FISCALES.md : la liste des 4 questions fiscales
          ouvertes (régime 6, TVA sur débits, OperationCategory, volume acheteurs pros),
          leur impact, et l'espace pour consigner les réponses de l'expert-comptable.
