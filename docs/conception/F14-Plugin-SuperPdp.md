@@ -96,9 +96,9 @@ Conception cible (chemins **à confirmer sandbox/OpenAPI**) :
   contrat (équivalent du `send_after_import` B2Brouter) — **mécanisme exact à confirmer** (param,
   endpoint dédié, ou statut). Si Super PDP n'expose pas la création sans envoi, le plug-in retourne
   un `PaSendResult` cohérent et documente l'écart (jamais d'invention).
-- **Avoirs** : Super PDP gère les avoirs (DR17 : « avoirs » au panel des capacités à vérifier) →
-  capacité `SupportsCreditNotes` provisoirement **true à confirmer sandbox** ; transcription du lien
-  avoir→facture amendée selon le modèle Super PDP (à mapper en sandbox).
+- **Avoirs** : DR17 liste « avoirs » seulement **« au panel des capacités à vérifier »** (non
+  confirmé) → capacité `SupportsCreditNotes` provisoirement **`false`** (§5), passée à `true`
+  uniquement une fois le modèle d'avoir (lien avoir→facture amendée) mappé en sandbox.
 
 ### 3.3 E-reporting B2C (Flux 10.3)
 
@@ -181,22 +181,28 @@ tableau documente l'état provisoire et son statut. **Aucune capacité n'est dé
 vérification** — une capacité incertaine reste `false` (le produit dégrade en résultat typé, jamais
 de faux positif d'envoi).
 
-| Flag | Valeur provisoire | Justification / statut |
-|---|---|---|
-| `PaName` | `"Super PDP"` | fixe (messages opérateur FR) |
-| `SupportsB2cReporting` | **true** (à confirmer sandbox) | e-reporting B2C vérifié DR17 ; schéma à confirmer |
-| `SupportsDomesticPaymentReporting` (10.4) | **false** | flux paiement non documenté (DR17 §3 A4) — point ouvert |
-| `SupportsInternationalPaymentReporting` (10.2) | **false** | idem |
-| `SupportsB2bInvoicing` | **false** | phase 2 (hors périmètre V1, comme B2Brouter) |
-| `SupportsCreditNotes` | **true** (à confirmer sandbox) | avoirs au panel DR17 ; modèle à mapper |
-| `SupportsTaxReportRetrieval` | **true** (à confirmer sandbox) | tax reports attendus ; endpoints à confirmer |
-| `SupportsDocumentRetrieval` | **false** | existence de l'endpoint de téléchargement non vérifiée (§10) |
-| `SupportsReportRectification` (flux RE) | **false** | non documenté — à vérifier sandbox (PIP04) |
-| `MaxDocumentsPerRequest` | **null** | pas de limite déclarée connue ; à confirmer |
+La colonne **« Valeur provisoire »** est celle que **PAS02 code TANT QUE la sandbox n'a rien confirmé**
+— elle applique déjà le principe « incertain = `false` ». La colonne « Cible une fois confirmé »
+indique seulement vers quoi la valeur évoluera **après** vérification sandbox/support (elle n'autorise
+**pas** à coder `true` avant).
 
-> Principe (`ajouter-un-plugin-pa.md`) : **« une capacité incertaine = false »**. Quand Super PDP
-> activera/confirmera un flux, **SEULE cette déclaration changera** — aucun autre code produit n'est
-> impacté (CLAUDE.md n°8). C'est le test décisif d'une bonne abstraction PA.
+| Flag | Valeur provisoire (codée PAS02) | Cible une fois confirmé | Justification / statut |
+|---|---|---|---|
+| `PaName` | `"Super PDP"` | — | fixe (messages opérateur FR) |
+| `SupportsB2cReporting` | **true** | (reste true) | capacité B2C ✅ **vérifiée** DR17 — seul le schéma de fil reste à mapper en sandbox ; ce n'est PAS une incertitude de capacité (≠ « à confirmer ») |
+| `SupportsDomesticPaymentReporting` (10.4) | **false** | true si support confirme | flux paiement non documenté (DR17 §3 A4) — point ouvert O3 |
+| `SupportsInternationalPaymentReporting` (10.2) | **false** | true si support confirme | idem (O3) |
+| `SupportsB2bInvoicing` | **false** | (reste false en V1) | phase 2 (hors périmètre V1, comme B2Brouter) |
+| `SupportsCreditNotes` | **false** | true une fois le modèle d'avoir mappé | avoirs seulement « au panel à vérifier » DR17 → **non confirmé** → `false` par défaut (O7) |
+| `SupportsTaxReportRetrieval` | **false** | true une fois les endpoints confirmés | tax reports **attendus mais non confirmés** → `false` par défaut (O2) |
+| `SupportsDocumentRetrieval` | **false** | true si l'endpoint existe | existence de l'endpoint de téléchargement non vérifiée (O4, §10) |
+| `SupportsReportRectification` (flux RE) | **false** | true si support confirme | non documenté — à vérifier sandbox (PIP04, O9) |
+| `MaxDocumentsPerRequest` | **null** | valeur déclarée si limite | pas de limite déclarée connue ; à confirmer |
+
+> Principe (`ajouter-un-plugin-pa.md`) : **« une capacité incertaine = `false` »**. La colonne
+> « Valeur provisoire » ci-dessus respecte ce principe : tout ce qui n'est pas ✅ vérifié y vaut
+> `false`. Quand Super PDP activera/confirmera un flux, **SEULE cette déclaration changera** — aucun
+> autre code produit n'est impacté (CLAUDE.md n°8). C'est le test décisif d'une bonne abstraction PA.
 
 ---
 
