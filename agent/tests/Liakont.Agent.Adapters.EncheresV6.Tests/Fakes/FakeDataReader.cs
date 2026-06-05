@@ -41,6 +41,11 @@ internal sealed class FakeDataReader : IDataReader
 #pragma warning restore CA2201
             }
 
+            if (value is Exception injected)
+            {
+                throw injected;
+            }
+
             return value ?? DBNull.Value;
         }
     }

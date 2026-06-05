@@ -253,6 +253,10 @@ public sealed class PervasiveExtractor : IExtractor
         {
             return reader[column];
         }
+        catch (DbException ex)
+        {
+            throw new SourceUnavailableException(SourceUnavailableMessage, ex);
+        }
         catch (IndexOutOfRangeException ex)
         {
             throw new SourceSchemaException(

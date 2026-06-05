@@ -190,6 +190,57 @@ public class PervasiveExtractorTests
     }
 
     [Fact]
+    public void ExtractDocuments_accepts_null_optional_line_fields()
+    {
+        var row = SaleRow("4700", "F-2026-0700", null, null, "4", "Lot", 100.0, 20.0, "5", "ligne#1");
+        row[EncheresV6Schema.ColTauxTva] = null;
+        row[EncheresV6Schema.ColQuantite] = null;
+        row[EncheresV6Schema.ColPrixUnitaire] = null;
+
+        PivotDocumentDto doc = Extractor(Connection(new[] { row }))
+            .ExtractDocuments(PeriodFrom, PeriodTo)
+            .Single();
+
+        PivotLineDto line = doc.Lines.Single();
+        line.Quantity.Should().Be(1m, "le mapper applique la quantité par défaut quand la source est nulle");
+        line.UnitPriceNet.Should().BeNull();
+        line.Taxes[0].Rate.Should().BeNull();
+    }
+
+    [Fact]
+    public void ExtractDocuments_throws_SourceSchema_when_date_vente_is_null()
+    {
+        var row = SaleRow("4710", "F-2026-0710", null, null, "4", "Lot", 100.0, 20.0, "5", "ligne#1");
+        row[EncheresV6Schema.ColDateVente] = null;
+
+        Action act = () => Drain(Extractor(Connection(new[] { row })).ExtractDocuments(PeriodFrom, PeriodTo));
+
+        act.Should().Throw<SourceSchemaException>();
+    }
+
+    [Fact]
+    public void ExtractDocuments_throws_SourceSchema_when_amount_is_not_numeric()
+    {
+        var row = SaleRow("4720", "F-2026-0720", null, null, "4", "Lot", 100.0, 20.0, "5", "ligne#1");
+        row[EncheresV6Schema.ColMontantHt] = "pas-un-nombre";
+
+        Action act = () => Drain(Extractor(Connection(new[] { row })).ExtractDocuments(PeriodFrom, PeriodTo));
+
+        act.Should().Throw<SourceSchemaException>();
+    }
+
+    [Fact]
+    public void ExtractDocuments_translates_read_failure_to_SourceUnavailable()
+    {
+        var row = SaleRow("4730", "F-2026-0730", null, null, "4", "Lot", 100.0, 20.0, "5", "ligne#1");
+        row[EncheresV6Schema.ColTotalHt] = new FakeDbException("lecture interrompue");
+
+        Action act = () => Drain(Extractor(Connection(new[] { row })).ExtractDocuments(PeriodFrom, PeriodTo));
+
+        act.Should().Throw<SourceUnavailableException>();
+    }
+
+    [Fact]
     public void CheckHealth_is_healthy_when_expected_tables_are_present()
     {
         var connection = Connection(scalarResolver: CountResolver(new Dictionary<string, long>
