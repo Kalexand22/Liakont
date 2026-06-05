@@ -43,8 +43,13 @@ fondations ; **PIP01b** ajoute le CHECK (scénarios ci-dessous). SEND/SYNC arriv
 - **Garde-fou production** : compte PA actif « Production » + table non validée ⇒ tous `Blocked` avec le
   motif production ; en staging/démo (pas de compte production) la même table non validée mappe
   normalement (INV-PIPELINE-009).
+- **Table absente → Blocked** : aucune table de mapping ⇒ `Blocked` avec le motif « créez la table »
+  (action corrective correcte, distincte de la garde-fou « validez la table »), validation non appelée
+  (INV-PIPELINE-008).
 - **Staging absent = transitoire** : `StagedPayloadNotFoundException` est propagée (re-livraison), aucune
   transition, aucun `RunLog` (INV-PIPELINE-010).
+- **Staging corrompu → Blocked** : `StagedPayloadIntegrityException` (empreinte ≠ attendue) ⇒ document
+  `Blocked` (motif intégrité) + `RunLog` (échec), jamais dead-letter silencieux (INV-PIPELINE-013).
 - **Idempotence** : un document déjà hors `Detected` ⇒ no-op (aucune transition, aucun `RunLog`)
   (INV-PIPELINE-010).
 - **Tenant non configuré** : `GetCurrentCompanyId` nul ⇒ exception transitoire (retry), aucune transition
@@ -58,8 +63,10 @@ fondations ; **PIP01b** ajoute le CHECK (scénarios ci-dessous). SEND/SYNC arriv
   écrit une ligne `pipeline.run_logs` (INV-PIPELINE-008/011/012).
 - **Régime non mappé → Blocked** : un régime source absent de la table validée ⇒ document `Blocked`, motif
   persisté dans la piste d'audit (`DocumentEvent`), `RunLog` écrit (INV-PIPELINE-008/011).
-- **Garde-fou production** : compte PA actif « Production » + table non validée ⇒ document `Blocked` avec
-  le motif production (INV-PIPELINE-009).
+
+> La garde-fou production (INV-PIPELINE-009), le staging absent transitoire et l'idempotence sont couverts
+> au niveau **unitaire** (`DocumentReceivedConsumerTests`, fakes), pas en intégration : ils ne dépendent pas
+> de la base PostgreSQL.
 
 ## Integration — `PipelineRunLogQueriesIntegrationTests`
 

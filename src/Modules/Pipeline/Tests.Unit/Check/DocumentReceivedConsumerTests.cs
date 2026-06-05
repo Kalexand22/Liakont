@@ -129,6 +129,45 @@ public sealed class DocumentReceivedConsumerTests
     }
 
     [Fact]
+    public async Task Absent_Mapping_Table_Blocks_With_Create_Table_Reason()
+    {
+        var documentId = Guid.NewGuid();
+        var harness = Build(
+            document: CheckTestData.Document(documentId, "Detected"),
+            companyId: Guid.NewGuid(),
+            staging: Staging(CheckTestData.SingleLinePivot()),
+            mapping: CheckTestData.MissingTableResult(),
+            validation: ValidOk);
+
+        await harness.Consumer.HandleAsync(CheckTestData.Event(documentId));
+
+        harness.Lifecycle.BlockedId.Should().Be(documentId);
+        harness.Lifecycle.BlockReason.Should().Contain("Aucune table de mapping", "l'action corrective est « créez la table », pas « validez »");
+        harness.Validation.WasCalled.Should().BeFalse();
+        harness.RunLog.Saved!.DocumentsFailed.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Corrupted_Staging_Blocks_Document_Instead_Of_DeadLettering()
+    {
+        var documentId = Guid.NewGuid();
+        var key = new StagedPayloadKey(CheckTestData.TenantSlug, documentId, "hash-0007");
+        var harness = Build(
+            document: CheckTestData.Document(documentId, "Detected"),
+            companyId: Guid.NewGuid(),
+            staging: FakeStagingStore.Throwing(StagedPayloadIntegrityException.HashMismatch(key, "deadbeef")),
+            mapping: CheckTestData.MappedResult(),
+            validation: ValidOk);
+
+        await harness.Consumer.HandleAsync(CheckTestData.Event(documentId));
+
+        harness.Lifecycle.BlockedId.Should().Be(documentId);
+        harness.Lifecycle.BlockReason.Should().Contain("intégrité");
+        harness.Lifecycle.ReadyToSendId.Should().BeNull();
+        harness.RunLog.Saved!.DocumentsFailed.Should().Be(1);
+    }
+
+    [Fact]
     public async Task Staging_Not_Yet_Available_Propagates_And_Leaves_Document_Untouched()
     {
         var documentId = Guid.NewGuid();

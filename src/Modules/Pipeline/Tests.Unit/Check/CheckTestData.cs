@@ -85,14 +85,24 @@ internal static class CheckTestData
         };
     }
 
-    public static DocumentTvaMappingResult MissingTableResult(IReadOnlyList<TvaLineMappingResult> lines)
+    public static DocumentTvaMappingResult MissingTableResult()
     {
+        // Reproduit ce que renvoie le service quand aucune table n'existe : TableExists=false, chaque ligne
+        // bloquée. CHECK court-circuite sur !TableExists avant d'évaluer les lignes (motif « créez la table »).
+        var line = new TvaLineMappingResult
+        {
+            SourceRegimeCode = "NORMAL",
+            LineRef = "0",
+            IsMapped = false,
+            BlockReason = "Aucune table de mapping TVA n'est définie pour ce tenant.",
+        };
+
         return new DocumentTvaMappingResult
         {
             TableExists = false,
             IsValidated = false,
             MappingVersion = null,
-            Lines = lines,
+            Lines = new[] { line },
         };
     }
 

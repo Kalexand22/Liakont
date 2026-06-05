@@ -25,7 +25,7 @@ internal static class CheckIntegrationFixtures
 
         return new PivotDocumentDto(
             sourceDocumentKind: "F",
-            number: "F-2026-" + Math.Abs(sourceReference.GetHashCode(StringComparison.Ordinal)).ToString("D8", CultureInfo.InvariantCulture),
+            number: "F-2026-" + ((uint)sourceReference.GetHashCode(StringComparison.Ordinal)).ToString("D10", CultureInfo.InvariantCulture),
             issueDate: new DateTime(2026, 1, 10),
             sourceReference: sourceReference,
             supplier: new PivotPartyDto("Étude Fictïve SVV"),

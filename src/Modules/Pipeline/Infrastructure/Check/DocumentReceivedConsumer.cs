@@ -67,6 +67,18 @@ public sealed partial class DocumentReceivedConsumer : IIntegrationEventConsumer
         "devinée). Action opérateur : créez la table dans la console (Paramétrage › TVA), puis faites-la valider " +
         "par l'expert-comptable avant tout envoi.";
 
+    /// <summary>
+    /// Motif de blocage quand le contenu stagé est altéré ou illisible (échec d'intégrité). Contrairement à
+    /// l'absence (transitoire), une corruption est PERSISTANTE : re-tenter relit le même blob et échoue à
+    /// l'identique. On BLOQUE le document (visible opérateur, « bloquer plutôt qu'envoyer faux » — CLAUDE.md n°3)
+    /// plutôt que de laisser l'outbox dead-letter en silence avec un document figé en Detected.
+    /// </summary>
+    private const string StagingIntegrityReason =
+        "Le contenu stagé du document est altéré ou illisible (contrôle d'intégrité) : impossible de poursuivre " +
+        "le contrôle sans risquer de transmettre une donnée fausse. Document bloqué. Action opérateur : relancez " +
+        "l'extraction du document depuis le logiciel source (l'agent le re-poussera) ; si le problème persiste, " +
+        "contactez le support.";
+
     private readonly ITenantScopeFactory _scopeFactory;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<DocumentReceivedConsumer> _logger;
@@ -140,6 +152,19 @@ public sealed partial class DocumentReceivedConsumer : IIntegrationEventConsumer
             LogStagingNotYetAvailable(_logger, payload.DocumentId, payload.TenantId);
             throw;
         }
+        catch (StagedPayloadIntegrityException ex)
+        {
+            // Décision de routage déférée à PIP01 (cf. StagedPayloadIntegrityException) : on BLOQUE le document.
+            // Les deux cas (HashMismatch = altération terminale ; Undecryptable = blob altéré OU clé Data
+            // Protection indisponible) signifient un contenu NON DIGNE DE CONFIANCE → « bloquer plutôt qu'envoyer
+            // faux » (CLAUDE.md n°3). Les clés DP sont un prérequis OPS PERSISTANT : une indisponibilité n'est pas
+            // un transitoire nominal, et la bloquer la rend visible (motif + « contactez le support ») plutôt que
+            // de la laisser dead-letter en silence sur un document figé en Detected. Le geste correctif (ré-extraire
+            // → re-stage ré-encodé) résout les deux cas. C'est plus sûr qu'un retry à l'aveugle sur une altération.
+            LogStagingIntegrityFailure(_logger, payload.DocumentId, payload.TenantId, ex);
+            await BlockAndLogAsync(services, payload.DocumentId, StagingIntegrityReason, startedAt, cancellationToken);
+            return;
+        }
 
         var pivot = PivotCanonicalJsonReader.Read(canonicalJson);
 
@@ -152,14 +177,17 @@ public sealed partial class DocumentReceivedConsumer : IIntegrationEventConsumer
         string? blockReason;
         string? readyMappingVersion = null;
 
-        if (!mapping.IsValidated && await IsProductionContextAsync(tenantSettings, companyId.Value, cancellationToken))
+        if (!mapping.TableExists)
+        {
+            // Table absente AVANT la garde-fou production : sinon, en production (IsValidated=false), l'opérateur
+            // recevrait « faites valider la table » alors qu'il n'en existe AUCUNE — l'action correcte est « créez
+            // la table » (message opérateur exact, CLAUDE.md n°12). Le document reste Blocked dans les deux cas.
+            blockReason = TableAbsentReason;
+        }
+        else if (!mapping.IsValidated && await IsProductionContextAsync(tenantSettings, companyId.Value, cancellationToken))
         {
             // GARDE-FOU PRODUCTION (item PIP01b §3) — table non validée + compte PA production = tout reste Blocked.
             blockReason = ProductionGuardReason;
-        }
-        else if (!mapping.TableExists)
-        {
-            blockReason = TableAbsentReason;
         }
         else
         {
@@ -186,39 +214,18 @@ public sealed partial class DocumentReceivedConsumer : IIntegrationEventConsumer
             }
         }
 
-        // 4) Transition d'état. CHECK n'a vérifié l'état Detected qu'en amont : si une course de rejeu a fait
-        // avancer le document entre-temps, la transition lèvera et l'événement sera re-livré puis ignoré
-        // (le document ne sera plus Detected). On ne capture PAS le type d'exception du Domain Documents
-        // (frontière Contracts-only, CLAUDE.md n°14) : on laisse l'outbox gérer la reprise.
-        var lifecycle = services.GetRequiredService<IDocumentLifecycle>();
-        bool succeeded;
+        // 4) Transition d'état + trace d'exécution. CHECK n'a vérifié l'état Detected qu'en amont : si une
+        // course de rejeu a fait avancer le document entre-temps, la transition lèvera et l'événement sera
+        // re-livré puis ignoré (le document ne sera plus Detected). On ne capture PAS le type d'exception du
+        // Domain Documents (frontière Contracts-only, CLAUDE.md n°14) : on laisse l'outbox gérer la reprise.
         if (blockReason is null)
         {
-            await lifecycle.MarkReadyToSendAsync(payload.DocumentId, readyMappingVersion!, cancellationToken);
-            succeeded = true;
+            await MarkReadyToSendAndLogAsync(services, payload.DocumentId, readyMappingVersion!, startedAt, cancellationToken);
         }
         else
         {
-            await lifecycle.BlockAsync(payload.DocumentId, blockReason, cancellationToken);
-            succeeded = false;
+            await BlockAndLogAsync(services, payload.DocumentId, blockReason, startedAt, cancellationToken);
         }
-
-        // 5) Journal d'exécution (CHECK) — une trace par exécution clôturée, dans la base du tenant.
-        var detail = succeeded
-            ? string.Create(CultureInfo.InvariantCulture, $"CHECK {payload.DocumentId} → ReadyToSend (table {readyMappingVersion}).")
-            : string.Create(CultureInfo.InvariantCulture, $"CHECK {payload.DocumentId} → Blocked.");
-
-        var runLog = RunLog.Start(PipelineRunType.Check, PipelineRunTrigger.Event, startedAt);
-        runLog.Complete(
-            completedAt: _timeProvider.GetUtcNow(),
-            documentsProcessed: 1,
-            documentsSucceeded: succeeded ? 1 : 0,
-            documentsFailed: succeeded ? 0 : 1,
-            detail: detail);
-
-        await services.GetRequiredService<IPipelineRunLogStore>().SaveAsync(runLog, cancellationToken);
-
-        LogCheckCompleted(_logger, payload.DocumentId, succeeded);
     }
 
     /// <summary>
@@ -253,7 +260,65 @@ public sealed partial class DocumentReceivedConsumer : IIntegrationEventConsumer
         Message = "CHECK : contenu pas encore stagé pour le document {DocumentId} (tenant « {TenantId} ») — re-livraison ultérieure (transitoire, ADR-0014).")]
     private static partial void LogStagingNotYetAvailable(ILogger logger, Guid documentId, string tenantId);
 
+    [LoggerMessage(EventId = 7103, Level = LogLevel.Error,
+        Message = "CHECK : contenu stagé altéré/illisible pour le document {DocumentId} (tenant « {TenantId} ») — document bloqué (intégrité, persistant).")]
+    private static partial void LogStagingIntegrityFailure(ILogger logger, Guid documentId, string tenantId, Exception exception);
+
     [LoggerMessage(EventId = 7102, Level = LogLevel.Information,
         Message = "CHECK terminé pour le document {DocumentId} (prêt à l'envoi : {Succeeded}).")]
     private static partial void LogCheckCompleted(ILogger logger, Guid documentId, bool succeeded);
+
+    /// <summary>Bloque le document (motif persisté dans la piste d'audit append-only) et consigne l'exécution.</summary>
+    private async Task BlockAndLogAsync(
+        IServiceProvider services,
+        Guid documentId,
+        string reason,
+        DateTimeOffset startedAt,
+        CancellationToken cancellationToken)
+    {
+        await services.GetRequiredService<IDocumentLifecycle>().BlockAsync(documentId, reason, cancellationToken);
+        await WriteRunLogAsync(
+            services,
+            startedAt,
+            succeeded: false,
+            string.Create(CultureInfo.InvariantCulture, $"CHECK {documentId} → Blocked."),
+            cancellationToken);
+        LogCheckCompleted(_logger, documentId, false);
+    }
+
+    /// <summary>Fait passer le document ReadyToSend (version de mapping consignée) et consigne l'exécution.</summary>
+    private async Task MarkReadyToSendAndLogAsync(
+        IServiceProvider services,
+        Guid documentId,
+        string mappingVersion,
+        DateTimeOffset startedAt,
+        CancellationToken cancellationToken)
+    {
+        await services.GetRequiredService<IDocumentLifecycle>().MarkReadyToSendAsync(documentId, mappingVersion, cancellationToken);
+        await WriteRunLogAsync(
+            services,
+            startedAt,
+            succeeded: true,
+            string.Create(CultureInfo.InvariantCulture, $"CHECK {documentId} → ReadyToSend (table {mappingVersion})."),
+            cancellationToken);
+        LogCheckCompleted(_logger, documentId, true);
+    }
+
+    /// <summary>Écrit une trace d'exécution CHECK clôturée (1 document) dans <c>pipeline.run_logs</c> du tenant.</summary>
+    private async Task WriteRunLogAsync(
+        IServiceProvider services,
+        DateTimeOffset startedAt,
+        bool succeeded,
+        string detail,
+        CancellationToken cancellationToken)
+    {
+        var runLog = RunLog.Start(PipelineRunType.Check, PipelineRunTrigger.Event, startedAt);
+        runLog.Complete(
+            completedAt: _timeProvider.GetUtcNow(),
+            documentsProcessed: 1,
+            documentsSucceeded: succeeded ? 1 : 0,
+            documentsFailed: succeeded ? 0 : 1,
+            detail: detail);
+        await services.GetRequiredService<IPipelineRunLogStore>().SaveAsync(runLog, cancellationToken);
+    }
 }
