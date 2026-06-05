@@ -96,7 +96,9 @@ if ($ok) {
     $ok = Run-Step 'manifest-sanity' {
         $manifest = Get-Content (Join-Path $repoRoot 'orchestration\manifest.yaml') -Raw
         # Every item id referenced in depends_on must be declared
-        $declared = [regex]::Matches($manifest, '\{\s*id:\s*([A-Z_0-9]+)') | ForEach-Object { $_.Groups[1].Value }
+        # IDs may carry a lowercase suffix (e.g. PIP01a-d after a re-split) — allow [a-z] so the
+        # declared-id set isn't truncated to "PIP01" while depends_on references "PIP01a".
+        $declared = [regex]::Matches($manifest, '\{\s*id:\s*([A-Za-z0-9_]+)') | ForEach-Object { $_.Groups[1].Value }
         $referenced = [regex]::Matches($manifest, 'depends_on:\s*\[([^\]]*)\]') | ForEach-Object { $_.Groups[1].Value -split ',' } |
             ForEach-Object { $_.Trim() } | Where-Object { $_ }
         $missing = $referenced | Where-Object { $declared -notcontains $_ } | Select-Object -Unique

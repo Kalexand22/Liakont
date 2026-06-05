@@ -1,43 +1,43 @@
-# AGT04 — Auto-update de l'agent
+# ADP05 — Extraction des bordereaux PDF EncheresV6 (pièces jointes)
 
-Spec : F12 §2.5 / §3.3 (426) / §7 décision D6 ; AGT.yaml (item AGT04).
-Frontières : l'agent ne référence que `Liakont.Agent.Contracts`, lecture seule, HTTPS sortant,
-aucune logique métier, BCL net48 uniquement (aucun paquet nouveau — ADR-0003).
+Session : orch-20260605-144059-l2s2 (slot-2, clone Liakont2)
+Sous-branche : feat/adapter-encheresv6-ADP05
 
-## Décisions de conception (autonomes — session d'orchestration)
+## Contexte
 
-1. **Modèle de confiance (ADR-0013).** `updateUrl` (config heartbeat) pointe le **manifeste de
-   version** (JSON : `version`, `packageUrl`, `packageSha256`). `versionManifestSignature` (config)
-   est la signature RSA des octets bruts du manifeste, vérifiée contre une **clé publique provisionnée
-   à l'installation** (`C:\ProgramData\Liakont\update-signing.pubkey.xml`). Fail-closed : pas de clé →
-   refus. Le hash SHA-256 du paquet téléchargé est comparé à celui du manifeste signé. Un manifeste
-   non signé / signature invalide / hash non concordant → refus + signalement. Garde anti-downgrade
-   (jamais vers une version ≤ courante).
-2. **Updater = exe séparé autonome** (`Liakont.Agent.Updater`, sans Core) — « ne tourne jamais depuis
-   le dossier qu'il remplace » : lancé détaché, copié dans un dossier updater. Contrat Core↔updater =
-   **arguments de ligne de commande** (couplage faible) + un fichier statut JSON.
-3. **Deux déclencheurs, consommateurs réels (null-safe, précédent AGT03 : câblé au niveau reporter,
-   assemblage host différé) :** heartbeat `updateRequired` → `HeartbeatReporter` ; push 426 →
-   `AgentRunCycle` (fanion en mémoire sur le coordinateur partagé). Différé si run en cours (le
-   coordinateur sonde le verrou de run via `IRunActivityProbe`).
-4. **Signalement** = log opérateur français + `AutoUpdateStateStore` (statut JSON), surfacé au
-   heartbeat suivant via `LastError` (consommateur réel).
+- Contrat `IExtractor.GetAttachments` / `ListPoolDocuments` + `SourceAttachment` / `PoolDocument`
+  + capacités `ProvidesSourceDocuments` / `ProvidesUnlinkedDocumentPool` : DÉJÀ définis (AGT02).
+- Consommateur `ExtractionCycle.Run` : DÉJÀ câblé (CollectLinkedPdfs / CollectPoolPdfs selon capacités).
+- Aujourd'hui les 2 extracteurs réels (Fixture, Pervasive) renvoient vide + capacités false.
+- `PivotDocumentDto.SourceReference` = `"no_ba=<value>"` (EncheresV6RowMapper.SourceRef).
 
-## Étapes
+## Décision d'architecture
 
-- [ ] ADR-0013 (modèle de confiance + points durs Windows).
-- [ ] Core/Update : modèles (manifeste, résultat/statut), vérificateurs (signature RSA, hash),
-      seams (package source HTTPS, launcher détaché, sonde de run), `AutoUpdateStateStore`,
-      `IAutoUpdateService` + `AutoUpdateCoordinator`.
-- [ ] Câblage : `HeartbeatReporter` (updateRequired + surfaçage statut), `AgentRunCycle` (426),
-      `AgentPaths` (chemins update).
-- [ ] Projet `Liakont.Agent.Updater` (exe) : engine + abstractions + impls réelles (SCM, swap, santé)
-      + Program.
-- [ ] Tests : coordinateur (nominal, signature KO, hash KO, différé run, clé absente, downgrade),
-      vérificateurs, store, déclencheurs (heartbeat + 426), `UpdaterEngine` (nominal, rollback, timeout).
-- [ ] Solution : ajouter les 2 projets (Updater + Updater.Tests) avec mapping x86/x64.
-- [ ] verify-fast (plateforme + agent x86) vert, run-tests vert, codex-review propre.
+- Source PDF = abstraction `IEncheresV6PdfSource` injectée dans les 2 extracteurs (la source des PDF
+  — dossier de fichiers — est la MÊME que les documents viennent des fixtures ou de l'ODBC).
+- Implémentation V1 = système de fichiers (`FileSystemEncheresV6PdfSource`), couvrant mode LIÉ
+  (nom de fichier contient le no_ba) ET mode POOL (vrac de PDF du dossier).
+- RÉSERVE TRACÉE (cohérente avec la réserve schéma EncheresV6Schema) : la source "blob en base
+  Pervasive" n'est PAS implémentée (colonne PDF non documentée, base réelle absente — ne pas inventer
+  de colonne, CLAUDE.md n°2). L'abstraction admet une future source blob, résolue à GATE_DEMO_ISATECH.
 
-## Revue / résultats
+## Plan d'implémentation
 
-(à compléter en fin d'item)
+- [ ] `IEncheresV6PdfSource.cs` — abstraction + null-object `None`
+- [ ] `EncheresV6PdfSourceOptions.cs` — config filesystem (dossier lié, dossier pool, pattern), validée
+- [ ] `FileSystemEncheresV6PdfSource.cs` — implémentation lecture seule (lié + pool, Warning si introuvable)
+- [ ] `EncheresV6RowMapper` — extraire `SourceReferencePrefix` (constante partagée, strip dans la source PDF)
+- [ ] `EncheresV6FixtureExtractor` — param optionnel `IEncheresV6PdfSource`, capacités calculées, délégation
+- [ ] `PervasiveExtractor` — param optionnel `IEncheresV6PdfSource`, capacités calculées, délégation
+- [ ] Tests : `FileSystemEncheresV6PdfSourceTests` (présent/absent/multiple/pool/période/dossier manquant/lecture seule)
+- [ ] Tests : extracteurs avec source PDF configurée (capacités + délégation) ; défaut inchangé (vide/false)
+- [ ] verify-fast + run-tests + codex-review
+
+## Acceptance (rappel)
+
+- Capacités déclarées selon la config (lien explicite et/ou pool)
+- Mode lié : GetAttachments retrouve le PDF d'un bordereau par sa référence
+- Mode pool : ListPoolDocuments expose les PDF du dossier
+- Source PDF configurable dans la config adaptateur
+- PDF introuvable = liste vide + Warning, jamais d'échec
+- Tests : présent / absent / multiple / pool / PDF factices

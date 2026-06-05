@@ -1,10 +1,10 @@
 # Lot PIP — Pipeline de traitement de la plateforme (F11 amendée + F07 + F09)
 # Specs : docs/conception/F11 (amendée 2026-06-03 : exécution répartie agent/plateforme),
 #         F07-F08-Avoirs-Frontiere-B2B-B2C.md, F09-E-Reporting-Paiement.md, F12 §4 ;
-#         docs/adr/ADR-0012 (acquittement agent en deux temps : PIP01 porte le point de statut
-#         agent + l'affinage du dédoublonnage côté plateforme — voir PIP01 point 7) ;
+#         docs/adr/ADR-0012 (acquittement agent en deux temps : PIP01d porte le point de statut
+#         agent + l'affinage du dédoublonnage côté plateforme — voir PIP01d) ;
 #         docs/adr/ADR-0014 (staging durable du contenu pivot à l'intake : PIP00 est le prérequis
-#         de PIP01 — la plateforme détient le contenu, l'agent redevient un filet de sécurité)
+#         du pipeline — la plateforme détient le contenu, l'agent redevient un filet de sécurité)
 # Le pipeline tourne sur la PLATEFORME : déclenché par les événements d'ingestion
 # (DocumentReceived) + des jobs planifiés (module Job du socle). L'extraction n'en fait
 # plus partie (c'est l'agent). Il parle aux PA via IPaClient + capacités — JAMAIS à un
@@ -12,7 +12,7 @@
 #
 # DÉPENDANCE INTER-SEGMENT À ARBITRER (révélée par ADR-0012) : la garantie « aucune perte
 # sur coupure réseau » démontrée à GATE_AGENT (segment `agent`) repose sur le point de statut
-# GET /documents/status, porté ici par PIP01 (segment `pipeline`). Or le manifest ne fait PAS
+# GET /documents/status, porté ici par PIP01d (segment `pipeline`). Or le manifest ne fait PAS
 # dépendre `agent` de `pipeline`. À trancher par l'opérateur : (a) avancer le seul point de
 # statut + l'affinage du dédoublonnage dans un item du segment core-foundation/agent, ou
 # (b) ajouter une dépendance de gate, ou (c) assumer que la démo AGENT précède le no-loss réel.
@@ -21,14 +21,19 @@
 # l'intake (PIP00), le CONTENU du document est désormais détenu DURABLEMENT par la plateforme,
 # donc la file locale de l'agent redevient un FILET DE SÉCURITÉ et n'est plus le détenteur unique.
 # Le « no perte » de bout en bout ne dépend plus de l'agent restant en ligne. Le point de statut
-# reste porté par PIP01 (réconciliation), mais le risque structurel de la dépendance ci-dessus est
-# fortement réduit. PIP00 (prérequis, manifest prio 4990) précède PIP01.
+# reste porté par PIP01d (réconciliation), mais le risque structurel de la dépendance ci-dessus est
+# fortement réduit. PIP00 (prérequis, manifest prio 4990) précède le pipeline.
+#
+# PIP01 RE-DÉCOUPÉ en PIP01a-d (2026-06-05) : item trop gros pour une session (nouveau module
+# Pipeline + points d'entrée Contracts dans 5 modules + CHECK/SEND/SYNC ; pas de merge partiel).
+# PIP01a = fondations (scaffold + lecteur canonique + contrats manquants), PIP01b = CHECK,
+# PIP01c = SEND, PIP01d = SYNC + point de statut agent + affinage dédoublonnage.
 
 items:
   PIP00:
     title: "Staging durable du contenu pivot à l'intake (ADR-0014)"
     description: |
-      Prérequis de PIP01 (ADR-0014, amende ADR-0012). Le pipeline (CHECK/SEND) exige le pivot
+      Prérequis du pipeline (ADR-0014, amende ADR-0012). Le pipeline (CHECK/SEND) exige le pivot
       COMPLET (lignes, ventilation TVA ligne par ligne, parties), or l'intake ne persiste
       aujourd'hui que métadonnées + payload_hash : le contenu n'est durable nulle part avant
       l'émission. PIP00 fait de la PLATEFORME le détenteur durable du contenu pendant le
@@ -77,98 +82,152 @@ items:
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
-  PIP01:
-    title: "Pipeline check → send → sync (événements + jobs)"
+  PIP01a:
+    title: "Pipeline — fondations : module + lecteur canonique + points d'entrée Contracts"
     description: |
-      Implémenter le pipeline dans src/Modules/Pipeline/ (ou réparti dans les modules
-      Documents/Transmission avec un orchestrateur — choix d'implémentation à justifier
-      au plan, critère : respecter les frontières de modules via Contracts) :
-      1. CHECK (déclenché par l'événement DocumentReceived de l'ingestion, via outbox) :
-         document Detected → RELECTURE du pivot COMPLET depuis le magasin de staging (PIP00,
-         clé document_id/payload_hash, re-vérif du hash) → mapping TVA (TVA02, table du tenant)
-         → ValidationPipeline (VAL) → OK : ReadyToSend ; KO : Blocked avec motifs persistés.
-         Le pipeline ne suppose JAMAIS le contenu « déjà là » : il le lit depuis le staging.
-         GARDE-FOU PRODUCTION : si le compte PA actif du tenant est en environnement
-         « production » et que la table de mapping TVA n'est PAS validée (validatedBy absent,
-         table modifiée non revalidée, ou table d'exemple), TOUS les documents restent Blocked
-         avec le motif « Table TVA non validée — validation expert-comptable requise ».
-         Le mode staging/démo n'est pas concerné.
-      2. SEND (job planifié par tenant — mécanique TenantJobRunner/ITenantJob de SOL06, jamais
-         de boucle multi-tenant maison — + déclenchable par API02 send/send-all) :
-         documents ReadyToSend → résolution du plug-in PA du tenant → PRE-SEND → envoi :
-         - PRE-SEND : avant tout retry d'un document TechnicalError, ET pour tout document
-           resté en état Sending (crash au milieu d'un envoi), vérifier côté PA
-           (GetPotentiallySentDocuments TRK03 + IPaClient.GetDocumentStatusAsync) qu'un envoi
-           précédent dont la réponse s'est perdue n'a pas réussi — si la PA connaît le
-           document : transition vers Issued SANS renvoyer (anti-doublon inter-traitement).
-           Les documents en Sending sont repris dès le PREMIER cycle après redémarrage de
-           la plateforme (pas d'attente d'un déclencheur externe).
-         - DIAGNOSTIC PA (F04 §3.1, piège staging connu « Transport not available ») : avant
-           l'envoi, vérifier que le SIREN du tenant est publié côté PA et que le
-           tax_report_setting est actif (PAB03 Get/EnsureTaxReportSetting) — si non :
-           alerte Warning + documents maintenus en ReadyToSend avec motif explicite
-           (« SIREN non publié côté <PA> — aucun envoi possible »), jamais d'envoi à l'aveugle.
-         - ENVOI : pivot relu depuis le staging (PIP00) → IPaClient.SendDocumentAsync → succès :
-           Issued + création du paquet d'archive TRK05, PUIS — une fois le paquet WORM CONFIRMÉ
-           présent (IArchiveStore.ExistsAsync) — purge de l'entrée de staging ; errors[] :
-           RejectedByPa (staging CONSERVÉ : pas en WORM, contenu nécessaire à la correction) ;
-           réseau : TechnicalError.
-      3. SYNC (job planifié) : pour chaque document Issued du tenant :
-         - tax report manquant → ListTaxReportsAsync → archivage xml_base64
-           (si le PA déclare SupportsTaxReportRetrieval)
-         - facture PA manquante dans l'archive → GetGeneratedDocumentAsync →
-           addendum d'archive (si SupportsDocumentRetrieval)
-      4. RunLog par tenant : chaque exécution (check/send/sync, déclencheur, compteurs, durée)
-         est journalisée — consommée par GET /runs (API01) et la page Traitements (WEB04).
-      5. Dry-run : un mode « tout sauf les écritures PA » pour la démo et la recette
-         (vérifié par le journal d'appels du plug-in Fake).
-      6. Concurrence : le module Job garantit qu'un seul job send/sync par tenant tourne à
-         la fois (pas de mutex système — c'est le job scheduler qui sérialise).
-      7. ACQUITTEMENT AGENT EN DEUX TEMPS — côté plateforme (ADR-0012, amende F12 §3.3/§4.1).
-         Le CHECK est le consommateur DURABLE de l'événement DocumentReceived ; c'est donc ici
-         que vit l'état « terminal » que l'agent réconcilie :
-         - exposer GET /api/agent/v1/documents/status (lecture seule, tenant-scopé, clé
-           (source_reference, payload_hash)) qui rapporte à l'agent : Processed = déterminé par
-           l'ÉTAT DURABLE du Document (Detected et au-delà, Issued INCLUS) — le contenu a été stagé
-           (PIP00) AVANT l'événement (invariant happened-before), ce N'EST PAS un contrôle de
-           présence vive du staging (purgé à Issued) : un document déjà Issued répond TOUJOURS
-           Processed, jamais Pending. Rejected = payload non conforme à l'intake (DISTINCT de l'état
-           pipeline RejectedByPa) ; Pending = reçu mais pas encore confirmé / inconnu.
-         - CONTRAT HTTP DU STATUT — hygiène sémantique du 404 (robustesse de contrat, PAS le
-           mécanisme anti-perte) : sur la route EXISTANTE, une clé (source_reference, payload_hash)
-           inconnue répond 200 + Pending, JAMAIS 404 ; le 404 reste réservé à une route absente.
-           404 = point non déployé ; 200 = route montée, l'information métier étant portée par le
-           statut (Processed/Rejected/Pending), pas par le code HTTP. NB IMPORTANT : l'agent déjà
-           livré traite 404 et 200+Pending À L'IDENTIQUE (les deux → renvoi) — ce n'est donc PAS
-           cette règle qui ferme la perte ni la boucle de renvoi, c'est le re-rangement idempotent
-           du dédoublonnage ci-dessous. Cette règle est de l'hygiène de contrat : elle évite qu'un
-           futur agent (ou un diagnostic) confonde « clé pas encore connue » et « endpoint pas
-           déployé ». Ne pas sous-investir le re-rangement en croyant que le 200+Pending suffit.
-         - AFFINER le dédoublonnage de l'ingestion (IngestDocumentBatchHandler, marqueurs
-           TODO(ADR-0012)) : un renvoi d'un document REÇU MAIS NON RANGÉ doit RE-TENTER le
-           rangement (idempotent sur DocumentId/payload_hash), au lieu d'être écarté en
-           `duplicate`. C'est ce qui ferme la perte silencieuse côté plateforme, et NE PAS
-           rendre l'intake best-effort bloquant (ré-introduirait le risque d'orphelin, prérequis
-           TRK02). DÉPENDANCE INTER-SEGMENT : la garantie « aucune perte sur coupure » démontrée
-           à GATE_AGENT repose sur ce point de statut — voir l'en-tête de lot.
+      Prérequis structurel du pipeline (PIP01 re-découpé). AUCUN comportement pipeline ici :
+      seulement le scaffold + les briques manquantes que CHECK/SEND/SYNC consommeront via Contracts
+      (frontière P1 : un module n'accède à un autre que par ses Contracts — NetArchTest l'impose).
+      1. Module src/Modules/Pipeline/ : scaffold 4 couches (Contracts/Domain/Application/
+         Infrastructure) + Tests.Unit + Tests.Integration + MODULE/INVARIANTS/SCENARIOS, gabarits
+         identiques à un module métier (réf. Documents). Enregistrement DI + migrations DbUp
+         (EmbeddedResource) : la table pipeline.run_logs est CRÉÉE ici (écrite par PIP01b+).
+      2. PivotCanonicalJsonReader (DANS le module Pipeline — PAS dans Liakont.Agent.Contracts qui est
+         BCL-only/zéro package) : désérialise le JSON canonique ADR-0007 du staging vers
+         PivotDocumentDto. Lecteur EXPLICITE (parse JsonDocument + constructeurs immuables, AUCUNE
+         réflexion), miroir de CanonicalJson.WriteDocument. NE PAS re-sérialiser pour ré-hacher (la
+         re-vérif du hash est faite par IPayloadStagingStore.ReadAsync sur la string brute).
+      3. Points d'entrée Contracts manquants (chacun = impl + enregistrement DI + tests, DANS SON
+         module — pas dans Pipeline) :
+         - Validation : IValidationService.ValidateAsync(DocumentValidationContext) wrappant
+           ValidationPipeline (+ Infrastructure + registration, absentes aujourd'hui) ;
+         - TvaMapping : ITvaMappingService mappant un PivotDocumentDto LIGNE PAR LIGNE
+           (PivotLineDto.SourceRegimeCodes) → {catégories/VATEX/taux par ligne, IsValidated de la
+           table, motif de blocage} wrappant TvaMapper ;
+         - Documents : IDocumentLifecycle (BlockAsync, MarkReadyToSendAsync(id, mappingVersion),
+           BeginSendingAsync, MarkIssuedAsync, MarkRejectedByPaAsync, MarkTechnicalErrorAsync)
+           wrappant l'UoW interne ; + transition Domain posant Document.MappingVersion au passage
+           ReadyToSend ; + requête de statut FindStatusBySourceReferenceAndPayloadHashAsync ;
+         - TenantSettings : résolution du companyId de l'unique société du tenant courant
+           (ITenantSettingsQueries.GetCurrentCompanyId(ct) : Guid?) — sinon impossible d'appeler
+           GetPaAccounts/GetFiscalSettings depuis un job tenant sans lire la table d'un autre module
+           en SQL brut (violation P1).
+      Aucune règle fiscale inventée : le mapping/validation restent dans LEURS modules ; ces services
+      ne font qu'exposer en Contracts ce qui existe déjà en Domain.
     acceptance:
-      - "CHECK déclenché par événement d'ingestion : mapping + validation → ReadyToSend/Blocked"
-      - "Contenu lu depuis le staging PIP00 au CHECK ET au SEND (pivot complet relu, payload_hash re-vérifié) — le pipeline ne suppose jamais le contenu « déjà là » (testé)"
-      - "Purge du staging subordonnée à la présence EFFECTIVE du paquet WORM (IArchiveStore.ExistsAsync), jamais à l'étiquette Issued seule — testé : balayage entre transition Issued et écriture TRK05 = staging conservé ; RejectedByPa = staging conservé (pas en WORM)"
-      - "Point de statut agent GET /documents/status (ADR-0012/ADR-0014) : Processed déterminé par l'état durable du Document (Issued inclus, staging purgé) — un Issued répond toujours Processed jamais Pending (testé) ; Rejected/Pending par (source_reference, payload_hash), tenant-scopé, lecture seule"
-      - "Contrat 404 du point de statut (élaboration PIP01 ; sémantique Pending/inconnu d'ADR-0012, le mapping HTTP n'est PAS dans l'ADR) : clé inconnue sur la route existante = 200 + Pending, jamais 404 (404 réservé à une route absente) — hygiène de contrat, pas la garantie no-loss (testé : GET d'une clé jamais vue répond 200/Pending, pas 404)"
-      - "Dédoublonnage affiné (ADR-0012) : un renvoi d'un document reçu mais non rangé RE-TENTE le rangement (idempotent), jamais écarté en duplicate (testé : intake échoué puis renvoi = document rangé, pas perdu)"
+      - "Module Pipeline scaffoldé (4 couches + 2 projets de test + MODULE/INVARIANTS/SCENARIOS), enregistré, migration pipeline.run_logs prête"
+      - "PivotCanonicalJsonReader : round-trip Serialize(Read(json)) == json octet par octet sur les golden files de DOCUMENT UNIQUE de tests/fixtures/contrat-v1/ (factures/avoirs ; PAS heartbeat.json ni batch-mixte.json, qui ne sont pas des PivotDocument uniques) — testé, decimals à échelle préservée, enums par nom"
+      - "IValidationService / ITvaMappingService / IDocumentLifecycle / GetCurrentCompanyId / FindStatusBySourceReferenceAndPayloadHash : chacun impl + DI + tests unitaires, exposé en Contracts de SON module"
+      - "ITvaMappingService mappe ligne par ligne (PivotLineDto.SourceRegimeCodes) et remonte IsValidated de la table"
+      - "Aucun comportement pipeline (pas de CHECK/SEND/SYNC) ; aucune règle fiscale inventée"
+      - "Frontières : Pipeline ne touche les autres modules que par Contracts (NetArchTest)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  PIP01b:
+    title: "Pipeline — CHECK (événement DocumentReceived → ReadyToSend/Blocked)"
+    description: |
+      CHECK : consommateur DURABLE de l'événement DocumentReceivedV1 (via outbox).
+      1. Consumer IIntegrationEventConsumer<DocumentReceivedV1> (patron SourceAlterationDetectedConsumer,
+         dispatché par OutboxWorker + InMemoryEventDispatcher). Le worker dispatche en scope SYSTÈME →
+         résoudre le tenant par slug via payload.TenantId (TenantSlugConnectionFactoryAdapter).
+      2. Flux : IPayloadStagingStore.ReadAsync(key) (re-vérif hash ; StagedPayloadNotFound = retry
+         TRANSITOIRE, JAMAIS terminal — ADR-0014) → PivotCanonicalJsonReader.Read → ITvaMappingService
+         (mapping + IsValidated) → enrichir le pivot (catégories/VATEX par ligne, reconstruire un
+         PivotDocumentDto immuable) → IValidationService.ValidateAsync →
+         OK : IDocumentLifecycle.MarkReadyToSendAsync(id, mappingVersion) ;
+         KO : BlockAsync(id, motifs) — motifs persistés dans le DocumentEvent d'audit (append-only).
+      3. GARDE-FOU PRODUCTION : si le compte PA actif du tenant est en environnement « production »
+         (PaAccount.Environment) ET la table de mapping TVA n'est PAS validée (IsValidated == false,
+         table d'exemple, ou modifiée non revalidée), TOUS les documents restent Blocked avec le motif
+         « Table TVA non validée — validation expert-comptable requise ». Le mode staging/démo n'est
+         pas concerné. NE JAMAIS affaiblir cette validation Blocking (P1).
+      4. RunLog (Check) écrit à chaque exécution.
+    acceptance:
+      - "CHECK déclenché par DocumentReceivedV1 (outbox) : staging relu (hash re-vérifié) → mapping → validation → ReadyToSend/Blocked"
+      - "Contenu lu depuis le staging (PIP00) ; StagedPayloadNotFound = retry transitoire, jamais terminal (testé)"
       - "Garde-fou production : table TVA non validée + compte PA production = tout reste Blocked (testé)"
-      - "PRE-SEND : anti-doublon inter-traitement (timeout au traitement N, vérification PA au N+1 — testé)"
-      - "Reprise après crash : documents restés en Sending repris et vérifiés côté PA dès le premier cycle après redémarrage (testé)"
-      - "Diagnostic SIREN publié / tax_report_setting actif avant envoi : non publié = alerte + aucun envoi (testé)"
-      - "Jobs par tenant via TenantJobRunner (SOL06) — aucune boucle multi-tenant locale"
+      - "Motifs de blocage persistés dans le DocumentEvent (append-only) ; tenant-scopé"
+      - "RunLog (Check) écrit par exécution"
+      - "Aucune règle fiscale inventée ; frontières via Contracts (NetArchTest)"
+      - "Tests d'intégration CHECK (Testcontainer Postgres)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  PIP01c:
+    title: "Pipeline — SEND (job par tenant, PRE-SEND anti-doublon, envoi PA)"
+    description: |
+      SEND : job planifié PAR TENANT (mécanique TenantJobRunner/ITenantJob de SOL06, JAMAIS de boucle
+      multi-tenant maison) + déclenchable par API02 (send/send-all).
+      1. SendTenantJob (ITenantJob) + fan-out (IJobHandler) + trigger. « Un seul job send/sync par
+         tenant à la fois » = garanti par l'ordonnanceur (pas de mutex maison). Planification cron =
+         geste opérateur.
+      2. PRE-SEND anti-doublon : pour tout document resté Sending (crash) ET avant tout retry d'un
+         TechnicalError → GetPotentiallySentDocumentsAsync (TRK03) + IPaClient.GetDocumentStatusAsync →
+         si la PA connaît le document : MarkIssuedAsync SANS renvoyer (anti-doublon inter-traitement).
+         Les Sending sont repris dès le 1er cycle après redémarrage (pas d'attente d'un déclencheur).
+      3. Diagnostic PA (F04 §3.1, piège « Transport not available ») : avant envoi, vérifier SIREN
+         publié + tax_report_setting actif (IPaClient Get/EnsureTaxReportSetting) ; si non : alerte
+         Warning + documents maintenus ReadyToSend avec motif explicite, JAMAIS d'envoi à l'aveugle.
+      4. ENVOI : pivot relu depuis le staging (PIP00) → résolution du plug-in PA du tenant →
+         IPaClient.SendDocumentAsync → succès : MarkIssuedAsync + IArchiveService.
+         ArchiveIssuedDocumentAsync (TRK05) PUIS — paquet WORM CONFIRMÉ présent
+         (IArchiveStore.ExistsAsync) — purge du staging (subordonnée au WORM, JAMAIS à l'étiquette
+         Issued seule, ADR-0014) ; errors[] → MarkRejectedByPaAsync (staging CONSERVÉ — pas en WORM) ;
+         réseau → MarkTechnicalErrorAsync.
+      5. Dry-run : « tout sauf écritures PA », vérifié par le journal d'appels du FakePaClient.
+      6. RunLog (Send) écrit à chaque exécution. Le pipeline ne référence JAMAIS un plug-in PA concret
+         (NetArchTest) ; comportement piloté par les capacités, jamais par if (pa is ...).
+    acceptance:
+      - "SEND par tenant via TenantJobRunner (SOL06) — aucune boucle multi-tenant locale ; un seul job send/sync par tenant (testé)"
+      - "PRE-SEND : anti-doublon inter-traitement (timeout au N, vérification PA au N+1) ; reprise des Sending dès le 1er cycle après redémarrage (testé)"
+      - "Diagnostic SIREN publié / tax_report_setting actif : non publié = Warning + aucun envoi (testé)"
+      - "Envoi : pivot relu du staging → IPaClient.SendDocumentAsync → Issued + archive TRK05 ; RejectedByPa (staging conservé) ; TechnicalError (testé avec FakePaClient)"
+      - "Purge du staging subordonnée à la présence EFFECTIVE du paquet WORM (IArchiveStore.ExistsAsync), jamais à l'étiquette Issued (testé : entre transition Issued et écriture TRK05 = staging conservé)"
+      - "Dry-run n'effectue aucune écriture PA (journal FakePaClient)"
+      - "Montants en decimal, aucun float ; le pipeline ne référence aucun plug-in PA concret (NetArchTest)"
+      - "RunLog (Send) écrit ; tenant-scopé"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  PIP01d:
+    title: "Pipeline — SYNC + point de statut agent + affinage dédoublonnage (ADR-0012/0014)"
+    description: |
+      Dernier maillon du pipeline cœur.
+      1. SYNC (ITenantJob planifié) : pour chaque Issued du tenant → tax report manquant →
+         IPaClient.ListTaxReportsAsync → IArchiveService.AddAddendumAsync (xml_base64) SI
+         PaCapabilities.SupportsTaxReportRetrieval ; facture PA manquante → GetGeneratedDocumentAsync →
+         addendum SI SupportsDocumentRetrieval. Piloté par capacités, jamais par if (pa is ...).
+      2. POINT DE STATUT AGENT (ADR-0012/0014) : GET /api/agent/v1/documents/status (Host AgentApi,
+         auth + tenant par AgentApiAuthenticationFilter), clé (source_reference, payload_hash), lecture
+         seule, tenant-scopé. Sémantique : Processed = un Document existe pour la clé (Detected ET
+         AU-DELÀ, Issued INCLUS — invariant happened-before : le staging a été écrit AVANT l'événement ;
+         PAS un contrôle de présence vive du staging, purgé à Issued → un Issued répond TOUJOURS
+         Processed, jamais Pending) ; Pending = clé inconnue / reçue non confirmée. CONTRAT 404 : clé
+         inconnue sur la route EXISTANTE = 200 + Pending, JAMAIS 404 (404 réservé à une route absente)
+         — hygiène de contrat, PAS le mécanisme anti-perte. Rejected = payload non conforme à l'intake :
+         l'agent l'apprend par le 400 SYNCHRONE au push (l'intake ne persiste rien pour un rejet), PAS
+         par le point de statut ; la valeur Rejected reste dans le DTO (forward-compat). NE PAS inventer
+         une persistance d'intake-rejet sans la sourcer.
+      3. AFFINAGE DÉDOUBLONNAGE (TODO(ADR-0012), IngestDocumentBatchHandler) : un renvoi d'un document
+         REÇU MAIS NON RANGÉ (received_documents existe, Document absent) doit RE-TENTER le rangement
+         (idempotent sur DocumentId/payload_hash) au lieu d'être écarté en `duplicate`. C'est CE point
+         qui ferme la perte silencieuse côté plateforme. NE PAS rendre l'intake best-effort bloquant
+         (ré-introduirait le risque d'orphelin — prérequis TRK02). Distinguer Duplicate (déjà rangé,
+         terminal) vs RetryRanging (reçu non rangé).
+      4. RunLog (Sync) écrit à chaque exécution.
+      5. TEST E2E de bout en bout (Pipeline/Tests.Integration, Testcontainer Postgres, 2 tenants =
+         2 bases, câblage direct staging + Documents + ITvaMappingService + IValidationService +
+         IArchiveService + FakePaClient) : golden files contrat-v1 → ingestion → CHECK → SEND (Fake) →
+         SYNC → archive.
+    acceptance:
       - "SYNC récupère tax reports + facture PA vers l'archive selon les capacités (testé avec/sans capacités)"
-      - "Dry-run n'effectue aucune écriture PA (vérifié par le journal du plug-in Fake)"
-      - "Le pipeline ne référence JAMAIS un plug-in PA concret (NetArchTest)"
-      - "Un seul job send/sync par tenant à la fois (testé)"
-      - "RunLog par tenant écrit pour chaque exécution"
-      - "Tests d'intégration de bout en bout : golden files PIV03 → ingestion → check → send (Fake) → sync → archive"
+      - "Point de statut GET /documents/status : Processed = état durable du Document (Issued inclus, staging purgé) — un Issued répond toujours Processed jamais Pending (testé) ; tenant-scopé, lecture seule"
+      - "Contrat 404 : clé inconnue sur la route existante = 200 + Pending, jamais 404 (404 réservé à une route absente) — hygiène de contrat, pas la garantie no-loss (testé)"
+      - "Dédoublonnage affiné (ADR-0012) : un renvoi d'un document reçu mais non rangé RE-TENTE le rangement (idempotent), jamais écarté en duplicate (testé : intake échoué puis renvoi = document rangé, pas perdu)"
+      - "Intake non rendu bloquant (risque d'orphelin évité) ; DocumentEvent / registre received_documents restent append-only"
+      - "RunLog (Sync) écrit ; le pipeline ne référence aucun plug-in PA concret (NetArchTest)"
+      - "Test E2E : golden files PIV03 → ingestion → check → send Fake → sync → archive, 2 tenants (vert)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -296,18 +355,18 @@ items:
 
   GATE_PIPELINE:
     type: gate
-    executor: claude
-    blueprint: auto-gate-item
-    title: "Gate (auto) : pipeline intégré"
+    executor: human
+    title: "Gate (humaine) : pipeline intégré"
     description: |
-      Gate d'INTÉGRATION AUTOMATIQUE (executor claude, blueprint auto-gate-item). Le traitement
-      de bout en bout (ingestion → mapping → validation → FakePaClient → archive), avoirs,
-      agrégats de paiement, les deux configurations de capacités PA et l'isolation 2 tenants
-      sont couverts par les tests d'intégration (acceptance PIP01-04) — un test humain n'y
-      révélerait rien de structurel. La gate enchaîne verify + run-tests + review d'intégration
-      (diff complet vs main), puis merge dans main ; échec/conflit = blocked.
+      Gate d'INTÉGRATION HUMAINE (executor human — manifest v11). Le traitement de bout en bout
+      (ingestion → mapping → validation → FakePaClient → archive), avoirs, agrégats de paiement,
+      les deux configurations de capacités PA et l'isolation 2 tenants sont couverts par les tests
+      d'intégration (acceptance PIP01a-d, PIP02-04). Le runner fait verify + run-tests sur le segment et ouvre
+      une PR vers main ; la CI rejoue verify+tests sur la PR ; l'opérateur merge ; puis
+      tools/orch-reconcile-gates.ps1 bascule la gate à done (protocol.md Step 1.4). Le merge dans
+      main reste une action humaine (barrière Claude Code + CLAUDE.md « human merge mandatory »).
     acceptance:
       - "Tous les items PIP sont done"
       - "Tests d'intégration de bout en bout verts (golden files → check → send Fake → sync → archive, 2 tenants)"
-      - "Review d'intégration (codex-review -Base main) clean ou P2 acceptés justifiés"
-      - "Segment feat/pipeline intégré automatiquement dans main (Step 5c) — pas de PR humaine"
+      - "CI verte sur la PR du segment (verify + run-tests : plateforme .NET 10 + agent net48 x86/x64)"
+      - "Segment feat/pipeline intégré dans main par MERGE HUMAIN de la PR ; gate basculée à done par réconciliation (orch-reconcile-gates.ps1)"

@@ -116,6 +116,25 @@ attempts automatic recovery **before** selecting the next item:
      **Never treat it as new.** Only items explicitly listed in state.yaml are actionable.
 3. Read `tasks/lessons.md` — apply any relevant lessons to this session.
 
+### Step 1.4 — Reconcile human-merge gates
+
+Since manifest v11 every **segment gate is a human-merge gate** (`executor: human`): the runner
+runs the segment checks and opens a PR to main, and a human merges it (the "human merge to main"
+control required by CLAUDE.md). To close the loop without a second manual step, run the
+reconciliation **before selecting work**:
+
+```bash
+powershell -ExecutionPolicy Bypass -File tools/orch-reconcile-gates.ps1
+```
+
+It flips any gate still `blocked`/`gate_pending` whose segment branch is **already merged** into
+main to `done` (and appends an event). It NEVER merges, and only promotes a gate when a merged PR
+for that exact branch exists — safe and idempotent. This makes a gate's completion hands-off once
+the human clicks merge. The legacy auto-merge path (`blueprint: auto-gate-item`, Step 5c) is
+**deprecated for any runnable gate**: it degraded to `blocked` on every gate because merging to
+main is a human action. Only the already-`done` GATE_CORE_FOUNDATION and GATE_PA_FRAMEWORK still
+carry it (terminal — they will not re-run); do not wire a new gate to it.
+
 ---
 
 ## Step 2 — Select + Claim Item

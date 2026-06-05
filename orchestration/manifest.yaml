@@ -23,7 +23,16 @@ meta:
   #   segment ultérieur n'a autant à reviewer ; le socle vendored est considéré OK (reviewé à
   #   l'origine, hors périmètre CLAUDE.md/SOL01). La gate humaine valide l'ADAPTATION Liakont +
   #   merge. Auto-gates restantes : CORE_FOUNDATION, PA_FRAMEWORK, PIPELINE, ADAPTER_ENCHERESV6.
-  version: 10
+  # version 11 = FIN des gates AUTO (décision opérateur 2026-06-05) : toute gate de SEGMENT devient
+  #   HUMAINE (executor: human). La gate « auto qui merge dans main » contredisait la barrière
+  #   Claude Code ET la règle CLAUDE.md « human merge mandatory » → elle dégradait systématiquement
+  #   en `blocked` à l'étape merge. Désormais : le runner fait les checks + ouvre la PR (la CI rejoue
+  #   verify+tests sur la PR), l'humain merge, et tools/orch-reconcile-gates.ps1 bascule la gate à
+  #   `done` sur PR mergée (protocol.md Step 1.4). GATE_PIPELINE + GATE_ADAPTER_ENCHERESV6 passent à
+  #   executor: human. Le blueprint auto-gate-item n'est plus utilisé par aucune gate ENCORE ACTIVE :
+  #   seules GATE_CORE_FOUNDATION et GATE_PA_FRAMEWORK le portent encore, mais elles sont déjà `done`
+  #   (terminales, ne re-tourneront pas). Ne pas le câbler sur une nouvelle gate. GATE_SOCLE déjà humaine.
+  version: 11
   host: multi_agent_v1
 
 segments:
@@ -172,15 +181,21 @@ items:
   - { id: GATE_PA_SUPERPDP, type: gate, executor: human, priority: 4900, depends_on: [PAS03] }
 
   # ── PIP ──
-  # PIP00 (staging durable du contenu à l'intake, ADR-0014) précède PIP01 : le pipeline lit le
-  # pivot complet depuis le magasin de staging au lieu de le supposer « déjà là » (le contenu
-  # n'est durable nulle part avant l'émission sans ce prérequis).
+  # PIP00 (staging durable du contenu à l'intake, ADR-0014) précède le pipeline : le pipeline lit
+  # le pivot complet depuis le magasin de staging au lieu de le supposer « déjà là ».
+  # PIP01 re-découpé en PIP01a-d (2026-06-05, décision opérateur) : item trop gros pour une session
+  # unique (nouveau module Pipeline + points d'entrée Contracts dans 5 modules + CHECK/SEND/SYNC ;
+  # pas de merge partiel). Détail des sous-items : orchestration/items/PIP.yaml. PIP02/PIP03 dépendent
+  # de PIP01c (SEND) ; la gate dépend de PIP01d (dernier maillon du pipeline cœur : SYNC+statut).
   - { id: PIP00, lot: PIP, priority: 4990, depends_on: [] }
-  - { id: PIP01, lot: PIP, priority: 5000, depends_on: [PIP00] }
-  - { id: PIP02, lot: PIP, priority: 5010, depends_on: [PIP01] }
-  - { id: PIP03, lot: PIP, priority: 5020, depends_on: [PIP01] }
+  - { id: PIP01a, lot: PIP, priority: 5000, depends_on: [PIP00] }
+  - { id: PIP01b, lot: PIP, priority: 5002, depends_on: [PIP01a] }
+  - { id: PIP01c, lot: PIP, priority: 5004, depends_on: [PIP01b] }
+  - { id: PIP01d, lot: PIP, priority: 5006, depends_on: [PIP01c] }
+  - { id: PIP02, lot: PIP, priority: 5010, depends_on: [PIP01c] }
+  - { id: PIP03, lot: PIP, priority: 5020, depends_on: [PIP01c] }
   - { id: PIP04, lot: PIP, priority: 5030, depends_on: [PIP02, PIP03] }
-  - { id: GATE_PIPELINE, type: gate, blueprint: auto-gate-item, priority: 5400, depends_on: [PIP02, PIP03, PIP04] }
+  - { id: GATE_PIPELINE, type: gate, executor: human, priority: 5400, depends_on: [PIP01d, PIP02, PIP03, PIP04] }
 
   # ── AGT ──
   - { id: AGT01, lot: AGT, priority: 5500, depends_on: [] }
@@ -196,7 +211,7 @@ items:
   - { id: ADP03, lot: ADP, priority: 6020, depends_on: [ADP02] }
   - { id: ADP04, lot: ADP, priority: 6030, depends_on: [ADP02] }
   - { id: ADP05, lot: ADP, priority: 6040, depends_on: [ADP02] }
-  - { id: GATE_ADAPTER_ENCHERESV6, type: gate, blueprint: auto-gate-item, priority: 6400, depends_on: [ADP03, ADP04, ADP05] }
+  - { id: GATE_ADAPTER_ENCHERESV6, type: gate, executor: human, priority: 6400, depends_on: [ADP03, ADP04, ADP05] }
 
   # ── API ──
   - { id: API01, lot: API, priority: 6500, depends_on: [] }

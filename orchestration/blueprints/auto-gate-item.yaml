@@ -1,4 +1,13 @@
 # Blueprint: auto-gate-item
+# DEPRECATED (manifest v11, 2026-06-05) — NOT USED BY ANY RUNNABLE GATE.
+# Every still-active segment gate is now `executor: human`: the runner runs the checks + opens a
+# PR, a human merges, and tools/orch-reconcile-gates.ps1 flips the gate to `done` on merge
+# (protocol.md Step 1.4 + MANIFEST-CONVENTIONS rule 4). The `integrate_to_main` node below degraded
+# to `blocked` on EVERY gate because merging to main is a human action (Claude Code boundary +
+# CLAUDE.md "human merge mandatory"). Only the already-`done` GATE_CORE_FOUNDATION and
+# GATE_PA_FRAMEWORK still reference this blueprint (terminal — they will not re-run); do not wire a
+# new gate to it.
+#
 # Automated integration gate. Runs at the end of a segment whose verification is
 # FULLY AUTOMATED — i.e. no human can discover anything structurally new by testing
 # (the discovery filter: would a test reveal something that profoundly alters the
@@ -25,8 +34,9 @@
 # Any failure or non-trivial conflict → the gate is marked `blocked` and left to a human.
 # Auto-integration NEVER force-merges and NEVER bypasses a red verify/test.
 #
-# Used by (manifest v10): GATE_CORE_FOUNDATION, GATE_PA_FRAMEWORK, GATE_PIPELINE,
-#                         GATE_ADAPTER_ENCHERESV6. (GATE_SOCLE is human since v10.)
+# Used by (manifest v11): GATE_CORE_FOUNDATION, GATE_PA_FRAMEWORK only — both already done /
+#                         terminal. GATE_PIPELINE + GATE_ADAPTER_ENCHERESV6 moved to executor:
+#                         human in v11; GATE_SOCLE is human since v10.
 
 name: auto-gate-item
 description: Automated integration gate — final segment verification, then merge segment branch to main

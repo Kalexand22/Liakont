@@ -52,6 +52,17 @@ public class AgentConfigLoaderTests
         config.Extraction.OdbcConnectionStringProtected.Should().BeNull();
         config.Extraction.Schedule.Should().BeEmpty();
         config.Extraction.CatchUpOnStart.Should().BeFalse();
+        config.Extraction.FixturesPath.Should().BeNull();
+    }
+
+    [Fact]
+    public void Fixtures_path_is_parsed()
+    {
+        const string json = @"{ ""platformUrl"": ""https://x.fr"", ""apiKey"": ""k"", ""extraction"": { ""adapter"": ""EncheresV6"", ""fixturesPath"": ""D:\\Fixtures\\encheresv6"" } }";
+
+        AgentConfig config = AgentConfigLoader.Parse(json, "agent.json");
+
+        config.Extraction.FixturesPath.Should().Be(@"D:\Fixtures\encheresv6");
     }
 
     [Fact]
