@@ -1,45 +1,43 @@
-# AGT02 — Contrat IExtractor + run d'extraction + client de push
+# AGT04 — Auto-update de l'agent
 
-Branche : `feat/agent-AGT02` (slot-3). Spec : F12 §2.2/§3 + F01-F02 §4 +
-ADR-0004 D2 (capacités) + ADR-0012 (ACK 2 temps).
-Frontière : `Liakont.Agent.Core` ne référence que BCL + Newtonsoft.Json + System.Data.SQLite
-(+ System.Net.Http, BCL, pour le client HTTP). Aucune logique métier.
+Spec : F12 §2.5 / §3.3 (426) / §7 décision D6 ; AGT.yaml (item AGT04).
+Frontières : l'agent ne référence que `Liakont.Agent.Contracts`, lecture seule, HTTPS sortant,
+aucune logique métier, BCL net48 uniquement (aucun paquet nouveau — ADR-0003).
 
-## Plan
+## Décisions de conception (autonomes — session d'orchestration)
 
-### Contrat (Contracts, add-only — ADR-0012)
-- [ ] `DocumentIntakeStatus` (Pending/Processed/Rejected) + `DocumentStatusResultDto`
-      (point de statut GET /api/agent/v1/documents/status).
+1. **Modèle de confiance (ADR-0013).** `updateUrl` (config heartbeat) pointe le **manifeste de
+   version** (JSON : `version`, `packageUrl`, `packageSha256`). `versionManifestSignature` (config)
+   est la signature RSA des octets bruts du manifeste, vérifiée contre une **clé publique provisionnée
+   à l'installation** (`C:\ProgramData\Liakont\update-signing.pubkey.xml`). Fail-closed : pas de clé →
+   refus. Le hash SHA-256 du paquet téléchargé est comparé à celui du manifeste signé. Un manifeste
+   non signé / signature invalide / hash non concordant → refus + signalement. Garde anti-downgrade
+   (jamais vers une version ≤ courante).
+2. **Updater = exe séparé autonome** (`Liakont.Agent.Updater`, sans Core) — « ne tourne jamais depuis
+   le dossier qu'il remplace » : lancé détaché, copié dans un dossier updater. Contrat Core↔updater =
+   **arguments de ligne de commande** (couplage faible) + un fichier statut JSON.
+3. **Deux déclencheurs, consommateurs réels (null-safe, précédent AGT03 : câblé au niveau reporter,
+   assemblage host différé) :** heartbeat `updateRequired` → `HeartbeatReporter` ; push 426 →
+   `AgentRunCycle` (fanion en mémoire sur le coordinateur partagé). Différé si run en cours (le
+   coordinateur sonde le verrou de run via `IRunActivityProbe`).
+4. **Signalement** = log opérateur français + `AutoUpdateStateStore` (statut JSON), surfacé au
+   heartbeat suivant via `LastError` (consommateur réel).
 
-### Contrat d'extraction (Core/Extraction)
-- [ ] `IExtractor` complet (GetInfo, CheckHealth, Capabilities, ExtractDocuments,
-      ExtractPayments, ListSourceTaxRegimes, GetAttachments, ListPoolDocuments).
-- [ ] `ExtractorInfo`, `HealthCheckResult`, `ExtractorCapabilities` (ADR-0004 D2),
-      `SourceAttachment`, `PoolDocument`, exceptions `SourceUnavailableException`/`SourceSchemaException`.
-- [ ] `FixtureExtractor` générique (rejoue des documents pivot JSON).
-- [ ] `EncheresV6Extractor` : placeholder mis à jour pour le contrat étendu (réel = lot ADP).
+## Étapes
 
-### Run d'extraction (Core/Extraction)
-- [ ] `ExtractionCycle` : EXTRACT (enqueue idempotent, skip déjà-ACKé) → COLLECT PDF selon
-      capacités → régimes TVA source stashés → filigrane. `ExtractionWindow` (watermark).
+- [ ] ADR-0013 (modèle de confiance + points durs Windows).
+- [ ] Core/Update : modèles (manifeste, résultat/statut), vérificateurs (signature RSA, hash),
+      seams (package source HTTPS, launcher détaché, sonde de run), `AutoUpdateStateStore`,
+      `IAutoUpdateService` + `AutoUpdateCoordinator`.
+- [ ] Câblage : `HeartbeatReporter` (updateRequired + surfaçage statut), `AgentRunCycle` (426),
+      `AgentPaths` (chemins update).
+- [ ] Projet `Liakont.Agent.Updater` (exe) : engine + abstractions + impls réelles (SCM, swap, santé)
+      + Program.
+- [ ] Tests : coordinateur (nominal, signature KO, hash KO, différé run, clé absente, downgrade),
+      vérificateurs, store, déclencheurs (heartbeat + 426), `UpdaterEngine` (nominal, rollback, timeout).
+- [ ] Solution : ajouter les 2 projets (Updater + Updater.Tests) avec mapping x86/x64.
+- [ ] verify-fast (plateforme + agent x86) vert, run-tests vert, codex-review propre.
 
-### Transport (Core/Transport)
-- [ ] `IPlatformClient` + `HttpPlatformClient` (System.Net.Http) : batch/pdf/pdf-pool/status,
-      en-têtes X-Agent-Key/X-Contract-Version, codes F12 §3.3.
-- [ ] `ExponentialBackoff` ; `QueueDrainer` (ACK 2 temps ; batching 100 ; re-découpe 413 ;
-      backoff 429/5xx/réseau ; pas de retry 400 ; idempotence).
-- [ ] `AgentRunCycle` : composition extraction + drain (injectable dans l'hôte AGT01).
+## Revue / résultats
 
-### LocalQueue (additions minimales)
-- [ ] `MarkPending(id)` + `Peek(status, kind?, max)`.
-
-### Tests (net48, serveur mocké HttpListener)
-- [ ] FixtureExtractor, ExtractionCycle, ExponentialBackoff, HttpPlatformClient (tous codes
-      F12 §3.3), QueueDrainer (ACK 2 temps, reprise après coupure, idempotence, re-découpe).
-- [ ] Contracts : DocumentStatusResultDto.
-
-### Vérification
-- [ ] verify-fast (2 solutions) + run-tests + codex-review propre.
-
-## Review
 (à compléter en fin d'item)

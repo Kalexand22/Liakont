@@ -23,6 +23,10 @@
     <Reference Include="System.Security" />
     <Reference Include="System.Data" />
     <Reference Include="System.Net.Http" />
+    <!-- Extraction du paquet d'auto-update (AGT04, ADR-0013) : ZipFile.ExtractToDirectory.
+         Assemblies du framework net48, signés Microsoft (acceptés par AgentBoundaryTests par jeton). -->
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
   </ItemGroup>
 
 </Project>

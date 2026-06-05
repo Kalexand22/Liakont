@@ -9,6 +9,7 @@ using Liakont.Agent.Core.Logging;
 using Liakont.Agent.Core.Storage;
 using Liakont.Agent.Core.Time;
 using Liakont.Agent.Core.Transport;
+using Liakont.Agent.Core.Update;
 
 /// <summary>
 /// Cycle complet de l'agent (F12 §2.2) : un run d'EXTRACTION (sur la fenêtre [filigrane, maintenant[)
@@ -33,6 +34,7 @@ public sealed class AgentRunCycle
     private readonly IClock _clock;
     private readonly IAgentLog _log;
     private readonly AgentRunJournal? _journal;
+    private readonly IAutoUpdateService? _autoUpdate;
 
     /// <summary>Crée un cycle d'agent.</summary>
     /// <param name="extractor">Extracteur source configuré.</param>
@@ -45,6 +47,11 @@ public sealed class AgentRunCycle
     /// Journal du dernier run / dernière sync (AGT03), pour que le heartbeat remonte l'issue du run
     /// (F12 §2.5). Optionnel : un cycle sans journal ne mémorise rien (rétrocompatible AGT02).
     /// </param>
+    /// <param name="autoUpdate">
+    /// Service d'auto-update (AGT04) : reçoit le SIGNAL d'un push refusé en 426 (version non supportée)
+    /// pour déclencher la mise à jour hors run. Optionnel : sans service câblé, le 426 reste journalisé
+    /// par le drainage, sans plus.
+    /// </param>
     public AgentRunCycle(
         IExtractor extractor,
         ExtractionCycle extractionCycle,
@@ -52,7 +59,8 @@ public sealed class AgentRunCycle
         LocalQueue queue,
         IClock clock,
         IAgentLog log,
-        AgentRunJournal? journal = null)
+        AgentRunJournal? journal = null,
+        IAutoUpdateService? autoUpdate = null)
     {
         _extractor = extractor ?? throw new ArgumentNullException(nameof(extractor));
         _extractionCycle = extractionCycle ?? throw new ArgumentNullException(nameof(extractionCycle));
@@ -61,6 +69,7 @@ public sealed class AgentRunCycle
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _log = log ?? throw new ArgumentNullException(nameof(log));
         _journal = journal;
+        _autoUpdate = autoUpdate;
     }
 
     /// <summary>Exécute un cycle complet : extraction (best-effort) puis drainage.</summary>
@@ -105,6 +114,13 @@ public sealed class AgentRunCycle
         }
 
         DrainResult drain = _drainer.DrainOnce(cancellationToken);
+
+        // 426 sur un push (version d'agent non supportée, F12 §3.3) : on signale au service d'auto-update.
+        // Le run détient le verrou ; la mise à jour ne partira qu'au prochain heartbeat, hors run (AGT04).
+        if (drain.StoppedBy == PlatformResponseKind.UpgradeRequired)
+        {
+            _autoUpdate?.RecordPushUpgradeRequired();
+        }
 
         if (_journal != null)
         {

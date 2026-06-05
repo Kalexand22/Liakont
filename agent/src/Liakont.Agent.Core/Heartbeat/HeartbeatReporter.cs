@@ -9,6 +9,7 @@ using Liakont.Agent.Core.Logging;
 using Liakont.Agent.Core.Storage;
 using Liakont.Agent.Core.Time;
 using Liakont.Agent.Core.Transport;
+using Liakont.Agent.Core.Update;
 
 /// <summary>
 /// Remontée d'état et pilotage centralisé de l'agent (F12 §2.5, §3.2 — AGT03). Émet un heartbeat
@@ -38,6 +39,7 @@ public sealed class HeartbeatReporter
     private readonly string _agentVersion;
     private readonly string _contractVersion;
     private readonly string _serviceState;
+    private readonly IAutoUpdateService? _autoUpdate;
 
     /// <summary>Crée un rapporteur de heartbeat.</summary>
     /// <param name="client">Couture de transport vers la plateforme.</param>
@@ -50,6 +52,7 @@ public sealed class HeartbeatReporter
     /// <param name="agentVersion">Version de l'agent installé (remontée à la plateforme).</param>
     /// <param name="serviceState">État du service à remonter (défaut « Running »).</param>
     /// <param name="contractVersion">Version de contrat émise (défaut : celle de l'assembly).</param>
+    /// <param name="autoUpdate">Service d'auto-update (AGT04) : déclenché quand la config porte une mise à jour, et source du signalement d'échec. Optionnel (câblé par la racine de composition).</param>
     public HeartbeatReporter(
         IPlatformClient client,
         LocalQueue queue,
@@ -60,7 +63,8 @@ public sealed class HeartbeatReporter
         IAgentLog log,
         string agentVersion,
         string serviceState = "Running",
-        string? contractVersion = null)
+        string? contractVersion = null,
+        IAutoUpdateService? autoUpdate = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _queue = queue ?? throw new ArgumentNullException(nameof(queue));
@@ -77,6 +81,7 @@ public sealed class HeartbeatReporter
         _agentVersion = agentVersion;
         _serviceState = string.IsNullOrWhiteSpace(serviceState) ? "Running" : serviceState;
         _contractVersion = string.IsNullOrWhiteSpace(contractVersion) ? AgentContractVersion.ContractVersion : contractVersion!;
+        _autoUpdate = autoUpdate;
     }
 
     /// <summary>
@@ -105,7 +110,7 @@ public sealed class HeartbeatReporter
             lastRunStartedUtc: run.LastRunStartedUtc,
             lastRunCompletedUtc: run.LastRunCompletedUtc,
             lastRunOutcome: run.LastRunOutcome,
-            lastError: run.LastError,
+            lastError: ResolveLastError(run.LastError),
             lastSuccessfulSyncUtc: run.LastSuccessfulSyncUtc,
             diskFreeBytes: _diskProbe.GetAvailableFreeBytes());
     }
@@ -206,5 +211,23 @@ public sealed class HeartbeatReporter
 
         _configStore.Save(configuration);
         _log.Info($"Configuration plateforme reçue au {context} et mémorisée (planification {(string.IsNullOrWhiteSpace(configuration.ExtractionSchedule) ? "locale" : "plateforme")}).");
+
+        // AGT04 : la config peut porter une mise à jour (updateRequired/updateUrl/signature). Le service
+        // d'auto-update décide (requise ? run en cours ? signature/hash valides ?) — l'agent ne fait que
+        // signaler. Optionnel : sans service câblé, le comportement est inchangé.
+        _autoUpdate?.ConsiderHeartbeatConfiguration(configuration);
+    }
+
+    // LastError remonté au heartbeat : l'erreur du dernier run d'abord ; à défaut, le signalement d'un
+    // échec d'auto-update (F12 §2.5 « signalement au heartbeat suivant », AGT04).
+    private string? ResolveLastError(string? runError)
+    {
+        if (!string.IsNullOrEmpty(runError) || _autoUpdate == null)
+        {
+            return runError;
+        }
+
+        AutoUpdateStatus? status = _autoUpdate.GetLatestStatus();
+        return status != null && !status.Succeeded ? status.Message : runError;
     }
 }
