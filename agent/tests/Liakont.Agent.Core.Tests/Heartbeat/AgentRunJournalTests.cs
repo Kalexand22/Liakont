@@ -70,6 +70,37 @@ public class AgentRunJournalTests
         });
     }
 
+    [Fact]
+    public void Read_snapshot_returns_a_consistent_view_of_the_last_run()
+    {
+        WithJournal((journal, _) =>
+        {
+            journal.RecordRunStarted(Now);
+            journal.RecordRunFinished(Now.AddMinutes(2), "Success");
+            journal.RecordSuccessfulSync(Now.AddMinutes(1));
+
+            AgentRunJournalSnapshot snapshot = journal.ReadSnapshot();
+
+            snapshot.LastRunStartedUtc.Should().Be(Now);
+            snapshot.LastRunCompletedUtc.Should().Be(Now.AddMinutes(2));
+            snapshot.LastRunOutcome.Should().Be("Success");
+            snapshot.LastSuccessfulSyncUtc.Should().Be(Now.AddMinutes(1));
+        });
+    }
+
+    [Fact]
+    public void A_corrupt_timestamp_is_treated_as_absent_not_thrown()
+    {
+        WithJournal((journal, queue) =>
+        {
+            queue.SetState(AgentRunJournal.LastRunStartedKey, "pas-une-date");
+
+            // Tolérance symétrique à PlatformConfigurationStore : valeur illisible = absente, jamais d'exception.
+            journal.LastRunStartedUtc.Should().BeNull();
+            journal.ReadSnapshot().LastRunStartedUtc.Should().BeNull();
+        });
+    }
+
     private static void WithJournal(Action<AgentRunJournal, LocalQueue> test)
     {
         using (var db = new TempDatabase())

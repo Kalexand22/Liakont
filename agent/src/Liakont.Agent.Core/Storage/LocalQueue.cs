@@ -383,6 +383,44 @@ public sealed class LocalQueue : IDisposable
         }
     }
 
+    /// <summary>
+    /// Lit plusieurs valeurs de <c>agent_state</c> sous UN SEUL verrou : aucun rédacteur ne peut
+    /// s'intercaler entre les lectures, garantissant un INSTANTANÉ COHÉRENT multi-clés (utilisé par le
+    /// heartbeat AGT03 pour ne pas mélanger l'état d'un run et celui du suivant). Une clé absente est
+    /// associée à <c>null</c>.
+    /// </summary>
+    /// <param name="keys">Les clés à lire (non nulles, non vides).</param>
+    /// <returns>La valeur de chaque clé (ou <c>null</c> si absente).</returns>
+    public IReadOnlyDictionary<string, string?> GetStates(IReadOnlyList<string> keys)
+    {
+        if (keys is null)
+        {
+            throw new ArgumentNullException(nameof(keys));
+        }
+
+        var result = new Dictionary<string, string?>(StringComparer.Ordinal);
+        lock (_operationLock)
+        {
+            foreach (string key in keys)
+            {
+                if (string.IsNullOrEmpty(key))
+                {
+                    throw new ArgumentException("La clé d'état est requise.", nameof(keys));
+                }
+
+                using (SQLiteCommand cmd = _connection.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT value FROM agent_state WHERE key = @key;";
+                    cmd.Parameters.AddWithValue("@key", key);
+                    object? value = cmd.ExecuteScalar();
+                    result[key] = value == null || value == DBNull.Value ? null : (string)value;
+                }
+            }
+        }
+
+        return result;
+    }
+
     /// <summary>Lit le filigrane d'extraction (dernière période traitée), null si jamais posé.</summary>
     public DateTime? GetExtractionWatermarkUtc()
     {

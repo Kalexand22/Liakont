@@ -1,6 +1,7 @@
 namespace Liakont.Agent.Core.Heartbeat;
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using Liakont.Agent.Core.Storage;
 
@@ -12,8 +13,9 @@ using Liakont.Agent.Core.Storage;
 /// <para>
 /// Ce n'est PAS une piste d'audit : la piste d'audit légale vit sur la plateforme. C'est un état
 /// COURANT (une seule valeur par clé, écrasée à chaque run) — la dernière erreur reflète la santé
-/// actuelle (effacée par un run sain). <see cref="LocalQueue.GetState"/> / <see cref="LocalQueue.SetState"/>
-/// sont déjà sérialisés par le verrou interne de la file (sûreté multi-thread service/heartbeat).
+/// actuelle (effacée par un run sain). La lecture est TOLÉRANTE : une valeur horaire corrompue
+/// (héritée, écriture partielle) est traitée comme absente (<c>null</c>), jamais une exception — le
+/// heartbeat doit rester silencieux et ne jamais tuer son thread (F12 §2.5).
 /// </para>
 /// </summary>
 public sealed class AgentRunJournal
@@ -33,6 +35,15 @@ public sealed class AgentRunJournal
     /// <summary>Clé d'<c>agent_state</c> : dernière synchronisation (push réussi) avec la plateforme (UTC).</summary>
     public const string LastSuccessfulSyncKey = "sync.last_successful.utc";
 
+    private static readonly string[] AllKeys =
+    {
+        LastRunStartedKey,
+        LastRunCompletedKey,
+        LastRunOutcomeKey,
+        LastErrorKey,
+        LastSuccessfulSyncKey,
+    };
+
     private readonly LocalQueue _queue;
 
     /// <summary>Crée un journal de run au-dessus de la file locale.</summary>
@@ -42,11 +53,11 @@ public sealed class AgentRunJournal
         _queue = queue ?? throw new ArgumentNullException(nameof(queue));
     }
 
-    /// <summary>Horodatage de début du dernier run (UTC), ou <c>null</c> si aucun run.</summary>
-    public DateTime? LastRunStartedUtc => ReadUtc(LastRunStartedKey);
+    /// <summary>Horodatage de début du dernier run (UTC), ou <c>null</c> si aucun run/valeur illisible.</summary>
+    public DateTime? LastRunStartedUtc => ParseUtc(_queue.GetState(LastRunStartedKey));
 
-    /// <summary>Horodatage de fin du dernier run (UTC), ou <c>null</c> si aucun run.</summary>
-    public DateTime? LastRunCompletedUtc => ReadUtc(LastRunCompletedKey);
+    /// <summary>Horodatage de fin du dernier run (UTC), ou <c>null</c> si aucun run/valeur illisible.</summary>
+    public DateTime? LastRunCompletedUtc => ParseUtc(_queue.GetState(LastRunCompletedKey));
 
     /// <summary>Résultat du dernier run, ou <c>null</c> si aucun run.</summary>
     public string? LastRunOutcome => _queue.GetState(LastRunOutcomeKey);
@@ -54,8 +65,25 @@ public sealed class AgentRunJournal
     /// <summary>Dernière erreur locale, ou <c>null</c> (aucune erreur courante).</summary>
     public string? LastError => _queue.GetState(LastErrorKey);
 
-    /// <summary>Dernière synchronisation réussie (UTC), ou <c>null</c> si aucune.</summary>
-    public DateTime? LastSuccessfulSyncUtc => ReadUtc(LastSuccessfulSyncKey);
+    /// <summary>Dernière synchronisation réussie (UTC), ou <c>null</c> si aucune/valeur illisible.</summary>
+    public DateTime? LastSuccessfulSyncUtc => ParseUtc(_queue.GetState(LastSuccessfulSyncKey));
+
+    /// <summary>
+    /// Lit toute l'issue du dernier run en UN SEUL verrou (instantané COHÉRENT) : aucun run ne peut
+    /// s'intercaler entre les lectures, donc le heartbeat ne mélange jamais l'état de deux runs
+    /// (p. ex. début du nouveau avec fin/résultat du précédent).
+    /// </summary>
+    /// <returns>Une photographie cohérente de l'issue du dernier run.</returns>
+    public AgentRunJournalSnapshot ReadSnapshot()
+    {
+        IReadOnlyDictionary<string, string?> states = _queue.GetStates(AllKeys);
+        return new AgentRunJournalSnapshot(
+            lastRunStartedUtc: ParseUtc(states[LastRunStartedKey]),
+            lastRunCompletedUtc: ParseUtc(states[LastRunCompletedKey]),
+            lastRunOutcome: states[LastRunOutcomeKey],
+            lastError: states[LastErrorKey],
+            lastSuccessfulSyncUtc: ParseUtc(states[LastSuccessfulSyncKey]));
+    }
 
     /// <summary>Enregistre le début d'un run.</summary>
     public void RecordRunStarted(DateTime startedUtc) =>
@@ -87,14 +115,21 @@ public sealed class AgentRunJournal
     private static string FormatUtc(DateTime value) =>
         value.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture);
 
-    private DateTime? ReadUtc(string key)
+    private static DateTime? ParseUtc(string? raw)
     {
-        string? raw = _queue.GetState(key);
         if (string.IsNullOrEmpty(raw))
         {
             return null;
         }
 
-        return DateTime.Parse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime();
+        try
+        {
+            return DateTime.Parse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime();
+        }
+        catch (FormatException)
+        {
+            // Valeur héritée/partielle illisible : traitée comme absente, jamais propagée (F12 §2.5).
+            return null;
+        }
     }
 }

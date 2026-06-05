@@ -95,15 +95,18 @@ public sealed class HeartbeatReporter
 
         byStatus.TryGetValue(QueueItemStatus.Error, out int errorCount);
 
+        // Issue du run lue en UN instantané cohérent (jamais l'état de deux runs mélangé).
+        AgentRunJournalSnapshot run = _journal.ReadSnapshot();
+
         return new AgentHealthSnapshot(
             serviceState: _serviceState,
             pushQueueDepth: total,
             pushQueueErrorCount: errorCount,
-            lastRunStartedUtc: _journal.LastRunStartedUtc,
-            lastRunCompletedUtc: _journal.LastRunCompletedUtc,
-            lastRunOutcome: _journal.LastRunOutcome,
-            lastError: _journal.LastError,
-            lastSuccessfulSyncUtc: _journal.LastSuccessfulSyncUtc,
+            lastRunStartedUtc: run.LastRunStartedUtc,
+            lastRunCompletedUtc: run.LastRunCompletedUtc,
+            lastRunOutcome: run.LastRunOutcome,
+            lastError: run.LastError,
+            lastSuccessfulSyncUtc: run.LastSuccessfulSyncUtc,
             diskFreeBytes: _diskProbe.GetAvailableFreeBytes());
     }
 
@@ -114,24 +117,36 @@ public sealed class HeartbeatReporter
     /// <returns>Le résultat du heartbeat (catégorie + configuration appliquée si 200).</returns>
     public HeartbeatOutcome SendHeartbeat()
     {
-        AgentHealthSnapshot snapshot = GatherSnapshot();
-        var request = new HeartbeatRequestDto(
-            contractVersion: _contractVersion,
-            agentVersion: _agentVersion,
-            sentAtUtc: _clock.UtcNow,
-            lastSuccessfulSyncUtc: snapshot.LastSuccessfulSyncUtc,
-            serviceState: snapshot.ServiceState,
-            pushQueueDepth: snapshot.PushQueueDepth,
-            pushQueueErrorCount: snapshot.PushQueueErrorCount,
-            lastRunStartedUtc: snapshot.LastRunStartedUtc,
-            lastRunCompletedUtc: snapshot.LastRunCompletedUtc,
-            lastRunOutcome: snapshot.LastRunOutcome,
-            lastError: snapshot.LastError,
-            diskFreeBytes: snapshot.DiskFreeBytes);
+        try
+        {
+            AgentHealthSnapshot snapshot = GatherSnapshot();
+            var request = new HeartbeatRequestDto(
+                contractVersion: _contractVersion,
+                agentVersion: _agentVersion,
+                sentAtUtc: _clock.UtcNow,
+                lastSuccessfulSyncUtc: snapshot.LastSuccessfulSyncUtc,
+                serviceState: snapshot.ServiceState,
+                pushQueueDepth: snapshot.PushQueueDepth,
+                pushQueueErrorCount: snapshot.PushQueueErrorCount,
+                lastRunStartedUtc: snapshot.LastRunStartedUtc,
+                lastRunCompletedUtc: snapshot.LastRunCompletedUtc,
+                lastRunOutcome: snapshot.LastRunOutcome,
+                lastError: snapshot.LastError,
+                diskFreeBytes: snapshot.DiskFreeBytes);
 
-        HeartbeatOutcome outcome = _client.SendHeartbeat(request);
-        ApplyConfiguration(outcome.Kind, outcome.Configuration, outcome.Reason, "heartbeat");
-        return outcome;
+            HeartbeatOutcome outcome = _client.SendHeartbeat(request);
+            ApplyConfiguration(outcome.Kind, outcome.Configuration, outcome.Reason, "heartbeat");
+            return outcome;
+        }
+        catch (Exception ex)
+        {
+            // Garantie « ne lève jamais » (F12 §2.5) : une erreur LOCALE (file SQLite illisible,
+            // écriture de la config en DISQUE PLEIN — précisément ce que surveille DiskFreeBytes)
+            // ne doit pas tuer le thread de fond (sous .NET Framework, une exception échappée
+            // terminerait le process). On signale en WARN et on retombe sur la configuration locale.
+            LogLocalFallback("heartbeat", ex);
+            return new HeartbeatOutcome(PlatformResponseKind.TransportError, reason: ex.Message);
+        }
     }
 
     /// <summary>
@@ -142,9 +157,19 @@ public sealed class HeartbeatReporter
     /// <returns>Le résultat de la lecture (catégorie + configuration appliquée si 200).</returns>
     public ConfigurationOutcome LoadStartupConfiguration()
     {
-        ConfigurationOutcome outcome = _client.GetConfiguration();
-        ApplyConfiguration(outcome.Kind, outcome.Configuration, outcome.Reason, "démarrage");
-        return outcome;
+        try
+        {
+            ConfigurationOutcome outcome = _client.GetConfiguration();
+            ApplyConfiguration(outcome.Kind, outcome.Configuration, outcome.Reason, "démarrage");
+            return outcome;
+        }
+        catch (Exception ex)
+        {
+            // Idem SendHeartbeat : une erreur locale au démarrage (écriture de la config reçue) ne
+            // doit pas empêcher l'agent de démarrer — il repart sur sa configuration locale (F12 §2.5).
+            LogLocalFallback("démarrage", ex);
+            return new ConfigurationOutcome(PlatformResponseKind.TransportError, reason: ex.Message);
+        }
     }
 
     /// <summary>
@@ -159,6 +184,9 @@ public sealed class HeartbeatReporter
 
     private static string FormatReason(string? reason) =>
         string.IsNullOrWhiteSpace(reason) ? string.Empty : $" — {reason}";
+
+    private void LogLocalFallback(string context, Exception ex) =>
+        _log.Warn($"Erreur locale au {context} ({ex.Message}). L'agent poursuit avec sa configuration locale.");
 
     private void ApplyConfiguration(PlatformResponseKind kind, AgentConfigurationDto? configuration, string? reason, string context)
     {

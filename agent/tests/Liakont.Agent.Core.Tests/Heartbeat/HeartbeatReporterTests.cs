@@ -133,6 +133,32 @@ public class HeartbeatReporterTests
         });
     }
 
+    [Fact]
+    public void A_local_error_while_gathering_never_throws_and_falls_back_to_local()
+    {
+        using (var db = new TempDatabase())
+        {
+            var queue = new LocalQueue(db.Path, new MutableClock(Now));
+            var log = new CapturingAgentLog();
+            var reporter = new HeartbeatReporter(
+                new FakePlatformClient(),
+                queue,
+                new AgentRunJournal(queue),
+                new FakeDiskFreeSpaceProbe(1000L),
+                new PlatformConfigurationStore(queue),
+                new MutableClock(Now),
+                log,
+                agentVersion: "1.2.3");
+            queue.Dispose(); // file locale inutilisable → la collecte d'état (CountByStatus) lèvera
+
+            Func<HeartbeatOutcome> act = () => reporter.SendHeartbeat();
+
+            HeartbeatOutcome outcome = act.Should().NotThrow().Subject;
+            outcome.Kind.Should().Be(PlatformResponseKind.TransportError);
+            log.Warnings.Should().NotBeEmpty();
+        }
+    }
+
     private static ExtractionConfig LocalConfig() => new ExtractionConfig(
         adapter: "Fixture",
         odbcConnectionStringProtected: null,
