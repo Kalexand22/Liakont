@@ -19,6 +19,7 @@ public sealed class FileAgentLog : IAgentLog
     private readonly string _directory;
     private readonly IClock _clock;
     private readonly object _sync = new object();
+    private DateTime _lastPurgeDateUtc = DateTime.MinValue;
 
     public FileAgentLog(string directory, IClock clock)
     {
@@ -59,7 +60,14 @@ public sealed class FileAgentLog : IAgentLog
             Directory.CreateDirectory(_directory);
             string file = Path.Combine(_directory, now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + "_agent.log");
             File.AppendAllText(file, line.ToString() + Environment.NewLine, Encoding.UTF8);
-            PurgeOldFiles(now);
+
+            // Purge au plus une fois par jour UTC (pas à chaque ligne) : évite d'énumérer le
+            // répertoire sur le chemin chaud, notamment lors d'une rafale d'erreurs.
+            if (now.Date != _lastPurgeDateUtc)
+            {
+                PurgeOldFiles(now);
+                _lastPurgeDateUtc = now.Date;
+            }
         }
     }
 

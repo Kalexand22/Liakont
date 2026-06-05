@@ -20,6 +20,7 @@ public sealed class AgentBackgroundRunner : IDisposable
     private readonly CancellationTokenSource _cts = new CancellationTokenSource();
     private Thread? _thread;
     private int _started;
+    private int _disposed;
 
     public AgentBackgroundRunner(Action<CancellationToken> runCycle, TimeSpan pollInterval, IAgentLog log, GracefulRunGate? gate = null)
     {
@@ -82,38 +83,57 @@ public sealed class AgentBackgroundRunner : IDisposable
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return; // Dispose idempotent
+        }
+
+        // Garantir l'arrêt du thread même si Dispose est appelé sans Stop préalable : l'annulation
+        // réveille la boucle. La boucle est protégée contre l'ObjectDisposedException (course Dispose
+        // vs thread encore vivant après une grâce dépassée).
+        _gate.RequestShutdown();
+        _cts.Cancel();
         _cts.Dispose();
     }
 
     private void Loop()
     {
-        while (!_cts.IsCancellationRequested)
+        try
         {
-            IDisposable? run = _gate.TryBeginRun();
-            if (run == null)
+            while (!_cts.IsCancellationRequested)
             {
-                break; // arrêt demandé : ne pas démarrer un nouveau cycle
-            }
+                IDisposable? run = _gate.TryBeginRun();
+                if (run == null)
+                {
+                    break; // arrêt demandé : ne pas démarrer un nouveau cycle
+                }
 
-            try
-            {
-                _runCycle(_cts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                // arrêt en cours pendant le cycle : sortie propre
-            }
-            catch (Exception ex)
-            {
-                _log.Error("Échec d'un cycle de l'agent.", ex);
-            }
-            finally
-            {
-                run.Dispose();
-            }
+                try
+                {
+                    _runCycle(_cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    // arrêt en cours pendant le cycle : sortie propre
+                }
+                catch (Exception ex)
+                {
+                    _log.Error("Échec d'un cycle de l'agent.", ex);
+                }
+                finally
+                {
+                    run.Dispose();
+                }
 
-            // Attente interruptible jusqu'au prochain cycle (l'annulation réveille immédiatement).
-            _cts.Token.WaitHandle.WaitOne(_pollInterval);
+                // Attente interruptible jusqu'au prochain cycle (l'annulation réveille immédiatement).
+                _cts.Token.WaitHandle.WaitOne(_pollInterval);
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // Course d'arrêt : l'hôte a été libéré (_cts.Dispose) pendant qu'un cycle dépassant la
+            // grâce se terminait. Le thread sort silencieusement — aucune exception ne doit
+            // s'échapper d'un thread de fond (sous .NET Framework, elle terminerait le process).
         }
     }
 }
