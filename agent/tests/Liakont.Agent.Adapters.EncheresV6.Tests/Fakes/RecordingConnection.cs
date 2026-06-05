@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using Liakont.Agent.Adapters.EncheresV6;
+using Liakont.Agent.Adapters.EncheresV6.Source;
 
 /// <summary>
 /// Connexion ADO.NET ESPIONNE pour prouver la LECTURE SEULE STRICTE du <see cref="PervasiveExtractor"/>
@@ -15,14 +16,17 @@ using Liakont.Agent.Adapters.EncheresV6;
 internal sealed class RecordingConnection : IDbConnection, IEncheresV6ConnectionFactory
 {
     private readonly IReadOnlyList<IReadOnlyDictionary<string, object?>> _documentRows;
+    private readonly IReadOnlyList<IReadOnlyDictionary<string, object?>> _regimeRows;
     private readonly Func<string, object?> _scalarResolver;
 
     public RecordingConnection(
         IReadOnlyList<IReadOnlyDictionary<string, object?>>? documentRows = null,
         Func<string, object?>? scalarResolver = null,
-        Exception? openException = null)
+        Exception? openException = null,
+        IReadOnlyList<IReadOnlyDictionary<string, object?>>? regimeRows = null)
     {
         _documentRows = documentRows ?? Array.Empty<IReadOnlyDictionary<string, object?>>();
+        _regimeRows = regimeRows ?? Array.Empty<IReadOnlyDictionary<string, object?>>();
         _scalarResolver = scalarResolver ?? (_ => 0L);
         OpenException = openException;
     }
@@ -88,7 +92,14 @@ internal sealed class RecordingConnection : IDbConnection, IEncheresV6Connection
 
     public void Dispose() => Close();
 
-    internal IDataReader CreateReader() => new FakeDataReader(_documentRows);
+    // Le jeu de lignes rejoué dépend de la requête : la requête de listage des régimes
+    // (SelectTaxRegimesSql) renvoie les lignes de régimes, toute autre requête (documents) les
+    // lignes de documents. Reproduit un vrai pilote qui répond selon le SQL exécuté.
+    internal IDataReader CreateReader(string commandText) =>
+        new FakeDataReader(
+            string.Equals(commandText, EncheresV6Schema.SelectTaxRegimesSql, StringComparison.Ordinal)
+                ? _regimeRows
+                : _documentRows);
 
     internal object? ResolveScalar(string commandText) => _scalarResolver(commandText);
 

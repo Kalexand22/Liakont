@@ -182,11 +182,28 @@ public sealed class PervasiveExtractor : IExtractor
     /// <inheritdoc />
     public IReadOnlyList<SourceTaxRegimeDto> ListSourceTaxRegimes()
     {
-        // Différé à ADP04 (lecture de Regime_tva) : liste vide, JAMAIS d'exception. ExtractionCycle.Run
-        // appelle ListSourceTaxRegimes inconditionnellement à chaque cycle (avant d'avancer le filigrane) —
-        // throw ici bloquerait l'extraction. Comportement aligné sur les autres extracteurs (placeholder,
-        // fixtures) qui renvoient vide pour le cas non encore livré.
-        return Array.Empty<SourceTaxRegimeDto>();
+        // ADP04 (F03/TVA03) : lecture des régimes déclarés (Regime_tva) + occurrences observées dans
+        // lignes_ba, en LECTURE SEULE (EncheresV6Schema.SelectTaxRegimesSql). Régimes BRUTS : ni mappés
+        // ni interprétés ici (R3, CLAUDE.md n°2) — le mapping F03 et la couverture sont plateforme.
+        // Sur source momentanément injoignable, lève SourceUnavailableException comme ExtractDocuments :
+        // ExtractionCycle.Run la propage et N'AVANCE PAS le filigrane (l'avancement suit StashSourceTaxRegimes),
+        // donc le cycle est rejoué ; l'anti-re-push (source_reference, payload_hash) rend cette ré-extraction
+        // idempotente. Liste matérialisée (pas de streaming différé) : la connexion est libérée à la sortie.
+        var regimes = new List<SourceTaxRegimeDto>();
+        using (IDbConnection connection = OpenConnection())
+        using (IDbCommand command = CreateSelect(connection, EncheresV6Schema.SelectTaxRegimesSql))
+        using (IDataReader reader = ExecuteReader(command))
+        {
+            while (ReadNext(reader))
+            {
+                string code = ReadRequiredKey(reader, EncheresV6Schema.ColCodeRegime);
+                string? label = ReadString(reader, EncheresV6Schema.ColLibelleRegime);
+                int occurrences = ReadOccurrences(reader, EncheresV6Schema.ColRegimeOccurrences);
+                regimes.Add(new SourceTaxRegimeDto(code, label, occurrences));
+            }
+        }
+
+        return regimes;
     }
 
     /// <inheritdoc />
@@ -203,7 +220,7 @@ public sealed class PervasiveExtractor : IExtractor
         return Array.Empty<PoolDocument>();
     }
 
-    private static IDbCommand CreatePeriodSelect(IDbConnection connection, string sql, DateTime fromInclusive, DateTime toExclusive)
+    private static IDbCommand CreateSelect(IDbConnection connection, string sql)
     {
         EncheresV6Schema.EnsureSelectOnly(sql);
 
@@ -211,6 +228,12 @@ public sealed class PervasiveExtractor : IExtractor
         command.CommandText = sql;
         command.CommandType = CommandType.Text;
         command.CommandTimeout = QueryTimeoutSeconds;
+        return command;
+    }
+
+    private static IDbCommand CreatePeriodSelect(IDbConnection connection, string sql, DateTime fromInclusive, DateTime toExclusive)
+    {
+        IDbCommand command = CreateSelect(connection, sql);
         AddParameter(command, fromInclusive);
         AddParameter(command, toExclusive);
         return command;
@@ -300,6 +323,28 @@ public sealed class PervasiveExtractor : IExtractor
         }
 
         return value!;
+    }
+
+    private static int ReadOccurrences(IDataReader reader, string column)
+    {
+        object value = Cell(reader, column);
+        if (value == DBNull.Value)
+        {
+            // COUNT ne renvoie pas NULL, mais on reste défensif : 0 occurrence plutôt qu'une exception.
+            return 0;
+        }
+
+        try
+        {
+            return Convert.ToInt32(value, CultureInfo.InvariantCulture);
+        }
+        catch (Exception ex) when (ex is FormatException || ex is InvalidCastException || ex is OverflowException)
+        {
+            throw new SourceSchemaException(
+                "Décompte d'occurrences illisible pour un régime de TVA (champ « " + column + " ») : schéma "
+                + "EncheresV6 incompatible. Vérifiez l'extraction des régimes source.",
+                ex);
+        }
     }
 
     private static double ReadRequiredDouble(IDataReader reader, string column)

@@ -132,6 +132,19 @@ public static class AgentConfigLoader
             }
         }
 
+        int? defaultPeriodDays = null;
+        if (extraction.DefaultPeriodDays.HasValue)
+        {
+            if (extraction.DefaultPeriodDays.Value <= 0)
+            {
+                errors.Add($"Le champ « extraction.defaultPeriodDays » doit être un entier positif (valeur reçue : {extraction.DefaultPeriodDays.Value}). Indiquez par exemple 1.");
+            }
+            else
+            {
+                defaultPeriodDays = extraction.DefaultPeriodDays.Value;
+            }
+        }
+
         if (string.IsNullOrWhiteSpace(extraction.Adapter))
         {
             return null;
@@ -142,7 +155,9 @@ public static class AgentConfigLoader
             string.IsNullOrWhiteSpace(extraction.OdbcConnectionString) ? null : extraction.OdbcConnectionString!.Trim(),
             string.IsNullOrWhiteSpace(extraction.PdfPoolPath) ? null : extraction.PdfPoolPath!.Trim(),
             schedule,
-            extraction.CatchUpOnStart ?? false);
+            extraction.CatchUpOnStart ?? false,
+            string.IsNullOrWhiteSpace(extraction.FixturesPath) ? null : extraction.FixturesPath!.Trim(),
+            defaultPeriodDays);
     }
 
     // HTTPS sortant uniquement (F12 §2.6) : la clé API (header X-Agent-Key) et les payloads fiscaux
@@ -186,10 +201,16 @@ public static class AgentConfigLoader
         [JsonProperty("pdfPoolPath")]
         public string? PdfPoolPath { get; set; }
 
+        [JsonProperty("fixturesPath")]
+        public string? FixturesPath { get; set; }
+
         [JsonProperty("schedule")]
         public IList<string>? Schedule { get; set; }
 
         [JsonProperty("catchUpOnStart")]
         public bool? CatchUpOnStart { get; set; }
+
+        [JsonProperty("defaultPeriodDays")]
+        public int? DefaultPeriodDays { get; set; }
     }
 }
