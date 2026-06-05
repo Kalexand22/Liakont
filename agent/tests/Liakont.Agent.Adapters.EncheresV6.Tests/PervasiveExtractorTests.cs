@@ -52,7 +52,7 @@ public class PervasiveExtractorTests
         caps.EmitterIdentitySource.Should().Be(EmitterIdentitySource.FromConfig);
         caps.HasCreditNoteLink.Should().BeTrue("les avoirs (lien no_ba_lettrage → origine) sont livrés par ADP03");
         caps.ExposesPayments.Should().BeTrue("les encaissements (lignes type 3, F09) sont livrés par ADP03");
-        caps.ProvidesSourceDocuments.Should().BeFalse("les PDF arrivent avec ADP05");
+        caps.ProvidesSourceDocuments.Should().BeFalse("false par défaut : aucune source PDF configurée (ADP05 pilote la capacité par config)");
         caps.ProvidesUnlinkedDocumentPool.Should().BeFalse();
     }
 
@@ -456,12 +456,37 @@ public class PervasiveExtractorTests
     }
 
     [Fact]
-    public void GetAttachments_and_pool_are_empty_until_ADP05()
+    public void GetAttachments_and_pool_are_empty_without_a_configured_pdf_source()
     {
+        // Défaut (aucune source PDF en config) : null-object → capacités false, listes vides (ADP05).
         PervasiveExtractor extractor = Extractor(Connection());
 
+        extractor.Capabilities.ProvidesSourceDocuments.Should().BeFalse();
+        extractor.Capabilities.ProvidesUnlinkedDocumentPool.Should().BeFalse();
         extractor.GetAttachments("no_ba=4500").Should().BeEmpty();
         extractor.ListPoolDocuments(PeriodFrom, PeriodTo).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void GetAttachments_and_pool_delegate_to_the_configured_pdf_source()
+    {
+        // ADP05 : la capacité PDF est portée par la config (source PDF injectée), JAMAIS par l'extraction ODBC
+        // (qui reste en lecture seule stricte des tables documentaires). On prouve la délégation + les capacités.
+        var attachment = new SourceAttachment("no_ba=4500", @"C:\pdf\bordereau-4500.pdf");
+        var pool = new PoolDocument("scan-1.pdf", @"C:\pool\scan-1.pdf");
+        var stub = new StubPdfSource(
+            providesSourceDocuments: true,
+            providesUnlinkedDocumentPool: true,
+            attachments: new[] { attachment },
+            pool: new[] { pool });
+
+        var extractor = new PervasiveExtractor(Connection(), Emitter(), OperationCategory.LivraisonBiens, stub);
+
+        extractor.Capabilities.ProvidesSourceDocuments.Should().BeTrue();
+        extractor.Capabilities.ProvidesUnlinkedDocumentPool.Should().BeTrue();
+        extractor.GetAttachments("no_ba=4500").Should().ContainSingle().Which.Should().BeSameAs(attachment);
+        stub.LastRequestedReference.Should().Be("no_ba=4500");
+        extractor.ListPoolDocuments(PeriodFrom, PeriodTo).Should().ContainSingle().Which.Should().BeSameAs(pool);
     }
 
     [Fact]

@@ -27,62 +27,73 @@ public sealed class EncheresV6FixtureExtractor : IExtractor
     private readonly List<EncheresV6Bordereau> _bordereaux;
     private readonly List<EncheresV6Regime> _regimes;
     private readonly Dictionary<string, EncheresV6Bordereau> _byNoBa;
+    private readonly IEncheresV6PdfSource _pdfSource;
 
     private EncheresV6FixtureExtractor(
         EncheresV6SourceSnapshot snapshot,
         EncheresV6EmitterIdentity emitter,
-        OperationCategory operationCategory)
+        OperationCategory operationCategory,
+        IEncheresV6PdfSource? pdfSource)
     {
         _emitter = emitter ?? throw new ArgumentNullException(nameof(emitter));
         _operationCategory = operationCategory;
         _bordereaux = snapshot.Bordereaux;
         _regimes = snapshot.Regimes;
         _byNoBa = IndexByNoBa(_bordereaux);
+
+        // Source PDF (ADP05) : la capacité PDF est PORTÉE PAR LA CONFIG (la source des PDF est la même que
+        // les documents viennent des fixtures ou de l'ODBC). Sans config PDF, null-object → capacités false.
+        _pdfSource = pdfSource ?? NullEncheresV6PdfSource.Instance;
+        Capabilities = new ExtractorCapabilities(
+            providesSourceDocuments: _pdfSource.ProvidesSourceDocuments,
+            providesUnlinkedDocumentPool: _pdfSource.ProvidesUnlinkedDocumentPool,
+            hasDetailedLines: true,
+            hasCreditNoteLink: true,
+            exposesPayments: true,
+            regimeKeyShape: RegimeKeyShape.Simple,
+            emitterIdentitySource: EmitterIdentitySource.FromConfig,
+            hasStoredHeaderTotal: true,
+            isMutableAfterIssue: false,
+            numberUniquenessScope: NumberUniquenessScope.Global);
     }
 
     /// <inheritdoc />
     public string SourceName => "EncheresV6";
 
     /// <inheritdoc />
-    public ExtractorCapabilities Capabilities { get; } = new ExtractorCapabilities(
-        providesSourceDocuments: false,
-        providesUnlinkedDocumentPool: false,
-        hasDetailedLines: true,
-        hasCreditNoteLink: true,
-        exposesPayments: true,
-        regimeKeyShape: RegimeKeyShape.Simple,
-        emitterIdentitySource: EmitterIdentitySource.FromConfig,
-        hasStoredHeaderTotal: true,
-        isMutableAfterIssue: false,
-        numberUniquenessScope: NumberUniquenessScope.Global);
+    public ExtractorCapabilities Capabilities { get; }
 
     /// <summary>Construit un extracteur depuis un contenu JSON de fixtures EncheresV6.</summary>
     /// <param name="json">Le contenu JSON (régimes + bordereaux).</param>
     /// <param name="emitter">Identité de l'émetteur (paramétrage tenant).</param>
     /// <param name="operationCategory">Nature d'opération de la source (paramétrage — F01-F02 §7 #3).</param>
+    /// <param name="pdfSource">Source des PDF de bordereaux (ADP05). <c>null</c> ⇒ aucune capacité PDF déclarée.</param>
     /// <returns>L'extracteur de fixtures correspondant.</returns>
     public static EncheresV6FixtureExtractor FromJson(
         string json,
         EncheresV6EmitterIdentity emitter,
-        OperationCategory operationCategory)
+        OperationCategory operationCategory,
+        IEncheresV6PdfSource? pdfSource = null)
     {
         if (json is null)
         {
             throw new ArgumentNullException(nameof(json));
         }
 
-        return new EncheresV6FixtureExtractor(Deserialize(json), emitter, operationCategory);
+        return new EncheresV6FixtureExtractor(Deserialize(json), emitter, operationCategory, pdfSource);
     }
 
     /// <summary>Construit un extracteur depuis un fichier de fixtures EncheresV6.</summary>
     /// <param name="path">Chemin du fichier JSON.</param>
     /// <param name="emitter">Identité de l'émetteur (paramétrage tenant).</param>
     /// <param name="operationCategory">Nature d'opération de la source (paramétrage — F01-F02 §7 #3).</param>
+    /// <param name="pdfSource">Source des PDF de bordereaux (ADP05). <c>null</c> ⇒ aucune capacité PDF déclarée.</param>
     /// <returns>L'extracteur de fixtures correspondant.</returns>
     public static EncheresV6FixtureExtractor FromFile(
         string path,
         EncheresV6EmitterIdentity emitter,
-        OperationCategory operationCategory)
+        OperationCategory operationCategory,
+        IEncheresV6PdfSource? pdfSource = null)
     {
         if (string.IsNullOrWhiteSpace(path))
         {
@@ -94,7 +105,7 @@ public sealed class EncheresV6FixtureExtractor : IExtractor
             throw new SourceSchemaException($"Le fichier de fixtures EncheresV6 est introuvable : « {path} ».");
         }
 
-        return FromJson(File.ReadAllText(path), emitter, operationCategory);
+        return FromJson(File.ReadAllText(path), emitter, operationCategory, pdfSource);
     }
 
     /// <summary>
@@ -104,11 +115,13 @@ public sealed class EncheresV6FixtureExtractor : IExtractor
     /// <param name="directory">Répertoire des fixtures EncheresV6.</param>
     /// <param name="emitter">Identité de l'émetteur (paramétrage tenant).</param>
     /// <param name="operationCategory">Nature d'opération de la source (paramétrage — F01-F02 §7 #3).</param>
+    /// <param name="pdfSource">Source des PDF de bordereaux (ADP05). <c>null</c> ⇒ aucune capacité PDF déclarée.</param>
     /// <returns>L'extracteur de fixtures correspondant.</returns>
     public static EncheresV6FixtureExtractor FromDirectory(
         string directory,
         EncheresV6EmitterIdentity emitter,
-        OperationCategory operationCategory)
+        OperationCategory operationCategory,
+        IEncheresV6PdfSource? pdfSource = null)
     {
         if (string.IsNullOrWhiteSpace(directory))
         {
@@ -128,7 +141,7 @@ public sealed class EncheresV6FixtureExtractor : IExtractor
             merged.Bordereaux.AddRange(snapshot.Bordereaux);
         }
 
-        return new EncheresV6FixtureExtractor(merged, emitter, operationCategory);
+        return new EncheresV6FixtureExtractor(merged, emitter, operationCategory, pdfSource);
     }
 
     /// <inheritdoc />
@@ -226,16 +239,13 @@ public sealed class EncheresV6FixtureExtractor : IExtractor
     /// <inheritdoc />
     public IReadOnlyList<SourceAttachment> GetAttachments(string sourceReference)
     {
-        // Capacité PDF non déclarée en V1 du mode fixtures (livrée par ADP05) : liste vide, jamais d'exception.
-        return Array.Empty<SourceAttachment>();
+        // Délégation à la source PDF configurée (ADP05) : dossier de fichiers, ou null-object (vide) sans config.
+        return _pdfSource.GetAttachments(sourceReference);
     }
 
     /// <inheritdoc />
-    public IEnumerable<PoolDocument> ListPoolDocuments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc)
-    {
-        // Capacité pool non déclarée en V1 du mode fixtures (livrée par ADP05) : vide, jamais d'exception.
-        return Array.Empty<PoolDocument>();
-    }
+    public IEnumerable<PoolDocument> ListPoolDocuments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc) =>
+        _pdfSource.ListPoolDocuments(fromInclusiveUtc, toExclusiveUtc);
 
     private static EncheresV6SourceSnapshot Deserialize(string json)
     {

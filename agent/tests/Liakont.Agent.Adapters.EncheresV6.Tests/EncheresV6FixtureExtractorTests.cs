@@ -43,7 +43,7 @@ public class EncheresV6FixtureExtractorTests
         caps.HasStoredHeaderTotal.Should().BeTrue();
         caps.RegimeKeyShape.Should().Be(RegimeKeyShape.Simple);
         caps.EmitterIdentitySource.Should().Be(EmitterIdentitySource.FromConfig);
-        caps.ProvidesSourceDocuments.Should().BeFalse("la capacité PDF arrive avec ADP05");
+        caps.ProvidesSourceDocuments.Should().BeFalse("false par défaut : aucune source PDF configurée (ADP05 pilote la capacité par config)");
         caps.ProvidesUnlinkedDocumentPool.Should().BeFalse();
     }
 

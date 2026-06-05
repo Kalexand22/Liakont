@@ -46,6 +46,14 @@ internal static class EncheresV6RowMapper
     /// <summary>Type de pièce source « avoir ».</summary>
     internal const string PieceAvoir = "A";
 
+    /// <summary>
+    /// Préfixe de la référence source d'un document (<see cref="PivotDocumentDto.SourceReference"/> =
+    /// <c>"no_ba=&lt;valeur&gt;"</c>). Source de vérité UNIQUE du format, partagée avec
+    /// <see cref="FileSystemEncheresV6PdfSource"/> (qui en extrait le <c>no_ba</c> pour retrouver les PDF
+    /// liés d'un document, ADP05) : la production (<see cref="SourceRef"/>) et la consommation restent en phase.
+    /// </summary>
+    internal const string SourceReferencePrefix = "no_ba=";
+
     private const string DeviseDomestique = "EUR";
 
     /// <summary>
@@ -236,7 +244,7 @@ internal static class EncheresV6RowMapper
         }
     }
 
-    private static string SourceRef(string noBa) => "no_ba=" + noBa;
+    private static string SourceRef(string noBa) => SourceReferencePrefix + noBa;
 
     private static string PaymentSourceRef(EncheresV6Bordereau bordereau, EncheresV6Ligne reglement)
     {
