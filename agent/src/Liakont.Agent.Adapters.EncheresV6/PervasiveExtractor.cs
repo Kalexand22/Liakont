@@ -152,7 +152,15 @@ public sealed class PervasiveExtractor : IExtractor
                     current = ReadBordereauHeader(reader, noBa);
                 }
 
-                current.Lignes.Add(ReadLigne(reader));
+                // LEFT JOIN : une vente sans ligne de document (type 4/2) produit une ligne d'entête seule
+                // (colonnes ligne NULL). On n'ajoute alors aucune ligne — le document est tout de même émis
+                // (lignes vides), comme en mode fixtures : jamais d'omission silencieuse d'une vente
+                // (« bloquer plutôt qu'envoyer faux » ; la cohérence lignes↔total est tranchée par la
+                // Validation plateforme, pas par l'adaptateur).
+                if (!string.IsNullOrEmpty(ReadString(reader, EncheresV6Schema.ColTypeLigne)))
+                {
+                    current.Lignes.Add(ReadLigne(reader));
+                }
             }
 
             if (current != null)
@@ -163,14 +171,23 @@ public sealed class PervasiveExtractor : IExtractor
     }
 
     /// <inheritdoc />
-    public IEnumerable<PivotPaymentDto> ExtractPayments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc) =>
-        throw new NotSupportedException(
-            "L'extraction des encaissements EncheresV6 (lignes type 3, F09) est livrée par ADP03.");
+    public IEnumerable<PivotPaymentDto> ExtractPayments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc)
+    {
+        // Différé à ADP03 (lignes type 3, F09) : énumération vide, JAMAIS d'exception (symétrie avec
+        // GetAttachments/ListPoolDocuments). La capacité ExposesPayments=false signale déjà l'absence ;
+        // un consommateur reçoit un flux vide plutôt qu'un crash non typé (contrat IExtractor R7).
+        return Array.Empty<PivotPaymentDto>();
+    }
 
     /// <inheritdoc />
-    public IReadOnlyList<SourceTaxRegimeDto> ListSourceTaxRegimes() =>
-        throw new NotSupportedException(
-            "La liste des régimes de TVA source EncheresV6 (table Regime_tva) est livrée par ADP04.");
+    public IReadOnlyList<SourceTaxRegimeDto> ListSourceTaxRegimes()
+    {
+        // Différé à ADP04 (lecture de Regime_tva) : liste vide, JAMAIS d'exception. ExtractionCycle.Run
+        // appelle ListSourceTaxRegimes inconditionnellement à chaque cycle (avant d'avancer le filigrane) —
+        // throw ici bloquerait l'extraction. Comportement aligné sur les autres extracteurs (placeholder,
+        // fixtures) qui renvoient vide pour le cas non encore livré.
+        return Array.Empty<SourceTaxRegimeDto>();
+    }
 
     /// <inheritdoc />
     public IReadOnlyList<SourceAttachment> GetAttachments(string sourceReference)

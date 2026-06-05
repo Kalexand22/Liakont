@@ -135,6 +135,7 @@ public class PervasiveExtractorTests
         command.CommandText.Should().Be(EncheresV6Schema.SelectDocumentsSql);
         command.CommandText.Should().Contain("bordereau_ou_avoir = 'B'");
         command.CommandText.Should().Contain("type_ligne IN ('4', '2')");
+        command.CommandText.Should().Contain("LEFT JOIN");
         command.CommandText.Should().Contain("e.date_vente >= ? AND e.date_vente < ?");
         command.Parameters.Count.Should().Be(2, "période bornée par deux paramètres positionnels");
         ((FakeParameter)command.Parameters[0]!).Value.Should().Be(PeriodFrom);
@@ -187,6 +188,29 @@ public class PervasiveExtractorTests
         Action act = () => Drain(Extractor(connection).ExtractDocuments(PeriodFrom, PeriodTo));
 
         act.Should().Throw<SourceSchemaException>();
+    }
+
+    [Fact]
+    public void ExtractDocuments_emits_sale_with_no_document_lines_without_dropping_it()
+    {
+        // Ligne d'entête seule (LEFT JOIN sans ligne 4/2 correspondante) : colonnes ligne à NULL.
+        var headerOnly = SaleRow("4800", "F-2026-0800", null, null, "4", "x", 0.0, 0.0, "5", "ligne#1");
+        headerOnly[EncheresV6Schema.ColTypeLigne] = null;
+        headerOnly[EncheresV6Schema.ColDesignation] = null;
+        headerOnly[EncheresV6Schema.ColMontantHt] = null;
+        headerOnly[EncheresV6Schema.ColMontantTva] = null;
+        headerOnly[EncheresV6Schema.ColTauxTva] = null;
+        headerOnly[EncheresV6Schema.ColQuantite] = null;
+        headerOnly[EncheresV6Schema.ColPrixUnitaire] = null;
+        headerOnly[EncheresV6Schema.ColCodeRegime] = null;
+        headerOnly[EncheresV6Schema.ColNoLigne] = null;
+
+        PivotDocumentDto doc = Extractor(Connection(new[] { headerOnly }))
+            .ExtractDocuments(PeriodFrom, PeriodTo)
+            .Single();
+
+        doc.SourceReference.Should().Be("no_ba=4800");
+        doc.Lines.Should().BeEmpty("une vente sans ligne 4/2 est émise (jamais omise silencieusement), pas droppée");
     }
 
     [Fact]
@@ -287,19 +311,17 @@ public class PervasiveExtractorTests
     }
 
     [Fact]
-    public void ExtractPayments_is_deferred_to_ADP03()
+    public void ExtractPayments_is_deferred_to_ADP03_and_returns_empty()
     {
-        Action act = () => Drain(Extractor(Connection()).ExtractPayments(PeriodFrom, PeriodTo));
-
-        act.Should().Throw<NotSupportedException>();
+        Extractor(Connection()).ExtractPayments(PeriodFrom, PeriodTo)
+            .Should().BeEmpty("différé à ADP03 mais JAMAIS throw (symétrie pièces jointes/pool, contrat R7)");
     }
 
     [Fact]
-    public void ListSourceTaxRegimes_is_deferred_to_ADP04()
+    public void ListSourceTaxRegimes_is_deferred_to_ADP04_and_returns_empty()
     {
-        Action act = () => Extractor(Connection()).ListSourceTaxRegimes();
-
-        act.Should().Throw<NotSupportedException>();
+        Extractor(Connection()).ListSourceTaxRegimes()
+            .Should().BeEmpty("différé à ADP04 mais JAMAIS throw : ExtractionCycle l'appelle à chaque cycle avant le filigrane");
     }
 
     [Fact]

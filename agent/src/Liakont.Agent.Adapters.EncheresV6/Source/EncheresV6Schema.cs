@@ -105,11 +105,11 @@ internal static class EncheresV6Schema
 
     /// <summary>
     /// Requête d'extraction des DOCUMENTS (ventes) d'une période — F01-F02 §4.3 :
-    /// <c>entete_ba WHERE bordereau_ou_avoir='B' AND date_vente ∈ [from, to[</c>, jointe à ses lignes
-    /// de document (<c>type_ligne IN ('4','2')</c>), triée par <c>no_ba</c> puis <c>no_ligne</c> pour
+    /// <c>entete_ba WHERE bordereau_ou_avoir='B' AND date_vente ∈ [from, to[</c>, jointe en LEFT JOIN à ses lignes
+    /// de document (<c>type_ligne IN ('4','2')</c> dans la clause ON), triée par <c>no_ba</c> puis <c>no_ligne</c> pour
     /// permettre un regroupement par bordereau EN STREAMING (R8 — un seul lecteur, mémoire O(1 doc)).
     /// <para>
-    /// Les avoirs (<c>'A'</c>) et les règlements (<c>type_ligne='3'</c>) sont volontairement EXCLUS ici :
+    /// Le LEFT JOIN (filtre de type dans le ON) garantit qu'une vente sans ligne 4/2 N'EST PAS omise silencieusement : elle ressort en ligne d'entête seule (colonnes ligne NULL) et le document est émis sans ligne (jamais de perte d'une vente — « bloquer plutôt qu'envoyer faux »). Les avoirs (<c>'A'</c>) et les règlements (<c>type_ligne='3'</c>) sont volontairement EXCLUS ici :
     /// ils relèvent d'ADP03. Le code régime brut est porté par <c>lignes_ba.code_regime</c> (R3 — aucune
     /// jointure <c>Regime_tva</c> nécessaire pour le document ; le libellé du régime est exposé par
     /// <c>ListSourceTaxRegimes</c>, ADP04). Période sur <c>date_vente</c> conformément à la requête
@@ -128,10 +128,10 @@ internal static class EncheresV6Schema
         + ", l." + ColTauxTva + ", l." + ColQuantite + ", l." + ColPrixUnitaire + ", l." + ColCodeRegime
         + ", l." + ColNoLigne
         + " FROM " + TableEntete + " e"
-        + " INNER JOIN " + TableLignes + " l ON l." + ColNoBa + " = e." + ColNoBa
+        + " LEFT JOIN " + TableLignes + " l ON l." + ColNoBa + " = e." + ColNoBa
+        + " AND l." + ColTypeLigne + " IN ('" + EncheresV6RowMapper.LigneAdjudication + "', '" + EncheresV6RowMapper.LigneFrais + "')"
         + " WHERE e." + ColBordereauOuAvoir + " = '" + PieceVente + "'"
         + " AND e." + ColDateVente + " >= ? AND e." + ColDateVente + " < ?"
-        + " AND l." + ColTypeLigne + " IN ('" + EncheresV6RowMapper.LigneAdjudication + "', '" + EncheresV6RowMapper.LigneFrais + "')"
         + " ORDER BY e." + ColNoBa + ", l." + ColNoLigne;
 
     /// <summary>Tables dont la présence est contrôlée par <c>CheckHealth</c> (accès + comptage rapide).</summary>
