@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- Mêmes relaxations de conventions xUnit que le projet de test du Fake (dossier ne commençant
+         pas par « Tests. ») — cf. Liakont.PaClients.Fake.Tests.Unit. -->
+    <NoWarn>$(NoWarn);CA1707;SA1116;SA1117;SA1202;SA1210;SA1512</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+    <!-- Gardes de frontière + encapsulation du plug-in (PAB01). -->
+    <PackageReference Include="NetArchTest.Rules" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- ServiceCollection / AddHttpClient pour tester AddB2BrouterPaClient + résolution via le registre. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Liakont.PaClients.B2Brouter/Liakont.PaClients.B2Brouter.csproj" />
+    <!-- Le registre du module (AddTransmissionModule) pour prouver la résolution du plug-in par clé. -->
+    <ProjectReference Include="../../Modules/Transmission/Infrastructure/Liakont.Modules.Transmission.Infrastructure.csproj" />
+    <!-- PivotDocumentDto pour construire des documents de test (facture 20 %, marge 2 lignes, avoir). -->
+    <ProjectReference Include="../../Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
+  </ItemGroup>
+</Project>
