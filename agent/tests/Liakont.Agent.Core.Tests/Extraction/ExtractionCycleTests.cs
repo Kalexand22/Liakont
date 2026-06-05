@@ -168,7 +168,9 @@ public class ExtractionCycleTests
         using (var db = new TempDatabase())
         using (var queue = new LocalQueue(db.Path, new MutableClock(Clock)))
         {
-            var extractor = new RegimeUnavailableExtractor(new[] { PivotTestData.Document("REF-1", Mid) });
+            var extractor = new RegimeFailingExtractor(
+                new[] { PivotTestData.Document("REF-1", Mid) },
+                () => new SourceUnavailableException("source momentanément indisponible (test)."));
             var cycle = new ExtractionCycle(queue, new NullAgentLog());
 
             ExtractionResult result = cycle.Run(extractor, From, To);
@@ -179,19 +181,42 @@ public class ExtractionCycleTests
         }
     }
 
-    // Extracteur qui réussit l'extraction des documents mais dont le listage des régimes échoue de
-    // façon PASSAGÈRE (SourceUnavailableException) — éprouve le caractère best-effort du stash de régimes.
-    private sealed class RegimeUnavailableExtractor : IExtractor
+    [Fact]
+    public void Run_propagates_and_holds_watermark_when_regime_listing_is_fatally_broken()
+    {
+        using (var db = new TempDatabase())
+        using (var queue = new LocalQueue(db.Path, new MutableClock(Clock)))
+        {
+            var extractor = new RegimeFailingExtractor(
+                new[] { PivotTestData.Document("REF-1", Mid) },
+                () => new SourceSchemaException("schéma des régimes incompatible (test)."));
+            var cycle = new ExtractionCycle(queue, new NullAgentLog());
+
+            Action act = () => cycle.Run(extractor, From, To);
+
+            act.Should().Throw<SourceSchemaException>("une erreur de SCHÉMA des régimes est FATALE, jamais avalée par le best-effort");
+            queue.GetExtractionWatermarkUtc().Should().BeNull("un échec fatal du listage des régimes bloque l'avancée du filigrane (intervention requise)");
+        }
+    }
+
+    // Extracteur qui réussit l'extraction des documents mais dont le listage des régimes échoue avec
+    // l'exception fournie — éprouve les DEUX branches du stash best-effort (passagère vs fatale).
+    private sealed class RegimeFailingExtractor : IExtractor
     {
         private readonly IReadOnlyList<PivotDocumentDto> _documents;
+        private readonly Func<Exception> _onListRegimes;
 
-        public RegimeUnavailableExtractor(IReadOnlyList<PivotDocumentDto> documents) => _documents = documents;
+        public RegimeFailingExtractor(IReadOnlyList<PivotDocumentDto> documents, Func<Exception> onListRegimes)
+        {
+            _documents = documents;
+            _onListRegimes = onListRegimes;
+        }
 
-        public string SourceName => "RegimeUnavailable";
+        public string SourceName => "RegimeFailing";
 
         public ExtractorCapabilities Capabilities { get; } = new ExtractorCapabilities();
 
-        public ExtractorInfo GetInfo() => new ExtractorInfo("RegimeUnavailable", "1.0.0", "Test");
+        public ExtractorInfo GetInfo() => new ExtractorInfo("RegimeFailing", "1.0.0", "Test");
 
         public HealthCheckResult CheckHealth() => HealthCheckResult.Healthy("test");
 
@@ -200,8 +225,7 @@ public class ExtractionCycleTests
         public IEnumerable<PivotPaymentDto> ExtractPayments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc) =>
             Array.Empty<PivotPaymentDto>();
 
-        public IReadOnlyList<SourceTaxRegimeDto> ListSourceTaxRegimes() =>
-            throw new SourceUnavailableException("source momentanément indisponible (test).");
+        public IReadOnlyList<SourceTaxRegimeDto> ListSourceTaxRegimes() => throw _onListRegimes();
 
         public IReadOnlyList<SourceAttachment> GetAttachments(string sourceReference) => Array.Empty<SourceAttachment>();
 

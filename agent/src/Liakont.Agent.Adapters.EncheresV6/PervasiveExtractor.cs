@@ -185,10 +185,12 @@ public sealed class PervasiveExtractor : IExtractor
         // ADP04 (F03/TVA03) : lecture des régimes déclarés (Regime_tva) + occurrences observées dans
         // lignes_ba, en LECTURE SEULE (EncheresV6Schema.SelectTaxRegimesSql). Régimes BRUTS : ni mappés
         // ni interprétés ici (R3, CLAUDE.md n°2) — le mapping F03 et la couverture sont plateforme.
-        // Sur source momentanément injoignable, lève SourceUnavailableException comme ExtractDocuments :
-        // ExtractionCycle.Run la propage et N'AVANCE PAS le filigrane (l'avancement suit StashSourceTaxRegimes),
-        // donc le cycle est rejoué ; l'anti-re-push (source_reference, payload_hash) rend cette ré-extraction
-        // idempotente. Liste matérialisée (pas de streaming différé) : la connexion est libérée à la sortie.
+        // Erreurs TYPÉES (R7) comme ExtractDocuments : SourceUnavailableException (réessayable) sur source
+        // momentanément injoignable, SourceSchemaException (fatale) sur schéma incompatible. Côté consommateur,
+        // ExtractionCycle traite le catalogue de régimes comme BEST-EFFORT : il CAPTURE une SourceUnavailableException
+        // passagère (conserve le dernier état, AVANCE quand même le filigrane — les documents déjà extraits sont
+        // idempotents) et réessaie au cycle suivant ; seule SourceSchemaException (fatale) se propage et bloque le
+        // filigrane. Liste matérialisée (pas de streaming différé) : la connexion est libérée à la sortie.
         var regimes = new List<SourceTaxRegimeDto>();
         using (IDbConnection connection = OpenConnection())
         using (IDbCommand command = CreateSelect(connection, EncheresV6Schema.SelectTaxRegimesSql))
