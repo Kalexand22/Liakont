@@ -242,6 +242,54 @@ public sealed class B2BrouterClientReadTests
         handler.CallCount.Should().Be(1, "seul le GET a eu lieu, aucune écriture");
     }
 
+    [Fact]
+    public async Task Ensure_Create_Post_Server_Error_Throws()
+    {
+        // GET → 404 (pas de route GET) ; POST → 503.
+        var handler = new RoutingHttpMessageHandler().On(HttpMethod.Post, SettingPath, HttpStatusCode.ServiceUnavailable);
+        var client = CreateClient(handler);
+
+        var act = () => client.EnsureTaxReportSettingAsync(DesiredSetting());
+
+        await act.Should().ThrowAsync<HttpRequestException>(
+            "un échec serveur sur le POST de création ne doit jamais réussir silencieusement (CLAUDE.md n°3)");
+    }
+
+    [Fact]
+    public async Task Ensure_Update_Patch_Server_Error_Throws()
+    {
+        const string current = """{"naf_code":"62","start_date":"2026-01-01","type_operation":"B2C","enterprise_size":"PME","cin_scheme":"0002"}""";
+        var handler = new RoutingHttpMessageHandler()
+            .On(HttpMethod.Get, SettingPath, HttpStatusCode.OK, current)
+            .On(HttpMethod.Patch, SettingPath, HttpStatusCode.ServiceUnavailable);
+        var client = CreateClient(handler);
+
+        var act = () => client.EnsureTaxReportSettingAsync(DesiredSetting());
+
+        await act.Should().ThrowAsync<HttpRequestException>(
+            "un échec serveur sur le PATCH de mise à jour ne doit jamais réussir silencieusement (CLAUDE.md n°3)");
+    }
+
+    [Fact]
+    public async Task Ensure_Null_Desired_Optional_Already_Set_On_Pa_Does_Not_Patch()
+    {
+        // La PA porte déjà naf_code ; la demande ne le fournit pas (null) → on ne le gère pas → pas de PATCH.
+        const string current = """{"naf_code":"62","start_date":"2026-09-01","type_operation":"B2C","enterprise_size":"PME","cin_scheme":"0002"}""";
+        var handler = new RoutingHttpMessageHandler().On(HttpMethod.Get, SettingPath, HttpStatusCode.OK, current);
+        var desired = new PaTaxReportSettingRequest
+        {
+            // NafCode et CinScheme volontairement omis (null) : non gérés par ce tenant.
+            StartDate = new DateOnly(2026, 9, 1),
+            TypeOperation = "B2C",
+            EnterpriseSize = "PME",
+        };
+
+        var client = CreateClient(handler);
+        await client.EnsureTaxReportSettingAsync(desired);
+        handler.CallCount.Should().Be(1, "optionnels non gérés (null) déjà posés côté PA → aucun PATCH (idempotence convergente)");
+        handler.Requests[0].Method.Should().Be(HttpMethod.Get);
+    }
+
     private static PaTaxReportSettingRequest DesiredSetting() => new()
     {
         NafCode = "62",

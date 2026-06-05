@@ -103,17 +103,20 @@ internal static class B2BrouterReadMapper
     };
 
     /// <summary>
-    /// Vrai si le réglage courant correspond DÉJÀ à la demande (idempotence F05 §2 : aucune écriture
-    /// si rien ne change). Compare champ à champ les valeurs significatives.
+    /// Vrai si le réglage courant correspond DÉJÀ à la demande (idempotence F05 §2 : aucune écriture si
+    /// rien ne change). Les champs REQUIS (start_date, type_operation, enterprise_size) sont toujours
+    /// comparés ; un optionnel DÉSIRÉ <c>null</c> (NafCode, CinScheme) n'est PAS comparé : <see cref="ToWire"/>
+    /// l'omet (WhenWritingNull) donc ne l'écrit pas — le comparer forcerait un PATCH PERPÉTUEL qui ne
+    /// viderait jamais le champ côté PA (non-convergence). On ne compare un optionnel que s'il est réellement demandé.
     /// </summary>
     /// <param name="current">Réglage lu côté PA.</param>
     /// <param name="desired">Réglage souhaité.</param>
     public static bool SettingMatches(PaTaxReportSetting current, PaTaxReportSettingRequest desired) =>
-        current.NafCode == desired.NafCode
-        && current.StartDate == desired.StartDate
+        current.StartDate == desired.StartDate
         && current.TypeOperation == desired.TypeOperation
         && current.EnterpriseSize == desired.EnterpriseSize
-        && current.CinScheme == desired.CinScheme;
+        && (desired.NafCode is null || current.NafCode == desired.NafCode)
+        && (desired.CinScheme is null || current.CinScheme == desired.CinScheme);
 
     private static PaTaxReport ToContract(B2BrouterTaxReport wire, string? fallbackId, string? rawResponse) => new()
     {
