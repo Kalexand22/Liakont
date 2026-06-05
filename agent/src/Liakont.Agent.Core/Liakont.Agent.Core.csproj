@@ -7,4 +7,26 @@
     <ProjectReference Include="..\..\..\src\Contracts\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj" />
   </ItemGroup>
 
+  <!-- File locale (F12 §2.3) + sérialiseur JSON de la configuration agent (Newtonsoft, net48 —
+       déjà au catalogue central pour les items AGT). Ni l'un ni l'autre n'ouvre une frontière
+       vers la plateforme : System.Data.SQLite et Newtonsoft.Json sont tolérés par la liste blanche
+       de AgentBoundaryTests (préfixe System.* / sérialiseur déclaré). -->
+  <ItemGroup>
+    <PackageReference Include="System.Data.SQLite.Core" />
+    <PackageReference Include="Newtonsoft.Json" />
+  </ItemGroup>
+
+  <!-- Assemblies du framework net48 : DPAPI (ProtectedData), System.Data (ADO.NET pour SQLite) et
+       System.Net.Http (client de push HTTPS sortant, AGT02). Tous signés par une clé Microsoft :
+       la liste blanche de AgentBoundaryTests les accepte par jeton de clé publique (aucune fuite). -->
+  <ItemGroup>
+    <Reference Include="System.Security" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Net.Http" />
+    <!-- Extraction du paquet d'auto-update (AGT04, ADR-0013) : ZipFile.ExtractToDirectory.
+         Assemblies du framework net48, signés Microsoft (acceptés par AgentBoundaryTests par jeton). -->
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+  </ItemGroup>
+
 </Project>

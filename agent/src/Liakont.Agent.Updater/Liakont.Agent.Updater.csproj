@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Updater AUTONOME de l'agent (AGT04, ADR-0013) : un petit exe séparé, SANS dépendance à
+       Liakont.Agent.Core (ni SQLite, ni contrat). Il survit à l'arrêt du service qu'il pilote et ne
+       tourne jamais depuis le dossier qu'il remplace. Contrat agent ↔ updater = arguments de ligne
+       de commande + un fichier statut JSON (couplage faible). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Liakont.Agent.Updater</RootNamespace>
+    <AssemblyName>Liakont.Agent.Updater</AssemblyName>
+    <!-- net48 exe : le SDK infère un RuntimeIdentifier pour un build x64. On déclare les deux
+         RID pour qu'UN seul restore couvre x86 ET x64 (build sans restauration des deux). -->
+    <RuntimeIdentifiers>win-x86;win-x64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <!-- Pilotage du service Windows (arrêt/démarrage/attente d'état) : assembly du framework net48. -->
+  <ItemGroup>
+    <Reference Include="System.ServiceProcess" />
+  </ItemGroup>
+
+</Project>

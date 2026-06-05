@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- Noms de tests xUnit avec underscores (convention du repo). -->
+    <NoWarn>$(NoWarn);CA1707</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+    <!-- Force la copie du natif SQLite.Interop.dll (x86/x64) dans la sortie de test pour le test réel
+         de LocalQueueSnapshotReader (lecture de la file locale). -->
+    <PackageReference Include="System.Data.SQLite.Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Liakont.Agent.Cli\Liakont.Agent.Cli.csproj" />
+  </ItemGroup>
+
+</Project>

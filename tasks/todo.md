@@ -1,31 +1,43 @@
-# PAA03 — Suite de tests de contrat IPaClient
+# AGT04 — Auto-update de l'agent
 
-Branche : `feat/pa-framework-PAA03` (segment `feat/pa-framework`, slot-1).
-Spec : `orchestration/items/PAA.yaml` (PAA03), F05 §abstraction IPaClient, testing-strategy §6.
+Spec : F12 §2.5 / §3.3 (426) / §7 décision D6 ; AGT.yaml (item AGT04).
+Frontières : l'agent ne référence que `Liakont.Agent.Contracts`, lecture seule, HTTPS sortant,
+aucune logique métier, BCL net48 uniquement (aucun paquet nouveau — ADR-0003).
 
-## Objectif
-Créer `tests/Liakont.PaClients.Contract.Tests/` : une suite de contrat ABSTRAITE héritable par
-tout plug-in PA, exécutée contre le plug-in Fake (PAA02), + une doc « ajouter un plug-in PA ».
+## Décisions de conception (autonomes — session d'orchestration)
 
-## Plan
-- [ ] Projet `tests/Liakont.PaClients.Contract.Tests/` (xUnit + FluentAssertions, dans src/Liakont.sln)
-- [ ] `PaSendOutcome` (vocabulaire d'issue, découplé de FakePaScenario)
-- [ ] `PaClientContractSetup` (issue + capacités déclarées + erreurs de rejet)
-- [ ] `PaClientContractTests` (classe de base abstraite, contrat observable sur la surface IPaClient) :
-      - envoi valide → Issued exploitable
-      - avoir → suit la capacité déclarée (lien d'origine porté au plug-in)
-      - rejet → erreurs remontées intactes, pas d'émission
-      - erreur silencieuse (succès transport + errors[]) → RejectedByPa
-      - timeout / erreur technique → TechnicalError re-tentable
-      - idempotence : même numéro jamais émis deux fois
-      - capacité absente → résultat typé, jamais d'exception
-      - cohérence capacités déclarées ↔ comportement réel
-- [ ] `FakePaClientContractTests : PaClientContractTests` (preuve d'exécutabilité contre Fake)
-- [ ] Doc `docs/architecture/ajouter-un-plugin-pa.md`
-- [ ] Ajouter le projet à `src/Liakont.sln` (vérifier le diff : pas de dossier de solution parasite)
-- [ ] verify-fast vert
-- [ ] run-tests vert (la suite passe contre Fake)
-- [ ] codex-review clean / P2 acceptés
+1. **Modèle de confiance (ADR-0013).** `updateUrl` (config heartbeat) pointe le **manifeste de
+   version** (JSON : `version`, `packageUrl`, `packageSha256`). `versionManifestSignature` (config)
+   est la signature RSA des octets bruts du manifeste, vérifiée contre une **clé publique provisionnée
+   à l'installation** (`C:\ProgramData\Liakont\update-signing.pubkey.xml`). Fail-closed : pas de clé →
+   refus. Le hash SHA-256 du paquet téléchargé est comparé à celui du manifeste signé. Un manifeste
+   non signé / signature invalide / hash non concordant → refus + signalement. Garde anti-downgrade
+   (jamais vers une version ≤ courante).
+2. **Updater = exe séparé autonome** (`Liakont.Agent.Updater`, sans Core) — « ne tourne jamais depuis
+   le dossier qu'il remplace » : lancé détaché, copié dans un dossier updater. Contrat Core↔updater =
+   **arguments de ligne de commande** (couplage faible) + un fichier statut JSON.
+3. **Deux déclencheurs, consommateurs réels (null-safe, précédent AGT03 : câblé au niveau reporter,
+   assemblage host différé) :** heartbeat `updateRequired` → `HeartbeatReporter` ; push 426 →
+   `AgentRunCycle` (fanion en mémoire sur le coordinateur partagé). Différé si run en cours (le
+   coordinateur sonde le verrou de run via `IRunActivityProbe`).
+4. **Signalement** = log opérateur français + `AutoUpdateStateStore` (statut JSON), surfacé au
+   heartbeat suivant via `LastError` (consommateur réel).
 
-## Review
-(à compléter)
+## Étapes
+
+- [ ] ADR-0013 (modèle de confiance + points durs Windows).
+- [ ] Core/Update : modèles (manifeste, résultat/statut), vérificateurs (signature RSA, hash),
+      seams (package source HTTPS, launcher détaché, sonde de run), `AutoUpdateStateStore`,
+      `IAutoUpdateService` + `AutoUpdateCoordinator`.
+- [ ] Câblage : `HeartbeatReporter` (updateRequired + surfaçage statut), `AgentRunCycle` (426),
+      `AgentPaths` (chemins update).
+- [ ] Projet `Liakont.Agent.Updater` (exe) : engine + abstractions + impls réelles (SCM, swap, santé)
+      + Program.
+- [ ] Tests : coordinateur (nominal, signature KO, hash KO, différé run, clé absente, downgrade),
+      vérificateurs, store, déclencheurs (heartbeat + 426), `UpdaterEngine` (nominal, rollback, timeout).
+- [ ] Solution : ajouter les 2 projets (Updater + Updater.Tests) avec mapping x86/x64.
+- [ ] verify-fast (plateforme + agent x86) vert, run-tests vert, codex-review propre.
+
+## Revue / résultats
+
+(à compléter en fin d'item)

@@ -12,6 +12,10 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
     <PackageReference Include="FluentAssertions" />
+    <!-- Référence directe : garantit la copie du natif SQLite.Interop.dll (x86/x64) dans la sortie
+         de test pour les tests réels de la file locale (System.Data.SQLite est tiré transitivement
+         par Core, mais on force ici la propagation des cibles de copie du natif). -->
+    <PackageReference Include="System.Data.SQLite.Core" />
   </ItemGroup>
 
   <!-- Référence les trois assemblies « bibliothèque » de l'agent pour vérifier leurs frontières. -->
@@ -19,6 +23,13 @@
     <ProjectReference Include="..\..\src\Liakont.Agent.Core\Liakont.Agent.Core.csproj" />
     <ProjectReference Include="..\..\src\Liakont.Agent.Adapters.EncheresV6\Liakont.Agent.Adapters.EncheresV6.csproj" />
     <ProjectReference Include="..\..\..\src\Contracts\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj" />
+  </ItemGroup>
+
+  <!-- Client HTTP (tests du HttpPlatformClient contre un serveur HttpListener mocké, AGT02). -->
+  <ItemGroup>
+    <Reference Include="System.Net.Http" />
+    <!-- Fabrication d'un paquet ZIP de test pour l'auto-update (AGT04). -->
+    <Reference Include="System.IO.Compression" />
   </ItemGroup>
 
   <!-- Tests de contrat CROSS-RUNTIME (PIV02) partagés avec la solution plateforme (.NET 10) : le MÊME

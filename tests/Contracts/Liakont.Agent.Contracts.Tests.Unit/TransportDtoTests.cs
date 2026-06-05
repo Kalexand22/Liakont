@@ -128,6 +128,54 @@ public sealed class TransportDtoTests
     }
 
     [Fact]
+    public void HeartbeatRequest_Telemetry_Fields_Are_Optional_And_Default_To_Null()
+    {
+        // Compatibilité add-only (contrat §4.1) : un agent N-1 qui n'envoie que les champs d'origine
+        // reste valide ; la télémétrie F12 §2.5 est optionnelle (absence = inconnu côté plateforme).
+        var heartbeat = new HeartbeatRequestDto("1", "1.0.0", new DateTime(2026, 6, 4, 7, 0, 0, DateTimeKind.Utc));
+
+        heartbeat.ServiceState.Should().BeNull();
+        heartbeat.PushQueueDepth.Should().BeNull();
+        heartbeat.PushQueueErrorCount.Should().BeNull();
+        heartbeat.LastRunStartedUtc.Should().BeNull();
+        heartbeat.LastRunCompletedUtc.Should().BeNull();
+        heartbeat.LastRunOutcome.Should().BeNull();
+        heartbeat.LastError.Should().BeNull();
+        heartbeat.DiskFreeBytes.Should().BeNull();
+    }
+
+    [Fact]
+    public void HeartbeatRequest_Carries_Operational_Telemetry_When_Provided()
+    {
+        // F12 §2.5 : état du service, taille de la file, dernier run + résultat, dernières erreurs,
+        // disque. Consommé par la supervision (F12 §5.2/§5.3).
+        var sentAt = new DateTime(2026, 6, 4, 7, 0, 0, DateTimeKind.Utc);
+
+        var heartbeat = new HeartbeatRequestDto(
+            contractVersion: "1",
+            agentVersion: "1.0.0",
+            sentAtUtc: sentAt,
+            lastSuccessfulSyncUtc: sentAt.AddHours(-1),
+            serviceState: "Running",
+            pushQueueDepth: 12,
+            pushQueueErrorCount: 3,
+            lastRunStartedUtc: sentAt.AddMinutes(-30),
+            lastRunCompletedUtc: sentAt.AddMinutes(-28),
+            lastRunOutcome: "Success",
+            lastError: "ODBC momentanément indisponible",
+            diskFreeBytes: 987654321L);
+
+        heartbeat.ServiceState.Should().Be("Running");
+        heartbeat.PushQueueDepth.Should().Be(12);
+        heartbeat.PushQueueErrorCount.Should().Be(3);
+        heartbeat.LastRunStartedUtc.Should().Be(sentAt.AddMinutes(-30));
+        heartbeat.LastRunCompletedUtc.Should().Be(sentAt.AddMinutes(-28));
+        heartbeat.LastRunOutcome.Should().Be("Success");
+        heartbeat.LastError.Should().Be("ODBC momentanément indisponible");
+        heartbeat.DiskFreeBytes.Should().Be(987654321L);
+    }
+
+    [Fact]
     public void SourceTaxRegime_Should_Carry_Code_Label_And_Occurrences()
     {
         var regime = new SourceTaxRegimeDto(code: "6", label: "Régime de la marge", occurrences: 42);
@@ -149,5 +197,24 @@ public sealed class TransportDtoTests
     {
         System.Enum.GetNames<OperationCategory>().Should()
             .BeEquivalentTo("LivraisonBiens", "PrestationServices", "Mixte");
+    }
+
+    [Fact]
+    public void DocumentStatusResult_Should_Carry_Key_Status_And_Reason()
+    {
+        // Point de statut de la réconciliation ADR-0012 : clé (sourceReference, payloadHash) + état.
+        var result = new DocumentStatusResultDto("ref-1", "hash-1", DocumentIntakeStatus.Rejected, reason: "payload non conforme");
+
+        result.SourceReference.Should().Be("ref-1");
+        result.PayloadHash.Should().Be("hash-1");
+        result.Status.Should().Be(DocumentIntakeStatus.Rejected);
+        result.Reason.Should().Be("payload non conforme");
+    }
+
+    [Fact]
+    public void DocumentIntakeStatus_Should_Cover_Pending_Processed_And_Rejected()
+    {
+        System.Enum.GetNames<DocumentIntakeStatus>().Should()
+            .BeEquivalentTo("Pending", "Processed", "Rejected");
     }
 }

@@ -7,9 +7,12 @@
     <RuntimeIdentifiers>win-x86;win-x64</RuntimeIdentifiers>
   </PropertyGroup>
 
-  <!-- Service Windows hôte : System.ServiceProcess est une assembly du framework (net48). -->
+  <!-- Service Windows hôte : System.ServiceProcess (ServiceBase, installeurs) et
+       System.Configuration.Install (auto-install/uninstall via ManagedInstallerClass) sont des
+       assemblies du framework (net48). -->
   <ItemGroup>
     <Reference Include="System.ServiceProcess" />
+    <Reference Include="System.Configuration.Install" />
   </ItemGroup>
 
   <ItemGroup>
