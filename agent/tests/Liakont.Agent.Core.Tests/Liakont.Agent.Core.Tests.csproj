@@ -28,6 +28,8 @@
   <!-- Client HTTP (tests du HttpPlatformClient contre un serveur HttpListener mocké, AGT02). -->
   <ItemGroup>
     <Reference Include="System.Net.Http" />
+    <!-- Fabrication d'un paquet ZIP de test pour l'auto-update (AGT04). -->
+    <Reference Include="System.IO.Compression" />
   </ItemGroup>
 
   <!-- Tests de contrat CROSS-RUNTIME (PIV02) partagés avec la solution plateforme (.NET 10) : le MÊME

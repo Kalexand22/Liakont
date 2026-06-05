@@ -31,4 +31,23 @@ public static class AgentPaths
 
     /// <summary>Répertoire des journaux fichiers de l'agent (rotation 90 jours).</summary>
     public static string LogDirectory => Path.Combine(RootDirectory, "logs");
+
+    /// <summary>
+    /// Clé PUBLIQUE de signature des manifestes d'auto-update (XML), provisionnée par l'installeur
+    /// (OPS05/F13). Jamais embarquée en dur dans le code (CLAUDE.md n°7, ADR-0013) ; absente = aucune
+    /// mise à jour acceptée (fail-closed).
+    /// </summary>
+    public static string UpdateSigningKeyPath => Path.Combine(RootDirectory, "update-signing.pubkey.xml");
+
+    /// <summary>Fichier de statut de la dernière tentative d'auto-update (signalement heartbeat, AGT04).</summary>
+    public static string UpdateStatusPath => Path.Combine(RootDirectory, "update-status.json");
+
+    /// <summary>Racine de travail de l'auto-update (téléchargement, extraction, sauvegarde) — hors dossier d'installation.</summary>
+    public static string UpdateWorkDirectory => Path.Combine(RootDirectory, "update-work");
+
+    /// <summary>
+    /// Marqueur de heartbeat local : touché par l'agent à chaque heartbeat sain, surveillé par
+    /// l'updater détaché pour juger qu'une nouvelle version a bien redémarré (sinon rollback, ADR-0013).
+    /// </summary>
+    public static string HeartbeatMarkerPath => Path.Combine(RootDirectory, "heartbeat.marker");
 }

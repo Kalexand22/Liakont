@@ -8,6 +8,7 @@ using Liakont.Agent.Core.Extraction;
 using Liakont.Agent.Core.Heartbeat;
 using Liakont.Agent.Core.Hosting;
 using Liakont.Agent.Core.Storage;
+using Liakont.Agent.Core.Tests.Update;
 using Liakont.Agent.Core.Transport;
 using Xunit;
 
@@ -166,6 +167,33 @@ public class AgentRunCycleTests
             // L'issue reflète l'échec d'extraction, mais le backlog a bien été poussé → sync enregistrée.
             journal.LastRunOutcome.Should().Be("SourceUnavailable");
             journal.LastSuccessfulSyncUtc.Should().Be(Now);
+        }
+    }
+
+    [Fact]
+    public void Run_signals_the_auto_update_service_on_a_426_push()
+    {
+        using (var db = new TempDatabase())
+        using (var queue = new LocalQueue(db.Path, new MutableClock(Now)))
+        {
+            queue.SetExtractionWatermarkUtc(new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc));
+            var extractor = new FixtureExtractor(
+                "Fixture",
+                documents: new[] { PivotTestData.Document("REF-1", new DateTime(2026, 6, 3, 0, 0, 0, DateTimeKind.Utc)) });
+            var client = new FakePlatformClient
+            {
+                // 426 : version d'agent non supportée → le cycle signale le besoin d'auto-update (AGT04).
+                OnPushDocuments = (docs, regimes) => new PushBatchOutcome(PlatformResponseKind.UpgradeRequired),
+            };
+            var autoUpdate = new FakeAutoUpdateService();
+            var log = new CapturingAgentLog();
+            var extractionCycle = new ExtractionCycle(queue, log);
+            var drainer = new QueueDrainer(queue, client, log, new ExponentialBackoff(), _ => { });
+            var cycle = new AgentRunCycle(extractor, extractionCycle, drainer, queue, new MutableClock(Now), log, journal: null, autoUpdate: autoUpdate);
+
+            cycle.Run(CancellationToken.None);
+
+            autoUpdate.PushUpgradeSignals.Should().Be(1);
         }
     }
 

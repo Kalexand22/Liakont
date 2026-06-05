@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- Noms de tests xUnit avec underscores (convention du repo). -->
+    <NoWarn>$(NoWarn);CA1707</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+
+  <!-- Teste le moteur de l'updater (séquence swap + rollback) avec des coutures mockées. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Liakont.Agent.Core\Liakont.Agent.Core.csproj" />
+    <ProjectReference Include="..\..\src\Liakont.Agent.Updater\Liakont.Agent.Updater.csproj" />
+  </ItemGroup>
+
+</Project>
