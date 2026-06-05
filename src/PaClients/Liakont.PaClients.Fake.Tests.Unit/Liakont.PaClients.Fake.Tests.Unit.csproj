@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- xUnit naming conventions (Method_Should_X_When_Y) — mêmes relaxations que celles que
+         l'.editorconfig accorde aux dossiers **/Tests.*/**, appliquées ici par NoWarn parce que le
+         dossier de ce projet ne commence pas par « Tests. » (cf. Liakont.Agent.Contracts.Tests.Unit). -->
+    <NoWarn>$(NoWarn);CA1707;SA1116;SA1117;SA1202;SA1210;SA1512</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+    <!-- Garde de frontière du plug-in (ne référence que Transmission.Contracts + Common) — PAA02. -->
+    <PackageReference Include="NetArchTest.Rules" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- ServiceCollection pour tester AddFakePaClient + résolution via le registre du module. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Liakont.PaClients.Fake/Liakont.PaClients.Fake.csproj" />
+    <!-- La suite de contrat PA abstraite (PAA03), exécutée ici contre le plug-in Fake (FakePaClientContractTests). -->
+    <ProjectReference Include="../../../tests/Liakont.PaClients.Contract.Tests/Liakont.PaClients.Contract.Tests.csproj" />
+    <!-- Le registre du module (AddTransmissionModule) pour prouver la résolution du plug-in par clé. -->
+    <ProjectReference Include="../../Modules/Transmission/Infrastructure/Liakont.Modules.Transmission.Infrastructure.csproj" />
+    <!-- PivotDocumentDto pour construire des documents de test (facture, avoir). -->
+    <ProjectReference Include="../../Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
+  </ItemGroup>
+</Project>
