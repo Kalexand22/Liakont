@@ -55,37 +55,45 @@ public sealed class PervasiveExtractor : IExtractor
     private readonly IEncheresV6ConnectionFactory _connectionFactory;
     private readonly EncheresV6EmitterIdentity _emitter;
     private readonly OperationCategory _operationCategory;
+    private readonly IEncheresV6PdfSource _pdfSource;
 
     /// <summary>Crée l'extracteur ODBC EncheresV6.</summary>
     /// <param name="connectionFactory">Fabrique de connexions ODBC (paramétrage tenant — ADP04).</param>
     /// <param name="emitter">Identité de l'émetteur (SIREN issu du paramétrage tenant — absent de la base).</param>
     /// <param name="operationCategory">Nature d'opération de la source (paramétrage — F01-F02 §7 #3).</param>
+    /// <param name="pdfSource">Source des PDF de bordereaux (ADP05). <c>null</c> ⇒ aucune capacité PDF déclarée.</param>
     /// <exception cref="ArgumentNullException">Si <paramref name="connectionFactory"/> ou <paramref name="emitter"/> est nul.</exception>
     public PervasiveExtractor(
         IEncheresV6ConnectionFactory connectionFactory,
         EncheresV6EmitterIdentity emitter,
-        OperationCategory operationCategory)
+        OperationCategory operationCategory,
+        IEncheresV6PdfSource? pdfSource = null)
     {
         _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
         _emitter = emitter ?? throw new ArgumentNullException(nameof(emitter));
         _operationCategory = operationCategory;
+
+        // Source PDF (ADP05) : la capacité PDF est PORTÉE PAR LA CONFIG — les PDF vivent sur le système de
+        // fichiers (mêmes que l'extraction soit ODBC ou fixtures). Sans config PDF, null-object → capacités false.
+        _pdfSource = pdfSource ?? NullEncheresV6PdfSource.Instance;
+        Capabilities = new ExtractorCapabilities(
+            providesSourceDocuments: _pdfSource.ProvidesSourceDocuments,
+            providesUnlinkedDocumentPool: _pdfSource.ProvidesUnlinkedDocumentPool,
+            hasDetailedLines: true,
+            hasCreditNoteLink: true,
+            exposesPayments: true,
+            regimeKeyShape: RegimeKeyShape.Simple,
+            emitterIdentitySource: EmitterIdentitySource.FromConfig,
+            hasStoredHeaderTotal: true,
+            isMutableAfterIssue: false,
+            numberUniquenessScope: NumberUniquenessScope.Global);
     }
 
     /// <inheritdoc />
     public string SourceName => "EncheresV6";
 
     /// <inheritdoc />
-    public ExtractorCapabilities Capabilities { get; } = new ExtractorCapabilities(
-        providesSourceDocuments: false,
-        providesUnlinkedDocumentPool: false,
-        hasDetailedLines: true,
-        hasCreditNoteLink: true,
-        exposesPayments: true,
-        regimeKeyShape: RegimeKeyShape.Simple,
-        emitterIdentitySource: EmitterIdentitySource.FromConfig,
-        hasStoredHeaderTotal: true,
-        isMutableAfterIssue: false,
-        numberUniquenessScope: NumberUniquenessScope.Global);
+    public ExtractorCapabilities Capabilities { get; }
 
     /// <inheritdoc />
     public ExtractorInfo GetInfo() =>
@@ -236,16 +244,14 @@ public sealed class PervasiveExtractor : IExtractor
     /// <inheritdoc />
     public IReadOnlyList<SourceAttachment> GetAttachments(string sourceReference)
     {
-        // Capacité PDF non déclarée en ODBC tant qu'ADP05 ne l'a pas livrée : liste vide, jamais d'exception (contrat IExtractor).
-        return Array.Empty<SourceAttachment>();
+        // Délégation à la source PDF configurée (ADP05) : les PDF vivent sur le système de fichiers, jamais en
+        // base — l'extraction ODBC reste en LECTURE SEULE STRICTE des seules tables documentaires. Null-object si non configurée.
+        return _pdfSource.GetAttachments(sourceReference);
     }
 
     /// <inheritdoc />
-    public IEnumerable<PoolDocument> ListPoolDocuments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc)
-    {
-        // Capacité pool non déclarée en ODBC tant qu'ADP05 ne l'a pas livrée : vide, jamais d'exception (contrat IExtractor).
-        return Array.Empty<PoolDocument>();
-    }
+    public IEnumerable<PoolDocument> ListPoolDocuments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc) =>
+        _pdfSource.ListPoolDocuments(fromInclusiveUtc, toExclusiveUtc);
 
     private static IDbCommand CreateSelect(IDbConnection connection, string sql)
     {
