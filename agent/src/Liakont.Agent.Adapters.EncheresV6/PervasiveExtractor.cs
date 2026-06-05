@@ -25,12 +25,13 @@ using Liakont.Agent.Core.Extraction;
 /// (R2) : la même période renvoie les mêmes <see cref="PivotDocumentDto.SourceReference"/>.
 /// </para>
 /// <para>
-/// Portée d'ADP02 : <see cref="ExtractDocuments"/> + <see cref="CheckHealth"/>. Les avoirs et les
-/// encaissements (<see cref="ExtractPayments"/>, F07/F09) arrivent avec ADP03, la liste des régimes
-/// (<see cref="ListSourceTaxRegimes"/>) + la configuration avec ADP04, les PDF avec ADP05 : ces méthodes
-/// échouent explicitement (jamais en silence) ou renvoient une liste vide tant que leur capacité n'est
-/// pas déclarée. Les capacités déclarées (<see cref="Capabilities"/>) grandissent au fil des items :
-/// la plateforme ne s'appuie que sur ce qui est réellement honoré.
+/// Portée jusqu'à ADP03 : <see cref="ExtractDocuments"/> (ventes ET avoirs, avec lien
+/// <c>no_ba_lettrage</c> → facture d'origine, F07-F08) + <see cref="ExtractPayments"/> (encaissements bruts,
+/// lignes type 3, F09) + <see cref="CheckHealth"/>. La liste des régimes (<see cref="ListSourceTaxRegimes"/>)
+/// + la configuration arrivent avec ADP04, les PDF avec ADP05 : ces méthodes renvoient une liste vide tant
+/// que leur capacité n'est pas déclarée (jamais d'exception — contrat IExtractor R7). Les capacités déclarées
+/// (<see cref="Capabilities"/>) grandissent au fil des items : la plateforme ne s'appuie que sur ce qui est
+/// réellement honoré.
 /// </para>
 /// <para>
 /// Aucune donnée client n'est embarquée (CLAUDE.md n°7) : le SIREN émetteur vient du paramétrage
@@ -78,8 +79,8 @@ public sealed class PervasiveExtractor : IExtractor
         providesSourceDocuments: false,
         providesUnlinkedDocumentPool: false,
         hasDetailedLines: true,
-        hasCreditNoteLink: false,
-        exposesPayments: false,
+        hasCreditNoteLink: true,
+        exposesPayments: true,
         regimeKeyShape: RegimeKeyShape.Simple,
         emitterIdentitySource: EmitterIdentitySource.FromConfig,
         hasStoredHeaderTotal: true,
@@ -134,11 +135,14 @@ public sealed class PervasiveExtractor : IExtractor
         // Streaming + regroupement par no_ba (R8) : la requête est triée par no_ba puis no_ligne, donc
         // les lignes d'un même bordereau se suivent. On accumule les lignes du bordereau courant et on
         // émet le document dès que le no_ba change — mémoire O(1 document), jamais tout en mémoire.
+        // La requête renvoie ventes ('B') ET avoirs ('A', ADP03) ; pour un avoir, l'entête d'origine est
+        // rapportée par l'auto-jointure (colonnes origin_*) sur la MÊME ligne — pas de second lecteur.
         using (IDbConnection connection = OpenConnection())
         using (IDbCommand command = CreatePeriodSelect(connection, EncheresV6Schema.SelectDocumentsSql, fromInclusiveUtc, toExclusiveUtc))
         using (IDataReader reader = ExecuteReader(command))
         {
             EncheresV6Bordereau? current = null;
+            EncheresV6Bordereau? currentOrigin = null;
             while (ReadNext(reader))
             {
                 string noBa = ReadRequiredKey(reader, EncheresV6Schema.ColNoBa);
@@ -146,10 +150,15 @@ public sealed class PervasiveExtractor : IExtractor
                 {
                     if (current != null)
                     {
-                        yield return MapDocument(current);
+                        yield return MapDocument(current, currentOrigin);
                     }
 
                     current = ReadBordereauHeader(reader, noBa);
+
+                    // Origine d'un avoir : lue UNIQUEMENT pour 'A' (les colonnes origin_* sont NULL pour une
+                    // vente ; un lettrage non résolu laisse l'origine nulle → le mapper bloque l'avoir, jamais
+                    // deviné — ADR-0004 D3-3, F07-F08 §B.4).
+                    currentOrigin = ReadCreditNoteOrigin(reader, current);
                 }
 
                 // LEFT JOIN : une vente sans ligne de document (type 4/2) produit une ligne d'entête seule
@@ -165,7 +174,7 @@ public sealed class PervasiveExtractor : IExtractor
 
             if (current != null)
             {
-                yield return MapDocument(current);
+                yield return MapDocument(current, currentOrigin);
             }
         }
     }
@@ -173,10 +182,18 @@ public sealed class PervasiveExtractor : IExtractor
     /// <inheritdoc />
     public IEnumerable<PivotPaymentDto> ExtractPayments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc)
     {
-        // Différé à ADP03 (lignes type 3, F09) : énumération vide, JAMAIS d'exception (symétrie avec
-        // GetAttachments/ListPoolDocuments). La capacité ExposesPayments=false signale déjà l'absence ;
-        // un consommateur reçoit un flux vide plutôt qu'un crash non typé (contrat IExtractor R7).
-        return Array.Empty<PivotPaymentDto>();
+        // Encaissements bruts (F09, ADP03) : lignes type 3 sur la période [date_reglement], rattachées à leur
+        // bordereau (numéro de pièce) par l'INNER JOIN. Streaming (R8) : un paiement par ligne, mémoire O(1).
+        // L'AGRÉGATION jour × taux est faite par la plateforme (PIP03) — l'adaptateur transmet le brut.
+        using (IDbConnection connection = OpenConnection())
+        using (IDbCommand command = CreatePeriodSelect(connection, EncheresV6Schema.SelectPaymentsSql, fromInclusiveUtc, toExclusiveUtc))
+        using (IDataReader reader = ExecuteReader(command))
+        {
+            while (ReadNext(reader))
+            {
+                yield return EncheresV6RowMapper.MapPayment(ReadPaymentBordereau(reader), ReadPaymentLigne(reader));
+            }
+        }
     }
 
     /// <inheritdoc />
@@ -394,6 +411,54 @@ public sealed class PervasiveExtractor : IExtractor
         };
     }
 
+    private static EncheresV6Ligne ReadPaymentLigne(IDataReader reader)
+    {
+        return new EncheresV6Ligne
+        {
+            TypeLigne = EncheresV6RowMapper.LigneReglement,
+            NoLigne = ReadString(reader, EncheresV6Schema.ColNoLigne),
+            MontantHt = ReadRequiredDouble(reader, EncheresV6Schema.ColMontantHt),
+            DateReglement = ReadNullableDate(reader, EncheresV6Schema.ColDateReglement),
+            ModeReglement = ReadString(reader, EncheresV6Schema.ColModeReglement),
+            NoRemise = ReadString(reader, EncheresV6Schema.ColNoRemise),
+        };
+    }
+
+    private static EncheresV6Bordereau ReadPaymentBordereau(IDataReader reader)
+    {
+        // Entête minimale rattachée au règlement (INNER JOIN) : juste de quoi renseigner le numéro de pièce
+        // d'origine et la référence source de l'encaissement (le mapper n'a pas besoin du reste).
+        return new EncheresV6Bordereau
+        {
+            NoBa = ReadString(reader, EncheresV6Schema.ColNoBa),
+            NumeroPiece = ReadString(reader, EncheresV6Schema.ColNumeroPiece),
+        };
+    }
+
+    private static EncheresV6Bordereau? ReadCreditNoteOrigin(IDataReader reader, EncheresV6Bordereau bordereau)
+    {
+        // Seuls les avoirs ('A') portent une origine ; pour une vente, les colonnes origin_* peuvent même être
+        // absentes du résultat — on ne les lit jamais. Pour un avoir, un lettrage non résolu (origin_no_ba NULL)
+        // laisse l'origine nulle : le mapper bloque alors l'avoir (jamais d'origine devinée — ADR-0004 D3-3).
+        if (!string.Equals(bordereau.BordereauOuAvoir, EncheresV6Schema.PieceAvoir, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        string? originNoBa = ReadString(reader, EncheresV6Schema.ColOriginNoBa);
+        if (string.IsNullOrWhiteSpace(originNoBa))
+        {
+            return null;
+        }
+
+        return new EncheresV6Bordereau
+        {
+            NoBa = originNoBa,
+            NumeroPiece = ReadString(reader, EncheresV6Schema.ColOriginNumeroPiece),
+            DateVente = ReadNullableDate(reader, EncheresV6Schema.ColOriginDateVente) ?? default(DateTime),
+        };
+    }
+
     private IDbConnection OpenConnection()
     {
         IDbConnection connection = _connectionFactory.CreateConnection();
@@ -410,10 +475,10 @@ public sealed class PervasiveExtractor : IExtractor
         return connection;
     }
 
-    private PivotDocumentDto MapDocument(EncheresV6Bordereau bordereau)
+    private PivotDocumentDto MapDocument(EncheresV6Bordereau bordereau, EncheresV6Bordereau? creditNoteOrigin)
     {
-        // ExtractDocuments ne renvoie que des ventes ('B') en ADP02 : pas d'origine d'avoir à résoudre
-        // (les avoirs et leur lettrage no_ba_lettrage → CreditNoteRef arrivent avec ADP03).
-        return EncheresV6RowMapper.MapDocument(bordereau, _emitter, _operationCategory, creditNoteOrigin: null);
+        // Pour un avoir ('A'), creditNoteOrigin est l'entête d'origine résolue via no_ba_lettrage (lien
+        // CreditNoteRef → facture d'origine, F07-F08 §B.2) ; null pour une vente ou un avoir non lettré.
+        return EncheresV6RowMapper.MapDocument(bordereau, _emitter, _operationCategory, creditNoteOrigin);
     }
 }
