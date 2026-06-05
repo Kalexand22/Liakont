@@ -46,6 +46,9 @@ public sealed class LocalQueue : IDisposable
     /// <summary>Clé de la dernière configuration reçue de la plateforme dans <c>agent_state</c>.</summary>
     public const string LastConfigurationKey = "platform.last_configuration";
 
+    /// <summary>Clé des régimes de TVA source collectés au dernier run, à joindre au prochain push (TVA03).</summary>
+    public const string SourceTaxRegimesKey = "push.source_tax_regimes";
+
     // Sérialise tous les accès à l'unique connexion (sûreté intra-process). Réentrant : un appelant
     // public qui en délègue un autre (MarkError → SetStatus) ne se bloque pas lui-même.
     private readonly object _operationLock = new object();
@@ -169,6 +172,52 @@ public sealed class LocalQueue : IDisposable
         }
     }
 
+    /// <summary>
+    /// Renvoie les éléments d'un statut donné (et, en option, d'un type donné), par ordre d'arrivée,
+    /// au plus <paramref name="max"/>. Utilisé par le drainage (AGT02) pour sélectionner précisément
+    /// les documents à pousser (Pending) ou à réconcilier (InProgress) sans mélanger les types.
+    /// </summary>
+    /// <param name="status">Statut recherché.</param>
+    /// <param name="kind">Type recherché, ou <c>null</c> pour tous les types.</param>
+    /// <param name="max">Nombre maximum d'éléments à renvoyer (strictement positif).</param>
+    /// <returns>Les éléments correspondants, par ordre d'arrivée.</returns>
+    public IReadOnlyList<QueuedItem> Peek(QueueItemStatus status, QueueItemKind? kind, int max)
+    {
+        if (max <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(max), "Le nombre d'éléments demandé doit être positif.");
+        }
+
+        lock (_operationLock)
+        {
+            var result = new List<QueuedItem>();
+            using (SQLiteCommand cmd = _connection.CreateCommand())
+            {
+                cmd.CommandText =
+                    "SELECT id, kind, source_reference, payload_hash, payload_json, file_path, status, attempts, last_error, created_at_utc, updated_at_utc " +
+                    "FROM push_queue WHERE status = @status" +
+                    (kind.HasValue ? " AND kind = @kind" : string.Empty) +
+                    " ORDER BY id LIMIT @max;";
+                cmd.Parameters.AddWithValue("@status", status.ToString());
+                if (kind.HasValue)
+                {
+                    cmd.Parameters.AddWithValue("@kind", kind.Value.ToString());
+                }
+
+                cmd.Parameters.AddWithValue("@max", max);
+                using (SQLiteDataReader reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        result.Add(ReadQueuedItem(reader));
+                    }
+                }
+            }
+
+            return result;
+        }
+    }
+
     /// <summary>Compte les éléments présents dans la file (tous statuts).</summary>
     public int Count()
     {
@@ -184,6 +233,12 @@ public sealed class LocalQueue : IDisposable
 
     /// <summary>Marque un élément « en cours » (push émis, ACK terminal en attente — ADR-0012).</summary>
     public void MarkInProgress(long id) => SetStatus(id, QueueItemStatus.InProgress, error: null, incrementAttempts: false);
+
+    /// <summary>
+    /// Remet un élément « en attente » (renvoi au prochain push). Utilisé par la réconciliation ADR-0012
+    /// quand un élément « en cours » est rapporté non terminal (reçu mais non rangé).
+    /// </summary>
+    public void MarkPending(long id) => SetStatus(id, QueueItemStatus.Pending, error: null, incrementAttempts: false);
 
     /// <summary>Marque un élément en erreur (incrémente le compteur de tentatives, mémorise le motif).</summary>
     public void MarkError(long id, string error) => SetStatus(id, QueueItemStatus.Error, error, incrementAttempts: true);

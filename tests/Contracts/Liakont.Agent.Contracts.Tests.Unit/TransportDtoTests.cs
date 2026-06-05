@@ -150,4 +150,23 @@ public sealed class TransportDtoTests
         System.Enum.GetNames<OperationCategory>().Should()
             .BeEquivalentTo("LivraisonBiens", "PrestationServices", "Mixte");
     }
+
+    [Fact]
+    public void DocumentStatusResult_Should_Carry_Key_Status_And_Reason()
+    {
+        // Point de statut de la réconciliation ADR-0012 : clé (sourceReference, payloadHash) + état.
+        var result = new DocumentStatusResultDto("ref-1", "hash-1", DocumentIntakeStatus.Rejected, reason: "payload non conforme");
+
+        result.SourceReference.Should().Be("ref-1");
+        result.PayloadHash.Should().Be("hash-1");
+        result.Status.Should().Be(DocumentIntakeStatus.Rejected);
+        result.Reason.Should().Be("payload non conforme");
+    }
+
+    [Fact]
+    public void DocumentIntakeStatus_Should_Cover_Pending_Processed_And_Rejected()
+    {
+        System.Enum.GetNames<DocumentIntakeStatus>().Should()
+            .BeEquivalentTo("Pending", "Processed", "Rejected");
+    }
 }

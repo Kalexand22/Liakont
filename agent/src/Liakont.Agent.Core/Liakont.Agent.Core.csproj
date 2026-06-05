@@ -16,10 +16,13 @@
     <PackageReference Include="Newtonsoft.Json" />
   </ItemGroup>
 
-  <!-- Assemblies du framework net48 : DPAPI (ProtectedData) et System.Data (ADO.NET pour SQLite). -->
+  <!-- Assemblies du framework net48 : DPAPI (ProtectedData), System.Data (ADO.NET pour SQLite) et
+       System.Net.Http (client de push HTTPS sortant, AGT02). Tous signés par une clé Microsoft :
+       la liste blanche de AgentBoundaryTests les accepte par jeton de clé publique (aucune fuite). -->
   <ItemGroup>
     <Reference Include="System.Security" />
     <Reference Include="System.Data" />
+    <Reference Include="System.Net.Http" />
   </ItemGroup>
 
 </Project>
