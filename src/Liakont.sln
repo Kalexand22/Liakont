@@ -321,6 +321,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.PaClients.Fake", "P
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.PaClients.Fake.Tests.Unit", "PaClients\Liakont.PaClients.Fake.Tests.Unit\Liakont.PaClients.Fake.Tests.Unit.csproj", "{2D1D3A91-E8E8-460C-97B9-F92AAB339206}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.PaClients.Contract.Tests", "..\tests\Liakont.PaClients.Contract.Tests\Liakont.PaClients.Contract.Tests.csproj", "{EA7C2BEE-18D4-4817-941E-815268CBBBE1}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -1447,6 +1449,18 @@ Global
 		{2D1D3A91-E8E8-460C-97B9-F92AAB339206}.Release|x64.Build.0 = Release|Any CPU
 		{2D1D3A91-E8E8-460C-97B9-F92AAB339206}.Release|x86.ActiveCfg = Release|Any CPU
 		{2D1D3A91-E8E8-460C-97B9-F92AAB339206}.Release|x86.Build.0 = Release|Any CPU
+		{EA7C2BEE-18D4-4817-941E-815268CBBBE1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EA7C2BEE-18D4-4817-941E-815268CBBBE1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EA7C2BEE-18D4-4817-941E-815268CBBBE1}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{EA7C2BEE-18D4-4817-941E-815268CBBBE1}.Debug|x64.Build.0 = Debug|Any CPU
+		{EA7C2BEE-18D4-4817-941E-815268CBBBE1}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{EA7C2BEE-18D4-4817-941E-815268CBBBE1}.Debug|x86.Build.0 = Debug|Any CPU
+		{EA7C2BEE-18D4-4817-941E-815268CBBBE1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EA7C2BEE-18D4-4817-941E-815268CBBBE1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EA7C2BEE-18D4-4817-941E-815268CBBBE1}.Release|x64.ActiveCfg = Release|Any CPU
+		{EA7C2BEE-18D4-4817-941E-815268CBBBE1}.Release|x64.Build.0 = Release|Any CPU
+		{EA7C2BEE-18D4-4817-941E-815268CBBBE1}.Release|x86.ActiveCfg = Release|Any CPU
+		{EA7C2BEE-18D4-4817-941E-815268CBBBE1}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -1597,5 +1611,6 @@ Global
 		{31D5CDF7-16F0-4F32-A96B-1B929A07DC87} = {1CEAA9DF-C04B-BAAC-37EB-92CFB9E7A2F6}
 		{64EEDB8A-318D-4130-80C5-A8D950C99E4F} = {14A2A00B-F639-77C9-33A1-1FCD5A6A17A2}
 		{2D1D3A91-E8E8-460C-97B9-F92AAB339206} = {14A2A00B-F639-77C9-33A1-1FCD5A6A17A2}
+		{EA7C2BEE-18D4-4817-941E-815268CBBBE1} = {14A2A00B-F639-77C9-33A1-1FCD5A6A17A2}
 	EndGlobalSection
 EndGlobal
