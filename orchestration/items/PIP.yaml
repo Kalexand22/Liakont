@@ -296,18 +296,18 @@ items:
 
   GATE_PIPELINE:
     type: gate
-    executor: claude
-    blueprint: auto-gate-item
-    title: "Gate (auto) : pipeline intégré"
+    executor: human
+    title: "Gate (humaine) : pipeline intégré"
     description: |
-      Gate d'INTÉGRATION AUTOMATIQUE (executor claude, blueprint auto-gate-item). Le traitement
-      de bout en bout (ingestion → mapping → validation → FakePaClient → archive), avoirs,
-      agrégats de paiement, les deux configurations de capacités PA et l'isolation 2 tenants
-      sont couverts par les tests d'intégration (acceptance PIP01-04) — un test humain n'y
-      révélerait rien de structurel. La gate enchaîne verify + run-tests + review d'intégration
-      (diff complet vs main), puis merge dans main ; échec/conflit = blocked.
+      Gate d'INTÉGRATION HUMAINE (executor human — manifest v11). Le traitement de bout en bout
+      (ingestion → mapping → validation → FakePaClient → archive), avoirs, agrégats de paiement,
+      les deux configurations de capacités PA et l'isolation 2 tenants sont couverts par les tests
+      d'intégration (acceptance PIP01-04). Le runner fait verify + run-tests sur le segment et ouvre
+      une PR vers main ; la CI rejoue verify+tests sur la PR ; l'opérateur merge ; puis
+      tools/orch-reconcile-gates.ps1 bascule la gate à done (protocol.md Step 1.4). Le merge dans
+      main reste une action humaine (barrière Claude Code + CLAUDE.md « human merge mandatory »).
     acceptance:
       - "Tous les items PIP sont done"
       - "Tests d'intégration de bout en bout verts (golden files → check → send Fake → sync → archive, 2 tenants)"
-      - "Review d'intégration (codex-review -Base main) clean ou P2 acceptés justifiés"
-      - "Segment feat/pipeline intégré automatiquement dans main (Step 5c) — pas de PR humaine"
+      - "CI verte sur la PR du segment (verify + run-tests : plateforme .NET 10 + agent net48 x86/x64)"
+      - "Segment feat/pipeline intégré dans main par MERGE HUMAIN de la PR ; gate basculée à done par réconciliation (orch-reconcile-gates.ps1)"

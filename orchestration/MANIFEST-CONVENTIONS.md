@@ -41,11 +41,14 @@ YAML inline minimal. Un item par ligne :
    notes de conception. Un seul séparateur `# ── LOT ──` par groupe de lot.
 3. **Pas de segments archivés** — supprimer de `segments:` quand archivé. Les références d'archive
    restent uniquement dans `orchestration/archive/` (dépôt source — jamais dans `$ORCH_REPO`).
-4. **Pas de `executor: claude`** — c'est le défaut. Spécifier `executor: human` sur les gates HUMAINES.
-   Une gate AUTOMATIQUE (intégration auto vers main, voir protocol.md Step 5c) garde le défaut
-   `claude` et porte `blueprint: auto-gate-item` (ex. GATE_CORE_FOUNDATION, GATE_PA_FRAMEWORK,
-   GATE_PIPELINE, GATE_ADAPTER_ENCHERESV6). GATE_SOCLE est HUMAINE par exception (manifest v10) :
-   son diff vs main contient tout le socle Stratum vendored → review d'intégration > 1M tokens.
+4. **Pas de `executor: claude`** — c'est le défaut. Depuis manifest v11, **toute gate de SEGMENT
+   ENCORE ACTIVE est HUMAINE** (`executor: human`) : le runner fait les checks + ouvre la PR, la CI
+   rejoue verify+tests sur la PR, l'humain merge, et `tools/orch-reconcile-gates.ps1` bascule la
+   gate à `done` sur PR mergée (protocol.md Step 1.4). Le blueprint `auto-gate-item` (la gate qui
+   mergeait elle-même dans main) est **déprécié** — il dégradait systématiquement en `blocked`,
+   merger dans main étant une action humaine (barrière Claude Code + règle CLAUDE.md « human merge
+   mandatory »). Seules GATE_CORE_FOUNDATION et GATE_PA_FRAMEWORK le portent encore (déjà `done`,
+   terminales) ; ne plus le référencer sur une nouvelle gate.
 5. **Pas de `type: work`** — c'est le défaut. Spécifier uniquement `type: gate` sur les gates.
 6. **Pas de `blueprint: module-work-item`** — c'est le défaut. Spécifier uniquement les blueprints
    non-défaut (`docs-spec-item`, `tooling-item`, `blazor-page-item`).
