@@ -1,44 +1,31 @@
-# TRK06 — Ancrage temporel + ArchiveVerifier + export contrôle fiscal
+# PAA03 — Suite de tests de contrat IPaClient
 
-Branche : `feat/core-foundation-TRK06` (slot-3). Spec : `orchestration/items/TRK.yaml` (TRK06), F06.
+Branche : `feat/pa-framework-PAA03` (segment `feat/pa-framework`, slot-1).
+Spec : `orchestration/items/PAA.yaml` (PAA03), F05 §abstraction IPaClient, testing-strategy §6.
 
-## Décisions d'architecture
-- **ITimestampAnchor** = 4ᵉ axe enfichable à capacités (comme `IArchiveStore`/PA) : on pilote par
-  `TimestampAnchorCapabilities`, jamais par `if (anchor is ...)`.
-- **RFC 3161** : API natives `System.Security.Cryptography.Pkcs` (aucune dépendance). On horodate la
-  tête de chaîne (les 32 octets du `chain_hash`). Appel TSA via couture HTTP `ITsaClient` (testable).
-- **OpenTimestamps** : reporté en V1.1 (ADR-0011) — aucune lib .NET mûre et licence-compatible, le
-  sous-ensemble Merkle/Bitcoin maison serait non vérifiable pour un produit de conformité. Type présent,
-  capacité `IsOperational=false`, lève une `NotSupportedException` française à l'usage (jamais silencieux).
-- **NoAnchor** : défaut programmatique (instance sans internet sortant) ; la chaîne de hashes reste
-  l'intégrité. RFC 3161 = ancrage RECOMMANDÉ, activé par config d'instance.
-- **Preuves** stockées dans le coffre (`IArchiveStore`), indexées par une table append-only/WORM
-  `documents.archive_anchors` (migration V006, même discipline que `archive_entries`).
-- **ArchiveVerifier** (`IArchiveVerifier`, Contracts) : réutilise `VerifyTenantChainAsync` (contenu+
-  chaînage TRK05) + vérifie les preuves d'ancrage → `ArchiveVerificationReport`.
-- **Export contrôle fiscal** (`IFiscalControlExportService`) : par document ou par période — paquets +
-  rapport d'intégrité + preuves d'ancrage + chronologie (DocumentEvents via `Documents.Contracts`) +
-  notice de vérification en français. Période = filtre par préfixe `année/mois/` du `package_path`.
+## Objectif
+Créer `tests/Liakont.PaClients.Contract.Tests/` : une suite de contrat ABSTRAITE héritable par
+tout plug-in PA, exécutée contre le plug-in Fake (PAA02), + une doc « ajouter un plug-in PA ».
 
-## Étapes
-- [ ] Domain : `TimestampAnchorMethod`, `TimestampAnchorCapabilities`, `ITimestampAnchor`,
-      `TimestampAnchorResult`, `TimestampVerification`, `NoAnchorTimestampAnchor`,
-      `OpenTimestampsTimestampAnchor`.
-- [ ] Contracts : `IArchiveVerifier`, `ArchiveVerificationReport`, `ArchiveAnchorVerification`,
-      `IFiscalControlExportService`, `FiscalControlExport`, `FiscalExportFile`.
-- [ ] Application : `ArchiveVerifier`, `IArchiveAnchorStore`+`ArchiveAnchorRecord`,
-      `IArchiveAnchoringService`+`ArchiveAnchoringService`+`AnchoringOutcome`, `ArchiveAnchorLayout`,
-      `DailyAnchoringTenantJob`, `DailyAnchoringTrigger`+`DailyAnchoringFanOutHandler`,
-      `FiscalControlExportService`. (+ ProjectReference Documents.Contracts, Job.Contracts)
-- [ ] Infrastructure : `Rfc3161TimestampAnchor`, `ITsaClient`+`HttpTsaClient`, `TimestampAnchorOptions`,
-      `PostgresArchiveAnchorStore`, câblage `AddArchiveAnchoring` dans `ArchiveModuleRegistration`.
-- [ ] Migration V006 `documents.archive_anchors` (append-only/WORM) dans Documents.Infrastructure.
-- [ ] ADR-0011 (ancrage temporel) + limite NF Z42-013 documentée.
-- [ ] Tests Unit : TSA de test réelle (jetons RFC 3161), RFC3161 (sain/altéré), NoAnchor, OTS déféré,
-      ArchiveVerifier (chaîne saine/altérée/preuve manquante), service d'ancrage (idempotence),
-      tenant job + fan-out handler, export fiscal.
-- [ ] Tests Integration : table archive_anchors append-only + verifier sur base réelle.
-- [ ] verify-fast, run-tests, codex-review propres.
+## Plan
+- [ ] Projet `tests/Liakont.PaClients.Contract.Tests/` (xUnit + FluentAssertions, dans src/Liakont.sln)
+- [ ] `PaSendOutcome` (vocabulaire d'issue, découplé de FakePaScenario)
+- [ ] `PaClientContractSetup` (issue + capacités déclarées + erreurs de rejet)
+- [ ] `PaClientContractTests` (classe de base abstraite, contrat observable sur la surface IPaClient) :
+      - envoi valide → Issued exploitable
+      - avoir → suit la capacité déclarée (lien d'origine porté au plug-in)
+      - rejet → erreurs remontées intactes, pas d'émission
+      - erreur silencieuse (succès transport + errors[]) → RejectedByPa
+      - timeout / erreur technique → TechnicalError re-tentable
+      - idempotence : même numéro jamais émis deux fois
+      - capacité absente → résultat typé, jamais d'exception
+      - cohérence capacités déclarées ↔ comportement réel
+- [ ] `FakePaClientContractTests : PaClientContractTests` (preuve d'exécutabilité contre Fake)
+- [ ] Doc `docs/architecture/ajouter-un-plugin-pa.md`
+- [ ] Ajouter le projet à `src/Liakont.sln` (vérifier le diff : pas de dossier de solution parasite)
+- [ ] verify-fast vert
+- [ ] run-tests vert (la suite passe contre Fake)
+- [ ] codex-review clean / P2 acceptés
 
 ## Review
 (à compléter)
