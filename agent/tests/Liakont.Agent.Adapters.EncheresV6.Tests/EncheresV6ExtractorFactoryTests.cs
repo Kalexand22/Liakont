@@ -123,6 +123,5 @@ public class EncheresV6ExtractorFactoryTests
             pdfPoolPath: null,
             schedule: Array.Empty<string>(),
             catchUpOnStart: false,
-            fixturesPath: fixtures,
-            defaultPeriodDays: null);
+            fixturesPath: fixtures);
 }

@@ -142,7 +142,21 @@ public sealed class ExtractionCycle
 
     private int StashSourceTaxRegimes(IExtractor extractor)
     {
-        IReadOnlyList<SourceTaxRegimeDto> regimes = extractor.ListSourceTaxRegimes();
+        IReadOnlyList<SourceTaxRegimeDto> regimes;
+        try
+        {
+            regimes = extractor.ListSourceTaxRegimes();
+        }
+        catch (SourceUnavailableException ex)
+        {
+            // Le catalogue des régimes (métadonnée TVA03) est BEST-EFFORT : une indisponibilité PASSAGÈRE
+            // pendant son rafraîchissement NE DOIT PAS bloquer l'avancée du filigrane ni le flux de documents
+            // (déjà extraits ce cycle). On conserve le dernier état connu (pas d'écrasement) et on réessaiera
+            // au prochain cycle. Une SourceSchemaException (fatale, intervention requise) reste, elle, propagée.
+            _log.Warn($"Régimes TVA source non rafraîchis ce cycle (source momentanément indisponible) : {ex.Message}");
+            return 0;
+        }
+
         if (regimes is null || regimes.Count == 0)
         {
             _queue.SetState(LocalQueue.SourceTaxRegimesKey, null);

@@ -380,6 +380,37 @@ public class PervasiveExtractorTests
     }
 
     [Fact]
+    public void ListSourceTaxRegimes_skips_blank_code_regime_rows_like_fixture_mode()
+    {
+        var connection = Connection(regimeRows: new[]
+        {
+            RegimeRow("5", "Assujetti normal", 4),
+            RegimeRow("   ", "Entrée sans code", 0),
+        });
+
+        IReadOnlyList<SourceTaxRegimeDto> regimes = Extractor(connection).ListSourceTaxRegimes();
+
+        regimes.Should().ContainSingle("une entrée Regime_tva à code vide est ignorée, jamais bloquée (parité avec le mode fixtures)");
+        regimes[0].Code.Should().Be("5");
+    }
+
+    [Fact]
+    public void ListSourceTaxRegimes_throws_SourceSchema_when_occurrences_is_not_numeric()
+    {
+        var badRow = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [EncheresV6Schema.ColCodeRegime] = "5",
+            [EncheresV6Schema.ColLibelleRegime] = "Assujetti normal",
+            [EncheresV6Schema.ColRegimeOccurrences] = "pas-un-nombre",
+        };
+        var connection = Connection(regimeRows: new[] { badRow });
+
+        Action act = () => Extractor(connection).ListSourceTaxRegimes();
+
+        act.Should().Throw<SourceSchemaException>();
+    }
+
+    [Fact]
     public void GetAttachments_and_pool_are_empty_until_ADP05()
     {
         PervasiveExtractor extractor = Extractor(Connection());

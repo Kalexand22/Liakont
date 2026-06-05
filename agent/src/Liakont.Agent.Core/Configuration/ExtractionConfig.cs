@@ -15,8 +15,7 @@ public sealed class ExtractionConfig
         string? pdfPoolPath,
         IReadOnlyList<string> schedule,
         bool catchUpOnStart,
-        string? fixturesPath = null,
-        int? defaultPeriodDays = null)
+        string? fixturesPath = null)
     {
         Adapter = adapter;
         OdbcConnectionStringProtected = odbcConnectionStringProtected;
@@ -24,7 +23,6 @@ public sealed class ExtractionConfig
         Schedule = schedule;
         CatchUpOnStart = catchUpOnStart;
         FixturesPath = fixturesPath;
-        DefaultPeriodDays = defaultPeriodDays;
     }
 
     /// <summary>Identifiant de l'adaptateur source (ex. « EncheresV6 », « Fixture »).</summary>
@@ -48,11 +46,4 @@ public sealed class ExtractionConfig
     /// le chargeur ne fait que le transporter.
     /// </summary>
     public string? FixturesPath { get; }
-
-    /// <summary>
-    /// Fenêtre d'extraction par défaut, en jours, paramétrage OPTIONNEL (jamais une profondeur inventée :
-    /// la fenêtre de service reste pilotée par le filigrane et la plateforme — CLAUDE.md n°2). Mise à
-    /// disposition de l'adaptateur/hôte pour un run manuel ou une première extraction. <c>null</c> si absente.
-    /// </summary>
-    public int? DefaultPeriodDays { get; }
 }

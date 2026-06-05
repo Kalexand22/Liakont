@@ -14,7 +14,7 @@ using Liakont.Agent.Core.Configuration;
 /// <para>
 /// La chaîne ODBC reste sous sa forme PROTÉGÉE (DPAPI) : elle n'est jamais déchiffrée ici (CLAUDE.md
 /// n°10) — le déchiffrement est différé à l'usage, dans <see cref="EncheresV6ExtractorFactory"/>. Aucune
-/// donnée client n'est embarquée (CLAUDE.md n°7) : chaîne ODBC, chemin de fixtures et période sont du
+/// donnée client n'est embarquée (CLAUDE.md n°7) : chaîne ODBC et chemin de fixtures sont du
 /// PARAMÉTRAGE de tenant.
 /// </para>
 /// </summary>
@@ -23,13 +23,11 @@ public sealed class EncheresV6AdapterConfig
     private EncheresV6AdapterConfig(
         EncheresV6SourceMode mode,
         string? odbcConnectionStringProtected,
-        string? fixturesPath,
-        TimeSpan? defaultPeriod)
+        string? fixturesPath)
     {
         Mode = mode;
         OdbcConnectionStringProtected = odbcConnectionStringProtected;
         FixturesPath = fixturesPath;
-        DefaultPeriod = defaultPeriod;
     }
 
     /// <summary>Mode source effectif, tranché par la configuration (jamais par compilation).</summary>
@@ -40,14 +38,6 @@ public sealed class EncheresV6AdapterConfig
 
     /// <summary>Chemin (fichier ou répertoire) des fixtures JSON en mode <see cref="EncheresV6SourceMode.Fixture"/>, sinon <c>null</c>.</summary>
     public string? FixturesPath { get; }
-
-    /// <summary>
-    /// Fenêtre d'extraction PAR DÉFAUT, paramétrage OPTIONNEL de l'opérateur (<c>extraction.defaultPeriodDays</c>).
-    /// <c>null</c> quand elle est absente : l'agent n'invente JAMAIS de profondeur de rattrapage (CLAUDE.md
-    /// n°2) — la fenêtre de service reste pilotée par le filigrane et la planification plateforme (AGT03).
-    /// Cette valeur est mise à disposition de l'hôte pour un run manuel / une première extraction.
-    /// </summary>
-    public TimeSpan? DefaultPeriod { get; }
 
     /// <summary>
     /// Construit la configuration de l'adaptateur à partir de la section <c>extraction</c> validée.
@@ -85,14 +75,10 @@ public sealed class EncheresV6AdapterConfig
         }
 
         EncheresV6SourceMode mode = hasOdbc ? EncheresV6SourceMode.Pervasive : EncheresV6SourceMode.Fixture;
-        TimeSpan? defaultPeriod = extraction.DefaultPeriodDays.HasValue
-            ? TimeSpan.FromDays(extraction.DefaultPeriodDays.Value)
-            : (TimeSpan?)null;
 
         return new EncheresV6AdapterConfig(
             mode,
             hasOdbc ? extraction.OdbcConnectionStringProtected : null,
-            hasFixtures ? extraction.FixturesPath : null,
-            defaultPeriod);
+            hasFixtures ? extraction.FixturesPath : null);
     }
 }

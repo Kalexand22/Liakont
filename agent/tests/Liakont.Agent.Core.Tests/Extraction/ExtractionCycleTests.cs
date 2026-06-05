@@ -3,7 +3,9 @@ namespace Liakont.Agent.Core.Tests.Extraction;
 using System;
 using System.Collections.Generic;
 using FluentAssertions;
+using Liakont.Agent.Contracts.Pivot;
 using Liakont.Agent.Contracts.Transport;
+using Liakont.Agent.Core;
 using Liakont.Agent.Core.Extraction;
 using Liakont.Agent.Core.Storage;
 using Xunit;
@@ -158,5 +160,52 @@ public class ExtractionCycleTests
             queue.GetState(LocalQueue.SourceTaxRegimesKey).Should().Contain("\"0\"");
             queue.GetExtractionWatermarkUtc().Should().Be(To);
         }
+    }
+
+    [Fact]
+    public void Run_advances_watermark_when_regime_listing_is_momentarily_unavailable()
+    {
+        using (var db = new TempDatabase())
+        using (var queue = new LocalQueue(db.Path, new MutableClock(Clock)))
+        {
+            var extractor = new RegimeUnavailableExtractor(new[] { PivotTestData.Document("REF-1", Mid) });
+            var cycle = new ExtractionCycle(queue, new NullAgentLog());
+
+            ExtractionResult result = cycle.Run(extractor, From, To);
+
+            result.DocumentsEnqueued.Should().Be(1);
+            result.SourceTaxRegimesCollected.Should().Be(0, "le rafraîchissement des régimes est best-effort");
+            queue.GetExtractionWatermarkUtc().Should().Be(To, "un échec PASSAGER de listage des régimes ne bloque pas le filigrane");
+        }
+    }
+
+    // Extracteur qui réussit l'extraction des documents mais dont le listage des régimes échoue de
+    // façon PASSAGÈRE (SourceUnavailableException) — éprouve le caractère best-effort du stash de régimes.
+    private sealed class RegimeUnavailableExtractor : IExtractor
+    {
+        private readonly IReadOnlyList<PivotDocumentDto> _documents;
+
+        public RegimeUnavailableExtractor(IReadOnlyList<PivotDocumentDto> documents) => _documents = documents;
+
+        public string SourceName => "RegimeUnavailable";
+
+        public ExtractorCapabilities Capabilities { get; } = new ExtractorCapabilities();
+
+        public ExtractorInfo GetInfo() => new ExtractorInfo("RegimeUnavailable", "1.0.0", "Test");
+
+        public HealthCheckResult CheckHealth() => HealthCheckResult.Healthy("test");
+
+        public IEnumerable<PivotDocumentDto> ExtractDocuments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc) => _documents;
+
+        public IEnumerable<PivotPaymentDto> ExtractPayments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc) =>
+            Array.Empty<PivotPaymentDto>();
+
+        public IReadOnlyList<SourceTaxRegimeDto> ListSourceTaxRegimes() =>
+            throw new SourceUnavailableException("source momentanément indisponible (test).");
+
+        public IReadOnlyList<SourceAttachment> GetAttachments(string sourceReference) => Array.Empty<SourceAttachment>();
+
+        public IEnumerable<PoolDocument> ListPoolDocuments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc) =>
+            Array.Empty<PoolDocument>();
     }
 }

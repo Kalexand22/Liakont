@@ -150,8 +150,8 @@ internal static class EncheresV6Schema
     /// LECTURE SEULE STRICTE (<c>SELECT</c> + <c>GROUP BY</c>, aucune écriture). L'adaptateur n'interprète
     /// jamais le régime (R3, CLAUDE.md n°2) : il transporte le code et le libellé bruts ; le mapping F03
     /// et la détection de couverture (TVA03) sont plateforme. Tri par <c>code_regime</c> pour un résultat
-    /// DÉTERMINISTE. Sémantique identique au mode fixtures (<see cref="EncheresV6FixtureExtractor.ListSourceTaxRegimes"/>) :
-    /// liste pilotée par <c>Regime_tva</c>, occurrences comptées sur <c>lignes_ba</c>.
+    /// DÉTERMINISTE. Même intention que le mode fixtures (<see cref="EncheresV6FixtureExtractor.ListSourceTaxRegimes"/>) :
+    /// liste pilotée par <c>Regime_tva</c> (dont <c>code_regime</c> est la clé — une ligne par code), occurrences comptées sur <c>lignes_ba</c> ; une entrée à code vide est ignorée des deux côtés. PERFORMANCE / RÉSERVE GATE_DEMO_ISATECH : ce <c>GROUP BY</c> balaie <c>lignes_ba</c> ; sur une base réelle volumineuse, un index sur <c>lignes_ba.code_regime</c> est attendu. Le coût réel n'est pas mesurable sur fixtures.
     /// </para>
     /// </summary>
     internal const string SelectTaxRegimesSql =

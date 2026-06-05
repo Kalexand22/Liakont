@@ -196,10 +196,18 @@ public sealed class PervasiveExtractor : IExtractor
         {
             while (ReadNext(reader))
             {
-                string code = ReadRequiredKey(reader, EncheresV6Schema.ColCodeRegime);
+                string? code = ReadString(reader, EncheresV6Schema.ColCodeRegime);
+                if (string.IsNullOrWhiteSpace(code))
+                {
+                    // Entrée Regime_tva sans code exploitable : ignorée (jamais bloquée), exactement comme
+                    // le mode fixtures (EncheresV6FixtureExtractor.ListSourceTaxRegimes) — un régime sans code
+                    // n'alimente ni le mapping F03 ni la couverture TVA03.
+                    continue;
+                }
+
                 string? label = ReadString(reader, EncheresV6Schema.ColLibelleRegime);
                 int occurrences = ReadOccurrences(reader, EncheresV6Schema.ColRegimeOccurrences);
-                regimes.Add(new SourceTaxRegimeDto(code, label, occurrences));
+                regimes.Add(new SourceTaxRegimeDto(code!, label, occurrences));
             }
         }
 

@@ -56,24 +56,6 @@ public class EncheresV6AdapterConfigTests
     }
 
     [Fact]
-    public void Default_period_days_is_exposed_as_a_timespan()
-    {
-        EncheresV6AdapterConfig config = EncheresV6AdapterConfig.FromExtractionConfig(
-            Extraction(odbc: "ODBC_DPAPI_FICTIVE", fixtures: null, defaultPeriodDays: 7));
-
-        config.DefaultPeriod.Should().Be(TimeSpan.FromDays(7));
-    }
-
-    [Fact]
-    public void Default_period_is_null_when_absent()
-    {
-        EncheresV6AdapterConfig config = EncheresV6AdapterConfig.FromExtractionConfig(
-            Extraction(odbc: "ODBC_DPAPI_FICTIVE", fixtures: null));
-
-        config.DefaultPeriod.Should().BeNull("l'agent n'invente aucune fenêtre par défaut (CLAUDE.md n°2)");
-    }
-
-    [Fact]
     public void Whitespace_only_fixtures_path_does_not_count_as_a_source()
     {
         // Une valeur blanche n'est pas une source : avec une chaîne ODBC, on reste en mode Pervasive sans ambiguïté.
@@ -92,13 +74,12 @@ public class EncheresV6AdapterConfigTests
         act.Should().Throw<ArgumentNullException>();
     }
 
-    private static ExtractionConfig Extraction(string? odbc, string? fixtures, int? defaultPeriodDays = null) =>
+    private static ExtractionConfig Extraction(string? odbc, string? fixtures) =>
         new ExtractionConfig(
             adapter: "EncheresV6",
             odbcConnectionStringProtected: odbc,
             pdfPoolPath: null,
             schedule: Array.Empty<string>(),
             catchUpOnStart: false,
-            fixturesPath: fixtures,
-            defaultPeriodDays: defaultPeriodDays);
+            fixturesPath: fixtures);
 }
