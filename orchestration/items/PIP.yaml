@@ -66,6 +66,16 @@ items:
            durablement créé (Detected) ET entré dans le pipeline (« la plateforme a pris la
            responsabilité » — PAS « transmis à la PA ») ; Rejected = payload non conforme ;
            Pending = reçu mais pas encore confirmé / inconnu.
+         - CONTRAT HTTP DU STATUT — hygiène sémantique du 404 (robustesse de contrat, PAS le
+           mécanisme anti-perte) : sur la route EXISTANTE, une clé (source_reference, payload_hash)
+           inconnue répond 200 + Pending, JAMAIS 404 ; le 404 reste réservé à une route absente.
+           404 = point non déployé ; 200 = route montée, l'information métier étant portée par le
+           statut (Processed/Rejected/Pending), pas par le code HTTP. NB IMPORTANT : l'agent déjà
+           livré traite 404 et 200+Pending À L'IDENTIQUE (les deux → renvoi) — ce n'est donc PAS
+           cette règle qui ferme la perte ni la boucle de renvoi, c'est le re-rangement idempotent
+           du dédoublonnage ci-dessous. Cette règle est de l'hygiène de contrat : elle évite qu'un
+           futur agent (ou un diagnostic) confonde « clé pas encore connue » et « endpoint pas
+           déployé ». Ne pas sous-investir le re-rangement en croyant que le 200+Pending suffit.
          - AFFINER le dédoublonnage de l'ingestion (IngestDocumentBatchHandler, marqueurs
            TODO(ADR-0012)) : un renvoi d'un document REÇU MAIS NON RANGÉ doit RE-TENTER le
            rangement (idempotent sur DocumentId/payload_hash), au lieu d'être écarté en
@@ -76,6 +86,7 @@ items:
     acceptance:
       - "CHECK déclenché par événement d'ingestion : mapping + validation → ReadyToSend/Blocked"
       - "Point de statut agent GET /documents/status (ADR-0012) : Processed/Rejected/Pending par (source_reference, payload_hash), tenant-scopé, lecture seule"
+      - "Contrat 404 du point de statut (élaboration PIP01 ; sémantique Pending/inconnu d'ADR-0012, le mapping HTTP n'est PAS dans l'ADR) : clé inconnue sur la route existante = 200 + Pending, jamais 404 (404 réservé à une route absente) — hygiène de contrat, pas la garantie no-loss (testé : GET d'une clé jamais vue répond 200/Pending, pas 404)"
       - "Dédoublonnage affiné (ADR-0012) : un renvoi d'un document reçu mais non rangé RE-TENTE le rangement (idempotent), jamais écarté en duplicate (testé : intake échoué puis renvoi = document rangé, pas perdu)"
       - "Garde-fou production : table TVA non validée + compte PA production = tout reste Blocked (testé)"
       - "PRE-SEND : anti-doublon inter-traitement (timeout au traitement N, vérification PA au N+1 — testé)"
