@@ -290,6 +290,39 @@ public sealed class B2BrouterClientReadTests
         handler.Requests[0].Method.Should().Be(HttpMethod.Get);
     }
 
+    [Fact]
+    public async Task ListTaxReports_Ignores_Since_Server_Side_Same_Url_Without_Query()
+    {
+        // Verrou anti-régression de l'invariant fiscal (IPaClient `<remarks>`) : `since` n'est JAMAIS
+        // transformé en filtre query côté PA — même URL sans query, liste complète, jamais sous-déclarée
+        // (un filtre serveur inventé masquerait des tax reports — CLAUDE.md n°2/3).
+        var handler = new RoutingHttpMessageHandler().On(
+            HttpMethod.Get, TaxReportsPath, HttpStatusCode.OK, """[{"id":"TR-1","type":"dgfip","state":"sent"}]""");
+        var client = CreateClient(handler);
+
+        var reports = await client.ListTaxReportsAsync(since: new DateTime(2026, 1, 1));
+
+        handler.Requests[0].Uri.AbsolutePath.Should().Be(TaxReportsPath);
+        handler.Requests[0].Uri.Query.Should().BeEmpty(
+            "`since` ne doit jamais devenir un filtre query côté PA (sous-déclaration — CLAUDE.md n°2/3)");
+        reports.Should().ContainSingle("la liste complète est renvoyée, jamais filtrée côté PA");
+    }
+
+    [Fact]
+    public async Task Read_Http_Timeout_Is_A_Retryable_HttpRequestException_Not_A_Cancellation()
+    {
+        // Délai d'attente HTTP (TaskCanceledException sans annulation appelant) → requalifié en
+        // HttpRequestException re-tentable (cohérent avec SendDocumentAsync), jamais une
+        // OperationCanceledException d'arrêt qui ferait croire à une annulation non re-tentable (F05 §4.3).
+        var handler = StubHttpMessageHandler.Throws(new TaskCanceledException("délai dépassé"));
+        var client = B2BrouterTestData.CreateClient(handler);
+
+        var act = () => client.ListTaxReportsAsync();
+
+        await act.Should().ThrowAsync<HttpRequestException>(
+            "un timeout de lecture est re-tentable, pas une annulation appelant (F05 §4.3)");
+    }
+
     private static PaTaxReportSettingRequest DesiredSetting() => new()
     {
         NafCode = "62",

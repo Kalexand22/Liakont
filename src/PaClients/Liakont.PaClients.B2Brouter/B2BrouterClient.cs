@@ -258,9 +258,9 @@ internal sealed class B2BrouterClient : IPaClient
     private static string TaxReportSettingUrl(string accountId) =>
         $"accounts/{Uri.EscapeDataString(accountId)}/{B2BrouterDefaults.DgfipTaxReportSettingPath}";
 
-    // Lecture HTTP brute : renvoie (code, corps) sans interpréter — les erreurs réseau/timeout/annulation
-    // remontent naturellement (HttpRequestException / TaskCanceledException) pour un échec LOUD re-tentable
-    // côté pipeline, jamais masqué en résultat vide (CLAUDE.md n°3).
+    // Lecture HTTP brute : renvoie (code, corps) sans interpréter. Réseau/5xx → échec LOUD re-tentable
+    // (jamais masqué en résultat vide — CLAUDE.md n°3) ; le timeout est requalifié par
+    // SendOrThrowOnTimeoutAsync (re-tentable), une annulation appelant se propage.
     private static async Task<(HttpStatusCode Status, string Body)> SendReadAsync(
         HttpClient httpClient,
         HttpMethod method,
@@ -268,9 +268,29 @@ internal sealed class B2BrouterClient : IPaClient
         CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(method, url);
-        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await SendOrThrowOnTimeoutAsync(httpClient, request, cancellationToken).ConfigureAwait(false);
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         return (response.StatusCode, body);
+    }
+
+    // Envoie une requête et requalifie un DÉLAI d'attente HTTP (TaskCanceledException, jeton NON annulé) en
+    // HttpRequestException re-tentable : un timeout (F05 §4.3) N'EST PAS une annulation appelant et doit rester
+    // re-tentable côté pipeline — même distinction que SendDocumentAsync, cohérent avec EnsureReadSucceeded.
+    // Une VRAIE annulation appelant (jeton annulé) se propage telle quelle (OperationCanceledException).
+    private static async Task<HttpResponseMessage> SendOrThrowOnTimeoutAsync(
+        HttpClient httpClient,
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new HttpRequestException(
+                $"Délai d'attente dépassé lors de l'appel B2Brouter ({request.Method} {request.RequestUri}) — re-tentable au prochain run.");
+        }
     }
 
     // Écriture du réglage : POST (création) ou PATCH (mise à jour), corps { "tax_report_setting": { … } }.
@@ -285,7 +305,7 @@ internal sealed class B2BrouterClient : IPaClient
         var json = JsonSerializer.Serialize(payload, B2BrouterJson.Options);
         using var content = new StringContent(json, Encoding.UTF8, "application/json");
         using var httpRequest = new HttpRequestMessage(method, url) { Content = content };
-        using var response = await httpClient.SendAsync(httpRequest, cancellationToken).ConfigureAwait(false);
+        using var response = await SendOrThrowOnTimeoutAsync(httpClient, httpRequest, cancellationToken).ConfigureAwait(false);
         EnsureReadSucceeded(response.StatusCode, "écriture du réglage tax report");
     }
 
