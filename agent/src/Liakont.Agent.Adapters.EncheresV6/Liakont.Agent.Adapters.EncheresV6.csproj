@@ -14,4 +14,12 @@
     <PackageReference Include="Newtonsoft.Json" />
   </ItemGroup>
 
+  <!-- ADO.NET / ODBC (System.Data.Odbc, System.Data.Common) pour l'extraction ODBC réelle en lecture
+       seule du PervasiveExtractor (ADP02). Assembly du framework net48 signé Microsoft : accepté par
+       la liste blanche de AgentBoundaryTests par jeton de clé publique (aucune dépendance tierce, aucun
+       ADR requis ; aucune frontière plateforme ouverte). -->
+  <ItemGroup>
+    <Reference Include="System.Data" />
+  </ItemGroup>
+
 </Project>
