@@ -61,6 +61,11 @@ public sealed class AgentRunCycle
     {
         DateTime now = _clock.UtcNow;
         DateTime? watermark = _queue.GetExtractionWatermarkUtc();
+
+        // La fenêtre part du filigrane ; l'adaptateur DOIT extraire sur un axe « disponible depuis »
+        // (cf. IExtractor.ExtractDocuments) pour qu'un document anté-daté saisi après l'avancée du
+        // filigrane reste extractible. L'anti-re-push par (source_reference, payload_hash) rend toute
+        // ré-extraction (et toute fenêtre de recouvrement décidée par AGT03) idempotente.
         DateTime from = watermark ?? now;
         if (from > now)
         {

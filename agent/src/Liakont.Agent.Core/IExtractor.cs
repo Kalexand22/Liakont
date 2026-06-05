@@ -36,6 +36,7 @@ public interface IExtractor
     /// Extrait les documents (factures/avoirs) d'une période, en LECTURE SEULE et par streaming
     /// (R8). Idempotent (R2). Lève <see cref="SourceUnavailableException"/> (réessayable) ou
     /// <see cref="SourceSchemaException"/> (fatale).
+    /// La période est un axe « DISPONIBLE DEPUIS » sous la responsabilité de l'adaptateur : l'adaptateur DOIT garantir qu'aucun document ne devienne définitivement invisible une fois le filigrane avancé (un document anté-daté saisi tardivement doit rester extractible — p. ex. extraction sur un horodatage d'insertion/modification monotone, ou fenêtre de recouvrement). L'anti-re-push par (source_reference, payload_hash) rend toute ré-extraction idempotente.
     /// </summary>
     /// <param name="fromInclusiveUtc">Borne basse de la période (UTC, incluse).</param>
     /// <param name="toExclusiveUtc">Borne haute de la période (UTC, exclue).</param>

@@ -79,6 +79,11 @@ public sealed class ExtractionCycle
             }
         }
 
+        // ExtractPayments fait partie du contrat IExtractor, mais le contrat d'ingestion v1
+        // (F12 §3.4) n'a AUCUN endpoint de paiement autonome : les encaissements voyagent dans
+        // PivotDocumentDto.Payments (poussés avec le document). Le transport des paiements AUTONOMES
+        // (e-reporting de paiement F09) est donc DIFFÉRÉ à l'item qui définira ce chemin côté
+        // plateforme — en inventer un ici violerait CLAUDE.md n°2 (aucune règle/contrat inventé).
         int poolPdfs = capabilities.ProvidesUnlinkedDocumentPool
             ? CollectPoolPdfs(extractor, fromInclusiveUtc, toExclusiveUtc)
             : 0;

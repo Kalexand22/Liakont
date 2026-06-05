@@ -58,7 +58,7 @@ public sealed class HttpPlatformClient : IPlatformClient
             throw new ArgumentNullException(nameof(canonicalDocumentJsons));
         }
 
-        string body = BuildBatchBody(canonicalDocumentJsons, sourceTaxRegimes ?? Array.Empty<SourceTaxRegimeDto>());
+        string body = BuildBatchBody(_contractVersion, canonicalDocumentJsons, sourceTaxRegimes ?? Array.Empty<SourceTaxRegimeDto>());
 
         try
         {
@@ -148,11 +148,11 @@ public sealed class HttpPlatformClient : IPlatformClient
         }
     }
 
-    private static string BuildBatchBody(IReadOnlyList<string> canonicalDocumentJsons, IReadOnlyList<SourceTaxRegimeDto> regimes)
+    private static string BuildBatchBody(string contractVersion, IReadOnlyList<string> canonicalDocumentJsons, IReadOnlyList<SourceTaxRegimeDto> regimes)
     {
         var builder = new StringBuilder();
         builder.Append("{\"ContractVersion\":");
-        builder.Append(JsonConvert.SerializeObject(AgentContractVersion.ContractVersion));
+        builder.Append(JsonConvert.SerializeObject(contractVersion));
         builder.Append(",\"Documents\":[");
         for (int i = 0; i < canonicalDocumentJsons.Count; i++)
         {
