@@ -96,6 +96,32 @@ public class ExtractionCycleTests
     }
 
     [Fact]
+    public void Run_collects_two_same_named_attachments_without_silent_drop()
+    {
+        using (var db = new TempDatabase())
+        using (var queue = new LocalQueue(db.Path, new MutableClock(Clock)))
+        {
+            // Deux pièces jointes de MÊME nom (« scan.pdf ») mais de chemins distincts pour un même
+            // document : le discriminant = chemin doit éviter la collision et la perte silencieuse.
+            var extractor = new FixtureExtractor(
+                "Fixture",
+                capabilities: new ExtractorCapabilities(providesSourceDocuments: true),
+                documents: new[] { PivotTestData.Document("REF-1", Mid) },
+                attachments: new[]
+                {
+                    new SourceAttachment("REF-1", "C:\\pdf\\a\\scan.pdf"),
+                    new SourceAttachment("REF-1", "C:\\pdf\\b\\scan.pdf"),
+                });
+            var cycle = new ExtractionCycle(queue, new NullAgentLog());
+
+            ExtractionResult result = cycle.Run(extractor, From, To);
+
+            result.LinkedPdfsEnqueued.Should().Be(2);
+            queue.Peek(QueueItemStatus.Pending, QueueItemKind.Pdf, 10).Should().HaveCount(2);
+        }
+    }
+
+    [Fact]
     public void Run_collects_pool_pdfs_when_the_capability_is_declared()
     {
         using (var db = new TempDatabase())

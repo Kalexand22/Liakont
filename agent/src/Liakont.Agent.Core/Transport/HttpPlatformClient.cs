@@ -216,7 +216,7 @@ public sealed class HttpPlatformClient : IPlatformClient
         string.Format(CultureInfo.InvariantCulture, "HTTP {0}", (int)response.StatusCode);
 
     private static bool IsTransport(Exception ex) =>
-        ex is HttpRequestException || ex is OperationCanceledException || ex is IOException;
+        ex is HttpRequestException || ex is OperationCanceledException || ex is IOException || ex is JsonException;
 
     private PdfPushOutcome PushFile(string route, string filePath)
     {

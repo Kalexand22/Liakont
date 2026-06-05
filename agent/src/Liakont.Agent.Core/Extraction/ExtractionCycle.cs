@@ -104,14 +104,15 @@ public sealed class ExtractionCycle
         int enqueued = 0;
         foreach (SourceAttachment attachment in extractor.GetAttachments(sourceReference))
         {
-            // Discriminant stable par fichier (nom) : permet plusieurs pièces jointes par document
-            // tout en gardant l'anti re-push (Acknowledge enregistre la clé non nulle).
-            if (_queue.IsAlreadyPushed(QueueItemKind.Pdf, attachment.SourceReference, attachment.FileName))
+            // Discriminant = chemin du fichier (UNIQUE par fichier physique) : deux pièces jointes de
+            // même nom pour un document ne collisionnent pas sur l'index unique de push_queue, tout en
+            // gardant l'anti re-push (même chemin = même clé ; Acknowledge enregistre la clé non nulle).
+            if (_queue.IsAlreadyPushed(QueueItemKind.Pdf, attachment.SourceReference, attachment.FilePath))
             {
                 continue;
             }
 
-            if (_queue.Enqueue(QueueItem.ForPdf(QueueItemKind.Pdf, attachment.SourceReference, attachment.FilePath, attachment.FileName)) == EnqueueResult.Enqueued)
+            if (_queue.Enqueue(QueueItem.ForPdf(QueueItemKind.Pdf, attachment.SourceReference, attachment.FilePath, attachment.FilePath)) == EnqueueResult.Enqueued)
             {
                 enqueued++;
             }
