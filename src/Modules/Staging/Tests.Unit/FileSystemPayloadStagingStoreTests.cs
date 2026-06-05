@@ -151,6 +151,22 @@ public sealed class FileSystemPayloadStagingStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Tenants_Ne_Differant_Que_Par_Un_Caractere_Filtre_Ne_Collisionnent_Pas() // INV-STAGING-005
+    {
+        var (sample, json) = Sample();
+        string hash = sample.PayloadHash;
+
+        // « ab » et « a b » s'assainiraient en « ab » si les caractères filtrés étaient SUPPRIMÉS (collision).
+        // Le remplacement par « _ » garde le mapping injectif → répertoires distincts.
+        var keyClean = new StagedPayloadKey("ab", Guid.NewGuid(), hash);
+        var keyWeird = new StagedPayloadKey("a b", Guid.NewGuid(), hash);
+        await _store.WriteAsync(keyClean, json);
+
+        (await _store.ExistsAsync(keyWeird)).Should().BeFalse("deux tenants distincts ne partagent jamais un répertoire de staging (INV-STAGING-005)");
+        (await _store.ExistsAsync(keyClean)).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Purge_Supprime_L_Entree_Et_Est_Idempotente() // INV-STAGING-006
     {
         var (key, json) = Sample();

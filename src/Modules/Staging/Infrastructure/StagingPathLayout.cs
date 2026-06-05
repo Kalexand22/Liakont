@@ -1,7 +1,6 @@
 namespace Liakont.Modules.Staging.Infrastructure;
 
 using System;
-using System.IO;
 using System.Text;
 
 /// <summary>
@@ -15,8 +14,10 @@ internal static class StagingPathLayout
     public const string PayloadFileExtension = ".payload.enc";
 
     /// <summary>
-    /// Assainit un segment de chemin : ne conserve que <c>[A-Za-z0-9-_.]</c> à partir du seul nom de fichier
-    /// (anti path-traversal). Lève si le résultat est vide, <c>.</c> ou <c>..</c>.
+    /// Assainit un segment de chemin : réduit au nom de base (anti path-traversal), puis REMPLACE tout
+    /// caractère hors <c>[A-Za-z0-9-_.]</c> par <c>_</c> (jamais supprimé — la suppression rendrait le
+    /// mapping non injectif et casserait l'isolation tenant). Aligné sur
+    /// <c>ArchivePackageLayout.SanitizeSegment</c>. Lève si le résultat est vide, <c>.</c> ou <c>..</c>.
     /// </summary>
     /// <param name="segment">Le segment brut (ex. identifiant de tenant).</param>
     /// <returns>Le segment assaini, sûr à composer dans un chemin.</returns>
@@ -24,7 +25,14 @@ internal static class StagingPathLayout
     {
         ArgumentException.ThrowIfNullOrEmpty(segment);
 
-        string baseName = Path.GetFileName(segment);
+        // Anti path-traversal : on ne garde que le nom de base, jamais un séparateur fourni en entrée.
+        string baseName = segment;
+        int lastSeparator = baseName.LastIndexOfAny(['/', '\\']);
+        if (lastSeparator >= 0)
+        {
+            baseName = baseName[(lastSeparator + 1)..];
+        }
+
         var builder = new StringBuilder(baseName.Length);
         foreach (char c in baseName)
         {
@@ -32,10 +40,7 @@ internal static class StagingPathLayout
                 || (c >= 'a' && c <= 'z')
                 || (c >= '0' && c <= '9')
                 || c == '-' || c == '_' || c == '.';
-            if (allowed)
-            {
-                builder.Append(c);
-            }
+            builder.Append(allowed ? c : '_');
         }
 
         string result = builder.ToString();

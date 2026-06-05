@@ -249,17 +249,19 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
                     cancellationToken);
             }
 
-            // PIP00 / ADR-0014 — INVARIANT D'ORDRE (pas d'atomicité) : le pivot COMPLET est stagé
-            // DURABLEMENT (écrit + flushé sur disque) AVANT le commit du registre + de l'événement outbox.
-            // Il n'existe pas de transaction distribuée (XA/2PC) entre un blob store et Postgres : c'est
-            // un ordre, pas une atomicité. Conséquences :
-            //  - un DocumentReceivedV1 n'est JAMAIS committé sans contenu déjà stagé (le pipeline CHECK/SEND
-            //    relira le pivot depuis le staging — fin de la supposition « le contenu est déjà là ») ;
-            //  - un crash ENTRE cette écriture et le commit annule la transaction (rollback) → au pire un
-            //    blob ORPHELIN (purgeable, ré-écrit idempotemment au renvoi de l'agent), jamais un événement
-            //    sans contenu ;
-            //  - un échec de staging (disque) remonte comme un échec de commit : la transaction est annulée,
-            //    rien n'est publié (le contenu n'est plus jamais jeté — ADR-0014 §2).
+            // PIP00 / ADR-0014 — INVARIANT D'ORDRE (pas d'atomicité) : le pivot COMPLET est stagé (écrit +
+            // contenu flushé sur disque) AVANT le commit du registre + de l'événement outbox. Il n'existe
+            // pas de transaction distribuée (XA/2PC) entre un blob store et Postgres : c'est un ordre, pas
+            // une atomicité. Conséquences :
+            //  - le pipeline CHECK/SEND relira le pivot depuis le staging (fin de la supposition « le contenu
+            //    est déjà là ») ;
+            //  - un échec de staging (disque) remonte avant le commit → la transaction est annulée (rollback)
+            //    → au pire un blob ORPHELIN (purgeable, adressé par CONTENU donc ré-écrit idempotemment au
+            //    renvoi de l'agent), jamais un événement sans contenu ; le contenu n'est plus jamais jeté ;
+            //  - NUANCE : le renommage atomique qui publie le blob n'est pas fsyncé (pas d'API portable .NET) ;
+            //    sous coupure d'alimentation entre ce renommage et le commit Postgres, l'événement peut
+            //    survivre sans le blob — PAS une perte : le FILET DE SÉCURITÉ de l'agent (ADR-0014) re-pousse
+            //    jusqu'au statut Processed, le pivot est re-stagé.
             await _stagingStore.WriteAsync(
                 new StagedPayloadKey(request.TenantId, documentId, payloadHash),
                 canonicalJson,
