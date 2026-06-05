@@ -1,0 +1,43 @@
+{
+  "regimes": [],
+  "bordereaux": [
+    {
+      "no_ba": "4600",
+      "numero_piece": "AV-2026-0007",
+      "bordereau_ou_avoir": "A",
+      "date_vente": "2026-02-02",
+      "no_ba_lettrage": "4500",
+      "acheteur_nom": "Acheteur Particulier (fictif)",
+      "acheteur_societe": null,
+      "acheteur_ville": "Rennes",
+      "acheteur_code_postal": "35000",
+      "acheteur_pays": "FR",
+      "total_ht": 108.33,
+      "total_tva": 21.67,
+      "total_ttc": 130.00,
+      "lignes": [
+        {
+          "type_ligne": "4",
+          "designation": "Annulation adjudication lot 9 — vase Art deco",
+          "montant_ht": 100.00,
+          "montant_tva": 20.00,
+          "taux_tva": 20.0,
+          "quantite": 1,
+          "prix_unitaire": 100.00,
+          "code_regime": "5",
+          "no_ligne": "ligne#1"
+        },
+        {
+          "type_ligne": "2",
+          "designation": "Annulation frais acheteur",
+          "montant_ht": 8.33,
+          "montant_tva": 1.67,
+          "taux_tva": 20.0,
+          "quantite": 1,
+          "code_regime": "5",
+          "no_ligne": "ligne#2"
+        }
+      ]
+    }
+  ]
+}
