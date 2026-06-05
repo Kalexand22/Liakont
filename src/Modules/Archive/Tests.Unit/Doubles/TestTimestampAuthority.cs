@@ -105,20 +105,19 @@ internal sealed class TestTimestampAuthority : IDisposable
         return serial;
     }
 
-    private static X509Certificate2 CreateCertificate(RSA rsa, DateTimeOffset tokenTimestamp)
+    private static X509Certificate2 CreateCertificate(RSA rsa, DateTimeOffset timestamp)
     {
         var request = new CertificateRequest("CN=Liakont Test TSA", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         request.CertificateExtensions.Add(new X509BasicConstraintsExtension(certificateAuthority: false, hasPathLengthConstraint: false, pathLengthConstraint: 0, critical: true));
         request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, critical: true));
         request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection { TimeStampingEku }, critical: true));
 
-        // La fenêtre de validité doit ENGLOBER l'instant attesté par le jeton (Timestamp, possiblement FIXE
-        // dans le passé) ET l'instant courant. Ancrer NotBefore sur « maintenant - 1 jour » seul était un
-        // bug FLAKY selon l'heure : dès que l'heure UTC du jour dépasse celle du Timestamp fixe, NotBefore
-        // passait APRÈS le genTime du jeton → ProcessResponse rejetait « response not understood ». On ancre
-        // NotBefore sur le PLUS ANCIEN des deux instants (jeton vs maintenant) moins une marge d'un jour.
-        DateTimeOffset notBefore = (tokenTimestamp < DateTimeOffset.UtcNow ? tokenTimestamp : DateTimeOffset.UtcNow).AddDays(-1);
-        return request.CreateSelfSigned(notBefore, DateTimeOffset.UtcNow.AddYears(2));
+        // Validité ancrée sur l'instant ATTESTÉ (genTime du jeton), pas sur l'heure courante : RFC 3161
+        // vérifie le certificat signataire À l'instant horodaté, qui est FIXE et passé. Un cadrage relatif
+        // à UtcNow rendait le test dépendant de l'horloge (notBefore = UtcNow-1j finissait par dépasser le
+        // genTime figé après ~24 h, d'où des jetons rejetés « response not understood »). Ancré au genTime,
+        // le certificat couvre toujours l'instant attesté — test déterministe, sans bombe à retardement.
+        return request.CreateSelfSigned(timestamp.AddDays(-1), timestamp.AddYears(2));
     }
 
     private byte[] BuildSigningCertificateV2()
