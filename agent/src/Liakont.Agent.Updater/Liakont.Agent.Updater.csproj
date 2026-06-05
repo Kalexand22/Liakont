@@ -8,6 +8,9 @@
     <OutputType>Exe</OutputType>
     <RootNamespace>Liakont.Agent.Updater</RootNamespace>
     <AssemblyName>Liakont.Agent.Updater</AssemblyName>
+    <!-- net48 exe : le SDK infère un RuntimeIdentifier pour un build x64. On déclare les deux
+         RID pour qu'UN seul restore couvre x86 ET x64 (build sans restauration des deux). -->
+    <RuntimeIdentifiers>win-x86;win-x64</RuntimeIdentifiers>
   </PropertyGroup>
 
   <!-- Pilotage du service Windows (arrêt/démarrage/attente d'état) : assembly du framework net48. -->
