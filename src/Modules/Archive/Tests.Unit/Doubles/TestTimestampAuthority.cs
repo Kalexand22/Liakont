@@ -27,7 +27,7 @@ internal sealed class TestTimestampAuthority : IDisposable
     {
         Timestamp = timestamp ?? new DateTimeOffset(2026, 6, 4, 12, 0, 0, TimeSpan.Zero);
         _rsa = RSA.Create(2048);
-        _certificate = CreateCertificate(_rsa);
+        _certificate = CreateCertificate(_rsa, Timestamp);
     }
 
     /// <summary>Instant attesté par les jetons émis (UTC fixe pour des tests déterministes).</summary>
@@ -105,13 +105,19 @@ internal sealed class TestTimestampAuthority : IDisposable
         return serial;
     }
 
-    private static X509Certificate2 CreateCertificate(RSA rsa)
+    private static X509Certificate2 CreateCertificate(RSA rsa, DateTimeOffset timestamp)
     {
         var request = new CertificateRequest("CN=Liakont Test TSA", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         request.CertificateExtensions.Add(new X509BasicConstraintsExtension(certificateAuthority: false, hasPathLengthConstraint: false, pathLengthConstraint: 0, critical: true));
         request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, critical: true));
         request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection { TimeStampingEku }, critical: true));
-        return request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(2));
+
+        // Validité ancrée sur l'instant ATTESTÉ (genTime du jeton), pas sur l'heure courante : RFC 3161
+        // vérifie le certificat signataire À l'instant horodaté, qui est FIXE et passé. Un cadrage relatif
+        // à UtcNow rendait le test dépendant de l'horloge (notBefore = UtcNow-1j finissait par dépasser le
+        // genTime figé après ~24 h, d'où des jetons rejetés « response not understood »). Ancré au genTime,
+        // le certificat couvre toujours l'instant attesté — test déterministe, sans bombe à retardement.
+        return request.CreateSelfSigned(timestamp.AddDays(-1), timestamp.AddYears(2));
     }
 
     private byte[] BuildSigningCertificateV2()

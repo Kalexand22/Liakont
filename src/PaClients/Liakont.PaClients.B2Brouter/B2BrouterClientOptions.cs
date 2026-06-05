@@ -13,7 +13,14 @@ internal sealed record B2BrouterClientOptions
     /// <summary>Crée les options du client.</summary>
     /// <param name="accountId">Identifiant de compte B2Brouter (segment d'URL). Obligatoire.</param>
     /// <param name="capabilities">Capacités déclarées ; <c>null</c> = <see cref="B2BrouterCapabilities.Declared"/>.</param>
-    public B2BrouterClientOptions(string accountId, PaCapabilities? capabilities = null)
+    /// <param name="retryPolicy">
+    /// Politique de retry des erreurs transitoires (F05 §4.1) ; <c>null</c> = <see cref="B2BrouterRetryPolicy.Default"/>
+    /// (5 s / 30 s / 2 min). Surchargée uniquement par les tests (backoff zéro).
+    /// </param>
+    public B2BrouterClientOptions(
+        string accountId,
+        PaCapabilities? capabilities = null,
+        B2BrouterRetryPolicy? retryPolicy = null)
     {
         if (string.IsNullOrWhiteSpace(accountId))
         {
@@ -22,6 +29,7 @@ internal sealed record B2BrouterClientOptions
 
         AccountId = accountId;
         Capabilities = capabilities ?? B2BrouterCapabilities.Declared;
+        RetryPolicy = retryPolicy ?? B2BrouterRetryPolicy.Default;
     }
 
     /// <summary>Identifiant de compte B2Brouter (segment d'URL des endpoints).</summary>
@@ -29,4 +37,7 @@ internal sealed record B2BrouterClientOptions
 
     /// <summary>Capacités déclarées de ce client.</summary>
     public PaCapabilities Capabilities { get; }
+
+    /// <summary>Politique de retry des erreurs transitoires (F05 §4.1).</summary>
+    public B2BrouterRetryPolicy RetryPolicy { get; }
 }

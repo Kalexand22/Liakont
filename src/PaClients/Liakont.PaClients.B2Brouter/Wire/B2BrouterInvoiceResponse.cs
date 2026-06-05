@@ -10,6 +10,13 @@ internal sealed record B2BrouterInvoiceResponse
     /// <summary>Identifiant attribué par B2Brouter, ou <c>null</c> si l'import n'a pas abouti.</summary>
     public string? Id { get; init; }
 
+    /// <summary>
+    /// Numéro de document (EN 16931 BT-1) renvoyé par B2Brouter. Clé d'unicité côté PA (F05 §4.2) :
+    /// sert à RACCROCHER une facture déjà créée lors de la relecture d'idempotence après un échec
+    /// transitoire d'un POST (relecture de la liste du compte, F05 §4.2).
+    /// </summary>
+    public string? Number { get; init; }
+
     /// <summary>État B2Brouter du document (<c>new</c> / <c>sending</c> / <c>issued</c> / <c>error</c>…), F05 §3.</summary>
     public string? State { get; init; }
 

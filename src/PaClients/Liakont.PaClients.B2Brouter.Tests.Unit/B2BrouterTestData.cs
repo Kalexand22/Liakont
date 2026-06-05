@@ -14,6 +14,26 @@ internal static class B2BrouterTestData
     /// <summary>Réponse B2Brouter d'un envoi accepté (HTTP 200 + état issued).</summary>
     public const string IssuedJson = """{"id":"INV-1001","state":"issued","tax_report_ids":["TR-1"]}""";
 
+    /// <summary>Liste de factures VIDE (forme tableau nu) — relecture d'idempotence : numéro absent.</summary>
+    public const string EmptyInvoiceListJson = "[]";
+
+    /// <summary>
+    /// Liste de factures (forme tableau nu) contenant UNE facture pour le numéro donné — relecture
+    /// d'idempotence : numéro déjà créé côté PA (raccrochage).
+    /// </summary>
+    /// <param name="number">Numéro de document recherché.</param>
+    /// <param name="id">Identifiant attribué par la PA.</param>
+    /// <param name="state">État B2Brouter (issued / sending / new / error).</param>
+    public static string InvoiceListJsonWith(string number, string id = "INV-RECONNECT", string state = "issued") =>
+        $$"""[{"id":"{{id}}","number":"{{number}}","state":"{{state}}","tax_report_ids":["TR-9"]}]""";
+
+    /// <summary>Même liste mais sous la forme ENVELOPPÉE <c>{ "invoices": [...] }</c> (variante tolérée).</summary>
+    /// <param name="number">Numéro de document recherché.</param>
+    /// <param name="id">Identifiant attribué par la PA.</param>
+    /// <param name="state">État B2Brouter.</param>
+    public static string WrappedInvoiceListJsonWith(string number, string id = "INV-WRAPPED", string state = "issued") =>
+        $$"""{"invoices":[{"id":"{{id}}","number":"{{number}}","state":"{{state}}"}]}""";
+
     /// <summary>Facture B2C simple à 20 % (une ligne, catégorie S).</summary>
     public static PivotDocumentDto Invoice20(string number = "F-2026-001") => new(
         sourceDocumentKind: "FACTURE",
@@ -66,16 +86,24 @@ internal static class B2BrouterTestData
         lines: [new PivotLineDto("Remboursement", 50m, taxes: [new PivotLineTaxDto(10m, 20m, VatCategory.S)])],
         creditNoteRefs: [new PivotDocumentRefDto("F-ORIGINE", new DateTime(2026, 1, 10))]);
 
-    /// <summary>Crée un client B2Brouter piloté par le handler mocké (URL staging par défaut).</summary>
+    /// <summary>
+    /// Crée un client B2Brouter piloté par un handler mocké (URL staging par défaut). Le backoff est mis
+    /// à ZÉRO par défaut (<see cref="B2BrouterRetryPolicy.NoDelay"/>) pour que la boucle de retry/idempotence
+    /// (PAB02) s'exerce sans attente réelle ; un test peut fournir sa propre politique.
+    /// </summary>
     /// <param name="handler">Handler HTTP de test.</param>
     /// <param name="capabilities">Capacités à déclarer ; <c>null</c> = capacités nominales du plug-in.</param>
     /// <param name="accountId">Identifiant de compte (segment d'URL).</param>
+    /// <param name="retryPolicy">Politique de retry ; <c>null</c> = 3 réessais sans délai (backoff zéro).</param>
     public static B2BrouterClient CreateClient(
-        StubHttpMessageHandler handler,
+        HttpMessageHandler handler,
         PaCapabilities? capabilities = null,
-        string accountId = "ACC-DEMO")
+        string accountId = "ACC-DEMO",
+        B2BrouterRetryPolicy? retryPolicy = null)
     {
         var http = new HttpClient(handler) { BaseAddress = new Uri(B2BrouterDefaults.StagingBaseUrl) };
-        return new B2BrouterClient(http, new B2BrouterClientOptions(accountId, capabilities));
+        return new B2BrouterClient(
+            http,
+            new B2BrouterClientOptions(accountId, capabilities, retryPolicy ?? B2BrouterRetryPolicy.NoDelay()));
     }
 }
