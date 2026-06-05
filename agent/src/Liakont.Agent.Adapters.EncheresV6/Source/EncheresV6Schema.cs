@@ -100,6 +100,16 @@ internal static class EncheresV6Schema
     /// <summary>Colonne <c>no_ligne</c> (référence de la ligne dans la source).</summary>
     internal const string ColNoLigne = "no_ligne";
 
+    /// <summary>
+    /// Colonne <c>montant_ligne</c> (lignes type 3 — montant ENCAISSÉ, nommée explicitement par F09 §5.1 :
+    /// « <c>lignes_ba.type_ligne='3'</c> → <c>montant_ligne</c>, <c>date_reglement</c>… »). DISTINCTE de
+    /// <see cref="ColMontantHt"/> (montant des lignes de DOCUMENT type 4/2, F01-F02 §4.3) : lire <c>montant_ht</c>
+    /// pour un règlement sous-déclarerait l'encaissement si le schéma réel place le montant dans
+    /// <c>montant_ligne</c>. RÉSERVE : validé sur fixtures uniquement, réconcilié au schéma Pervasive réel par
+    /// GATE_DEMO_ISATECH (cf. en-tête de cette classe).
+    /// </summary>
+    internal const string ColMontantLigne = "montant_ligne";
+
     /// <summary>Colonne <c>date_reglement</c> (lignes type 3 — date d'encaissement, F09 ; axe de période des paiements).</summary>
     internal const string ColDateReglement = "date_reglement";
 
@@ -173,6 +183,8 @@ internal static class EncheresV6Schema
     /// bordereau (<c>entete_ba</c>) pour rapporter le numéro de pièce d'origine (rattachement par lettrage), triée
     /// par <c>no_ba</c> puis <c>no_ligne</c> (ordre stable).
     /// <para>
+    /// Le montant encaissé est lu dans <see cref="ColMontantLigne"/> (<c>montant_ligne</c>) — colonne nommée
+    /// explicitement par F09 §5.1 pour les lignes type 3, distincte du <c>montant_ht</c> des lignes de document.
     /// Période sur <c>date_reglement</c> (la date d'encaissement, pas la date de vente). L'INNER JOIN exige qu'un
     /// règlement soit rattaché à un bordereau : un encaissement orphelin n'est pas transmis (jamais inventé).
     /// L'AGRÉGATION jour × taux est faite par la PLATEFORME (PIP03) ; l'adaptateur transmet les paiements BRUTS (F09).
@@ -181,7 +193,7 @@ internal static class EncheresV6Schema
     /// </summary>
     internal const string SelectPaymentsSql =
         "SELECT e." + ColNoBa + ", e." + ColNumeroPiece
-        + ", l." + ColNoLigne + ", l." + ColMontantHt + ", l." + ColDateReglement
+        + ", l." + ColNoLigne + ", l." + ColMontantLigne + ", l." + ColDateReglement
         + ", l." + ColModeReglement + ", l." + ColNoRemise
         + " FROM " + TableLignes + " l"
         + " INNER JOIN " + TableEntete + " e ON e." + ColNoBa + " = l." + ColNoBa

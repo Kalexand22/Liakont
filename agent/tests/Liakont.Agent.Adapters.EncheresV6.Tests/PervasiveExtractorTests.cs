@@ -344,6 +344,19 @@ public class PervasiveExtractorTests
     }
 
     [Fact]
+    public void ExtractDocuments_blocks_credit_note_whose_origin_date_is_missing()
+    {
+        // Origine RÉSOLUE (origin_no_ba + origin_numero_piece présents) mais SANS date d'émission
+        // (origin_date_vente NULL) : la date de référence d'avoir (amended_date, BT-25) est obligatoire et ne
+        // doit jamais être fabriquée (0001-01-01). L'avoir est bloqué, jamais envoyé faux (ADR-0004 D3-3).
+        var missingOriginDate = CreditNoteRow("4602", "AV-2026-0009", lettrage: "4500", originNoBa: "4500", originNumeroPiece: "F-2026-0500", originDateVente: null, "4", "Annulation lot", 100.0, 20.0, "5", "ligne#1");
+
+        Action act = () => Drain(Extractor(Connection(new[] { missingOriginDate })).ExtractDocuments(PeriodFrom, PeriodTo));
+
+        act.Should().Throw<SourceSchemaException>();
+    }
+
+    [Fact]
     public void ExtractDocuments_reads_credit_notes_read_only()
     {
         var connection = Connection(SaleAndCreditNote());
@@ -637,7 +650,7 @@ public class PervasiveExtractorTests
             [EncheresV6Schema.ColNoBa] = noBa,
             [EncheresV6Schema.ColNumeroPiece] = numeroPiece,
             [EncheresV6Schema.ColNoLigne] = noLigne,
-            [EncheresV6Schema.ColMontantHt] = montantHt,
+            [EncheresV6Schema.ColMontantLigne] = montantHt,
             [EncheresV6Schema.ColDateReglement] = dateReglement,
             [EncheresV6Schema.ColModeReglement] = mode,
             [EncheresV6Schema.ColNoRemise] = noRemise,

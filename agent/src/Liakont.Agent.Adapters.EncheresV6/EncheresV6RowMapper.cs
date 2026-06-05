@@ -353,6 +353,19 @@ internal static class EncheresV6RowMapper
         string originNumber = RequireField(creditNoteOrigin.NumeroPiece, "numero_piece (origine avoir)", creditNoteOrigin.NoBa);
         string originNoBa = RequireField(creditNoteOrigin.NoBa, "no_ba (origine avoir)", creditNoteOrigin.NoBa);
 
+        // La date de la facture d'origine (amended_date, EN 16931 BT-25/BG-3) est OBLIGATOIRE et transmise
+        // telle quelle (PivotDocumentRefDto.IssueDate non-nullable). Si elle est absente/illisible en source,
+        // on BLOQUE l'avoir — jamais une date fabriquée (default 0001-01-01), miroir du garde de la date du
+        // document principal ci-dessus (ADR-0004 D3-3, CLAUDE.md n°3 « bloquer plutôt qu'envoyer faux »).
+        if (creditNoteOrigin.DateVente == default(DateTime))
+        {
+            throw new SourceSchemaException(
+                $"Avoir « {bordereau.NumeroPiece} » (no_ba « {bordereau.NoBa} ») : date d'émission de la "
+                + $"facture d'origine (no_ba « {originNoBa} ») absente ou illisible. La date de référence "
+                + "d'avoir (amended_date, BT-25) est obligatoire : document bloqué, jamais devinée "
+                + "(ADR-0004 D3-3). Vérifiez le lettrage et la date en source.");
+        }
+
         return new[]
         {
             new PivotDocumentRefDto(

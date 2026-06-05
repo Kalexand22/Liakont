@@ -417,7 +417,10 @@ public sealed class PervasiveExtractor : IExtractor
         {
             TypeLigne = EncheresV6RowMapper.LigneReglement,
             NoLigne = ReadString(reader, EncheresV6Schema.ColNoLigne),
-            MontantHt = ReadRequiredDouble(reader, EncheresV6Schema.ColMontantHt),
+
+            // Montant ENCAISSÉ : colonne montant_ligne (F09 §5.1), portée par le champ partagé MontantHt que
+            // le mapper lit pour produire PivotPaymentDto.Amount — jamais le montant_ht des lignes de document.
+            MontantHt = ReadRequiredDouble(reader, EncheresV6Schema.ColMontantLigne),
             DateReglement = ReadNullableDate(reader, EncheresV6Schema.ColDateReglement),
             ModeReglement = ReadString(reader, EncheresV6Schema.ColModeReglement),
             NoRemise = ReadString(reader, EncheresV6Schema.ColNoRemise),
