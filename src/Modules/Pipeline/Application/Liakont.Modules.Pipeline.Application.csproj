@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- Ancre MediatR du module (handlers CHECK/SEND/SYNC à venir en PIP01b-d). -->
+    <PackageReference Include="MediatR" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.Pipeline.Domain.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.Pipeline.Contracts.csproj" />
+  </ItemGroup>
+</Project>

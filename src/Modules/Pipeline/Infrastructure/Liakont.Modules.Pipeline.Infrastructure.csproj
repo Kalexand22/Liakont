@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- Microsoft.Extensions.* (DI, Options) du framework partagé — aucun package NuGet nouveau,
+         aucun ADR requis (repo-standards §4). Pas de Data Protection : PIP01a ne porte aucun secret. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.Pipeline.Tests.Unit" />
+    <InternalsVisibleTo Include="Liakont.Modules.Pipeline.Tests.Integration" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.Pipeline.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.Pipeline.Application.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.Pipeline.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+    <!-- PivotDocumentDto + DTO pivot (lecteur canonique du staging) — contrat agent partagé, BCL-only. -->
+    <ProjectReference Include="../../../Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
+  </ItemGroup>
+</Project>

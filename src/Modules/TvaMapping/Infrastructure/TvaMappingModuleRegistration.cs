@@ -2,7 +2,9 @@ namespace Liakont.Modules.TvaMapping.Infrastructure;
 
 using Liakont.Modules.TvaMapping.Application;
 using Liakont.Modules.TvaMapping.Contracts.Queries;
+using Liakont.Modules.TvaMapping.Contracts.Services;
 using Liakont.Modules.TvaMapping.Infrastructure.Queries;
+using Liakont.Modules.TvaMapping.Infrastructure.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Stratum.Common.Infrastructure.Database;
 
@@ -28,6 +30,12 @@ public static class TvaMappingModuleRegistration
 
         services.AddScoped<ITvaMappingUnitOfWorkFactory, PostgresTvaMappingUnitOfWorkFactory>();
         services.AddScoped<ITvaMappingQueries, PostgresTvaMappingQueries>();
+
+        // Frontière Contracts du moteur de mapping (PIP01a) : ITvaMappingService applique la table validée
+        // du tenant à des requêtes de ligne explicites (consommé par le pipeline PIP01b). N'invente aucune
+        // règle fiscale ; la résolution part/code depuis le pivot reste à l'appelant.
+        services.AddScoped<IMappingTableSource, PostgresMappingTableSource>();
+        services.AddScoped<ITvaMappingService, TvaMappingService>();
 
         return services;
     }

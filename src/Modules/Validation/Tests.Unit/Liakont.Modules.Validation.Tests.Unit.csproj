@@ -12,6 +12,10 @@
   <ItemGroup>
     <ProjectReference Include="../Domain/Liakont.Modules.Validation.Domain.csproj" />
     <ProjectReference Include="../Contracts/Liakont.Modules.Validation.Contracts.csproj" />
+    <!-- IValidationService (frontière Contracts) est implémenté par Validation.Infrastructure (PIP01a). -->
+    <ProjectReference Include="../Infrastructure/Liakont.Modules.Validation.Infrastructure.csproj" />
+    <!-- PivotDocumentDto (DocumentValidationContext) — contrat agent partagé. -->
+    <ProjectReference Include="../../../Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
     <!-- Le fake d'ITenantSettingsQueries (SupplierIdentityRuleTests) référence TenantSettings.Contracts. -->
     <ProjectReference Include="../../TenantSettings/Contracts/Liakont.Modules.TenantSettings.Contracts.csproj" />
   </ItemGroup>
