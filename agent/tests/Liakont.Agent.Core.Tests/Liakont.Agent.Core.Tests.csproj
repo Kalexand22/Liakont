@@ -25,6 +25,11 @@
     <ProjectReference Include="..\..\..\src\Contracts\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj" />
   </ItemGroup>
 
+  <!-- Client HTTP (tests du HttpPlatformClient contre un serveur HttpListener mocké, AGT02). -->
+  <ItemGroup>
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
+
   <!-- Tests de contrat CROSS-RUNTIME (PIV02) partagés avec la solution plateforme (.NET 10) : le MÊME
        code golden + lecteur, lié des deux côtés, prouve la sérialisation/empreinte identiques (F12 §3.4). -->
   <ItemGroup>
