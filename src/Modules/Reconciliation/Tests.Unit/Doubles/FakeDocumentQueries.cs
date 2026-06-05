@@ -63,4 +63,7 @@ internal sealed class FakeDocumentQueries : IDocumentQueries
 
     public Task<IReadOnlyList<DocumentSummaryDto>> GetPotentiallySentDocumentsAsync(CancellationToken cancellationToken = default) =>
         throw new NotSupportedException();
+
+    public Task<DocumentStatusDto?> FindStatusBySourceReferenceAndPayloadHashAsync(string sourceReference, string payloadHash, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
 }

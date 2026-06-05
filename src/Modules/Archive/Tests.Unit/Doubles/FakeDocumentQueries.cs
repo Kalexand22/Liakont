@@ -34,4 +34,7 @@ internal sealed class FakeDocumentQueries : IDocumentQueries
 
     public Task<IReadOnlyList<DocumentSummaryDto>> GetPotentiallySentDocumentsAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult((IReadOnlyList<DocumentSummaryDto>)[]);
+
+    public Task<DocumentStatusDto?> FindStatusBySourceReferenceAndPayloadHashAsync(string sourceReference, string payloadHash, CancellationToken cancellationToken = default) =>
+        Task.FromResult<DocumentStatusDto?>(null);
 }

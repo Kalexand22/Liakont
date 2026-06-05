@@ -2,9 +2,11 @@ namespace Liakont.Modules.Documents.Infrastructure;
 
 using Liakont.Modules.Documents.Application;
 using Liakont.Modules.Documents.Contracts.Deduplication;
+using Liakont.Modules.Documents.Contracts.Lifecycle;
 using Liakont.Modules.Documents.Contracts.Queries;
 using Liakont.Modules.Documents.Contracts.Reconciliation;
 using Liakont.Modules.Documents.Infrastructure.Deduplication;
+using Liakont.Modules.Documents.Infrastructure.Lifecycle;
 using Liakont.Modules.Documents.Infrastructure.Lookups;
 using Liakont.Modules.Documents.Infrastructure.Queries;
 using Liakont.Modules.Documents.Infrastructure.Reconciliation;
@@ -52,6 +54,11 @@ public static class DocumentsModuleRegistration
         // Journal de rapprochement PDF (TRK07, F06 §7) : seule surface autorisée pour que le module
         // Reconciliation inscrive un fait d'audit append-only sur un document émis (frontière Contracts-only).
         services.AddScoped<IDocumentReconciliationJournal, DocumentReconciliationJournal>();
+
+        // Port de transition d'état (PIP01a) : seule surface autorisée pour que le pipeline (PIP01c, SEND)
+        // fasse avancer un document dans la machine à états (frontière Contracts-only). Transition atomique
+        // état + audit append-only, tenant-scopée, sous verrou FOR UPDATE.
+        services.AddScoped<IDocumentLifecycle, DocumentLifecycle>();
 
         // Consommateur de l'altération source après émission (TRK03) : inscrit un fait d'audit append-only
         // sur le document émis, jamais de réémission. L'événement est produit par l'ingestion (PIV04) ;

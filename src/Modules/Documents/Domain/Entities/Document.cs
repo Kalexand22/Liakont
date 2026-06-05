@@ -191,6 +191,28 @@ public sealed class Document
     public DocumentEvent MarkReadyToSend(DateTimeOffset occurredAtUtc, string? detail = null)
         => ApplyTransition(DocumentState.ReadyToSend, DocumentEventType.DocumentReadyToSend, occurredAtUtc, detail, operatorIdentity: null);
 
+    /// <summary>
+    /// → ReadyToSend en CONSIGNANT la version de table de mapping TVA appliquée (F03/F06 §3, PIP01) : le
+    /// mapping a été résolu et la version est tracée sur le document (justification de la TVA appliquée).
+    /// <paramref name="mappingVersion"/> est OBLIGATOIRE. NOM DISTINCT (et non une surcharge de
+    /// <see cref="MarkReadyToSend(DateTimeOffset, string?)"/>) afin qu'aucun appelant ne puisse passer la
+    /// version en positionnel et la voir liée au paramètre <c>detail</c> — perte de traçabilité F03 silencieuse.
+    /// </summary>
+    public DocumentEvent MarkReadyToSendWithMapping(DateTimeOffset occurredAtUtc, string mappingVersion, string? detail = null)
+    {
+        var version = RequireText(
+            mappingVersion,
+            nameof(mappingVersion),
+            "La version de table de mapping TVA appliquée est obligatoire au passage ReadyToSend (traçabilité F03/F06 §3).");
+
+        // Garde de légalité AVANT toute mutation (cohérent avec les autres transitions, F06 §3) : la version
+        // n'est consignée qu'une fois la transition ReadyToSend acceptée — une transition refusée ne laisse
+        // aucune trace, même en mémoire.
+        var documentEvent = ApplyTransition(DocumentState.ReadyToSend, DocumentEventType.DocumentReadyToSend, occurredAtUtc, detail, operatorIdentity: null);
+        MappingVersion = version;
+        return documentEvent;
+    }
+
     /// <summary>ReadyToSend → Sending : la transmission à la Plateforme Agréée est engagée.</summary>
     public DocumentEvent BeginSending(DateTimeOffset occurredAtUtc, string? detail = null)
         => ApplyTransition(DocumentState.Sending, DocumentEventType.DocumentSending, occurredAtUtc, detail, operatorIdentity: null);

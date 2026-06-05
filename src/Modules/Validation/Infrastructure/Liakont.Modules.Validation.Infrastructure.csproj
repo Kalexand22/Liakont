@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- Microsoft.Extensions.DependencyInjection (enregistrement DI) du framework partagé — aucun
+         package NuGet nouveau, aucun ADR (repo-standards §4). Pas de base : Validation n'a pas de migration. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.Validation.Tests.Unit" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.Validation.Domain.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.Validation.Contracts.csproj" />
+  </ItemGroup>
+</Project>

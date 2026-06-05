@@ -149,6 +149,17 @@ public sealed class PostgresTenantSettingsQueries : ITenantSettingsQueries
         };
     }
 
+    public async Task<Guid?> GetCurrentCompanyId(CancellationToken ct = default)
+    {
+        // La base est PAR TENANT et tenant_profiles porte au plus une ligne (company_id UNIQUE) : on
+        // retourne le company_id de l'unique profil, ou null s'il n'est pas encore créé (CFG02). Aucune
+        // donnée d'un autre tenant n'est accessible (la connexion EST la base du tenant — CLAUDE.md n°9).
+        const string sql = "SELECT company_id FROM tenantsettings.tenant_profiles LIMIT 1";
+
+        using var conn = await _connectionFactory.OpenAsync(ct);
+        return await conn.ExecuteScalarAsync<Guid?>(new CommandDefinition(sql, cancellationToken: ct));
+    }
+
     public async Task<AlertThresholdsDto?> GetAlertThresholds(Guid companyId, CancellationToken ct = default)
     {
         const string sql = """

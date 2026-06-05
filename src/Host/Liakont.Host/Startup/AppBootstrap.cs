@@ -21,12 +21,14 @@ using Liakont.Modules.Documents.Infrastructure;
 using Liakont.Modules.Ingestion.Application;
 using Liakont.Modules.Ingestion.Infrastructure;
 using Liakont.Modules.Payments.Infrastructure;
+using Liakont.Modules.Pipeline.Infrastructure;
 using Liakont.Modules.Reconciliation.Infrastructure;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.Staging.Infrastructure;
 using Liakont.Modules.TenantSettings.Infrastructure;
 using Liakont.Modules.Transmission.Infrastructure;
 using Liakont.Modules.TvaMapping.Infrastructure;
+using Liakont.Modules.Validation.Infrastructure;
 using MediatR;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -119,6 +121,11 @@ public static class AppBootstrap
         builder.Services.AddIngestionModule();
         builder.Services.AddTvaMappingModule();
 
+        // Validation (F04) : expose IValidationService à la frontière Contracts (consommé par le pipeline,
+        // PIP01b). Les règles métier (IDocumentRule, VAL02-VAL05) s'enregistrent avec leurs items ; sans
+        // règle, la validation passe (aucune anomalie).
+        builder.Services.AddValidationModule();
+
         // Documents après Ingestion (ordre sans impact sur la correction : Ingestion utilise TryAdd,
         // Documents utilise Replace — la vraie implémentation gagne toujours). Conservé après Ingestion
         // pour la lisibilité du registre.
@@ -157,6 +164,11 @@ public static class AppBootstrap
         // PAB B2Brouter, PAS Super PDP) ajoutera sa propre IPaClientFactory en singleton et le registre
         // la découvrira. Le pipeline (PIP) consomme IPaClientRegistry pour résoudre la PA du tenant.
         builder.Services.AddTransmissionModule();
+
+        // Pipeline (PIP01a — fondations) : lecteur canonique du contenu stagé + journal d'exécutions
+        // (pipeline.run_logs) + points d'entrée Contracts consommés par CHECK/SEND/SYNC. AUCUN comportement
+        // de pipeline ici (PIP01b-d) ; le pipeline ne référence aucune PA concrète (CLAUDE.md n°6).
+        builder.Services.AddPipelineModule();
 
         // Stockage des PDF reçus (PIV04) : chemin racine = PARAMÉTRAGE de déploiement (jamais en dur,
         // CLAUDE.md n°7). Lié depuis la config ; à défaut, repli sous le content root de l'instance.
