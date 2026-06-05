@@ -45,6 +45,25 @@ public sealed class FakePaClientRegistrationTests
     }
 
     [Fact]
+    public void AddFakePaClient_First_Call_Wins_Second_Call_Options_Are_Ignored()
+    {
+        var services = new ServiceCollection();
+        services.AddFakePaClient(new FakePaClientOptions { Capabilities = new PaCapabilities { PaName = "Premier" } });
+
+        // Second appel SILENCIEUSEMENT ignoré (dédup par type d'implémentation) — comportement documenté
+        // et verrouillé ici pour qu'il soit intentionnel et non surprenant.
+        services.AddFakePaClient(new FakePaClientOptions { Capabilities = new PaCapabilities { PaName = "Second" } });
+        services.AddTransmissionModule();
+
+        using var provider = services.BuildServiceProvider();
+        var registry = provider.GetRequiredService<IPaClientRegistry>();
+
+        var client = registry.Resolve(new PaAccountDescriptor("Fake", "tenant-a"));
+        client.Capabilities.PaName.Should().Be("Premier", "le premier enregistrement gagne ; le second est ignoré");
+        registry.RegisteredTypes.Should().ContainSingle();
+    }
+
+    [Fact]
     public void AddFakePaClient_Honours_The_Configured_Options()
     {
         var services = new ServiceCollection();

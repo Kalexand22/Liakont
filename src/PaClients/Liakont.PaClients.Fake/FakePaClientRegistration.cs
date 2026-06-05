@@ -18,9 +18,19 @@ public static class FakePaClientRegistration
     /// <see cref="ServiceCollectionDescriptorExtensions.TryAddEnumerable(IServiceCollection, ServiceDescriptor)"/>
     /// déduplique par type d'implémentation : un double appel n'enregistre pas deux fabriques « Fake »
     /// (ce qui ferait lever le registre pour type dupliqué).
+    /// <para>
+    /// CONSÉQUENCE — « le premier appel gagne » : un second appel à <c>AddFakePaClient</c> est
+    /// SILENCIEUSEMENT ignoré (la dédup porte sur le type, pas sur les options) ; les
+    /// <paramref name="options"/> du second appel ne remplacent donc PAS celles du premier. Pour
+    /// changer la configuration démo, modifiez le PREMIER (et unique) appel — ne comptez pas sur un
+    /// appel ultérieur pour surcharger. (Comportement verrouillé par un test.)
+    /// </para>
     /// </summary>
     /// <param name="services">Collection de services de l'application.</param>
-    /// <param name="options">Configuration du plug-in factice, ou <c>null</c> pour les valeurs par défaut.</param>
+    /// <param name="options">
+    /// Configuration du plug-in factice, ou <c>null</c> pour les valeurs par défaut. Prise en compte
+    /// uniquement au PREMIER appel (voir la note « le premier appel gagne »).
+    /// </param>
     public static IServiceCollection AddFakePaClient(
         this IServiceCollection services,
         FakePaClientOptions? options = null)

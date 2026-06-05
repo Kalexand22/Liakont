@@ -174,6 +174,20 @@ public sealed class FakePaClientTests
     }
 
     [Fact]
+    public async Task GetDocumentStatus_Reflects_Whether_The_Document_Was_Issued()
+    {
+        var client = new FakePaClient();
+        await client.SendDocumentAsync(TestDocuments.Invoice("F-1"));
+
+        var issued = await client.GetDocumentStatusAsync("FAKE-F-1");
+        var unknown = await client.GetDocumentStatusAsync("inconnu");
+
+        issued.State.Should().Be(PaSendState.Issued);
+        issued.PaDocumentId.Should().Be("FAKE-F-1");
+        unknown.State.Should().Be(PaSendState.New, "un identifiant inconnu n'a pas été émis");
+    }
+
+    [Fact]
     public async Task GetGeneratedDocument_When_Supported_Returns_Content()
     {
         var client = new FakePaClient();
