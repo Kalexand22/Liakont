@@ -12,7 +12,7 @@ using Liakont.Modules.Transmission.Contracts;
 /// </summary>
 internal static class B2BrouterCapabilities
 {
-    /// <summary>Capacités du plug-in à l'issue de PAB01 (envoi opérationnel).</summary>
+    /// <summary>Capacités déclarées du plug-in, FINALISÉES par PAB03 (état réel B2Brouter au 2026-06).</summary>
     public static PaCapabilities Declared => new()
     {
         PaName = B2BrouterDefaults.PaName,
@@ -21,10 +21,13 @@ internal static class B2BrouterCapabilities
         SupportsB2cReporting = true,        // e-reporting B2C (flux 10.3) — envoi validé staging (F05).
         SupportsCreditNotes = true,         // avoirs via is_credit_note + amended_* (F05 ; F07-F08).
 
-        // Non livrés en PAB01 — flippés par les items suivants quand le comportement existe :
-        SupportsTaxReportRetrieval = false,  // PAB03 §1 (Get/List tax reports).
-        SupportsDocumentRetrieval = false,   // PAB03 §4 (endpoint à vérifier en staging).
-        SupportsReportRectification = false, // flux RE — PIP04 / PAB03 §5.
+        // Livré par PAB03 (List/Get tax reports + réglage idempotent) :
+        SupportsTaxReportRetrieval = true,  // PAB03 §1-§3 (lectures + EnsureTaxReportSetting).
+
+        // Capacités dont l'endpoint/flux n'est PAS confirmé en staging (déclaration honnête = false tant
+        // que ce n'est pas vérifié — CLAUDE.md n°2/3 ; vérification portée par la suite staging PAB04) :
+        SupportsDocumentRetrieval = false,   // PAB03 §4 : endpoint de téléchargement de la facture générée non confirmé (ticket support).
+        SupportsReportRectification = false, // flux RE — à vérifier en staging (PIP04 / PAB03 §5).
 
         // Capacités réellement absentes de B2Brouter (état 2026-06, PAB03 §5) :
         SupportsDomesticPaymentReporting = false,      // Flux 10.4 « planned for a future release » (F09).

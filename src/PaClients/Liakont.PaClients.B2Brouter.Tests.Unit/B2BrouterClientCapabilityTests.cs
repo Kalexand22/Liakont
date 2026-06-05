@@ -13,7 +13,7 @@ using Xunit;
 public sealed class B2BrouterClientCapabilityTests
 {
     [Fact]
-    public void Declared_Capabilities_Match_The_PAB01_Scope()
+    public void Declared_Capabilities_Match_The_Finalized_B2Brouter_State()
     {
         var handler = StubHttpMessageHandler.Returns(HttpStatusCode.OK, B2BrouterTestData.IssuedJson);
         var caps = B2BrouterTestData.CreateClient(handler).Capabilities;
@@ -21,9 +21,13 @@ public sealed class B2BrouterClientCapabilityTests
         caps.PaName.Should().Be("B2Brouter");
         caps.SupportsB2cReporting.Should().BeTrue("l'envoi B2C est livré par PAB01");
         caps.SupportsCreditNotes.Should().BeTrue("les avoirs sont livrés par PAB01");
+        caps.SupportsTaxReportRetrieval.Should().BeTrue("List/Get tax reports + réglage idempotent livrés par PAB03");
 
-        caps.SupportsTaxReportRetrieval.Should().BeFalse("livré par PAB03");
-        caps.SupportsDocumentRetrieval.Should().BeFalse("à vérifier en staging (PAB03)");
+        // Endpoint/flux non confirmés en staging → déclaration honnête false (CLAUDE.md n°2/3 ; vérif PAB04) :
+        caps.SupportsDocumentRetrieval.Should().BeFalse("endpoint de téléchargement non confirmé en staging (PAB03 §4)");
+        caps.SupportsReportRectification.Should().BeFalse("flux RE à vérifier en staging (PIP04 / PAB03 §5)");
+
+        // Capacités réellement absentes de B2Brouter (état 2026-06) :
         caps.SupportsDomesticPaymentReporting.Should().BeFalse("flux 10.4 absent de B2Brouter (F09)");
         caps.SupportsInternationalPaymentReporting.Should().BeFalse("flux 10.2 absent de B2Brouter (F09)");
         caps.SupportsB2bInvoicing.Should().BeFalse("phase 2");

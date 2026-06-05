@@ -35,6 +35,12 @@ public static class B2BrouterDefaults
     public const string ProductionBaseUrl = "https://api.b2brouter.net";
 
     /// <summary>
+    /// Sous-chemin du réglage de tax report DGFiP, relatif à <c>accounts/{id}/</c> (F05 §2, RECAP B.3 :
+    /// <c>tax_report_settings[/dgfip].json</c> — variante DGFiP, le produit étant l'e-reporting français).
+    /// </summary>
+    public const string DgfipTaxReportSettingPath = "tax_report_settings/dgfip.json";
+
+    /// <summary>
     /// Délai d'attente HTTP par appel : 60 s (l'API peut être lente à la création + envoi — F05 §4.3).
     /// </summary>
     public static readonly TimeSpan HttpTimeout = TimeSpan.FromSeconds(60);

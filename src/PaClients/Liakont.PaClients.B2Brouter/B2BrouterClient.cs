@@ -1,5 +1,6 @@
 namespace Liakont.PaClients.B2Brouter;
 
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using Liakont.Agent.Contracts.Pivot;
@@ -116,9 +117,13 @@ internal sealed class B2BrouterClient : IPaClient
                 PaCapabilityNotSupportedResult.Create(Capabilities.PaName, capability)));
         }
 
-        // Branche « flux supporté » : à implémenter si une version future de B2Brouter active le
-        // reporting de paiement (seule la déclaration de capacité changera alors — PAB03 §5).
-        throw NotYetImplemented(nameof(SendPaymentReportAsync), "PAB03");
+        // Branche « flux supporté » : inatteignable tant que la capacité est false (B2Brouter ne déclare
+        // AUCUN flux de paiement — flux 10.4/10.2 « planned », F09 ; PAB03 §5). Si une version future de
+        // B2Brouter les active, SEULE la déclaration de capacité changera, et cette branche sera
+        // implémentée — aucun autre code produit n'est impacté (invariant produit, CLAUDE.md n°8).
+        throw new NotSupportedException(
+            "Reporting de paiement B2Brouter (flux 10.4/10.2) : capacité non déclarée (F09). Cette branche " +
+            "ne s'active que lorsqu'une version future de B2Brouter exposera ces flux.");
     }
 
     /// <inheritdoc />
@@ -151,50 +156,100 @@ internal sealed class B2BrouterClient : IPaClient
     }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<PaTaxReport>> ListTaxReportsAsync(
+    public async Task<IReadOnlyList<PaTaxReport>> ListTaxReportsAsync(
         DateTime? since = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Récupération des tax reports DGFiP : livrée par PAB03 (capacité SupportsTaxReportRetrieval).
-        throw NotYetImplemented(nameof(ListTaxReportsAsync), "PAB03");
+        // F05 §2 : GET /accounts/{id}/tax_reports.json (lecture seule). B2Brouter n'expose AUCUN filtre
+        // date documenté sur cet endpoint : `since` n'est donc PAS appliqué côté PA (la plateforme filtre
+        // via les horodatages DocumentEvent). On récupère la liste COMPLÈTE — jamais moins : un filtre
+        // inventé risquerait de MASQUER des tax reports (sous-déclaration — CLAUDE.md n°2/3).
+        var url = $"accounts/{Uri.EscapeDataString(_options.AccountId)}/tax_reports.json";
+        var (status, body) = await SendReadAsync(_httpClient, HttpMethod.Get, url, cancellationToken).ConfigureAwait(false);
+        EnsureReadSucceeded(status, "liste des tax reports");
+        return B2BrouterReadMapper.MapTaxReports(body);
     }
 
     /// <inheritdoc />
-    public Task<PaTaxReport> GetTaxReportAsync(
+    public async Task<PaTaxReport> GetTaxReportAsync(
         string taxReportId,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(taxReportId);
         cancellationToken.ThrowIfCancellationRequested();
-        throw NotYetImplemented(nameof(GetTaxReportAsync), "PAB03");
+
+        // F05 §2 : GET /tax_reports/{id}.json (PAS sous /accounts). Le xml_base64 n'apparaît qu'après
+        // génération du ledger (batch ~02:00) ; son ABSENCE = « pas encore généré », pas une erreur
+        // (acceptance PAB03) — le mapper laisse XmlBase64 null sans rien signaler.
+        var url = $"tax_reports/{Uri.EscapeDataString(taxReportId)}.json";
+        var (status, body) = await SendReadAsync(_httpClient, HttpMethod.Get, url, cancellationToken).ConfigureAwait(false);
+        EnsureReadSucceeded(status, $"tax report {taxReportId}");
+        return B2BrouterReadMapper.MapTaxReport(body, fallbackId: taxReportId);
     }
 
     /// <inheritdoc />
-    public Task<PaAccountInfo> GetAccountInfoAsync(CancellationToken cancellationToken = default)
+    public async Task<PaAccountInfo> GetAccountInfoAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        throw NotYetImplemented(nameof(GetAccountInfoAsync), "PAB03");
+
+        // F05 §2 (facturation) : GET /accounts/{id}.json → transactions_count / transactions_limit
+        // (suivi de consommation). Champs absents = null (jamais une valeur par défaut qui masquerait
+        // une donnée manquante — module-rules §9).
+        var url = $"accounts/{Uri.EscapeDataString(_options.AccountId)}.json";
+        var (status, body) = await SendReadAsync(_httpClient, HttpMethod.Get, url, cancellationToken).ConfigureAwait(false);
+        EnsureReadSucceeded(status, "informations de compte");
+        return B2BrouterReadMapper.MapAccountInfo(body, _options.AccountId);
     }
 
     /// <inheritdoc />
-    public Task<PaTaxReportSetting> GetTaxReportSettingAsync(CancellationToken cancellationToken = default)
+    public async Task<PaTaxReportSetting> GetTaxReportSettingAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        throw NotYetImplemented(nameof(GetTaxReportSettingAsync), "PAB03");
+
+        var url = TaxReportSettingUrl(_options.AccountId);
+        var (status, body) = await SendReadAsync(_httpClient, HttpMethod.Get, url, cancellationToken).ConfigureAwait(false);
+
+        // 404 = réglage pas encore créé (F05 §2) → réglage « vide » (tous champs null), PAS une erreur.
+        if (status == HttpStatusCode.NotFound)
+        {
+            return new PaTaxReportSetting();
+        }
+
+        EnsureReadSucceeded(status, "réglage tax report");
+        return B2BrouterReadMapper.MapTaxReportSetting(body);
     }
 
     /// <inheritdoc />
-    public Task EnsureTaxReportSettingAsync(
+    public async Task EnsureTaxReportSettingAsync(
         PaTaxReportSettingRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Réglage idempotent du tax report (GET puis POST/PATCH si écart) : livré par PAB03.
-        throw NotYetImplemented(nameof(EnsureTaxReportSettingAsync), "PAB03");
+        // Idempotent (F05 §2) : GET l'état courant, puis POST (création) si absent, PATCH si écart,
+        // no-op si déjà conforme. Toutes les valeurs viennent du paramétrage du tenant (CFG02), jamais
+        // du code (CLAUDE.md n°2/7).
+        var url = TaxReportSettingUrl(_options.AccountId);
+        var (status, body) = await SendReadAsync(_httpClient, HttpMethod.Get, url, cancellationToken).ConfigureAwait(false);
+
+        if (status == HttpStatusCode.NotFound)
+        {
+            await SendSettingWriteAsync(_httpClient, HttpMethod.Post, url, request, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        EnsureReadSucceeded(status, "réglage tax report");
+        var current = B2BrouterReadMapper.MapTaxReportSetting(body);
+        if (B2BrouterReadMapper.SettingMatches(current, request))
+        {
+            // Déjà conforme → AUCUN appel d'écriture (idempotence — F05 §2).
+            return;
+        }
+
+        await SendSettingWriteAsync(_httpClient, HttpMethod.Patch, url, request, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -205,15 +260,95 @@ internal sealed class B2BrouterClient : IPaClient
         ArgumentException.ThrowIfNullOrWhiteSpace(paDocumentId);
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Capacité à vérifier en staging (PAB03 §4) : déclarée false ici → résultat typé, jamais
-        // d'exception ni de blocage produit (invariant PAA01).
+        // PAB03 §4 : l'endpoint de téléchargement de la facture GÉNÉRÉE par B2Brouter (Factur-X/UBL,
+        // « probable GET /invoices/{id} avec format ») n'est PAS confirmé en staging. Faute de
+        // vérification (ticket support ouvert), la capacité reste false → résultat TYPÉ NotSupported,
+        // jamais d'exception ni de blocage produit (invariant PAA01). Quand l'endpoint sera validé
+        // (suite staging PAB04), SEULES la déclaration de capacité et la branche ci-dessous changeront.
         if (!Capabilities.SupportsDocumentRetrieval)
         {
             return Task.FromResult(PaGeneratedDocument.NotSupported(
                 PaCapabilityNotSupportedResult.Create(Capabilities.PaName, PaCapability.DocumentRetrieval)));
         }
 
-        throw NotYetImplemented(nameof(GetGeneratedDocumentAsync), "PAB03");
+        // Inatteignable tant que la capacité est false : garde fail-closed contre une activation de la
+        // capacité sans implémentation de l'endpoint confirmé (CLAUDE.md n°2/3).
+        throw new NotSupportedException(
+            "Téléchargement de la facture générée B2Brouter : endpoint non confirmé en staging (F05 ; PAB03 §4). " +
+            "La capacité DocumentRetrieval doit rester false tant que le contrat n'est pas validé (suite staging PAB04).");
+    }
+
+    // URL du réglage de tax report DGFiP du compte (F05 §2 : tax_report_settings/dgfip.json).
+    // Statique (reçoit l'identifiant de compte) : aucune dépendance d'instance, regroupée avec les
+    // autres helpers static (SA1204).
+    private static string TaxReportSettingUrl(string accountId) =>
+        $"accounts/{Uri.EscapeDataString(accountId)}/{B2BrouterDefaults.DgfipTaxReportSettingPath}";
+
+    // Lecture HTTP brute : renvoie (code, corps) sans interpréter. Réseau/5xx → échec LOUD re-tentable
+    // (jamais masqué en résultat vide — CLAUDE.md n°3) ; le timeout est requalifié par
+    // SendOrThrowOnTimeoutAsync (re-tentable), une annulation appelant se propage.
+    private static async Task<(HttpStatusCode Status, string Body)> SendReadAsync(
+        HttpClient httpClient,
+        HttpMethod method,
+        string url,
+        CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(method, url);
+        using var response = await SendOrThrowOnTimeoutAsync(httpClient, request, cancellationToken).ConfigureAwait(false);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        return (response.StatusCode, body);
+    }
+
+    // Envoie une requête et requalifie un DÉLAI d'attente HTTP (TaskCanceledException, jeton NON annulé) en
+    // HttpRequestException re-tentable : un timeout (F05 §4.3) N'EST PAS une annulation appelant et doit rester
+    // re-tentable côté pipeline — même distinction que SendDocumentAsync, cohérent avec EnsureReadSucceeded.
+    // Une VRAIE annulation appelant (jeton annulé) se propage telle quelle (OperationCanceledException).
+    private static async Task<HttpResponseMessage> SendOrThrowOnTimeoutAsync(
+        HttpClient httpClient,
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new HttpRequestException(
+                $"Délai d'attente dépassé lors de l'appel B2Brouter ({request.Method} {request.RequestUri}) — re-tentable au prochain run.");
+        }
+    }
+
+    // Écriture du réglage : POST (création) ou PATCH (mise à jour), corps { "tax_report_setting": { … } }.
+    private static async Task SendSettingWriteAsync(
+        HttpClient httpClient,
+        HttpMethod method,
+        string url,
+        PaTaxReportSettingRequest request,
+        CancellationToken cancellationToken)
+    {
+        var payload = B2BrouterReadMapper.ToWire(request);
+        var json = JsonSerializer.Serialize(payload, B2BrouterJson.Options);
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
+        using var httpRequest = new HttpRequestMessage(method, url) { Content = content };
+        using var response = await SendOrThrowOnTimeoutAsync(httpClient, httpRequest, cancellationToken).ConfigureAwait(false);
+        EnsureReadSucceeded(response.StatusCode, "écriture du réglage tax report");
+    }
+
+    // Échec d'une lecture/écriture = erreur LOUD re-tentable : on ne retourne JAMAIS une valeur vide qui
+    // ferait passer un échec serveur pour « rien à déclarer » (mensonge fiscal — CLAUDE.md n°3). Le 404
+    // du réglage est traité AVANT cet appel (réglage absent ≠ échec), il n'arrive donc jamais ici.
+    private static void EnsureReadSucceeded(HttpStatusCode status, string what)
+    {
+        if ((int)status is >= 200 and <= 299)
+        {
+            return;
+        }
+
+        throw new HttpRequestException(
+            $"Appel B2Brouter « {what} » en échec (HTTP {(int)status}) — re-tentable au prochain run.",
+            inner: null,
+            statusCode: status);
     }
 
     // ── Helpers privés STATIQUES (avant les helpers d'instance — ordre StyleCop) ──

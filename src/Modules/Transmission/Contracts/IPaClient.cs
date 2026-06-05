@@ -50,6 +50,12 @@ public interface IPaClient
         CancellationToken cancellationToken = default);
 
     /// <summary>Liste les tax reports (lecture seule, F05 §2). <paramref name="since"/> nul = tous.</summary>
+    /// <remarks>
+    /// <paramref name="since"/> est un FILTRE BEST-EFFORT : une PA dont l'API n'expose pas de filtre
+    /// date côté serveur (ex. B2Brouter — F05 §2) renvoie la liste COMPLÈTE (jamais moins : ne jamais
+    /// sous-déclarer). L'appelant ne doit donc PAS présumer un filtrage exact côté PA — il filtre lui-même
+    /// (horodatages DocumentEvent côté plateforme) s'il a besoin d'une synchro incrémentale stricte.
+    /// </remarks>
     /// <param name="since">Borne basse facultative (date de génération).</param>
     /// <param name="cancellationToken">Jeton d'annulation.</param>
     Task<IReadOnlyList<PaTaxReport>> ListTaxReportsAsync(
