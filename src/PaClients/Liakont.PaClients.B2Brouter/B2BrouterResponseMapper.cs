@@ -39,23 +39,63 @@ internal static class B2BrouterResponseMapper
             return PaSendResult.Rejected(errors, paDocumentId: parsed?.Id, rawResponse: rawBody);
         }
 
-        // (3) 2xx propre → émis (si la PA a bien attribué un identifiant).
+        // (3) 2xx : l'ÉTAT RÉEL pilote le résultat (F05 §3). Un document « new » (créé sans envoi,
+        // NON facturable — F05 §2) ou « sending » (envoi async en cours) n'est PAS « émis » : ne jamais
+        // compter émis un document non transmis (correction fiscale/audit — CLAUDE.md n°3).
         if (IsSuccess(statusCode))
         {
-            return string.IsNullOrWhiteSpace(parsed?.Id)
-                ? PaSendResult.Technical(
+            if (string.IsNullOrWhiteSpace(parsed?.Id))
+            {
+                return PaSendResult.Technical(
                     [new PaError("B2B_NO_ID", "Réponse 2xx sans identifiant ni erreur — émission non confirmée.")],
-                    rawBody)
-                : PaSendResult.Issued(parsed!.Id!, MapTaxReportIds(parsed.TaxReportIds), rawBody);
+                    rawBody);
+            }
+
+            return MapSuccessState(parsed!, rawBody);
         }
 
-        // 4xx sans errors[] (ex. 401/404 sans corps détaillé) → rejet, pas de retry (F05 §4.1).
+        // 4xx sans errors[] (ex. 404 sans corps détaillé) → rejet, pas de retry (F05 §4.1).
+        // NOTE : la distinction 401/403 « erreur de configuration → bloquer TOUT le run + alerte SUP01 »
+        // (F05 §4.1) est portée par PAB02 (gestion d'erreurs) ; ici le code HTTP est conservé dans
+        // Errors pour que PAB02 le distingue du rejet métier — report explicite, pas un oubli.
         var httpCode = (int)statusCode;
         var statusError = new PaError(
             httpCode.ToString(CultureInfo.InvariantCulture),
             $"Rejet B2Brouter (HTTP {httpCode}).");
         return PaSendResult.Rejected([statusError], rawResponse: rawBody);
     }
+
+    // Mappe l'état d'une réponse 2xx SANS errors[] (états F05 §3 : new / sending / issued / error).
+    // Seul « issued » est une ÉMISSION ; « new »/« sending » restent intermédiaires (non facturables),
+    // « error » est un rejet, et un état inconnu reste « en cours » — JAMAIS « émis » par défaut.
+    private static PaSendResult MapSuccessState(B2BrouterInvoiceResponse parsed, string rawBody)
+    {
+        var id = parsed.Id!;
+        var taxReportIds = MapTaxReportIds(parsed.TaxReportIds);
+        return parsed.State?.Trim().ToLowerInvariant() switch
+        {
+            "issued" => PaSendResult.Issued(id, taxReportIds, rawBody),
+            "sending" => InProgress(PaSendState.Sending, id, taxReportIds, rawBody),
+            "new" => InProgress(PaSendState.New, id, taxReportIds, rawBody),
+            "error" => PaSendResult.Rejected(
+                [new PaError("B2B_STATE_ERROR", "État B2Brouter « error » sans détail d'erreur.")],
+                id,
+                rawBody),
+            _ => InProgress(PaSendState.Sending, id, taxReportIds, rawBody),
+        };
+    }
+
+    private static PaSendResult InProgress(
+        PaSendState state,
+        string id,
+        IReadOnlyList<string> taxReportIds,
+        string rawBody) => new()
+        {
+            State = state,
+            PaDocumentId = id,
+            TaxReportIds = taxReportIds,
+            RawResponse = rawBody,
+        };
 
     private static B2BrouterInvoiceResponse? TryParse(string rawBody)
     {

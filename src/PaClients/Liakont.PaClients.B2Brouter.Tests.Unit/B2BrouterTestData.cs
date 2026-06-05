@@ -49,16 +49,21 @@ internal static class B2BrouterTestData
                 taxes: [new PivotLineTaxDto(40m, 20m, VatCategory.S)]),
         ]);
 
-    /// <summary>Avoir rattaché à une facture d'origine (porte une <see cref="PivotDocumentRefDto"/>).</summary>
+    /// <summary>
+    /// Avoir rattaché à une facture d'origine. Montants POSITIFS : l'avoir est stocké en positif côté
+    /// source (F07-F08), et B2Brouter matérialise la rectification par le flag <c>is_credit_note</c>,
+    /// PAS par un signe négatif — combiner négatif + is_credit_note inverserait deux fois le signe. Le
+    /// plug-in recopie les montants sans manipuler le signe (il n'invente rien — CLAUDE.md n°2).
+    /// </summary>
     public static PivotDocumentDto CreditNote(string number = "A-2026-001") => new(
         sourceDocumentKind: "AVOIR",
         number: number,
         issueDate: new DateTime(2026, 2, 1),
         sourceReference: $"SRC-{number}",
         supplier: new PivotPartyDto("SVV Démo", siren: "123456789"),
-        totals: new PivotTotalsDto(-50m, -10m, -60m),
+        totals: new PivotTotalsDto(50m, 10m, 60m),
         operationCategory: OperationCategory.LivraisonBiens,
-        lines: [new PivotLineDto("Remboursement", -50m, taxes: [new PivotLineTaxDto(-10m, 20m, VatCategory.S)])],
+        lines: [new PivotLineDto("Remboursement", 50m, taxes: [new PivotLineTaxDto(10m, 20m, VatCategory.S)])],
         creditNoteRefs: [new PivotDocumentRefDto("F-ORIGINE", new DateTime(2026, 1, 10))]);
 
     /// <summary>Crée un client B2Brouter piloté par le handler mocké (URL staging par défaut).</summary>

@@ -3,6 +3,7 @@ namespace Liakont.PaClients.B2Brouter.Tests.Unit;
 using System.Net;
 using System.Text.Json;
 using FluentAssertions;
+using Liakont.Agent.Contracts.Pivot;
 using Liakont.Modules.Transmission.Contracts;
 using Xunit;
 
@@ -87,17 +88,90 @@ public sealed class B2BrouterClientSendTests
         invoice.GetProperty("is_amend").GetBoolean().Should().BeTrue();
         invoice.GetProperty("amended_number").GetString().Should().Be("F-ORIGINE");
         invoice.GetProperty("amended_date").GetString().Should().Be("2026-01-10");
+
+        // Le signe n'est PAS inversé : l'avoir est positif + is_credit_note (F07-F08) — pas de
+        // négatif combiné aux flags d'amendement (qui inverserait deux fois).
+        invoice.GetProperty("invoice_lines")[0].GetProperty("price").GetDecimal().Should().Be(50m);
     }
 
     [Fact]
-    public async Task SendDocument_Without_SendAfterImport_Emits_The_Flag_False()
+    public async Task SendDocument_Without_SendAfterImport_Emits_The_Flag_False_And_Is_Not_Issued()
     {
         var handler = StubHttpMessageHandler.Returns(HttpStatusCode.OK, """{"id":"INV-2","state":"new"}""");
         var client = B2BrouterTestData.CreateClient(handler);
 
-        await client.SendDocumentAsync(B2BrouterTestData.Invoice20(), sendAfterImport: false);
+        var result = await client.SendDocumentAsync(B2BrouterTestData.Invoice20(), sendAfterImport: false);
 
         LastInvoice(handler).GetProperty("send_after_import").GetBoolean().Should().BeFalse();
+        result.State.Should().Be(
+            PaSendState.New,
+            "un document créé sans envoi (état « new ») n'est PAS émis — non facturable (F05 §2)");
+        result.PaDocumentId.Should().Be("INV-2");
+    }
+
+    [Fact]
+    public async Task SendDocument_Sending_State_Is_Not_Reported_As_Issued()
+    {
+        var handler = StubHttpMessageHandler.Returns(HttpStatusCode.OK, """{"id":"INV-9","state":"sending"}""");
+        var client = B2BrouterTestData.CreateClient(handler);
+
+        var result = await client.SendDocumentAsync(B2BrouterTestData.Invoice20());
+
+        result.State.Should().Be(
+            PaSendState.Sending,
+            "un envoi encore « sending » n'est pas confirmé émis (correction fiscale/audit)");
+    }
+
+    [Fact]
+    public async Task SendDocument_Emits_Line_Net_As_Quantity_One_To_Avoid_Double_Counting()
+    {
+        var handler = StubHttpMessageHandler.Returns(HttpStatusCode.OK, B2BrouterTestData.IssuedJson);
+        var client = B2BrouterTestData.CreateClient(handler);
+        var doc = new PivotDocumentDto(
+            sourceDocumentKind: "FACTURE",
+            number: "F-QTY",
+            issueDate: new DateTime(2026, 1, 15),
+            sourceReference: "SRC-F-QTY",
+            supplier: new PivotPartyDto("SVV Démo", siren: "123456789"),
+            totals: new PivotTotalsDto(300m, 60m, 360m),
+            operationCategory: OperationCategory.LivraisonBiens,
+            lines: [new PivotLineDto("Lot de 3", 300m, quantity: 3m, taxes: [new PivotLineTaxDto(60m, 20m, VatCategory.S)])]);
+
+        await client.SendDocumentAsync(doc);
+
+        var line = LastInvoice(handler).GetProperty("invoice_lines")[0];
+        line.GetProperty("quantity").GetDecimal().Should().Be(1m, "le net de ligne est émis en quantité 1");
+        line.GetProperty("price").GetDecimal().Should().Be(
+            300m,
+            "le total ligne = NetAmount (pas de double comptage price × quantité)");
+    }
+
+    [Fact]
+    public async Task SendDocument_Line_With_Multiple_Tax_Breakdowns_Is_Blocked_Not_Silently_Dropped()
+    {
+        var handler = StubHttpMessageHandler.Returns(HttpStatusCode.OK, B2BrouterTestData.IssuedJson);
+        var client = B2BrouterTestData.CreateClient(handler);
+        var doc = new PivotDocumentDto(
+            sourceDocumentKind: "FACTURE",
+            number: "F-MULTITAX",
+            issueDate: new DateTime(2026, 1, 15),
+            sourceReference: "SRC-F-MULTITAX",
+            supplier: new PivotPartyDto("SVV Démo", siren: "123456789"),
+            totals: new PivotTotalsDto(100m, 20m, 120m),
+            operationCategory: OperationCategory.LivraisonBiens,
+            lines:
+            [
+                new PivotLineDto(
+                    "Ligne à 2 ventilations",
+                    100m,
+                    taxes: [new PivotLineTaxDto(15m, 20m, VatCategory.S), new PivotLineTaxDto(5m, 10m, VatCategory.AA)]),
+            ]);
+
+        var act = () => client.SendDocumentAsync(doc);
+
+        await act.Should().ThrowAsync<InvalidOperationException>(
+            "une ligne à plusieurs ventilations TVA (BG-30) est bloquée, jamais dropée en silence (CLAUDE.md n°3)");
+        handler.CallCount.Should().Be(0, "rien n'est envoyé à la PA quand le document est mal formé");
     }
 
     [Fact]

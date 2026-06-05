@@ -191,8 +191,12 @@ internal sealed class B2BrouterClient : IPaClient
     }
 
     // Marqueur d'incrément traçable : ces lectures appartiennent à un item PAB ultérieur (même branche,
-    // séquentiel). Aucun consommateur produit ne les appelle encore (pipeline PIP et câblage Host non
-    // livrés). Préférable à un faux résultat : on bloque plutôt que d'inventer (CLAUDE.md n°3).
+    // séquentiel) ; aucun consommateur produit ne les appelle encore (pipeline PIP et câblage Host non
+    // livrés). À DISTINGUER d'un gap de capacité PERMANENT (paiement, document généré) qui, lui, retourne
+    // un résultat TYPÉ via les fabriques dédiées de PaSendResult / PaGeneratedDocument (invariant PAA01).
+    // Ici la capacité est false parce que la FONCTION n'est pas encore construite (PAB03 la livre PUIS
+    // bascule la capacité à true) : lever une exception loud est plus sûr que retourner un faux résultat
+    // bénin (liste vide = « aucun tax report » serait un MENSONGE fiscal, un faux-vert — CLAUDE.md n°3).
     private static System.NotImplementedException NotYetImplemented(string method, string item) =>
         new($"B2Brouter.{method} sera livré par {item} (voir orchestration/items/PAB.yaml). " +
             "PAB01 ne livre que l'envoi de document (SendDocumentAsync).");

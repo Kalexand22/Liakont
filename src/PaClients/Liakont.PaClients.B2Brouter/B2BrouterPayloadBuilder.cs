@@ -53,21 +53,35 @@ internal static class B2BrouterPayloadBuilder
     private static B2BrouterInvoiceLine MapLine(PivotLineDto line) => new()
     {
         Description = line.Description,
-        Quantity = line.Quantity,
+
+        // NetAmount est le TOTAL HT de la ligne (EN 16931 BT-131), pas un prix unitaire. On l'émet en
+        // quantité 1 pour que le total ligne B2Brouter = NetAmount, sans dépendre de la sémantique
+        // unit/total du champ « price » (confirmée en staging PAB04) — évite tout double comptage de la
+        // base TVA quand la quantité source ≠ 1 (la quantité réelle n'est pas matérielle pour l'agrégat B2C).
+        Quantity = 1m,
         Price = line.NetAmount,
         Tax = MapTax(line.Taxes),
     };
 
-    // EN 16931 BG-30 : une catégorie de TVA par ligne. Le pivot peut porter plusieurs ventilations
-    // (sources qui cumulent des taxes sur une ligne) ; le moteur de mapping plateforme scinde déjà en
-    // une catégorie/ligne (cf. PivotLineDto.SourceRegimeCodes). On prend donc la première ventilation
-    // présente. Aucune ventilation = ligne sans taxe explicite (Tax null) — B2Brouter le rejettera si
-    // sa TVA est requise (fail-closed, on n'invente pas de catégorie — CLAUDE.md n°2/3).
+    // EN 16931 BG-30 : UNE catégorie de TVA par ligne. Le moteur de mapping plateforme (F03) scinde
+    // déjà en une ventilation/ligne (cf. PivotLineDto.SourceRegimeCodes). Aucune ventilation = ligne
+    // sans taxe explicite (Tax null) — B2Brouter la rejettera si la TVA est requise (fail-closed, on
+    // n'invente pas de catégorie — CLAUDE.md n°2/3).
     private static B2BrouterTax? MapTax(IReadOnlyList<PivotLineTaxDto> taxes)
     {
         if (taxes.Count == 0)
         {
             return null;
+        }
+
+        if (taxes.Count > 1)
+        {
+            // Plusieurs ventilations sur une ligne = contrat plateforme (BG-30) violé. On BLOQUE plutôt
+            // que de droper silencieusement une taxe (sous-déclaration de TVA — CLAUDE.md n°3) : la
+            // plateforme doit scinder la ligne avant l'envoi à la PA.
+            throw new InvalidOperationException(
+                "Ligne avec plusieurs ventilations de TVA (EN 16931 BG-30 : une catégorie par ligne) — " +
+                "le mapping plateforme doit scinder la ligne avant l'envoi à la PA.");
         }
 
         var tax = taxes[0];
