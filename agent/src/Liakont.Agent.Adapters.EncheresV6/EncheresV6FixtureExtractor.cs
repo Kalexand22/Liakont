@@ -143,6 +143,12 @@ public sealed class EncheresV6FixtureExtractor : IExtractor
     /// <inheritdoc />
     public IEnumerable<PivotDocumentDto> ExtractDocuments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc)
     {
+        // SIMPLIFICATION MODE FIXTURES : filtrage sur la date_vente (date métier).
+        // Acceptable ici car le rejeu est statique et idempotent (pas de watermark avançant).
+        // Le futur PervasiveExtractor (ADP02) DOIT filtrer sur un timestamp monotone
+        // d'insertion/modification (ou une fenêtre de récupération) conformément au contrat
+        // IExtractor « DISPONIBLE DEPUIS » — un document antidaté ou saisi tardivement doit
+        // rester extractable après l'avancement du watermark.
         foreach (EncheresV6Bordereau bordereau in _bordereaux)
         {
             if (!IsInPeriod(bordereau.DateVente, fromInclusiveUtc, toExclusiveUtc))
@@ -158,6 +164,8 @@ public sealed class EncheresV6FixtureExtractor : IExtractor
     /// <inheritdoc />
     public IEnumerable<PivotPaymentDto> ExtractPayments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc)
     {
+        // SIMPLIFICATION MODE FIXTURES : filtrage sur la date_reglement (date métier).
+        // Le futur PervasiveExtractor (ADP02) doit filtrer sur un timestamp monotone.
         foreach (EncheresV6Bordereau bordereau in _bordereaux)
         {
             foreach (EncheresV6Ligne ligne in bordereau.Lignes)
@@ -185,8 +193,29 @@ public sealed class EncheresV6FixtureExtractor : IExtractor
             }
         }
 
-        return _regimes
-            .Where(r => !string.IsNullOrWhiteSpace(r.CodeRegime))
+        // Dédup par code_regime : on retient la dernière déclaration (last-wins) pour le libellé,
+        // tout en préservant l'ordre d'apparition du premier code (stable, déterministe).
+        var seen = new Dictionary<string, int>(StringComparer.Ordinal);
+        var deduped = new List<EncheresV6Regime>();
+        foreach (EncheresV6Regime r in _regimes)
+        {
+            if (string.IsNullOrWhiteSpace(r.CodeRegime))
+            {
+                continue;
+            }
+
+            if (seen.TryGetValue(r.CodeRegime!, out int idx))
+            {
+                deduped[idx] = r;
+            }
+            else
+            {
+                seen[r.CodeRegime!] = deduped.Count;
+                deduped.Add(r);
+            }
+        }
+
+        return deduped
             .Select(r => new SourceTaxRegimeDto(
                 r.CodeRegime!,
                 r.Libelle,

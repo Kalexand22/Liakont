@@ -217,6 +217,83 @@ public class EncheresV6FixtureExtractorTests
         hashSale.Should().NotBe(hashMarge);
     }
 
+    [Fact]
+    public void FromJson_with_invalid_json_throws_SourceSchemaException()
+    {
+        Action act = () => EncheresV6FixtureExtractor.FromJson("{ not json", Emitter(), OperationCategory.LivraisonBiens);
+
+        act.Should().Throw<SourceSchemaException>();
+    }
+
+    [Fact]
+    public void FromJson_with_null_content_throws_SourceSchemaException()
+    {
+        Action act = () => EncheresV6FixtureExtractor.FromJson("null", Emitter(), OperationCategory.LivraisonBiens);
+
+        act.Should().Throw<SourceSchemaException>();
+    }
+
+    [Fact]
+    public void FromJson_with_duplicate_no_ba_throws_SourceSchemaException()
+    {
+        const string duplicateNoBaJson = @"{
+  ""regimes"": [],
+  ""bordereaux"": [
+    {
+      ""no_ba"": ""BA-001"",
+      ""numero_piece"": ""F-2026-0001"",
+      ""bordereau_ou_avoir"": ""B"",
+      ""date_vente"": ""2026-01-12"",
+      ""total_ht"": 100.0,
+      ""total_tva"": 20.0,
+      ""total_ttc"": 120.0,
+      ""lignes_ba"": [
+        { ""type_ligne"": ""4"", ""designation"": ""Lot 1"", ""montant_ht"": 100.0, ""montant_tva"": 20.0 }
+      ]
+    },
+    {
+      ""no_ba"": ""BA-001"",
+      ""numero_piece"": ""F-2026-0002"",
+      ""bordereau_ou_avoir"": ""B"",
+      ""date_vente"": ""2026-01-13"",
+      ""total_ht"": 50.0,
+      ""total_tva"": 10.0,
+      ""total_ttc"": 60.0,
+      ""lignes_ba"": [
+        { ""type_ligne"": ""4"", ""designation"": ""Lot 2"", ""montant_ht"": 50.0, ""montant_tva"": 10.0 }
+      ]
+    }
+  ]
+}";
+
+        Action act = () => EncheresV6FixtureExtractor.FromJson(duplicateNoBaJson, Emitter(), OperationCategory.LivraisonBiens);
+
+        act.Should().Throw<SourceSchemaException>();
+    }
+
+    [Fact]
+    public void FromFile_with_nonexistent_path_throws_SourceSchemaException()
+    {
+        Action act = () => EncheresV6FixtureExtractor.FromFile(
+            Path.Combine(AppContext.BaseDirectory, "fixtures", "does-not-exist.json"),
+            Emitter(),
+            OperationCategory.LivraisonBiens);
+
+        act.Should().Throw<SourceSchemaException>();
+    }
+
+    [Fact]
+    public void ExtractPayments_excludes_payment_outside_period()
+    {
+        // La fixture encheresv6-source.json contient un règlement REM-0500 daté du 2026-01-15.
+        // Une période [2026-02-01, 2026-03-01) ne doit pas le retourner.
+        List<PivotPaymentDto> payments = SalesExtractor()
+            .ExtractPayments(new DateTime(2026, 2, 1), new DateTime(2026, 3, 1))
+            .ToList();
+
+        payments.Should().BeEmpty("le règlement du 2026-01-15 est hors de la période [2026-02-01, 2026-03-01)");
+    }
+
     private static EncheresV6EmitterIdentity Emitter() =>
         new EncheresV6EmitterIdentity(
             name: "Étude Fictïve SVV",

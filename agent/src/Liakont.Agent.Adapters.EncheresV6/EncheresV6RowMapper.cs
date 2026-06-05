@@ -180,16 +180,28 @@ internal static class EncheresV6RowMapper
     /// <returns>Le montant en <c>decimal</c> arrondi à 2 décimales (half-up).</returns>
     internal static decimal RoundAmount(double raw)
     {
-        if (double.IsNaN(raw) || double.IsInfinity(raw)
-            || raw > (double)decimal.MaxValue || raw < (double)decimal.MinValue)
+        if (double.IsNaN(raw) || double.IsInfinity(raw))
         {
             throw new SourceSchemaException(
-                $"Montant source illisible (NaN/Infini/hors plage) : valeur brute « {raw} » reçue. "
+                $"Montant source illisible (NaN/Infini) : valeur brute « {raw} » reçue. "
                 + "Document bloqué, jamais arrondi à l'aveugle (ADR-0004 D3-7). "
                 + "Vérifiez l'extraction des montants en source.");
         }
 
-        return PivotRounding.RoundAmount((decimal)raw);
+        decimal value;
+        try
+        {
+            value = (decimal)raw;
+        }
+        catch (OverflowException ex)
+        {
+            throw new SourceSchemaException(
+                $"Montant source hors de la plage decimal : valeur brute « {raw} » reçue. "
+                + "Document bloqué (ADR-0004 D3-7). Vérifiez l'extraction des montants en source.",
+                ex);
+        }
+
+        return PivotRounding.RoundAmount(value);
     }
 
     /// <summary>
@@ -202,16 +214,26 @@ internal static class EncheresV6RowMapper
     /// <returns>La valeur convertie en <c>decimal</c> sans arrondi.</returns>
     internal static decimal SanitizeNonAmount(double raw, string field)
     {
-        if (double.IsNaN(raw) || double.IsInfinity(raw)
-            || raw > (double)decimal.MaxValue || raw < (double)decimal.MinValue)
+        if (double.IsNaN(raw) || double.IsInfinity(raw))
         {
             throw new SourceSchemaException(
-                $"Valeur source illisible pour le champ « {field} » (NaN/Infini/hors plage) : "
+                $"Valeur source illisible pour le champ « {field} » (NaN/Infini) : "
                 + $"valeur brute « {raw} » reçue. Document bloqué (ADR-0004 D3-7). "
                 + "Vérifiez l'extraction des données source.");
         }
 
-        return (decimal)raw;
+        try
+        {
+            return (decimal)raw;
+        }
+        catch (OverflowException ex)
+        {
+            throw new SourceSchemaException(
+                $"Valeur source hors de la plage decimal pour le champ « {field} » : "
+                + $"valeur brute « {raw} » reçue. Document bloqué (ADR-0004 D3-7). "
+                + "Vérifiez l'extraction des données source.",
+                ex);
+        }
     }
 
     private static string SourceRef(string noBa) => "no_ba=" + noBa;
