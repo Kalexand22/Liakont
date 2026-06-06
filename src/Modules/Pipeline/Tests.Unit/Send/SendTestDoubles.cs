@@ -2,6 +2,7 @@ namespace Liakont.Modules.Pipeline.Tests.Unit.Send;
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Liakont.Modules.Archive.Contracts;
@@ -85,9 +86,10 @@ internal static class SendTestDoubles
 
         public Task<IReadOnlyList<DocumentSummaryDto>> GetByStateAsync(string state, int page, int pageSize, CancellationToken cancellationToken = default)
         {
-            IReadOnlyList<DocumentSummaryDto> result = page == 1 && _byState.TryGetValue(state, out var list)
-                ? list
-                : Array.Empty<DocumentSummaryDto>();
+            IReadOnlyList<DocumentSummaryDto> result =
+                _byState.TryGetValue(state, out var list)
+                    ? list.Skip((page - 1) * pageSize).Take(pageSize).ToList()
+                    : Array.Empty<DocumentSummaryDto>();
             return Task.FromResult(result);
         }
 

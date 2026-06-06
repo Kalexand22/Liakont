@@ -1,6 +1,7 @@
 namespace Liakont.Modules.Pipeline.Infrastructure.Send;
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -224,7 +225,8 @@ public sealed partial class SendTenantJob : ITenantJob
 
         if (IsUnsendableCreditNote(staged.Pivot!, paClient))
         {
-            await services.GetRequiredService<IDocumentLifecycle>().MarkTechnicalErrorAsync(document.Id, cancellationToken);
+            // Avoir vers une PA sans capacité avoirs : laissé en l'état (aucune transition), traité par PIP02 —
+            // jamais renvoyé ni reclassé (pas de double comptage entre phases).
             LogCreditNoteCapabilityMissing(logger, document.Id, paClient.Capabilities.PaName);
             return SendOutcome.Skipped;
         }
@@ -280,18 +282,18 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Failed;
         }
 
+        if (IsUnsendableCreditNote(staged.Pivot!, paClient))
+        {
+            // Avoir vers une PA sans capacité avoirs : laissé en TechnicalError (aucune transition), traité par
+            // le pipeline des avoirs (PIP02) — jamais promu en ReadyToSend (pas de double comptage ni de boucle).
+            LogCreditNoteCapabilityMissing(logger, documentId, paClient.Capabilities.PaName);
+            return SendOutcome.Skipped;
+        }
+
         var lifecycle = services.GetRequiredService<IDocumentLifecycle>();
 
         // Reprise : TechnicalError → ReadyToSend (version de mapping déjà posée au CHECK, on la reconsigne).
         await lifecycle.MarkReadyToSendAsync(documentId, document.MappingVersion!, cancellationToken);
-
-        if (IsUnsendableCreditNote(staged.Pivot!, paClient))
-        {
-            // Avoir vers une PA sans capacité avoirs : repassé ReadyToSend (ci-dessus) et laissé là (PIP02),
-            // jamais renvoyé en boucle.
-            LogCreditNoteCapabilityMissing(logger, documentId, paClient.Capabilities.PaName);
-            return SendOutcome.Skipped;
-        }
 
         // Anti-doublon AVANT tout renvoi : si la PA connaît déjà le document, on le finalise sans réémettre.
         if (await TryFinalizeFromPaStatusAsync(services, paClient, tenantId, document, staged.Pivot!, staged.Json!, beginSending: true, logger, cancellationToken))
@@ -503,24 +505,6 @@ public sealed partial class SendTenantJob : ITenantJob
         return startDate <= today;
     }
 
-    private static async Task<int> CountByStateAsync(
-        IServiceProvider services,
-        string state,
-        CancellationToken cancellationToken)
-    {
-        var count = 0;
-        await ForEachByStateAsync(
-            services,
-            state,
-            _ =>
-            {
-                count++;
-                return Task.CompletedTask;
-            },
-            cancellationToken);
-        return count;
-    }
-
     private static bool IsUnsendableCreditNote(PivotDocumentDto pivot, IPaClient paClient) =>
         pivot.CreditNoteRefs.Count > 0 && !paClient.Capabilities.SupportsCreditNotes;
 
@@ -545,21 +529,25 @@ public sealed partial class SendTenantJob : ITenantJob
         }
     }
 
-    /// <summary>Parcourt, page par page, les documents d'un état donné (file bornée TRK01) et applique une action par identifiant.</summary>
-    private static async Task ForEachByStateAsync(
+    /// <summary>
+    /// Capture l'instantané des identifiants candidats AVANT tout traitement (ensemble stable → pagination OFFSET
+    /// fidèle), puis ils sont traités ; un document qui quitte l'état pendant le traitement n'est donc jamais sauté
+    /// (même garantie que GetPotentiallySentDocumentsAsync).
+    /// </summary>
+    private static async Task<List<Guid>> SnapshotIdsByStateAsync(
         IServiceProvider services,
         string state,
-        Func<Guid, Task> action,
         CancellationToken cancellationToken)
     {
         var queries = services.GetRequiredService<IDocumentQueries>();
+        var ids = new List<Guid>();
         var page = 1;
         while (true)
         {
             var batch = await queries.GetByStateAsync(state, page, PageSize, cancellationToken);
             foreach (var summary in batch)
             {
-                await action(summary.Id);
+                ids.Add(summary.Id);
             }
 
             if (batch.Count < PageSize)
@@ -569,6 +557,30 @@ public sealed partial class SendTenantJob : ITenantJob
 
             page++;
         }
+
+        return ids;
+    }
+
+    private static async Task ForEachByStateAsync(
+        IServiceProvider services,
+        string state,
+        Func<Guid, Task> action,
+        CancellationToken cancellationToken)
+    {
+        var ids = await SnapshotIdsByStateAsync(services, state, cancellationToken);
+        foreach (var id in ids)
+        {
+            await action(id);
+        }
+    }
+
+    private static async Task<int> CountByStateAsync(
+        IServiceProvider services,
+        string state,
+        CancellationToken cancellationToken)
+    {
+        var ids = await SnapshotIdsByStateAsync(services, state, cancellationToken);
+        return ids.Count;
     }
 
     private static async Task WriteRunLogAsync(

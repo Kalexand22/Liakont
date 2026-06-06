@@ -187,6 +187,42 @@ public sealed class SendTenantJobTests
         runLogs.Saved[0].DocumentsFailed.Should().Be(1);
     }
 
+    [Fact]
+    public async Task More_Than_PageSize_ReadyToSend_Documents_Are_All_Issued_In_One_Run()
+    {
+        // Arrange : 120 documents ReadyToSend — dépasse la taille de page (100).
+        // Avec l'ancienne logique OFFSET-draining, page++ après chaque page ferait sauter les 20 derniers.
+        // Avec le snapshot, tous les 120 ids sont collectés avant tout traitement.
+        const int documentCount = 120;
+        var queries = new SendTestDoubles.ConfigurableDocumentQueries();
+        var lifecycle = new SendTestDoubles.RecordingDocumentLifecycle();
+        var staging = new SendTestDoubles.MapStagingStore();
+
+        for (var i = 1; i <= documentCount; i++)
+        {
+            var id = Guid.NewGuid();
+            var number = string.Format(System.Globalization.CultureInfo.InvariantCulture, "F-PAGE-{0:D3}", i);
+            var pivot = SendTestData.SingleLinePivot(number);
+            var doc = SendTestData.Document(id, "ReadyToSend", number: number, payloadHash: "hash-page-" + i.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            queries.AddDocument(doc);
+            queries.AddInState("ReadyToSend", SendTestData.Summary(id, "ReadyToSend", number));
+            staging.Stage(id, Liakont.Agent.Contracts.Serialization.CanonicalJson.Serialize(pivot));
+        }
+
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var purge = new SendTestDoubles.RecordingStagingPurgeService(true);
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var fake = await PublishedFakeAsync(FakePaScenario.Success);
+        var provider = BuildProvider(ActiveAccountSettings(), queries, lifecycle, staging, purge, archive, runLogs, fake);
+
+        // Act
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        // Assert : tous les 120 documents ont été émis (aucun sauté par OFFSET-draining).
+        lifecycle.Issued.Should().HaveCount(documentCount, "le snapshot collecte tous les ids avant traitement — aucun document sauté.");
+        runLogs.Saved[^1].DocumentsSucceeded.Should().Be(documentCount);
+    }
+
     private static (Guid Id, SendTestDoubles.ConfigurableDocumentQueries Queries, SendTestDoubles.RecordingDocumentLifecycle Lifecycle, SendTestDoubles.MapStagingStore Staging) SeedSingle(string state)
     {
         var id = Guid.NewGuid();
