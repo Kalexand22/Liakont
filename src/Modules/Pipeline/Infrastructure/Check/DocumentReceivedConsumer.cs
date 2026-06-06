@@ -162,7 +162,8 @@ public sealed partial class DocumentReceivedConsumer : IIntegrationEventConsumer
             // de la laisser dead-letter en silence sur un document figé en Detected. Le geste correctif (ré-extraire
             // → re-stage ré-encodé) résout les deux cas. C'est plus sûr qu'un retry à l'aveugle sur une altération.
             LogStagingIntegrityFailure(_logger, payload.DocumentId, payload.TenantId, ex);
-            await BlockAndLogAsync(services, payload.DocumentId, StagingIntegrityReason, startedAt, cancellationToken);
+            await BlockAndLogAsync(
+                services, payload.DocumentId, WithDocumentNumber(current.DocumentNumber, StagingIntegrityReason), startedAt, cancellationToken);
             return;
         }
 
@@ -182,19 +183,21 @@ public sealed partial class DocumentReceivedConsumer : IIntegrationEventConsumer
             // Table absente AVANT la garde-fou production : sinon, en production (IsValidated=false), l'opérateur
             // recevrait « faites valider la table » alors qu'il n'en existe AUCUNE — l'action correcte est « créez
             // la table » (message opérateur exact, CLAUDE.md n°12). Le document reste Blocked dans les deux cas.
-            blockReason = TableAbsentReason;
+            blockReason = WithDocumentNumber(current.DocumentNumber, TableAbsentReason);
         }
         else if (!mapping.IsValidated && await IsProductionContextAsync(tenantSettings, companyId.Value, cancellationToken))
         {
             // GARDE-FOU PRODUCTION (item PIP01b §3) — table non validée + compte PA production = tout reste Blocked.
-            blockReason = ProductionGuardReason;
+            blockReason = WithDocumentNumber(current.DocumentNumber, ProductionGuardReason);
         }
         else
         {
             var evaluation = CheckTvaMapping.Evaluate(pivot, plan, mapping);
             if (evaluation.IsBlocked)
             {
-                blockReason = evaluation.BlockReason;
+                // Motifs de mapping/forme rédigés par CHECK (TvaMapper/CheckTvaMapping) : on cite le n° de document
+                // (CLAUDE.md n°12). Les motifs de VALIDATION, eux, le citent déjà en propre (convention ValidationIssue).
+                blockReason = WithDocumentNumber(current.DocumentNumber, evaluation.BlockReason!);
             }
             else
             {
@@ -251,6 +254,10 @@ public sealed partial class DocumentReceivedConsumer : IIntegrationEventConsumer
             .Select(issue => issue.MessageOperateur);
         return string.Join(Environment.NewLine, messages);
     }
+
+    /// <summary>Préfixe un motif de blocage rédigé par CHECK avec le numéro de document (CLAUDE.md n°12).</summary>
+    private static string WithDocumentNumber(string documentNumber, string reason) =>
+        string.Create(CultureInfo.InvariantCulture, $"Document n° {documentNumber} : {reason}");
 
     [LoggerMessage(EventId = 7100, Level = LogLevel.Debug,
         Message = "CHECK ignoré pour le document {DocumentId} : état {State} (déjà traité ou avancé — idempotent).")]
