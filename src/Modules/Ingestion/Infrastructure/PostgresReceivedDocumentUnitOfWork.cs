@@ -71,6 +71,22 @@ internal sealed class PostgresReceivedDocumentUnitOfWork : IReceivedDocumentUnit
             cancellationToken: cancellationToken));
     }
 
+    public async Task<Guid?> GetDocumentIdByPayloadHashAsync(string tenantId, string payloadHash, CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT document_id
+            FROM ingestion.received_documents
+            WHERE tenant_id = @TenantId AND payload_hash = @PayloadHash
+            LIMIT 1
+            """;
+
+        return await _txn.Connection.ExecuteScalarAsync<Guid?>(new CommandDefinition(
+            sql,
+            new { TenantId = tenantId, PayloadHash = payloadHash },
+            _txn.Transaction,
+            cancellationToken: cancellationToken));
+    }
+
     public async Task InsertReceivedDocumentAsync(ReceivedDocument receivedDocument, CancellationToken cancellationToken = default)
     {
         const string sql = """

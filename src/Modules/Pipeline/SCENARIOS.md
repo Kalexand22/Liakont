@@ -122,3 +122,27 @@ avec PIP01d.
 - **Tri et borne** : les exécutions sont retournées les plus récentes d'abord, bornées par `limit`
   (INV-PIPELINE-005).
 - **Journal vide** : aucune exécution → liste vide (jamais d'erreur) (INV-PIPELINE-005).
+
+## SYNC — `SyncTenantJobIntegrationTests`
+
+- **Avec capacités → addenda** : pour un document `Issued`, la PA déclarant `SupportsDocumentRetrieval` +
+  `SupportsTaxReportRetrieval` ⇒ la facture PA générée et le tax report du document sont ajoutés en ADDENDA
+  chaînés au paquet WORM (3 entrées : initial + facture + tax report) ; un SYNC ré-exécuté est IDEMPOTENT
+  (toujours 3 entrées) (INV-PIPELINE-022/023).
+- **Sans capacité → rien** : une PA sans aucune capacité de récupération ⇒ aucun addendum (paquet initial seul),
+  aucune tentative de récupération — le produit n'est jamais bloqué (INV-PIPELINE-022).
+
+## Point de statut agent — `GetDocumentIntakeStatusHandlerTests`
+
+- **Clé inconnue → Pending** : aucune entrée de Document pour la clé `(source_reference, payload_hash)` ⇒
+  `Pending` (reçu mais pas encore rangé), réponse 200 (jamais 404) — l'agent renvoie (INV-PIPELINE-025).
+- **Document existant → Processed** : un Document à l'état `Detected`/`Blocked`/`ReadyToSend`/`Issued` ⇒
+  `Processed` (la plateforme a pris la responsabilité, Issued inclus — l'agent purge sa copie) (INV-PIPELINE-025).
+
+## Bout en bout — `PipelineEndToEndTests`
+
+- **Chaîne complète, 2 tenants isolés** : un document pivot contrat-v1 traverse `ingestion → CHECK → SEND (Fake)
+  → SYNC → archive WORM` sur DEUX tenants ayant chacun sa PROPRE base (database-per-tenant) ; chaque tenant
+  attribue son propre identifiant et le document d'un tenant n'apparaît JAMAIS dans la base de l'autre
+  (isolation, CLAUDE.md n°9/17). Le staging est purgé après l'écriture WORM, et le SYNC ajoute facture PA +
+  tax report en addenda (3 entrées de coffre par document) (INV-PIPELINE-017/022/025).

@@ -29,6 +29,8 @@
          présence WORM (IArchivedDocumentProbe, port du Host) est réimplémentée dans le harnais de test
          au-dessus de IArchiveStore — le module Pipeline ne référence jamais ces infrastructures. -->
     <ProjectReference Include="../../Archive/Infrastructure/Liakont.Modules.Archive.Infrastructure.csproj" />
+    <!-- PIP01d — E2E : ingestion RÉELLE (IngestDocumentBatchHandler + UoW de réception + staging) dans la chaîne. -->
+    <ProjectReference Include="../../Ingestion/Infrastructure/Liakont.Modules.Ingestion.Infrastructure.csproj" />
     <ProjectReference Include="../../../PaClients/Liakont.PaClients.Fake/Liakont.PaClients.Fake.csproj" />
   </ItemGroup>
 </Project>

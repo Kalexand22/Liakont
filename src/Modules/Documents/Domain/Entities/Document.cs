@@ -226,6 +226,14 @@ public sealed class Document
     public DocumentEvent MarkIssued(IssuanceSnapshots snapshots, DateTimeOffset occurredAtUtc, string? detail = null)
     {
         ArgumentNullException.ThrowIfNull(snapshots);
+
+        // Référence PA attribuée à l'émission — clé de récupération aval (facture générée, tax reports : SYNC/PIP01d).
+        // On ne l'écrase JAMAIS par null (une finalisation anti-doublon sans id ne doit pas effacer une référence connue).
+        if (!string.IsNullOrWhiteSpace(snapshots.PaDocumentId))
+        {
+            PaDocumentId = snapshots.PaDocumentId;
+        }
+
         return ApplyIssuanceTransition(
             DocumentState.Issued,
             DocumentEventType.DocumentIssued,

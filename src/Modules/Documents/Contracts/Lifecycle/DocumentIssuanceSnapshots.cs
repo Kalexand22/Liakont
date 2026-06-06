@@ -16,4 +16,11 @@ public sealed record DocumentIssuanceSnapshots
 
     /// <summary>Trace de la/des règle(s) de mapping TVA appliquée(s) et de leur version (JSON, F03).</summary>
     public required string MappingTrace { get; init; }
+
+    /// <summary>
+    /// Identifiant du document attribué par la Plateforme Agréée à l'émission (clé de récupération aval :
+    /// facture générée, tax reports — SYNC/PIP01d), ou <c>null</c>. Son absence n'altère pas une référence déjà
+    /// posée (jamais un effacement). Ce n'est PAS une preuve d'audit (les trois snapshots le sont).
+    /// </summary>
+    public string? PaDocumentId { get; init; }
 }

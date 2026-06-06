@@ -8,6 +8,7 @@ using Liakont.Modules.Pipeline.Infrastructure.Check;
 using Liakont.Modules.Pipeline.Infrastructure.Persistence;
 using Liakont.Modules.Pipeline.Infrastructure.Queries;
 using Liakont.Modules.Pipeline.Infrastructure.Send;
+using Liakont.Modules.Pipeline.Infrastructure.Sync;
 using Microsoft.Extensions.DependencyInjection;
 using Stratum.Common.Abstractions.Events;
 using Stratum.Common.Infrastructure.Database;
@@ -48,6 +49,10 @@ public static class PipelineModuleRegistration
         // ITenantJobRunner, SOL06). Le SendTenantJob lui-même n'est PAS enregistré (instancié par le handler,
         // il résout ses services depuis le scope tenant — même patron que DailyAnchoringTenantJob).
         services.AddScoped<IJobHandler<SendAllTrigger>, SendAllFanOutHandler>();
+
+        // PIP01d — SYNC : handler SYSTÈME du déclencheur SyncAllTrigger (fan-out multi-tenant, même patron que
+        // le SEND). Le SyncTenantJob est instancié par le handler et résout ses services depuis le scope tenant.
+        services.AddScoped<IJobHandler<SyncAllTrigger>, SyncAllFanOutHandler>();
 
         return services;
     }

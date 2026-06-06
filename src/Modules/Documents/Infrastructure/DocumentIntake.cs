@@ -1,5 +1,7 @@
 namespace Liakont.Modules.Documents.Infrastructure;
 
+using System;
+using Dapper;
 using Liakont.Modules.Documents.Domain.Entities;
 using Liakont.Modules.Ingestion.Contracts;
 using Stratum.Common.Infrastructure.Database;
@@ -42,5 +44,18 @@ internal sealed class DocumentIntake : IDocumentIntake
 
         await uow.CreateDetectedAsync(document, genesisEvent, cancellationToken);
         await uow.CommitAsync(cancellationToken);
+    }
+
+    public async Task<bool> IsDocumentRangedAsync(Guid documentId, string tenantId, CancellationToken cancellationToken = default)
+    {
+        // Le document est « rangé » dès qu'il existe (Detected et au-delà) dans la base DU TENANT : lecture seule,
+        // tenant-scopée par le slug (l'ingestion est de niveau système, F12 §3.1) — même résolution que la création.
+        var connectionFactory = new TenantSlugConnectionFactoryAdapter(_tenantConnectionFactory, tenantId);
+        using var connection = await connectionFactory.OpenAsync(cancellationToken);
+
+        return await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            "SELECT EXISTS(SELECT 1 FROM documents.documents WHERE id = @Id)",
+            new { Id = documentId },
+            cancellationToken: cancellationToken));
     }
 }

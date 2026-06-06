@@ -44,7 +44,7 @@ internal sealed class DocumentLifecycle : IDocumentLifecycle
     {
         ArgumentNullException.ThrowIfNull(snapshots);
         var domainSnapshots = new IssuanceSnapshots(
-            snapshots.PayloadSnapshot, snapshots.PaResponseSnapshot, snapshots.MappingTrace);
+            snapshots.PayloadSnapshot, snapshots.PaResponseSnapshot, snapshots.MappingTrace, snapshots.PaDocumentId);
         return TransitionAsync(documentId, (document, at) => document.MarkIssued(domainSnapshots, at), cancellationToken);
     }
 
