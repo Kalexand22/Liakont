@@ -207,3 +207,30 @@ avec PIP01d.
 - **Snapshot append-only + idempotent** : la catégorie UNCL5305 est capturée ; ré-écrire le même
   (document_id, mapping_version) retourne `false` (pas de doublon) ; un UPDATE/DELETE direct sur
   `pipeline.ventilation_snapshots` est rejeté par le trigger base (`PostgresException`) (INV-VENTILATION-003).
+
+## Rectificatifs e-reporting (PIP04, flux RE) — `RectificationBuilderTests` (Unit)
+
+- **Annule-et-remplace complet** : le builder retient TOUTES les lignes reportables (`Calculated`) des bornes,
+  triées jour×taux — la photo complète de la période, pas un delta (INV-PIPELINE-033).
+- **Filtrage** : lignes hors bornes ou non reportables (suspendu / non requis / en attente) exclues de la
+  déclaration (INV-PIPELINE-033).
+- **Empreinte déterministe** : même contenu logique (ordre / échelle décimale différents) ⇒ même empreinte
+  64 hex ; un avoir qui corrige une ligne change l'empreinte (INV-PIPELINE-034).
+- **Période vide** : aucune ligne reportable ⇒ rectificatif `IsEmpty` (INV-PIPELINE-036) ; fin avant début rejetée.
+
+## Rectificatifs e-reporting (PIP04) — `ReportRectificationIntegrationTests` (Testcontainers PostgreSQL)
+
+- **Rectificatif manuel** : capacités présentes ⇒ l'agrégat complet de la période est transmis (annule-et-
+  remplace), une entrée `Transmitted` est journalisée avec le `payload_snapshot` (INV-PIPELINE-033/035).
+- **Avoir sur période déclarée** : une déclaration initiale puis un agrégat corrigé (base réduite, F09 §5.4)
+  produisent DEUX entrées d'historique d'empreintes différentes (initiale + rectificatif), append-only
+  (INV-PIPELINE-033/034/035).
+- **PA sans capacité de rectification** : `SupportsReportRectification=false` ⇒ `PendingCapability`, AUCUN
+  appel `SendPaymentReportAsync` (jamais d'envoi à l'aveugle) (INV-PIPELINE-034).
+- **Idempotence** : un double déclenchement au contenu identique ⇒ `NoChange`, une SEULE transmission, une
+  seule entrée de journal (INV-PIPELINE-034).
+- **Append-only** : un UPDATE/DELETE direct sur `pipeline.report_rectifications` est rejeté par le trigger
+  base (`PostgresException`) (INV-PIPELINE-035).
+- **Ré-évaluation par le job tenant** : une période déclarée puis dont l'agrégat change est rectifiée par
+  `ReportRectificationTenantJob` (un rectificatif s'ajoute), avec une trace d'exécution `Rectify` consignée
+  (INV-PIPELINE-036).

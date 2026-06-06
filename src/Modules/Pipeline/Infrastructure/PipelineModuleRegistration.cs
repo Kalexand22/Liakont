@@ -8,6 +8,7 @@ using Liakont.Modules.Pipeline.Infrastructure.Aggregation;
 using Liakont.Modules.Pipeline.Infrastructure.Check;
 using Liakont.Modules.Pipeline.Infrastructure.Persistence;
 using Liakont.Modules.Pipeline.Infrastructure.Queries;
+using Liakont.Modules.Pipeline.Infrastructure.Rectification;
 using Liakont.Modules.Pipeline.Infrastructure.Send;
 using Liakont.Modules.Pipeline.Infrastructure.Sync;
 using Microsoft.Extensions.DependencyInjection;
@@ -63,6 +64,14 @@ public static class PipelineModuleRegistration
         // par le handler et résout ses services depuis le scope tenant.
         services.AddScoped<IPaymentAggregationStore, PostgresPaymentAggregationStore>();
         services.AddScoped<IJobHandler<AggregatePaymentsAllTrigger>, AggregatePaymentsAllFanOutHandler>();
+
+        // PIP04 — RECTIFICATIFS (flux RE annule-et-remplace) : journal append-only des rectificatifs, service
+        // de rectification (build + idempotence + capacité + transmission) et handler SYSTÈME du déclencheur
+        // RectifyReportsAllTrigger (fan-out multi-tenant, même patron que SEND/SYNC/AGGREGATE). Le job est
+        // instancié par le handler et résout ses services depuis le scope tenant.
+        services.AddScoped<IReportRectificationLedger, PostgresReportRectificationLedger>();
+        services.AddScoped<ReportRectificationService>();
+        services.AddScoped<IJobHandler<RectifyReportsAllTrigger>, RectifyReportsAllFanOutHandler>();
 
         return services;
     }

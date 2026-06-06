@@ -6,5 +6,9 @@
   <ItemGroup>
     <ProjectReference Include="../Domain/Liakont.Modules.Pipeline.Domain.csproj" />
     <ProjectReference Include="../Contracts/Liakont.Modules.Pipeline.Contracts.csproj" />
+    <!-- PIP04 — RECTIFICATIFS (flux RE) : la clé de période d'un rectificatif porte son TYPE DE FLUX
+         (PaymentReportFlux, 10.4 domestique / 10.2 international). Contrat d'un AUTRE module, jamais un
+         plug-in PA concret (frontière P1, CLAUDE.md n°14). -->
+    <ProjectReference Include="../../Transmission/Contracts/Liakont.Modules.Transmission.Contracts.csproj" />
   </ItemGroup>
 </Project>
