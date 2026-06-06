@@ -18,5 +18,14 @@
     <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
     <!-- PivotDocumentDto + DTO pivot (lecteur canonique du staging) — contrat agent partagé, BCL-only. -->
     <ProjectReference Include="../../../Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
+    <!-- CHECK (PIP01b) : le pipeline consomme les AUTRES modules UNIQUEMENT par leurs Contracts
+         (frontière Contracts-only, module-rules §3 / CLAUDE.md n°14). Aucune référence Domain/Application/
+         Infrastructure d'un autre module, aucun plug-in PA concret. -->
+    <ProjectReference Include="../../Ingestion/Contracts/Liakont.Modules.Ingestion.Contracts.csproj" />
+    <ProjectReference Include="../../Staging/Contracts/Liakont.Modules.Staging.Contracts.csproj" />
+    <ProjectReference Include="../../TvaMapping/Contracts/Liakont.Modules.TvaMapping.Contracts.csproj" />
+    <ProjectReference Include="../../Validation/Contracts/Liakont.Modules.Validation.Contracts.csproj" />
+    <ProjectReference Include="../../Documents/Contracts/Liakont.Modules.Documents.Contracts.csproj" />
+    <ProjectReference Include="../../TenantSettings/Contracts/Liakont.Modules.TenantSettings.Contracts.csproj" />
   </ItemGroup>
 </Project>
