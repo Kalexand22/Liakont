@@ -32,7 +32,14 @@ meta:
   #   executor: human. Le blueprint auto-gate-item n'est plus utilisé par aucune gate ENCORE ACTIVE :
   #   seules GATE_CORE_FOUNDATION et GATE_PA_FRAMEWORK le portent encore, mais elles sont déjà `done`
   #   (terminales, ne re-tourneront pas). Ne pas le câbler sur une nouvelle gate. GATE_SOCLE déjà humaine.
-  version: 11
+  # version 12 = re-découpage PIP03 (décision opérateur 2026-06-06, après blocage fiscal de PIP03). PIP03
+  #   (e-reporting de paiement F09) exigeait des règles fiscales non sourcées (cadence reportingFrequency,
+  #   découpage Mixte frais/adjudication) + une décision d'archi (capture de la ventilation purgée au
+  #   staging) — il bloquait TOUT l'aval (console-web/toolkit/CMP). Découplé : PIP03a = partie constructible
+  #   et 100% générique (ADR-0015 capture ventilation + agrégation mono-catégorie + suspension + chemin Fake),
+  #   SUR le chemin critique ; PIP03b = fast-follow GELÉ (cadence sourcée D-a, Mixte sourcé D-b, envoi réel
+  #   conditionné à la capacité B2Brouter « Encaissée »), HORS chemin critique (pas une dépendance de gate).
+  version: 12
   host: multi_agent_v1
 
 segments:
@@ -185,17 +192,23 @@ items:
   # le pivot complet depuis le magasin de staging au lieu de le supposer « déjà là ».
   # PIP01 re-découpé en PIP01a-d (2026-06-05, décision opérateur) : item trop gros pour une session
   # unique (nouveau module Pipeline + points d'entrée Contracts dans 5 modules + CHECK/SEND/SYNC ;
-  # pas de merge partiel). Détail des sous-items : orchestration/items/PIP.yaml. PIP02/PIP03 dépendent
+  # pas de merge partiel). Détail des sous-items : orchestration/items/PIP.yaml. PIP02/PIP03a dépendent
   # de PIP01c (SEND) ; la gate dépend de PIP01d (dernier maillon du pipeline cœur : SYNC+statut).
+  # PIP03 re-découpé en PIP03a/PIP03b (2026-06-06, v12) : PIP03a = constructible et générique (sur le
+  # chemin critique, dépendance de gate) ; PIP03b = fast-follow gelé sur règles fiscales sourcées + capacité
+  # PA (HORS chemin critique : PAS une dépendance de GATE_PIPELINE — sinon tout l'aval reste gelé). PIP03b
+  # est marqué `blocked` dans state.yaml jusqu'à ce que D-a/D-b soient tranchées et que B2Brouter expose
+  # « Encaissée » (le runner ne le réclamera pas — blocked = terminal pour l'orchestrateur).
   - { id: PIP00, lot: PIP, priority: 4990, depends_on: [] }
   - { id: PIP01a, lot: PIP, priority: 5000, depends_on: [PIP00] }
   - { id: PIP01b, lot: PIP, priority: 5002, depends_on: [PIP01a] }
   - { id: PIP01c, lot: PIP, priority: 5004, depends_on: [PIP01b] }
   - { id: PIP01d, lot: PIP, priority: 5006, depends_on: [PIP01c] }
   - { id: PIP02, lot: PIP, priority: 5010, depends_on: [PIP01c] }
-  - { id: PIP03, lot: PIP, priority: 5020, depends_on: [PIP01c] }
-  - { id: PIP04, lot: PIP, priority: 5030, depends_on: [PIP02, PIP03] }
-  - { id: GATE_PIPELINE, type: gate, executor: human, priority: 5400, depends_on: [PIP01d, PIP02, PIP03, PIP04] }
+  - { id: PIP03a, lot: PIP, priority: 5020, depends_on: [PIP01c] }
+  - { id: PIP03b, lot: PIP, priority: 5022, depends_on: [PIP03a] }
+  - { id: PIP04, lot: PIP, priority: 5030, depends_on: [PIP02, PIP03a] }
+  - { id: GATE_PIPELINE, type: gate, executor: human, priority: 5400, depends_on: [PIP01d, PIP02, PIP03a, PIP04] }
 
   # ── AGT ──
   - { id: AGT01, lot: AGT, priority: 5500, depends_on: [] }
