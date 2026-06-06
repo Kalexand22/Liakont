@@ -1,43 +1,43 @@
-# ADP05 — Extraction des bordereaux PDF EncheresV6 (pièces jointes)
+# PIP01d — SYNC + point de statut agent + affinage dédoublonnage (ADR-0012/0014)
 
-Session : orch-20260605-144059-l2s2 (slot-2, clone Liakont2)
-Sous-branche : feat/adapter-encheresv6-ADP05
+Dernier maillon du pipeline cœur. Branche `feat/pipeline-PIP01d` (segment `feat/pipeline`).
+Session : orch-20260606-020510-l1s1 (slot-1, clone Liakont).
 
-## Contexte
+## Partie A — SYNC (job planifié par tenant)
+- [ ] `Contracts/Jobs/SyncAllTrigger.cs` (record, déclencheur système, miroir SendAllTrigger)
+- [ ] `Infrastructure/Sync/SyncTenantJob.cs` (ITenantJob ; par Issued : facture PA si SupportsDocumentRetrieval, tax reports si SupportsTaxReportRetrieval ; addenda WORM idempotents ; RunLog(Sync))
+- [ ] `Infrastructure/Sync/SyncAllFanOutHandler.cs` (IJobHandler<SyncAllTrigger>, fan-out ITenantJobRunner)
+- [ ] `Infrastructure/Sync/SyncTally.cs` + `SyncOutcome.cs` (compteurs)
+- [ ] Enregistrement DI dans `PipelineModuleRegistration`
+- Attribution tax-report PAR DOCUMENT : `GetDocumentStatusAsync(paDocId).TaxReportIds` ∩ `ListTaxReportsAsync()` (jamais d'invention)
 
-- Contrat `IExtractor.GetAttachments` / `ListPoolDocuments` + `SourceAttachment` / `PoolDocument`
-  + capacités `ProvidesSourceDocuments` / `ProvidesUnlinkedDocumentPool` : DÉJÀ définis (AGT02).
-- Consommateur `ExtractionCycle.Run` : DÉJÀ câblé (CollectLinkedPdfs / CollectPoolPdfs selon capacités).
-- Aujourd'hui les 2 extracteurs réels (Fixture, Pervasive) renvoient vide + capacités false.
-- `PivotDocumentDto.SourceReference` = `"no_ba=<value>"` (EncheresV6RowMapper.SourceRef).
+## Partie B — Point de statut agent (GET /api/agent/v1/documents/status)
+- [ ] `Contracts/Queries/GetDocumentIntakeStatusQuery.cs` (IRequest<DocumentStatusResultDto>)
+- [ ] `Infrastructure/Status/GetDocumentIntakeStatusHandler.cs` (null→Pending, présent→Processed ; tenant-scopé)
+- [ ] Endpoint Host `AgentApiEndpoints.cs` : GET documents/status → 200+Pending pour clé inconnue (JAMAIS 404)
 
-## Décision d'architecture
+## Partie C — Affinage dédoublonnage (ADR-0012)
+- [ ] `IDocumentIntake` (Ingestion.Contracts) : + `IsDocumentRangedAsync(documentId)`
+- [ ] `DocumentIntake` (Documents) : impl (existence par id)
+- [ ] `NoOpDocumentIntake` : retourne true (rien à ranger)
+- [ ] `IReceivedDocumentUnitOfWork` : + `GetDocumentIdByPayloadHashAsync`
+- [ ] `PostgresReceivedDocumentUnitOfWork` : impl
+- [ ] `IngestDocumentBatchHandler` : duplicate « reçu non rangé » → re-stage + re-range (idempotent)
+- [ ] Doubles de test Ingestion (UoW + intake)
 
-- Source PDF = abstraction `IEncheresV6PdfSource` injectée dans les 2 extracteurs (la source des PDF
-  — dossier de fichiers — est la MÊME que les documents viennent des fixtures ou de l'ODBC).
-- Implémentation V1 = système de fichiers (`FileSystemEncheresV6PdfSource`), couvrant mode LIÉ
-  (nom de fichier contient le no_ba) ET mode POOL (vrac de PDF du dossier).
-- RÉSERVE TRACÉE (cohérente avec la réserve schéma EncheresV6Schema) : la source "blob en base
-  Pervasive" n'est PAS implémentée (colonne PDF non documentée, base réelle absente — ne pas inventer
-  de colonne, CLAUDE.md n°2). L'abstraction admet une future source blob, résolue à GATE_DEMO_ISATECH.
+## Partie D — Fake PA (pour tester SYNC tax reports)
+- [ ] `FakePaClientOptions` : + `TaxReports`, `IssuedTaxReportIds` (défaut vides)
+- [ ] `FakePaClient` : ListTaxReportsAsync/GetTaxReportAsync/GetDocumentStatusAsync.TaxReportIds reflètent les options
 
-## Plan d'implémentation
+## Partie E — Tests
+- [ ] SyncTenantJob unit (capacités on/off)
+- [ ] SYNC intégration (Testcontainers : facture PA + tax report archivés ; sans capacité = rien)
+- [ ] Status handler unit (Pending/Processed)
+- [ ] Dédoublonnage intégration (intake échoué → renvoi = rangé)
+- [ ] E2E (golden contrat-v1 → ingestion → CHECK → SEND Fake → SYNC → archive, 2 tenants)
+- [ ] INVARIANTS/SCENARIOS Pipeline (SYNC/statut/dédoublonnage)
 
-- [ ] `IEncheresV6PdfSource.cs` — abstraction + null-object `None`
-- [ ] `EncheresV6PdfSourceOptions.cs` — config filesystem (dossier lié, dossier pool, pattern), validée
-- [ ] `FileSystemEncheresV6PdfSource.cs` — implémentation lecture seule (lié + pool, Warning si introuvable)
-- [ ] `EncheresV6RowMapper` — extraire `SourceReferencePrefix` (constante partagée, strip dans la source PDF)
-- [ ] `EncheresV6FixtureExtractor` — param optionnel `IEncheresV6PdfSource`, capacités calculées, délégation
-- [ ] `PervasiveExtractor` — param optionnel `IEncheresV6PdfSource`, capacités calculées, délégation
-- [ ] Tests : `FileSystemEncheresV6PdfSourceTests` (présent/absent/multiple/pool/période/dossier manquant/lecture seule)
-- [ ] Tests : extracteurs avec source PDF configurée (capacités + délégation) ; défaut inchangé (vide/false)
-- [ ] verify-fast + run-tests + codex-review
-
-## Acceptance (rappel)
-
-- Capacités déclarées selon la config (lien explicite et/ou pool)
-- Mode lié : GetAttachments retrouve le PDF d'un bordereau par sa référence
-- Mode pool : ListPoolDocuments expose les PDF du dossier
-- Source PDF configurable dans la config adaptateur
-- PDF introuvable = liste vide + Warning, jamais d'échec
-- Tests : présent / absent / multiple / pool / PDF factices
+## Vérification
+- [ ] verify-fast (net10 + agent net48)
+- [ ] run-tests
+- [ ] codex-review propre

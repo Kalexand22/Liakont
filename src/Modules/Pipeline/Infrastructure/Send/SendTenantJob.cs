@@ -385,7 +385,7 @@ public sealed partial class SendTenantJob : ITenantJob
         }
 
         var paResponseJson = SendPaSnapshot.FromStatus(status);
-        await FinalizeIssuedAsync(services, tenantId, document, pivot, canonicalJson, paResponseJson, cancellationToken);
+        await FinalizeIssuedAsync(services, tenantId, document, pivot, canonicalJson, paResponseJson, status.PaDocumentId, cancellationToken);
         LogAntiDuplicateFinalized(logger, document.Id);
         return true;
     }
@@ -405,7 +405,7 @@ public sealed partial class SendTenantJob : ITenantJob
         switch (result.State)
         {
             case PaSendState.Issued:
-                await FinalizeIssuedAsync(services, tenantId, document, pivot, canonicalJson, SendPaSnapshot.FromSendResult(result), cancellationToken);
+                await FinalizeIssuedAsync(services, tenantId, document, pivot, canonicalJson, SendPaSnapshot.FromSendResult(result), result.PaDocumentId, cancellationToken);
                 return SendOutcome.Succeeded;
 
             case PaSendState.RejectedByPa:
@@ -445,6 +445,7 @@ public sealed partial class SendTenantJob : ITenantJob
         PivotDocumentDto pivot,
         string canonicalJson,
         string paResponseJson,
+        string? paDocumentId,
         CancellationToken cancellationToken)
     {
         var mappingTraceJson = System.Text.Json.JsonSerializer.Serialize(
@@ -453,9 +454,17 @@ public sealed partial class SendTenantJob : ITenantJob
         var archiveRequest = SendArchiveComposer.Compose(document, pivot, canonicalJson, paResponseJson, mappingTraceJson);
         await services.GetRequiredService<IArchiveService>().ArchiveIssuedDocumentAsync(archiveRequest, cancellationToken);
 
+        // La référence PA est persistée sur le document à l'émission (clé de récupération aval — SYNC/PIP01d) ;
+        // elle n'est jamais effacée par une finalisation anti-doublon sans id (Document.MarkIssued).
         await services.GetRequiredService<IDocumentLifecycle>().MarkIssuedAsync(
             document.Id,
-            new DocumentIssuanceSnapshots { PayloadSnapshot = canonicalJson, PaResponseSnapshot = paResponseJson, MappingTrace = mappingTraceJson },
+            new DocumentIssuanceSnapshots
+            {
+                PayloadSnapshot = canonicalJson,
+                PaResponseSnapshot = paResponseJson,
+                MappingTrace = mappingTraceJson,
+                PaDocumentId = paDocumentId,
+            },
             cancellationToken);
 
         // Purge subordonnée à la présence EFFECTIVE du paquet WORM (jamais à la seule étiquette Issued).

@@ -185,6 +185,24 @@ public sealed class PipelineSendHarness : IAsyncLifetime
         await job.ExecuteAsync(new Stratum.Common.Abstractions.Jobs.TenantJobContext(TenantSlug, scope.ServiceProvider));
     }
 
+    /// <summary>Exécute le job SYNC pour le tenant (réconciliation : facture PA + tax reports → addenda WORM).</summary>
+    public async Task RunSyncAsync()
+    {
+        await using var scope = _provider!.CreateAsyncScope();
+        var job = new Liakont.Modules.Pipeline.Infrastructure.Sync.SyncTenantJob(PipelineRunTrigger.Scheduled);
+        await job.ExecuteAsync(new Stratum.Common.Abstractions.Jobs.TenantJobContext(TenantSlug, scope.ServiceProvider));
+    }
+
+    /// <summary>Nombre d'entrées de coffre (paquet initial + addenda) scellées pour un document.</summary>
+    public async Task<int> ArchiveEntryCountAsync(Guid documentId)
+    {
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync();
+        return await connection.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM documents.archive_entries WHERE document_id = @Id",
+            new { Id = documentId });
+    }
+
     /// <summary>État courant d'un document (ou <c>null</c>).</summary>
     public async Task<string?> GetDocumentStateAsync(Guid documentId)
     {

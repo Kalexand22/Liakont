@@ -165,6 +165,11 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
         // Identifiant attribué par l'ingestion, partagé par le document, la réception et l'événement.
         var documentId = Guid.NewGuid();
 
+        // Identité d'origine d'un doublon par empreinte (affinage du dédoublonnage, ADR-0012) — résolue dans la
+        // transaction, exploitée APRÈS (hors transaction), comme le rangement best-effort du fast-path accepté.
+        Guid? duplicateOriginalId = null;
+        bool accepted;
+
         await using (var uow = await _uowFactory.BeginAsync(cancellationToken))
         {
             var payloadKnown = await uow.PayloadHashExistsAsync(request.TenantId, payloadHash, cancellationToken);
@@ -176,109 +181,158 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
 
             if (!decision.IsAccepted)
             {
-                // Doublon : aucun effet (idempotence — re-push complet après réinstallation d'agent).
-                // TODO(ADR-0012) : sous l'acquittement agent en deux temps, ce `duplicate` devra DISTINGUER
+                // Doublon par empreinte. AFFINAGE DÉDOUBLONNAGE (ADR-0012) : on NE renvoie plus aveuglément
+                // « duplicate ». On capture l'identité d'origine pour, APRÈS la transaction, DISTINGUER
                 // « déjà rangé (Detected existe) » → terminal, de « reçu mais non rangé » → RE-TENTER le
-                // rangement (idempotent). Sans cette distinction, un renvoi d'un document non rangé est
-                // écarté ici et la fuite reste ouverte. Implémenté avec AGT + le point de statut (Ingestion).
-                return new DocumentPushResultDto(sourceReference, DocumentPushStatus.Duplicate);
+                // rangement (idempotent) — ce qui ferme la perte silencieuse d'un document reçu mais jamais
+                // entré dans le pipeline. Le registre de réception reste append-only (aucune écriture ici).
+                duplicateOriginalId = await uow.GetDocumentIdByPayloadHashAsync(request.TenantId, payloadHash, cancellationToken);
+                accepted = false;
             }
-
-            var received = ReceivedDocument.Create(
-                request.TenantId,
-                sourceReference,
-                payloadHash,
-                documentId,
-                request.ContractVersion,
-                receivedAt);
-
-            try
+            else
             {
-                await uow.InsertReceivedDocumentAsync(received, cancellationToken);
-            }
-            catch (ConflictException)
-            {
-                // Course : un lot concurrent a inséré la même empreinte entre l'évaluation et l'insertion.
-                // On traite comme doublon (aucun événement publié pour cette tentative).
-                return new DocumentPushResultDto(sourceReference, DocumentPushStatus.Duplicate);
-            }
+                var received = ReceivedDocument.Create(
+                    request.TenantId,
+                    sourceReference,
+                    payloadHash,
+                    documentId,
+                    request.ContractVersion,
+                    receivedAt);
 
-            // Événements écrits dans la MÊME transaction que l'inscription (cohérence transactionnelle) :
-            // c'est le déclencheur DURABLE du traitement aval (DocumentReceived → PIP01 ; +altération → TRK03).
-            await uow.WriteEventAsync(
-                new IntegrationEvent<DocumentReceivedV1>
+                try
                 {
-                    EventId = Guid.NewGuid(),
-                    EventType = IngestionEventTypes.DocumentReceived,
-                    OccurredAt = receivedAt,
-                    CorrelationId = documentId,
-                    ModuleSource = ModuleSource,
-                    Version = Version,
-                    Payload = new DocumentReceivedV1
-                    {
-                        TenantId = request.TenantId,
-                        DocumentId = documentId,
-                        SourceReference = sourceReference,
-                        PayloadHash = payloadHash,
-                        ReceivedAtUtc = receivedAt,
-                    },
-                },
-                cancellationToken);
+                    await uow.InsertReceivedDocumentAsync(received, cancellationToken);
+                }
+                catch (ConflictException)
+                {
+                    // Course : un lot concurrent a inséré la même empreinte entre l'évaluation et l'insertion.
+                    // On traite comme doublon (aucun événement publié pour cette tentative) ; le push gagnant range
+                    // le document, et un renvoi ultérieur re-tentera le rangement si besoin (ADR-0012).
+                    return new DocumentPushResultDto(sourceReference, DocumentPushStatus.Duplicate);
+                }
 
-            if (decision.IsAlteration)
-            {
+                // Événements écrits dans la MÊME transaction que l'inscription (cohérence transactionnelle) :
+                // c'est le déclencheur DURABLE du traitement aval (DocumentReceived → PIP01 ; +altération → TRK03).
                 await uow.WriteEventAsync(
-                    new IntegrationEvent<SourceAlterationDetectedV1>
+                    new IntegrationEvent<DocumentReceivedV1>
                     {
                         EventId = Guid.NewGuid(),
-                        EventType = IngestionEventTypes.SourceAlterationDetected,
+                        EventType = IngestionEventTypes.DocumentReceived,
                         OccurredAt = receivedAt,
                         CorrelationId = documentId,
                         ModuleSource = ModuleSource,
                         Version = Version,
-                        Payload = new SourceAlterationDetectedV1
+                        Payload = new DocumentReceivedV1
                         {
                             TenantId = request.TenantId,
-                            SourceReference = sourceReference,
-                            PreviousPayloadHash = decision.PreviousPayloadHash!,
-                            NewPayloadHash = payloadHash,
                             DocumentId = documentId,
-                            DetectedAtUtc = receivedAt,
+                            SourceReference = sourceReference,
+                            PayloadHash = payloadHash,
+                            ReceivedAtUtc = receivedAt,
                         },
                     },
                     cancellationToken);
+
+                if (decision.IsAlteration)
+                {
+                    await uow.WriteEventAsync(
+                        new IntegrationEvent<SourceAlterationDetectedV1>
+                        {
+                            EventId = Guid.NewGuid(),
+                            EventType = IngestionEventTypes.SourceAlterationDetected,
+                            OccurredAt = receivedAt,
+                            CorrelationId = documentId,
+                            ModuleSource = ModuleSource,
+                            Version = Version,
+                            Payload = new SourceAlterationDetectedV1
+                            {
+                                TenantId = request.TenantId,
+                                SourceReference = sourceReference,
+                                PreviousPayloadHash = decision.PreviousPayloadHash!,
+                                NewPayloadHash = payloadHash,
+                                DocumentId = documentId,
+                                DetectedAtUtc = receivedAt,
+                            },
+                        },
+                        cancellationToken);
+                }
+
+                // PIP00 / ADR-0014 — INVARIANT D'ORDRE (pas d'atomicité) : le pivot COMPLET est stagé (écrit +
+                // contenu flushé sur disque) AVANT le commit du registre + de l'événement outbox. Il n'existe
+                // pas de transaction distribuée (XA/2PC) entre un blob store et Postgres : c'est un ordre, pas
+                // une atomicité. Conséquences :
+                //  - le pipeline CHECK/SEND relira le pivot depuis le staging (fin de la supposition « le contenu
+                //    est déjà là ») ;
+                //  - un échec de staging (disque) remonte avant le commit → la transaction est annulée (rollback)
+                //    → au pire un blob ORPHELIN (purgeable, adressé par CONTENU donc ré-écrit idempotemment au
+                //    renvoi de l'agent), jamais un événement sans contenu ; le contenu n'est plus jamais jeté ;
+                //  - NUANCE : le renommage atomique qui publie le blob n'est pas fsyncé (pas d'API portable .NET) ;
+                //    sous coupure d'alimentation entre ce renommage et le commit Postgres, l'événement peut
+                //    survivre sans le blob — PAS une perte : le FILET DE SÉCURITÉ de l'agent (ADR-0014) re-pousse
+                //    jusqu'au statut Processed, le pivot est re-stagé.
+                await _stagingStore.WriteAsync(
+                    new StagedPayloadKey(request.TenantId, documentId, payloadHash),
+                    canonicalJson,
+                    cancellationToken);
+
+                await uow.CommitAsync(cancellationToken);
+                accepted = true;
             }
+        }
 
-            // PIP00 / ADR-0014 — INVARIANT D'ORDRE (pas d'atomicité) : le pivot COMPLET est stagé (écrit +
-            // contenu flushé sur disque) AVANT le commit du registre + de l'événement outbox. Il n'existe
-            // pas de transaction distribuée (XA/2PC) entre un blob store et Postgres : c'est un ordre, pas
-            // une atomicité. Conséquences :
-            //  - le pipeline CHECK/SEND relira le pivot depuis le staging (fin de la supposition « le contenu
-            //    est déjà là ») ;
-            //  - un échec de staging (disque) remonte avant le commit → la transaction est annulée (rollback)
-            //    → au pire un blob ORPHELIN (purgeable, adressé par CONTENU donc ré-écrit idempotemment au
-            //    renvoi de l'agent), jamais un événement sans contenu ; le contenu n'est plus jamais jeté ;
-            //  - NUANCE : le renommage atomique qui publie le blob n'est pas fsyncé (pas d'API portable .NET) ;
-            //    sous coupure d'alimentation entre ce renommage et le commit Postgres, l'événement peut
-            //    survivre sans le blob — PAS une perte : le FILET DE SÉCURITÉ de l'agent (ADR-0014) re-pousse
-            //    jusqu'au statut Processed, le pivot est re-stagé.
-            await _stagingStore.WriteAsync(
-                new StagedPayloadKey(request.TenantId, documentId, payloadHash),
-                canonicalJson,
-                cancellationToken);
-
-            await uow.CommitAsync(cancellationToken);
+        if (!accepted)
+        {
+            // Doublon par empreinte : re-tenter le rangement d'un document reçu mais NON rangé (ADR-0012), jamais
+            // écarter aveuglément. Hors transaction (comme le rangement best-effort accepté).
+            await RetryRangingIfNotRangedAsync(duplicateOriginalId, request, sourceReference, payloadHash, document, receivedAt, canonicalJson, cancellationToken);
+            return new DocumentPushResultDto(sourceReference, DocumentPushStatus.Duplicate);
         }
 
         // Réception + événement DURABLEMENT committés. Création synchrone du document Detected (port
-        // Documents — no-op jusqu'à TRK02) en BEST-EFFORT : un échec ici n'invalide pas la réception
-        // (le document EST reçu, l'événement EST publié) ; le module Documents recréera le document de
-        // façon idempotente sur DocumentId en consommant DocumentReceived. Appelé APRÈS commit pour
-        // éviter tout document orphelin si l'inscription échoue/entre en course (contrat de cohérence
-        // prérequis BLOQUANT de TRK02 — voir IDocumentIntake).
+        // Documents) en BEST-EFFORT : un échec ici n'invalide pas la réception (le document EST reçu,
+        // l'événement EST publié) ; le module Documents recréera le document de façon idempotente sur
+        // DocumentId en consommant DocumentReceived. Appelé APRÈS commit pour éviter tout document orphelin
+        // si l'inscription échoue/entre en course (contrat de cohérence prérequis BLOQUANT de TRK02).
         await RegisterDetectedDocumentBestEffortAsync(documentId, request, sourceReference, payloadHash, document, receivedAt, cancellationToken);
 
         return new DocumentPushResultDto(sourceReference, DocumentPushStatus.Accepted);
+    }
+
+    /// <summary>
+    /// AFFINAGE DÉDOUBLONNAGE (ADR-0012) : sur un doublon par empreinte, distingue « déjà rangé » (le
+    /// <c>Detected</c> existe → vrai doublon, terminal, aucun effet) de « reçu mais NON rangé » (re-tenter le
+    /// rangement, idempotent). Dans le second cas seulement : re-stage le pivot (filet de sécurité ADR-0014 —
+    /// non rangé ⟹ non Issued ⟹ staging non purgé, donc jamais une résurrection d'un staging purgé) puis
+    /// re-tente le rangement best-effort avec l'IDENTITÉ DE LA RÉCEPTION D'ORIGINE (idempotent sur DocumentId).
+    /// </summary>
+    private async Task RetryRangingIfNotRangedAsync(
+        Guid? originalDocumentId,
+        IngestDocumentBatchCommand request,
+        string sourceReference,
+        string payloadHash,
+        PivotDocumentDto document,
+        DateTimeOffset receivedAt,
+        string canonicalJson,
+        CancellationToken cancellationToken)
+    {
+        if (originalDocumentId is not { } documentId)
+        {
+            // Empreinte connue mais aucune entrée de réception retrouvée (cas dégénéré) : rien à re-ranger.
+            return;
+        }
+
+        // Déjà rangé (Detected présent) = vrai doublon, terminal, aucun effet.
+        if (await _documentIntake.IsDocumentRangedAsync(documentId, request.TenantId, cancellationToken))
+        {
+            return;
+        }
+
+        // Reçu mais NON rangé : re-stage (idempotent — non rangé ⟹ non Issued ⟹ staging non purgé) puis re-range.
+        await _stagingStore.WriteAsync(
+            new StagedPayloadKey(request.TenantId, documentId, payloadHash),
+            canonicalJson,
+            cancellationToken);
+        await RegisterDetectedDocumentBestEffortAsync(documentId, request, sourceReference, payloadHash, document, receivedAt, cancellationToken);
     }
 
     private async Task RegisterDetectedDocumentBestEffortAsync(

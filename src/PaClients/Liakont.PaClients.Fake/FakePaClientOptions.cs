@@ -44,4 +44,18 @@ public sealed record FakePaClientOptions
     /// </summary>
     public IReadOnlyList<PaError> RejectionErrors { get; init; } =
         [new PaError("FAKE_REJECT", "Rejet simulé par le plug-in factice.")];
+
+    /// <summary>
+    /// Tax reports de COMPTE exposés par <c>ListTaxReportsAsync</c> / <c>GetTaxReportAsync</c> (vide par défaut :
+    /// le mode démo ne produit pas de ledger DGFiP). Sert à piloter le SYNC (PIP01d) : un report dont
+    /// <see cref="PaTaxReport.XmlBase64"/> est renseigné est archivable en addendum.
+    /// </summary>
+    public IReadOnlyList<PaTaxReport> TaxReports { get; init; } = [];
+
+    /// <summary>
+    /// Identifiants de tax report rattachés à un document ÉMIS (renvoyés par <c>SendDocumentAsync</c> puis relus
+    /// par <c>GetDocumentStatusAsync</c>) — vide par défaut. C'est l'attribution PAR DOCUMENT exploitée par le
+    /// SYNC pour ne rattacher un ledger qu'aux documents qu'il couvre (jamais une attribution inventée).
+    /// </summary>
+    public IReadOnlyList<string> IssuedTaxReportIds { get; init; } = [];
 }

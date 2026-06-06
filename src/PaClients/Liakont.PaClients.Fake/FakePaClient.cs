@@ -109,11 +109,14 @@ public sealed class FakePaClient : IPaClient
         cancellationToken.ThrowIfCancellationRequested();
         Record(nameof(GetDocumentStatusAsync), paDocumentId);
 
-        var isIssued = _issued.Values.Any(r => r.PaDocumentId == paDocumentId);
+        var issued = _issued.Values.FirstOrDefault(r => r.PaDocumentId == paDocumentId);
         return Task.FromResult(new PaDocumentStatus
         {
             PaDocumentId = paDocumentId,
-            State = isIssued ? PaSendState.Issued : PaSendState.New,
+            State = issued is not null ? PaSendState.Issued : PaSendState.New,
+
+            // Attribution PAR DOCUMENT (relue par le SYNC) : les tax_report_ids que l'émission a rattachés au document.
+            TaxReportIds = issued?.TaxReportIds ?? [],
         });
     }
 
@@ -124,7 +127,10 @@ public sealed class FakePaClient : IPaClient
     {
         cancellationToken.ThrowIfCancellationRequested();
         Record(nameof(ListTaxReportsAsync), since?.ToString("o"));
-        return Task.FromResult<IReadOnlyList<PaTaxReport>>([]);
+
+        // Liste de COMPTE pilotée par les options (vide par défaut). `since` est un filtre best-effort (F05 §2) :
+        // le plug-in factice renvoie la liste complète, l'appelant filtre lui-même (jamais sous-déclarer).
+        return Task.FromResult(_options.TaxReports);
     }
 
     /// <inheritdoc />
@@ -135,7 +141,9 @@ public sealed class FakePaClient : IPaClient
         ArgumentException.ThrowIfNullOrWhiteSpace(taxReportId);
         cancellationToken.ThrowIfCancellationRequested();
         Record(nameof(GetTaxReportAsync), taxReportId);
-        return Task.FromResult(new PaTaxReport
+
+        var configured = _options.TaxReports.FirstOrDefault(r => string.Equals(r.Id, taxReportId, StringComparison.Ordinal));
+        return Task.FromResult(configured ?? new PaTaxReport
         {
             Id = taxReportId,
             Type = "fake",
@@ -201,7 +209,7 @@ public sealed class FakePaClient : IPaClient
 
     private PaSendResult BuildSendResult(string issuedId) => _options.SendScenario switch
     {
-        FakePaScenario.Success => PaSendResult.Issued(issuedId, rawResponse: $"{{\"id\":\"{issuedId}\",\"state\":\"issued\"}}"),
+        FakePaScenario.Success => PaSendResult.Issued(issuedId, _options.IssuedTaxReportIds, rawResponse: $"{{\"id\":\"{issuedId}\",\"state\":\"issued\"}}"),
         FakePaScenario.Rejected => PaSendResult.Rejected(
             _options.RejectionErrors, rawResponse: "HTTP 422 — rejet métier simulé."),
         FakePaScenario.SilentError => PaSendResult.Rejected(
