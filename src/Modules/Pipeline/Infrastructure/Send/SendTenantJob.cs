@@ -54,6 +54,7 @@ public sealed partial class SendTenantJob : ITenantJob
     private const string ReadyToSendStateName = "ReadyToSend";
     private const string SendingStateName = "Sending";
     private const string TechnicalErrorStateName = "TechnicalError";
+    private const string BlockedStateName = "Blocked";
 
     private readonly PipelineRunTrigger _trigger;
     private readonly bool _dryRun;
@@ -162,16 +163,41 @@ public sealed partial class SendTenantJob : ITenantJob
             async id => tally.Add(await SafeProcessAsync(() => RetryTechnicalErrorAsync(services, paClient, tenantId, id, logger, cancellationToken), id, logger, cancellationToken)),
             cancellationToken);
 
-        // 3) Envoi des ReadyToSend.
-        await ForEachByStateAsync(
+        // 3) Envoi des ReadyToSend (les FACTURES d'origine des avoirs sont émises ICI, avant la réconciliation).
+        await SendReadyToSendPassAsync(services, paClient, tenantId, tally, logger, cancellationToken);
+
+        // 4) RÉORDONNANCEMENT DES AVOIRS (PIP02, F07 §B.5) : un avoir resté Blocked parce que sa facture d'origine
+        //    n'était pas (encore) émise est ré-évalué dès lors que l'origine est désormais émise (Blocked →
+        //    ReadyToSend). Cela GARANTIT l'ordre chronologique « l'avoir après sa facture d'origine » : l'origine
+        //    vient d'être émise en (3), l'avoir débloqué est envoyé en (5) — jamais l'inverse.
+        var reconciled = await ReconcileCreditNotesAsync(services, companyId.Value, tenantId, logger, cancellationToken);
+
+        // 5) Envoi des avoirs fraîchement débloqués (seconde passe — uniquement s'il y a eu un déblocage).
+        if (reconciled > 0)
+        {
+            await SendReadyToSendPassAsync(services, paClient, tenantId, tally, logger, cancellationToken);
+        }
+
+        var detail = reconciled > 0
+            ? string.Create(CultureInfo.InvariantCulture, $"{tally.Describe()} {reconciled} avoir(s) débloqué(s) (facture d'origine émise — réordonnancement F07 §B.5).")
+            : tally.Describe();
+        await WriteRunLogAsync(services, timeProvider, _trigger, startedAt, tally, detail, cancellationToken);
+        LogSendCompleted(logger, tenantId, tally.Succeeded, tally.Failed, tally.Deferred, tally.Skipped);
+    }
+
+    /// <summary>Une passe d'envoi des <c>ReadyToSend</c> du tenant (snapshot d'IDs → envoi un par un, isolé).</summary>
+    private static Task SendReadyToSendPassAsync(
+        IServiceProvider services,
+        IPaClient paClient,
+        string tenantId,
+        SendTally tally,
+        ILogger logger,
+        CancellationToken cancellationToken) =>
+        ForEachByStateAsync(
             services,
             ReadyToSendStateName,
             async id => tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, tenantId, id, logger, cancellationToken), id, logger, cancellationToken)),
             cancellationToken);
-
-        await WriteRunLogAsync(services, timeProvider, _trigger, startedAt, tally, tally.Describe(), cancellationToken);
-        LogSendCompleted(logger, tenantId, tally.Succeeded, tally.Failed, tally.Deferred, tally.Skipped);
-    }
 
     /// <summary>Premier compte Plateforme Agréée ACTIF du tenant (l'envoi passe par lui), ou <c>null</c>.</summary>
     private static async Task<PaAccountDto?> ResolveActiveAccountAsync(

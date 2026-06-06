@@ -146,3 +146,21 @@ avec PIP01d.
   attribue son propre identifiant et le document d'un tenant n'apparaît JAMAIS dans la base de l'autre
   (isolation, CLAUDE.md n°9/17). Le staging est purgé après l'écriture WORM, et le SYNC ajoute facture PA +
   tax report en addenda (3 entrées de coffre par document) (INV-PIPELINE-017/022/025).
+
+## Avoirs (PIP02) — `CreditNotePipelineTests` (Testcontainers PostgreSQL, `ingestion → CHECK → SEND`)
+
+- **Avoir simple (origine déjà émise)** : la facture d'origine est émise AVANT le CHECK de l'avoir ⇒ l'avoir
+  passe le CHECK sans blocage (`ReadyToSend`) puis est émis (F07-F08 §B.5).
+- **Avoir reçu avant sa facture → réordonnancement** : l'avoir arrive d'abord ⇒ `Blocked` (origine inconnue) ;
+  la facture d'origine arrive ensuite (`ReadyToSend`) ; UN seul SEND émet la facture PUIS débloque et émet
+  l'avoir — dans cet ordre (l'avoir TOUJOURS après son origine, même traitement) (INV-PIPELINE-026).
+- **Avoir orphelin** : l'avoir référence une facture inconnue qui n'arrivera jamais ⇒ reste `Blocked` après le
+  SEND, jamais émis, aucune référence fabriquée (F07-F08 §B.4, INV-PIPELINE-026).
+- **Avoir groupé** : l'avoir référence DEUX factures ; tant qu'une seule est émise il reste `Blocked` ; une fois
+  les DEUX émises, le SEND le débloque et l'émet (INV-PIPELINE-026).
+
+## Avoirs (PIP02) — `SendTenantJobIntegrationTests` (capacité PA)
+
+- **Avoir sans capacité PA → maintenu** : une PA publiée sans `SupportsCreditNotes` ⇒ l'avoir reste
+  `ReadyToSend` (jamais bloqué ni envoyé), staging conservé ; il partira dès que la capacité sera déclarée
+  (INV-PIPELINE-021/027).
