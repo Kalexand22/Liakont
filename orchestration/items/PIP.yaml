@@ -256,71 +256,117 @@ items:
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
-  PIP03:
-    title: "E-reporting de paiement (F09) — complet, piloté par les capacités PA"
+  # PIP03 re-découpé en PIP03a/PIP03b (2026-06-06, décision opérateur, après blocage fiscal de PIP03 —
+  # session-log orch-20260606-050619-s55900_PIP03.md). PIP03 exigeait des règles fiscales NON SOURCÉES
+  # (cadence reportingFrequency : F12-A §3.3/§9 « à trancher » ; découpage Mixte frais/adjudication :
+  # ADR-0004/F03 §2.3, non sourcé) + une décision d'archi (ventilation TVA purgée au staging après Issued,
+  # non requêtable à l'heure du job — ADR-0015). CLAUDE.md n°2 : ne jamais deviner. Découplé pour ne pas
+  # geler tout l'aval (console-web/toolkit/CMP) derrière des décisions fiscales. Le découpage suit le
+  # scénario (b) de F09 §4 : « on développe l'extraction + l'agrégation en V1, seul l'ENVOI est conditionné ».
+  #   PIP03a = agrégation + snapshot requêtable + sémantique de suspension (générique, AUCUNE règle inventée,
+  #            SUR le chemin critique) ; PIP03b = fenêtrage de période + Mixte + envoi réel (fast-follow GELÉ
+  #            sur D-a/D-b sourcées + capacité B2Brouter « Encaissée », HORS chemin critique).
+
+  PIP03a:
+    title: "E-reporting de paiement — agrégation requêtable + suspension (générique, ADR-0015)"
     description: |
-      Implémenter l'e-reporting de paiement selon F09 (modules Payments + Pipeline).
-      LE PRODUIT EST COMPLET : agrégation, persistence ET envoi sont implémentés.
-      C'est la capacité du PA configuré qui détermine si l'envoi part réellement.
-      1. PaymentAggregator : Payments du tenant (poussés par l'agent — PIV01/TRK04) →
-         PaymentReportPeriod agrégés par jour × taux TVA (l'obligation DGFiP est un agrégé
-         jour×taux au niveau SIREN, pas un lettrage ligne à ligne). Job planifié par tenant
-         (mécanique TenantJobRunner/ITenantJob de SOL06).
-      2. Règle d'imputation de la part frais (prestation de services) : la MÉTHODE est un
-         PARAMÈTRE, pas une règle codée en dur — F09 §5.2 présente deux options (prorata
-         HT frais / HT total du bordereau lié ; agrégation jour×taux DGFiP-conforme) et la
-         décision n'est PAS tranchée (décision ouverte F09).
-         Comportement V1 : méthode d'imputation = paramètre de tenant (valeurs : Prorata |
-         AgregationJourTaux | null). Tant que la méthode n'est pas renseignée ET validée
-         (même workflow que la table TVA), les transmissions de paiement concernées sont
-         SUSPENDUES avec le motif « Méthode d'imputation des frais non validée — consultez
-         votre expert-comptable ». JAMAIS de prorata appliqué par défaut.
-      3. PARAMÉTRAGE FISCAL DU TENANT (CFG02 — ces décisions appartiennent à l'expert-comptable
-         du client, le produit doit supporter les deux réponses) :
-         - vatOnDebits (bool?) : si le client a opté pour la TVA sur les débits, l'exigibilité
-           est à la facturation → PAS d'e-reporting de paiement pour les prestations de services
-           concernées. Le moteur calcule quand même les agrégats (traçabilité) mais les marque
-           « non requis — TVA sur les débits ».
-         - operationCategory : détermine quelle part des documents déclenche l'e-reporting
-           de paiement.
-         Paramètres null = agrégats calculés mais transmission suspendue avec le motif
-         « Décision fiscale en attente (TVA sur les débits / catégorie d'opération /
-         fréquence déclarative) — consultez votre expert-comptable ».
-         La fréquence déclarative (reportingFrequency CFG02, source F09 §2) détermine le
-         découpage des périodes de transmission — null = pas de période calculable =
-         transmission suspendue (décision D4).
-      4. Cas limites : paiement partiel (imputé à sa date), trop-perçu/remboursement (montant
-         négatif dans l'agrégat de la période), règlement sans rattachement bordereau (alerte Warning).
-         PÉRIODE SANS ENCAISSEMENT (« déclaration néant ») : comportement par défaut sûr —
-         ne rien transmettre + signaler la période vide à l'opérateur. DÉCISION OUVERTE
-         (à confirmer DGFiP/PA via les fiches officielles) : une déclaration « néant » est-elle
-         obligatoire ? Si oui, ce comportement sera amendé (F09) — jamais de transmission
-         inventée en attendant.
-      5. ENVOI — décision D2 du 2026-06-03 : le produit V1 ne produit QUE le Flux 10.4
-         (e-reporting de paiement domestique). Le Flux 10.2 (international) est une capacité
-         déclarée par PAA01 mais NON alimentée par le pipeline : aucune règle sourcée ne permet
-         de dériver domestique/international d'un paiement (F09 ne tranche pas), et le B2B
-         international est en phase 2. Envoi piloté par la capacité du PA :
-         - PA avec la capacité Flux 10.4 → IPaClient.SendPaymentReportAsync, suivi des états,
-           journalisation PaymentAggregateEvent (TRK04)
-         - PA sans la capacité → les agrégats sont calculés, persistés et affichés avec l'état
-           « En attente : la plateforme <nom> ne supporte pas encore la transmission des
-           paiements ». Dès que le plug-in déclarera la capacité, les agrégats en attente
-           partiront au traitement suivant — AUCUN autre changement.
-      6. Tests avec le plug-in Fake dans les deux configurations de capacité ET les
-         combinaisons de paramétrage fiscal.
+      Partie CONSTRUCTIBLE et 100 % GÉNÉRIQUE de l'e-reporting de paiement (F09) : aucune règle fiscale
+      inventée, aucune donnée client dans le code. Construit l'extraction/agrégation que F09 §4 scénario (b)
+      demande de livrer en V1 quoi qu'il arrive — l'ENVOI (fenêtrage de période + Mixte) est PIP03b.
+      1. CAPTURE DE LA VENTILATION (ADR-0015, résout le trou d'archi) : au CHECK (PIP01b), persister un
+         SNAPSHOT de la ventilation TVA SOURCÉE du document (lignes {Rate, TaxableBase HT, VatAmount} en
+         decimal + mapping_version + operationCategory) dans une table tenant-scopée, requêtable,
+         APPEND-ONLY, DISTINCTE du staging (purgé après Issued, ADR-0014) et du coffre WORM (immuable). Le
+         snapshot ne porte QUE la sortie du mapping validé (aucune dérivation) et SURVIT à la purge du
+         staging → l'agrégation post-émission peut décomposer un paiement par taux à partir de données
+         requêtables. Écriture additive et idempotente (clé document_id + mapping_version).
+      2. PaymentAggregator : Payments du tenant (poussés par l'agent — PIV01/TRK04) agrégés par JOUR × TAUX
+         de TVA (l'obligation DGFiP est un agrégé jour×taux au niveau SIREN, pas un lettrage ligne à ligne),
+         à partir du snapshot ADR-0015. Job planifié PAR TENANT (mécanique TenantJobRunner/ITenantJob de
+         SOL06, JAMAIS de boucle multi-tenant maison). Le FENÊTRAGE en période déclarative (décade/mois/
+         bimestre) N'EST PAS fait ici (exige la cadence D-a non tranchée) → PIP03b.
+      3. CHAMP FeeImputationMethod (ajout à FiscalSettings/CFG02) : Prorata | AgregationJourTaux | null.
+         La MÉTHODE est un paramètre (F09 §5.2, deux options non tranchées), JAMAIS une règle codée. Null =
+         agrégation des paiements concernés SUSPENDUE avec le motif « Méthode d'imputation des frais non
+         renseignée — consultez votre expert-comptable ». JAMAIS de prorata par défaut. (V1 : la nullabilité
+         suffit, même mécanique de sûreté que les autres paramètres fiscaux — INV-TENANTSETTINGS ; un
+         workflow de validation dédié « validated_by/date » comme la table TVA n'est PAS requis ici, et serait
+         de toute façon indistinguable tant que D-b n'est pas tranchée.)
+      4. PARAMÉTRAGE FISCAL DU TENANT (F12-A §3 — décisions de l'expert-comptable, le produit supporte les
+         deux réponses, JAMAIS de valeur devinée ; `null = suspension`) :
+         - vatOnDebits (bool?) : true ⇒ exigibilité à la facturation ⇒ PAS d'e-reporting de paiement dû ;
+           le moteur calcule quand même les agrégats (traçabilité) et les marque « non requis — TVA sur les
+           débits ». false ⇒ e-reporting dû. null ⇒ suspension.
+         - operationCategory : Mixte ⇒ part frais soumise à l'e-reporting de paiement, MAIS le découpage
+           frais/adjudication n'est PAS sourcé (D-b) ⇒ pour PIP03a un document Mixte est SUSPENDU (motif
+           explicite). Seuls les documents MONO-CATÉGORIE (la ventilation par taux du snapshot est
+           directement utilisable) sont agrégés en PIP03a.
+         - reportingFrequency : consommé par le FENÊTRAGE (PIP03b) ; null ⇒ pas d'échéance + suspension.
+         Tout paramètre null = agrégats calculés mais transmission suspendue + message opérateur explicite
+         (n° de tenant + action corrective, CLAUDE.md n°12).
+      5. CAS LIMITES (agrégat jour) : paiement partiel (imputé à sa date), trop-perçu/remboursement (montant
+         négatif dans l'agrégat du jour), règlement sans rattachement bordereau (alerte Warning).
+      6. CAPACITÉ PA ABSENTE : les agrégats sont calculés, persistés et affichés « En attente : la plateforme
+         <nom> ne supporte pas encore la transmission des paiements ». Aucun envoi ici (l'envoi réel est
+         PIP03b). Piloté par les capacités déclarées, JAMAIS par if (pa is ...).
+      7. Tests avec le plug-in Fake (les deux modes de capacité) ET les combinaisons de paramétrage fiscal.
+      AUCUN ENVOI, AUCUN FENÊTRAGE DE PÉRIODE ICI (PIP03b). Montants en decimal, aucun float. Frontières via
+      Contracts (NetArchTest). Le pipeline ne référence aucun plug-in PA concret.
     acceptance:
-      - "Agrégation jour×taux conforme F09, sans données nominatives"
-      - "Méthode d'imputation des frais = paramètre de tenant validé, JAMAIS de prorata par défaut (testé : méthode null = transmission suspendue)"
-      - "Montants agrégés en decimal, aucun float/double"
-      - "Paramètres fiscaux du tenant (vatOnDebits, operationCategory, reportingFrequency) pilotent l'e-reporting — jamais de valeur en dur"
-      - "Paramètres fiscaux non renseignés = transmission suspendue avec message explicite (testé)"
-      - "V1 = Flux 10.4 uniquement (décision D2) ; aucune transmission 10.2, aucune règle de dérivation domestique/international inventée"
-      - "Période sans encaissement : rien n'est transmis + signalement opérateur (décision néant ouverte, documentée)"
-      - "Envoi réel via IPaClient quand la capacité est déclarée (testé avec le plug-in Fake)"
-      - "Capacité absente : agrégats persistés en attente, transmission automatique dès activation"
-      - "Aucun flag de configuration PRODUIT — capacités PA + paramétrage fiscal du tenant uniquement"
-      - "Tests : agrégation multi-jours/multi-taux, paiement partiel, remboursement, période vide, les 2 modes de capacité, TVA sur débits oui/non/inconnu, méthode d'imputation null/renseignée"
+      - "ADR-0015 : snapshot de la ventilation TVA sourcée écrit au CHECK (decimal, append-only, mapping_version, tenant-scopé), DISTINCT du staging et du WORM, SURVIT à la purge du staging (testé : agrégation après purge)"
+      - "Snapshot ne porte que la sortie du mapping validé — aucune dérivation/règle inventée (NetArchTest frontière + test)"
+      - "PaymentAggregator (ITenantJob SOL06, aucune boucle multi-tenant) agrège jour×taux les documents MONO-CATÉGORIE depuis le snapshot (testé multi-jours/multi-taux)"
+      - "Document Mixte = agrégation SUSPENDUE (découpage frais/adjudication non sourcé, D-b) avec motif explicite (testé)"
+      - "Champ FeeImputationMethod (Prorata|AgregationJourTaux|null) ajouté ; null = suspension, JAMAIS de prorata par défaut (testé)"
+      - "Paramètres fiscaux null (vatOnDebits/operationCategory/reportingFrequency) = agrégats calculés (traçabilité) + transmission suspendue + message opérateur (testé)"
+      - "vatOnDebits=true = agrégats marqués « non requis — TVA sur les débits », aucun envoi (testé)"
+      - "Cas limites : paiement partiel, remboursement (négatif), règlement non rattaché (Warning) — testés"
+      - "Capacité PA absente = agrégats persistés « en attente » ; aucun envoi en PIP03a (l'envoi réel est PIP03b)"
+      - "Montants agrégés en decimal, aucun float/double ; aucun flag PRODUIT (capacités PA + paramétrage tenant uniquement) ; pipeline ne référence aucun plug-in PA concret (NetArchTest)"
+      - "AUCUN fenêtrage de période, AUCUN envoi réel ici (différés à PIP03b)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  PIP03b:
+    title: "E-reporting de paiement — fenêtrage de période, Mixte et envoi réel (FAST-FOLLOW, GELÉ)"
+    description: |
+      FAST-FOLLOW de PIP03a, HORS chemin critique (PAS une dépendance de GATE_PIPELINE). Marqué `blocked`
+      dans state.yaml : un-block = décisions opérateur/expert-comptable (D-a, D-b) + capacité PA externe.
+      NE PAS réclamer ni coder tant que les sources fiscales ne sont pas figées — CLAUDE.md n°2.
+      PRÉREQUIS DE DÉBLOCAGE (à trancher avec l'expert-comptable, puis re-confirmer sur source primaire) :
+        - D-a (cadence) : reportingFrequency stocke-t-il le RÉGIME ({RéelNormalMensuel, RéelNormalTrimestriel,
+          RéelSimplifié, FranchiseEnBase}, d'où dériver fréquence+délai via F09 §2) OU directement la
+          FRÉQUENCE ({Décadaire, Mensuelle, Bimestrielle}) ? Réconcilier D4 (« trimestrielle ») vs F09 §2
+          (« bimestrielle ») et RE-CONFIRMER la table cadence sur la fiche DGFiP primaire / décret n°2022-1299
+          (aujourd'hui 🔶 non re-vérifiée). Figer l'énumération CFG02 (F12-A §3.3/§9 #1). Définir les bornes
+          exactes de chaque période.
+        - D-b (Mixte) : SOURCER le découpage part frais/adjudication (extension du pivot, ADR-0004/F03 §2.3)
+          OU acter formellement « V1 = documents mono-catégorie uniquement, Mixte hors périmètre ».
+      CONTENU une fois débloqué :
+      1. FENÊTRAGE : grouper les agrégats jour×taux (PIP03a) en PÉRIODES déclaratives selon la cadence D-a
+         (décade/mois/bimestre) + calcul de l'échéance J+X (alimente l'alerte SUP01 J-3 et l'affichage WEB01).
+      2. MIXTE : selon D-b, ventiler la part frais des documents Mixte (ou les garder suspendus si Mixte
+         reste hors V1).
+      3. CONTRAT : enrichir PaymentReportPeriod (Transmission.Contracts) avec les lignes agrégées F09 §5.3
+         {Date, Rate, TotalCollectedTaxableBase, TotalCollectedVat} — met à jour tous les plug-ins PA
+         (B2Brouter, Fake, Stub).
+      4. ENVOI RÉEL (décision D2 : V1 = Flux 10.4 domestique uniquement ; 10.2 non alimenté, aucune règle de
+         dérivation domestique/international inventée) : IPaClient.SendPaymentReportAsync piloté par la
+         capacité (Flux 10.4), suivi des états, journalisation PaymentAggregateEvent (TRK04). ⚠️ Côté
+         B2Brouter le statut « Encaissée » / CDAR 212 est annoncé « planned for a future release » (F09 §3-4)
+         → l'envoi réel reste TESTÉ AVEC FAKE jusqu'à ce que la capacité soit disponible ; les agrégats en
+         attente partent automatiquement dès l'activation, AUCUN autre changement.
+      5. DÉCLARATION NÉANT (F09 §5.4, décision ouverte) : période sans encaissement = par défaut ne rien
+         transmettre + signaler à l'opérateur ; si une déclaration « néant » s'avère obligatoire (à confirmer
+         DGFiP/PA), amender — jamais de transmission inventée en attendant.
+    acceptance:
+      - "BLOQUÉ tant que D-a (cadence sourcée + énum figée) et D-b (Mixte sourcé ou hors V1) ne sont pas tranchées — ne pas coder avant"
+      - "Fenêtrage des agrégats en périodes déclaratives selon la cadence sourcée (décade/mois/bimestre) + échéance J+X (alimente SUP01/WEB01)"
+      - "Mixte traité selon D-b (ventilation part frais sourcée) ou explicitement hors V1"
+      - "PaymentReportPeriod enrichi des lignes F09 §5.3 ; tous les plug-ins PA mis à jour"
+      - "Envoi réel via IPaClient.SendPaymentReportAsync piloté par la capacité (V1 = Flux 10.4) ; testé avec Fake ; transmission auto dès que B2Brouter expose « Encaissée »"
+      - "Période sans encaissement : rien transmis + signalement opérateur (décision néant documentée, ouverte)"
+      - "Montants en decimal, aucun float ; aucun flag PRODUIT ; pipeline ne référence aucun plug-in PA concret (NetArchTest)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -333,6 +379,10 @@ items:
       correction ne passe PAS par un montant négatif isolé : la DGFiP attend un flux
       rectificatif type RE qui ANNULE ET REMPLACE l'ensemble des données agrégées de la
       période concernée (par SIREN + période).
+      PÉRIMÈTRE (re-découpage PIP03 2026-06-06) : PIP04 construit le MÉCANISME RE (builder + idempotence +
+      capacité + historique append-only) sur l'infrastructure d'agrégation de PIP03a. Les rectificatifs de
+      PAIEMENT (10.4) ne portent de données réelles qu'une fois PIP03b actif (fenêtrage + envoi) ; le
+      mécanique RE des e-reporting B2C (10.3) et la correction sur avoir/altération source restent V1.
       1. RectificationBuilder : pour une période déjà transmise, reconstruire l'agrégat complet
          corrigé (toutes les données de la période, pas seulement le delta).
       2. Transmission du rectificatif via IPaClient (capacité SupportsReportRectification —
@@ -366,7 +416,7 @@ items:
       tools/orch-reconcile-gates.ps1 bascule la gate à done (protocol.md Step 1.4). Le merge dans
       main reste une action humaine (barrière Claude Code + CLAUDE.md « human merge mandatory »).
     acceptance:
-      - "Tous les items PIP sont done"
-      - "Tests d'intégration de bout en bout verts (golden files → check → send Fake → sync → archive, 2 tenants)"
+      - "Tous les items PIP du CHEMIN CRITIQUE sont done (PIP00, PIP01a-d, PIP02, PIP03a, PIP04). PIP03b (fenêtrage de période + Mixte + envoi réel des paiements) est un FAST-FOLLOW gelé sur sources fiscales D-a/D-b + capacité B2Brouter « Encaissée » — HORS périmètre V1 du segment, ne bloque PAS la gate (cf. F09 §4 scénario b : agrégation livrée en V1, envoi conditionné)"
+      - "Tests d'intégration de bout en bout verts (golden files → check → send Fake → sync → archive, 2 tenants) ; agrégation de paiement + snapshot de ventilation (PIP03a) testés"
       - "CI verte sur la PR du segment (verify + run-tests : plateforme .NET 10 + agent net48 x86/x64)"
       - "Segment feat/pipeline intégré dans main par MERGE HUMAIN de la PR ; gate basculée à done par réconciliation (orch-reconcile-gates.ps1)"
