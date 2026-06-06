@@ -5,34 +5,41 @@ using Liakont.Modules.Pipeline.Domain.Ventilation;
 using Xunit;
 
 /// <summary>
-/// Garde-fou d'intégrité de stockage de la ventilation (ADR-0015, CLAUDE.md n°1/4) : une valeur dépassant
-/// l'échéance de la colonne serait tronquée silencieusement (montant fiscal altéré) — rejetée AVANT persistance.
+/// La ligne de ventilation (ADR-0015) PRÉSERVE les valeurs telles que produites par le mapping validé
+/// (INV-VENTILATION-001) — montants `decimal` (jamais float, CLAUDE.md n°1), précision conservée par la
+/// sérialisation en chaîne jsonb du snapshot ; aucun arrondi ni recalcul ici.
 /// </summary>
 public sealed class VentilationLineTests
 {
     [Fact]
-    public void Accepts_Null_Rate_And_Two_Decimal_Amounts()
+    public void Preserves_Rate_Amounts_And_Category()
     {
+        var line = VentilationLine.Create(20m, 100.00m, 20.00m, "S");
+
+        line.Rate.Should().Be(20m);
+        line.TaxableBase.Should().Be(100.00m);
+        line.VatAmount.Should().Be(20.00m);
+        line.Category.Should().Be("S");
+    }
+
+    [Fact]
+    public void Accepts_Null_Rate_And_Null_Category()
+    {
+        // Taux non résolu au CHECK → null (l'agrégation suspendra), catégorie non posée → null.
         var line = VentilationLine.Create(null, 100.00m, 20.00m);
 
         line.Rate.Should().BeNull();
-        line.TaxableBase.Should().Be(100.00m);
-        line.VatAmount.Should().Be(20.00m);
+        line.Category.Should().BeNull();
     }
 
     [Fact]
-    public void Rejects_Amount_With_More_Than_Two_Decimals()
+    public void Preserves_Decimal_Precision_Without_Rounding()
     {
-        var act = () => VentilationLine.Create(20m, 100.001m, 20.00m);
+        // La précision est conservée telle quelle (le snapshot jsonb la stocke en chaîne) — aucun arrondi
+        // silencieux, aucune troncature (INV-VENTILATION-001/002).
+        var line = VentilationLine.Create(20m, 100.005m, 20.001m);
 
-        act.Should().Throw<System.ArgumentException>();
-    }
-
-    [Fact]
-    public void Rejects_Rate_With_More_Than_Four_Decimals()
-    {
-        var act = () => VentilationLine.Create(20.00001m, 100.00m, 20.00m);
-
-        act.Should().Throw<System.ArgumentException>();
+        line.TaxableBase.Should().Be(100.005m);
+        line.VatAmount.Should().Be(20.001m);
     }
 }

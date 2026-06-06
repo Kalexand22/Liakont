@@ -107,6 +107,7 @@ public sealed class PostgresVentilationSnapshotStore : IVentilationSnapshotStore
                 Rate = line.Rate?.ToString(CultureInfo.InvariantCulture),
                 Base = line.TaxableBase.ToString(CultureInfo.InvariantCulture),
                 Vat = line.VatAmount.ToString(CultureInfo.InvariantCulture),
+                Category = line.Category,
             });
         }
 
@@ -122,7 +123,7 @@ public sealed class PostgresVentilationSnapshotStore : IVentilationSnapshotStore
             decimal? rate = item.Rate is null ? null : decimal.Parse(item.Rate, CultureInfo.InvariantCulture);
             var taxableBase = decimal.Parse(item.Base ?? "0", CultureInfo.InvariantCulture);
             var vatAmount = decimal.Parse(item.Vat ?? "0", CultureInfo.InvariantCulture);
-            lines.Add(VentilationLine.Create(rate, taxableBase, vatAmount));
+            lines.Add(VentilationLine.Create(rate, taxableBase, vatAmount, item.Category));
         }
 
         return lines;
@@ -142,5 +143,7 @@ public sealed class PostgresVentilationSnapshotStore : IVentilationSnapshotStore
         public string? Base { get; set; }
 
         public string? Vat { get; set; }
+
+        public string? Category { get; set; }
     }
 }

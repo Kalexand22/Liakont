@@ -167,12 +167,12 @@ avec PIP01d.
 
 ## E-reporting de paiement (PIP03a) — `VentilationLineTests`
 
-- **Taux nullable accepté** : une ligne sans taux résolu (`null`) est valide (l'agrégation suspendra)
-  (INV-VENTILATION-001).
-- **Garde d'échelle montant** : un montant à plus de 2 décimales est rejeté (troncature `numeric(18,2)`)
-  (INV-VENTILATION-002).
-- **Garde d'échelle taux** : un taux à plus de 4 décimales est rejeté (troncature `numeric(6,4)`)
-  (INV-VENTILATION-002).
+- **Conservation taux/montants/catégorie** : la ligne préserve taux, base, TVA et catégorie UNCL5305
+  telles que produites (INV-VENTILATION-001).
+- **Taux et catégorie nullables** : une ligne sans taux résolu (`null`) ni catégorie est valide (l'agrégation
+  suspendra) (INV-VENTILATION-001).
+- **Précision décimale conservée** : une valeur à plus de 2 décimales est conservée telle quelle (le snapshot
+  jsonb la stocke en chaîne) — aucun arrondi silencieux à la capture (INV-VENTILATION-002).
 
 ## E-reporting de paiement (PIP03a) — `PaymentAggregationCalculatorTests`
 
@@ -186,6 +186,9 @@ avec PIP01d.
 - **Remboursement** : un montant négatif produit un agrégat négatif (INV-PIPELINE-030, F09 §5.4).
 - **Mixte suspendu / livraison non concernée / taux non résolu / total nul** : chacun ÉCARTE l'encaissement
   avec son motif, aucune part devinée (INV-PIPELINE-029, INV-VENTILATION-005).
+- **Autoliquidation écartée** : un document à catégorie `AE` (reverse charge) est exclu de l'e-reporting de
+  paiement (F09 §2) ; un document mêlant `AE` et taux collectés est suspendu (part reportable non isolable)
+  (INV-PIPELINE-029).
 - **Qualification fiscale** : `FeeImputationMethod` ou paramètre fiscal `null` ⇒ Suspended (jamais de prorata
   par défaut) ; `vatOnDebits=true` ⇒ NotRequired ; capacité PA absente ⇒ PendingCapability — dans TOUS les cas
   les agrégats sont calculés pour la traçabilité (INV-PIPELINE-031).
@@ -201,3 +204,6 @@ avec PIP01d.
   `PendingCapability` (calculé, jamais perdu) (INV-PIPELINE-031).
 - **TVA sur les débits → non requis** : `vatOnDebits=true` (paramétrage persisté) ⇒ agrégat `NotRequired`,
   calculé pour la traçabilité (INV-PIPELINE-031, F09 §6).
+- **Snapshot append-only + idempotent** : la catégorie UNCL5305 est capturée ; ré-écrire le même
+  (document_id, mapping_version) retourne `false` (pas de doublon) ; un UPDATE/DELETE direct sur
+  `pipeline.ventilation_snapshots` est rejeté par le trigger base (`PostgresException`) (INV-VENTILATION-003).

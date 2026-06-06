@@ -179,6 +179,22 @@ public sealed class PaymentAggregationHarness : IAsyncLifetime
         return await store.GetAsync(documentId, MappingVersion);
     }
 
+    /// <summary>Tente d'écrire un snapshot via le store réel ; retourne <c>true</c> si inséré, <c>false</c> si déjà présent (idempotence).</summary>
+    public async Task<bool> SaveSnapshotAsync(VentilationSnapshot snapshot)
+    {
+        await using var scope = _provider!.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IVentilationSnapshotStore>();
+        return await store.SaveAsync(snapshot);
+    }
+
+    /// <summary>Exécute une commande SQL brute sur la base tenant (propage l'exception base — pour tester le rejet append-only).</summary>
+    public async Task ExecuteRawAsync(string sql)
+    {
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync();
+        await connection.ExecuteAsync(sql);
+    }
+
     /// <summary>Paramétrage fiscal du tenant (insertion directe ; null = suspension).</summary>
     public async Task SetFiscalSettingsAsync(
         bool? vatOnDebits,

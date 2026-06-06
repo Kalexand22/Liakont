@@ -136,6 +136,38 @@ public sealed class PaymentAggregationCalculatorTests
     }
 
     [Fact]
+    public void Reverse_Charge_Document_Is_Excluded()
+    {
+        // Autoliquidation (catégorie AE) : TVA non collectée → exclue de l'e-reporting de paiement (F09 §2).
+        var payments = new List<ResolvedPayment>
+        {
+            Service(Day1, 120.00m, Line(20m, 100.00m, 20.00m, "AE")),
+        };
+
+        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true);
+
+        result.Aggregates.Should().BeEmpty();
+        result.Exclusions.Should().ContainSingle()
+            .Which.Reason.Should().Be(PaymentExclusionReason.ReverseCharge);
+    }
+
+    [Fact]
+    public void Mixed_Reverse_Charge_And_Collected_Is_Excluded()
+    {
+        // Mêler autoliquidation et taux collectés ⇒ la part reportable n'est pas isolable → suspendu, jamais deviné.
+        var payments = new List<ResolvedPayment>
+        {
+            Service(Day1, 120.00m, Line(20m, 50.00m, 10.00m, "S"), Line(null, 50.00m, 0.00m, "AE")),
+        };
+
+        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true);
+
+        result.Aggregates.Should().BeEmpty();
+        result.Exclusions.Should().ContainSingle()
+            .Which.Reason.Should().Be(PaymentExclusionReason.ReverseCharge);
+    }
+
+    [Fact]
     public void Unresolved_Rate_Suspends_The_Document()
     {
         var payments = new List<ResolvedPayment>
@@ -248,8 +280,8 @@ public sealed class PaymentAggregationCalculatorTests
         HasFeeImputationMethod = true,
     };
 
-    private static VentilationLine Line(decimal? rate, decimal taxableBase, decimal vatAmount) =>
-        VentilationLine.Create(rate, taxableBase, vatAmount);
+    private static VentilationLine Line(decimal? rate, decimal taxableBase, decimal vatAmount, string? category = null) =>
+        VentilationLine.Create(rate, taxableBase, vatAmount, category);
 
     private static ResolvedPayment Service(DateOnly date, decimal amount, params VentilationLine[] lines) =>
         Payment(date, amount, OperationCategory.PrestationServices, lines);

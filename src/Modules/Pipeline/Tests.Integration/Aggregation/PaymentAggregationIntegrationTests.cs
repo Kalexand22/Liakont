@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using FluentAssertions;
 using Liakont.Modules.Pipeline.Domain.Payments;
 using Liakont.Modules.TenantSettings.Domain.Entities;
+using Npgsql;
 using Xunit;
 
 /// <summary>
@@ -118,5 +119,32 @@ public sealed class PaymentAggregationIntegrationTests : IClassFixture<PaymentAg
 
         var aggregate = (await _harness.GetAggregatesAsync()).Single(a => a.Date == paymentDate);
         aggregate.Status.Should().Be(PaymentAggregationStatus.NotRequired, "TVA sur les débits = exigibilité à la facturation, non requis (mais calculé).");
+    }
+
+    [Fact]
+    public async Task Snapshot_Is_Append_Only_And_Idempotent()
+    {
+        var documentId = Guid.NewGuid();
+        var sourceReference = Guid.NewGuid().ToString("N");
+        var pivot = AggregationFixtures.BuildServicePivot(sourceReference, (100.00m, 20.00m, 20m));
+
+        _harness.SetPaymentReportingCapability(supported: true);
+        await _harness.CheckServiceDocumentAsync(documentId, pivot);
+
+        var snapshot = await _harness.GetSnapshotAsync(documentId);
+        snapshot.Should().NotBeNull();
+        snapshot!.Lines[0].Category.Should().Be("S", "la catégorie UNCL5305 est capturée pour l'exclusion sourcée (F09 §2).");
+
+        // Idempotence : ré-écrire le même (document_id, mapping_version) n'insère pas de doublon (INV-VENTILATION-003).
+        (await _harness.SaveSnapshotAsync(snapshot)).Should().BeFalse("un re-CHECK du même document ne duplique pas le snapshot.");
+
+        // Append-only : toute mutation/suppression d'une entrée est rejetée par le trigger base (INV-VENTILATION-003).
+        var update = async () => await _harness.ExecuteRawAsync(
+            "UPDATE pipeline.ventilation_snapshots SET document_number = 'altéré' WHERE document_id = '" + documentId + "'");
+        await update.Should().ThrowAsync<PostgresException>("le snapshot est append-only (CLAUDE.md n°4).");
+
+        var delete = async () => await _harness.ExecuteRawAsync(
+            "DELETE FROM pipeline.ventilation_snapshots WHERE document_id = '" + documentId + "'");
+        await delete.Should().ThrowAsync<PostgresException>("le snapshot est append-only (CLAUDE.md n°4).");
     }
 }

@@ -26,34 +26,33 @@ public sealed class PostgresPaymentAggregationStore : IPaymentAggregationStore
         _connectionFactory = connectionFactory;
     }
 
-    public async Task UpsertAsync(IReadOnlyList<PaymentDailyAggregate> aggregates, CancellationToken cancellationToken = default)
+    public async Task ReplaceAllAsync(IReadOnlyList<PaymentDailyAggregate> aggregates, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(aggregates);
-        if (aggregates.Count == 0)
-        {
-            return;
-        }
 
         using var conn = await _connectionFactory.OpenAsync(cancellationToken);
+        using var transaction = conn.BeginTransaction();
 
-        const string sql = """
+        // PROJECTION recalculée INTÉGRALEMENT : on purge puis on ré-insère, atomiquement — aucune clé
+        // (jour, taux) périmée ne survit (un encaissement re-daté/retiré côté source ne laisse pas d'agrégat
+        // fantôme). C'est une projection, pas une table d'audit : la purge est légitime ici (CLAUDE.md n°4).
+        await conn.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM pipeline.payment_aggregations",
+            transaction: transaction,
+            cancellationToken: cancellationToken));
+
+        const string insertSql = """
             INSERT INTO pipeline.payment_aggregations
                 (id, aggregate_date, vat_rate, taxable_base, vat_amount, status, reason, computed_utc)
             VALUES
                 (@Id, @AggregateDate, @VatRate, @TaxableBase, @VatAmount, @Status, @Reason, @ComputedUtc)
-            ON CONFLICT (aggregate_date, vat_rate) DO UPDATE SET
-                taxable_base = EXCLUDED.taxable_base,
-                vat_amount   = EXCLUDED.vat_amount,
-                status       = EXCLUDED.status,
-                reason       = EXCLUDED.reason,
-                computed_utc = EXCLUDED.computed_utc
             """;
 
         var computedUtc = DateTimeOffset.UtcNow;
         foreach (var aggregate in aggregates)
         {
             await conn.ExecuteAsync(new CommandDefinition(
-                sql,
+                insertSql,
                 new
                 {
                     Id = Guid.NewGuid(),
@@ -65,8 +64,11 @@ public sealed class PostgresPaymentAggregationStore : IPaymentAggregationStore
                     aggregate.Reason,
                     ComputedUtc = computedUtc,
                 },
+                transaction: transaction,
                 cancellationToken: cancellationToken));
         }
+
+        transaction.Commit();
     }
 
     public async Task<IReadOnlyList<PaymentDailyAggregate>> GetAllAsync(CancellationToken cancellationToken = default)

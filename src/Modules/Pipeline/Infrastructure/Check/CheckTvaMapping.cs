@@ -153,7 +153,8 @@ internal static class CheckTvaMapping
             var line = enrichedLines[lineIndex];
             var tax = line.Taxes[0];
             var rate = tax.Rate ?? (mappingRateByLineIndex.TryGetValue(lineIndex, out var mapped) ? mapped : null);
-            ventilation.Add(VentilationLine.Create(rate, line.NetAmount, tax.TaxAmount));
+            var category = tax.CategoryCode?.ToString();
+            ventilation.Add(VentilationLine.Create(rate, line.NetAmount, tax.TaxAmount, category));
         }
 
         return ventilation;

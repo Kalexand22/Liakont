@@ -15,6 +15,9 @@ public enum PaymentExclusionReason
     /// <summary>Document Mixte : découpage frais/adjudication non sourcé (D-b) — suspendu (réservé à PIP03b).</summary>
     MixteSuspended,
 
+    /// <summary>Autoliquidation (reverse charge, catégorie AE) : exclue de l'e-reporting de paiement (F09 §2).</summary>
+    ReverseCharge,
+
     /// <summary>Livraison de biens : exigibilité à la livraison, pas d'e-reporting de paiement (non requis).</summary>
     GoodsNotApplicable,
 

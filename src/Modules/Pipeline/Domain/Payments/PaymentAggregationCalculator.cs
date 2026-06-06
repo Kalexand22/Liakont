@@ -53,6 +53,12 @@ public static class PaymentAggregationCalculator
     public const string GoodsNotApplicableReason =
         "Livraison de biens : exigibilité de la TVA à la livraison — non concernée par l'e-reporting de paiement.";
 
+    /// <summary>Motif : autoliquidation (reverse charge) — exclue de l'e-reporting de paiement (F09 §2).</summary>
+    public const string ReverseChargeReason =
+        "Autoliquidation (reverse charge, catégorie AE) : la TVA n'est pas collectée par le fournisseur — exclue " +
+        "de l'e-reporting de paiement (F09 §2). Un document mêlant autoliquidation et taux collectés est suspendu " +
+        "(la part à reporter n'est pas isolable par une règle sourcée).";
+
     /// <summary>Motif : taux de TVA non résolu dans la ventilation — impossible de ventiler l'encaissement par taux.</summary>
     public const string UnresolvedRateReason =
         "Taux de TVA non résolu dans la ventilation du document : impossible de ventiler l'encaissement par taux. " +
@@ -62,6 +68,9 @@ public static class PaymentAggregationCalculator
     public const string ZeroDocumentTotalReason =
         "Total du document nul : impossible de répartir l'encaissement par taux. Action opérateur : vérifiez la " +
         "donnée source de ce document.";
+
+    /// <summary>Nom UNCL5305 de l'autoliquidation (reverse charge) — <see cref="VatCategory.AE"/>.</summary>
+    private const string ReverseChargeCategory = nameof(VatCategory.AE);
 
     /// <summary>
     /// Agrège les encaissements résolus par jour×taux et qualifie les agrégats. Le contexte fiscal et la
@@ -100,6 +109,15 @@ public static class PaymentAggregationCalculator
                 default:
                     exclusions.Add(Exclude(payment, PaymentExclusionReason.GoodsNotApplicable, GoodsNotApplicableReason));
                     continue;
+            }
+
+            // Autoliquidation (AE, F09 §2) : la TVA n'est pas collectée → exclue. Un document mêlant AE et taux
+            // collectés est SUSPENDU (la part reportable n'est pas isolable sans règle sourcée — même famille que
+            // Mixte). Aucune part devinée (CLAUDE.md n°2).
+            if (document.Lines.Any(line => string.Equals(line.Category, ReverseChargeCategory, StringComparison.Ordinal)))
+            {
+                exclusions.Add(Exclude(payment, PaymentExclusionReason.ReverseCharge, ReverseChargeReason));
+                continue;
             }
 
             if (document.Lines.Any(line => line.Rate is null))

@@ -75,7 +75,7 @@ public sealed partial class PaymentAggregatorTenantJob : ITenantJob
 
         var result = PaymentAggregationCalculator.Aggregate(resolved, fiscalContext, paSupportsPaymentReporting);
 
-        await services.GetRequiredService<IPaymentAggregationStore>().UpsertAsync(result.Aggregates, cancellationToken);
+        await services.GetRequiredService<IPaymentAggregationStore>().ReplaceAllAsync(result.Aggregates, cancellationToken);
 
         var allExclusions = ioExclusions.Concat(result.Exclusions).ToList();
         var aggregatedPayments = resolved.Count - result.Exclusions.Count;
@@ -84,7 +84,16 @@ public sealed partial class PaymentAggregatorTenantJob : ITenantJob
         LogAggregationCompleted(logger, tenantId, result.Aggregates.Count, aggregatedPayments, allExclusions.Count);
     }
 
-    /// <summary>Rattache chaque encaissement à son document + ventilation (snapshot ADR-0015) ; écarte les non rattachés / sans snapshot.</summary>
+    /// <summary>
+    /// Rattache chaque encaissement à son document + ventilation (snapshot ADR-0015) ; écarte les non
+    /// rattachés / sans snapshot.
+    /// </summary>
+    /// <remarks>
+    /// DETTE assumée (P2 accepté, codex-review round 1) : la lecture des encaissements n'est PAS bornée et la
+    /// résolution est en N+1 (un document + un snapshot par paiement). C'est acceptable en PIP03a, qui est
+    /// PRÉ-fenêtrage : le bornage par période déclarative et une résolution par lot sont du ressort de PIP03b
+    /// (quand la cadence D-a est tranchée). Croissance non bornée par run tant que PIP03b n'est pas livré.
+    /// </remarks>
     private static async Task ResolvePaymentsAsync(
         IServiceProvider services,
         IReadOnlyList<PaymentDto> payments,
@@ -155,6 +164,15 @@ public sealed partial class PaymentAggregatorTenantJob : ITenantJob
         }
 
         var registry = services.GetRequiredService<IPaClientRegistry>();
+
+        // Un plug-in non déployé pour le type du compte ⇒ capacité absente (PendingCapability), JAMAIS un échec
+        // dur de l'agrégation : les agrégats restent calculés pour la traçabilité (IsRegistered avant Resolve,
+        // qui lèverait sur un type inconnu).
+        if (!registry.IsRegistered(active.PluginType))
+        {
+            return false;
+        }
+
         var paClient = registry.Resolve(new PaAccountDescriptor(active.PluginType, tenantId));
         return paClient.Capabilities.SupportsDomesticPaymentReporting;
     }
