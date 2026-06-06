@@ -54,12 +54,6 @@ public sealed partial class SendTenantJob : ITenantJob
     private const string SendingStateName = "Sending";
     private const string TechnicalErrorStateName = "TechnicalError";
 
-    /// <summary>Motif de blocage quand le contenu stagé d'un document à envoyer est altéré/illisible (intégrité).</summary>
-    private const string StagingIntegrityReason =
-        "Le contenu stagé du document est altéré ou illisible (contrôle d'intégrité) : envoi impossible sans " +
-        "risquer de transmettre une donnée fausse. Document bloqué. Action opérateur : relancez l'extraction " +
-        "du document depuis le logiciel source (l'agent le re-poussera) ; si le problème persiste, contactez le support.";
-
     private readonly PipelineRunTrigger _trigger;
     private readonly bool _dryRun;
 
@@ -157,21 +151,21 @@ public sealed partial class SendTenantJob : ITenantJob
         var sending = await services.GetRequiredService<IDocumentQueries>().GetPotentiallySentDocumentsAsync(cancellationToken);
         foreach (var summary in sending)
         {
-            tally.Add(await RecoverSendingAsync(services, paClient, tenantId, summary.Id, logger, cancellationToken));
+            tally.Add(await SafeProcessAsync(() => RecoverSendingAsync(services, paClient, tenantId, summary.Id, logger, cancellationToken), summary.Id, logger, cancellationToken));
         }
 
         // 2) Retry des TechnicalError (anti-doublon vérifié AVANT tout renvoi).
         await ForEachByStateAsync(
             services,
             TechnicalErrorStateName,
-            async id => tally.Add(await RetryTechnicalErrorAsync(services, paClient, tenantId, id, logger, cancellationToken)),
+            async id => tally.Add(await SafeProcessAsync(() => RetryTechnicalErrorAsync(services, paClient, tenantId, id, logger, cancellationToken), id, logger, cancellationToken)),
             cancellationToken);
 
         // 3) Envoi des ReadyToSend.
         await ForEachByStateAsync(
             services,
             ReadyToSendStateName,
-            async id => tally.Add(await SendReadyAsync(services, paClient, tenantId, id, logger, cancellationToken)),
+            async id => tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, tenantId, id, logger, cancellationToken), id, logger, cancellationToken)),
             cancellationToken);
 
         await WriteRunLogAsync(services, timeProvider, _trigger, startedAt, tally, tally.Describe(), cancellationToken);
@@ -220,9 +214,19 @@ public sealed partial class SendTenantJob : ITenantJob
 
         if (staged.Status == StagedReadStatus.Integrity)
         {
-            await services.GetRequiredService<IDocumentLifecycle>().BlockAsync(
-                documentId, WithDocumentNumber(document.DocumentNumber, StagingIntegrityReason), cancellationToken);
+            // Le document n'est plus Detected : la machine à états n'offre AUCUNE cible légale « intégrité »
+            // depuis ReadyToSend/Sending/TechnicalError (F06 §3 / TRK02). On NE transitionne PAS (on n'invente
+            // pas d'état) ; on consigne une erreur opérateur et on N'ENVOIE JAMAIS un contenu altéré
+            // (« bloquer plutôt qu'envoyer faux »). Le document est ré-examiné chaque cycle jusqu'à ré-extraction.
+            LogStagingIntegrityNotSent(logger, documentId, tenantId);
             return SendOutcome.Failed;
+        }
+
+        if (IsUnsendableCreditNote(staged.Pivot!, paClient))
+        {
+            await services.GetRequiredService<IDocumentLifecycle>().MarkTechnicalErrorAsync(document.Id, cancellationToken);
+            LogCreditNoteCapabilityMissing(logger, document.Id, paClient.Capabilities.PaName);
+            return SendOutcome.Skipped;
         }
 
         if (await TryFinalizeFromPaStatusAsync(services, paClient, tenantId, document, staged.Pivot!, staged.Json!, beginSending: false, logger, cancellationToken))
@@ -268,8 +272,11 @@ public sealed partial class SendTenantJob : ITenantJob
 
         if (staged.Status == StagedReadStatus.Integrity)
         {
-            await services.GetRequiredService<IDocumentLifecycle>().BlockAsync(
-                documentId, WithDocumentNumber(document.DocumentNumber, StagingIntegrityReason), cancellationToken);
+            // Le document n'est plus Detected : la machine à états n'offre AUCUNE cible légale « intégrité »
+            // depuis ReadyToSend/Sending/TechnicalError (F06 §3 / TRK02). On NE transitionne PAS (on n'invente
+            // pas d'état) ; on consigne une erreur opérateur et on N'ENVOIE JAMAIS un contenu altéré
+            // (« bloquer plutôt qu'envoyer faux »). Le document est ré-examiné chaque cycle jusqu'à ré-extraction.
+            LogStagingIntegrityNotSent(logger, documentId, tenantId);
             return SendOutcome.Failed;
         }
 
@@ -277,6 +284,14 @@ public sealed partial class SendTenantJob : ITenantJob
 
         // Reprise : TechnicalError → ReadyToSend (version de mapping déjà posée au CHECK, on la reconsigne).
         await lifecycle.MarkReadyToSendAsync(documentId, document.MappingVersion!, cancellationToken);
+
+        if (IsUnsendableCreditNote(staged.Pivot!, paClient))
+        {
+            // Avoir vers une PA sans capacité avoirs : repassé ReadyToSend (ci-dessus) et laissé là (PIP02),
+            // jamais renvoyé en boucle.
+            LogCreditNoteCapabilityMissing(logger, documentId, paClient.Capabilities.PaName);
+            return SendOutcome.Skipped;
+        }
 
         // Anti-doublon AVANT tout renvoi : si la PA connaît déjà le document, on le finalise sans réémettre.
         if (await TryFinalizeFromPaStatusAsync(services, paClient, tenantId, document, staged.Pivot!, staged.Json!, beginSending: true, logger, cancellationToken))
@@ -313,14 +328,17 @@ public sealed partial class SendTenantJob : ITenantJob
 
         if (staged.Status == StagedReadStatus.Integrity)
         {
-            await services.GetRequiredService<IDocumentLifecycle>().BlockAsync(
-                documentId, WithDocumentNumber(document.DocumentNumber, StagingIntegrityReason), cancellationToken);
+            // Le document n'est plus Detected : la machine à états n'offre AUCUNE cible légale « intégrité »
+            // depuis ReadyToSend/Sending/TechnicalError (F06 §3 / TRK02). On NE transitionne PAS (on n'invente
+            // pas d'état) ; on consigne une erreur opérateur et on N'ENVOIE JAMAIS un contenu altéré
+            // (« bloquer plutôt qu'envoyer faux »). Le document est ré-examiné chaque cycle jusqu'à ré-extraction.
+            LogStagingIntegrityNotSent(logger, documentId, tenantId);
             return SendOutcome.Failed;
         }
 
         // Garde-fou avoirs : un avoir vers une PA sans capacité avoirs reste ReadyToSend (traité par PIP02),
         // jamais bloqué ni envoyé à l'aveugle (l'état machine interdit un retour Sending → ReadyToSend).
-        if (staged.Pivot!.CreditNoteRefs.Count > 0 && !paClient.Capabilities.SupportsCreditNotes)
+        if (IsUnsendableCreditNote(staged.Pivot!, paClient))
         {
             LogCreditNoteCapabilityMissing(logger, documentId, paClient.Capabilities.PaName);
             return SendOutcome.Skipped;
@@ -413,7 +431,11 @@ public sealed partial class SendTenantJob : ITenantJob
         }
     }
 
-    /// <summary>Émission : MarkIssued (preuve) PUIS archive WORM (TRK05) PUIS purge du staging subordonnée au WORM (ADR-0014 §4).</summary>
+    /// <summary>
+    /// Émission : archive WORM (TRK05) d'abord (idempotente) PUIS MarkIssued (preuve) PUIS purge du staging
+    /// subordonnée au WORM (ADR-0014 §4) — ordre auto-cicatrisant : un échec après l'archive laisse le document
+    /// Sending, ré-émis et dédoublonné au cycle suivant.
+    /// </summary>
     private static async Task FinalizeIssuedAsync(
         IServiceProvider services,
         string tenantId,
@@ -423,17 +445,16 @@ public sealed partial class SendTenantJob : ITenantJob
         string paResponseJson,
         CancellationToken cancellationToken)
     {
-        var mappingTraceJson = string.Create(
-            CultureInfo.InvariantCulture,
-            $"{{\"mappingVersion\":\"{document.MappingVersion ?? "(non précisée)"}\"}}");
+        var mappingTraceJson = System.Text.Json.JsonSerializer.Serialize(
+            new { mappingVersion = document.MappingVersion ?? "(non précisée)" });
+
+        var archiveRequest = SendArchiveComposer.Compose(document, pivot, canonicalJson, paResponseJson, mappingTraceJson);
+        await services.GetRequiredService<IArchiveService>().ArchiveIssuedDocumentAsync(archiveRequest, cancellationToken);
 
         await services.GetRequiredService<IDocumentLifecycle>().MarkIssuedAsync(
             document.Id,
             new DocumentIssuanceSnapshots { PayloadSnapshot = canonicalJson, PaResponseSnapshot = paResponseJson, MappingTrace = mappingTraceJson },
             cancellationToken);
-
-        var archiveRequest = SendArchiveComposer.Compose(document, pivot, canonicalJson, paResponseJson, mappingTraceJson);
-        await services.GetRequiredService<IArchiveService>().ArchiveIssuedDocumentAsync(archiveRequest, cancellationToken);
 
         // Purge subordonnée à la présence EFFECTIVE du paquet WORM (jamais à la seule étiquette Issued).
         var key = new StagedPayloadKey(tenantId, document.Id, document.PayloadHash);
@@ -482,9 +503,6 @@ public sealed partial class SendTenantJob : ITenantJob
         return startDate <= today;
     }
 
-    private static string WithDocumentNumber(string documentNumber, string reason) =>
-        string.Create(CultureInfo.InvariantCulture, $"Document n° {documentNumber} : {reason}");
-
     private static async Task<int> CountByStateAsync(
         IServiceProvider services,
         string state,
@@ -501,6 +519,30 @@ public sealed partial class SendTenantJob : ITenantJob
             },
             cancellationToken);
         return count;
+    }
+
+    private static bool IsUnsendableCreditNote(PivotDocumentDto pivot, IPaClient paClient) =>
+        pivot.CreditNoteRefs.Count > 0 && !paClient.Capabilities.SupportsCreditNotes;
+
+    private static async Task<SendOutcome> SafeProcessAsync(
+        Func<Task<SendOutcome>> process,
+        Guid documentId,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await process();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            LogDocumentSendFailed(logger, documentId, ex);
+            return SendOutcome.Failed;
+        }
     }
 
     /// <summary>Parcourt, page par page, les documents d'un état donné (file bornée TRK01) et applique une action par identifiant.</summary>
@@ -591,4 +633,12 @@ public sealed partial class SendTenantJob : ITenantJob
     [LoggerMessage(EventId = 7210, Level = LogLevel.Warning,
         Message = "SEND : document {DocumentId} sans version de mapping en envoi — anomalie de données, non renvoyé.")]
     private static partial void LogMissingMappingVersion(ILogger logger, Guid documentId);
+
+    [LoggerMessage(EventId = 7211, Level = LogLevel.Error,
+        Message = "SEND : contenu stagé altéré/illisible pour le document {DocumentId} (tenant « {TenantId} ») — NON envoyé (intégrité) ; ré-extraction requise. Aucune transition d'état (document hors Detected).")]
+    private static partial void LogStagingIntegrityNotSent(ILogger logger, Guid documentId, string tenantId);
+
+    [LoggerMessage(EventId = 7212, Level = LogLevel.Error,
+        Message = "SEND : échec inattendu sur le document {DocumentId} — document ignoré ce cycle, traitement du tenant poursuivi.")]
+    private static partial void LogDocumentSendFailed(ILogger logger, Guid documentId, Exception exception);
 }

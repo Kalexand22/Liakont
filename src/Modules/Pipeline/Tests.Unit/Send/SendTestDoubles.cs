@@ -158,13 +158,21 @@ internal static class SendTestDoubles
     internal sealed class MapStagingStore : IPayloadStagingStore
     {
         private readonly Dictionary<Guid, string> _byDocument = new();
+        private readonly HashSet<Guid> _integrity = new();
 
         public PayloadStagingStoreCapabilities Capabilities => new(false, false);
 
         public void Stage(Guid documentId, string canonicalJson) => _byDocument[documentId] = canonicalJson;
 
+        public void StageIntegrityFailure(Guid documentId) => _integrity.Add(documentId);
+
         public Task<string> ReadAsync(StagedPayloadKey key, CancellationToken cancellationToken = default)
         {
+            if (_integrity.Contains(key.DocumentId))
+            {
+                throw StagedPayloadIntegrityException.HashMismatch(key, "altered");
+            }
+
             if (_byDocument.TryGetValue(key.DocumentId, out var json))
             {
                 return Task.FromResult(json);

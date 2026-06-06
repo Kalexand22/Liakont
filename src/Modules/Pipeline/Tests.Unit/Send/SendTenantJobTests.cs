@@ -158,6 +158,35 @@ public sealed class SendTenantJobTests
         purge.Calls.Should().ContainSingle();
     }
 
+    [Fact]
+    public async Task Corrupt_Staging_Is_Not_Sent_And_Causes_No_Transition()
+    {
+        var id = Guid.NewGuid();
+        var document = SendTestData.Document(id, "ReadyToSend");
+        var queries = new SendTestDoubles.ConfigurableDocumentQueries();
+        queries.AddDocument(document);
+        queries.AddInState("ReadyToSend", SendTestData.Summary(id, "ReadyToSend"));
+
+        var staging = new SendTestDoubles.MapStagingStore();
+        staging.StageIntegrityFailure(id);
+
+        var lifecycle = new SendTestDoubles.RecordingDocumentLifecycle();
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var purge = new SendTestDoubles.RecordingStagingPurgeService(false);
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var fake = await PublishedFakeAsync(FakePaScenario.Success);
+        var provider = BuildProvider(ActiveAccountSettings(), queries, lifecycle, staging, purge, archive, runLogs, fake);
+
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        lifecycle.BeganSending.Should().BeEmpty("aucun envoi d'un contenu altéré.");
+        lifecycle.Issued.Should().BeEmpty("le document n'est pas émis.");
+        lifecycle.Blocked.Should().BeEmpty("aucune transition d'état illégale depuis ReadyToSend.");
+        fake.IssuedDocumentNumbers.Should().BeEmpty("rien n'est envoyé à la PA.");
+        runLogs.Saved.Should().ContainSingle();
+        runLogs.Saved[0].DocumentsFailed.Should().Be(1);
+    }
+
     private static (Guid Id, SendTestDoubles.ConfigurableDocumentQueries Queries, SendTestDoubles.RecordingDocumentLifecycle Lifecycle, SendTestDoubles.MapStagingStore Staging) SeedSingle(string state)
     {
         var id = Guid.NewGuid();

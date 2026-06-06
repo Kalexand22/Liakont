@@ -86,33 +86,43 @@ internal static class SendArchiveComposer
     }
 
     /// <summary>
-    /// Ventilation TVA du rendu lisible : agrège, PAR taux, la base imposable (somme des montants nets de
-    /// ligne) et la TVA (somme des montants de taxe). Montants en <see cref="decimal"/>, aucun float.
-    /// Reprend les taux portés par le pivot — aucun taux n'est deviné.
+    /// Ventilation TVA du rendu lisible : base imposable attribuée au taux primaire de la ligne ; chaque montant
+    /// de TVA agrégé sous SON propre taux (correct pour le cas nominal une-taxe-par-ligne, robuste aux lignes
+    /// multi-taux). Montants en <see cref="decimal"/>, aucun float. Reprend les taux portés par le pivot — aucun
+    /// taux n'est deviné.
     /// </summary>
     private static List<ArchiveVatBreakdownLine> BuildVatBreakdown(PivotDocumentDto pivot)
     {
-        var byRate = new Dictionary<string, (decimal Base, decimal Tax)>(StringComparer.Ordinal);
+        var baseByRate = new Dictionary<string, decimal>(StringComparer.Ordinal);
+        var taxByRate = new Dictionary<string, decimal>(StringComparer.Ordinal);
         var order = new List<string>();
 
-        foreach (var line in pivot.Lines)
+        void Register(string label)
         {
-            var label = RateLabel(PrimaryRate(line));
-            decimal lineTax = line.Taxes.Sum(tax => tax.TaxAmount);
-
-            if (byRate.TryGetValue(label, out var current))
+            if (!baseByRate.ContainsKey(label))
             {
-                byRate[label] = (current.Base + line.NetAmount, current.Tax + lineTax);
-            }
-            else
-            {
-                byRate[label] = (line.NetAmount, lineTax);
+                baseByRate[label] = 0m;
+                taxByRate[label] = 0m;
                 order.Add(label);
             }
         }
 
+        foreach (var line in pivot.Lines)
+        {
+            var primaryLabel = RateLabel(PrimaryRate(line));
+            Register(primaryLabel);
+            baseByRate[primaryLabel] += line.NetAmount;
+
+            foreach (var tax in line.Taxes)
+            {
+                var taxLabel = RateLabel(tax.Rate);
+                Register(taxLabel);
+                taxByRate[taxLabel] += tax.TaxAmount;
+            }
+        }
+
         return order
-            .Select(label => new ArchiveVatBreakdownLine(label, byRate[label].Base, byRate[label].Tax))
+            .Select(label => new ArchiveVatBreakdownLine(label, baseByRate[label], taxByRate[label]))
             .ToList();
     }
 
