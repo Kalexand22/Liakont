@@ -1,7 +1,8 @@
 # Pipeline Module — Scenarios
 
 Scénarios de test couverts, par niveau, référençant les invariants (`INV-PIPELINE-NNN`). PIP01a a posé les
-fondations ; **PIP01b** ajoute le CHECK (scénarios ci-dessous). SEND/SYNC arrivent avec PIP01c-d.
+fondations ; **PIP01b** ajoute le CHECK ; **PIP01c** ajoute le SEND (scénarios ci-dessous). SYNC arrive
+avec PIP01d.
 
 ## Unit — `PivotCanonicalJsonReaderTests`
 
@@ -67,6 +68,51 @@ fondations ; **PIP01b** ajoute le CHECK (scénarios ci-dessous). SEND/SYNC arriv
 > La garde-fou production (INV-PIPELINE-009), le staging absent transitoire et l'idempotence sont couverts
 > au niveau **unitaire** (`DocumentReceivedConsumerTests`, fakes), pas en intégration : ils ne dépendent pas
 > de la base PostgreSQL.
+
+## Unit — `SendArchiveComposerTests`
+
+- **Montants en decimal** : les lignes et totaux du rendu lisible reprennent les montants `decimal` du pivot
+  à l'identique (aucun float), libellé de taux « 20 % » (INV-PIPELINE-017).
+- **Ventilation TVA agrégée par taux** : deux lignes à 20 % regroupées (base + TVA sommées), une ligne à
+  10 % distincte (INV-PIPELINE-017).
+- **Motifs d'absence explicites** : facture PA et bordereau source absents à l'émission portent chacun un
+  motif d'absence non vide (jamais une absence silencieuse).
+
+## Unit — `SendAllFanOutHandlerTests`
+
+- **Fan-out via le runner** : le handler du déclencheur `SendAllTrigger` exécute un `SendTenantJob` via
+  `ITenantJobRunner.RunForAllTenantsAsync` — aucune boucle multi-tenant locale (INV-PIPELINE-014).
+
+## Unit — `SendTenantJobTests`
+
+- **Aucun compte PA actif** : aucune interrogation de la PA, aucun envoi, un `RunLog` SEND est écrit
+  (INV-PIPELINE-014).
+- **Diagnostic inactif → aucun envoi** : `tax_report_setting` non publié ⇒ aucune transition, Warning +
+  `RunLog`, documents maintenus `ReadyToSend` (INV-PIPELINE-015).
+- **Dry-run** : dénombre les `ReadyToSend`, n'appelle aucune écriture PA, ne fait avancer aucun document
+  (INV-PIPELINE-020).
+- **Émission → archive puis purge** : un `ReadyToSend` envoyé avec succès ⇒ `BeginSending` + `MarkIssued`,
+  archive WORM appelée, purge subordonnée au WORM appelée (INV-PIPELINE-017).
+- **Rejet PA → staging conservé** : un rejet ⇒ `MarkRejectedByPa`, AUCUNE purge, aucune archive
+  (INV-PIPELINE-018).
+- **Anti-doublon par statut** : un `Sending` portant une référence PA déjà `Issued` ⇒ `MarkIssued` SANS
+  renvoyer (`GetDocumentStatusAsync` appelé, aucun nouvel envoi du numéro) (INV-PIPELINE-016).
+
+## Integration — `SendTenantJobIntegrationTests` (Testcontainers PostgreSQL)
+
+- **ReadyToSend → Issued, archivé, staging purgé** : sur une base tenant réelle (migrations Documents +
+  TenantSettings + Staging + Pipeline + Archive), un document `ReadyToSend` + pivot stagé + compte PA actif
+  publié ⇒ `Issued`, archive WORM écrite, staging purgé (paquet WORM présent) (INV-PIPELINE-017).
+- **Rejet PA → staging conservé** : scénario `Rejected` ⇒ `RejectedByPa`, staging CONSERVÉ (la réponse de
+  rejet en TEXTE BRUT est archivée en JSON valide) (INV-PIPELINE-018/019).
+- **Issued mais WORM absent → staging conservé** : sonde WORM forcée « absente » ⇒ document `Issued` mais
+  staging CONSERVÉ (purge subordonnée au paquet WORM, jamais à l'étiquette `Issued`) (INV-PIPELINE-017).
+- **Anti-doublon par statut** : un `Sending` portant une référence PA, déjà émis côté PA ⇒ `Issued` SANS
+  renvoi (`GetDocumentStatusAsync` interrogé, un seul envoi — celui du cycle N) (INV-PIPELINE-016).
+- **Reprise d'un Sending sans référence** : un `Sending` après crash (sans référence PA) ⇒ renvoyé, la PA
+  déduplique par numéro (F05) → `Issued` sans double émission (INV-PIPELINE-016).
+- **SIREN non publié → aucun envoi** : `tax_report_setting` inactif ⇒ document maintenu `ReadyToSend`,
+  staging conservé, aucune émission (INV-PIPELINE-015).
 
 ## Integration — `PipelineRunLogQueriesIntegrationTests`
 

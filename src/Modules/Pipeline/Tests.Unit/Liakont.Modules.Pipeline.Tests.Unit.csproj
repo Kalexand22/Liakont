@@ -15,5 +15,8 @@
     <ProjectReference Include="../Infrastructure/Liakont.Modules.Pipeline.Infrastructure.csproj" />
     <!-- CanonicalJson.Serialize + DTO pivot : le round-trip du lecteur est vérifié contre le writer du contrat. -->
     <ProjectReference Include="../../../Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
+    <!-- PIP01c — SEND : plug-in PA factice (PAA02) = double sanctionné des tests du pipeline (sa raison d'être
+         déclarée). Réservé aux TESTS — le module Pipeline ne référence jamais un plug-in PA concret. -->
+    <ProjectReference Include="../../../PaClients/Liakont.PaClients.Fake/Liakont.PaClients.Fake.csproj" />
   </ItemGroup>
 </Project>

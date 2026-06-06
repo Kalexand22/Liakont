@@ -2,13 +2,16 @@ namespace Liakont.Modules.Pipeline.Infrastructure;
 
 using Liakont.Modules.Ingestion.Contracts.Events;
 using Liakont.Modules.Pipeline.Application;
+using Liakont.Modules.Pipeline.Contracts.Jobs;
 using Liakont.Modules.Pipeline.Contracts.Queries;
 using Liakont.Modules.Pipeline.Infrastructure.Check;
 using Liakont.Modules.Pipeline.Infrastructure.Persistence;
 using Liakont.Modules.Pipeline.Infrastructure.Queries;
+using Liakont.Modules.Pipeline.Infrastructure.Send;
 using Microsoft.Extensions.DependencyInjection;
 using Stratum.Common.Abstractions.Events;
 using Stratum.Common.Infrastructure.Database;
+using Stratum.Modules.Job.Contracts;
 
 /// <summary>
 /// Enregistrement DI du module Pipeline. PIP01a a posé les fondations (migrations DbUp — la table
@@ -40,6 +43,11 @@ public static class PipelineModuleRegistration
         // (dispatché par l'OutboxWorker en scope SYSTÈME ; le consommateur résout un scope TENANT par slug).
         services.AddScoped<IPipelineRunLogStore, PostgresPipelineRunLogStore>();
         services.AddScoped<IIntegrationEventConsumer<DocumentReceivedV1>, DocumentReceivedConsumer>();
+
+        // PIP01c — SEND : handler SYSTÈME du déclencheur SendAllTrigger (fan-out multi-tenant via
+        // ITenantJobRunner, SOL06). Le SendTenantJob lui-même n'est PAS enregistré (instancié par le handler,
+        // il résout ses services depuis le scope tenant — même patron que DailyAnchoringTenantJob).
+        services.AddScoped<IJobHandler<SendAllTrigger>, SendAllFanOutHandler>();
 
         return services;
     }

@@ -6,7 +6,10 @@
 > `IPaClient` + capacités déclarées (jamais une PA concrète). **PIP01a** a posé les fondations (scaffold,
 > lecteur canonique du contenu stagé (PIP00), journal d'exécutions, points d'entrée `Contracts`).
 > **PIP01b** livre le premier comportement : le **CHECK** — consommateur durable de `DocumentReceivedV1`
-> (mapping TVA → validation → `ReadyToSend`/`Blocked`). SEND (PIP01c) et SYNC (PIP01d) suivent.
+> (mapping TVA → validation → `ReadyToSend`/`Blocked`). **PIP01c** livre le **SEND** — job planifié PAR
+> TENANT (mécanique `ITenantJob`/`TenantJobRunner`, SOL06) : diagnostic PA → raccrochage anti-doublon des
+> `Sending`/`TechnicalError` → envoi des `ReadyToSend` (archive WORM TRK05 puis purge du staging subordonnée
+> au WORM). SYNC (PIP01d) suit.
 
 ## Purpose
 
@@ -25,7 +28,7 @@ Poser les briques manquantes du pipeline sans aucune logique métier :
 | Ressource | Accès | Détail |
 |---|---|---|
 | Autres modules (Documents, TvaMapping, Validation, TenantSettings, Staging, Archive, Transmission) | **Contracts uniquement** | Le pipeline n'accède à un autre module que par ses `Contracts` (NetArchTest / module-rules §3, CLAUDE.md n°14). Aucune référence `Domain`/`Application`/`Infrastructure` d'un autre module. |
-| Plateformes Agréées | **`IPaClient` + capacités** | Le pipeline ne référence JAMAIS un plug-in PA concret (CLAUDE.md n°6/8). Hors périmètre PIP01a. |
+| Plateformes Agréées | **`IPaClient` + capacités** | Le pipeline ne référence JAMAIS un plug-in PA concret (CLAUDE.md n°6/8). Le SEND (PIP01c) résout le client du tenant via `IPaClientRegistry.Resolve(PaAccountDescriptor)` (clé = type de compte) et pilote le comportement par les `Capabilities` déclarées, jamais par `if (pa is …)`. |
 | `pipeline.run_logs` | **write (PIP01b+) / read (ici)** | Base DU TENANT (la connexion EST le tenant). Journal d'exécutions, ni table d'audit ni coffre WORM. |
 
 ## Published Events
@@ -48,7 +51,11 @@ Aucun (PIP01a).
   `Ingestion.Contracts` (`DocumentReceivedV1`), `Staging.Contracts` (`IPayloadStagingStore`),
   `TvaMapping.Contracts` (`ITvaMappingService`), `Validation.Contracts` (`IValidationService`),
   `Documents.Contracts` (`IDocumentLifecycle`, `IDocumentQueries`), `TenantSettings.Contracts`
-  (`ITenantSettingsQueries`).
+  (`ITenantSettingsQueries`). **SEND (PIP01c)** ajoute `Transmission.Contracts` (`IPaClientRegistry`,
+  `PaAccountDescriptor`, `IPaClient`, `PaSendResult`), `Archive.Contracts` (`IArchiveService`),
+  `Staging.Contracts` (`IStagingPurgeService`) et `Job.Contracts` (`IJobHandler`).
+- **`Stratum.Common.Abstractions.Jobs`** (SEND) : `ITenantJob` / `ITenantJobRunner` / `TenantJobContext`
+  (mécanique de job par tenant, SOL06).
 - `Stratum.Common.Infrastructure` / `Stratum.Common.Abstractions` : `IConnectionFactory` (connexion
   tenant), `ITenantScopeFactory` (scope tenant pour le consumer système), `IIntegrationEventConsumer`,
   `MigrationRunner` / `MigrationAssembliesOptions` (DbUp), MediatR (ancre).
@@ -62,13 +69,22 @@ Aucun (PIP01a).
 - **Infrastructure** : `PivotCanonicalJsonReader` (lecteur canonique), `PostgresPipelineRunQueries`,
   `PostgresPipelineRunLogStore` (PIP01b), migration `pipeline.run_logs`, `PipelineModuleRegistration` ;
   **`Check/`** (PIP01b) : `DocumentReceivedConsumer` (CHECK), `CheckTvaMapping` (mapping/enrichissement
-  pur), `CheckMappingPlan` / `CheckEvaluation`.
+  pur), `CheckMappingPlan` / `CheckEvaluation` ;
+  **`Send/`** (PIP01c) : `SendTenantJob` (`ITenantJob` : diagnostic PA → raccrochage anti-doublon → envoi),
+  `SendAllFanOutHandler` (`IJobHandler<SendAllTrigger>` : fan-out multi-tenant via `ITenantJobRunner`),
+  `SendArchiveComposer` (pivot → `ArchivePackageRequest`), `SendPaSnapshot` (preuve d'échange PA en JSON
+  valide), `SendTally` / `SendOutcome` / `StagedRead` / `StagedReadStatus`.
+- **Contracts** ajoute (PIP01c) `Jobs/SendAllTrigger` (charge utile du déclencheur SEND).
 
 ## Consumers (segments ultérieurs)
 
 - **PIP01b** (CHECK) : consume `DocumentReceivedV1` → relit le pivot via `PivotCanonicalJsonReader` →
   `ITvaMappingService` → `IValidationService` → `IDocumentLifecycle` ; écrit un `RunLog`.
-- **PIP01c** (SEND) / **PIP01d** (SYNC + statut agent + dédoublonnage) : écrivent des `RunLog`.
+- **PIP01c** (SEND) : job par tenant (déclenché par `SendAllTrigger` via l'ordonnanceur/API02) → diagnostic
+  PA → raccrochage des `Sending`/`TechnicalError` (anti-doublon) → envoi des `ReadyToSend`
+  (`IPaClient.SendDocumentAsync`) → `Issued` + archive WORM (TRK05) puis purge du staging subordonnée au
+  WORM (`IStagingPurgeService`), `RejectedByPa`/`TechnicalError` conservant le staging ; écrit un `RunLog`.
+  **PIP01d** (SYNC + statut agent + dédoublonnage) : écrit des `RunLog`.
 - **API01** (`GET /runs`) / **WEB04** (page Traitements) : lisent via `IPipelineRunQueries`.
 
 ## Cycle de vie & dette connue
