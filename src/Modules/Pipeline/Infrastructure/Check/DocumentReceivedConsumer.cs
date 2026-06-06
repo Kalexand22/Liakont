@@ -4,12 +4,14 @@ using System;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
+using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Documents.Contracts.Lifecycle;
 using Liakont.Modules.Documents.Contracts.Queries;
 using Liakont.Modules.Ingestion.Contracts.Events;
 using Liakont.Modules.Pipeline.Application;
 using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Domain;
+using Liakont.Modules.Pipeline.Domain.Ventilation;
 using Liakont.Modules.Pipeline.Infrastructure.Serialization;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
@@ -160,6 +162,9 @@ public sealed partial class DocumentReceivedConsumer : IIntegrationEventConsumer
         // Domain Documents (frontière Contracts-only, CLAUDE.md n°14) : on laisse l'outbox gérer la reprise.
         if (decision.IsReady)
         {
+            // Snapshot de la ventilation TVA sourcée AVANT le passage ReadyToSend (ADR-0015 §4 : happened-before
+            // — la version capturée est celle qui sera liée à l'émission). Idempotent (re-CHECK = pas de doublon).
+            await WriteVentilationSnapshotAsync(services, payload.DocumentId, current, decision, cancellationToken);
             await MarkReadyToSendAndLogAsync(services, payload.DocumentId, decision.MappingVersion!, startedAt, cancellationToken);
         }
         else
@@ -222,6 +227,34 @@ public sealed partial class DocumentReceivedConsumer : IIntegrationEventConsumer
             string.Create(CultureInfo.InvariantCulture, $"CHECK {documentId} → ReadyToSend (table {mappingVersion})."),
             cancellationToken);
         LogCheckCompleted(_logger, documentId, true);
+    }
+
+    /// <summary>
+    /// Capture le snapshot de la ventilation TVA sourcée du document (ADR-0015) dans la persistance dédiée
+    /// (append-only, tenant-scopée, distincte du staging et du WORM). Écriture IDEMPOTENTE sur
+    /// (document_id, mapping_version) : un re-CHECK n'insère pas de doublon. Ne porte QUE la sortie du mapping
+    /// validé (INV-VENTILATION-001) — aucune dérivation. Permet l'agrégation de paiement (PIP03a) APRÈS la purge
+    /// du staging.
+    /// </summary>
+    private async Task WriteVentilationSnapshotAsync(
+        IServiceProvider services,
+        Guid documentId,
+        DocumentDto document,
+        CheckDecision decision,
+        CancellationToken cancellationToken)
+    {
+        var snapshot = new VentilationSnapshot
+        {
+            DocumentId = documentId,
+            DocumentNumber = document.DocumentNumber,
+            SourceReference = document.SourceReference,
+            OperationCategory = decision.OperationCategory!.Value,
+            MappingVersion = decision.MappingVersion!,
+            Lines = decision.Ventilation!,
+            CreatedUtc = _timeProvider.GetUtcNow(),
+        };
+
+        await services.GetRequiredService<IVentilationSnapshotStore>().SaveAsync(snapshot, cancellationToken);
     }
 
     /// <summary>Écrit une trace d'exécution CHECK clôturée (1 document) dans <c>pipeline.run_logs</c> du tenant.</summary>

@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../Contracts/Liakont.Modules.Pipeline.Contracts.csproj" />
+    <!-- Contrat pivot partagé (BCL-only) : OperationCategory + ventilation par taux (ADR-0015) et arrondi
+         canonique (PivotRounding) pour l'agrégation de paiement (PIP03a). Kernel partagé, pas un module. -->
+    <ProjectReference Include="../../../Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
   </ItemGroup>
 </Project>

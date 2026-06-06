@@ -8,6 +8,8 @@ using Stratum.Common.Abstractions.Messaging;
 /// défaut). <see cref="OperationCategory"/> ∈ { « LivraisonBiens », « PrestationServices »,
 /// « Mixte » } ou <c>null</c> ; une valeur inconnue est rejetée. <see cref="ReportingFrequency"/>
 /// est stocké opaque (énumération non figée — F12-A §3.3, CLAUDE.md n°2).
+/// <see cref="FeeImputationMethod"/> ∈ { « Prorata », « AgregationJourTaux » } ou <c>null</c>
+/// (F09 §5.2, PIP03a) ; une valeur inconnue est rejetée.
 /// </summary>
 public record SetFiscalSettingsCommand : ICommand
 {
@@ -16,4 +18,6 @@ public record SetFiscalSettingsCommand : ICommand
     public string? OperationCategory { get; init; }
 
     public string? ReportingFrequency { get; init; }
+
+    public string? FeeImputationMethod { get; init; }
 }

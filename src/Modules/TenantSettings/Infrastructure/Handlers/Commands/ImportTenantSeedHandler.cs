@@ -137,16 +137,17 @@ public sealed class ImportTenantSeedHandler : IRequestHandler<ImportTenantSeedCo
         CancellationToken ct)
     {
         var operationCategory = TenantSettingsParsing.ParseOperationCategory(seed.OperationCategory);
+        var feeImputationMethod = TenantSettingsParsing.ParseFeeImputationMethod(seed.FeeImputationMethod);
 
         var existing = await uow.GetFiscalSettingsByCompanyAsync(companyId, ct);
         if (existing is null)
         {
-            var settings = FiscalSettings.Create(companyId, seed.VatOnDebits, operationCategory, seed.ReportingFrequency);
+            var settings = FiscalSettings.Create(companyId, seed.VatOnDebits, operationCategory, seed.ReportingFrequency, feeImputationMethod);
             await uow.InsertFiscalSettingsAsync(settings, ct);
             return;
         }
 
-        existing.Update(seed.VatOnDebits, operationCategory, seed.ReportingFrequency);
+        existing.Update(seed.VatOnDebits, operationCategory, seed.ReportingFrequency, feeImputationMethod);
         await uow.UpdateFiscalSettingsAsync(existing, ct);
     }
 

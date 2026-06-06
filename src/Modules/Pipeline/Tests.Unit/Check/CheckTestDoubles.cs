@@ -243,4 +243,18 @@ internal static class CheckTestDoubles
             return Task.CompletedTask;
         }
     }
+
+    internal sealed class FakeVentilationSnapshotStore : IVentilationSnapshotStore
+    {
+        public Liakont.Modules.Pipeline.Domain.Ventilation.VentilationSnapshot? Saved { get; private set; }
+
+        public Task<bool> SaveAsync(Liakont.Modules.Pipeline.Domain.Ventilation.VentilationSnapshot snapshot, CancellationToken cancellationToken = default)
+        {
+            Saved = snapshot;
+            return Task.FromResult(true);
+        }
+
+        public Task<Liakont.Modules.Pipeline.Domain.Ventilation.VentilationSnapshot?> GetAsync(Guid documentId, string mappingVersion, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Saved);
+    }
 }

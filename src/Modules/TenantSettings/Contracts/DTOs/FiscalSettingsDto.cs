@@ -17,6 +17,9 @@ public record FiscalSettingsDto
 
     public string? ReportingFrequency { get; init; }
 
+    /// <summary>Méthode d'imputation des frais (F09 §5.2, PIP03a). <c>null</c> = e-reporting paiement suspendu.</summary>
+    public string? FeeImputationMethod { get; init; }
+
     public required DateTimeOffset CreatedAt { get; init; }
 
     public DateTimeOffset? UpdatedAt { get; init; }

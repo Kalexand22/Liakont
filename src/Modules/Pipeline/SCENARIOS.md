@@ -164,3 +164,40 @@ avec PIP01d.
 - **Avoir sans capacité PA → maintenu** : une PA publiée sans `SupportsCreditNotes` ⇒ l'avoir reste
   `ReadyToSend` (jamais bloqué ni envoyé), staging conservé ; il partira dès que la capacité sera déclarée
   (INV-PIPELINE-021/027).
+
+## E-reporting de paiement (PIP03a) — `VentilationLineTests`
+
+- **Taux nullable accepté** : une ligne sans taux résolu (`null`) est valide (l'agrégation suspendra)
+  (INV-VENTILATION-001).
+- **Garde d'échelle montant** : un montant à plus de 2 décimales est rejeté (troncature `numeric(18,2)`)
+  (INV-VENTILATION-002).
+- **Garde d'échelle taux** : un taux à plus de 4 décimales est rejeté (troncature `numeric(6,4)`)
+  (INV-VENTILATION-002).
+
+## E-reporting de paiement (PIP03a) — `PaymentAggregationCalculatorTests`
+
+- **Agrégation jour×taux** : des documents `PrestationServices` mono-catégorie, payés en totalité, sont
+  agrégés par (jour, taux) ; les contributions de même (jour, taux) sont sommées entre documents
+  (INV-PIPELINE-029/030).
+- **Paiement partiel proratisé** : un encaissement partiel ventile la part couverte par taux
+  (couverture = montant/total) (INV-PIPELINE-030, F09 §5.4).
+- **Arrondi half-up** : une couverture non ronde arrondit base et TVA à 2 décimales away-from-zero
+  (INV-PIPELINE-030, CLAUDE.md n°1).
+- **Remboursement** : un montant négatif produit un agrégat négatif (INV-PIPELINE-030, F09 §5.4).
+- **Mixte suspendu / livraison non concernée / taux non résolu / total nul** : chacun ÉCARTE l'encaissement
+  avec son motif, aucune part devinée (INV-PIPELINE-029, INV-VENTILATION-005).
+- **Qualification fiscale** : `FeeImputationMethod` ou paramètre fiscal `null` ⇒ Suspended (jamais de prorata
+  par défaut) ; `vatOnDebits=true` ⇒ NotRequired ; capacité PA absente ⇒ PendingCapability — dans TOUS les cas
+  les agrégats sont calculés pour la traçabilité (INV-PIPELINE-031).
+
+## E-reporting de paiement (PIP03a) — `PaymentAggregationIntegrationTests` (Testcontainers PostgreSQL)
+
+- **Snapshot survit à la purge du staging → agrégation** : un document `PrestationServices` passe le CHECK
+  réel (snapshot écrit, ADR-0015) ; après PURGE du staging, le snapshot reste lisible et l'agrégateur réel
+  décompose un encaissement par taux à partir du snapshot (INV-VENTILATION-006, INV-PIPELINE-030).
+- **Document multi-taux** : un encaissement total d'un document à deux taux produit deux agrégats jour×taux
+  (INV-PIPELINE-029/030).
+- **Capacité PA absente → en attente** : sans capacité de transmission des paiements, l'agrégat est persisté
+  `PendingCapability` (calculé, jamais perdu) (INV-PIPELINE-031).
+- **TVA sur les débits → non requis** : `vatOnDebits=true` (paramétrage persisté) ⇒ agrégat `NotRequired`,
+  calculé pour la traçabilité (INV-PIPELINE-031, F09 §6).

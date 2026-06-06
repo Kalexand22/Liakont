@@ -42,6 +42,12 @@ public sealed class DocumentReceivedConsumerTests
         harness.Lifecycle.ReadyToSendId.Should().Be(documentId);
         harness.Lifecycle.ReadyToSendMappingVersion.Should().Be("cmp-v1");
         harness.Lifecycle.BlockedId.Should().BeNull();
+
+        // ADR-0015 : la ventilation sourcée est capturée au passage ReadyToSend (snapshot requêtable).
+        harness.Snapshots.Saved.Should().NotBeNull("le snapshot de ventilation est écrit au CHECK (ADR-0015).");
+        harness.Snapshots.Saved!.MappingVersion.Should().Be("cmp-v1");
+        harness.Snapshots.Saved.Lines.Should().NotBeEmpty();
+
         harness.RunLog.Saved.Should().NotBeNull();
         harness.RunLog.Saved!.RunType.Should().Be(PipelineRunType.Check);
         harness.RunLog.Saved.Trigger.Should().Be(PipelineRunTrigger.Event);
@@ -255,6 +261,7 @@ public sealed class DocumentReceivedConsumerTests
         var lifecycle = new FakeDocumentLifecycle();
         var runLog = new FakeRunLogStore();
         var validationService = new FakeValidationService(validation);
+        var snapshots = new FakeVentilationSnapshotStore();
 
         var services = new Dictionary<Type, object>
         {
@@ -265,6 +272,7 @@ public sealed class DocumentReceivedConsumerTests
             [typeof(IValidationService)] = validationService,
             [typeof(IDocumentLifecycle)] = lifecycle,
             [typeof(IPipelineRunLogStore)] = runLog,
+            [typeof(IVentilationSnapshotStore)] = snapshots,
         };
 
         var scopeFactory = new FakeTenantScopeFactory(new FakeServiceProvider(services));
@@ -273,12 +281,13 @@ public sealed class DocumentReceivedConsumerTests
             NullLogger<DocumentReceivedConsumer>.Instance,
             new FixedTimeProvider(CheckTestData.Now));
 
-        return new ConsumerHarness(consumer, lifecycle, runLog, validationService);
+        return new ConsumerHarness(consumer, lifecycle, runLog, validationService, snapshots);
     }
 
     private sealed record ConsumerHarness(
         DocumentReceivedConsumer Consumer,
         FakeDocumentLifecycle Lifecycle,
         FakeRunLogStore RunLog,
-        FakeValidationService Validation);
+        FakeValidationService Validation,
+        FakeVentilationSnapshotStore Snapshots);
 }
