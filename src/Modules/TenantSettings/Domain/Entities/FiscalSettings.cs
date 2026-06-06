@@ -36,6 +36,12 @@ public sealed class FiscalSettings
     /// </summary>
     public string? ReportingFrequency { get; private set; }
 
+    /// <summary>
+    /// Méthode d'imputation de la part frais (F09 §5.2). <c>null</c> = décision de l'expert-comptable
+    /// en attente = e-reporting de paiement suspendu (jamais de méthode par défaut — CLAUDE.md n°2).
+    /// </summary>
+    public FeeImputationMethod? FeeImputationMethod { get; private set; }
+
     public DateTimeOffset CreatedAt { get; private set; }
 
     public DateTimeOffset? UpdatedAt { get; private set; }
@@ -45,7 +51,8 @@ public sealed class FiscalSettings
         Guid companyId,
         bool? vatOnDebits,
         OperationCategory? operationCategory,
-        string? reportingFrequency)
+        string? reportingFrequency,
+        FeeImputationMethod? feeImputationMethod)
     {
         return new FiscalSettings
         {
@@ -54,6 +61,7 @@ public sealed class FiscalSettings
             VatOnDebits = vatOnDebits,
             OperationCategory = operationCategory,
             ReportingFrequency = NormalizeOpaque(reportingFrequency),
+            FeeImputationMethod = feeImputationMethod,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = null,
         };
@@ -65,6 +73,7 @@ public sealed class FiscalSettings
         bool? vatOnDebits,
         OperationCategory? operationCategory,
         string? reportingFrequency,
+        FeeImputationMethod? feeImputationMethod,
         DateTimeOffset createdAt,
         DateTimeOffset? updatedAt)
     {
@@ -75,17 +84,23 @@ public sealed class FiscalSettings
             VatOnDebits = vatOnDebits,
             OperationCategory = operationCategory,
             ReportingFrequency = reportingFrequency,
+            FeeImputationMethod = feeImputationMethod,
             CreatedAt = createdAt,
             UpdatedAt = updatedAt,
         };
     }
 
     /// <summary>Met à jour le paramétrage fiscal. <c>null</c> est une valeur valide et signifiante (suspension).</summary>
-    public void Update(bool? vatOnDebits, OperationCategory? operationCategory, string? reportingFrequency)
+    public void Update(
+        bool? vatOnDebits,
+        OperationCategory? operationCategory,
+        string? reportingFrequency,
+        FeeImputationMethod? feeImputationMethod)
     {
         VatOnDebits = vatOnDebits;
         OperationCategory = operationCategory;
         ReportingFrequency = NormalizeOpaque(reportingFrequency);
+        FeeImputationMethod = feeImputationMethod;
         UpdatedAt = DateTimeOffset.UtcNow;
     }
 

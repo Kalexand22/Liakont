@@ -58,7 +58,8 @@ public sealed class PostgresTenantSettingsQueries : ITenantSettingsQueries
     public async Task<FiscalSettingsDto?> GetFiscalSettings(Guid companyId, CancellationToken ct = default)
     {
         const string sql = """
-            SELECT id, company_id, vat_on_debits, operation_category, reporting_frequency, created_at, updated_at
+            SELECT id, company_id, vat_on_debits, operation_category, reporting_frequency,
+                   fee_imputation_method, created_at, updated_at
             FROM tenantsettings.fiscal_settings
             WHERE company_id = @CompanyId
             """;
@@ -73,6 +74,7 @@ public sealed class PostgresTenantSettingsQueries : ITenantSettingsQueries
         }
 
         int? categoryInt = (int?)row.operation_category;
+        int? feeMethodInt = (int?)row.fee_imputation_method;
 
         return new FiscalSettingsDto
         {
@@ -81,6 +83,7 @@ public sealed class PostgresTenantSettingsQueries : ITenantSettingsQueries
             VatOnDebits = (bool?)row.vat_on_debits,
             OperationCategory = categoryInt.HasValue ? ((OperationCategory)categoryInt.Value).ToString() : null,
             ReportingFrequency = (string?)row.reporting_frequency,
+            FeeImputationMethod = feeMethodInt.HasValue ? ((FeeImputationMethod)feeMethodInt.Value).ToString() : null,
             CreatedAt = TenantSettingsRowReader.ToDateTimeOffset((object)row.created_at),
             UpdatedAt = TenantSettingsRowReader.ToNullableDateTimeOffset((object?)row.updated_at),
         };

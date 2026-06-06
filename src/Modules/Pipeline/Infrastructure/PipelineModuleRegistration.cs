@@ -4,6 +4,7 @@ using Liakont.Modules.Ingestion.Contracts.Events;
 using Liakont.Modules.Pipeline.Application;
 using Liakont.Modules.Pipeline.Contracts.Jobs;
 using Liakont.Modules.Pipeline.Contracts.Queries;
+using Liakont.Modules.Pipeline.Infrastructure.Aggregation;
 using Liakont.Modules.Pipeline.Infrastructure.Check;
 using Liakont.Modules.Pipeline.Infrastructure.Persistence;
 using Liakont.Modules.Pipeline.Infrastructure.Queries;
@@ -45,6 +46,9 @@ public static class PipelineModuleRegistration
         services.AddScoped<IPipelineRunLogStore, PostgresPipelineRunLogStore>();
         services.AddScoped<IIntegrationEventConsumer<DocumentReceivedV1>, DocumentReceivedConsumer>();
 
+        // PIP03a — snapshot de ventilation TVA (ADR-0015) : écrit au CHECK, lu par l'agrégation de paiement.
+        services.AddScoped<IVentilationSnapshotStore, PostgresVentilationSnapshotStore>();
+
         // PIP01c — SEND : handler SYSTÈME du déclencheur SendAllTrigger (fan-out multi-tenant via
         // ITenantJobRunner, SOL06). Le SendTenantJob lui-même n'est PAS enregistré (instancié par le handler,
         // il résout ses services depuis le scope tenant — même patron que DailyAnchoringTenantJob).
@@ -53,6 +57,12 @@ public static class PipelineModuleRegistration
         // PIP01d — SYNC : handler SYSTÈME du déclencheur SyncAllTrigger (fan-out multi-tenant, même patron que
         // le SEND). Le SyncTenantJob est instancié par le handler et résout ses services depuis le scope tenant.
         services.AddScoped<IJobHandler<SyncAllTrigger>, SyncAllFanOutHandler>();
+
+        // PIP03a — AGRÉGATION DE PAIEMENT : projection jour×taux + handler SYSTÈME du déclencheur
+        // AggregatePaymentsAllTrigger (fan-out multi-tenant, même patron que SEND/SYNC). Le job est instancié
+        // par le handler et résout ses services depuis le scope tenant.
+        services.AddScoped<IPaymentAggregationStore, PostgresPaymentAggregationStore>();
+        services.AddScoped<IJobHandler<AggregatePaymentsAllTrigger>, AggregatePaymentsAllFanOutHandler>();
 
         return services;
     }

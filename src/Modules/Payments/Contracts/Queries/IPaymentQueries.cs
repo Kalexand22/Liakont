@@ -16,6 +16,12 @@ public interface IPaymentQueries
     /// <summary>Paiement par identifiant, ou <c>null</c> s'il n'existe pas dans ce tenant.</summary>
     Task<PaymentDto?> GetPaymentByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Tous les encaissements bruts du tenant, triés par date d'encaissement puis date de réception
+    /// (déterminisme). Consommé par l'agrégation de paiement (PIP03a) — lecture seule, tenant-scopée.
+    /// </summary>
+    Task<IReadOnlyList<PaymentDto>> ListPaymentsAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Agrégat de paiement par identifiant, ou <c>null</c>.</summary>
     Task<PaymentAggregateDto?> GetAggregateByIdAsync(Guid id, CancellationToken cancellationToken = default);
 

@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Liakont.Agent.Contracts.Pivot;
+using Liakont.Modules.Pipeline.Domain.Ventilation;
 using Liakont.Modules.TvaMapping.Contracts.Services;
 
 /// <summary>
@@ -123,7 +124,40 @@ internal static class CheckTvaMapping
         }
 
         var enriched = Rebuild(pivot, enrichedLines);
-        return CheckEvaluation.Ready(enriched, mapping.MappingVersion);
+        var ventilation = BuildVentilation(enrichedLines, plan, mapping);
+        return CheckEvaluation.Ready(enriched, mapping.MappingVersion, ventilation);
+    }
+
+    /// <summary>
+    /// Construit la ventilation par taux SOURCÉE du document (ADR-0015) à partir des lignes enrichies (toutes
+    /// conformes ici : le document est PRÊT) — une entrée par ligne {taux, base HT, TVA}. Le taux est celui de
+    /// la ventilation source (préservé par <see cref="EnrichLine"/>), à défaut celui posé par la table de
+    /// mapping (taux fixe). AUCUN montant n'est recalculé, AUCUN taux n'est inventé (un taux non résolu reste
+    /// <c>null</c> — l'agrégation suspendra le document) — INV-VENTILATION-001. L'agrégation jour×taux somme
+    /// les entrées de même taux ; la ventilation n'a pas besoin d'être pré-groupée ici.
+    /// </summary>
+    private static List<VentilationLine> BuildVentilation(
+        List<PivotLineDto> enrichedLines,
+        CheckMappingPlan plan,
+        DocumentTvaMappingResult mapping)
+    {
+        var mappingRateByLineIndex = new Dictionary<int, decimal?>();
+        for (var i = 0; i < mapping.Lines.Count; i++)
+        {
+            mappingRateByLineIndex[plan.RequestLineIndexes[i]] = mapping.Lines[i].Rate;
+        }
+
+        var ventilation = new List<VentilationLine>(enrichedLines.Count);
+        for (var lineIndex = 0; lineIndex < enrichedLines.Count; lineIndex++)
+        {
+            var line = enrichedLines[lineIndex];
+            var tax = line.Taxes[0];
+            var rate = tax.Rate ?? (mappingRateByLineIndex.TryGetValue(lineIndex, out var mapped) ? mapped : null);
+            var category = tax.CategoryCode?.ToString();
+            ventilation.Add(VentilationLine.Create(rate, line.NetAmount, tax.TaxAmount, category));
+        }
+
+        return ventilation;
     }
 
     /// <summary>

@@ -27,6 +27,9 @@
     <ProjectReference Include="../../Validation/Contracts/Liakont.Modules.Validation.Contracts.csproj" />
     <ProjectReference Include="../../Documents/Contracts/Liakont.Modules.Documents.Contracts.csproj" />
     <ProjectReference Include="../../TenantSettings/Contracts/Liakont.Modules.TenantSettings.Contracts.csproj" />
+    <!-- PIP03a — AGRÉGATION DE PAIEMENT : lecture des encaissements bruts (IPaymentQueries) du module
+         Payments par ses Contracts uniquement (frontière P1, CLAUDE.md n°14). -->
+    <ProjectReference Include="../../Payments/Contracts/Liakont.Modules.Payments.Contracts.csproj" />
     <!-- PIP01c — SEND : résolution du plug-in PA par capacités/clé (IPaClientRegistry), archivage WORM de
          l'émission (TRK05), et déclencheur de job multi-tenant (IJobHandler). Toujours UNIQUEMENT des
          Contracts d'autres modules — aucun plug-in PA concret (frontière P1, CLAUDE.md n°6/14). -->

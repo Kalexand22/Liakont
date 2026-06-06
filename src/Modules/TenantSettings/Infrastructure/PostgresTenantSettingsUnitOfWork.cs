@@ -119,7 +119,8 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
     public async Task<FiscalSettings?> GetFiscalSettingsByCompanyAsync(Guid companyId, CancellationToken ct = default)
     {
         const string sql = """
-            SELECT id, company_id, vat_on_debits, operation_category, reporting_frequency, created_at, updated_at
+            SELECT id, company_id, vat_on_debits, operation_category, reporting_frequency,
+                   fee_imputation_method, created_at, updated_at
             FROM tenantsettings.fiscal_settings
             WHERE company_id = @CompanyId
             """;
@@ -134,9 +135,11 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
     {
         const string sql = """
             INSERT INTO tenantsettings.fiscal_settings
-                (id, company_id, vat_on_debits, operation_category, reporting_frequency, created_at, updated_at)
+                (id, company_id, vat_on_debits, operation_category, reporting_frequency,
+                 fee_imputation_method, created_at, updated_at)
             VALUES
-                (@Id, @CompanyId, @VatOnDebits, @OperationCategory, @ReportingFrequency, @CreatedAt, @UpdatedAt)
+                (@Id, @CompanyId, @VatOnDebits, @OperationCategory, @ReportingFrequency,
+                 @FeeImputationMethod, @CreatedAt, @UpdatedAt)
             """;
 
         await ExecuteWriteAsync(
@@ -149,6 +152,7 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
                     settings.VatOnDebits,
                     OperationCategory = ToNullableInt(settings.OperationCategory),
                     settings.ReportingFrequency,
+                    FeeImputationMethod = ToNullableInt(settings.FeeImputationMethod),
                     settings.CreatedAt,
                     settings.UpdatedAt,
                 },
@@ -161,10 +165,11 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
     {
         const string sql = """
             UPDATE tenantsettings.fiscal_settings
-            SET vat_on_debits       = @VatOnDebits,
-                operation_category  = @OperationCategory,
-                reporting_frequency = @ReportingFrequency,
-                updated_at          = @UpdatedAt
+            SET vat_on_debits         = @VatOnDebits,
+                operation_category    = @OperationCategory,
+                reporting_frequency   = @ReportingFrequency,
+                fee_imputation_method = @FeeImputationMethod,
+                updated_at            = @UpdatedAt
             WHERE id = @Id AND company_id = @CompanyId
             """;
 
@@ -177,6 +182,7 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
                 settings.VatOnDebits,
                 OperationCategory = ToNullableInt(settings.OperationCategory),
                 settings.ReportingFrequency,
+                FeeImputationMethod = ToNullableInt(settings.FeeImputationMethod),
                 settings.UpdatedAt,
             },
             _txn.Transaction,
@@ -477,6 +483,7 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
     private static FiscalSettings MapFiscal(dynamic row)
     {
         int? categoryInt = (int?)row.operation_category;
+        int? feeMethodInt = (int?)row.fee_imputation_method;
 
         return FiscalSettings.Reconstitute(
             (Guid)row.id,
@@ -484,6 +491,7 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
             (bool?)row.vat_on_debits,
             categoryInt.HasValue ? (OperationCategory)categoryInt.Value : null,
             (string?)row.reporting_frequency,
+            feeMethodInt.HasValue ? (FeeImputationMethod)feeMethodInt.Value : null,
             TenantSettingsRowReader.ToDateTimeOffset((object)row.created_at),
             TenantSettingsRowReader.ToNullableDateTimeOffset((object?)row.updated_at));
     }
@@ -532,6 +540,11 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
     private static int? ToNullableInt(OperationCategory? category)
     {
         return category.HasValue ? (int)category.Value : null;
+    }
+
+    private static int? ToNullableInt(FeeImputationMethod? method)
+    {
+        return method.HasValue ? (int)method.Value : null;
     }
 
     private static void EnsureUpdated(int rowsAffected, string entityName, Guid id)

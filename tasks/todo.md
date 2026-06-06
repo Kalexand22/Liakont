@@ -1,43 +1,75 @@
-# PIP01d — SYNC + point de statut agent + affinage dédoublonnage (ADR-0012/0014)
+# PIP03a — E-reporting de paiement : agrégation requêtable + suspension (générique, ADR-0015)
 
-Dernier maillon du pipeline cœur. Branche `feat/pipeline-PIP01d` (segment `feat/pipeline`).
-Session : orch-20260606-020510-l1s1 (slot-1, clone Liakont).
+Session orchestration slot-1 (`orch-20260606-232020-slot1`), sous-branche `feat/pipeline-PIP03a`.
+Blueprint module-work-item. Specs : F09, ADR-0015, ADR-0014, F12-A §3.
 
-## Partie A — SYNC (job planifié par tenant)
-- [ ] `Contracts/Jobs/SyncAllTrigger.cs` (record, déclencheur système, miroir SendAllTrigger)
-- [ ] `Infrastructure/Sync/SyncTenantJob.cs` (ITenantJob ; par Issued : facture PA si SupportsDocumentRetrieval, tax reports si SupportsTaxReportRetrieval ; addenda WORM idempotents ; RunLog(Sync))
-- [ ] `Infrastructure/Sync/SyncAllFanOutHandler.cs` (IJobHandler<SyncAllTrigger>, fan-out ITenantJobRunner)
-- [ ] `Infrastructure/Sync/SyncTally.cs` + `SyncOutcome.cs` (compteurs)
-- [ ] Enregistrement DI dans `PipelineModuleRegistration`
-- Attribution tax-report PAR DOCUMENT : `GetDocumentStatusAsync(paDocId).TaxReportIds` ∩ `ListTaxReportsAsync()` (jamais d'invention)
+## Décisions de conception (verrouillées)
 
-## Partie B — Point de statut agent (GET /api/agent/v1/documents/status)
-- [ ] `Contracts/Queries/GetDocumentIntakeStatusQuery.cs` (IRequest<DocumentStatusResultDto>)
-- [ ] `Infrastructure/Status/GetDocumentIntakeStatusHandler.cs` (null→Pending, présent→Processed ; tenant-scopé)
-- [ ] Endpoint Host `AgentApiEndpoints.cs` : GET documents/status → 200+Pending pour clé inconnue (JAMAIS 404)
+- **Snapshot ventilation TVA (ADR-0015)** : écrit au CHECK (PIP01b) dans une table Pipeline dédiée,
+  append-only, tenant-scopée, DISTINCTE du staging (purgé) et du WORM. Ne porte que la sortie du
+  mapping validé (rate ?? source rate, base HT, TVA) groupée par taux + operationCategory + mapping_version.
+- **Projection d'agrégation (Pipeline)** : `pipeline.payment_aggregations` (jour×taux, statut fiscal).
+  Le `Payments.PaymentAggregate` (Period déclarative obligatoire + machine à états de TRANSMISSION,
+  INV-PAYMENTS-007 « état opérationnel, pas une qualification fiscale ») est l'artefact PIP03b
+  (fenêtrage + envoi). PIP03a ne le touche pas. Le statut fiscal (Suspended/NotRequired/PendingCapability)
+  ne peut PAS vivre sur la machine à états Payments → projection Pipeline dédiée.
+- **Décomposition** : ventilation proportionnelle de l'encaissement selon la ventilation par taux
+  SOURCÉE du document (F09 §2), pour les documents MONO-CATÉGORIE PrestationServices uniquement.
+  Mixte → suspendu (D-b non sourcé). LivraisonBiens → non requis (pas d'exigibilité à l'encaissement).
+  Arrondi commercial half-up 2 décimales. AUCUNE règle inventée.
+- **FeeImputationMethod** : champ nullable de FiscalSettings (Prorata|AgregationJourTaux). null = suspension
+  (jamais de prorata par défaut). Pas de workflow validated_by (D-d : nullabilité suffit).
+- **AUCUN fenêtrage de période, AUCUN envoi réel** (PIP03b).
 
-## Partie C — Affinage dédoublonnage (ADR-0012)
-- [ ] `IDocumentIntake` (Ingestion.Contracts) : + `IsDocumentRangedAsync(documentId)`
-- [ ] `DocumentIntake` (Documents) : impl (existence par id)
-- [ ] `NoOpDocumentIntake` : retourne true (rien à ranger)
-- [ ] `IReceivedDocumentUnitOfWork` : + `GetDocumentIdByPayloadHashAsync`
-- [ ] `PostgresReceivedDocumentUnitOfWork` : impl
-- [ ] `IngestDocumentBatchHandler` : duplicate « reçu non rangé » → re-stage + re-range (idempotent)
-- [ ] Doubles de test Ingestion (UoW + intake)
+## Plan
 
-## Partie D — Fake PA (pour tester SYNC tax reports)
-- [ ] `FakePaClientOptions` : + `TaxReports`, `IssuedTaxReportIds` (défaut vides)
-- [ ] `FakePaClient` : ListTaxReportsAsync/GetTaxReportAsync/GetDocumentStatusAsync.TaxReportIds reflètent les options
+### A. TenantSettings (CFG02) — FeeImputationMethod
+- [x] enum `FeeImputationMethod` {Prorata, AgregationJourTaux} (Domain)
+- [x] `FiscalSettings` : champ + Create/Reconstitute/Update
+- [x] migration `V008__add_fee_imputation_method.sql`
+- [x] `FiscalSettingsDto` + `PostgresTenantSettingsQueries.GetFiscalSettings`
+- [x] `PostgresTenantSettingsUnitOfWork` (MapFiscal + Insert + Update)
+- [x] `SetFiscalSettingsCommand` + handler + `TenantSettingsParsing.ParseFeeImputationMethod`
+- [x] tests : FiscalSettingsTests, TenantSettingsParsingTests, FiscalSettingsIntegrationTests
 
-## Partie E — Tests
-- [ ] SyncTenantJob unit (capacités on/off)
-- [ ] SYNC intégration (Testcontainers : facture PA + tax report archivés ; sans capacité = rien)
-- [ ] Status handler unit (Pending/Processed)
-- [ ] Dédoublonnage intégration (intake échoué → renvoi = rangé)
-- [ ] E2E (golden contrat-v1 → ingestion → CHECK → SEND Fake → SYNC → archive, 2 tenants)
-- [ ] INVARIANTS/SCENARIOS Pipeline (SYNC/statut/dédoublonnage)
+### B. Pipeline — Snapshot ventilation (ADR-0015)
+- [x] Domain : `VentilationLine`, `VentilationSnapshot`
+- [x] Application : `IVentilationSnapshotStore`
+- [x] migration `V003__create_ventilation_snapshots_table.sql` (append-only triggers, uq doc+version)
+- [x] Infrastructure : `PostgresVentilationSnapshotStore` (jsonb, decimals exacts)
+- [x] CHECK : `CheckEvaluation`/`CheckDecision` portent la ventilation ; `CheckTvaMapping.Evaluate`
+      la construit ; `DocumentReceivedConsumer` écrit le snapshot (idempotent) au MarkReadyToSend
+- [x] DI : enregistrer `IVentilationSnapshotStore`
 
-## Vérification
-- [ ] verify-fast (net10 + agent net48)
-- [ ] run-tests
-- [ ] codex-review propre
+### C. Pipeline — PaymentAggregator (PIP03a)
+- [x] `PipelineRunType.Aggregate`
+- [x] `IPaymentQueries.ListPaymentsAsync` (Payments Contracts) + Postgres impl
+- [x] Domain : `PaymentAggregationStatus`, `PaymentDailyAggregate`, `PaymentAggregationCalculator` (pur)
+- [x] migration `V004__create_payment_aggregations_table.sql` (projection upsert jour×taux)
+- [x] Application : `IPaymentAggregationStore` ; Infrastructure : `PostgresPaymentAggregationStore`
+- [x] `PaymentAggregatorTenantJob : ITenantJob` (Infrastructure/Aggregation)
+- [x] `AggregateAllTrigger` (Contracts/Jobs) + `AggregateAllFanOutHandler` + DI
+
+### D. Tests
+- [x] Unit : calculator (multi-jour/taux, partiel, remboursement, non rattaché, Mixte,
+      LivraisonBiens, FeeImputationMethod null, params null, vatOnDebits true, capacité PA absente),
+      snapshot round-trip decimal
+- [x] Integration : snapshot survit purge staging → agrégation ; multi-taux ; capacité absente ; TVA débits.
+      (isolation tenant : structurelle — tables sans colonne tenant, connexion = tenant ; E2E 2 tenants existant)
+
+### E. Docs
+- [x] Pipeline INVARIANTS.md (INV-VENTILATION-*, agrégation), SCENARIOS.md, MODULE.md
+- [x] TenantSettings INVARIANTS.md (FeeImputationMethod)
+
+### F. Vérification
+- [x] verify-fast (plateforme .NET 10 + agent net48 x86/x64) — PASS
+- [x] run-tests (unit + integration) — PASS, 3845 tests ; intégration PIP03a 4/4 (Testcontainers)
+- [ ] codex-review propre (ou P2 acceptés justifiés)
+
+## Review (résultats)
+
+Toutes les parties A–E livrées. `verify-fast` vert (plateforme + agent), `run-tests` vert (3845 tests).
+Tests neufs : calculateur d'agrégation (19), garde d'échelle ventilation (3), parsing/entité FeeImputationMethod
+(unit + intégration), intégration agrégation bout en bout (snapshot survit purge, multi-taux, capacité absente,
+TVA sur débits) — tous exécutés et verts. Aucune règle fiscale inventée : Mixte/params null/capacité absente
+SUSPENDUS avec motif opérateur ; fenêtrage de période + envoi réel + découpage Mixte différés à PIP03b (gelé).

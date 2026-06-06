@@ -30,6 +30,7 @@ public sealed class SetFiscalSettingsHandler : IRequestHandler<SetFiscalSettings
     {
         var companyId = _companyFilter.GetRequiredCompanyId();
         var operationCategory = TenantSettingsParsing.ParseOperationCategory(request.OperationCategory);
+        var feeImputationMethod = TenantSettingsParsing.ParseFeeImputationMethod(request.FeeImputationMethod);
 
         Guid settingsId;
         string activityType;
@@ -39,14 +40,14 @@ public sealed class SetFiscalSettingsHandler : IRequestHandler<SetFiscalSettings
             var existing = await uow.GetFiscalSettingsByCompanyAsync(companyId, cancellationToken);
             if (existing is null)
             {
-                var settings = FiscalSettings.Create(companyId, request.VatOnDebits, operationCategory, request.ReportingFrequency);
+                var settings = FiscalSettings.Create(companyId, request.VatOnDebits, operationCategory, request.ReportingFrequency, feeImputationMethod);
                 await uow.InsertFiscalSettingsAsync(settings, cancellationToken);
                 settingsId = settings.Id;
                 activityType = "created";
             }
             else
             {
-                existing.Update(request.VatOnDebits, operationCategory, request.ReportingFrequency);
+                existing.Update(request.VatOnDebits, operationCategory, request.ReportingFrequency, feeImputationMethod);
                 await uow.UpdateFiscalSettingsAsync(existing, cancellationToken);
                 settingsId = existing.Id;
                 activityType = "updated";
@@ -66,6 +67,7 @@ public sealed class SetFiscalSettingsHandler : IRequestHandler<SetFiscalSettings
                 request.VatOnDebits,
                 OperationCategory = operationCategory?.ToString(),
                 request.ReportingFrequency,
+                FeeImputationMethod = feeImputationMethod?.ToString(),
             },
             cancellationToken);
     }

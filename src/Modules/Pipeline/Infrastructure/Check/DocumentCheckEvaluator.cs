@@ -102,7 +102,7 @@ internal static class DocumentCheckEvaluator
 
         return validationResult.HasBlockingIssue
             ? CheckDecision.Blocked(AggregateBlockingIssues(validationResult))
-            : CheckDecision.Ready(evaluation.MappingVersion);
+            : CheckDecision.Ready(evaluation.MappingVersion, evaluation.Ventilation!, pivot.OperationCategory);
     }
 
     /// <summary>

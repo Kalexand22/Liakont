@@ -53,7 +53,8 @@ Aucun (PIP01a).
   `Documents.Contracts` (`IDocumentLifecycle`, `IDocumentQueries`), `TenantSettings.Contracts`
   (`ITenantSettingsQueries`). **SEND (PIP01c)** ajoute `Transmission.Contracts` (`IPaClientRegistry`,
   `PaAccountDescriptor`, `IPaClient`, `PaSendResult`), `Archive.Contracts` (`IArchiveService`),
-  `Staging.Contracts` (`IStagingPurgeService`) et `Job.Contracts` (`IJobHandler`).
+  `Staging.Contracts` (`IStagingPurgeService`) et `Job.Contracts` (`IJobHandler`). **Agrégation de paiement
+  (PIP03a)** ajoute `Payments.Contracts` (`IPaymentQueries` — lecture seule des encaissements bruts).
 - **`Stratum.Common.Abstractions.Jobs`** (SEND) : `ITenantJob` / `ITenantJobRunner` / `TenantJobContext`
   (mécanique de job par tenant, SOL06).
 - `Stratum.Common.Infrastructure` / `Stratum.Common.Abstractions` : `IConnectionFactory` (connexion
@@ -75,6 +76,18 @@ Aucun (PIP01a).
   `SendArchiveComposer` (pivot → `ArchivePackageRequest`), `SendPaSnapshot` (preuve d'échange PA en JSON
   valide), `SendTally` / `SendOutcome` / `StagedRead` / `StagedReadStatus`.
 - **Contracts** ajoute (PIP01c) `Jobs/SendAllTrigger` (charge utile du déclencheur SEND).
+- **E-reporting de paiement (PIP03a)** :
+  - **Domain** : `Ventilation/VentilationSnapshot` + `VentilationLine` (snapshot ADR-0015) ;
+    `Payments/PaymentAggregationCalculator` (cœur pur : ventilation jour×taux + qualification fiscale) +
+    `PaymentDailyAggregate` / `PaymentAggregationStatus` / `PaymentExclusion` / `ResolvedPayment` /
+    `PaymentFiscalContext`.
+  - **Application** : `IVentilationSnapshotStore` (snapshot ADR-0015), `IPaymentAggregationStore` (projection).
+  - **Infrastructure** : `PostgresVentilationSnapshotStore` + migration `pipeline.ventilation_snapshots`
+    (append-only) ; `PostgresPaymentAggregationStore` + migration `pipeline.payment_aggregations`
+    (projection upsert) ; `Aggregation/PaymentAggregatorTenantJob` (`ITenantJob`) +
+    `AggregatePaymentsAllFanOutHandler` (`IJobHandler<AggregatePaymentsAllTrigger>`). Le CHECK écrit le
+    snapshot au passage `ReadyToSend` (`DocumentReceivedConsumer`).
+  - **Contracts** ajoute `Jobs/AggregatePaymentsAllTrigger` + `PipelineRunType.Aggregate`.
 
 ## Consumers (segments ultérieurs)
 

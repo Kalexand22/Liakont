@@ -25,6 +25,9 @@
     <ProjectReference Include="../../Validation/Infrastructure/Liakont.Modules.Validation.Infrastructure.csproj" />
     <ProjectReference Include="../../TenantSettings/Infrastructure/Liakont.Modules.TenantSettings.Infrastructure.csproj" />
     <ProjectReference Include="../../Staging/Infrastructure/Liakont.Modules.Staging.Infrastructure.csproj" />
+    <!-- PIP03a — agrégation de paiement : migrations + persistance réelle du module Payments (encaissements
+         bruts seedés, lus par l'agrégateur via IPaymentQueries). Référence propre au harnais de test. -->
+    <ProjectReference Include="../../Payments/Infrastructure/Liakont.Modules.Payments.Infrastructure.csproj" />
     <!-- PIP01c — SEND : archive WORM réelle (TRK05) + plug-in PA factice (double sanctionné). La sonde de
          présence WORM (IArchivedDocumentProbe, port du Host) est réimplémentée dans le harnais de test
          au-dessus de IArchiveStore — le module Pipeline ne référence jamais ces infrastructures. -->
