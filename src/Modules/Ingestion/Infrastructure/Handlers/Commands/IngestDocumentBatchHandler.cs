@@ -80,6 +80,9 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
     [LoggerMessage(Level = LogLevel.Warning, Message = "Création du document Detected (port IDocumentIntake) échouée pour {DocumentId} (best-effort ; le déclencheur durable reste l'événement DocumentReceived déjà publié)")]
     private static partial void LogDocumentIntakeFailed(ILogger logger, Guid documentId, Exception exception);
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Re-rangement d'un doublon reçu mais non rangé échoué pour {DocumentId} (best-effort, non bloquant ; le renvoi de l'agent re-tentera — ADR-0012)")]
+    private static partial void LogReRangingFailed(ILogger logger, Guid documentId, Exception exception);
+
     private async Task PersistSourceTaxRegimesBestEffortAsync(IngestDocumentBatchCommand request, CancellationToken cancellationToken)
     {
         if (request.SourceTaxRegimes.Count == 0)
@@ -321,18 +324,30 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
             return;
         }
 
-        // Déjà rangé (Detected présent) = vrai doublon, terminal, aucun effet.
-        if (await _documentIntake.IsDocumentRangedAsync(documentId, request.TenantId, cancellationToken))
+        // BEST-EFFORT, NON BLOQUANT (INV-INGESTION-018) : le re-rangement est le chemin DOMINANT en régime
+        // permanent (le filet de sécurité de l'agent re-pousse tout → majorité de doublons). Un hoquet transitoire
+        // de la base tenant (probe) ou du disque (re-stage) NE DOIT PAS faire échouer le lot ni perdre les résultats
+        // par document déjà committés : on avale, on journalise, l'agent renvoie au prochain cycle (ADR-0012).
+        try
         {
-            return;
-        }
+            // Déjà rangé (Detected présent) = vrai doublon, terminal, aucun effet.
+            if (await _documentIntake.IsDocumentRangedAsync(documentId, request.TenantId, cancellationToken))
+            {
+                return;
+            }
 
-        // Reçu mais NON rangé : re-stage (idempotent — non rangé ⟹ non Issued ⟹ staging non purgé) puis re-range.
-        await _stagingStore.WriteAsync(
-            new StagedPayloadKey(request.TenantId, documentId, payloadHash),
-            canonicalJson,
-            cancellationToken);
-        await RegisterDetectedDocumentBestEffortAsync(documentId, request, sourceReference, payloadHash, document, receivedAt, cancellationToken);
+            // Reçu mais NON rangé : re-stage (idempotent — non rangé ⟹ non Issued ⟹ staging non purgé) puis re-range.
+            await _stagingStore.WriteAsync(
+                new StagedPayloadKey(request.TenantId, documentId, payloadHash),
+                canonicalJson,
+                cancellationToken);
+            await RegisterDetectedDocumentBestEffortAsync(documentId, request, sourceReference, payloadHash, document, receivedAt, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Le document reste « reçu mais non rangé » ; le renvoi de l'agent re-tentera (jamais une perte).
+            LogReRangingFailed(_logger, documentId, ex);
+        }
     }
 
     private async Task RegisterDetectedDocumentBestEffortAsync(

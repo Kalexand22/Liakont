@@ -288,7 +288,17 @@ public sealed partial class SyncTenantJob : ITenantJob
     private static string TaxReportFileName(string reportId) =>
         string.Create(CultureInfo.InvariantCulture, $"tax-report-{reportId}.xml");
 
-    /// <summary>Capture l'instantané des identifiants <c>Issued</c> AVANT traitement (pagination OFFSET fidèle).</summary>
+    /// <summary>
+    /// Capture l'instantané des identifiants <c>Issued</c> AVANT traitement (pagination OFFSET fidèle).
+    /// <para>LIMITE V1 (dette assumée, dédette ultérieure) : <c>Issued</c> est TERMINAL (le SYNC ne fait avancer
+    /// aucune machine à états), donc l'ensemble s'accumule et chaque cycle re-balaye TOUT l'historique émis. Les
+    /// ADDENDA sont idempotents (adressage par empreinte de contenu), mais les LECTURES PA par document
+    /// (<c>GetGeneratedDocumentAsync</c>/<c>GetDocumentStatusAsync</c>) ne le sont pas : leur volume croît
+    /// linéairement avec le cumul et peut heurter les rate-limits d'une PA en production. Bornage différé (curseur
+    /// de dernière synchro / fenêtre de récence, ou marqueur « réconcilié » quand facture + tax reports attendus
+    /// sont archivés) — hors périmètre PIP01d, car un document peut recevoir son tax report DGFiP des jours après
+    /// l'émission (batch ~02:00), donc « réconcilié » n'est pas dérivable d'un simple flag à l'émission.</para>
+    /// </summary>
     private static async Task<List<Guid>> SnapshotIssuedIdsAsync(IServiceProvider services, CancellationToken cancellationToken)
     {
         var queries = services.GetRequiredService<IDocumentQueries>();
