@@ -1,6 +1,7 @@
 namespace Liakont.Modules.Pipeline.Infrastructure.Send;
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Liakont.Modules.Documents.Contracts.Lifecycle;
@@ -22,7 +23,7 @@ public sealed partial class SendTenantJob
 {
     /// <summary>
     /// Ré-évalue les AVOIRS restés <c>Blocked</c> et débloque ceux qui passent désormais (facture d'origine
-    /// émise). Tenant-scopé (services du scope courant). Retourne le nombre d'avoirs débloqués.
+    /// émise). Tenant-scopé (services du scope courant). Retourne les identifiants des avoirs débloqués.
     /// </summary>
     /// <remarks>
     /// <para>SCOPE STRICT aux avoirs : un document est ré-évalué seulement si son pivot stagé porte au moins une
@@ -35,7 +36,7 @@ public sealed partial class SendTenantJob
     /// <c>Blocked → ReadyToSend</c> (la machine à états interdit <c>Blocked → Blocked</c>) : un avoir toujours
     /// bloqué ne subit AUCUNE transition (pas de re-blocage, pas de churn de la piste d'audit append-only).</para>
     /// </remarks>
-    private static async Task<int> ReconcileCreditNotesAsync(
+    private static async Task<List<Guid>> ReconcileCreditNotesAsync(
         IServiceProvider services,
         Guid companyId,
         string tenantId,
@@ -45,12 +46,12 @@ public sealed partial class SendTenantJob
         var blockedIds = await SnapshotIdsByStateAsync(services, BlockedStateName, cancellationToken);
         if (blockedIds.Count == 0)
         {
-            return 0;
+            return new List<Guid>();
         }
 
         var queries = services.GetRequiredService<IDocumentQueries>();
         var lifecycle = services.GetRequiredService<IDocumentLifecycle>();
-        var unblocked = 0;
+        var unblocked = new List<Guid>();
 
         foreach (var documentId in blockedIds)
         {
@@ -83,7 +84,7 @@ public sealed partial class SendTenantJob
             if (decision.IsReady)
             {
                 await lifecycle.MarkReadyToSendAsync(document.Id, decision.MappingVersion!, cancellationToken);
-                unblocked++;
+                unblocked.Add(document.Id);
                 LogCreditNoteUnblocked(logger, document.Id);
             }
         }

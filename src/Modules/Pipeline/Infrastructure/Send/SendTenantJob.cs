@@ -170,16 +170,17 @@ public sealed partial class SendTenantJob : ITenantJob
         //    n'était pas (encore) émise est ré-évalué dès lors que l'origine est désormais émise (Blocked →
         //    ReadyToSend). Cela GARANTIT l'ordre chronologique « l'avoir après sa facture d'origine » : l'origine
         //    vient d'être émise en (3), l'avoir débloqué est envoyé en (5) — jamais l'inverse.
-        var reconciled = await ReconcileCreditNotesAsync(services, companyId.Value, tenantId, logger, cancellationToken);
+        var unblockedCreditNotes = await ReconcileCreditNotesAsync(services, companyId.Value, tenantId, logger, cancellationToken);
 
-        // 5) Envoi des avoirs fraîchement débloqués (seconde passe — uniquement s'il y a eu un déblocage).
-        if (reconciled > 0)
+        // 5) Envoi CIBLÉ des avoirs fraîchement débloqués (on n'envoie QUE ces IDs, jamais un re-snapshot de tous
+        //    les ReadyToSend : sinon les différés / ignorés de l'étape 3 seraient recomptés dans la trace SEND).
+        foreach (var documentId in unblockedCreditNotes)
         {
-            await SendReadyToSendPassAsync(services, paClient, tenantId, tally, logger, cancellationToken);
+            tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, tenantId, documentId, logger, cancellationToken), documentId, logger, cancellationToken));
         }
 
-        var detail = reconciled > 0
-            ? string.Create(CultureInfo.InvariantCulture, $"{tally.Describe()} {reconciled} avoir(s) débloqué(s) (facture d'origine émise — réordonnancement F07 §B.5).")
+        var detail = unblockedCreditNotes.Count > 0
+            ? string.Create(CultureInfo.InvariantCulture, $"{tally.Describe()} {unblockedCreditNotes.Count} avoir(s) débloqué(s) (facture d'origine émise — réordonnancement F07 §B.5).")
             : tally.Describe();
         await WriteRunLogAsync(services, timeProvider, _trigger, startedAt, tally, detail, cancellationToken);
         LogSendCompleted(logger, tenantId, tally.Succeeded, tally.Failed, tally.Deferred, tally.Skipped);

@@ -151,6 +151,24 @@ public sealed class CreditNotePipelineTests : IAsyncLifetime
         _tenant.PaClient.IssuedDocumentNumbers.Should().NotContain(avoir.Number);
     }
 
+    [Fact]
+    public async Task Blocked_NonCreditNote_Document_Is_Left_Untouched_By_Reconciliation()
+    {
+        // Un document NON-avoir (sans CreditNoteRefs) bloqué au mapping (régime non mappé) n'est PAS pris en charge
+        // par la réconciliation des avoirs (scope STRICT, INV-PIPELINE-026) : il reste Blocked, jamais débloqué ni
+        // envoyé — la réconciliation ne touche QUE les avoirs.
+        var invoice = CheckIntegrationFixtures.BuildPivot("no_ba=non-cn-blocked", "REGIME-INCONNU");
+        var invoiceId = await IngestAndCheckAsync(invoice);
+        (await _tenant.GetDocumentStateAsync(invoiceId))
+            .Should().Be("Blocked", "régime non mappé → bloqué au mapping (document sans CreditNoteRefs).");
+
+        await _tenant.RunSendAsync();
+
+        (await _tenant.GetDocumentStateAsync(invoiceId))
+            .Should().Be("Blocked", "la réconciliation ne touche QUE les avoirs (CreditNoteRefs non vide) : un document bloqué non-avoir reste intact.");
+        _tenant.PaClient.IssuedDocumentNumbers.Should().NotContain(invoice.Number);
+    }
+
     /// <summary>Ingestion réelle + CHECK d'un pivot ; retourne l'identifiant du document rangé.</summary>
     private async Task<Guid> IngestAndCheckAsync(PivotDocumentDto pivot)
     {
