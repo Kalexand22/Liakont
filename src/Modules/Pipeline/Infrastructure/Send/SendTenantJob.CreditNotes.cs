@@ -35,6 +35,11 @@ public sealed partial class SendTenantJob
     /// rester bloqué (« bloquer plutôt qu'envoyer faux », CLAUDE.md n°3). La seule transition possible est
     /// <c>Blocked → ReadyToSend</c> (la machine à états interdit <c>Blocked → Blocked</c>) : un avoir toujours
     /// bloqué ne subit AUCUNE transition (pas de re-blocage, pas de churn de la piste d'audit append-only).</para>
+    /// <para>COÛT V1 (tracé, dette assumée) : le balayage relit le staging de CHAQUE document bloqué pour écarter
+    /// les non-avoirs (la discrimination « avoir » n'est portée que par le pivot stagé, non requêtable en SQL).
+    /// Borné en pratique par le backlog de documents bloqués (supervisé par l'opérateur). Optimisation future :
+    /// persister au CHECK un marqueur léger « porte des références d'origine » (Documents.Contracts) pour filtrer
+    /// en requête tenant-scopée et éviter la relecture du staging des non-avoirs.</para>
     /// </remarks>
     private static async Task<List<Guid>> ReconcileCreditNotesAsync(
         IServiceProvider services,
@@ -57,35 +62,49 @@ public sealed partial class SendTenantJob
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var document = await queries.GetByIdAsync(documentId, cancellationToken);
-            if (document is null || !string.Equals(document.State, BlockedStateName, StringComparison.Ordinal))
+            try
             {
-                // État changé entre le snapshot et le traitement (rejeu / geste opérateur) : on ne touche pas.
-                continue;
+                var document = await queries.GetByIdAsync(documentId, cancellationToken);
+                if (document is null || !string.Equals(document.State, BlockedStateName, StringComparison.Ordinal))
+                {
+                    // État changé entre le snapshot et le traitement (rejeu / geste opérateur) : on ne touche pas.
+                    continue;
+                }
+
+                var staged = await ReadStagedPivotAsync(services, tenantId, document, logger, cancellationToken);
+                if (staged.Status != StagedReadStatus.Ok)
+                {
+                    // Absent = transitoire (repris au prochain cycle) ; intégrité = laissé Blocked (déjà signalé au CHECK).
+                    continue;
+                }
+
+                // Détection d'un avoir par le signal structurel EN 16931 (CreditNoteRefs) — pas par le type source brut
+                // (correspondance type→avoir non spécifiée, varie par logiciel — VAL04 / F07-F08 §B.0, CLAUDE.md n°2).
+                if (staged.Pivot!.CreditNoteRefs.Count == 0)
+                {
+                    continue;
+                }
+
+                var decision = await DocumentCheckEvaluator.EvaluateAsync(
+                    services, companyId, document.DocumentNumber, staged.Pivot!, cancellationToken);
+
+                if (decision.IsReady)
+                {
+                    await lifecycle.MarkReadyToSendAsync(document.Id, decision.MappingVersion!, cancellationToken);
+                    unblocked.Add(document.Id);
+                    LogCreditNoteUnblocked(logger, document.Id);
+                }
             }
-
-            var staged = await ReadStagedPivotAsync(services, tenantId, document, logger, cancellationToken);
-            if (staged.Status != StagedReadStatus.Ok)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                // Absent = transitoire (repris au prochain cycle) ; intégrité = laissé Blocked (déjà signalé au CHECK).
-                continue;
+                throw;
             }
-
-            // Détection d'un avoir par le signal structurel EN 16931 (CreditNoteRefs) — pas par le type source brut
-            // (correspondance type→avoir non spécifiée, varie par logiciel — VAL04 / F07-F08 §B.0, CLAUDE.md n°2).
-            if (staged.Pivot!.CreditNoteRefs.Count == 0)
+            catch (Exception ex)
             {
-                continue;
-            }
-
-            var decision = await DocumentCheckEvaluator.EvaluateAsync(
-                services, companyId, document.DocumentNumber, staged.Pivot!, cancellationToken);
-
-            if (decision.IsReady)
-            {
-                await lifecycle.MarkReadyToSendAsync(document.Id, decision.MappingVersion!, cancellationToken);
-                unblocked.Add(document.Id);
-                LogCreditNoteUnblocked(logger, document.Id);
+                // Isolation PAR DOCUMENT (même convention que SafeProcessAsync) : un avoir qui lève (course TOCTOU
+                // Blocked→non-Blocked entre la relecture d'état et la transition, lecture/validation en échec) n'avorte
+                // NI la réconciliation des autres avoirs NI l'écriture de la trace SEND — il est repris au cycle suivant.
+                LogCreditNoteReconcileFailed(logger, documentId, ex);
             }
         }
 
@@ -95,4 +114,8 @@ public sealed partial class SendTenantJob
     [LoggerMessage(EventId = 7213, Level = LogLevel.Information,
         Message = "SEND : avoir {DocumentId} débloqué — sa facture d'origine est désormais émise (Blocked → ReadyToSend, réordonnancement F07).")]
     private static partial void LogCreditNoteUnblocked(ILogger logger, Guid documentId);
+
+    [LoggerMessage(EventId = 7214, Level = LogLevel.Warning,
+        Message = "SEND : échec de réconciliation de l'avoir {DocumentId} — ignoré ce cycle, réordonnancement des autres avoirs poursuivi.")]
+    private static partial void LogCreditNoteReconcileFailed(ILogger logger, Guid documentId, Exception exception);
 }
