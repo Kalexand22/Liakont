@@ -115,6 +115,57 @@ public sealed class FiscalControlExportService : IFiscalControlExportService
         return await BuildAsync(scope, entries, cancellationToken);
     }
 
+    public async Task<FiscalControlExport> BuildForRangeAsync(DateOnly? fromInclusive, DateOnly? toInclusive, CancellationToken cancellationToken = default)
+    {
+        if (fromInclusive is { } f && toInclusive is { } t && t < f)
+        {
+            throw new ArgumentException($"La borne haute ({t:yyyy-MM-dd}) précède la borne basse ({f:yyyy-MM-dd}).", nameof(toInclusive));
+        }
+
+        IReadOnlyList<ArchiveEntryRecord> chain = await _entryStore.GetChainAsync(cancellationToken);
+
+        List<ArchiveEntryRecord> entries;
+        if (fromInclusive is null && toInclusive is null)
+        {
+            // Tout le coffre du tenant (export de réversibilité).
+            entries = [.. chain];
+        }
+        else
+        {
+            int fromKey = fromInclusive is { } lo ? PeriodKey(lo.Year, lo.Month) : int.MinValue;
+            int toKey = toInclusive is { } hi ? PeriodKey(hi.Year, hi.Month) : int.MaxValue;
+            entries = chain
+                .Where(e => TryPeriodKey(e.PackagePath, out int key) && key >= fromKey && key <= toKey)
+                .ToList();
+        }
+
+        string scope = $"plage:{(fromInclusive is { } a ? a.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : "—")}..{(toInclusive is { } b ? b.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : "—")}";
+        return await BuildAsync(scope, entries, cancellationToken);
+    }
+
+    private static int PeriodKey(int year, int month) => (year * 12) + (month - 1);
+
+    /// <summary>
+    /// Extrait la clé de période (année*12+mois) du chemin de coffre <c>&lt;année&gt;/&lt;mois&gt;/...</c>.
+    /// Retourne <c>false</c> si le chemin ne porte pas un préfixe année/mois exploitable (le paquet est alors
+    /// hors de toute plage bornée — jamais inclus par erreur).
+    /// </summary>
+    private static bool TryPeriodKey(string packagePath, out int key)
+    {
+        key = 0;
+        string[] segments = packagePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length < 2
+            || !int.TryParse(segments[0], NumberStyles.None, CultureInfo.InvariantCulture, out int year)
+            || !int.TryParse(segments[1], NumberStyles.None, CultureInfo.InvariantCulture, out int month)
+            || month is < 1 or > 12)
+        {
+            return false;
+        }
+
+        key = PeriodKey(year, month);
+        return true;
+    }
+
     private static List<string> ManifestFileNames(byte[] manifestBytes)
     {
         try

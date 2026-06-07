@@ -93,5 +93,6 @@ public static class ArchiveModuleRegistration
         services.AddScoped<IArchiveAnchoringService, ArchiveAnchoringService>();
         services.AddScoped<IArchiveVerifier, ArchiveVerifier>();
         services.AddScoped<IFiscalControlExportService, FiscalControlExportService>();
+        services.AddScoped<ITenantReversibilityExportService, TenantReversibilityExportService>();
     }
 }

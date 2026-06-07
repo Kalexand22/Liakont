@@ -6,14 +6,18 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Text;
 using Dapper;
 using Liakont.Host.Startup;
+using Liakont.Modules.Archive.Contracts;
+using Liakont.Modules.Archive.Domain;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Npgsql;
+using Stratum.Common.Abstractions.MultiTenancy;
 using Stratum.Common.Infrastructure.Database;
 using Testcontainers.PostgreSql;
 using Xunit;
@@ -43,6 +47,12 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     public const string TenantA = "tenant-a";
     public const string TenantB = "tenant-b";
 
+    /// <summary>Tenant dédié aux exports d'archive (API03), avec un coffre réel — toujours SAIN.</summary>
+    public const string TenantArchive = "tenant-arch";
+
+    /// <summary>Tenant dédié au test de chaîne ALTÉRÉE (API03) : un seul test l'archive puis le falsifie.</summary>
+    public const string TenantArchiveTampered = "tenant-arch-bad";
+
     public const string BlockedReasonText = "Régime TVA non mappé : compléter la table TVA (document FA-A-002).";
 
     public const string OlderBlockedReasonText = "Ancien motif (corrigé puis re-bloqué).";
@@ -50,6 +60,9 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     // Utilisateurs seedés (claim NameIdentifier porté par X-Test-User).
     public static readonly Guid ReaderUserId = new("11111111-1111-1111-1111-111111111111");
     public static readonly Guid NoPermissionUserId = new("22222222-2222-2222-2222-222222222222");
+
+    /// <summary>Utilisateur porteur de liakont.settings (+read) — requis par tenant-export (API03).</summary>
+    public static readonly Guid SettingsUserId = new("44444444-4444-4444-4444-444444444444");
 
     // Documents seedés dans le TENANT A.
     public static readonly Guid TenantADocReadyId = new("0a000001-0000-0000-0000-000000000001");
@@ -60,13 +73,16 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     public static readonly Guid TenantBDocReadyId = new("0b000001-0000-0000-0000-000000000001");
 
     private static readonly Guid ConsoleReaderRoleId = new("33333333-3333-3333-3333-333333333333");
+    private static readonly Guid ConsoleAdminRoleId = new("55555555-5555-5555-5555-555555555555");
 
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
         .WithImage("postgres:16-alpine")
         .Build();
 
     private readonly int _port = GetFreePort();
+    private readonly Dictionary<string, string> _connectionsByTenant = new(StringComparer.Ordinal);
     private WebApplication? _app;
+    private string _archiveStoreRoot = string.Empty;
 
     public string BaseUrl => $"http://127.0.0.1:{_port}";
 
@@ -77,6 +93,12 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         var systemConn = _postgres.GetConnectionString();
         var tenantAConn = WithDatabase(systemConn, "tc_tenant_a");
         var tenantBConn = WithDatabase(systemConn, "tc_tenant_b");
+        var tenantArchConn = WithDatabase(systemConn, "tc_tenant_arch");
+        var tenantArchBadConn = WithDatabase(systemConn, "tc_tenant_arch_bad");
+        _connectionsByTenant[TenantA] = tenantAConn;
+        _connectionsByTenant[TenantB] = tenantBConn;
+        _connectionsByTenant[TenantArchive] = tenantArchConn;
+        _connectionsByTenant[TenantArchiveTampered] = tenantArchBadConn;
 
         var hostDir = Path.GetFullPath(Path.Combine(
             AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "Host", "Liakont.Host"));
@@ -96,6 +118,12 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         builder.Configuration["Database:ConnectionString"] = systemConn;
         builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantA}"] = tenantAConn;
         builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantB}"] = tenantBConn;
+        builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantArchive}"] = tenantArchConn;
+        builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantArchiveTampered}"] = tenantArchBadConn;
+
+        // Coffre d'archive sur un répertoire de test dédié et isolé (un par run) ; nettoyé au Dispose.
+        _archiveStoreRoot = Path.Combine(Path.GetTempPath(), "liakont-console-archive", Guid.NewGuid().ToString("N"));
+        builder.Configuration["Archive:Storage:FileSystem:RootPath"] = _archiveStoreRoot;
 
         // Keycloak factice (login désactivé) : l'abstraction d'IdP exige une autorité configurée, mais
         // aucun chemin OIDC/JWT n'est exercé — le schéma « Test » est le schéma par défaut ci-dessous.
@@ -133,9 +161,16 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         MigrateDatabase(migrationAssemblies, systemConn);
         MigrateDatabase(migrationAssemblies, tenantAConn);
         MigrateDatabase(migrationAssemblies, tenantBConn);
+        MigrateDatabase(migrationAssemblies, tenantArchConn);
+        MigrateDatabase(migrationAssemblies, tenantArchBadConn);
 
         await SeedTenantAAsync(tenantAConn);
         await SeedTenantBAsync(tenantBConn);
+
+        // Les tenants d'archive ne portent que l'identité (les documents sont archivés à la demande par
+        // les tests via ArchiveSampleDocumentAsync, sur un coffre réel).
+        await SeedIdentityOnlyAsync(tenantArchConn);
+        await SeedIdentityOnlyAsync(tenantArchBadConn);
 
         await _app.StartAsync();
     }
@@ -149,6 +184,7 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         }
 
         await _postgres.DisposeAsync().AsTask();
+        DeleteArchiveStore();
     }
 
     async ValueTask IAsyncDisposable.DisposeAsync()
@@ -172,6 +208,78 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         return client;
     }
 
+    /// <summary>
+    /// Archive un document ÉMIS dans le tenant donné via le VRAI service Archive (coffre réel + chaîne de
+    /// hashes), pour exercer les exports d'audit (API03). Seede d'abord le document dans la base du tenant
+    /// (chronologie réelle), puis archive dans un scope tenant. Retourne l'identifiant du document.
+    /// </summary>
+    public async Task<Guid> ArchiveSampleDocumentAsync(string tenant, string number, DateOnly issueDate, CancellationToken cancellationToken = default)
+    {
+        var documentId = Guid.NewGuid();
+
+        await using (var conn = new NpgsqlConnection(ConnectionStringFor(tenant)))
+        {
+            await conn.OpenAsync(cancellationToken);
+            await InsertDocumentAsync(conn, documentId, number, "invoice", issueDate, "Issued", "Client Export", 1200.00m);
+        }
+
+        var scopeFactory = _app!.Services.GetRequiredService<ITenantScopeFactory>();
+        await using ITenantScope scope = scopeFactory.Create(tenant);
+        var archiveService = scope.Services.GetRequiredService<IArchiveService>();
+        await archiveService.ArchiveIssuedDocumentAsync(BuildPackageRequest(documentId, number, issueDate), cancellationToken);
+
+        return documentId;
+    }
+
+    /// <summary>
+    /// Falsifie le contenu d'un paquet d'archive du tenant (un fichier <c>payload.json</c>) en levant le
+    /// verrou WORM applicatif (lecture seule) puis en réécrivant — pour exercer la détection d'altération
+    /// (API03). Retourne <c>true</c> si un fichier a été falsifié.
+    /// </summary>
+    public bool TamperArchivedPayload(string tenant)
+    {
+        string tenantDir = Path.Combine(_archiveStoreRoot, ArchivePackageLayout.SanitizeSegment(tenant));
+        if (!Directory.Exists(tenantDir))
+        {
+            return false;
+        }
+
+        foreach (string file in Directory.EnumerateFiles(tenantDir, "payload.json", SearchOption.AllDirectories))
+        {
+            File.SetAttributes(file, FileAttributes.Normal);
+            File.WriteAllBytes(file, Encoding.UTF8.GetBytes("{\"tampered\":true}"));
+            return true;
+        }
+
+        return false;
+    }
+
+    private static ArchivePackageRequest BuildPackageRequest(Guid documentId, string number, DateOnly issueDate) => new()
+    {
+        DocumentId = documentId,
+        DocumentNumber = number,
+        IssueDate = issueDate,
+        PayloadJson = "{\"number\":\"" + number + "\"}",
+        PaResponseJson = "{\"paDocumentId\":\"PA-1\"}",
+        Readable = new ArchiveReadableDocument(
+            number,
+            "Facture",
+            issueDate,
+            "EUR",
+            "ACME Ventes SARL",
+            "123456789",
+            "Client Export",
+            new List<ArchiveReadableLine> { new("Service", 1m, 1000m, 1000m, "20 %") },
+            new List<ArchiveVatBreakdownLine> { new("20 %", 1000m, 200m) },
+            1000m,
+            200m,
+            1200m),
+        PaInvoice = null,
+        PaInvoiceAbsenceReason = "La PA ne fournit pas la facture (test).",
+        SourceDocument = null,
+        SourceDocumentAbsenceReason = "L'adaptateur ne fournit pas le bordereau (test).",
+    };
+
     private static void MigrateDatabase(
         IOptions<MigrationAssembliesOptions> migrationAssemblies,
         string connectionString)
@@ -183,43 +291,59 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         runner.MigrateUp();
     }
 
+    private static async Task SeedIdentityOnlyAsync(string connectionString)
+    {
+        await using var conn = new NpgsqlConnection(connectionString);
+        await conn.OpenAsync();
+        await SeedIdentityAsync(conn);
+    }
+
     private static async Task SeedIdentityAsync(NpgsqlConnection conn)
     {
         // Rôle « console-reader » porteur de liakont.read + un utilisateur qui le détient (200) et un
-        // utilisateur sans aucun rôle (403). L'autorisation de production lit ces lignes par tenant.
+        // utilisateur sans aucun rôle (403). Rôle « console-admin » porteur de liakont.read + liakont.settings
+        // (requis par tenant-export, API03). L'autorisation de production lit ces lignes par tenant.
         await conn.ExecuteAsync(
             """
             INSERT INTO identity.roles (id, name, description, is_system)
-            VALUES (@Id, 'console-reader', 'Lecture console (tests)', false)
+            VALUES
+                (@ReaderRoleId, 'console-reader', 'Lecture console (tests)', false),
+                (@AdminRoleId, 'console-admin', 'Administration console (tests)', false)
             ON CONFLICT (id) DO NOTHING
             """,
-            new { Id = ConsoleReaderRoleId });
+            new { ReaderRoleId = ConsoleReaderRoleId, AdminRoleId = ConsoleAdminRoleId });
 
         await conn.ExecuteAsync(
             """
             INSERT INTO identity.grants (role_id, permission, module_source)
-            VALUES (@RoleId, 'liakont.read', 'liakont')
+            VALUES
+                (@ReaderRoleId, 'liakont.read', 'liakont'),
+                (@AdminRoleId, 'liakont.read', 'liakont'),
+                (@AdminRoleId, 'liakont.settings', 'liakont')
             ON CONFLICT (role_id, permission) DO NOTHING
             """,
-            new { RoleId = ConsoleReaderRoleId });
+            new { ReaderRoleId = ConsoleReaderRoleId, AdminRoleId = ConsoleAdminRoleId });
 
         await conn.ExecuteAsync(
             """
             INSERT INTO identity.users (id, username, email, display_name, password_hash, is_active)
             VALUES
                 (@ReaderId, 'console.reader', 'reader@test.local', 'Console Reader', 'x', true),
-                (@NoPermId, 'console.noperm', 'noperm@test.local', 'Console NoPerm', 'x', true)
+                (@NoPermId, 'console.noperm', 'noperm@test.local', 'Console NoPerm', 'x', true),
+                (@SettingsId, 'console.admin', 'admin@test.local', 'Console Admin', 'x', true)
             ON CONFLICT (id) DO NOTHING
             """,
-            new { ReaderId = ReaderUserId, NoPermId = NoPermissionUserId });
+            new { ReaderId = ReaderUserId, NoPermId = NoPermissionUserId, SettingsId = SettingsUserId });
 
         await conn.ExecuteAsync(
             """
             INSERT INTO identity.user_roles (user_id, role_id)
-            VALUES (@ReaderId, @RoleId)
+            VALUES
+                (@ReaderId, @ReaderRoleId),
+                (@SettingsId, @AdminRoleId)
             ON CONFLICT (user_id, role_id) DO NOTHING
             """,
-            new { ReaderId = ReaderUserId, RoleId = ConsoleReaderRoleId });
+            new { ReaderId = ReaderUserId, ReaderRoleId = ConsoleReaderRoleId, SettingsId = SettingsUserId, AdminRoleId = ConsoleAdminRoleId });
     }
 
     private static async Task SeedTenantAAsync(string connectionString)
@@ -366,5 +490,26 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
         listener.Stop();
         return port;
+    }
+
+    private string ConnectionStringFor(string tenant) =>
+        _connectionsByTenant.TryGetValue(tenant, out string? conn)
+            ? conn
+            : throw new InvalidOperationException($"Tenant inconnu du harness : {tenant}.");
+
+    private void DeleteArchiveStore()
+    {
+        if (string.IsNullOrEmpty(_archiveStoreRoot) || !Directory.Exists(_archiveStoreRoot))
+        {
+            return;
+        }
+
+        // Les paquets sont en lecture seule (WORM applicatif) : lever l'attribut avant suppression.
+        foreach (string file in Directory.EnumerateFiles(_archiveStoreRoot, "*", SearchOption.AllDirectories))
+        {
+            File.SetAttributes(file, FileAttributes.Normal);
+        }
+
+        Directory.Delete(_archiveStoreRoot, recursive: true);
     }
 }
