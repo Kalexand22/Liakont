@@ -1,5 +1,6 @@
 namespace Liakont.Modules.Pipeline.Contracts.Queries;
 
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,4 +18,12 @@ public interface IPipelineRunQueries
     /// <paramref name="limit"/> (borné par l'implémentation).
     /// </summary>
     Task<IReadOnlyList<PipelineRunLogDto>> GetRecentRunsAsync(int limit, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Les exécutions du tenant dont le début (<c>started_at</c>) tombe dans l'intervalle de jours
+    /// <paramref name="fromInclusive"/>..<paramref name="toInclusive"/> (bornes incluses, chacune
+    /// optionnelle), triées par début décroissant et bornées par <paramref name="limit"/> (borné par
+    /// l'implémentation). Consommé par <c>GET /runs?from=&amp;to=</c> (API01b).
+    /// </summary>
+    Task<IReadOnlyList<PipelineRunLogDto>> GetRunsAsync(DateOnly? fromInclusive, DateOnly? toInclusive, int limit, CancellationToken cancellationToken = default);
 }

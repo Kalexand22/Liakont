@@ -8,6 +8,7 @@ using System.Net.Sockets;
 using System.Reflection;
 using Dapper;
 using Liakont.Host.Startup;
+using Liakont.Modules.Pipeline.Domain.Payments;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
@@ -46,6 +47,18 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     public const string BlockedReasonText = "Régime TVA non mappé : compléter la table TVA (document FA-A-002).";
 
     public const string OlderBlockedReasonText = "Ancien motif (corrigé puis re-bloqué).";
+
+    // Journal des traitements (pipeline.run_logs) seedé — API01b GET /runs. Détails distincts par tenant
+    // pour vérifier l'isolation A≠B et le filtre par intervalle de dates.
+    public const string TenantAJanRunDetail = "run-A-jan";
+    public const string TenantAFebRunDetail = "run-A-feb";
+    public const string TenantBRunDetail = "run-B-mar";
+
+    // Motif opérateur de l'agrégat Suspended seedé (tenant A) — projection pipeline.payment_aggregations,
+    // API01b GET /payments : le tenant A porte un agrégat Calculated ET un Suspended (décision fiscale en
+    // attente) ; le tenant B uniquement un Calculated (sert l'isolation et l'absence de décision en attente).
+    public const string FiscalPendingReasonText =
+        "Décision fiscale en attente (TVA sur les débits / catégorie d'opération) — consultez votre expert-comptable.";
 
     // Utilisateurs seedés (claim NameIdentifier porté par X-Test-User).
     public static readonly Guid ReaderUserId = new("11111111-1111-1111-1111-111111111111");
@@ -257,6 +270,14 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
                 Chain = "sha256:chainhash",
                 ArchivedUtc = new DateTimeOffset(2026, 3, 20, 12, 0, 0, TimeSpan.Zero),
             });
+
+        // Traitements (pipeline.run_logs) — un en janvier, un en février (filtre par dates GET /runs).
+        await InsertRunLogAsync(conn, "Check", "Manual", new DateTimeOffset(2026, 1, 10, 8, 0, 0, TimeSpan.Zero), 10, 9, 1, TenantAJanRunDetail);
+        await InsertRunLogAsync(conn, "Send", "Scheduled", new DateTimeOffset(2026, 2, 15, 8, 0, 0, TimeSpan.Zero), 5, 5, 0, TenantAFebRunDetail);
+
+        // Agrégats de paiement (pipeline.payment_aggregations) — un Calculated, un Suspended (janvier 2026).
+        await InsertPaymentAggregationAsync(conn, new DateOnly(2026, 1, 10), 0.2000m, 100.00m, 20.00m, PaymentAggregationStatus.Calculated.ToString(), reason: null);
+        await InsertPaymentAggregationAsync(conn, new DateOnly(2026, 1, 15), 0.2000m, 50.00m, 10.00m, PaymentAggregationStatus.Suspended.ToString(), FiscalPendingReasonText);
     }
 
     private static async Task SeedTenantBAsync(string connectionString)
@@ -267,6 +288,69 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         await SeedIdentityAsync(conn);
 
         await InsertDocumentAsync(conn, TenantBDocReadyId, "FA-B-001", "invoice", new DateOnly(2026, 1, 12), "ReadyToSend", "Client Delta", 300.00m);
+
+        // Traitement + agrégat distincts (mars 2026) : le tenant B ne voit jamais ceux du tenant A (isolation).
+        await InsertRunLogAsync(conn, "Check", "Scheduled", new DateTimeOffset(2026, 3, 1, 8, 0, 0, TimeSpan.Zero), 2, 2, 0, TenantBRunDetail);
+        await InsertPaymentAggregationAsync(conn, new DateOnly(2026, 3, 5), 0.2000m, 300.00m, 60.00m, PaymentAggregationStatus.Calculated.ToString(), reason: null);
+    }
+
+    private static async Task InsertRunLogAsync(
+        NpgsqlConnection conn,
+        string runType,
+        string runTrigger,
+        DateTimeOffset startedAt,
+        int processed,
+        int succeeded,
+        int failed,
+        string detail)
+    {
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO pipeline.run_logs (
+                run_type, run_trigger, started_at, completed_at,
+                documents_processed, documents_succeeded, documents_failed, detail)
+            VALUES (
+                @RunType, @RunTrigger, @StartedAt, @CompletedAt,
+                @Processed, @Succeeded, @Failed, @Detail)
+            """,
+            new
+            {
+                RunType = runType,
+                RunTrigger = runTrigger,
+                StartedAt = startedAt,
+                CompletedAt = startedAt.AddMinutes(3),
+                Processed = processed,
+                Succeeded = succeeded,
+                Failed = failed,
+                Detail = detail,
+            });
+    }
+
+    private static async Task InsertPaymentAggregationAsync(
+        NpgsqlConnection conn,
+        DateOnly aggregateDate,
+        decimal vatRate,
+        decimal taxableBase,
+        decimal vatAmount,
+        string status,
+        string? reason)
+    {
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO pipeline.payment_aggregations (
+                aggregate_date, vat_rate, taxable_base, vat_amount, status, reason)
+            VALUES (
+                @AggregateDate, @VatRate, @TaxableBase, @VatAmount, @Status, @Reason)
+            """,
+            new
+            {
+                AggregateDate = aggregateDate,
+                VatRate = vatRate,
+                TaxableBase = taxableBase,
+                VatAmount = vatAmount,
+                Status = status,
+                Reason = reason,
+            });
     }
 
     private static async Task InsertDocumentAsync(

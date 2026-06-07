@@ -42,6 +42,10 @@ public static class PipelineModuleRegistration
 
         services.AddScoped<IPipelineRunQueries, PostgresPipelineRunQueries>();
 
+        // API01b — lecture de la projection des agrégats jour×taux de paiement (PIP03a) pour GET /payments
+        // et la page Encaissements (WEB06). La projection est écrite par PaymentAggregatorTenantJob.
+        services.AddScoped<IPaymentAggregationQueries, PostgresPaymentAggregationQueries>();
+
         // PIP01b — CHECK : écriture du journal d'exécutions + consommateur durable de DocumentReceivedV1
         // (dispatché par l'OutboxWorker en scope SYSTÈME ; le consommateur résout un scope TENANT par slug).
         services.AddScoped<IPipelineRunLogStore, PostgresPipelineRunLogStore>();
