@@ -29,8 +29,35 @@ internal sealed class FakeDocumentQueries : IDocumentQueries
     public Task<IReadOnlyList<DocumentSummaryDto>> GetByStateAsync(string state, int page, int pageSize, CancellationToken cancellationToken = default) =>
         Task.FromResult((IReadOnlyList<DocumentSummaryDto>)[]);
 
-    public Task<DocumentListResult> GetDocumentsAsync(DocumentListFilter filter, CancellationToken cancellationToken = default) =>
-        throw new NotSupportedException();
+    public Task<DocumentListResult> GetDocumentsAsync(DocumentListFilter filter, CancellationToken cancellationToken = default)
+    {
+        List<DocumentSummaryDto> all = _documents.Values
+            .Select(d => new DocumentSummaryDto
+            {
+                Id = d.Id,
+                DocumentNumber = d.DocumentNumber,
+                DocumentType = d.DocumentType,
+                IssueDate = d.IssueDate,
+                CustomerName = d.CustomerName,
+                TotalGross = d.TotalGross,
+                State = d.State,
+                LastUpdateUtc = d.LastUpdateUtc,
+            })
+            .ToList();
+
+        int pageSize = filter.PageSize <= 0 ? 50 : filter.PageSize;
+        int page = filter.Page <= 0 ? 1 : filter.Page;
+        List<DocumentSummaryDto> items = all.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+
+        return Task.FromResult(new DocumentListResult
+        {
+            Items = items,
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = all.Count,
+            CountsByState = all.GroupBy(d => d.State).ToDictionary(g => g.Key, g => g.Count()),
+        });
+    }
 
     public Task<ArchiveReferenceDto?> GetArchiveReferenceAsync(Guid documentId, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException();

@@ -97,6 +97,54 @@ public sealed class FiscalControlExportServiceTests
         june.IsComplete.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task BuildForRange_FiltersByMonth()
+    {
+        ArchivePackageRequest request = ArchiveTestData.PackageRequest();
+        await _archiveService.ArchiveIssuedDocumentAsync(request);
+        _documentQueries.Add(BuildDoc(request.DocumentId, request.DocumentNumber));
+
+        FiscalControlExport inRange = await Create().BuildForRangeAsync(new DateOnly(2026, 5, 1), new DateOnly(2026, 5, 31));
+        FiscalControlExport outOfRange = await Create().BuildForRangeAsync(new DateOnly(2026, 6, 1), new DateOnly(2026, 6, 30));
+
+        inRange.IsComplete.Should().BeTrue();
+        outOfRange.IsComplete.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task BuildForRange_PartialMonth_StillSelectsWholeMonth()
+    {
+        // Le coffre est partitionné par mois : un jour de début à l'intérieur du mois retient tout le mois.
+        ArchivePackageRequest request = ArchiveTestData.PackageRequest();
+        await _archiveService.ArchiveIssuedDocumentAsync(request);
+        _documentQueries.Add(BuildDoc(request.DocumentId, request.DocumentNumber));
+
+        FiscalControlExport export = await Create().BuildForRangeAsync(new DateOnly(2026, 5, 20), new DateOnly(2026, 5, 25));
+
+        export.IsComplete.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task BuildForRange_NullBounds_ReturnsWholeVault()
+    {
+        ArchivePackageRequest request = ArchiveTestData.PackageRequest();
+        await _archiveService.ArchiveIssuedDocumentAsync(request);
+        _documentQueries.Add(BuildDoc(request.DocumentId, request.DocumentNumber));
+
+        FiscalControlExport export = await Create().BuildForRangeAsync(null, null);
+
+        export.IsComplete.Should().BeTrue();
+        export.Files.Select(f => f.Path).Should().Contain("2026/05/F-2026-001/manifest.json");
+    }
+
+    [Fact]
+    public async Task BuildForRange_InvertedBounds_Throws()
+    {
+        await Create()
+            .Invoking(s => s.BuildForRangeAsync(new DateOnly(2026, 6, 1), new DateOnly(2026, 5, 1)))
+            .Should().ThrowAsync<ArgumentException>();
+    }
+
     private FiscalControlExportService Create()
     {
         var verifier = new ArchiveVerifier(_archiveService, _entryStore, _anchorStore, _store, new NoAnchorTimestampAnchor(), _tenant);

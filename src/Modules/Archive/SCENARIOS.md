@@ -22,6 +22,10 @@
 ### Service (INV-ARCHIVE-002, 003, 007, 008)
 - `ArchiveServiceTests` — création de paquet (6 fichiers de contenu dont `archive-metadata.json` + manifest), scellement de l'entrée chaînée ; tenant non résolu → exception ; pièce absente sans motif → exception ; addendum chaîné sur le paquet (chemin dérivé du hash de contenu) ; vérification intacte d'une chaîne honnête ; **détection d'altération de contenu + cascade** sur l'entrée suivante ; **détection d'altération des métadonnées d'audit** (`archive-metadata.json`) ; détection d'altération d'addendum ; détection de pièce manquante.
 
+### Export et réversibilité (TRK06 / API03 ; INV-ARCHIVE-002, 010, 011)
+- `FiscalControlExportServiceTests` — assemblage du dossier (manifest, payload, chronologie, rapport, notice) ; portée document inconnue → non complet mais notice présente ; filtre par mois ; **filtre par plage** (`BuildForRangeAsync`) : dans/hors plage, mois partiel = mois entier (coffre partitionné par mois), bornes nulles = coffre entier, bornes inversées → exception.
+- `TenantReversibilityExportServiceTests` — assemblage des 4 volets (archive préfixée `archive/`, tracking de tous les documents, paramétrage, journal) + rapport + notice ; **clés API des PA jamais exportées** (INV-ARCHIVE-011) ; demande du coffre ENTIER (`BuildForRangeAsync(null, null)`) ; plafond du journal opérateur documenté ; tenant non résolu → exception.
+
 ## Integration (`Liakont.Modules.Archive.Tests.Integration`, PostgreSQL réel + FileSystem réel)
 
 Chaque test tourne sur sa PROPRE base (la table `documents.archive_entries` est WORM — aucun nettoyage
@@ -33,6 +37,16 @@ possible entre tests ; la chaîne est globale au tenant).
 - `ArchiveEntry_Update_IsRejectedByWormTrigger` / `ArchiveEntry_Delete_IsRejectedByWormTrigger` — la garde WORM base (triggers V005) rejette tout UPDATE/DELETE (`PostgresException` « WORM »). (INV-ARCHIVE-001)
 - `VerifyTenantChain_DetectsFileAlteration_OnRealStore` — altération directe sur disque d'une pièce → rapport non intact, contenu invalide. (INV-ARCHIVE-002)
 - `ArchivedUtc_IsStrictlyIncreasing_AcrossEntries` — l'horodatage d'archivage est strictement croissant (ordonnancement déterministe de la chaîne). (INV-ARCHIVE-005)
+
+## Endpoints console (API03 ; `tests/Liakont.Console.Api.Tests.Integration`, hôte HTTP in-process + PostgreSQL réel)
+
+`ArchiveExportEndpointsIntegrationTests` — sur le harness console (coffre réel, archivage via le vrai
+`IArchiveService` dans un scope tenant) :
+- `audit-export` document : 401 sans auth, 403 sans `liakont.read`, 200 + ZIP streamé contenant manifest + payload + notice + rapport.
+- `audit-export?from=&to=` : sélection par plage (paquet présent dans la plage, absent hors plage) ; volume multi-paquets streamé.
+- `tenant-export` : 403 pour un lecteur (pas `liakont.settings`), 200 + dossier complet (tracking/paramétrage/journal/archive/notice) pour un utilisateur `settings`.
+- `archive/verify` : 401/403 selon permission ; coffre sain → `IsFullyVerified=true` ; **coffre falsifié → `IsFullyVerified=false`** (chaîne rompue détectée).
+- isolation tenant : un paquet d'un tenant n'apparaît pas dans l'export d'un autre tenant.
 
 ## Hors CI (staging — blueprint §9)
 

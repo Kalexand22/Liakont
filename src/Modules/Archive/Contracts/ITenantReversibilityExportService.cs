@@ -1,0 +1,25 @@
+namespace Liakont.Modules.Archive.Contracts;
+
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+
+/// <summary>
+/// Construit le dossier de RÉVERSIBILITÉ COMPLET du tenant courant (F12 §6.3 ; <c>blueprint.md</c> §6 :
+/// l'export/réversibilité est une responsabilité du module Archive). Tenant-scopé par construction. Consommé
+/// par API03 (<c>GET /api/v1/tenant-export</c>). Agrège, sans jamais révéler de secret (clés API des PA
+/// masquées — INV-TENANTSETTINGS-003) : le suivi des documents, le coffre d'archive, le paramétrage et le
+/// journal d'audit du tenant.
+/// </summary>
+public interface ITenantReversibilityExportService
+{
+    /// <summary>Assemble le dossier de réversibilité du tenant courant (matérialisé ; pratique pour les tests).</summary>
+    Task<TenantReversibilityExport> BuildAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Variante PARESSEUSE : produit les fichiers du dossier de réversibilité un par un (coffre lu pièce par
+    /// pièce, tracking paginé par lots), pour que l'appelant les écrive au fil de l'eau sans charger tout le
+    /// coffre ni tous les documents en mémoire (API03 : exports volumineux, anti-OOM).
+    /// </summary>
+    IAsyncEnumerable<FiscalExportFile> StreamAsync(CancellationToken cancellationToken = default);
+}

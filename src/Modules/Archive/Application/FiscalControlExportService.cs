@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -88,9 +89,8 @@ public sealed class FiscalControlExportService : IFiscalControlExportService
 
     public async Task<FiscalControlExport> BuildForDocumentAsync(Guid documentId, CancellationToken cancellationToken = default)
     {
-        IReadOnlyList<ArchiveEntryRecord> chain = await _entryStore.GetChainAsync(cancellationToken);
-        List<ArchiveEntryRecord> entries = chain.Where(e => e.DocumentId == documentId).ToList();
-        return await BuildAsync($"document:{documentId}", entries, cancellationToken);
+        List<ArchiveEntryRecord> entries = await SelectDocumentEntriesAsync(documentId, cancellationToken);
+        return await MaterializeAsync($"document:{documentId}", entries, cancellationToken);
     }
 
     public async Task<FiscalControlExport> BuildForPeriodAsync(int year, int? month, CancellationToken cancellationToken = default)
@@ -112,7 +112,60 @@ public sealed class FiscalControlExportService : IFiscalControlExportService
         string scope = month is { } mm
             ? $"période:{year.ToString("D4", CultureInfo.InvariantCulture)}-{mm.ToString("D2", CultureInfo.InvariantCulture)}"
             : $"période:{year.ToString("D4", CultureInfo.InvariantCulture)}";
-        return await BuildAsync(scope, entries, cancellationToken);
+        return await MaterializeAsync(scope, entries, cancellationToken);
+    }
+
+    public async Task<FiscalControlExport> BuildForRangeAsync(DateOnly? fromInclusive, DateOnly? toInclusive, CancellationToken cancellationToken = default)
+    {
+        List<ArchiveEntryRecord> entries = await SelectRangeEntriesAsync(fromInclusive, toInclusive, cancellationToken);
+        string scope = RangeScope(fromInclusive, toInclusive);
+        return await MaterializeAsync(scope, entries, cancellationToken);
+    }
+
+    public async IAsyncEnumerable<FiscalExportFile> StreamForDocumentAsync(Guid documentId, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        List<ArchiveEntryRecord> entries = await SelectDocumentEntriesAsync(documentId, cancellationToken);
+        ArchiveVerificationReport verification = await _verifier.VerifyTenantVaultAsync(cancellationToken);
+        await foreach (FiscalExportFile file in StreamFilesAsync(entries, verification, cancellationToken))
+        {
+            yield return file;
+        }
+    }
+
+    public async IAsyncEnumerable<FiscalExportFile> StreamForRangeAsync(DateOnly? fromInclusive, DateOnly? toInclusive, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        List<ArchiveEntryRecord> entries = await SelectRangeEntriesAsync(fromInclusive, toInclusive, cancellationToken);
+        ArchiveVerificationReport verification = await _verifier.VerifyTenantVaultAsync(cancellationToken);
+        await foreach (FiscalExportFile file in StreamFilesAsync(entries, verification, cancellationToken))
+        {
+            yield return file;
+        }
+    }
+
+    private static int PeriodKey(int year, int month) => (year * 12) + (month - 1);
+
+    private static string RangeScope(DateOnly? fromInclusive, DateOnly? toInclusive) =>
+        $"plage:{(fromInclusive is { } a ? a.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : "—")}..{(toInclusive is { } b ? b.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : "—")}";
+
+    /// <summary>
+    /// Extrait la clé de période (année*12+mois) du chemin de coffre <c>&lt;année&gt;/&lt;mois&gt;/...</c>.
+    /// Retourne <c>false</c> si le chemin ne porte pas un préfixe année/mois exploitable (le paquet est alors
+    /// hors de toute plage bornée — jamais inclus par erreur).
+    /// </summary>
+    private static bool TryPeriodKey(string packagePath, out int key)
+    {
+        key = 0;
+        string[] segments = packagePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length < 2
+            || !int.TryParse(segments[0], NumberStyles.None, CultureInfo.InvariantCulture, out int year)
+            || !int.TryParse(segments[1], NumberStyles.None, CultureInfo.InvariantCulture, out int month)
+            || month is < 1 or > 12)
+        {
+            return false;
+        }
+
+        key = PeriodKey(year, month);
+        return true;
     }
 
     private static List<string> ManifestFileNames(byte[] manifestBytes)
@@ -191,29 +244,123 @@ public sealed class FiscalControlExportService : IFiscalControlExportService
             _ => "application/octet-stream",
         };
 
-    private async Task<FiscalControlExport> BuildAsync(
+    private async Task<List<ArchiveEntryRecord>> SelectDocumentEntriesAsync(Guid documentId, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<ArchiveEntryRecord> chain = await _entryStore.GetChainAsync(cancellationToken);
+        return chain.Where(e => e.DocumentId == documentId).ToList();
+    }
+
+    private async Task<List<ArchiveEntryRecord>> SelectRangeEntriesAsync(DateOnly? fromInclusive, DateOnly? toInclusive, CancellationToken cancellationToken)
+    {
+        if (fromInclusive is { } f && toInclusive is { } t && t < f)
+        {
+            throw new ArgumentException($"La borne haute ({t:yyyy-MM-dd}) précède la borne basse ({f:yyyy-MM-dd}).", nameof(toInclusive));
+        }
+
+        IReadOnlyList<ArchiveEntryRecord> chain = await _entryStore.GetChainAsync(cancellationToken);
+
+        if (fromInclusive is null && toInclusive is null)
+        {
+            // Tout le coffre du tenant (export de réversibilité).
+            return [.. chain];
+        }
+
+        int fromKey = fromInclusive is { } lo ? PeriodKey(lo.Year, lo.Month) : int.MinValue;
+        int toKey = toInclusive is { } hi ? PeriodKey(hi.Year, hi.Month) : int.MaxValue;
+        return chain
+            .Where(e => TryPeriodKey(e.PackagePath, out int key) && key >= fromKey && key <= toKey)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Variante MATÉRIALISÉE : collecte le flux paresseux dans une liste ordonnée et renseigne les méta
+    /// (vérification, complétude, notice). Pour petits dossiers / tests ; les gros volumes passent par les
+    /// variantes <c>Stream…</c> (l'endpoint API03 écrit le ZIP au fil de l'eau).
+    /// </summary>
+    private async Task<FiscalControlExport> MaterializeAsync(
         string scope,
         IReadOnlyList<ArchiveEntryRecord> entries,
         CancellationToken cancellationToken)
     {
-        string tenant = RequireTenant();
         ArchiveVerificationReport verification = await _verifier.VerifyTenantVaultAsync(cancellationToken);
 
-        var files = new Dictionary<string, FiscalExportFile>(StringComparer.Ordinal);
-        var documentIds = new HashSet<Guid>();
+        var files = new List<FiscalExportFile>();
+        await foreach (FiscalExportFile file in StreamFilesAsync(entries, verification, cancellationToken))
+        {
+            files.Add(file);
+        }
 
-        // 1. Paquets d'archive (paquet + addenda) lus dans le coffre.
+        List<FiscalExportFile> ordered = files
+            .OrderBy(f => f.Path, StringComparer.Ordinal)
+            .ToList();
+
+        bool isComplete = entries.Select(e => e.DocumentId).Distinct().Any();
+        return new FiscalControlExport(scope, ordered, verification, isComplete, VerificationNotice);
+    }
+
+    /// <summary>
+    /// Cœur PARESSEUX de l'assemblage : produit chaque fichier du dossier l'un après l'autre, en lisant
+    /// chaque pièce du coffre juste avant de la rendre (une seule pièce en mémoire à la fois). L'ordre :
+    /// paquets + pièces, chronologies, preuves d'ancrage, rapport d'intégrité, notice. Un <c>seen</c> de
+    /// CHEMINS (léger) évite les doublons d'entrée ZIP.
+    /// </summary>
+    private async IAsyncEnumerable<FiscalExportFile> StreamFilesAsync(
+        IReadOnlyList<ArchiveEntryRecord> entries,
+        ArchiveVerificationReport verification,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        string tenant = RequireTenant();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var documentIds = new List<Guid>();
+        var documentDir = new Dictionary<Guid, string>();
+
+        // 1. Paquets d'archive (paquet + addenda) lus dans le coffre, pièce par pièce.
         foreach (ArchiveEntryRecord entry in entries)
         {
-            await AppendEntryFilesAsync(tenant, entry, files, cancellationToken);
-            documentIds.Add(entry.DocumentId);
+            if (documentDir.TryAdd(entry.DocumentId, DirectoryOf(entry.PackagePath)))
+            {
+                documentIds.Add(entry.DocumentId);
+            }
+
+            byte[]? manifestBytes = await TryReadAsync(tenant, entry.PackagePath, cancellationToken);
+            if (manifestBytes is null)
+            {
+                // Manifest manquant : l'absence est signalée par le rapport d'intégrité, on ne fabrique rien.
+                continue;
+            }
+
+            if (seen.Add(entry.PackagePath))
+            {
+                yield return new FiscalExportFile(entry.PackagePath, "application/json", manifestBytes);
+            }
+
+            string directory = DirectoryOf(entry.PackagePath);
+            foreach (string name in ManifestFileNames(manifestBytes))
+            {
+                string path = directory + name;
+                if (!seen.Add(path))
+                {
+                    continue;
+                }
+
+                byte[]? content = await TryReadAsync(tenant, path, cancellationToken);
+                if (content is not null)
+                {
+                    yield return new FiscalExportFile(path, GuessContentType(name), content);
+                }
+            }
         }
 
         // 2. Chronologie (DocumentEvents) par document, dans son répertoire de paquet.
         foreach (Guid documentId in documentIds)
         {
-            string packageDir = DirectoryOf(entries.First(e => e.DocumentId == documentId).PackagePath);
-            await AppendChronologyAsync(documentId, packageDir, files, cancellationToken);
+            foreach (FiscalExportFile file in await BuildChronologyFilesAsync(documentId, documentDir[documentId], cancellationToken))
+            {
+                if (seen.Add(file.Path))
+                {
+                    yield return file;
+                }
+            }
         }
 
         // 3. Preuves d'ancrage (jetons + manifests) référencées par le rapport.
@@ -224,90 +371,72 @@ public sealed class FiscalControlExportService : IFiscalControlExportService
                 continue;
             }
 
-            await TryAppendFileAsync(tenant, anchor.ProofPath, "application/timestamp-token", files, cancellationToken);
-            await TryAppendFileAsync(tenant, ToManifestPath(anchor.ProofPath), "application/json", files, cancellationToken);
+            if (seen.Add(anchor.ProofPath))
+            {
+                byte[]? proof = await TryReadAsync(tenant, anchor.ProofPath, cancellationToken);
+                if (proof is not null)
+                {
+                    yield return new FiscalExportFile(anchor.ProofPath, "application/timestamp-token", proof);
+                }
+            }
+
+            string manifestPath = ToManifestPath(anchor.ProofPath);
+            if (seen.Add(manifestPath))
+            {
+                byte[]? manifest = await TryReadAsync(tenant, manifestPath, cancellationToken);
+                if (manifest is not null)
+                {
+                    yield return new FiscalExportFile(manifestPath, "application/json", manifest);
+                }
+            }
         }
 
         // 4. Rapport d'intégrité + notice.
-        files["rapport-integrite.json"] = new FiscalExportFile(
-            "rapport-integrite.json",
-            "application/json",
-            JsonSerializer.SerializeToUtf8Bytes(verification, ExportJsonOptions));
-
-        files["notice-verification.txt"] = new FiscalExportFile(
-            "notice-verification.txt",
-            "text/plain; charset=utf-8",
-            Encoding.UTF8.GetBytes(VerificationNotice));
-
-        List<FiscalExportFile> ordered = files.Values
-            .OrderBy(f => f.Path, StringComparer.Ordinal)
-            .ToList();
-
-        return new FiscalControlExport(scope, ordered, verification, documentIds.Count > 0, VerificationNotice);
-    }
-
-    private async Task AppendEntryFilesAsync(
-        string tenant,
-        ArchiveEntryRecord entry,
-        Dictionary<string, FiscalExportFile> files,
-        CancellationToken cancellationToken)
-    {
-        byte[] manifestBytes;
-        try
+        if (seen.Add("rapport-integrite.json"))
         {
-            manifestBytes = await _store.ReadAsync(tenant, entry.PackagePath, cancellationToken);
-        }
-        catch (ArchiveObjectNotFoundException)
-        {
-            // Manifest manquant : l'absence est signalée par le rapport d'intégrité, on ne fabrique rien.
-            return;
+            yield return new FiscalExportFile(
+                "rapport-integrite.json",
+                "application/json",
+                JsonSerializer.SerializeToUtf8Bytes(verification, ExportJsonOptions));
         }
 
-        files[entry.PackagePath] = new FiscalExportFile(entry.PackagePath, "application/json", manifestBytes);
-
-        string directory = DirectoryOf(entry.PackagePath);
-        foreach (string name in ManifestFileNames(manifestBytes))
+        if (seen.Add("notice-verification.txt"))
         {
-            await TryAppendFileAsync(tenant, directory + name, GuessContentType(name), files, cancellationToken);
+            yield return new FiscalExportFile(
+                "notice-verification.txt",
+                "text/plain; charset=utf-8",
+                Encoding.UTF8.GetBytes(VerificationNotice));
         }
     }
 
-    private async Task AppendChronologyAsync(
+    private async Task<IReadOnlyList<FiscalExportFile>> BuildChronologyFilesAsync(
         Guid documentId,
         string packageDir,
-        Dictionary<string, FiscalExportFile> files,
         CancellationToken cancellationToken)
     {
         DocumentDto? document = await _documentQueries.GetByIdAsync(documentId, cancellationToken);
         IReadOnlyList<DocumentEventDto> events = await _documentQueries.GetEventsAsync(documentId, cancellationToken);
 
         byte[] json = JsonSerializer.SerializeToUtf8Bytes(new { document, events }, ExportJsonOptions);
-        files[packageDir + "chronologie.json"] = new FiscalExportFile(packageDir + "chronologie.json", "application/json", json);
-
         byte[] text = Encoding.UTF8.GetBytes(RenderChronologyText(documentId, document, events));
-        files[packageDir + "chronologie.txt"] = new FiscalExportFile(packageDir + "chronologie.txt", "text/plain; charset=utf-8", text);
+
+        return
+        [
+            new FiscalExportFile(packageDir + "chronologie.json", "application/json", json),
+            new FiscalExportFile(packageDir + "chronologie.txt", "text/plain; charset=utf-8", text),
+        ];
     }
 
-    private async Task TryAppendFileAsync(
-        string tenant,
-        string path,
-        string contentType,
-        Dictionary<string, FiscalExportFile> files,
-        CancellationToken cancellationToken)
+    private async Task<byte[]?> TryReadAsync(string tenant, string path, CancellationToken cancellationToken)
     {
-        if (files.ContainsKey(path))
-        {
-            return;
-        }
-
         try
         {
-            byte[] content = await _store.ReadAsync(tenant, path, cancellationToken);
-            files[path] = new FiscalExportFile(path, contentType, content);
+            return await _store.ReadAsync(tenant, path, cancellationToken);
         }
         catch (ArchiveObjectNotFoundException)
         {
             // Pièce absente : signalée par le rapport d'intégrité, jamais inventée.
+            return null;
         }
     }
 
