@@ -134,7 +134,8 @@ public sealed class ArchiveExportEndpointsIntegrationTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var names = await ReadZipEntryNamesAsync(response);
-        names.Should().Contain("tracking/documents.json");
+        names.Should().Contain("tracking/index.json");
+        names.Should().Contain(n => n.StartsWith("tracking/documents-", StringComparison.Ordinal));
 
         // Le profil du tenant-arch n'est pas paramétré (CFG02 non joué pour ce tenant) : le volet
         // paramétrage est toujours présent (profil.json), le contenu masqué des comptes PA étant couvert

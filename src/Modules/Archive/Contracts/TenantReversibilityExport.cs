@@ -10,10 +10,9 @@ using System.Collections.Generic;
 /// <c>liakont.settings</c>), qui le sérialise en archive téléchargeable. L'outillage opérateur de cette
 /// réversibilité est OPS06 ; ici c'est la matière exportée.
 /// </summary>
-/// <param name="Files">Les fichiers du dossier (tracking, archive, paramétrage, journal, rapport, notice).</param>
-/// <param name="Verification">Le rapport d'intégrité du coffre au moment de l'export.</param>
+/// <param name="Files">Les fichiers du dossier (tracking, archive, paramétrage, journal, notice). Le rapport
+/// d'intégrité du coffre figure dans la section <c>archive/</c>.</param>
 /// <param name="Notice">La notice de réversibilité en français (également présente en fichier dans <see cref="Files"/>).</param>
 public sealed record TenantReversibilityExport(
     IReadOnlyList<FiscalExportFile> Files,
-    ArchiveVerificationReport Verification,
     string Notice);

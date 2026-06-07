@@ -1,6 +1,8 @@
 namespace Liakont.Modules.Archive.Tests.Unit.Doubles;
 
 using System;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -26,9 +28,7 @@ internal sealed class FakeFiscalControlExportService : IFiscalControlExportServi
 
     public Task<FiscalControlExport> BuildForRangeAsync(DateOnly? fromInclusive, DateOnly? toInclusive, CancellationToken cancellationToken = default)
     {
-        RangeCalled = true;
-        LastRangeFrom = fromInclusive;
-        LastRangeTo = toInclusive;
+        RecordRange(fromInclusive, toInclusive);
 
         var verification = new ArchiveVerificationReport(
             new ArchiveIntegrityReport(true, 1, [], null),
@@ -37,17 +37,33 @@ internal sealed class FakeFiscalControlExportService : IFiscalControlExportServi
             true,
             "Coffre intègre (test).");
 
-        FiscalControlExport export = new(
-            "plage:—..—",
-            [
-                new FiscalExportFile("2026/05/F-2026-001/manifest.json", "application/json", Encoding.UTF8.GetBytes("{\"files\":[]}")),
-                new FiscalExportFile("rapport-integrite.json", "application/json", Encoding.UTF8.GetBytes("{}")),
-                new FiscalExportFile("notice-verification.txt", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("notice")),
-            ],
-            verification,
-            true,
-            "notice");
+        return Task.FromResult(new FiscalControlExport("plage:—..—", CannedFiles(), verification, true, "notice"));
+    }
 
-        return Task.FromResult(export);
+    public IAsyncEnumerable<FiscalExportFile> StreamForDocumentAsync(Guid documentId, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
+
+    public async IAsyncEnumerable<FiscalExportFile> StreamForRangeAsync(DateOnly? fromInclusive, DateOnly? toInclusive, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        RecordRange(fromInclusive, toInclusive);
+        await Task.CompletedTask;
+        foreach (FiscalExportFile file in CannedFiles())
+        {
+            yield return file;
+        }
+    }
+
+    private static List<FiscalExportFile> CannedFiles() =>
+    [
+        new FiscalExportFile("2026/05/F-2026-001/manifest.json", "application/json", Encoding.UTF8.GetBytes("{\"files\":[]}")),
+        new FiscalExportFile("rapport-integrite.json", "application/json", Encoding.UTF8.GetBytes("{}")),
+        new FiscalExportFile("notice-verification.txt", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("notice")),
+    ];
+
+    private void RecordRange(DateOnly? fromInclusive, DateOnly? toInclusive)
+    {
+        RangeCalled = true;
+        LastRangeFrom = fromInclusive;
+        LastRangeTo = toInclusive;
     }
 }

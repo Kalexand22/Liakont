@@ -42,6 +42,12 @@ public sealed class TenantReversibilityExportServiceTests
         LastUpdateUtc = DateTimeOffset.UnixEpoch,
     };
 
+    /// <summary>Concatène le contenu de tous les fichiers de page du tracking (tracking/documents-NNNN.json).</summary>
+    private static string TrackingDocumentsText(TenantReversibilityExport export) =>
+        string.Concat(export.Files
+            .Where(f => f.Path.StartsWith("tracking/documents-", StringComparison.Ordinal))
+            .Select(f => Encoding.UTF8.GetString(f.Content)));
+
     [Fact]
     public async Task Build_AssemblesAllSections()
     {
@@ -61,15 +67,15 @@ public sealed class TenantReversibilityExportServiceTests
 
         var paths = export.Files.Select(f => f.Path).ToList();
         paths.Should().Contain("archive/2026/05/F-2026-001/manifest.json");
-        paths.Should().Contain("archive/rapport-integrite.json");
-        paths.Should().Contain("tracking/documents.json");
+        paths.Should().Contain("archive/rapport-integrite.json", "le rapport d'intégrité du coffre est dans la section archive/");
+        paths.Should().Contain("tracking/index.json");
+        paths.Should().Contain("tracking/documents-0001.json");
         paths.Should().Contain("parametrage/profil.json");
         paths.Should().Contain("parametrage/comptes-pa.json");
         paths.Should().Contain("parametrage/table-tva.json");
         paths.Should().Contain("parametrage/planification.json");
         paths.Should().Contain("parametrage/seuils-alerte.json");
         paths.Should().Contain("journal/audit.json");
-        paths.Should().Contain("rapport-integrite.json");
         paths.Should().Contain("notice-reversibilite.txt");
         export.Notice.Should().Contain("RÉVERSIBILITÉ");
     }
@@ -97,17 +103,17 @@ public sealed class TenantReversibilityExportServiceTests
 
         TenantReversibilityExport export = await Create().BuildAsync();
 
-        FiscalExportFile tracking = export.Files.Single(f => f.Path == "tracking/documents.json");
-        string json = Encoding.UTF8.GetString(tracking.Content);
-        json.Should().Contain("F-2026-001");
-        json.Should().Contain("F-2026-002");
+        string tracking = TrackingDocumentsText(export);
+        tracking.Should().Contain("F-2026-001");
+        tracking.Should().Contain("F-2026-002");
     }
 
     [Fact]
     public async Task Build_TrackingPaginatesBeyondOnePage()
     {
-        // Plus d'une page (TrackingPageSize=200) : valide l'avance de la boucle (page++ /
-        // collected >= TotalCount) sans perte ni doublon — la logique sujette aux off-by-one.
+        // Plus d'une page (TrackingPageSize=200) : valide l'avance de la boucle (page++ / scanned >=
+        // TotalCount) sans perte ni doublon — la logique sujette aux off-by-one. Le tracking est émis par
+        // lots (un fichier par page) : on agrège tous les fichiers de page.
         const int count = 201;
         for (int i = 1; i <= count; i++)
         {
@@ -116,11 +122,15 @@ public sealed class TenantReversibilityExportServiceTests
 
         TenantReversibilityExport export = await Create().BuildAsync();
 
-        FiscalExportFile tracking = export.Files.Single(f => f.Path == "tracking/documents.json");
-        string json = Encoding.UTF8.GetString(tracking.Content);
-        json.Should().Contain("DOC-001", "le premier document (page 1) est présent");
-        json.Should().Contain($"DOC-{count:D3}", "le dernier document (au-delà de la 1re page) est présent");
-        json.Should().Contain($"\"count\": {count}");
+        export.Files.Select(f => f.Path).Should().Contain("tracking/documents-0001.json");
+        export.Files.Select(f => f.Path).Should().Contain("tracking/documents-0002.json", "201 > 200 ⇒ une seconde page");
+
+        string tracking = TrackingDocumentsText(export);
+        tracking.Should().Contain("DOC-001", "le premier document (page 1) est présent");
+        tracking.Should().Contain($"DOC-{count:D3}", "le dernier document (page 2) est présent");
+
+        FiscalExportFile index = export.Files.Single(f => f.Path == "tracking/index.json");
+        Encoding.UTF8.GetString(index.Content).Should().Contain($"\"totalDocuments\": {count}");
     }
 
     [Fact]

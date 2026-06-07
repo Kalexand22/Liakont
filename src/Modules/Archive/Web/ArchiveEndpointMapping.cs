@@ -17,8 +17,9 @@ using Microsoft.AspNetCore.Routing;
 /// sont TENANT-SCOPÉES par construction (la connexion EST le tenant — database-per-tenant, blueprint §7 ;
 /// CLAUDE.md n°9/17). Aucune logique métier ici : les endpoints délèguent aux services du module
 /// (<see cref="IFiscalControlExportService"/>, <see cref="ITenantReversibilityExportService"/>,
-/// <see cref="IArchiveVerifier"/>) et écrivent le résultat en archive ZIP directement dans le flux de
-/// réponse (entrée par entrée, jamais bufferisé entièrement en mémoire).
+/// <see cref="IArchiveVerifier"/>) et écrivent le résultat en archive ZIP directement dans le corps de
+/// réponse, FICHIER PAR FICHIER lu PARESSEUSEMENT du coffre — ni le ZIP ni la matière source ne sont
+/// jamais entièrement chargés en mémoire (exports volumineux, anti-OOM).
 /// </summary>
 public static class ArchiveEndpointMapping
 {
@@ -36,8 +37,7 @@ public static class ArchiveEndpointMapping
             IFiscalControlExportService exportService,
             HttpContext context) =>
         {
-            FiscalControlExport export = await exportService.BuildForDocumentAsync(id, context.RequestAborted);
-            await WriteZipAsync(context, export.Files, $"audit-document-{id}.zip");
+            await WriteZipAsync(context, exportService.StreamForDocumentAsync(id, context.RequestAborted), $"audit-document-{id}.zip");
         }).RequireAuthorization(ReadPermission);
 
         // GET /api/v1/audit-export?from=&to= — dossier d'export PAR PÉRIODE (zip streamé). Au moins une
@@ -55,8 +55,7 @@ public static class ArchiveEndpointMapping
                     "Préciser au moins une borne (« from » et/ou « to »). L'export du coffre entier relève de la réversibilité du tenant (/api/v1/tenant-export, permission liakont.settings).");
             }
 
-            FiscalControlExport export = await exportService.BuildForRangeAsync(from, to, context.RequestAborted);
-            await WriteZipAsync(context, export.Files, "audit-periode.zip");
+            await WriteZipAsync(context, exportService.StreamForRangeAsync(from, to, context.RequestAborted), "audit-periode.zip");
             return Results.Empty;
         }).RequireAuthorization(ReadPermission);
 
@@ -65,8 +64,7 @@ public static class ArchiveEndpointMapping
             ITenantReversibilityExportService reversibilityService,
             HttpContext context) =>
         {
-            TenantReversibilityExport export = await reversibilityService.BuildAsync(context.RequestAborted);
-            await WriteZipAsync(context, export.Files, "reversibilite-tenant.zip");
+            await WriteZipAsync(context, reversibilityService.StreamAsync(context.RequestAborted), "reversibilite-tenant.zip");
         }).RequireAuthorization(SettingsPermission);
 
         // POST /api/v1/archive/verify — vérification d'intégrité À LA DEMANDE de tout le coffre du tenant.
@@ -84,12 +82,13 @@ public static class ArchiveEndpointMapping
     }
 
     /// <summary>
-    /// Écrit une liste de fichiers en archive ZIP directement dans le corps de la réponse, entrée par
-    /// entrée (le ZIP n'est jamais matérialisé en entier en mémoire). <see cref="ZipArchive"/> effectue des
-    /// écritures SYNCHRONES (notamment du répertoire central à la fermeture) : on autorise donc l'IO
-    /// synchrone sur CETTE réponse uniquement, le temps de produire l'archive.
+    /// Écrit un flux PARESSEUX de fichiers en archive ZIP directement dans le corps de la réponse, entrée
+    /// par entrée (ni le ZIP ni la matière source ne sont matérialisés en entier en mémoire : chaque pièce
+    /// est lue du coffre puis écrite puis libérée). <see cref="ZipArchive"/> effectue des écritures
+    /// SYNCHRONES (notamment du répertoire central à la fermeture) : on autorise donc l'IO synchrone sur
+    /// CETTE réponse uniquement, le temps de produire l'archive.
     /// </summary>
-    private static async Task WriteZipAsync(HttpContext context, IReadOnlyList<FiscalExportFile> files, string downloadName)
+    private static async Task WriteZipAsync(HttpContext context, IAsyncEnumerable<FiscalExportFile> files, string downloadName)
     {
         IHttpBodyControlFeature? bodyControl = context.Features.Get<IHttpBodyControlFeature>();
         if (bodyControl is not null)
@@ -101,7 +100,7 @@ public static class ArchiveEndpointMapping
         context.Response.Headers.ContentDisposition = $"attachment; filename=\"{downloadName}\"";
 
         using var zip = new ZipArchive(context.Response.Body, ZipArchiveMode.Create, leaveOpen: true);
-        foreach (FiscalExportFile file in files)
+        await foreach (FiscalExportFile file in files.WithCancellation(context.RequestAborted))
         {
             ZipArchiveEntry entry = zip.CreateEntry(file.Path, CompressionLevel.Optimal);
             await using Stream entryStream = entry.Open();

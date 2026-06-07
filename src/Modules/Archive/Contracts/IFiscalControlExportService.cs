@@ -1,6 +1,7 @@
 namespace Liakont.Modules.Archive.Contracts;
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -9,6 +10,12 @@ using System.Threading.Tasks;
 /// Tenant-scopé par construction. Consommé par API03 (endpoint d'export + endpoint de vérification à la
 /// demande). Le dossier réunit paquets d'archive, rapport d'intégrité, preuves d'ancrage, chronologie
 /// (DocumentEvents) et notice de vérification en français.
+/// <para>
+/// Les variantes <c>Build…</c> retournent le dossier MATÉRIALISÉ (pratique pour les tests/petits dossiers) ;
+/// les variantes <c>Stream…</c> produisent les fichiers PARESSEUSEMENT (un fichier lu du coffre à la fois)
+/// pour que l'appelant les écrive au fil de l'eau sans jamais charger tout le coffre en mémoire (API03 :
+/// exports volumineux, anti-OOM).
+/// </para>
 /// </summary>
 public interface IFiscalControlExportService
 {
@@ -34,4 +41,17 @@ public interface IFiscalControlExportService
     /// (réservé à l'export de réversibilité ; l'endpoint de lecture exige au moins une borne).
     /// </summary>
     Task<FiscalControlExport> BuildForRangeAsync(DateOnly? fromInclusive, DateOnly? toInclusive, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Variante PARESSEUSE de <see cref="BuildForDocumentAsync"/> : produit les fichiers du dossier un par un
+    /// (chaque pièce lue du coffre à la volée), sans matérialiser tout le dossier en mémoire.
+    /// </summary>
+    IAsyncEnumerable<FiscalExportFile> StreamForDocumentAsync(Guid documentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Variante PARESSEUSE de <see cref="BuildForRangeAsync"/> : produit les fichiers du dossier un par un
+    /// (chaque pièce lue du coffre à la volée), sans matérialiser tout le coffre en mémoire. Mêmes règles de
+    /// sélection (granularité mensuelle ; deux bornes <c>null</c> = coffre entier).
+    /// </summary>
+    IAsyncEnumerable<FiscalExportFile> StreamForRangeAsync(DateOnly? fromInclusive, DateOnly? toInclusive, CancellationToken cancellationToken = default);
 }

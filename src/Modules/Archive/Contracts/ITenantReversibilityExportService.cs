@@ -1,5 +1,6 @@
 namespace Liakont.Modules.Archive.Contracts;
 
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -12,6 +13,13 @@ using System.Threading.Tasks;
 /// </summary>
 public interface ITenantReversibilityExportService
 {
-    /// <summary>Assemble le dossier de réversibilité du tenant courant.</summary>
+    /// <summary>Assemble le dossier de réversibilité du tenant courant (matérialisé ; pratique pour les tests).</summary>
     Task<TenantReversibilityExport> BuildAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Variante PARESSEUSE : produit les fichiers du dossier de réversibilité un par un (coffre lu pièce par
+    /// pièce, tracking paginé par lots), pour que l'appelant les écrive au fil de l'eau sans charger tout le
+    /// coffre ni tous les documents en mémoire (API03 : exports volumineux, anti-OOM).
+    /// </summary>
+    IAsyncEnumerable<FiscalExportFile> StreamAsync(CancellationToken cancellationToken = default);
 }
