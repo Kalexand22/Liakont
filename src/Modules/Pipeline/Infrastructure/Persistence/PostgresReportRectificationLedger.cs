@@ -42,7 +42,7 @@ public sealed class PostgresReportRectificationLedger : IReportRectificationLedg
                    pa_report_id, payload_snapshot, pa_response_snapshot, detail, created_utc
             FROM pipeline.report_rectifications
             WHERE flux = @Flux AND period_start = @PeriodStart AND period_end = @PeriodEnd
-            ORDER BY created_utc DESC, id DESC
+            ORDER BY created_utc DESC, seq DESC
             LIMIT 1
             """;
 
@@ -120,7 +120,7 @@ public sealed class PostgresReportRectificationLedger : IReportRectificationLedg
                    pa_report_id, payload_snapshot, pa_response_snapshot, detail, created_utc
             FROM pipeline.report_rectifications
             WHERE flux = @Flux AND period_start = @PeriodStart AND period_end = @PeriodEnd
-            ORDER BY created_utc, id
+            ORDER BY created_utc, seq
             """;
 
         var rows = await conn.QueryAsync(new CommandDefinition(

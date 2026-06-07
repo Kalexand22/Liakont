@@ -28,13 +28,17 @@ CREATE TABLE IF NOT EXISTS pipeline.report_rectifications (
     pa_response_snapshot text,
     detail               text,
     created_utc          timestamptz NOT NULL DEFAULT now(),
+    -- Séquence MONOTONE d'insertion : départage déterministe de « la dernière entrée » d'une période quand
+    -- deux created_utc coïncident (l'idempotence fiscale ne doit pas dépendre d'un tie-break sur l'UUID
+    -- aléatoire de la PK). Ordonné par created_utc DESC, seq DESC.
+    seq                  bigint      GENERATED ALWAYS AS IDENTITY,
 
     CONSTRAINT pk_report_rectifications PRIMARY KEY (id)
 );
 
--- Lectures par période (dernière entrée / historique) et par ordre chronologique.
+-- Lectures par période (dernière entrée / historique) dans l'ordre d'insertion réel (created_utc puis seq).
 CREATE INDEX IF NOT EXISTS ix_report_rectifications_period
-    ON pipeline.report_rectifications (flux, period_start, period_end, created_utc);
+    ON pipeline.report_rectifications (flux, period_start, period_end, created_utc, seq);
 
 -- Garde-fou append-only : un trigger s'applique à TOUT rôle (y compris propriétaire / superuser),
 -- contrairement à un REVOKE sans effet sur le propriétaire de la table (CLAUDE.md n°4).

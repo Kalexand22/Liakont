@@ -49,9 +49,13 @@ public sealed partial class ReportRectificationTenantJob : ITenantJob
 
         var periods = await ledger.ListDeclaredPeriodsAsync(cancellationToken);
 
+        // Projection chargée UNE fois par run et passée à chaque période (évite O(périodes × projection)).
+        var aggregates = await services.GetRequiredService<IPaymentAggregationStore>().GetAllAsync(cancellationToken);
+
         var transmitted = 0;
         var pending = 0;
         var unchanged = 0;
+        var nothingToDeclare = 0;
         var failed = 0;
 
         foreach (var period in periods)
@@ -59,7 +63,7 @@ public sealed partial class ReportRectificationTenantJob : ITenantJob
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                var outcome = await service.RectifyPeriodAsync(tenantId, period.Flux, period.PeriodStart, period.PeriodEnd, cancellationToken);
+                var outcome = await service.RectifyPeriodAsync(tenantId, period.Flux, period.PeriodStart, period.PeriodEnd, aggregates, cancellationToken);
                 switch (outcome.Decision)
                 {
                     case ReportRectificationDecision.Transmitted:
@@ -67,6 +71,11 @@ public sealed partial class ReportRectificationTenantJob : ITenantJob
                         break;
                     case ReportRectificationDecision.PendingCapability:
                         pending++;
+                        break;
+                    case ReportRectificationDecision.NothingToDeclare:
+                        // Période déjà déclarée désormais vide : annulation à statuer (alerte loggée par le service) —
+                        // NON bucketisée en « inchangée », sinon le filet opérateur est silencieux.
+                        nothingToDeclare++;
                         break;
                     case ReportRectificationDecision.RejectedByPa:
                     case ReportRectificationDecision.TechnicalError:
@@ -91,7 +100,7 @@ public sealed partial class ReportRectificationTenantJob : ITenantJob
 
         var detail = string.Create(
             CultureInfo.InvariantCulture,
-            $"Rectification e-reporting (PIP04) : {periods.Count} période(s) déclarée(s) ré-évaluée(s) — {transmitted} rectifiée(s), {pending} en attente de capacité, {unchanged} inchangée(s), {failed} en échec.");
+            $"Rectification e-reporting (PIP04) : {periods.Count} période(s) déclarée(s) ré-évaluée(s) — {transmitted} rectifiée(s), {pending} en attente de capacité, {unchanged} inchangée(s), {nothingToDeclare} vidée(s) à statuer, {failed} en échec.");
 
         var runLog = RunLog.Start(PipelineRunType.Rectify, _trigger, startedAt);
         runLog.Complete(
@@ -102,12 +111,12 @@ public sealed partial class ReportRectificationTenantJob : ITenantJob
             detail: detail);
         await services.GetRequiredService<IPipelineRunLogStore>().SaveAsync(runLog, cancellationToken);
 
-        LogCompleted(logger, tenantId, periods.Count, transmitted, pending, failed);
+        LogCompleted(logger, tenantId, periods.Count, transmitted, pending, nothingToDeclare, failed);
     }
 
     [LoggerMessage(EventId = 7442, Level = LogLevel.Information,
-        Message = "Rectification e-reporting terminée pour le tenant « {TenantId} » : {Periods} période(s) — {Transmitted} rectifiée(s), {Pending} en attente, {Failed} en échec.")]
-    private static partial void LogCompleted(ILogger logger, string tenantId, int periods, int transmitted, int pending, int failed);
+        Message = "Rectification e-reporting terminée pour le tenant « {TenantId} » : {Periods} période(s) — {Transmitted} rectifiée(s), {Pending} en attente, {Voided} vidée(s) à statuer, {Failed} en échec.")]
+    private static partial void LogCompleted(ILogger logger, string tenantId, int periods, int transmitted, int pending, int voided, int failed);
 
     [LoggerMessage(EventId = 7443, Level = LogLevel.Warning,
         Message = "Rectification e-reporting : échec sur la période du {PeriodStart} au {PeriodEnd} — ignorée ce cycle, ré-évaluation des autres périodes poursuivie.")]

@@ -81,8 +81,15 @@ public sealed class RectificationHarness : IAsyncLifetime
         await _container.DisposeAsync();
     }
 
-    /// <summary>Configure les capacités du plug-in factice : rectification (flux RE) + e-reporting de paiement domestique (10.4).</summary>
-    public void SetCapabilities(bool supportsRectification, bool supportsDomesticPaymentReporting)
+    /// <summary>
+    /// Configure les capacités du plug-in factice (rectification flux RE + e-reporting de paiement domestique
+    /// 10.4) et le scénario d'envoi (succès par défaut — rejet / erreur technique pour exercer les branches de
+    /// <c>MapResult</c>). Réinitialise le journal d'appels.
+    /// </summary>
+    public void SetCapabilities(
+        bool supportsRectification,
+        bool supportsDomesticPaymentReporting,
+        FakePaScenario sendScenario = FakePaScenario.Success)
     {
         PaClient = new FakePaClient(new FakePaClientOptions
         {
@@ -92,6 +99,7 @@ public sealed class RectificationHarness : IAsyncLifetime
                 SupportsReportRectification = supportsRectification,
                 SupportsDomesticPaymentReporting = supportsDomesticPaymentReporting,
             },
+            SendScenario = sendScenario,
         });
     }
 
