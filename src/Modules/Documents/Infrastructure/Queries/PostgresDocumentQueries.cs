@@ -173,6 +173,160 @@ public sealed class PostgresDocumentQueries : IDocumentQueries
         return rows.Select(MapEvent).ToList();
     }
 
+    public async Task<DocumentListResult> GetDocumentsAsync(
+        DocumentListFilter filter,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+
+        var boundedPage = filter.Page < 1 ? 1 : filter.Page;
+        var boundedPageSize = filter.PageSize < 1 ? 1 : Math.Min(filter.PageSize, MaxPageSize);
+        var offset = (long)(boundedPage - 1) * boundedPageSize;
+
+        using var conn = await _connectionFactory.OpenAsync(cancellationToken);
+
+        // Deux jeux de clauses : AVEC l'état (liste + total) et SANS l'état (compteurs du bandeau de
+        // synthèse, qui doivent montrer la répartition de TOUS les états du périmètre courant).
+        var withState = new List<string>();
+        var withoutState = new List<string>();
+        var parameters = new DynamicParameters();
+
+        if (filter.From is { } from)
+        {
+            const string clause = "issue_date >= @From";
+            withState.Add(clause);
+            withoutState.Add(clause);
+            parameters.Add("From", from);
+        }
+
+        if (filter.To is { } to)
+        {
+            const string clause = "issue_date <= @To";
+            withState.Add(clause);
+            withoutState.Add(clause);
+            parameters.Add("To", to);
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.Type))
+        {
+            const string clause = "document_type = @Type";
+            withState.Add(clause);
+            withoutState.Add(clause);
+            parameters.Add("Type", filter.Type);
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+        {
+            // Recherche « contient », insensible à la casse ; les jokers LIKE de la saisie sont échappés
+            // (backslash = caractère d'échappement LIKE par défaut de PostgreSQL) pour rester littéraux.
+            const string clause =
+                "(document_number ILIKE @Search OR source_reference ILIKE @Search OR customer_name ILIKE @Search)";
+            withState.Add(clause);
+            withoutState.Add(clause);
+            parameters.Add("Search", "%" + EscapeLike(filter.Search) + "%");
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.State))
+        {
+            withState.Add("state = @State");
+            parameters.Add("State", filter.State);
+        }
+
+        var whereWithState = withState.Count == 0 ? string.Empty : "WHERE " + string.Join(" AND ", withState);
+        var whereWithoutState = withoutState.Count == 0 ? string.Empty : "WHERE " + string.Join(" AND ", withoutState);
+
+        var listSql = $"""
+            SELECT id, document_number, document_type, issue_date, customer_name,
+                   total_gross, state, last_update_utc
+            FROM documents.documents
+            {whereWithState}
+            ORDER BY last_update_utc DESC, id
+            LIMIT @PageSize OFFSET @Offset
+            """;
+
+        var listParameters = new DynamicParameters(parameters);
+        listParameters.Add("PageSize", boundedPageSize);
+        listParameters.Add("Offset", offset);
+
+        var rows = await conn.QueryAsync(new CommandDefinition(
+            listSql, listParameters, cancellationToken: cancellationToken));
+        var items = rows.Select(MapSummary).ToList();
+
+        var totalSql = $"""
+            SELECT count(*)
+            FROM documents.documents
+            {whereWithState}
+            """;
+        var totalCount = await conn.ExecuteScalarAsync<long>(new CommandDefinition(
+            totalSql, parameters, cancellationToken: cancellationToken));
+
+        var countsSql = $"""
+            SELECT state, count(*) AS cnt
+            FROM documents.documents
+            {whereWithoutState}
+            GROUP BY state
+            """;
+        var countRows = await conn.QueryAsync(new CommandDefinition(
+            countsSql, parameters, cancellationToken: cancellationToken));
+
+        var countsByState = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var row in countRows)
+        {
+            countsByState[(string)row.state] = (int)(long)row.cnt;
+        }
+
+        return new DocumentListResult
+        {
+            Items = items,
+            Page = boundedPage,
+            PageSize = boundedPageSize,
+            TotalCount = (int)totalCount,
+            CountsByState = countsByState,
+        };
+    }
+
+    public async Task<ArchiveReferenceDto?> GetArchiveReferenceAsync(Guid documentId, CancellationToken cancellationToken = default)
+    {
+        using var conn = await _connectionFactory.OpenAsync(cancellationToken);
+
+        // documents.archive_entries (TRK05) : alimentée par le module Archive à l'émission, dans le schéma
+        // du tenant. Un document peut avoir plusieurs entrées (addendum de réconciliation TRK07) ; on
+        // retourne la PLUS RÉCENTE comme référence courante du coffre. Aucune mutation : table WORM.
+        const string sql = """
+            SELECT package_path, package_hash, chain_hash, archived_utc
+            FROM documents.archive_entries
+            WHERE document_id = @DocumentId
+            ORDER BY archived_utc DESC, id
+            LIMIT 1
+            """;
+
+        var row = await conn.QueryFirstOrDefaultAsync(new CommandDefinition(
+            sql, new { DocumentId = documentId }, cancellationToken: cancellationToken));
+
+        return row is null
+            ? null
+            : new ArchiveReferenceDto
+            {
+                PackagePath = (string)row.package_path,
+                PackageHash = (string)row.package_hash,
+                ChainHash = (string)row.chain_hash,
+                ArchivedUtc = DocumentRowReader.ToDateTimeOffset((object)row.archived_utc),
+            };
+    }
+
+    /// <summary>
+    /// Échappe les jokers LIKE/ILIKE (<c>%</c>, <c>_</c>) et le caractère d'échappement (<c>\</c>) d'une
+    /// saisie de recherche, pour qu'ils soient traités littéralement (PostgreSQL utilise <c>\</c> comme
+    /// caractère d'échappement LIKE par défaut).
+    /// </summary>
+    private static string EscapeLike(string term)
+    {
+        return term
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("%", "\\%", StringComparison.Ordinal)
+            .Replace("_", "\\_", StringComparison.Ordinal);
+    }
+
     private static DocumentDto MapDocument(dynamic row)
     {
         return new DocumentDto

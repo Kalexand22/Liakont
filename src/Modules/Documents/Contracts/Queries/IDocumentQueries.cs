@@ -34,8 +34,23 @@ public interface IDocumentQueries
         int pageSize,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Liste paginée de documents pour la console (API01a, GET /documents) : filtres optionnels (plage de
+    /// dates d'émission, état, type, recherche libre), total correspondant aux filtres, et compteurs par
+    /// état pour le bandeau de synthèse. Triée par dernière mise à jour décroissante.
+    /// </summary>
+    Task<DocumentListResult> GetDocumentsAsync(DocumentListFilter filter, CancellationToken cancellationToken = default);
+
     /// <summary>Piste d'audit complète d'un document (ordre chronologique).</summary>
     Task<IReadOnlyList<DocumentEventDto>> GetEventsAsync(Guid documentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Référence d'archive d'un document (API01a, détail) : la dernière entrée du coffre WORM pour ce
+    /// document (TRK05), ou <c>null</c> si le document n'est pas encore archivé. Lecture seule de
+    /// <c>documents.archive_entries</c> (même schéma tenant). La vérification cryptographique complète du
+    /// coffre est une action à la demande distincte (API03).
+    /// </summary>
+    Task<ArchiveReferenceDto?> GetArchiveReferenceAsync(Guid documentId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Documents dont l'envoi est ENGAGÉ mais dont l'issue est INCERTAINE (état <c>Sending</c>) — F06 §5,
