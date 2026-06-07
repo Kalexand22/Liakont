@@ -196,8 +196,7 @@ The agent is already in its own clone. It just needs to create the sub-branch.
 integration gate (`type: gate`, `executor` ≠ `human`, `blueprint: auto-gate-item`):
   - Determine the segment whose `gate` field equals this gate id (e.g. `GATE_CORE_FOUNDATION`
     → segment `core-foundation`, branch `feat/core-foundation`).
-  - `git fetch origin`, `git checkout <segment-branch>`, `git pull origin <segment-branch>`
-    (pull skipped while no remote is configured).
+  - `git fetch origin`, `git checkout <segment-branch>`, `git pull origin <segment-branch>`.
   - Do **NOT** create a sub-branch. The auto-gate runs verify/tests/review on the segment
     branch itself and then merges it into main (Step 5c). Skip the rest of Step 3.
   - (At claim time in Step 2.5, pass the **segment branch name** as `-Subbranch` — an auto-gate
@@ -314,8 +313,9 @@ After the review loop is clean and all work is committed on the sub-branch:
 4. `git push origin "$SEGMENT_BRANCH"`
 5. Optional cleanup: `git branch -d "$SUBBRANCH" && git push origin --delete "$SUBBRANCH"`
 
-**Note (no remote yet):** while the repo has no `origin` remote configured, the push/pull steps
-are skipped — merges remain local. As soon as a remote exists, pushing becomes mandatory.
+**Note (remote configured 2026-06-07):** `origin` (https://github.com/Kalexand22/Liakont.git) is
+configured — the push/pull steps above are **mandatory**, every merge is pushed. The earlier
+local-only mode (push/pull skipped) is obsolete.
 
 ---
 
@@ -362,13 +362,13 @@ verify + run-tests + integration review (`codex-review -Base main`) are all gree
 segment branch. This is the **ONLY** sanctioned exception to the rule "never merge to main":
 it is scoped to gates with `executor` ≠ `human`, and it never runs on a red check.
 
-1. **With a remote configured** (PR auto-merge — keeps an audit trail, the target mode):
+1. **With a remote configured** (PR auto-merge — keeps an audit trail; now the only mode):
    - `git push origin <segment-branch>`
    - `gh pr create --base main --head <segment-branch> --title "<gate title>" --body "Automated integration gate: verify + run-tests + integration review green on <segment-branch>. Session log in $ORCH_REPO."`
    - `gh pr merge --merge` (auto-merges; if branch protection requires CI checks, add `--auto`
      so the PR lands when checks pass). A squash/rebase policy may replace `--merge` per repo
      convention — never force.
-2. **With no remote yet** (local merge — the current mode while `origin` is absent):
+2. **Local-merge fallback (OBSOLETE)** — `origin` is now configured, so this path no longer applies; use option 1:
    - `git checkout main`
    - `git merge --no-ff <segment-branch> -m "integrate(<segment>): <gate-id> — verify+tests+review green"`
 3. **Non-trivial conflict** (or `gh pr merge` rejected): `git merge --abort` (or `gh pr close`),
@@ -417,7 +417,7 @@ state.yaml at a time.
 
 ## Rules
 
-- **Pull before starting.** First action of every session: `git pull origin <segment-branch>` to pick up work pushed by other agents/slots since the last session (skip while no remote is configured).
+- **Pull before starting.** First action of every session: `git pull origin <segment-branch>` to pick up work pushed by other agents/slots since the last session. (`origin` is configured — pull is mandatory.)
 - **ONE item per agent per session.** Implement, verify, review, commit — all in one session.
 - **Each agent works in its own clone.** Clones sync via the remote (git push/fetch).
 - **All state.yaml mutations go through `tools/orch-state.ps1`.** Never edit state.yaml directly.
@@ -427,7 +427,7 @@ state.yaml at a time.
   with `executor` ≠ `human` (`blueprint: auto-gate-item`): after verify + run-tests + integration
   review are green, its `integrate_to_main` node merges the segment branch into main (Step 5c).
   Human gates (`executor: human`) still stop at PR creation for a human to merge.
-- **Always push after merge-back.** After merging the sub-branch into the segment branch, `git push origin <segment-branch>` immediately (once a remote exists). Other slots/agents depend on the remote to see your work. The default Claude Code "don't push unless asked" rule does NOT apply during orchestration — pushing is part of the pipeline.
+- **Always push after merge-back.** After merging the sub-branch into the segment branch, `git push origin <segment-branch>` immediately (`origin` is configured — pushing is mandatory). Other slots/agents depend on the remote to see your work. The default Claude Code "don't push unless asked" rule does NOT apply during orchestration — pushing is part of the pipeline.
 - **Stay on the segment branch.** After merge-back, remain on the segment branch (e.g. `feat/core-foundation`). Never checkout `main` — the segment branch is the working base for all items in the segment. The ONLY exception is the `integrate_to_main` node of an automated gate (Step 5c), which checks out `main` to merge the finished segment into it.
 - **Never force-push.** Always regular push.
 - **Non-destructive recovery.** Never stash-drop, reset --hard, or delete branches (except cleanup of own sub-branch after successful merge-back).
