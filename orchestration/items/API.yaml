@@ -10,36 +10,65 @@
 # avec l'identité de l'opérateur (module Audit).
 
 items:
-  API01:
-    title: "Endpoints de lecture : documents, traitements, encaissements, paramétrage"
+  # API01 re-découpé en API01a/b/c (2026-06-07, manifest v13) : le bootstrap (harness HTTP + 3 projets
+  # Web en une session) était trop gros → bloqué « mal dimensionné » par le runner. Découpé par projet
+  # Web sur un harness partagé établi par API01a.
+  API01a:
+    title: "Harness HTTP de la console + endpoints de lecture Documents"
     description: |
-      Implémenter les endpoints de consultation dans les projets Web des modules concernés
-      (Documents.Web, Payments.Web, TenantSettings.Web...) :
-      1. GET /api/v1/documents?from=&to=&state=&type=&search= → liste paginée (DTO résumé) —
-         états, compteurs par état pour le bandeau de synthèse.
-      2. GET /api/v1/documents/{id} → détail complet : contenu pivot, contrôles
-         (ValidationIssues), historique (DocumentEvents), référence d'archive + état d'intégrité.
-      3. GET /api/v1/runs?from=&to= → journal des traitements (jobs d'ingestion/pipeline
-         du tenant : déclencheur, durée, compteurs).
-      4. GET /api/v1/payments?period= → agrégats d'encaissements (PaymentAggregate) + état
-         de transmission + état des paramètres fiscaux (décision en attente le cas échéant).
-      5. GET /api/v1/settings → paramétrage du tenant visible (secrets masqués), table TVA
-         (version, validateur, état de validation), capacités du/des PA configurés, capacités
-         de l'agent/adaptateur (la console en a besoin pour afficher ou masquer l'écran
-         Réconciliation).
-      6. Tous les endpoints : permission liakont.read minimum, tenant résolu depuis le
-         contexte utilisateur (un utilisateur appartient à un tenant — mapping via Identity),
-         pagination, codes d'erreur uniformes.
-      7. Tests d'intégration in-process (WebApplicationFactory + Testcontainers) :
-         chaque endpoint, pagination, filtres, isolation tenant (un utilisateur du tenant A
-         ne voit jamais les documents du tenant B), secrets masqués.
+      Bootstrap de la couche HTTP de la console (réutilisée par TOUS les autres endpoints API et pages
+      WEB) + les endpoints de lecture du module Documents :
+      1. Harness partagé (MapGroup /api/v1) : policies de permission liakont.read/actions/settings
+         (via Identity), résolution du tenant depuis le contexte utilisateur, enveloppe d'erreur
+         uniforme, helper de pagination, helper de masquage des secrets. C'est l'infrastructure que
+         API01b/API01c/API02-05 RÉUTILISENT — ne pas la dupliquer.
+      2. Documents.Web (lecture) :
+         - GET /api/v1/documents?from=&to=&state=&type=&search= → liste paginée (DTO résumé) +
+           compteurs par état pour le bandeau de synthèse.
+         - GET /api/v1/documents/{id} → détail complet : contenu pivot, contrôles (ValidationIssues),
+           historique (DocumentEvents), référence d'archive + état d'intégrité.
+      3. Tests d'intégration in-process (WebApplicationFactory + Testcontainers) : harness (permission
+         liakont.read → 403 sans elle, isolation tenant A≠B, pagination), les 2 endpoints documents, filtres.
     acceptance:
-      - "Les 5 familles d'endpoints de lecture opérationnelles"
-      - "Permission liakont.read appliquée, 403 sans elle"
-      - "Isolation tenant vérifiée par test sur chaque endpoint"
-      - "Secrets toujours masqués dans /settings"
-      - "Pagination et filtres testés"
-      - "Tests d'intégration in-process sur chaque endpoint"
+      - "Harness /api/v1 partagé (policies de permission, résolution tenant, erreurs uniformes, pagination, masquage secrets) réutilisable par API01b/c et API02-05"
+      - "GET /documents (liste paginée + compteurs) et GET /documents/{id} (détail) opérationnels"
+      - "Permission liakont.read appliquée (403 sans elle), isolation tenant vérifiée par test"
+      - "Tests d'intégration in-process (WebApplicationFactory + Testcontainers)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  API01b:
+    title: "Endpoints de lecture : Traitements + Encaissements"
+    description: |
+      Sur le harness HTTP d'API01a, ajouter les lectures Pipeline/Job + Payments :
+      1. GET /api/v1/runs?from=&to= → journal des traitements (jobs d'ingestion/pipeline du tenant :
+         déclencheur, durée, compteurs).
+      2. GET /api/v1/payments?period= → agrégats d'encaissements (PaymentAggregate) + état de
+         transmission + état des paramètres fiscaux (décision en attente le cas échéant).
+      3. RÉUTILISE le harness d'API01a (permissions, tenant, pagination, erreurs) — ne rien redupliquer.
+      4. Tests d'intégration : les 2 endpoints, isolation tenant, état des paramètres fiscaux exposé.
+    acceptance:
+      - "GET /runs et GET /payments opérationnels sur le harness API01a (rien redupliqué)"
+      - "Permission liakont.read appliquée, isolation tenant vérifiée par test"
+      - "GET /payments expose l'état des paramètres fiscaux (décision en attente le cas échéant)"
+      - "Tests d'intégration in-process"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  API01c:
+    title: "Endpoint de lecture : Paramétrage du tenant"
+    description: |
+      Sur le harness HTTP d'API01a, ajouter la lecture du paramétrage (TenantSettings.Web) :
+      1. GET /api/v1/settings → paramétrage du tenant visible (secrets TOUJOURS masqués), table TVA
+         (version, validateur, état de validation), capacités du/des PA configurés, capacités de
+         l'agent/adaptateur (la console en a besoin pour afficher ou masquer l'écran Réconciliation).
+      2. RÉUTILISE le harness d'API01a — ne rien redupliquer.
+      3. Tests d'intégration : endpoint, secrets masqués, isolation tenant, capacités exposées.
+    acceptance:
+      - "GET /settings opérationnel sur le harness API01a, secrets TOUJOURS masqués"
+      - "Table TVA (état de validation) et capacités PA + agent/adaptateur exposées"
+      - "Permission liakont.read appliquée, isolation tenant vérifiée par test"
+      - "Tests d'intégration in-process"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
