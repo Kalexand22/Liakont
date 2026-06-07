@@ -5,50 +5,75 @@
 # Absorbe l'ex-lot PKG (packaging) du manifest v5.
 
 items:
-  OPS01:
-    title: "Appliance Docker (plateforme + PostgreSQL + Keycloak)"
+  # OPS01 re-découpé en OPS01a/b/c (2026-06-07, v15) : appliance build+run / sauvegarde-restauration-PRA / ADR topologie IdP — un livrable atomique par sous-item.
+  OPS01a:
+    title: "Appliance Docker : build + run (Host + PostgreSQL + Keycloak + Caddy)"
     description: |
-      Créer le livrable de déploiement d'une instance dans deploy/docker/ (F12 §6.2) :
+      Créer le livrable de lancement d'une instance dans deploy/docker/ (F12 §6.2). dépend de [].
       1. Dockerfile multi-stage pour Liakont.Host (.NET 10, image runtime aspnet).
-      2. docker-compose.yml : liakont (Host) + postgres (volumes persistants) + keycloak
-         (realm Liakont importé au démarrage : realm-liakont.json) + reverse proxy
-         optionnel (Caddy — TLS automatique pour le self-hosted).
-      3. Configuration par variables d'environnement : connexion PostgreSQL, Keycloak,
-         SMTP, branding (BRD01), URL publique. Fichier .env.example documenté — AUCUN
-         secret par défaut (génération obligatoire à l'installation).
-      4. Clés Data Protection (CFG02) persistées dans un volume (les secrets tenant survivent
-         au redéploiement du conteneur).
-      5. Sauvegardes : script deploy/docker/backup.ps1|sh — pg_dump quotidien (granularité :
-         par base — base système + une par tenant, pour permettre la restauration sélective
-         exigée par la réversibilité OPS06) + volumes d'archive, rotation documentée.
-         La procédure fait partie du livrable.
-      6. RESTAURATION DE BOUT EN BOUT TESTÉE (une sauvegarde jamais restaurée est un faux vert
-         classique — et l'opérateur héberge des archives fiscales de tiers, 10 ans) :
-         restore d'un dump dans une instance vierge → données + coffre WORM intègres →
-         ArchiveVerifier (TRK06) vert post-restauration. Ce test fait partie de l'acceptance.
-      7. PRA documenté : RTO/RPO cibles (une panne d'instance = tous les tenants bloqués
-         simultanément à l'approche d'une échéance déclarative), procédure de reprise testée,
-         lien avec la méta-supervision OPS04 (alerte sauvegarde en échec).
-      8. Documentation deploy/docker/README.md : prérequis (Docker, RAM — voir mesure ADR),
-         installation pas à pas pour un éditeur self-hosted, mise à jour (pull + up), restauration.
-      9. ADR : TOPOLOGIE de l'IdP retenu (par instance vs mutualisé). NOTE : la DIRECTION
-         (Keycloak vs IdP in-process léger type OpenIddict) est tranchée EN AMONT — l'auth est
-         derrière une abstraction dès SOL01 (décision D10) + spike d'empreinte ; cet ADR ne
-         décide donc que la topologie de déploiement du fournisseur retenu et son empreinte
-         réelle heap-bornée (qui conditionne le pricing des instances hébergées). Le Keycloak
-         de dev de SOL01 (realm liakont-dev) reste l'implémentation par défaut tant que le
-         spike n'a pas justifié une bascule ; le seam rend la bascule possible sans remettre
-         en cause les fondations (même mécanique de rôles, même mapping tenant).
-      10. Test : l'appliance démarre sur une machine propre (docker compose up), le Host
-          répond, un tenant de test se crée, le login Keycloak fonctionne.
+      2. docker-compose.yml complet : liakont (Host) + postgres (volumes persistants) + keycloak
+         (realm Liakont importé au démarrage : realm-liakont.json) + Caddy (reverse proxy, TLS
+         automatique pour le self-hosted).
+      3. Configuration par variables d'environnement : connexion PostgreSQL, Keycloak, SMTP,
+         branding (BRD01), URL publique. Fichier .env.example documenté — AUCUN secret par défaut
+         (génération obligatoire à l'installation).
+      4. Clés Data Protection (CFG02) persistées dans un volume : les secrets tenant chiffrés
+         survivent au redéploiement du conteneur (sinon les clés API PA deviennent illisibles).
+      5. README d'installation deploy/docker/README.md : prérequis (Docker, RAM), installation pas
+         à pas pour un éditeur self-hosted, mise à jour (pull + up).
+      6. Test : l'appliance démarre sur une machine propre (docker compose up), le Host répond,
+         un tenant de test se crée, le login Keycloak fonctionne.
     acceptance:
-      - "docker compose up démarre l'instance complète sur machine propre"
+      - "docker compose up démarre l'instance complète (Host + postgres + keycloak + Caddy) sur machine propre"
       - "Aucun secret par défaut, .env.example documenté"
       - "Clés Data Protection et données persistées en volumes (survivent au redéploiement)"
-      - "Sauvegardes par base (système + chaque tenant) ; restauration bout-en-bout testée : restore → ArchiveVerifier vert"
+      - "Login Keycloak fonctionnel après démarrage (realm Liakont importé)"
+      - "README d'installation exécutable par un éditeur self-hosted"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  OPS01b:
+    title: "Appliance : sauvegarde / restauration bout-en-bout + PRA"
+    description: |
+      Outiller la sauvegarde et PROUVER la restauration de l'appliance (F12 §6.2 — une sauvegarde
+      jamais restaurée est un faux vert classique, et l'opérateur héberge des archives fiscales de
+      tiers conservées 10 ans). dépend de [OPS01a].
+      1. Script deploy/docker/backup.ps1|sh : pg_dump PAR base (base système + une par tenant, pour
+         permettre la restauration sélective exigée par la réversibilité OPS06) + volumes d'archive,
+         rotation documentée. La procédure fait partie du livrable.
+      2. RESTAURATION DE BOUT EN BOUT TESTÉE : restore d'un dump dans une instance VIERGE → données +
+         coffre WORM intègres → ArchiveVerifier (TRK06) VERT post-restauration. Ce test fait partie
+         de l'acceptance (pas une simple capture d'écran).
+      3. PRA documenté : RTO/RPO cibles (une panne d'instance = tous les tenants bloqués simultanément
+         à l'approche d'une échéance déclarative), procédure de reprise testée, lien avec la
+         méta-supervision OPS04 (alerte sauvegarde en échec).
+    acceptance:
+      - "Sauvegardes par base (système + chaque tenant) + volumes d'archive, rotation documentée"
+      - "Restauration bout-en-bout testée sur instance vierge : restore → ArchiveVerifier (TRK06) vert"
       - "PRA documenté : RTO/RPO cibles + procédure de reprise testée"
-      - "ADR topologie IdP rédigé (empreinte mesurée ; direction Keycloak/alternative déjà tranchée par le seam+spike SOL01)"
-      - "README d'installation exécutable par un éditeur (cible : profil « serveur chez un hébergeur »)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  OPS01c:
+    title: "ADR topologie IdP (empreinte mesurée)"
+    description: |
+      Rédiger l'ADR de la TOPOLOGIE de déploiement de l'IdP retenu (F12 §6.2 pt 9, F12 §7 n°1, D10).
+      dépend de [OPS01a].
+      1. La DIRECTION (Keycloak vs alternative in-process type OpenIddict) est tranchée EN AMONT :
+         l'auth est derrière l'abstraction IIdentityProviderAuthenticator dès SOL01 (D10) + spike
+         d'empreinte ADR-0002. Cet ADR ne décide donc QUE la topologie de déploiement du fournisseur
+         retenu (par instance vs mutualisé) et son empreinte réelle heap-bornée (qui conditionne le
+         pricing des instances hébergées).
+      2. EMPREINTE MESURÉE : la valeur d'empreinte vient d'une MESURE (spike, docker stats sur la
+         stack appliance OPS01a), à ACTER dans l'ADR — jamais devinée. Ré-mesure en charge
+         (sessions, multi-realms) avant d'arrêter la topologie.
+      3. Le Keycloak de dev de SOL01 (realm liakont-dev) reste l'implémentation par défaut tant que
+         le spike n'a pas justifié une bascule ; le seam D10 rend la bascule possible sans remettre
+         en cause les fondations (même mécanique de rôles, même mapping tenant).
+    acceptance:
+      - "ADR topologie IdP rédigé (par instance vs mutualisé)"
+      - "Empreinte mémoire MESURÉE (spike) actée dans l'ADR — aucune valeur devinée"
+      - "Direction Keycloak/alternative confirmée déjà tranchée par le seam D10 + spike ADR-0002 (non rouverte ici)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -200,47 +225,71 @@ items:
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
-  OPS06:
-    title: "Réversibilité : export tenant + migration d'instance"
+  # OPS06 re-découpé en OPS06a/b/c (2026-06-07, v15) : outillage export tenant / migration d'instance / fin de vie tenant D7 — la réversibilité décomposée en trois livrables testables.
+  OPS06a:
+    title: "Export tenant (outil opérateur)"
     description: |
-      Implémenter la réversibilité (décision 2026-06-03 : item de V1, pas une option —
-      c'est l'argument qui désamorce l'objection « dépendance à un tiers ») :
-      1. Export complet d'un tenant (s'appuie sur l'endpoint API03 /tenant-export) :
-         outillage opérateur — depuis l'écran Clients (OPS03), bouton [Exporter ce client] →
-         dossier complet : tracking (dump SQL + export JSON lisible), coffre d'archive
-         (paquets WORM + preuves d'ancrage), paramétrage (profil + table TVA + changelog),
-         notice de restitution en français (que contient l'export, comment le lire,
-         comment vérifier l'intégrité de l'archive).
-      2. Migration d'instance (dédiée hébergée → self-hosted) : procédure outillée
-         deploy/provisioning/migrate-instance.ps1 — pg_dump de toutes les bases (système +
-         tenants), copie des volumes (archive, clés DP), génération du bundle d'installation
-         pour la nouvelle cible, vérification de santé post-migration, bascule DNS documentée.
-      3. FIN DE VIE D'UN TENANT (résiliation — décision D7 du 2026-06-03, séquence stricte qui
-         concilie résiliation/RGPD avec le coffre WORM et la conservation fiscale 10 ans) :
-         a. DÉSACTIVATION logique immédiate (statut OPS03 : plus de push, plus de connexion,
-            données intactes) — c'est l'état normal d'un tenant résilié.
-         b. Export complet produit ET VÉRIFIÉ : l'ArchiveVerifier (TRK06) doit être vert sur
-            le bundle exporté (preuve que le client récupère une archive intègre).
-         c. Transfert de responsabilité documenté : la notice de restitution mentionne
-            explicitement que les obligations de conservation fiscale (10 ans) passent au
-            client avec l'export ; l'opérateur conserve la confirmation (référence d'export,
-            date, destinataire).
-         d. SUPPRESSION effective seulement après a+b+c : double confirmation + saisie du nom
-            du tenant. La suppression est journalisée de façon IRRÉVERSIBLE dans l'audit de
-            l'INSTANCE (hors base tenant — qui, quand, référence de l'export vérifié) ;
-            cet enregistrement survit à la suppression de la base du tenant.
-         JAMAIS de suppression directe sans ces étapes — le chemin « désactivé pour toujours »
-         (étape a seule) est légitime et permanent si le client ne demande pas l'effacement.
-      4. Tests : export complet d'un tenant de test (contenu vérifié + ArchiveVerifier vert),
-         migration d'une instance de test de bout en bout, suppression refusée sans export
-         vérifié, suppression refusée si l'export n'est pas intègre, audit d'instance conservé
-         après suppression.
+      Outiller l'export complet d'un tenant côté OPÉRATEUR (l'endpoint API03 /tenant-export existe
+      déjà — ici c'est l'outillage de la console). dépend de [OPS03].
+      1. Bouton [Exporter ce client] sur l'écran Clients (OPS03) → s'appuie sur /tenant-export (API03)
+         → bundle complet : tracking (dump SQL + export JSON lisible), coffre d'archive (paquets WORM +
+         preuves d'ancrage), paramétrage (profil + table TVA + changelog).
+      2. Notice de restitution en français : que contient l'export, comment le lire, comment VÉRIFIER
+         l'intégrité de l'archive HORS PLATEFORME (outil/procédure autonome).
+      3. Tests : export complet d'un tenant de test (contenu vérifié + intégrité de l'archive
+         vérifiable hors plateforme).
     acceptance:
-      - "Export tenant complet : tracking + archive + paramétrage + notice française"
-      - "L'intégrité de l'archive exportée est vérifiable hors plateforme (notice + outil/procédure)"
-      - "Migration d'instance outillée et testée de bout en bout"
-      - "Séquence de fin de vie D7 : désactivation → export vérifié (ArchiveVerifier vert) → transfert documenté → suppression"
-      - "Suppression impossible sans export VÉRIFIÉ ; journalisée au niveau instance, l'enregistrement survit à la suppression"
+      - "Bouton d'export sur l'écran Clients → bundle complet (tracking + coffre WORM + preuves d'ancrage + paramétrage)"
+      - "Notice de restitution en français (contenu, lecture, vérification d'intégrité)"
+      - "Intégrité de l'archive exportée vérifiable hors plateforme (notice + outil/procédure)"
+      - "Tests d'export (contenu du bundle vérifié)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  OPS06b:
+    title: "Migration d'instance (dédiée hébergée → self-hosted)"
+    description: |
+      Outiller la migration d'une instance d'une cible vers une autre (F12 §6.3, réversibilité de V1).
+      dépend de [OPS06a, OPS01b].
+      1. deploy/provisioning/migrate-instance.ps1 : pg_dump de TOUTES les bases (système + tenants) +
+         copie des volumes (coffre d'archive, clés Data Protection) + génération du bundle d'installation
+         pour la nouvelle cible + contrôle de santé post-migration + bascule DNS documentée.
+      2. Réutilise la granularité par base d'OPS01b (d'où la dépendance) : la migration s'appuie sur la
+         même mécanique de dump/restore par base déjà testée.
+      3. Test : migration d'une instance de test de bout en bout (toutes bases + volumes), contrôle de
+         santé vert sur la cible, données et coffre WORM intègres après bascule.
+    acceptance:
+      - "migrate-instance.ps1 : pg_dump toutes bases + copie volumes (archive + clés DP) + bundle cible + contrôle de santé + bascule DNS"
+      - "Migration d'instance testée de bout en bout (santé verte sur la cible, données + coffre WORM intègres)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  OPS06c:
+    title: "Fin de vie d'un tenant (séquence D7)"
+    description: |
+      Implémenter la séquence stricte de fin de vie d'un tenant (décision D7 du 2026-06-03 : concilie
+      résiliation/RGPD avec le coffre WORM et la conservation fiscale 10 ans). dépend de [OPS06a].
+      1. DÉSACTIVATION logique immédiate (statut OPS03 : plus de push, plus de connexion, données
+         intactes) — état normal d'un tenant résilié.
+      2. EXPORT complet produit ET VÉRIFIÉ : l'ArchiveVerifier (TRK06) doit être VERT sur le bundle
+         exporté (preuve que le client récupère une archive intègre).
+      3. Transfert de responsabilité documenté : la notice mentionne explicitement que les obligations
+         de conservation fiscale (10 ans) passent au client avec l'export ; l'opérateur conserve la
+         confirmation (référence d'export, date, destinataire).
+      4. SUPPRESSION effective seulement après les étapes ci-dessus : double confirmation + saisie du
+         nom du tenant. Journalisée de façon IRRÉVERSIBLE dans l'audit de l'INSTANCE (hors base tenant —
+         qui, quand, référence de l'export vérifié) ; cet enregistrement SURVIT à la suppression de la
+         base du tenant.
+      5. REFUS si l'export n'est pas intègre (ArchiveVerifier rouge) : suppression impossible — testé.
+         Le chemin « désactivé pour toujours » (étape 1 seule) reste légitime et permanent si le client
+         ne demande pas l'effacement.
+      6. Tests : suppression refusée sans export vérifié, suppression refusée sur export non intègre,
+         audit d'instance conservé après suppression de la base tenant.
+    acceptance:
+      - "Séquence D7 : désactivation → export VÉRIFIÉ (ArchiveVerifier vert) → transfert documenté → suppression"
+      - "Suppression : double confirmation + saisie du nom du tenant ; impossible sans export vérifié"
+      - "Suppression refusée si l'export n'est pas intègre (testé)"
+      - "Audit niveau instance (hors base tenant) survivant à la suppression de la base"
       - "Tests complets (y compris refus sur export non intègre)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
@@ -281,51 +330,78 @@ items:
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
-  OPS08:
-    title: "Installateur GUI de l'agent + moteur de profil intégrateur"
+  # OPS08 re-découpé en OPS08a/b/c (2026-06-07, v15) : projet + moteur de profil / wizard GUI / packaging multi-profils — l'installateur agent F13 en trois livrables.
+  OPS08a:
+    title: "Installeur agent : projet + moteur de profil intégrateur"
     description: |
-      Implémenter l'installateur à écrans guidés de l'agent (projet Liakont.Agent.Installer,
-      WinForms net48) dans la solution agent — conception F13, ADR-0005. Emplacement selon l'état
-      du dépôt agent au moment de l'exécution : agent/src/ tant que l'agent est intra-repo, dépôt
-      séparé liakont-agent après la bascule ADR-0005 (différée au segment agent, donc avant OPS08).
-      Réutilise Liakont.Agent.Core + les commandes AGT05 (test-odbc / test-api / encrypt) : AUCUNE
-      logique dupliquée, AUCUNE logique métier (blueprint §6). NB : AGT05/Core sont garantis faits
-      par le séquencement de segment (toolkit ouvert après GATE_AGENT) — d'où l'absence de
-      depends_on d'item cross-segment (qui casserait après la purge des items AGT done : absent = done).
-      1. Bootstrapper GUI : pose des binaires + création du service Windows (self-install AGT01),
-         ACL ProgramData (OPS05), écriture de agent.json avec secrets chiffrés DPAPI
-         (SecretProtector AGT01). Un mode silencieux (fichier de réponses) partage le même moteur
-         de configuration que le wizard.
-      2. Écrans guidés (F13 §4) : connexion base source (adaptateur + ODBC + bouton « Tester » =
-         CheckHealth, LECTURE SEULE) ; connexion serveur central (URL plateforme + clé API +
-         « Tester » = heartbeat à blanc). Messages 100 % français orientés intégrateur.
-      3. Moteur de profil intégrateur (F13 §5) : profil DÉCLARATIF (branding + par champ un état
-         affiché|verrouillé|masqué + valeur par défaut). Le moteur ITÈRE sur les champs déclarés
+      Créer le projet de l'installateur et son moteur de profil déclaratif (F13 §3/§5, ADR-0005).
+      AUCUNE logique métier (blueprint §6). dépend de [OPS05].
+      1. Nouveau projet Liakont.Agent.Installer (WinForms net48) dans la solution agent, réutilisant
+         Liakont.Agent.Core + commandes AGT05 (test-odbc / test-api / encrypt) — aucune logique
+         dupliquée.
+      2. Moteur de profil intégrateur DÉCLARATIF (F13 §5) : profil = branding + par champ un état
+         affiché|verrouillé|masqué + valeur par défaut. Le moteur ITÈRE sur les champs déclarés
          (liste NON figée : ajouter une option = ajouter une clé, sans toucher au moteur). DÉFAUT
-         OUVERT (champ non déclaré = affiché + éditable). AUCUN if(integrateur) dans le code —
-         piloté par les données du profil (même principe que PaCapabilities, blueprint §2).
-      4. Validation du schéma de profil (réutilisée par le packaging) : clé inconnue, masquage sans
-         valeur, ou champ requis non résolu = ERREUR. platformUrl/apiKey requis toujours résolus ;
-         apiKey JAMAIS imposée par le profil (secret).
-      5. PACKAGING PAR PROFIL (F13 §7) : à partir du MÊME binaire + N profils intégrateur, produire
-         N installateurs (profil embarqué en ressource + branding), en réutilisant le packaging
-         OPS05. Profil invalide = ÉCHEC du build (jamais de masquage silencieux). « Générique par
-         intégrateur ».
-      6. SÉCURITÉ (F13 §6) : aucun secret en clair dans le binaire versionné (clé API + ODBC saisis
-         au wizard, chiffrés DPAPI) ; le profil = branding + visibilité only (aucun secret, aucune
-         donnée client) ; signature de profil optionnelle. Profil d'EXEMPLE FICTIF dans
-         config/exemples/ (jamais de donnée client).
-      7. Tests : wizard déroulé (Core mocké) ; profil pilotant la visibilité (3 états + défaut
-         ouvert) ; garde-fous (masquage sans valeur rejeté, apiKey non imposable, champ requis
-         résolu) ; absence de secret dans le binaire ; échec du build sur profil invalide ; mode
-         silencieux.
+         OUVERT (champ non déclaré = affiché + éditable). AUCUN if(integrateur) dans le code — piloté
+         par les données du profil (même principe que PaCapabilities, blueprint §2).
+      3. Validation du schéma de profil (réutilisée par le packaging OPS08c) : clé inconnue, masquage
+         sans valeur, ou champ requis non résolu = ERREUR. platformUrl/apiKey toujours requis ; apiKey
+         JAMAIS imposée par le profil (secret).
+      4. Garde-fous : apiKey jamais imposée ; secrets destinés à agent.json chiffrés DPAPI (machine
+         scope, SecretProtector AGT01).
+      5. Tests unitaires du moteur : profil pilotant la visibilité (3 états + défaut ouvert), masquage
+         sans valeur rejeté, apiKey non imposable, champ requis résolu.
     acceptance:
-      - "Wizard : connexion source (CheckHealth lecture seule) + serveur central (heartbeat à blanc) avec tests"
-      - "Profil intégrateur pilote la visibilité (affiché/verrouillé/masqué + valeur par défaut), défaut ouvert"
-      - "Garde-fous testés : masquage sans valeur rejeté ; platformUrl/apiKey requis ; apiKey jamais imposée par le profil"
-      - "Un installateur par profil (même binaire, profil embarqué) ; profil invalide = échec du build (testé)"
-      - "Aucun secret en clair dans le binaire (clé API + ODBC saisis au wizard, chiffrés DPAPI) — vérifié"
-      - "Aucun if(integrateur) dans le code (review) ; profil d'exemple FICTIF dans config/exemples/"
+      - "Projet Liakont.Agent.Installer (WinForms net48) réutilisant Agent.Core + commandes AGT05 (aucune logique dupliquée)"
+      - "Moteur de profil déclaratif : 3 états (affiché/verrouillé/masqué) + valeur par défaut, défaut ouvert, itération data-driven"
+      - "Validation de schéma : clé inconnue / masqué sans valeur / requis non résolu = erreur"
+      - "Garde-fous testés : apiKey jamais imposée par le profil ; aucun if(integrateur) (review)"
+      - "Tests unitaires du moteur de profil"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  OPS08b:
+    title: "Installeur agent : wizard GUI"
+    description: |
+      Implémenter les écrans guidés du bootstrapper GUI (F13 §3/§4). Messages 100 % français orientés
+      intégrateur. dépend de [OPS08a].
+      1. Écran source : choix de l'adaptateur + paramètres ODBC + bouton « Tester » = CheckHealth,
+         LECTURE SEULE stricte (aucune écriture, aucun verrou — règle 5). Identifiants chiffrés DPAPI
+         avant écriture.
+      2. Écran serveur central : URL plateforme + clé API + bouton « Tester » = heartbeat à blanc
+         (diagnostique URL injoignable / clé invalide / clé révoquée / OK).
+      3. Pose des binaires + création du service Windows (self-install AGT01), ACL ProgramData (OPS05),
+         puis écriture de agent.json avec secrets chiffrés DPAPI (SecretProtector AGT01) ; check-config
+         final affiché en clair.
+      4. Mode silencieux (fichier de réponses) partageant le MÊME moteur de configuration que le wizard.
+      5. Test du wizard (Liakont.Agent.Core mocké) : déroulé complet, tests source/serveur, mode
+         silencieux, agent.json écrit avec secrets chiffrés DPAPI.
+    acceptance:
+      - "Wizard : écran source (CheckHealth lecture seule) + écran serveur central (heartbeat à blanc) avec tests"
+      - "Écriture agent.json avec secrets chiffrés DPAPI (clé API + ODBC) — vérifié"
+      - "Mode silencieux partageant le moteur de configuration du wizard"
+      - "Test du wizard (Core mocké) : déroulé complet + tests source/serveur"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  OPS08c:
+    title: "Installeur agent : packaging multi-profils"
+    description: |
+      Produire un installateur par profil intégrateur à partir du même binaire (F13 §7), en réutilisant
+      le packaging OPS05. dépend de [OPS08b, OPS05].
+      1. À partir du MÊME binaire produit + N profils intégrateur, générer N installateurs (profil
+         embarqué en ressource + branding), en réutilisant tools/package-agent.ps1 (OPS05). « Générique
+         par intégrateur ».
+      2. Profil invalide = ÉCHEC du build (réutilise la validation de schéma d'OPS08a) — jamais de
+         masquage silencieux d'un profil cassé (anti-faux-vert).
+      3. Profil d'EXEMPLE FICTIF dans config/exemples/ (branding + visibilité only, aucun secret, AUCUNE
+         donnée client — règles 7/10).
+      4. Installation testée sur machine propre d'au moins un profil : service démarre, check-config
+         passe.
+    acceptance:
+      - "Packaging de N installateurs par profil (même binaire, profil embarqué) en réutilisant OPS05"
+      - "Profil invalide = échec du build (testé) ; aucun masquage silencieux"
+      - "Profil d'exemple FICTIF dans config/exemples/ (aucune donnée client, aucun secret)"
       - "Installation testée sur machine propre (service démarre, check-config passe)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"

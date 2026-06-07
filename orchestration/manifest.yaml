@@ -56,7 +56,12 @@ meta:
   #   API05 → alignement F12 (invalidation immédiate, fenêtre de recouvrement retirée) ;
   #   SUP01b → 3 règles constructibles + SUP01c (fast-follow GELÉ : 5 règles sans producteur, rompt la circularité OPS07).
   #   API01d et SUP01c sont HORS gate (fast-follow gelés, comme PIP03b). Restent opérateur/externe : PAS02 (sandbox), PIP03b (fiscal).
-  version: 15
+  # version 16 = pré-découpage proactif des 3 bootstraps toolkit « trop gros » (audit 2026-06-07) :
+  #   OPS01 (appliance from-scratch + restauration + ADR) → OPS01a (appliance) / OPS01b (sauvegarde+PRA) / OPS01c (ADR IdP) ;
+  #   OPS06 (3 sous-systèmes) → OPS06a (export tenant) / OPS06b (migration instance) / OPS06c (fin de vie D7) ;
+  #   OPS08 (installeur WinForms) → OPS08a (projet+moteur profil) / OPS08b (wizard GUI) / OPS08c (packaging multi-profils).
+  #   Recâblage : OPS02→OPS01a ; DOC01→[OPS01a,OPS05] ; GATE_TOOLKIT → {OPS01c, OPS06b, OPS06c, OPS08c} (+ OPS03/04/07/BRD/DOC inchangés).
+  version: 16
   host: multi_agent_v1
 
 segments:
@@ -283,23 +288,31 @@ items:
   # ── OPS ──
   # Ordre : OPS05 (packaging agent) précède OPS03 (assistant tenant, qui fournit le package
   # pré-configuré) et OPS07 (publication de versions) ; OPS06 (résiliation) suit OPS03 (écran Clients).
-  - { id: OPS01, lot: OPS, blueprint: tooling-item, priority: 7000, depends_on: [] }
-  - { id: OPS02, lot: OPS, blueprint: tooling-item, priority: 7010, depends_on: [OPS01] }
+  # OPS01 → OPS01a/b/c ; OPS06 → OPS06a/b/c ; OPS08 → OPS08a/b/c (2026-06-07, v15) : bootstraps toolkit
+  # trop gros (appliance from-scratch, réversibilité = 3 sous-systèmes, installeur WinForms neuf).
+  - { id: OPS01a, lot: OPS, blueprint: tooling-item, priority: 7000, depends_on: [] }
+  - { id: OPS01b, lot: OPS, blueprint: tooling-item, priority: 7002, depends_on: [OPS01a] }
+  - { id: OPS01c, lot: OPS, priority: 7004, depends_on: [OPS01a] }
+  - { id: OPS02, lot: OPS, blueprint: tooling-item, priority: 7010, depends_on: [OPS01a] }
   - { id: OPS04, lot: OPS, blueprint: tooling-item, priority: 7020, depends_on: [OPS02] }
   - { id: OPS05, lot: OPS, blueprint: tooling-item, priority: 7030, depends_on: [] }
+  - { id: OPS08a, lot: OPS, blueprint: tooling-item, priority: 7035, depends_on: [OPS05] }
+  - { id: OPS08b, lot: OPS, blueprint: tooling-item, priority: 7036, depends_on: [OPS08a] }
+  - { id: OPS08c, lot: OPS, blueprint: tooling-item, priority: 7037, depends_on: [OPS08b, OPS05] }
   - { id: OPS03, lot: OPS, blueprint: blazor-page-item, priority: 7040, depends_on: [OPS05] }
-  - { id: OPS06, lot: OPS, priority: 7050, depends_on: [OPS03] }
+  - { id: OPS06a, lot: OPS, priority: 7050, depends_on: [OPS03] }
+  - { id: OPS06b, lot: OPS, priority: 7052, depends_on: [OPS06a, OPS01b] }
+  - { id: OPS06c, lot: OPS, priority: 7054, depends_on: [OPS06a] }
   - { id: OPS07, lot: OPS, priority: 7055, depends_on: [OPS05] }
-  - { id: OPS08, lot: OPS, blueprint: tooling-item, priority: 7035, depends_on: [OPS05] }
 
   # ── BRD ──
   - { id: BRD01, lot: BRD, priority: 7060, depends_on: [] }
 
   # ── DOC ──
-  - { id: DOC01, lot: DOC, blueprint: docs-spec-item, priority: 7100, depends_on: [OPS01, OPS05] }
+  - { id: DOC01, lot: DOC, blueprint: docs-spec-item, priority: 7100, depends_on: [OPS01a, OPS05] }
   - { id: DOC02, lot: DOC, blueprint: docs-spec-item, priority: 7110, depends_on: [DOC01] }
   - { id: DOC03, lot: DOC, blueprint: docs-spec-item, priority: 7120, depends_on: [] }
-  - { id: GATE_TOOLKIT, type: gate, executor: human, priority: 7400, depends_on: [OPS03, OPS04, OPS06, OPS07, OPS08, BRD01, DOC01, DOC02, DOC03] }
+  - { id: GATE_TOOLKIT, type: gate, executor: human, priority: 7400, depends_on: [OPS01c, OPS03, OPS04, OPS06b, OPS06c, OPS07, OPS08c, BRD01, DOC01, DOC02, DOC03] }
 
   # ── CMP ──
   - { id: CMP01, lot: CMP, blueprint: docs-spec-item, priority: 8000, depends_on: [] }
