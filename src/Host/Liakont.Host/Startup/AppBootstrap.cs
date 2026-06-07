@@ -26,6 +26,7 @@ using Liakont.Modules.Pipeline.Infrastructure;
 using Liakont.Modules.Reconciliation.Infrastructure;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.Staging.Infrastructure;
+using Liakont.Modules.Supervision.Infrastructure;
 using Liakont.Modules.TenantSettings.Infrastructure;
 using Liakont.Modules.Transmission.Infrastructure;
 using Liakont.Modules.TvaMapping.Infrastructure;
@@ -159,6 +160,15 @@ public static class AppBootstrap
         // système fait le fan-out de la passe sur tous les tenants via le TenantJobRunner (SOL06).
         builder.Services.AddReconciliationModule();
         builder.Services.AddJobHandler<ReconciliationFanOutJobPayload, ReconciliationFanOutJobHandler>();
+
+        // Supervision (SUP01a, F12 §5) : moteur d'alertes + dead-man's-switch. Le handler du job SYSTÈME fait
+        // le fan-out de l'évaluation sur TOUS les tenants via le TenantJobRunner (SOL06) — c'est la plateforme
+        // qui détecte l'absence (panne silencieuse), pas l'agent qui signale sa présence. AUCUNE règle concrète
+        // n'est enregistrée ici (SUP01b livre les 8 règles) : sans règle, l'évaluation ne produit aucune alerte.
+        // La PLANIFICATION (cron toutes les 15 min, F12 §5.1) est créée par l'opérateur via l'admin des
+        // schedules (job.schedules), comme l'ancrage quotidien (TRK06) — la fréquence relève du déploiement.
+        builder.Services.AddSupervisionModule();
+        builder.Services.AddJobHandler<SupervisionEvaluationTrigger, SupervisionEvaluationFanOutHandler>();
 
         // Transmission (PAA01) : registre de types des plug-ins PA. Aucun plug-in n'est référencé ici
         // (le module ne connaît AUCUNE PA concrète — CLAUDE.md n°6) ; chaque plug-in PA (PAA02 Fake,

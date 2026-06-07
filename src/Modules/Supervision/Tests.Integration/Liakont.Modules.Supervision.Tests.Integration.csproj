@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.Supervision.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.Supervision.Application.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.Supervision.Contracts.csproj" />
+    <ProjectReference Include="../Infrastructure/Liakont.Modules.Supervision.Infrastructure.csproj" />
+    <ProjectReference Include="../../../Common/Abstractions/Stratum.Common.Abstractions.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+    <ProjectReference Include="../../../Common/Testing/Stratum.Common.Testing.csproj" />
+  </ItemGroup>
+</Project>
