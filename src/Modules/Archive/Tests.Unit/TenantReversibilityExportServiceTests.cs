@@ -104,6 +104,26 @@ public sealed class TenantReversibilityExportServiceTests
     }
 
     [Fact]
+    public async Task Build_TrackingPaginatesBeyondOnePage()
+    {
+        // Plus d'une page (TrackingPageSize=200) : valide l'avance de la boucle (page++ /
+        // collected >= TotalCount) sans perte ni doublon — la logique sujette aux off-by-one.
+        const int count = 201;
+        for (int i = 1; i <= count; i++)
+        {
+            _documentQueries.Add(BuildDoc(Guid.NewGuid(), $"DOC-{i:D3}"));
+        }
+
+        TenantReversibilityExport export = await Create().BuildAsync();
+
+        FiscalExportFile tracking = export.Files.Single(f => f.Path == "tracking/documents.json");
+        string json = Encoding.UTF8.GetString(tracking.Content);
+        json.Should().Contain("DOC-001", "le premier document (page 1) est présent");
+        json.Should().Contain($"DOC-{count:D3}", "le dernier document (au-delà de la 1re page) est présent");
+        json.Should().Contain($"\"count\": {count}");
+    }
+
+    [Fact]
     public async Task Build_RequestsWholeVault()
     {
         await Create().BuildAsync();

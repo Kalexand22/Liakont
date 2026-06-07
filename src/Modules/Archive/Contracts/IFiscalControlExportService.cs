@@ -23,12 +23,15 @@ public interface IFiscalControlExportService
 
     /// <summary>
     /// Dossier d'export pour une PLAGE de dates [<paramref name="fromInclusive"/>, <paramref name="toInclusive"/>]
-    /// (bornes incluses). Forme requêtée par l'endpoint console <c>GET /api/v1/audit-export?from=&amp;to=</c>
-    /// (API03), cohérente avec <c>GET /api/v1/documents</c>. Le coffre étant partitionné par
-    /// <c>&lt;année&gt;/&lt;mois&gt;/</c>, la sélection est à la granularité du MOIS : un paquet est retenu si le mois
-    /// de son chemin de coffre est compris entre le mois de <paramref name="fromInclusive"/> et celui de
-    /// <paramref name="toInclusive"/> (le jour est ignoré). Une borne <c>null</c> = pas de limite de ce côté ;
-    /// les deux <c>null</c> = TOUT le coffre du tenant (utilisé par l'export de réversibilité).
+    /// (bornes incluses). Forme requêtée par l'endpoint console <c>GET /api/v1/audit-export?from=&amp;to=</c> (API03).
+    /// <para>
+    /// ATTENTION — granularité MENSUELLE (à la différence de <c>GET /api/v1/documents</c>, qui filtre au JOUR
+    /// près) : le coffre étant partitionné par <c>&lt;année&gt;/&lt;mois&gt;/</c>, un paquet est retenu dès que le MOIS de
+    /// son chemin de coffre est compris entre le mois de <paramref name="fromInclusive"/> et celui de
+    /// <paramref name="toInclusive"/> — le jour est ignoré (une borne en milieu de mois retient tout le mois).
+    /// </para>
+    /// Une borne <c>null</c> = pas de limite de ce côté ; les deux <c>null</c> = TOUT le coffre du tenant
+    /// (réservé à l'export de réversibilité ; l'endpoint de lecture exige au moins une borne).
     /// </summary>
     Task<FiscalControlExport> BuildForRangeAsync(DateOnly? fromInclusive, DateOnly? toInclusive, CancellationToken cancellationToken = default);
 }

@@ -85,6 +85,17 @@ public sealed class ArchiveExportEndpointsIntegrationTests
     }
 
     [Fact]
+    public async Task AuditExport_Period_Without_Any_Bound_Returns_400()
+    {
+        // Sans borne, l'export du coffre entier n'est PAS une lecture : il relève de /tenant-export (settings).
+        using var client = _factory.CreateClient(ConsoleApiFactory.TenantArchive, ConsoleApiFactory.ReaderUserId);
+
+        var response = await client.GetAsync("/api/v1/audit-export");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task AuditExport_Larger_Volume_Streams_All_Packages()
     {
         // Plusieurs paquets, exportés par une période dédiée (année 2027) : le ZIP est streamé (jamais

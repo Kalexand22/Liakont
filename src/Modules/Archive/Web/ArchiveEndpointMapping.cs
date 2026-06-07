@@ -40,15 +40,24 @@ public static class ArchiveEndpointMapping
             await WriteZipAsync(context, export.Files, $"audit-document-{id}.zip");
         }).RequireAuthorization(ReadPermission);
 
-        // GET /api/v1/audit-export?from=&to= — dossier d'export PAR PÉRIODE (zip streamé).
+        // GET /api/v1/audit-export?from=&to= — dossier d'export PAR PÉRIODE (zip streamé). Au moins une
+        // borne est exigée : l'export NON BORNÉ (coffre entier) relève de la réversibilité du tenant
+        // (/tenant-export, permission liakont.settings), pas d'une simple lecture.
         app.MapGet("/audit-export", async (
             DateOnly? from,
             DateOnly? to,
             IFiscalControlExportService exportService,
             HttpContext context) =>
         {
+            if (from is null && to is null)
+            {
+                return Results.BadRequest(
+                    "Préciser au moins une borne (« from » et/ou « to »). L'export du coffre entier relève de la réversibilité du tenant (/api/v1/tenant-export, permission liakont.settings).");
+            }
+
             FiscalControlExport export = await exportService.BuildForRangeAsync(from, to, context.RequestAborted);
             await WriteZipAsync(context, export.Files, "audit-periode.zip");
+            return Results.Empty;
         }).RequireAuthorization(ReadPermission);
 
         // GET /api/v1/tenant-export — RÉVERSIBILITÉ : dossier complet du tenant (zip streamé). Permission settings.
