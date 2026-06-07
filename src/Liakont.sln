@@ -403,6 +403,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests.Integration", "Tests.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.Modules.Supervision.Tests.Integration", "Modules\Supervision\Tests.Integration\Liakont.Modules.Supervision.Tests.Integration.csproj", "{F61606C4-6243-4024-80B3-E1C1B6CC5941}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.Modules.Pipeline.Web", "Modules\Pipeline\Web\Liakont.Modules.Pipeline.Web.csproj", "{D564F049-FB9F-4C9C-A995-190A673223A0}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -1781,6 +1783,18 @@ Global
 		{F61606C4-6243-4024-80B3-E1C1B6CC5941}.Release|x64.Build.0 = Release|Any CPU
 		{F61606C4-6243-4024-80B3-E1C1B6CC5941}.Release|x86.ActiveCfg = Release|Any CPU
 		{F61606C4-6243-4024-80B3-E1C1B6CC5941}.Release|x86.Build.0 = Release|Any CPU
+		{D564F049-FB9F-4C9C-A995-190A673223A0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D564F049-FB9F-4C9C-A995-190A673223A0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D564F049-FB9F-4C9C-A995-190A673223A0}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D564F049-FB9F-4C9C-A995-190A673223A0}.Debug|x64.Build.0 = Debug|Any CPU
+		{D564F049-FB9F-4C9C-A995-190A673223A0}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D564F049-FB9F-4C9C-A995-190A673223A0}.Debug|x86.Build.0 = Debug|Any CPU
+		{D564F049-FB9F-4C9C-A995-190A673223A0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D564F049-FB9F-4C9C-A995-190A673223A0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D564F049-FB9F-4C9C-A995-190A673223A0}.Release|x64.ActiveCfg = Release|Any CPU
+		{D564F049-FB9F-4C9C-A995-190A673223A0}.Release|x64.Build.0 = Release|Any CPU
+		{D564F049-FB9F-4C9C-A995-190A673223A0}.Release|x86.ActiveCfg = Release|Any CPU
+		{D564F049-FB9F-4C9C-A995-190A673223A0}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -1971,5 +1985,6 @@ Global
 		{4917492C-964D-4333-A7D5-18BDB7DC4991} = {FFF12C59-4720-BE3B-4778-CB4E981C3DE1}
 		{6C4D50E7-5B3D-2331-5391-FEAD7BBE3A7B} = {D81B903C-9E67-8892-29FA-46A278DCE5F7}
 		{F61606C4-6243-4024-80B3-E1C1B6CC5941} = {6C4D50E7-5B3D-2331-5391-FEAD7BBE3A7B}
+		{D564F049-FB9F-4C9C-A995-190A673223A0} = {CAC7A268-A06D-CDB0-8145-5D32B5502331}
 	EndGlobalSection
 EndGlobal
