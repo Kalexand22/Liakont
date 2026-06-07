@@ -172,6 +172,50 @@ public sealed class DocumentsEndpointsIntegrationTests
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task GetDocuments_Filter_By_Date_Range_Bounds_Results()
+    {
+        using var client = _factory.CreateClient(ConsoleApiFactory.TenantA, ConsoleApiFactory.ReaderUserId);
+        var result = await GetListAsync(client, $"{DocumentsPath}?from=2026-02-01&to=2026-02-28");
+        result.TotalCount.Should().Be(1);
+        result.Items.Should().ContainSingle(i => i.DocumentNumber == "FA-A-002");
+    }
+
+    [Fact]
+    public async Task GetDocuments_Filter_By_Date_Range_Excluding_All_Returns_Empty()
+    {
+        using var client = _factory.CreateClient(ConsoleApiFactory.TenantA, ConsoleApiFactory.ReaderUserId);
+        var result = await GetListAsync(client, $"{DocumentsPath}?from=2030-01-01");
+        result.TotalCount.Should().Be(0);
+        result.Items.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetDocuments_Search_Matches_Customer_Name()
+    {
+        using var client = _factory.CreateClient(ConsoleApiFactory.TenantA, ConsoleApiFactory.ReaderUserId);
+        var result = await GetListAsync(client, $"{DocumentsPath}?search=alpha");
+        result.TotalCount.Should().Be(1);
+        result.Items.Should().ContainSingle(i => i.DocumentNumber == "FA-A-001");
+    }
+
+    [Fact]
+    public async Task GetDocuments_Search_Literal_Percent_Is_Not_Wildcard()
+    {
+        using var client = _factory.CreateClient(ConsoleApiFactory.TenantA, ConsoleApiFactory.ReaderUserId);
+        var result = await GetListAsync(client, $"{DocumentsPath}?search={Uri.EscapeDataString("%")}");
+        result.TotalCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task GetDocumentById_Blocked_With_Multiple_Events_Returns_Most_Recent_Reason()
+    {
+        using var client = _factory.CreateClient(ConsoleApiFactory.TenantA, ConsoleApiFactory.ReaderUserId);
+        var detail = await GetDetailAsync(client, $"{DocumentsPath}/{ConsoleApiFactory.TenantADocBlockedId}");
+        detail.BlockingReason.Should().Be(ConsoleApiFactory.BlockedReasonText);
+        detail.BlockingReason.Should().NotBe(ConsoleApiFactory.OlderBlockedReasonText);
+    }
+
     private static async Task<ListResponse> GetListAsync(HttpClient client, string url)
     {
         var response = await client.GetAsync(url);

@@ -45,6 +45,8 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
 
     public const string BlockedReasonText = "Régime TVA non mappé : compléter la table TVA (document FA-A-002).";
 
+    public const string OlderBlockedReasonText = "Ancien motif (corrigé puis re-bloqué).";
+
     // Utilisateurs seedés (claim NameIdentifier porté par X-Test-User).
     public static readonly Guid ReaderUserId = new("11111111-1111-1111-1111-111111111111");
     public static readonly Guid NoPermissionUserId = new("22222222-2222-2222-2222-222222222222");
@@ -231,11 +233,12 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         await InsertDocumentAsync(conn, TenantADocBlockedId, "FA-A-002", "invoice", new DateOnly(2026, 2, 15), "Blocked", "Client Beta", 200.00m);
         await InsertDocumentAsync(conn, TenantADocIssuedId, "AV-A-003", "credit_note", new DateOnly(2026, 3, 20), "Issued", "Client Gamma", 50.00m);
 
-        // Motif de blocage (dernier événement DocumentBlocked) — alimente BlockingReason du détail.
-        await InsertEventAsync(conn, TenantADocBlockedId, "DocumentBlocked", BlockedReasonText, payloadSnapshot: null);
+        // Deux événements DocumentBlocked sur TenantADocBlockedId — valide que le dernier (le plus récent) gagne.
+        await InsertEventAsync(conn, TenantADocBlockedId, new DateTimeOffset(2026, 2, 15, 9, 0, 0, TimeSpan.Zero), "DocumentBlocked", OlderBlockedReasonText, payloadSnapshot: null);
+        await InsertEventAsync(conn, TenantADocBlockedId, new DateTimeOffset(2026, 2, 15, 10, 0, 0, TimeSpan.Zero), "DocumentBlocked", BlockedReasonText, payloadSnapshot: null);
 
         // Pivot transmis (événement DocumentIssued) — alimente PivotSnapshotJson du détail.
-        await InsertEventAsync(conn, TenantADocIssuedId, "DocumentIssued", detail: "Émis", payloadSnapshot: "{\"number\":\"AV-A-003\"}");
+        await InsertEventAsync(conn, TenantADocIssuedId, new DateTimeOffset(2026, 3, 20, 12, 0, 0, TimeSpan.Zero), "DocumentIssued", detail: "Émis", payloadSnapshot: "{\"number\":\"AV-A-003\"}");
 
         // Entrée de coffre WORM pour le document émis — alimente Archive + ArchiveIntegrity du détail.
         await conn.ExecuteAsync(
@@ -304,6 +307,7 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     private static async Task InsertEventAsync(
         NpgsqlConnection conn,
         Guid documentId,
+        DateTimeOffset timestampUtc,
         string eventType,
         string? detail,
         string? payloadSnapshot)
@@ -318,7 +322,7 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
             new
             {
                 DocId = documentId,
-                Now = DateTimeOffset.UtcNow,
+                Now = timestampUtc,
                 EventType = eventType,
                 Detail = detail,
                 Payload = payloadSnapshot,

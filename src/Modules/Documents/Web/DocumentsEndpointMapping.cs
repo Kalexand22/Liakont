@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Routing;
 /// par le Host. Toutes les lectures sont TENANT-SCOPÉES par construction (la connexion EST le tenant —
 /// database-per-tenant, blueprint §7 ; CLAUDE.md n°9/17) et exigent la permission <c>liakont.read</c>.
 /// Aucune logique métier ici : les endpoints délèguent aux requêtes du module (TRK01).
+/// La projection « dernier événement » (motif de blocage / pivot transmis) est une PRÉSENTATION de la piste d'audit en lecture, pas de la logique métier fiscale ou de machine à états (qui reste dans les handlers).
 /// </summary>
 public static class DocumentsEndpointMapping
 {
@@ -85,12 +86,14 @@ public static class DocumentsEndpointMapping
             var blockingReason = events
                 .Where(e => string.Equals(e.EventType, BlockedEventType, StringComparison.Ordinal))
                 .OrderByDescending(e => e.TimestampUtc)
+                .ThenByDescending(e => e.Id)
                 .Select(e => e.Detail)
                 .FirstOrDefault();
 
             var pivotSnapshot = events
                 .Where(e => string.Equals(e.EventType, IssuedEventType, StringComparison.Ordinal))
                 .OrderByDescending(e => e.TimestampUtc)
+                .ThenByDescending(e => e.Id)
                 .Select(e => e.PayloadSnapshot)
                 .FirstOrDefault();
 
