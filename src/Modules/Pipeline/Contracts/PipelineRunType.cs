@@ -18,4 +18,7 @@ public enum PipelineRunType
 
     /// <summary>Agrégation jour×taux de l'e-reporting de paiement depuis les snapshots de ventilation (PIP03a).</summary>
     Aggregate = 3,
+
+    /// <summary>Rectification d'e-reporting (flux RE annule-et-remplace) d'une période déjà déclarée (PIP04).</summary>
+    Rectify = 4,
 }

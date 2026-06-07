@@ -55,6 +55,9 @@ Aucun (PIP01a).
   `PaAccountDescriptor`, `IPaClient`, `PaSendResult`), `Archive.Contracts` (`IArchiveService`),
   `Staging.Contracts` (`IStagingPurgeService`) et `Job.Contracts` (`IJobHandler`). **Agrégation de paiement
   (PIP03a)** ajoute `Payments.Contracts` (`IPaymentQueries` — lecture seule des encaissements bruts).
+  **Rectificatifs (PIP04)** : la couche **Application** ajoute `Transmission.Contracts` (`PaymentReportFlux` —
+  type de flux porté par la clé de période d'un rectificatif) ; l'Infrastructure réutilise `IPaClientRegistry`
+  / `IPaClient.SendPaymentReportAsync` (déjà référencés par le SEND).
 - **`Stratum.Common.Abstractions.Jobs`** (SEND) : `ITenantJob` / `ITenantJobRunner` / `TenantJobContext`
   (mécanique de job par tenant, SOL06).
 - `Stratum.Common.Infrastructure` / `Stratum.Common.Abstractions` : `IConnectionFactory` (connexion
@@ -88,6 +91,18 @@ Aucun (PIP01a).
     `AggregatePaymentsAllFanOutHandler` (`IJobHandler<AggregatePaymentsAllTrigger>`). Le CHECK écrit le
     snapshot au passage `ReadyToSend` (`DocumentReceivedConsumer`).
   - **Contracts** ajoute `Jobs/AggregatePaymentsAllTrigger` + `PipelineRunType.Aggregate`.
+- **Rectificatifs e-reporting (PIP04, flux RE annule-et-remplace)** :
+  - **Domain** : `Rectification/RectificationBuilder` (cœur pur : rebuild complet de la période depuis la
+    projection PIP03a + empreinte SHA-256 déterministe) + `ReportRectification` / `RectificationLine` /
+    `ReportRectificationStatus`.
+  - **Application** : `IReportRectificationLedger` (journal append-only) + `ReportRectificationEntry` /
+    `RectificationPeriodKey`.
+  - **Infrastructure** : `Rectification/ReportRectificationService` (build → idempotence → gate capacité
+    `SupportsReportRectification` → transmission `SendPaymentReportAsync` → journal) ;
+    `PostgresReportRectificationLedger` + migration `pipeline.report_rectifications` (append-only) ;
+    `ReportRectificationTenantJob` (`ITenantJob`) + `RectifyReportsAllFanOutHandler`
+    (`IJobHandler<RectifyReportsAllTrigger>`).
+  - **Contracts** ajoute `Jobs/RectifyReportsAllTrigger` + `PipelineRunType.Rectify`.
 
 ## Consumers (segments ultérieurs)
 

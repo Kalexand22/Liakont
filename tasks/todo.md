@@ -1,75 +1,45 @@
-# PIP03a — E-reporting de paiement : agrégation requêtable + suspension (générique, ADR-0015)
+# PIP04 — Rectificatifs e-reporting (flux RE annule-et-remplace)
 
-Session orchestration slot-1 (`orch-20260606-232020-slot1`), sous-branche `feat/pipeline-PIP03a`.
-Blueprint module-work-item. Specs : F09, ADR-0015, ADR-0014, F12-A §3.
+Session orchestration : `orch-20260607-010607-slot1` · slot-1 · sous-branche `feat/pipeline-PIP04`.
 
-## Décisions de conception (verrouillées)
+## Source fiscale (jamais inventée)
+- F07-F08 §B.1 : correction e-reporting (B2C / paiements) = **flux rectificatif type RE** qui
+  **annule et remplace l'ensemble des données agrégées de la période** (par SIREN + période).
+- F09 §5.4 : trop-perçu / remboursement = montant négatif dans l'agrégat (via rectificatif RE — cf. F7).
+- Périmètre item (re-découpage 2026-06-06) : PIP04 = **mécanisme RE** (builder + idempotence + capacité +
+  historique append-only) sur l'infra d'agrégation **PIP03a**. Les rectificatifs de PAIEMENT (10.4) ne
+  portent de données réelles qu'une fois **PIP03b** actif (fenêtrage + envoi, GELÉ). Le mécanisme RE des
+  e-reporting B2C (10.3) + correction sur avoir/altération source restent V1.
 
-- **Snapshot ventilation TVA (ADR-0015)** : écrit au CHECK (PIP01b) dans une table Pipeline dédiée,
-  append-only, tenant-scopée, DISTINCTE du staging (purgé) et du WORM. Ne porte que la sortie du
-  mapping validé (rate ?? source rate, base HT, TVA) groupée par taux + operationCategory + mapping_version.
-- **Projection d'agrégation (Pipeline)** : `pipeline.payment_aggregations` (jour×taux, statut fiscal).
-  Le `Payments.PaymentAggregate` (Period déclarative obligatoire + machine à états de TRANSMISSION,
-  INV-PAYMENTS-007 « état opérationnel, pas une qualification fiscale ») est l'artefact PIP03b
-  (fenêtrage + envoi). PIP03a ne le touche pas. Le statut fiscal (Suspended/NotRequired/PendingCapability)
-  ne peut PAS vivre sur la machine à états Payments → projection Pipeline dédiée.
-- **Décomposition** : ventilation proportionnelle de l'encaissement selon la ventilation par taux
-  SOURCÉE du document (F09 §2), pour les documents MONO-CATÉGORIE PrestationServices uniquement.
-  Mixte → suspendu (D-b non sourcé). LivraisonBiens → non requis (pas d'exigibilité à l'encaissement).
-  Arrondi commercial half-up 2 décimales. AUCUNE règle inventée.
-- **FeeImputationMethod** : champ nullable de FiscalSettings (Prorata|AgregationJourTaux). null = suspension
-  (jamais de prorata par défaut). Pas de workflow validated_by (D-d : nullabilité suffit).
-- **AUCUN fenêtrage de période, AUCUN envoi réel** (PIP03b).
+## Conception (100 % dans le module Pipeline — frontières respectées)
+- Projection PIP03a `pipeline.payment_aggregations` (jour×taux, `IPaymentAggregationStore.GetAllAsync`)
+  = source des lignes corrigées. Les bornes de période sont une ENTRÉE (pas de fenêtrage = PIP03b).
+- `SendPaymentReportAsync(PaymentReportPeriod{Flux,Start,End})` existe déjà (ne porte pas de lignes — PIP03b
+  les enrichira). Capacité `SupportsReportRectification` existe déjà.
+- Journal `pipeline.report_rectifications` APPEND-ONLY (triggers base) — DISTINCT de `payment_aggregate_events`
+  (audit de transmission écrit par PIP03b) et de la projection (recalculée).
 
-## Plan
+## Tâches
+- [ ] Domain : `RectificationLine`, `ReportRectification`, `ReportRectificationStatus`, `RectificationBuilder`
+      (pur, decimal-only, empreinte SHA-256 déterministe — annule-et-remplace, toutes les lignes de la période).
+- [ ] Application : `IReportRectificationLedger` + `ReportRectificationEntry` (+ réf Transmission.Contracts pour `PaymentReportFlux`).
+- [ ] Contracts : `PipelineRunType.Rectify` (+ `RectifyReportsAllTrigger`).
+- [ ] Infrastructure :
+      - `V005__create_report_rectifications_table.sql` (append-only, triggers UPDATE/DELETE/TRUNCATE).
+      - `PostgresReportRectificationLedger` (Dapper, montants en chaînes invariantes, jamais float).
+      - `ReportRectificationService` (build -> idempotence -> capacité -> transmission Fake -> journal + RunLog).
+      - `ReportRectificationTenantJob` (ITenantJob) + `RectifyReportsAllFanOutHandler` (fan-out SOL06).
+      - DI dans `PipelineModuleRegistration`.
+- [ ] Tests.Unit : `RectificationBuilderTests` (complétude, déterminisme du hash, decimal, filtrage bornes, tri).
+- [ ] Tests.Integration : `ReportRectificationIntegrationTests` (Testcontainer Postgres) —
+      avoir sur période déclarée, rectificatif manuel, PA sans capacité (PendingCapability, aucun envoi),
+      idempotence (double déclenchement = 1 seule transmission), append-only (UPDATE/DELETE rejeté).
+- [ ] Docs module : INV-PIPELINE-033..036 + SCENARIOS.
+- [ ] verify-fast vert · run-tests vert · codex-review propre.
 
-### A. TenantSettings (CFG02) — FeeImputationMethod
-- [x] enum `FeeImputationMethod` {Prorata, AgregationJourTaux} (Domain)
-- [x] `FiscalSettings` : champ + Create/Reconstitute/Update
-- [x] migration `V008__add_fee_imputation_method.sql`
-- [x] `FiscalSettingsDto` + `PostgresTenantSettingsQueries.GetFiscalSettings`
-- [x] `PostgresTenantSettingsUnitOfWork` (MapFiscal + Insert + Update)
-- [x] `SetFiscalSettingsCommand` + handler + `TenantSettingsParsing.ParseFeeImputationMethod`
-- [x] tests : FiscalSettingsTests, TenantSettingsParsingTests, FiscalSettingsIntegrationTests
-
-### B. Pipeline — Snapshot ventilation (ADR-0015)
-- [x] Domain : `VentilationLine`, `VentilationSnapshot`
-- [x] Application : `IVentilationSnapshotStore`
-- [x] migration `V003__create_ventilation_snapshots_table.sql` (append-only triggers, uq doc+version)
-- [x] Infrastructure : `PostgresVentilationSnapshotStore` (jsonb, decimals exacts)
-- [x] CHECK : `CheckEvaluation`/`CheckDecision` portent la ventilation ; `CheckTvaMapping.Evaluate`
-      la construit ; `DocumentReceivedConsumer` écrit le snapshot (idempotent) au MarkReadyToSend
-- [x] DI : enregistrer `IVentilationSnapshotStore`
-
-### C. Pipeline — PaymentAggregator (PIP03a)
-- [x] `PipelineRunType.Aggregate`
-- [x] `IPaymentQueries.ListPaymentsAsync` (Payments Contracts) + Postgres impl
-- [x] Domain : `PaymentAggregationStatus`, `PaymentDailyAggregate`, `PaymentAggregationCalculator` (pur)
-- [x] migration `V004__create_payment_aggregations_table.sql` (projection upsert jour×taux)
-- [x] Application : `IPaymentAggregationStore` ; Infrastructure : `PostgresPaymentAggregationStore`
-- [x] `PaymentAggregatorTenantJob : ITenantJob` (Infrastructure/Aggregation)
-- [x] `AggregateAllTrigger` (Contracts/Jobs) + `AggregateAllFanOutHandler` + DI
-
-### D. Tests
-- [x] Unit : calculator (multi-jour/taux, partiel, remboursement, non rattaché, Mixte,
-      LivraisonBiens, FeeImputationMethod null, params null, vatOnDebits true, capacité PA absente),
-      snapshot round-trip decimal
-- [x] Integration : snapshot survit purge staging → agrégation ; multi-taux ; capacité absente ; TVA débits.
-      (isolation tenant : structurelle — tables sans colonne tenant, connexion = tenant ; E2E 2 tenants existant)
-
-### E. Docs
-- [x] Pipeline INVARIANTS.md (INV-VENTILATION-*, agrégation), SCENARIOS.md, MODULE.md
-- [x] TenantSettings INVARIANTS.md (FeeImputationMethod)
-
-### F. Vérification
-- [x] verify-fast (plateforme .NET 10 + agent net48 x86/x64) — PASS
-- [x] run-tests (unit + integration) — PASS, 3845 tests ; intégration PIP03a 4/4 (Testcontainers)
-- [ ] codex-review propre (ou P2 acceptés justifiés)
-
-## Review (résultats)
-
-Toutes les parties A–E livrées. `verify-fast` vert (plateforme + agent), `run-tests` vert (3845 tests).
-Tests neufs : calculateur d'agrégation (19), garde d'échelle ventilation (3), parsing/entité FeeImputationMethod
-(unit + intégration), intégration agrégation bout en bout (snapshot survit purge, multi-taux, capacité absente,
-TVA sur débits) — tous exécutés et verts. Aucune règle fiscale inventée : Mixte/params null/capacité absente
-SUSPENDUS avec motif opérateur ; fenêtrage de période + envoi réel + découpage Mixte différés à PIP03b (gelé).
+## Invariants clés (anti-régression fiscale)
+- Montants `decimal`, jamais float (hash + persistance via chaînes invariantes).
+- Aucune règle fiscale inventée : le rebuild ne fait que re-sommer les lignes existantes de la période.
+- Capacité absente = en attente (jamais d'envoi à l'aveugle, jamais de blocage produit).
+- Journal append-only (triggers base) ; ancien état jamais effacé.
+- Pipeline ne référence aucun plug-in PA concret (NetArchTest) ; tenant-scopé.
