@@ -8,6 +8,7 @@ using System.Net.Sockets;
 using System.Reflection;
 using Dapper;
 using Liakont.Host.Startup;
+using Liakont.Modules.Pipeline.Domain.Payments;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
@@ -275,8 +276,8 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         await InsertRunLogAsync(conn, "Send", "Scheduled", new DateTimeOffset(2026, 2, 15, 8, 0, 0, TimeSpan.Zero), 5, 5, 0, TenantAFebRunDetail);
 
         // Agrégats de paiement (pipeline.payment_aggregations) — un Calculated, un Suspended (janvier 2026).
-        await InsertPaymentAggregationAsync(conn, new DateOnly(2026, 1, 10), 0.2000m, 100.00m, 20.00m, "Calculated", reason: null);
-        await InsertPaymentAggregationAsync(conn, new DateOnly(2026, 1, 15), 0.2000m, 50.00m, 10.00m, "Suspended", FiscalPendingReasonText);
+        await InsertPaymentAggregationAsync(conn, new DateOnly(2026, 1, 10), 0.2000m, 100.00m, 20.00m, PaymentAggregationStatus.Calculated.ToString(), reason: null);
+        await InsertPaymentAggregationAsync(conn, new DateOnly(2026, 1, 15), 0.2000m, 50.00m, 10.00m, PaymentAggregationStatus.Suspended.ToString(), FiscalPendingReasonText);
     }
 
     private static async Task SeedTenantBAsync(string connectionString)
@@ -290,7 +291,7 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
 
         // Traitement + agrégat distincts (mars 2026) : le tenant B ne voit jamais ceux du tenant A (isolation).
         await InsertRunLogAsync(conn, "Check", "Scheduled", new DateTimeOffset(2026, 3, 1, 8, 0, 0, TimeSpan.Zero), 2, 2, 0, TenantBRunDetail);
-        await InsertPaymentAggregationAsync(conn, new DateOnly(2026, 3, 5), 0.2000m, 300.00m, 60.00m, "Calculated", reason: null);
+        await InsertPaymentAggregationAsync(conn, new DateOnly(2026, 3, 5), 0.2000m, 300.00m, 60.00m, PaymentAggregationStatus.Calculated.ToString(), reason: null);
     }
 
     private static async Task InsertRunLogAsync(

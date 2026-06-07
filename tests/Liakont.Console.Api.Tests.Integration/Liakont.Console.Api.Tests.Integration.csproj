@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Host\Liakont.Host\Liakont.Host.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Pipeline\Domain\Liakont.Modules.Pipeline.Domain.csproj" />
   </ItemGroup>
 
 </Project>

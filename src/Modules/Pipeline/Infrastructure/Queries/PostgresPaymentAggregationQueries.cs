@@ -17,6 +17,10 @@ using Stratum.Common.Infrastructure.Database;
 /// </summary>
 public sealed class PostgresPaymentAggregationQueries : IPaymentAggregationQueries
 {
+    // Borne de sécurité (parité avec PostgresPipelineRunQueries.MaxLimit) — la fenêtre par période reste le
+    // mode nominal côté WEB06 ; cette borne protège contre un appel sans période ramenant tout l'historique.
+    private const int MaxResults = 5000;
+
     private readonly IConnectionFactory _connectionFactory;
 
     public PostgresPaymentAggregationQueries(IConnectionFactory connectionFactory)
@@ -38,10 +42,11 @@ public sealed class PostgresPaymentAggregationQueries : IPaymentAggregationQueri
             FROM pipeline.payment_aggregations
             {where}
             ORDER BY aggregate_date, vat_rate
+            LIMIT @Limit
             """;
 
         var rows = await conn.QueryAsync(new CommandDefinition(
-            sql, new { Start = start, EndExclusive = endExclusive }, cancellationToken: cancellationToken));
+            sql, new { Start = start, EndExclusive = endExclusive, Limit = MaxResults }, cancellationToken: cancellationToken));
 
         return rows.Select(Map).ToList();
     }

@@ -112,6 +112,16 @@ public sealed class PipelineEndpointsIntegrationTests
     }
 
     [Fact]
+    public async Task GetPayments_Without_Authentication_Returns_401()
+    {
+        using var client = _factory.CreateClient(ConsoleApiFactory.TenantA);
+
+        var response = await client.GetAsync(PaymentsPath);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
     public async Task GetPayments_Without_Read_Permission_Returns_403()
     {
         using var client = _factory.CreateClient(ConsoleApiFactory.TenantA, ConsoleApiFactory.NoPermissionUserId);
