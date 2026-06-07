@@ -29,6 +29,12 @@ internal sealed class FakeDocumentQueries : IDocumentQueries
     public Task<IReadOnlyList<DocumentSummaryDto>> GetByStateAsync(string state, int page, int pageSize, CancellationToken cancellationToken = default) =>
         Task.FromResult((IReadOnlyList<DocumentSummaryDto>)[]);
 
+    public Task<DocumentListResult> GetDocumentsAsync(DocumentListFilter filter, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
+
+    public Task<ArchiveReferenceDto?> GetArchiveReferenceAsync(Guid documentId, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
+
     public Task<IReadOnlyList<DocumentEventDto>> GetEventsAsync(Guid documentId, CancellationToken cancellationToken = default) =>
         Task.FromResult((IReadOnlyList<DocumentEventDto>)(_events.TryGetValue(documentId, out List<DocumentEventDto>? events) ? events : []));
 
