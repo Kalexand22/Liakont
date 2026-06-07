@@ -99,7 +99,7 @@ public sealed class AlertEvaluationService : IAlertEvaluationService
         {
             // Auto-résolution : la condition a disparu, on clôt l'alerte active.
             active.Resolve(nowUtc);
-            await _store.UpdateAsync(active, cancellationToken).ConfigureAwait(false);
+            await _store.ResolveAsync(active, cancellationToken).ConfigureAwait(false);
         }
     }
 }

@@ -31,6 +31,9 @@
   alertes actives / récentes / par identifiant (`IAlertQueries`), auto-résolution (l'alerte sort des
   actives), acquittement (`IAlertAcknowledgementService` — opérateur journalisé, alerte toujours active),
   acquittement d'une alerte absente → `false`. (INV-SUPERVISION-005, 006)
+- `AlertConcurrencyIntegrationTests` — absence de lost-update entre auto-résolution et acquittement
+  (mises à jour ciblées par opération) : un acquittement avec snapshot périmé ne RESSUSCITE pas une alerte
+  résolue ; une résolution avec snapshot périmé n'EFFACE pas un acquittement. (INV-SUPERVISION-005)
 - `AlertAntiNoiseIntegrationTests` — moteur sur base réelle : un déclenchement crée une alerte ; un second
   cycle de la même règle ne crée PAS de doublon (anti-bruit, index unique partiel) ; la disparition de la
   condition résout l'alerte ; un nouveau déclenchement après résolution crée une nouvelle alerte. (INV-SUPERVISION-003, 004)

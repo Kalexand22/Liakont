@@ -25,6 +25,16 @@ public interface IAlertStore
     /// </summary>
     Task InsertAsync(Alert alert, CancellationToken cancellationToken = default);
 
-    /// <summary>Met à jour l'état mutable d'une alerte existante (résolution, acquittement).</summary>
-    Task UpdateAsync(Alert alert, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Persiste UNIQUEMENT la résolution d'une alerte existante (<c>resolved_utc</c>). N'écrit pas les
+    /// colonnes d'acquittement : aucune perte de mise à jour concurrente entre résolution et acquittement.
+    /// </summary>
+    Task ResolveAsync(Alert alert, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Persiste UNIQUEMENT l'acquittement d'une alerte existante (<c>acknowledged_by</c>,
+    /// <c>acknowledged_utc</c>). N'écrit pas <c>resolved_utc</c> : aucune perte de mise à jour concurrente
+    /// entre acquittement et résolution.
+    /// </summary>
+    Task AcknowledgeAsync(Alert alert, CancellationToken cancellationToken = default);
 }

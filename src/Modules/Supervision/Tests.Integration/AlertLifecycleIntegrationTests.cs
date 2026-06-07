@@ -58,7 +58,7 @@ public sealed class AlertLifecycleIntegrationTests
         var reloaded = await store.FindActiveByRuleAsync("pa.rejects");
         reloaded.Should().NotBeNull();
         reloaded!.Resolve(Now.AddHours(2));
-        await store.UpdateAsync(reloaded);
+        await store.ResolveAsync(reloaded);
 
         (await queries.ListActiveAsync()).Should().BeEmpty();
         var recent = await queries.ListRecentAsync(10);

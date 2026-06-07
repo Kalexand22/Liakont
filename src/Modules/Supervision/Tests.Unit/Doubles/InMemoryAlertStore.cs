@@ -47,12 +47,26 @@ internal sealed class InMemoryAlertStore : IAlertStore
         return Task.CompletedTask;
     }
 
-    public Task UpdateAsync(Alert alert, CancellationToken cancellationToken = default)
+    public Task ResolveAsync(Alert alert, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(alert);
 
-        // Les instances sont conservées par référence : la mutation est déjà reflétée. On vérifie juste
-        // la présence pour rester fidèle au contrat (mise à jour d'une alerte existante).
+        // Les instances sont conservées par référence : la mutation (Resolve) est déjà reflétée.
+        // On vérifie la présence pour rester fidèle au contrat (résolution d'une alerte existante).
+        if (_alerts.All(a => a.Id != alert.Id))
+        {
+            _alerts.Add(alert);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task AcknowledgeAsync(Alert alert, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(alert);
+
+        // Les instances sont conservées par référence : la mutation (Acknowledge) est déjà reflétée.
+        // On vérifie la présence pour rester fidèle au contrat (acquittement d'une alerte existante).
         if (_alerts.All(a => a.Id != alert.Id))
         {
             _alerts.Add(alert);

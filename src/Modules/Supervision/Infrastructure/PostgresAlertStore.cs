@@ -11,8 +11,8 @@ using Stratum.Common.Infrastructure.Database;
 /// <summary>
 /// Persistance Dapper des alertes (item SUP01a) sur la base DU TENANT courant (<see cref="IConnectionFactory"/>
 /// route vers le tenant résolu — database-per-tenant, blueprint §7). Surface interne au module (moteur +
-/// acquittement). L'alerte est de l'état opérationnel mutable : <see cref="UpdateAsync"/> ne touche QUE les
-/// colonnes mutables (résolution, acquittement) — jamais le déclenchement, la règle ni la gravité.
+/// acquittement). Chaque méthode de mise à jour n'écrit QUE les colonnes qu'elle possède : aucune perte de
+/// mise à jour concurrente entre la résolution automatique et l'acquittement opérateur.
 /// </summary>
 internal sealed class PostgresAlertStore : IAlertStore
 {
@@ -92,18 +92,42 @@ internal sealed class PostgresAlertStore : IAlertStore
             cancellationToken: cancellationToken));
     }
 
-    public async Task UpdateAsync(Alert alert, CancellationToken cancellationToken = default)
+    public async Task ResolveAsync(Alert alert, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(alert);
 
         using var conn = await _connectionFactory.OpenAsync(cancellationToken);
 
-        // Seules les colonnes MUTABLES (résolution, acquittement) sont écrites — le déclenchement, le
-        // tenant, la règle et la gravité d'une alerte ne changent jamais après sa création.
+        // Seule la colonne resolved_utc est écrite — acknowledged_by/acknowledged_utc ne sont JAMAIS
+        // touchées ici, ce qui évite la perte de mise à jour concurrente avec l'acquittement.
+        // AND resolved_utc IS NULL : idempotent et interdit la résurrection si déjà résolue.
         const string sql = """
             UPDATE supervision.alerts
-            SET resolved_utc = @ResolvedUtc,
-                acknowledged_by = @AcknowledgedBy,
+            SET resolved_utc = @ResolvedUtc
+            WHERE id = @Id AND resolved_utc IS NULL
+            """;
+
+        await conn.ExecuteAsync(new CommandDefinition(
+            sql,
+            new
+            {
+                alert.Id,
+                alert.ResolvedUtc,
+            },
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task AcknowledgeAsync(Alert alert, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(alert);
+
+        using var conn = await _connectionFactory.OpenAsync(cancellationToken);
+
+        // Seules les colonnes d'acquittement sont écrites — resolved_utc n'est JAMAIS touchée ici,
+        // ce qui évite la perte de mise à jour concurrente avec l'auto-résolution.
+        const string sql = """
+            UPDATE supervision.alerts
+            SET acknowledged_by = @AcknowledgedBy,
                 acknowledged_utc = @AcknowledgedUtc
             WHERE id = @Id
             """;
@@ -113,7 +137,6 @@ internal sealed class PostgresAlertStore : IAlertStore
             new
             {
                 alert.Id,
-                alert.ResolvedUtc,
                 alert.AcknowledgedBy,
                 alert.AcknowledgedUtc,
             },

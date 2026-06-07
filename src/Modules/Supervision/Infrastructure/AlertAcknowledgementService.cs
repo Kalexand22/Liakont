@@ -42,7 +42,7 @@ internal sealed class AlertAcknowledgementService : IAlertAcknowledgementService
         }
 
         alert.Acknowledge(operatorIdentity, _timeProvider.GetUtcNow());
-        await _store.UpdateAsync(alert, cancellationToken).ConfigureAwait(false);
+        await _store.AcknowledgeAsync(alert, cancellationToken).ConfigureAwait(false);
         return true;
     }
 }
