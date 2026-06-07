@@ -35,6 +35,9 @@ public static class DocumentsEndpointMapping
     /// <summary>Nom d'événement (DocumentEventType, Domain) portant le snapshot du pivot transmis.</summary>
     private const string IssuedEventType = "DocumentIssued";
 
+    /// <summary>Nom d'état (DocumentState, Domain) « bloqué » — un motif de blocage n'est ACTUEL que dans cet état.</summary>
+    private const string BlockedDocumentState = "Blocked";
+
     public static IEndpointRouteBuilder MapDocumentsEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/documents");
@@ -101,7 +104,9 @@ public static class DocumentsEndpointMapping
             {
                 Document = document,
                 Events = events,
-                BlockingReason = blockingReason,
+                BlockingReason = string.Equals(document.State, BlockedDocumentState, StringComparison.Ordinal)
+                    ? blockingReason
+                    : null,
                 PivotSnapshotJson = pivotSnapshot,
                 Archive = archive,
                 ArchiveIntegrity = archive is null
@@ -133,7 +138,7 @@ public static class DocumentsEndpointMapping
 
         public required IReadOnlyList<DocumentEventDto> Events { get; init; }
 
-        /// <summary>Motif de blocage agrégé (dernier événement <c>DocumentBlocked</c>), ou <c>null</c>.</summary>
+        /// <summary>Motif de blocage agrégé (dernier événement <c>DocumentBlocked</c>) UNIQUEMENT si le document est actuellement <c>Blocked</c>, sinon <c>null</c> (un motif périmé sur un document débloqué/émis serait un message opérateur trompeur — CLAUDE.md n°12). L'historique complet reste dans <c>Events</c>.</summary>
         public string? BlockingReason { get; init; }
 
         /// <summary>Pivot transmis à la Plateforme Agréée (snapshot du dernier événement <c>DocumentIssued</c>), ou <c>null</c>.</summary>

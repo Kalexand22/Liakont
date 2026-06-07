@@ -77,6 +77,9 @@ public sealed class DocumentsEndpointsIntegrationTests
 
         result.TotalCount.Should().Be(1);
         result.Items.Should().ContainSingle(i => i.State == "Blocked");
+        result.CountsByState.Should().Contain(new KeyValuePair<string, int>("ReadyToSend", 1));
+        result.CountsByState.Should().Contain(new KeyValuePair<string, int>("Blocked", 1));
+        result.CountsByState.Should().Contain(new KeyValuePair<string, int>("Issued", 1));
     }
 
     [Fact]
@@ -205,6 +208,15 @@ public sealed class DocumentsEndpointsIntegrationTests
         using var client = _factory.CreateClient(ConsoleApiFactory.TenantA, ConsoleApiFactory.ReaderUserId);
         var result = await GetListAsync(client, $"{DocumentsPath}?search={Uri.EscapeDataString("%")}");
         result.TotalCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task GetDocumentById_Previously_Blocked_Now_Issued_Has_No_Blocking_Reason()
+    {
+        using var client = _factory.CreateClient(ConsoleApiFactory.TenantA, ConsoleApiFactory.ReaderUserId);
+        var detail = await GetDetailAsync(client, $"{DocumentsPath}/{ConsoleApiFactory.TenantADocIssuedId}");
+        detail.Document.State.Should().Be("Issued");
+        detail.BlockingReason.Should().BeNull("un motif de blocage périmé ne doit pas s'afficher sur un document émis");
     }
 
     [Fact]

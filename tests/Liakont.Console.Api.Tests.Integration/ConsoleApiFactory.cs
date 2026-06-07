@@ -237,6 +237,9 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         await InsertEventAsync(conn, TenantADocBlockedId, new DateTimeOffset(2026, 2, 15, 9, 0, 0, TimeSpan.Zero), "DocumentBlocked", OlderBlockedReasonText, payloadSnapshot: null);
         await InsertEventAsync(conn, TenantADocBlockedId, new DateTimeOffset(2026, 2, 15, 10, 0, 0, TimeSpan.Zero), "DocumentBlocked", BlockedReasonText, payloadSnapshot: null);
 
+        // Événement DocumentBlocked antérieur sur le document émis — valide que BlockingReason est null quand State != Blocked.
+        await InsertEventAsync(conn, TenantADocIssuedId, new DateTimeOffset(2026, 3, 19, 8, 0, 0, TimeSpan.Zero), "DocumentBlocked", detail: "Bloqué avant correction, puis émis.", payloadSnapshot: null);
+
         // Pivot transmis (événement DocumentIssued) — alimente PivotSnapshotJson du détail.
         await InsertEventAsync(conn, TenantADocIssuedId, new DateTimeOffset(2026, 3, 20, 12, 0, 0, TimeSpan.Zero), "DocumentIssued", detail: "Émis", payloadSnapshot: "{\"number\":\"AV-A-003\"}");
 
