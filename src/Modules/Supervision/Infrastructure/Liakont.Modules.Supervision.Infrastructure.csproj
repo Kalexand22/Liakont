@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- Microsoft.Extensions.* (DI, Logging) du framework partagé — aucun package NuGet nouveau, aucun ADR
+         (repo-standards §4). La supervision ne porte aucun secret. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.Supervision.Tests.Unit" />
+    <InternalsVisibleTo Include="Liakont.Modules.Supervision.Tests.Integration" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.Supervision.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.Supervision.Application.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.Supervision.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Abstractions/Stratum.Common.Abstractions.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+    <!-- IJobHandler du module Job (le dead-man's-switch est un job SYSTÈME dont le handler fait le fan-out
+         multi-tenant via ITenantJobRunner) — accès inter-module par les Contracts uniquement (module-rules §3). -->
+    <ProjectReference Include="../../Job/Contracts/Stratum.Modules.Job.Contracts.csproj" />
+  </ItemGroup>
+</Project>
