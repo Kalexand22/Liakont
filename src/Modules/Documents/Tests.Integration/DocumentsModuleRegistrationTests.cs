@@ -107,5 +107,11 @@ public sealed class DocumentsModuleRegistrationTests
             Liakont.Modules.Ingestion.Contracts.DetectedDocumentIntake input,
             System.Threading.CancellationToken cancellationToken = default)
             => System.Threading.Tasks.Task.CompletedTask;
+
+        public System.Threading.Tasks.Task<bool> IsDocumentRangedAsync(
+            System.Guid documentId,
+            string tenantId,
+            System.Threading.CancellationToken cancellationToken = default)
+            => System.Threading.Tasks.Task.FromResult(false);
     }
 }

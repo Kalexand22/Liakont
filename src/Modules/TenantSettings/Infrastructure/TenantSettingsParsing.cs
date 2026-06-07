@@ -49,4 +49,22 @@ internal static class TenantSettingsParsing
             $"Catégorie d'opération inconnue : « {value} » (attendu : LivraisonBiens | PrestationServices | Mixte).",
             nameof(value));
     }
+
+    /// <summary>Convertit la méthode d'imputation des frais. <c>null</c>/vide = décision en attente (suspension), jamais devinée.</summary>
+    public static FeeImputationMethod? ParseFeeImputationMethod(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (Enum.TryParse<FeeImputationMethod>(value.Trim(), ignoreCase: true, out var method) && Enum.IsDefined(method))
+        {
+            return method;
+        }
+
+        throw new ArgumentException(
+            $"Méthode d'imputation des frais inconnue : « {value} » (attendu : Prorata | AgregationJourTaux).",
+            nameof(value));
+    }
 }

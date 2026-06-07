@@ -175,5 +175,7 @@ public sealed class SupplierIdentityRuleTests
         public Task<ExtractionScheduleDto?> GetExtractionSchedule(Guid companyId, CancellationToken ct = default) => throw new NotSupportedException();
 
         public Task<AlertThresholdsDto?> GetAlertThresholds(Guid companyId, CancellationToken ct = default) => throw new NotSupportedException();
+
+        public Task<Guid?> GetCurrentCompanyId(CancellationToken ct = default) => throw new NotSupportedException();
     }
 }

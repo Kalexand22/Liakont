@@ -8,4 +8,6 @@ internal sealed record FiscalSeed
     public string? OperationCategory { get; init; }
 
     public string? ReportingFrequency { get; init; }
+
+    public string? FeeImputationMethod { get; init; }
 }

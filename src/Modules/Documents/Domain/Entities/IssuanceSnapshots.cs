@@ -13,7 +13,15 @@ using System;
 public sealed class IssuanceSnapshots
 {
     /// <summary>Construit le triplet de preuve d'une émission. Chaque snapshot est un document JSON non vide (F06 §3).</summary>
-    public IssuanceSnapshots(string payloadSnapshot, string paResponseSnapshot, string mappingTrace)
+    /// <param name="payloadSnapshot">Snapshot du payload pivot transmis (JSON non vide).</param>
+    /// <param name="paResponseSnapshot">Snapshot de la réponse brute de la PA (JSON non vide).</param>
+    /// <param name="mappingTrace">Trace de mapping TVA appliquée (JSON non vide).</param>
+    /// <param name="paDocumentId">
+    /// Identifiant du document attribué par la Plateforme Agréée à l'émission, clé de récupération aval (facture
+    /// générée, tax reports — SYNC/PIP01d). Optionnel : <c>null</c> n'altère pas une référence déjà posée (jamais
+    /// un effacement). Ce n'est PAS une « preuve » au sens des trois snapshots (qui restent obligatoires).
+    /// </param>
+    public IssuanceSnapshots(string payloadSnapshot, string paResponseSnapshot, string mappingTrace, string? paDocumentId = null)
     {
         PayloadSnapshot = RequireSnapshot(
             payloadSnapshot,
@@ -27,6 +35,7 @@ public sealed class IssuanceSnapshots
             mappingTrace,
             nameof(mappingTrace),
             "La trace de mapping TVA est obligatoire pour un document émis (justification de la TVA appliquée, F03/F06 §3).");
+        PaDocumentId = paDocumentId;
     }
 
     /// <summary>Snapshot du payload pivot exact transmis à la Plateforme Agréée (JSON).</summary>
@@ -37,6 +46,9 @@ public sealed class IssuanceSnapshots
 
     /// <summary>Trace de la/des règle(s) de mapping TVA appliquée(s) et de leur version (JSON, F03).</summary>
     public string MappingTrace { get; }
+
+    /// <summary>Identifiant du document côté Plateforme Agréée (clé de récupération aval), ou <c>null</c>.</summary>
+    public string? PaDocumentId { get; }
 
     internal static string RequireSnapshot(string value, string paramName, string message)
     {

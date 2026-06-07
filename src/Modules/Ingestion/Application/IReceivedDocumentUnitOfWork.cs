@@ -24,6 +24,14 @@ public interface IReceivedDocumentUnitOfWork : IAsyncDisposable
     Task<string?> GetLatestHashForSourceReferenceAsync(string tenantId, string sourceReference, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Identifiant du document attribué à la PREMIÈRE réception de cette empreinte (tenant + payload_hash), ou
+    /// <c>null</c> si l'empreinte n'a jamais été reçue. Cet identifiant est PARTAGÉ par l'inscription, l'événement
+    /// d'intégration et le document — il sert à RE-RANGER de façon idempotente un document reçu mais non rangé
+    /// (affinage du dédoublonnage, ADR-0012), avec le même identité que la réception d'origine.
+    /// </summary>
+    Task<Guid?> GetDocumentIdByPayloadHashAsync(string tenantId, string payloadHash, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Insère une entrée de réception. Lève <see cref="Stratum.Common.Abstractions.Exceptions.ConflictException"/>
     /// si l'empreinte (tenant + payload_hash) existe déjà (course entre lots concurrents) — l'appelant
     /// traite alors le document comme doublon.

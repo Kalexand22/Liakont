@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- Microsoft.Extensions.* (DI, Options) du framework partagé — aucun package NuGet nouveau,
+         aucun ADR requis (repo-standards §4). Pas de Data Protection : PIP01a ne porte aucun secret. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.Pipeline.Tests.Unit" />
+    <InternalsVisibleTo Include="Liakont.Modules.Pipeline.Tests.Integration" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.Pipeline.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.Pipeline.Application.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.Pipeline.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+    <!-- PivotDocumentDto + DTO pivot (lecteur canonique du staging) — contrat agent partagé, BCL-only. -->
+    <ProjectReference Include="../../../Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
+    <!-- CHECK (PIP01b) : le pipeline consomme les AUTRES modules UNIQUEMENT par leurs Contracts
+         (frontière Contracts-only, module-rules §3 / CLAUDE.md n°14). Aucune référence Domain/Application/
+         Infrastructure d'un autre module, aucun plug-in PA concret. -->
+    <ProjectReference Include="../../Ingestion/Contracts/Liakont.Modules.Ingestion.Contracts.csproj" />
+    <ProjectReference Include="../../Staging/Contracts/Liakont.Modules.Staging.Contracts.csproj" />
+    <ProjectReference Include="../../TvaMapping/Contracts/Liakont.Modules.TvaMapping.Contracts.csproj" />
+    <ProjectReference Include="../../Validation/Contracts/Liakont.Modules.Validation.Contracts.csproj" />
+    <ProjectReference Include="../../Documents/Contracts/Liakont.Modules.Documents.Contracts.csproj" />
+    <ProjectReference Include="../../TenantSettings/Contracts/Liakont.Modules.TenantSettings.Contracts.csproj" />
+    <!-- PIP03a — AGRÉGATION DE PAIEMENT : lecture des encaissements bruts (IPaymentQueries) du module
+         Payments par ses Contracts uniquement (frontière P1, CLAUDE.md n°14). -->
+    <ProjectReference Include="../../Payments/Contracts/Liakont.Modules.Payments.Contracts.csproj" />
+    <!-- PIP01c — SEND : résolution du plug-in PA par capacités/clé (IPaClientRegistry), archivage WORM de
+         l'émission (TRK05), et déclencheur de job multi-tenant (IJobHandler). Toujours UNIQUEMENT des
+         Contracts d'autres modules — aucun plug-in PA concret (frontière P1, CLAUDE.md n°6/14). -->
+    <ProjectReference Include="../../Transmission/Contracts/Liakont.Modules.Transmission.Contracts.csproj" />
+    <ProjectReference Include="../../Archive/Contracts/Liakont.Modules.Archive.Contracts.csproj" />
+    <ProjectReference Include="../../Job/Contracts/Stratum.Modules.Job.Contracts.csproj" />
+  </ItemGroup>
+</Project>

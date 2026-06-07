@@ -44,4 +44,16 @@ public interface IDocumentQueries
     /// doublon. Cette lecture fournit la liste à raccrocher. Triés par dernière mise à jour décroissante.
     /// </summary>
     Task<IReadOnlyList<DocumentSummaryDto>> GetPotentiallySentDocumentsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Statut d'un document par (référence source, empreinte du payload), ou <c>null</c> si aucun document
+    /// n'existe pour cette clé dans le tenant. Brique du point de statut agent (ADR-0012/0014, élaboré par
+    /// PIP01d) : la sémantique Processed/Pending est dérivée de l'état par l'appelant ; cette requête
+    /// retourne l'état DURABLE du document le plus récent pour la clé (un renvoi idempotent partage
+    /// l'empreinte ; un remplacement après rejet partage la référence source).
+    /// </summary>
+    Task<DocumentStatusDto?> FindStatusBySourceReferenceAndPayloadHashAsync(
+        string sourceReference,
+        string payloadHash,
+        CancellationToken cancellationToken = default);
 }

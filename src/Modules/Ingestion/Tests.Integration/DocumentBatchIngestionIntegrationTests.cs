@@ -73,6 +73,50 @@ public sealed class DocumentBatchIngestionIntegrationTests
     }
 
     [Fact]
+    public async Task Received_But_Not_Ranged_Document_Is_Re_Ranged_On_Re_Push()
+    {
+        // AFFINAGE DÉDOUBLONNAGE (ADR-0012) : ferme la perte silencieuse d'un document reçu mais jamais rangé.
+        var harness = new IngestionHarness(_fixture, NewTenant());
+
+        // 1er push : la réception réussit (committée) mais le RANGEMENT échoue (hoquet de la base tenant simulé).
+        harness.DocumentIntake.FailNextRegistrations(1);
+        var first = await harness.BatchHandler.Handle(Batch(harness, Doc("ref-1")), CancellationToken.None);
+
+        first.Results.Single().Status.Should().Be(DocumentPushStatus.Accepted);
+        (await CountReceivedAsync(harness)).Should().Be(1, "le document est reçu (inscrit au registre).");
+        harness.DocumentIntake.Calls.Should().HaveCount(1, "le rangement a été tenté une fois (et a échoué).");
+        var documentId = harness.DocumentIntake.Calls.Single().DocumentId;
+        (await harness.DocumentIntake.IsDocumentRangedAsync(documentId, harness.TenantId))
+            .Should().BeFalse("le rangement a échoué : reçu mais NON rangé (la fuite à fermer).");
+
+        // Renvoi du MÊME payload (filet de sécurité de l'agent) : doublon, MAIS le rangement est RE-TENTÉ.
+        var rePush = await harness.BatchHandler.Handle(Batch(harness, Doc("ref-1")), CancellationToken.None);
+
+        rePush.Results.Single().Status.Should().Be(DocumentPushStatus.Duplicate);
+        (await CountReceivedAsync(harness)).Should().Be(1, "le registre de réception reste append-only (aucune ré-inscription).");
+        harness.DocumentIntake.Calls.Should().HaveCount(2, "le renvoi re-tente le rangement (idempotent), jamais écarté aveuglément.");
+        harness.DocumentIntake.Calls.Select(c => c.DocumentId).Distinct().Should()
+            .ContainSingle().Which.Should().Be(documentId, "le re-rangement réutilise l'identité de la réception d'origine.");
+        (await harness.DocumentIntake.IsDocumentRangedAsync(documentId, harness.TenantId))
+            .Should().BeTrue("le document est désormais rangé — pas perdu.");
+        harness.PayloadStagingStore.Count.Should().Be(1, "le pivot est (re)stagé pour le pipeline (filet ADR-0014).");
+    }
+
+    [Fact]
+    public async Task Re_Push_Of_Already_Ranged_Document_Does_Not_Re_Range()
+    {
+        // Un vrai doublon (document DÉJÀ rangé) reste terminal — aucun re-rangement inutile (ADR-0012).
+        var harness = new IngestionHarness(_fixture, NewTenant());
+        await harness.BatchHandler.Handle(Batch(harness, Doc("ref-1")), CancellationToken.None);
+        harness.DocumentIntake.Calls.Should().HaveCount(1, "le rangement réussit du premier coup.");
+
+        var rePush = await harness.BatchHandler.Handle(Batch(harness, Doc("ref-1")), CancellationToken.None);
+
+        rePush.Results.Single().Status.Should().Be(DocumentPushStatus.Duplicate);
+        harness.DocumentIntake.Calls.Should().HaveCount(1, "un document déjà rangé n'est pas re-rangé (terminal).");
+    }
+
+    [Fact]
     public async Task Same_Reference_Different_Payload_Is_Accepted_And_Flags_Alteration()
     {
         var harness = new IngestionHarness(_fixture, NewTenant());

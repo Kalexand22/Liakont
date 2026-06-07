@@ -38,6 +38,21 @@ public sealed class PostgresPaymentQueries : IPaymentQueries
         return row is null ? null : MapPayment(row);
     }
 
+    public async Task<IReadOnlyList<PaymentDto>> ListPaymentsAsync(CancellationToken cancellationToken = default)
+    {
+        using var conn = await _connectionFactory.OpenAsync(cancellationToken);
+
+        const string sql = """
+            SELECT id, payment_date, amount, method, related_document_number, source_reference, received_utc
+            FROM payments.payments
+            ORDER BY payment_date, received_utc, id
+            """;
+
+        var rows = await conn.QueryAsync(new CommandDefinition(sql, cancellationToken: cancellationToken));
+
+        return rows.Select(MapPayment).ToList();
+    }
+
     public async Task<PaymentAggregateDto?> GetAggregateByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         using var conn = await _connectionFactory.OpenAsync(cancellationToken);

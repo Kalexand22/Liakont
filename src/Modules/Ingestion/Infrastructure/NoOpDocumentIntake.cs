@@ -20,4 +20,12 @@ internal sealed class NoOpDocumentIntake : IDocumentIntake
     {
         return Task.CompletedTask;
     }
+
+    // Sans store de documents, la notion de « rangé » n'a pas de sens : on répond TRUE (« rien à re-ranger »)
+    // pour que l'affinage du dédoublonnage (ADR-0012) ne déclenche aucun re-staging / re-rangement inutile tant
+    // que le module Documents n'est pas câblé. Le câblage réel (DocumentIntake) renvoie l'existence effective.
+    public Task<bool> IsDocumentRangedAsync(Guid documentId, string tenantId, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(true);
+    }
 }

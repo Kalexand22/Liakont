@@ -34,6 +34,17 @@ public interface IDocumentIntake
     /// pour un document réellement nouveau, et son implémentation doit être idempotente sur l'identifiant.
     /// </summary>
     Task RegisterDetectedDocumentAsync(DetectedDocumentIntake input, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Indique si le document identifié par <paramref name="documentId"/> est déjà RANGÉ dans le pipeline (le
+    /// <c>Detected</c> existe sur la plateforme), dans le tenant <paramref name="tenantId"/>. Brique de
+    /// l'AFFINAGE DU DÉDOUBLONNAGE (ADR-0012) : sur un renvoi d'un document dont l'empreinte est déjà connue,
+    /// l'ingestion distingue « déjà rangé » (vrai doublon, terminal) de « reçu mais non rangé » (re-tenter le
+    /// rangement, idempotent), au lieu d'écarter aveuglément — ce qui rouvrirait la perte silencieuse d'un
+    /// document reçu mais jamais entré dans le pipeline. C'est la MÊME vérité que celle rapportée par le point
+    /// de statut agent (Detected présent ou non). Lecture seule, tenant-scopée.
+    /// </summary>
+    Task<bool> IsDocumentRangedAsync(Guid documentId, string tenantId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Données d'un document accepté à créer en état <c>Detected</c> (entrée de <see cref="IDocumentIntake"/>).</summary>

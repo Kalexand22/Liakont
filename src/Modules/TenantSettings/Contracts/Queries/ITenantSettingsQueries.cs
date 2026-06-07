@@ -18,4 +18,13 @@ public interface ITenantSettingsQueries
     Task<ExtractionScheduleDto?> GetExtractionSchedule(Guid companyId, CancellationToken ct = default);
 
     Task<AlertThresholdsDto?> GetAlertThresholds(Guid companyId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Identifiant de l'UNIQUE société du tenant courant, résolu SANS <c>companyId</c> (depuis
+    /// <c>tenantsettings.tenant_profiles</c>, où <c>company_id</c> est unique par base — database-per-tenant,
+    /// blueprint §7). <c>null</c> tant que le profil du tenant n'est pas créé (CFG02). Permet à un job tenant
+    /// (pipeline, paiements) d'obtenir le <c>companyId</c> requis par les autres lectures sans lire la table
+    /// d'un autre module en SQL brut (frontière, CLAUDE.md n°14).
+    /// </summary>
+    Task<Guid?> GetCurrentCompanyId(CancellationToken ct = default);
 }

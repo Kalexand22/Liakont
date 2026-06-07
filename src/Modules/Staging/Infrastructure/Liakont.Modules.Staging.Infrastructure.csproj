@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- ASP.NET Core Data Protection (chiffrement du payload stagé au repos) vit dans le framework partagé
+         Microsoft.AspNetCore.App — aucun package NuGet nouveau, aucun ADR requis (repo-standards §4). -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.Staging.Tests.Unit" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Contracts/Liakont.Modules.Staging.Contracts.csproj" />
+    <!-- Sérialiseur/hasher canonique du contrat (ADR-0007) — utilitaire BCL-only, pas de logique métier. -->
+    <ProjectReference Include="../../../Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
+  </ItemGroup>
+</Project>

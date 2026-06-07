@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- AddDataProtection + DI + Configuration pour câbler les vrais services des modules dans le test. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Infrastructure/Liakont.Modules.Pipeline.Infrastructure.csproj" />
+    <ProjectReference Include="../../../Common/Testing/Stratum.Common.Testing.csproj" />
+    <!-- Test d'intégration CHECK bout en bout : on câble les VRAIS services des modules consommés
+         (mapping, validation, cycle de vie, staging, paramétrage) sur une base tenant réelle. Ces
+         références sont propres au harnais de test ; le module Pipeline lui-même ne référence que les
+         Contracts (frontière P1 — voir Infrastructure.csproj). -->
+    <ProjectReference Include="../../Documents/Infrastructure/Liakont.Modules.Documents.Infrastructure.csproj" />
+    <ProjectReference Include="../../TvaMapping/Infrastructure/Liakont.Modules.TvaMapping.Infrastructure.csproj" />
+    <ProjectReference Include="../../Validation/Infrastructure/Liakont.Modules.Validation.Infrastructure.csproj" />
+    <ProjectReference Include="../../TenantSettings/Infrastructure/Liakont.Modules.TenantSettings.Infrastructure.csproj" />
+    <ProjectReference Include="../../Staging/Infrastructure/Liakont.Modules.Staging.Infrastructure.csproj" />
+    <!-- PIP03a — agrégation de paiement : migrations + persistance réelle du module Payments (encaissements
+         bruts seedés, lus par l'agrégateur via IPaymentQueries). Référence propre au harnais de test. -->
+    <ProjectReference Include="../../Payments/Infrastructure/Liakont.Modules.Payments.Infrastructure.csproj" />
+    <!-- PIP01c — SEND : archive WORM réelle (TRK05) + plug-in PA factice (double sanctionné). La sonde de
+         présence WORM (IArchivedDocumentProbe, port du Host) est réimplémentée dans le harnais de test
+         au-dessus de IArchiveStore — le module Pipeline ne référence jamais ces infrastructures. -->
+    <ProjectReference Include="../../Archive/Infrastructure/Liakont.Modules.Archive.Infrastructure.csproj" />
+    <!-- PIP01d — E2E : ingestion RÉELLE (IngestDocumentBatchHandler + UoW de réception + staging) dans la chaîne. -->
+    <ProjectReference Include="../../Ingestion/Infrastructure/Liakont.Modules.Ingestion.Infrastructure.csproj" />
+    <ProjectReference Include="../../../PaClients/Liakont.PaClients.Fake/Liakont.PaClients.Fake.csproj" />
+  </ItemGroup>
+</Project>

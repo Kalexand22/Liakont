@@ -35,8 +35,11 @@
     <ProjectReference Include="..\..\Modules\Documents\Infrastructure\Liakont.Modules.Documents.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Payments\Infrastructure\Liakont.Modules.Payments.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Archive\Infrastructure\Liakont.Modules.Archive.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Staging\Infrastructure\Liakont.Modules.Staging.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Reconciliation\Infrastructure\Liakont.Modules.Reconciliation.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Transmission\Infrastructure\Liakont.Modules.Transmission.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Validation\Infrastructure\Liakont.Modules.Validation.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Pipeline\Infrastructure\Liakont.Modules.Pipeline.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Contracts\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj" />
   </ItemGroup>
 

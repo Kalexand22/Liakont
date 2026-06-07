@@ -11,6 +11,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Infrastructure/Liakont.Modules.Ingestion.Infrastructure.csproj" />
+    <ProjectReference Include="../../Staging/Contracts/Liakont.Modules.Staging.Contracts.csproj" />
     <ProjectReference Include="../../../Common/Testing/Stratum.Common.Testing.csproj" />
   </ItemGroup>
 </Project>

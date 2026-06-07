@@ -4,6 +4,7 @@ using Liakont.Agent.Contracts.Transport;
 using Liakont.Modules.Ingestion.Contracts;
 using Liakont.Modules.Ingestion.Contracts.Commands;
 using Liakont.Modules.Ingestion.Contracts.Queries;
+using Liakont.Modules.Pipeline.Contracts.Queries;
 using MediatR;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -121,6 +122,31 @@ internal static class AgentApiEndpoints
                 ct);
             return Results.Ok(response);
         }).RequireRateLimiting(IngestionRateLimiterPolicy);
+
+        // GET /api/agent/v1/documents/status — point de statut de prise en charge (ADR-0012, PIP01d).
+        // Clé (sourceReference, payloadHash), lecture seule, tenant-scopé (le filtre a posé le contexte tenant).
+        // CONTRAT : une clé inconnue sur cette route EXISTANTE répond 200 + Pending, JAMAIS 404 (404 réservé à
+        // une route absente) — l'agent ne purge sa copie locale que sur un statut TERMINAL (Processed/Rejected).
+        group.MapGet("/documents/status", async (
+            string? sourceReference,
+            string? payloadHash,
+            HttpContext http,
+            ISender sender,
+            CancellationToken ct) =>
+        {
+            // Garantit que le filtre d'authentification a posé l'identité + le contexte tenant de la requête.
+            _ = AgentApiContext.GetIdentity(http);
+
+            if (string.IsNullOrWhiteSpace(sourceReference) || string.IsNullOrWhiteSpace(payloadHash))
+            {
+                return Results.BadRequest("Les paramètres sourceReference et payloadHash sont obligatoires.");
+            }
+
+            var status = await sender.Send(
+                new GetDocumentIntakeStatusQuery { SourceReference = sourceReference, PayloadHash = payloadHash },
+                ct);
+            return Results.Ok(status);
+        }).RequireRateLimiting(RateLimiterPolicy);
 
         // POST /api/agent/v1/documents/{sourceReference}/pdf — PDF RATTACHÉ à un document (par tenant).
         group.MapPost("/documents/{sourceReference}/pdf", async (

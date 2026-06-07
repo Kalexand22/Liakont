@@ -120,6 +120,38 @@ public sealed class PostgresDocumentQueries : IDocumentQueries
         return rows.Select(MapSummary).ToList();
     }
 
+    public async Task<DocumentStatusDto?> FindStatusBySourceReferenceAndPayloadHashAsync(
+        string sourceReference,
+        string payloadHash,
+        CancellationToken cancellationToken = default)
+    {
+        using var conn = await _connectionFactory.OpenAsync(cancellationToken);
+
+        // Clé (référence source, empreinte) : on retourne le document le PLUS RÉCENT pour la clé (un renvoi
+        // idempotent partage l'empreinte ; un remplacement après rejet partage la référence source).
+        const string sql = """
+            SELECT id, document_number, state
+            FROM documents.documents
+            WHERE source_reference = @SourceReference AND payload_hash = @PayloadHash
+            ORDER BY last_update_utc DESC
+            LIMIT 1
+            """;
+
+        var row = await conn.QueryFirstOrDefaultAsync(new CommandDefinition(
+            sql,
+            new { SourceReference = sourceReference, PayloadHash = payloadHash },
+            cancellationToken: cancellationToken));
+
+        return row is null
+            ? null
+            : new DocumentStatusDto
+            {
+                Id = (Guid)row.id,
+                DocumentNumber = (string)row.document_number,
+                State = (string)row.state,
+            };
+    }
+
     public async Task<IReadOnlyList<DocumentEventDto>> GetEventsAsync(Guid documentId, CancellationToken cancellationToken = default)
     {
         using var conn = await _connectionFactory.OpenAsync(cancellationToken);

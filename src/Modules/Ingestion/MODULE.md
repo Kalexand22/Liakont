@@ -109,6 +109,8 @@ par IP). En-tête `X-Contract-Version` négocié (426 si inconnue/trop ancienne)
 
 > Les deux événements sont écrits dans l'outbox DANS LA MÊME TRANSACTION que l'inscription au registre
 > de réception (cohérence transactionnelle), base SYSTÈME (drainée par le worker d'outbox du socle).
+> Le pivot COMPLET est stagé durablement (`IPayloadStagingStore`, PIP00/ADR-0014) AVANT ce commit : un
+> `DocumentReceived` n'est jamais publié sans contenu déjà stagé (INV-INGESTION-017).
 
 ## Consumed Events
 
@@ -118,5 +120,6 @@ Aucun.
 
 - `Common.Abstractions` (MediatR/Messaging, MultiTenancy `ITenantContext`, Exceptions, `IntegrationEvent`).
 - `Common.Infrastructure` (Dapper, migrations DbUp, `ISystemConnectionFactory`, `TransactionScope`, `IOutboxWriter`, `IEventTypeRegistry`).
-- `Liakont.Agent.Contracts` (DTOs de transport et pivot, sérialisation canonique `PayloadHasher`, en-têtes du contrat).
-- Aucune dépendance vers un autre module métier (frontière Contracts-only respectée ; `IDocumentIntake` est un port local).
+- `Liakont.Agent.Contracts` (DTOs de transport et pivot, sérialisation canonique `CanonicalJson`/`PayloadHasher`, en-têtes du contrat).
+- `Staging.Contracts` (`IPayloadStagingStore`, PIP00/ADR-0014) : l'intake stage le pivot complet AVANT le commit registre+outbox (Contracts uniquement — frontière respectée, CLAUDE.md n°14).
+- Aucune dépendance vers le Domain/Infrastructure d'un autre module (frontière Contracts-only respectée ; `IDocumentIntake` est un port local).
