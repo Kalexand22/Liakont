@@ -72,40 +72,79 @@ items:
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
-  API02:
-    title: "Endpoints d'action sur les documents"
+  # API02 re-découpé en API02a/b/c (2026-06-07, v14) : 7 actions sur 2 modules, trop gros.
+  API02a:
+    title: "Endpoints d'action documents : envoi"
     description: |
-      Implémenter les actions (permission liakont.actions) dans Documents.Web / Pipeline :
+      Sur le harness HTTP d'API01a, scaffolder les actions du module Documents (Documents.Web /
+      Pipeline) et implémenter les actions d'envoi (permission liakont.actions) :
       1. POST /api/v1/documents/{id}/send → envoi d'un document ReadyToSend.
       2. POST /api/v1/documents/send-all → envoi de tous les ReadyToSend du tenant.
          Avec ?confirm=false : retourne le récapitulatif (nombre + montant total) SANS exécuter ;
          l'exécution exige confirm=true (mécanisme de confirmation pour la console).
-      3. POST /api/v1/documents/{id}/verdict → verdict B2C/B2B du garde-fou (VAL05) :
+      3. POST /api/v1/runs/trigger → déclencher le pipeline du tenant manuellement
+         (job à la demande via le module Job).
+      4. RÉUTILISE le harness d'API01a (permissions, tenant, erreurs) — ne rien redupliquer ;
+         pose le scaffold des actions Documents.Web que réutilisent API02b/API02c.
+      5. Toute action est journalisée (module Audit + DocumentEvent) avec l'identité de
+         l'opérateur. Tests d'intégration : chaque action, droits (lecture seule → 403),
+         send-all confirm=false/true, isolation tenant.
+    acceptance:
+      - "POST /documents/{id}/send, /documents/send-all et /runs/trigger opérationnels (permission liakont.actions)"
+      - "send-all : récapitulatif (nombre + montant) avant exécution (confirm=false), exécution sur confirm=true"
+      - "Scaffold des actions Documents.Web posé sur le harness API01a (rien redupliqué), réutilisable par API02b/c"
+      - "Toute action journalisée (Audit + DocumentEvent) avec l'identité de l'opérateur"
+      - "Tests d'intégration : actions, droits (lecture seule → 403), isolation tenant"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  API02b:
+    title: "Endpoints d'action documents : garde-fou + re-vérification"
+    description: |
+      Sur le scaffold d'actions Documents.Web posé par API02a, ajouter le garde-fou B2C/B2B et la
+      re-vérification (permission liakont.actions) :
+      1. POST /api/v1/documents/{id}/verdict → verdict B2C/B2B du garde-fou (VAL05) :
          « confirmer particulier » / « traiter manuellement » — journalisé avec l'identité
          de l'opérateur (DocumentEvent).
-      4. POST /api/v1/documents/{id}/resolve-manually → marquer un document bloqué/rejeté
+      2. POST /api/v1/documents/{id}/recheck → re-valider UN document Blocked après correction
+         (table TVA complétée, verdict posé) sans attendre le prochain traitement : repasse
+         par le ValidationPipeline → ReadyToSend ou Blocked avec les nouveaux motifs.
+      3. RÉUTILISE le harness d'API01a et le scaffold d'API02a — ne rien redupliquer.
+      4. Toute action est journalisée (module Audit + DocumentEvent) avec l'identité de
+         l'opérateur. Tests d'intégration : chaque action, droits (lecture seule → 403),
+         isolation tenant.
+    acceptance:
+      - "POST /documents/{id}/verdict (garde-fou VAL05 : confirmer particulier / traiter manuellement) opérationnel"
+      - "POST /documents/{id}/recheck : re-validation d'un seul document Blocked via le ValidationPipeline → ReadyToSend ou Blocked avec nouveaux motifs"
+      - "Permission liakont.actions appliquée (lecture seule → 403)"
+      - "Toute action journalisée (Audit + DocumentEvent) avec l'identité de l'opérateur"
+      - "Tests d'intégration : actions, droits, isolation tenant"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  API02c:
+    title: "Endpoints d'action documents : résolution terminale"
+    description: |
+      Sur le scaffold d'actions Documents.Web posé par API02a, ajouter les résolutions terminales
+      (permission liakont.actions) :
+      1. POST /api/v1/documents/{id}/resolve-manually → marquer un document bloqué/rejeté
          « traité manuellement hors passerelle », MOTIF OBLIGATOIRE (400 sans motif),
          transition vers l'état terminal ManuallyHandled (TRK02), journalisé.
-      5. POST /api/v1/documents/{id}/supersede → lier un document RejectedByPa à son REMPLAÇANT
+      2. POST /api/v1/documents/{id}/supersede → lier un document RejectedByPa à son REMPLAÇANT
          (corps : id du nouveau document, déjà reçu via l'agent — le logiciel source est le
          seul créateur de numéros). L'ancien passe Superseded avec lien. Refusé si le
          remplaçant n'existe pas dans le tenant. Journalisé.
-      6. POST /api/v1/documents/{id}/recheck → re-valider UN document Blocked après correction
-         (table TVA complétée, verdict posé) sans attendre le prochain traitement : repasse
-         par le ValidationPipeline → ReadyToSend ou Blocked avec les nouveaux motifs.
-      7. POST /api/v1/runs/trigger → déclencher le pipeline du tenant manuellement
-         (job à la demande via le module Job).
-      8. Toute action est journalisée (module Audit + DocumentEvent) avec l'identité Keycloak
-         de l'opérateur. Tests d'intégration : chaque action, droits (lecture seule → 403),
-         motif obligatoire, supersede vers un document inexistant (refus), isolation tenant.
+      3. RÉUTILISE le harness d'API01a et le scaffold d'API02a — ne rien redupliquer.
+      4. Toute action est journalisée (module Audit + DocumentEvent) avec l'identité de
+         l'opérateur. Tests d'intégration : chaque action, droits (lecture seule → 403),
+         motif obligatoire (400 sans motif), supersede vers un document inexistant (refus),
+         isolation tenant.
     acceptance:
-      - "Toutes les actions opérationnelles avec permission liakont.actions"
-      - "send-all : récapitulatif avant exécution (confirm=false/true)"
-      - "resolve-manually : motif obligatoire, transition ManuallyHandled, journalisé"
-      - "supersede : remplaçant existant requis, ancien document Superseded avec lien"
-      - "recheck : re-validation d'un seul document"
-      - "Toute action journalisée avec l'identité de l'opérateur"
-      - "Tests d'intégration : actions, droits, isolation tenant"
+      - "POST /documents/{id}/resolve-manually : motif obligatoire (400 sans motif), transition ManuallyHandled (TRK02), journalisé"
+      - "POST /documents/{id}/supersede : remplaçant existant dans le tenant requis (refus sinon), ancien document Superseded avec lien"
+      - "Permission liakont.actions appliquée (lecture seule → 403)"
+      - "Toute action journalisée (Audit + DocumentEvent) avec l'identité de l'opérateur"
+      - "Tests d'intégration : actions, droits, motif obligatoire, supersede vers doc inexistant refusé, isolation tenant"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
