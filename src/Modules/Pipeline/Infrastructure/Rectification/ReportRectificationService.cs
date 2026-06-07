@@ -115,11 +115,18 @@ public sealed partial class ReportRectificationService
         }
 
         var paClient = await ResolvePaClientAsync(tenantId, cancellationToken);
-        var capable = paClient?.Capabilities.SupportsReportRectification ?? false;
 
-        // IDEMPOTENCE (PIP04 §4) : un contenu déjà transmis (ou déjà en attente faute de capacité, capacité
-        // toujours absente) ne re-transmet pas. Un changement d'empreinte (avoir / altération source) ré-ouvre.
-        if (IsIdempotentSkip(latest, rebuild.ContentHash, capable))
+        // Transmettre un rectificatif exige DEUX capacités déclarées : la rectification (flux RE) ET le flux
+        // d'e-reporting de paiement demandé (10.4 / 10.2). L'absence de l'une OU l'autre ⇒ EN ATTENTE — décidé
+        // LOCALEMENT depuis les capacités déclarées (pas d'appel PA inutile, jamais `if (pa is …)`), ce qui rend
+        // l'idempotence stable : une période bloquée à contenu inchangé n'est ni renvoyée ni re-journalisée.
+        var canTransmit = paClient is not null
+            && paClient.Capabilities.SupportsReportRectification
+            && paClient.Capabilities.SupportsPaymentReport(flux);
+
+        // IDEMPOTENCE (PIP04 §4) : un contenu déjà transmis (ou déjà en attente faute de capacité, capacités
+        // toujours absentes) ne re-transmet pas. Un changement d'empreinte (avoir / altération source) ré-ouvre.
+        if (IsIdempotentSkip(latest, rebuild.ContentHash, canTransmit))
         {
             return new ReportRectificationOutcome
             {
@@ -131,9 +138,9 @@ public sealed partial class ReportRectificationService
 
         var payloadSnapshot = SerializeLines(rebuild.Lines);
 
-        if (!capable)
+        if (!canTransmit)
         {
-            var pendingDetail = $"Rectificatif e-reporting EN ATTENTE pour la période {periodLabel} : la Plateforme Agréée ne déclare pas (encore) la capacité de rectification (flux RE) — agrégat conservé, transmission automatique dès activation.";
+            var pendingDetail = $"Rectificatif e-reporting EN ATTENTE pour la période {periodLabel} : la Plateforme Agréée ne déclare pas (encore) toutes les capacités requises (rectification flux RE + e-reporting de paiement) — agrégat conservé, transmission automatique dès activation.";
             await AppendEntryAsync(flux, rebuild, ReportRectificationStatus.PendingCapability, paReportId: null, payloadSnapshot, paResponse: null, pendingDetail, cancellationToken);
             LogPending(_logger, tenantId, periodLabel);
             return new ReportRectificationOutcome
@@ -162,7 +169,7 @@ public sealed partial class ReportRectificationService
         return new ReportRectificationOutcome { Decision = decision, Rectification = rebuild, Detail = detail };
     }
 
-    private static bool IsIdempotentSkip(ReportRectificationEntry? latest, string contentHash, bool capable)
+    private static bool IsIdempotentSkip(ReportRectificationEntry? latest, string contentHash, bool canTransmit)
     {
         if (latest is null || !string.Equals(latest.ContentHash, contentHash, StringComparison.Ordinal))
         {
@@ -178,8 +185,9 @@ public sealed partial class ReportRectificationService
             // Rejet métier identique : pas de retry automatique (l'opérateur doit corriger le contenu).
             ReportRectificationStatus.RejectedByPa => true,
 
-            // En attente de capacité : on re-tente UNIQUEMENT si la capacité est désormais présente.
-            ReportRectificationStatus.PendingCapability => !capable,
+            // En attente de capacité : on re-tente UNIQUEMENT si la transmission a désormais une chance d'aboutir
+            // (les DEUX capacités requises présentes) — sinon ni renvoi PA ni doublon de journal append-only.
+            ReportRectificationStatus.PendingCapability => !canTransmit,
 
             // Erreur technique transitoire : on re-tente toujours.
             ReportRectificationStatus.TechnicalError => false,
@@ -204,10 +212,12 @@ public sealed partial class ReportRectificationService
                 ReportRectificationStatus.RejectedByPa,
                 $"Rectificatif e-reporting REJETÉ par la Plateforme Agréée pour la période {periodLabel} — action opérateur : corrigez les données puis relancez."),
 
+            // DÉFENSIF : les capacités requises sont pré-vérifiées avant l'envoi (canTransmit) ; ce cas ne
+            // survient que si une PA déclare la capacité mais la refuse au runtime (incohérence) — repli sûr en attente.
             PaSendState.CapabilityNotSupported => (
                 ReportRectificationDecision.PendingCapability,
                 ReportRectificationStatus.PendingCapability,
-                $"Rectificatif e-reporting EN ATTENTE pour la période {periodLabel} : capacité de rectification absente côté Plateforme Agréée — transmission automatique dès activation."),
+                $"Rectificatif e-reporting EN ATTENTE pour la période {periodLabel} : capacité refusée au runtime par la Plateforme Agréée — transmission automatique dès rétablissement."),
 
             // Réseau / 5xx / timeout / état inattendu : re-tentable au prochain cycle.
             _ => (

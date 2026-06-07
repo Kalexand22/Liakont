@@ -206,22 +206,28 @@ public sealed class ReportRectificationIntegrationTests : IClassFixture<Rectific
     }
 
     [Fact]
-    public async Task Payment_Reporting_Capability_Absent_Maps_To_Pending()
+    public async Task Payment_Reporting_Capability_Absent_Is_Pending_And_Idempotent()
     {
         var (start, end) = Period(10);
 
-        // Capacité de RECTIFICATION présente, mais e-reporting de paiement (10.4) absent : l'envoi est tenté
-        // puis la PA répond « capacité absente » (résultat typé) ⇒ en attente, jamais Transmitted ni exception.
+        // Capacité de RECTIFICATION présente, mais e-reporting de paiement (10.4) absent : la transmission exige
+        // les DEUX capacités ⇒ en attente, décidé localement (aucun envoi à l'aveugle).
         _harness.SetCapabilities(supportsRectification: true, supportsDomesticPaymentReporting: false);
         await _harness.SeedAggregatesAsync(new[] { Calc(new DateOnly(2026, 10, 3), 20m, 60.00m, 12.00m) });
 
-        var outcome = await _harness.RectifyAsync(PaymentReportFlux.Domestic, start, end);
+        var first = await _harness.RectifyAsync(PaymentReportFlux.Domestic, start, end);
 
-        outcome.Decision.Should().Be(ReportRectificationDecision.PendingCapability);
-        _harness.PaClient.Calls.Count(c => c.Method == SendPaymentReport).Should().Be(1);
+        // Re-déclenchement à contenu identique, capacité de flux toujours absente : idempotent, pas de doublon
+        // de journal ni de nouvel appel PA (régression de l'idempotence sur ce 2ᵉ cas de PendingCapability).
+        var second = await _harness.RectifyAsync(PaymentReportFlux.Domestic, start, end);
+
+        first.Decision.Should().Be(ReportRectificationDecision.PendingCapability);
+        second.Decision.Should().Be(ReportRectificationDecision.NoChange);
+        _harness.PaClient.Calls.Should().NotContain(c => c.Method == SendPaymentReport, "aucun envoi tant que le flux de paiement n'est pas déclaré.");
 
         var history = await _harness.GetHistoryAsync(PaymentReportFlux.Domestic, start, end);
-        history[^1].Status.Should().Be(ReportRectificationStatus.PendingCapability);
+        history.Should().ContainSingle("une seule entrée pour une période bloquée à contenu inchangé.");
+        history[0].Status.Should().Be(ReportRectificationStatus.PendingCapability);
     }
 
     [Fact]
