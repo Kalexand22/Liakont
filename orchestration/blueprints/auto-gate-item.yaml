@@ -30,7 +30,7 @@
 # the empirical proof of this limit (both degraded to a human/manual merge on it).
 #
 # Remote present  → gh pr create --base main + gh pr merge (PR auto-merged, audit trail).
-# No remote yet   → local git merge --no-ff into main.
+# (No-remote local-merge path OBSOLETE: `origin` is now configured.)
 # Any failure or non-trivial conflict → the gate is marked `blocked` and left to a human.
 # Auto-integration NEVER force-merges and NEVER bypasses a red verify/test.
 #
@@ -102,7 +102,7 @@ nodes:
   - id: integrate_to_main
     type: deterministic
     action: integrate-to-main
-    description: "Merge the segment branch into main. See protocol.md Step 5c. Remote present: gh pr create --base main --head <segment-branch> + gh pr merge --merge (PR auto-merged once required checks pass). No remote: git checkout main && git merge --no-ff <segment-branch>. Non-trivial conflict → abort/close PR, mark the gate `blocked`, EXIT 1 (degrade to human). The ONLY node allowed to touch main."
+    description: "Merge the segment branch into main. See protocol.md Step 5c. Remote present: gh pr create --base main --head <segment-branch> + gh pr merge --merge (PR auto-merged once required checks pass). (No-remote local-merge path obsolete: `origin` is configured.) Non-trivial conflict → abort/close PR, mark the gate `blocked`, EXIT 1 (degrade to human). The ONLY node allowed to touch main."
 
   - id: finalize_compose_log
     type: agentic
