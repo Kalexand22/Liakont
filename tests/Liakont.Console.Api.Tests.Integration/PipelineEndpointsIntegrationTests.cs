@@ -91,6 +91,20 @@ public sealed class PipelineEndpointsIntegrationTests
     }
 
     [Fact]
+    public async Task GetRuns_Filter_To_Is_Inclusive_At_Day_Boundary()
+    {
+        // Le run de février est à 2026-02-15T08:00Z ; un filtre from=to=2026-02-15 ne le retient QUE si la
+        // borne haute est inclusive au jour (logique AddDays(1) → borne exclusive au lendemain minuit). Sans
+        // cette inclusivité, started_at 08:00 serait exclu par une borne « < 2026-02-15T00:00 » — faux-vert détecté.
+        using var client = _factory.CreateClient(ConsoleApiFactory.TenantA, ConsoleApiFactory.ReaderUserId);
+
+        var runs = await GetRunsAsync(client, $"{RunsPath}?from=2026-02-15&to=2026-02-15");
+
+        runs.Should().ContainSingle();
+        runs[0].Detail.Should().Be(ConsoleApiFactory.TenantAFebRunDetail);
+    }
+
+    [Fact]
     public async Task GetRuns_Filter_By_Date_Range_Excluding_All_Returns_Empty()
     {
         using var client = _factory.CreateClient(ConsoleApiFactory.TenantA, ConsoleApiFactory.ReaderUserId);

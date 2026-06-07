@@ -19,6 +19,8 @@ public sealed class PostgresPaymentAggregationQueries : IPaymentAggregationQueri
 {
     // Borne de sécurité (parité avec PostgresPipelineRunQueries.MaxLimit) — la fenêtre par période reste le
     // mode nominal côté WEB06 ; cette borne protège contre un appel sans période ramenant tout l'historique.
+    // L'ORDER BY aggregate_date DESC garantit que la troncature ne supprime que les jours les plus anciens
+    // (parité avec PostgresPipelineRunQueries qui plafonne en DESC).
     private const int MaxResults = 5000;
 
     private readonly IConnectionFactory _connectionFactory;
@@ -41,7 +43,7 @@ public sealed class PostgresPaymentAggregationQueries : IPaymentAggregationQueri
             SELECT id, aggregate_date, vat_rate, taxable_base, vat_amount, status, reason, computed_utc
             FROM pipeline.payment_aggregations
             {where}
-            ORDER BY aggregate_date, vat_rate
+            ORDER BY aggregate_date DESC, vat_rate
             LIMIT @Limit
             """;
 
