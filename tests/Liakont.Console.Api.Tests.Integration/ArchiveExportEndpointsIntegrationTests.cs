@@ -96,6 +96,17 @@ public sealed class ArchiveExportEndpointsIntegrationTests
     }
 
     [Fact]
+    public async Task AuditExport_Period_With_Inverted_Bounds_Returns_400()
+    {
+        // Bornes inversées : rejet 400 AVANT d'ouvrir le ZIP (sinon réponse déjà démarrée en 200).
+        using var client = _factory.CreateClient(ConsoleApiFactory.TenantArchive, ConsoleApiFactory.ReaderUserId);
+
+        var response = await client.GetAsync("/api/v1/audit-export?from=2026-06-01&to=2026-05-01");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task AuditExport_Larger_Volume_Streams_All_Packages()
     {
         // Plusieurs paquets, exportés par une période dédiée (année 2027) : le ZIP est streamé (jamais

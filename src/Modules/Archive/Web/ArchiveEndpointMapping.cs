@@ -55,6 +55,14 @@ public static class ArchiveEndpointMapping
                     "Préciser au moins une borne (« from » et/ou « to »). L'export du coffre entier relève de la réversibilité du tenant (/api/v1/tenant-export, permission liakont.settings).");
             }
 
+            // Toute validation d'entrée déterministe doit précéder l'ouverture du ZIP sur la réponse : une
+            // fois le flux démarré (200 application/zip), on ne peut plus répondre 400. Les bornes inversées
+            // sont donc rejetées ICI, avant WriteZipAsync (le service relève la même garde en profondeur).
+            if (from is { } fromBound && to is { } toBound && toBound < fromBound)
+            {
+                return Results.BadRequest("La borne « to » précède la borne « from ».");
+            }
+
             await WriteZipAsync(context, exportService.StreamForRangeAsync(from, to, context.RequestAborted), "audit-periode.zip");
             return Results.Empty;
         }).RequireAuthorization(ReadPermission);
