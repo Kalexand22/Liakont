@@ -3,6 +3,10 @@
 # LE différenciateur opérationnel du pivot : c'est la plateforme qui détecte l'absence
 # (panne silencieuse), pas l'agent qui signale sa présence. L'e-reporting a des échéances
 # légales — une panne silencieuse = client en non-conformité sans le savoir.
+#
+# UI (SUP02 dashboard) : même règle non négociable que le lot WEB — bâtir sur le design-system
+# Stratum (DeclaredListPage + ColumnRegistry, gabarit AdminAgents.razor), parité fonctionnelle,
+# PAS de grille maison. Voir l'en-tête de orchestration/items/WEB.yaml.
 
 items:
   SUP01:

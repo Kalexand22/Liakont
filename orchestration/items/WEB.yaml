@@ -2,10 +2,54 @@
 # Specs : docs/conception/F10-Console-Admin-WPF.md (CONTENU FONCTIONNEL : écrans, états,
 #         vocabulaire opérateur — l'amendement 2026-06-03 fait foi pour l'architecture),
 #         docs/conception/F12 (architecture)
-# Architecture : pages Blazor Server (Radzen, socle Stratum) dans les projets Web des modules.
-# Les pages appellent les handlers MediatR (jamais la base directement). Navigation via
-# INavSectionProvider. Tests : bUnit (composants) + Playwright (E2E parcours complets).
+# Architecture : pages Blazor Server dans les projets Web des modules. Les pages appellent les
+# handlers MediatR (jamais la base directement). Navigation via INavSectionProvider.
+# Tests : bUnit (composants) + Playwright (E2E parcours complets).
 # Philosophie F10 : simple, lisible, zéro jargon technique, 100 % français.
+#
+# =============================================================================================
+# ARCHITECTURE UI — RÈGLE NON NÉGOCIABLE (directive opérateur 2026-06-07)
+# =============================================================================================
+# La console Liakont est bâtie SUR le design-system Stratum (projet Stratum.Common.UI) et doit
+# conserver l'INTÉGRALITÉ de ses capacités. Une page qui réimplémente une grille/table « maison »
+# et perd ces capacités est un P1 (régression produit, coûteuse à corriger après coup).
+#
+# GABARIT CANONIQUE pour TOUTE page de liste (à copier, ne pas réinventer) :
+#   src/Modules/Identity/Web/Pages/AdminAgents.razor  +  Registries/AgentColumnRegistry.cs
+#   => <DeclaredListPage TItem="…">  (src/Common/UI/Components/DeclaredListPage.razor)
+#      alimenté par un ColumnRegistry héritant de ColumnRegistryBase<TDto>
+#      (src/Common/UI/Services/ColumnRegistryBase.cs).
+#   Pages de détail/formulaire : DeclaredFormPage + composants Stratum* (StratumButton, …) ;
+#   badges StatusBadge / CategoryBadge (src/Common/UI/Components/).
+#
+# SHELL — fourni clé en main, NE PAS reconstruire : ErpShellLayout + ErpNav (nav déclarée via
+#   INavSectionProvider) + TabBar (ouvrir les fiches en ONGLET, ITabManagerService) +
+#   CommandPalette (recherche globale Ctrl+K).
+#
+# CAPACITÉS À PRÉSERVER sur chaque liste — toutes fournies par DeclaredListPage, JAMAIS perdues :
+#   • recherche par liste, raccourci « / »              (param SearchPlaceholder)
+#   • filtres avancés AND/OR + filtres enregistrés      (StratumFilterBuilder, piloté par le registry)
+#   • colonnes configurables/réordonnables + persistance (StratumColumnChooser + param GridKey)
+#   • export CSV/Excel/PDF                               (AllowExport=true, ExportFileName)
+#   • tri par colonne, pagination serveur
+#   • multi-sélection + actions groupées                (param BulkActions: BulkActionConfig<T>)
+#   • actions de ligne (menu ⋮ + quick-actions)         (param RowActions: GridRowAction<T>)
+#   • badges statut/rôle                                (StatusBadge / CategoryBadge via ColumnTemplates)
+#   • recherche globale Ctrl+K + onglets multi-documents (shell)
+#
+# INTERDIT (P1) : RadzenDataGrid brut, <table> maison, ou toute page court-circuitant
+#   DeclaredListPage et régressant la parité fonctionnelle avec le gabarit ci-dessus.
+# THEMING : tokens du design-system (src/Common/UI/wwwroot/css/tokens.css) — aucun style divergent.
+#   Réf. socle : docs/adr/socle/ADR-0003-radzen-ui.md.
+# Tout NOUVEAU composant générique réutilisable se loge dans Stratum.Common.UI, pas dans un module
+#   (et toute modif du socle vendored Stratum.* se consigne dans la provenance — CLAUDE.md n°11).
+#
+# CRITÈRE D'ACCEPTATION TRANSVERSE — s'ajoute à CHAQUE item WEB (et SUP02) :
+#   - « Bâtie sur DeclaredListPage/DeclaredFormPage + ColumnRegistry (gabarit AdminAgents.razor),
+#      AUCUNE grille maison »
+#   - « Parité fonctionnelle testée (bUnit/Playwright) : recherche /, filtres avancés, colonnes
+#      configurables, export, multi-sélection + actions, actions de ligne, badges »
+# =============================================================================================
 
 items:
   WEB01:
@@ -43,8 +87,9 @@ items:
     title: "Page Documents (vue centrale)"
     description: |
       Implémenter la page principale selon F10 §2.1, alimentée par GET /documents :
-      1. Liste des documents (grille Radzen) : n°, date, acheteur, montant, type
-         (bordereau/avoir), état (DocumentStateBadge).
+      1. Liste des documents via <DeclaredListPage TItem="..."> (gabarit AdminAgents.razor, voir
+         l'en-tête du lot) : colonnes n°, date, acheteur, montant, type (bordereau/avoir), état
+         (DocumentStateBadge via ColumnTemplates). PAS de grille maison.
       2. Filtres : période (défaut mois courant), état, type, texte libre (n°, acheteur).
       3. Compteurs permanents : synthèse par état au-dessus de la liste.
       4. Sélection multiple + boutons [Voir] (détail — WEB03), [▶ Envoyer la sélection],
@@ -55,6 +100,8 @@ items:
          chargement, filtrage, navigation vers le détail.
     acceptance:
       - "Liste avec colonnes et états français de F10, pagination serveur"
+      - "Bâtie sur DeclaredListPage + ColumnRegistry (gabarit AdminAgents.razor) — AUCUNE grille maison"
+      - "Parité fonctionnelle testée : recherche /, filtres avancés, colonnes configurables, export, multi-sélection, actions de ligne, badges"
       - "Filtres période/état/type/texte fonctionnels"
       - "Compteurs par état synchronisés avec les filtres"
       - "Tests bUnit + E2E Playwright"

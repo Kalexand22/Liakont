@@ -10,8 +10,13 @@
 > Conséquences :
 > - **Tout le contenu FONCTIONNEL de cette spec reste la référence** : écrans (§2), états et
 >   vocabulaire opérateur (§2.2), onglets du détail document (§2.3), philosophie « zéro jargon ».
-> - **§3 (Architecture technique MVVM/WPF) est obsolète** : pages Blazor + handlers MediatR,
->   tests bUnit + E2E Playwright (plus de checklists smoke manuelles).
+> - **§3 (Architecture technique MVVM/WPF) est obsolète.** L'UI est bâtie sur le **design-system
+>   Stratum** (`Stratum.Common.UI`) : pages de liste = `DeclaredListPage` + `ColumnRegistryBase`
+>   (gabarit `src/Modules/Identity/Web/Pages/AdminAgents.razor`), détail = `DeclaredFormPage`,
+>   shell `ErpShellLayout`/`ErpNav`/`TabBar`, recherche globale `CommandPalette` (Ctrl+K).
+>   **Parité fonctionnelle OBLIGATOIRE** avec ce gabarit (recherche `/`, filtres avancés, colonnes
+>   configurables, export, multi-sélection + actions, actions de ligne, badges) — **aucune grille
+>   « maison » (P1)**. Handlers MediatR, tests bUnit + E2E Playwright. Réf. socle : ADR-0003 (Radzen).
 > - **§4 « pas de gestion des utilisateurs/droits » est obsolète** : auth Keycloak + 3 niveaux de
 >   droits (lecture / actions / paramétrage) par tenant, fournis par le module Identity du socle.
 > - La décision du §5 n°1 (édition table TVA) a été tranchée OUI (décision 2026-06-02, ex-TVA05) :
