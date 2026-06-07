@@ -108,65 +108,140 @@ items:
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
-  WEB03:
-    title: "Page détail document (Contenu / Contrôles / Historique / Archive + actions)"
+  # WEB03 re-découpé en WEB03a/b/c (2026-06-07, v14) : page détail (4 onglets + 5 actions) trop
+  # large pour un seul item — WEB03a pose la page lecture, WEB03b les actions garde-fou/recheck,
+  # WEB03c les actions de résolution terminale (chacune dépend d'un endpoint API distinct).
+  WEB03a:
+    title: "Page détail document : 4 onglets (lecture) + export audit"
     description: |
-      Implémenter le détail document selon F10 §2.3, alimenté par GET /documents/{id} :
+      Implémenter la page détail document en LECTURE selon F10 §2.3, alimentée par
+      GET /documents/{id}. C'est la coquille sur laquelle WEB03b et WEB03c brancheront les
+      actions. Sur DeclaredFormPage (gabarit de l'en-tête du lot), AUCUNE grille maison.
+      dépend de [WEB02, API01a].
       1. Onglet Contenu : en-tête (n°, date, acheteur, totaux) + lignes (libellé, montants,
-         régime TVA source → catégorie/VATEX résultante). Blocages mis en évidence.
-      2. Onglet Contrôles : liste des contrôles passés/échoués (F04) — ✅/🛑/⚠️, message
-         opérateur, action corrective. Pour BUYER_LOOKS_PROFESSIONAL : boutons de verdict
-         « Confirmer particulier (B2C) » / « Traiter manuellement (B2B) » → POST verdict.
-      3. Actions de résolution (permission actions requise) :
-         - [Revérifier maintenant] → POST recheck → résultat affiché immédiatement
-         - [Traiter manuellement hors passerelle...] → saisie du motif obligatoire → POST
-           resolve-manually
-         - Document rejeté : [Lier au document de remplacement...] → sélecteur du nouveau
-           document → POST supersede → affichage du lien ancien ⇄ nouveau
-      4. Onglet Historique : chronologie complète (réception agent, validations, envoi,
-         réponse PA, tax report, changements d'état, verdicts avec auteur, résolutions
-         manuelles avec motif).
-      5. Onglet Archive : référence du paquet, état d'intégrité de la chaîne,
+         régime TVA source → catégorie/VATEX résultante). Ce qui a déclenché un blocage est
+         mis en évidence.
+      2. Onglet Contrôles : liste des contrôles passés/échoués (F04) — ✅/🛑/⚠️ par contrôle,
+         avec le message opérateur et l'action corrective (lecture seule à ce stade ; les
+         boutons de verdict/recheck arrivent en WEB03b).
+      3. Onglet Historique : chronologie complète (réception agent, validations, envoi, réponse
+         PA, tax report, changements d'état successifs avec auteur). C'est la vue piste d'audit.
+      4. Onglet Archive : référence du paquet, état d'intégrité de la chaîne, bouton
          [Exporter pour contrôle fiscal] → GET audit-export (téléchargement navigateur).
-      6. Tests bUnit : onglets, verdict, actions, motif obligatoire, permissions (boutons
-         masqués en lecture seule). E2E Playwright : parcours blocage → verdict → recheck.
+      5. Tests bUnit : les 4 onglets, contenu/contrôles affichés, export déclenchable.
+         E2E Playwright : ouverture du détail → parcours des 4 onglets → export.
     acceptance:
-      - "4 onglets conformes au contenu fonctionnel F10"
-      - "Verdict B2C/B2B, recheck, résolution manuelle (motif obligatoire), supersede branchés"
-      - "Export audit téléchargeable"
+      - "4 onglets Contenu / Contrôles / Historique / Archive en lecture, conformes au contenu fonctionnel F10"
+      - "Bâtie sur DeclaredListPage/DeclaredFormPage + ColumnRegistry (gabarit AdminAgents.razor), AUCUNE grille maison"
+      - "Parité fonctionnelle testée (bUnit/Playwright) : recherche /, filtres avancés, colonnes configurables, export, multi-sélection + actions, actions de ligne, badges"
+      - "Export audit téléchargeable depuis l'onglet Archive (GET audit-export)"
+      - "Tests bUnit + E2E Playwright (ouverture détail → 4 onglets → export)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  WEB03b:
+    title: "Détail document : actions garde-fou + re-vérification"
+    description: |
+      Sur la page détail document (WEB03a), brancher les actions garde-fou de l'onglet
+      Contrôles, alimentées par les endpoints de verdict/recheck. Boutons d'action masqués
+      sans la permission actions. dépend de [WEB03a, API02b].
+      1. Verdict B2C/B2B pour un contrôle BUYER_LOOKS_PROFESSIONAL : boutons
+         « Confirmer particulier (B2C) » / « Traiter manuellement (B2B) » → POST verdict ;
+         le verdict (avec auteur) apparaît immédiatement dans l'onglet Historique.
+      2. [Revérifier maintenant] → POST recheck → résultat des contrôles affiché
+         immédiatement (onglet Contrôles rafraîchi sans rechargement de page).
+      3. Permissions : ces boutons sont masqués si l'utilisateur n'a que liakont.read
+         (la page reste consultable en lecture, conforme à WEB03a).
+      4. Erreurs d'action : messages français exploitables avec le numéro de document.
+      5. Tests bUnit : verdict B2C/B2B, recheck (résultat immédiat), boutons masqués en
+         lecture seule. E2E Playwright : parcours blocage → verdict → recheck.
+    acceptance:
+      - "Verdict B2C/B2B (BUYER_LOOKS_PROFESSIONAL) branché, reflété immédiatement dans l'historique"
+      - "[Revérifier maintenant] (recheck) avec résultat affiché immédiatement"
       - "Boutons d'action masqués sans la permission actions"
+      - "Bâtie sur DeclaredListPage/DeclaredFormPage + ColumnRegistry (gabarit AdminAgents.razor), AUCUNE grille maison"
+      - "Parité fonctionnelle testée (bUnit/Playwright) : recherche /, filtres avancés, colonnes configurables, export, multi-sélection + actions, actions de ligne, badges"
       - "Tests bUnit + E2E Playwright (parcours blocage → verdict → recheck)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
-  WEB04:
-    title: "Pages Traitements (journal) + Paramétrage du tenant (lecture)"
+  WEB03c:
+    title: "Détail document : actions de résolution terminale"
     description: |
-      Implémenter les pages secondaires :
-      1. Traitements (GET /runs) : journal des traitements du tenant — date, durée, déclencheur
-         (planifié/manuel/ingestion), compteurs (reçus/validés/bloqués/envoyés/rejetés).
-         Répond à « est-ce que ça a tourné cette nuit ? ».
-      2. Paramétrage du tenant (GET /settings, LECTURE dans cet item — l'édition du profil
-         arrive avec OPS03/provisioning, l'édition de la table TVA avec WEB07) :
-         - profil (SIREN, raison sociale, contact)
-         - paramètres fiscaux (vatOnDebits, operationCategory, reportingFrequency) avec alerte
-           « décision en attente » si null
-         - agent(s) : dernier heartbeat, version, état (la GESTION du parc — enregistrement,
-           révocation, rotation de clé — est l'écran dédié WEB09)
-         - bouton [Vérifier l'intégrité de l'archive] → POST /archive/verify (API03) →
-           affichage du rapport d'intégrité du coffre complet du tenant
-         - compte(s) PA : nom, environnement, capacités déclarées (B2C ✅, Paiements ⏳,
-           B2B ⬜ phase 2...) — l'opérateur voit ce que sa plateforme sait faire
-         - table TVA : résumé (version, validateur, état) + lien vers WEB07
-         - secrets TOUJOURS masqués
-      3. Tests bUnit : journal, paramétrage, alertes fiscales, secrets masqués.
-         E2E Playwright : navigation et affichage.
+      Sur la page détail document (WEB03a), brancher les actions de résolution terminale,
+      alimentées par les endpoints supersede/resolve-manually. Boutons masqués sans la
+      permission actions. dépend de [WEB03a, API02c].
+      1. [Traiter manuellement hors passerelle...] → saisie du motif OBLIGATOIRE (envoi
+         impossible sans motif) → POST resolve-manually ; la résolution avec son motif et son
+         auteur apparaît dans l'onglet Historique.
+      2. [Lier au document de remplacement...] (document rejeté) → sélecteur du nouveau
+         document (avec recherche) → POST supersede → affichage du lien ancien ⇄ nouveau sur
+         les deux fiches.
+      3. Permissions : ces boutons sont masqués si l'utilisateur n'a que liakont.read.
+      4. Erreurs d'action : messages français exploitables avec le numéro de document.
+      5. Tests bUnit : motif obligatoire (blocage si vide), supersede (lien affiché des deux
+         côtés), boutons masqués en lecture seule. E2E Playwright : parcours rejet → liaison
+         au document de remplacement.
     acceptance:
-      - "Journal des traitements avec compteurs et déclencheur"
-      - "Paramétrage affiché en lecture, secrets masqués, capacités PA visibles"
-      - "État de validation de la table TVA bien visible (alerte si non validée)"
-      - "Alerte « décision fiscale en attente » quand les paramètres sont null"
-      - "Vérification d'intégrité de l'archive déclenchable et rapport affiché"
+      - "Traitement manuel hors passerelle avec motif obligatoire (résolution journalisée dans l'historique)"
+      - "Liaison au document de remplacement (supersede) avec lien ancien ⇄ nouveau affiché des deux côtés"
+      - "Boutons d'action masqués sans la permission actions"
+      - "Bâtie sur DeclaredListPage/DeclaredFormPage + ColumnRegistry (gabarit AdminAgents.razor), AUCUNE grille maison"
+      - "Parité fonctionnelle testée (bUnit/Playwright) : recherche /, filtres avancés, colonnes configurables, export, multi-sélection + actions, actions de ligne, badges"
+      - "Tests bUnit + E2E Playwright (parcours rejet → document de remplacement)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  # WEB04 re-découpé en WEB04a/b (2026-06-07, v14) : journal et paramétrage lecture sont deux
+  # pages distinctes alimentées par des endpoints différents — WEB04a le journal des traitements,
+  # WEB04b le paramétrage du tenant en lecture (+ vérification d'intégrité de l'archive).
+  WEB04a:
+    title: "Page Traitements (journal)"
+    description: |
+      Implémenter la page Traitements (journal des runs du tenant) selon F10 §2.6, alimentée
+      par GET /runs. Sur DeclaredListPage (gabarit de l'en-tête du lot), AUCUNE grille maison.
+      dépend de [WEB01, API01b].
+      1. Liste des traitements : date, durée, déclencheur (planifié / manuel / ingestion),
+         compteurs (reçus / validés / bloqués / envoyés / rejetés).
+      2. Objectif opérateur : répondre d'un coup d'œil à « est-ce que ça a tourné cette
+         nuit ? ». Tri par date décroissante par défaut, pagination serveur.
+      3. États vides : message explicite si aucun traitement sur la période.
+      4. Tests bUnit : colonnes, déclencheurs, compteurs, état vide, formatage français.
+         E2E Playwright : chargement et affichage du journal.
+    acceptance:
+      - "Journal des traitements avec date, durée, déclencheur et compteurs (reçus/validés/bloqués/envoyés/rejetés)"
+      - "Bâtie sur DeclaredListPage/DeclaredFormPage + ColumnRegistry (gabarit AdminAgents.razor), AUCUNE grille maison"
+      - "Parité fonctionnelle testée (bUnit/Playwright) : recherche /, filtres avancés, colonnes configurables, export, multi-sélection + actions, actions de ligne, badges"
+      - "Tests bUnit + E2E Playwright"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  WEB04b:
+    title: "Page Paramétrage du tenant (lecture)"
+    description: |
+      Implémenter la page Paramétrage du tenant en LECTURE selon F10 §2.5, alimentée par
+      GET /settings (l'édition de la table TVA arrive en WEB07). Sur DeclaredFormPage (gabarit
+      de l'en-tête du lot), AUCUNE grille maison. dépend de [WEB01, API01c, API03].
+      1. Profil : SIREN, raison sociale, contact.
+      2. Paramètres fiscaux (vatOnDebits, operationCategory, reportingFrequency) avec alerte
+         « décision en attente » si null — jamais de valeur devinée.
+      3. Agent(s) : dernier heartbeat, version, état (la GESTION du parc — enregistrement,
+         révocation, rotation de clé — est l'écran dédié WEB09).
+      4. Compte(s) PA : nom, environnement, capacités déclarées (B2C ✅, Paiements ⏳,
+         B2B ⬜ phase 2...) — l'opérateur voit ce que sa plateforme sait faire.
+      5. Table TVA : résumé (version, validateur, état de validation) + lien vers WEB07.
+      6. Secrets TOUJOURS masqués (jamais de clé/chaîne ODBC affichée en clair).
+      7. Bouton [Vérifier l'intégrité de l'archive] → POST /archive/verify (API03) →
+         affichage du rapport d'intégrité du coffre complet du tenant.
+      8. Tests bUnit : paramétrage affiché, alerte fiscale si null, secrets masqués, capacités
+         PA, vérification d'intégrité (rapport affiché). E2E Playwright : navigation et affichage.
+    acceptance:
+      - "Paramétrage affiché en lecture (profil, paramètres fiscaux, agents, comptes PA, table TVA), secrets masqués"
+      - "Alerte « décision fiscale en attente » quand un paramètre fiscal est null (jamais de valeur devinée)"
+      - "Capacités déclarées des comptes PA visibles ; résumé table TVA avec lien vers WEB07"
+      - "Vérification d'intégrité de l'archive déclenchable (POST /archive/verify) et rapport affiché"
+      - "Bâtie sur DeclaredListPage/DeclaredFormPage + ColumnRegistry (gabarit AdminAgents.razor), AUCUNE grille maison"
+      - "Parité fonctionnelle testée (bUnit/Playwright) : recherche /, filtres avancés, colonnes configurables, export, multi-sélection + actions, actions de ligne, badges"
       - "Tests bUnit + E2E Playwright"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
@@ -213,34 +288,65 @@ items:
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
-  WEB07:
-    title: "Page Paramétrage comptable (table TVA éditable)"
+  # WEB07 re-découpé en WEB07a/b (2026-06-07, v14) : la vue/validation de la table TVA et son
+  # édition (listes fermées + couverture) sont deux étapes distinctes — WEB07a affiche et valide,
+  # WEB07b édite les règles (toute modif invalide la validation de WEB07a).
+  WEB07a:
+    title: "Paramétrage comptable : table TVA (vue + validation)"
     description: |
-      Implémenter l'écran de paramétrage comptable selon F10 (amendé) et la décision 2026-06-02,
-      alimenté par les endpoints /settings/tva-mapping (API04) :
-      1. Vue de la table de mapping TVA du tenant : règles (code régime source, libellé, part,
-         catégorie, taux, VATEX), état de validation bien visible
-         (✅ Validée par X le Y / ⚠️ NON VALIDÉE).
-      2. Édition (permission liakont.settings — éléments masqués sinon) :
-         - ajouter/modifier/supprimer une règle : formulaire avec listes FERMÉES des catégories
-           UNCL5305 et des codes VATEX autorisés — jamais de saisie libre sur ces champs
-         - intégration du rapport de couverture (TVA03) : les régimes source détectés non mappés
-           apparaissent en haut « À compléter » avec bouton [Créer la règle] pré-rempli
-         - bandeau permanent après toute modification : « Table modifiée — NON VALIDÉE.
-           Les envois sont suspendus jusqu'à validation par l'expert-comptable. »
-         - bouton [Marquer comme validée] avec confirmation (saisie du nom du validateur)
-      3. Historique des modifications (changelog) affiché en bas de page : qui, quand, quoi.
-      4. Tests bUnit : édition, permissions, invalidation, régimes à compléter, validation,
-         listes fermées. E2E Playwright : parcours « régime non mappé → création de règle →
-         bandeau non validée → validation ».
+      Implémenter la vue et la validation de la table de mapping TVA du tenant selon F10
+      (amendé) et la décision 2026-06-02, alimentée par les endpoints /settings/tva-mapping
+      (API04). Sur DeclaredListPage/DeclaredFormPage (gabarit de l'en-tête du lot), AUCUNE
+      grille maison. dépend de [WEB04b, API04].
+      1. Vue de la table de mapping TVA : règles (code régime source, libellé, part, catégorie,
+         taux, VATEX), affichage lecture.
+      2. État de validation permanent et bien visible : ✅ Validée par X le Y / ⚠️ NON VALIDÉE,
+         avec bandeau permanent quand la table est NON VALIDÉE (« Les envois sont suspendus
+         jusqu'à validation par l'expert-comptable »).
+      3. Historique des modifications (changelog) affiché : qui, quand, quoi.
+      4. Bouton [Marquer comme validée] (permission liakont.settings) → confirmation avec
+         saisie du nom du validateur → POST validation.
+      5. Tests bUnit : vue de la table, état de validation (les 2 états), bandeau NON VALIDÉE,
+         changelog, validation (saisie validateur obligatoire), permission. E2E Playwright :
+         affichage table NON VALIDÉE → validation → bandeau levé.
     acceptance:
-      - "Table TVA affichée avec état de validation permanent"
-      - "Édition complète avec listes fermées (UNCL5305, VATEX)"
-      - "Régimes non mappés « À compléter » avec création pré-remplie"
-      - "Toute modification affiche le bandeau NON VALIDÉE"
+      - "Table TVA affichée (régime/libellé/part/catégorie/taux/VATEX) avec état de validation permanent (✅/⚠️)"
+      - "Bandeau NON VALIDÉE visible tant que la table n'est pas validée ; changelog affiché"
+      - "[Marquer comme validée] avec confirmation et saisie du validateur (permission liakont.settings)"
+      - "Bâtie sur DeclaredListPage/DeclaredFormPage + ColumnRegistry (gabarit AdminAgents.razor), AUCUNE grille maison"
+      - "Parité fonctionnelle testée (bUnit/Playwright) : recherche /, filtres avancés, colonnes configurables, export, multi-sélection + actions, actions de ligne, badges"
+      - "Tests bUnit + E2E Playwright (affichage NON VALIDÉE → validation)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  WEB07b:
+    title: "Paramétrage comptable : édition des règles TVA"
+    description: |
+      Sur la page table TVA (WEB07a), implémenter l'édition des règles de mapping (permission
+      liakont.settings — éléments masqués sinon), via les endpoints /settings/tva-mapping
+      (API04). dépend de [WEB07a].
+      NOTE : les listes FERMÉES (catégories UNCL5305, codes VATEX) viennent des contrats TVA05
+      existants — à CONSOMMER tel quel, ne rien inventer (aucune valeur fiscale en dur).
+      1. Ajouter / modifier / supprimer une règle : formulaire avec listes FERMÉES des
+         catégories UNCL5305 et des codes VATEX autorisés — JAMAIS de saisie libre sur ces
+         champs (les valeurs proviennent des contrats TVA05).
+      2. Intégration du rapport de couverture (TVA03) : les régimes source détectés non mappés
+         apparaissent en haut « À compléter » avec bouton [Créer la règle] pré-rempli.
+      3. Toute modification invalide la validation : bandeau permanent « Table modifiée — NON
+         VALIDÉE. Les envois sont suspendus jusqu'à validation par l'expert-comptable. »
+         (l'état de validation et le changelog sont ceux de WEB07a, qui repassent à NON VALIDÉE).
+      4. Tests bUnit : ajout/modif/suppression, listes fermées (aucune saisie libre), régimes
+         « À compléter » avec pré-remplissage, invalidation de la validation après modif,
+         permission (édition masquée sinon). E2E Playwright : parcours « régime non mappé →
+         création de règle → bandeau NON VALIDÉE ».
+    acceptance:
+      - "Ajout/modification/suppression d'une règle avec listes FERMÉES UNCL5305 et VATEX (consommées des contrats TVA05, jamais de saisie libre)"
+      - "Rapport de couverture intégré : régimes non mappés « À compléter » avec [Créer la règle] pré-rempli"
+      - "Toute modification fait repasser la table à NON VALIDÉE (bandeau permanent)"
       - "Permission liakont.settings respectée (édition masquée sinon)"
-      - "Changelog visible"
-      - "Tests bUnit + E2E Playwright (parcours complétion → validation)"
+      - "Bâtie sur DeclaredListPage/DeclaredFormPage + ColumnRegistry (gabarit AdminAgents.razor), AUCUNE grille maison"
+      - "Parité fonctionnelle testée (bUnit/Playwright) : recherche /, filtres avancés, colonnes configurables, export, multi-sélection + actions, actions de ligne, badges"
+      - "Tests bUnit + E2E Playwright (régime non mappé → création → bandeau NON VALIDÉE)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 

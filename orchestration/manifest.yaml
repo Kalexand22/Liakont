@@ -45,7 +45,12 @@ meta:
   #   SUP01 (module Supervision entier) → SUP01a (scaffold + entité Alert + dead-man's-switch), SUP01b (8 règles).
   #   Recâblage (les sous-items API ne fournissent plus TOUTES les lectures transitivement) :
   #   API04→[API01a,API01c] ; WEB01→[API01a,API01c] ; WEB04 +API01b ; WEB06 +API01b ; SUP02→SUP01a ; SUP03→SUP01b.
-  version: 13
+  # version 14 = pré-découpage proactif des items console-web « trop gros » (audit 2026-06-07, avant blocage runner) :
+  #   API02 (7 actions, 2 modules) → API02a (envoi) / API02b (verdict+recheck) / API02c (resolve-manually+supersede) ;
+  #   WEB03 (4 onglets + 5 actions) → WEB03a (lecture) / WEB03b (verdict+recheck) / WEB03c (résolution) ;
+  #   WEB04 (2 pages) → WEB04a (journal) / WEB04b (paramétrage lecture) ; WEB07 (table TVA éditable) → WEB07a (vue+validation) / WEB07b (édition).
+  #   Recâblage : WEB05→API02a ; WEB07a→[WEB04b,API04] ; GATE_CONSOLE_WEB → {WEB03b,WEB03c,WEB04a,WEB07b}.
+  version: 14
   host: multi_agent_v1
 
 segments:
@@ -237,7 +242,9 @@ items:
   - { id: API01a, lot: API, priority: 6500, depends_on: [] }
   - { id: API01b, lot: API, priority: 6502, depends_on: [API01a] }
   - { id: API01c, lot: API, priority: 6504, depends_on: [API01a] }
-  - { id: API02, lot: API, priority: 6510, depends_on: [API01a] }
+  - { id: API02a, lot: API, priority: 6510, depends_on: [API01a] }
+  - { id: API02b, lot: API, priority: 6512, depends_on: [API02a] }
+  - { id: API02c, lot: API, priority: 6514, depends_on: [API02a] }
   - { id: API03, lot: API, priority: 6520, depends_on: [API01a] }
   - { id: API04, lot: API, priority: 6530, depends_on: [API01a, API01c] }
   - { id: API05, lot: API, priority: 6540, depends_on: [API01a] }
@@ -245,11 +252,15 @@ items:
   # ── WEB ──
   - { id: WEB01, lot: WEB, blueprint: blazor-page-item, priority: 6600, depends_on: [API01a, API01c] }
   - { id: WEB02, lot: WEB, blueprint: blazor-page-item, priority: 6610, depends_on: [WEB01] }
-  - { id: WEB03, lot: WEB, blueprint: blazor-page-item, priority: 6620, depends_on: [WEB02, API02] }
-  - { id: WEB04, lot: WEB, blueprint: blazor-page-item, priority: 6630, depends_on: [WEB01, API03, API01b] }
-  - { id: WEB05, lot: WEB, blueprint: blazor-page-item, priority: 6640, depends_on: [WEB02, API02] }
+  - { id: WEB03a, lot: WEB, blueprint: blazor-page-item, priority: 6620, depends_on: [WEB02, API01a] }
+  - { id: WEB03b, lot: WEB, blueprint: blazor-page-item, priority: 6622, depends_on: [WEB03a, API02b] }
+  - { id: WEB03c, lot: WEB, blueprint: blazor-page-item, priority: 6624, depends_on: [WEB03a, API02c] }
+  - { id: WEB04a, lot: WEB, blueprint: blazor-page-item, priority: 6630, depends_on: [WEB01, API01b] }
+  - { id: WEB04b, lot: WEB, blueprint: blazor-page-item, priority: 6632, depends_on: [WEB01, API01c, API03] }
+  - { id: WEB05, lot: WEB, blueprint: blazor-page-item, priority: 6640, depends_on: [WEB02, API02a] }
   - { id: WEB06, lot: WEB, blueprint: blazor-page-item, priority: 6650, depends_on: [WEB02, API01b] }
-  - { id: WEB07, lot: WEB, blueprint: blazor-page-item, priority: 6660, depends_on: [WEB04, API04] }
+  - { id: WEB07a, lot: WEB, blueprint: blazor-page-item, priority: 6660, depends_on: [WEB04b, API04] }
+  - { id: WEB07b, lot: WEB, blueprint: blazor-page-item, priority: 6662, depends_on: [WEB07a] }
   - { id: WEB08, lot: WEB, blueprint: blazor-page-item, priority: 6670, depends_on: [WEB02, API04] }
   - { id: WEB09, lot: WEB, blueprint: blazor-page-item, priority: 6680, depends_on: [WEB01, API05] }
 
@@ -259,7 +270,7 @@ items:
   - { id: SUP01b, lot: SUP, priority: 6702, depends_on: [SUP01a] }
   - { id: SUP02, lot: SUP, blueprint: blazor-page-item, priority: 6710, depends_on: [SUP01a, WEB01] }
   - { id: SUP03, lot: SUP, priority: 6720, depends_on: [SUP01b] }
-  - { id: GATE_CONSOLE_WEB, type: gate, executor: human, priority: 6900, depends_on: [WEB03, WEB05, WEB06, WEB07, WEB08, WEB09, SUP02, SUP03, API03] }
+  - { id: GATE_CONSOLE_WEB, type: gate, executor: human, priority: 6900, depends_on: [WEB03b, WEB03c, WEB04a, WEB05, WEB06, WEB07b, WEB08, WEB09, SUP02, SUP03, API03] }
 
   # ── OPS ──
   # Ordre : OPS05 (packaging agent) précède OPS03 (assistant tenant, qui fournit le package
