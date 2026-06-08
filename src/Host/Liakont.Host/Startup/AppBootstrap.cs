@@ -387,6 +387,11 @@ public static class AppBootstrap
         // motif de blocage courant + référence d'archive d'un document, hors de la page.
         builder.Services.AddScoped<Liakont.Host.Documents.IDocumentDetailConsoleQueries, Liakont.Host.Documents.DocumentDetailConsoleQueryService>();
 
+        // Actions de résolution terminale du détail document (WEB03c) : traitement manuel hors passerelle
+        // et liaison à un document de remplacement. Appelle le port du module (IDocumentLifecycle) + audit,
+        // comme les endpoints API02c — aucune logique métier dans la page.
+        builder.Services.AddScoped<Liakont.Host.Documents.IDocumentResolutionConsoleService, Liakont.Host.Documents.DocumentResolutionConsoleService>();
+
         // Composition en lecture de la page Paramétrage du tenant (WEB04b) : assemble /settings + agents
         // et déclenche la vérification d'intégrité du coffre (API03). Isole l'assemblage hors de la page.
         builder.Services.AddScoped<Liakont.Host.Parametrage.IParametrageQueries, Liakont.Host.Parametrage.ParametrageQueryService>();
