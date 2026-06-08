@@ -379,6 +379,10 @@ public static class AppBootstrap
         // Composition en lecture du tableau de bord d'accueil (WEB01) : isole l'assemblage hors de la page.
         builder.Services.AddScoped<Liakont.Host.Dashboard.IDashboardQueries, Liakont.Host.Dashboard.DashboardQueryService>();
 
+        // Composition en lecture de la page Documents (WEB02) : charge tout le périmètre période (boucle
+        // sur la liste paginée serveur, aucune troncature) hors de la page.
+        builder.Services.AddScoped<Liakont.Host.Documents.IDocumentConsoleQueries, Liakont.Host.Documents.DocumentConsoleQueryService>();
+
         // Pré-chargement déterministe de l'état de console à l'ouverture du circuit (avant rendu de la nav).
         builder.Services.AddScoped<Liakont.Host.Navigation.LiakontConsoleCircuitHandler>();
         builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler>(

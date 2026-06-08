@@ -1,0 +1,73 @@
+@namespace Liakont.Host.Components
+@using System.Collections.Generic
+@using Stratum.Common.UI.Models
+
+@* DocumentCountsBanner — synthèse permanente par état au-dessus de la liste Documents (F10 §2.1).
+ * Pur composant présentational : reçoit les compteurs déjà calculés (aucune requête, aucune règle
+ * métier) et expose un clic par état pour piloter le filtre État de la page. « Tous » réinitialise le
+ * filtre. Les états sont affichés dans l'ordre canonique, chacun même à zéro, via DocumentStateDisplay
+ * (vocabulaire FR + badge du design-system). 100 % français. *@
+
+<div class="doc-counts" role="group" aria-label="Synthèse par état" data-testid="doc-counts">
+    <button type="button"
+            class="doc-counts__chip @(SelectedState is null ? "doc-counts__chip--active" : null)"
+            data-testid="doc-counts-all"
+            aria-pressed="@(SelectedState is null ? "true" : "false")"
+            @onclick="@(() => SelectAsync(null))">
+        <span class="doc-counts__value">@Total</span>
+        <span class="doc-counts__label">Tous</span>
+    </button>
+
+    @foreach (var state in DocumentStateDisplay.CanonicalOrder)
+    {
+        var count = Counts is not null && Counts.TryGetValue(state, out var n) ? n : 0;
+        var active = string.Equals(SelectedState, state, System.StringComparison.Ordinal);
+        <button type="button"
+                class="doc-counts__chip @(active ? "doc-counts__chip--active" : null)"
+                data-testid="@($"doc-counts-{state}")"
+                aria-pressed="@(active ? "true" : "false")"
+                @onclick="@(() => SelectAsync(state))">
+            <span class="doc-counts__value">@count</span>
+            <DocumentStateBadge State="@state" />
+        </button>
+    }
+</div>
+
+@code {
+    /// <summary>Compteurs par nom d'état (clé = état brut). Les états absents valent zéro.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyDictionary<string, int> Counts { get; set; } = new Dictionary<string, int>();
+
+    /// <summary>État actuellement filtré, ou <c>null</c> pour « Tous » (met en évidence la pastille active).</summary>
+    [Parameter]
+    public string? SelectedState { get; set; }
+
+    /// <summary>Déclenché au clic sur une pastille (<c>null</c> = « Tous »).</summary>
+    [Parameter]
+    public EventCallback<string?> OnStateSelected { get; set; }
+
+    private int Total
+    {
+        get
+        {
+            var sum = 0;
+            if (Counts is not null)
+            {
+                foreach (var value in Counts.Values)
+                {
+                    sum += value;
+                }
+            }
+
+            return sum;
+        }
+    }
+
+    private async Task SelectAsync(string? state)
+    {
+        if (OnStateSelected.HasDelegate)
+        {
+            await OnStateSelected.InvokeAsync(state);
+        }
+    }
+}

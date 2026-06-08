@@ -1,0 +1,328 @@
+@page "/documents"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using System.Globalization
+@using System.Linq
+@using Microsoft.Extensions.Logging
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Liakont.Host.Documents
+@using Liakont.Modules.Documents.Contracts.DTOs
+@inject IDocumentConsoleQueries DocumentQueries
+@inject NavigationManager Nav
+@inject ILogger<Documents> Logger
+
+<PageTitle>Documents — Liakont</PageTitle>
+
+<h1>Documents</h1>
+
+@if (_loadFailed)
+{
+    <div role="alert" data-testid="documents-error">
+        Impossible de charger les documents pour le moment. Réessayez plus tard.
+    </div>
+}
+else
+{
+    @* ── Barre de filtres métier (F10 §2.1). Période = filtre SERVEUR (recharge le périmètre) ;
+       État/Type = filtres CLIENT appliqués en mémoire par DeclaredListPage ; la recherche libre
+       (n°, acheteur) est la recherche « / » intégrée de la grille. ── *@
+    <div class="doc-filters" data-testid="documents-filters">
+        <div class="doc-filters__group">
+            <label class="doc-filters__label" for="doc-from">Période</label>
+            <input id="doc-from" type="date" class="doc-filters__input" data-testid="documents-filter-from"
+                   value="@_from.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)"
+                   @onchange="OnFromChangedAsync" />
+            <span class="doc-filters__sep">→</span>
+            <input id="doc-to" type="date" class="doc-filters__input" data-testid="documents-filter-to"
+                   value="@_to.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)"
+                   @onchange="OnToChangedAsync" />
+        </div>
+
+        <div class="doc-filters__group">
+            <label class="doc-filters__label" for="doc-state">État</label>
+            <select id="doc-state" class="doc-filters__input" data-testid="documents-filter-state"
+                    value="@(_selectedState ?? string.Empty)" @onchange="OnStateChanged">
+                <option value="">Tous</option>
+                @foreach (var state in DocumentStateDisplay.CanonicalOrder)
+                {
+                    <option value="@state">@DocumentStateDisplay.For(state).Label</option>
+                }
+            </select>
+        </div>
+
+        <div class="doc-filters__group">
+            <label class="doc-filters__label" for="doc-type">Type</label>
+            <select id="doc-type" class="doc-filters__input" data-testid="documents-filter-type"
+                    value="@(_selectedType ?? string.Empty)" @onchange="OnTypeChanged">
+                <option value="">Tous</option>
+                @foreach (var type in _typeOptions)
+                {
+                    <option value="@type">@type</option>
+                }
+            </select>
+        </div>
+    </div>
+
+    @* ── Synthèse PERMANENTE par état (F10 §2.1). Périmètre = période + type (clic = filtre État).
+       Décision assumée : le bandeau est une synthèse de PÉRIMÈTRE (comme les compteurs du tableau de
+       bord WEB01), volontairement INDÉPENDANTE de la recherche libre « / » de la grille (un quick-find
+       transitoire, propriété interne du composant). La recherche libre n'altère donc pas les compteurs. ── *@
+    <DocumentCountsBanner Counts="_counts"
+                          SelectedState="_selectedState"
+                          OnStateSelected="OnStateSelectedFromBanner" />
+
+    @* ── Liste : gabarit DeclaredListPage (aucune grille « maison »). Rechargée (re-key) au changement
+       de période ; re-filtrée en mémoire (CustomFilterVersion) au changement d'état/type. ── *@
+    <DeclaredListPage @key="_periodEpoch"
+                      TItem="DocumentSummaryDto"
+                      Title="Documents"
+                      TestId="documents"
+                      LoadItems="LoadItemsAsync"
+                      DetailUrl="@(d => $"/documents/{d.Id}")"
+                      ColumnRegistry="_registry"
+                      ColumnTemplates="_columnTemplates"
+                      GridKey="Liakont.Documents"
+                      RowActions="_rowActions"
+                      CustomFilterPredicate="MatchesCustomFilters"
+                      ActiveCustomFilterCount="_activeCustomFilterCount"
+                      CustomFilterVersion="_customFilterVersion"
+                      AriaLabel="Liste des documents"
+                      DefaultSortColumn="IssueDate"
+                      DefaultSortDirection="SortDirection.Descending"
+                      SearchPlaceholder="Rechercher un n° ou un acheteur… (raccourci : /)"
+                      AllowExport="true"
+                      ExportFormats="@(ExportFormat.Csv | ExportFormat.Excel | ExportFormat.Pdf)"
+                      ExportFileName="documents">
+        <ToolbarActions>
+            @* Actions d'envoi PRÉSENTES mais désactivées : branchées en WEB05 (F10). Le title porte
+               l'explication opérateur. *@
+            <span class="doc-send-action" title="Action disponible une fois l'envoi branché (WEB05).">
+                <StratumButton Text="Envoyer la sélection"
+                               Variant="ButtonVariant.Secondary"
+                               Size="ButtonSize.Small"
+                               Disabled="true"
+                               TestId="documents-send-selection" />
+            </span>
+            <span class="doc-send-action" title="Action disponible une fois l'envoi branché (WEB05).">
+                <StratumButton Text="Tout envoyer"
+                               Variant="ButtonVariant.Secondary"
+                               Size="ButtonSize.Small"
+                               Disabled="true"
+                               TestId="documents-send-all" />
+            </span>
+        </ToolbarActions>
+        <EmptyContent>
+            <p data-testid="documents-empty">Aucun document ne correspond à ces critères.</p>
+        </EmptyContent>
+    </DeclaredListPage>
+}
+
+@code {
+    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+
+    private readonly DocumentColumnRegistry _registry = new();
+
+    private bool _loadFailed;
+    private IReadOnlyList<DocumentSummaryDto> _periodSet = [];
+    private IReadOnlyDictionary<string, int> _counts = new Dictionary<string, int>();
+    private IReadOnlyList<string> _typeOptions = [];
+
+    private DateOnly _from;
+    private DateOnly _to;
+    private string? _selectedState;
+    private string? _selectedType;
+
+    // @key de la liste : incrémenté à chaque rechargement de période pour forcer DeclaredListPage à
+    // relire LoadItems (il ne recharge pas tout seul). Les filtres état/type passent par CustomFilterVersion.
+    private int _periodEpoch;
+    private int _customFilterVersion;
+    private int _activeCustomFilterCount;
+
+    private readonly IReadOnlyList<GridRowAction<DocumentSummaryDto>> _rowActions;
+    private readonly Dictionary<string, RenderFragment<DocumentSummaryDto>> _columnTemplates;
+
+    public Documents()
+    {
+        // [Voir] → page de détail `/documents/{id}` livrée par WEB03a (dépend de WEB02). Référence avant
+        // (forward-reference) ASSUMÉE, cohérente avec les liens de la nav maître posés par WEB01 (qui
+        // pointaient déjà vers /documents avant l'existence de cette page) : le routeur rend un NotFound
+        // gracieux jusqu'à la livraison de WEB03a. À distinguer des boutons d'envoi (actions MUTANTES)
+        // désactivés tant que WEB05 n'est pas branché — une action mutante ne doit jamais sembler active ;
+        // une navigation vers une page à venir est bénigne.
+        _rowActions =
+        [
+            new GridRowAction<DocumentSummaryDto>(
+                Id: "view",
+                Label: "Voir",
+                Icon: "visibility",
+                IsQuickAction: true,
+                Callback: item =>
+                {
+                    Nav.NavigateTo($"/documents/{item.Id}");
+                    return Task.CompletedTask;
+                }),
+        ];
+
+        _columnTemplates = new Dictionary<string, RenderFragment<DocumentSummaryDto>>
+        {
+            ["State"] = item => __builder =>
+            {
+                __builder.OpenComponent<DocumentStateBadge>(0);
+                __builder.AddAttribute(1, "State", item.State);
+                __builder.CloseComponent();
+            },
+            ["DocumentType"] = item => __builder =>
+            {
+                __builder.AddContent(0, DocumentTypeDisplay.For(item.DocumentType));
+            },
+            ["TotalGross"] = item => __builder =>
+            {
+                __builder.AddContent(0, item.TotalGross.ToString("N2", Fr));
+            },
+            ["IssueDate"] = item => __builder =>
+            {
+                __builder.AddContent(0, item.IssueDate.ToString("dd/MM/yyyy", Fr));
+            },
+            ["LastUpdateUtc"] = item => __builder =>
+            {
+                __builder.AddContent(0, item.LastUpdateUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr));
+            },
+        };
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        _from = new DateOnly(today.Year, today.Month, 1);
+        _to = _from.AddMonths(1).AddDays(-1);
+        await ReloadPeriodAsync();
+    }
+
+    private Task<IReadOnlyList<DocumentSummaryDto>> LoadItemsAsync() => Task.FromResult(_periodSet);
+
+    private async Task ReloadPeriodAsync()
+    {
+        try
+        {
+            _periodSet = await DocumentQueries.GetDocumentsInPeriodAsync(_from, _to);
+            _loadFailed = false;
+            RecomputeTypeOptions();
+            RecomputeCounts();
+            _periodEpoch++;
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the Liakont documents list for the current period.");
+        }
+    }
+
+    private async Task OnFromChangedAsync(ChangeEventArgs e)
+    {
+        if (TryParseDate(e.Value, out var date))
+        {
+            _from = date;
+            await ReloadPeriodAsync();
+        }
+    }
+
+    private async Task OnToChangedAsync(ChangeEventArgs e)
+    {
+        if (TryParseDate(e.Value, out var date))
+        {
+            _to = date;
+            await ReloadPeriodAsync();
+        }
+    }
+
+    private void OnStateChanged(ChangeEventArgs e)
+    {
+        _selectedState = NormalizeSelection(e.Value as string);
+        ApplyCustomFilters();
+    }
+
+    private void OnTypeChanged(ChangeEventArgs e)
+    {
+        _selectedType = NormalizeSelection(e.Value as string);
+        // Le type change le périmètre des compteurs (les compteurs honorent période + type, pas l'état).
+        RecomputeCounts();
+        ApplyCustomFilters();
+    }
+
+    private void OnStateSelectedFromBanner(string? state)
+    {
+        _selectedState = state;
+        ApplyCustomFilters();
+    }
+
+    private void ApplyCustomFilters()
+    {
+        _activeCustomFilterCount = (_selectedState is null ? 0 : 1) + (_selectedType is null ? 0 : 1);
+        _customFilterVersion++;
+        StateHasChanged();
+    }
+
+    // Prédicat de filtre CLIENT appliqué par DeclaredListPage : état exact + type (par libellé d'affichage).
+    private bool MatchesCustomFilters(DocumentSummaryDto document)
+    {
+        if (_selectedState is not null && !string.Equals(document.State, _selectedState, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (_selectedType is not null
+            && !string.Equals(DocumentTypeDisplay.For(document.DocumentType), _selectedType, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    // Compteurs = synthèse par état du périmètre période FILTRÉ PAR TYPE (l'état est volontairement
+    // ignoré pour montrer la répartition de tous les états). Pure agrégation d'affichage.
+    private void RecomputeCounts()
+    {
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var document in _periodSet)
+        {
+            if (_selectedType is not null
+                && !string.Equals(DocumentTypeDisplay.For(document.DocumentType), _selectedType, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            counts[document.State] = counts.TryGetValue(document.State, out var n) ? n + 1 : 1;
+        }
+
+        _counts = counts;
+    }
+
+    private void RecomputeTypeOptions()
+    {
+        _typeOptions = _periodSet
+            .Select(d => DocumentTypeDisplay.For(d.DocumentType))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(label => label, StringComparer.CurrentCulture)
+            .ToList();
+
+        // Si le type sélectionné n'existe plus dans la nouvelle période, on retombe sur « Tous ».
+        if (_selectedType is not null && !_typeOptions.Contains(_selectedType, StringComparer.Ordinal))
+        {
+            _selectedType = null;
+            _activeCustomFilterCount = (_selectedState is null ? 0 : 1);
+        }
+    }
+
+    private static string? NormalizeSelection(string? value) =>
+        string.IsNullOrEmpty(value) ? null : value;
+
+    private static bool TryParseDate(object? raw, out DateOnly date)
+    {
+        // L'input HTML type=date émet toujours « yyyy-MM-dd » (format invariant).
+        return DateOnly.TryParseExact(raw as string, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
+    }
+}
