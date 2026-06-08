@@ -103,6 +103,25 @@ attempts automatic recovery **before** selecting the next item:
 
 ## Step 1 — Read State
 
+### Step 1.0 — Sync the segment branch with `main` (do this FIRST)
+
+Before reading the backlog, bring the **current segment branch** up to date with `main`. The
+manifest, item specs, and any upstream segment merged to `main` are authoritative there; a segment
+branch that has drifted behind `main` reads a **stale manifest** — the root cause of
+`manifest-sanity` reciprocity failures (state references items the stale manifest does not declare)
+and of selecting superseded items. Running this every session removes the manual
+"merge main + realign clones" sweep that an operator otherwise has to do after bumping the manifest.
+
+```bash
+git fetch origin --prune
+git merge origin/main --no-edit   # no-op (no commit) when main has not advanced
+```
+
+On a **non-trivial conflict**: `git merge --abort`, release the slot (delete
+`$ORCH_REPO/leases/slot-$SLOT_ID.yaml`), **EXIT 1** with a note. A segment↔main divergence that does
+not auto-merge is an operator decision — never force, guess, or `reset --hard` it. (No item is
+claimed yet at this point, so there is nothing to mark `blocked`.)
+
 1. Read `orchestration/manifest.yaml` — the authoritative backlog (index only).
 2. Read `$ORCH_REPO/state.yaml` via `tools/orch-state.ps1 read` — current statuses.
    Note: item details (description, acceptance, executor, blueprint) live in
@@ -209,7 +228,10 @@ integration gate (`type: gate`, `executor` ≠ `human`, `blueprint: auto-gate-it
    `feat/socle-v6/SOL01` (would require `feat/socle-v6` to be a directory) cannot coexist.
 
 4. `git fetch origin`, checkout segment branch (create from `base` if it does not exist yet),
-   `git pull`, then `git checkout -b "$SEGMENT_BRANCH-<item_id>"`.
+   `git pull`, then **sync it with main: `git merge origin/main --no-edit`** (no-op when already
+   current; on a non-trivial conflict: `git merge --abort`, mark the claimed item `blocked`, write
+   session-log, release slot, EXIT 1). This covers the case where this session switched to a
+   different segment than the one synced in Step 1.0. Then `git checkout -b "$SEGMENT_BRANCH-<item_id>"`.
 
 5. All subsequent work happens on the sub-branch in this clone.
 
@@ -417,7 +439,12 @@ state.yaml at a time.
 
 ## Rules
 
-- **Pull before starting.** First action of every session: `git pull origin <segment-branch>` to pick up work pushed by other agents/slots since the last session. (`origin` is configured — pull is mandatory.)
+- **Pull before starting, and sync with `main`.** First action of every session (Step 1.0):
+  `git fetch origin --prune`, `git pull origin <segment-branch>`, then `git merge origin/main --no-edit`.
+  This picks up both sibling work pushed to the segment branch AND any manifest/spec/upstream-segment
+  change merged to `main`. A segment branch left behind `main` reads a stale manifest →
+  `manifest-sanity` reciprocity failure. On a non-trivial main-merge conflict: abort and EXIT 1
+  (the operator resolves the divergence). (`origin` is configured — pull and push are mandatory.)
 - **ONE item per agent per session.** Implement, verify, review, commit — all in one session.
 - **Each agent works in its own clone.** Clones sync via the remote (git push/fetch).
 - **All state.yaml mutations go through `tools/orch-state.ps1`.** Never edit state.yaml directly.
