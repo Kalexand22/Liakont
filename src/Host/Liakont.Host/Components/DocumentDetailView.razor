@@ -61,11 +61,11 @@
                     </div>
                 </dl>
 
-                @if (Model.BlockingReason is { } reason)
+                @if (IsBlocked)
                 {
                     <div class="liakont-doc-detail__alert" role="alert" data-testid="document-detail-blocking">
                         <span class="liakont-doc-detail__alert-title">Ce qui a déclenché le blocage</span>
-                        <span>@reason</span>
+                        <span>@BlockingMessage</span>
                     </div>
                 }
 
@@ -85,11 +85,11 @@
                     État courant : <DocumentStateBadge State="@Model.Document.State" TestId="document-detail-controls-state" />
                 </p>
 
-                @if (Model.BlockingReason is { } reason)
+                @if (IsBlocked)
                 {
                     <div class="liakont-doc-detail__alert" role="alert" data-testid="document-detail-controls-blocked">
                         <span class="liakont-doc-detail__alert-title">Contrôle échoué — action requise</span>
-                        <span>@reason</span>
+                        <span>@BlockingMessage</span>
                     </div>
                 }
                 else if (IsRejected)
@@ -195,6 +195,16 @@
     public DocumentDetailViewModel Model { get; set; } = null!;
 
     private bool IsRejected => string.Equals(Model.Document.State, RejectedDocumentState, StringComparison.Ordinal);
+
+    /// <summary>État « bloqué » (DocumentState, F06 §3) — comparé en chaîne pour rester découplé de l'enum.</summary>
+    private const string BlockedDocumentState = "Blocked";
+
+    private bool IsBlocked => string.Equals(Model.Document.State, BlockedDocumentState, StringComparison.Ordinal);
+
+    /// <summary>Message de blocage : le motif s'il existe, sinon un texte générique (le motif est optionnel — un document peut être Blocked sans Detail).</summary>
+    private string BlockingMessage => string.IsNullOrWhiteSpace(Model.BlockingReason)
+        ? "Un contrôle a échoué avant l'envoi. Consultez l'onglet Historique pour le détail."
+        : Model.BlockingReason!;
 
     /// <summary>URL de l'export contrôle fiscal du document (endpoint Archive, API03), monté sous /api/v1.</summary>
     private string AuditExportUrl => $"/api/v1/documents/{Model.Document.Id}/audit-export";

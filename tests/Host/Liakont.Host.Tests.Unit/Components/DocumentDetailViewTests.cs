@@ -71,6 +71,24 @@ public sealed class DocumentDetailViewTests : BunitContext
     }
 
     [Fact]
+    public void Should_Flag_Blocked_Document_Even_When_The_Reason_Is_Empty()
+    {
+        // Un document Blocked SANS motif (MarkBlocked autorise reason=null) reste signalé comme bloqué —
+        // jamais « Aucun contrôle en échec » sur un document réellement bloqué (CLAUDE.md n°12).
+        var model = BuildModel(doc: Doc("2026-007", "Blocked"), blockingReason: null);
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        // Onglet Contenu : la mise en évidence du blocage est présente (message générique).
+        cut.FindAll("[data-testid='document-detail-blocking']").Should().ContainSingle();
+
+        // Onglet Contrôles : bloqué, jamais « OK ».
+        SelectTab(cut, "Contrôles");
+        cut.FindAll("[data-testid='document-detail-controls-blocked']").Should().ContainSingle();
+        cut.FindAll("[data-testid='document-detail-controls-ok']").Should().BeEmpty();
+    }
+
+    [Fact]
     public void Should_Show_Rejected_Note_On_Controls_When_Rejected_By_Pa()
     {
         var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(doc: Doc("2026-004", "RejectedByPa"))));
