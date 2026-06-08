@@ -8,6 +8,7 @@ using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Documents.Contracts.Lifecycle;
 using Liakont.Modules.Documents.Contracts.Queries;
 using Liakont.Modules.Documents.Domain.Entities;
+using Liakont.Modules.Documents.Domain.StateMachine;
 
 /// <summary>
 /// Implémentation du port <see cref="IDocumentLifecycle"/> (consommé par le pipeline, PIP01c) : applique
@@ -73,9 +74,10 @@ internal sealed class DocumentLifecycle : IDocumentLifecycle
             return DocumentResolutionOutcome.DocumentNotFound;
         }
 
-        // Sources autorisées de « traité manuellement » : Blocked ou RejectedByPa (machine à états TRK02).
-        // Vérifié SOUS le verrou FOR UPDATE (autoritaire — pas de TOCTOU) plutôt que de laisser la transition lever.
-        if (document.State is not (DocumentState.Blocked or DocumentState.RejectedByPa))
+        // Source autoritaire des états-sources autorisés : la machine à états du domaine (TRK02). Vérifié SOUS le
+        // verrou FOR UPDATE (pas de TOCTOU) plutôt que de laisser la transition lever, et SANS dupliquer la liste
+        // (toute évolution future de la machine à états reste honorée sans dérive silencieuse).
+        if (!DocumentStateMachine.IsAllowed(document.State, DocumentState.ManuallyHandled))
         {
             return DocumentResolutionOutcome.InvalidState;
         }
@@ -98,8 +100,8 @@ internal sealed class DocumentLifecycle : IDocumentLifecycle
             return DocumentResolutionOutcome.DocumentNotFound;
         }
 
-        // L'état est vérifié AVANT de charger le remplaçant : seul un document RejectedByPa peut être remplacé.
-        if (document.State is not DocumentState.RejectedByPa)
+        // L'état est vérifié (via la machine à états, source unique de vérité) AVANT de charger le remplaçant.
+        if (!DocumentStateMachine.IsAllowed(document.State, DocumentState.Superseded))
         {
             return DocumentResolutionOutcome.InvalidState;
         }

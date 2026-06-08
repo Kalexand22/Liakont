@@ -207,6 +207,22 @@ public sealed class DocumentResolutionEndpointsIntegrationTests
     }
 
     [Fact]
+    public async Task PostSupersede_Replacement_In_Other_Tenant_Returns_409_Isolation()
+    {
+        // Le remplaçant existe dans un AUTRE tenant : la recherche est tenant-scopée, donc il est introuvable
+        // ici → 409, et le document rejeté n'est pas muté (verrouille l'isolation tenant du lookup remplaçant).
+        using var client = _factory.CreateClient(ConsoleApiFactory.TenantAction, ConsoleApiFactory.OperatorUserId);
+
+        var response = await client.PostAsJsonAsync(
+            SupersedePath(ConsoleApiFactory.TenantActDocSupersedeNoReplId),
+            new { replacementDocumentId = ConsoleApiFactory.TenantADocBlockedId });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await _factory.GetDocumentStateAsync(ConsoleApiFactory.TenantAction, ConsoleApiFactory.TenantActDocSupersedeNoReplId))
+            .Should().Be("RejectedByPa", "un remplaçant d'un autre tenant n'applique aucune transition");
+    }
+
+    [Fact]
     public async Task PostSupersede_NonExistent_Document_Returns_404()
     {
         using var client = _factory.CreateClient(ConsoleApiFactory.TenantAction, ConsoleApiFactory.OperatorUserId);
