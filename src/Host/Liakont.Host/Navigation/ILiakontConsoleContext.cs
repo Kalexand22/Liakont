@@ -24,6 +24,15 @@ internal interface ILiakontConsoleContext
     /// </remarks>
     bool ReconciliationAvailable { get; }
 
+    /// <summary>
+    /// Nombre d'éléments de réconciliation EN ATTENTE d'une action opérateur (propositions à confirmer +
+    /// PDF orphelins à rattacher), pour le compteur de la navigation (WEB08). Les documents émis sans PDF en
+    /// sont exclus : ils n'appellent pas d'action immédiate (ils attendent un PDF de la source). <c>0</c> tant
+    /// que le contexte n'est pas chargé. INSTANTANÉ pris à l'ouverture du circuit (la nav est construite une
+    /// fois) ; il n'est pas réévalué après une action dans la page.
+    /// </summary>
+    int ReconciliationPendingCount { get; }
+
     /// <summary>Charge (une seule fois) l'état de console pour le tenant courant. Idempotent.</summary>
     Task EnsureInitializedAsync(CancellationToken cancellationToken = default);
 }

@@ -1,0 +1,355 @@
+@namespace Liakont.Host.Components
+@using System.Globalization
+@using Liakont.Host.Reconciliation
+@using Liakont.Modules.Reconciliation.Contracts.DTOs
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* ReconciliationView — rendu PUR de la page « Réconciliation des PDF » (WEB08). Reçoit son modèle, l'état
+ * d'aperçu / de lien manuel et ses callbacks en paramètres (aucune injection, aucune logique métier) pour
+ * être testable en bUnit sans auth ni base. Trois files (propositions, orphelins, documents sans PDF) en
+ * composition Stratum (SectionCard, StratumButton, StatusBadge). Aperçu PDF natif via une iframe pointant
+ * l'endpoint d'affichage de la console (le navigateur porte le cookie d'auth). 100 % français. *@
+
+<div class="liakont-reconciliation" data-testid="liakont-reconciliation">
+
+    @if (!string.IsNullOrWhiteSpace(ActionMessage))
+    {
+        <div class="liakont-reconciliation__feedback @(ActionFailed ? "liakont-reconciliation__feedback--error" : "liakont-reconciliation__feedback--ok")"
+             role="@(ActionFailed ? "alert" : "status")"
+             data-testid="reconciliation-action-message">
+            @ActionMessage
+        </div>
+    }
+
+    @if (!CanAct)
+    {
+        <div class="liakont-reconciliation__alert" role="alert" data-testid="reconciliation-restricted">
+            La réconciliation des PDF est réservée aux opérateurs (permission « actions »). Vous pouvez
+            consulter vos documents, mais le rapprochement des PDF n'est pas disponible pour votre profil.
+        </div>
+    }
+    else
+    {
+        @* ── 1. Propositions à confirmer (confiance moyenne) ── *@
+        <SectionCard Title="Propositions à confirmer" TestId="reconciliation-proposals">
+            @if (Model.Proposals.Count == 0)
+            {
+                <p data-testid="reconciliation-proposals-empty">Aucune proposition en attente.</p>
+            }
+            else
+            {
+                <table class="liakont-reconciliation__table">
+                    <thead>
+                        <tr>
+                            <th>PDF</th>
+                            <th>Document proposé</th>
+                            <th>Raison</th>
+                            <th>Reçu le</th>
+                            <th class="liakont-reconciliation__actions-col">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var proposal in Model.Proposals)
+                        {
+                            <tr data-testid="reconciliation-proposal">
+                                <td>@proposal.FileName</td>
+                                <td>@ResolveDocumentNumber(proposal.ProposedDocumentId)</td>
+                                <td>@DescribeProposalReason(proposal)</td>
+                                <td>@FormatInstant(proposal.CreatedUtc)</td>
+                                <td class="liakont-reconciliation__actions">
+                                    <StratumButton Text="Aperçu"
+                                                   Variant="ButtonVariant.Secondary"
+                                                   Outline
+                                                   Size="ButtonSize.Small"
+                                                   OnClick="@(_ => OnPreview.InvokeAsync(proposal.QueueEntryId))"
+                                                   TestId="reconciliation-preview" />
+                                    <StratumButton Text="Confirmer"
+                                                   Variant="ButtonVariant.Primary"
+                                                   Size="ButtonSize.Small"
+                                                   Disabled="@Busy"
+                                                   OnClick="@(_ => OnConfirm.InvokeAsync(proposal.QueueEntryId))"
+                                                   TestId="reconciliation-confirm" />
+                                    <StratumButton Text="Rejeter"
+                                                   Variant="ButtonVariant.Secondary"
+                                                   Outline
+                                                   Size="ButtonSize.Small"
+                                                   Disabled="@Busy"
+                                                   OnClick="@(_ => OnReject.InvokeAsync(proposal.QueueEntryId))"
+                                                   TestId="reconciliation-reject" />
+                                </td>
+                            </tr>
+                            @if (PreviewEntryId == proposal.QueueEntryId)
+                            {
+                                <tr>
+                                    <td colspan="5">@RenderPreview(proposal.QueueEntryId)</td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            }
+        </SectionCard>
+
+        @* ── 2. PDF orphelins (à rattacher manuellement) ── *@
+        <SectionCard Title="PDF orphelins" TestId="reconciliation-orphans">
+            @if (Model.Orphans.Count == 0)
+            {
+                <p data-testid="reconciliation-orphans-empty">Aucun PDF orphelin.</p>
+            }
+            else
+            {
+                <table class="liakont-reconciliation__table">
+                    <thead>
+                        <tr>
+                            <th>PDF</th>
+                            <th>Détail</th>
+                            <th>Reçu le</th>
+                            <th class="liakont-reconciliation__actions-col">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var orphan in Model.Orphans)
+                        {
+                            <tr data-testid="reconciliation-orphan">
+                                <td>@orphan.FileName</td>
+                                <td>@orphan.Detail</td>
+                                <td>@FormatInstant(orphan.CreatedUtc)</td>
+                                <td class="liakont-reconciliation__actions">
+                                    <StratumButton Text="Aperçu"
+                                                   Variant="ButtonVariant.Secondary"
+                                                   Outline
+                                                   Size="ButtonSize.Small"
+                                                   OnClick="@(_ => OnPreview.InvokeAsync(orphan.QueueEntryId))"
+                                                   TestId="reconciliation-preview" />
+                                    <StratumButton Text="Lier manuellement…"
+                                                   Variant="ButtonVariant.Primary"
+                                                   Size="ButtonSize.Small"
+                                                   Disabled="@Busy"
+                                                   OnClick="@(_ => OnStartLink.InvokeAsync(orphan.QueueEntryId))"
+                                                   TestId="reconciliation-link-start" />
+                                </td>
+                            </tr>
+                            @if (PreviewEntryId == orphan.QueueEntryId)
+                            {
+                                <tr>
+                                    <td colspan="4">@RenderPreview(orphan.QueueEntryId)</td>
+                                </tr>
+                            }
+                            @if (LinkingEntryId == orphan.QueueEntryId)
+                            {
+                                <tr>
+                                    <td colspan="4">@RenderLinkPicker(orphan.QueueEntryId)</td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            }
+        </SectionCard>
+
+        @* ── 3. Documents émis sans PDF (informationnel + cibles du lien manuel) ── *@
+        <SectionCard Title="Documents sans PDF" TestId="reconciliation-without-pdf">
+            @if (Model.DocumentsWithoutPdf.Count == 0)
+            {
+                <p data-testid="reconciliation-without-pdf-empty">Tous les documents émis ont un PDF rapproché.</p>
+            }
+            else
+            {
+                <table class="liakont-reconciliation__table">
+                    <thead>
+                        <tr>
+                            <th>Document</th>
+                            <th>Date d'émission</th>
+                            <th class="liakont-reconciliation__amount">Montant TTC</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var document in Model.DocumentsWithoutPdf)
+                        {
+                            <tr data-testid="reconciliation-without-pdf-row">
+                                <td>@document.DocumentNumber</td>
+                                <td>@document.IssueDate.ToString("dd/MM/yyyy", Fr)</td>
+                                <td class="liakont-reconciliation__amount">@document.TotalGross.ToString("N2", Fr)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </SectionCard>
+    }
+</div>
+
+@code {
+    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+
+    /// <summary>Saisie locale de recherche du sélecteur de document (lien manuel).</summary>
+    private string _linkSearch = string.Empty;
+
+    /// <summary>Modèle de la page (les trois files). Jamais <c>null</c> : la page en fournit toujours un.</summary>
+    [Parameter, EditorRequired]
+    public ReconciliationQueueViewModel Model { get; set; } = null!;
+
+    /// <summary><c>true</c> si l'opérateur détient <c>liakont.actions</c> (peut confirmer / rejeter / lier).</summary>
+    [Parameter]
+    public bool CanAct { get; set; }
+
+    /// <summary>Entrée de file dont le PDF est actuellement affiché (aperçu), ou <c>null</c>.</summary>
+    [Parameter]
+    public Guid? PreviewEntryId { get; set; }
+
+    /// <summary>Orphelin pour lequel le sélecteur de document (lien manuel) est ouvert, ou <c>null</c>.</summary>
+    [Parameter]
+    public Guid? LinkingEntryId { get; set; }
+
+    /// <summary>Message de retour de la dernière action (succès ou échec), ou <c>null</c>.</summary>
+    [Parameter]
+    public string? ActionMessage { get; set; }
+
+    /// <summary><c>true</c> si le dernier message correspond à un échec (affiché en alerte).</summary>
+    [Parameter]
+    public bool ActionFailed { get; set; }
+
+    /// <summary><c>true</c> pendant une action en cours (boutons d'action désactivés).</summary>
+    [Parameter]
+    public bool Busy { get; set; }
+
+    /// <summary>Basculer l'aperçu PDF d'une entrée de file (proposition ou orphelin).</summary>
+    [Parameter]
+    public EventCallback<Guid> OnPreview { get; set; }
+
+    /// <summary>Confirmer une proposition (par identifiant d'entrée de file).</summary>
+    [Parameter]
+    public EventCallback<Guid> OnConfirm { get; set; }
+
+    /// <summary>Rejeter une proposition (par identifiant d'entrée de file).</summary>
+    [Parameter]
+    public EventCallback<Guid> OnReject { get; set; }
+
+    /// <summary>Ouvrir le sélecteur de document pour rattacher un orphelin.</summary>
+    [Parameter]
+    public EventCallback<Guid> OnStartLink { get; set; }
+
+    /// <summary>Annuler le lien manuel en cours.</summary>
+    [Parameter]
+    public EventCallback OnCancelLink { get; set; }
+
+    /// <summary>Valider le lien manuel : (entrée de file orpheline, document cible choisi par l'opérateur).</summary>
+    [Parameter]
+    public EventCallback<(Guid QueueEntryId, Guid DocumentId)> OnLink { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        // Sélecteur fermé (annulation OU validation) : on repart d'une recherche vierge.
+        if (LinkingEntryId is null)
+        {
+            _linkSearch = string.Empty;
+        }
+    }
+
+    /// <summary>URL d'affichage INLINE du PDF d'une entrée de file (endpoint API04, monté par le Host).</summary>
+    private static string PdfUrl(Guid queueEntryId) =>
+        string.Create(CultureInfo.InvariantCulture, $"/api/v1/reconciliation/{queueEntryId}/pdf");
+
+    private RenderFragment RenderPreview(Guid queueEntryId) => __builder =>
+    {
+        <div class="liakont-reconciliation__preview" data-testid="reconciliation-pdf-preview">
+            <iframe class="liakont-reconciliation__preview-frame"
+                    src="@PdfUrl(queueEntryId)"
+                    title="Aperçu du PDF"
+                    style="width: 100%; height: 600px; border: 1px solid var(--stratum-border, #ccc);"
+                    data-testid="reconciliation-pdf-frame"></iframe>
+        </div>
+    };
+
+    private RenderFragment RenderLinkPicker(Guid queueEntryId) => __builder =>
+    {
+        <div class="liakont-reconciliation__picker" data-testid="reconciliation-link-picker">
+            <p class="liakont-reconciliation__picker-help">
+                Choisissez le document émis auquel rattacher ce PDF.
+            </p>
+            <input type="text"
+                   class="liakont-reconciliation__picker-search"
+                   placeholder="Rechercher un numéro de document…"
+                   value="@_linkSearch"
+                   @oninput="OnLinkSearchChanged"
+                   data-testid="reconciliation-link-search" />
+
+            @{
+                var candidates = FilteredCandidates();
+            }
+            @if (candidates.Count == 0)
+            {
+                <p data-testid="reconciliation-link-empty">Aucun document candidat (tous les documents émis ont déjà un PDF).</p>
+            }
+            else
+            {
+                <ul class="liakont-reconciliation__picker-list">
+                    @foreach (var document in candidates)
+                    {
+                        <li class="liakont-reconciliation__picker-item">
+                            <span>@document.DocumentNumber — @document.IssueDate.ToString("dd/MM/yyyy", Fr) — @document.TotalGross.ToString("N2", Fr)</span>
+                            <StratumButton Text="Lier"
+                                           Variant="ButtonVariant.Primary"
+                                           Size="ButtonSize.Small"
+                                           Disabled="@Busy"
+                                           OnClick="@(_ => OnLink.InvokeAsync((queueEntryId, document.DocumentId)))"
+                                           TestId="reconciliation-link-pick" />
+                        </li>
+                    }
+                </ul>
+            }
+
+            <StratumButton Text="Annuler"
+                           Variant="ButtonVariant.Secondary"
+                           Outline
+                           Size="ButtonSize.Small"
+                           OnClick="@(_ => OnCancelLink.InvokeAsync())"
+                           TestId="reconciliation-link-cancel" />
+        </div>
+    };
+
+    private void OnLinkSearchChanged(ChangeEventArgs e) => _linkSearch = e.Value as string ?? string.Empty;
+
+    private IReadOnlyList<DocumentWithoutPdfDto> FilteredCandidates()
+    {
+        if (string.IsNullOrWhiteSpace(_linkSearch))
+        {
+            return Model.DocumentsWithoutPdf;
+        }
+
+        var needle = _linkSearch.Trim();
+        var matches = new List<DocumentWithoutPdfDto>();
+        foreach (var document in Model.DocumentsWithoutPdf)
+        {
+            if (document.DocumentNumber.Contains(needle, StringComparison.OrdinalIgnoreCase))
+            {
+                matches.Add(document);
+            }
+        }
+
+        return matches;
+    }
+
+    /// <summary>Numéro du document proposé s'il figure dans la liste « sans PDF », sinon son identifiant abrégé.</summary>
+    private string ResolveDocumentNumber(Guid documentId)
+    {
+        foreach (var document in Model.DocumentsWithoutPdf)
+        {
+            if (document.DocumentId == documentId)
+            {
+                return document.DocumentNumber;
+            }
+        }
+
+        return string.Create(CultureInfo.InvariantCulture, $"Document {documentId.ToString()[..8]}");
+    }
+
+    private static string DescribeProposalReason(ReconciliationProposalDto proposal) =>
+        string.IsNullOrWhiteSpace(proposal.Detail)
+            ? $"Confiance {proposal.Confidence}"
+            : proposal.Detail;
+
+    private static string FormatInstant(DateTimeOffset instant) =>
+        instant.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr);
+}

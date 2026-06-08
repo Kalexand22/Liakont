@@ -8,6 +8,8 @@ using System.Threading.Tasks;
 using FluentAssertions;
 using Liakont.Host.Navigation;
 using Liakont.Modules.Ingestion.Contracts;
+using Liakont.Modules.Reconciliation.Contracts;
+using Liakont.Modules.Reconciliation.Contracts.DTOs;
 using Stratum.Common.Abstractions.MultiTenancy;
 using Xunit;
 
@@ -17,7 +19,7 @@ public sealed class LiakontConsoleContextTests
     public async Task ReconciliationAvailable_Should_Be_True_When_Pool_Has_Pdfs()
     {
         var store = new FakeIngestedPdfStore([new PooledPdfReference("p1", "facture.pdf")]);
-        var context = new LiakontConsoleContext(new FakeTenantContext("tenant-a"), store);
+        var context = new LiakontConsoleContext(new FakeTenantContext("tenant-a"), store, new FakeReconciliationQueries());
 
         await context.EnsureInitializedAsync();
 
@@ -28,7 +30,7 @@ public sealed class LiakontConsoleContextTests
     public async Task ReconciliationAvailable_Should_Be_False_When_Pool_Is_Empty()
     {
         var store = new FakeIngestedPdfStore([]);
-        var context = new LiakontConsoleContext(new FakeTenantContext("tenant-a"), store);
+        var context = new LiakontConsoleContext(new FakeTenantContext("tenant-a"), store, new FakeReconciliationQueries());
 
         await context.EnsureInitializedAsync();
 
@@ -39,7 +41,7 @@ public sealed class LiakontConsoleContextTests
     public async Task ReconciliationAvailable_Should_Be_False_And_Store_Untouched_When_Tenant_Unresolved()
     {
         var store = new FakeIngestedPdfStore([new PooledPdfReference("p1", "facture.pdf")]);
-        var context = new LiakontConsoleContext(new FakeTenantContext(null), store);
+        var context = new LiakontConsoleContext(new FakeTenantContext(null), store, new FakeReconciliationQueries());
 
         await context.EnsureInitializedAsync();
 
@@ -51,12 +53,79 @@ public sealed class LiakontConsoleContextTests
     public async Task EnsureInitializedAsync_Should_Be_Idempotent()
     {
         var store = new FakeIngestedPdfStore([new PooledPdfReference("p1", "facture.pdf")]);
-        var context = new LiakontConsoleContext(new FakeTenantContext("tenant-a"), store);
+        var context = new LiakontConsoleContext(new FakeTenantContext("tenant-a"), store, new FakeReconciliationQueries());
 
         await context.EnsureInitializedAsync();
         await context.EnsureInitializedAsync();
 
         store.ListCallCount.Should().Be(1, "le pool n'est lu qu'une seule fois par circuit");
+    }
+
+    [Fact]
+    public async Task ReconciliationPendingCount_Should_Sum_Proposals_And_Orphans_When_Pool_Present()
+    {
+        var store = new FakeIngestedPdfStore([new PooledPdfReference("p1", "facture.pdf")]);
+        var queries = new FakeReconciliationQueries
+        {
+            Proposals = [Proposal(), Proposal()],
+            Orphans = [Orphan()],
+        };
+        var context = new LiakontConsoleContext(new FakeTenantContext("tenant-a"), store, queries);
+
+        await context.EnsureInitializedAsync();
+
+        // 2 propositions + 1 orphelin = 3 ; les documents sans PDF ne comptent pas (pas d'action immédiate).
+        context.ReconciliationPendingCount.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task ReconciliationPendingCount_Should_Be_Zero_And_Queue_Untouched_When_Pool_Empty()
+    {
+        var store = new FakeIngestedPdfStore([]);
+        var queries = new FakeReconciliationQueries
+        {
+            Proposals = [Proposal()],
+            Orphans = [Orphan()],
+        };
+        var context = new LiakontConsoleContext(new FakeTenantContext("tenant-a"), store, queries);
+
+        await context.EnsureInitializedAsync();
+
+        context.ReconciliationPendingCount.Should().Be(0);
+        queries.QueueReadCount.Should().Be(0, "pas de pool → on n'interroge pas la file de réconciliation");
+    }
+
+    private static ReconciliationProposalDto Proposal() => new(
+        Guid.NewGuid(), "pool", "f.pdf", Guid.NewGuid(), "TextMatching", "Medium", "détail", DateTimeOffset.UtcNow);
+
+    private static OrphanPdfDto Orphan() => new(
+        Guid.NewGuid(), "pool", "o.pdf", "orphelin", DateTimeOffset.UtcNow);
+
+    private sealed class FakeReconciliationQueries : IReconciliationQueries
+    {
+        public IReadOnlyList<ReconciliationProposalDto> Proposals { get; init; } = [];
+
+        public IReadOnlyList<OrphanPdfDto> Orphans { get; init; } = [];
+
+        public int QueueReadCount { get; private set; }
+
+        public Task<IReadOnlyList<ReconciliationProposalDto>> GetPendingProposalsAsync(CancellationToken cancellationToken = default)
+        {
+            QueueReadCount++;
+            return Task.FromResult(Proposals);
+        }
+
+        public Task<IReadOnlyList<OrphanPdfDto>> GetOrphanPdfsAsync(CancellationToken cancellationToken = default)
+        {
+            QueueReadCount++;
+            return Task.FromResult(Orphans);
+        }
+
+        public Task<IReadOnlyList<DocumentWithoutPdfDto>> GetIssuedDocumentsWithoutPdfAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<DocumentWithoutPdfDto>>([]);
+
+        public Task<ReconciliationPdfContent?> OpenQueueEntryPdfAsync(Guid queueEntryId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<ReconciliationPdfContent?>(null);
     }
 
     private sealed class FakeIngestedPdfStore : IIngestedPdfStore

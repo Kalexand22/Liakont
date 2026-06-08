@@ -31,10 +31,14 @@ internal sealed class LiakontNavSectionProvider : INavSectionProvider
             new("Traitements", "/traitements"),
         };
 
-        // Réconciliation : visible uniquement si l'agent du tenant alimente un pool de PDF non rattachés.
+        // Réconciliation : visible uniquement si l'agent du tenant alimente un pool de PDF non rattachés. Le
+        // nombre d'éléments en attente (propositions + orphelins) est embarqué dans le libellé — le modèle
+        // NavItem du socle vendored n'a pas de champ « badge » et n'est pas modifié (CLAUDE.md n°11).
         if (_console.ReconciliationAvailable)
         {
-            items.Add(new NavItem("Réconciliation", "/reconciliation"));
+            var pending = _console.ReconciliationPendingCount;
+            var label = pending > 0 ? $"Réconciliation ({pending})" : "Réconciliation";
+            items.Add(new NavItem(label, "/reconciliation"));
         }
 
         items.Add(new NavItem("Paramétrage", "/parametrage"));

@@ -39,6 +39,24 @@ public sealed class LiakontNavSectionProviderTests
     }
 
     [Fact]
+    public void GetSection_Should_Embed_The_Pending_Count_In_The_Reconciliation_Label()
+    {
+        var section = BuildProvider(reconciliationAvailable: true, reconciliationPendingCount: 4).GetSection();
+
+        // Le compteur d'éléments en attente est embarqué dans le libellé (NavItem n'a pas de champ badge).
+        Labels(section).Should().Contain("Réconciliation (4)");
+        Labels(section).Should().NotContain("Réconciliation");
+    }
+
+    [Fact]
+    public void GetSection_Should_Omit_The_Count_When_Nothing_Pending()
+    {
+        var section = BuildProvider(reconciliationAvailable: true, reconciliationPendingCount: 0).GetSection();
+
+        Labels(section).Should().Contain("Réconciliation");
+    }
+
+    [Fact]
     public void GetSection_Should_Hide_Supervision_Without_Permission()
     {
         var section = BuildProvider(permissions: []).GetSection();
@@ -56,8 +74,9 @@ public sealed class LiakontNavSectionProviderTests
 
     private static LiakontNavSectionProvider BuildProvider(
         bool reconciliationAvailable = false,
+        int reconciliationPendingCount = 0,
         string[]? permissions = null) =>
-        new(new FakePermissionService(permissions ?? []), new FakeConsoleContext(reconciliationAvailable));
+        new(new FakePermissionService(permissions ?? []), new FakeConsoleContext(reconciliationAvailable, reconciliationPendingCount));
 
     private static IEnumerable<string> Labels(Stratum.Common.UI.Models.NavSection section) =>
         section.Items.Select(i => i.Label);
@@ -80,10 +99,15 @@ public sealed class LiakontNavSectionProviderTests
 
     private sealed class FakeConsoleContext : ILiakontConsoleContext
     {
-        public FakeConsoleContext(bool reconciliationAvailable) =>
+        public FakeConsoleContext(bool reconciliationAvailable, int reconciliationPendingCount)
+        {
             ReconciliationAvailable = reconciliationAvailable;
+            ReconciliationPendingCount = reconciliationPendingCount;
+        }
 
         public bool ReconciliationAvailable { get; }
+
+        public int ReconciliationPendingCount { get; }
 
         public Task EnsureInitializedAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
