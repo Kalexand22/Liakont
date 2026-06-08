@@ -62,6 +62,20 @@ public sealed class ParametrageTests : BunitContext
         cut.Find("[data-testid='parametrage-integrite-summary']").TextContent.Should().Contain("Coffre vérifié.");
     }
 
+    [Fact]
+    public void Should_Show_Integrity_Error_Banner_When_Verify_Throws()
+    {
+        Services.AddScoped<IParametrageQueries>(_ => FakeParametrageQueries.SucceedingLoadThrowingVerify(BuildModel()));
+
+        var cut = Render<Parametrage>();
+        cut.Find("[data-testid='parametrage-integrite-btn']").Click();
+
+        // L'erreur de vérification doit apparaître et le rapport ne doit pas s'afficher.
+        cut.WaitForAssertion(() =>
+            cut.FindAll("[data-testid='parametrage-integrite-error']").Should().ContainSingle());
+        cut.FindAll("[data-testid='parametrage-integrite-report']").Should().BeEmpty();
+    }
+
     private static ParametrageViewModel BuildModel() => new()
     {
         Profile = null,
@@ -76,18 +90,23 @@ public sealed class ParametrageTests : BunitContext
         private readonly ParametrageViewModel? _model;
         private readonly ArchiveVerificationReport? _report;
         private readonly bool _throws;
+        private readonly bool _throwsOnVerify;
 
-        private FakeParametrageQueries(ParametrageViewModel? model, ArchiveVerificationReport? report, bool throws)
+        private FakeParametrageQueries(ParametrageViewModel? model, ArchiveVerificationReport? report, bool throws, bool throwsOnVerify = false)
         {
             _model = model;
             _report = report;
             _throws = throws;
+            _throwsOnVerify = throwsOnVerify;
         }
 
         public static FakeParametrageQueries Succeeding(ParametrageViewModel model, ArchiveVerificationReport? report = null) =>
             new(model, report, throws: false);
 
         public static FakeParametrageQueries Throwing() => new(null, null, throws: true);
+
+        public static FakeParametrageQueries SucceedingLoadThrowingVerify(ParametrageViewModel model) =>
+            new(model, report: null, throws: false, throwsOnVerify: true);
 
         public Task<ParametrageViewModel> GetParametrageAsync(CancellationToken cancellationToken = default)
         {
@@ -99,7 +118,14 @@ public sealed class ParametrageTests : BunitContext
             return Task.FromResult(_model!);
         }
 
-        public Task<ArchiveVerificationReport> VerifyArchiveIntegrityAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(_report!);
+        public Task<ArchiveVerificationReport> VerifyArchiveIntegrityAsync(CancellationToken cancellationToken = default)
+        {
+            if (_throwsOnVerify)
+            {
+                throw new InvalidOperationException("Échec simulé de vérification d'intégrité.");
+            }
+
+            return Task.FromResult(_report!);
+        }
     }
 }
