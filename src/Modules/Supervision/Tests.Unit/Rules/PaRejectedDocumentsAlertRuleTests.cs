@@ -82,4 +82,16 @@ public sealed class PaRejectedDocumentsAlertRuleTests
 
         (await rule.EvaluateAsync(Context)).IsFiring.Should().BeFalse();
     }
+
+    [Fact]
+    public async Task Default_Used_When_Company_Present_But_No_Thresholds()
+    {
+        // Garde-fou partagé (DocumentStateAgeAlertRule) : company existe mais aucun seuil → défaut produit (2 j).
+        var documents = new FakeDocumentQueries();
+        documents.SetOldestInState("RejectedByPa", RuleAlertTestData.Document("F-2026-014", "RejectedByPa", Now.AddDays(-3)));
+        var tenantSettings = new FakeTenantSettingsQueries(companyId: Guid.NewGuid(), thresholds: null);
+        var rule = new PaRejectedDocumentsAlertRule(documents, tenantSettings);
+
+        (await rule.EvaluateAsync(Context)).IsFiring.Should().BeTrue();
+    }
 }

@@ -72,7 +72,7 @@ public sealed class AgentMuteAlertRuleTests
         var evaluation = await rule.EvaluateAsync(Context);
 
         evaluation.IsFiring.Should().BeTrue();
-        evaluation.Detail.Should().Contain("aucun heartbeat depuis son enregistrement");
+        evaluation.Detail.Should().Contain("aucun heartbeat").And.Contain("Jamais vu").And.Contain("enregistré le");
     }
 
     [Fact]

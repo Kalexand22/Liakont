@@ -83,16 +83,19 @@ public sealed class AgentMuteAlertRule : IAlertRule
             return AlertEvaluation.Clear();
         }
 
+        // Le moteur ne rafraîchit pas le Detail tant que l'alerte reste active : on formule un message qui
+        // reste juste si l'agent nommé est résolu mais qu'un autre maintient la condition (« au moins un … le
+        // plus ancien ») et on renvoie vers la console pour la liste à jour (CLAUDE.md n°12, message actionnable).
         var detail = mostSilent.LastSeenAtUtc is null
             ? string.Format(
                 CultureInfo.InvariantCulture,
-                "L'agent « {0} » n'a émis aucun heartbeat depuis son enregistrement le {1} (seuil {2} h). Vérifiez l'installation et le démarrage du service Liakont Agent sur le poste du client.",
+                "Au moins un agent n'a émis aucun heartbeat depuis plus de {2} h (le plus ancien constaté : « {0} », enregistré le {1}). Vérifiez l'installation et le démarrage du service Liakont Agent sur les postes concernés ; la console liste les agents muets à jour.",
                 mostSilent.Name,
                 FormatUtc(mostSilentReference),
                 silentHours)
             : string.Format(
                 CultureInfo.InvariantCulture,
-                "L'agent « {0} » ne répond plus depuis le {1} (dernier heartbeat ; seuil {2} h). Vérifiez que le serveur du client est allumé et que le service Liakont Agent est démarré.",
+                "Au moins un agent ne répond plus depuis plus de {2} h (le plus ancien constaté : « {0} », dernier contact le {1}). Vérifiez que les serveurs concernés sont allumés et que le service Liakont Agent y est démarré ; la console liste les agents muets à jour.",
                 mostSilent.Name,
                 FormatUtc(mostSilentReference),
                 silentHours);

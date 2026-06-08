@@ -34,10 +34,12 @@ public sealed class PaRejectedDocumentsAlertRule : DocumentStateAgeAlertRule
 
     protected override int TenantThresholdDays(AlertThresholdsDto thresholds) => thresholds.PaRejectionsDays;
 
+    // Message stable même si le document nommé est retraité alors qu'un autre maintient l'alerte (le moteur ne
+    // rafraîchit pas le Detail) : « au moins un … le plus ancien » + renvoi console (CLAUDE.md n°12).
     protected override string BuildDetail(DocumentSummaryDto oldest, int thresholdDays) =>
         string.Format(
             CultureInfo.InvariantCulture,
-            "Le document {0}, rejeté par la Plateforme Agréée le {1} (seuil {2} j), n'a pas été retraité. Corrigez et renvoyez le document, ou traitez-le manuellement.",
+            "Au moins un document rejeté par la Plateforme Agréée n'a pas été retraité depuis plus de {2} j (le plus ancien : {0}, rejeté le {1}). Corrigez et renvoyez les documents, ou traitez-les manuellement ; la console liste les rejets à jour.",
             oldest.DocumentNumber,
             FormatUtc(oldest.LastUpdateUtc),
             thresholdDays);

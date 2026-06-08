@@ -35,10 +35,12 @@ public sealed class BlockedDocumentsAlertRule : DocumentStateAgeAlertRule
 
     protected override int TenantThresholdDays(AlertThresholdsDto thresholds) => thresholds.BlockedDocumentsDays;
 
+    // Message stable même si le document nommé est traité alors qu'un autre maintient l'alerte (le moteur ne
+    // rafraîchit pas le Detail) : « au moins un … le plus ancien » + renvoi console (CLAUDE.md n°12).
     protected override string BuildDetail(DocumentSummaryDto oldest, int thresholdDays) =>
         string.Format(
             CultureInfo.InvariantCulture,
-            "Le document {0} est bloqué depuis le {1} (seuil {2} j) et n'a pas été traité. Corrigez les données ou le paramétrage en cause (ex. table TVA) pour qu'il puisse être transmis.",
+            "Au moins un document est bloqué depuis plus de {2} j sans traitement (le plus ancien : {0}, depuis le {1}). Corrigez les données ou le paramétrage en cause (ex. table TVA) pour qu'ils puissent être transmis ; la console liste les documents bloqués à jour.",
             oldest.DocumentNumber,
             FormatUtc(oldest.LastUpdateUtc),
             thresholdDays);

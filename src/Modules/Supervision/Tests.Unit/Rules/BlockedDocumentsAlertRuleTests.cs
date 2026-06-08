@@ -81,4 +81,16 @@ public sealed class BlockedDocumentsAlertRuleTests
 
         (await rule.EvaluateAsync(Context)).IsFiring.Should().BeTrue();
     }
+
+    [Fact]
+    public async Task Default_Used_When_Company_Present_But_No_Thresholds()
+    {
+        // Garde-fou partagé (DocumentStateAgeAlertRule) : company existe mais aucun seuil → défaut produit (5 j).
+        var documents = new FakeDocumentQueries();
+        documents.SetOldestInState("Blocked", RuleAlertTestData.Document("F-2026-005", "Blocked", Now.AddDays(-6)));
+        var tenantSettings = new FakeTenantSettingsQueries(companyId: Guid.NewGuid(), thresholds: null);
+        var rule = new BlockedDocumentsAlertRule(documents, tenantSettings);
+
+        (await rule.EvaluateAsync(Context)).IsFiring.Should().BeTrue();
+    }
 }
