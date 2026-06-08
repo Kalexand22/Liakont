@@ -1,0 +1,84 @@
+@page "/traitements"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using System.Globalization
+@using Liakont.Host.Pipeline
+@using Liakont.Modules.Pipeline.Contracts.Queries
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Models
+@inject IPipelineRunQueries RunQueries
+
+<PageTitle>Traitements — Liakont</PageTitle>
+
+<h1>Traitements</h1>
+
+<DeclaredListPage TItem="PipelineRunRow"
+                  Title="Traitements"
+                  TestId="traitements"
+                  LoadItems="@LoadRunsAsync"
+                  DetailUrl="@(_ => "/traitements")"
+                  ColumnRegistry="@_registry"
+                  ColumnTemplates="@_columnTemplates"
+                  GridKey="Liakont.PipelineRuns"
+                  AriaLabel="Journal des traitements"
+                  DefaultSortColumn="@nameof(PipelineRunRow.StartedAt)"
+                  DefaultSortDirection="SortDirection.Descending"
+                  SearchPlaceholder="Chercher un traitement… (raccourci : /)"
+                  AllowExport="true"
+                  ExportFileName="journal-traitements">
+    <EmptyContent>
+        <p data-testid="traitements-empty">
+            Aucun traitement sur la période. Le pipeline n'a pas encore tourné pour ce tenant.
+        </p>
+    </EmptyContent>
+</DeclaredListPage>
+
+@code {
+    // Borne haute alignée sur l'endpoint GET /runs (DefaultRunLimit) ; l'implémentation borne aussi à son maximum.
+    private const int RunLimit = 200;
+
+    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+
+    private readonly PipelineRunColumnRegistry _registry = new();
+
+    // Rendus spécifiques par colonne : date en français, badges de nature/déclencheur, mise en
+    // évidence des échecs. Le reste des colonnes (compteurs, durée, détail) s'affiche en texte brut.
+    private readonly Dictionary<string, RenderFragment<PipelineRunRow>> _columnTemplates = new()
+    {
+        [nameof(PipelineRunRow.StartedAt)] = item => builder =>
+        {
+            builder.AddContent(0, item.StartedAt.ToString("dd/MM/yyyy HH:mm", Fr));
+        },
+        [nameof(PipelineRunRow.Nature)] = item => builder =>
+        {
+            builder.OpenComponent<CategoryBadge>(0);
+            builder.AddAttribute(1, "Label", item.Nature);
+            builder.AddAttribute(2, "TestId", "run-nature");
+            builder.CloseComponent();
+        },
+        [nameof(PipelineRunRow.Trigger)] = item => builder =>
+        {
+            builder.OpenComponent<CategoryBadge>(0);
+            builder.AddAttribute(1, "Label", item.Trigger);
+            builder.AddAttribute(2, "TestId", "run-trigger");
+            builder.CloseComponent();
+        },
+        [nameof(PipelineRunRow.DocumentsFailed)] = item => builder =>
+        {
+            builder.OpenComponent<StatusBadge>(0);
+            builder.AddAttribute(1, "Severity", item.DocumentsFailed > 0 ? Severity.Error : Severity.Neutral);
+            builder.AddAttribute(2, "Label", item.DocumentsFailed.ToString(Fr));
+            builder.AddAttribute(3, "TestId", "run-failed");
+            builder.CloseComponent();
+        },
+    };
+
+    // Lecture seule, tenant-scopée par construction (la connexion EST le tenant courant du circuit —
+    // database-per-tenant, blueprint §7). Aucune logique métier ici : on lit le journal du module
+    // Pipeline et on projette en lignes de présentation (CLAUDE.md — les pages délèguent, ne calculent pas).
+    private async Task<IReadOnlyList<PipelineRunRow>> LoadRunsAsync()
+    {
+        var runs = await RunQueries.GetRunsAsync(null, null, RunLimit);
+        return runs.Select(PipelineRunRow.FromDto).ToList();
+    }
+}
