@@ -10,6 +10,7 @@ using Liakont.Host.Components.Pages;
 using Liakont.Host.TvaMappingTable;
 using Liakont.Modules.TvaMapping.Contracts.DTOs;
 using Microsoft.Extensions.DependencyInjection;
+using Stratum.Common.Abstractions.Exceptions;
 using Stratum.Common.Abstractions.Grid;
 using Stratum.Common.Abstractions.Security;
 using Stratum.Common.UI;
@@ -213,7 +214,7 @@ public sealed class TableTvaTests : BunitContext
         // Message métier (français) du handler affiché dans l'éditeur, qui reste ouvert.
         cut.WaitForAssertion(() =>
         {
-            cut.Find("[data-testid='tva-rule-editor-error']").TextContent.Should().Contain("ZZ");
+            cut.Find("[data-testid='tva-rule-editor-error']").TextContent.Should().Contain("introuvable");
             cut.FindAll("[data-testid='tva-rule-editor']").Should().ContainSingle();
         });
     }
@@ -287,7 +288,8 @@ public sealed class TableTvaTests : BunitContext
         {
             if (_throwOnMutate)
             {
-                throw new ArgumentException("Catégorie de TVA inconnue : « ZZ ».");
+                // Erreur métier ATTENDUE (DomainException) : message opérateur français affiché tel quel.
+                throw new NotFoundException("Table de mapping introuvable pour ce tenant.");
             }
 
             AddCalls++;
@@ -299,7 +301,7 @@ public sealed class TableTvaTests : BunitContext
         {
             if (_throwOnMutate)
             {
-                throw new ArgumentException("Mode de taux inconnu.");
+                throw new NotFoundException("Règle de mapping introuvable.");
             }
 
             UpdateCalls++;
@@ -311,7 +313,7 @@ public sealed class TableTvaTests : BunitContext
         {
             if (_throwOnMutate)
             {
-                throw new ArgumentException("Règle introuvable.");
+                throw new NotFoundException("Règle de mapping introuvable.");
             }
 
             RemoveCalls++;

@@ -265,15 +265,16 @@ else
     }
 
     /// <summary>
-    /// Traduit une exception de mutation en message opérateur. Les erreurs métier ATTENDUES (validation
-    /// structurelle <see cref="DomainException"/>, règle introuvable <see cref="NotFoundException"/>,
-    /// valeur hors liste <see cref="ArgumentException"/>) portent déjà un message français avec l'action
-    /// corrective (CLAUDE.md n°12) — affiché tel quel. Toute autre erreur est générique + tracée (jamais
-    /// avalée en silence, jamais une stack technique exposée à l'opérateur).
+    /// Traduit une exception de mutation en message opérateur. Seules les exceptions métier conçues à cet
+    /// effet portent un message français prêt à l'affichage : <see cref="DomainException"/> (validation
+    /// structurelle) et <see cref="NotFoundException"/> (règle introuvable). Toute autre exception — y
+    /// compris une <see cref="ArgumentException"/> (chemin inatteignable depuis les listes fermées de
+    /// l'interface) — est générique + tracée (jamais avalée en silence, jamais une stack technique exposée
+    /// à l'opérateur).
     /// </summary>
     private string MapMutationError(Exception ex)
     {
-        if (ex is DomainException or NotFoundException or ArgumentException)
+        if (ex is DomainException or NotFoundException)
         {
             return ex.Message;
         }
