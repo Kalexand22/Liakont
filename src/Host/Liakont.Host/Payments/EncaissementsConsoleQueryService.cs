@@ -1,5 +1,6 @@
 namespace Liakont.Host.Payments;
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -14,11 +15,22 @@ using Liakont.Modules.TenantSettings.Contracts.Queries;
 /// (<see cref="ITenantSettingsConsoleQueries"/>) en un <see cref="EncaissementsViewModel"/>. Les deux
 /// lectures sont tenant-scopées par construction (base du tenant courant — CLAUDE.md n°9/17). AUCUNE règle
 /// fiscale n'est dérivée : la qualification des agrégats vient de PIP03a (reportée telle quelle) et l'« état
-/// fiscal en attente » est un simple contrôle de COMPLÉTUDE du paramétrage (CLAUDE.md n°2). L'affichage
-/// adapté à la PA est piloté par sa capacité déclarée, jamais par son type (CLAUDE.md n°8).
+/// fiscal en attente » REFLÈTE cette même qualification (statut Suspended), jamais redérivée ici
+/// (CLAUDE.md n°2). L'affichage adapté à la PA est piloté par sa capacité déclarée, jamais par son type
+/// (CLAUDE.md n°8).
 /// </summary>
 internal sealed class EncaissementsConsoleQueryService : IEncaissementsConsoleQueries
 {
+    /// <summary>
+    /// Statut « décision fiscale en attente » persisté par NOM (miroir de
+    /// <c>PaymentAggregationStatus.Suspended</c>, Domain Pipeline — inaccessible depuis le Host qui ne
+    /// référence que les Contracts). Identique au <c>SuspendedStatus</c> de <c>PipelineEndpointMapping</c>
+    /// (<c>GET /payments</c>) : le bandeau de page reflète la MÊME qualification que les badges par ligne
+    /// (calculée par PIP03a, qui suspend sur catégorie/fréquence/imputation des frais manquantes), jamais
+    /// une règle redérivée ni un sous-ensemble divergent des paramètres (CLAUDE.md n°2).
+    /// </summary>
+    private const string SuspendedStatus = "Suspended";
+
     private readonly IPaymentAggregationQueries _aggregationQueries;
     private readonly ITenantSettingsConsoleQueries _settingsQueries;
 
@@ -38,21 +50,12 @@ internal sealed class EncaissementsConsoleQueryService : IEncaissementsConsoleQu
         return new EncaissementsViewModel
         {
             Aggregates = aggregates.Select(PaymentAggregateRow.FromDto).ToList(),
-            FiscalDecisionPending = IsFiscalDecisionPending(overview.FiscalSettings),
+            FiscalDecisionPending = aggregates.Any(a => string.Equals(a.Status, SuspendedStatus, StringComparison.Ordinal)),
             PaymentReportingSupported = SupportsPaymentReporting(overview.PaAccounts),
             HasConfiguredPa = overview.PaAccounts.Count > 0,
             PaName = ResolvePaName(overview.PaAccounts),
         };
     }
-
-    /// <summary>
-    /// Contrôle de COMPLÉTUDE du paramétrage fiscal requis pour l'e-reporting de paiement (TVA sur les débits
-    /// + catégorie d'opération, F10 §2.4) : <c>true</c> dès qu'un de ces paramètres est manquant. Pure
-    /// vérification « le champ est-il renseigné ? » — AUCUNE règle fiscale dérivée (CLAUDE.md n°2 ; même
-    /// patron que la page Paramétrage WEB04b).
-    /// </summary>
-    private static bool IsFiscalDecisionPending(FiscalSettingsDto? fiscal) =>
-        fiscal is null || fiscal.VatOnDebits is null || string.IsNullOrWhiteSpace(fiscal.OperationCategory);
 
     /// <summary>
     /// <c>true</c> si au moins une PA configurée (plug-in chargé) déclare la transmission des paiements

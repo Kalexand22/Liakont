@@ -17,9 +17,10 @@ internal sealed record EncaissementsViewModel
     public required IReadOnlyList<PaymentAggregateRow> Aggregates { get; init; }
 
     /// <summary>
-    /// <c>true</c> si une décision fiscale requise pour l'e-reporting de paiement est en attente (TVA sur les
-    /// débits ou catégorie d'opération non renseignée) — contrôle de COMPLÉTUDE du paramétrage, pas une règle
-    /// fiscale dérivée (CLAUDE.md n°2). Déclenche le bandeau « Décision fiscale en attente ».
+    /// <c>true</c> si au moins un agrégat est suspendu faute de décision fiscale (statut PIP03a
+    /// <c>Suspended</c>) — parité avec <c>PaymentsResponse.FiscalDecisionPending</c> de <c>GET /payments</c>.
+    /// La qualification vient de PIP03a (catégorie/fréquence/imputation des frais), jamais redérivée ici
+    /// (CLAUDE.md n°2). Déclenche le bandeau « Décision fiscale en attente ».
     /// </summary>
     public required bool FiscalDecisionPending { get; init; }
 
