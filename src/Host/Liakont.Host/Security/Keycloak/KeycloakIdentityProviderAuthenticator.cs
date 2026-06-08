@@ -288,11 +288,17 @@ internal sealed class KeycloakIdentityProviderAuthenticator : IIdentityProviderA
                 var syncService = ctx.HttpContext.RequestServices.GetRequiredService<Stratum.Modules.Identity.Application.IUserSyncService>();
                 var userId = await syncService.SyncFromOidcClaimsAsync(ctx.Principal, ctx.HttpContext.RequestAborted);
 
-                // Add stratum_user_id claim so HttpActorContextAccessor can read it
+                // Add stratum_user_id claim so HttpActorContextAccessor can read it, puis projette les
+                // rôles realm → permissions (matrice §3) en claims "permission" sur le principal (ADR-0017).
+                // Ce claim est le transport consommé par l'UI (ClaimsPermissionService) ET les endpoints
+                // (PermissionAuthorizationHandler) : un seul mécanisme d'autorisation, sans hit base par
+                // requête. Catalogue IdP-agnostique (D10) : aucun appel Keycloak-spécifique ici.
                 if (ctx.Principal.Identity is System.Security.Claims.ClaimsIdentity identity)
                 {
                     identity.AddClaim(
                         new System.Security.Claims.Claim("stratum_user_id", userId.ToString("D")));
+
+                    RolePermissionCatalog.ProjectPermissionClaims(identity);
                 }
 
                 // Strip bulky tokens from auth properties to keep the session cookie small.
