@@ -2,13 +2,20 @@
 @rendermode InteractiveServer
 @attribute [Authorize]
 @using Liakont.Host.Documents
+@using Liakont.Host.Security
+@using Stratum.Common.Abstractions.Security
 @using Stratum.Common.UI.Models
 @inject IDocumentDetailConsoleQueries DetailQueries
+@inject IDocumentControlActions ControlActions
+@inject IPermissionService Permissions
 @inject ILogger<DocumentDetail> Logger
 
-@* Page détail document (WEB03a, F10 §2.3). Page MINCE : elle charge le détail assemblé via le service
- * IDocumentDetailConsoleQueries (aucun accès base direct, aucune logique métier) et délègue tout le rendu à
- * la vue pure DocumentDetailView. Les actions contextuelles (envoyer/renvoyer/résoudre) arrivent en WEB03b/c. *@
+@* Page détail document (WEB03a + actions WEB03b, F10 §2.3). Page MINCE : elle charge le détail assemblé via
+ * IDocumentDetailConsoleQueries (aucun accès base direct, aucune logique métier), délègue tout le rendu à la
+ * vue pure DocumentDetailView, et orchestre les actions de l'onglet Contrôles (verdict garde-fou B2B/B2C,
+ * re-vérification) via IDocumentControlActions — appel in-process, puis rechargement du détail pour refléter
+ * immédiatement l'historique et les contrôles. Les boutons d'action ne sont proposés qu'aux porteurs de la
+ * permission liakont.actions (la page reste consultable en lecture sinon). *@
 
 <PageTitle>Détail du document — Liakont</PageTitle>
 
@@ -41,7 +48,14 @@
     else
     {
         <h1 data-testid="document-detail-title">Document @_model.Document.DocumentNumber</h1>
-        <DocumentDetailView Model="_model" />
+        <DocumentDetailView Model="_model"
+                            CanAct="_canAct"
+                            ActionInProgress="_actionInProgress"
+                            ActionFeedback="@_actionFeedback"
+                            ActionFailed="_actionFailed"
+                            OnConfirmB2c="@(() => SubmitVerdictAsync(ConsoleVerdict.ConfirmIndividualB2c))"
+                            OnHandleManually="@(() => SubmitVerdictAsync(ConsoleVerdict.HandleManuallyB2b))"
+                            OnRecheck="RecheckAsync" />
     }
 </div>
 
@@ -55,6 +69,18 @@
     private bool _notFound;
     private bool _loadFailed;
 
+    private bool _canAct;
+    private bool _actionInProgress;
+    private string? _actionFeedback;
+    private bool _actionFailed;
+
+    protected override void OnInitialized()
+    {
+        // Permission d'action opérateur : les boutons garde-fou / re-vérification ne sont proposés qu'aux
+        // porteurs de liakont.actions (l'application réelle reste serveur — service in-process tenant-scopé).
+        _canAct = Permissions.HasPermission(LiakontPermissions.Actions);
+    }
+
     protected override async Task OnParametersSetAsync()
     {
         // Charge une seule fois par identifiant distinct (un re-rendu sans changement d'Id ne recharge pas).
@@ -67,6 +93,8 @@
         _model = null;
         _notFound = false;
         _loadFailed = false;
+        _actionFeedback = null;
+        _actionFailed = false;
 
         try
         {
@@ -85,6 +113,66 @@
             // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
             _loadFailed = true;
             Logger.LogError(ex, "Failed to load the document detail page for document {DocumentId}.", Id);
+        }
+    }
+
+    /// <summary>Pose un verdict du garde-fou B2B/B2C puis recharge le détail (historique + contrôles à jour).</summary>
+    private Task SubmitVerdictAsync(ConsoleVerdict verdict) =>
+        RunActionAsync(() => ControlActions.SubmitVerdictAsync(Id, verdict));
+
+    /// <summary>Re-vérifie le document bloqué puis recharge le détail (le nouvel état / motif s'affiche immédiatement).</summary>
+    private Task RecheckAsync() =>
+        RunActionAsync(() => ControlActions.RecheckAsync(Id));
+
+    /// <summary>
+    /// Exécute une action de l'onglet Contrôles : désactive les boutons le temps de l'appel, mémorise le
+    /// message opérateur (succès ou refus) et RECHARGE le détail pour refléter l'historique et les contrôles
+    /// sans rechargement de page. Tout échec inattendu reste VISIBLE (message) et tracé — jamais avalé.
+    /// </summary>
+    private async Task RunActionAsync(Func<Task<DocumentControlActionResult>> action)
+    {
+        if (_actionInProgress || _model is null)
+        {
+            return;
+        }
+
+        _actionInProgress = true;
+        _actionFeedback = null;
+        _actionFailed = false;
+
+        try
+        {
+            var result = await action();
+            _actionFeedback = result.Message;
+            _actionFailed = !result.Success;
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            _actionFailed = true;
+            _actionFeedback = "L'action n'a pas pu être effectuée pour le moment. Réessayez plus tard.";
+            Logger.LogError(ex, "Console control action failed for document {DocumentId}.", Id);
+        }
+        finally
+        {
+            _actionInProgress = false;
+        }
+    }
+
+    /// <summary>Recharge le détail assemblé (re-lecture tenant-scopée) après une action, sans masquer la fiche en cas d'échec.</summary>
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            var model = await DetailQueries.GetDetailAsync(Id);
+            if (model is not null)
+            {
+                _model = model;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to reload the document detail after an action for document {DocumentId}.", Id);
         }
     }
 }

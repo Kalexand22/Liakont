@@ -387,6 +387,10 @@ public static class AppBootstrap
         // motif de blocage courant + référence d'archive d'un document, hors de la page.
         builder.Services.AddScoped<Liakont.Host.Documents.IDocumentDetailConsoleQueries, Liakont.Host.Documents.DocumentDetailConsoleQueryService>();
 
+        // Composition en écriture de l'onglet Contrôles du détail (WEB03b) : verdict garde-fou B2B/B2C +
+        // re-vérification d'un document bloqué (API02b), appelés in-process par la page (tenant-scopé).
+        builder.Services.AddScoped<Liakont.Host.Documents.IDocumentControlActions, Liakont.Host.Documents.DocumentControlActionsService>();
+
         // Composition en lecture de la page Paramétrage du tenant (WEB04b) : assemble /settings + agents
         // et déclenche la vérification d'intégrité du coffre (API03). Isole l'assemblage hors de la page.
         builder.Services.AddScoped<Liakont.Host.Parametrage.IParametrageQueries, Liakont.Host.Parametrage.ParametrageQueryService>();
