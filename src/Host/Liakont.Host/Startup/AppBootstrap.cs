@@ -23,7 +23,9 @@ using Liakont.Modules.Documents.Web;
 using Liakont.Modules.Ingestion.Application;
 using Liakont.Modules.Ingestion.Infrastructure;
 using Liakont.Modules.Payments.Infrastructure;
+using Liakont.Modules.Pipeline.Contracts.Jobs;
 using Liakont.Modules.Pipeline.Infrastructure;
+using Liakont.Modules.Pipeline.Infrastructure.Send;
 using Liakont.Modules.Pipeline.Web;
 using Liakont.Modules.Reconciliation.Infrastructure;
 using Liakont.Modules.Staging.Contracts;
@@ -183,6 +185,14 @@ public static class AppBootstrap
         // (pipeline.run_logs) + points d'entrée Contracts consommés par CHECK/SEND/SYNC. AUCUN comportement
         // de pipeline ici (PIP01b-d) ; le pipeline ne référence aucune PA concrète (CLAUDE.md n°6).
         builder.Services.AddPipelineModule();
+
+        // SEND déclenché par une ACTION de console (API02a, ADR-0016) : handler SYSTÈME du déclencheur
+        // MONO-TENANT SendTenantTrigger. Enregistré au composition root (comme DailyAnchoring/Supervision)
+        // pour exposer sa JobHandlerRegistration au JobHandlerResolver — c'est lui que le JobWorker résout
+        // quand une action « send / send-all / runs-trigger » publie le déclencheur sur la queue système.
+        // À la différence du SendAllTrigger planifié (fan-out tous-tenants, cron), il rétablit le SEUL tenant
+        // de l'opérateur via ITenantScopeFactory.Create — aucune itération multi-tenant (CLAUDE.md n°9).
+        builder.Services.AddJobHandler<SendTenantTrigger, SendTenantFanInHandler>();
 
         // Stockage des PDF reçus (PIV04) : chemin racine = PARAMÉTRAGE de déploiement (jamais en dur,
         // CLAUDE.md n°7). Lié depuis la config ; à défaut, repli sous le content root de l'instance.
@@ -576,6 +586,7 @@ public static class AppBootstrap
         v1.MapAuditEndpoints();
         v1.MapTenantAdminEndpoints();
         v1.MapDocumentsEndpoints();
+        v1.MapDocumentActionsEndpoints();
         v1.MapPipelineEndpoints();
         v1.MapArchiveEndpoints();
         v1.MapTenantSettingsEndpoints();

@@ -4,5 +4,11 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Contracts/Liakont.Modules.Documents.Contracts.csproj" />
+    <!-- Actions d'envoi (API02a) : le déclencheur du pipeline SEND (SendTenantTrigger) et la file de jobs
+         (IJobQueue) sont consommés par leurs Contracts uniquement (frontière inter-modules Contracts-only,
+         module-rules §3). Stratum.Common.Abstractions (IActorContextAccessor, IActivityLogger) arrive
+         transitivement via Job.Contracts. -->
+    <ProjectReference Include="../../Pipeline/Contracts/Liakont.Modules.Pipeline.Contracts.csproj" />
+    <ProjectReference Include="../../Job/Contracts/Stratum.Modules.Job.Contracts.csproj" />
   </ItemGroup>
 </Project>

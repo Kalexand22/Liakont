@@ -3,6 +3,11 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
   <ItemGroup>
+    <!-- /runs/trigger (API02a) publie le déclencheur MONO-TENANT SendTenantTrigger (Pipeline.Contracts) via la
+         file de jobs (IJobQueue, Job.Contracts) : consommés par leurs Contracts uniquement (frontière
+         inter-modules Contracts-only, module-rules §3). Stratum.Common.Abstractions (IActorContextAccessor,
+         IActivityLogger) arrive transitivement via Job.Contracts. -->
     <ProjectReference Include="../Contracts/Liakont.Modules.Pipeline.Contracts.csproj" />
+    <ProjectReference Include="../../Job/Contracts/Stratum.Modules.Job.Contracts.csproj" />
   </ItemGroup>
 </Project>
