@@ -79,7 +79,7 @@ public sealed class PipelineRunRowTests
         row.Nature.Should().Be("Envoi");
         row.Trigger.Should().Be("Planifié");
         row.Duration.Should().Be("2 min 0 s");
-        row.DocumentsReceived.Should().Be(12);
+        row.DocumentsProcessed.Should().Be(12);
         row.DocumentsValidated.Should().Be(10);
         row.DocumentsFailed.Should().Be(2);
         row.Detail.Should().Be("envoyés: 10, rejetés: 2");

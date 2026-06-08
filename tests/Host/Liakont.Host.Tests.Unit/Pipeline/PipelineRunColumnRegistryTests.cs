@@ -23,7 +23,7 @@ public sealed class PipelineRunColumnRegistryTests
             "Nature",
             "Déclencheur",
             "Durée",
-            "Reçus",
+            "Traités",
             "Validés",
             "En échec",
             "Détail");
@@ -40,7 +40,7 @@ public sealed class PipelineRunColumnRegistryTests
             nameof(PipelineRunRow.Nature),
             nameof(PipelineRunRow.Trigger),
             nameof(PipelineRunRow.Duration),
-            nameof(PipelineRunRow.DocumentsReceived),
+            nameof(PipelineRunRow.DocumentsProcessed),
             nameof(PipelineRunRow.DocumentsValidated),
             nameof(PipelineRunRow.DocumentsFailed),
             nameof(PipelineRunRow.Detail),
@@ -60,7 +60,7 @@ public sealed class PipelineRunColumnRegistryTests
     public void Date_Column_Is_Typed_As_Date_And_Counters_As_Numbers()
     {
         _registry.GetColumn(nameof(PipelineRunRow.StartedAt))!.DataType.Should().Be(ColumnDataType.Date);
-        _registry.GetColumn(nameof(PipelineRunRow.DocumentsReceived))!.DataType.Should().Be(ColumnDataType.Number);
+        _registry.GetColumn(nameof(PipelineRunRow.DocumentsProcessed))!.DataType.Should().Be(ColumnDataType.Number);
         _registry.GetColumn(nameof(PipelineRunRow.DocumentsValidated))!.DataType.Should().Be(ColumnDataType.Number);
         _registry.GetColumn(nameof(PipelineRunRow.DocumentsFailed))!.DataType.Should().Be(ColumnDataType.Number);
     }

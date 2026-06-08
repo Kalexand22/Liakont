@@ -31,8 +31,8 @@ internal sealed record PipelineRunRow
     /// <summary>Durée lisible (colonne « Durée ») ; « En cours » tant que l'exécution n'est pas clôturée.</summary>
     public required string Duration { get; init; }
 
-    /// <summary>Documents reçus / traités au cours de l'exécution (colonne « Reçus »).</summary>
-    public required int DocumentsReceived { get; init; }
+    /// <summary>Documents traités au cours de l'exécution (colonne « Traités » ; source : DocumentsProcessed du DTO).</summary>
+    public required int DocumentsProcessed { get; init; }
 
     /// <summary>Documents traités avec succès (colonne « Validés »).</summary>
     public required int DocumentsValidated { get; init; }
@@ -51,7 +51,7 @@ internal sealed record PipelineRunRow
         Nature = RunTypeLabel(dto.RunType),
         Trigger = TriggerLabel(dto.Trigger),
         Duration = FormatDuration(dto.StartedAt, dto.CompletedAt),
-        DocumentsReceived = dto.DocumentsProcessed,
+        DocumentsProcessed = dto.DocumentsProcessed,
         DocumentsValidated = dto.DocumentsSucceeded,
         DocumentsFailed = dto.DocumentsFailed,
         Detail = string.IsNullOrWhiteSpace(dto.Detail) ? "—" : dto.Detail,

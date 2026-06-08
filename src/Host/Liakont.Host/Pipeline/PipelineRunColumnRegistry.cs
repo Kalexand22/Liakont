@@ -23,7 +23,7 @@ internal sealed class PipelineRunColumnRegistry : ColumnRegistryBase<PipelineRun
         Column(nameof(PipelineRunRow.Nature), "Nature", SourceTable, ColumnDataType.Text, defaultVisible: true, sortOrder: 1);
         Column(nameof(PipelineRunRow.Trigger), "Déclencheur", SourceTable, ColumnDataType.Text, defaultVisible: true, sortOrder: 2);
         Column(nameof(PipelineRunRow.Duration), "Durée", SourceTable, ColumnDataType.Text, defaultVisible: true, sortOrder: 3);
-        Column(nameof(PipelineRunRow.DocumentsReceived), "Reçus", SourceTable, ColumnDataType.Number, defaultVisible: true, sortOrder: 4);
+        Column(nameof(PipelineRunRow.DocumentsProcessed), "Traités", SourceTable, ColumnDataType.Number, defaultVisible: true, sortOrder: 4);
         Column(nameof(PipelineRunRow.DocumentsValidated), "Validés", SourceTable, ColumnDataType.Number, defaultVisible: true, sortOrder: 5);
         Column(nameof(PipelineRunRow.DocumentsFailed), "En échec", SourceTable, ColumnDataType.Number, defaultVisible: true, sortOrder: 6);
         Column(nameof(PipelineRunRow.Detail), "Détail", SourceTable, ColumnDataType.Text, defaultVisible: false, sortOrder: 7);

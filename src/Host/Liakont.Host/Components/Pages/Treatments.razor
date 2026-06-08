@@ -7,6 +7,7 @@
 @using Stratum.Common.Abstractions.Grid
 @using Stratum.Common.UI.Models
 @inject IPipelineRunQueries RunQueries
+@inject NavigationManager Nav
 
 <PageTitle>Traitements — Liakont</PageTitle>
 
@@ -14,13 +15,14 @@
 
 <p data-testid="traitements-bound">Les 200 dernières exécutions du tenant (les plus récentes en tête).</p>
 
-@* WEB04a n'a pas de fiche de détail d'exécution : DeclaredListPage exige un DetailUrl, on reste
-   donc sur le journal (clic de ligne neutre, pas de navigation morte vers une fiche inexistante). *@
+@* WEB04a n'a pas de fiche de détail d'exécution. DeclaredListPage exige un DetailUrl ; on renvoie
+   l'URI COURANTE (Nav.Uri) pour que l'activation d'une ligne soit réellement sans effet : navigation
+   vers une URI identique (filtre/recherche préservés, aucune entrée d'historique ajoutée). *@
 <DeclaredListPage TItem="PipelineRunRow"
                   Title="Traitements"
                   TestId="traitements"
                   LoadItems="@LoadRunsAsync"
-                  DetailUrl="@(_ => "/traitements")"
+                  DetailUrl="@(_ => Nav.Uri)"
                   ColumnRegistry="@_registry"
                   ColumnTemplates="@_columnTemplates"
                   GridKey="Liakont.PipelineRuns"
