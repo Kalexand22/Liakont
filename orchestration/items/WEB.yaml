@@ -264,7 +264,7 @@ items:
       - "Envoi sélection et tout-envoyer avec confirmation (récapitulatif affiché avant)"
       - "Traitement manuel déclenchable"
       - "Permissions respectées (boutons masqués en lecture seule)"
-      - "Tests bUnit + E2E Playwright (parcours d'envoi complet sur fixtures)"
+      - "Tests bUnit + E2E Playwright (parcours d'envoi complet sur fixtures) — E2E opérateur 7/7 : un rôle operateur NON super-admin voit et déclenche les actions d'envoi (la projection rôle→permission d'IDN01, dont WEB05 dépend, étant en place)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 

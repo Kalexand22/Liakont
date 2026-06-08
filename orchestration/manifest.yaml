@@ -61,7 +61,14 @@ meta:
   #   OPS06 (3 sous-systèmes) → OPS06a (export tenant) / OPS06b (migration instance) / OPS06c (fin de vie D7) ;
   #   OPS08 (installeur WinForms) → OPS08a (projet+moteur profil) / OPS08b (wizard GUI) / OPS08c (packaging multi-profils).
   #   Recâblage : OPS02→OPS01a ; DOC01→[OPS01a,OPS05] ; GATE_TOOLKIT → {OPS01c, OPS06b, OPS06c, OPS08c} (+ OPS03/04/07/BRD/DOC inchangés).
-  version: 16
+  # version 17 = nouvel item IDN01 (lot IDN, segment console-web) : pont rôle→permission sous OIDC
+  #   (ADR-0017). Trou structurel révélé par le blocage de WEB05 (E2E opérateur : éléments
+  #   permission-gated masqués car AUCUN claim "permission" n'est posé sous OIDC ; les E2E
+  #   antérieurs passaient en super-admin, qui court-circuite la garde). IDN01 projette les rôles
+  #   realm Keycloak → claims "permission" depuis la matrice §3 de identity-permissions-liakont.md
+  #   (aucune règle inventée). Recâblage : WEB05 +IDN01 (déblocage réel) ; GATE_CONSOLE_WEB +IDN01
+  #   (le segment n'est pas « done » tant que le permission-gating ne marche pas sous OIDC).
+  version: 17
   host: multi_agent_v1
 
 segments:
@@ -123,7 +130,7 @@ segments:
   console-web:
     branch: feat/console-web
     base: main
-    lots: [API, WEB, SUP]
+    lots: [API, WEB, SUP, IDN]
     gate: GATE_CONSOLE_WEB
     depends_on_gate: [GATE_PIPELINE, GATE_AGENT]
 
@@ -261,6 +268,9 @@ items:
   - { id: API04, lot: API, priority: 6530, depends_on: [API01a, API01c] }
   - { id: API05, lot: API, priority: 6540, depends_on: [API01a] }
 
+  # ── IDN ──
+  - { id: IDN01, lot: IDN, priority: 6506, depends_on: [API01a] }
+
   # ── WEB ──
   - { id: WEB01, lot: WEB, blueprint: blazor-page-item, priority: 6600, depends_on: [API01a, API01c] }
   - { id: WEB02, lot: WEB, blueprint: blazor-page-item, priority: 6610, depends_on: [WEB01] }
@@ -269,7 +279,7 @@ items:
   - { id: WEB03c, lot: WEB, blueprint: blazor-page-item, priority: 6624, depends_on: [WEB03a, API02c] }
   - { id: WEB04a, lot: WEB, blueprint: blazor-page-item, priority: 6630, depends_on: [WEB01, API01b] }
   - { id: WEB04b, lot: WEB, blueprint: blazor-page-item, priority: 6632, depends_on: [WEB01, API01c, API03] }
-  - { id: WEB05, lot: WEB, blueprint: blazor-page-item, priority: 6640, depends_on: [WEB02, API02a] }
+  - { id: WEB05, lot: WEB, blueprint: blazor-page-item, priority: 6640, depends_on: [WEB02, API02a, IDN01] }
   - { id: WEB06, lot: WEB, blueprint: blazor-page-item, priority: 6650, depends_on: [WEB02, API01b] }
   - { id: WEB07a, lot: WEB, blueprint: blazor-page-item, priority: 6660, depends_on: [WEB04b, API04] }
   - { id: WEB07b, lot: WEB, blueprint: blazor-page-item, priority: 6662, depends_on: [WEB07a] }
@@ -283,7 +293,7 @@ items:
   - { id: SUP01c, lot: SUP, priority: 6704, depends_on: [SUP01b] }
   - { id: SUP02, lot: SUP, blueprint: blazor-page-item, priority: 6710, depends_on: [SUP01a, WEB01] }
   - { id: SUP03, lot: SUP, priority: 6720, depends_on: [SUP01b] }
-  - { id: GATE_CONSOLE_WEB, type: gate, executor: human, priority: 6900, depends_on: [WEB03b, WEB03c, WEB04a, WEB05, WEB06, WEB07b, WEB08, WEB09, SUP02, SUP03, API03] }
+  - { id: GATE_CONSOLE_WEB, type: gate, executor: human, priority: 6900, depends_on: [IDN01, WEB03b, WEB03c, WEB04a, WEB05, WEB06, WEB07b, WEB08, WEB09, SUP02, SUP03, API03] }
 
   # ── OPS ──
   # Ordre : OPS05 (packaging agent) précède OPS03 (assistant tenant, qui fournit le package
