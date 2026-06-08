@@ -387,6 +387,10 @@ public static class AppBootstrap
         // et déclenche la vérification d'intégrité du coffre (API03). Isole l'assemblage hors de la page.
         builder.Services.AddScoped<Liakont.Host.Parametrage.IParametrageQueries, Liakont.Host.Parametrage.ParametrageQueryService>();
 
+        // Composition de la page « Paramétrage comptable — Table TVA » (WEB07a) : lecture de la table +
+        // journal (API04) et validation humaine (commande TVA05). Isole l'assemblage hors de la page.
+        builder.Services.AddScoped<Liakont.Host.TvaMappingTable.ITvaMappingTableQueries, Liakont.Host.TvaMappingTable.TvaMappingTableQueryService>();
+
         // Pré-chargement déterministe de l'état de console à l'ouverture du circuit (avant rendu de la nav).
         builder.Services.AddScoped<Liakont.Host.Navigation.LiakontConsoleCircuitHandler>();
         builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler>(

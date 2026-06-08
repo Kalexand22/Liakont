@@ -1,0 +1,282 @@
+@namespace Liakont.Host.Components
+@using System.Globalization
+@using System.Collections.Generic
+@using Liakont.Host.TvaMappingTable
+@using Liakont.Modules.TvaMapping.Contracts.DTOs
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* TableTvaView — rendu PUR de la page « Paramétrage comptable — Table TVA » (WEB07a). Reçoit son
+ * modèle et l'état de la validation en paramètres (aucune injection métier, aucune logique fiscale)
+ * pour être testable en bUnit sans auth ni base. Table des règles = gabarit DeclaredListPage (AUCUNE
+ * grille « maison ») ; état de validation + bandeau NON VALIDÉE + changelog en composition Stratum
+ * (SectionCard, StatusBadge, CategoryBadge). 100 % français. *@
+
+<div class="liakont-tva-table" data-testid="liakont-tva-table">
+
+    <SectionCard Title="État de validation" TestId="table-tva-validation">
+        @if (Model.Table is { } table)
+        {
+            @if (table.IsValidated)
+            {
+                <div class="liakont-tva-table__validated" data-testid="table-tva-validated">
+                    <StatusBadge Label="Validée" Severity="Severity.Success" />
+                    @if (!string.IsNullOrWhiteSpace(table.ValidatedBy))
+                    {
+                        <span class="liakont-tva-table__meta">
+                            Validée par @table.ValidatedBy@(table.ValidatedDate is { } date ? $" le {date.ToString("dd/MM/yyyy", Fr)}" : string.Empty)
+                        </span>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="liakont-tva-table__alert" role="alert" data-testid="table-tva-not-validated">
+                    <StatusBadge Label="NON VALIDÉE" Severity="Severity.Error" />
+                    <span>Les envois sont suspendus jusqu'à validation par l'expert-comptable.</span>
+                </div>
+
+                @if (CanValidate)
+                {
+                    @if (!ConfirmOpen)
+                    {
+                        <StratumButton Text="Marquer comme validée"
+                                       Variant="ButtonVariant.Primary"
+                                       Size="ButtonSize.Small"
+                                       OnClick="@(_ => OnOpenConfirm.InvokeAsync())"
+                                       TestId="table-tva-validate-btn" />
+                    }
+                    else
+                    {
+                        <div class="liakont-tva-table__confirm" data-testid="table-tva-confirm">
+                            <p class="liakont-tva-table__confirm-text">
+                                La validation de la table de mapping TVA engage votre responsabilité et lève la
+                                suspension des envois. Elle sera enregistrée à votre nom :
+                                <strong data-testid="table-tva-confirm-operator">@Model.CurrentOperatorName</strong>.
+                                Pour confirmer, ressaisissez votre nom de validateur ci-dessous.
+                            </p>
+                            <label class="liakont-tva-table__confirm-label" for="table-tva-validator-input">Nom du validateur</label>
+                            <input id="table-tva-validator-input"
+                                   class="liakont-tva-table__confirm-input"
+                                   type="text"
+                                   value="@_validatorInput"
+                                   @oninput="OnValidatorInputChanged"
+                                   disabled="@Validating"
+                                   data-testid="table-tva-validator-input" />
+
+                            @if (!string.IsNullOrWhiteSpace(ValidateError))
+                            {
+                                <div class="liakont-tva-table__alert" role="alert" data-testid="table-tva-validate-error">
+                                    @ValidateError
+                                </div>
+                            }
+
+                            <div class="liakont-tva-table__confirm-actions">
+                                <StratumButton Text="@(Validating ? "Validation en cours…" : "Confirmer la validation")"
+                                               Variant="ButtonVariant.Primary"
+                                               Size="ButtonSize.Small"
+                                               Disabled="@(!CanConfirm)"
+                                               OnClick="@(_ => OnConfirmValidate.InvokeAsync())"
+                                               TestId="table-tva-confirm-btn" />
+                                <StratumButton Text="Annuler"
+                                               Variant="ButtonVariant.Secondary"
+                                               Outline
+                                               Size="ButtonSize.Small"
+                                               Disabled="@Validating"
+                                               OnClick="@(_ => OnCancelConfirm.InvokeAsync())"
+                                               TestId="table-tva-cancel-btn" />
+                            </div>
+                        </div>
+                    }
+                }
+            }
+        }
+        else
+        {
+            <p data-testid="table-tva-none">Aucune table TVA paramétrée.</p>
+        }
+    </SectionCard>
+
+    @if (Model.Table is { } rulesTable)
+    {
+        <SectionCard Title="Table de mapping TVA" TestId="table-tva-rules">
+            <p class="liakont-tva-table__meta" data-testid="table-tva-version">
+                Version @rulesTable.MappingVersion — comportement par défaut : @DescribeDefault(rulesTable.DefaultBehavior)
+            </p>
+
+            @* Gabarit DeclaredListPage : aucune grille « maison ». Lecture seule à ce stade (l'édition
+               des règles, listes fermées + couverture, est livrée par WEB07b). *@
+            <DeclaredListPage TItem="MappingRuleDto"
+                              Title="Table de mapping TVA"
+                              TestId="table-tva-grid"
+                              ShowHeader="false"
+                              LoadItems="LoadRulesAsync"
+                              DetailUrl="@(_ => RulesPageUrl)"
+                              ColumnRegistry="_registry"
+                              ColumnTemplates="_columnTemplates"
+                              GridKey="Liakont.TvaMapping"
+                              AriaLabel="Table de mapping TVA"
+                              DefaultSortColumn="SourceRegimeCode"
+                              DefaultSortDirection="SortDirection.Ascending"
+                              SearchPlaceholder="Rechercher un régime, une catégorie… (raccourci : /)"
+                              AllowExport="true"
+                              ExportFormats="@(ExportFormat.Csv | ExportFormat.Excel | ExportFormat.Pdf)"
+                              ExportFileName="table-tva">
+                <EmptyContent>
+                    <p data-testid="table-tva-empty">Aucune règle de mapping dans cette table.</p>
+                </EmptyContent>
+            </DeclaredListPage>
+        </SectionCard>
+    }
+
+    <SectionCard Title="Historique des modifications" TestId="table-tva-changelog">
+        @if (Model.ChangeLog.Count == 0)
+        {
+            <p data-testid="table-tva-changelog-none">Aucune modification enregistrée.</p>
+        }
+        else
+        {
+            <ul class="liakont-tva-table__changelog">
+                @foreach (var entry in Model.ChangeLog)
+                {
+                    <li class="liakont-tva-table__changelog-entry" data-testid="table-tva-changelog-entry">
+                        <span class="liakont-tva-table__changelog-when">@entry.OccurredAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr)</span>
+                        <span class="liakont-tva-table__changelog-what">@DescribeChange(entry)</span>
+                        <span class="liakont-tva-table__changelog-who">par @(string.IsNullOrWhiteSpace(entry.OperatorName) ? entry.OperatorId.ToString() : entry.OperatorName)</span>
+                    </li>
+                }
+            </ul>
+        }
+    </SectionCard>
+
+</div>
+
+@code {
+    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+
+    /// <summary>Route de la page table TVA — DetailUrl no-op (l'activation de ligne reste sur la page ;
+    /// l'édition par règle est livrée par WEB07b).</summary>
+    private const string RulesPageUrl = "/parametrage/table-tva";
+
+    private readonly TvaMappingRuleColumnRegistry _registry = new();
+    private readonly Dictionary<string, RenderFragment<MappingRuleDto>> _columnTemplates;
+
+    /// <summary>Saisie locale du nom de validateur (garde de confirmation « ressaisir son nom »).</summary>
+    private string _validatorInput = string.Empty;
+
+    /// <summary>Données assemblées de la page (jamais <c>null</c> : la page en fournit toujours un).</summary>
+    [Parameter, EditorRequired]
+    public TvaMappingTableViewModel Model { get; set; } = null!;
+
+    /// <summary><c>true</c> si l'opérateur détient <c>liakont.settings</c> (peut valider la table).</summary>
+    [Parameter]
+    public bool CanValidate { get; set; }
+
+    /// <summary><c>true</c> quand le dialogue de confirmation de validation est ouvert.</summary>
+    [Parameter]
+    public bool ConfirmOpen { get; set; }
+
+    /// <summary><c>true</c> pendant l'envoi de la validation (boutons et saisie désactivés).</summary>
+    [Parameter]
+    public bool Validating { get; set; }
+
+    /// <summary>Message d'erreur de la validation (échec de l'appel), ou <c>null</c>.</summary>
+    [Parameter]
+    public string? ValidateError { get; set; }
+
+    /// <summary>Déclenché quand l'opérateur demande l'ouverture du dialogue de confirmation.</summary>
+    [Parameter]
+    public EventCallback OnOpenConfirm { get; set; }
+
+    /// <summary>Déclenché quand l'opérateur annule la confirmation.</summary>
+    [Parameter]
+    public EventCallback OnCancelConfirm { get; set; }
+
+    /// <summary>Déclenché quand l'opérateur confirme la validation (nom de validateur ressaisi).</summary>
+    [Parameter]
+    public EventCallback OnConfirmValidate { get; set; }
+
+    public TableTvaView()
+    {
+        _columnTemplates = new Dictionary<string, RenderFragment<MappingRuleDto>>
+        {
+            ["Category"] = rule => __builder =>
+            {
+                __builder.OpenComponent<CategoryBadge>(0);
+                __builder.AddAttribute(1, "Label", rule.Category);
+                __builder.CloseComponent();
+            },
+            ["RateValue"] = rule => __builder =>
+            {
+                __builder.AddContent(0, FormatRate(rule));
+            },
+            ["Vatex"] = rule => __builder =>
+            {
+                __builder.AddContent(0, string.IsNullOrWhiteSpace(rule.Vatex) ? "—" : rule.Vatex);
+            },
+            ["Label"] = rule => __builder =>
+            {
+                __builder.AddContent(0, string.IsNullOrWhiteSpace(rule.Label) ? "—" : rule.Label);
+            },
+        };
+    }
+
+    protected override void OnParametersSet()
+    {
+        // Le dialogue fermé (annulation OU succès) repart d'une saisie vierge.
+        if (!ConfirmOpen)
+        {
+            _validatorInput = string.Empty;
+        }
+    }
+
+    /// <summary>La confirmation n'est possible qu'après ressaisie exacte du nom de l'opérateur (un
+    /// opérateur ne valide qu'en son propre nom) et hors envoi en cours.</summary>
+    private bool CanConfirm =>
+        !Validating
+        && !string.IsNullOrWhiteSpace(Model.CurrentOperatorName)
+        && string.Equals(_validatorInput.Trim(), Model.CurrentOperatorName.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    private void OnValidatorInputChanged(ChangeEventArgs e) => _validatorInput = e.Value as string ?? string.Empty;
+
+    private Task<IReadOnlyList<MappingRuleDto>> LoadRulesAsync() =>
+        Task.FromResult(Model.Table?.Rules ?? (IReadOnlyList<MappingRuleDto>)Array.Empty<MappingRuleDto>());
+
+    private static string FormatRate(MappingRuleDto rule)
+    {
+        // Mode « calculé depuis la source » : pas de taux fixe à afficher (jamais une valeur devinée).
+        if (string.Equals(rule.RateMode, "ComputedFromSource", StringComparison.Ordinal))
+        {
+            return "Calculé (source)";
+        }
+
+        return rule.RateValue is { } rate ? string.Format(Fr, "{0:0.##} %", rate) : "—";
+    }
+
+    private static string DescribeDefault(string defaultBehavior) =>
+        string.Equals(defaultBehavior, "Block", StringComparison.Ordinal)
+            ? "blocage (régime non mappé)"
+            : defaultBehavior;
+
+    private static string DescribeChange(MappingChangeLogEntryDto entry)
+    {
+        var what = entry.ChangeType switch
+        {
+            "AddRule" => "Règle ajoutée",
+            "UpdateRule" => "Règle modifiée",
+            "RemoveRule" => "Règle supprimée",
+            "Validate" => "Table validée",
+            _ => entry.ChangeType,
+        };
+
+        if (!string.IsNullOrWhiteSpace(entry.SourceRegimeCode))
+        {
+            what += string.IsNullOrWhiteSpace(entry.Part)
+                ? $" — régime {entry.SourceRegimeCode}"
+                : $" — régime {entry.SourceRegimeCode} ({entry.Part})";
+        }
+
+        return what;
+    }
+}
