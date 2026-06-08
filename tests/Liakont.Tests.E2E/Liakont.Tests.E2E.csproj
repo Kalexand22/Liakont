@@ -15,6 +15,9 @@
     <PackageReference Include="FluentAssertions" />
     <PackageReference Include="Testcontainers" />
     <PackageReference Include="Testcontainers.PostgreSql" />
+    <!-- Npgsql : déjà dépendance produit (Directory.Packages.props, géré centralement) ; ici uniquement pour
+         SEEDER un document de tenant dans la base de test avant la navigation E2E (pas une nouvelle dépendance). -->
+    <PackageReference Include="Npgsql" />
   </ItemGroup>
 
   <ItemGroup>

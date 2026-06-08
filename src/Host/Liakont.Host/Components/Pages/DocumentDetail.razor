@@ -1,0 +1,90 @@
+@page "/documents/{Id:guid}"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using Liakont.Host.Documents
+@using Stratum.Common.UI.Models
+@inject IDocumentDetailConsoleQueries DetailQueries
+@inject ILogger<DocumentDetail> Logger
+
+@* Page détail document (WEB03a, F10 §2.3). Page MINCE : elle charge le détail assemblé via le service
+ * IDocumentDetailConsoleQueries (aucun accès base direct, aucune logique métier) et délègue tout le rendu à
+ * la vue pure DocumentDetailView. Les actions contextuelles (envoyer/renvoyer/résoudre) arrivent en WEB03b/c. *@
+
+<PageTitle>Détail du document — Liakont</PageTitle>
+
+<div class="liakont-doc-detail-page">
+    <div class="liakont-doc-detail-page__head">
+        <StratumButton Text="Retour à la liste"
+                       Variant="ButtonVariant.Secondary"
+                       Outline
+                       Size="ButtonSize.Small"
+                       Href="/documents"
+                       TestId="document-detail-back" />
+    </div>
+
+    @if (_loadFailed)
+    {
+        <div class="liakont-doc-detail-page__alert" role="alert" data-testid="document-detail-error">
+            Impossible de charger ce document pour le moment. Réessayez plus tard.
+        </div>
+    }
+    else if (_notFound)
+    {
+        <div class="liakont-doc-detail-page__alert" role="alert" data-testid="document-detail-notfound">
+            Ce document est introuvable. Il a peut-être été remplacé, ou il n'appartient pas à ce tenant.
+        </div>
+    }
+    else if (_model is null)
+    {
+        <p data-testid="document-detail-loading">Chargement…</p>
+    }
+    else
+    {
+        <h1 data-testid="document-detail-title">Document @_model.Document.DocumentNumber</h1>
+        <DocumentDetailView Model="_model" />
+    }
+</div>
+
+@code {
+    /// <summary>Identifiant du document (segment de route). Charge le détail au changement d'identifiant.</summary>
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private Guid _loadedId;
+    private DocumentDetailViewModel? _model;
+    private bool _notFound;
+    private bool _loadFailed;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Charge une seule fois par identifiant distinct (un re-rendu sans changement d'Id ne recharge pas).
+        if (Id == _loadedId)
+        {
+            return;
+        }
+
+        _loadedId = Id;
+        _model = null;
+        _notFound = false;
+        _loadFailed = false;
+
+        try
+        {
+            var model = await DetailQueries.GetDetailAsync(Id);
+            if (model is null)
+            {
+                _notFound = true;
+            }
+            else
+            {
+                _model = model;
+            }
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the document detail page for document {DocumentId}.", Id);
+        }
+    }
+}
