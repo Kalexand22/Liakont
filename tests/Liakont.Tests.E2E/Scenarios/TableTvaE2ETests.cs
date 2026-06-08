@@ -67,4 +67,40 @@ public sealed class TableTvaE2ETests : KeycloakBaseE2ETest
         (await Page.Locator("[data-testid='table-tva-validation']").CountAsync())
             .Should().BeGreaterThan(0, "la section d'état de validation est rendue");
     }
+
+    /// <summary>
+    /// WEB07b : la page d'édition de la table TVA se charge de bout en bout pour un utilisateur de
+    /// paramétrage, y compris le nouveau chemin de chargement (listes fermées d'édition + couverture).
+    /// Le tenant E2E est vierge et l'utilisateur n'a pas de société rattachée (claim <c>company_id</c>
+    /// absent du realm) : la page rend donc son état vide explicite (« Aucune table TVA paramétrée ») sans
+    /// bandeau d'erreur — les contrôles d'édition n'apparaissent qu'avec une table. Le parcours détaillé
+    /// d'édition (listes fermées, création, invalidation, couverture « à compléter ») est couvert par les
+    /// tests bUnit (TvaRuleEditorTests / TableTvaViewTests / TableTvaTests), comme la validation (WEB07a).
+    /// </summary>
+    [Fact]
+    public async Task Parametrage_user_loads_the_tva_table_edit_page_without_error()
+    {
+        await LoginViaKeycloakAsync(ParametrageUsername, DefaultPassword);
+
+        var shell = GetShellPage();
+        await shell.WaitForShellAsync();
+
+        // Navigation directe vers la page d'édition de la table TVA (WEB07a/b).
+        await Page.GotoAsync($"{BaseUrl}/parametrage/table-tva");
+
+        var container = Page.Locator("[data-testid='liakont-tva-table']");
+        await container.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 30_000 });
+
+        // Le nouveau chemin de chargement (options d'édition + couverture) ne casse pas le rendu.
+        (await Page.Locator("[data-testid='table-tva-error']").CountAsync())
+            .Should().Be(0, "le chargement étendu (édition) reste sans erreur");
+
+        // Tenant vierge / sans société : état vide explicite, aucun contrôle d'édition (pas de table).
+        var empty = Page.Locator("[data-testid='table-tva-none']");
+        await empty.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 30_000 });
+        (await empty.IsVisibleAsync()).Should().BeTrue("sans table paramétrée, l'édition n'est pas proposée");
+
+        (await Page.Locator("[data-testid='table-tva-create-btn']").CountAsync())
+            .Should().Be(0, "aucun bouton de création tant qu'aucune table n'existe");
+    }
 }

@@ -4,6 +4,8 @@
 @using Liakont.Host.Components
 @using Liakont.Host.Security
 @using Liakont.Host.TvaMappingTable
+@using Liakont.Modules.TvaMapping.Contracts.DTOs
+@using Stratum.Common.Abstractions.Exceptions
 @using Stratum.Common.Abstractions.Security
 @inject ITvaMappingTableQueries TableQueries
 @inject IPermissionService Permissions
@@ -26,29 +28,60 @@ else if (_model is null)
 else
 {
     <TableTvaView Model="_model"
-                  CanValidate="_canValidate"
+                  CanValidate="_canSettings"
+                  CanEdit="_canSettings"
                   ConfirmOpen="_confirmOpen"
                   Validating="_validating"
                   ValidateError="@_validateError"
                   OnOpenConfirm="OpenConfirm"
                   OnCancelConfirm="CancelConfirm"
-                  OnConfirmValidate="ConfirmValidateAsync" />
+                  OnConfirmValidate="ConfirmValidateAsync"
+                  EditorOpen="_editorOpen"
+                  EditorIsCreate="_editorIsCreate"
+                  EditorModel="_editorModel"
+                  EditorBusy="_editorBusy"
+                  EditorError="@_editorError"
+                  OnCreateRule="OpenCreate"
+                  OnCreateRuleForRegime="OpenCreateForRegime"
+                  OnEditRule="OpenEdit"
+                  OnSubmitEditor="SubmitEditorAsync"
+                  OnCancelEditor="CancelEditor"
+                  DeleteTarget="_deleteTarget"
+                  DeleteBusy="_deleteBusy"
+                  DeleteError="@_deleteError"
+                  OnRequestDelete="RequestDelete"
+                  OnConfirmDelete="ConfirmDeleteAsync"
+                  OnCancelDelete="CancelDelete" />
 }
 
 @code {
     private TvaMappingTableViewModel? _model;
     private bool _loadFailed;
-    private bool _canValidate;
+
+    /// <summary>Permission de paramétrage fiscal : conditionne la validation ET l'édition de la table.</summary>
+    private bool _canSettings;
 
     private bool _confirmOpen;
     private bool _validating;
     private string? _validateError;
 
+    // ── État de l'éditeur de règle (WEB07b) ──────────────────────
+    private bool _editorOpen;
+    private bool _editorIsCreate;
+    private TvaRuleFormModel? _editorModel;
+    private bool _editorBusy;
+    private string? _editorError;
+
+    // ── État de la suppression de règle (WEB07b) ─────────────────
+    private MappingRuleDto? _deleteTarget;
+    private bool _deleteBusy;
+    private string? _deleteError;
+
     protected override async Task OnInitializedAsync()
     {
-        // Permission de paramétrage fiscal : le bouton de validation n'est proposé qu'aux porteurs de
-        // liakont.settings (l'application réelle reste serveur — endpoint + handler MediatR).
-        _canValidate = Permissions.HasPermission(LiakontPermissions.Settings);
+        // Permission de paramétrage fiscal : validation et édition ne sont proposées qu'aux porteurs de
+        // liakont.settings (l'application réelle reste serveur — commandes + handlers MediatR).
+        _canSettings = Permissions.HasPermission(LiakontPermissions.Settings);
         await LoadAsync();
     }
 
@@ -102,5 +135,150 @@ else
         {
             _validating = false;
         }
+    }
+
+    // ── Édition de règle ──────────────────────────────────────────
+
+    private void OpenCreate()
+    {
+        _editorModel = new TvaRuleFormModel();
+        _editorIsCreate = true;
+        _editorError = null;
+        _editorOpen = true;
+    }
+
+    private void OpenCreateForRegime(RegimeCoverageDto regime)
+    {
+        // Pré-remplissage depuis un régime non mappé (code + libellé observés). La catégorie, la part et
+        // le taux restent à choisir par l'opérateur (aucune valeur fiscale devinée — CLAUDE.md n°2).
+        _editorModel = new TvaRuleFormModel
+        {
+            SourceRegimeCode = regime.Code,
+            Label = regime.Label,
+        };
+        _editorIsCreate = true;
+        _editorError = null;
+        _editorOpen = true;
+    }
+
+    private void OpenEdit(MappingRuleDto rule)
+    {
+        _editorModel = new TvaRuleFormModel
+        {
+            SourceRegimeCode = rule.SourceRegimeCode,
+            Label = rule.Label,
+            Part = rule.Part,
+            SourceFlags = rule.SourceFlags,
+            Category = rule.Category,
+            Vatex = rule.Vatex,
+            Note = rule.Note,
+            RateMode = rule.RateMode,
+            RateValue = rule.RateValue,
+        };
+        _editorIsCreate = false;
+        _editorError = null;
+        _editorOpen = true;
+    }
+
+    private void CancelEditor()
+    {
+        _editorOpen = false;
+        _editorError = null;
+        _editorModel = null;
+    }
+
+    private async Task SubmitEditorAsync()
+    {
+        if (_editorModel is null)
+        {
+            return;
+        }
+
+        _editorBusy = true;
+        _editorError = null;
+
+        try
+        {
+            if (_editorIsCreate)
+            {
+                await TableQueries.AddRuleAsync(_editorModel);
+            }
+            else
+            {
+                await TableQueries.UpdateRuleAsync(_editorModel);
+            }
+
+            // Recharge : toute mutation repasse la table « NON VALIDÉE » (handler) — le bandeau réapparaît,
+            // la couverture et l'historique sont rafraîchis.
+            await LoadAsync();
+            _editorOpen = false;
+            _editorModel = null;
+        }
+        catch (Exception ex)
+        {
+            _editorError = MapMutationError(ex);
+        }
+        finally
+        {
+            _editorBusy = false;
+        }
+    }
+
+    // ── Suppression de règle ──────────────────────────────────────
+
+    private void RequestDelete(MappingRuleDto rule)
+    {
+        _deleteTarget = rule;
+        _deleteError = null;
+    }
+
+    private void CancelDelete()
+    {
+        _deleteTarget = null;
+        _deleteError = null;
+    }
+
+    private async Task ConfirmDeleteAsync()
+    {
+        if (_deleteTarget is null)
+        {
+            return;
+        }
+
+        _deleteBusy = true;
+        _deleteError = null;
+
+        try
+        {
+            await TableQueries.RemoveRuleAsync(_deleteTarget.SourceRegimeCode, _deleteTarget.Part);
+            await LoadAsync();
+            _deleteTarget = null;
+        }
+        catch (Exception ex)
+        {
+            _deleteError = MapMutationError(ex);
+        }
+        finally
+        {
+            _deleteBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Traduit une exception de mutation en message opérateur. Les erreurs métier ATTENDUES (validation
+    /// structurelle <see cref="DomainException"/>, règle introuvable <see cref="NotFoundException"/>,
+    /// valeur hors liste <see cref="ArgumentException"/>) portent déjà un message français avec l'action
+    /// corrective (CLAUDE.md n°12) — affiché tel quel. Toute autre erreur est générique + tracée (jamais
+    /// avalée en silence, jamais une stack technique exposée à l'opérateur).
+    /// </summary>
+    private string MapMutationError(Exception ex)
+    {
+        if (ex is DomainException or NotFoundException or ArgumentException)
+        {
+            return ex.Message;
+        }
+
+        Logger.LogError(ex, "TVA mapping rule mutation failed from the console.");
+        return "L'opération a échoué. Réessayez plus tard.";
     }
 }

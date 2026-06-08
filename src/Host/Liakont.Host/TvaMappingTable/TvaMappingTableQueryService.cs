@@ -11,14 +11,15 @@ using MediatR;
 using Stratum.Common.Abstractions.Security;
 
 /// <summary>
-/// Implémentation de <see cref="ITvaMappingTableQueries"/> pour la page WEB07a. LECTURE via les
-/// contracts TVA (<see cref="ITvaMappingQueries"/>) scopée par le tenant courant ; VALIDATION via la
-/// commande MediatR TVA05 (<see cref="ValidateMappingTableCommand"/>) — aucune règle fiscale ni logique
-/// métier ici (catégorie, VATEX, taux, invalidation, journal : du ressort des handlers, CLAUDE.md
-/// n°2/3/4/19). La société est résolue depuis l'identité authentifiée (<c>IActorContext.CompanyId</c>) —
-/// la MÊME source que la commande de validation (via <c>ICompanyFilter</c>), pour que lecture et écriture
-/// portent toujours sur la même table (CLAUDE.md n°9). Le valideur enregistré est l'identité authentifiée
-/// de l'opérateur (CLAUDE.md n°12), jamais une valeur fournie par l'UI.
+/// Implémentation de <see cref="ITvaMappingTableQueries"/> pour la page WEB07a (lecture) + WEB07b
+/// (édition). LECTURE via les contracts TVA (<see cref="ITvaMappingQueries"/>) + couverture (TVA03) +
+/// listes fermées (TVA05) scopées par le tenant courant ; MUTATIONS via les commandes MediatR TVA05
+/// (validation, ajout, modification, suppression) — aucune règle fiscale ni logique métier ici
+/// (catégorie, VATEX, taux, invalidation, journal : du ressort des handlers, CLAUDE.md n°2/3/4/19). La
+/// société est résolue depuis l'identité authentifiée (<c>IActorContext.CompanyId</c>) — la MÊME source
+/// que les commandes (via <c>ICompanyFilter</c>), pour que lecture et écriture portent toujours sur la
+/// même table (CLAUDE.md n°9). Le valideur enregistré est l'identité authentifiée de l'opérateur
+/// (CLAUDE.md n°12), jamais une valeur fournie par l'UI.
 /// </summary>
 internal sealed class TvaMappingTableQueryService : ITvaMappingTableQueries
 {
@@ -38,10 +39,14 @@ internal sealed class TvaMappingTableQueryService : ITvaMappingTableQueries
 
     public async Task<TvaMappingTableViewModel> GetTableAsync(CancellationToken cancellationToken = default)
     {
-        // Société du contexte authentifié (même source que la commande de validation, via ICompanyFilter →
+        // Listes fermées d'édition : vocabulaire STATIQUE (sans tenant) — toujours disponible, même
+        // quand aucune société n'est encore résolue (la page ne propose alors aucune édition de toute façon).
+        var editOptions = await _sender.Send(new GetTvaMappingEditOptionsQuery(), cancellationToken).ConfigureAwait(false);
+
+        // Société du contexte authentifié (même source que les commandes, via ICompanyFilter →
         // IActorContext.CompanyId) — lecture et écriture portent ainsi sur la même table (CLAUDE.md n°9).
-        // Société non résolue (profil tenant pas encore créé — CFG02) : vue vide (transitoire), jamais une
-        // erreur — même contrat que la page Paramétrage (WEB04b).
+        // Société non résolue (profil tenant pas encore créé — CFG02) : vue vide (transitoire), jamais
+        // une erreur — même contrat que la page Paramétrage (WEB04b).
         var companyId = _actorContext.Current.CompanyId;
         if (companyId is null)
         {
@@ -50,17 +55,26 @@ internal sealed class TvaMappingTableQueryService : ITvaMappingTableQueries
                 Table = null,
                 ChangeLog = Array.Empty<MappingChangeLogEntryDto>(),
                 CurrentOperatorName = ResolveOperatorIdentity(),
+                Coverage = null,
+                EditOptions = editOptions,
             };
         }
 
         var table = await _queries.GetMappingTable(companyId.Value, cancellationToken).ConfigureAwait(false);
         var changeLog = await _queries.GetChangeLog(companyId.Value, cancellationToken).ConfigureAwait(false);
 
+        // Rapport de couverture (TVA03) : régimes source observés non mappés « à compléter ». Recalculé
+        // à la demande (toujours à jour après push d'agent et après chaque mutation de table). Tenant
+        // résolu par le handler (CLAUDE.md n°9) — il porte sur la même société que la table ci-dessus.
+        var coverage = await _sender.Send(new GetMappingCoverageReportQuery(), cancellationToken).ConfigureAwait(false);
+
         return new TvaMappingTableViewModel
         {
             Table = table,
             ChangeLog = changeLog,
             CurrentOperatorName = ResolveOperatorIdentity(),
+            Coverage = coverage,
+            EditOptions = editOptions,
         };
     }
 
@@ -70,6 +84,58 @@ internal sealed class TvaMappingTableQueryService : ITvaMappingTableQueries
         // opérateur ne peut pas signer la validation au nom d'un autre — parité avec l'endpoint API04).
         var validatedBy = ResolveOperatorIdentity();
         return _sender.Send(new ValidateMappingTableCommand { ValidatedBy = validatedBy }, cancellationToken);
+    }
+
+    public Task AddRuleAsync(TvaRuleFormModel model, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+
+        // Pass-through pur vers la commande TVA05 : aucune validation fiscale ici (le handler valide la
+        // catégorie, le VATEX, le taux et l'absence de doublon, et invalide + journalise atomiquement).
+        var command = new AddMappingRuleCommand
+        {
+            SourceRegimeCode = model.SourceRegimeCode,
+            Label = model.Label,
+            Part = model.Part,
+            SourceFlags = model.SourceFlags,
+            Category = model.Category,
+            Vatex = model.Vatex,
+            Note = model.Note,
+            RateMode = model.RateMode,
+            RateValue = model.RateValue,
+        };
+
+        return _sender.Send(command, cancellationToken);
+    }
+
+    public Task UpdateRuleAsync(TvaRuleFormModel model, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+
+        // Le couple (code régime, part) identifie la règle et reste inchangé (pour changer la clé :
+        // supprimer puis ajouter). Les flags source existants sont préservés tels quels (l'édition de
+        // flags n'est pas offerte en console V1) — jamais effacés silencieusement.
+        var command = new UpdateMappingRuleCommand
+        {
+            SourceRegimeCode = model.SourceRegimeCode,
+            Part = model.Part,
+            Label = model.Label,
+            SourceFlags = model.SourceFlags,
+            Category = model.Category,
+            Vatex = model.Vatex,
+            Note = model.Note,
+            RateMode = model.RateMode,
+            RateValue = model.RateValue,
+        };
+
+        return _sender.Send(command, cancellationToken);
+    }
+
+    public Task RemoveRuleAsync(string sourceRegimeCode, string part, CancellationToken cancellationToken = default)
+    {
+        return _sender.Send(
+            new RemoveMappingRuleCommand { SourceRegimeCode = sourceRegimeCode, Part = part },
+            cancellationToken);
     }
 
     /// <summary>
