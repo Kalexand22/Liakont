@@ -408,6 +408,11 @@ public static class AppBootstrap
         // GET /payments) et l'état du paramétrage pertinent (capacité PA, complétude fiscale — GET /settings).
         builder.Services.AddScoped<Liakont.Host.Payments.IEncaissementsConsoleQueries, Liakont.Host.Payments.EncaissementsConsoleQueryService>();
 
+        // Composition de la page Réconciliation des PDF (WEB08) : lecture des trois files (TRK07/API04) et
+        // actions opérateur (confirmer / rejeter / lier), appelées in-process par la page (tenant-scopé,
+        // garde liakont.actions). Isole l'accès au module hors de la page.
+        builder.Services.AddScoped<Liakont.Host.Reconciliation.IReconciliationConsoleService, Liakont.Host.Reconciliation.ReconciliationConsoleService>();
+
         // Pré-chargement déterministe de l'état de console à l'ouverture du circuit (avant rendu de la nav).
         builder.Services.AddScoped<Liakont.Host.Navigation.LiakontConsoleCircuitHandler>();
         builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler>(
