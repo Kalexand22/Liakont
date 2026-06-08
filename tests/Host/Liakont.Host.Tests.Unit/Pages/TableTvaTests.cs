@@ -100,23 +100,53 @@ public sealed class TableTvaTests : BunitContext
         fake.ValidateCalls.Should().Be(1);
     }
 
+    [Fact]
+    public void Validation_failure_keeps_the_dialog_open_and_the_table_not_validated()
+    {
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(hasSettings: true));
+        Services.AddScoped<ITvaMappingTableQueries>(_ => FakeTableQueries.NotValidatedFailingValidate("Alice Martin"));
+
+        var cut = Render<TableTva>();
+
+        // Bouton de validation visible (table NON VALIDÉE).
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='table-tva-validate-btn']").Should().ContainSingle());
+
+        // Ouvre la confirmation, ressaisit le nom du validateur, confirme.
+        cut.Find("[data-testid='table-tva-validate-btn']").Click();
+        cut.Find("[data-testid='table-tva-validator-input']").Input("Alice Martin");
+        cut.Find("[data-testid='table-tva-confirm-btn']").Click();
+
+        // Après échec : le message d'erreur est affiché, le dialogue reste ouvert, la table reste NON VALIDÉE.
+        cut.WaitForAssertion(() =>
+        {
+            cut.FindAll("[data-testid='table-tva-validate-error']").Should().ContainSingle();
+            cut.FindAll("[data-testid='table-tva-confirm']").Should().ContainSingle();
+            cut.FindAll("[data-testid='table-tva-not-validated']").Should().ContainSingle();
+            cut.FindAll("[data-testid='table-tva-validated']").Should().BeEmpty();
+        });
+    }
+
     private sealed class FakeTableQueries : ITvaMappingTableQueries
     {
         private readonly bool _throwOnLoad;
+        private readonly bool _throwOnValidate;
         private readonly string _operator;
         private bool _validated;
 
-        private FakeTableQueries(bool throwOnLoad, string op)
+        private FakeTableQueries(bool throwOnLoad, bool throwOnValidate, string op)
         {
             _throwOnLoad = throwOnLoad;
+            _throwOnValidate = throwOnValidate;
             _operator = op;
         }
 
         public int ValidateCalls { get; private set; }
 
-        public static FakeTableQueries NotValidated(string op = "Alice Martin") => new(throwOnLoad: false, op);
+        public static FakeTableQueries NotValidated(string op = "Alice Martin") => new(throwOnLoad: false, throwOnValidate: false, op);
 
-        public static FakeTableQueries Throwing() => new(throwOnLoad: true, "Alice Martin");
+        public static FakeTableQueries Throwing() => new(throwOnLoad: true, throwOnValidate: false, "Alice Martin");
+
+        public static FakeTableQueries NotValidatedFailingValidate(string op = "Alice Martin") => new(throwOnLoad: false, throwOnValidate: true, op);
 
         public Task<TvaMappingTableViewModel> GetTableAsync(CancellationToken cancellationToken = default)
         {
@@ -130,6 +160,11 @@ public sealed class TableTvaTests : BunitContext
 
         public Task ValidateAsync(CancellationToken cancellationToken = default)
         {
+            if (_throwOnValidate)
+            {
+                throw new InvalidOperationException("Échec simulé de la validation.");
+            }
+
             ValidateCalls++;
             _validated = true;
             return Task.CompletedTask;

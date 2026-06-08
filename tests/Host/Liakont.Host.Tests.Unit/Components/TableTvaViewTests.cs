@@ -177,6 +177,25 @@ public sealed class TableTvaViewTests : BunitContext
         opened.Should().BeTrue();
     }
 
+    [Fact]
+    public void Validation_error_is_displayed_in_the_confirm_dialog()
+    {
+        const string ErrorMessage = "La validation a échoué. Réessayez plus tard.";
+
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable()))
+            .Add(v => v.CanValidate, true)
+            .Add(v => v.ConfirmOpen, true)
+            .Add(v => v.ValidateError, ErrorMessage));
+
+        // Le dialogue est toujours ouvert.
+        cut.FindAll("[data-testid='table-tva-confirm']").Should().ContainSingle();
+
+        // L'alerte d'erreur est présente et contient le message.
+        cut.FindAll("[data-testid='table-tva-validate-error']").Should().ContainSingle();
+        cut.Find("[data-testid='table-tva-validate-error']").TextContent.Should().Contain(ErrorMessage);
+    }
+
     private static TvaMappingTableViewModel ModelWith(
         MappingTableDto? table,
         IReadOnlyList<MappingChangeLogEntryDto>? changeLog = null) => new()
