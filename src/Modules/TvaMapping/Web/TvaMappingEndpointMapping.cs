@@ -108,11 +108,6 @@ public static class TvaMappingEndpointMapping
     }
 
     /// <summary>
-    /// Identité lisible de l'opérateur courant pour <c>validatedBy</c> : nom affiché, à défaut e-mail, à
-    /// défaut identifiant. Lève si aucune identité n'est résolue (ne devrait pas arriver sur un endpoint
-    /// authentifié) plutôt que d'enregistrer une validation anonyme.
-    /// </summary>
-    /// <summary>
     /// Société (tenant) du contexte courant. Même résolution que <c>ICompanyFilter.GetRequiredCompanyId</c>
     /// (la lecture et les commandes d'édition portent donc sur la même table). Lève si aucune société n'est
     /// résolue plutôt que de servir une table arbitraire.
@@ -124,6 +119,11 @@ public static class TvaMappingEndpointMapping
                 "Aucune société résolue dans le contexte courant : impossible de lire la table TVA du tenant (CLAUDE.md n°9).");
     }
 
+    /// <summary>
+    /// Identité lisible de l'opérateur courant pour <c>validatedBy</c> : nom affiché, à défaut e-mail, à
+    /// défaut identifiant. Lève si aucune identité n'est résolue (ne devrait pas arriver sur un endpoint
+    /// authentifié) plutôt que d'enregistrer une validation anonyme.
+    /// </summary>
     private static string ResolveOperatorIdentity(IActorContext actor)
     {
         if (!string.IsNullOrWhiteSpace(actor.DisplayName))

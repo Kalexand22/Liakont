@@ -159,21 +159,21 @@ public sealed class ReconciliationService : IReconciliationService, IReconciliat
         string tenant = RequireTenant();
 
         ReconciliationQueueEntry entry = await _queue.GetByIdAsync(queueEntryId, cancellationToken)
-            ?? throw new InvalidOperationException($"Entrée de réconciliation {queueEntryId} introuvable dans ce tenant.");
+            ?? throw new NotFoundException($"Entrée de réconciliation {queueEntryId} introuvable dans ce tenant.");
 
         // Sérialise la confirmation manuelle sous verrou advisory pour éviter un double effet si deux
         // requêtes concurrentes confirment le même PDF. Re-lecture de l'entrée sous verrou pour détecter
         // une course gagnée par une autre passe.
         await using IAsyncDisposable processingLock = await _queue.AcquireProcessingLockAsync(entry.PoolPdfId, cancellationToken);
         entry = await _queue.GetByIdAsync(queueEntryId, cancellationToken)
-            ?? throw new InvalidOperationException($"Entrée de réconciliation {queueEntryId} introuvable dans ce tenant.");
+            ?? throw new NotFoundException($"Entrée de réconciliation {queueEntryId} introuvable dans ce tenant.");
 
         DocumentDto document = await _documentQueries.GetByIdAsync(documentId, cancellationToken)
-            ?? throw new InvalidOperationException($"Document {documentId} introuvable : rapprochement manuel impossible.");
+            ?? throw new NotFoundException($"Document {documentId} introuvable : rapprochement manuel impossible.");
 
         if (!string.Equals(document.State, IssuedState, StringComparison.Ordinal))
         {
-            throw new InvalidOperationException(
+            throw new ConflictException(
                 $"Le document {document.DocumentNumber} n'est pas émis (état {document.State}) : seul un document émis peut recevoir un PDF réconcilié (TRK07).");
         }
 
@@ -181,7 +181,14 @@ public sealed class ReconciliationService : IReconciliationService, IReconciliat
 
         // Valide AVANT tout effet (lève si l'entrée est déjà rapprochée — course gagnée par une autre passe
         // sous verrou) ; la mutation n'est persistée qu'après l'addendum WORM et le fait d'audit.
-        entry.ConfirmManually(documentId, operatorIdentity, reason, _timeProvider.GetUtcNow());
+        try
+        {
+            entry.ConfirmManually(documentId, operatorIdentity, reason, _timeProvider.GetUtcNow());
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new ConflictException(ex.Message, ex);
+        }
 
         byte[] bytes = await ReadPoolPdfBytesAsync(tenant, entry.PoolPdfId, cancellationToken);
         await AddArchiveAddendumAsync(documentId, document.DocumentNumber, document.IssueDate, entry.FileName, bytes, cancellationToken);
