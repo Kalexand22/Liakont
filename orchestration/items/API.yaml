@@ -55,18 +55,59 @@ items:
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
+  # API01c re-découpé (2026-06-08, décision opérateur — après blocage : /settings exigeait d'exposer les
+  # capacités déclarées de l'AGENT/adaptateur (ProvidesUnlinkedDocumentPool) mais AUCUN read-model plateforme
+  # ne les persiste, et inventer un transport+persistance est interdit — CLAUDE.md n°2/n°3). Le CŒUR de
+  # /settings (constructible, sur le chemin critique) reste API01c ; l'exposition des capacités agent part
+  # en API01d (fast-follow GELÉ tant que le read-model capacités n'est pas sourcé).
   API01c:
     title: "Endpoint de lecture : Paramétrage du tenant"
     description: |
       Sur le harness HTTP d'API01a, ajouter la lecture du paramétrage (TenantSettings.Web) :
-      1. GET /api/v1/settings → paramétrage du tenant visible (secrets TOUJOURS masqués), table TVA
-         (version, validateur, état de validation), capacités du/des PA configurés, capacités de
-         l'agent/adaptateur (la console en a besoin pour afficher ou masquer l'écran Réconciliation).
+      1. GET /api/v1/settings → paramétrage du tenant visible (secrets TOUJOURS masqués : seul HasApiKey,
+         jamais la clé), table TVA (version, validateur, état de validation), capacités du/des PA configurés
+         (PaCapabilities via IPaClientRegistry).
       2. RÉUTILISE le harness d'API01a — ne rien redupliquer.
-      3. Tests d'intégration : endpoint, secrets masqués, isolation tenant, capacités exposées.
+      3. Tests d'intégration : endpoint, secrets masqués, isolation tenant, capacités PA exposées.
+      NB : l'exposition des capacités de l'AGENT/adaptateur (ProvidesUnlinkedDocumentPool, qui pilote la
+      visibilité de l'écran Réconciliation côté console) est RETIRÉE de cet item et reportée à API01d :
+      elle exige un read-model plateforme des capacités agent qui n'existe pas encore (ne rien inventer —
+      CLAUDE.md n°2/n°3). API01c n'expose donc PAS de capacité agent/adaptateur.
     acceptance:
-      - "GET /settings opérationnel sur le harness API01a, secrets TOUJOURS masqués"
-      - "Table TVA (état de validation) et capacités PA + agent/adaptateur exposées"
+      - "GET /settings opérationnel sur le harness API01a, secrets TOUJOURS masqués (seul HasApiKey exposé)"
+      - "Table TVA (état de validation) et capacités PA exposées"
+      - "Aucune capacité agent/adaptateur exposée ici (reportée à API01d)"
+      - "Permission liakont.read appliquée, isolation tenant vérifiée par test"
+      - "Tests d'intégration in-process"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  API01d:
+    title: "Endpoint /settings : exposition des capacités agent/adaptateur (FAST-FOLLOW, GELÉ)"
+    description: |
+      FAST-FOLLOW d'API01c, HORS chemin critique. Marqué `blocked` dans state.yaml : un-block = un read-model
+      plateforme des capacités déclarées de l'agent, SOURCÉ — qui n'existe pas aujourd'hui. NE PAS réclamer ni
+      coder tant que ce read-model n'est pas spécifié sur source (CLAUDE.md n°2 — ne rien inventer ; n°3 —
+      bloquer plutôt qu'exposer du faux). Même motif que PIP03b : capacité amont manquante.
+      OBJET une fois débloqué :
+      1. GET /api/v1/settings → ajouter les capacités déclarées de l'agent/adaptateur du tenant (au moins
+         ProvidesUnlinkedDocumentPool), que la console consomme pour AFFICHER OU MASQUER l'écran Réconciliation
+         (la visibilité est pilotée par la capacité DÉCLARÉE, pas par l'état transitoire de la file de
+         réconciliation — cohérent avec WEB08).
+      PRÉREQUIS DE DÉBLOCAGE (décision opérateur + spec, AVANT de coder) :
+        - Un mécanisme SOURCÉ par lequel l'agent DÉCLARE ses ExtractorCapabilities à la plateforme — F12 §2.2
+          (capacités de l'adaptateur) / §3.2 (« capacités à activer », heartbeat/configuration) le mentionnent
+          mais NE spécifient ni le canal exact, ni l'ADD-ONLY sur le contrat agent (Liakont.Agent.Contracts).
+          À trancher et à amender dans F12 avant tout code (changement de contrat agent = gate AGENT).
+        - La PERSISTANCE plateforme de ces capacités (registre Ingestion : entité Agent / read-model) + le
+          read-model exposé (IAgentQueries ou équivalent) que /settings consomme.
+      Tant que ces deux briques ne sont pas sourcées/spécifiées, RIEN n'est exposé : pas de stub, pas de
+      dérivation depuis l'état de la file (règle inventée, contredit WEB08).
+    acceptance:
+      - "BLOQUÉ tant que le read-model des capacités agent→plateforme n'est pas sourcé/spécifié (canal de déclaration + persistance + amendement F12) — ne pas coder avant"
+      - "Une fois débloqué : GET /settings expose les capacités déclarées de l'agent/adaptateur (≥ ProvidesUnlinkedDocumentPool), sur le harness API01a (rien redupliqué)"
+      - "Visibilité Réconciliation pilotée par la capacité DÉCLARÉE et persistée, jamais dérivée de l'état de la file (cohérent WEB08)"
+      - "Aucun mécanisme de transport/persistance inventé ; le contrat agent reste add-only et sourcé (F12)"
       - "Permission liakont.read appliquée, isolation tenant vérifiée par test"
       - "Tests d'intégration in-process"
       - "verify-fast passes"
@@ -79,22 +120,37 @@ items:
       Sur le harness HTTP d'API01a, scaffolder les actions du module Documents (Documents.Web /
       Pipeline) et implémenter les actions d'envoi (permission liakont.actions) :
       1. POST /api/v1/documents/{id}/send → envoi d'un document ReadyToSend.
-      2. POST /api/v1/documents/send-all → envoi de tous les ReadyToSend du tenant.
-         Avec ?confirm=false : retourne le récapitulatif (nombre + montant total) SANS exécuter ;
-         l'exécution exige confirm=true (mécanisme de confirmation pour la console).
-      3. POST /api/v1/runs/trigger → déclencher le pipeline du tenant manuellement
-         (job à la demande via le module Job).
+      2. POST /api/v1/documents/send-all → envoi des ReadyToSend du tenant COURANT UNIQUEMENT
+         (ceux de l'opérateur), JAMAIS de fan-out cross-tenant (CLAUDE.md n°9, blueprint §7).
+         Avec ?confirm=false : retourne le récapitulatif (nombre + montant total en decimal) du
+         seul tenant courant SANS exécuter ; l'exécution exige confirm=true (mécanisme de
+         confirmation pour la console).
+      3. POST /api/v1/runs/trigger → déclencher le pipeline du tenant COURANT manuellement
+         (job à la demande via le module Job). Le job DOIT être tenant-scopé via le mécanisme
+         existant TenantJobRunner/ITenantScopeFactory (SOL06) : déclencheur mono-tenant portant
+         actor.TenantId, publié sur la QUEUE SYSTÈME (consommée par le JobWorker), exécuté pour
+         le seul tenant cible via ITenantScopeFactory.Create(tenantId). JAMAIS un job en base
+         tenant (job orphelin non consommé), JAMAIS RunForAllTenantsAsync (réservé au cron
+         d'instance). Réf. ADR-0016.
       4. RÉUTILISE le harness d'API01a (permissions, tenant, erreurs) — ne rien redupliquer ;
          pose le scaffold des actions Documents.Web que réutilisent API02b/API02c.
       5. Toute action est journalisée (module Audit + DocumentEvent) avec l'identité de
          l'opérateur. Tests d'intégration : chaque action, droits (lecture seule → 403),
-         send-all confirm=false/true, isolation tenant.
+         send-all confirm=false/true, isolation tenant (le job s'exécute dans la base du tenant
+         cible et AUCUNE trace chez les autres tenants — preuve d'exécution réelle, pas seulement
+         le 202).
+      Contraintes (ADR-0016) :
+        - runs/trigger : job tenant-scopé via TenantJobRunner/ITenantScopeFactory (SOL06),
+          publié sur la queue système, exécuté pour le seul actor.TenantId.
+        - send-all : ReadyToSend du tenant COURANT uniquement, jamais de fan-out cross-tenant.
     acceptance:
       - "POST /documents/{id}/send, /documents/send-all et /runs/trigger opérationnels (permission liakont.actions)"
-      - "send-all : récapitulatif (nombre + montant) avant exécution (confirm=false), exécution sur confirm=true"
+      - "runs/trigger tenant-scopé via TenantJobRunner/ITenantScopeFactory (SOL06), publié sur la queue système et exécuté pour le seul tenant de l'opérateur (ADR-0016 ; aucun job orphelin en base tenant)"
+      - "send-all : récapitulatif (nombre + montant) avant exécution (confirm=false), exécution sur confirm=true, sur le tenant COURANT uniquement"
+      - "send-all tenant-scopé, aucun fan-out cross-tenant (vérifié en test + review n°9)"
       - "Scaffold des actions Documents.Web posé sur le harness API01a (rien redupliqué), réutilisable par API02b/c"
       - "Toute action journalisée (Audit + DocumentEvent) avec l'identité de l'opérateur"
-      - "Tests d'intégration : actions, droits (lecture seule → 403), isolation tenant"
+      - "Tests d'intégration : actions, droits (lecture seule → 403), isolation tenant (exécution réelle dans la base du tenant cible, aucune trace chez les autres tenants)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -227,19 +283,21 @@ items:
          est retournée UNE SEULE FOIS dans la réponse, jamais récupérable ensuite.
       3. POST /api/v1/agents/{id}/revoke → révoquer la clé d'un agent (compromission, retrait).
       4. POST /api/v1/agents/{id}/rotate-key → rotation de clé : nouvelle clé retournée une
-         seule fois, l'ancienne reste valide pendant une fenêtre de recouvrement configurable
-         (le temps de reconfigurer l'agent), puis est invalidée.
+         seule fois ; l'ancienne clé est invalidée IMMÉDIATEMENT (conforme F12 §4.2 et au domaine
+         PIV05 : RotateKey rend l'ancienne clé invalide sur-le-champ). AUCUNE fenêtre de
+         recouvrement / de grâce — accepter une clé rotée affaiblirait l'authentification de
+         l'agent (CLAUDE.md n°3).
       5. Permission : liakont.settings (gestion de secrets). Toute opération journalisée
          (module Audit) avec l'identité de l'opérateur.
       6. Tests d'intégration : liste, enregistrement (clé une seule fois), révocation (l'agent
-         révoqué reçoit 401 au push suivant), rotation (recouvrement puis invalidation),
-         permissions, isolation tenant.
+         révoqué reçoit 401 au push suivant), rotation (l'ancienne clé est rejetée IMMÉDIATEMENT,
+         la nouvelle est acceptée), permissions, isolation tenant.
     acceptance:
       - "Liste / enregistrement / révocation / rotation opérationnels via les handlers PIV05"
       - "La clé API n'est JAMAIS récupérable après sa première restitution"
       - "Révocation effective : la clé révoquée est rejetée à l'ingestion (testé de bout en bout)"
-      - "Rotation avec fenêtre de recouvrement testée"
-      - "Permission liakont.settings + journalisation de chaque opération"
+      - "Rotation : nouvelle clé restituée une fois, ancienne clé invalidée IMMÉDIATEMENT (F12 §4.2), aucune fenêtre de recouvrement (testé : ancienne clé rejetée à l'ingestion juste après rotation)"
+      - "Permission liakont.settings + journalisation de chaque opération (module Audit)"
       - "Tests d'intégration : tout le cycle de vie, permissions, isolation tenant"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
