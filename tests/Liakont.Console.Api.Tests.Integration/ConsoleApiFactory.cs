@@ -77,6 +77,12 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     /// <summary>Utilisateur porteur de liakont.settings (+read) — requis par tenant-export (API03).</summary>
     public static readonly Guid SettingsUserId = new("44444444-4444-4444-4444-444444444444");
 
+    /// <summary>
+    /// Opérateur porteur de liakont.actions (+read) — exécute les actions de la console (envoi, déclenchement —
+    /// API02a). Le simple lecteur (liakont.read seul) sert le cas « 403 sur une action ».
+    /// </summary>
+    public static readonly Guid OperatorUserId = new("66666666-6666-6666-6666-666666666666");
+
     // Documents seedés dans le TENANT A.
     public static readonly Guid TenantADocReadyId = new("0a000001-0000-0000-0000-000000000001");
     public static readonly Guid TenantADocBlockedId = new("0a000002-0000-0000-0000-000000000002");
@@ -87,6 +93,7 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
 
     private static readonly Guid ConsoleReaderRoleId = new("33333333-3333-3333-3333-333333333333");
     private static readonly Guid ConsoleAdminRoleId = new("55555555-5555-5555-5555-555555555555");
+    private static readonly Guid ConsoleOperatorRoleId = new("77777777-7777-7777-7777-777777777777");
 
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
         .WithImage("postgres:16-alpine")
@@ -96,14 +103,26 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     private readonly Dictionary<string, string> _connectionsByTenant = new(StringComparer.Ordinal);
     private WebApplication? _app;
     private string _archiveStoreRoot = string.Empty;
+    private string _systemConnectionString = string.Empty;
 
     public string BaseUrl => $"http://127.0.0.1:{_port}";
+
+    /// <summary>
+    /// Le fournisseur de services de l'hôte in-process — permet aux tests de comportement de résoudre un service
+    /// réel (ex. un <c>IJobHandler&lt;T&gt;</c>) et de l'exécuter comme le ferait le worker, pour PROUVER
+    /// l'exécution réelle d'un job déclenché (anti faux-vert), au-delà de la seule réponse HTTP 202.
+    /// </summary>
+    public IServiceProvider Services => _app!.Services;
+
+    /// <summary>Chaîne de connexion de la base SYSTÈME (queue de jobs réelle + piste d'audit cross-tenant).</summary>
+    public string SystemConnectionString => _systemConnectionString;
 
     public async Task InitializeAsync()
     {
         await _postgres.StartAsync();
 
         var systemConn = _postgres.GetConnectionString();
+        _systemConnectionString = systemConn;
         var tenantAConn = WithDatabase(systemConn, "tc_tenant_a");
         var tenantBConn = WithDatabase(systemConn, "tc_tenant_b");
         var tenantArchConn = WithDatabase(systemConn, "tc_tenant_arch");
@@ -219,6 +238,63 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         }
 
         return client;
+    }
+
+    /// <summary>Chaîne de connexion de la base d'un TENANT (vérification d'absence de job orphelin / de run_log).</summary>
+    public string TenantConnectionString(string tenant) => ConnectionStringFor(tenant);
+
+    /// <summary>
+    /// Compte les entrées de la piste d'activité opérateur (<c>audit.activities</c>, base SYSTÈME) pour un type
+    /// d'activité et une entité donnés — prouve qu'une action de la console est journalisée (anti faux-vert ;
+    /// l'écriture d'audit est awaitée par l'endpoint avant la réponse HTTP).
+    /// </summary>
+    public async Task<int> CountActivitiesAsync(string activityType, string entityId, CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(_systemConnectionString);
+        await conn.OpenAsync(ct);
+        return await conn.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT COUNT(*) FROM audit.activities WHERE activity_type = @ActivityType AND entity_id = @EntityId",
+            new { ActivityType = activityType, EntityId = entityId },
+            cancellationToken: ct));
+    }
+
+    /// <summary>
+    /// Compte les jobs de la queue SYSTÈME (<c>job.jobs</c> de la base système — celle que le <c>JobWorker</c>
+    /// consomme) dont le type CONTIENT <paramref name="typeContains"/>. Prouve qu'une action publie bien sur la
+    /// queue système (ADR-0016 / INV-API02a-2), et permet de vérifier l'ABSENCE de fan-out (SendAllTrigger).
+    /// </summary>
+    public Task<int> CountSystemJobsAsync(string typeContains, CancellationToken ct = default) =>
+        CountJobsAsync(_systemConnectionString, typeContains, ct);
+
+    /// <summary>
+    /// Compte les jobs présents dans <c>job.jobs</c> de la base d'un TENANT dont le type contient
+    /// <paramref name="typeContains"/> — doit rester à 0 pour une action de console (un job en base tenant serait
+    /// ORPHELIN, jamais consommé par le worker null-tenant : ADR-0016 / INV-API02a-2).
+    /// </summary>
+    public Task<int> CountTenantJobsAsync(string tenant, string typeContains, CancellationToken ct = default) =>
+        CountJobsAsync(ConnectionStringFor(tenant), typeContains, ct);
+
+    /// <summary>
+    /// Compte les traitements MANUELS d'envoi (<c>pipeline.run_logs</c> : run_type='Send', run_trigger='Manual')
+    /// d'un tenant — preuve d'EXÉCUTION réelle, tenant-scopée, du SEND déclenché par une action (INV-API02a-1/5).
+    /// </summary>
+    public async Task<int> CountManualSendRunLogsAsync(string tenant, CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(ConnectionStringFor(tenant));
+        await conn.OpenAsync(ct);
+        return await conn.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT COUNT(*) FROM pipeline.run_logs WHERE run_type = 'Send' AND run_trigger = 'Manual'",
+            cancellationToken: ct));
+    }
+
+    private static async Task<int> CountJobsAsync(string connectionString, string typeContains, CancellationToken ct)
+    {
+        await using var conn = new NpgsqlConnection(connectionString);
+        await conn.OpenAsync(ct);
+        return await conn.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT COUNT(*) FROM job.jobs WHERE type LIKE @Pattern",
+            new { Pattern = "%" + typeContains + "%" },
+            cancellationToken: ct));
     }
 
     /// <summary>
@@ -357,6 +433,42 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
             ON CONFLICT (user_id, role_id) DO NOTHING
             """,
             new { ReaderId = ReaderUserId, ReaderRoleId = ConsoleReaderRoleId, SettingsId = SettingsUserId, AdminRoleId = ConsoleAdminRoleId });
+
+        // Rôle « console-operator » porteur de liakont.read + liakont.actions (exécute les actions de la
+        // console — API02a) + un opérateur qui le détient. Le lecteur (liakont.read seul) sert le « 403 sur action ».
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO identity.roles (id, name, description, is_system)
+            VALUES (@OperatorRoleId, 'console-operator', 'Actions console (tests)', false)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            new { OperatorRoleId = ConsoleOperatorRoleId });
+
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO identity.grants (role_id, permission, module_source)
+            VALUES
+                (@OperatorRoleId, 'liakont.read', 'liakont'),
+                (@OperatorRoleId, 'liakont.actions', 'liakont')
+            ON CONFLICT (role_id, permission) DO NOTHING
+            """,
+            new { OperatorRoleId = ConsoleOperatorRoleId });
+
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO identity.users (id, username, email, display_name, password_hash, is_active)
+            VALUES (@OperatorId, 'console.operator', 'operator@test.local', 'Console Operator', 'x', true)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            new { OperatorId = OperatorUserId });
+
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO identity.user_roles (user_id, role_id)
+            VALUES (@OperatorId, @OperatorRoleId)
+            ON CONFLICT (user_id, role_id) DO NOTHING
+            """,
+            new { OperatorId = OperatorUserId, OperatorRoleId = ConsoleOperatorRoleId });
     }
 
     private static async Task SeedTenantAAsync(string connectionString)
