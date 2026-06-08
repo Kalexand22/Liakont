@@ -1,6 +1,7 @@
 namespace Liakont.Host.Security.Keycloak;
 
 using System.IdentityModel.Tokens.Jwt;
+using System.Threading.Tasks;
 using Liakont.Host.MultiTenancy;
 using Liakont.Host.Security;
 using Liakont.Host.Security.Abstractions;
@@ -188,6 +189,25 @@ internal sealed class KeycloakIdentityProviderAuthenticator : IIdentityProviderA
                     // the token is rejected because ValidateIssuerSigningKey is true.
                     IssuerSigningKeyResolver = jwksResolver.ResolveSigningKeys,
                 };
+
+                // Projette les rôles realm → permissions (matrice §3) en claims "permission" sur le
+                // principal du jeton porteur — comme le flux OIDC/cookie. La garde endpoint
+                // (PermissionAuthorizationHandler) lit le MÊME claim quel que soit le schéma actif
+                // (cookie OU Bearer) : un seul mécanisme d'autorisation, un IdP alternatif réutilise la
+                // même projection (INV-IDN01-2/3). Le jeton étant revalidé à chaque requête, la
+                // révocation Bearer est honorée à son expiration (pas de fenêtre cookie ici).
+                options.Events = new JwtBearerEvents
+                {
+                    OnTokenValidated = context =>
+                    {
+                        if (context.Principal?.Identity is System.Security.Claims.ClaimsIdentity identity)
+                        {
+                            RolePermissionCatalog.ProjectPermissionClaims(identity);
+                        }
+
+                        return Task.CompletedTask;
+                    },
+                };
             })
             .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme, options =>
             {
@@ -195,6 +215,13 @@ internal sealed class KeycloakIdentityProviderAuthenticator : IIdentityProviderA
                 options.Cookie.Name = "stratum_session";
                 options.Cookie.HttpOnly = true;
                 options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+
+                // Fenêtre de révocation différée (ADR-0017 §Négatif) : la garde endpoint lit des claims
+                // "permission" figés au sign-in (projetés des rôles realm). Le cookie étant en expiration
+                // glissante, il se ré-émet avec les mêmes claims SANS rejouer OnTokenValidated — une
+                // révocation de rôle n'est donc PAS honorée immédiatement (fenêtre ≥ 8 h, non bornée pour
+                // une session active). Compromis ACCEPTÉ au merge humain (gate console-web) ; atténuation
+                // (raccourcir/désactiver le sliding, ré-auth forcée) seulement si l'opérateur l'exige.
                 options.SlidingExpiration = true;
                 options.ExpireTimeSpan = TimeSpan.FromHours(8);
 
@@ -288,11 +315,17 @@ internal sealed class KeycloakIdentityProviderAuthenticator : IIdentityProviderA
                 var syncService = ctx.HttpContext.RequestServices.GetRequiredService<Stratum.Modules.Identity.Application.IUserSyncService>();
                 var userId = await syncService.SyncFromOidcClaimsAsync(ctx.Principal, ctx.HttpContext.RequestAborted);
 
-                // Add stratum_user_id claim so HttpActorContextAccessor can read it
+                // Add stratum_user_id claim so HttpActorContextAccessor can read it, puis projette les
+                // rôles realm → permissions (matrice §3) en claims "permission" sur le principal (ADR-0017).
+                // Ce claim est le transport consommé par l'UI (ClaimsPermissionService) ET les endpoints
+                // (PermissionAuthorizationHandler) : un seul mécanisme d'autorisation, sans hit base par
+                // requête. Catalogue IdP-agnostique (D10) : aucun appel Keycloak-spécifique ici.
                 if (ctx.Principal.Identity is System.Security.Claims.ClaimsIdentity identity)
                 {
                     identity.AddClaim(
                         new System.Security.Claims.Claim("stratum_user_id", userId.ToString("D")));
+
+                    RolePermissionCatalog.ProjectPermissionClaims(identity);
                 }
 
                 // Strip bulky tokens from auth properties to keep the session cookie small.
