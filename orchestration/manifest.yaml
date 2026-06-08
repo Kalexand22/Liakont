@@ -50,7 +50,13 @@ meta:
   #   WEB03 (4 onglets + 5 actions) → WEB03a (lecture) / WEB03b (verdict+recheck) / WEB03c (résolution) ;
   #   WEB04 (2 pages) → WEB04a (journal) / WEB04b (paramétrage lecture) ; WEB07 (table TVA éditable) → WEB07a (vue+validation) / WEB07b (édition).
   #   Recâblage : WEB05→API02a ; WEB07a→[WEB04b,API04] ; GATE_CONSOLE_WEB → {WEB03b,WEB03c,WEB04a,WEB07b}.
-  version: 14
+  # version 15 = déblocage console-web (décisions opérateur 2026-06-08, 4 blocages résolus sans inventer de règle) :
+  #   API01c → cœur /settings (capacités agent retirées) + API01d (fast-follow GELÉ : read-model capacités à sourcer) ;
+  #   API02a → ADR-0016 job tenant-scope (TenantJobRunner SOL06, send-all tenant-courant, aucun fan-out cross-tenant) ;
+  #   API05 → alignement F12 (invalidation immédiate, fenêtre de recouvrement retirée) ;
+  #   SUP01b → 3 règles constructibles + SUP01c (fast-follow GELÉ : 5 règles sans producteur, rompt la circularité OPS07).
+  #   API01d et SUP01c sont HORS gate (fast-follow gelés, comme PIP03b). Restent opérateur/externe : PAS02 (sandbox), PIP03b (fiscal).
+  version: 15
   host: multi_agent_v1
 
 segments:
@@ -242,6 +248,7 @@ items:
   - { id: API01a, lot: API, priority: 6500, depends_on: [] }
   - { id: API01b, lot: API, priority: 6502, depends_on: [API01a] }
   - { id: API01c, lot: API, priority: 6504, depends_on: [API01a] }
+  - { id: API01d, lot: API, priority: 6505, depends_on: [API01c] }
   - { id: API02a, lot: API, priority: 6510, depends_on: [API01a] }
   - { id: API02b, lot: API, priority: 6512, depends_on: [API02a] }
   - { id: API02c, lot: API, priority: 6514, depends_on: [API02a] }
@@ -268,6 +275,7 @@ items:
   # SUP01 re-découpé en SUP01a/b (2026-06-07, v13) : module Supervision entier trop gros.
   - { id: SUP01a, lot: SUP, priority: 6700, depends_on: [] }
   - { id: SUP01b, lot: SUP, priority: 6702, depends_on: [SUP01a] }
+  - { id: SUP01c, lot: SUP, priority: 6704, depends_on: [SUP01b] }
   - { id: SUP02, lot: SUP, blueprint: blazor-page-item, priority: 6710, depends_on: [SUP01a, WEB01] }
   - { id: SUP03, lot: SUP, priority: 6720, depends_on: [SUP01b] }
   - { id: GATE_CONSOLE_WEB, type: gate, executor: human, priority: 6900, depends_on: [WEB03b, WEB03c, WEB04a, WEB05, WEB06, WEB07b, WEB08, WEB09, SUP02, SUP03, API03] }
