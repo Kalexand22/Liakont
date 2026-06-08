@@ -383,6 +383,10 @@ public static class AppBootstrap
         // sur la liste paginée serveur, aucune troncature) hors de la page.
         builder.Services.AddScoped<Liakont.Host.Documents.IDocumentConsoleQueries, Liakont.Host.Documents.DocumentConsoleQueryService>();
 
+        // Composition en lecture de la page Paramétrage du tenant (WEB04b) : assemble /settings + agents
+        // et déclenche la vérification d'intégrité du coffre (API03). Isole l'assemblage hors de la page.
+        builder.Services.AddScoped<Liakont.Host.Parametrage.IParametrageQueries, Liakont.Host.Parametrage.ParametrageQueryService>();
+
         // Pré-chargement déterministe de l'état de console à l'ouverture du circuit (avant rendu de la nav).
         builder.Services.AddScoped<Liakont.Host.Navigation.LiakontConsoleCircuitHandler>();
         builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler>(
