@@ -4,6 +4,7 @@ using System;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
+using Liakont.Modules.Documents.Contracts;
 using Liakont.Modules.Documents.Contracts.Lifecycle;
 using Liakont.Modules.Documents.Contracts.Queries;
 using Liakont.Modules.Pipeline.Contracts;
@@ -48,26 +49,18 @@ public static class DocumentActionsEndpointMapping
     /// <summary>État d'un document prêt à l'envoi (DocumentState, Domain) : seul état envoyable.</summary>
     private const string ReadyToSendState = "ReadyToSend";
 
-    /// <summary>État d'un document bloqué (DocumentState, Domain) : seul état où le verdict garde-fou / la re-vérification s'appliquent.</summary>
-    private const string BlockedState = "Blocked";
-
-    /// <summary>Verdict « confirmer particulier (B2C) » du garde-fou B2B/B2C (F08 §A.4).</summary>
-    private const string VerdictConfirmB2c = "confirm_b2c";
-
-    /// <summary>Verdict « traiter manuellement hors passerelle (B2B) » du garde-fou B2B/B2C (F08 §A.4).</summary>
-    private const string VerdictHandleManually = "handle_manually";
-
-    /// <summary>État terminal d'un document traité manuellement hors passerelle (DocumentState, Domain).</summary>
-    private const string ManuallyHandledState = "ManuallyHandled";
-
-    /// <summary>Motif journalisé du traitement manuel B2B issu du garde-fou (F08 §A.4) — l'opérateur ne saisit pas de texte ici (verdict structuré).</summary>
-    private const string ManualB2bReason =
-        "Garde-fou B2B/B2C : acheteur professionnel — facture B2B traitée manuellement hors passerelle (verdict opérateur, F08 §A.4).";
+    // Verdict / re-vérification : identifiants STABLES partagés avec le service in-process de la console
+    // (DocumentControlActionsService, WEB03b) via DocumentActionContract — SOURCE UNIQUE pour que les deux
+    // canaux (HTTP / console) journalisent le MÊME geste opérateur à l'identique (CLAUDE.md n°4).
+    private const string BlockedState = DocumentActionContract.BlockedState;
+    private const string VerdictConfirmB2c = DocumentActionContract.VerdictConfirmB2c;
+    private const string VerdictHandleManually = DocumentActionContract.VerdictHandleManually;
+    private const string ManuallyHandledState = DocumentActionContract.ManuallyHandledState;
+    private const string ManualB2bReason = DocumentActionContract.ManualB2bReason;
+    private const string DocumentEntityType = DocumentActionContract.DocumentEntityType;
 
     /// <summary>Taille de page des lectures par état (file bornée — même surface que le pipeline, TRK01).</summary>
     private const int PageSize = 100;
-
-    private const string DocumentEntityType = "Document";
 
     public static IEndpointRouteBuilder MapDocumentActionsEndpoints(this IEndpointRouteBuilder app)
     {
@@ -300,7 +293,7 @@ public static class DocumentActionsEndpointMapping
                 await activityLogger.LogActivityAsync(
                     DocumentEntityType,
                     id.ToString(),
-                    "documents.verdict_confirm_b2c",
+                    DocumentActionContract.VerdictConfirmB2cActivity,
                     string.Create(CultureInfo.InvariantCulture, $"Garde-fou B2B/B2C : acheteur confirmé « particulier » (B2C) par l'opérateur pour le document {document.DocumentNumber} (F08 §A.4). Re-vérifier pour débloquer."),
                     operatorId,
                     metadata: new { document.DocumentNumber, Verdict = VerdictConfirmB2c },
@@ -323,7 +316,7 @@ public static class DocumentActionsEndpointMapping
             await activityLogger.LogActivityAsync(
                 DocumentEntityType,
                 id.ToString(),
-                "documents.verdict_handle_manually",
+                DocumentActionContract.VerdictHandleManuallyActivity,
                 string.Create(CultureInfo.InvariantCulture, $"Garde-fou B2B/B2C : document {document.DocumentNumber} traité manuellement hors passerelle (B2B) par l'opérateur (F08 §A.4)."),
                 operatorId,
                 metadata: new { document.DocumentNumber, Verdict = VerdictHandleManually },
@@ -366,7 +359,7 @@ public static class DocumentActionsEndpointMapping
                     await activityLogger.LogActivityAsync(
                         DocumentEntityType,
                         id.ToString(),
-                        "documents.rechecked",
+                        DocumentActionContract.RecheckActivity,
                         string.Create(CultureInfo.InvariantCulture, $"Re-vérification déclenchée par l'opérateur — résultat : « {result.State} »."),
                         ActorId(actor),
                         metadata: new { State = result.State, Outcome = result.Outcome.ToString() },

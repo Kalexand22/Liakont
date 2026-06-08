@@ -122,6 +122,30 @@ public sealed class DocumentDetailTests : BunitContext
         });
     }
 
+    [Fact]
+    public void Verdict_Buttons_Map_To_The_Correct_Console_Verdict()
+    {
+        // Garde-fou anti-inversion : le bouton B2C doit déclencher ConfirmIndividualB2c, le bouton B2B
+        // HandleManuallyB2b (une inversion passerait inaperçue si seul le callback était testé).
+        var actions = new FakeControlActions();
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(canAct: true));
+        Services.AddScoped<IDocumentControlActions>(_ => actions);
+        Services.AddScoped<IDocumentDetailConsoleQueries>(_ =>
+            FakeDetailQueries.Returning(BuildModel("2026-023", state: "Blocked", companyHint: true)));
+
+        var cut = Render<DocumentDetail>(p => p.Add(c => c.Id, DocId));
+
+        SelectControlsTab(cut);
+        cut.Find("[data-testid='document-detail-verdict-b2c']").Click();
+        cut.WaitForAssertion(() => actions.VerdictCalls.Should().ContainSingle());
+
+        cut.Find("[data-testid='document-detail-verdict-b2b']").Click();
+        cut.WaitForAssertion(() => actions.VerdictCalls.Should().HaveCount(2));
+
+        actions.VerdictCalls[0].Should().Be((DocId, ConsoleVerdict.ConfirmIndividualB2c));
+        actions.VerdictCalls[1].Should().Be((DocId, ConsoleVerdict.HandleManuallyB2b));
+    }
+
     private static void SelectControlsTab(IRenderedComponent<DocumentDetail> cut)
     {
         var tab = cut.FindAll("button[role='tab']")

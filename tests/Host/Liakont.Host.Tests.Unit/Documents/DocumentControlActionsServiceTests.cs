@@ -199,12 +199,40 @@ public sealed class DocumentControlActionsServiceTests
         audit.Entries.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task Without_Actions_Permission_Verdict_And_Recheck_Are_Refused_Without_Touching_Ports()
+    {
+        // Défense en profondeur : le chemin in-process porte sa propre garde (comme RequireAuthorization côté
+        // endpoint), il ne dépend pas du seul masquage des boutons côté UI.
+        var docId = Guid.NewGuid();
+        var lifecycle = new RecordingLifecycle();
+        var recheck = new FakeRecheckService { Result = DocumentRecheckResult.ReadyToSend() };
+        var audit = new CapturingActivityLogger();
+        var service = Build(
+            new FakeDocumentQueries { ById = { [docId] = Doc(docId, "F-2026-009", "Blocked", companyHint: true) } },
+            lifecycle,
+            recheck,
+            audit,
+            canAct: false);
+
+        var verdict = await service.SubmitVerdictAsync(docId, ConsoleVerdict.ConfirmIndividualB2c);
+        var rechecked = await service.RecheckAsync(docId);
+
+        verdict.Success.Should().BeFalse();
+        verdict.Message.Should().Contain("liakont.actions");
+        rechecked.Success.Should().BeFalse();
+        lifecycle.ConfirmedB2c.Should().BeEmpty("aucun port n'est touché sans la permission d'action");
+        recheck.Calls.Should().BeEmpty();
+        audit.Entries.Should().BeEmpty();
+    }
+
     private static DocumentControlActionsService Build(
         FakeDocumentQueries queries,
         IDocumentLifecycle lifecycle,
         IDocumentRecheckService recheck,
-        IActivityLogger audit) =>
-        new(queries, lifecycle, recheck, new StubActorContextAccessor(OperatorId, CompanyId), audit);
+        IActivityLogger audit,
+        bool canAct = true) =>
+        new(queries, lifecycle, recheck, new StubActorContextAccessor(OperatorId, CompanyId), audit, new FakePermissionService(canAct));
 
     private static DocumentDto Doc(Guid id, string number, string state, bool companyHint, bool confirmedB2c = false) => new()
     {
@@ -315,6 +343,22 @@ public sealed class DocumentControlActionsServiceTests
             Entries.Add((entityType, entityId, activityType, description));
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class FakePermissionService : IPermissionService
+    {
+        private readonly bool _canAct;
+
+        public FakePermissionService(bool canAct) => _canAct = canAct;
+
+        public event Action? OnPermissionsChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public bool HasPermission(string permission) =>
+            _canAct && string.Equals(permission, "liakont.actions", StringComparison.Ordinal);
     }
 
     private sealed class StubActorContextAccessor : IActorContextAccessor

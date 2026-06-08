@@ -4,6 +4,8 @@ using System;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
+using Liakont.Host.Security;
+using Liakont.Modules.Documents.Contracts;
 using Liakont.Modules.Documents.Contracts.Lifecycle;
 using Liakont.Modules.Documents.Contracts.Queries;
 using Liakont.Modules.Pipeline.Contracts;
@@ -14,64 +16,47 @@ using Stratum.Common.Abstractions.Security;
 /// Implémentation de <see cref="IDocumentControlActions"/>. Réutilise <b>à l'identique</b> l'orchestration
 /// des endpoints API02b (<c>DocumentActionsEndpointMapping</c> : <c>POST /documents/{id}/verdict</c> et
 /// <c>/recheck</c>) — mêmes gardes d'état, mêmes ports (<see cref="IDocumentLifecycle"/> /
-/// <see cref="IDocumentRecheckService"/>), mêmes codes d'audit et même identité d'opérateur. La console
-/// appelle ce service in-process depuis son circuit serveur (le cookie OIDC n'est pas disponible pour
-/// boucler sur l'endpoint HTTP, précédent WEB05). Aucune logique fiscale ni machine à états n'est dupliquée :
-/// les transitions et la re-validation restent dans les modules ; ici on ne fait que valider l'état, appeler
-/// le port et journaliser l'action de l'opérateur. TENANT-SCOPÉ par construction (la connexion EST le tenant).
+/// <see cref="IDocumentRecheckService"/>), mêmes codes d'audit et même identité d'opérateur, via la SOURCE
+/// UNIQUE partagée <see cref="DocumentActionContract"/> (aucune divergence silencieuse de piste d'audit
+/// entre le canal HTTP et le canal console). La console appelle ce service in-process depuis son circuit
+/// serveur (le cookie OIDC n'est pas disponible pour boucler sur l'endpoint HTTP, précédent WEB05). Aucune
+/// logique fiscale ni machine à états n'est dupliquée : les transitions et la re-validation restent dans les
+/// modules ; ici on ne fait que vérifier l'autorisation, valider l'état, appeler le port et journaliser
+/// l'action de l'opérateur. TENANT-SCOPÉ par construction (la connexion EST le tenant).
 /// </summary>
 internal sealed class DocumentControlActionsService : IDocumentControlActions
 {
-    /// <summary>État d'un document bloqué (DocumentState, Domain) : seul état où le verdict / la re-vérification s'appliquent.</summary>
-    private const string BlockedState = "Blocked";
-
-    /// <summary>État terminal d'un document traité manuellement hors passerelle (DocumentState, Domain).</summary>
-    private const string ManuallyHandledState = "ManuallyHandled";
-
-    private const string DocumentEntityType = "Document";
-
-    /// <summary>Code d'audit du verdict « confirmer particulier (B2C) » — identique à l'endpoint API02b.</summary>
-    private const string VerdictConfirmB2cActivity = "documents.verdict_confirm_b2c";
-
-    /// <summary>Code d'audit du verdict « traiter manuellement (B2B) » — identique à l'endpoint API02b.</summary>
-    private const string VerdictHandleManuallyActivity = "documents.verdict_handle_manually";
-
-    /// <summary>Code d'audit de la re-vérification — identique à l'endpoint API02b.</summary>
-    private const string RecheckActivity = "documents.rechecked";
-
-    /// <summary>Valeur canonique du verdict B2C journalisée (alignée sur l'endpoint API02b).</summary>
-    private const string VerdictConfirmB2cValue = "confirm_b2c";
-
-    /// <summary>Valeur canonique du verdict B2B journalisée (alignée sur l'endpoint API02b).</summary>
-    private const string VerdictHandleManuallyValue = "handle_manually";
-
-    /// <summary>Motif journalisé du traitement manuel B2B issu du garde-fou — identique à l'endpoint API02b (verdict structuré, pas de saisie libre).</summary>
-    private const string ManualB2bReason =
-        "Garde-fou B2B/B2C : acheteur professionnel — facture B2B traitée manuellement hors passerelle (verdict opérateur, F08 §A.4).";
-
     private readonly IDocumentQueries _documents;
     private readonly IDocumentLifecycle _lifecycle;
     private readonly IDocumentRecheckService _recheck;
     private readonly IActorContextAccessor _actorAccessor;
     private readonly IActivityLogger _activityLogger;
+    private readonly IPermissionService _permissions;
 
     public DocumentControlActionsService(
         IDocumentQueries documents,
         IDocumentLifecycle lifecycle,
         IDocumentRecheckService recheck,
         IActorContextAccessor actorAccessor,
-        IActivityLogger activityLogger)
+        IActivityLogger activityLogger,
+        IPermissionService permissions)
     {
         _documents = documents;
         _lifecycle = lifecycle;
         _recheck = recheck;
         _actorAccessor = actorAccessor;
         _activityLogger = activityLogger;
+        _permissions = permissions;
     }
 
     public async Task<DocumentControlActionResult> SubmitVerdictAsync(
         Guid documentId, ConsoleVerdict verdict, CancellationToken cancellationToken = default)
     {
+        if (DenyIfNotAuthorized() is { } denied)
+        {
+            return denied;
+        }
+
         var document = await _documents.GetByIdAsync(documentId, cancellationToken).ConfigureAwait(false);
         if (document is null)
         {
@@ -80,7 +65,7 @@ internal sealed class DocumentControlActionsService : IDocumentControlActions
 
         // Garde d'état identique à l'endpoint /verdict (409 si non Blocked) : le verdict du garde-fou
         // B2B/B2C ne s'applique qu'à un document bloqué. Bloquer le refus ici évite l'exception du domaine.
-        if (!string.Equals(document.State, BlockedState, StringComparison.Ordinal))
+        if (!string.Equals(document.State, DocumentActionContract.BlockedState, StringComparison.Ordinal))
         {
             return DocumentControlActionResult.Failure(string.Create(
                 CultureInfo.CurrentCulture,
@@ -95,12 +80,12 @@ internal sealed class DocumentControlActionsService : IDocumentControlActions
             // Enregistre la décision B2C (persistée + journalisée) SANS changer l'état (la re-vérification débloque).
             await _lifecycle.ConfirmBuyerAsIndividualAsync(documentId, operatorId, cancellationToken).ConfigureAwait(false);
             await _activityLogger.LogActivityAsync(
-                DocumentEntityType,
+                DocumentActionContract.DocumentEntityType,
                 documentId.ToString(),
-                VerdictConfirmB2cActivity,
+                DocumentActionContract.VerdictConfirmB2cActivity,
                 string.Create(CultureInfo.InvariantCulture, $"Garde-fou B2B/B2C : acheteur confirmé « particulier » (B2C) par l'opérateur pour le document {document.DocumentNumber} (F08 §A.4). Re-vérifier pour débloquer."),
                 operatorId,
-                metadata: new { document.DocumentNumber, Verdict = VerdictConfirmB2cValue },
+                metadata: new { document.DocumentNumber, Verdict = DocumentActionContract.VerdictConfirmB2c },
                 companyId: actor.CompanyId,
                 cancellationToken: cancellationToken).ConfigureAwait(false);
 
@@ -113,29 +98,34 @@ internal sealed class DocumentControlActionsService : IDocumentControlActions
         // handle_manually : Blocked → ManuallyHandled (terminal), via la résolution terminale PARTAGÉE (API02c,
         // ResolveManuallyAsync) — une seule mécanique de traitement manuel, motif dérivé du garde-fou (B2B hors
         // passerelle). Le résultat (pas d'exception) mappe proprement un refus concurrent en message opérateur.
-        var manualOutcome = await _lifecycle.ResolveManuallyAsync(documentId, ManualB2bReason, operatorId, cancellationToken).ConfigureAwait(false);
+        var manualOutcome = await _lifecycle.ResolveManuallyAsync(documentId, DocumentActionContract.ManualB2bReason, operatorId, cancellationToken).ConfigureAwait(false);
         if (manualOutcome is not DocumentResolutionOutcome.Succeeded)
         {
             return DocumentControlActionResult.Failure(ResolutionFailureMessage(manualOutcome, document.DocumentNumber));
         }
 
         await _activityLogger.LogActivityAsync(
-            DocumentEntityType,
+            DocumentActionContract.DocumentEntityType,
             documentId.ToString(),
-            VerdictHandleManuallyActivity,
+            DocumentActionContract.VerdictHandleManuallyActivity,
             string.Create(CultureInfo.InvariantCulture, $"Garde-fou B2B/B2C : document {document.DocumentNumber} traité manuellement hors passerelle (B2B) par l'opérateur (F08 §A.4)."),
             operatorId,
-            metadata: new { document.DocumentNumber, Verdict = VerdictHandleManuallyValue },
+            metadata: new { document.DocumentNumber, Verdict = DocumentActionContract.VerdictHandleManually },
             companyId: actor.CompanyId,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return DocumentControlActionResult.Ok(
             string.Create(CultureInfo.CurrentCulture, $"Document {document.DocumentNumber} traité manuellement hors passerelle (B2B)."),
-            ManuallyHandledState);
+            DocumentActionContract.ManuallyHandledState);
     }
 
     public async Task<DocumentControlActionResult> RecheckAsync(Guid documentId, CancellationToken cancellationToken = default)
     {
+        if (DenyIfNotAuthorized() is { } denied)
+        {
+            return denied;
+        }
+
         var result = await _recheck.RecheckAsync(documentId, cancellationToken).ConfigureAwait(false);
 
         switch (result.Outcome)
@@ -157,9 +147,9 @@ internal sealed class DocumentControlActionsService : IDocumentControlActions
                 // et on rend le résultat. Le motif de re-blocage éventuel est renvoyé pour affichage immédiat.
                 var actor = _actorAccessor.Current;
                 await _activityLogger.LogActivityAsync(
-                    DocumentEntityType,
+                    DocumentActionContract.DocumentEntityType,
                     documentId.ToString(),
-                    RecheckActivity,
+                    DocumentActionContract.RecheckActivity,
                     string.Create(CultureInfo.InvariantCulture, $"Re-vérification déclenchée par l'opérateur — résultat : « {result.State} »."),
                     ActorId(actor),
                     metadata: new { State = result.State, Outcome = result.Outcome.ToString() },
@@ -199,4 +189,14 @@ internal sealed class DocumentControlActionsService : IDocumentControlActions
             CultureInfo.CurrentCulture,
             $"Le traitement manuel du document {documentNumber} n'a pas pu être appliqué."),
     };
+
+    /// <summary>
+    /// Refuse l'action si l'opérateur ne porte pas <c>liakont.actions</c> (défense en profondeur : l'endpoint
+    /// HTTP porte la même garde via <c>RequireAuthorization</c> ; le chemin in-process de la console ne doit pas
+    /// dépendre du seul masquage des boutons côté UI). Renvoie <c>null</c> quand l'action est autorisée.
+    /// </summary>
+    private DocumentControlActionResult? DenyIfNotAuthorized() =>
+        _permissions.HasPermission(LiakontPermissions.Actions)
+            ? null
+            : DocumentControlActionResult.Failure("Action non autorisée : la permission « actions » (liakont.actions) est requise.");
 }
