@@ -65,7 +65,10 @@ else
         </div>
     </div>
 
-    @* ── Synthèse permanente par état (clic = filtre État) ── *@
+    @* ── Synthèse PERMANENTE par état (F10 §2.1). Périmètre = période + type (clic = filtre État).
+       Décision assumée : le bandeau est une synthèse de PÉRIMÈTRE (comme les compteurs du tableau de
+       bord WEB01), volontairement INDÉPENDANTE de la recherche libre « / » de la grille (un quick-find
+       transitoire, propriété interne du composant). La recherche libre n'altère donc pas les compteurs. ── *@
     <DocumentCountsBanner Counts="_counts"
                           SelectedState="_selectedState"
                           OnStateSelected="OnStateSelectedFromBanner" />
@@ -142,6 +145,12 @@ else
 
     public Documents()
     {
+        // [Voir] → page de détail `/documents/{id}` livrée par WEB03a (dépend de WEB02). Référence avant
+        // (forward-reference) ASSUMÉE, cohérente avec les liens de la nav maître posés par WEB01 (qui
+        // pointaient déjà vers /documents avant l'existence de cette page) : le routeur rend un NotFound
+        // gracieux jusqu'à la livraison de WEB03a. À distinguer des boutons d'envoi (actions MUTANTES)
+        // désactivés tant que WEB05 n'est pas branché — une action mutante ne doit jamais sembler active ;
+        // une navigation vers une page à venir est bénigne.
         _rowActions =
         [
             new GridRowAction<DocumentSummaryDto>(

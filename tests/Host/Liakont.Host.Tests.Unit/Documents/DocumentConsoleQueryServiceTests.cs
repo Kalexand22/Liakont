@@ -75,6 +75,21 @@ public sealed class DocumentConsoleQueryServiceTests
         logger.Warnings.Should().ContainSingle().Which.Should().Contain("stopped early");
     }
 
+    [Fact]
+    public async Task GetDocumentsInPeriodAsync_Should_Trace_When_The_Load_Cap_Is_Reached()
+    {
+        // Total annoncé énorme (> MaxPages * PageSize = 10 000 * 200 = 2 M) → le périmètre est plafonné.
+        // L'exigence de complétude fiscale repose sur le fait que cette troncature soit TRACÉE.
+        var fake = new ShrinkingDocumentQueries(announcedTotal: 3_000_000, realDocuments: BuildDocuments(200));
+        var logger = new CapturingLogger();
+        var service = new DocumentConsoleQueryService(fake, logger);
+
+        var result = await service.GetDocumentsInPeriodAsync(null, null);
+
+        result.Should().NotBeEmpty();
+        logger.Warnings.Should().Contain(w => w.Contains("exceeds the load cap", StringComparison.Ordinal));
+    }
+
     private static List<DocumentSummaryDto> BuildDocuments(int count)
     {
         var list = new List<DocumentSummaryDto>(count);
