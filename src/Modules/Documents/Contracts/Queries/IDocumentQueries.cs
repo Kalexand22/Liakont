@@ -61,6 +61,16 @@ public interface IDocumentQueries
     Task<IReadOnlyList<DocumentSummaryDto>> GetPotentiallySentDocumentsAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Le document le PLUS ANCIEN actuellement dans l'état <paramref name="state"/> (le plus petit
+    /// <c>last_update_utc</c>), ou <c>null</c> si aucun document n'est dans cet état pour ce tenant.
+    /// Lecture d'âge par état pour la supervision (SUP01b — règles « documents bloqués / rejets PA non
+    /// traités depuis &gt; N jours », F12 §5.2) : l'appelant dérive l'âge de <c>LastUpdateUtc</c> (temps
+    /// passé dans l'état). Bornée à UNE ligne — jamais de pagination de toute la file pour décider d'une
+    /// alerte de seuil.
+    /// </summary>
+    Task<DocumentSummaryDto?> GetOldestDocumentInStateAsync(string state, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Statut d'un document par (référence source, empreinte du payload), ou <c>null</c> si aucun document
     /// n'existe pour cette clé dans le tenant. Brique du point de statut agent (ADR-0012/0014, élaboré par
     /// PIP01d) : la sémantique Processed/Pending est dérivée de l'état par l'appelant ; cette requête

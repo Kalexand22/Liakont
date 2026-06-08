@@ -70,4 +70,7 @@ internal sealed class FakeDocumentQueries : IDocumentQueries
 
     public Task<DocumentStatusDto?> FindStatusBySourceReferenceAndPayloadHashAsync(string sourceReference, string payloadHash, CancellationToken cancellationToken = default) =>
         Task.FromResult<DocumentStatusDto?>(null);
+
+    public Task<DocumentSummaryDto?> GetOldestDocumentInStateAsync(string state, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
 }

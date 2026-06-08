@@ -17,5 +17,11 @@
     <ProjectReference Include="../../../Common/Abstractions/Stratum.Common.Abstractions.csproj" />
     <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
     <ProjectReference Include="../../../Common/Testing/Stratum.Common.Testing.csproj" />
+    <!-- Sources de données réelles des règles SUP01b, exercées de bout en bout sur PostgreSQL :
+         Documents (états Blocked/RejectedByPa + lecture d'âge), TenantSettings (seuils par tenant),
+         Ingestion.Contracts (IAgentQueries — la règle « agent muet » consomme ce Contract). -->
+    <ProjectReference Include="../../Documents/Infrastructure/Liakont.Modules.Documents.Infrastructure.csproj" />
+    <ProjectReference Include="../../TenantSettings/Infrastructure/Liakont.Modules.TenantSettings.Infrastructure.csproj" />
+    <ProjectReference Include="../../Ingestion/Contracts/Liakont.Modules.Ingestion.Contracts.csproj" />
   </ItemGroup>
 </Project>

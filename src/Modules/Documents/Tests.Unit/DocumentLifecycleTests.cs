@@ -113,6 +113,9 @@ public sealed class DocumentLifecycleTests
 
         public Task<DocumentStatusDto?> FindStatusBySourceReferenceAndPayloadHashAsync(string sourceReference, string payloadHash, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+
+        public Task<DocumentSummaryDto?> GetOldestDocumentInStateAsync(string state, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     private sealed class FakeUnitOfWork : IDocumentUnitOfWork

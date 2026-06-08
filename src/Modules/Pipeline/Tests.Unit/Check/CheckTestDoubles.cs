@@ -214,6 +214,9 @@ internal static class CheckTestDoubles
 
         public Task<ArchiveReferenceDto?> GetArchiveReferenceAsync(Guid documentId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+
+        public Task<DocumentSummaryDto?> GetOldestDocumentInStateAsync(string state, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     internal sealed class FakeTenantSettingsQueries : ITenantSettingsQueries

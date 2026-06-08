@@ -1,5 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../Domain/Liakont.Modules.Supervision.Domain.csproj" />
+    <!-- Sources de données des règles SUP01b — accès inter-module par les Contracts UNIQUEMENT
+         (module-rules §3) : last-seen des agents (Ingestion), états Blocked/RejectedByPa des documents
+         (Documents), seuils d'alerte par tenant (TenantSettings, F12 §5.2 / CFG02). -->
+    <ProjectReference Include="../../Ingestion/Contracts/Liakont.Modules.Ingestion.Contracts.csproj" />
+    <ProjectReference Include="../../Documents/Contracts/Liakont.Modules.Documents.Contracts.csproj" />
+    <ProjectReference Include="../../TenantSettings/Contracts/Liakont.Modules.TenantSettings.Contracts.csproj" />
   </ItemGroup>
 </Project>
