@@ -101,9 +101,12 @@ public sealed class EncaissementsTests : BunitContext
 
         var cut = Render<Encaissements>();
 
-        // L'échec de chargement reste VISIBLE (bandeau) et n'expose ni filtres ni liste (anti faux-vert).
+        // L'échec de chargement reste VISIBLE (bandeau) et n'expose AUCUNE donnée (ni liste, ni état vide,
+        // ni bandeaux), mais le filtre période RESTE disponible pour réessayer (anti faux-vert + ergonomie).
         cut.FindAll("[data-testid='encaissements-error']").Should().ContainSingle();
-        cut.FindAll("[data-testid='encaissements-filters']").Should().BeEmpty();
+        cut.FindAll("[data-testid='encaissements-filters']").Should().ContainSingle();
+        cut.FindAll("[data-testid='encaissements-empty']").Should().BeEmpty();
+        cut.FindAll("[data-testid='encaissements-fiscal-pending']").Should().BeEmpty();
     }
 
     [Fact]
@@ -120,6 +123,32 @@ public sealed class EncaissementsTests : BunitContext
             markup.Should().Contain("20 %");      // taux rendu « 20 % »
             markup.Should().Contain("100,00");    // base HT N2 fr-FR
             markup.Should().Contain("20,00");     // TVA N2 fr-FR
+        });
+    }
+
+    [Fact]
+    public void Changing_The_Period_Reloads_The_Aggregates_For_That_Month()
+    {
+        var spy = new SpyEncaissementsQueries(
+            Model([Agg("Calculated")]),
+            Model([Agg("Suspended", reason: "Catégorie d'opération non renseignée.")], fiscalPending: true));
+        Services.AddScoped<IEncaissementsConsoleQueries>(_ => spy);
+
+        var cut = Render<Encaissements>();
+
+        // 1er chargement : l'agrégat Calculated du mois courant, aucun bandeau fiscal.
+        cut.WaitForAssertion(() =>
+            cut.FindAll("[data-testid='payment-status-Calculated']").Should().NotBeEmpty());
+
+        // Changement de période → nouvelle requête avec ce mois + rechargement de la liste.
+        cut.Find("[data-testid='encaissements-filter-period']").Change("2026-01");
+
+        cut.WaitForAssertion(() =>
+        {
+            spy.RequestedPeriods.Should().Contain("2026-01");
+            cut.FindAll("[data-testid='payment-status-Suspended']").Should().NotBeEmpty();
+            cut.FindAll("[data-testid='payment-status-Calculated']").Should().BeEmpty();
+            cut.FindAll("[data-testid='encaissements-fiscal-pending']").Should().ContainSingle();
         });
     }
 
@@ -178,6 +207,33 @@ public sealed class EncaissementsTests : BunitContext
             }
 
             return Task.FromResult(_model!);
+        }
+    }
+
+    private sealed class SpyEncaissementsQueries : IEncaissementsConsoleQueries
+    {
+        private readonly EncaissementsViewModel _firstLoad;
+        private readonly EncaissementsViewModel _afterPeriodChange;
+        private int _calls;
+
+        public SpyEncaissementsQueries(
+            EncaissementsViewModel firstLoad,
+            EncaissementsViewModel afterPeriodChange)
+        {
+            _firstLoad = firstLoad;
+            _afterPeriodChange = afterPeriodChange;
+        }
+
+        public List<string?> RequestedPeriods { get; } = [];
+
+        public Task<EncaissementsViewModel> GetEncaissementsAsync(
+            string? period,
+            CancellationToken cancellationToken = default)
+        {
+            RequestedPeriods.Add(period);
+            var model = _calls == 0 ? _firstLoad : _afterPeriodChange;
+            _calls++;
+            return Task.FromResult(model);
         }
     }
 

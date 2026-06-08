@@ -15,6 +15,18 @@
 
 <h1>Encaissements</h1>
 
+@* ── Filtre période (F10 §2.4). TOUJOURS visible (même en erreur) pour permettre de re-sélectionner
+   une période et réessayer. L'endpoint /payments filtre par MOIS (« yyyy-MM ») sur le jour
+   d'encaissement — un filtre de DATE pur, jamais une règle fiscale. Le changement recharge le
+   périmètre serveur (re-key de la liste). ── *@
+<div class="enc-filters" data-testid="encaissements-filters">
+    <div class="enc-filters__group">
+        <label class="enc-filters__label" for="enc-period">Période</label>
+        <input id="enc-period" type="month" class="enc-filters__input" data-testid="encaissements-filter-period"
+               value="@_period" @onchange="OnPeriodChangedAsync" />
+    </div>
+</div>
+
 @if (_loadFailed)
 {
     <div role="alert" data-testid="encaissements-error">
@@ -27,17 +39,6 @@ else if (_model is null)
 }
 else
 {
-    @* ── Filtre période (F10 §2.4). L'endpoint /payments filtre par MOIS (« yyyy-MM ») sur le jour
-       d'encaissement — un filtre de DATE pur, jamais une règle fiscale. Le changement recharge le
-       périmètre serveur (re-key de la liste). ── *@
-    <div class="enc-filters" data-testid="encaissements-filters">
-        <div class="enc-filters__group">
-            <label class="enc-filters__label" for="enc-period">Période</label>
-            <input id="enc-period" type="month" class="enc-filters__input" data-testid="encaissements-filter-period"
-                   value="@_period" @onchange="OnPeriodChangedAsync" />
-        </div>
-    </div>
-
     @* ── Bandeau « décision fiscale en attente » : un paramètre fiscal requis pour l'e-reporting de
        paiement n'est pas renseigné (TVA sur les débits / catégorie d'opération). Contrôle de complétude,
        pas une règle fiscale (CLAUDE.md n°2). ── *@
