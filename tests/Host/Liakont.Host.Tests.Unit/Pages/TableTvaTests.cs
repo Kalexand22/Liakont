@@ -158,6 +158,32 @@ public sealed class TableTvaTests : BunitContext
     }
 
     [Fact]
+    public void Editing_a_rule_via_the_editor_calls_update_and_marks_the_table_not_validated()
+    {
+        var fake = FakeTableQueries.Validated("Alice Martin");
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(hasSettings: true));
+        Services.AddScoped<ITvaMappingTableQueries>(_ => fake);
+
+        var cut = Render<TableTva>();
+
+        // Quick-action « Modifier » sur une règle existante → ouverture de l'éditeur (clé figée, valeurs pré-remplies).
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='quick-action-edit']").Should().NotBeEmpty());
+        cut.FindAll("[data-testid='quick-action-edit']")[0].Click();
+
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='tva-rule-editor']").Should().ContainSingle());
+
+        // La règle pré-remplie est déjà valide (clé + catégorie + mode + taux) : enregistrer émet la mise à jour.
+        cut.Find("[data-testid='tva-rule-save-btn']").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            fake.UpdateCalls.Should().Be(1);
+            cut.FindAll("[data-testid='table-tva-not-validated']").Should().ContainSingle();
+            cut.FindAll("[data-testid='tva-rule-editor']").Should().BeEmpty();
+        });
+    }
+
+    [Fact]
     public void Coverage_create_button_opens_the_editor_prefilled_with_the_regime_code()
     {
         Services.AddScoped<IPermissionService>(_ => new FakePermissionService(hasSettings: true));
