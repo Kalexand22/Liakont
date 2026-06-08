@@ -88,11 +88,15 @@ public static class DocumentActionsEndpointMapping
 
             var jobId = await PublishTenantSendAsync(scopeFactory, actor.TenantId, actor.CompanyId, ct);
 
+            // Fidélité de la piste d'audit (produit de conformité) : l'action est INDEXÉE sur le document depuis
+            // lequel l'opérateur a agi (entityId=id), mais le message dit EXPLICITEMENT son périmètre réel — le
+            // SEND du tenant émet TOUS les ReadyToSend (ce document inclus), pas seulement celui-ci (ADR-0016 :
+            // pas de chemin d'envoi mono-document ; SendTenantJob boucle sur l'état, pas sur l'id).
             await activityLogger.LogActivityAsync(
                 DocumentEntityType,
                 id.ToString(),
                 "documents.send_triggered",
-                string.Create(CultureInfo.InvariantCulture, $"Envoi du document {document.DocumentNumber} déclenché par l'opérateur (pipeline d'envoi du tenant publié)."),
+                string.Create(CultureInfo.InvariantCulture, $"Envoi déclenché par l'opérateur depuis le document {document.DocumentNumber} : le traitement d'envoi du tenant émet tous les documents prêts à l'envoi (ce document inclus)."),
                 ActorId(actor),
                 metadata: new { jobId, document.DocumentNumber },
                 companyId: actor.CompanyId,

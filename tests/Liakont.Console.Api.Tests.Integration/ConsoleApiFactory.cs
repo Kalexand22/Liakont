@@ -48,6 +48,13 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     public const string TenantA = "tenant-a";
     public const string TenantB = "tenant-b";
 
+    /// <summary>
+    /// Tenant dédié aux tests d'ACTION (API02a : envoi, déclenchement). Distinct de A/B : les actions
+    /// déclenchent un SEND réel (le JobWorker live consomme les déclencheurs publiés) qui écrit des
+    /// <c>pipeline.run_logs</c> ; les confiner ici évite de polluer les comptes EXACTS qu'API01b asserte sur A/B.
+    /// </summary>
+    public const string TenantAction = "tenant-act";
+
     /// <summary>Tenant dédié aux exports d'archive (API03), avec un coffre réel — toujours SAIN.</summary>
     public const string TenantArchive = "tenant-arch";
 
@@ -91,6 +98,10 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     // Document seedé dans le TENANT B (sert l'isolation : il n'existe pas dans A).
     public static readonly Guid TenantBDocReadyId = new("0b000001-0000-0000-0000-000000000001");
 
+    // Documents seedés dans le TENANT D'ACTION (API02a) : un ReadyToSend (envoi + récapitulatif) et un Blocked (409).
+    public static readonly Guid TenantActDocReadyId = new("0c000001-0000-0000-0000-000000000001");
+    public static readonly Guid TenantActDocBlockedId = new("0c000002-0000-0000-0000-000000000002");
+
     private static readonly Guid ConsoleReaderRoleId = new("33333333-3333-3333-3333-333333333333");
     private static readonly Guid ConsoleAdminRoleId = new("55555555-5555-5555-5555-555555555555");
     private static readonly Guid ConsoleOperatorRoleId = new("77777777-7777-7777-7777-777777777777");
@@ -125,10 +136,12 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         _systemConnectionString = systemConn;
         var tenantAConn = WithDatabase(systemConn, "tc_tenant_a");
         var tenantBConn = WithDatabase(systemConn, "tc_tenant_b");
+        var tenantActConn = WithDatabase(systemConn, "tc_tenant_act");
         var tenantArchConn = WithDatabase(systemConn, "tc_tenant_arch");
         var tenantArchBadConn = WithDatabase(systemConn, "tc_tenant_arch_bad");
         _connectionsByTenant[TenantA] = tenantAConn;
         _connectionsByTenant[TenantB] = tenantBConn;
+        _connectionsByTenant[TenantAction] = tenantActConn;
         _connectionsByTenant[TenantArchive] = tenantArchConn;
         _connectionsByTenant[TenantArchiveTampered] = tenantArchBadConn;
 
@@ -150,6 +163,7 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         builder.Configuration["Database:ConnectionString"] = systemConn;
         builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantA}"] = tenantAConn;
         builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantB}"] = tenantBConn;
+        builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantAction}"] = tenantActConn;
         builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantArchive}"] = tenantArchConn;
         builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantArchiveTampered}"] = tenantArchBadConn;
 
@@ -193,11 +207,13 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         MigrateDatabase(migrationAssemblies, systemConn);
         MigrateDatabase(migrationAssemblies, tenantAConn);
         MigrateDatabase(migrationAssemblies, tenantBConn);
+        MigrateDatabase(migrationAssemblies, tenantActConn);
         MigrateDatabase(migrationAssemblies, tenantArchConn);
         MigrateDatabase(migrationAssemblies, tenantArchBadConn);
 
         await SeedTenantAAsync(tenantAConn);
         await SeedTenantBAsync(tenantBConn);
+        await SeedTenantActionAsync(tenantActConn);
 
         // Les tenants d'archive ne portent que l'identité (les documents sont archivés à la demande par
         // les tests via ArchiveSampleDocumentAsync, sur un coffre réel).
@@ -469,6 +485,22 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
             ON CONFLICT (user_id, role_id) DO NOTHING
             """,
             new { OperatorId = OperatorUserId, OperatorRoleId = ConsoleOperatorRoleId });
+    }
+
+    /// <summary>
+    /// Tenant dédié aux tests d'ACTION (API02a) : identité (dont l'opérateur) + un document ReadyToSend (envoi
+    /// unitaire + récapitulatif send-all : count=1, montant 100.00) + un document Blocked (cas 409). Aucun
+    /// run_log / agrégat seedé ici — les actions y écrivent leurs propres traces sans perturber A/B.
+    /// </summary>
+    private static async Task SeedTenantActionAsync(string connectionString)
+    {
+        await using var conn = new NpgsqlConnection(connectionString);
+        await conn.OpenAsync();
+
+        await SeedIdentityAsync(conn);
+
+        await InsertDocumentAsync(conn, TenantActDocReadyId, "FA-ACT-001", "invoice", new DateOnly(2026, 1, 18), "ReadyToSend", "Client Action", 100.00m);
+        await InsertDocumentAsync(conn, TenantActDocBlockedId, "FA-ACT-002", "invoice", new DateOnly(2026, 2, 18), "Blocked", "Client Action", 200.00m);
     }
 
     private static async Task SeedTenantAAsync(string connectionString)

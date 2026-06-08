@@ -13,7 +13,8 @@ using Xunit;
 /// Tests d'intégration in-process de l'endpoint d'ACTION <c>POST /runs/trigger</c> (API02a) : déclenchement
 /// MANUEL du traitement du tenant courant. Vérifie la permission <c>liakont.actions</c> (401/403), la
 /// publication tenant-scopée sur la queue SYSTÈME (<see cref="SendTenantTrigger"/>, jamais d'orphelin tenant
-/// ni de fan-out), le mode simulation (<c>?dryRun=true</c>) et la journalisation de l'action (Audit).
+/// ni de fan-out), le mode simulation (<c>?dryRun=true</c>) et la journalisation de l'action (Audit). Opère
+/// sur le tenant dédié <see cref="ConsoleApiFactory.TenantAction"/> (cf. les actions documents).
 /// </summary>
 [Collection(ConsoleApiCollectionFixture.Name)]
 public sealed class RunsTriggerEndpointsIntegrationTests
@@ -37,7 +38,7 @@ public sealed class RunsTriggerEndpointsIntegrationTests
     [Fact]
     public async Task PostRunsTrigger_Without_Authentication_Returns_401()
     {
-        using var client = _factory.CreateClient(ConsoleApiFactory.TenantA);
+        using var client = _factory.CreateClient(ConsoleApiFactory.TenantAction);
 
         var response = await client.PostAsync(TriggerPath, content: null);
 
@@ -47,7 +48,7 @@ public sealed class RunsTriggerEndpointsIntegrationTests
     [Fact]
     public async Task PostRunsTrigger_With_Read_Only_Permission_Returns_403()
     {
-        using var client = _factory.CreateClient(ConsoleApiFactory.TenantA, ConsoleApiFactory.ReaderUserId);
+        using var client = _factory.CreateClient(ConsoleApiFactory.TenantAction, ConsoleApiFactory.ReaderUserId);
 
         var response = await client.PostAsync(TriggerPath, content: null);
 
@@ -58,7 +59,7 @@ public sealed class RunsTriggerEndpointsIntegrationTests
     public async Task PostRunsTrigger_As_Operator_Publishes_TenantSend_On_System_Queue_And_Logs()
     {
         var beforeSystem = await _factory.CountSystemJobsAsync(TenantTriggerType);
-        using var client = _factory.CreateClient(ConsoleApiFactory.TenantA, ConsoleApiFactory.OperatorUserId);
+        using var client = _factory.CreateClient(ConsoleApiFactory.TenantAction, ConsoleApiFactory.OperatorUserId);
 
         var response = await client.PostAsync(TriggerPath, content: null);
 
@@ -69,7 +70,7 @@ public sealed class RunsTriggerEndpointsIntegrationTests
         body.DryRun.Should().BeFalse();
 
         (await _factory.CountSystemJobsAsync(TenantTriggerType)).Should().Be(beforeSystem + 1, "le déclenchement manuel publie un SendTenantTrigger sur la queue système");
-        (await _factory.CountTenantJobsAsync(ConsoleApiFactory.TenantA, TenantTriggerType)).Should().Be(0, "aucun job orphelin en base tenant");
+        (await _factory.CountTenantJobsAsync(ConsoleApiFactory.TenantAction, TenantTriggerType)).Should().Be(0, "aucun job orphelin en base tenant");
         (await _factory.CountSystemJobsAsync(AllTriggerType)).Should().Be(0, "aucun fan-out tous-tenants (INV-API02a-4)");
         (await _factory.CountActivitiesAsync("pipeline.run_triggered", "manual-trigger"))
             .Should().BePositive("le déclenchement manuel est journalisé");
@@ -79,7 +80,7 @@ public sealed class RunsTriggerEndpointsIntegrationTests
     public async Task PostRunsTrigger_DryRun_Is_Accepted_As_Simulation()
     {
         var beforeSystem = await _factory.CountSystemJobsAsync(TenantTriggerType);
-        using var client = _factory.CreateClient(ConsoleApiFactory.TenantA, ConsoleApiFactory.OperatorUserId);
+        using var client = _factory.CreateClient(ConsoleApiFactory.TenantAction, ConsoleApiFactory.OperatorUserId);
 
         var response = await client.PostAsync($"{TriggerPath}?dryRun=true", content: null);
 
