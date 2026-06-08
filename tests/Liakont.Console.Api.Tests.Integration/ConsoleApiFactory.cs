@@ -12,6 +12,8 @@ using Liakont.Host.Startup;
 using Liakont.Modules.Archive.Contracts;
 using Liakont.Modules.Archive.Domain;
 using Liakont.Modules.Pipeline.Domain.Payments;
+using Liakont.Modules.Transmission.Contracts;
+using Liakont.PaClients.Fake;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
@@ -70,6 +72,21 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     public const string FiscalPendingReasonText =
         "Décision fiscale en attente (TVA sur les débits / catégorie d'opération) — consultez votre expert-comptable.";
 
+    // Paramétrage tenant seedé — API01c GET /settings (constantes ; les companyId/capacités sont plus bas).
+    public const string TenantASiren = "111111111";
+    public const string TenantBSiren = "222222222";
+    public const string TenantARaisonSociale = "ACME Ventes SARL";
+    public const string TenantBRaisonSociale = "Beta Négoce SAS";
+
+    /// <summary>Type de plug-in PA enregistré dans le harness — ses capacités sont exposées par /settings.</summary>
+    public const string FakePluginType = "Fake";
+
+    /// <summary>Type de PA configuré pour le tenant A SANS plug-in chargé (teste PluginAvailable=false).</summary>
+    public const string UnregisteredPluginType = "UnknownPa";
+
+    public const string TenantATvaVersion = "cmp-A-v1";
+    public const string TenantATvaValidatedBy = "Expert-comptable A";
+
     // Utilisateurs seedés (claim NameIdentifier porté par X-Test-User).
     public static readonly Guid ReaderUserId = new("11111111-1111-1111-1111-111111111111");
     public static readonly Guid NoPermissionUserId = new("22222222-2222-2222-2222-222222222222");
@@ -84,6 +101,28 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
 
     // Document seedé dans le TENANT B (sert l'isolation : il n'existe pas dans A).
     public static readonly Guid TenantBDocReadyId = new("0b000001-0000-0000-0000-000000000001");
+
+    // ── Paramétrage tenant seedé — API01c GET /settings ──
+    /// <summary>Société (companyId) de l'unique profil de paramétrage seedé dans le tenant A.</summary>
+    public static readonly Guid TenantACompanyId = new("aaaaaaaa-0000-0000-0000-0000000000a1");
+
+    /// <summary>Société (companyId) du profil seedé dans le tenant B (sert l'isolation du paramétrage).</summary>
+    public static readonly Guid TenantBCompanyId = new("bbbbbbbb-0000-0000-0000-0000000000b1");
+
+    /// <summary>Capacités déclarées par le plug-in factice enregistré dans le harness (assertions /settings).</summary>
+    public static readonly PaCapabilities FakeCapabilities = new()
+    {
+        PaName = "Plateforme Factice (test)",
+        SupportsB2cReporting = true,
+        SupportsDomesticPaymentReporting = true,
+        SupportsInternationalPaymentReporting = false,
+        SupportsB2bInvoicing = false,
+        SupportsCreditNotes = true,
+        SupportsTaxReportRetrieval = true,
+        SupportsDocumentRetrieval = true,
+        SupportsReportRectification = true,
+        MaxDocumentsPerRequest = 50,
+    };
 
     private static readonly Guid ConsoleReaderRoleId = new("33333333-3333-3333-3333-333333333333");
     private static readonly Guid ConsoleAdminRoleId = new("55555555-5555-5555-5555-555555555555");
@@ -146,6 +185,11 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         builder.Configuration["Keycloak:UseKeycloak"] = "false";
 
         AppBootstrap.ConfigureServices(builder);
+
+        // Plug-in PA factice (PAA02) : le Host n'enregistre aucune PA concrète (CLAUDE.md n°6) ; on en
+        // branche un dans le harness pour que GET /settings (API01c) puisse EXPOSER des capacités PA
+        // déclarées (jamais inventées). Capacités distinctives → assertions stables côté test.
+        builder.Services.AddFakePaClient(new FakePaClientOptions { Capabilities = FakeCapabilities });
 
         // Remplace l'authentification par le schéma de test (X-Test-User → NameIdentifier), schéma par
         // défaut. L'autorisation reste celle de production (décision en base par tenant).
@@ -402,6 +446,18 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         // Agrégats de paiement (pipeline.payment_aggregations) — un Calculated, un Suspended (janvier 2026).
         await InsertPaymentAggregationAsync(conn, new DateOnly(2026, 1, 10), 0.2000m, 100.00m, 20.00m, PaymentAggregationStatus.Calculated.ToString(), reason: null);
         await InsertPaymentAggregationAsync(conn, new DateOnly(2026, 1, 15), 0.2000m, 50.00m, 10.00m, PaymentAggregationStatus.Suspended.ToString(), FiscalPendingReasonText);
+
+        // Paramétrage tenant — API01c GET /settings : profil + fiscal + 2 comptes PA + table TVA validée.
+        await SeedTenantProfileAsync(conn, TenantACompanyId, TenantASiren, TenantARaisonSociale);
+        await SeedFiscalSettingsAsync(conn, TenantACompanyId);
+
+        // Compte PA dont un plug-in EST chargé (Fake) + clé saisie → capacités exposées, HasApiKey=true.
+        await SeedPaAccountAsync(conn, TenantACompanyId, FakePluginType, environment: 0, "compte-fake-a", encryptedApiKey: "enc-fake-a", isActive: true);
+
+        // Compte PA dont AUCUN plug-in n'est chargé + aucune clé → PluginAvailable=false, HasApiKey=false.
+        await SeedPaAccountAsync(conn, TenantACompanyId, UnregisteredPluginType, environment: 1, "compte-inconnu", encryptedApiKey: null, isActive: false);
+
+        await SeedValidatedTvaMappingAsync(conn, TenantACompanyId);
     }
 
     private static async Task SeedTenantBAsync(string connectionString)
@@ -416,6 +472,10 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         // Traitement + agrégat distincts (mars 2026) : le tenant B ne voit jamais ceux du tenant A (isolation).
         await InsertRunLogAsync(conn, "Check", "Scheduled", new DateTimeOffset(2026, 3, 1, 8, 0, 0, TimeSpan.Zero), 2, 2, 0, TenantBRunDetail);
         await InsertPaymentAggregationAsync(conn, new DateOnly(2026, 3, 5), 0.2000m, 300.00m, 60.00m, PaymentAggregationStatus.Calculated.ToString(), reason: null);
+
+        // Profil de paramétrage distinct (API01c) : sert l'isolation /settings (siren ≠ tenant A) ;
+        // le tenant B n'a NI compte PA NI table TVA (vue partielle attendue).
+        await SeedTenantProfileAsync(conn, TenantBCompanyId, TenantBSiren, TenantBRaisonSociale);
     }
 
     private static async Task InsertRunLogAsync(
@@ -475,6 +535,92 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
                 Status = status,
                 Reason = reason,
             });
+    }
+
+    private static async Task SeedTenantProfileAsync(
+        NpgsqlConnection conn,
+        Guid companyId,
+        string siren,
+        string raisonSociale)
+    {
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO tenantsettings.tenant_profiles
+                (company_id, siren, raison_sociale, address_street, address_postal_code, address_city, address_country, statut)
+            VALUES (@CompanyId, @Siren, @RaisonSociale, '1 rue de Test', '35000', 'Rennes', 'FR', 0)
+            """,
+            new { CompanyId = companyId, Siren = siren, RaisonSociale = raisonSociale });
+    }
+
+    private static async Task SeedFiscalSettingsAsync(NpgsqlConnection conn, Guid companyId)
+    {
+        // Paramètres fiscaux partiels : vat_on_debits renseigné, le reste null (décision en attente) —
+        // reportingFrequency en chaîne opaque (jamais interprétée, INV-TENANTSETTINGS-008).
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO tenantsettings.fiscal_settings
+                (company_id, vat_on_debits, operation_category, reporting_frequency, fee_imputation_method)
+            VALUES (@CompanyId, true, NULL, 'mensuel', NULL)
+            """,
+            new { CompanyId = companyId });
+    }
+
+    private static async Task SeedPaAccountAsync(
+        NpgsqlConnection conn,
+        Guid companyId,
+        string pluginType,
+        int environment,
+        string accountIdentifiers,
+        string? encryptedApiKey,
+        bool isActive)
+    {
+        // encrypted_api_key NON NULL = une clé a été saisie (HasApiKey=true) ; la valeur seedée est un
+        // placeholder opaque (la lecture ne sélectionne jamais cette colonne — INV-TENANTSETTINGS-003).
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO tenantsettings.pa_accounts
+                (company_id, plugin_type, environment, account_identifiers, encrypted_api_key, is_active)
+            VALUES (@CompanyId, @PluginType, @Environment, @AccountIdentifiers, @EncryptedApiKey, @IsActive)
+            """,
+            new
+            {
+                CompanyId = companyId,
+                PluginType = pluginType,
+                Environment = environment,
+                AccountIdentifiers = accountIdentifiers,
+                EncryptedApiKey = encryptedApiKey,
+                IsActive = isActive,
+            });
+    }
+
+    private static async Task SeedValidatedTvaMappingAsync(NpgsqlConnection conn, Guid companyId)
+    {
+        // Table TVA VALIDÉE à une règle (catégorie S, taux 20 %, sans VATEX — structurellement valide
+        // pour la re-validation au chargement). default_behavior=0 (Block) ; part=0 (Adjudication) ;
+        // category=1 (VatCategory.S) ; rate_mode=0 (Fixed).
+        var tableId = Guid.NewGuid();
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO tvamapping.mapping_tables
+                (id, company_id, mapping_version, validated_by, validated_date, default_behavior)
+            VALUES (@Id, @CompanyId, @Version, @ValidatedBy, @ValidatedDate, 0)
+            """,
+            new
+            {
+                Id = tableId,
+                CompanyId = companyId,
+                Version = TenantATvaVersion,
+                ValidatedBy = TenantATvaValidatedBy,
+                ValidatedDate = new DateOnly(2026, 5, 1),
+            });
+
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO tvamapping.mapping_rules
+                (table_id, ordinal, source_regime_code, label, part, category, vatex, rate_mode, rate_value)
+            VALUES (@TableId, 0, 'REGIME-A', 'Taux normal 20 %', 0, 1, NULL, 0, 20)
+            """,
+            new { TableId = tableId });
     }
 
     private static async Task InsertDocumentAsync(

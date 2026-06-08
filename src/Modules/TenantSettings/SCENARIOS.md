@@ -24,6 +24,13 @@
 ### ExtractionScheduleTests
 - Heure au mauvais format rejetée — INV-TENANTSETTINGS-002
 
+### TenantSettingsConsoleQueriesTests (API01c)
+- Vue VIDE tant que le profil du tenant n'existe pas (companyId null) — état transitoire, jamais une erreur
+- Projection de l'état de la table TVA (version, validateur, validation, comportement par défaut, nombre de règles)
+- Capacités déclarées exposées pour un compte PA dont le plug-in est chargé (jamais inventées) — INV-TENANTSETTINGS-009
+- Type de PA sans plug-in chargé signalé indisponible (capacités `null`), sans erreur — INV-TENANTSETTINGS-009
+- Le compte PA est passé déjà masqué (`HasApiKey` seul) — INV-TENANTSETTINGS-003
+
 ## Integration Tests (Tests.Integration/ — PostgreSQL Testcontainers)
 
 ### TenantProfileIntegrationTests
@@ -52,3 +59,14 @@
 
 ### JournalingIntegrationTests
 - Une mutation produit une entrée d'activité avec l'identité opérateur — INV-TENANTSETTINGS-005
+
+## Console API Tests (tests/Liakont.Console.Api.Tests.Integration — in-process HTTP + PostgreSQL)
+
+### TenantSettingsEndpointsIntegrationTests (API01c — GET /api/v1/settings)
+- 401 sans authentification, 403 sans permission `liakont.read`
+- Lecture : profil + fiscal + état de la table TVA (validée) du tenant
+- Secrets masqués : la clé chiffrée n'est jamais sérialisée, seul `HasApiKey` est exposé — INV-TENANTSETTINGS-003
+- Capacités PA déclarées exposées pour un compte dont le plug-in (Fake) est chargé — INV-TENANTSETTINGS-009
+- Type de PA non enregistré signalé indisponible (capacités `null`), sans erreur — INV-TENANTSETTINGS-009
+- Vue vide (200) tant que le tenant n'est pas paramétré
+- Isolation tenant : A ≠ B (profil, comptes PA, table TVA) — INV-TENANTSETTINGS-006

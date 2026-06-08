@@ -1,45 +1,31 @@
-# PIP04 — Rectificatifs e-reporting (flux RE annule-et-remplace)
+# API01c — Endpoint de lecture : Paramétrage du tenant (GET /api/v1/settings)
 
-Session orchestration : `orch-20260607-010607-slot1` · slot-1 · sous-branche `feat/pipeline-PIP04`.
+Session orchestration : `orch-20260608-094713-s1` · slot-1 · sous-branche `feat/console-web-API01c`.
 
-## Source fiscale (jamais inventée)
-- F07-F08 §B.1 : correction e-reporting (B2C / paiements) = **flux rectificatif type RE** qui
-  **annule et remplace l'ensemble des données agrégées de la période** (par SIREN + période).
-- F09 §5.4 : trop-perçu / remboursement = montant négatif dans l'agrégat (via rectificatif RE — cf. F7).
-- Périmètre item (re-découpage 2026-06-06) : PIP04 = **mécanisme RE** (builder + idempotence + capacité +
-  historique append-only) sur l'infra d'agrégation **PIP03a**. Les rectificatifs de PAIEMENT (10.4) ne
-  portent de données réelles qu'une fois **PIP03b** actif (fenêtrage + envoi, GELÉ). Le mécanisme RE des
-  e-reporting B2C (10.3) + correction sur avoir/altération source restent V1.
+## Périmètre (v15 — capacités agent RETIRÉES → API01d gelé)
+`GET /api/v1/settings` (permission `liakont.read`, tenant-scopé) exposant :
+- paramétrage tenant visible (profil + fiscal + comptes PA, secrets TOUJOURS masqués → `HasApiKey` seul) ;
+- table TVA (version, validateur, état de validation) — résumé, pas les règles ;
+- capacités du/des PA configurés (`PaCapabilities` via `IPaClientRegistry`).
+AUCUNE capacité agent/adaptateur (reportée à API01d).
 
-## Conception (100 % dans le module Pipeline — frontières respectées)
-- Projection PIP03a `pipeline.payment_aggregations` (jour×taux, `IPaymentAggregationStore.GetAllAsync`)
-  = source des lignes corrigées. Les bornes de période sont une ENTRÉE (pas de fenêtrage = PIP03b).
-- `SendPaymentReportAsync(PaymentReportPeriod{Flux,Start,End})` existe déjà (ne porte pas de lignes — PIP03b
-  les enrichira). Capacité `SupportsReportRectification` existe déjà.
-- Journal `pipeline.report_rectifications` APPEND-ONLY (triggers base) — DISTINCT de `payment_aggregate_events`
-  (audit de transmission écrit par PIP03b) et de la projection (recalculée).
+## Décision d'architecture
+Pattern maison (précédent Archive/API03) : `.Web` ne référence QUE ses propres Contracts ; la
+composition cross-module se fait en **Infrastructure**, exposée par un service de ses propres Contracts.
+Aucun Contracts de module ne référence un autre Contracts de module → l'overview utilise des
+**projections locales** (TvaMappingSummaryDto, PaCapabilitiesSummaryDto) peuplées par le service.
 
-## Tâches
-- [ ] Domain : `RectificationLine`, `ReportRectification`, `ReportRectificationStatus`, `RectificationBuilder`
-      (pur, decimal-only, empreinte SHA-256 déterministe — annule-et-remplace, toutes les lignes de la période).
-- [ ] Application : `IReportRectificationLedger` + `ReportRectificationEntry` (+ réf Transmission.Contracts pour `PaymentReportFlux`).
-- [ ] Contracts : `PipelineRunType.Rectify` (+ `RectifyReportsAllTrigger`).
-- [ ] Infrastructure :
-      - `V005__create_report_rectifications_table.sql` (append-only, triggers UPDATE/DELETE/TRUNCATE).
-      - `PostgresReportRectificationLedger` (Dapper, montants en chaînes invariantes, jamais float).
-      - `ReportRectificationService` (build -> idempotence -> capacité -> transmission Fake -> journal + RunLog).
-      - `ReportRectificationTenantJob` (ITenantJob) + `RectifyReportsAllFanOutHandler` (fan-out SOL06).
-      - DI dans `PipelineModuleRegistration`.
-- [ ] Tests.Unit : `RectificationBuilderTests` (complétude, déterminisme du hash, decimal, filtrage bornes, tri).
-- [ ] Tests.Integration : `ReportRectificationIntegrationTests` (Testcontainer Postgres) —
-      avoir sur période déclarée, rectificatif manuel, PA sans capacité (PendingCapability, aucun envoi),
-      idempotence (double déclenchement = 1 seule transmission), append-only (UPDATE/DELETE rejeté).
-- [ ] Docs module : INV-PIPELINE-033..036 + SCENARIOS.
-- [ ] verify-fast vert · run-tests vert · codex-review propre.
+## Plan
+- [ ] Contracts : `ITenantSettingsConsoleQueries` + DTOs overview (overview / tva summary / pa+caps / caps summary)
+- [ ] Infrastructure : `TenantSettingsConsoleQueries` (compose TenantSettings + TvaMapping + Transmission via Contracts + ITenantContext), garde `IsRegistered` (robustesse type PA non chargé), DI
+- [ ] Infrastructure csproj : + TvaMapping.Contracts + Transmission.Contracts
+- [ ] Web : nouveau projet `Liakont.Modules.TenantSettings.Web` + `MapTenantSettingsEndpoints` (GET /settings)
+- [ ] Host : référence projet + `v1.MapTenantSettingsEndpoints()`
+- [ ] Solution : ajouter le projet Web
+- [ ] Tests d'intégration : seed (profil/fiscal/pa_accounts/TVA) + enregistrer le plug-in Fake dans le harness ; 401/403/200, secrets masqués, état TVA, capacités PA, type PA non enregistré (PluginAvailable=false), isolation tenant
+- [ ] Tests unitaires : projection capacités + garde IsRegistered + overview vide (companyId null)
+- [ ] Docs module : INVARIANTS.md / SCENARIOS.md
+- [ ] verify-fast + run-tests + codex-review propres
 
-## Invariants clés (anti-régression fiscale)
-- Montants `decimal`, jamais float (hash + persistance via chaînes invariantes).
-- Aucune règle fiscale inventée : le rebuild ne fait que re-sommer les lignes existantes de la période.
-- Capacité absente = en attente (jamais d'envoi à l'aveugle, jamais de blocage produit).
-- Journal append-only (triggers base) ; ancien état jamais effacé.
-- Pipeline ne référence aucun plug-in PA concret (NetArchTest) ; tenant-scopé.
+## Review
+(à compléter)
