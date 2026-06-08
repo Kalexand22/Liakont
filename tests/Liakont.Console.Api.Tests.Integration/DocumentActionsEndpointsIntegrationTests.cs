@@ -78,11 +78,15 @@ public sealed class DocumentActionsEndpointsIntegrationTests
     public async Task PostSend_Document_Not_ReadyToSend_Returns_409()
     {
         // Le document bloqué n'est pas envoyable : 409 (et message opérateur en français).
+        var before = await _factory.CountSystemJobsAsync(TenantTriggerType);
         using var client = _factory.CreateClient(ConsoleApiFactory.TenantAction, ConsoleApiFactory.OperatorUserId);
 
         var response = await client.PostAsync(SendPath(ConsoleApiFactory.TenantActDocBlockedId), content: null);
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        // Le contrôle d'état précède la publication : un 409 ne publie AUCUN job (anti-régression « enqueue avant garde »).
+        (await _factory.CountSystemJobsAsync(TenantTriggerType)).Should().Be(before, "un 409 ne publie aucun job");
     }
 
     [Fact]
