@@ -80,6 +80,12 @@ is defined by `max_parallel` in `$ORCH_REPO/config.yaml`.
 When an item is `stale` (session died before completing), the orchestrator
 attempts automatic recovery **before** selecting the next item:
 
+0. **Sync the working tree with `main` first** (`git fetch origin --prune`,
+   `git merge origin/main --no-edit`). Recovery runs `verify-fast` (step 2), whose `manifest-sanity`
+   reads the **working-tree** manifest; on a clone behind `main` a stale manifest fails reciprocity
+   and would sink an otherwise-valid recovery for the wrong reason. On a non-trivial conflict:
+   `git merge --abort` → auto-recovery fails, item stays `stale`, skip it (the operator resolves the
+   segment↔main divergence — never force it).
 1. **Check if committed**: search `git log --oneline` for a commit matching the
    item's expected pattern (e.g., `feat(<scope>): <item_id>` or the item title).
    - If no commit found → auto-recovery fails. Item stays `stale`. Skip it.
@@ -103,7 +109,29 @@ attempts automatic recovery **before** selecting the next item:
 
 ## Step 1 — Read State
 
-1. Read `orchestration/manifest.yaml` — the authoritative backlog (index only).
+### Step 1.0 — Fetch; read the backlog from `main` (do this FIRST)
+
+The manifest is the operator-owned backlog and is **authoritative on `main`**. The copy in the
+current checkout is the *previous* session's segment branch — unrelated to the item this session
+will pick — and may have drifted behind `main`. A stale manifest is the root cause of
+`manifest-sanity` reciprocity failures (state references items the stale manifest does not declare)
+and of selecting superseded items. Do **not** merge that arbitrary branch here: a merge before any
+item is selected would create an unpushed merge commit and could block the whole session on a
+conflict in a segment it was not even going to touch. Instead:
+
+```bash
+git fetch origin --prune
+```
+
+Then read the manifest and run selection (Step 1.1, Step 2) against the **`main` copy**:
+`git show origin/main:orchestration/manifest.yaml`. No branch merge, no working-tree change, no
+pre-selection block. The segment branch the session actually works on is brought up to date with
+`main` in Step 3 §4 — once the correct segment is known — which is what removes the manual
+"merge main + realign clones" sweep an operator otherwise does after bumping the manifest.
+
+1. Read the manifest from `main` — `git show origin/main:orchestration/manifest.yaml` — the
+   authoritative backlog (index only). Per Step 1.0, the copy in the current checkout may be stale;
+   `main` is canonical for the backlog index.
 2. Read `$ORCH_REPO/state.yaml` via `tools/orch-state.ps1 read` — current statuses.
    Note: item details (description, acceptance, executor, blueprint) live in
    `orchestration/items/<lot>.yaml`. Read the relevant lot file in Step 4 when executing.
@@ -197,6 +225,10 @@ integration gate (`type: gate`, `executor` ≠ `human`, `blueprint: auto-gate-it
   - Determine the segment whose `gate` field equals this gate id (e.g. `GATE_CORE_FOUNDATION`
     → segment `core-foundation`, branch `feat/core-foundation`).
   - `git fetch origin`, `git checkout <segment-branch>`, `git pull origin <segment-branch>`.
+    This variant intentionally does **not** `git merge origin/main` (unlike §4 below): `auto-gate-item`
+    is deprecated and its only carriers — GATE_CORE_FOUNDATION / GATE_PA_FRAMEWORK — are terminal
+    (`done`, never re-run). If a new automated gate is ever wired here (discouraged — see Step 1.4),
+    add the same `git merge origin/main --no-edit` so its `manifest-sanity` runs against current `main`.
   - Do **NOT** create a sub-branch. The auto-gate runs verify/tests/review on the segment
     branch itself and then merges it into main (Step 5c). Skip the rest of Step 3.
   - (At claim time in Step 2.5, pass the **segment branch name** as `-Subbranch` — an auto-gate
@@ -209,7 +241,12 @@ integration gate (`type: gate`, `executor` ≠ `human`, `blueprint: auto-gate-it
    `feat/socle-v6/SOL01` (would require `feat/socle-v6` to be a directory) cannot coexist.
 
 4. `git fetch origin`, checkout segment branch (create from `base` if it does not exist yet),
-   `git pull`, then `git checkout -b "$SEGMENT_BRANCH-<item_id>"`.
+   `git pull`, then **sync it with main: `git merge origin/main --no-edit`** (no-op when already
+   current; on a non-trivial conflict: `git merge --abort`, mark the claimed item `blocked`, append
+   the transition to `events.jsonl`, write session-log, release slot, EXIT 1). This brings the
+   segment branch — and the sub-branch created from it — up to date with `main` (manifest, specs,
+   and any upstream segment merged since), so the build and `manifest-sanity` run against current
+   `main`. Then `git checkout -b "$SEGMENT_BRANCH-<item_id>"`.
 
 5. All subsequent work happens on the sub-branch in this clone.
 
@@ -417,7 +454,15 @@ state.yaml at a time.
 
 ## Rules
 
-- **Pull before starting.** First action of every session: `git pull origin <segment-branch>` to pick up work pushed by other agents/slots since the last session. (`origin` is configured — pull is mandatory.)
+- **Fetch at start; sync the segment branch with `main` at checkout.** First action of every
+  session (Step 1.0): `git fetch origin --prune`, then read the manifest / run selection against
+  `origin/main` (the authoritative backlog — do not trust the possibly-stale copy in the current
+  checkout). When the target segment branch is checked out (Step 3 §4): `git pull origin
+  <segment-branch>` then `git merge origin/main --no-edit`, to pick up sibling work AND any
+  manifest/spec/upstream-segment change merged to `main`. A segment branch left behind `main` reads
+  a stale manifest → `manifest-sanity` reciprocity failure. On a non-trivial main-merge conflict:
+  mark the claimed item `blocked` and EXIT 1 (the operator resolves the divergence). (`origin` is
+  configured — pull and push are mandatory.)
 - **ONE item per agent per session.** Implement, verify, review, commit — all in one session.
 - **Each agent works in its own clone.** Clones sync via the remote (git push/fetch).
 - **All state.yaml mutations go through `tools/orch-state.ps1`.** Never edit state.yaml directly.
