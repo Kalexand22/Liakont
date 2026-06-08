@@ -41,8 +41,10 @@ Aucun en TRK07. Le service (`IReconciliationService`) est **appelé directement*
 - le **job système** de réconciliation (`ReconciliationFanOutJobHandler` → `TenantJobRunner` SOL06, fan-out
   sur tous les tenants actifs) — déclenché périodiquement (planification module Job), à la demande
   (API04), et après réception de PDF du pool (hook d'ingestion) ;
-- la **console** (API04/WEB08) : passe à la demande (`RunForCurrentTenantAsync`), confirmation manuelle
-  d'une proposition/d'un orphelin (`ConfirmManualReconciliationAsync`), lectures (`IReconciliationQueries`).
+- la **console** (API04/WEB08) : passe à la demande (`RunForCurrentTenantAsync`), confirmation d'une
+  proposition (`ConfirmProposalAsync`) ou lien manuel d'un orphelin (`ConfirmManualReconciliationAsync`),
+  rejet d'une proposition (`RejectProposalAsync` → redevient orphelin), affichage d'un PDF
+  (`OpenQueueEntryPdfAsync`) et lectures (`IReconciliationQueries`).
 
 > Le SEEDING d'une planification cron et le hook « après réception de PDF du pool » sont du câblage
 > consommateur (lots PIP/OPS et endpoint d'ingestion) ; ce module livre la mécanique réutilisable
@@ -60,8 +62,15 @@ Aucun en TRK07. Le service (`IReconciliationService`) est **appelé directement*
 
 ## Layers
 
-- **Contracts** : `IReconciliationService` (passe + confirmation manuelle), `IReconciliationQueries`
-  (propositions, orphelins, documents sans PDF) + DTOs.
+- **Contracts** : `IReconciliationService` (passe `RunForCurrentTenantAsync` ; lien manuel
+  `ConfirmManualReconciliationAsync` ; et pour la console API04 : `ConfirmProposalAsync` — confirmer la
+  proposition vers le document proposé, `RejectProposalAsync` — rejeter une proposition, qui REDEVIENT un
+  orphelin), `IReconciliationQueries` (propositions, orphelins, documents sans PDF, et
+  `OpenQueueEntryPdfAsync` — flux du PDF d'une entrée pour affichage) + DTOs (dont `ReconciliationPdfContent`).
+- **Web (console, API04)** : `Web/ReconciliationEndpointMapping.cs` monte `/api/v1/reconciliation`
+  (file d'attente, PDF, `confirm`/`reject` d'une proposition, `link` manuel) — permission
+  `liakont.actions`. Aucune logique métier dans les endpoints : ils délèguent au service ; l'identité de
+  l'opérateur (journalisée) vient du contexte authentifié (`IActorContext`).
 - **Domain** : `ReconciliationEngine` (PUR, 3 stratégies + règle d'ambiguïté), `DocumentNumberMatcher`,
   value objects (`PooledPdfContent`, `DocumentCandidate`, `ReconciliationDecision`), entité
   `ReconciliationQueueEntry`, énumérations (`MatchStrategy`, `MatchConfidence`, `ReconciliationStatus`).

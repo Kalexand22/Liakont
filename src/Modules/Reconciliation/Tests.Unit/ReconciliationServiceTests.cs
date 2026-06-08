@@ -10,6 +10,7 @@ using Liakont.Modules.Reconciliation.Application;
 using Liakont.Modules.Reconciliation.Contracts.DTOs;
 using Liakont.Modules.Reconciliation.Domain;
 using Liakont.Modules.Reconciliation.Tests.Unit.Doubles;
+using Stratum.Common.Abstractions.Exceptions;
 using Xunit;
 
 public sealed class ReconciliationServiceTests
@@ -149,5 +150,95 @@ public sealed class ReconciliationServiceTests
         orphans.Should().ContainSingle().Which.Should().Match<OrphanPdfDto>(o =>
             o.FileName == "orphan.pdf" &&
             o.PoolPdfId == "p3");
+    }
+
+    [Fact]
+    public async Task ConfirmProposal_ResolvesToProposedDocument_AndReconciles()
+    {
+        _documents.AddIssued(DocA, "FAC-2026-0200", new DateOnly(2026, 2, 1), 75.00m);
+        _pool.Add("pool-p", "prop.pdf", Text("scan proposition"));
+        var proposal = ReconciliationQueueEntry.PendingProposal("pool-p", "prop.pdf", DocA, "date+montant", DateTimeOffset.UtcNow);
+        await _queue.AddAsync(proposal);
+
+        await CreateService().ConfirmProposalAsync(proposal.Id, "operateur.test");
+
+        proposal.Status.Should().Be(ReconciliationStatus.ReconciledManual);
+        proposal.ProposedDocumentId.Should().Be(DocA);
+        _journal.ManualCalls.Should().ContainSingle().Which.Should().Be((DocA, "operateur.test"));
+    }
+
+    [Fact]
+    public async Task ConfirmProposal_OnOrphan_ThrowsConflict()
+    {
+        var orphan = ReconciliationQueueEntry.Orphan("pool-o", "orphan.pdf", "orphelin", DateTimeOffset.UtcNow);
+        await _queue.AddAsync(orphan);
+
+        Func<Task> act = () => CreateService().ConfirmProposalAsync(orphan.Id, "operateur.test");
+
+        await act.Should().ThrowAsync<ConflictException>();
+    }
+
+    [Fact]
+    public async Task ConfirmProposal_UnknownEntry_ThrowsNotFound()
+    {
+        Func<Task> act = () => CreateService().ConfirmProposalAsync(Guid.NewGuid(), "operateur.test");
+
+        await act.Should().ThrowAsync<NotFoundException>();
+    }
+
+    [Fact]
+    public async Task RejectProposal_ReclassesAsOrphan_WithoutAddendumOrJournal()
+    {
+        var proposal = ReconciliationQueueEntry.PendingProposal("pool-r", "prop.pdf", DocA, "date+montant", DateTimeOffset.UtcNow);
+        await _queue.AddAsync(proposal);
+
+        await CreateService().RejectProposalAsync(proposal.Id, "operateur.test");
+
+        proposal.Status.Should().Be(ReconciliationStatus.Orphan);
+        proposal.ProposedDocumentId.Should().BeNull();
+        proposal.OperatorIdentity.Should().Be("operateur.test");
+        _archive.Addenda.Should().BeEmpty("un rejet ne rapproche rien (aucun addendum WORM)");
+        _journal.ManualCalls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RejectProposal_OnOrphan_ThrowsConflict()
+    {
+        var orphan = ReconciliationQueueEntry.Orphan("pool-o2", "orphan.pdf", "orphelin", DateTimeOffset.UtcNow);
+        await _queue.AddAsync(orphan);
+
+        Func<Task> act = () => CreateService().RejectProposalAsync(orphan.Id, "operateur.test");
+
+        await act.Should().ThrowAsync<ConflictException>();
+    }
+
+    [Fact]
+    public async Task RejectProposal_UnknownEntry_ThrowsNotFound()
+    {
+        Func<Task> act = () => CreateService().RejectProposalAsync(Guid.NewGuid(), "operateur.test");
+
+        await act.Should().ThrowAsync<NotFoundException>();
+    }
+
+    [Fact]
+    public async Task OpenQueueEntryPdf_UnknownEntry_ReturnsNull()
+    {
+        ReconciliationPdfContent? pdf = await CreateService().OpenQueueEntryPdfAsync(Guid.NewGuid());
+
+        pdf.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task OpenQueueEntryPdf_ReturnsStreamAndFileName()
+    {
+        _pool.Add("pool-pdf", "scan.pdf", Text("contenu pdf"));
+        var orphan = ReconciliationQueueEntry.Orphan("pool-pdf", "scan.pdf", "orphelin", DateTimeOffset.UtcNow);
+        await _queue.AddAsync(orphan);
+
+        ReconciliationPdfContent? pdf = await CreateService().OpenQueueEntryPdfAsync(orphan.Id);
+
+        pdf.Should().NotBeNull();
+        pdf!.FileName.Should().Be("scan.pdf");
+        await pdf.Content.DisposeAsync();
     }
 }

@@ -11,7 +11,10 @@ using Dapper;
 using Liakont.Host.Startup;
 using Liakont.Modules.Archive.Contracts;
 using Liakont.Modules.Archive.Domain;
+using Liakont.Modules.Ingestion.Contracts;
 using Liakont.Modules.Pipeline.Domain.Payments;
+using Liakont.Modules.Reconciliation.Application;
+using Liakont.Modules.Reconciliation.Domain;
 using Liakont.Modules.Transmission.Contracts;
 using Liakont.PaClients.Fake;
 using Microsoft.AspNetCore.Authentication;
@@ -56,6 +59,13 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     /// <summary>Tenant dédié au test de chaîne ALTÉRÉE (API03) : un seul test l'archive puis le falsifie.</summary>
     public const string TenantArchiveTampered = "tenant-arch-bad";
 
+    /// <summary>
+    /// Tenant dédié aux tests d'édition API04 (table TVA + réconciliation) : ses MUTATIONS (ajout/suppression
+    /// de règle, invalidation, rejet/confirmation de proposition) ne polluent pas l'état lu par les autres
+    /// suites (tenant A reste « table TVA validée » pour les assertions de paramétrage).
+    /// </summary>
+    public const string TenantApi04 = "tenant-api04";
+
     public const string BlockedReasonText = "Régime TVA non mappé : compléter la table TVA (document FA-A-002).";
 
     public const string OlderBlockedReasonText = "Ancien motif (corrigé puis re-bloqué).";
@@ -94,6 +104,12 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     /// <summary>Utilisateur porteur de liakont.settings (+read) — requis par tenant-export (API03).</summary>
     public static readonly Guid SettingsUserId = new("44444444-4444-4444-4444-444444444444");
 
+    /// <summary>Utilisateur porteur de liakont.actions (+read), SANS liakont.settings — actions opérateur (API04 réconciliation ; et 403 sur l'édition de la table TVA).</summary>
+    public static readonly Guid ActionsUserId = new("66666666-6666-6666-6666-666666666666");
+
+    /// <summary>Société (companyId) du tenant d'édition API04 — claim company_id porté par X-Test-Company.</summary>
+    public static readonly Guid TenantApi04CompanyId = new("cccccccc-0000-0000-0000-0000000000c1");
+
     // Documents seedés dans le TENANT A.
     public static readonly Guid TenantADocReadyId = new("0a000001-0000-0000-0000-000000000001");
     public static readonly Guid TenantADocBlockedId = new("0a000002-0000-0000-0000-000000000002");
@@ -126,6 +142,7 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
 
     private static readonly Guid ConsoleReaderRoleId = new("33333333-3333-3333-3333-333333333333");
     private static readonly Guid ConsoleAdminRoleId = new("55555555-5555-5555-5555-555555555555");
+    private static readonly Guid ConsoleOperatorRoleId = new("77777777-7777-7777-7777-777777777777");
 
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
         .WithImage("postgres:16-alpine")
@@ -135,6 +152,7 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     private readonly Dictionary<string, string> _connectionsByTenant = new(StringComparer.Ordinal);
     private WebApplication? _app;
     private string _archiveStoreRoot = string.Empty;
+    private string _ingestionPdfRoot = string.Empty;
 
     public string BaseUrl => $"http://127.0.0.1:{_port}";
 
@@ -147,10 +165,12 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         var tenantBConn = WithDatabase(systemConn, "tc_tenant_b");
         var tenantArchConn = WithDatabase(systemConn, "tc_tenant_arch");
         var tenantArchBadConn = WithDatabase(systemConn, "tc_tenant_arch_bad");
+        var tenantApi04Conn = WithDatabase(systemConn, "tc_tenant_api04");
         _connectionsByTenant[TenantA] = tenantAConn;
         _connectionsByTenant[TenantB] = tenantBConn;
         _connectionsByTenant[TenantArchive] = tenantArchConn;
         _connectionsByTenant[TenantArchiveTampered] = tenantArchBadConn;
+        _connectionsByTenant[TenantApi04] = tenantApi04Conn;
 
         var hostDir = Path.GetFullPath(Path.Combine(
             AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "Host", "Liakont.Host"));
@@ -172,10 +192,16 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantB}"] = tenantBConn;
         builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantArchive}"] = tenantArchConn;
         builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantArchiveTampered}"] = tenantArchBadConn;
+        builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantApi04}"] = tenantApi04Conn;
 
         // Coffre d'archive sur un répertoire de test dédié et isolé (un par run) ; nettoyé au Dispose.
         _archiveStoreRoot = Path.Combine(Path.GetTempPath(), "liakont-console-archive", Guid.NewGuid().ToString("N"));
         builder.Configuration["Archive:Storage:FileSystem:RootPath"] = _archiveStoreRoot;
+
+        // Racine du stockage fichier des PDF d'ingestion (pool de réconciliation, API04) — répertoire de
+        // test dédié et isolé, nettoyé au Dispose.
+        _ingestionPdfRoot = Path.Combine(Path.GetTempPath(), "liakont-console-pdf", Guid.NewGuid().ToString("N"));
+        builder.Configuration["Ingestion:Storage:PdfRootPath"] = _ingestionPdfRoot;
 
         // Keycloak factice (login désactivé) : l'abstraction d'IdP exige une autorité configurée, mais
         // aucun chemin OIDC/JWT n'est exercé — le schéma « Test » est le schéma par défaut ci-dessous.
@@ -220,6 +246,7 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         MigrateDatabase(migrationAssemblies, tenantBConn);
         MigrateDatabase(migrationAssemblies, tenantArchConn);
         MigrateDatabase(migrationAssemblies, tenantArchBadConn);
+        MigrateDatabase(migrationAssemblies, tenantApi04Conn);
 
         await SeedTenantAAsync(tenantAConn);
         await SeedTenantBAsync(tenantBConn);
@@ -228,6 +255,10 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         // les tests via ArchiveSampleDocumentAsync, sur un coffre réel).
         await SeedIdentityOnlyAsync(tenantArchConn);
         await SeedIdentityOnlyAsync(tenantArchBadConn);
+
+        // Tenant d'édition API04 : identité + une table TVA VALIDÉE (les tests mutent cette table sans
+        // toucher l'état lu par les autres suites). La réconciliation est seedée à la demande par les tests.
+        await SeedTenantApi04Async(tenantApi04Conn);
 
         await _app.StartAsync();
     }
@@ -242,6 +273,7 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
 
         await _postgres.DisposeAsync().AsTask();
         DeleteArchiveStore();
+        DeleteIngestionPdfStore();
     }
 
     async ValueTask IAsyncDisposable.DisposeAsync()
@@ -253,13 +285,20 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     /// Crée un client HTTP ciblant l'hôte in-process, avec l'en-tête de tenant (<c>X-Tenant-Id</c>) et,
     /// si fourni, l'identité de test (<c>X-Test-User</c>). Sans utilisateur, la requête est anonyme.
     /// </summary>
-    public HttpClient CreateClient(string tenantId, Guid? userId = null)
+    public HttpClient CreateClient(string tenantId, Guid? userId = null, Guid? companyId = null)
     {
         var client = new HttpClient { BaseAddress = new Uri(BaseUrl) };
         client.DefaultRequestHeaders.Add("X-Tenant-Id", tenantId);
         if (userId is { } user)
         {
             client.DefaultRequestHeaders.Add(TestAuthHandler.UserHeader, user.ToString());
+        }
+
+        // company_id : porté par le jeton en production (Keycloak) ; fourni ici pour les endpoints scopés
+        // société (table TVA, API04). Omis = aucun claim company_id (comportement historique inchangé).
+        if (companyId is { } company)
+        {
+            client.DefaultRequestHeaders.Add(TestAuthHandler.CompanyHeader, company.ToString());
         }
 
         return client;
@@ -365,10 +404,11 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
             INSERT INTO identity.roles (id, name, description, is_system)
             VALUES
                 (@ReaderRoleId, 'console-reader', 'Lecture console (tests)', false),
-                (@AdminRoleId, 'console-admin', 'Administration console (tests)', false)
+                (@AdminRoleId, 'console-admin', 'Administration console (tests)', false),
+                (@OperatorRoleId, 'console-operator', 'Actions opérateur console (tests)', false)
             ON CONFLICT (id) DO NOTHING
             """,
-            new { ReaderRoleId = ConsoleReaderRoleId, AdminRoleId = ConsoleAdminRoleId });
+            new { ReaderRoleId = ConsoleReaderRoleId, AdminRoleId = ConsoleAdminRoleId, OperatorRoleId = ConsoleOperatorRoleId });
 
         await conn.ExecuteAsync(
             """
@@ -376,10 +416,12 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
             VALUES
                 (@ReaderRoleId, 'liakont.read', 'liakont'),
                 (@AdminRoleId, 'liakont.read', 'liakont'),
-                (@AdminRoleId, 'liakont.settings', 'liakont')
+                (@AdminRoleId, 'liakont.settings', 'liakont'),
+                (@OperatorRoleId, 'liakont.read', 'liakont'),
+                (@OperatorRoleId, 'liakont.actions', 'liakont')
             ON CONFLICT (role_id, permission) DO NOTHING
             """,
-            new { ReaderRoleId = ConsoleReaderRoleId, AdminRoleId = ConsoleAdminRoleId });
+            new { ReaderRoleId = ConsoleReaderRoleId, AdminRoleId = ConsoleAdminRoleId, OperatorRoleId = ConsoleOperatorRoleId });
 
         await conn.ExecuteAsync(
             """
@@ -387,20 +429,22 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
             VALUES
                 (@ReaderId, 'console.reader', 'reader@test.local', 'Console Reader', 'x', true),
                 (@NoPermId, 'console.noperm', 'noperm@test.local', 'Console NoPerm', 'x', true),
-                (@SettingsId, 'console.admin', 'admin@test.local', 'Console Admin', 'x', true)
+                (@SettingsId, 'console.admin', 'admin@test.local', 'Console Admin', 'x', true),
+                (@ActionsId, 'console.operator', 'operator@test.local', 'Console Operator', 'x', true)
             ON CONFLICT (id) DO NOTHING
             """,
-            new { ReaderId = ReaderUserId, NoPermId = NoPermissionUserId, SettingsId = SettingsUserId });
+            new { ReaderId = ReaderUserId, NoPermId = NoPermissionUserId, SettingsId = SettingsUserId, ActionsId = ActionsUserId });
 
         await conn.ExecuteAsync(
             """
             INSERT INTO identity.user_roles (user_id, role_id)
             VALUES
                 (@ReaderId, @ReaderRoleId),
-                (@SettingsId, @AdminRoleId)
+                (@SettingsId, @AdminRoleId),
+                (@ActionsId, @OperatorRoleId)
             ON CONFLICT (user_id, role_id) DO NOTHING
             """,
-            new { ReaderId = ReaderUserId, ReaderRoleId = ConsoleReaderRoleId, SettingsId = SettingsUserId, AdminRoleId = ConsoleAdminRoleId });
+            new { ReaderId = ReaderUserId, ReaderRoleId = ConsoleReaderRoleId, SettingsId = SettingsUserId, AdminRoleId = ConsoleAdminRoleId, ActionsId = ActionsUserId, OperatorRoleId = ConsoleOperatorRoleId });
     }
 
     private static async Task SeedTenantAAsync(string connectionString)
@@ -476,6 +520,45 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         // Profil de paramétrage distinct (API01c) : sert l'isolation /settings (siren ≠ tenant A) ;
         // le tenant B n'a NI compte PA NI table TVA (vue partielle attendue).
         await SeedTenantProfileAsync(conn, TenantBCompanyId, TenantBSiren, TenantBRaisonSociale);
+    }
+
+    private static async Task SeedTenantApi04Async(string connectionString)
+    {
+        await using var conn = new NpgsqlConnection(connectionString);
+        await conn.OpenAsync();
+
+        await SeedIdentityAsync(conn);
+
+        // Table TVA VALIDÉE (une règle) : les tests d'édition API04 partent d'un état validé pour vérifier
+        // l'invalidation après mutation, puis la re-validation. Isolée des autres suites (tenant dédié).
+        await SeedValidatedTvaMappingAsync(conn, TenantApi04CompanyId);
+    }
+
+    /// <summary>
+    /// Seede une PROPOSITION de réconciliation FRAÎCHE dans le tenant : archive un document émis (paquet
+    /// WORM réel, pour que la confirmation puisse y ajouter un addendum), dépose un PDF dans le pool, et
+    /// ajoute une entrée de file « proposition en attente » pointant ce document. Chaque appel crée des
+    /// entrées DISTINCTES (pas d'interférence entre tests). Retourne l'entrée, le document et le PDF déposé.
+    /// </summary>
+    public async Task<(Guid EntryId, Guid DocumentId, string FileName, byte[] Bytes)> SeedReconciliationProposalAsync(
+        string tenant,
+        CancellationToken cancellationToken = default)
+    {
+        var docNumber = "FA-RECON-" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        var documentId = await ArchiveSampleDocumentAsync(tenant, docNumber, new DateOnly(2026, 4, 1), cancellationToken);
+        var (entryId, fileName, bytes) = await AddPooledQueueEntryAsync(tenant, documentId, isProposal: true, cancellationToken);
+        return (entryId, documentId, fileName, bytes);
+    }
+
+    /// <summary>
+    /// Seede un ORPHELIN de réconciliation FRAIS dans le tenant : dépose un PDF dans le pool et ajoute une
+    /// entrée de file « orphelin ». Retourne l'entrée et le PDF déposé.
+    /// </summary>
+    public async Task<(Guid EntryId, string FileName, byte[] Bytes)> SeedReconciliationOrphanAsync(
+        string tenant,
+        CancellationToken cancellationToken = default)
+    {
+        return await AddPooledQueueEntryAsync(tenant, documentId: null, isProposal: false, cancellationToken);
     }
 
     private static async Task InsertRunLogAsync(
@@ -722,6 +805,46 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         return port;
     }
 
+    private async Task<(Guid EntryId, string FileName, byte[] Bytes)> AddPooledQueueEntryAsync(
+        string tenant,
+        Guid? documentId,
+        bool isProposal,
+        CancellationToken cancellationToken)
+    {
+        var fileName = "recon-" + Guid.NewGuid().ToString("N")[..8] + ".pdf";
+        var bytes = Encoding.UTF8.GetBytes("%PDF-1.4 reconciliation test " + fileName);
+
+        var scopeFactory = _app!.Services.GetRequiredService<ITenantScopeFactory>();
+        await using ITenantScope scope = scopeFactory.Create(tenant);
+        var pdfStore = scope.Services.GetRequiredService<IIngestedPdfStore>();
+        var queue = scope.Services.GetRequiredService<IReconciliationQueueStore>();
+
+        await using (var ms = new MemoryStream(bytes))
+        {
+            await pdfStore.SavePooledPdfAsync(tenant, fileName, ms, cancellationToken);
+        }
+
+        var pooled = await pdfStore.ListPooledPdfsAsync(tenant, cancellationToken);
+        var reference = pooled.Single(p => string.Equals(p.FileName, fileName, StringComparison.Ordinal));
+
+        var nowUtc = DateTimeOffset.UtcNow;
+        var entry = isProposal
+            ? ReconciliationQueueEntry.PendingProposal(
+                reference.PoolPdfId,
+                reference.FileName,
+                documentId!.Value,
+                "Proposition (date + montant) — fixture API04.",
+                nowUtc)
+            : ReconciliationQueueEntry.Orphan(
+                reference.PoolPdfId,
+                reference.FileName,
+                "Orphelin (aucune correspondance) — fixture API04.",
+                nowUtc);
+
+        await queue.AddAsync(entry, cancellationToken);
+        return (entry.Id, reference.FileName, bytes);
+    }
+
     private string ConnectionStringFor(string tenant) =>
         _connectionsByTenant.TryGetValue(tenant, out string? conn)
             ? conn
@@ -741,5 +864,15 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         }
 
         Directory.Delete(_archiveStoreRoot, recursive: true);
+    }
+
+    private void DeleteIngestionPdfStore()
+    {
+        if (string.IsNullOrEmpty(_ingestionPdfRoot) || !Directory.Exists(_ingestionPdfRoot))
+        {
+            return;
+        }
+
+        Directory.Delete(_ingestionPdfRoot, recursive: true);
     }
 }

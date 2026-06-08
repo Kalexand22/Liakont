@@ -73,6 +73,15 @@
 
 ## Integration (`Tests.Integration`, Testcontainers PostgreSQL)
 
+### Endpoints console API04 (`tests/Liakont.Console.Api.Tests.Integration/TvaMappingEndpointsIntegrationTests`)
+> Tests d'intégration in-process (harness HTTP API01a + Testcontainers). Les MUTATIONS portent sur un tenant dédié (`tenant-api04`).
+- `GetTvaMapping_Without_Authentication_Returns_401` / `..._Without_Read_Permission_Returns_403` — accès en lecture protégé par `liakont.read`.
+- `GetTvaMapping_As_Reader_Returns_Configured_Table` — la table du tenant (+ règles) est exposée.
+- `GetTvaMapping_Is_Company_Scoped` / `..._Tenant_Isolation_Empty_Table_In_Other_Tenant` — scoping par société et par tenant (CLAUDE.md n°9, table absente = `null`).
+- `Edit_Lifecycle_As_Settings_User_Goes_Through_Tva05_Engine` — ajout (→ invalidation + journal `AddRule`), modification, suppression, re-validation : toute mutation passe par le moteur TVA05.
+- `AddRule_As_Actions_User_Without_Settings_Returns_403` / `AddRule_Without_Authentication_Returns_401` / `ValidateMapping_As_Reader_Without_Settings_Returns_403` — l'édition exige `liakont.settings`.
+- `UpdateRule_Route_Body_Mismatch_Returns_400` — la clé (code régime / part) de l'URL doit correspondre au corps.
+
 ### MappingTablePersistenceIntegrationTests (INV-TVAMAPPING-004..008)
 - `Insert_And_Get_RoundTrips_All_Fields` — en-tête + règles persistés et relus à l'identique (taux decimal exact).
 - `Get_Returns_Null_When_No_Table_For_Tenant` — absence de table = `null`.
