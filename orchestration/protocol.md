@@ -80,19 +80,42 @@ is defined by `max_parallel` in `$ORCH_REPO/config.yaml`.
 When an item is `stale` (session died before completing), the orchestrator
 attempts automatic recovery **before** selecting the next item:
 
-0. **Sync the working tree with `main` first** (`git fetch origin --prune`,
+0. **Sync the working tree with `main` first** (`git fetch origin --prune`, then
    `git merge origin/main --no-edit`). Recovery runs `verify-fast` (step 2), whose `manifest-sanity`
    reads the **working-tree** manifest; on a clone behind `main` a stale manifest fails reciprocity
-   and would sink an otherwise-valid recovery for the wrong reason. On a non-trivial conflict:
-   `git merge --abort` → auto-recovery fails, item stays `stale`, skip it (the operator resolves the
-   segment↔main divergence — never force it).
+   and would sink an otherwise-valid recovery for the wrong reason. The sync has **two distinct
+   failure modes** — handle **both**, and in **neither** touch the leftover changes (recovery is
+   non-destructive: never stash/reset):
+   - **Dirty working tree** — the dead session left uncommitted changes (likely, since it died
+     mid-work). If they touch files the merge would update, `git merge` fails **before starting**
+     (`Your local changes … would be overwritten by merge`). This is **not** a conflict, and
+     `git merge --abort` would then answer `fatal: There is no merge to abort`. So do **not** run
+     `--abort`: detect the dirty tree up front (`git status --porcelain` non-empty) and **skip the
+     merge entirely** → auto-recovery fails gracefully, item stays `stale` (the operator inspects the
+     leftover work). This is the most common recovery failure mode — it must not be reduced to "conflict".
+   - **Non-trivial merge conflict** — the merge started, then conflicted: `git merge --abort` →
+     auto-recovery fails, item stays `stale`, skip it (the operator resolves the segment↔main
+     divergence — never force it).
 1. **Check if committed**: search `git log --oneline` for a commit matching the
    item's expected pattern (e.g., `feat(<scope>): <item_id>` or the item title).
    - If no commit found → auto-recovery fails. Item stays `stale`. Skip it.
 2. **Verify the commit**: run `powershell -ExecutionPolicy Bypass -File tools/verify-fast.ps1`.
    - If **FAIL** → auto-recovery fails. Item stays `stale`. Skip it.
-3. **Run codex-review**: run `powershell -ExecutionPolicy Bypass -File tools/codex-review.ps1 -Base "<commit>~1"`.
-   - If **P1 findings**: fix them autonomously, commit fixes, re-run review (standard loop).
+3. **Run codex-review** scoped to the recovered commit **alone**:
+   `powershell -ExecutionPolicy Bypass -File tools/codex-review.ps1 -Commit "<commit>"`.
+   Do **NOT** use `-Base "<commit>~1"` here: step 0 merged `origin/main`, so `HEAD` is now the merge
+   commit and `codex-review`'s `-Base` does a three-point diff (`git diff "<commit>~1...HEAD"`) that
+   would balloon the review to **the entire merge of `main`** — wasting tokens, surfacing unrelated
+   `main` findings that sink an otherwise-valid recovery, and (worst) letting the autonomous fix loop
+   modify `main` code unrelated to the item. `-Commit` reviews exactly the recovered work
+   (`git show <commit>`).
+   - If **P1 findings**: fix them autonomously and **commit the fix** as a new commit `<fix-sha>`,
+     then re-review **that fix commit alone** — `tools/codex-review.ps1 -Commit "<fix-sha>" -Round N`
+     (a fresh `git show <fix-sha>` each round; `<fix-sha>` is the latest fix commit, never the
+     original `<commit>`, which is frozen and would just resurface the same findings). Do **not**
+     fall back to a `-Base` re-review here: with the `origin/main` merge commit interposed between
+     the recovered work and the fix, **any** `-Base` ref earlier than the fix re-includes that merge
+     — the same balloon. `-Commit` per round is the only scope that captures "the fix alone".
    - If fixes fail after 3 rounds → auto-recovery fails. Item stays `stale`. Skip it.
 4. **Mark done**: `tools/orch-state.ps1 update -ItemId <id> -Status done`
 5. **Write recovery session log**: `$ORCH_REPO/session-log/<session_id>_<item_id>_RECOVERY.md`
@@ -234,8 +257,13 @@ integration gate (`type: gate`, `executor` ≠ `human`, `blueprint: auto-gate-it
   - (At claim time in Step 2.5, pass the **segment branch name** as `-Subbranch` — an auto-gate
     has no sub-branch; the field just records where the work happens.)
 
-1. Determine the item's segment: find which segment in the manifest contains the item's `lot`.
-2. Get the segment branch name from `segments.<segment>.branch` (e.g., `feat/core-foundation`).
+1. Determine the item's segment from the **`main` manifest** — the same authoritative copy read in
+   Step 1.0/1.1 (`git show origin/main:orchestration/manifest.yaml`): find which segment contains the
+   item's `lot`. Do **not** read the working-tree manifest here — it is only synced with `main` in §4
+   below, so a lot↔segment mapping (or a brand-new segment) added on `main` since the last session
+   would be missing and could route the item to the wrong branch (or fail to resolve the segment).
+2. Get the segment branch name from `segments.<segment>.branch` in that same `main` manifest
+   (e.g., `feat/core-foundation`).
 3. Define the sub-branch name: `<segment-branch>-<item_id>` (e.g., `feat/core-foundation-PIV01`).
    **Dash separator, never a slash**: git refs are stored as files, so `feat/socle-v6` (file) and
    `feat/socle-v6/SOL01` (would require `feat/socle-v6` to be a directory) cannot coexist.
