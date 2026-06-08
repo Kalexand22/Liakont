@@ -72,6 +72,7 @@ public sealed class ReconciliationEndpointsIntegrationTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Content.Headers.ContentType!.MediaType.Should().Be("application/pdf");
+        response.Content.Headers.ContentDisposition!.DispositionType.Should().Be("inline", "le PDF s'affiche dans la console, il n'est pas téléchargé (WEB08)");
         var body = await response.Content.ReadAsByteArrayAsync();
         body.Should().Equal(orphan.Bytes);
     }

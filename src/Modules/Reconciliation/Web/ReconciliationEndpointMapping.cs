@@ -46,10 +46,11 @@ public static class ReconciliationEndpointMapping
             });
         }).RequireAuthorization(ActionPermission);
 
-        // GET /api/v1/reconciliation/{id}/pdf — contenu du PDF (affichage navigateur).
+        // GET /api/v1/reconciliation/{id}/pdf — contenu du PDF pour AFFICHAGE navigateur (WEB08).
         group.MapGet("/{id:guid}/pdf", async (
             Guid id,
             IReconciliationQueries queries,
+            HttpContext http,
             CancellationToken ct) =>
         {
             ReconciliationPdfContent? pdf = await queries.OpenQueueEntryPdfAsync(id, ct);
@@ -58,8 +59,12 @@ public static class ReconciliationEndpointMapping
                 return Results.NotFound();
             }
 
-            // Results.File DISPOSE le flux après écriture (enableRangeProcessing par défaut désactivé).
-            return Results.File(pdf.Content, "application/pdf", pdf.FileName);
+            // Affichage INLINE (pas de téléchargement) : l'écran de réconciliation montre le PDF dans la
+            // page (≠ export d'archive qui, lui, est en `attachment`). Le nom de fichier du pool est
+            // assaini (lettres/chiffres/-/_/.), sans risque d'injection d'en-tête. `Results.File` sans
+            // `fileDownloadName` n'ajoute PAS de `Content-Disposition` et DISPOSE le flux après écriture.
+            http.Response.Headers.ContentDisposition = $"inline; filename=\"{pdf.FileName}\"";
+            return Results.File(pdf.Content, "application/pdf");
         }).RequireAuthorization(ActionPermission);
 
         // POST /api/v1/reconciliation/{id}/confirm — confirme la proposition (vers le document proposé).
