@@ -125,6 +125,7 @@
                                     <span class="liakont-doc-actions__candidate-customer">@(string.IsNullOrWhiteSpace(candidate.CustomerName) ? "acheteur non renseigné" : candidate.CustomerName)</span>
                                     <span class="liakont-doc-actions__candidate-date">@candidate.IssueDate.ToString("dd/MM/yyyy", Fr)</span>
                                     <span class="liakont-doc-actions__candidate-amount">@candidate.TotalGross.ToString("N2", Fr)</span>
+                                    <span class="liakont-doc-actions__candidate-state"><DocumentStateBadge State="@candidate.State" TestId="@($"document-supersede-candidate-state-{candidate.Id}")" /></span>
                                 </label>
                             </li>
                         }
@@ -175,6 +176,7 @@
     private string? _search;
     private IReadOnlyList<DocumentReplacementCandidate> _candidates = Array.Empty<DocumentReplacementCandidate>();
     private Guid? _selectedReplacementId;
+    private int _searchGeneration;
 
     /// <summary>Identifiant du document sur lequel agir.</summary>
     [Parameter, EditorRequired]
@@ -253,9 +255,17 @@
 
     private async Task LoadCandidatesAsync()
     {
+        var generation = ++_searchGeneration;
         try
         {
-            _candidates = await Resolution.SearchReplacementCandidatesAsync(DocumentId, _search);
+            var results = await Resolution.SearchReplacementCandidatesAsync(DocumentId, _search);
+
+            if (generation != _searchGeneration)
+            {
+                return;
+            }
+
+            _candidates = results;
 
             // La sélection courante peut être sortie des résultats après affinage de la recherche.
             if (_selectedReplacementId is { } selected && !ContainsCandidate(selected))
@@ -265,6 +275,11 @@
         }
         catch (Exception ex)
         {
+            if (generation != _searchGeneration)
+            {
+                return;
+            }
+
             _candidates = Array.Empty<DocumentReplacementCandidate>();
             _error = "La recherche de documents a échoué. Réessayez plus tard.";
             Logger.LogError(ex, "Replacement candidate search failed for document {DocumentId}.", DocumentId);

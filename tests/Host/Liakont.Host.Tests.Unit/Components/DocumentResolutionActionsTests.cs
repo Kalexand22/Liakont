@@ -139,6 +139,8 @@ public sealed class DocumentResolutionActionsTests : BunitContext
 
         cut.WaitForAssertion(() =>
             cut.FindAll($"[data-testid='document-supersede-candidate-{replacement.Id}']").Should().ContainSingle());
+        cut.FindAll($"[data-testid='document-supersede-candidate-state-{replacement.Id}']").Should().ContainSingle(
+            "l'état du document candidat est affiché dans le sélecteur (F10 interdit le libellé technique brut)");
         service.LastSearchExcludedId.Should().Be(DocId, "la recherche exclut le document rejeté lui-même");
 
         cut.Find("[data-testid='document-supersede-confirm']").HasAttribute("disabled").Should().BeTrue(
