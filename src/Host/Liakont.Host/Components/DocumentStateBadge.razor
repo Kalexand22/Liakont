@@ -1,0 +1,23 @@
+@namespace Liakont.Host.Components
+@using Stratum.Common.UI.Models
+
+@* DocumentStateBadge — pastille d'état d'un document avec le vocabulaire opérateur français de F10
+ * §2.2. Bâtie sur le composant de design-system StatusBadge (Intent=Severity) : aucune pastille
+ * « maison ». L'état est passé en chaîne (la clé de DocumentListResult.CountsByState) pour rester
+ * découplé de l'enum du module Documents. *@
+
+<StatusBadge Label="@_display.Label"
+             Severity="@_display.Severity"
+             TestId="@(TestId ?? $"doc-state-{State}")" />
+
+@code {
+    /// <summary>Nom de l'état du document (ex. <c>Issued</c>). Voir <see cref="DocumentStateDisplay"/>.</summary>
+    [Parameter, EditorRequired]
+    public string State { get; set; } = string.Empty;
+
+    /// <summary>Identifiant de test optionnel ; défaut <c>doc-state-{State}</c>.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    private (string Label, Severity Severity) _display => DocumentStateDisplay.For(State);
+}
