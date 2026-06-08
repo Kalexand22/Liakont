@@ -58,6 +58,64 @@ internal sealed class DocumentLifecycle : IDocumentLifecycle
     public Task MarkTechnicalErrorAsync(Guid documentId, CancellationToken cancellationToken = default) =>
         TransitionAsync(documentId, (document, at) => document.MarkTechnicalError(at), cancellationToken);
 
+    public async Task<DocumentResolutionOutcome> ResolveManuallyAsync(
+        Guid documentId, string reason, string operatorIdentity, CancellationToken cancellationToken = default)
+    {
+        await using IDocumentUnitOfWork unitOfWork = await _unitOfWorkFactory.BeginAsync(cancellationToken);
+
+        Document? document = await unitOfWork.GetForUpdateAsync(documentId, cancellationToken);
+        if (document is null)
+        {
+            return DocumentResolutionOutcome.DocumentNotFound;
+        }
+
+        // Sources autorisées de « traité manuellement » : Blocked ou RejectedByPa (machine à états TRK02).
+        // Vérifié SOUS le verrou FOR UPDATE (autoritaire — pas de TOCTOU) plutôt que de laisser la transition lever.
+        if (document.State is not (DocumentState.Blocked or DocumentState.RejectedByPa))
+        {
+            return DocumentResolutionOutcome.InvalidState;
+        }
+
+        DocumentEvent documentEvent = document.MarkManuallyHandled(reason, operatorIdentity, _timeProvider.GetUtcNow());
+        await unitOfWork.UpsertDocumentAsync(document, cancellationToken);
+        await unitOfWork.AppendEventAsync(documentEvent, cancellationToken);
+        await unitOfWork.CommitAsync(cancellationToken);
+        return DocumentResolutionOutcome.Succeeded;
+    }
+
+    public async Task<DocumentResolutionOutcome> SupersedeAsync(
+        Guid documentId, Guid replacementDocumentId, string operatorIdentity, CancellationToken cancellationToken = default)
+    {
+        await using IDocumentUnitOfWork unitOfWork = await _unitOfWorkFactory.BeginAsync(cancellationToken);
+
+        Document? document = await unitOfWork.GetForUpdateAsync(documentId, cancellationToken);
+        if (document is null)
+        {
+            return DocumentResolutionOutcome.DocumentNotFound;
+        }
+
+        // L'état est vérifié AVANT de charger le remplaçant : seul un document RejectedByPa peut être remplacé.
+        if (document.State is not DocumentState.RejectedByPa)
+        {
+            return DocumentResolutionOutcome.InvalidState;
+        }
+
+        // Le remplaçant doit EXISTER dans le tenant courant (même connexion = même tenant — database-per-tenant).
+        // On le charge pour obtenir sa référence AUTORITAIRE (numéro créé par le logiciel source, F06 §4) : la
+        // passerelle ne fabrique jamais de numéro de remplacement.
+        Document? replacement = await unitOfWork.GetForUpdateAsync(replacementDocumentId, cancellationToken);
+        if (replacement is null)
+        {
+            return DocumentResolutionOutcome.ReplacementNotFound;
+        }
+
+        DocumentEvent documentEvent = document.Supersede(replacement.DocumentNumber, operatorIdentity, _timeProvider.GetUtcNow());
+        await unitOfWork.UpsertDocumentAsync(document, cancellationToken);
+        await unitOfWork.AppendEventAsync(documentEvent, cancellationToken);
+        await unitOfWork.CommitAsync(cancellationToken);
+        return DocumentResolutionOutcome.Succeeded;
+    }
+
     private async Task TransitionAsync(
         Guid documentId,
         Func<Document, DateTimeOffset, DocumentEvent> transition,

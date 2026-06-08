@@ -161,6 +161,12 @@ internal static class SendTestDoubles
             TechnicalError.Add(documentId);
             return Task.CompletedTask;
         }
+
+        public Task<DocumentResolutionOutcome> ResolveManuallyAsync(Guid documentId, string reason, string operatorIdentity, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<DocumentResolutionOutcome> SupersedeAsync(Guid documentId, Guid replacementDocumentId, string operatorIdentity, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     internal sealed class MapStagingStore : IPayloadStagingStore

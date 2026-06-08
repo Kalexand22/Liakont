@@ -133,6 +133,15 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     public static readonly Guid TenantActDocReadyId = new("0c000001-0000-0000-0000-000000000001");
     public static readonly Guid TenantActDocBlockedId = new("0c000002-0000-0000-0000-000000000002");
 
+    // Documents seedés dans le TENANT D'ACTION pour les RÉSOLUTIONS TERMINALES (API02c). Chacun est DÉDIÉ à
+    // un scénario (isolation de la fixture partagée) ; AUCUN n'est ReadyToSend (le récap d'envoi API02a compte
+    // exactement 1 ReadyToSend dans ce tenant).
+    public static readonly Guid TenantActDocResolveBlockedId = new("0c000003-0000-0000-0000-000000000003");
+    public static readonly Guid TenantActDocResolveRejectedId = new("0c000004-0000-0000-0000-000000000004");
+    public static readonly Guid TenantActDocSupersedeRejectedId = new("0c000005-0000-0000-0000-000000000005");
+    public static readonly Guid TenantActDocSupersedeNoReplId = new("0c000006-0000-0000-0000-000000000006");
+    public static readonly Guid TenantActDocStableIssuedId = new("0c000007-0000-0000-0000-000000000007");
+
     // ── Paramétrage tenant seedé — API01c GET /settings ──
     /// <summary>Société (companyId) de l'unique profil de paramétrage seedé dans le tenant A.</summary>
     public static readonly Guid TenantACompanyId = new("aaaaaaaa-0000-0000-0000-0000000000a1");
@@ -338,6 +347,35 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
 
     /// <summary>Chaîne de connexion de la base d'un TENANT (vérification d'absence de job orphelin / de run_log).</summary>
     public string TenantConnectionString(string tenant) => ConnectionStringFor(tenant);
+
+    /// <summary>
+    /// Lit l'état courant d'un document dans la base d'un TENANT (<c>documents.documents</c>) — preuve qu'une
+    /// action de console a réellement appliqué la transition terminale (API02c : ManuallyHandled / Superseded),
+    /// ou qu'un refus (4xx) n'a rien muté.
+    /// </summary>
+    public async Task<string?> GetDocumentStateAsync(string tenant, Guid documentId, CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(ConnectionStringFor(tenant));
+        await conn.OpenAsync(ct);
+        return await conn.ExecuteScalarAsync<string?>(new CommandDefinition(
+            "SELECT state FROM documents.documents WHERE id = @Id",
+            new { Id = documentId },
+            cancellationToken: ct));
+    }
+
+    /// <summary>
+    /// Compte les événements d'audit append-only (<c>documents.document_events</c>) d'un type donné pour un
+    /// document dans un TENANT — prouve l'inscription de la transition dans la piste d'audit (API02c).
+    /// </summary>
+    public async Task<int> CountDocumentEventsAsync(string tenant, Guid documentId, string eventType, CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(ConnectionStringFor(tenant));
+        await conn.OpenAsync(ct);
+        return await conn.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT COUNT(*) FROM documents.document_events WHERE document_id = @Id AND event_type = @EventType",
+            new { Id = documentId, EventType = eventType },
+            cancellationToken: ct));
+    }
 
     /// <summary>
     /// Compte les entrées de la piste d'activité opérateur (<c>audit.activities</c>, base SYSTÈME) pour un type
@@ -550,6 +588,13 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
 
         await InsertDocumentAsync(conn, TenantActDocReadyId, "FA-ACT-001", "invoice", new DateOnly(2026, 1, 18), "ReadyToSend", "Client Action", 100.00m);
         await InsertDocumentAsync(conn, TenantActDocBlockedId, "FA-ACT-002", "invoice", new DateOnly(2026, 2, 18), "Blocked", "Client Action", 200.00m);
+
+        // API02c — résolutions terminales : aucun document ReadyToSend (ne perturbe pas le récap d'envoi API02a).
+        await InsertDocumentAsync(conn, TenantActDocResolveBlockedId, "FA-ACT-003", "invoice", new DateOnly(2026, 3, 1), "Blocked", "Client Action", 300.00m);
+        await InsertDocumentAsync(conn, TenantActDocResolveRejectedId, "FA-ACT-004", "invoice", new DateOnly(2026, 3, 2), "RejectedByPa", "Client Action", 400.00m);
+        await InsertDocumentAsync(conn, TenantActDocSupersedeRejectedId, "FA-ACT-005", "invoice", new DateOnly(2026, 3, 3), "RejectedByPa", "Client Action", 500.00m);
+        await InsertDocumentAsync(conn, TenantActDocSupersedeNoReplId, "FA-ACT-006", "invoice", new DateOnly(2026, 3, 4), "RejectedByPa", "Client Action", 600.00m);
+        await InsertDocumentAsync(conn, TenantActDocStableIssuedId, "FA-ACT-007", "invoice", new DateOnly(2026, 3, 5), "Issued", "Client Action", 700.00m);
     }
 
     private static async Task SeedTenantAAsync(string connectionString)

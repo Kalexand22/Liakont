@@ -4,6 +4,7 @@ using System;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
+using Liakont.Modules.Documents.Contracts.Lifecycle;
 using Liakont.Modules.Documents.Contracts.Queries;
 using Liakont.Modules.Pipeline.Contracts.Jobs;
 using Microsoft.AspNetCore.Builder;
@@ -146,6 +147,96 @@ public static class DocumentActionsEndpointMapping
             return Results.Accepted("/api/v1/documents", new SendAllSummaryResponse(ConfirmationRequired: false, count, totalGross, jobId));
         }).RequireAuthorization(ActionsPermission);
 
+        // POST /api/v1/documents/{id}/resolve-manually — résolution terminale (API02c) : un document Blocked ou
+        // RejectedByPa est marqué « traité manuellement hors passerelle » (→ ManuallyHandled). Le MOTIF est
+        // OBLIGATOIRE (400 sans motif) car il est inscrit dans la piste d'audit (F06 §3). 404 hors tenant /
+        // inexistant ; 409 si l'état courant n'autorise pas la résolution. La transition (état + DocumentEvent
+        // append-only) est appliquée par le port IDocumentLifecycle, tenant-scopé et atomique.
+        group.MapPost("/{id:guid}/resolve-manually", async (
+            Guid id,
+            ResolveManuallyRequest? request,
+            IDocumentLifecycle lifecycle,
+            IActorContextAccessor actorAccessor,
+            IActivityLogger activityLogger,
+            CancellationToken ct) =>
+        {
+            if (request is null || string.IsNullOrWhiteSpace(request.Reason))
+            {
+                return Results.BadRequest(new ActionProblem(
+                    "Le motif du traitement manuel est obligatoire : il est journalisé dans la piste d'audit (F06 §3)."));
+            }
+
+            var actor = actorAccessor.Current;
+            var operatorId = ActorId(actor);
+
+            var outcome = await lifecycle.ResolveManuallyAsync(id, request.Reason, operatorId, ct);
+            if (outcome is not DocumentResolutionOutcome.Succeeded)
+            {
+                return ResolutionProblem(outcome, id);
+            }
+
+            // Audit (module Audit) en complément du DocumentEvent écrit par le port : l'écriture est awaitée
+            // avant la réponse (anti faux-vert) et porte l'identité de l'opérateur.
+            await activityLogger.LogActivityAsync(
+                DocumentEntityType,
+                id.ToString(),
+                "documents.resolved_manually",
+                string.Create(CultureInfo.InvariantCulture, $"Document {id} marqué « traité manuellement hors passerelle » par l'opérateur. Motif : {request.Reason}"),
+                operatorId,
+                metadata: new { reason = request.Reason },
+                companyId: actor.CompanyId,
+                cancellationToken: ct);
+
+            return Results.NoContent();
+        }).RequireAuthorization(ActionsPermission);
+
+        // POST /api/v1/documents/{id}/supersede — résolution terminale (API02c) : un document RejectedByPa est
+        // lié à son REMPLAÇANT (→ Superseded). Le corps porte l'identifiant du document de remplacement, DÉJÀ reçu
+        // via l'agent (le logiciel source est le seul créateur de numéros, F06 §4). 400 si le remplaçant est absent
+        // du corps ou identique au document ; 404 si le document rejeté est inconnu ; 409 si l'état n'est pas
+        // RejectedByPa ou si le remplaçant n'existe pas dans le tenant.
+        group.MapPost("/{id:guid}/supersede", async (
+            Guid id,
+            SupersedeRequest? request,
+            IDocumentLifecycle lifecycle,
+            IActorContextAccessor actorAccessor,
+            IActivityLogger activityLogger,
+            CancellationToken ct) =>
+        {
+            if (request is null || request.ReplacementDocumentId == Guid.Empty)
+            {
+                return Results.BadRequest(new ActionProblem(
+                    "L'identifiant du document de remplacement est obligatoire (le remplaçant est déjà reçu via l'agent — F06 §4)."));
+            }
+
+            if (request.ReplacementDocumentId == id)
+            {
+                return Results.BadRequest(new ActionProblem(
+                    "Un document ne peut pas se remplacer lui-même : indiquez l'identifiant d'un AUTRE document du tenant."));
+            }
+
+            var actor = actorAccessor.Current;
+            var operatorId = ActorId(actor);
+
+            var outcome = await lifecycle.SupersedeAsync(id, request.ReplacementDocumentId, operatorId, ct);
+            if (outcome is not DocumentResolutionOutcome.Succeeded)
+            {
+                return ResolutionProblem(outcome, id);
+            }
+
+            await activityLogger.LogActivityAsync(
+                DocumentEntityType,
+                id.ToString(),
+                "documents.superseded",
+                string.Create(CultureInfo.InvariantCulture, $"Document {id} (rejeté) lié à son remplaçant {request.ReplacementDocumentId} — passé à l'état Superseded par l'opérateur."),
+                operatorId,
+                metadata: new { replacementDocumentId = request.ReplacementDocumentId },
+                companyId: actor.CompanyId,
+                cancellationToken: ct);
+
+            return Results.NoContent();
+        }).RequireAuthorization(ActionsPermission);
+
         return app;
     }
 
@@ -199,6 +290,23 @@ public static class DocumentActionsEndpointMapping
     private static string ActorId(IActorContext actor) =>
         actor.IsAuthenticated ? actor.UserId.ToString() : "system";
 
+    /// <summary>
+    /// Mappe le refus d'une résolution terminale (API02c) en réponse HTTP, avec un message opérateur en français
+    /// (CLAUDE.md n°12) : 404 si le document est inconnu dans le tenant, 409 si l'état courant ne permet pas la
+    /// résolution ou si le remplaçant n'existe pas. <see cref="DocumentResolutionOutcome.Succeeded"/> ne passe
+    /// jamais ici (traité par l'appelant avant l'audit).
+    /// </summary>
+    private static IResult ResolutionProblem(DocumentResolutionOutcome outcome, Guid documentId) => outcome switch
+    {
+        DocumentResolutionOutcome.DocumentNotFound => Results.NotFound(),
+        DocumentResolutionOutcome.InvalidState => Results.Conflict(new ActionProblem(string.Create(
+            CultureInfo.InvariantCulture,
+            $"Le document {documentId} n'est pas dans un état permettant cette résolution : seul un document bloqué ou rejeté peut être traité manuellement, et seul un document rejeté peut être remplacé."))),
+        DocumentResolutionOutcome.ReplacementNotFound => Results.Conflict(new ActionProblem(
+            "Le document de remplacement est introuvable dans ce tenant : impossible de lier le rejet à un remplaçant inexistant.")),
+        _ => Results.Problem("Résolution impossible."),
+    };
+
     /// <summary>Réponse d'acceptation de l'envoi d'un document (le travail est asynchrone, exécuté par le pipeline).</summary>
     public sealed record SendAcceptedResponse(Guid JobId, Guid DocumentId);
 
@@ -211,4 +319,13 @@ public static class DocumentActionsEndpointMapping
 
     /// <summary>Détail d'erreur d'action (message opérateur en français — CLAUDE.md n°12).</summary>
     public sealed record ActionProblem(string Message);
+
+    /// <summary>Corps de la requête de résolution manuelle (API02c) : le motif OBLIGATOIRE (journalisé, F06 §3).</summary>
+    public sealed record ResolveManuallyRequest(string Reason);
+
+    /// <summary>
+    /// Corps de la requête de remplacement (API02c) : l'identifiant du document de remplacement, déjà reçu via
+    /// l'agent (le logiciel source est le seul créateur de numéros, F06 §4).
+    /// </summary>
+    public sealed record SupersedeRequest(Guid ReplacementDocumentId);
 }
