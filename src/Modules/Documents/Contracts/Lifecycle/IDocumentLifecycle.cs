@@ -30,4 +30,20 @@ public interface IDocumentLifecycle
 
     /// <summary>Sending → TechnicalError : erreur technique de transmission, re-tentable.</summary>
     Task MarkTechnicalErrorAsync(Guid documentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Verdict garde-fou B2B/B2C (item API02b, F08 §A.4) : depuis <c>Blocked</c>, enregistre que l'opérateur
+    /// a confirmé l'acheteur « particulier » (B2C) malgré l'indice professionnel (VAL05). NE CHANGE PAS l'état
+    /// (la re-vérification débloque ensuite) ; pose le marqueur persistant + un fait d'audit append-only portant
+    /// l'identité de l'opérateur (OBLIGATOIRE). Lève si le document est inconnu ou n'est pas <c>Blocked</c>.
+    /// </summary>
+    Task ConfirmBuyerAsIndividualAsync(Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Action OPÉRATEUR « traité manuellement hors passerelle » (item API02b/API02c, TRK02) : depuis
+    /// <c>Blocked</c> ou <c>RejectedByPa</c> → état terminal <c>ManuallyHandled</c>. <paramref name="reason"/>
+    /// (motif journalisé) et <paramref name="operatorIdentity"/> sont OBLIGATOIRES (piste d'audit, F06 §3).
+    /// Lève si le document est inconnu ou si la transition est illégale (machine à états).
+    /// </summary>
+    Task MarkManuallyHandledAsync(Guid documentId, string reason, string operatorIdentity, CancellationToken cancellationToken = default);
 }

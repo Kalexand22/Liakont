@@ -126,6 +126,10 @@ internal static class SendTestDoubles
 
         public List<Guid> TechnicalError { get; } = new();
 
+        public List<Guid> ConfirmedB2c { get; } = new();
+
+        public List<Guid> ManuallyHandled { get; } = new();
+
         public Task BlockAsync(Guid documentId, string reason, CancellationToken cancellationToken = default)
         {
             Blocked.Add(documentId);
@@ -159,6 +163,18 @@ internal static class SendTestDoubles
         public Task MarkTechnicalErrorAsync(Guid documentId, CancellationToken cancellationToken = default)
         {
             TechnicalError.Add(documentId);
+            return Task.CompletedTask;
+        }
+
+        public Task ConfirmBuyerAsIndividualAsync(Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default)
+        {
+            ConfirmedB2c.Add(documentId);
+            return Task.CompletedTask;
+        }
+
+        public Task MarkManuallyHandledAsync(Guid documentId, string reason, string operatorIdentity, CancellationToken cancellationToken = default)
+        {
+            ManuallyHandled.Add(documentId);
             return Task.CompletedTask;
         }
     }

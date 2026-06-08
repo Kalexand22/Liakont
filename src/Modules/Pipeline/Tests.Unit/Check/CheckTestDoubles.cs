@@ -177,6 +177,12 @@ internal static class CheckTestDoubles
 
         public Task MarkTechnicalErrorAsync(Guid documentId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+
+        public Task ConfirmBuyerAsIndividualAsync(Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task MarkManuallyHandledAsync(Guid documentId, string reason, string operatorIdentity, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     internal sealed class FakeDocumentQueries : IDocumentQueries

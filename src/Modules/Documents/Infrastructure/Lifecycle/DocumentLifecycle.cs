@@ -58,6 +58,12 @@ internal sealed class DocumentLifecycle : IDocumentLifecycle
     public Task MarkTechnicalErrorAsync(Guid documentId, CancellationToken cancellationToken = default) =>
         TransitionAsync(documentId, (document, at) => document.MarkTechnicalError(at), cancellationToken);
 
+    public Task ConfirmBuyerAsIndividualAsync(Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default) =>
+        TransitionAsync(documentId, (document, at) => document.ConfirmBuyerAsIndividual(operatorIdentity, at), cancellationToken);
+
+    public Task MarkManuallyHandledAsync(Guid documentId, string reason, string operatorIdentity, CancellationToken cancellationToken = default) =>
+        TransitionAsync(documentId, (document, at) => document.MarkManuallyHandled(reason, operatorIdentity, at), cancellationToken);
+
     private async Task TransitionAsync(
         Guid documentId,
         Func<Document, DateTimeOffset, DocumentEvent> transition,

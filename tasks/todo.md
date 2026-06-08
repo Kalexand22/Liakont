@@ -1,60 +1,66 @@
-# API02a — Endpoints d'action documents : envoi (ADR-0016)
+# API02b — Endpoints d'action documents : garde-fou (verdict) + re-vérification (recheck)
 
-Branche : `feat/console-web-API02a` (segment `feat/console-web`). Slot 2.
+Segment : console-web (`feat/console-web`) · sous-branche `feat/console-web-API02b` · slot-1
+Session : orch-20260608-112518-Liakont3-s1
 
-## Objet
-Câbler les 3 actions d'envoi de la console sur le harness API01a, **tenant-scopées** (ADR-0016) :
-- `POST /api/v1/documents/{id}/send` — envoi d'un document ReadyToSend (404/409, journalisé).
-- `POST /api/v1/documents/send-all` — envoi des ReadyToSend du tenant COURANT ; `?confirm=false` =
-  récapitulatif (nombre + montant total `decimal`) sans exécuter ; `confirm=true` = exécution.
-- `POST /api/v1/runs/trigger` — déclenchement manuel du pipeline du tenant courant (`?dryRun=`).
-Permission `liakont.actions`. Toute action journalisée (Audit + identité opérateur).
+## Objet (spec API.yaml API02b, F08 §A.4, VAL05 #3, WEB03b)
+Deux endpoints d'action sur Documents.Web (permission `liakont.actions`), réutilisant le harness
+API01a + le scaffold d'actions API02a :
+1. `POST /api/v1/documents/{id}/verdict` — verdict garde-fou B2C/B2B (VAL05) :
+   - `confirm_b2c` (« Confirmer particulier ») → enregistre la confirmation B2C (persistée + journalisée),
+     ne change PAS l'état (reste Blocked) ; le déblocage effectif se fait au recheck (« verdict posé → recheck »).
+   - `handle_manually` (« Traiter manuellement B2B ») → Blocked→ManuallyHandled (terminal), journalisé.
+2. `POST /api/v1/documents/{id}/recheck` — re-valide UN document Blocked via le CHECK complet
+   (mapping TVA → garde-fou prod → validation) et le fait passer Blocked→ReadyToSend s'il passe,
+   sinon renvoie les nouveaux motifs (reste Blocked, pas de ré-écriture d'événement — Blocked→Blocked interdit).
 
-## Décision d'architecture (ADR-0016 — rien d'inventé)
-- Nouveau déclencheur **mono-tenant** `SendTenantTrigger(string TenantId, bool DryRun)` (Pipeline.Contracts.Jobs).
-  JAMAIS `SendAllTrigger` (fan-out tous-tenants = fuite cross-tenant, réservé au cron).
-- Handler système `SendTenantFanInHandler : IJobHandler<SendTenantTrigger>` : `ITenantScopeFactory.Create(payload.TenantId)`
-  → `SendTenantJob(PipelineRunTrigger.Manual, payload.DryRun).ExecuteAsync(...)`. Pas de `RunForAllTenantsAsync`.
-- Publication HTTP→worker sur la **queue SYSTÈME** : enqueue dans un scope null-tenant frais
-  (`IServiceScopeFactory.CreateAsyncScope()` → `IConnectionFactory` null-tenant → DB système), comme le scheduler.
-  JAMAIS `IJobQueue` en scope HTTP tenant (= job orphelin non consommé). Tenant cible porté dans la charge utile.
-- Découverte du handler par le worker : `AddJobHandler<SendTenantTrigger, SendTenantFanInHandler>()` dans le Host
-  (compose handler + `JobHandlerRegistration`), comme `DailyAnchoringTrigger` (les triggers fan-out Pipeline
-  existants n'ont pas encore de registration de découverte — non publiés à ce jour).
+## Décisions de conception (sourcées, aucune règle fiscale inventée)
+- F08 §A.4 : « confirmer B2C → débloque en B2C, décision journalisée » = override OPÉRATEUR
+  SANCTIONNÉ et JOURNALISÉ. Implémenté en INCORPORANT la décision opérateur dans l'ENTRÉE de validation
+  (`DocumentValidationContext.BuyerConfirmedAsIndividual`), de sorte que `BuyerLooksProfessionalRule`
+  (détection-seule) ne PRODUIT plus l'anomalie pour CE document. Aucune anomalie Blocking n'est « retirée ».
+- Recheck = source UNIQUE de la décision fiscale : réutilise `DocumentCheckEvaluator` (jamais de 2e impl).
+  Nouveau `IDocumentRecheckService` (Pipeline.Contracts) mirroir `SendTenantJob.ReconcileCreditNotesAsync`
+  pour UN document, en scope requête (tenant déjà résolu, slug via ITenantContext).
+- La garde-fou PRODUCTION (table TVA non validée) n'est PAS overridable par le verdict B2C (block distinct).
+- Recheck → ReadyToSend écrit aussi le snapshot de ventilation (ADR-0015) AVANT la transition.
 
-## Fichiers
-Production :
-- [ ] CREATE `src/Modules/Pipeline/Contracts/Jobs/SendTenantTrigger.cs`
-- [ ] CREATE `src/Modules/Pipeline/Infrastructure/Send/SendTenantFanInHandler.cs`
-- [ ] CREATE `src/Modules/Documents/Web/DocumentActionsEndpointMapping.cs` (send + send-all)
-- [ ] MODIFY `src/Modules/Pipeline/Web/PipelineEndpointMapping.cs` (+ POST /runs/trigger)
-- [ ] MODIFY `src/Host/Liakont.Host/Startup/AppBootstrap.cs` (AddJobHandler + MapDocumentActionsEndpoints)
-- [ ] MODIFY `src/Modules/Documents/Web/*.csproj` (+ Pipeline.Contracts, Job.Contracts)
-- [ ] MODIFY `src/Modules/Pipeline/Web/*.csproj` (+ Job.Contracts)
+## Plan d'implémentation
+### Validation (additif)
+- [ ] `Contracts/DocumentValidationContext.cs` : param optionnel `bool buyerConfirmedAsIndividual = false` + propriété.
+- [ ] `Domain/Rules/BuyerLooksProfessionalRule.cs` : si `context.BuyerConfirmedAsIndividual` → aucune anomalie (doc F08 §A.4).
+- [ ] Test unitaire : règle avec flag → pas d'anomalie.
 
-Tests (anti faux-vert ADR-0016) :
-- [ ] MODIFY `ConsoleApiFactory.cs` — user opérateur (liakont.actions) ADDITIF + helpers (system/tenant job count, audit, run_log)
-- [ ] CREATE `DocumentActionsEndpointsIntegrationTests.cs` — 202/403/404/409, recap confirm=false/true, audit,
-      publication queue SYSTÈME (pas d'orphelin tenant, pas de SendAllTrigger)
-- [ ] CREATE `RunsTriggerEndpointsIntegrationTests.cs` — 202/403, dryRun, publication système
-- [ ] CREATE `SendTenantTriggerHandlerIntegrationTests.cs` — exécution réelle tenant-scopée (run_log Manual/Send dans A, AUCUN dans B)
+### Documents (domaine + persistance)
+- [ ] `Domain/Entities/Document.cs` : propriété `BuyerConfirmedAsIndividual` ; `Reconstitute` param optionnel ;
+      méthode `ConfirmBuyerAsIndividual(operatorIdentity, at)` → DocumentEvent (garde State==Blocked).
+- [ ] `Domain/Entities/DocumentEventType.cs` : `DocumentBuyerConfirmedB2C`.
+- [ ] `Infrastructure/Migrations/V008__add_buyer_confirmed_as_individual.sql`.
+- [ ] `Infrastructure/PostgresDocumentUnitOfWork.cs` : colonne dans INSERT/UPSERT/SELECT/MapDocument.
+- [ ] `Infrastructure/Queries/PostgresDocumentQueries.cs` : colonne dans les SELECT mappés vers DocumentDto.
+- [ ] `Contracts/DTOs/DocumentDto.cs` : `bool BuyerConfirmedAsIndividual` (non-required, défaut false).
+- [ ] `Contracts/Lifecycle/IDocumentLifecycle.cs` + `Infrastructure/Lifecycle/DocumentLifecycle.cs` :
+      `ConfirmBuyerAsIndividualAsync` + `MarkManuallyHandledAsync(reason, operatorIdentity)`.
+- [ ] Tests unitaires Document/Lifecycle.
 
-## Invariants couverts
-INV-API02a-1 (mono-tenant), -2 (queue système, pas d'orphelin), -3 (ITenantScopeFactory), -4 (pas de fan-out), -5 (send-all tenant courant).
+### Pipeline (recheck — source unique de décision)
+- [ ] `Contracts/IDocumentRecheckService.cs` + `Contracts/RecheckResult.cs`.
+- [ ] `Infrastructure/Check/DocumentCheckEvaluator.cs` : param optionnel `bool buyerConfirmedB2C = false`.
+- [ ] `Infrastructure/Check/DocumentRecheckService.cs`.
+- [ ] `Infrastructure/PipelineModuleRegistration.cs` : AddScoped.
+
+### Documents.Web (endpoints)
+- [ ] `Web/DocumentActionsEndpointMapping.cs` : `/verdict` + `/recheck` (liakont.actions), DTOs, 404/409/400, audit + DocumentEvent.
+
+### Tests d'intégration (ConsoleApiFactory : ajouter staging root + helper StagePayload)
+- [ ] verdict confirm_b2c → 200, reste Blocked, event + audit.
+- [ ] verdict handle_manually → 200, ManuallyHandled + audit.
+- [ ] verdict lecture seule → 403 ; non-Blocked → 409 ; autre tenant → 404.
+- [ ] recheck (pivot stagé pro + TVA validée + confirm_b2c) → 200 ReadyToSend.
+- [ ] recheck encore bloqué → 200 Blocked + motifs.
+- [ ] recheck lecture seule → 403 ; non-Blocked → 409 ; autre tenant → 404.
 
 ## Vérification
-- [x] verify-fast (plateforme .NET 10 + agent net48) — PASS
-- [x] run-tests (suite complète) — PASS (3970 tests, 0 échec ; mes tests d'intégration tournent contre PostgreSQL réel)
-- [ ] codex-review -Base feat/console-web (boucle jusqu'à clean)
+- [ ] verify-fast (plateforme .NET10 + agent net48) · run-tests · codex-review -Base feat/console-web (boucle jusqu'à clean)
 
-## Résultats
-- Tous les fichiers prévus créés/modifiés (production + tests). `SendTenantTrigger` + `SendTenantFanInHandler`
-  enregistrés via `AddJobHandler` (Host) → découvrables par le JobWorker.
-- Publication corrigée vs l'attaque morte antérieure (qui publiait `SendAllTrigger` via `IJobQueue` en scope
-  HTTP tenant = orphelin + fan-out cross-tenant). Branche stale préservée : `feat/console-web-API02a-stale-dead-session`.
-- Tests d'intégration anti faux-vert : publication sur la queue SYSTÈME (delta +1), AUCUN job orphelin en base
-  tenant, AUCUN `SendAllTrigger`, audit awaité, et EXÉCUTION réelle tenant-scopée prouvée par `run_log`
-  (run_type=Send/run_trigger=Manual) dans le tenant cible et ZÉRO chez l'autre tenant.
-- Décision : `/documents/{id}/send` valide l'état (404/409) puis publie le SEND tenant-scopé (le SendTenantJob
-  émet les ReadyToSend, dont ce document) — conforme ADR-0016 « le handler exécute SendTenantJob », pas de
-  chemin d'envoi mono-document inventé (CLAUDE.md n°2/3).
+## Review (à compléter)

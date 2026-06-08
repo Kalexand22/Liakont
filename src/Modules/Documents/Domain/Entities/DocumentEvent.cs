@@ -220,6 +220,35 @@ public sealed class DocumentEvent
         };
     }
 
+    /// <summary>
+    /// Crée le fait d'audit d'un VERDICT « acheteur confirmé particulier (B2C) » du garde-fou B2B/B2C (item
+    /// API02b, F08 §A.4) : l'opérateur a tranché que l'acheteur est un particulier malgré l'indice
+    /// professionnel (VAL05). L'identité de l'opérateur est OBLIGATOIRE (décision jamais anonyme). Sans
+    /// snapshot ; n'emporte AUCUNE transition d'état (le document reste <c>Blocked</c> jusqu'à la
+    /// re-vérification — c'est elle qui débloque, le verdict ne fait que lever le garde-fou pour ce document).
+    /// </summary>
+    public static DocumentEvent BuyerConfirmedAsIndividual(Guid documentId, DateTimeOffset occurredAtUtc, string operatorIdentity)
+    {
+        if (string.IsNullOrWhiteSpace(operatorIdentity))
+        {
+            throw new ArgumentException("L'identité de l'opérateur est obligatoire pour un verdict de garde-fou B2B/B2C (F08 §A.4).", nameof(operatorIdentity));
+        }
+
+        return new DocumentEvent
+        {
+            Id = Guid.NewGuid(),
+            DocumentId = documentId,
+            TimestampUtc = occurredAtUtc,
+            EventType = DocumentEventType.DocumentBuyerConfirmedB2C,
+            Detail = "Acheteur confirmé « particulier » (B2C) par l'opérateur malgré l'indice professionnel — " +
+                     "garde-fou B2B/B2C levé pour ce document (F08 §A.4). Re-vérification requise pour débloquer.",
+            PayloadSnapshot = null,
+            PaResponseSnapshot = null,
+            MappingTrace = null,
+            OperatorIdentity = operatorIdentity.Trim(),
+        };
+    }
+
     /// <summary>Reconstitue une entrée d'audit depuis la persistance (lecture).</summary>
     public static DocumentEvent Reconstitute(
         Guid id,

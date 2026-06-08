@@ -90,6 +90,33 @@ public sealed class BuyerLooksProfessionalRuleTests
     }
 
     [Fact]
+    public async Task Operator_confirmed_b2c_suppresses_the_block_despite_professional_hint()
+    {
+        // Verdict opérateur « confirmer particulier (B2C) » (F08 §A.4) : la décision tranchée et journalisée
+        // prime sur l'heuristique d'indice — la règle ne produit plus l'anomalie pour CE document. Acheteur à
+        // forme juridique ET indice société ET n° TVA présents : sans verdict ce serait bloquant.
+        var customer = new PivotPartyDto("MARTIN SAS", vatNumber: "FR40303265045", isCompanyHint: true);
+
+        var issues = await new BuyerLooksProfessionalRule()
+            .ValidateAsync(Context(customer, buyerConfirmedAsIndividual: true));
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Professional_buyer_still_blocks_without_an_operator_verdict()
+    {
+        // Sans verdict (cas nominal), la règle reste détection-seule et bloque l'acheteur professionnel.
+        var customer = new PivotPartyDto("MARTIN SAS", isCompanyHint: true);
+
+        var issues = await new BuyerLooksProfessionalRule()
+            .ValidateAsync(Context(customer, buyerConfirmedAsIndividual: false));
+
+        issues.Should().ContainSingle()
+            .Which.Code.Should().Be(BuyerLooksProfessionalRule.BuyerLooksProfessional);
+    }
+
+    [Fact]
     public async Task Null_context_is_rejected()
     {
         var act = async () => await new BuyerLooksProfessionalRule().ValidateAsync(null!);
@@ -97,7 +124,10 @@ public sealed class BuyerLooksProfessionalRuleTests
         await act.Should().ThrowAsync<ArgumentNullException>();
     }
 
-    private static DocumentValidationContext Context(PivotPartyDto? customer, decimal totalTtc = 1160.00m)
+    private static DocumentValidationContext Context(
+        PivotPartyDto? customer,
+        decimal totalTtc = 1160.00m,
+        bool buyerConfirmedAsIndividual = false)
     {
         var document = new PivotDocumentDto(
             sourceDocumentKind: "BORDEREAU",
@@ -108,6 +138,6 @@ public sealed class BuyerLooksProfessionalRuleTests
             totals: new PivotTotalsDto(totalTtc, 0m, totalTtc),
             operationCategory: OperationCategory.LivraisonBiens,
             customer: customer);
-        return new DocumentValidationContext(document, Guid.NewGuid());
+        return new DocumentValidationContext(document, Guid.NewGuid(), buyerConfirmedAsIndividual);
     }
 }

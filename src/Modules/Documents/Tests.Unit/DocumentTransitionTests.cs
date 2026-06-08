@@ -243,6 +243,53 @@ public sealed class DocumentTransitionTests
         doc.State.Should().Be(DocumentState.RejectedByPa, "lien remplaçant manquant : l'état n'a pas changé.");
     }
 
+    [Fact]
+    public void ConfirmBuyerAsIndividual_From_Blocked_Sets_Flag_And_Records_Operator_Without_State_Change()
+    {
+        // Verdict garde-fou B2B/B2C (API02b, F08 §A.4) : pose le marqueur persistant + un fait d'audit opérateur,
+        // SANS changer l'état (le document reste Blocked ; la re-vérification le débloque ensuite).
+        var doc = InState(DocumentState.Blocked);
+
+        var evt = doc.ConfirmBuyerAsIndividual(operatorIdentity: "alice@cmp", occurredAtUtc: T0.AddMinutes(1));
+
+        doc.State.Should().Be(DocumentState.Blocked, "le verdict B2C ne change pas l'état (recheck requis pour débloquer).");
+        doc.BuyerConfirmedAsIndividual.Should().BeTrue();
+        doc.LastUpdateUtc.Should().Be(T0.AddMinutes(1));
+        evt.EventType.Should().Be(DocumentEventType.DocumentBuyerConfirmedB2C);
+        evt.OperatorIdentity.Should().Be("alice@cmp");
+        evt.DocumentId.Should().Be(doc.Id);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ConfirmBuyerAsIndividual_Requires_An_Operator_Identity(string blank)
+    {
+        var doc = InState(DocumentState.Blocked);
+
+        var act = () => doc.ConfirmBuyerAsIndividual(blank, T0);
+
+        act.Should().Throw<ArgumentException>().WithParameterName("operatorIdentity");
+        doc.BuyerConfirmedAsIndividual.Should().BeFalse("identité manquante : le marqueur n'est pas posé.");
+    }
+
+    [Theory]
+    [InlineData(DocumentState.Detected)]
+    [InlineData(DocumentState.ReadyToSend)]
+    [InlineData(DocumentState.Issued)]
+    [InlineData(DocumentState.ManuallyHandled)]
+    public void ConfirmBuyerAsIndividual_Is_Rejected_Outside_Blocked(DocumentState state)
+    {
+        // Le verdict du garde-fou ne s'applique qu'à un document bloqué.
+        var doc = InState(state);
+
+        var act = () => doc.ConfirmBuyerAsIndividual("alice@cmp", T0);
+
+        act.Should().Throw<InvalidOperationException>();
+        doc.BuyerConfirmedAsIndividual.Should().BeFalse("hors Blocked : le marqueur n'est pas posé.");
+        doc.State.Should().Be(state, "verdict refusé : l'état n'a pas changé.");
+    }
+
     [Theory]
     [InlineData(DocumentState.Issued)]
     [InlineData(DocumentState.Superseded)]

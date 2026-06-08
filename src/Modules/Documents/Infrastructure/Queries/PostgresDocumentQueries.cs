@@ -21,7 +21,8 @@ public sealed class PostgresDocumentQueries : IDocumentQueries
     private const string DocumentColumns = """
         id, source_reference, document_number, document_type, issue_date, supplier_siren,
         customer_name, customer_is_company_hint, total_net, total_tax, total_gross, state,
-        payload_hash, pa_document_id, mapping_version, first_seen_utc, last_update_utc
+        payload_hash, pa_document_id, mapping_version, first_seen_utc, last_update_utc,
+        buyer_confirmed_as_individual
         """;
 
     private readonly IConnectionFactory _connectionFactory;
@@ -348,6 +349,7 @@ public sealed class PostgresDocumentQueries : IDocumentQueries
             MappingVersion = (string?)row.mapping_version,
             FirstSeenUtc = DocumentRowReader.ToDateTimeOffset((object)row.first_seen_utc),
             LastUpdateUtc = DocumentRowReader.ToDateTimeOffset((object)row.last_update_utc),
+            BuyerConfirmedAsIndividual = (bool)row.buyer_confirmed_as_individual,
         };
     }
 
