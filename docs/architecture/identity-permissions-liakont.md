@@ -71,3 +71,27 @@ protègent leurs endpoints et leurs pages via les politiques d'autorisation du H
   Keycloak est UNE implémentation (`KeycloakIdentityProviderAuthenticator`), une alternative
   in-process (ex. OpenIddict) se branche sans toucher au reste du Host. Aucun appel
   IdP-spécifique n'existe hors de la couche d'auth.
+
+## 6. Population des claims de permission (au sign-in)
+
+Les permissions Liakont sont **entièrement dérivées des rôles** (matrice §3) : un utilisateur n'a
+d'autres permissions que celles que ses rôles realm lui accordent. Le pont rôle→permission est posé
+**au sign-in**, dans la couche d'auth du Host (derrière l'abstraction D10), et matérialise la
+matrice §3 en un **catalogue immuable** (code Liakont, jamais `Stratum.*`) :
+
+- À l'ouverture de session OIDC, les rôles realm du principal (claim `roles`) sont projetés en
+  permissions via ce catalogue, **émises comme claims `permission`** sur le principal.
+- L'UI (`ClaimsPermissionService`) **et** les endpoints (`PermissionAuthorizationHandler`) lisent
+  ce même claim `permission` — un seul mécanisme d'autorisation produit, sans requête base par
+  contrôle. Le court-circuit super-admin (`SuperAdminRoles`) reste inchangé.
+- **Caveat révocation** : la garde endpoint lisant des claims figés au sign-in (cookie en expiration
+  glissante), une révocation de rôle n'est pas honorée immédiatement — fenêtre **non bornée pour une
+  session active**, détaillée dans ADR-0017 (§Négatif). Compromis accepté au merge ou atténué.
+- Un IdP alternatif (décision D10) réutilise la même projection : aucun appel IdP-spécifique hors
+  de la couche d'auth.
+
+> Sans cette projection, aucun claim `permission` n'est posé sous OIDC et tout l'UI permission-gated
+> est masqué pour les rôles non super-admin (les contrôles passent en super-admin, qui court-circuite
+> la garde — d'où un défaut latent jusqu'au premier écran exigeant un rôle élevé non super-admin).
+
+Conception : `docs/adr/ADR-0017-pont-role-permission-claims-oidc.md` (item producteur : `IDN01`).

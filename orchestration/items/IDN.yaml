@@ -1,0 +1,57 @@
+# Lot IDN — Identité Liakont : pont rôle→permission sous OIDC
+# Specs : docs/adr/ADR-0017-pont-role-permission-claims-oidc.md (décision),
+#         docs/architecture/identity-permissions-liakont.md (matrice §3 = source de vérité).
+# Architecture : couche d'auth du Host, derrière l'abstraction IdP D10. Code Liakont-spécifique.
+# AUCUN fichier Stratum.* vendored modifié. AUCUNE règle/permission inventée (tout vient de §3).
+
+items:
+  IDN01:
+    title: "Pont rôle→permission sous OIDC : population des claims de permission au sign-in"
+    description: |
+      Implémenter le pont rôle→permission décrit par ADR-0017. Trou structurel révélé par le
+      blocage de WEB05 : sous OIDC, AUCUN claim "permission" n'est posé sur le principal — le
+      jeton porte les rôles realm (claim `roles`), mais rien ne projette rôle→permission. Tout
+      l'UI permission-gated est donc masqué pour les utilisateurs NON super-admin (les E2E
+      antérieurs passaient en super-admin, qui court-circuite la garde — d'où la latence du défaut).
+      1. Matérialiser la matrice §3 de identity-permissions-liakont.md en un catalogue rôle→
+         permission IMMUABLE dans la couche d'auth du Host (code Liakont, pas Stratum). Source de
+         vérité unique ; AUCUNE valeur inventée (les 4 rôles × 4 permissions viennent du document).
+      2. Au sign-in OIDC (dans la couche D10 — KeycloakIdentityProviderAuthenticator /
+         IClaimsTransformation), projeter les rôles realm du principal → permissions via ce
+         catalogue et émettre les claims `"permission"` correspondants. Même transport que
+         ClaimsPermissionService (UI) et le chemin test-login.
+      3. Aligner la garde endpoint (PermissionAuthorizationHandler) sur les MÊMES claims
+         `"permission"` : un seul mécanisme d'autorisation produit (UI + endpoints), sans hit
+         base par requête. Le court-circuit super-admin reste inchangé.
+      4. NE PAS affaiblir d'E2E pour passer au vert : rendre l'élément permission-gated réellement
+         visible pour le rôle qui le porte (anti-faux-vert, CLAUDE.md n°3 et n°19).
+      5. Tests d'intégration : jeton OIDC → rôles realm → claims `"permission"` → autorisation
+         (UI et endpoint) pour les 4 utilisateurs de test §4 (lecture / operateur / parametrage /
+         superviseur). E2E : sur une surface permission-gated DÉJÀ existante au moment d'IDN01
+         (p. ex. la nav Supervision de WEB01, ou les actions de WEB03b), un rôle élevé NON
+         super-admin voit EXACTEMENT les éléments que ses rôles accordent. Tests EXÉCUTÉS, pas
+         seulement écrits. (La re-validation de l'E2E opérateur de WEB05 incombe à WEB05, qui
+         dépend d'IDN01 — critère porté par WEB05, pas par IDN01.)
+      6. Ne PAS retirer le chemin base (GetUserPermissions / identity.grants) dont dépend
+         /auth/test-login (ADR-0017 INV-IDN01-6) : soit les grants restent seedés, soit test-login
+         est routé sur la même projection §3. Un test asserte que test-login émet toujours des
+         claims `"permission"` corrects et NON vides (anti-faux-vert : pas de harnais cassé).
+      7. Fenêtre de révocation (ADR-0017 §Négatif) : la garde endpoint passe en claims figés au
+         sign-in. Le cookie étant en expiration glissante (SlidingExpiration=true, ExpireTimeSpan=8h),
+         le renouvellement ré-émet les mêmes claims SANS rejouer OnTokenValidated → une révocation de
+         rôle n'est PAS honorée immédiatement ; fenêtre non bornée pour une session active (au minimum
+         8 h, jusqu'à une ré-authentification complète). Si l'opérateur exige la révocation immédiate
+         pour liakont.actions / liakont.settings, implémenter l'atténuation retenue ; sinon la fenêtre
+         est acceptée au merge.
+      8. Aucun fichier Stratum.* vendored modifié ; messages opérateur en français.
+    acceptance:
+      - "Catalogue rôle→permission immuable matérialisant la matrice §3 (aucune valeur inventée, source = identity-permissions-liakont.md)"
+      - "Claims `permission` posés au sign-in OIDC depuis les rôles realm, dans la couche D10 (aucun appel IdP-spécifique hors de la couche d'auth)"
+      - "UI (ClaimsPermissionService) et endpoints (PermissionAuthorizationHandler) lisent le même claim `permission` — mécanisme unique ; super-admin bypass inchangé"
+      - "Tests d'intégration jeton→rôles→claims→autorisation pour les 4 rôles de test (§4), EXÉCUTÉS"
+      - "E2E sur une surface permission-gated existante au moment d'IDN01 (nav WEB01 / actions WEB03b) : un rôle élevé non super-admin voit exactement ses éléments (aucun E2E affaibli ; la 7/7 de WEB05 est portée par WEB05)"
+      - "Chemin /auth/test-login préservé : test assertant des claims `permission` non vides (le chemin base n'est pas orphelinisé)"
+      - "Fenêtre de révocation documentée (ADR-0017 §Négatif) ; atténuation implémentée si l'opérateur l'exige"
+      - "Aucun fichier Stratum.* vendored modifié ; libellés opérateur en français"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
