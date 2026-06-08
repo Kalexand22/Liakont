@@ -80,6 +80,12 @@ is defined by `max_parallel` in `$ORCH_REPO/config.yaml`.
 When an item is `stale` (session died before completing), the orchestrator
 attempts automatic recovery **before** selecting the next item:
 
+0. **Sync the working tree with `main` first** (`git fetch origin --prune`,
+   `git merge origin/main --no-edit`). Recovery runs `verify-fast` (step 2), whose `manifest-sanity`
+   reads the **working-tree** manifest; on a clone behind `main` a stale manifest fails reciprocity
+   and would sink an otherwise-valid recovery for the wrong reason. On a non-trivial conflict:
+   `git merge --abort` → auto-recovery fails, item stays `stale`, skip it (the operator resolves the
+   segment↔main divergence — never force it).
 1. **Check if committed**: search `git log --oneline` for a commit matching the
    item's expected pattern (e.g., `feat(<scope>): <item_id>` or the item title).
    - If no commit found → auto-recovery fails. Item stays `stale`. Skip it.
@@ -219,6 +225,10 @@ integration gate (`type: gate`, `executor` ≠ `human`, `blueprint: auto-gate-it
   - Determine the segment whose `gate` field equals this gate id (e.g. `GATE_CORE_FOUNDATION`
     → segment `core-foundation`, branch `feat/core-foundation`).
   - `git fetch origin`, `git checkout <segment-branch>`, `git pull origin <segment-branch>`.
+    This variant intentionally does **not** `git merge origin/main` (unlike §4 below): `auto-gate-item`
+    is deprecated and its only carriers — GATE_CORE_FOUNDATION / GATE_PA_FRAMEWORK — are terminal
+    (`done`, never re-run). If a new automated gate is ever wired here (discouraged — see Step 1.4),
+    add the same `git merge origin/main --no-edit` so its `manifest-sanity` runs against current `main`.
   - Do **NOT** create a sub-branch. The auto-gate runs verify/tests/review on the segment
     branch itself and then merges it into main (Step 5c). Skip the rest of Step 3.
   - (At claim time in Step 2.5, pass the **segment branch name** as `-Subbranch` — an auto-gate
