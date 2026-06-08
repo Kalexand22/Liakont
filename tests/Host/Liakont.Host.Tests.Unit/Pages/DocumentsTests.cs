@@ -88,13 +88,86 @@ public sealed class DocumentsTests : BunitContext
         cut.FindAll("[data-testid='documents-filters']").Should().BeEmpty();
     }
 
-    private static DocumentSummaryDto Doc(string number, string type, string state) => new()
+    [Fact]
+    public void Selecting_A_State_Should_Filter_The_Rendered_Rows()
+    {
+        Services.AddScoped<IDocumentConsoleQueries>(_ => FakeDocumentConsoleQueries.Returning(
+            Doc("2018", "invoice", "Issued", customer: "ALICE"),
+            Doc("2019", "invoice", "Blocked", customer: "BOBBY")));
+
+        var cut = Render<Documents>();
+        cut.Markup.Should().Contain("ALICE").And.Contain("BOBBY");
+
+        cut.Find("[data-testid='documents-filter-state']").Change("Blocked");
+
+        // Seule la ligne Bloqué reste dans la grille (le filtre client de DeclaredListPage s'applique).
+        cut.Markup.Should().Contain("BOBBY");
+        cut.Markup.Should().NotContain("ALICE");
+    }
+
+    [Fact]
+    public void Selecting_A_Type_Should_Update_The_Counts_And_The_Rows()
+    {
+        Services.AddScoped<IDocumentConsoleQueries>(_ => FakeDocumentConsoleQueries.Returning(
+            Doc("2018", "invoice", "Issued", customer: "ALICE"),
+            Doc("2020", "credit_note", "Blocked", customer: "CAROLE")));
+
+        var cut = Render<Documents>();
+
+        cut.Find("[data-testid='documents-filter-type']").Change("Avoir");
+
+        // Les compteurs honorent le type : seul l'avoir (Bloqué) est compté.
+        cut.Find("[data-testid='doc-counts-Blocked']").TextContent.Should().Contain("1");
+        cut.Find("[data-testid='doc-counts-Issued']").TextContent.Should().Contain("0");
+        cut.Find("[data-testid='doc-counts-all']").TextContent.Should().Contain("1");
+
+        // Les lignes sont filtrées : seule la facture (ALICE) disparaît.
+        cut.Markup.Should().Contain("CAROLE");
+        cut.Markup.Should().NotContain("ALICE");
+    }
+
+    [Fact]
+    public void Clicking_A_Count_Chip_Should_Filter_The_List_By_That_State()
+    {
+        Services.AddScoped<IDocumentConsoleQueries>(_ => FakeDocumentConsoleQueries.Returning(
+            Doc("2018", "invoice", "Issued", customer: "ALICE"),
+            Doc("2019", "invoice", "Blocked", customer: "BOBBY")));
+
+        var cut = Render<Documents>();
+
+        cut.Find("[data-testid='doc-counts-Blocked']").Click();
+
+        cut.Markup.Should().Contain("BOBBY");
+        cut.Markup.Should().NotContain("ALICE");
+    }
+
+    [Fact]
+    public void Changing_Period_To_A_Scope_Without_The_Selected_Type_Should_Reset_It()
+    {
+        // 1er périmètre : une facture (type « Facture » disponible). 2e périmètre : un avoir seulement.
+        Services.AddScoped<IDocumentConsoleQueries>(_ => FakeDocumentConsoleQueries.Switching(
+            [Doc("2018", "invoice", "Issued", customer: "ALICE")],
+            [Doc("2030", "credit_note", "Blocked", customer: "CAROLE")]));
+
+        var cut = Render<Documents>();
+        cut.Find("[data-testid='documents-filter-type']").Change("Facture");
+
+        // Changement de période → rechargement d'un périmètre où « Facture » n'existe plus → retour à Tous.
+        cut.Find("[data-testid='documents-filter-from']").Change("2026-05-01");
+
+        var typeSelect = cut.Find("[data-testid='documents-filter-type']");
+        typeSelect.GetAttribute("value").Should().BeNullOrEmpty("le type sélectionné disparu est réinitialisé à « Tous »");
+        cut.Markup.Should().NotContain(">Facture<", "l'option Facture n'existe plus dans ce périmètre");
+        cut.Markup.Should().Contain("CAROLE");
+    }
+
+    private static DocumentSummaryDto Doc(string number, string type, string state, string customer = "DUPONT J.") => new()
     {
         Id = Guid.NewGuid(),
         DocumentNumber = number,
         DocumentType = type,
         IssueDate = new DateOnly(2026, 6, 1),
-        CustomerName = "DUPONT J.",
+        CustomerName = customer,
         TotalGross = 1162.80m,
         State = state,
         LastUpdateUtc = new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero),
@@ -102,16 +175,21 @@ public sealed class DocumentsTests : BunitContext
 
     private sealed class FakeDocumentConsoleQueries : IDocumentConsoleQueries
     {
-        private readonly IReadOnlyList<DocumentSummaryDto>? _documents;
+        private readonly IReadOnlyList<IReadOnlyList<DocumentSummaryDto>>? _scopes;
         private readonly bool _throws;
+        private int _call;
 
-        private FakeDocumentConsoleQueries(IReadOnlyList<DocumentSummaryDto>? documents, bool throws)
+        private FakeDocumentConsoleQueries(IReadOnlyList<IReadOnlyList<DocumentSummaryDto>>? scopes, bool throws)
         {
-            _documents = documents;
+            _scopes = scopes;
             _throws = throws;
         }
 
-        public static FakeDocumentConsoleQueries Returning(params DocumentSummaryDto[] documents) => new(documents, throws: false);
+        public static FakeDocumentConsoleQueries Returning(params DocumentSummaryDto[] documents) => new([documents], throws: false);
+
+        // Renvoie un périmètre différent à chaque rechargement (1er appel = premier jeu, etc. ; le dernier
+        // se répète) — pour tester le changement de période.
+        public static FakeDocumentConsoleQueries Switching(params DocumentSummaryDto[][] scopes) => new(scopes, throws: false);
 
         public static FakeDocumentConsoleQueries Throwing() => new(null, throws: true);
 
@@ -122,7 +200,9 @@ public sealed class DocumentsTests : BunitContext
                 throw new InvalidOperationException("Échec simulé de chargement des documents.");
             }
 
-            return Task.FromResult(_documents!);
+            var index = Math.Min(_call, _scopes!.Count - 1);
+            _call++;
+            return Task.FromResult(_scopes[index]);
         }
     }
 

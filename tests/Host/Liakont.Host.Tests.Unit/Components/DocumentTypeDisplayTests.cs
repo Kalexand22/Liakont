@@ -28,10 +28,15 @@ public sealed class DocumentTypeDisplayTests
         DocumentTypeDisplay.For(raw).Should().Be("—");
     }
 
-    [Fact]
-    public void For_Should_Fall_Back_To_The_Raw_Value_For_Unknown_Types()
+    [Theory]
+    [InlineData("bordereau-vente")]
+    [InlineData("creditcard")]
+    [InlineData("credit_memo")]
+    [InlineData("credited_invoice")]
+    public void For_Should_Fall_Back_To_The_Raw_Value_For_Unknown_Types(string raw)
     {
-        // Produit générique : un type source non reconnu n'est jamais masqué ni deviné.
-        DocumentTypeDisplay.For("bordereau-vente").Should().Be("bordereau-vente");
+        // Produit générique : un type source non reconnu n'est jamais masqué ni deviné. En particulier un
+        // type VOISIN de « credit note » (credit_memo, creditcard…) n'est PAS étiqueté « Avoir ».
+        DocumentTypeDisplay.For(raw).Should().Be(raw);
     }
 }

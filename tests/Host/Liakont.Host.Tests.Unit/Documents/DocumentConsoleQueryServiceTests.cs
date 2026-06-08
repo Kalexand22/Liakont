@@ -9,6 +9,8 @@ using FluentAssertions;
 using Liakont.Host.Documents;
 using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Documents.Contracts.Queries;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 public sealed class DocumentConsoleQueryServiceTests
@@ -17,7 +19,7 @@ public sealed class DocumentConsoleQueryServiceTests
     public async Task GetDocumentsInPeriodAsync_Should_Return_All_When_Single_Page()
     {
         var fake = new PagingDocumentQueries(BuildDocuments(50));
-        var service = new DocumentConsoleQueryService(fake);
+        var service = new DocumentConsoleQueryService(fake, NullLogger<DocumentConsoleQueryService>.Instance);
 
         var result = await service.GetDocumentsInPeriodAsync(null, null);
 
@@ -31,7 +33,7 @@ public sealed class DocumentConsoleQueryServiceTests
         // 450 documents, plafond serveur 200 → 3 pages (200 + 200 + 50). Aucune troncature silencieuse.
         var documents = BuildDocuments(450);
         var fake = new PagingDocumentQueries(documents);
-        var service = new DocumentConsoleQueryService(fake);
+        var service = new DocumentConsoleQueryService(fake, NullLogger<DocumentConsoleQueryService>.Instance);
 
         var result = await service.GetDocumentsInPeriodAsync(null, null);
 
@@ -47,7 +49,7 @@ public sealed class DocumentConsoleQueryServiceTests
         var from = new DateOnly(2026, 6, 1);
         var to = new DateOnly(2026, 6, 30);
         var fake = new PagingDocumentQueries(BuildDocuments(10));
-        var service = new DocumentConsoleQueryService(fake);
+        var service = new DocumentConsoleQueryService(fake, NullLogger<DocumentConsoleQueryService>.Instance);
 
         await service.GetDocumentsInPeriodAsync(from, to);
 
@@ -61,12 +63,16 @@ public sealed class DocumentConsoleQueryServiceTests
         // TotalCount annonce 450 mais une page renvoie vide (lecture concurrente d'un état mouvant) :
         // le service s'arrête proprement, sans boucle infinie.
         var fake = new ShrinkingDocumentQueries(announcedTotal: 450, realDocuments: BuildDocuments(200));
-        var service = new DocumentConsoleQueryService(fake);
+        var logger = new CapturingLogger();
+        var service = new DocumentConsoleQueryService(fake, logger);
 
         var result = await service.GetDocumentsInPeriodAsync(null, null);
 
         result.Should().HaveCount(200);
         fake.Calls.Should().BeLessThanOrEqualTo(3);
+
+        // L'incomplétude (arrêt anticipé avec moins de documents que le total annoncé) est TRACÉE.
+        logger.Warnings.Should().ContainSingle().Which.Should().Contain("stopped early");
     }
 
     private static List<DocumentSummaryDto> BuildDocuments(int count)
@@ -184,5 +190,24 @@ public sealed class DocumentConsoleQueryServiceTests
         public Task<IReadOnlyList<DocumentSummaryDto>> GetPotentiallySentDocumentsAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         public Task<DocumentStatusDto?> FindStatusBySourceReferenceAndPayloadHashAsync(string sourceReference, string payloadHash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    // Capture les messages de niveau Warning pour vérifier que l'incomplétude est tracée.
+    private sealed class CapturingLogger : ILogger<DocumentConsoleQueryService>
+    {
+        public List<string> Warnings { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning)
+            {
+                Warnings.Add(formatter(state, exception));
+            }
+        }
     }
 }

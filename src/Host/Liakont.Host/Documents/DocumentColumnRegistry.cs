@@ -1,6 +1,5 @@
 namespace Liakont.Host.Documents;
 
-using Liakont.Host.Components;
 using Liakont.Modules.Documents.Contracts.DTOs;
 using Stratum.Common.UI.Models;
 using Stratum.Common.UI.Services;
@@ -21,16 +20,12 @@ internal sealed class DocumentColumnRegistry : ColumnRegistryBase<DocumentSummar
         Column("TotalGross", "Montant", "Document", ColumnDataType.Money, defaultVisible: true, sortOrder: 3);
         Column("DocumentType", "Type", "Document", ColumnDataType.Text, defaultVisible: true, sortOrder: 4);
 
-        // État : multi-select de filtre alimenté par les états canoniques (clés brutes) ; l'affichage
-        // passe par le DocumentStateBadge (vocabulaire FR) via le ColumnTemplate de la page.
-        Column(
-            "State",
-            "État",
-            "Document",
-            ColumnDataType.Enum,
-            defaultVisible: true,
-            sortOrder: 5,
-            allowedValues: DocumentStateDisplay.CanonicalOrder);
+        // État : colonne Texte (PAS Enum). Un Enum exposerait les CLÉS BRUTES anglaises (Issued,
+        // RejectedByPa…) dans le filtre avancé de la grille — incompatible avec « 100 % français »
+        // (CLAUDE.md n°12). L'affichage passe par DocumentStateBadge (vocabulaire FR) via le
+        // ColumnTemplate de la page, et le filtrage d'état se fait par le sélecteur français de la page
+        // (+ pastilles de synthèse cliquables), pas par le filtre brut de colonne.
+        Column("State", "État", "Document", ColumnDataType.Text, defaultVisible: true, sortOrder: 5);
 
         // Dernière mise à jour : masquée par défaut (axe de tri/filtre disponible, hors encombrement visuel).
         Column("LastUpdateUtc", "Mis à jour le", "Document", ColumnDataType.Date, defaultVisible: false, sortOrder: 6);

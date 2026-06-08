@@ -2,7 +2,6 @@ namespace Liakont.Host.Tests.Unit.Documents;
 
 using System.Linq;
 using FluentAssertions;
-using Liakont.Host.Components;
 using Liakont.Host.Documents;
 using Stratum.Common.UI.Models;
 using Xunit;
@@ -41,14 +40,16 @@ public sealed class DocumentColumnRegistryTests
     }
 
     [Fact]
-    public void Should_Expose_State_As_An_Enum_Column_Backed_By_The_Canonical_States()
+    public void Should_Expose_State_As_A_Text_Column_Without_Raw_English_Enum_Values()
     {
         var registry = new DocumentColumnRegistry();
 
         var state = registry.GetColumn("State")!;
 
-        state.DataType.Should().Be(ColumnDataType.Enum);
-        state.AllowedValues.Should().BeEquivalentTo(DocumentStateDisplay.CanonicalOrder);
+        // Texte (pas Enum) : le filtre avancé de la grille n'exposerait sinon les clés brutes anglaises.
+        // Le filtrage d'état français passe par le sélecteur de la page et les pastilles de synthèse.
+        state.DataType.Should().Be(ColumnDataType.Text);
+        state.AllowedValues.Should().BeNull();
     }
 
     [Fact]

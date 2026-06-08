@@ -27,11 +27,13 @@ public static class DocumentTypeDisplay
 
         var normalized = rawType.Trim();
 
-        // Avoir : on reconnaît la famille « credit note » quelle que soit la casse/le séparateur
-        // (credit_note, credit-note, creditNote…), car la note de crédit est l'avoir EN16931.
-        if (normalized.Replace("_", string.Empty, StringComparison.Ordinal)
-                      .Replace("-", string.Empty, StringComparison.Ordinal)
-                      .StartsWith("credit", StringComparison.OrdinalIgnoreCase))
+        // Avoir : on reconnaît EXACTEMENT la note de crédit EN16931 quelle que soit la casse/le séparateur
+        // (credit_note, credit-note, creditNote…). Égalité stricte après normalisation : un type voisin
+        // (credit_memo, creditcard…) n'est PAS un avoir et retombe sur sa valeur brute.
+        var collapsed = normalized
+            .Replace("_", string.Empty, StringComparison.Ordinal)
+            .Replace("-", string.Empty, StringComparison.Ordinal);
+        if (collapsed.Equals("creditnote", StringComparison.OrdinalIgnoreCase))
         {
             return "Avoir";
         }
