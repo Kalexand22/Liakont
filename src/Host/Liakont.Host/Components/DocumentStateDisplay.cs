@@ -7,8 +7,8 @@ using Stratum.Common.UI.Models;
 /// Vocabulaire opérateur FRANÇAIS des états d'un document (F10 §2.2) : libellé + emoji + sévérité de
 /// badge. Indexé par le NOM de l'état (la clé de <c>DocumentListResult.CountsByState</c>), ce qui garde
 /// l'affichage DÉCOUPLÉ de l'enum du module Documents. Pur affichage : aucune règle métier interprétée
-/// (CLAUDE.md n°2/19). Les emoji sont écrits en échappement Unicode pour être insensibles à l'encodage
-/// du fichier source.
+/// (CLAUDE.md n°2/19). Tous les emoji des libellés sont écrits en échappement Unicode C# (<c>\U…</c>),
+/// donc insensibles à l'encodage du fichier source ; les commentaires les annotent en notation U+.
 /// </summary>
 public static class DocumentStateDisplay
 {
@@ -37,32 +37,32 @@ public static class DocumentStateDisplay
     /// <param name="state">Nom de l'état (ex. <c>Issued</c>), tel que produit par le module Documents.</param>
     public static (string Label, Severity Severity) For(string? state) => state switch
     {
-        // ⏳ À envoyer — lu dans le logiciel source, prêt (F10 : gris).
-        "Detected" => ("⏳ À envoyer", Severity.Neutral),
+        // U+23F3 (sablier) À envoyer — lu dans le logiciel source, prêt (F10 : gris).
+        "Detected" => ("\U000023F3 À envoyer", Severity.Neutral),
 
-        // 📤 Prêt à envoyer — état interne (non listé en F10 §2.2 ; libellé d'affichage uniquement).
+        // U+1F4E4 (bac d'envoi) Prêt à envoyer — état interne (non listé en F10 §2.2 ; libellé d'affichage).
         "ReadyToSend" => ("\U0001F4E4 Prêt à envoyer", Severity.Info),
 
-        // ⏫ En cours — envoi engagé (F10 : bleu).
-        "Sending" => ("⏫ En cours", Severity.Info),
+        // U+23EB (double flèche haute) En cours — envoi engagé (F10 : bleu).
+        "Sending" => ("\U000023EB En cours", Severity.Info),
 
-        // 🛑 Bloqué — un contrôle a échoué avant envoi, action requise (F10 : orange).
+        // U+1F6D1 (panneau stop) Bloqué — un contrôle a échoué avant envoi, action requise (F10 : orange).
         "Blocked" => ("\U0001F6D1 Bloqué", Severity.Warning),
 
-        // ⚠️ Erreur technique — problème réseau/API, retenté automatiquement (F10 : rouge).
-        "TechnicalError" => ("⚠️ Erreur technique", Severity.Error),
+        // U+26A0 U+FE0F (avertissement) Erreur technique — problème réseau/API, retenté (F10 : rouge).
+        "TechnicalError" => ("\U000026A0\U0000FE0F Erreur technique", Severity.Error),
 
-        // ❌ Rejeté — la PA a refusé, voir le motif (F10 : rouge).
-        "RejectedByPa" => ("❌ Rejeté", Severity.Error),
+        // U+274C (croix) Rejeté — la PA a refusé, voir le motif (F10 : rouge).
+        "RejectedByPa" => ("\U0000274C Rejeté", Severity.Error),
 
-        // ✅ Émis — accepté par la PA, tax report généré (F10 : vert).
-        "Issued" => ("✅ Émis", Severity.Success),
+        // U+2705 (coche verte) Émis — accepté par la PA, tax report généré (F10 : vert).
+        "Issued" => ("\U00002705 Émis", Severity.Success),
 
-        // ↪ Remplacé — renvoyé sous un autre numéro après rejet (F10 : gris clair).
-        "Superseded" => ("↪ Remplacé", Severity.Neutral),
+        // U+21AA (flèche crochet) Remplacé — renvoyé sous un autre numéro après rejet (F10 : gris clair).
+        "Superseded" => ("\U000021AA Remplacé", Severity.Neutral),
 
-        // ✋ Traité manuellement — résolu hors passerelle par l'opérateur.
-        "ManuallyHandled" => ("✋ Traité manuellement", Severity.Neutral),
+        // U+270B (main levée) Traité manuellement — résolu hors passerelle par l'opérateur.
+        "ManuallyHandled" => ("\U0000270B Traité manuellement", Severity.Neutral),
 
         _ => (string.IsNullOrWhiteSpace(state) ? "—" : state!, Severity.Neutral),
     };

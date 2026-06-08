@@ -49,4 +49,35 @@ Branche : `feat/console-web-WEB01` (segment `feat/console-web`). Blueprint `blaz
       section nav Liakont présente. `[Trait("Category","E2E")]`. MAJ assertion LoginShell (heading `/`).
 - [ ] verify-fast + run-tests + run-e2e verts ; codex-review propre.
 
-## Review (à compléter en fin de session)
+## Review
+
+Tous les fichiers prévus créés/modifiés. Découpage final :
+- Présentation : `DocumentStateBadge.razor` + `DocumentStateDisplay.cs` (emoji en échappement `\U…`,
+  insensible à l'encodage), `DashboardView.razor` (+ `.razor.css`), page `Home.razor` (mince).
+- Modèle : `DashboardViewModel` + sous-records (1 type/fichier, SA1402).
+- Composition : `IDashboardQueries` + `DashboardQueryService` (assemblage hors page, testable).
+- Navigation : `LiakontNavSectionProvider` (scoped) + `ILiakontConsoleContext` /
+  `LiakontConsoleContext` / `LiakontConsoleCircuitHandler` (pré-chargement déterministe au circuit).
+- DI : `AppBootstrap.cs`.
+
+Décisions notables (rien d'inventé) :
+- `reportingFrequency` opaque → cadence affichée telle quelle, AUCUNE échéance calculée (R2) ; null → bandeau.
+- Réconciliation gatée sur la PRÉSENCE réelle du pool PDF (`IIngestedPdfStore`), car le read-model
+  de capacités agent (API01d) est gelé et non exposé par GET /settings. Heuristique d'affichage, pas une règle fiscale.
+- Supervision gatée par `IPermissionService` (synchrone, claims).
+- Dashboard + nav maître logés dans le Host (cross-module, racine de composition) — modules `*.Web` API-only.
+
+Vérification :
+- [x] verify-fast (plateforme .NET 10 + agent net48) — PASS
+- [x] run-tests (suite complète) — PASS (4064 tests, 0 échec ; round 2 ajoute des tests unitaires)
+- [x] run-e2e (Playwright) — PASS (2 tests E2E : LoginShell + Dashboard) [round 1 ; round-2 sans impact E2E]
+- [x] codex-review -Base feat/console-web : round 1 = 0 P1 / 3 P2 (tous des trous de test) → corrigés ;
+      round 2 attendu clean.
+
+Réponse aux 3 P2 (round 1) — tous CORRIGÉS :
+1. Faux-vert chemin données dashboard → ajout `HomeTests` (bUnit) : succès = `liakont-dashboard`,
+   échec `IDashboardQueries` = bandeau `dashboard-error` sans `liakont-dashboard`.
+2. Trou de test `LiakontConsoleContext` réel → ajout `LiakontConsoleContextTests` : pool plein → vrai,
+   vide/tenant absent → faux (store non appelé), idempotence (`EnsureInitializedAsync` lit le pool une fois).
+3. Encodage emoji incohérent → les 9 emoji des libellés passés en échappement `\U…` (10 escapes : 9 + FE0F),
+   commentaire de classe corrigé, commentaires en notation `U+`.
