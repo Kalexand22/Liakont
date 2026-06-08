@@ -91,16 +91,18 @@ internal static class RolePermissionCatalog
     {
         ArgumentNullException.ThrowIfNull(identity);
 
-        var existing = identity.FindAll(PermissionClaimType)
-            .Select(claim => claim.Value)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // Le catalogue §3 est l'UNIQUE source autoritative des permissions à l'exécution : on retire
+        // d'abord tout claim "permission" préexistant (défense en profondeur contre un futur mapper ou
+        // attribut IdP nommé "permission" qui forgerait une permission hors matrice §3), puis on projette
+        // les permissions dérivées des rôles realm. Idempotent (rejouable par une transformation de claims).
+        foreach (var stale in identity.FindAll(PermissionClaimType).ToList())
+        {
+            identity.RemoveClaim(stale);
+        }
 
         foreach (var permission in PermissionsForRoles(ReadRoles(identity.Claims)))
         {
-            if (existing.Add(permission))
-            {
-                identity.AddClaim(new Claim(PermissionClaimType, permission));
-            }
+            identity.AddClaim(new Claim(PermissionClaimType, permission));
         }
     }
 

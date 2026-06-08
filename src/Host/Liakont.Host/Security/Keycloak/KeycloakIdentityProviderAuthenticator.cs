@@ -195,6 +195,13 @@ internal sealed class KeycloakIdentityProviderAuthenticator : IIdentityProviderA
                 options.Cookie.Name = "stratum_session";
                 options.Cookie.HttpOnly = true;
                 options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+
+                // Fenêtre de révocation différée (ADR-0017 §Négatif) : la garde endpoint lit des claims
+                // "permission" figés au sign-in (projetés des rôles realm). Le cookie étant en expiration
+                // glissante, il se ré-émet avec les mêmes claims SANS rejouer OnTokenValidated — une
+                // révocation de rôle n'est donc PAS honorée immédiatement (fenêtre ≥ 8 h, non bornée pour
+                // une session active). Compromis ACCEPTÉ au merge humain (gate console-web) ; atténuation
+                // (raccourcir/désactiver le sliding, ré-auth forcée) seulement si l'opérateur l'exige.
                 options.SlidingExpiration = true;
                 options.ExpireTimeSpan = TimeSpan.FromHours(8);
 
