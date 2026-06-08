@@ -190,6 +190,20 @@ public sealed class DocumentVerdictRecheckEndpointsIntegrationTests
     }
 
     [Fact]
+    public async Task PostRecheck_With_Unavailable_Staged_Pivot_Returns_409()
+    {
+        // Chemin dégradé « bloquer plutôt qu'envoyer faux » : pivot stagé indisponible → 409, document reste Blocked.
+        var documentId = await _factory.SeedBlockedDocumentWithoutStagedPivotAsync(ConsoleApiFactory.TenantVerdict);
+        using var client = _factory.CreateClient(ConsoleApiFactory.TenantVerdict, ConsoleApiFactory.OperatorUserId);
+
+        var response = await client.PostAsync(RecheckPath(documentId), content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await _factory.GetDocumentStateAsync(ConsoleApiFactory.TenantVerdict, documentId))
+            .Should().Be("Blocked", "un contenu indisponible ne transitionne jamais le document");
+    }
+
+    [Fact]
     public async Task PostRecheck_Without_Verdict_Stays_Blocked_With_Fresh_Motifs()
     {
         // Sans verdict opérateur, le garde-fou re-bloque : reste Blocked avec les nouveaux motifs renvoyés.

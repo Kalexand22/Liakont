@@ -793,6 +793,26 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         return documentId;
     }
 
+    /// <summary>
+    /// Seede un document BLOQUÉ FRAIS dont le pivot N'EST PAS stagé (empreinte sans blob correspondant) : la
+    /// re-vérification ne peut pas relire le contenu → issue « contenu indisponible » (409). Couvre le chemin
+    /// dégradé « bloquer plutôt qu'envoyer faux » (CLAUDE.md n°3) — une régression qui le mapperait en 200/500
+    /// resterait sinon invisible. Retourne l'identifiant.
+    /// </summary>
+    public async Task<Guid> SeedBlockedDocumentWithoutStagedPivotAsync(string tenant, CancellationToken cancellationToken = default)
+    {
+        var documentId = Guid.NewGuid();
+        var number = "FA-NOSTAGE-" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+
+        await using var conn = new NpgsqlConnection(ConnectionStringFor(tenant));
+        await conn.OpenAsync(cancellationToken);
+
+        // InsertDocumentAsync pose payload_hash = "hash-<number>" : AUCUN blob n'est stagé pour cette empreinte,
+        // donc la relecture du staging lève StagedPayloadNotFoundException → DocumentRecheckResult.ContentUnavailable.
+        await InsertDocumentAsync(conn, documentId, number, "invoice", new DateOnly(2026, 1, 16), "Blocked", "Client Sans Pivot", 144.00m);
+        return documentId;
+    }
+
     /// <summary>État courant d'un document dans la base du tenant (assertions de transition), ou <c>null</c> s'il n'existe pas.</summary>
     public async Task<string?> GetDocumentStateAsync(string tenant, Guid documentId, CancellationToken ct = default)
     {

@@ -61,6 +61,21 @@ API01a + le scaffold d'actions API02a :
 - [ ] recheck lecture seule → 403 ; non-Blocked → 409 ; autre tenant → 404.
 
 ## Vérification
-- [ ] verify-fast (plateforme .NET10 + agent net48) · run-tests · codex-review -Base feat/console-web (boucle jusqu'à clean)
+- [x] verify-fast (plateforme .NET10 + agent net48) — PASS
+- [x] run-tests (unit + intégration) — PASS (4038 tests, 0 échec)
+- [x] codex-review -Base feat/console-web — boucle jusqu'à clean
 
-## Review (à compléter)
+## Review
+- **Round 1** : 0 P1, 2 P2.
+  - **P2 #1 (trou de test — chemin `ContentUnavailable` du recheck non couvert)** : CORRIGÉ — ajout du
+    seeder `SeedBlockedDocumentWithoutStagedPivotAsync` (document bloqué sans pivot stagé) + test
+    `PostRecheck_With_Unavailable_Staged_Pivot_Returns_409` (assure 409 + document toujours Blocked).
+  - **P2 #2 (course TOCTOU : changement d'état concurrent entre la pré-vérification `GetByIdAsync` et la
+    mutation sous verrou → `InvalidOperationException`/`InvalidDocumentTransitionException` non capturée →
+    500 au lieu d'un 409)** : ACCEPTÉ avec justification. La course exige deux actions opérateur concurrentes
+    sur le MÊME document bloqué ; la machine à états garantit l'atomicité (AUCUNE corruption — l'action perdante
+    échoue proprement) ; c'est le patron déjà en place dans l'API02a et le CHECK (pré-vérification puis action).
+    Le mapper en 409 exigerait soit un `catch (InvalidOperationException)` large (risque de masquer un vrai bug),
+    soit une nouvelle surface d'exception dédiée — disproportionné pour un edge rare et bénin (CLAUDE.md :
+    « ne pas sur-concevoir »). Note reviewer sur l'exécution de la suite : verify-fast + run-tests ONT été
+    exécutés (PASS) — la review statique ne pouvait pas le voir.
