@@ -1,6 +1,7 @@
 namespace Liakont.Host.Security.Keycloak;
 
 using System.IdentityModel.Tokens.Jwt;
+using System.Threading.Tasks;
 using Liakont.Host.MultiTenancy;
 using Liakont.Host.Security;
 using Liakont.Host.Security.Abstractions;
@@ -187,6 +188,25 @@ internal sealed class KeycloakIdentityProviderAuthenticator : IIdentityProviderA
                     // If no keys are resolved (JWKS unreachable or unknown issuer),
                     // the token is rejected because ValidateIssuerSigningKey is true.
                     IssuerSigningKeyResolver = jwksResolver.ResolveSigningKeys,
+                };
+
+                // Projette les rôles realm → permissions (matrice §3) en claims "permission" sur le
+                // principal du jeton porteur — comme le flux OIDC/cookie. La garde endpoint
+                // (PermissionAuthorizationHandler) lit le MÊME claim quel que soit le schéma actif
+                // (cookie OU Bearer) : un seul mécanisme d'autorisation, un IdP alternatif réutilise la
+                // même projection (INV-IDN01-2/3). Le jeton étant revalidé à chaque requête, la
+                // révocation Bearer est honorée à son expiration (pas de fenêtre cookie ici).
+                options.Events = new JwtBearerEvents
+                {
+                    OnTokenValidated = context =>
+                    {
+                        if (context.Principal?.Identity is System.Security.Claims.ClaimsIdentity identity)
+                        {
+                            RolePermissionCatalog.ProjectPermissionClaims(identity);
+                        }
+
+                        return Task.CompletedTask;
+                    },
                 };
             })
             .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme, options =>
