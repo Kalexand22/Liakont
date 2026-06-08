@@ -1,6 +1,7 @@
 @page "/documents/{Id:guid}"
 @rendermode InteractiveServer
 @attribute [Authorize]
+@using Liakont.Host.Components
 @using Liakont.Host.Documents
 @using Stratum.Common.UI.Models
 @inject IDocumentDetailConsoleQueries DetailQueries
@@ -8,7 +9,8 @@
 
 @* Page détail document (WEB03a, F10 §2.3). Page MINCE : elle charge le détail assemblé via le service
  * IDocumentDetailConsoleQueries (aucun accès base direct, aucune logique métier) et délègue tout le rendu à
- * la vue pure DocumentDetailView. Les actions contextuelles (envoyer/renvoyer/résoudre) arrivent en WEB03b/c. *@
+ * la vue pure DocumentDetailView. Les actions de résolution terminale (WEB03c) sont déléguées au composant
+ * interactif DocumentResolutionActions ; après une résolution, la page recharge le détail (état + historique). *@
 
 <PageTitle>Détail du document — Liakont</PageTitle>
 
@@ -41,6 +43,10 @@
     else
     {
         <h1 data-testid="document-detail-title">Document @_model.Document.DocumentNumber</h1>
+        <DocumentResolutionActions DocumentId="_model.Document.Id"
+                                   DocumentNumber="@_model.Document.DocumentNumber"
+                                   State="@_model.Document.State"
+                                   OnResolved="ReloadAsync" />
         <DocumentDetailView Model="_model" />
     }
 </div>
@@ -64,6 +70,17 @@
         }
 
         _loadedId = Id;
+        await LoadAsync();
+    }
+
+    /// <summary>
+    /// Recharge le détail du document COURANT après une action de résolution (WEB03c) : l'état, la piste
+    /// d'audit (nouvel événement) et l'éventuel lien vers le remplaçant reflètent alors la résolution.
+    /// </summary>
+    private Task ReloadAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
         _model = null;
         _notFound = false;
         _loadFailed = false;
