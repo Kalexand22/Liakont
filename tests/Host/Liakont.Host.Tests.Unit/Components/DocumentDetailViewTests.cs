@@ -8,6 +8,7 @@ using FluentAssertions;
 using Liakont.Host.Components;
 using Liakont.Host.Documents;
 using Liakont.Modules.Documents.Contracts.DTOs;
+using Microsoft.AspNetCore.Components;
 using Xunit;
 
 public sealed class DocumentDetailViewTests : BunitContext
@@ -171,6 +172,138 @@ public sealed class DocumentDetailViewTests : BunitContext
         link.HasAttribute("download").Should().BeTrue("c'est un téléchargement de fichier, pas une navigation Blazor");
     }
 
+    [Fact]
+    public void Should_Show_Verdict_And_Recheck_When_CanAct_And_Blocked_With_Company_Hint()
+    {
+        var model = BuildModel(doc: Doc("2026-010", "Blocked", companyHint: true));
+
+        var cut = Render<DocumentDetailView>(p => p
+            .Add(v => v.Model, model)
+            .Add(v => v.CanAct, true));
+
+        SelectTab(cut, "Contrôles");
+        cut.FindAll("[data-testid='document-detail-controls-actions']").Should().ContainSingle();
+        cut.FindAll("[data-testid='document-detail-verdict-b2c']").Should().ContainSingle();
+        cut.FindAll("[data-testid='document-detail-verdict-b2b']").Should().ContainSingle();
+        cut.FindAll("[data-testid='document-detail-recheck']").Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Should_Hide_All_Action_Buttons_When_Not_CanAct()
+    {
+        // Sans la permission d'action, la fiche reste consultable en lecture (WEB03a) : aucun bouton.
+        var model = BuildModel(doc: Doc("2026-011", "Blocked", companyHint: true));
+
+        var cut = Render<DocumentDetailView>(p => p
+            .Add(v => v.Model, model)
+            .Add(v => v.CanAct, false));
+
+        SelectTab(cut, "Contrôles");
+        cut.FindAll("[data-testid='document-detail-controls-actions']").Should().BeEmpty();
+        cut.FindAll("[data-testid='document-detail-verdict-b2c']").Should().BeEmpty();
+        cut.FindAll("[data-testid='document-detail-recheck']").Should().BeEmpty();
+
+        // … mais le motif de blocage reste visible (lecture seule).
+        cut.FindAll("[data-testid='document-detail-controls-blocked']").Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Should_Hide_Verdict_But_Keep_Recheck_When_No_Company_Hint()
+    {
+        // Aucun indice « société » : le verdict B2B/B2C n'est pas proposé, mais la re-vérification reste offerte.
+        var model = BuildModel(doc: Doc("2026-012", "Blocked", companyHint: false));
+
+        var cut = Render<DocumentDetailView>(p => p
+            .Add(v => v.Model, model)
+            .Add(v => v.CanAct, true));
+
+        SelectTab(cut, "Contrôles");
+        cut.FindAll("[data-testid='document-detail-verdict-b2c']").Should().BeEmpty();
+        cut.FindAll("[data-testid='document-detail-verdict-b2b']").Should().BeEmpty();
+        cut.FindAll("[data-testid='document-detail-recheck']").Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Should_Hide_Verdict_When_Already_Confirmed_B2c_But_Keep_Recheck()
+    {
+        // Verdict déjà posé : on ne le re-propose pas (mais on peut encore re-vérifier pour débloquer).
+        var model = BuildModel(doc: Doc("2026-013", "Blocked", companyHint: true, confirmedB2c: true));
+
+        var cut = Render<DocumentDetailView>(p => p
+            .Add(v => v.Model, model)
+            .Add(v => v.CanAct, true));
+
+        SelectTab(cut, "Contrôles");
+        cut.FindAll("[data-testid='document-detail-verdict-b2c']").Should().BeEmpty();
+        cut.FindAll("[data-testid='document-detail-recheck']").Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Should_Show_No_Action_Buttons_When_Document_Is_Not_Blocked()
+    {
+        var model = BuildModel(doc: Doc("2026-014", "Issued", companyHint: true));
+
+        var cut = Render<DocumentDetailView>(p => p
+            .Add(v => v.Model, model)
+            .Add(v => v.CanAct, true));
+
+        SelectTab(cut, "Contrôles");
+        cut.FindAll("[data-testid='document-detail-controls-actions']").Should().BeEmpty();
+        cut.FindAll("[data-testid='document-detail-recheck']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Action_Buttons_Invoke_Their_Callbacks()
+    {
+        var confirmed = false;
+        var manual = false;
+        var rechecked = false;
+        var model = BuildModel(doc: Doc("2026-015", "Blocked", companyHint: true));
+
+        var cut = Render<DocumentDetailView>(p => p
+            .Add(v => v.Model, model)
+            .Add(v => v.CanAct, true)
+            .Add(v => v.OnConfirmB2c, EventCallback.Factory.Create(this, () => confirmed = true))
+            .Add(v => v.OnHandleManually, EventCallback.Factory.Create(this, () => manual = true))
+            .Add(v => v.OnRecheck, EventCallback.Factory.Create(this, () => rechecked = true)));
+
+        SelectTab(cut, "Contrôles");
+        cut.Find("[data-testid='document-detail-verdict-b2c']").Click();
+        cut.Find("[data-testid='document-detail-verdict-b2b']").Click();
+        cut.Find("[data-testid='document-detail-recheck']").Click();
+
+        confirmed.Should().BeTrue("le bouton « Confirmer particulier (B2C) » déclenche son callback");
+        manual.Should().BeTrue("le bouton « Traiter manuellement (B2B) » déclenche son callback");
+        rechecked.Should().BeTrue("le bouton « Revérifier maintenant » déclenche son callback");
+    }
+
+    [Fact]
+    public void Should_Render_Action_Feedback_With_Success_And_Error_Styling()
+    {
+        var model = BuildModel(doc: Doc("2026-016", "Blocked", companyHint: true));
+
+        var ok = Render<DocumentDetailView>(p => p
+            .Add(v => v.Model, model)
+            .Add(v => v.CanAct, true)
+            .Add(v => v.ActionFeedback, "Re-vérification réussie : le document est maintenant prêt à l'envoi.")
+            .Add(v => v.ActionFailed, false));
+
+        SelectTab(ok, "Contrôles");
+        var okBanner = ok.Find("[data-testid='document-detail-action-feedback']");
+        okBanner.TextContent.Should().Contain("prêt à l'envoi");
+        okBanner.GetAttribute("class").Should().Contain("liakont-doc-detail__action-feedback--ok");
+
+        var ko = Render<DocumentDetailView>(p => p
+            .Add(v => v.Model, model)
+            .Add(v => v.CanAct, true)
+            .Add(v => v.ActionFeedback, "Document introuvable dans ce tenant.")
+            .Add(v => v.ActionFailed, true));
+
+        SelectTab(ko, "Contrôles");
+        ko.Find("[data-testid='document-detail-action-feedback']")
+            .GetAttribute("class").Should().Contain("liakont-doc-detail__action-feedback--error");
+    }
+
     private static void SelectTab(IRenderedComponent<DocumentDetailView> cut, string title)
     {
         var tab = cut.FindAll("button[role='tab']")
@@ -197,7 +330,9 @@ public sealed class DocumentDetailViewTests : BunitContext
         string state,
         string customer = "DUPONT J.",
         string? siren = "123456782",
-        Guid? id = null) => new()
+        Guid? id = null,
+        bool companyHint = false,
+        bool confirmedB2c = false) => new()
     {
         Id = id ?? Guid.NewGuid(),
         SourceReference = $"src/{number}",
@@ -206,7 +341,8 @@ public sealed class DocumentDetailViewTests : BunitContext
         IssueDate = new DateOnly(2026, 6, 1),
         SupplierSiren = siren,
         CustomerName = customer,
-        CustomerIsCompanyHint = false,
+        CustomerIsCompanyHint = companyHint,
+        BuyerConfirmedAsIndividual = confirmedB2c,
         TotalNet = 1000m,
         TotalTax = 162.80m,
         TotalGross = 1162.80m,

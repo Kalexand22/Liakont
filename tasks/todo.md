@@ -1,40 +1,42 @@
-# WEB06 — Page Encaissements (e-reporting paiement)
+# WEB03b — Détail document : actions garde-fou + re-vérification
 
-Segment console-web, sous-branche `feat/console-web-WEB06`, blueprint `blazor-page-item`.
-Page Blazor **lecture seule** (F10 §2.4), alimentée par GET /payments (API01b, done).
+Segment console-web (feat/console-web), sous-branche feat/console-web-WEB03b, slot-2.
+Blueprint blazor-page-item. Dépend de WEB03a (page détail) + API02b (endpoints verdict/recheck).
 
-## Données disponibles (vérifiées sur pièce)
-- `IPaymentAggregationQueries.GetAggregationsAsync(period?)` → `PaymentDailyAggregateDto[]`
-  (Pipeline.Contracts, tenant-scopé, registré Scoped). Montants `decimal`. Champ `Status` ∈
-  {Calculated, Suspended, NotRequired, PendingCapability} calculé par PIP03a — SEULEMENT affiché.
-- `ITenantSettingsConsoleQueries.GetSettingsOverview()` → PaAccounts[] (capacité
-  `SupportsDomesticPaymentReporting` + nom PA) + FiscalSettings (VatOnDebits/OperationCategory nullable).
-- L'« état de transmission » réel (transmis/rejeté) relève de PIP03b (GELÉ) → HORS périmètre.
-  La page affiche la qualification `Status` (read-model PIP03a), pas un état PIP03b inexistant.
+## Contexte (exploré)
+- Page détail = `DocumentDetail.razor` (mince) + `DocumentDetailView.razor` (vue PURE, 4 onglets).
+- Endpoints API02b sur `DocumentActionsEndpointMapping` : POST /verdict (confirm_b2c / handle_manually),
+  POST /recheck. Service direct (IDocumentLifecycle / IDocumentRecheckService), pas de MediatR.
+- Auth OIDC : aucun claim `permission` posé pour les rôles non super-admin (pont IDN01 non implémenté,
+  spec seulement). Précédent WEB07a : E2E prouve navigation→rendu ; le détail gated reste couvert par bUnit.
+- Pas de code de règle structuré persisté sur le blocage (texte libre). Signal structuré pour B2B/B2C :
+  `CustomerIsCompanyHint && !BuyerConfirmedAsIndividual` (indice « société » source, conservateur).
 
-## Les 3 états d'affichage (F10 §2.4) — sans inventer de règle
-1. PA supporte les paiements + fiscal renseigné → agrégats avec badge `Status`, aucun bandeau.
-2. PA sans capacité → bandeau « la plateforme <nom> ne supporte pas encore… » (driven par capacité PA).
-3. Fiscal en attente → bandeau « Décision fiscale en attente (TVA débits / catégorie) » (driven par
-   nullabilité FiscalSettings — même contrôle de complétude que WEB04b, AUCUNE règle fiscale).
-La liste s'affiche toujours ; les bandeaux peuvent coexister au-dessus.
+## Décisions
+- Service Host in-process `IDocumentControlActions` (mirror EXACT des endpoints verdict/recheck :
+  mêmes codes d'audit, même identité opérateur, mêmes gardes d'état, result records sans exception).
+  In-process obligatoire (cookie OIDC indisponible dans le circuit — précédent WEB05).
+- Vue PURE étendue : boutons dans l'onglet Contrôles, gated par param `CanAct` (la page calcule
+  `HasPermission(liakont.actions)`). Verdict visible si Blocked + indice société + non confirmé ;
+  recheck visible pour tout Blocked. Boutons masqués si !CanAct (lecture seule conforme WEB03a).
+- Après action : la page recharge le modèle (re-query) → Historique + Contrôles à jour immédiatement.
 
-## Plan
-- [ ] `Payments/PaymentAggregateStatusDisplay.cs` — libellé FR + Severity par statut (pur affichage)
-- [ ] `Payments/PaymentAggregateRow.cs` — projection présentation (props non-nullables, Reason="—")
-- [ ] `Payments/PaymentAggregateColumnRegistry.cs` — colonnes Jour/Taux/Base HT/TVA/État/Motif
-- [ ] `Payments/EncaissementsViewModel.cs` — agrégats + flags bandeaux (interne)
-- [ ] `Payments/IEncaissementsConsoleQueries.cs` + `EncaissementsConsoleQueryService.cs` — composition
-      (IPaymentAggregationQueries + ITenantSettingsConsoleQueries), tenant-scopée, sans logique métier
-- [ ] `Components/Pages/Encaissements.razor` (+ `.razor.css`) — route /encaissements, [Authorize],
-      filtre période (mois), 2 bandeaux, DeclaredListPage + ColumnRegistry (AUCUNE grille maison)
-- [ ] Enregistrement DI dans `Startup/AppBootstrap.cs`
-- [ ] bUnit : 3 états + vide + erreur + badges + formatage FR decimal/taux ; registry
-- [ ] E2E Playwright : login lecture → nav Encaissements → page affichée (tenant vierge → état vide)
-- [ ] verify-fast + run-tests + run-e2e verts
-- [ ] codex-review propre (ou P2 acceptés documentés)
+## Tâches
+- [ ] `IDocumentControlActions.cs` + `DocumentControlActionsService.cs` (+ enum ConsoleVerdict, result record)
+- [ ] `DocumentDetailView.razor` : boutons Contrôles + params (CanAct, callbacks, feedback) + css scoped
+- [ ] `DocumentDetail.razor` : inject IPermissionService + IDocumentControlActions, handlers + reload
+- [ ] `AppBootstrap.cs` : enregistrer IDocumentControlActions (Scoped)
+- [ ] bUnit `DocumentControlActionsServiceTests` : verdict confirm/manual, recheck (tous outcomes), gardes
+- [ ] bUnit `DocumentDetailViewTests` (+) : boutons visibles/masqués, callbacks, feedback
+- [ ] bUnit `DocumentDetailTests` (+) : permission end-to-end + reload après action
+- [ ] E2E `DocumentControlsE2ETests` : login → doc bloqué → onglet Contrôles rendu, boutons absents (lecture)
+- [ ] verify-fast + run-tests + run-e2e + codex-review loop + merge-back
 
-## Décisions assumées (à consigner)
-- Read-model = PaymentDailyAggregateDto (PIP03a) ; PIP03b gelé → pas d'état transmission réel (hors scope).
-- Bandeau fiscal = contrôle de complétude FiscalSettings (VatOnDebits/OperationCategory), pas une règle.
-- Filtre période = sélecteur de MOIS (« yyyy-MM », ce que prend l'endpoint), défaut mois courant.
+## Review
+- verify-fast PASS (plateforme .NET10 + agent net48) ; run-tests PASS (4336) ; run-e2e PASS (9, dont DocumentControlsE2ETests).
+- codex-review round 1 : 0 P1 / 3 P2 — toutes corrigées :
+  - P2#1 garde liakont.actions côté service (défense en profondeur) + test du refus.
+  - P2#2 DocumentActionContract = source unique des identifiants d'action (états, verdict, codes d'audit, motif B2B), consommée par l'endpoint API02b ET le service console (fidélité piste d'audit).
+  - P2#3 test page mapping bouton→verdict (anti-inversion B2C↔B2B).
+- codex-review round 2 : CLEAN (No findings).
+- Décision clé : signal d'affichage du verdict = `Blocked && CustomerIsCompanyHint && !BuyerConfirmedAsIndividual` (structuré, conservateur ; cas TVA/forme-juridique-seule résoluble via WEB03c). E2E « opérateur clique sous OIDC » porté par WEB05/IDN01 (non câblé à WEB03b par l'opérateur).

@@ -28,6 +28,11 @@ public sealed class DocumentDetailResolutionWiringTests : BunitContext
     {
         JSInterop.Mode = JSRuntimeMode.Loose;
         Services.AddLogging();
+
+        // La page mergée orchestre aussi les actions de l'onglet Contrôles (WEB03b) : IDocumentControlActions
+        // doit être résolvable pour la construire. No-op ici (ces tests portent sur la région de résolution
+        // WEB03c, sur un document RejectedByPa — les actions Contrôles WEB03b ne s'affichent que sur Blocked).
+        Services.AddScoped<IDocumentControlActions>(_ => new NoOpControlActions());
     }
 
     [Fact]
@@ -137,6 +142,15 @@ public sealed class DocumentDetailResolutionWiringTests : BunitContext
         public Task<IReadOnlyList<DocumentReplacementCandidate>> SearchReplacementCandidatesAsync(
             Guid rejectedDocumentId, string? search, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<DocumentReplacementCandidate>>(Array.Empty<DocumentReplacementCandidate>());
+    }
+
+    private sealed class NoOpControlActions : IDocumentControlActions
+    {
+        public Task<DocumentControlActionResult> SubmitVerdictAsync(Guid documentId, ConsoleVerdict verdict, CancellationToken cancellationToken = default) =>
+            Task.FromResult(DocumentControlActionResult.Ok("ok", "Blocked"));
+
+        public Task<DocumentControlActionResult> RecheckAsync(Guid documentId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(DocumentControlActionResult.Ok("ok", "Blocked"));
     }
 
     private sealed class FakePermissionService : IPermissionService
