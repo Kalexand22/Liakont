@@ -1,9 +1,11 @@
 namespace Liakont.Host.Navigation;
 
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Liakont.Modules.Ingestion.Contracts;
 using Liakont.Modules.Reconciliation.Contracts;
+using Microsoft.Extensions.Logging;
 using Stratum.Common.Abstractions.MultiTenancy;
 
 /// <summary>
@@ -12,21 +14,24 @@ using Stratum.Common.Abstractions.MultiTenancy;
 /// courant et <see cref="ReconciliationPendingCount"/> de sa file de réconciliation (propositions +
 /// orphelins). Tenant-scopée (CLAUDE.md n°9) : pool et file sont explicitement bornés au tenant résolu.
 /// </summary>
-internal sealed class LiakontConsoleContext : ILiakontConsoleContext
+internal sealed partial class LiakontConsoleContext : ILiakontConsoleContext
 {
     private readonly ITenantContext _tenantContext;
     private readonly IIngestedPdfStore _pdfStore;
     private readonly IReconciliationQueries _reconciliationQueries;
+    private readonly ILogger<LiakontConsoleContext> _logger;
     private bool _initialized;
 
     public LiakontConsoleContext(
         ITenantContext tenantContext,
         IIngestedPdfStore pdfStore,
-        IReconciliationQueries reconciliationQueries)
+        IReconciliationQueries reconciliationQueries,
+        ILogger<LiakontConsoleContext> logger)
     {
         _tenantContext = tenantContext;
         _pdfStore = pdfStore;
         _reconciliationQueries = reconciliationQueries;
+        _logger = logger;
     }
 
     public bool ReconciliationAvailable { get; private set; }
@@ -58,8 +63,24 @@ internal sealed class LiakontConsoleContext : ILiakontConsoleContext
             return;
         }
 
-        var proposals = await _reconciliationQueries.GetPendingProposalsAsync(cancellationToken).ConfigureAwait(false);
-        var orphans = await _reconciliationQueries.GetOrphanPdfsAsync(cancellationToken).ConfigureAwait(false);
-        ReconciliationPendingCount = proposals.Count + orphans.Count;
+        try
+        {
+            var proposals = await _reconciliationQueries.GetPendingProposalsAsync(cancellationToken).ConfigureAwait(false);
+            var orphans = await _reconciliationQueries.GetOrphanPdfsAsync(cancellationToken).ConfigureAwait(false);
+            ReconciliationPendingCount = proposals.Count + orphans.Count;
+        }
+        catch (Exception ex)
+        {
+            // Le compteur est PUREMENT DÉCORATIF (badge de nav) : un hoquet de lecture de la file ne doit pas
+            // faire échouer l'ouverture du circuit — sinon toute la console devient indisponible pour un tenant
+            // qui a un pool. On dégrade à 0 (badge masqué) et on trace, sans propager.
+            ReconciliationPendingCount = 0;
+            LogPendingCountFailed(_logger, ex);
+        }
     }
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Failed to compute the reconciliation pending count for the navigation badge; degrading to 0.")]
+    private static partial void LogPendingCountFailed(ILogger logger, Exception exception);
 }

@@ -87,16 +87,9 @@ else
         else
         {
             // Pas d'accès aux files sans la permission : on n'interroge pas le module, la vue affiche la restriction.
-            _model = EmptyQueue;
+            _model = ReconciliationQueueViewModel.Empty;
         }
     }
-
-    private static ReconciliationQueueViewModel EmptyQueue => new()
-    {
-        Proposals = [],
-        Orphans = [],
-        DocumentsWithoutPdf = [],
-    };
 
     private async Task LoadAsync()
     {

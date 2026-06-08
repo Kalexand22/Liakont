@@ -33,11 +33,15 @@ internal sealed class LiakontNavSectionProvider : INavSectionProvider
 
         // Réconciliation : visible uniquement si l'agent du tenant alimente un pool de PDF non rattachés. Le
         // nombre d'éléments en attente (propositions + orphelins) est embarqué dans le libellé — le modèle
-        // NavItem du socle vendored n'a pas de champ « badge » et n'est pas modifié (CLAUDE.md n°11).
+        // NavItem du socle vendored n'a pas de champ « badge » et n'est pas modifié (CLAUDE.md n°11). Le compteur
+        // n'est montré qu'aux OPÉRATEURS (liakont.actions) : la file de réconciliation est une fonction opérateur
+        // (l'endpoint API04 renvoie 403 à un simple lecteur). On garde l'affichage AU RENDU (permissions chargées),
+        // pas au calcul du contexte (ouverture de circuit : les claims de permission ne sont pas garantis chargés).
         if (_console.ReconciliationAvailable)
         {
             var pending = _console.ReconciliationPendingCount;
-            var label = pending > 0 ? $"Réconciliation ({pending})" : "Réconciliation";
+            var showCount = pending > 0 && _permissions.HasPermission(LiakontPermissions.Actions);
+            var label = showCount ? $"Réconciliation ({pending})" : "Réconciliation";
             items.Add(new NavItem(label, "/reconciliation"));
         }
 

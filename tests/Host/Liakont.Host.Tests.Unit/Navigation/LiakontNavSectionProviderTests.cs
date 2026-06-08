@@ -41,11 +41,23 @@ public sealed class LiakontNavSectionProviderTests
     [Fact]
     public void GetSection_Should_Embed_The_Pending_Count_In_The_Reconciliation_Label()
     {
-        var section = BuildProvider(reconciliationAvailable: true, reconciliationPendingCount: 4).GetSection();
+        var section = BuildProvider(
+            reconciliationAvailable: true,
+            reconciliationPendingCount: 4,
+            permissions: [LiakontPermissions.Actions]).GetSection();
 
         // Le compteur d'éléments en attente est embarqué dans le libellé (NavItem n'a pas de champ badge).
         Labels(section).Should().Contain("Réconciliation (4)");
         Labels(section).Should().NotContain("Réconciliation");
+    }
+
+    [Fact]
+    public void GetSection_Should_Hide_The_Count_For_Non_Operators_Even_When_Pending()
+    {
+        var section = BuildProvider(reconciliationAvailable: true, reconciliationPendingCount: 4, permissions: []).GetSection();
+
+        Labels(section).Should().Contain("Réconciliation");
+        Labels(section).Should().NotContain("Réconciliation (4)");
     }
 
     [Fact]

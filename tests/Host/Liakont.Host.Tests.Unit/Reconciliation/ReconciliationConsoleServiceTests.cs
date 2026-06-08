@@ -159,6 +159,20 @@ public sealed class ReconciliationConsoleServiceTests
         module.LinkedEntryId.Should().BeNull();
     }
 
+    [Fact]
+    public async Task GetQueueAsync_Without_Actions_Permission_Returns_Empty_Without_Querying()
+    {
+        var queries = new FakeQueries { Proposals = [Proposal()], Orphans = [Orphan()], DocumentsWithoutPdf = [WithoutPdf()] };
+        var service = Build(queries: queries, permissions: []);
+
+        var model = await service.GetQueueAsync();
+
+        model.Proposals.Should().BeEmpty();
+        model.Orphans.Should().BeEmpty();
+        model.DocumentsWithoutPdf.Should().BeEmpty();
+        queries.ReadCallCount.Should().Be(0, "sans permission, le module n'est pas interrogé");
+    }
+
     private static ReconciliationConsoleService Build(
         FakeQueries? queries = null,
         RecordingService? module = null,
@@ -187,8 +201,13 @@ public sealed class ReconciliationConsoleServiceTests
 
         public IReadOnlyList<DocumentWithoutPdfDto> DocumentsWithoutPdf { get; init; } = [];
 
-        public Task<IReadOnlyList<ReconciliationProposalDto>> GetPendingProposalsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(Proposals);
+        public int ReadCallCount { get; private set; }
+
+        public Task<IReadOnlyList<ReconciliationProposalDto>> GetPendingProposalsAsync(CancellationToken cancellationToken = default)
+        {
+            ReadCallCount++;
+            return Task.FromResult(Proposals);
+        }
 
         public Task<IReadOnlyList<OrphanPdfDto>> GetOrphanPdfsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(Orphans);

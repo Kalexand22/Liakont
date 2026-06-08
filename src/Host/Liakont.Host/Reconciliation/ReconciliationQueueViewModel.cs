@@ -23,4 +23,12 @@ public sealed record ReconciliationQueueViewModel
 
     /// <summary>File entièrement vide (aucune des trois catégories) — état « rien à traiter ».</summary>
     public bool IsEmpty => Proposals.Count == 0 && Orphans.Count == 0 && DocumentsWithoutPdf.Count == 0;
+
+    /// <summary>File VIDE (les trois catégories vides) — modèle partagé par défaut (accès refusé, pré-chargement).</summary>
+    public static ReconciliationQueueViewModel Empty { get; } = new()
+    {
+        Proposals = [],
+        Orphans = [],
+        DocumentsWithoutPdf = [],
+    };
 }

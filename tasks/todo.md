@@ -60,4 +60,14 @@ HTTP existant), compteur dans la navigation, page masquée si la capacité pool 
 - [ ] codex-review propre (ou P2 acceptés justifiés)
 
 ## Review
-(à compléter)
+Round 1 (codex-review -Base feat/console-web) : 0 P1, 4 P2 — tous corrigés.
+- P2-1 : compteur nav divulgué aux non-opérateurs → garde `liakont.actions` à l'AFFICHAGE dans
+  LiakontNavSectionProvider (au rendu, claims chargés ; pas au calcul du contexte — race à l'ouverture
+  du circuit, cf. ClaimsPermissionService.InitializeAsync fire-and-forget).
+- P2-2 : GetQueueAsync sans garde alors que le doc la promet → garde `liakont.actions` (retourne
+  ReconciliationQueueViewModel.Empty sans interroger le module). Défense en profondeur.
+- P2-3 : calcul du compteur au chemin critique d'ouverture du circuit sans isolation → try/catch
+  dégradant à 0 (badge décoratif, ne doit pas rendre la console indisponible) + log.
+- P2-4 : trou de test page-niveau → ReconciliationTests.cs (bUnit) : unavailable, chargement opérateur,
+  restriction sans permission, rechargement après action, échec de chargement.
+Round 2 : re-verify-fast PASS, run-tests PASS (4393), run-e2e PASS (11). Review round 2 : voir ci-dessous.

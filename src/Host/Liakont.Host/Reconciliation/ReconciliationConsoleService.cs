@@ -38,6 +38,14 @@ internal sealed class ReconciliationConsoleService : IReconciliationConsoleServi
 
     public async Task<ReconciliationQueueViewModel> GetQueueAsync(CancellationToken cancellationToken = default)
     {
+        if (!_permissions.HasPermission(LiakontPermissions.Actions))
+        {
+            // Défense en profondeur : la file de réconciliation est réservée aux opérateurs (l'endpoint API04
+            // renvoie 403 à un lecteur). Sans la permission, on n'interroge pas le module — le doc de contrat
+            // promet cette garde sur le chemin de lecture, ici on l'honore (la page affiche déjà l'état restreint).
+            return ReconciliationQueueViewModel.Empty;
+        }
+
         var proposals = await _queries.GetPendingProposalsAsync(cancellationToken).ConfigureAwait(false);
         var orphans = await _queries.GetOrphanPdfsAsync(cancellationToken).ConfigureAwait(false);
         var documentsWithoutPdf = await _queries.GetIssuedDocumentsWithoutPdfAsync(cancellationToken).ConfigureAwait(false);
