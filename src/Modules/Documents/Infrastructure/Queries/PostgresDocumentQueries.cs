@@ -121,6 +121,27 @@ public sealed class PostgresDocumentQueries : IDocumentQueries
         return rows.Select(MapSummary).ToList();
     }
 
+    public async Task<DocumentSummaryDto?> GetOldestDocumentInStateAsync(string state, CancellationToken cancellationToken = default)
+    {
+        using var conn = await _connectionFactory.OpenAsync(cancellationToken);
+
+        // Supervision (SUP01b) : le document le PLUS ANCIEN dans l'état (plus petit last_update_utc), borné à
+        // UNE ligne. L'index ix_documents_state (state, last_update_utc DESC) couvre aussi ce tri ascendant.
+        const string sql = """
+            SELECT id, document_number, document_type, issue_date, customer_name,
+                   total_gross, state, last_update_utc
+            FROM documents.documents
+            WHERE state = @State
+            ORDER BY last_update_utc ASC, id
+            LIMIT 1
+            """;
+
+        var row = await conn.QueryFirstOrDefaultAsync(new CommandDefinition(
+            sql, new { State = state }, cancellationToken: cancellationToken));
+
+        return row is null ? null : MapSummary(row);
+    }
+
     public async Task<DocumentStatusDto?> FindStatusBySourceReferenceAndPayloadHashAsync(
         string sourceReference,
         string payloadHash,
