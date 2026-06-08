@@ -37,28 +37,96 @@ items:
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
+  # SUP01b re-découpé (décision opérateur 2026-06-08, après blocage 2026-06-07 session
+  # orch-20260607T225558Z) : « les 8 règles » était inlivrable d'un bloc — 5 des 8 règles n'ont AUCUN
+  # producteur de données persisté, et 5/8 créent une circularité cross-segment
+  # (SUP01b → OPS04/OPS07 [segment toolkit, APRÈS GATE_CONSOLE_WEB] → GATE_CONSOLE_WEB → SUP03 → SUP01b).
+  # On garde ici les 3 règles CONSTRUCTIBLES MAINTENANT (données déjà persistées + tenant-scopées) ; les
+  # 5 restantes partent en SUP01c (fast-follow GELÉ, hors périmètre de la gate console-web).
   SUP01b:
-    title: "Les 8 règles d'alerte (seuils par défaut + surcharge tenant)"
+    title: "Les 3 règles d'alerte constructibles (données déjà persistées) — seuils par défaut + surcharge tenant"
     description: |
-      Sur le moteur d'SUP01a, implémenter les 8 règles d'alerte concrètes (seuils par défaut F12 §5.2,
-      surchargés par les seuils du tenant CFG02) :
-      - Agent muet (aucun heartbeat) > 24 h → 🔴 Critique
-      - Run d'extraction manqué (heartbeat OK mais pas de run) > 36 h → 🔴 Critique
-      - File de push en erreur (signalée par le heartbeat) > seuil → 🟠 Avertissement
-      - Documents bloqués non traités > 5 jours → 🟠 Avertissement
-      - Rejets PA non traités > 2 jours → 🔴 Critique
-      - Échéance de période déclarative à J-3 avec documents non transmis → 🔴 Critique
-        UNIQUEMENT si reportingFrequency (CFG02, décision D4) est renseigné pour le tenant —
-        null = pas de calcul d'échéance, pas d'alerte (JAMAIS de cadence devinée).
-      - SIREN non publié / tax_report_setting inactif côté PA (diagnostic F04 §3.1, données PAB03)
-        → 🟠 Avertissement (« aucun envoi ne peut partir tant que la PA n'a pas activé le SIREN »).
-      - Version d'agent obsolète (< N-1) → 🟠 Avertissement.
-      Chaque règle se branche sur le moteur SUP01a (anti-bruit / auto-résolution déjà fournis).
+      Sur le moteur d'SUP01a (IAlertRule + dispatch + anti-bruit / auto-résolution), implémenter les
+      3 SEULES règles d'alerte dont la source de données est DÉJÀ persistée et requêtable de façon
+      tenant-scopée aujourd'hui (vérifié sur pièce au blocage 2026-06-07). Seuils par défaut F12 §5.2,
+      surchargés par les seuils du tenant (CFG02) :
+      - Agent muet (aucun heartbeat) > 24 h → 🔴 Critique.
+        Source : dernier heartbeat par agent (`Agent.LastSeenAtUtc`, registre système Ingestion,
+        colonne `last_seen_at`) via une lecture tenant-scopée — exposer la lecture « last-seen » si elle
+        ne l'est pas encore par un Contract d'Ingestion (jamais de requête maison cross-tenant : seul le
+        job dead-man's-switch de SUP01a balaie les tenants, en lecture — blueprint §7).
+      - Documents bloqués non traités > 5 jours → 🟠 Avertissement.
+        Source : documents en état `Blocked` (module Documents, `IDocumentQueries`) — l'âge se dérive de
+        `DocumentSummaryDto.LastUpdateUtc` (temps passé dans l'état). Ajouter au besoin une lecture d'âge
+        dédiée par état au Contract Documents plutôt que de paginer toute la file.
+      - Rejets PA non traités > 2 jours → 🔴 Critique.
+        Source : documents en état `RejectedByPa` (même Contract Documents), même dérivation d'âge.
+      Chaque règle se branche sur le moteur SUP01a (anti-bruit / auto-résolution déjà fournis) : une
+      alerte active ne se re-déclenche pas ; elle se résout quand la condition disparaît et peut se
+      re-déclencher après résolution. Aucune source de données fabriquée (une supervision qui prétend
+      surveiller ce qu'elle ne surveille pas est précisément la panne silencieuse que SUP existe pour
+      détecter) : si une règle exige un producteur inexistant, elle est en SUP01c, pas ici.
+      Les 5 autres règles (run manqué, file de push, SIREN/tax_report_setting PA, version d'agent
+      obsolète, échéance déclarative J-3) sont en SUP01c (fast-follow gelé, producteurs manquants).
     acceptance:
-      - "Les 8 règles implémentées (seuils par défaut + surcharge par tenant), branchées sur le moteur SUP01a"
-      - "Alerte d'échéance déclenchée seulement si reportingFrequency est renseigné (testé : null = pas d'alerte)"
+      - "Les 3 règles constructibles implémentées (agent muet, documents bloqués, rejets PA), branchées sur le moteur SUP01a"
+      - "Seuils par défaut F12 §5.2 + surcharge par tenant (CFG02), testés par règle"
+      - "Aucune source de données fabriquée : chaque règle lit une donnée DÉJÀ persistée et tenant-scopée (last-seen agent ; états Blocked / RejectedByPa des documents) — vérifié en review"
       - "Auto-résolution + anti-bruit vérifiés par règle (réutilise le moteur SUP01a)"
-      - "Tests d'intégration : chaque règle, multi-tenants, seuils par tenant"
+      - "Lectures tenant-scopées par construction : aucune requête cross-tenant hors du job dead-man's-switch de SUP01a (NetArchTest / review)"
+      - "Tests d'intégration : chaque règle (déclenchement / auto-résolution), multi-tenants, seuils par tenant"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  SUP01c:
+    title: "Règles d'alerte fast-follow (producteurs de données requis) — GELÉ"
+    description: |
+      FAST-FOLLOW de SUP01b, HORS périmètre de GATE_CONSOLE_WEB. Marqué `blocked` dans state.yaml :
+      les 5 règles restantes n'ont AUCUN producteur de données persisté aujourd'hui, et leurs producteurs
+      vivent dans le segment toolkit (OPS04/OPS07), APRÈS GATE_CONSOLE_WEB. Les laisser dans SUP01b créait
+      une circularité cross-segment (SUP01b → OPS07 → GATE_CONSOLE_WEB → SUP03 → SUP01b) qui rend l'item
+      structurellement insatisfiable, quel que soit l'ordre. On casse la circularité en SORTANT ces règles
+      du périmètre de la gate console-web. NE PAS réclamer ni coder tant que chaque producteur ci-dessous
+      n'existe pas (faux-vert : une règle de supervision sans source réelle prétend surveiller ce qu'elle
+      ne surveille pas — exactement la panne silencieuse que SUP existe pour détecter).
+      PRÉREQUIS DE DÉBLOCAGE (un par règle — un-block partiel possible règle par règle dès que SON
+      producteur est livré et exposé par un Contract) :
+        - Run d'extraction manqué (heartbeat OK mais pas de run) > 36 h → 🔴 Critique.
+          PRODUCTEUR MANQUANT : la télémétrie de run (LastRunStartedUtc / LastRunCompletedUtc /
+          LastRunOutcome de HeartbeatRequestDto) est DROPPÉE à l'endpoint heartbeat (jamais persistée).
+          Requiert un item Ingestion qui persiste le dernier run par agent et l'expose (segment toolkit,
+          cf. OPS04).
+        - File de push en erreur (signalée par le heartbeat) > seuil (défaut F12 §5.2 : > 50 éléments
+          ou > 6 h) → 🟠 Avertissement.
+          PRODUCTEUR MANQUANT : PushQueueDepth / PushQueueErrorCount de HeartbeatRequestDto, eux
+          aussi droppés à l'endpoint. Même item Ingestion de persistance de la télémétrie heartbeat (OPS04).
+        - SIREN non publié / tax_report_setting inactif côté PA → 🟠 Avertissement.
+          PRODUCTEUR MANQUANT : IPaClient.GetTaxReportSettingAsync est un appel LIVE ; aucun état PA
+          persisté requêtable par un job batch multi-tenant. Requiert un diagnostic PA persisté (job qui
+          interroge périodiquement la PA par tenant et stocke un état requêtable — données PAB03, F04 §3.1).
+        - Version d'agent obsolète (< N-1) → 🟠 Avertissement.
+          PRODUCTEUR MANQUANT : Agent.LastAgentVersion ne porte que la version COURANTE ; aucune baseline
+          « dernière version de flotte » n'existe. Requiert le registre de versions OPS07 livré et exposé.
+          ⚠️ C'est cette règle qui créait la circularité (OPS07 ∈ toolkit, après GATE_CONSOLE_WEB) : la
+          sortir de SUP01b la rompt.
+        - Échéance de période déclarative proche (J-3) avec documents non transmis → 🔴 Critique.
+          GELÉ sur ARBITRAGE FISCAL D-a (même blocage que PIP03b) : FiscalSettings.ReportingFrequency
+          est une chaîne OPAQUE (INV-TENANTSETTINGS-008, énumération NON tranchée — « CFG02 ne l'interprète
+          jamais »). Calculer une échéance à partir d'une cadence non sourcée = inventer une règle fiscale
+          (CLAUDE.md n°2). Tant que D-a n'est pas tranchée (cadence sourcée + énum figée, fenêtrage/échéance
+          J+X livrés par PIP03b), SEUL le fail-safe est codable : null/cadence non interprétable = pas de
+          calcul d'échéance, pas d'alerte (JAMAIS de cadence devinée).
+      CONTENU une fois débloqué (par règle, dès que son producteur existe) : implémenter la règle sur le
+      moteur SUP01a (anti-bruit / auto-résolution déjà fournis), seuils par défaut F12 §5.2 + surcharge
+      tenant (CFG02), lecture tenant-scopée du producteur, tests d'intégration par règle + multi-tenants.
+    acceptance:
+      - "GELÉ : aucune règle codée tant que SON producteur de données n'existe pas et n'est pas exposé par un Contract (un-block possible règle par règle)"
+      - "Run manqué + file de push : débloquées seulement après l'item Ingestion qui persiste la télémétrie heartbeat (run + queue) — segment toolkit, cf. OPS04"
+      - "SIREN / tax_report_setting PA : débloquée seulement après un diagnostic PA persisté requêtable (données PAB03, F04 §3.1)"
+      - "Version d'agent obsolète : débloquée seulement après le registre de versions OPS07 ; la circularité SUP01c → OPS07 → GATE_CONSOLE_WEB est rompue (SUP01c hors périmètre de la gate)"
+      - "Échéance J-3 : GELÉE sur l'arbitrage fiscal D-a (cadence sourcée + énum figée, cf. PIP03b) — seul le fail-safe null = pas d'alerte est codable, aucune cadence devinée"
+      - "Chaque règle livrée se branche sur le moteur SUP01a (anti-bruit / auto-résolution), lit une donnée réelle tenant-scopée, et a ses tests d'intégration (déclenchement / auto-résolution, multi-tenants, seuils par tenant)"
+      - "Aucune source de données fabriquée, aucune règle fiscale inventée (CLAUDE.md n°2)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
