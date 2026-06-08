@@ -387,6 +387,10 @@ public static class AppBootstrap
         // et déclenche la vérification d'intégrité du coffre (API03). Isole l'assemblage hors de la page.
         builder.Services.AddScoped<Liakont.Host.Parametrage.IParametrageQueries, Liakont.Host.Parametrage.ParametrageQueryService>();
 
+        // Composition en lecture de la page Encaissements (WEB06) : assemble les agrégats jour×taux (PIP03a,
+        // GET /payments) et l'état du paramétrage pertinent (capacité PA, complétude fiscale — GET /settings).
+        builder.Services.AddScoped<Liakont.Host.Payments.IEncaissementsConsoleQueries, Liakont.Host.Payments.EncaissementsConsoleQueryService>();
+
         // Pré-chargement déterministe de l'état de console à l'ouverture du circuit (avant rendu de la nav).
         builder.Services.AddScoped<Liakont.Host.Navigation.LiakontConsoleCircuitHandler>();
         builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler>(
