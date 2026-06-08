@@ -6,6 +6,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Liakont.Modules.Documents.Application;
+using Liakont.Modules.Documents.Contracts.DTOs;
+using Liakont.Modules.Documents.Contracts.Queries;
 using Liakont.Modules.Documents.Domain.Entities;
 using Liakont.Modules.Documents.Infrastructure.Lifecycle;
 using Xunit;
@@ -24,7 +26,7 @@ public sealed class DocumentLifecycleTests
     {
         var document = Detected();
         var unitOfWork = new FakeUnitOfWork(document);
-        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork));
+        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
 
         await lifecycle.BlockAsync(document.Id, "Table TVA non validée");
 
@@ -40,7 +42,7 @@ public sealed class DocumentLifecycleTests
     {
         var document = Detected();
         var unitOfWork = new FakeUnitOfWork(document);
-        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork));
+        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
 
         await lifecycle.MarkReadyToSendAsync(document.Id, "2026.1");
 
@@ -53,7 +55,7 @@ public sealed class DocumentLifecycleTests
     public async Task Unknown_Document_Throws_And_Does_Not_Commit()
     {
         var unitOfWork = new FakeUnitOfWork(document: null);
-        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork));
+        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
 
         var act = async () => await lifecycle.BlockAsync(Guid.NewGuid(), "motif");
 
@@ -84,6 +86,33 @@ public sealed class DocumentLifecycleTests
 
         public Task<IDocumentUnitOfWork> BeginAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(_unitOfWork);
+    }
+
+    private sealed class FakeQueries : IDocumentQueries
+    {
+        public Task<DocumentDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<DocumentDto?> GetByNumberAsync(string documentNumber, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<DocumentSummaryDto>> GetByStateAsync(string state, int page, int pageSize, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<DocumentListResult> GetDocumentsAsync(DocumentListFilter filter, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<DocumentEventDto>> GetEventsAsync(Guid documentId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<ArchiveReferenceDto?> GetArchiveReferenceAsync(Guid documentId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<DocumentSummaryDto>> GetPotentiallySentDocumentsAsync(CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<DocumentStatusDto?> FindStatusBySourceReferenceAndPayloadHashAsync(string sourceReference, string payloadHash, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     private sealed class FakeUnitOfWork : IDocumentUnitOfWork
