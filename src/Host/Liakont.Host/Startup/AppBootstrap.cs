@@ -379,6 +379,10 @@ public static class AppBootstrap
         // Composition en lecture du tableau de bord d'accueil (WEB01) : isole l'assemblage hors de la page.
         builder.Services.AddScoped<Liakont.Host.Dashboard.IDashboardQueries, Liakont.Host.Dashboard.DashboardQueryService>();
 
+        // Composition en lecture de la page Paramétrage du tenant (WEB04b) : assemble /settings + agents
+        // et déclenche la vérification d'intégrité du coffre (API03). Isole l'assemblage hors de la page.
+        builder.Services.AddScoped<Liakont.Host.Parametrage.IParametrageQueries, Liakont.Host.Parametrage.ParametrageQueryService>();
+
         // Pré-chargement déterministe de l'état de console à l'ouverture du circuit (avant rendu de la nav).
         builder.Services.AddScoped<Liakont.Host.Navigation.LiakontConsoleCircuitHandler>();
         builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler>(

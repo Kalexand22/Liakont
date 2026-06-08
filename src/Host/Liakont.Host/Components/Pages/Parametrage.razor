@@ -1,0 +1,75 @@
+@page "/parametrage"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using Liakont.Host.Parametrage
+@using Liakont.Modules.Archive.Contracts
+@inject IParametrageQueries ParametrageQueries
+@inject ILogger<Parametrage> Logger
+
+<PageTitle>Paramétrage du tenant — Liakont</PageTitle>
+
+<h1>Paramétrage du tenant</h1>
+
+@if (_loadFailed)
+{
+    <div role="alert" data-testid="parametrage-error">
+        Impossible de charger le paramétrage du tenant pour le moment. Réessayez plus tard.
+    </div>
+}
+else if (_model is null)
+{
+    <p data-testid="parametrage-loading">Chargement…</p>
+}
+else
+{
+    <ParametrageView Model="_model"
+                     OnVerifyIntegrity="VerifyIntegrityAsync"
+                     IntegrityReport="_integrityReport"
+                     IsVerifying="_isVerifying"
+                     IntegrityError="@_integrityError" />
+}
+
+@code {
+    private ParametrageViewModel? _model;
+    private bool _loadFailed;
+
+    private ArchiveVerificationReport? _integrityReport;
+    private bool _isVerifying;
+    private string? _integrityError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _model = await ParametrageQueries.GetParametrageAsync();
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the Liakont tenant settings page.");
+        }
+    }
+
+    private async Task VerifyIntegrityAsync()
+    {
+        _isVerifying = true;
+        _integrityError = null;
+        _integrityReport = null;
+
+        try
+        {
+            _integrityReport = await ParametrageQueries.VerifyArchiveIntegrityAsync();
+        }
+        catch (Exception ex)
+        {
+            // L'échec de vérification reste VISIBLE et tracé — jamais avalé en silence.
+            _integrityError = "La vérification d'intégrité a échoué. Réessayez plus tard.";
+            Logger.LogError(ex, "Archive integrity verification failed from the tenant settings page.");
+        }
+        finally
+        {
+            _isVerifying = false;
+        }
+    }
+}
