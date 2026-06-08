@@ -10,7 +10,9 @@ using Stratum.Common.Abstractions.Security;
 /// </summary>
 internal sealed class ClaimsPermissionService : IPermissionService, IDisposable
 {
-    private const string PermissionClaimType = "permission";
+    // Même type de claim que la garde endpoint (PermissionAuthorizationHandler) et la projection au
+    // sign-in (RolePermissionCatalog) : mécanisme d'autorisation unique (INV-IDN01-3).
+    private const string PermissionClaimType = RolePermissionCatalog.PermissionClaimType;
 
     private readonly AuthenticationStateProvider _authStateProvider;
     private HashSet<string> _permissions = [];

@@ -38,7 +38,9 @@ using Xunit;
 /// <list type="bullet">
 ///   <item>un schéma d'authentification de test (<see cref="TestAuthHandler"/>) à la place de Keycloak —
 ///         l'identité est portée par l'en-tête <c>X-Test-User</c> ; l'AUTORISATION reste celle de
-///         production (<c>PermissionAuthorizationHandler</c>, décision en base) ;</item>
+///         production : la garde (<c>PermissionAuthorizationHandler</c>) décide sur les claims
+///         <c>permission</c> (ADR-0017), que le harness projette depuis les grants en base du tenant
+///         (<c>identity.grants</c> = source, transportée en claims comme au sign-in OIDC) ;</item>
 ///   <item>deux bases de TENANT distinctes (database-per-tenant réel) routées par
 ///         <c>TenantConnections:ConnectionStrings</c> — l'isolation A≠B est donc PHYSIQUE, vérifiée par
 ///         test ; le tenant est résolu de l'en-tête <c>X-Tenant-Id</c> par le middleware de production.</item>
@@ -290,8 +292,9 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         // déclarées (jamais inventées). Capacités distinctives → assertions stables côté test.
         builder.Services.AddFakePaClient(new FakePaClientOptions { Capabilities = FakeCapabilities });
 
-        // Remplace l'authentification par le schéma de test (X-Test-User → NameIdentifier), schéma par
-        // défaut. L'autorisation reste celle de production (décision en base par tenant).
+        // Remplace l'authentification par le schéma de test (X-Test-User → NameIdentifier + claims
+        // permission projetés des grants du tenant), schéma par défaut. L'autorisation reste celle de
+        // production : la garde décide sur les claims permission (la base du tenant en est la source).
         builder.Services
             .AddAuthentication()
             .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
