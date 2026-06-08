@@ -100,8 +100,10 @@ public sealed class TreatmentsTests : BunitContext
             markup.Should().Contain("Manuel");
             markup.Should().Contain("Planifié");
 
-            // Counters surfaced verbatim and the date formatted the French way (dd/MM/yyyy).
-            markup.Should().Contain("08/06/2026");
+            // Date rendered the French way in LOCAL time (computed identically here so the
+            // assertion is timezone-independent), and the duration surfaced verbatim.
+            var expectedStart = started.ToLocalTime().ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.GetCultureInfo("fr-FR"));
+            markup.Should().Contain(expectedStart);
             markup.Should().Contain("1 min 0 s");
         });
     }
