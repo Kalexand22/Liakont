@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- ISender (dispatch des commandes/requêtes PIV05) vit dans le package MediatR complet ; les
+         Contracts n'exposent que MediatR.Contracts (interfaces de messages). Référence explicite pour
+         un build robuste (la chaîne Contracts ne fait pas remonter MediatR transitivement). -->
+    <PackageReference Include="MediatR" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.Ingestion.Contracts.csproj" />
+  </ItemGroup>
+</Project>

@@ -32,6 +32,7 @@
     <ProjectReference Include="..\..\Modules\TenantSettings\Web\Liakont.Modules.TenantSettings.Web.csproj" />
     <ProjectReference Include="..\..\Modules\Ingestion\Infrastructure\Liakont.Modules.Ingestion.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Ingestion\Contracts\Liakont.Modules.Ingestion.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Ingestion\Web\Liakont.Modules.Ingestion.Web.csproj" />
     <ProjectReference Include="..\..\Modules\TvaMapping\Infrastructure\Liakont.Modules.TvaMapping.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\TvaMapping\Web\Liakont.Modules.TvaMapping.Web.csproj" />
     <ProjectReference Include="..\..\Modules\Documents\Infrastructure\Liakont.Modules.Documents.Infrastructure.csproj" />
