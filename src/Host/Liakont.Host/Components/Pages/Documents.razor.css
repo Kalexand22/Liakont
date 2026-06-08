@@ -1,0 +1,38 @@
+/* Page Documents (WEB02) — mise en page de la barre de filtres et des actions d'envoi.
+   Layout uniquement : couleurs/contrôles viennent du design-system (DeclaredListPage, StratumButton). */
+
+.doc-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 1.5rem;
+    margin-bottom: 1rem;
+}
+
+.doc-filters__group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.doc-filters__label {
+    font-weight: 600;
+    font-size: 0.875rem;
+}
+
+.doc-filters__input {
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--color-border, #d1d5db);
+    border-radius: var(--radius-sm, 0.25rem);
+    background: var(--color-surface, #fff);
+    color: inherit;
+    font: inherit;
+}
+
+.doc-filters__sep {
+    color: var(--color-text-muted, #6b7280);
+}
+
+.doc-send-action {
+    display: inline-flex;
+}

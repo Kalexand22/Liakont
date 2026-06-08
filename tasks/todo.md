@@ -1,83 +1,78 @@
-# WEB01 — Navigation Liakont + tableau de bord d'accueil
+# WEB02 — Page Documents (vue centrale)
 
-Branche : `feat/console-web-WEB01` (segment `feat/console-web`). Blueprint `blazor-page-item`. Slot 3.
+Segment console-web, sous-branche `feat/console-web-WEB02`. Blueprint `blazor-page-item`.
+Spec : F10 §2.1/§2.2 ; gabarit AdminAgents.razor + DeclaredListPage (P1 : aucune grille maison).
 
-## Contexte / décisions d'architecture
+## Décisions d'architecture (documentées)
 
-- **Host = foyer du dashboard et de la nav maître** : le tableau de bord est cross-module
-  (Documents + Ingestion/agents + TenantSettings/TVA) et la nav maître Liakont est transverse.
-  Les modules `*.Web` sont API-only (`Microsoft.NET.Sdk`) ; le Host (`Liakont.Host`) est l'app
-  Blazor Server + racine de composition qui référence tous les modules. → pages + nav dans le Host.
-- **Sources de données (toutes existantes, en Contracts)** :
-  - compteurs par état → `IDocumentQueries.GetDocumentsAsync` → `DocumentListResult.CountsByState`
-  - état agent (heartbeat/version) → `IAgentQueries.ListByTenantAsync(tenantId)` → `AgentSummaryDto`
-  - état TVA + fiscal (reportingFrequency) → `ITenantSettingsConsoleQueries.GetSettingsOverview()`
-- **Échéance déclarative** : `reportingFrequency` est une chaîne OPAQUE (F12-A §3.3). On NE CALCULE
-  aucune date (pas de règle de cadence sourcée → invention interdite, R2). null/vide → bandeau
-  « Fréquence déclarative non renseignée » ; renseigné → on affiche la cadence déclarée telle quelle.
-- **Nav conditionnelle** :
-  - Supervision → gatée par `IPermissionService.HasPermission(liakont.supervision)` (synchrone).
-  - Réconciliation → la spec cite « capacité pool PDF via GET /settings », MAIS
-    `TenantSettingsOverviewDto` n'expose AUCUNE capacité agent (réservé à API01d, GELÉ — confirmé
-    en doc du DTO). Signal disponible et honnête = PRÉSENCE du pool PDF du tenant
-    (`IIngestedPdfStore.ListPooledPdfsAsync(tenant).Any()`) : un agent qui « fournit le pool » est
-    exactement celui qui y dépose des PDF. Aucune règle fiscale, simple heuristique d'affichage.
-    Déviation documentée (session log).
-  - Mécanisme : `BuildNavTree` omet les sections à 0 item ; un `INavSectionProvider` SCOPED retourne
-    l'item conditionnel seulement si la condition est vraie. Pré-chargement déterministe du flag pool
-    via un `CircuitHandler` (avant rendu de la nav), miroir du pattern `TenantCircuitHandler`.
-- **DocumentStateBadge** : composant présentational bâti sur `StatusBadge` (Intent=Severity), prend
-  l'état en `string` (clé de `CountsByState`, découplé du Domain), total sur l'enum + fallback.
+1. **DeclaredListPage est CLIENT-paginée** (`LoadItems` renvoie la liste complète, pagination/filtre
+   en mémoire) ; il n'existe pas de variante server-paged dans le socle Stratum (en bâtir une =
+   modifier le socle vendored, hors périmètre). La directive opérateur (P1, répétée) « bâtie sur
+   DeclaredListPage, parité fonctionnelle complète, aucune grille maison » prime. La « pagination
+   serveur » est honorée AU NIVEAU REQUÊTE (`IDocumentQueries.GetDocumentsAsync` est paginée serveur,
+   PageSize max 200) ; la page charge le périmètre **PÉRIODE** complet (défaut = mois courant, qui
+   borne le volume — même comportement que le gabarit AdminAgents qui charge tous les agents) et
+   DeclaredListPage en assure la pagination d'affichage avec toute la parité (recherche /, filtres
+   avancés, colonnes, export, multi-sélection). **Aucune troncature silencieuse** : le service boucle
+   sur les pages serveur jusqu'à `TotalCount`.
+
+2. **Filtres** : Période → SERVEUR (From/To, re-fetch + re-key au changement). État + Type → CLIENT
+   (CustomFilterPredicate de DeclaredListPage, pas de reload, état de grille préservé). Texte → la
+   recherche « / » intégrée de DeclaredListPage (n°, acheteur via ColumnRegistry searchable).
+   Le filtre Type serveur serait fragile (document_type = valeur BRUTE source, casse incohérente
+   « invoice »/« Invoice ») → filtrage Type côté client, robuste (prédicat insensible à la casse).
+
+3. **Compteurs** : calculés CLIENT-side depuis le périmètre période filtré par Type (pas par État),
+   groupés par état dans l'ordre canonique → « synchronisés avec les filtres » (période + type).
+   Clic sur un compteur = filtre État. Pure agrégation d'affichage, aucune règle métier.
+
+4. **Type (affichage)** : helper `DocumentTypeDisplay.For(raw)` total, insensible à la casse :
+   credit* → « Avoir », invoice → « Facture », sinon valeur brute (jamais masquée). Label générique
+   (produit générique — pas « Bordereau » qui est le vocabulaire d'UN client). Classification
+   facture/avoir réelle = module Validation (Document.cs:20), ici pur affichage (F10 §2.1 colonne Type).
+
+5. **Actions** : [Voir] = RowAction → `/documents/{id}` (détail WEB03a). [▶ Envoyer la sélection] /
+   [▶▶ Tout envoyer] = boutons PRÉSENTS mais DÉSACTIVÉS + tooltip (branchés en WEB05).
 
 ## Tâches
 
-- [ ] `DocumentStateBadge.razor` (Host/Components) : 8 états F10 §2.2 (+ ReadyToSend, fallback),
-      emoji + libellé FR + Severity. Réutilise `StatusBadge`.
-- [ ] `DashboardViewModel.cs` (Host/Dashboard) : compteurs, agents, état TVA, reportingFrequency.
-- [ ] `DashboardView.razor` (présentational, paramètres) : compteurs (badges), état agent,
-      alerte TVA NON VALIDÉE, bandeau/cadence déclarative. `SectionCard`, 100 % français.
-- [ ] `Dashboard` (page `/`, remplace Home.razor) : charge les 3 queries (tenant-scopé), passe au View.
-- [ ] `ILiakontConsoleContext` + `LiakontConsoleContext` + `LiakontConsoleCircuitHandler`
-      (Host/Navigation) : flag `ReconciliationAvailable` chargé au circuit.
-- [ ] `LiakontNavSectionProvider.cs` (Host/Navigation, SCOPED) : section « Liakont » avec items
-      Documents/Encaissements/Traitements/[Réconciliation]/Paramétrage/[Supervision].
-- [ ] DI dans `AppBootstrap.cs` : nav provider scoped + console context + circuit handler.
-- [ ] Tests bUnit (`tests/Host/.../`) : DocumentStateBadge (tous états + FR), DashboardView
-      (compteurs, alerte TVA, bandeau null vs cadence), LiakontNavSectionProvider (Réconciliation
-      masquée sans pool, Supervision masquée sans permission). Ajout package `bunit`.
-- [ ] Test E2E Playwright (`tests/Liakont.Tests.E2E/Scenarios/`) : login → dashboard rendu →
-      section nav Liakont présente. `[Trait("Category","E2E")]`. MAJ assertion LoginShell (heading `/`).
+- [ ] `Documents/IDocumentConsoleQueries.cs` + `DocumentConsoleQueryService.cs` (boucle de chargement
+      complet du périmètre période, sans troncature) + DI dans AppBootstrap.
+- [ ] `Documents/DocumentColumnRegistry.cs` (N°, Date, Acheteur, Montant, Type, État, +LastUpdate masqué).
+- [ ] `Components/DocumentTypeDisplay.cs` (helper d'affichage type).
+- [ ] `Components/DocumentCountsBanner.razor` (bandeau compteurs cliquables).
+- [ ] `Components/Pages/Documents.razor` (`@page "/documents"`, [Authorize] read) — filtre bar période,
+      DeclaredListPage + état/type (CustomFilters), templates (badge état, type FR, montant FR, date),
+      RowAction [Voir], boutons envoi désactivés.
+- [ ] Tests bUnit : DocumentConsoleQueryService (complétude), DocumentColumnRegistry, DocumentTypeDisplay,
+      DocumentCountsBanner, et smoke render de la page Documents.
+- [ ] Test E2E Playwright : login → /documents → grille + filtre + [Voir] → détail.
 - [ ] verify-fast + run-tests + run-e2e verts ; codex-review propre.
 
 ## Review
 
-Tous les fichiers prévus créés/modifiés. Découpage final :
-- Présentation : `DocumentStateBadge.razor` + `DocumentStateDisplay.cs` (emoji en échappement `\U…`,
-  insensible à l'encodage), `DashboardView.razor` (+ `.razor.css`), page `Home.razor` (mince).
-- Modèle : `DashboardViewModel` + sous-records (1 type/fichier, SA1402).
-- Composition : `IDashboardQueries` + `DashboardQueryService` (assemblage hors page, testable).
-- Navigation : `LiakontNavSectionProvider` (scoped) + `ILiakontConsoleContext` /
-  `LiakontConsoleContext` / `LiakontConsoleCircuitHandler` (pré-chargement déterministe au circuit).
-- DI : `AppBootstrap.cs`.
+Tous les fichiers prévus créés/modifiés :
+- Composition lecture : `Documents/IDocumentConsoleQueries.cs` + `DocumentConsoleQueryService.cs`
+  (boucle de chargement du périmètre période COMPLET, aucune troncature) + DI dans `AppBootstrap.cs`.
+- Liste : `Documents/DocumentColumnRegistry.cs` (N°/Date/Acheteur/Montant/Type/État + LastUpdate masqué).
+- Affichage : `Components/DocumentTypeDisplay.cs` (helper type FR, total, fallback brut).
+- Synthèse : `Components/DocumentCountsBanner.razor` (+ `.razor.css`) — compteurs cliquables (filtre État).
+- Page : `Components/Pages/Documents.razor` (+ `.razor.css`) — `@page "/documents"`, [Authorize] ;
+  DeclaredListPage (aucune grille maison), filtres période (serveur) + état/type (CustomFilterPredicate),
+  recherche « / », templates (badge état, type FR, montant/date FR), RowAction [Voir], envoi désactivé.
+- Tests bUnit : `DocumentConsoleQueryServiceTests` (complétude pagination), `DocumentColumnRegistryTests`,
+  `DocumentTypeDisplayTests`, `DocumentCountsBannerTests`, `DocumentsTests` (render page complet + erreur).
+- Test E2E : `DocumentsListE2ETests` (login → nav Documents → page rendue, filtres, compteurs, envoi désactivé).
 
-Décisions notables (rien d'inventé) :
-- `reportingFrequency` opaque → cadence affichée telle quelle, AUCUNE échéance calculée (R2) ; null → bandeau.
-- Réconciliation gatée sur la PRÉSENCE réelle du pool PDF (`IIngestedPdfStore`), car le read-model
-  de capacités agent (API01d) est gelé et non exposé par GET /settings. Heuristique d'affichage, pas une règle fiscale.
-- Supervision gatée par `IPermissionService` (synchrone, claims).
-- Dashboard + nav maître logés dans le Host (cross-module, racine de composition) — modules `*.Web` API-only.
+Décisions notables (rien d'inventé) — voir section « Décisions » ci-dessus :
+- DeclaredListPage est client-paginée → la « pagination serveur » est honorée au niveau requête
+  (GetDocumentsAsync paginée, boucle jusqu'à TotalCount, aucune troncature) ; la période (mois courant)
+  borne le volume. La directive opérateur P1 « DeclaredListPage + parité complète » prime.
+- Type filtré/affiché côté client (valeur source BRUTE à casse incohérente) — filtre serveur fragile écarté.
+- Compteurs calculés client (période + type), aucune règle métier.
 
 Vérification :
 - [x] verify-fast (plateforme .NET 10 + agent net48) — PASS
-- [x] run-tests (suite complète) — PASS (4064 tests, 0 échec ; round 2 ajoute des tests unitaires)
-- [x] run-e2e (Playwright) — PASS (2 tests E2E : LoginShell + Dashboard) [round 1 ; round-2 sans impact E2E]
-- [x] codex-review -Base feat/console-web : round 1 = 0 P1 / 3 P2 (tous des trous de test) → corrigés ;
-      round 2 attendu clean.
-
-Réponse aux 3 P2 (round 1) — tous CORRIGÉS :
-1. Faux-vert chemin données dashboard → ajout `HomeTests` (bUnit) : succès = `liakont-dashboard`,
-   échec `IDashboardQueries` = bandeau `dashboard-error` sans `liakont-dashboard`.
-2. Trou de test `LiakontConsoleContext` réel → ajout `LiakontConsoleContextTests` : pool plein → vrai,
-   vide/tenant absent → faux (store non appelé), idempotence (`EnsureInitializedAsync` lit le pool une fois).
-3. Encodage emoji incohérent → les 9 emoji des libellés passés en échappement `\U…` (10 escapes : 9 + FE0F),
-   commentaire de classe corrigé, commentaires en notation `U+`.
+- [x] run-tests (suite complète) — PASS (4139 tests, 0 échec)
+- [x] run-e2e (Playwright) — PASS (3 E2E : LoginShell + Dashboard + DocumentsList)
+- [ ] codex-review -Base feat/console-web — à lancer
