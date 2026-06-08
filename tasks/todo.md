@@ -1,60 +1,52 @@
-# API02a — Endpoints d'action documents : envoi (ADR-0016)
+# WEB01 — Navigation Liakont + tableau de bord d'accueil
 
-Branche : `feat/console-web-API02a` (segment `feat/console-web`). Slot 2.
+Branche : `feat/console-web-WEB01` (segment `feat/console-web`). Blueprint `blazor-page-item`. Slot 3.
 
-## Objet
-Câbler les 3 actions d'envoi de la console sur le harness API01a, **tenant-scopées** (ADR-0016) :
-- `POST /api/v1/documents/{id}/send` — envoi d'un document ReadyToSend (404/409, journalisé).
-- `POST /api/v1/documents/send-all` — envoi des ReadyToSend du tenant COURANT ; `?confirm=false` =
-  récapitulatif (nombre + montant total `decimal`) sans exécuter ; `confirm=true` = exécution.
-- `POST /api/v1/runs/trigger` — déclenchement manuel du pipeline du tenant courant (`?dryRun=`).
-Permission `liakont.actions`. Toute action journalisée (Audit + identité opérateur).
+## Contexte / décisions d'architecture
 
-## Décision d'architecture (ADR-0016 — rien d'inventé)
-- Nouveau déclencheur **mono-tenant** `SendTenantTrigger(string TenantId, bool DryRun)` (Pipeline.Contracts.Jobs).
-  JAMAIS `SendAllTrigger` (fan-out tous-tenants = fuite cross-tenant, réservé au cron).
-- Handler système `SendTenantFanInHandler : IJobHandler<SendTenantTrigger>` : `ITenantScopeFactory.Create(payload.TenantId)`
-  → `SendTenantJob(PipelineRunTrigger.Manual, payload.DryRun).ExecuteAsync(...)`. Pas de `RunForAllTenantsAsync`.
-- Publication HTTP→worker sur la **queue SYSTÈME** : enqueue dans un scope null-tenant frais
-  (`IServiceScopeFactory.CreateAsyncScope()` → `IConnectionFactory` null-tenant → DB système), comme le scheduler.
-  JAMAIS `IJobQueue` en scope HTTP tenant (= job orphelin non consommé). Tenant cible porté dans la charge utile.
-- Découverte du handler par le worker : `AddJobHandler<SendTenantTrigger, SendTenantFanInHandler>()` dans le Host
-  (compose handler + `JobHandlerRegistration`), comme `DailyAnchoringTrigger` (les triggers fan-out Pipeline
-  existants n'ont pas encore de registration de découverte — non publiés à ce jour).
+- **Host = foyer du dashboard et de la nav maître** : le tableau de bord est cross-module
+  (Documents + Ingestion/agents + TenantSettings/TVA) et la nav maître Liakont est transverse.
+  Les modules `*.Web` sont API-only (`Microsoft.NET.Sdk`) ; le Host (`Liakont.Host`) est l'app
+  Blazor Server + racine de composition qui référence tous les modules. → pages + nav dans le Host.
+- **Sources de données (toutes existantes, en Contracts)** :
+  - compteurs par état → `IDocumentQueries.GetDocumentsAsync` → `DocumentListResult.CountsByState`
+  - état agent (heartbeat/version) → `IAgentQueries.ListByTenantAsync(tenantId)` → `AgentSummaryDto`
+  - état TVA + fiscal (reportingFrequency) → `ITenantSettingsConsoleQueries.GetSettingsOverview()`
+- **Échéance déclarative** : `reportingFrequency` est une chaîne OPAQUE (F12-A §3.3). On NE CALCULE
+  aucune date (pas de règle de cadence sourcée → invention interdite, R2). null/vide → bandeau
+  « Fréquence déclarative non renseignée » ; renseigné → on affiche la cadence déclarée telle quelle.
+- **Nav conditionnelle** :
+  - Supervision → gatée par `IPermissionService.HasPermission(liakont.supervision)` (synchrone).
+  - Réconciliation → la spec cite « capacité pool PDF via GET /settings », MAIS
+    `TenantSettingsOverviewDto` n'expose AUCUNE capacité agent (réservé à API01d, GELÉ — confirmé
+    en doc du DTO). Signal disponible et honnête = PRÉSENCE du pool PDF du tenant
+    (`IIngestedPdfStore.ListPooledPdfsAsync(tenant).Any()`) : un agent qui « fournit le pool » est
+    exactement celui qui y dépose des PDF. Aucune règle fiscale, simple heuristique d'affichage.
+    Déviation documentée (session log).
+  - Mécanisme : `BuildNavTree` omet les sections à 0 item ; un `INavSectionProvider` SCOPED retourne
+    l'item conditionnel seulement si la condition est vraie. Pré-chargement déterministe du flag pool
+    via un `CircuitHandler` (avant rendu de la nav), miroir du pattern `TenantCircuitHandler`.
+- **DocumentStateBadge** : composant présentational bâti sur `StatusBadge` (Intent=Severity), prend
+  l'état en `string` (clé de `CountsByState`, découplé du Domain), total sur l'enum + fallback.
 
-## Fichiers
-Production :
-- [ ] CREATE `src/Modules/Pipeline/Contracts/Jobs/SendTenantTrigger.cs`
-- [ ] CREATE `src/Modules/Pipeline/Infrastructure/Send/SendTenantFanInHandler.cs`
-- [ ] CREATE `src/Modules/Documents/Web/DocumentActionsEndpointMapping.cs` (send + send-all)
-- [ ] MODIFY `src/Modules/Pipeline/Web/PipelineEndpointMapping.cs` (+ POST /runs/trigger)
-- [ ] MODIFY `src/Host/Liakont.Host/Startup/AppBootstrap.cs` (AddJobHandler + MapDocumentActionsEndpoints)
-- [ ] MODIFY `src/Modules/Documents/Web/*.csproj` (+ Pipeline.Contracts, Job.Contracts)
-- [ ] MODIFY `src/Modules/Pipeline/Web/*.csproj` (+ Job.Contracts)
+## Tâches
 
-Tests (anti faux-vert ADR-0016) :
-- [ ] MODIFY `ConsoleApiFactory.cs` — user opérateur (liakont.actions) ADDITIF + helpers (system/tenant job count, audit, run_log)
-- [ ] CREATE `DocumentActionsEndpointsIntegrationTests.cs` — 202/403/404/409, recap confirm=false/true, audit,
-      publication queue SYSTÈME (pas d'orphelin tenant, pas de SendAllTrigger)
-- [ ] CREATE `RunsTriggerEndpointsIntegrationTests.cs` — 202/403, dryRun, publication système
-- [ ] CREATE `SendTenantTriggerHandlerIntegrationTests.cs` — exécution réelle tenant-scopée (run_log Manual/Send dans A, AUCUN dans B)
+- [ ] `DocumentStateBadge.razor` (Host/Components) : 8 états F10 §2.2 (+ ReadyToSend, fallback),
+      emoji + libellé FR + Severity. Réutilise `StatusBadge`.
+- [ ] `DashboardViewModel.cs` (Host/Dashboard) : compteurs, agents, état TVA, reportingFrequency.
+- [ ] `DashboardView.razor` (présentational, paramètres) : compteurs (badges), état agent,
+      alerte TVA NON VALIDÉE, bandeau/cadence déclarative. `SectionCard`, 100 % français.
+- [ ] `Dashboard` (page `/`, remplace Home.razor) : charge les 3 queries (tenant-scopé), passe au View.
+- [ ] `ILiakontConsoleContext` + `LiakontConsoleContext` + `LiakontConsoleCircuitHandler`
+      (Host/Navigation) : flag `ReconciliationAvailable` chargé au circuit.
+- [ ] `LiakontNavSectionProvider.cs` (Host/Navigation, SCOPED) : section « Liakont » avec items
+      Documents/Encaissements/Traitements/[Réconciliation]/Paramétrage/[Supervision].
+- [ ] DI dans `AppBootstrap.cs` : nav provider scoped + console context + circuit handler.
+- [ ] Tests bUnit (`tests/Host/.../`) : DocumentStateBadge (tous états + FR), DashboardView
+      (compteurs, alerte TVA, bandeau null vs cadence), LiakontNavSectionProvider (Réconciliation
+      masquée sans pool, Supervision masquée sans permission). Ajout package `bunit`.
+- [ ] Test E2E Playwright (`tests/Liakont.Tests.E2E/Scenarios/`) : login → dashboard rendu →
+      section nav Liakont présente. `[Trait("Category","E2E")]`. MAJ assertion LoginShell (heading `/`).
+- [ ] verify-fast + run-tests + run-e2e verts ; codex-review propre.
 
-## Invariants couverts
-INV-API02a-1 (mono-tenant), -2 (queue système, pas d'orphelin), -3 (ITenantScopeFactory), -4 (pas de fan-out), -5 (send-all tenant courant).
-
-## Vérification
-- [x] verify-fast (plateforme .NET 10 + agent net48) — PASS
-- [x] run-tests (suite complète) — PASS (3970 tests, 0 échec ; mes tests d'intégration tournent contre PostgreSQL réel)
-- [ ] codex-review -Base feat/console-web (boucle jusqu'à clean)
-
-## Résultats
-- Tous les fichiers prévus créés/modifiés (production + tests). `SendTenantTrigger` + `SendTenantFanInHandler`
-  enregistrés via `AddJobHandler` (Host) → découvrables par le JobWorker.
-- Publication corrigée vs l'attaque morte antérieure (qui publiait `SendAllTrigger` via `IJobQueue` en scope
-  HTTP tenant = orphelin + fan-out cross-tenant). Branche stale préservée : `feat/console-web-API02a-stale-dead-session`.
-- Tests d'intégration anti faux-vert : publication sur la queue SYSTÈME (delta +1), AUCUN job orphelin en base
-  tenant, AUCUN `SendAllTrigger`, audit awaité, et EXÉCUTION réelle tenant-scopée prouvée par `run_log`
-  (run_type=Send/run_trigger=Manual) dans le tenant cible et ZÉRO chez l'autre tenant.
-- Décision : `/documents/{id}/send` valide l'état (404/409) puis publie le SEND tenant-scopé (le SendTenantJob
-  émet les ReadyToSend, dont ce document) — conforme ADR-0016 « le handler exécute SendTenantJob », pas de
-  chemin d'envoi mono-document inventé (CLAUDE.md n°2/3).
+## Review (à compléter en fin de session)

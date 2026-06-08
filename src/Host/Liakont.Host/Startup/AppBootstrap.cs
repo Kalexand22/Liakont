@@ -371,6 +371,19 @@ public static class AppBootstrap
         builder.Services.AddSingleton<INavSectionProvider, Stratum.Modules.Audit.Web.AuditNavSectionProvider>();
         builder.Services.AddSingleton<INavSectionProvider, Stratum.Modules.Job.Web.JobNavSectionProvider>();
 
+        // Navigation maître Liakont (WEB01) : SCOPED car la visibilité des sections dépend du tenant
+        // courant (pool PDF → Réconciliation) et du rôle de l'utilisateur (permission → Supervision).
+        builder.Services.AddScoped<INavSectionProvider, Liakont.Host.Navigation.LiakontNavSectionProvider>();
+        builder.Services.AddScoped<Liakont.Host.Navigation.ILiakontConsoleContext, Liakont.Host.Navigation.LiakontConsoleContext>();
+
+        // Composition en lecture du tableau de bord d'accueil (WEB01) : isole l'assemblage hors de la page.
+        builder.Services.AddScoped<Liakont.Host.Dashboard.IDashboardQueries, Liakont.Host.Dashboard.DashboardQueryService>();
+
+        // Pré-chargement déterministe de l'état de console à l'ouverture du circuit (avant rendu de la nav).
+        builder.Services.AddScoped<Liakont.Host.Navigation.LiakontConsoleCircuitHandler>();
+        builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler>(
+            sp => sp.GetRequiredService<Liakont.Host.Navigation.LiakontConsoleCircuitHandler>());
+
         // Blazor Server-Side Rendering
         builder.Services.AddRazorComponents()
             .AddInteractiveServerComponents(options =>

@@ -1,0 +1,61 @@
+/* Mise en page du tableau de bord d'accueil (WEB01). Layout uniquement : les couleurs proviennent
+   des composants du design-system (SectionCard, StatusBadge). */
+
+.liakont-dashboard {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.liakont-dashboard__counters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.liakont-dashboard__counter {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    min-width: 8rem;
+}
+
+.liakont-dashboard__counter-value {
+    font-size: 1.75rem;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.liakont-dashboard__agents {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.liakont-dashboard__agent {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.liakont-dashboard__agent-name {
+    font-weight: 600;
+}
+
+.liakont-dashboard__agent-meta,
+.liakont-dashboard__tva-meta {
+    color: var(--color-text-muted, #6b7280);
+    font-size: 0.875rem;
+}
+
+.liakont-dashboard__alert {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
