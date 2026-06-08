@@ -60,8 +60,9 @@ capacités provisoires et la liste de questions support.
 | Offre intégrateurs | **Marque grise grossiste** (l'intégrateur règle Super PDP, facture ses clients ; marque Super PDP visible à l'inscription du client) ; marque blanche sur demande | ✅ vérifié | DR17 §1 |
 | **Flux paiement 10.2 / 10.4** | Couverture **NON documentée publiquement** (même point ouvert que B2Brouter, F09) | ❌ **à confirmer sandbox/support** | DR17 §1, §3 (A4) |
 | **Téléchargement de la facture générée** (Factur-X/UBL/CII) | Endpoint de récupération du document généré par la PA | ❌ **à confirmer sandbox/support** | déduit du contrat `GetGeneratedDocumentAsync` |
-| Base URLs (sandbox / prod) | Domaines + chemins exacts de l'API | ❌ **à confirmer sandbox** (page doc JS non récupérable) | DR17 §1, §3 |
-| Endpoints exacts (émission, statut, tax reports, settings) | Méthodes + chemins | ❌ **à confirmer sandbox/OpenAPI** | — |
+| Base URL API | `https://api.superpdp.tech` (lue dans `SUPER_PDP_API_ENDPOINT` côté exemple) | 🟠 **confirmé public** (forum + exemple `pimeo/superpdp-nodejs-oauth-example`) ; **valeur recette à confirmer** dans le quick-start | forum Ubuntu-fr ; repo pimeo |
+| Token-endpoint OAuth | `<base>/oauth2/token` → `POST grant_type=client_credentials` + `client_id`/`client_secret` → Bearer (aussi `/oauth2/authorize`, `/oauth2/revoke` pour le flux `authorization_code`, NON utilisé ici) | 🟠 **confirmé public** (forum + code pimeo) | forum ; repo pimeo |
+| Préfixe de version + endpoints exacts (émission, statut, tax reports, settings) | Préfixe **`/v1.beta/`** (ex. `GET /v1.beta/companies/me`) ; chemins métier précis (invoices/documents, status) | 🟠 préfixe confirmé public ; **chemins exacts à valider OpenAPI recette** | repo pimeo ; superpdp.tech/openapi |
 | Rectification (Flux RE) | Capacité de rectification d'une déclaration | ❌ **à confirmer sandbox/support** | déduit du contrat `SupportsReportRectification` |
 
 > **Règle de lecture** : une cellule ✅ = corroborée par au moins une source publique (DR17/DR9 ou
