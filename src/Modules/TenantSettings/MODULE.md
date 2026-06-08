@@ -17,7 +17,10 @@ signifiantes — voir INVARIANTS.
 - **Owns:** schéma `tenantsettings` (tables `tenant_profiles`, `fiscal_settings`, `pa_accounts`,
   `extraction_schedules`, `alert_thresholds`). Tables vivant dans la base **par tenant**
   (database-per-tenant, socle Stratum), scopées `company_id`.
-- **Reads:** son propre schéma uniquement.
+- **Reads:** son propre schéma. Pour la vue de paramétrage de la console (API01c), compose en plus
+  l'état de la table TVA (`TvaMapping.Contracts`) et les capacités déclarées des PA configurées
+  (`Transmission.Contracts`, via `IPaClientRegistry`) — **par leurs Contracts uniquement**, jamais
+  leurs schémas (frontière inter-modules).
 - **Writes:** son propre schéma. Journalise ses mutations via `IActivityLogger` (module Audit,
   append-only) — il n'écrit pas lui-même la table d'audit.
 - **Does NOT:** aucune logique fiscale (catégorie/seuil/cadence inventés) ; aucun chemin
@@ -47,4 +50,8 @@ Aucun.
 - `Common.Abstractions` (MediatR, Audit `IActivityLogger`, Security `IActorContext`).
 - `Common.Infrastructure` (Dapper, migrations DbUp, `IConnectionFactory`, `ICompanyFilter`).
 - `Microsoft.AspNetCore.App` (framework partagé) pour Data Protection — aucun package NuGet ajouté.
-- Aucune dépendance vers un autre module (frontière Contracts-only respectée).
+- `TvaMapping.Contracts` et `Transmission.Contracts` (Infrastructure uniquement, pour la composition
+  console API01c) — accès **Contracts-only**, jamais Domain/Application/Infrastructure (frontière respectée).
+- `Web/` (couche console) : projet `Liakont.Modules.TenantSettings.Web` exposant `GET /api/v1/settings`
+  (permission `liakont.read`), qui ne référence que `TenantSettings.Contracts` et délègue au service de
+  composition (`ITenantSettingsConsoleQueries`).

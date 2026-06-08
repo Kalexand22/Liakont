@@ -21,6 +21,9 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Host\Liakont.Host\Liakont.Host.csproj" />
     <ProjectReference Include="..\..\src\Modules\Pipeline\Domain\Liakont.Modules.Pipeline.Domain.csproj" />
+    <!-- Plug-in PA factice (PAA02) : enregistré dans le harness pour prouver l'exposition des
+         capacités PA par GET /settings (API01c) — capacités déclarées, jamais inventées. -->
+    <ProjectReference Include="..\..\src\PaClients\Liakont.PaClients.Fake\Liakont.PaClients.Fake.csproj" />
   </ItemGroup>
 
 </Project>

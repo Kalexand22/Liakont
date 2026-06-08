@@ -30,6 +30,7 @@ using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.Staging.Infrastructure;
 using Liakont.Modules.Supervision.Infrastructure;
 using Liakont.Modules.TenantSettings.Infrastructure;
+using Liakont.Modules.TenantSettings.Web;
 using Liakont.Modules.Transmission.Infrastructure;
 using Liakont.Modules.TvaMapping.Infrastructure;
 using Liakont.Modules.Validation.Infrastructure;
@@ -577,6 +578,7 @@ public static class AppBootstrap
         v1.MapDocumentsEndpoints();
         v1.MapPipelineEndpoints();
         v1.MapArchiveEndpoints();
+        v1.MapTenantSettingsEndpoints();
 
         // API agent → plateforme (contrat d'ingestion, F12 §3) : groupe /api/agent/v1 distinct de
         // l'API console OIDC, authentifié par clé API (filtre) et protégé par rate limiting.

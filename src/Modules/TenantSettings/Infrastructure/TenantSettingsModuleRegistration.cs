@@ -36,6 +36,10 @@ public static class TenantSettingsModuleRegistration
         services.AddSingleton<ISecretProtector, DataProtectionSecretProtector>();
         services.AddScoped<TenantSettingsJournal>();
 
+        // Lecture composée du paramétrage pour la console (API01c, GET /api/v1/settings) : assemble
+        // profil/fiscal/comptes PA (du module) + état TVA + capacités PA (via leurs Contracts).
+        services.AddScoped<ITenantSettingsConsoleQueries, TenantSettingsConsoleQueries>();
+
         return services;
     }
 }
