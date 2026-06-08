@@ -1,6 +1,7 @@
 namespace Liakont.Host.Tests.Unit.Pages;
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Bunit;
@@ -9,6 +10,7 @@ using Liakont.Host.Components.Pages;
 using Liakont.Host.Documents;
 using Liakont.Modules.Documents.Contracts.DTOs;
 using Microsoft.Extensions.DependencyInjection;
+using Stratum.Common.Abstractions.Security;
 using Xunit;
 
 public sealed class DocumentDetailTests : BunitContext
@@ -19,6 +21,12 @@ public sealed class DocumentDetailTests : BunitContext
     {
         JSInterop.Mode = JSRuntimeMode.Loose;
         Services.AddLogging();
+
+        // La page rend le composant d'actions de résolution (WEB03c), qui injecte ces services : ces tests de
+        // LECTURE n'agissent pas (utilisateur sans permission d'action → région d'actions masquée) ; le
+        // comportement des actions est couvert par DocumentResolutionActionsTests / DocumentDetailResolutionWiringTests.
+        Services.AddScoped<IPermissionService>(_ => new ReadOnlyPermissionService());
+        Services.AddScoped<IDocumentResolutionConsoleService>(_ => new NoOpResolutionService());
     }
 
     [Fact]
@@ -107,5 +115,31 @@ public sealed class DocumentDetailTests : BunitContext
 
             return Task.FromResult(_model);
         }
+    }
+
+    private sealed class ReadOnlyPermissionService : IPermissionService
+    {
+        public event Action? OnPermissionsChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public bool HasPermission(string permission) => false;
+    }
+
+    private sealed class NoOpResolutionService : IDocumentResolutionConsoleService
+    {
+        public Task<DocumentResolutionConsoleStatus> ResolveManuallyAsync(
+            Guid documentId, string? reason, CancellationToken cancellationToken = default) =>
+            Task.FromResult(DocumentResolutionConsoleStatus.Succeeded);
+
+        public Task<DocumentResolutionConsoleStatus> SupersedeAsync(
+            Guid documentId, Guid replacementDocumentId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(DocumentResolutionConsoleStatus.Succeeded);
+
+        public Task<IReadOnlyList<DocumentReplacementCandidate>> SearchReplacementCandidatesAsync(
+            Guid rejectedDocumentId, string? search, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<DocumentReplacementCandidate>>(Array.Empty<DocumentReplacementCandidate>());
     }
 }

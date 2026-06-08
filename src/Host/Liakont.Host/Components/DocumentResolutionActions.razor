@@ -1,0 +1,378 @@
+@namespace Liakont.Host.Components
+@using System
+@using System.Collections.Generic
+@using System.Globalization
+@using Liakont.Host.Documents
+@using Liakont.Host.Security
+@using Stratum.Common.Abstractions.Security
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@inject IDocumentResolutionConsoleService Resolution
+@inject IPermissionService Permissions
+@inject ILogger<DocumentResolutionActions> Logger
+
+@* Actions de RÉSOLUTION TERMINALE du document (WEB03c, F10 §2.3), branchées sur la page détail (WEB03a).
+ * Composant INTERACTIF mince : il orchestre l'UI (panneaux, saisie, erreurs) et délègue l'action au service
+ * IDocumentResolutionConsoleService (qui appelle le port du module — aucune règle métier ici, CLAUDE.md n°19).
+ * Garde-fous d'affichage : les boutons sont MASQUÉS sans la permission liakont.actions (lecture seule), et
+ * seuls les boutons pertinents à l'état du document sont proposés (traitement manuel : Bloqué/Rejeté ;
+ * liaison au remplaçant : Rejeté). Après succès, la page recharge (OnResolved) : l'état et l'historique
+ * (piste d'audit) reflètent la résolution. 100 % français. *@
+
+@if (_canAct && (CanResolveManually || CanSupersede))
+{
+    <section class="liakont-doc-actions" data-testid="document-resolution-actions">
+        <h2 class="liakont-doc-actions__title">Actions de résolution</h2>
+
+        @if (_panel == ActionPanel.None)
+        {
+            <div class="liakont-doc-actions__buttons">
+                @if (CanResolveManually)
+                {
+                    <StratumButton Text="Traiter manuellement hors passerelle…"
+                                   Variant="ButtonVariant.Primary"
+                                   Outline
+                                   Size="ButtonSize.Small"
+                                   OnClick="OpenManual"
+                                   TestId="document-action-resolve-manually" />
+                }
+                @if (CanSupersede)
+                {
+                    <StratumButton Text="Lier au document de remplacement…"
+                                   Variant="ButtonVariant.Primary"
+                                   Outline
+                                   Size="ButtonSize.Small"
+                                   OnClick="OpenSupersedeAsync"
+                                   TestId="document-action-supersede" />
+                }
+            </div>
+        }
+        else if (_panel == ActionPanel.Manual)
+        {
+            <div class="liakont-doc-actions__panel" data-testid="document-resolve-manual-panel">
+                <p class="liakont-doc-actions__text">
+                    Le document n° @DocumentNumber sera marqué « traité manuellement hors passerelle » (état
+                    terminal). Le motif ci-dessous est OBLIGATOIRE : il est inscrit dans la piste d'audit.
+                </p>
+                <label class="liakont-doc-actions__label" for="document-resolve-manual-reason">Motif du traitement manuel</label>
+                <textarea id="document-resolve-manual-reason"
+                          class="liakont-doc-actions__input"
+                          rows="3"
+                          value="@_reason"
+                          @oninput="OnReasonChanged"
+                          disabled="@_busy"
+                          data-testid="document-resolve-manual-reason"></textarea>
+
+                @if (!string.IsNullOrWhiteSpace(_error))
+                {
+                    <div class="liakont-doc-actions__alert" role="alert" data-testid="document-resolve-manual-error">@_error</div>
+                }
+
+                <div class="liakont-doc-actions__panel-actions">
+                    <StratumButton Text="@(_busy ? "Traitement en cours…" : "Confirmer le traitement manuel")"
+                                   Variant="ButtonVariant.Primary"
+                                   Size="ButtonSize.Small"
+                                   Disabled="@(_busy || string.IsNullOrWhiteSpace(_reason))"
+                                   OnClick="ConfirmManualAsync"
+                                   TestId="document-resolve-manual-confirm" />
+                    <StratumButton Text="Annuler"
+                                   Variant="ButtonVariant.Secondary"
+                                   Outline
+                                   Size="ButtonSize.Small"
+                                   Disabled="@_busy"
+                                   OnClick="Close"
+                                   TestId="document-resolve-manual-cancel" />
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="liakont-doc-actions__panel" data-testid="document-supersede-panel">
+                <p class="liakont-doc-actions__text">
+                    Liez le document rejeté n° @DocumentNumber à son REMPLAÇANT, déjà reçu via l'agent (le
+                    logiciel source est le seul créateur de numéros). Recherchez puis sélectionnez le document
+                    de remplacement.
+                </p>
+                <label class="liakont-doc-actions__label" for="document-supersede-search">Rechercher un document (n°, acheteur)</label>
+                <input id="document-supersede-search"
+                       class="liakont-doc-actions__input"
+                       type="text"
+                       value="@_search"
+                       @oninput="OnSearchChangedAsync"
+                       disabled="@_busy"
+                       data-testid="document-supersede-search" />
+
+                @if (_candidates.Count == 0)
+                {
+                    <p class="liakont-doc-actions__empty" data-testid="document-supersede-empty">
+                        Aucun document candidat. Affinez la recherche : le remplaçant doit déjà avoir été reçu via l'agent.
+                    </p>
+                }
+                else
+                {
+                    <ul class="liakont-doc-actions__candidates" data-testid="document-supersede-candidates">
+                        @foreach (var candidate in _candidates)
+                        {
+                            <li class="liakont-doc-actions__candidate">
+                                <label>
+                                    <input type="radio"
+                                           name="document-supersede-choice"
+                                           checked="@(_selectedReplacementId == candidate.Id)"
+                                           @onchange="@(_ => SelectCandidate(candidate.Id))"
+                                           disabled="@_busy"
+                                           data-testid="@($"document-supersede-candidate-{candidate.Id}")" />
+                                    <span class="liakont-doc-actions__candidate-number">N° @candidate.DocumentNumber</span>
+                                    <span class="liakont-doc-actions__candidate-customer">@(string.IsNullOrWhiteSpace(candidate.CustomerName) ? "acheteur non renseigné" : candidate.CustomerName)</span>
+                                    <span class="liakont-doc-actions__candidate-date">@candidate.IssueDate.ToString("dd/MM/yyyy", Fr)</span>
+                                    <span class="liakont-doc-actions__candidate-amount">@candidate.TotalGross.ToString("N2", Fr)</span>
+                                    <span class="liakont-doc-actions__candidate-state"><DocumentStateBadge State="@candidate.State" TestId="@($"document-supersede-candidate-state-{candidate.Id}")" /></span>
+                                </label>
+                            </li>
+                        }
+                    </ul>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(_error))
+                {
+                    <div class="liakont-doc-actions__alert" role="alert" data-testid="document-supersede-error">@_error</div>
+                }
+
+                <div class="liakont-doc-actions__panel-actions">
+                    <StratumButton Text="@(_busy ? "Liaison en cours…" : "Lier le document sélectionné")"
+                                   Variant="ButtonVariant.Primary"
+                                   Size="ButtonSize.Small"
+                                   Disabled="@(_busy || _selectedReplacementId is null)"
+                                   OnClick="ConfirmSupersedeAsync"
+                                   TestId="document-supersede-confirm" />
+                    <StratumButton Text="Annuler"
+                                   Variant="ButtonVariant.Secondary"
+                                   Outline
+                                   Size="ButtonSize.Small"
+                                   Disabled="@_busy"
+                                   OnClick="Close"
+                                   TestId="document-supersede-cancel" />
+                </div>
+            </div>
+        }
+    </section>
+}
+
+@code {
+    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+
+    /// <summary>État « rejeté par la PA » (DocumentState) — comparé en chaîne pour rester découplé de l'enum du module.</summary>
+    private const string RejectedDocumentState = "RejectedByPa";
+
+    /// <summary>État « bloqué » (DocumentState) — comparé en chaîne pour rester découplé de l'enum du module.</summary>
+    private const string BlockedDocumentState = "Blocked";
+
+    private bool _canAct;
+    private ActionPanel _panel = ActionPanel.None;
+    private bool _busy;
+    private string? _error;
+
+    private string? _reason;
+
+    private string? _search;
+    private IReadOnlyList<DocumentReplacementCandidate> _candidates = Array.Empty<DocumentReplacementCandidate>();
+    private Guid? _selectedReplacementId;
+    private int _searchGeneration;
+
+    /// <summary>Identifiant du document sur lequel agir.</summary>
+    [Parameter, EditorRequired]
+    public Guid DocumentId { get; set; }
+
+    /// <summary>Numéro du document (BT-1), affiché dans les messages opérateur (CLAUDE.md n°12).</summary>
+    [Parameter, EditorRequired]
+    public string DocumentNumber { get; set; } = string.Empty;
+
+    /// <summary>État courant du document (libellé du module) — pilote quelles actions sont proposées.</summary>
+    [Parameter, EditorRequired]
+    public string State { get; set; } = string.Empty;
+
+    /// <summary>Déclenché après une résolution réussie : la page recharge le détail (état + piste d'audit à jour).</summary>
+    [Parameter]
+    public EventCallback OnResolved { get; set; }
+
+    /// <summary>Le traitement manuel s'applique à un document bloqué OU rejeté (port IDocumentLifecycle).</summary>
+    private bool CanResolveManually =>
+        string.Equals(State, BlockedDocumentState, StringComparison.Ordinal)
+        || string.Equals(State, RejectedDocumentState, StringComparison.Ordinal);
+
+    /// <summary>La liaison à un remplaçant ne s'applique qu'à un document rejeté par la PA (port IDocumentLifecycle).</summary>
+    private bool CanSupersede => string.Equals(State, RejectedDocumentState, StringComparison.Ordinal);
+
+    protected override void OnInitialized()
+    {
+        // Permission d'action opérateur : les boutons mutants ne sont proposés qu'aux porteurs de
+        // liakont.actions. L'application réelle reste serveur (port + transition atomique + audit).
+        _canAct = Permissions.HasPermission(LiakontPermissions.Actions);
+    }
+
+    private void OpenManual()
+    {
+        _panel = ActionPanel.Manual;
+        _reason = null;
+        _error = null;
+    }
+
+    private async Task OpenSupersedeAsync()
+    {
+        _panel = ActionPanel.Supersede;
+        _search = null;
+        _selectedReplacementId = null;
+        _error = null;
+        await LoadCandidatesAsync();
+    }
+
+    private void Close()
+    {
+        _panel = ActionPanel.None;
+        _reason = null;
+        _search = null;
+        _selectedReplacementId = null;
+        _candidates = Array.Empty<DocumentReplacementCandidate>();
+        _error = null;
+    }
+
+    private void OnReasonChanged(ChangeEventArgs e)
+    {
+        _reason = e.Value?.ToString();
+        _error = null;
+    }
+
+    private async Task OnSearchChangedAsync(ChangeEventArgs e)
+    {
+        _search = e.Value?.ToString();
+        await LoadCandidatesAsync();
+    }
+
+    private void SelectCandidate(Guid id)
+    {
+        _selectedReplacementId = id;
+        _error = null;
+    }
+
+    private async Task LoadCandidatesAsync()
+    {
+        var generation = ++_searchGeneration;
+        try
+        {
+            var results = await Resolution.SearchReplacementCandidatesAsync(DocumentId, _search);
+
+            if (generation != _searchGeneration)
+            {
+                return;
+            }
+
+            _candidates = results;
+
+            // La sélection courante peut être sortie des résultats après affinage de la recherche.
+            if (_selectedReplacementId is { } selected && !ContainsCandidate(selected))
+            {
+                _selectedReplacementId = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            if (generation != _searchGeneration)
+            {
+                return;
+            }
+
+            _candidates = Array.Empty<DocumentReplacementCandidate>();
+            _error = "La recherche de documents a échoué. Réessayez plus tard.";
+            Logger.LogError(ex, "Replacement candidate search failed for document {DocumentId}.", DocumentId);
+        }
+    }
+
+    private bool ContainsCandidate(Guid id)
+    {
+        foreach (var candidate in _candidates)
+        {
+            if (candidate.Id == id)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private async Task ConfirmManualAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var status = await Resolution.ResolveManuallyAsync(DocumentId, _reason);
+            await CompleteAsync(status);
+        }
+        catch (Exception ex)
+        {
+            _error = "L'action n'a pas pu être effectuée pour le moment. Réessayez plus tard.";
+            Logger.LogError(ex, "Manual resolution failed for document {DocumentId}.", DocumentId);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ConfirmSupersedeAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var status = await Resolution.SupersedeAsync(DocumentId, _selectedReplacementId ?? Guid.Empty);
+            await CompleteAsync(status);
+        }
+        catch (Exception ex)
+        {
+            _error = "L'action n'a pas pu être effectuée pour le moment. Réessayez plus tard.";
+            Logger.LogError(ex, "Supersede failed for document {DocumentId}.", DocumentId);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CompleteAsync(DocumentResolutionConsoleStatus status)
+    {
+        if (status == DocumentResolutionConsoleStatus.Succeeded)
+        {
+            Close();
+            await OnResolved.InvokeAsync();
+            return;
+        }
+
+        _error = DescribeError(status);
+    }
+
+    /// <summary>Message opérateur français pour un refus attendu (parité avec les endpoints API02c, n° de document inclus — CLAUDE.md n°12).</summary>
+    private string DescribeError(DocumentResolutionConsoleStatus status) => status switch
+    {
+        DocumentResolutionConsoleStatus.ReasonRequired =>
+            "Le motif du traitement manuel est obligatoire : il est journalisé dans la piste d'audit.",
+        DocumentResolutionConsoleStatus.ReplacementRequired =>
+            "Sélectionnez le document de remplacement avant de confirmer la liaison.",
+        DocumentResolutionConsoleStatus.ReplacementIsSelf =>
+            "Un document ne peut pas se remplacer lui-même : choisissez un AUTRE document du tenant.",
+        DocumentResolutionConsoleStatus.DocumentNotFound =>
+            $"Le document n° {DocumentNumber} est introuvable dans ce tenant. Il a peut-être été remplacé.",
+        DocumentResolutionConsoleStatus.InvalidState =>
+            $"Le document n° {DocumentNumber} n'est pas dans un état permettant cette résolution : seul un document bloqué ou rejeté peut être traité manuellement, et seul un document rejeté peut être lié à un remplaçant.",
+        DocumentResolutionConsoleStatus.ReplacementNotFound =>
+            "Le document de remplacement est introuvable dans ce tenant : impossible de lier le rejet à un remplaçant inexistant.",
+        _ => "L'action n'a pas pu être effectuée pour le moment. Réessayez plus tard.",
+    };
+
+    private enum ActionPanel
+    {
+        None,
+        Manual,
+        Supersede,
+    }
+}
