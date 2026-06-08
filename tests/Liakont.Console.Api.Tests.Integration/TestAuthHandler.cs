@@ -1,5 +1,6 @@
 namespace Liakont.Console.Api.Tests.Integration;
 
+using System.Collections.Generic;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
@@ -25,6 +26,14 @@ public sealed class TestAuthHandler : AuthenticationHandler<AuthenticationScheme
     /// <summary>En-tête portant le GUID de l'utilisateur de test à authentifier.</summary>
     public const string UserHeader = "X-Test-User";
 
+    /// <summary>
+    /// En-tête OPTIONNEL portant le GUID de la société (company_id) de l'utilisateur. En production, le
+    /// jeton Keycloak porte ce claim (mappé depuis l'attribut utilisateur <c>company_id</c>,
+    /// realm-export.json) ; le harness le fournit ici pour les endpoints scopés par société (table TVA,
+    /// API04 — résolus via <c>ICompanyFilter</c>/<c>IActorContext.CompanyId</c>).
+    /// </summary>
+    public const string CompanyHeader = "X-Test-Company";
+
     public TestAuthHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
         ILoggerFactory logger,
@@ -47,7 +56,15 @@ public sealed class TestAuthHandler : AuthenticationHandler<AuthenticationScheme
             return Task.FromResult(AuthenticateResult.NoResult());
         }
 
-        var claims = new[] { new Claim(ClaimTypes.NameIdentifier, userId) };
+        var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, userId) };
+
+        // company_id : présent en production (claim Keycloak) ; fourni ici pour les endpoints scopés société.
+        if (Request.Headers.TryGetValue(CompanyHeader, out var companyValues)
+            && !string.IsNullOrWhiteSpace(companyValues.ToString()))
+        {
+            claims.Add(new Claim("company_id", companyValues.ToString()));
+        }
+
         var identity = new ClaimsIdentity(claims, SchemeName);
         var principal = new ClaimsPrincipal(identity);
         var ticket = new AuthenticationTicket(principal, SchemeName);

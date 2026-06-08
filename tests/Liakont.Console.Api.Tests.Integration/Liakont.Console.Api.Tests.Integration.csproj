@@ -24,6 +24,11 @@
     <!-- Plug-in PA factice (PAA02) : enregistré dans le harness pour prouver l'exposition des
          capacités PA par GET /settings (API01c) — capacités déclarées, jamais inventées. -->
     <ProjectReference Include="..\..\src\PaClients\Liakont.PaClients.Fake\Liakont.PaClients.Fake.csproj" />
+    <!-- Seeding de la file de réconciliation (API04) : le harness dépose des PDF dans le pool
+         (IIngestedPdfStore) et crée des entrées de file (IReconciliationQueueStore / ReconciliationQueueEntry). -->
+    <ProjectReference Include="..\..\src\Modules\Ingestion\Contracts\Liakont.Modules.Ingestion.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Reconciliation\Application\Liakont.Modules.Reconciliation.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Reconciliation\Domain\Liakont.Modules.Reconciliation.Domain.csproj" />
   </ItemGroup>
 
 </Project>

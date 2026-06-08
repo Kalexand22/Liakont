@@ -50,9 +50,16 @@ Le seed d'exemple (TVA04) et l'édition console + journal append-only (TVA05) so
 - **Lit / écrit** : uniquement son propre schéma, toujours scopé par `company_id` (CLAUDE.md n°9).
 - **Interdits** (module-rules §2) : règles fiscales en dur, données client embarquées, lecture
   cross-tenant, type flottant sur un taux.
-- **Surface publique** : `Contracts/` uniquement (`ITvaMappingQueries`, `GetMappingCoverageReportQuery`,
-  DTOs dont `MappingCoverageReportDto`). L'unité de travail d'écriture (`ITvaMappingUnitOfWork`) est
-  **interne** au module (consommée par TVA04/TVA05).
+- **Surface publique** : `Contracts/` uniquement (`ITvaMappingQueries` — table + `GetChangeLog` (journal
+  des modifications, lecture seule), `GetMappingCoverageReportQuery`, commandes d'édition TVA05
+  (`AddMappingRuleCommand`/`UpdateMappingRuleCommand`/`RemoveMappingRuleCommand`/`ValidateMappingTableCommand`),
+  DTOs dont `MappingCoverageReportDto` et `MappingChangeLogEntryDto`). L'unité de travail d'écriture
+  (`ITvaMappingUnitOfWork`) est **interne** au module (consommée par TVA04/TVA05).
+- **Web (console, API04)** : `Web/TvaMappingEndpointMapping.cs` monte `/api/v1/settings/tva-mapping`
+  (GET table + journal en `liakont.read` ; ajout/modification/suppression de règle et validation en
+  `liakont.settings`). Aucune logique métier dans les endpoints : ils délèguent aux requêtes et aux
+  commandes d'édition (le moteur TVA05 invalide la validation et journalise). Société résolue par le
+  contexte (`IActorContext.CompanyId`/`ICompanyFilter`), jamais par l'appelant (CLAUDE.md n°9).
 - **Accès inter-module** : lecture seule des régimes source observés via le **contrat** du module
   Ingestion (`ISourceTaxRegimeQueries`) — autorisé uniquement par les Contracts (module-rules §3,
   CLAUDE.md n°14) ; aucune référence à `Ingestion.Domain/Application/Infrastructure`.

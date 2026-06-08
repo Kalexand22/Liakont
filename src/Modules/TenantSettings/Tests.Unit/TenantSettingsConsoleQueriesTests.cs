@@ -206,6 +206,9 @@ public sealed class TenantSettingsConsoleQueriesTests
         public MappingTableDto? Table { get; init; }
 
         public Task<MappingTableDto?> GetMappingTable(Guid companyId, CancellationToken ct = default) => Task.FromResult(Table);
+
+        public Task<IReadOnlyList<MappingChangeLogEntryDto>> GetChangeLog(Guid companyId, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<MappingChangeLogEntryDto>>(Array.Empty<MappingChangeLogEntryDto>());
     }
 
     private sealed class StubTenantContext : ITenantContext

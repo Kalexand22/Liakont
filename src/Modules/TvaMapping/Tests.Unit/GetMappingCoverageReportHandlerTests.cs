@@ -205,6 +205,9 @@ public sealed class GetMappingCoverageReportHandlerTests
             CapturedCompanyId = companyId;
             return Task.FromResult(_table);
         }
+
+        public Task<IReadOnlyList<MappingChangeLogEntryDto>> GetChangeLog(Guid companyId, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<MappingChangeLogEntryDto>>(Array.Empty<MappingChangeLogEntryDto>());
     }
 
     private sealed class StubCompanyFilter : ICompanyFilter
