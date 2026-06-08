@@ -4,7 +4,9 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Liakont.Modules.Documents.Application;
+using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Documents.Contracts.Lifecycle;
+using Liakont.Modules.Documents.Contracts.Queries;
 using Liakont.Modules.Documents.Domain.Entities;
 
 /// <summary>
@@ -18,16 +20,18 @@ using Liakont.Modules.Documents.Domain.Entities;
 internal sealed class DocumentLifecycle : IDocumentLifecycle
 {
     private readonly IDocumentUnitOfWorkFactory _unitOfWorkFactory;
+    private readonly IDocumentQueries _documentQueries;
     private readonly TimeProvider _timeProvider;
 
-    public DocumentLifecycle(IDocumentUnitOfWorkFactory unitOfWorkFactory)
-        : this(unitOfWorkFactory, TimeProvider.System)
+    public DocumentLifecycle(IDocumentUnitOfWorkFactory unitOfWorkFactory, IDocumentQueries documentQueries)
+        : this(unitOfWorkFactory, documentQueries, TimeProvider.System)
     {
     }
 
-    internal DocumentLifecycle(IDocumentUnitOfWorkFactory unitOfWorkFactory, TimeProvider timeProvider)
+    internal DocumentLifecycle(IDocumentUnitOfWorkFactory unitOfWorkFactory, IDocumentQueries documentQueries, TimeProvider timeProvider)
     {
         _unitOfWorkFactory = unitOfWorkFactory;
+        _documentQueries = documentQueries;
         _timeProvider = timeProvider;
     }
 
@@ -100,10 +104,11 @@ internal sealed class DocumentLifecycle : IDocumentLifecycle
             return DocumentResolutionOutcome.InvalidState;
         }
 
-        // Le remplaçant doit EXISTER dans le tenant courant (même connexion = même tenant — database-per-tenant).
-        // On le charge pour obtenir sa référence AUTORITAIRE (numéro créé par le logiciel source, F06 §4) : la
-        // passerelle ne fabrique jamais de numéro de remplacement.
-        Document? replacement = await unitOfWork.GetForUpdateAsync(replacementDocumentId, cancellationToken);
+        // Le remplaçant doit EXISTER dans le tenant courant. Lu SANS verrou (read port tenant-scopé) : son
+        // DocumentNumber est immuable (fixé en CreateDetected, jamais modifié par une transition) et un document
+        // n'est jamais supprimé ⇒ pas de TOCTOU. On évite ainsi un verrou FOR UPDATE inutile sur une ligne non
+        // mutée (et la fenêtre de deadlock par ordre de verrouillage entre deux supersede croisés).
+        DocumentDto? replacement = await _documentQueries.GetByIdAsync(replacementDocumentId, cancellationToken);
         if (replacement is null)
         {
             return DocumentResolutionOutcome.ReplacementNotFound;

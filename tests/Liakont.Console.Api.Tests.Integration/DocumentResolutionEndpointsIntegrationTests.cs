@@ -207,6 +207,30 @@ public sealed class DocumentResolutionEndpointsIntegrationTests
     }
 
     [Fact]
+    public async Task PostSupersede_NonExistent_Document_Returns_404()
+    {
+        using var client = _factory.CreateClient(ConsoleApiFactory.TenantAction, ConsoleApiFactory.OperatorUserId);
+
+        var response = await client.PostAsJsonAsync(
+            SupersedePath(Guid.NewGuid()),
+            new { replacementDocumentId = ConsoleApiFactory.TenantActDocStableIssuedId });
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task PostSupersede_Without_Authentication_Returns_401()
+    {
+        using var client = _factory.CreateClient(ConsoleApiFactory.TenantAction);
+
+        var response = await client.PostAsJsonAsync(
+            SupersedePath(ConsoleApiFactory.TenantActDocSupersedeNoReplId),
+            new { replacementDocumentId = ConsoleApiFactory.TenantActDocStableIssuedId });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
     public async Task PostSupersede_Links_RejectedByPa_To_Replacement_And_Logs()
     {
         using var client = _factory.CreateClient(ConsoleApiFactory.TenantAction, ConsoleApiFactory.OperatorUserId);
