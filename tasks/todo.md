@@ -32,4 +32,11 @@ Blueprint blazor-page-item. Dépend de WEB03a (page détail) + API02b (endpoints
 - [ ] E2E `DocumentControlsE2ETests` : login → doc bloqué → onglet Contrôles rendu, boutons absents (lecture)
 - [ ] verify-fast + run-tests + run-e2e + codex-review loop + merge-back
 
-## Review (à compléter)
+## Review
+- verify-fast PASS (plateforme .NET10 + agent net48) ; run-tests PASS (4336) ; run-e2e PASS (9, dont DocumentControlsE2ETests).
+- codex-review round 1 : 0 P1 / 3 P2 — toutes corrigées :
+  - P2#1 garde liakont.actions côté service (défense en profondeur) + test du refus.
+  - P2#2 DocumentActionContract = source unique des identifiants d'action (états, verdict, codes d'audit, motif B2B), consommée par l'endpoint API02b ET le service console (fidélité piste d'audit).
+  - P2#3 test page mapping bouton→verdict (anti-inversion B2C↔B2B).
+- codex-review round 2 : CLEAN (No findings).
+- Décision clé : signal d'affichage du verdict = `Blocked && CustomerIsCompanyHint && !BuyerConfirmedAsIndividual` (structuré, conservateur ; cas TVA/forme-juridique-seule résoluble via WEB03c). E2E « opérateur clique sous OIDC » porté par WEB05/IDN01 (non câblé à WEB03b par l'opérateur).
