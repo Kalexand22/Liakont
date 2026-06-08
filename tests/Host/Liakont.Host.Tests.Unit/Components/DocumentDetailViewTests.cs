@@ -113,7 +113,8 @@ public sealed class DocumentDetailViewTests : BunitContext
         var rows = cut.FindAll("[data-testid='document-detail-event']");
         rows.Should().HaveCount(2);
         cut.Find("[data-testid='document-detail-history-list']").TextContent.Should()
-            .Contain("Détecté").And.Contain("Bloqué").And.Contain("Régime TVA non mappé.").And.Contain("marie.compta");
+            .Contain("Détecté").And.Contain("Bloqué").And.Contain("Régime TVA non mappé.").And.Contain("marie.compta")
+            .And.Contain("01/06/2026 08:00 UTC");
     }
 
     [Fact]

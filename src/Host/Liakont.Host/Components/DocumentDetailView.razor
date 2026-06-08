@@ -212,5 +212,8 @@
     /// <summary>Montant en français, 2 décimales (cohérent avec la colonne « Montant » de la liste, WEB02).</summary>
     private static string FormatMoney(decimal value) => value.ToString("N2", Fr);
 
-    private static string FormatDateTime(DateTimeOffset when) => when.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr);
+    // Piste d'audit et archive : horodatage affiché en UTC EXPLICITE, pour s'aligner sur le dossier d'export
+    // pour contrôle fiscal (rendu en UTC ISO-8601) — un vérificateur recoupe écran et export sans ambiguïté de
+    // fuseau (en Blazor Server, l'heure « locale » serait celle du SERVEUR, pas de l'opérateur).
+    private static string FormatDateTime(DateTimeOffset when) => when.ToUniversalTime().ToString("dd/MM/yyyy HH:mm 'UTC'", Fr);
 }
