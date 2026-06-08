@@ -196,13 +196,138 @@ public sealed class TableTvaViewTests : BunitContext
         cut.Find("[data-testid='table-tva-validate-error']").TextContent.Should().Contain(ErrorMessage);
     }
 
+    [Fact]
+    public void Edit_controls_are_hidden_without_settings_permission()
+    {
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable(), coverage: CoverageWithAbsent()))
+            .Add(v => v.CanEdit, false));
+
+        // Aucun bouton de création, aucune quick-action d'édition / suppression sans la permission.
+        cut.FindAll("[data-testid='table-tva-create-btn']").Should().BeEmpty();
+        cut.FindAll("[data-testid='quick-action-edit']").Should().BeEmpty();
+        cut.FindAll("[data-testid='quick-action-delete']").Should().BeEmpty();
+
+        // La couverture reste informative, mais sans bouton « Créer la règle ».
+        cut.FindAll("[data-testid='table-tva-coverage-entry']").Should().ContainSingle();
+        cut.FindAll("[data-testid='table-tva-coverage-create-99']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Edit_controls_are_shown_with_settings_permission()
+    {
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable(), coverage: CoverageWithAbsent()))
+            .Add(v => v.CanEdit, true));
+
+        cut.FindAll("[data-testid='table-tva-create-btn']").Should().ContainSingle();
+        cut.FindAll("[data-testid='quick-action-edit']").Should().NotBeEmpty();
+        cut.FindAll("[data-testid='quick-action-delete']").Should().NotBeEmpty();
+        cut.FindAll("[data-testid='table-tva-coverage-create-99']").Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Coverage_create_button_invokes_callback_with_the_absent_regime()
+    {
+        RegimeCoverageDto? captured = null;
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable(), coverage: CoverageWithAbsent()))
+            .Add(v => v.CanEdit, true)
+            .Add(v => v.OnCreateRuleForRegime, r => { captured = r; }));
+
+        cut.Find("[data-testid='table-tva-coverage-create-99']").Click();
+
+        captured.Should().NotBeNull();
+        captured!.Code.Should().Be("99");
+    }
+
+    [Fact]
+    public void Create_button_invokes_callback()
+    {
+        var opened = false;
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable()))
+            .Add(v => v.CanEdit, true)
+            .Add(v => v.OnCreateRule, () => { opened = true; }));
+
+        cut.Find("[data-testid='table-tva-create-btn']").Click();
+
+        opened.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Editor_is_rendered_when_open()
+    {
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable()))
+            .Add(v => v.CanEdit, true)
+            .Add(v => v.EditorOpen, true)
+            .Add(v => v.EditorIsCreate, true)
+            .Add(v => v.EditorModel, new TvaRuleFormModel()));
+
+        cut.FindAll("[data-testid='tva-rule-editor']").Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Delete_confirmation_renders_and_invokes_callbacks()
+    {
+        var confirmed = false;
+        var cancelled = false;
+        var rule = NotValidatedTable().Rules[0];
+
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable()))
+            .Add(v => v.CanEdit, true)
+            .Add(v => v.DeleteTarget, rule)
+            .Add(v => v.OnConfirmDelete, () => { confirmed = true; })
+            .Add(v => v.OnCancelDelete, () => { cancelled = true; }));
+
+        cut.Find("[data-testid='table-tva-delete-confirm']").TextContent.Should().Contain(rule.SourceRegimeCode);
+
+        cut.Find("[data-testid='table-tva-delete-confirm-btn']").Click();
+        confirmed.Should().BeTrue();
+
+        cut.Find("[data-testid='table-tva-delete-cancel-btn']").Click();
+        cancelled.Should().BeTrue();
+    }
+
     private static TvaMappingTableViewModel ModelWith(
         MappingTableDto? table,
-        IReadOnlyList<MappingChangeLogEntryDto>? changeLog = null) => new()
+        IReadOnlyList<MappingChangeLogEntryDto>? changeLog = null,
+        MappingCoverageReportDto? coverage = null) => new()
     {
         Table = table,
         ChangeLog = changeLog ?? Array.Empty<MappingChangeLogEntryDto>(),
         CurrentOperatorName = "Alice Martin",
+        Coverage = coverage,
+        EditOptions = EditOptions(),
+    };
+
+    private static TvaMappingEditOptionsDto EditOptions() => new()
+    {
+        Categories = [new TvaMappingOptionDto("S", "Taux normal"), new TvaMappingOptionDto("E", "Exonéré")],
+        Parts = [new TvaMappingOptionDto("Adjudication", "Adjudication"), new TvaMappingOptionDto("Frais", "Frais")],
+        RateModes = [new TvaMappingOptionDto("Fixed", "Taux fixe"), new TvaMappingOptionDto("ComputedFromSource", "Calculé depuis la source")],
+        VatexCodes = [new TvaMappingOptionDto("VATEX-EU-J", "VATEX-EU-J — Collection")],
+    };
+
+    private static MappingCoverageReportDto CoverageWithAbsent() => new()
+    {
+        IsTableConfigured = true,
+        MappingVersion = "v1",
+        IsTableValidated = false,
+        Verdict = "Incomplete",
+        CoveredRegimes = Array.Empty<RegimeCoverageDto>(),
+        AbsentRegimes =
+        [
+            new RegimeCoverageDto
+            {
+                Code = "99",
+                Label = "Régime exotique",
+                Occurrences = 7,
+                LastSeenAtUtc = new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero),
+            },
+        ],
     };
 
     private static MappingTableDto ValidatedTable() => BuildTable(

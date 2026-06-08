@@ -199,8 +199,31 @@ public sealed class TvaMappingTableQueryServiceTests
             return Task.CompletedTask;
         }
 
-        public Task<TResponse> Send<TResponse>(IRequest<TResponse> request, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+        public Task<TResponse> Send<TResponse>(IRequest<TResponse> request, CancellationToken cancellationToken = default)
+        {
+            // Les lectures de la page (options d'édition + couverture) passent par cette surcharge typée.
+            object response = request switch
+            {
+                GetTvaMappingEditOptionsQuery => new TvaMappingEditOptionsDto
+                {
+                    Categories = Array.Empty<TvaMappingOptionDto>(),
+                    Parts = Array.Empty<TvaMappingOptionDto>(),
+                    RateModes = Array.Empty<TvaMappingOptionDto>(),
+                    VatexCodes = Array.Empty<TvaMappingOptionDto>(),
+                },
+                GetMappingCoverageReportQuery => new MappingCoverageReportDto
+                {
+                    IsTableConfigured = false,
+                    IsTableValidated = false,
+                    Verdict = "Incomplete",
+                    CoveredRegimes = Array.Empty<RegimeCoverageDto>(),
+                    AbsentRegimes = Array.Empty<RegimeCoverageDto>(),
+                },
+                _ => throw new NotSupportedException(),
+            };
+
+            return Task.FromResult((TResponse)response);
+        }
 
         public Task<object?> Send(object request, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();

@@ -7,11 +7,12 @@
 @using Stratum.Common.UI.Components
 @using Stratum.Common.UI.Models
 
-@* TableTvaView — rendu PUR de la page « Paramétrage comptable — Table TVA » (WEB07a). Reçoit son
- * modèle et l'état de la validation en paramètres (aucune injection métier, aucune logique fiscale)
- * pour être testable en bUnit sans auth ni base. Table des règles = gabarit DeclaredListPage (AUCUNE
- * grille « maison ») ; état de validation + bandeau NON VALIDÉE + changelog en composition Stratum
- * (SectionCard, StatusBadge, CategoryBadge). 100 % français. *@
+@* TableTvaView — rendu PUR de la page « Paramétrage comptable — Table TVA » (WEB07a lecture + WEB07b
+ * édition). Reçoit son modèle et l'état d'édition en paramètres (aucune injection métier, aucune logique
+ * fiscale) pour être testable en bUnit sans auth ni base. Table des règles = gabarit DeclaredListPage
+ * (AUCUNE grille « maison ») ; édition (ajout / modification / suppression) via listes FERMÉES, gardée
+ * par la permission liakont.settings (CanEdit) ; couverture des régimes non mappés « à compléter »
+ * (TVA03) ; état de validation + bandeau NON VALIDÉE + changelog en composition Stratum. 100 % français. *@
 
 <div class="liakont-tva-table" data-testid="liakont-tva-table">
 
@@ -98,6 +99,91 @@
         }
     </SectionCard>
 
+    @if (Model.Table is not null && AbsentRegimes.Count > 0)
+    {
+        @* Rapport de couverture (TVA03) : régimes source observés non mappés, à compléter en priorité.
+           Bouton [Créer la règle] pré-rempli (code + libellé) gardé par la permission. *@
+        <SectionCard Title="À compléter — régimes non mappés" TestId="table-tva-coverage">
+            <p class="liakont-tva-table__meta">
+                Ces régimes ont été observés dans la source mais ne sont pas (encore) mappés. Tant qu'ils
+                ne le sont pas, les documents qui les portent sont bloqués (sécurité par défaut).
+            </p>
+            <ul class="liakont-tva-table__coverage">
+                @foreach (var regime in AbsentRegimes)
+                {
+                    <li class="liakont-tva-table__coverage-entry" data-testid="table-tva-coverage-entry">
+                        <span class="liakont-tva-table__coverage-code">@regime.Code</span>
+                        @if (!string.IsNullOrWhiteSpace(regime.Label))
+                        {
+                            <span class="liakont-tva-table__coverage-label">@regime.Label</span>
+                        }
+                        <span class="liakont-tva-table__coverage-count">@regime.Occurrences occurrence(s)</span>
+                        @if (CanEdit)
+                        {
+                            <StratumButton Text="Créer la règle"
+                                           Variant="ButtonVariant.Secondary"
+                                           Outline
+                                           Size="ButtonSize.Small"
+                                           Disabled="@EditorOpen"
+                                           OnClick="@(_ => OnCreateRuleForRegime.InvokeAsync(regime))"
+                                           TestId="@($"table-tva-coverage-create-{regime.Code}")" />
+                        }
+                    </li>
+                }
+            </ul>
+        </SectionCard>
+    }
+
+    @if (EditorOpen && EditorModel is not null)
+    {
+        <SectionCard Title="Édition de règle" TestId="table-tva-editor-card">
+            <TvaRuleEditor Options="Model.EditOptions"
+                           Model="EditorModel"
+                           IsCreate="EditorIsCreate"
+                           Busy="EditorBusy"
+                           Error="@EditorError"
+                           OnSubmit="OnSubmitEditor"
+                           OnCancel="OnCancelEditor" />
+        </SectionCard>
+    }
+
+    @if (DeleteTarget is { } deleteRule)
+    {
+        <SectionCard Title="Supprimer une règle" TestId="table-tva-delete-card">
+            <div class="liakont-tva-table__confirm" data-testid="table-tva-delete-confirm">
+                <p class="liakont-tva-table__confirm-text">
+                    Supprimer la règle du régime
+                    <strong>@deleteRule.SourceRegimeCode (@deleteRule.Part)</strong> ? Cette modification
+                    repassera la table « NON VALIDÉE » et suspendra les envois jusqu'à une nouvelle
+                    validation par l'expert-comptable.
+                </p>
+
+                @if (!string.IsNullOrWhiteSpace(DeleteError))
+                {
+                    <div class="liakont-tva-table__alert" role="alert" data-testid="table-tva-delete-error">
+                        @DeleteError
+                    </div>
+                }
+
+                <div class="liakont-tva-table__confirm-actions">
+                    <StratumButton Text="@(DeleteBusy ? "Suppression…" : "Confirmer la suppression")"
+                                   Variant="ButtonVariant.Danger"
+                                   Size="ButtonSize.Small"
+                                   Disabled="@DeleteBusy"
+                                   OnClick="@(_ => OnConfirmDelete.InvokeAsync())"
+                                   TestId="table-tva-delete-confirm-btn" />
+                    <StratumButton Text="Annuler"
+                                   Variant="ButtonVariant.Secondary"
+                                   Outline
+                                   Size="ButtonSize.Small"
+                                   Disabled="@DeleteBusy"
+                                   OnClick="@(_ => OnCancelDelete.InvokeAsync())"
+                                   TestId="table-tva-delete-cancel-btn" />
+                </div>
+            </div>
+        </SectionCard>
+    }
+
     @if (Model.Table is { } rulesTable)
     {
         <SectionCard Title="Table de mapping TVA" TestId="table-tva-rules">
@@ -105,8 +191,18 @@
                 Version @rulesTable.MappingVersion — comportement par défaut : @DescribeDefault(rulesTable.DefaultBehavior)
             </p>
 
-            @* Gabarit DeclaredListPage : aucune grille « maison ». Lecture seule à ce stade (l'édition
-               des règles, listes fermées + couverture, est livrée par WEB07b). *@
+            @if (CanEdit)
+            {
+                <StratumButton Text="Créer une règle"
+                               Variant="ButtonVariant.Primary"
+                               Size="ButtonSize.Small"
+                               Disabled="@EditorOpen"
+                               OnClick="@(_ => OnCreateRule.InvokeAsync())"
+                               TestId="table-tva-create-btn" />
+            }
+
+            @* Gabarit DeclaredListPage : aucune grille « maison ». Édition par règle via les quick-actions
+               (Modifier / Supprimer), exposées uniquement aux porteurs de liakont.settings. *@
             <DeclaredListPage TItem="MappingRuleDto"
                               Title="Table de mapping TVA"
                               TestId="table-tva-grid"
@@ -115,6 +211,7 @@
                               DetailUrl="@(_ => RulesPageUrl)"
                               ColumnRegistry="_registry"
                               ColumnTemplates="_columnTemplates"
+                              RowActions="_rowActions"
                               GridKey="Liakont.TvaMapping"
                               AriaLabel="Table de mapping TVA"
                               DefaultSortColumn="SourceRegimeCode"
@@ -156,11 +253,14 @@
     private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
 
     /// <summary>Route de la page table TVA — DetailUrl no-op (l'activation de ligne reste sur la page ;
-    /// l'édition par règle est livrée par WEB07b).</summary>
+    /// l'édition par règle passe par les quick-actions Modifier / Supprimer).</summary>
     private const string RulesPageUrl = "/parametrage/table-tva";
 
     private readonly TvaMappingRuleColumnRegistry _registry = new();
     private readonly Dictionary<string, RenderFragment<MappingRuleDto>> _columnTemplates;
+
+    /// <summary>Quick-actions de la grille (Modifier / Supprimer) ; <c>null</c> sans permission d'édition.</summary>
+    private IReadOnlyList<GridRowAction<MappingRuleDto>>? _rowActions;
 
     /// <summary>Saisie locale du nom de validateur (garde de confirmation « ressaisir son nom »).</summary>
     private string _validatorInput = string.Empty;
@@ -172,6 +272,10 @@
     /// <summary><c>true</c> si l'opérateur détient <c>liakont.settings</c> (peut valider la table).</summary>
     [Parameter]
     public bool CanValidate { get; set; }
+
+    /// <summary><c>true</c> si l'opérateur peut ÉDITER la table (permission <c>liakont.settings</c>).</summary>
+    [Parameter]
+    public bool CanEdit { get; set; }
 
     /// <summary><c>true</c> quand le dialogue de confirmation de validation est ouvert.</summary>
     [Parameter]
@@ -196,6 +300,72 @@
     /// <summary>Déclenché quand l'opérateur confirme la validation (nom de validateur ressaisi).</summary>
     [Parameter]
     public EventCallback OnConfirmValidate { get; set; }
+
+    // ── Édition (WEB07b) ──────────────────────────────────────────
+
+    /// <summary><c>true</c> quand l'éditeur de règle est ouvert.</summary>
+    [Parameter]
+    public bool EditorOpen { get; set; }
+
+    /// <summary><c>true</c> si l'éditeur est en mode création (sinon modification).</summary>
+    [Parameter]
+    public bool EditorIsCreate { get; set; }
+
+    /// <summary>Modèle de saisie en cours d'édition (instance partagée avec la page), ou <c>null</c>.</summary>
+    [Parameter]
+    public TvaRuleFormModel? EditorModel { get; set; }
+
+    /// <summary><c>true</c> pendant l'envoi d'une mutation de règle.</summary>
+    [Parameter]
+    public bool EditorBusy { get; set; }
+
+    /// <summary>Message d'erreur de l'éditeur (validation handler ou échec), ou <c>null</c>.</summary>
+    [Parameter]
+    public string? EditorError { get; set; }
+
+    /// <summary>Déclenché pour créer une règle vierge.</summary>
+    [Parameter]
+    public EventCallback OnCreateRule { get; set; }
+
+    /// <summary>Déclenché pour créer une règle pré-remplie depuis un régime non mappé.</summary>
+    [Parameter]
+    public EventCallback<RegimeCoverageDto> OnCreateRuleForRegime { get; set; }
+
+    /// <summary>Déclenché pour modifier une règle existante.</summary>
+    [Parameter]
+    public EventCallback<MappingRuleDto> OnEditRule { get; set; }
+
+    /// <summary>Déclenché à l'enregistrement de l'éditeur (ajout ou modification).</summary>
+    [Parameter]
+    public EventCallback OnSubmitEditor { get; set; }
+
+    /// <summary>Déclenché à l'annulation de l'éditeur.</summary>
+    [Parameter]
+    public EventCallback OnCancelEditor { get; set; }
+
+    /// <summary>Cible de suppression en attente de confirmation, ou <c>null</c>.</summary>
+    [Parameter]
+    public MappingRuleDto? DeleteTarget { get; set; }
+
+    /// <summary><c>true</c> pendant l'envoi de la suppression.</summary>
+    [Parameter]
+    public bool DeleteBusy { get; set; }
+
+    /// <summary>Message d'erreur de la suppression, ou <c>null</c>.</summary>
+    [Parameter]
+    public string? DeleteError { get; set; }
+
+    /// <summary>Déclenché quand l'opérateur demande la suppression d'une règle (ouvre la confirmation).</summary>
+    [Parameter]
+    public EventCallback<MappingRuleDto> OnRequestDelete { get; set; }
+
+    /// <summary>Déclenché quand l'opérateur confirme la suppression.</summary>
+    [Parameter]
+    public EventCallback OnConfirmDelete { get; set; }
+
+    /// <summary>Déclenché quand l'opérateur annule la suppression.</summary>
+    [Parameter]
+    public EventCallback OnCancelDelete { get; set; }
 
     public TableTvaView()
     {
@@ -222,13 +392,36 @@
         };
     }
 
+    private IReadOnlyList<RegimeCoverageDto> AbsentRegimes =>
+        Model.Coverage?.AbsentRegimes ?? (IReadOnlyList<RegimeCoverageDto>)Array.Empty<RegimeCoverageDto>();
+
     protected override void OnParametersSet()
     {
-        // Le dialogue fermé (annulation OU succès) repart d'une saisie vierge.
+        // Le dialogue de validation fermé (annulation OU succès) repart d'une saisie vierge.
         if (!ConfirmOpen)
         {
             _validatorInput = string.Empty;
         }
+
+        // Quick-actions exposées UNIQUEMENT aux porteurs de la permission (édition masquée sinon).
+        _rowActions = CanEdit
+            ? new[]
+            {
+                new GridRowAction<MappingRuleDto>(
+                    Id: "edit",
+                    Label: "Modifier",
+                    Icon: "edit",
+                    Callback: rule => OnEditRule.InvokeAsync(rule),
+                    IsQuickAction: true),
+                new GridRowAction<MappingRuleDto>(
+                    Id: "delete",
+                    Label: "Supprimer",
+                    Icon: "delete",
+                    Callback: rule => OnRequestDelete.InvokeAsync(rule),
+                    IsSeparatorBefore: true,
+                    IsQuickAction: true),
+            }
+            : null;
     }
 
     /// <summary>La confirmation n'est possible qu'après ressaisie exacte du nom de l'opérateur (un
