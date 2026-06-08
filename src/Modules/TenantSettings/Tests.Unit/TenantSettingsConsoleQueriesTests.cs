@@ -11,6 +11,7 @@ using Liakont.Modules.Transmission.Contracts;
 using Liakont.Modules.TvaMapping.Contracts.DTOs;
 using Liakont.Modules.TvaMapping.Contracts.Queries;
 using Liakont.PaClients.Fake;
+using Microsoft.Extensions.Logging.Abstractions;
 using Stratum.Common.Abstractions.MultiTenancy;
 using Xunit;
 
@@ -34,7 +35,8 @@ public sealed class TenantSettingsConsoleQueriesTests
             new StubTenantSettingsQueries { CompanyId = null },
             new StubTvaMappingQueries(),
             new StubPaClientRegistry(),
-            new StubTenantContext(TenantSlug));
+            new StubTenantContext(TenantSlug),
+            NullLogger<TenantSettingsConsoleQueries>.Instance);
 
         var overview = await sut.GetSettingsOverview();
 
@@ -64,7 +66,7 @@ public sealed class TenantSettingsConsoleQueriesTests
             },
         };
 
-        var sut = new TenantSettingsConsoleQueries(settings, tva, new StubPaClientRegistry(), new StubTenantContext(TenantSlug));
+        var sut = new TenantSettingsConsoleQueries(settings, tva, new StubPaClientRegistry(), new StubTenantContext(TenantSlug), NullLogger<TenantSettingsConsoleQueries>.Instance);
 
         var overview = await sut.GetSettingsOverview();
 
@@ -95,7 +97,7 @@ public sealed class TenantSettingsConsoleQueriesTests
         };
         var registry = new StubPaClientRegistry { CapabilitiesByType = { ["Fake"] = capabilities } };
 
-        var sut = new TenantSettingsConsoleQueries(settings, new StubTvaMappingQueries(), registry, new StubTenantContext(TenantSlug));
+        var sut = new TenantSettingsConsoleQueries(settings, new StubTvaMappingQueries(), registry, new StubTenantContext(TenantSlug), NullLogger<TenantSettingsConsoleQueries>.Instance);
 
         var overview = await sut.GetSettingsOverview();
 
@@ -119,7 +121,7 @@ public sealed class TenantSettingsConsoleQueriesTests
         };
 
         // Registre vide : aucun plug-in chargé pour « UnknownPa ».
-        var sut = new TenantSettingsConsoleQueries(settings, new StubTvaMappingQueries(), new StubPaClientRegistry(), new StubTenantContext(TenantSlug));
+        var sut = new TenantSettingsConsoleQueries(settings, new StubTvaMappingQueries(), new StubPaClientRegistry(), new StubTenantContext(TenantSlug), NullLogger<TenantSettingsConsoleQueries>.Instance);
 
         var overview = await sut.GetSettingsOverview();
 
@@ -127,6 +129,32 @@ public sealed class TenantSettingsConsoleQueriesTests
         account.PluginAvailable.Should().BeFalse();
         account.Capabilities.Should().BeNull();
         account.Account.HasApiKey.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GetSettingsOverview_Degrades_When_Plugin_Resolution_Throws()
+    {
+        var settings = new StubTenantSettingsQueries
+        {
+            CompanyId = CompanyId,
+            Accounts = new[] { Account("B2Brouter", hasApiKey: false) },
+        };
+
+        // Plug-in enregistré mais dont Resolve lève (clé PA non encore saisie — INV-TENANTSETTINGS-007).
+        var registry = new StubPaClientRegistry { UnresolvableTypes = { "B2Brouter" } };
+
+        var sut = new TenantSettingsConsoleQueries(
+            settings,
+            new StubTvaMappingQueries(),
+            registry,
+            new StubTenantContext(TenantSlug),
+            NullLogger<TenantSettingsConsoleQueries>.Instance);
+
+        var overview = await sut.GetSettingsOverview();
+
+        var account = overview.PaAccounts.Should().ContainSingle().Subject;
+        account.PluginAvailable.Should().BeFalse("la résolution du plug-in a échoué — la lecture ne doit jamais renvoyer 500");
+        account.Capabilities.Should().BeNull("aucune capacité n'est inventée quand le plug-in ne peut être résolu");
     }
 
     private static MappingRuleDto Rule(string regime) => new()
@@ -193,12 +221,22 @@ public sealed class TenantSettingsConsoleQueriesTests
     {
         public Dictionary<string, PaCapabilities> CapabilitiesByType { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>Types enregistrés dont la résolution LÈVE (ex. clé PA non saisie) — teste la dégradation.</summary>
+        public HashSet<string> UnresolvableTypes { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         public IReadOnlyCollection<string> RegisteredTypes => CapabilitiesByType.Keys;
 
-        public bool IsRegistered(string paType) => !string.IsNullOrWhiteSpace(paType) && CapabilitiesByType.ContainsKey(paType);
+        public bool IsRegistered(string paType) =>
+            !string.IsNullOrWhiteSpace(paType) && (CapabilitiesByType.ContainsKey(paType) || UnresolvableTypes.Contains(paType));
 
         public IPaClient Resolve(PaAccountDescriptor account)
         {
+            if (UnresolvableTypes.Contains(account.PaType))
+            {
+                // Simule un plug-in réel dont Create échoue (ex. déchiffrement d'une clé PA absente).
+                throw new InvalidOperationException($"Résolution impossible pour « {account.PaType} » (clé absente).");
+            }
+
             if (!CapabilitiesByType.TryGetValue(account.PaType, out var capabilities))
             {
                 throw new InvalidOperationException($"Aucun plug-in pour « {account.PaType} ».");
