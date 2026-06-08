@@ -17,11 +17,13 @@ internal sealed class PostgresDocumentUnitOfWork : IDocumentUnitOfWork
         INSERT INTO documents.documents
             (id, source_reference, document_number, document_type, issue_date, supplier_siren,
              customer_name, customer_is_company_hint, total_net, total_tax, total_gross, state,
-             payload_hash, pa_document_id, mapping_version, first_seen_utc, last_update_utc)
+             payload_hash, pa_document_id, mapping_version, first_seen_utc, last_update_utc,
+             buyer_confirmed_as_individual)
         VALUES
             (@Id, @SourceReference, @DocumentNumber, @DocumentType, @IssueDate, @SupplierSiren,
              @CustomerName, @CustomerIsCompanyHint, @TotalNet, @TotalTax, @TotalGross, @State,
-             @PayloadHash, @PaDocumentId, @MappingVersion, @FirstSeenUtc, @LastUpdateUtc)
+             @PayloadHash, @PaDocumentId, @MappingVersion, @FirstSeenUtc, @LastUpdateUtc,
+             @BuyerConfirmedAsIndividual)
         ON CONFLICT (id) DO NOTHING
         """;
 
@@ -29,33 +31,37 @@ internal sealed class PostgresDocumentUnitOfWork : IDocumentUnitOfWork
         INSERT INTO documents.documents
             (id, source_reference, document_number, document_type, issue_date, supplier_siren,
              customer_name, customer_is_company_hint, total_net, total_tax, total_gross, state,
-             payload_hash, pa_document_id, mapping_version, first_seen_utc, last_update_utc)
+             payload_hash, pa_document_id, mapping_version, first_seen_utc, last_update_utc,
+             buyer_confirmed_as_individual)
         VALUES
             (@Id, @SourceReference, @DocumentNumber, @DocumentType, @IssueDate, @SupplierSiren,
              @CustomerName, @CustomerIsCompanyHint, @TotalNet, @TotalTax, @TotalGross, @State,
-             @PayloadHash, @PaDocumentId, @MappingVersion, @FirstSeenUtc, @LastUpdateUtc)
+             @PayloadHash, @PaDocumentId, @MappingVersion, @FirstSeenUtc, @LastUpdateUtc,
+             @BuyerConfirmedAsIndividual)
         ON CONFLICT (id) DO UPDATE SET
-            source_reference         = excluded.source_reference,
-            document_number          = excluded.document_number,
-            document_type            = excluded.document_type,
-            issue_date               = excluded.issue_date,
-            supplier_siren           = excluded.supplier_siren,
-            customer_name            = excluded.customer_name,
-            customer_is_company_hint = excluded.customer_is_company_hint,
-            total_net                = excluded.total_net,
-            total_tax                = excluded.total_tax,
-            total_gross              = excluded.total_gross,
-            state                    = excluded.state,
-            payload_hash             = excluded.payload_hash,
-            pa_document_id           = excluded.pa_document_id,
-            mapping_version          = excluded.mapping_version,
-            last_update_utc          = excluded.last_update_utc
+            source_reference              = excluded.source_reference,
+            document_number               = excluded.document_number,
+            document_type                 = excluded.document_type,
+            issue_date                    = excluded.issue_date,
+            supplier_siren                = excluded.supplier_siren,
+            customer_name                 = excluded.customer_name,
+            customer_is_company_hint      = excluded.customer_is_company_hint,
+            total_net                     = excluded.total_net,
+            total_tax                     = excluded.total_tax,
+            total_gross                   = excluded.total_gross,
+            state                         = excluded.state,
+            payload_hash                  = excluded.payload_hash,
+            pa_document_id                = excluded.pa_document_id,
+            mapping_version               = excluded.mapping_version,
+            last_update_utc               = excluded.last_update_utc,
+            buyer_confirmed_as_individual = excluded.buyer_confirmed_as_individual
         """;
 
     private const string SelectForUpdateSql = """
         SELECT id, source_reference, document_number, document_type, issue_date, supplier_siren,
                customer_name, customer_is_company_hint, total_net, total_tax, total_gross, state,
-               payload_hash, pa_document_id, mapping_version, first_seen_utc, last_update_utc
+               payload_hash, pa_document_id, mapping_version, first_seen_utc, last_update_utc,
+               buyer_confirmed_as_individual
         FROM documents.documents
         WHERE id = @Id
         FOR UPDATE
@@ -212,7 +218,8 @@ internal sealed class PostgresDocumentUnitOfWork : IDocumentUnitOfWork
             (string?)row.pa_document_id,
             (string?)row.mapping_version,
             DocumentRowReader.ToDateTimeOffset((object)row.first_seen_utc),
-            DocumentRowReader.ToDateTimeOffset((object)row.last_update_utc));
+            DocumentRowReader.ToDateTimeOffset((object)row.last_update_utc),
+            (bool)row.buyer_confirmed_as_individual);
     }
 
     private static object ToDocumentParameters(Document document)
@@ -236,6 +243,7 @@ internal sealed class PostgresDocumentUnitOfWork : IDocumentUnitOfWork
             document.MappingVersion,
             document.FirstSeenUtc,
             document.LastUpdateUtc,
+            document.BuyerConfirmedAsIndividual,
         };
     }
 }

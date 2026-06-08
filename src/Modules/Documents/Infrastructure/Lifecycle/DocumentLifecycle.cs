@@ -123,6 +123,9 @@ internal sealed class DocumentLifecycle : IDocumentLifecycle
         return DocumentResolutionOutcome.Succeeded;
     }
 
+    public Task ConfirmBuyerAsIndividualAsync(Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default) =>
+        TransitionAsync(documentId, (document, at) => document.ConfirmBuyerAsIndividual(operatorIdentity, at), cancellationToken);
+
     private async Task TransitionAsync(
         Guid documentId,
         Func<Document, DateTimeOffset, DocumentEvent> transition,

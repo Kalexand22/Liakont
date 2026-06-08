@@ -35,6 +35,16 @@ public sealed class BuyerLooksProfessionalRule : IDocumentRule
             return Task.FromResult<IReadOnlyList<ValidationIssue>>(issues);
         }
 
+        if (context.BuyerConfirmedAsIndividual)
+        {
+            // Verdict OPÉRATEUR « confirmer particulier (B2C) » posé pour ce document (F08 §A.4 : « confirmer B2C
+            // → débloque en B2C, décision journalisée »). La décision tranchée et tracée prime sur l'heuristique
+            // d'indice : le garde-fou ne bloque plus CE document. Ce n'est pas un affaiblissement de la règle
+            // (CLAUDE.md n°3) mais l'incorporation d'une entrée légitime — la règle reste détection-seule pour
+            // tout document non tranché par l'opérateur.
+            return Task.FromResult<IReadOnlyList<ValidationIssue>>(issues);
+        }
+
         var hint = CompanyHintDetector.Detect(buyer);
         if (hint.LooksProfessional)
         {

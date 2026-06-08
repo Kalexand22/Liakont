@@ -64,4 +64,12 @@ public enum DocumentEventType
     /// addendum chaîné (WORM, TRK05).
     /// </summary>
     DocumentReconciledManual,
+
+    /// <summary>
+    /// Verdict OPÉRATEUR du garde-fou B2B/B2C (item API02b, F08 §A.4) : l'opérateur a confirmé que
+    /// l'acheteur est un PARTICULIER (B2C) malgré l'indice professionnel détecté (VAL05). Fait d'audit
+    /// append-only portant l'identité de l'opérateur ; il NE change PAS l'état du document (la re-vérification
+    /// le débloque ensuite). La décision tranchée prime sur l'heuristique d'indice à la re-validation.
+    /// </summary>
+    DocumentBuyerConfirmedB2C,
 }

@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Liakont.Modules.Documents.Contracts.Lifecycle;
 using Liakont.Modules.Documents.Contracts.Queries;
+using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Contracts.Jobs;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -46,6 +47,22 @@ public static class DocumentActionsEndpointMapping
 
     /// <summary>État d'un document prêt à l'envoi (DocumentState, Domain) : seul état envoyable.</summary>
     private const string ReadyToSendState = "ReadyToSend";
+
+    /// <summary>État d'un document bloqué (DocumentState, Domain) : seul état où le verdict garde-fou / la re-vérification s'appliquent.</summary>
+    private const string BlockedState = "Blocked";
+
+    /// <summary>Verdict « confirmer particulier (B2C) » du garde-fou B2B/B2C (F08 §A.4).</summary>
+    private const string VerdictConfirmB2c = "confirm_b2c";
+
+    /// <summary>Verdict « traiter manuellement hors passerelle (B2B) » du garde-fou B2B/B2C (F08 §A.4).</summary>
+    private const string VerdictHandleManually = "handle_manually";
+
+    /// <summary>État terminal d'un document traité manuellement hors passerelle (DocumentState, Domain).</summary>
+    private const string ManuallyHandledState = "ManuallyHandled";
+
+    /// <summary>Motif journalisé du traitement manuel B2B issu du garde-fou (F08 §A.4) — l'opérateur ne saisit pas de texte ici (verdict structuré).</summary>
+    private const string ManualB2bReason =
+        "Garde-fou B2B/B2C : acheteur professionnel — facture B2B traitée manuellement hors passerelle (verdict opérateur, F08 §A.4).";
 
     /// <summary>Taille de page des lectures par état (file bornée — même surface que le pipeline, TRK01).</summary>
     private const int PageSize = 100;
@@ -237,7 +254,150 @@ public static class DocumentActionsEndpointMapping
             return Results.NoContent();
         }).RequireAuthorization(ActionsPermission);
 
+        // POST /api/v1/documents/{id}/verdict — verdict OPÉRATEUR du garde-fou B2B/B2C (VAL05, F08 §A.4) :
+        //   { "verdict": "confirm_b2c" }     → confirme l'acheteur « particulier » (B2C) : enregistre la
+        //                                      décision (persistée + journalisée). Le document RESTE Blocked ;
+        //                                      la re-vérification le débloque ensuite (verdict posé → recheck).
+        //   { "verdict": "handle_manually" } → traite la facture B2B manuellement hors passerelle :
+        //                                      Blocked → ManuallyHandled (terminal), via la résolution partagée (API02c).
+        // 404 hors tenant (lecture tenant-scopée), 409 si le document n'est pas Blocked, 400 si verdict inconnu.
+        group.MapPost("/{id:guid}/verdict", async (
+            Guid id,
+            VerdictRequest? request,
+            IDocumentQueries queries,
+            IDocumentLifecycle lifecycle,
+            IActorContextAccessor actorAccessor,
+            IActivityLogger activityLogger,
+            CancellationToken ct) =>
+        {
+            var verdict = NormalizeVerdict(request?.Verdict);
+            if (verdict is null)
+            {
+                return Results.BadRequest(new ActionProblem(
+                    "Verdict inconnu. Valeurs acceptées : « confirm_b2c » (confirmer particulier B2C) ou « handle_manually » (traiter manuellement hors passerelle)."));
+            }
+
+            var document = await queries.GetByIdAsync(id, ct);
+            if (document is null)
+            {
+                return Results.NotFound();
+            }
+
+            if (!string.Equals(document.State, BlockedState, StringComparison.Ordinal))
+            {
+                return Results.Conflict(new ActionProblem(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"Le verdict du garde-fou B2B/B2C ne s'applique qu'à un document bloqué (document {document.DocumentNumber}, état actuel : {document.State}).")));
+            }
+
+            var actor = actorAccessor.Current;
+            var operatorId = ActorId(actor);
+
+            if (string.Equals(verdict, VerdictConfirmB2c, StringComparison.Ordinal))
+            {
+                // Enregistre la décision B2C (persistée + journalisée) SANS changer l'état (la re-vérification débloque).
+                await lifecycle.ConfirmBuyerAsIndividualAsync(id, operatorId, ct);
+                await activityLogger.LogActivityAsync(
+                    DocumentEntityType,
+                    id.ToString(),
+                    "documents.verdict_confirm_b2c",
+                    string.Create(CultureInfo.InvariantCulture, $"Garde-fou B2B/B2C : acheteur confirmé « particulier » (B2C) par l'opérateur pour le document {document.DocumentNumber} (F08 §A.4). Re-vérifier pour débloquer."),
+                    operatorId,
+                    metadata: new { document.DocumentNumber, Verdict = VerdictConfirmB2c },
+                    companyId: actor.CompanyId,
+                    cancellationToken: ct);
+
+                // Le document reste Blocked : on retourne son état courant (inchangé par le verdict).
+                return Results.Ok(new VerdictResponse(id, VerdictConfirmB2c, document.State));
+            }
+
+            // handle_manually : Blocked → ManuallyHandled (terminal), via la résolution terminale PARTAGÉE (API02c,
+            // ResolveManuallyAsync) — une seule mécanique de traitement manuel, motif dérivé du garde-fou (B2B hors
+            // passerelle). Le résultat (pas d'exception) mappe proprement un refus concurrent en 4xx (jamais 500).
+            var manualOutcome = await lifecycle.ResolveManuallyAsync(id, ManualB2bReason, operatorId, ct);
+            if (manualOutcome is not DocumentResolutionOutcome.Succeeded)
+            {
+                return ResolutionProblem(manualOutcome, id);
+            }
+
+            await activityLogger.LogActivityAsync(
+                DocumentEntityType,
+                id.ToString(),
+                "documents.verdict_handle_manually",
+                string.Create(CultureInfo.InvariantCulture, $"Garde-fou B2B/B2C : document {document.DocumentNumber} traité manuellement hors passerelle (B2B) par l'opérateur (F08 §A.4)."),
+                operatorId,
+                metadata: new { document.DocumentNumber, Verdict = VerdictHandleManually },
+                companyId: actor.CompanyId,
+                cancellationToken: ct);
+
+            return Results.Ok(new VerdictResponse(id, VerdictHandleManually, ManuallyHandledState));
+        }).RequireAuthorization(ActionsPermission);
+
+        // POST /api/v1/documents/{id}/recheck — re-vérifie UN document Blocked (CHECK complet : mapping TVA →
+        // garde-fou production → validation) sans attendre le prochain traitement : Blocked → ReadyToSend s'il
+        // passe désormais (table TVA complétée/validée, verdict B2C posé), sinon reste Blocked avec les NOUVEAUX
+        // motifs (renvoyés pour affichage immédiat — la machine à états interdit Blocked → Blocked, aucun
+        // événement n'est ré-écrit). 404 hors tenant, 409 si non bloqué ou contenu pivot indisponible.
+        group.MapPost("/{id:guid}/recheck", async (
+            Guid id,
+            IDocumentRecheckService recheckService,
+            IActorContextAccessor actorAccessor,
+            IActivityLogger activityLogger,
+            CancellationToken ct) =>
+        {
+            var result = await recheckService.RecheckAsync(id, ct);
+
+            switch (result.Outcome)
+            {
+                case DocumentRecheckOutcome.NotFound:
+                    return Results.NotFound();
+
+                case DocumentRecheckOutcome.NotBlocked:
+                    return Results.Conflict(new ActionProblem(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"La re-vérification ne s'applique qu'à un document bloqué (état actuel : {result.State}).")));
+
+                case DocumentRecheckOutcome.ContentUnavailable:
+                    return Results.Conflict(new ActionProblem(
+                        "Le contenu du document n'est pas disponible pour la re-vérification (pas encore stagé, ou altéré/illisible). Action : relancez l'extraction du document depuis le logiciel source, puis réessayez."));
+
+                default:
+                    var actor = actorAccessor.Current;
+                    await activityLogger.LogActivityAsync(
+                        DocumentEntityType,
+                        id.ToString(),
+                        "documents.rechecked",
+                        string.Create(CultureInfo.InvariantCulture, $"Re-vérification déclenchée par l'opérateur — résultat : « {result.State} »."),
+                        ActorId(actor),
+                        metadata: new { State = result.State, Outcome = result.Outcome.ToString() },
+                        companyId: actor.CompanyId,
+                        cancellationToken: ct);
+
+                    return Results.Ok(new RecheckResponse(id, result.State!, result.BlockingReason));
+            }
+        }).RequireAuthorization(ActionsPermission);
+
         return app;
+    }
+
+    /// <summary>
+    /// Normalise le verdict reçu vers sa valeur canonique (<see cref="VerdictConfirmB2c"/> /
+    /// <see cref="VerdictHandleManually"/>), insensible à la casse et aux espaces ; <c>null</c> si inconnu.
+    /// </summary>
+    private static string? NormalizeVerdict(string? verdict)
+    {
+        if (string.IsNullOrWhiteSpace(verdict))
+        {
+            return null;
+        }
+
+        var normalized = verdict.Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            VerdictConfirmB2c => VerdictConfirmB2c,
+            VerdictHandleManually => VerdictHandleManually,
+            _ => null,
+        };
     }
 
     /// <summary>
@@ -328,4 +488,16 @@ public static class DocumentActionsEndpointMapping
     /// l'agent (le logiciel source est le seul créateur de numéros, F06 §4).
     /// </summary>
     public sealed record SupersedeRequest(Guid ReplacementDocumentId);
+
+    /// <summary>Corps de la requête de verdict garde-fou B2B/B2C : <c>confirm_b2c</c> ou <c>handle_manually</c> (F08 §A.4).</summary>
+    public sealed record VerdictRequest(string? Verdict);
+
+    /// <summary>Accusé d'un verdict garde-fou : le verdict appliqué et l'état résultant du document.</summary>
+    public sealed record VerdictResponse(Guid DocumentId, string Verdict, string State);
+
+    /// <summary>
+    /// Résultat d'une re-vérification : l'état résultant (<c>ReadyToSend</c> ou <c>Blocked</c>) et, si le
+    /// document reste bloqué, les motifs frais (message opérateur agrégé) pour affichage immédiat (WEB03b).
+    /// </summary>
+    public sealed record RecheckResponse(Guid DocumentId, string State, string? BlockingReason);
 }

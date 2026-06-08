@@ -37,7 +37,7 @@ public interface IDocumentLifecycle
     /// et l'<paramref name="operatorIdentity"/> sont OBLIGATOIRES et inscrits dans la piste d'audit append-only.
     /// Retourne un RÉSULTAT (pas d'exception, car le refus est attendu) : <see cref="DocumentResolutionOutcome.DocumentNotFound"/>
     /// si le document est inconnu dans le tenant, <see cref="DocumentResolutionOutcome.InvalidState"/> si l'état
-    /// courant n'autorise pas la transition.
+    /// courant n'autorise pas la transition. Réutilisé par le verdict garde-fou « traiter manuellement » (API02b).
     /// </summary>
     Task<DocumentResolutionOutcome> ResolveManuallyAsync(
         Guid documentId, string reason, string operatorIdentity, CancellationToken cancellationToken = default);
@@ -53,4 +53,13 @@ public interface IDocumentLifecycle
     /// </summary>
     Task<DocumentResolutionOutcome> SupersedeAsync(
         Guid documentId, Guid replacementDocumentId, string operatorIdentity, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Verdict garde-fou B2B/B2C (item API02b, F08 §A.4) : depuis <c>Blocked</c>, enregistre que l'opérateur
+    /// a confirmé l'acheteur « particulier » (B2C) malgré l'indice professionnel (VAL05). NE CHANGE PAS l'état
+    /// (la re-vérification débloque ensuite) ; pose le marqueur persistant + un fait d'audit append-only portant
+    /// l'identité de l'opérateur (OBLIGATOIRE). Lève si le document est inconnu ou n'est pas <c>Blocked</c>.
+    /// (L'autre branche du verdict — « traiter manuellement » — réutilise <see cref="ResolveManuallyAsync"/>.)
+    /// </summary>
+    Task ConfirmBuyerAsIndividualAsync(Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default);
 }

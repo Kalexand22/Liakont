@@ -8,6 +8,8 @@ using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
 using Dapper;
+using Liakont.Agent.Contracts.Pivot;
+using Liakont.Agent.Contracts.Serialization;
 using Liakont.Host.Startup;
 using Liakont.Modules.Archive.Contracts;
 using Liakont.Modules.Archive.Domain;
@@ -15,6 +17,7 @@ using Liakont.Modules.Ingestion.Contracts;
 using Liakont.Modules.Pipeline.Domain.Payments;
 using Liakont.Modules.Reconciliation.Application;
 using Liakont.Modules.Reconciliation.Domain;
+using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.Transmission.Contracts;
 using Liakont.PaClients.Fake;
 using Microsoft.AspNetCore.Authentication;
@@ -73,6 +76,16 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     /// </summary>
     public const string TenantApi04 = "tenant-api04";
 
+    /// <summary>
+    /// Tenant dédié aux tests de VERDICT garde-fou B2B/B2C + RE-VÉRIFICATION (API02b). Ces actions MUTENT
+    /// l'état de documents (verdict, recheck → ReadyToSend / ManuallyHandled) : les confiner ici évite de
+    /// polluer les comptes EXACTS qu'API02a asserte sur le tenant d'action. Doté d'un profil tenant (SIREN
+    /// valide) + d'une table TVA validée dont la part MATCHE la requête du CHECK (Autre) : une re-vérification
+    /// peut donc atteindre ReadyToSend. Les documents bloqués + pivots stagés sont seedés FRAIS par test
+    /// (<see cref="SeedBlockedProfessionalBuyerDocumentAsync"/>) pour éviter tout couplage inter-tests.
+    /// </summary>
+    public const string TenantVerdict = "tenant-verdict";
+
     public const string BlockedReasonText = "Régime TVA non mappé : compléter la table TVA (document FA-A-002).";
 
     public const string OlderBlockedReasonText = "Ancien motif (corrigé puis re-bloqué).";
@@ -121,6 +134,15 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     /// <summary>Société (companyId) du tenant d'édition API04 — claim company_id porté par X-Test-Company.</summary>
     public static readonly Guid TenantApi04CompanyId = new("cccccccc-0000-0000-0000-0000000000c1");
 
+    /// <summary>Société (companyId) du tenant de verdict/recheck (API02b) — résolue par le profil du tenant.</summary>
+    public static readonly Guid TenantVerdictCompanyId = new("dddddddd-0000-0000-0000-0000000000d1");
+
+    /// <summary>SIREN émetteur FICTIF mais valide (Luhn) du profil du tenant de verdict — exigé par SupplierIdentityRule au recheck.</summary>
+    private const string VerdictProfileSiren = "404833048";
+
+    /// <summary>Document ReadyToSend PRÉ-SEEDÉ (lecture seule) du tenant de verdict — sert les 409 « non bloqué » (verdict/recheck).</summary>
+    public static readonly Guid TenantVerdictReadyDocId = new("0d000001-0000-0000-0000-000000000001");
+
     // Documents seedés dans le TENANT A.
     public static readonly Guid TenantADocReadyId = new("0a000001-0000-0000-0000-000000000001");
     public static readonly Guid TenantADocBlockedId = new("0a000002-0000-0000-0000-000000000002");
@@ -164,6 +186,9 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         MaxDocumentsPerRequest = 50,
     };
 
+    /// <summary>Codes régime source du pivot de verdict (un seul) — champ partagé pour éviter l'allocation répétée (CA1861).</summary>
+    private static readonly string[] VerdictPivotRegimeCodes = { "REGIME-A" };
+
     private static readonly Guid ConsoleReaderRoleId = new("33333333-3333-3333-3333-333333333333");
     private static readonly Guid ConsoleAdminRoleId = new("55555555-5555-5555-5555-555555555555");
     private static readonly Guid ConsoleOperatorRoleId = new("77777777-7777-7777-7777-777777777777");
@@ -178,6 +203,7 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     private string _archiveStoreRoot = string.Empty;
     private string _systemConnectionString = string.Empty;
     private string _ingestionPdfRoot = string.Empty;
+    private string _stagingRoot = string.Empty;
 
     public string BaseUrl => $"http://127.0.0.1:{_port}";
 
@@ -203,12 +229,14 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         var tenantArchConn = WithDatabase(systemConn, "tc_tenant_arch");
         var tenantArchBadConn = WithDatabase(systemConn, "tc_tenant_arch_bad");
         var tenantApi04Conn = WithDatabase(systemConn, "tc_tenant_api04");
+        var tenantVerdictConn = WithDatabase(systemConn, "tc_tenant_verdict");
         _connectionsByTenant[TenantA] = tenantAConn;
         _connectionsByTenant[TenantB] = tenantBConn;
         _connectionsByTenant[TenantAction] = tenantActConn;
         _connectionsByTenant[TenantArchive] = tenantArchConn;
         _connectionsByTenant[TenantArchiveTampered] = tenantArchBadConn;
         _connectionsByTenant[TenantApi04] = tenantApi04Conn;
+        _connectionsByTenant[TenantVerdict] = tenantVerdictConn;
 
         var hostDir = Path.GetFullPath(Path.Combine(
             AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "Host", "Liakont.Host"));
@@ -232,6 +260,12 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantArchive}"] = tenantArchConn;
         builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantArchiveTampered}"] = tenantArchBadConn;
         builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantApi04}"] = tenantApi04Conn;
+        builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantVerdict}"] = tenantVerdictConn;
+
+        // Magasin de staging (PIP00) sur un répertoire de test dédié et isolé (un par run) ; nettoyé au Dispose.
+        // Requis par la re-vérification (API02b) qui relit le pivot stagé du document bloqué.
+        _stagingRoot = Path.Combine(Path.GetTempPath(), "liakont-console-staging", Guid.NewGuid().ToString("N"));
+        builder.Configuration["Staging:Storage:FileSystem:RootPath"] = _stagingRoot;
 
         // Coffre d'archive sur un répertoire de test dédié et isolé (un par run) ; nettoyé au Dispose.
         _archiveStoreRoot = Path.Combine(Path.GetTempPath(), "liakont-console-archive", Guid.NewGuid().ToString("N"));
@@ -287,6 +321,7 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         MigrateDatabase(migrationAssemblies, tenantArchConn);
         MigrateDatabase(migrationAssemblies, tenantArchBadConn);
         MigrateDatabase(migrationAssemblies, tenantApi04Conn);
+        MigrateDatabase(migrationAssemblies, tenantVerdictConn);
 
         await SeedTenantAAsync(tenantAConn);
         await SeedTenantBAsync(tenantBConn);
@@ -300,6 +335,9 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         // Tenant d'édition API04 : identité + une table TVA VALIDÉE (les tests mutent cette table sans
         // toucher l'état lu par les autres suites). La réconciliation est seedée à la demande par les tests.
         await SeedTenantApi04Async(tenantApi04Conn);
+
+        // Tenant de verdict/recheck API02b : identité + profil (SIREN valide) + table TVA validée (part Autre).
+        await SeedTenantVerdictAsync(tenantVerdictConn);
 
         await _app.StartAsync();
     }
@@ -315,6 +353,7 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         await _postgres.DisposeAsync().AsTask();
         DeleteArchiveStore();
         DeleteIngestionPdfStore();
+        DeleteStagingStore();
     }
 
     async ValueTask IAsyncDisposable.DisposeAsync()
@@ -685,6 +724,175 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     }
 
     /// <summary>
+    /// Tenant de verdict/recheck (API02b) : identité (opérateur + lecteur) + profil tenant (SIREN valide,
+    /// exigé par SupplierIdentityRule) + table TVA validée dont la part MATCHE la requête du CHECK (Autre) —
+    /// pour qu'une re-vérification après verdict B2C atteigne ReadyToSend. Les documents bloqués + pivots
+    /// stagés sont seedés FRAIS par test via <see cref="SeedBlockedProfessionalBuyerDocumentAsync"/>.
+    /// </summary>
+    private static async Task SeedTenantVerdictAsync(string connectionString)
+    {
+        await using var conn = new NpgsqlConnection(connectionString);
+        await conn.OpenAsync();
+
+        await SeedIdentityAsync(conn);
+        await SeedTenantProfileAsync(conn, TenantVerdictCompanyId, VerdictProfileSiren, "Étude Fictïve SVV");
+        await SeedValidatedTvaMappingForCheckAsync(conn, TenantVerdictCompanyId);
+
+        // Document ReadyToSend (lecture seule) : sert les 409 « non bloqué » du verdict et du recheck.
+        await InsertDocumentAsync(conn, TenantVerdictReadyDocId, "FA-VERDICT-READY", "invoice", new DateOnly(2026, 1, 20), "ReadyToSend", "Client Verdict", 144.00m);
+    }
+
+    /// <summary>
+    /// Table TVA validée à une règle (REGIME-A → catégorie S, 20 %, part <c>Autre</c>=2) : la part MATCHE la
+    /// requête du CHECK générique (<c>TvaMappingPart.Autre</c> — ADR-0004/F03 §2.3 ; le matching de part est
+    /// EXACT dans TvaMapper). Indispensable pour qu'une re-vérification atteigne ReadyToSend ; la variante
+    /// <see cref="SeedValidatedTvaMappingAsync"/> (part Adjudication=0) ne sert que les lectures /settings.
+    /// </summary>
+    private static async Task SeedValidatedTvaMappingForCheckAsync(NpgsqlConnection conn, Guid companyId)
+    {
+        var tableId = Guid.NewGuid();
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO tvamapping.mapping_tables
+                (id, company_id, mapping_version, validated_by, validated_date, default_behavior)
+            VALUES (@Id, @CompanyId, @Version, @ValidatedBy, @ValidatedDate, 0)
+            """,
+            new
+            {
+                Id = tableId,
+                CompanyId = companyId,
+                Version = "verdict-v1",
+                ValidatedBy = "Expert-comptable Verdict",
+                ValidatedDate = new DateOnly(2026, 5, 1),
+            });
+
+        // part=2 (Autre) ; category=1 (VatCategory.S → taux > 0) ; rate_mode=0 (Fixed) ; rate_value=20 ; vatex absent.
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO tvamapping.mapping_rules
+                (table_id, ordinal, source_regime_code, label, part, category, vatex, rate_mode, rate_value)
+            VALUES (@TableId, 0, 'REGIME-A', 'Taux normal 20 %', 2, 1, NULL, 0, 20)
+            """,
+            new { TableId = tableId });
+    }
+
+    /// <summary>
+    /// Seede un document BLOQUÉ FRAIS (identifiant unique) dans le tenant, avec un pivot stagé dont l'acheteur
+    /// porte un indice « société » (déclenche le garde-fou <c>BUYER_LOOKS_PROFESSIONAL</c>, VAL05) mais qui
+    /// passe TOUTES les autres règles + le mapping (REGIME-A → S 20 %). Sans verdict : une re-vérification le
+    /// laisse Blocked sur le garde-fou. Après verdict « confirmer B2C » : la re-vérification atteint ReadyToSend.
+    /// L'empreinte du document EST celle du pivot stagé (le recheck relit et re-vérifie le hash). Retourne l'id.
+    /// </summary>
+    public async Task<Guid> SeedBlockedProfessionalBuyerDocumentAsync(string tenant, CancellationToken cancellationToken = default)
+    {
+        var documentId = Guid.NewGuid();
+        var number = "FA-VERDICT-" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        var sourceReference = "src/" + number;
+        var pivot = BuildProfessionalBuyerPivot(number, sourceReference);
+        var json = CanonicalJson.Serialize(pivot);
+        var hash = PayloadHasher.ComputeHash(json);
+
+        await using (var conn = new NpgsqlConnection(ConnectionStringFor(tenant)))
+        {
+            await conn.OpenAsync(cancellationToken);
+
+            // Document Blocked avec l'empreinte RÉELLE du pivot (le recheck relit le staging par cette clé) ;
+            // customer_is_company_hint=true (cohérent avec le pivot) ; montants 120/24/144 (decimal).
+            await conn.ExecuteAsync(new CommandDefinition(
+                """
+                INSERT INTO documents.documents (
+                    id, source_reference, document_number, document_type, issue_date, supplier_siren,
+                    customer_name, customer_is_company_hint, total_net, total_tax, total_gross, state,
+                    payload_hash, first_seen_utc, last_update_utc)
+                VALUES (
+                    @Id, @SourceRef, @Number, 'invoice', @IssueDate, NULL,
+                    @CustomerName, true, 120.00, 24.00, 144.00, 'Blocked',
+                    @PayloadHash, @Now, @Now)
+                """,
+                new
+                {
+                    Id = documentId,
+                    SourceRef = sourceReference,
+                    Number = number,
+                    IssueDate = new DateOnly(2026, 1, 15),
+                    CustomerName = "Acheteur Indice Société",
+                    PayloadHash = hash,
+                    Now = new DateTimeOffset(2026, 1, 15, 9, 0, 0, TimeSpan.Zero),
+                },
+                cancellationToken: cancellationToken));
+
+            await InsertEventAsync(
+                conn,
+                documentId,
+                new DateTimeOffset(2026, 1, 15, 9, 0, 0, TimeSpan.Zero),
+                "DocumentBlocked",
+                "Garde-fou B2B/B2C : acheteur potentiellement professionnel — verdict opérateur requis (F08 §A.4).",
+                payloadSnapshot: null);
+        }
+
+        // Stage le pivot canonique (chiffré au repos par le magasin) sous la clé tenant-scopée du document.
+        await using var scope = _app!.Services.CreateAsyncScope();
+        var staging = scope.ServiceProvider.GetRequiredService<IPayloadStagingStore>();
+        await staging.WriteAsync(new StagedPayloadKey(tenant, documentId, hash), json, cancellationToken);
+
+        return documentId;
+    }
+
+    /// <summary>
+    /// Seede un document BLOQUÉ FRAIS dont le pivot N'EST PAS stagé (empreinte sans blob correspondant) : la
+    /// re-vérification ne peut pas relire le contenu → issue « contenu indisponible » (409). Couvre le chemin
+    /// dégradé « bloquer plutôt qu'envoyer faux » (CLAUDE.md n°3) — une régression qui le mapperait en 200/500
+    /// resterait sinon invisible. Retourne l'identifiant.
+    /// </summary>
+    public async Task<Guid> SeedBlockedDocumentWithoutStagedPivotAsync(string tenant, CancellationToken cancellationToken = default)
+    {
+        var documentId = Guid.NewGuid();
+        var number = "FA-NOSTAGE-" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+
+        await using var conn = new NpgsqlConnection(ConnectionStringFor(tenant));
+        await conn.OpenAsync(cancellationToken);
+
+        // InsertDocumentAsync pose payload_hash = "hash-<number>" : AUCUN blob n'est stagé pour cette empreinte,
+        // donc la relecture du staging lève StagedPayloadNotFoundException → DocumentRecheckResult.ContentUnavailable.
+        await InsertDocumentAsync(conn, documentId, number, "invoice", new DateOnly(2026, 1, 16), "Blocked", "Client Sans Pivot", 144.00m);
+        return documentId;
+    }
+
+    /// <summary>Marqueur de verdict B2C persisté sur le document (assertion du verdict « confirmer particulier »).</summary>
+    public async Task<bool> IsBuyerConfirmedAsync(string tenant, Guid documentId, CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(ConnectionStringFor(tenant));
+        await conn.OpenAsync(ct);
+        return await conn.ExecuteScalarAsync<bool>(new CommandDefinition(
+            "SELECT buyer_confirmed_as_individual FROM documents.documents WHERE id = @Id",
+            new { Id = documentId },
+            cancellationToken: ct));
+    }
+
+    /// <summary>Construit un pivot dont l'acheteur déclenche le garde-fou (indice société) mais qui passe le reste du CHECK (REGIME-A → S 20 %).</summary>
+    private static PivotDocumentDto BuildProfessionalBuyerPivot(string number, string sourceReference)
+    {
+        var line = new PivotLineDto(
+            description: "Adjudication lot — vase décoratif",
+            netAmount: 120.00m,
+            quantity: 1m,
+            unitPriceNet: 120.00m,
+            sourceRegimeCodes: VerdictPivotRegimeCodes,
+            taxes: new[] { new PivotLineTaxDto(24.00m, 20m) });
+
+        return new PivotDocumentDto(
+            sourceDocumentKind: "F",
+            number: number,
+            issueDate: new DateTime(2026, 1, 15),
+            sourceReference: sourceReference,
+            supplier: new PivotPartyDto("Étude Fictïve SVV"),
+            totals: new PivotTotalsDto(120.00m, 24.00m, 144.00m, 144.00m),
+            operationCategory: OperationCategory.LivraisonBiens,
+            customer: new PivotPartyDto("Acheteur Indice Société", isCompanyHint: true),
+            lines: new[] { line });
+    }
+
+    /// <summary>
     /// Seede une PROPOSITION de réconciliation FRAÎCHE dans le tenant : archive un document émis (paquet
     /// WORM réel, pour que la confirmation puisse y ajouter un addendum), dépose un PDF dans le pool, et
     /// ajoute une entrée de file « proposition en attente » pointant ce document. Chaque appel crée des
@@ -1024,5 +1232,15 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         }
 
         Directory.Delete(_ingestionPdfRoot, recursive: true);
+    }
+
+    private void DeleteStagingStore()
+    {
+        if (string.IsNullOrEmpty(_stagingRoot) || !Directory.Exists(_stagingRoot))
+        {
+            return;
+        }
+
+        Directory.Delete(_stagingRoot, recursive: true);
     }
 }

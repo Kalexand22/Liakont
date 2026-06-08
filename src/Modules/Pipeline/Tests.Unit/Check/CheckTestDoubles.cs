@@ -183,6 +183,9 @@ internal static class CheckTestDoubles
 
         public Task<DocumentResolutionOutcome> SupersedeAsync(Guid documentId, Guid replacementDocumentId, string operatorIdentity, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+
+        public Task ConfirmBuyerAsIndividualAsync(Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     internal sealed class FakeDocumentQueries : IDocumentQueries

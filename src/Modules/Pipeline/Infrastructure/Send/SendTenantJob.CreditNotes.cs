@@ -86,7 +86,7 @@ public sealed partial class SendTenantJob
                 }
 
                 var decision = await DocumentCheckEvaluator.EvaluateAsync(
-                    services, companyId, document.DocumentNumber, staged.Pivot!, cancellationToken);
+                    services, companyId, document.DocumentNumber, staged.Pivot!, cancellationToken: cancellationToken);
 
                 if (decision.IsReady)
                 {

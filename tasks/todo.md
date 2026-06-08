@@ -1,33 +1,81 @@
-# Tâche : API02c — Endpoints d'action documents : résolution terminale
+# API02b — Endpoints d'action documents : garde-fou (verdict) + re-vérification (recheck)
 
-Session : orch-20260608-132856-Liakont-s2 (slot-2, clone Liakont)
-Sous-branche : feat/console-web-API02c
-Segment : feat/console-web
+Segment : console-web (`feat/console-web`) · sous-branche `feat/console-web-API02b` · slot-1
+Session : orch-20260608-112518-Liakont3-s1
 
-## Objet
-Sur le scaffold d'actions Documents.Web posé par API02a, ajouter 2 résolutions terminales
-(permission liakont.actions) :
-1. POST /api/v1/documents/{id}/resolve-manually → motif OBLIGATOIRE (400 sans), transition
-   ManuallyHandled (TRK02), journalisé (Audit + DocumentEvent, identité opérateur).
-2. POST /api/v1/documents/{id}/supersede → lier un RejectedByPa à son remplaçant (déjà reçu).
-   Ancien → Superseded avec lien. Refusé si remplaçant absent dans le tenant. Journalisé.
+## Objet (spec API.yaml API02b, F08 §A.4, VAL05 #3, WEB03b)
+Deux endpoints d'action sur Documents.Web (permission `liakont.actions`), réutilisant le harness
+API01a + le scaffold d'actions API02a :
+1. `POST /api/v1/documents/{id}/verdict` — verdict garde-fou B2C/B2B (VAL05) :
+   - `confirm_b2c` (« Confirmer particulier ») → enregistre la confirmation B2C (persistée + journalisée),
+     ne change PAS l'état (reste Blocked) ; le déblocage effectif se fait au recheck (« verdict posé → recheck »).
+   - `handle_manually` (« Traiter manuellement B2B ») → Blocked→ManuallyHandled (terminal), journalisé.
+2. `POST /api/v1/documents/{id}/recheck` — re-valide UN document Blocked via le CHECK complet
+   (mapping TVA → garde-fou prod → validation) et le fait passer Blocked→ReadyToSend s'il passe,
+   sinon renvoie les nouveaux motifs (reste Blocked, pas de ré-écriture d'événement — Blocked→Blocked interdit).
 
-## Plan
-- [x] Explorer le scaffold Documents.Web (API02a) + transitions domaine (ManuallyHandled/Superseded)
-- [x] Domaine déjà présent (MarkManuallyHandled/Supersede) ; port d'écriture = IDocumentLifecycle (Contracts)
-- [x] Implémenter les 2 endpoints sur le harness API01a + scaffold API02a (outcome enum, mapping 404/409/400)
-- [x] Tests d'intégration (14) : droits (401/403), motif obligatoire (400), supersede sans/auto/inexistant remplaçant, 404 isolation, 409 mauvais état, transitions réelles + audit
-- [x] verify-fast vert (plateforme .NET10 + agent net48)
-- [x] run-tests vert (4029 tests, 14 nouveaux exécutés contre Postgres réel)
-- [ ] codex-review propre (ou P2 acceptés justifiés)
-- [ ] merge-back --no-ff + push (attention collision additive avec API02b en parallèle slot-1)
+## Décisions de conception (sourcées, aucune règle fiscale inventée)
+- F08 §A.4 : « confirmer B2C → débloque en B2C, décision journalisée » = override OPÉRATEUR
+  SANCTIONNÉ et JOURNALISÉ. Implémenté en INCORPORANT la décision opérateur dans l'ENTRÉE de validation
+  (`DocumentValidationContext.BuyerConfirmedAsIndividual`), de sorte que `BuyerLooksProfessionalRule`
+  (détection-seule) ne PRODUIT plus l'anomalie pour CE document. Aucune anomalie Blocking n'est « retirée ».
+- Recheck = source UNIQUE de la décision fiscale : réutilise `DocumentCheckEvaluator` (jamais de 2e impl).
+  Nouveau `IDocumentRecheckService` (Pipeline.Contracts) mirroir `SendTenantJob.ReconcileCreditNotesAsync`
+  pour UN document, en scope requête (tenant déjà résolu, slug via ITenantContext).
+- La garde-fou PRODUCTION (table TVA non validée) n'est PAS overridable par le verdict B2C (block distinct).
+- Recheck → ReadyToSend écrit aussi le snapshot de ventilation (ADR-0015) AVANT la transition.
 
-## Conception retenue
-- Port d'écriture `IDocumentLifecycle` (Contracts-only, déjà consommé par le pipeline) étendu de 2 méthodes
-  OPÉRATEUR retournant `DocumentResolutionOutcome` (Succeeded/DocumentNotFound/InvalidState/ReplacementNotFound)
-  → mapping HTTP propre (4xx, pas 500 sur refus attendu), décision autoritaire sous verrou FOR UPDATE (pas de TOCTOU).
-- Web : 2 endpoints (`resolve-manually`, `supersede`) sur le groupe `/documents`, permission `liakont.actions`,
-  audit (IActivityLogger, UserId) + DocumentEvent append-only (via le port, identité opérateur). 204 NoContent au succès.
-- Aucune logique métier dans le Web (validation de requête + mapping outcome uniquement) ; transition dans le domaine.
+## Plan d'implémentation
+### Validation (additif)
+- [ ] `Contracts/DocumentValidationContext.cs` : param optionnel `bool buyerConfirmedAsIndividual = false` + propriété.
+- [ ] `Domain/Rules/BuyerLooksProfessionalRule.cs` : si `context.BuyerConfirmedAsIndividual` → aucune anomalie (doc F08 §A.4).
+- [ ] Test unitaire : règle avec flag → pas d'anomalie.
 
-## Review (codex en cours)
+### Documents (domaine + persistance)
+- [ ] `Domain/Entities/Document.cs` : propriété `BuyerConfirmedAsIndividual` ; `Reconstitute` param optionnel ;
+      méthode `ConfirmBuyerAsIndividual(operatorIdentity, at)` → DocumentEvent (garde State==Blocked).
+- [ ] `Domain/Entities/DocumentEventType.cs` : `DocumentBuyerConfirmedB2C`.
+- [ ] `Infrastructure/Migrations/V008__add_buyer_confirmed_as_individual.sql`.
+- [ ] `Infrastructure/PostgresDocumentUnitOfWork.cs` : colonne dans INSERT/UPSERT/SELECT/MapDocument.
+- [ ] `Infrastructure/Queries/PostgresDocumentQueries.cs` : colonne dans les SELECT mappés vers DocumentDto.
+- [ ] `Contracts/DTOs/DocumentDto.cs` : `bool BuyerConfirmedAsIndividual` (non-required, défaut false).
+- [ ] `Contracts/Lifecycle/IDocumentLifecycle.cs` + `Infrastructure/Lifecycle/DocumentLifecycle.cs` :
+      `ConfirmBuyerAsIndividualAsync` + `MarkManuallyHandledAsync(reason, operatorIdentity)`.
+- [ ] Tests unitaires Document/Lifecycle.
+
+### Pipeline (recheck — source unique de décision)
+- [ ] `Contracts/IDocumentRecheckService.cs` + `Contracts/RecheckResult.cs`.
+- [ ] `Infrastructure/Check/DocumentCheckEvaluator.cs` : param optionnel `bool buyerConfirmedB2C = false`.
+- [ ] `Infrastructure/Check/DocumentRecheckService.cs`.
+- [ ] `Infrastructure/PipelineModuleRegistration.cs` : AddScoped.
+
+### Documents.Web (endpoints)
+- [ ] `Web/DocumentActionsEndpointMapping.cs` : `/verdict` + `/recheck` (liakont.actions), DTOs, 404/409/400, audit + DocumentEvent.
+
+### Tests d'intégration (ConsoleApiFactory : ajouter staging root + helper StagePayload)
+- [ ] verdict confirm_b2c → 200, reste Blocked, event + audit.
+- [ ] verdict handle_manually → 200, ManuallyHandled + audit.
+- [ ] verdict lecture seule → 403 ; non-Blocked → 409 ; autre tenant → 404.
+- [ ] recheck (pivot stagé pro + TVA validée + confirm_b2c) → 200 ReadyToSend.
+- [ ] recheck encore bloqué → 200 Blocked + motifs.
+- [ ] recheck lecture seule → 403 ; non-Blocked → 409 ; autre tenant → 404.
+
+## Vérification
+- [x] verify-fast (plateforme .NET10 + agent net48) — PASS
+- [x] run-tests (unit + intégration) — PASS (4038 tests, 0 échec)
+- [x] codex-review -Base feat/console-web — boucle jusqu'à clean
+
+## Review
+- **Round 1** : 0 P1, 2 P2.
+  - **P2 #1 (trou de test — chemin `ContentUnavailable` du recheck non couvert)** : CORRIGÉ — ajout du
+    seeder `SeedBlockedDocumentWithoutStagedPivotAsync` (document bloqué sans pivot stagé) + test
+    `PostRecheck_With_Unavailable_Staged_Pivot_Returns_409` (assure 409 + document toujours Blocked).
+  - **P2 #2 (course TOCTOU : changement d'état concurrent entre la pré-vérification `GetByIdAsync` et la
+    mutation sous verrou → `InvalidOperationException`/`InvalidDocumentTransitionException` non capturée →
+    500 au lieu d'un 409)** : ACCEPTÉ avec justification. La course exige deux actions opérateur concurrentes
+    sur le MÊME document bloqué ; la machine à états garantit l'atomicité (AUCUNE corruption — l'action perdante
+    échoue proprement) ; c'est le patron déjà en place dans l'API02a et le CHECK (pré-vérification puis action).
+    Le mapper en 409 exigerait soit un `catch (InvalidOperationException)` large (risque de masquer un vrai bug),
+    soit une nouvelle surface d'exception dédiée — disproportionné pour un edge rare et bénin (CLAUDE.md :
+    « ne pas sur-concevoir »). Note reviewer sur l'exécution de la suite : verify-fast + run-tests ONT été
+    exécutés (PASS) — la review statique ne pouvait pas le voir.

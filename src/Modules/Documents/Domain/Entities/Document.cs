@@ -51,6 +51,13 @@ public sealed class Document
     /// <summary>Indice BRUT « société » porté par la source pour le destinataire (interprétation déléguée à Validation, VAL05).</summary>
     public bool CustomerIsCompanyHint { get; private set; }
 
+    /// <summary>
+    /// Verdict OPÉRATEUR « acheteur confirmé particulier (B2C) » du garde-fou B2B/B2C (item API02b, F08 §A.4) :
+    /// quand <c>true</c>, la re-vérification (recheck) ne re-bloque pas le document sur <c>BUYER_LOOKS_PROFESSIONAL</c>
+    /// (la décision tranchée et journalisée prime sur l'heuristique d'indice — VAL05). Défaut <c>false</c>.
+    /// </summary>
+    public bool BuyerConfirmedAsIndividual { get; private set; }
+
     /// <summary>Total HT (EN 16931 BT-109), <see cref="decimal"/>.</summary>
     public decimal TotalNet { get; private set; }
 
@@ -153,7 +160,8 @@ public sealed class Document
         string? paDocumentId,
         string? mappingVersion,
         DateTimeOffset firstSeenUtc,
-        DateTimeOffset lastUpdateUtc)
+        DateTimeOffset lastUpdateUtc,
+        bool buyerConfirmedAsIndividual = false)
     {
         return new Document
         {
@@ -174,6 +182,7 @@ public sealed class Document
             MappingVersion = mappingVersion,
             FirstSeenUtc = firstSeenUtc,
             LastUpdateUtc = lastUpdateUtc,
+            BuyerConfirmedAsIndividual = buyerConfirmedAsIndividual,
         };
     }
 
@@ -315,6 +324,35 @@ public sealed class Document
             occurredAtUtc,
             $"Remplacé par le document « {remplacant} » (la source est le seul créateur de numéros, F06 §4).",
             op);
+    }
+
+    /// <summary>
+    /// Verdict OPÉRATEUR « confirmer particulier (B2C) » du garde-fou B2B/B2C (item API02b, F08 §A.4) : depuis
+    /// l'état <see cref="DocumentState.Blocked"/>, enregistre la décision tranchée que l'acheteur est un
+    /// particulier malgré l'indice professionnel (VAL05). NE CHANGE PAS l'état — le document reste
+    /// <c>Blocked</c> jusqu'à la re-vérification (recheck), qui ne re-bloquera plus sur le garde-fou. Le
+    /// marqueur persistant <see cref="BuyerConfirmedAsIndividual"/> est posé, l'horodatage avancé, et le fait
+    /// d'audit append-only (identité de l'opérateur OBLIGATOIRE — décision jamais anonyme) retourné, persisté
+    /// dans la même transaction. Refusé hors de l'état <c>Blocked</c> (le verdict ne s'applique qu'à un
+    /// document bloqué par le garde-fou — cohérent avec la pré-vérification de l'endpoint API02b).
+    /// </summary>
+    public DocumentEvent ConfirmBuyerAsIndividual(string operatorIdentity, DateTimeOffset occurredAtUtc)
+    {
+        var op = RequireText(
+            operatorIdentity,
+            nameof(operatorIdentity),
+            "L'identité de l'opérateur est obligatoire pour un verdict de garde-fou B2B/B2C (piste d'audit, F06 §3).");
+
+        if (State != DocumentState.Blocked)
+        {
+            throw new InvalidOperationException(
+                $"Le verdict « confirmer particulier (B2C) » ne s'applique qu'à un document bloqué (état actuel : {State}).");
+        }
+
+        BuyerConfirmedAsIndividual = true;
+        LastUpdateUtc = occurredAtUtc;
+
+        return DocumentEvent.BuyerConfirmedAsIndividual(Id, occurredAtUtc, op);
     }
 
     private static string RequireText(string value, string paramName, string message)

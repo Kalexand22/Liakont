@@ -25,6 +25,13 @@ public sealed record DocumentDto
 
     public required bool CustomerIsCompanyHint { get; init; }
 
+    /// <summary>
+    /// Verdict opérateur « acheteur confirmé particulier (B2C) » du garde-fou B2B/B2C (item API02b, F08 §A.4) :
+    /// <c>true</c> si l'opérateur a tranché B2C malgré l'indice professionnel (la re-vérification ne re-bloque
+    /// alors plus sur <c>BUYER_LOOKS_PROFESSIONAL</c>). Défaut <c>false</c> (cas nominal).
+    /// </summary>
+    public bool BuyerConfirmedAsIndividual { get; init; }
+
     public required decimal TotalNet { get; init; }
 
     public required decimal TotalTax { get; init; }

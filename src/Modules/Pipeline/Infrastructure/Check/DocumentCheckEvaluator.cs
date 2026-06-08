@@ -57,6 +57,14 @@ internal static class DocumentCheckEvaluator
     /// <param name="companyId">Société du tenant (clé d'isolation du mapping et de la validation).</param>
     /// <param name="documentNumber">Numéro de document, préfixé aux motifs rédigés par le CHECK (CLAUDE.md n°12).</param>
     /// <param name="pivot">Le pivot relu (hash déjà re-vérifié par le magasin de staging).</param>
+    /// <param name="buyerConfirmedB2C">
+    /// Verdict OPÉRATEUR « acheteur confirmé particulier (B2C) » du garde-fou B2B/B2C (F08 §A.4, item API02b) :
+    /// quand <c>true</c>, l'anomalie <c>BUYER_LOOKS_PROFESSIONAL</c> (VAL05) n'est plus produite pour ce
+    /// document (décision tranchée et journalisée incorporée à la validation, jamais un affaiblissement
+    /// silencieux). Par défaut <c>false</c> (CHECK nominal sur un document <c>Detected</c> sans verdict).
+    /// Seul le chemin de RE-VÉRIFICATION (recheck, API02b) le passe à <c>true</c> ; la garde-fou PRODUCTION
+    /// (table TVA non validée) et toutes les autres règles restent appliquées sans changement.
+    /// </param>
     /// <param name="cancellationToken">Jeton d'annulation.</param>
     /// <returns>La décision : bloqué (motif) ou prêt (version de table).</returns>
     public static async Task<CheckDecision> EvaluateAsync(
@@ -64,6 +72,7 @@ internal static class DocumentCheckEvaluator
         Guid companyId,
         string documentNumber,
         PivotDocumentDto pivot,
+        bool buyerConfirmedB2C = false,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -98,7 +107,7 @@ internal static class DocumentCheckEvaluator
 
         var validation = services.GetRequiredService<IValidationService>();
         var validationResult = await validation.ValidateAsync(
-            new DocumentValidationContext(evaluation.EnrichedDocument!, companyId), cancellationToken);
+            new DocumentValidationContext(evaluation.EnrichedDocument!, companyId, buyerConfirmedB2C), cancellationToken);
 
         return validationResult.HasBlockingIssue
             ? CheckDecision.Blocked(AggregateBlockingIssues(validationResult))
