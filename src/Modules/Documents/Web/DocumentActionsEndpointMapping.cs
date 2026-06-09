@@ -46,8 +46,9 @@ public static class DocumentActionsEndpointMapping
     /// </summary>
     private const string ActionsPermission = "liakont.actions";
 
-    /// <summary>État d'un document prêt à l'envoi (DocumentState, Domain) : seul état envoyable.</summary>
-    private const string ReadyToSendState = "ReadyToSend";
+    /// <summary>État d'un document prêt à l'envoi (DocumentState, Domain) : seul état envoyable. SOURCE UNIQUE partagée
+    /// avec le service in-process de la console (DocumentSendActionsService, WEB05) via DocumentActionContract.</summary>
+    private const string ReadyToSendState = DocumentActionContract.ReadyToSendState;
 
     // Verdict / re-vérification : identifiants STABLES partagés avec le service in-process de la console
     // (DocumentControlActionsService, WEB03b) via DocumentActionContract — SOURCE UNIQUE pour que les deux
@@ -106,7 +107,7 @@ public static class DocumentActionsEndpointMapping
             await activityLogger.LogActivityAsync(
                 DocumentEntityType,
                 id.ToString(),
-                "documents.send_triggered",
+                DocumentActionContract.SendTriggeredActivity,
                 string.Create(CultureInfo.InvariantCulture, $"Envoi déclenché par l'opérateur depuis le document {document.DocumentNumber} : le traitement d'envoi du tenant émet tous les documents prêts à l'envoi (ce document inclus)."),
                 ActorId(actor),
                 metadata: new { jobId, document.DocumentNumber },
@@ -145,9 +146,9 @@ public static class DocumentActionsEndpointMapping
             var jobId = await PublishTenantSendAsync(scopeFactory, actor.TenantId, actor.CompanyId, ct);
 
             await activityLogger.LogActivityAsync(
-                "Documents",
-                "send-all",
-                "documents.send_all_triggered",
+                DocumentActionContract.SendAllEntityType,
+                DocumentActionContract.SendAllEntityId,
+                DocumentActionContract.SendAllTriggeredActivity,
                 string.Create(CultureInfo.InvariantCulture, $"Envoi groupé déclenché par l'opérateur : {count} document(s) prêt(s), montant total {totalGross.ToString("0.00", CultureInfo.InvariantCulture)}."),
                 ActorId(actor),
                 metadata: new { jobId, count, totalGross },

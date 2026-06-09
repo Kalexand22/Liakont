@@ -15,6 +15,9 @@ public static class DocumentActionContract
     /// <summary>État d'un document bloqué : seul état où le verdict / la re-vérification s'appliquent (DocumentState, exposé en chaîne).</summary>
     public const string BlockedState = "Blocked";
 
+    /// <summary>État « prêt à l'envoi » (DocumentState, exposé en chaîne) : seul état envoyable (actions d'envoi WEB05 / API02a).</summary>
+    public const string ReadyToSendState = "ReadyToSend";
+
     /// <summary>État terminal d'un document traité manuellement hors passerelle (DocumentState, exposé en chaîne).</summary>
     public const string ManuallyHandledState = "ManuallyHandled";
 
@@ -35,6 +38,18 @@ public static class DocumentActionContract
 
     /// <summary>Code d'audit de la re-vérification d'un document bloqué.</summary>
     public const string RecheckActivity = "documents.rechecked";
+
+    /// <summary>Code d'audit de l'envoi déclenché depuis un document (action « Envoyer » / « Envoyer la sélection » — API02a / WEB05).</summary>
+    public const string SendTriggeredActivity = "documents.send_triggered";
+
+    /// <summary>Code d'audit de l'envoi groupé « Tout envoyer » du tenant (API02a / WEB05).</summary>
+    public const string SendAllTriggeredActivity = "documents.send_all_triggered";
+
+    /// <summary>Type d'entité de la piste d'audit de l'envoi groupé (non rattaché à un document unique).</summary>
+    public const string SendAllEntityType = "Documents";
+
+    /// <summary>Identifiant d'entité de la piste d'audit de l'envoi groupé « Tout envoyer ».</summary>
+    public const string SendAllEntityId = "send-all";
 
     /// <summary>Motif journalisé du traitement manuel B2B issu du garde-fou (verdict structuré — l'opérateur ne saisit pas de texte ici, F08 §A.4).</summary>
     public const string ManualB2bReason =

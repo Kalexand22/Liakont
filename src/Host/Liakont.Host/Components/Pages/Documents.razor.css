@@ -33,6 +33,38 @@
     color: var(--color-text-muted, #6b7280);
 }
 
-.doc-send-action {
-    display: inline-flex;
+/* Retour visuel des actions d'envoi (WEB05) — bandeau de message opérateur. */
+.doc-send-feedback {
+    margin-bottom: 1rem;
+    padding: 0.6rem 0.85rem;
+    border-radius: var(--radius-sm, 0.25rem);
+    border: 1px solid var(--color-border, #d1d5db);
+}
+
+.doc-send-feedback--ok {
+    border-color: var(--color-success, #16a34a);
+    background: var(--color-success-surface, #f0fdf4);
+}
+
+.doc-send-feedback--error {
+    border-color: var(--color-danger, #dc2626);
+    background: var(--color-danger-surface, #fef2f2);
+}
+
+/* Confirmation du « Tout envoyer » (WEB05) — récapitulatif + boutons. */
+.doc-send-confirm {
+    margin-bottom: 1rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--color-border, #d1d5db);
+    border-radius: var(--radius-sm, 0.25rem);
+    background: var(--color-surface-alt, #f9fafb);
+}
+
+.doc-send-confirm__text {
+    margin: 0 0 0.75rem;
+}
+
+.doc-send-confirm__actions {
+    display: flex;
+    gap: 0.5rem;
 }

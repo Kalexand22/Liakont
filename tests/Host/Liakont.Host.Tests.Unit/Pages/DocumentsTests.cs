@@ -2,6 +2,7 @@ namespace Liakont.Host.Tests.Unit.Pages;
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Bunit;
@@ -14,6 +15,7 @@ using Microsoft.Extensions.Localization;
 using Stratum.Common.Abstractions.Grid;
 using Stratum.Common.Abstractions.Security;
 using Stratum.Common.UI;
+using Stratum.Common.UI.Components;
 using Xunit;
 
 public sealed class DocumentsTests : BunitContext
@@ -34,10 +36,15 @@ public sealed class DocumentsTests : BunitContext
         // (la grille retombe sur les colonnes par défaut du registre et une liste de filtres vide).
         Services.AddScoped<IGridPreferenceService>(_ => new NullGridPreferenceService());
         Services.AddScoped<ISavedFilterService>(_ => new NullSavedFilterService());
+
+        // Actions d'envoi (WEB05) : par défaut SANS la permission d'action (lecture seule), service factice.
+        // Les tests qui exercent l'envoi RÉ-ENREGISTRENT IPermissionService (canAct: true) et un faux configuré.
+        Services.AddScoped<IDocumentSendActions>(_ => new FakeSendActions());
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(canAct: false));
     }
 
     [Fact]
-    public void Should_Render_Filters_Counts_And_Disabled_Send_Actions()
+    public void Should_Render_Filters_And_Counts_And_Mask_Send_Actions_For_Readers()
     {
         Services.AddScoped<IDocumentConsoleQueries>(_ => FakeDocumentConsoleQueries.Returning(
             Doc("2018", "invoice", "Issued"),
@@ -57,11 +64,129 @@ public sealed class DocumentsTests : BunitContext
         cut.Find("[data-testid='doc-counts-Issued']").TextContent.Should().Contain("1");
         cut.Find("[data-testid='doc-counts-Blocked']").TextContent.Should().Contain("1");
 
-        // Actions d'envoi présentes mais désactivées (branchées en WEB05).
-        cut.Find("[data-testid='documents-send-selection']").HasAttribute("disabled").Should().BeTrue();
-        cut.Find("[data-testid='documents-send-all']").HasAttribute("disabled").Should().BeTrue();
+        // Sans liakont.actions (lecture seule, défaut du contexte), AUCUNE action d'envoi (WEB05 : masquées).
+        cut.FindAll("[data-testid='documents-send-all']").Should().BeEmpty();
+        cut.FindAll("[data-testid='documents-trigger-run']").Should().BeEmpty();
 
         cut.FindAll("[data-testid='documents-error']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void An_Operator_Sees_The_Send_Actions_In_The_Toolbar()
+    {
+        var cut = RenderAsOperator(new FakeSendActions(), Doc("2018", "invoice", "ReadyToSend"));
+
+        cut.FindAll("[data-testid='documents-send-all']").Should().ContainSingle("l'opérateur voit « Tout envoyer »");
+        cut.FindAll("[data-testid='documents-trigger-run']").Should().ContainSingle("l'opérateur voit « Lancer un traitement »");
+    }
+
+    [Fact]
+    public void Tout_Envoyer_Shows_The_Confirmation_With_Count_And_Total_Then_Triggers_The_Send()
+    {
+        var send = new FakeSendActions
+        {
+            Summary = new DocumentSendSummary(2, 162.80m),
+            SendAllResult = DocumentSendActionResult.Ok("Envoi groupé déclenché : 2 document(s)."),
+        };
+        var cut = RenderAsOperator(send, Doc("2018", "invoice", "ReadyToSend"));
+
+        cut.Find("[data-testid='documents-send-all']").Click();
+
+        // Confirmation AVANT l'envoi : nombre + montant total + mention irréversible (F10).
+        var confirmText = cut.Find("[data-testid='documents-send-all-confirm-text']").TextContent;
+        confirmText.Should().Contain("2").And.Contain("162,80").And.Contain("IRRÉVERSIBLE");
+        send.SendAllCalls.Should().Be(0, "rien n'est envoyé tant que l'opérateur n'a pas confirmé");
+
+        cut.Find("[data-testid='documents-send-all-confirm-button']").Click();
+
+        send.SendAllCalls.Should().Be(1);
+        cut.FindAll("[data-testid='documents-send-all-confirm']").Should().BeEmpty("la confirmation se ferme après l'envoi");
+        cut.Find("[data-testid='documents-send-feedback']").TextContent.Should().Contain("Envoi groupé déclenché");
+    }
+
+    [Fact]
+    public void Tout_Envoyer_Cancel_Does_Not_Trigger_Any_Send()
+    {
+        var send = new FakeSendActions { Summary = new DocumentSendSummary(2, 162.80m) };
+        var cut = RenderAsOperator(send, Doc("2018", "invoice", "ReadyToSend"));
+
+        cut.Find("[data-testid='documents-send-all']").Click();
+        cut.Find("[data-testid='documents-send-all-cancel']").Click();
+
+        send.SendAllCalls.Should().Be(0);
+        cut.FindAll("[data-testid='documents-send-all-confirm']").Should().BeEmpty();
+        cut.FindAll("[data-testid='documents-send-feedback']").Should().BeEmpty("aucune action, aucun retour");
+    }
+
+    [Fact]
+    public void Lancer_Un_Traitement_Calls_The_Service_And_Shows_Feedback()
+    {
+        var send = new FakeSendActions { TriggerRunResult = DocumentSendActionResult.Ok("Traitement déclenché.") };
+        var cut = RenderAsOperator(send, Doc("2018", "invoice", "ReadyToSend"));
+
+        cut.Find("[data-testid='documents-trigger-run']").Click();
+
+        send.TriggerRunCalls.Should().Be(1);
+        cut.Find("[data-testid='documents-send-feedback']").TextContent.Should().Contain("Traitement déclenché");
+    }
+
+    [Fact]
+    public void A_Failed_Send_Surfaces_An_Error_Feedback()
+    {
+        var send = new FakeSendActions
+        {
+            Summary = new DocumentSendSummary(1, 100m),
+            SendAllResult = DocumentSendActionResult.Failure("L'envoi a échoué : tenant non résolu."),
+        };
+        var cut = RenderAsOperator(send, Doc("2018", "invoice", "ReadyToSend"));
+
+        cut.Find("[data-testid='documents-send-all']").Click();
+        cut.Find("[data-testid='documents-send-all-confirm-button']").Click();
+
+        var feedback = cut.Find("[data-testid='documents-send-feedback']");
+        feedback.TextContent.Should().Contain("échoué");
+        feedback.GetAttribute("class").Should().Contain("doc-send-feedback--error", "un refus est signalé comme une erreur");
+    }
+
+    [Fact]
+    public async Task Envoyer_La_Selection_Confirms_Then_Calls_The_Service_And_Shows_Feedback()
+    {
+        var send = new FakeSendActions
+        {
+            Summary = new DocumentSendSummary(2, 162.80m),
+            SendSelectionResult = DocumentSendActionResult.Ok("Envoi déclenché : le traitement d'envoi du tenant émet TOUS les documents prêts."),
+        };
+        var selected = Doc("2018", "invoice", "ReadyToSend");
+        var cut = RenderAsOperator(send, selected, Doc("2019", "invoice", "ReadyToSend"));
+
+        // « Envoyer la sélection » est la barre d'actions groupées de DeclaredListPage : son rappel Execute EST
+        // le câblage WEB05 (ouvre la confirmation, puis envoi APRÈS confirmation explicite). On l'invoque
+        // directement (la sélection réelle d'une ligne de la grille Radzen dépend d'un JS interop indisponible en
+        // bUnit), ce qui exerce de façon DÉTERMINISTE Documents → confirmation → IDocumentSendActions → bandeau.
+        var listPage = cut.FindComponent<DeclaredListPage<DocumentSummaryDto>>();
+        var action = listPage.Instance.BulkActions!.Single(a => a.Id == "send-selection");
+        action.SuppressSuccessToast.Should().BeTrue("l'action ouvre une confirmation : pas de toast « traité(s) » trompeur avant l'envoi");
+
+        await cut.InvokeAsync(() => action.Execute!(new[] { selected }));
+
+        // L'envoi N'EST PAS encore déclenché : seule la confirmation s'affiche, avec le périmètre RÉEL (tout le
+        // tenant, ADR-0016), pas seulement la sélection — et la mention irréversible.
+        send.LastSelection.Should().BeNull("rien n'est envoyé tant que l'opérateur n'a pas confirmé");
+        cut.Find("[data-testid='documents-send-all-confirm-text']").TextContent
+            .Should().Contain("TOUS les documents prêts").And.Contain("IRRÉVERSIBLE");
+
+        cut.Find("[data-testid='documents-send-all-confirm-button']").Click();
+
+        send.LastSelection.Should().ContainSingle().Which.Should().Be(selected.Id, "le service reçoit l'identifiant du document sélectionné");
+        cut.Find("[data-testid='documents-send-feedback']").TextContent.Should().Contain("Envoi déclenché");
+    }
+
+    private IRenderedComponent<Documents> RenderAsOperator(FakeSendActions send, params DocumentSummaryDto[] docs)
+    {
+        Services.AddScoped<IDocumentConsoleQueries>(_ => FakeDocumentConsoleQueries.Returning(docs));
+        Services.AddScoped<IDocumentSendActions>(_ => send);
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(canAct: true));
+        return Render<Documents>();
     }
 
     [Fact]
@@ -204,6 +329,60 @@ public sealed class DocumentsTests : BunitContext
             _call++;
             return Task.FromResult(_scopes[index]);
         }
+    }
+
+    private sealed class FakeSendActions : IDocumentSendActions
+    {
+        public DocumentSendSummary Summary { get; set; } = new(0, 0m);
+
+        public DocumentSendActionResult SendAllResult { get; set; } = DocumentSendActionResult.Ok("Envoi groupé déclenché.");
+
+        public DocumentSendActionResult TriggerRunResult { get; set; } = DocumentSendActionResult.Ok("Traitement déclenché.");
+
+        public DocumentSendActionResult SendSelectionResult { get; set; } = DocumentSendActionResult.Ok("Envoi de la sélection déclenché.");
+
+        public int SendAllCalls { get; private set; }
+
+        public int TriggerRunCalls { get; private set; }
+
+        public IReadOnlyList<Guid>? LastSelection { get; private set; }
+
+        public Task<DocumentSendActionResult> SendSelectionAsync(IReadOnlyCollection<Guid> documentIds, CancellationToken cancellationToken = default)
+        {
+            LastSelection = documentIds.ToList();
+            return Task.FromResult(SendSelectionResult);
+        }
+
+        public Task<DocumentSendSummary> SummarizeReadyToSendAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(Summary);
+
+        public Task<DocumentSendActionResult> SendAllAsync(CancellationToken cancellationToken = default)
+        {
+            SendAllCalls++;
+            return Task.FromResult(SendAllResult);
+        }
+
+        public Task<DocumentSendActionResult> TriggerRunAsync(CancellationToken cancellationToken = default)
+        {
+            TriggerRunCalls++;
+            return Task.FromResult(TriggerRunResult);
+        }
+    }
+
+    private sealed class FakePermissionService : IPermissionService
+    {
+        private readonly bool _canAct;
+
+        public FakePermissionService(bool canAct) => _canAct = canAct;
+
+        public event Action? OnPermissionsChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public bool HasPermission(string permission) =>
+            _canAct && string.Equals(permission, "liakont.actions", StringComparison.Ordinal);
     }
 
     private sealed class NullSavedFilterService : ISavedFilterService

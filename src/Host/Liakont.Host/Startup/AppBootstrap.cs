@@ -416,6 +416,12 @@ public static class AppBootstrap
         // re-vérification d'un document bloqué (API02b), appelés in-process par la page (tenant-scopé).
         builder.Services.AddScoped<Liakont.Host.Documents.IDocumentControlActions, Liakont.Host.Documents.DocumentControlActionsService>();
 
+        // Actions d'envoi de la page Documents (WEB05) : « Envoyer la sélection », « Tout envoyer » (avec
+        // récapitulatif de confirmation) et « Lancer un traitement ». Publie le déclencheur mono-tenant
+        // SendTenantTrigger sur la queue SYSTÈME (ADR-0016) + audit, comme les endpoints API02a / runs-trigger —
+        // aucun second chemin d'envoi, aucune logique fiscale dans la page (garde liakont.actions, tenant-scopé).
+        builder.Services.AddScoped<Liakont.Host.Documents.IDocumentSendActions, Liakont.Host.Documents.DocumentSendActionsService>();
+
         // Composition en lecture de la page Paramétrage du tenant (WEB04b) : assemble /settings + agents
         // et déclenche la vérification d'intégrité du coffre (API03). Isole l'assemblage hors de la page.
         builder.Services.AddScoped<Liakont.Host.Parametrage.IParametrageQueries, Liakont.Host.Parametrage.ParametrageQueryService>();
