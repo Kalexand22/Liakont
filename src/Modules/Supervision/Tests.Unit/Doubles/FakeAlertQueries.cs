@@ -8,16 +8,28 @@ using System.Threading.Tasks;
 using Liakont.Modules.Supervision.Contracts;
 using Liakont.Modules.Supervision.Contracts.DTOs;
 
-/// <summary>Lectures d'alertes fictives (dashboard SUP02) : alertes actives + historique récent fixés.</summary>
+/// <summary>
+/// Lectures d'alertes factices, partagées par les tests de supervision :
+/// - SUP03 (digest / notifications) : ctor varargs des alertes actives (source du digest) ; l'historique
+///   récent reprend les actives (ces lectures ne sont pas sollicitées par SUP03).
+/// - SUP02 (dashboard cross-tenant) : alertes actives ET historique récent distincts ; <see cref="GetByIdAsync"/>
+///   cherche dans l'historique récent.
+/// </summary>
 internal sealed class FakeAlertQueries : IAlertQueries
 {
     private readonly IReadOnlyList<AlertDto> _active;
     private readonly IReadOnlyList<AlertDto> _recent;
 
-    public FakeAlertQueries(IReadOnlyList<AlertDto>? active = null, IReadOnlyList<AlertDto>? recent = null)
+    public FakeAlertQueries(params AlertDto[] active)
     {
-        _active = active ?? [];
-        _recent = recent ?? _active;
+        _active = active;
+        _recent = active;
+    }
+
+    public FakeAlertQueries(IReadOnlyList<AlertDto> active, IReadOnlyList<AlertDto>? recent)
+    {
+        _active = active;
+        _recent = recent ?? active;
     }
 
     public Task<IReadOnlyList<AlertDto>> ListActiveAsync(CancellationToken cancellationToken = default) =>

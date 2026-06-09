@@ -23,21 +23,29 @@ public sealed class AlertEvaluationService : IAlertEvaluationService
     private readonly IEnumerable<IAlertRule> _rules;
     private readonly IAlertStore _store;
     private readonly TimeProvider _timeProvider;
+    private readonly IAlertNotifier _notifier;
 
     public AlertEvaluationService(IEnumerable<IAlertRule> rules, IAlertStore store)
-        : this(rules, store, TimeProvider.System)
+        : this(rules, store, TimeProvider.System, NullAlertNotifier.Instance)
     {
     }
 
     public AlertEvaluationService(IEnumerable<IAlertRule> rules, IAlertStore store, TimeProvider timeProvider)
+        : this(rules, store, timeProvider, NullAlertNotifier.Instance)
+    {
+    }
+
+    public AlertEvaluationService(IEnumerable<IAlertRule> rules, IAlertStore store, TimeProvider timeProvider, IAlertNotifier notifier)
     {
         ArgumentNullException.ThrowIfNull(rules);
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        ArgumentNullException.ThrowIfNull(notifier);
 
         _rules = rules;
         _store = store;
         _timeProvider = timeProvider;
+        _notifier = notifier;
     }
 
     public async Task<AlertEvaluationResult> EvaluateAsync(string tenantId, CancellationToken cancellationToken = default)
@@ -89,6 +97,11 @@ public sealed class AlertEvaluationService : IAlertEvaluationService
                 // Anti-bruit : on ne crée une alerte que s'il n'y en a pas déjà une active pour cette règle.
                 var alert = Alert.Raise(tenantId, rule.RuleKey, rule.Severity, evaluation.Detail, nowUtc);
                 await _store.InsertAsync(alert, cancellationToken).ConfigureAwait(false);
+
+                // Notification au DÉCLENCHEMENT uniquement (jamais sur « déjà active ») → anti-spam par
+                // construction. Le notifieur ne lève jamais (fire-and-log) : une notification ne casse pas
+                // l'évaluation des règles (SUP03 §4).
+                await _notifier.NotifyRaisedAsync(alert, cancellationToken).ConfigureAwait(false);
             }
 
             // active != null : alerte déjà active → pas de re-déclenchement (anti-bruit).
@@ -100,6 +113,9 @@ public sealed class AlertEvaluationService : IAlertEvaluationService
             // Auto-résolution : la condition a disparu, on clôt l'alerte active.
             active.Resolve(nowUtc);
             await _store.ResolveAsync(active, cancellationToken).ConfigureAwait(false);
+
+            // Notification de résolution (optionnelle côté implémentation) — à la transition uniquement.
+            await _notifier.NotifyResolvedAsync(active, cancellationToken).ConfigureAwait(false);
         }
     }
 }
