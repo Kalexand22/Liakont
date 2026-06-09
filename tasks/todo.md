@@ -1,73 +1,48 @@
-# WEB08 — Page Réconciliation des PDF (console-web)
+# SUP03 — Notifications email d'alerte (+ transport SMTP réel)
 
-Item: WEB08 | Segment: console-web | Sous-branche: feat/console-web-WEB08
-Blueprint: blazor-page-item | Slot: 2 | Session: orch-20260608-183515-Liakont3-s2
+Segment console-web · sous-branche `feat/console-web-SUP03` · slot-3 · session `orch-20260608-191844-Liakont-s3`
 
-## Objectif
-Page `/reconciliation` : 3 listes (propositions à confirmer, PDF orphelins, documents sans PDF)
-alimentées par le module Reconciliation (TRK07/API04), aperçu PDF natif (iframe sur l'endpoint
-HTTP existant), compteur dans la navigation, page masquée si la capacité pool n'est pas déclarée.
+## Contexte
+- Le socle Stratum fournit le PIPELINE de notification (templates, queue, retry) mais son seul
+  transport est `StubEmailTransport` (log only). Aucun package SMTP dans `Directory.Packages.props`.
+- Hooks lifecycle = `AlertEvaluationService.ApplyAsync` (SUP01a) : raise (Insert) + resolve (Resolve)
+  → anti-spam naturel (un email au déclenchement, un à la résolution, jamais de répétition).
+- Recipients déjà persistés : `TenantProfileDto.ContactEmailAlerte` + `AlertThresholdsDto.AlertTenantContact`
+  (TenantSettings, tenant-scopé). Opérateur d'instance = config instance (appsettings).
+- Décision archi : composer le sujet/corps FR dans Supervision et enfiler un `EmailSendJobPayload`
+  via `IJobQueue` (réutilise queue+retry+transport du module Notification) — pas de template DB
+  (la résolution de template n'a pas de fallback tenant→système). Transport SMTP réel = Host (composition
+  root), sur l'abstraction `IEmailTransport` vendored (socle NON modifié → pas de provenance à toucher).
 
-## Décisions d'architecture (sourcées)
-- **Accès données = in-process** (pattern DocumentControlActionsService / DocumentConsoleQueryService) :
-  la console appelle les contrats du module (`IReconciliationQueries`/`IReconciliationService`),
-  PAS l'endpoint HTTP (cookie OIDC indisponible côté circuit — précédent WEB05/DocumentControls).
-- **Aperçu PDF = iframe navigateur** vers `/api/v1/reconciliation/{id}/pdf` (endpoint API04 existant,
-  conçu pour l'affichage inline — le navigateur porte le cookie d'auth, pas le circuit serveur).
-- **Gating page = capacité pool** via `ILiakontConsoleContext.ReconciliationAvailable` (présence du
-  pool ; la capacité `ProvidesUnlinkedDocumentPool` via /settings relève d'API01d GELÉ — heuristique
-  d'affichage déjà retenue par WEB01, on la réutilise, aucune règle inventée).
-- **Compteur nav** : `NavItem` vendored (Stratum.Common.UI) n'a pas de champ badge ; on NE modifie PAS
-  le socle. Le compteur est embarqué dans le libellé (`Réconciliation (N)`). N = propositions + orphelins
-  (= éléments en attente d'action opérateur ; documents-sans-PDF est informationnel, exclu du compteur).
-- **Lien manuel** : le sélecteur de document = la 3e liste (documents émis SANS PDF) filtrable par n°,
-  candidats naturels d'un rattachement (aucune requête nouvelle).
-- **Worklist, pas une grille** : 3 files courtes orientées action + aperçu inline → SectionCards + tables
-  simples (précédent changelog TableTvaView), pas DeclaredListPage (qui vise grilles filtrables/exportables).
-- **Permission** : la file de réconciliation est `liakont.actions` (cf. endpoint API04 + intégration :
-  reader → 403). La page vérifie `liakont.actions` (comme TableTva vérifie settings) ; les actions du
-  service refont la garde (défense en profondeur).
-- **E2E** : sous OIDC, IDN01 (pont rôle→permission) n'est pas mergé → on prouve le gating de capacité
-  (page masquée sans pool), pas le clic opérateur permission-gated (précédent DocumentControls/WEB03b/WEB05).
-  Le parcours d'action est couvert par bUnit (callbacks de la vue) + intégration (endpoints API04).
-
-## Fichiers
-### Host — nouveaux
-- [ ] Reconciliation/ReconciliationQueueViewModel.cs (3 listes + CanAct)
-- [ ] Reconciliation/ReconciliationActionResult.cs (Ok/Failure)
-- [ ] Reconciliation/IReconciliationConsoleService.cs
-- [ ] Reconciliation/ReconciliationConsoleService.cs (queries+service+actor+permission)
-- [ ] Components/ReconciliationView.razor (vue pure, testable bUnit)
-- [ ] Components/Pages/Reconciliation.razor (@page "/reconciliation")
-
-### Host — modifiés
-- [ ] Navigation/ILiakontConsoleContext.cs (+ ReconciliationPendingCount)
-- [ ] Navigation/LiakontConsoleContext.cs (calcul du compteur via IReconciliationQueries)
-- [ ] Navigation/LiakontNavSectionProvider.cs (libellé avec compteur)
-- [ ] Startup/AppBootstrap.cs (DI IReconciliationConsoleService)
-
-### Tests
-- [ ] Components/ReconciliationViewTests.cs (bUnit : 3 listes, vides, callbacks, iframe, picker)
-- [ ] Reconciliation/ReconciliationConsoleServiceTests.cs (permission, identité opérateur, délégation)
-- [ ] Navigation/LiakontConsoleContextTests.cs (compteur)
-- [ ] Navigation/LiakontNavSectionProviderTests.cs (libellé compteur + fake étendu)
-- [ ] tests/Liakont.Tests.E2E/Scenarios/ReconciliationE2ETests.cs (gating : masquée sans pool)
-
-## Vérification
-- [x] verify-fast (plateforme .NET 10 + agent net48) — PASS
-- [x] run-tests (unit + intégration, bUnit inclus) — PASS (4385 tests)
-- [x] run-e2e (Playwright) — PASS (11 tests)
-- [ ] codex-review propre (ou P2 acceptés justifiés)
+## Plan (checkable)
+- [ ] ADR-0018 : dépendance MailKit (+ MimeKit) — justification, alternatives rejetées.
+- [ ] `Directory.Packages.props` : `MailKit` + `MimeKit` 4.17.0.
+- [ ] `SmtpOptions` (Host, section `Smtp`) : Host/Port/User/Password/From/UseStartTls/Enabled.
+- [ ] `SmtpEmailTransport` (Host, internal) : MailKit ; désactivé/non configuré = log + no-op (pas de throw,
+      pas de retry infini) ; activé + échec = throw (le job retente, non bloquant).
+- [ ] `appsettings.json` : sections `Smtp` (placeholder vide, mot de passe jamais en clair) + `Supervision:Notifications`.
+- [ ] AppBootstrap : `Replace` du stub par `SmtpEmailTransport` + bind `SmtpOptions` + `SupervisionNotificationOptions`.
+- [ ] `IAlertNotifier` (Application) : `NotifyRaisedAsync` / `NotifyResolvedAsync` — contrat « ne lève JAMAIS ».
+- [ ] `NullAlertNotifier` (Application) : no-op (défaut des ctors existants → tests SUP01a/b intacts).
+- [ ] `SupervisionNotificationOptions` (Application) : OperatorEmail, SendResolutionEmails, DailyDigestEnabled.
+- [ ] `AlertEvaluationService` : ctor 4-args (+ IAlertNotifier), hooks raise/resolve ; 2/3-args délèguent au Null.
+- [ ] `AlertEmailNotifier` (Infrastructure) : résolution destinataires (opérateur=tout ; contact tenant=critique+opt-in),
+      corps FR actionnable, enqueue `EmailSendJobPayload` (companyId tenant), try/catch→log (jamais throw).
+- [ ] Digest quotidien optionnel (default off) : `IAlertDigestSender` + `SupervisionDigest{Trigger,FanOutHandler,TenantJob}`,
+      résumé des alertes actives à l'opérateur, gated `DailyDigestEnabled`.
+- [ ] DI Supervision : `IAlertNotifier`→`AlertEmailNotifier`, `IAlertDigestSender`→`AlertEmailNotifier`, factory moteur MAJ.
+- [ ] csproj Supervision.Infrastructure : ref `Notification.Contracts` (Contracts-only, OK module-rules) ; pas de secret.
+- [ ] Tests unitaires : destinataires par gravité/opt-in, corps FR, anti-spam (transitions only), non-bloquant ;
+      hook moteur ; construction message SMTP ; digest.
+- [ ] verify-fast (plateforme .NET10 + agent net48) + run-tests + codex-review → clean.
 
 ## Review
-Round 1 (codex-review -Base feat/console-web) : 0 P1, 4 P2 — tous corrigés.
-- P2-1 : compteur nav divulgué aux non-opérateurs → garde `liakont.actions` à l'AFFICHAGE dans
-  LiakontNavSectionProvider (au rendu, claims chargés ; pas au calcul du contexte — race à l'ouverture
-  du circuit, cf. ClaimsPermissionService.InitializeAsync fire-and-forget).
-- P2-2 : GetQueueAsync sans garde alors que le doc la promet → garde `liakont.actions` (retourne
-  ReconciliationQueueViewModel.Empty sans interroger le module). Défense en profondeur.
-- P2-3 : calcul du compteur au chemin critique d'ouverture du circuit sans isolation → try/catch
-  dégradant à 0 (badge décoratif, ne doit pas rendre la console indisponible) + log.
-- P2-4 : trou de test page-niveau → ReconciliationTests.cs (bUnit) : unavailable, chargement opérateur,
-  restriction sans permission, rechargement après action, échec de chargement.
-Round 2 : re-verify-fast PASS, run-tests PASS (4393), run-e2e PASS (11). Review round 2 : voir ci-dessous.
+- ✅ ADR-0018 + MailKit/MimeKit 4.17.0 (CPM) ; SmtpOptions + SmtpEmailTransport (Host, internal) ;
+  `Replace` du stub au composition root ; appsettings placeholders (mot de passe vide).
+- ✅ IAlertNotifier (+ NullAlertNotifier défaut → tests SUP01a/b intacts) ; hooks raise/resolve dans
+  AlertEvaluationService (transitions only = anti-spam) ; AlertEmailNotifier (opérateur=tout, contact
+  tenant=critique+opt-in), corps FR actionnable, enqueue EmailSendJobPayload, fire-and-log.
+- ✅ Digest quotidien optionnel (default off) : IAlertDigestSender + SupervisionDigest{Trigger,FanOutHandler,TenantJob}.
+- ✅ Supervision ne porte aucun secret (mot de passe SMTP = Host) ; refs Contracts-only (Notification/TenantSettings).
+- ✅ verify-fast PASS (plateforme .NET10 + agent net48). run-tests PASS (4436 tests, 0 échec).
+- Tests : 16 nouveaux tests unitaires (notifier 12 + moteur 4 + SMTP 4). codex-review : à lancer.

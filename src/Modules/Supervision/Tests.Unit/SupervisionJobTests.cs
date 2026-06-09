@@ -7,6 +7,7 @@ using Liakont.Modules.Supervision.Application;
 using Liakont.Modules.Supervision.Infrastructure;
 using Liakont.Modules.Supervision.Tests.Unit.Doubles;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Stratum.Common.Abstractions.Jobs;
 using Xunit;
 
@@ -53,5 +54,50 @@ public sealed class SupervisionJobTests
 
         runner.LastJob.Should().BeOfType<SupervisionEvaluationTenantJob>();
         runner.LastJob!.Name.Should().Be("sup.evaluation");
+    }
+
+    [Fact]
+    public async Task DigestTenantJob_Resolves_Sender_From_Scope_And_Sends()
+    {
+        var sender = new RecordingAlertDigestSender();
+        var provider = new SingleServiceProvider(typeof(IAlertDigestSender), sender);
+        var context = new TenantJobContext("tenant-x", provider);
+        var job = new SupervisionDigestTenantJob();
+
+        await job.ExecuteAsync(context);
+
+        sender.CallCount.Should().Be(1);
+        sender.LastTenantId.Should().Be("tenant-x");
+        job.Name.Should().Be("sup.digest");
+    }
+
+    [Fact]
+    public async Task DigestFanOutHandler_Runs_The_DigestTenantJob_When_Enabled()
+    {
+        var runner = new RecordingTenantJobRunner();
+        var handler = new SupervisionDigestFanOutHandler(
+            runner,
+            Options.Create(new SupervisionNotificationOptions { DailyDigestEnabled = true }),
+            NullLogger<SupervisionDigestFanOutHandler>.Instance);
+
+        await handler.HandleAsync(new SupervisionDigestTrigger());
+
+        runner.LastJob.Should().BeOfType<SupervisionDigestTenantJob>();
+        runner.LastJob!.Name.Should().Be("sup.digest");
+    }
+
+    [Fact]
+    public async Task DigestFanOutHandler_Skips_FanOut_When_Disabled()
+    {
+        var runner = new RecordingTenantJobRunner();
+        var handler = new SupervisionDigestFanOutHandler(
+            runner,
+            Options.Create(new SupervisionNotificationOptions { DailyDigestEnabled = false }),
+            NullLogger<SupervisionDigestFanOutHandler>.Instance);
+
+        await handler.HandleAsync(new SupervisionDigestTrigger());
+
+        // Désactivé : aucun fan-out (pas de scope par tenant pour rien).
+        runner.LastJob.Should().BeNull();
     }
 }
