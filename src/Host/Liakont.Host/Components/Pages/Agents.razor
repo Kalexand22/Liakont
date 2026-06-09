@@ -191,27 +191,44 @@ else
         // console (les endpoints API05 portent la garde du chemin HTTP). Le contrôle s'exécute côté serveur
         // (circuit Blazor Server), non falsifiable côté client.
         _canManage = Permissions.HasPermission(LiakontPermissions.Settings);
-        if (_canManage)
+        if (_canManage && !await LoadAgentsAsync())
         {
-            await ReloadAsync();
+            // Échec du chargement INITIAL : aucune donnée à afficher → bandeau d'erreur (VISIBLE, jamais
+            // silencieux). Un échec de RAFRAÎCHISSEMENT post-action est traité différemment (toast non bloquant).
+            _loadFailed = true;
         }
     }
 
     private Task<IReadOnlyList<AgentConsoleLine>> LoadItemsAsync() => Task.FromResult(_agents);
 
-    private async Task ReloadAsync()
+    private async Task<bool> LoadAgentsAsync()
     {
         try
         {
             _agents = await Service.ListAsync();
-            _loadFailed = false;
             _epoch++;
+            return true;
         }
         catch (Exception ex)
         {
-            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
-            _loadFailed = true;
+            // Tracé, jamais avalé en silence. Le traitement de l'échec (bandeau initial vs toast de
+            // rafraîchissement) est décidé par l'appelant.
             Logger.LogError(ex, "Failed to load the Liakont agent fleet for the current tenant.");
+            return false;
+        }
+    }
+
+    private async Task RefreshAfterActionAsync()
+    {
+        // Rafraîchissement APRÈS une action réussie : un échec ici ne doit PAS masquer la page ni démonter un
+        // dialogue de clé ouvert — la clé unique vient peut-être d'être affichée et n'est plus récupérable
+        // (rotation = ancienne clé déjà invalidée). On signale donc l'échec par un toast NON bloquant, sans
+        // repasser toute la page en bandeau d'erreur.
+        if (!await LoadAgentsAsync())
+        {
+            ToastService.Show(
+                "Action effectuée, mais la liste n'a pas pu être actualisée. Rechargez la page pour la mettre à jour.",
+                Severity.Warning);
         }
     }
 
@@ -236,7 +253,7 @@ else
             {
                 // La clé n'existe que dans ce résultat : on l'affiche (phase 2) et on rafraîchit la liste.
                 _registerKey = result.IssuedKey;
-                await ReloadAsync();
+                await RefreshAfterActionAsync();
             }
             else
             {
@@ -284,7 +301,7 @@ else
             {
                 ToastService.Show($"L'agent « {target.Name} » a été révoqué.", Severity.Success);
                 _revokeTarget = null;
-                await ReloadAsync();
+                await RefreshAfterActionAsync();
             }
             else
             {
@@ -330,7 +347,7 @@ else
             {
                 // La NOUVELLE clé n'existe que dans ce résultat : on l'affiche (phase 2) et on rafraîchit la liste.
                 _rotateKey = result.IssuedKey;
-                await ReloadAsync();
+                await RefreshAfterActionAsync();
             }
             else
             {

@@ -208,6 +208,32 @@ public sealed class AgentsTests : BunitContext
         });
     }
 
+    [Fact]
+    public void Issued_key_stays_visible_when_the_post_action_refresh_fails()
+    {
+        // Le rechargement post-enregistrement échoue : la clé unique vient d'être affichée et NE DOIT PAS
+        // disparaître. La page ne bascule PAS sur le bandeau d'erreur (toast non bloquant) ; le dialogue reste.
+        var service = FakeAgentManagementService.Returning(Line("Poste A"));
+        service.RegisterResult = new AgentKeyIssuedResult(
+            AgentActionStatus.Succeeded,
+            new AgentKeyIssuedDto { AgentId = Guid.NewGuid(), KeyPrefix = "lk_pub", FullKey = "lk_pub.secret-xyz" });
+        service.ThrowListAfter = 1; // 1er chargement OK (initial), 2e (rafraîchissement post-action) échoue.
+        Use(service, canManage: true);
+
+        var cut = Render<Agents>();
+        cut.Find("[data-testid='agents-register-btn']").Click();
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='agent-register-name']").Should().ContainSingle());
+        cut.Find("[data-testid='agent-register-name']").Input("Poste comptable");
+        cut.Find("[data-testid='agent-register-submit']").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.Find("[data-testid='agent-register-key']").TextContent.Should().Contain("lk_pub.secret-xyz");
+            cut.FindAll("[data-testid='agents-error']").Should().BeEmpty(
+                "un échec de rafraîchissement post-action ne masque pas la page ni la clé unique");
+        });
+    }
+
     private static AgentConsoleLine Line(string name, bool revoked = false, bool silent = false) => new()
     {
         Id = Guid.NewGuid(),
@@ -239,6 +265,9 @@ public sealed class AgentsTests : BunitContext
 
         public int ListCalls { get; private set; }
 
+        /// <summary>Fait échouer ListAsync à partir du (ThrowListAfter+1)-ème appel (défaut : jamais).</summary>
+        public int ThrowListAfter { get; set; } = int.MaxValue;
+
         public int RegisterCalls { get; private set; }
 
         public string? LastRegisterName { get; private set; }
@@ -264,7 +293,7 @@ public sealed class AgentsTests : BunitContext
         public Task<IReadOnlyList<AgentConsoleLine>> ListAsync(CancellationToken cancellationToken = default)
         {
             ListCalls++;
-            if (_throws)
+            if (_throws || ListCalls > ThrowListAfter)
             {
                 throw new InvalidOperationException("Échec simulé de chargement du parc d'agents.");
             }

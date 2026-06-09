@@ -140,22 +140,10 @@ internal sealed partial class AgentManagementConsoleService : IAgentManagementCo
             return new AgentKeyIssuedResult(AgentActionStatus.NameRequired, IssuedKey: null);
         }
 
+        AgentKeyIssuedDto issued;
         try
         {
-            var issued = await _sender.Send(new RegisterAgentCommand { Name = name }, cancellationToken).ConfigureAwait(false);
-
-            var actor = _actorContext.Current;
-            await _activityLogger.LogActivityAsync(
-                AgentEntityType,
-                issued.AgentId.ToString(),
-                "agents.registered",
-                string.Create(CultureInfo.InvariantCulture, $"Agent « {name} » enregistré par l'opérateur (préfixe de clé {issued.KeyPrefix})."),
-                ActorId(actor),
-                metadata: new { agentName = name, issued.KeyPrefix },
-                companyId: actor.CompanyId,
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-
-            return new AgentKeyIssuedResult(AgentActionStatus.Succeeded, issued);
+            issued = await _sender.Send(new RegisterAgentCommand { Name = name }, cancellationToken).ConfigureAwait(false);
         }
         catch (ConflictException ex)
         {
@@ -168,6 +156,18 @@ internal sealed partial class AgentManagementConsoleService : IAgentManagementCo
             LogRegisterFailed(_logger, ex);
             return new AgentKeyIssuedResult(AgentActionStatus.Failed, IssuedKey: null);
         }
+
+        // L'agent est créé et sa clé émise (IRRÉVERSIBLE, affichée une seule fois) : la clé est TOUJOURS
+        // retournée. L'audit ci-dessous est ISOLÉ et best-effort — un échec de journalisation ne doit jamais
+        // faire perdre la clé unique ni convertir un succès irréversible en « Réessayez plus tard ».
+        await AuditBestEffortAsync(
+            issued.AgentId.ToString(),
+            "agents.registered",
+            string.Create(CultureInfo.InvariantCulture, $"Agent « {name} » enregistré par l'opérateur (préfixe de clé {issued.KeyPrefix})."),
+            new { agentName = name, issued.KeyPrefix },
+            cancellationToken).ConfigureAwait(false);
+
+        return new AgentKeyIssuedResult(AgentActionStatus.Succeeded, issued);
     }
 
     public async Task<AgentActionStatus> RevokeAsync(Guid agentId, CancellationToken cancellationToken = default)
@@ -175,19 +175,6 @@ internal sealed partial class AgentManagementConsoleService : IAgentManagementCo
         try
         {
             await _sender.Send(new RevokeAgentCommand { AgentId = agentId }, cancellationToken).ConfigureAwait(false);
-
-            var actor = _actorContext.Current;
-            await _activityLogger.LogActivityAsync(
-                AgentEntityType,
-                agentId.ToString(),
-                "agents.revoked",
-                "Agent révoqué par l'opérateur : sa clé est immédiatement refusée à l'ingestion.",
-                ActorId(actor),
-                metadata: null,
-                companyId: actor.CompanyId,
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-
-            return AgentActionStatus.Succeeded;
         }
         catch (NotFoundException)
         {
@@ -199,26 +186,24 @@ internal sealed partial class AgentManagementConsoleService : IAgentManagementCo
             LogRevokeFailed(_logger, agentId, ex);
             return AgentActionStatus.Failed;
         }
+
+        // L'agent est révoqué (IRRÉVERSIBLE) : un raté d'audit isolé ne convertit pas le succès en échec.
+        await AuditBestEffortAsync(
+            agentId.ToString(),
+            "agents.revoked",
+            "Agent révoqué par l'opérateur : sa clé est immédiatement refusée à l'ingestion.",
+            metadata: null,
+            cancellationToken).ConfigureAwait(false);
+
+        return AgentActionStatus.Succeeded;
     }
 
     public async Task<AgentKeyIssuedResult> RotateKeyAsync(Guid agentId, CancellationToken cancellationToken = default)
     {
+        AgentKeyIssuedDto issued;
         try
         {
-            var issued = await _sender.Send(new RotateAgentKeyCommand { AgentId = agentId }, cancellationToken).ConfigureAwait(false);
-
-            var actor = _actorContext.Current;
-            await _activityLogger.LogActivityAsync(
-                AgentEntityType,
-                agentId.ToString(),
-                "agents.key_rotated",
-                string.Create(CultureInfo.InvariantCulture, $"Clé de l'agent renouvelée par l'opérateur (nouveau préfixe {issued.KeyPrefix}) : l'ancienne clé est immédiatement invalidée."),
-                ActorId(actor),
-                metadata: new { issued.KeyPrefix },
-                companyId: actor.CompanyId,
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-
-            return new AgentKeyIssuedResult(AgentActionStatus.Succeeded, issued);
+            issued = await _sender.Send(new RotateAgentKeyCommand { AgentId = agentId }, cancellationToken).ConfigureAwait(false);
         }
         catch (NotFoundException)
         {
@@ -236,6 +221,17 @@ internal sealed partial class AgentManagementConsoleService : IAgentManagementCo
             LogRotateFailed(_logger, agentId, ex);
             return new AgentKeyIssuedResult(AgentActionStatus.Failed, IssuedKey: null);
         }
+
+        // La NOUVELLE clé est émise et l'ancienne DÉJÀ invalidée (IRRÉVERSIBLE) : la nouvelle clé est TOUJOURS
+        // retournée pour son affichage unique — un échec d'audit isolé ne doit jamais « bricker » l'agent.
+        await AuditBestEffortAsync(
+            agentId.ToString(),
+            "agents.key_rotated",
+            string.Create(CultureInfo.InvariantCulture, $"Clé de l'agent renouvelée par l'opérateur (nouveau préfixe {issued.KeyPrefix}) : l'ancienne clé est immédiatement invalidée."),
+            new { issued.KeyPrefix },
+            cancellationToken).ConfigureAwait(false);
+
+        return new AgentKeyIssuedResult(AgentActionStatus.Succeeded, issued);
     }
 
     /// <summary>
@@ -265,6 +261,41 @@ internal sealed partial class AgentManagementConsoleService : IAgentManagementCo
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Agent key rotation failed from the console for agent {AgentId}.")]
     private static partial void LogRotateFailed(ILogger logger, Guid agentId, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Agent action audit logging failed from the console (the action itself already committed).")]
+    private static partial void LogAuditFailed(ILogger logger, Exception exception);
+
+    /// <summary>
+    /// Journalise l'action opérateur (parité d'audit avec les endpoints API05) en BEST-EFFORT : la commande
+    /// PIV05 a déjà commité (clé émise / agent révoqué — irréversible). Un échec d'audit (INV-AUDIT-002 : le
+    /// logger ne devrait jamais lever) est tracé puis avalé — il ne doit JAMAIS faire perdre la clé unique ni
+    /// transformer un succès irréversible en échec.
+    /// </summary>
+    private async Task AuditBestEffortAsync(
+        string entityId,
+        string activityType,
+        string description,
+        object? metadata,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var actor = _actorContext.Current;
+            await _activityLogger.LogActivityAsync(
+                AgentEntityType,
+                entityId,
+                activityType,
+                description,
+                ActorId(actor),
+                metadata: metadata,
+                companyId: actor.CompanyId,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            LogAuditFailed(_logger, ex);
+        }
+    }
 
     private async Task<int> ResolveSilentHoursAsync(CancellationToken cancellationToken)
     {

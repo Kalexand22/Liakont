@@ -238,6 +238,36 @@ public sealed class AgentManagementConsoleServiceTests
         result.ErrorMessage.Should().Be(domainMessage);
     }
 
+    [Fact]
+    public async Task RegisterAsync_Returns_The_Issued_Key_Even_When_Audit_Throws()
+    {
+        // La commande PIV05 a déjà commité (agent créé, clé émise — IRRÉVERSIBLE) AVANT l'audit : un échec
+        // d'audit isolé ne doit jamais faire perdre la clé unique ni convertir le succès en Failed.
+        var issued = new AgentKeyIssuedDto { AgentId = Guid.NewGuid(), KeyPrefix = "lk", FullKey = "lk.secret" };
+        var sender = new FakeSender { KeyToReturn = issued };
+        var service = Build(new FakeAgentQueries(), tenantId: "t", sender: sender, audit: new CapturingActivityLogger { ThrowOnLog = true });
+
+        var result = await service.RegisterAsync("Poste comptable");
+
+        result.Status.Should().Be(AgentActionStatus.Succeeded);
+        result.IssuedKey.Should().BeSameAs(issued);
+    }
+
+    [Fact]
+    public async Task RotateKeyAsync_Returns_The_New_Key_Even_When_Audit_Throws()
+    {
+        // La nouvelle clé est émise et l'ancienne déjà invalidée AVANT l'audit : un échec d'audit ne doit
+        // jamais « bricker » l'agent (nouvelle clé jamais montrée).
+        var issued = new AgentKeyIssuedDto { AgentId = Guid.NewGuid(), KeyPrefix = "lk2", FullKey = "lk2.secret-new" };
+        var sender = new FakeSender { KeyToReturn = issued };
+        var service = Build(new FakeAgentQueries(), tenantId: "t", sender: sender, audit: new CapturingActivityLogger { ThrowOnLog = true });
+
+        var result = await service.RotateKeyAsync(Guid.NewGuid());
+
+        result.Status.Should().Be(AgentActionStatus.Succeeded);
+        result.IssuedKey.Should().BeSameAs(issued);
+    }
+
     private static AgentManagementConsoleService Build(
         FakeAgentQueries agents,
         string? tenantId,
@@ -385,6 +415,9 @@ public sealed class AgentManagementConsoleServiceTests
     {
         public List<ActivityEntry> Entries { get; } = [];
 
+        /// <summary>Simule un audit indisponible (la vraie implémentation ne lève jamais — INV-AUDIT-002).</summary>
+        public bool ThrowOnLog { get; init; }
+
         public Task LogActivityAsync(
             string entityType,
             string entityId,
@@ -395,6 +428,11 @@ public sealed class AgentManagementConsoleServiceTests
             Guid? companyId = null,
             CancellationToken cancellationToken = default)
         {
+            if (ThrowOnLog)
+            {
+                throw new InvalidOperationException("Audit indisponible.");
+            }
+
             Entries.Add(new ActivityEntry(entityType, entityId, activityType, description, actorId, companyId));
             return Task.CompletedTask;
         }
