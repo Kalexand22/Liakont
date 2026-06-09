@@ -76,6 +76,12 @@ public sealed class DocumentSendActionsE2ETests : KeycloakBaseE2ETest
         (await feedback.IsVisibleAsync()).Should().BeTrue("l'envoi déclenché affiche un retour opérateur");
     }
 
+    // NB : le câblage page → service → retour de la barre d'actions groupées « Envoyer la sélection » (et le
+    // StateHasChanged() explicite qu'il exige) est couvert de façon DÉTERMINISTE par un test bUnit (DocumentsTests :
+    // « Envoyer_La_Selection_Bulk_Action_Calls_The_Service_And_Shows_Feedback »), qui invoque directement le rappel
+    // Execute de la BulkActionConfig — la sélection RÉELLE d'une ligne de la grille Radzen dépend d'un actionnement
+    // (visible/enabled/stable) instable en E2E (re-rendu du circuit), ce qui rendrait ce test E2E intermittent.
+
     /// <summary>
     /// Clique un bouton (par data-testid) et attend qu'un élément attendu apparaisse, avec retry d'hydratation
     /// (tant que le circuit Blazor n'est pas hydraté, le clic est un no-op) — jamais un sleep fixe optimiste.

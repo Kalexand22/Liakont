@@ -119,7 +119,7 @@ internal sealed class DocumentSendActionsService : IDocumentSendActions
                 cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
-        var message = string.Create(Fr, $"Envoi déclenché pour {ready.Count} document(s) prêt(s) (le traitement d'envoi du tenant les émettra).");
+        var message = string.Create(Fr, $"Envoi déclenché : le traitement d'envoi du tenant émet TOUS les documents prêts à l'envoi (dont les {ready.Count} document(s) sélectionné(s)).");
         if (skipped.Count > 0)
         {
             message += " Ignoré(s) : " + DescribeSkipped(skipped);

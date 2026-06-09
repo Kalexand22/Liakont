@@ -15,6 +15,7 @@ using Microsoft.Extensions.Localization;
 using Stratum.Common.Abstractions.Grid;
 using Stratum.Common.Abstractions.Security;
 using Stratum.Common.UI;
+using Stratum.Common.UI.Components;
 using Xunit;
 
 public sealed class DocumentsTests : BunitContext
@@ -145,6 +146,26 @@ public sealed class DocumentsTests : BunitContext
         var feedback = cut.Find("[data-testid='documents-send-feedback']");
         feedback.TextContent.Should().Contain("échoué");
         feedback.GetAttribute("class").Should().Contain("doc-send-feedback--error", "un refus est signalé comme une erreur");
+    }
+
+    [Fact]
+    public async Task Envoyer_La_Selection_Bulk_Action_Calls_The_Service_And_Shows_Feedback()
+    {
+        var send = new FakeSendActions { SendSelectionResult = DocumentSendActionResult.Ok("Envoi déclenché : sélection traitée.") };
+        var selected = Doc("2018", "invoice", "ReadyToSend");
+        var cut = RenderAsOperator(send, selected, Doc("2019", "invoice", "ReadyToSend"));
+
+        // « Envoyer la sélection » est la barre d'actions groupées de DeclaredListPage : son rappel Execute EST
+        // le câblage page→service→retour de WEB05 (avec le StateHasChanged() explicite). On l'invoque directement
+        // (la sélection réelle d'une ligne de la grille Radzen dépend d'un JS interop indisponible en bUnit), ce
+        // qui exerce de façon DÉTERMINISTE Documents.SendSelectionAsync → IDocumentSendActions → bandeau de retour.
+        var listPage = cut.FindComponent<DeclaredListPage<DocumentSummaryDto>>();
+        var action = listPage.Instance.BulkActions!.Single(a => a.Id == "send-selection");
+
+        await cut.InvokeAsync(() => action.Execute!(new[] { selected }));
+
+        send.LastSelection.Should().ContainSingle().Which.Should().Be(selected.Id, "le service reçoit l'identifiant du document sélectionné");
+        cut.Find("[data-testid='documents-send-feedback']").TextContent.Should().Contain("Envoi déclenché");
     }
 
     private IRenderedComponent<Documents> RenderAsOperator(FakeSendActions send, params DocumentSummaryDto[] docs)
