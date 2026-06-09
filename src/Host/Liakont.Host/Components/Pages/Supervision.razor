@@ -1,0 +1,138 @@
+@page "/supervision"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = LiakontPermissions.Supervision)]
+@using System.Globalization
+@using Microsoft.Extensions.Logging
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Models
+@using Liakont.Host.Security
+@using Liakont.Host.Supervision
+@using Liakont.Modules.Supervision.Contracts
+@using Liakont.Modules.Supervision.Contracts.DTOs
+@inject ISupervisionDashboardQueries Dashboard
+@inject NavigationManager Nav
+@inject ILogger<Supervision> Logger
+
+<PageTitle>Supervision — Liakont</PageTitle>
+
+<h1>Supervision</h1>
+
+<p class="supervision-intro" data-testid="supervision-intro">
+    Vue d'ensemble de tous les tenants de l'instance : alertes actives, état des agents et files de
+    documents. Les tenants à traiter (alertes critiques) apparaissent en tête.
+</p>
+
+@if (_loadFailed)
+{
+    <div role="alert" data-testid="supervision-error">
+        Impossible de charger la supervision pour le moment. Réessayez plus tard.
+    </div>
+}
+else
+{
+    @* Vue d'ensemble : gabarit DeclaredListPage (aucune grille « maison »). Données cross-tenant agrégées
+       par le module Supervision (seul contexte cross-tenant — CLAUDE.md n°9). *@
+    <DeclaredListPage @key="_loadEpoch"
+                      TItem="TenantSupervisionRowDto"
+                      Title="Supervision"
+                      TestId="supervision"
+                      LoadItems="LoadItemsAsync"
+                      DetailUrl="@(t => $"/supervision/{t.TenantId}")"
+                      ColumnRegistry="_registry"
+                      ColumnTemplates="_columnTemplates"
+                      GridKey="Liakont.Supervision"
+                      RowActions="_rowActions"
+                      AriaLabel="Vue d'ensemble de supervision par tenant"
+                      DefaultSortColumn="DisplayName"
+                      DefaultSortDirection="SortDirection.Ascending"
+                      SearchPlaceholder="Rechercher un tenant… (raccourci : /)"
+                      AllowExport="true"
+                      ExportFileName="supervision-tenants">
+        <EmptyContent>
+            <p data-testid="supervision-empty">Aucun tenant actif à superviser.</p>
+        </EmptyContent>
+    </DeclaredListPage>
+}
+
+@code {
+    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+
+    private readonly SupervisionTenantColumnRegistry _registry = new();
+
+    private bool _loadFailed;
+    private IReadOnlyList<TenantSupervisionRowDto> _rows = [];
+
+    // @key de la liste : incrémenté après chaque chargement pour forcer DeclaredListPage à relire LoadItems
+    // (il ne recharge pas tout seul — même mécanique que la page Documents).
+    private int _loadEpoch;
+
+    private readonly IReadOnlyList<GridRowAction<TenantSupervisionRowDto>> _rowActions;
+    private readonly Dictionary<string, RenderFragment<TenantSupervisionRowDto>> _columnTemplates;
+
+    public Supervision()
+    {
+        _rowActions =
+        [
+            new GridRowAction<TenantSupervisionRowDto>(
+                Id: "view",
+                Label: "Détails",
+                Icon: "visibility",
+                IsQuickAction: true,
+                Callback: row =>
+                {
+                    Nav.NavigateTo($"/supervision/{row.TenantId}");
+                    return Task.CompletedTask;
+                }),
+        ];
+
+        _columnTemplates = new Dictionary<string, RenderFragment<TenantSupervisionRowDto>>
+        {
+            ["DisplayName"] = row => __builder =>
+            {
+                __builder.AddContent(0, row.DisplayName);
+                if (row.ReadFailed)
+                {
+                    // Un tenant injoignable reste VISIBLE et signalé — jamais masqué (panne silencieuse).
+                    __builder.OpenElement(1, "span");
+                    __builder.AddAttribute(2, "class", "supervision-row__unavailable");
+                    __builder.AddAttribute(3, "data-testid", "supervision-row-unavailable");
+                    __builder.AddAttribute(4, "title", "Lecture indisponible : ce tenant n'a pas pu être interrogé.");
+                    __builder.AddContent(5, " ⚠ données indisponibles");
+                    __builder.CloseElement();
+                }
+            },
+            ["ActiveAlertCount"] = row => __builder =>
+            {
+                __builder.AddContent(0, row.ActiveAlertCount == 0
+                    ? "—"
+                    : $"{SupervisionDisplay.SeverityLabel(row.WorstSeverity)} ({row.ActiveAlertCount})");
+            },
+            ["LastAgentSeenUtc"] = row => __builder =>
+            {
+                __builder.AddContent(0, row.LastAgentSeenUtc is { } seen
+                    ? seen.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr)
+                    : "jamais vu");
+            },
+        };
+    }
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private Task<IReadOnlyList<TenantSupervisionRowDto>> LoadItemsAsync() => Task.FromResult(_rows);
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _rows = await Dashboard.GetInstanceOverviewAsync();
+            _loadFailed = false;
+            _loadEpoch++;
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the supervision instance overview.");
+        }
+    }
+}

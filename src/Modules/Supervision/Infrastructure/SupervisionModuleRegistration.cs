@@ -26,6 +26,11 @@ public static class SupervisionModuleRegistration
         services.AddScoped<IAlertStore, PostgresAlertStore>();
         services.AddScoped<IAlertQueries, PostgresAlertQueries>();
 
+        // Lectures AGRÉGÉES cross-tenant du dashboard (SUP02) : énumère les tenants (registre système) et
+        // agrège tenant par tenant via ITenantScopeFactory — l'UNIQUE lecture cross-tenant du produit
+        // (CLAUDE.md n°9). L'acquittement d'alerte est routé dans le scope du tenant concerné.
+        services.AddScoped<ISupervisionDashboardQueries, CrossTenantSupervisionDashboardQueries>();
+
         // Acquittement : horloge partagée si enregistrée (sinon horloge système) — horodatage déterministe en test.
         services.AddScoped<IAlertAcknowledgementService>(sp => new AlertAcknowledgementService(
             sp.GetRequiredService<IAlertStore>(),

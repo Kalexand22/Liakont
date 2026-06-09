@@ -20,5 +20,10 @@
     <!-- IJobHandler du module Job (le dead-man's-switch est un job SYSTÈME dont le handler fait le fan-out
          multi-tenant via ITenantJobRunner) — accès inter-module par les Contracts uniquement (module-rules §3). -->
     <ProjectReference Include="../../Job/Contracts/Stratum.Modules.Job.Contracts.csproj" />
+    <!-- Lectures agrégées du dashboard cross-tenant (SUP02) : compteurs de documents par état (Documents) et
+         état des agents (Ingestion), résolus dans le scope de CHAQUE tenant — accès inter-module par les
+         Contracts uniquement (module-rules §3). -->
+    <ProjectReference Include="../../Documents/Contracts/Liakont.Modules.Documents.Contracts.csproj" />
+    <ProjectReference Include="../../Ingestion/Contracts/Liakont.Modules.Ingestion.Contracts.csproj" />
   </ItemGroup>
 </Project>
