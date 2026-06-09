@@ -11,6 +11,7 @@ using Liakont.Host.Components;
 using Liakont.Host.Localization;
 using Liakont.Host.MultiTenancy;
 using Liakont.Host.Navigation;
+using Liakont.Host.Notifications;
 using Liakont.Host.Security;
 using Liakont.Host.Security.Abstractions;
 using Liakont.Host.Security.Keycloak;
@@ -32,6 +33,7 @@ using Liakont.Modules.Reconciliation.Infrastructure;
 using Liakont.Modules.Reconciliation.Web;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.Staging.Infrastructure;
+using Liakont.Modules.Supervision.Application;
 using Liakont.Modules.Supervision.Infrastructure;
 using Liakont.Modules.TenantSettings.Infrastructure;
 using Liakont.Modules.TenantSettings.Web;
@@ -46,6 +48,7 @@ using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 using Stratum.Common.Abstractions.MultiTenancy;
@@ -74,6 +77,7 @@ using Stratum.Modules.Identity.Infrastructure;
 using Stratum.Modules.Identity.Web;
 using Stratum.Modules.Job.Infrastructure;
 using Stratum.Modules.Job.Web;
+using Stratum.Modules.Notification.Contracts;
 using Stratum.Modules.Notification.Contracts.DTOs;
 using Stratum.Modules.Notification.Infrastructure;
 using Stratum.Modules.Notification.Infrastructure.Handlers.Jobs;
@@ -124,6 +128,14 @@ public static class AppBootstrap
         builder.Services.AddIdentityModule(builder.Configuration);
         builder.Services.AddJobModule(builder.Configuration);
         builder.Services.AddNotificationModule();
+
+        // Transport SMTP réel (ADR-0018, SUP03) EN REMPLACEMENT du StubEmailTransport du socle (vendored, NON
+        // modifié). Config d'instance liée depuis la section "Smtp" (gabarit vide dans appsettings.json ; mot de
+        // passe injecté au déploiement, jamais en clair — CLAUDE.md n°10). Désactivé/non configuré = no-op
+        // journalisé (pas de retry infini). Consommé par EmailSendJobHandler au moment de la livraison.
+        builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
+        builder.Services.Replace(ServiceDescriptor.Scoped<IEmailTransport, SmtpEmailTransport>());
+
         builder.Services.AddJobHandler<EmailSendJobPayload, EmailSendJobHandler>();
         builder.Services.AddJobHandler<DeliveryRetryJobPayload, DeliveryRetryJobHandler>();
         builder.Services.AddAuditModule();
@@ -177,6 +189,14 @@ public static class AppBootstrap
         // schedules (job.schedules), comme l'ancrage quotidien (TRK06) — la fréquence relève du déploiement.
         builder.Services.AddSupervisionModule();
         builder.Services.AddJobHandler<SupervisionEvaluationTrigger, SupervisionEvaluationFanOutHandler>();
+
+        // Notifications email des alertes (SUP03, F12 §5.3) : destinataires/options d'instance liés depuis la
+        // section "Supervision:Notifications". Le récapitulatif quotidien (digest, OPTIONNEL, défaut désactivé)
+        // est un job SYSTÈME dont le handler fait le fan-out par tenant — sa PLANIFICATION (cron quotidien) est
+        // créée par l'opérateur via l'admin des schedules, comme l'évaluation (15 min) et l'ancrage TRK06.
+        builder.Services.Configure<SupervisionNotificationOptions>(
+            builder.Configuration.GetSection(SupervisionNotificationOptions.SectionName));
+        builder.Services.AddJobHandler<SupervisionDigestTrigger, SupervisionDigestFanOutHandler>();
 
         // Transmission (PAA01) : registre de types des plug-ins PA. Aucun plug-in n'est référencé ici
         // (le module ne connaît AUCUNE PA concrète — CLAUDE.md n°6) ; chaque plug-in PA (PAA02 Fake,
