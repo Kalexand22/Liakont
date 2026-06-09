@@ -109,6 +109,8 @@ public sealed class RolePermissionNavVisibilityTests
     {
         public bool ReconciliationAvailable => false;
 
+        public int ReconciliationPendingCount => 0;
+
         public Task EnsureInitializedAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }
