@@ -1,48 +1,59 @@
-# SUP03 — Notifications email d'alerte (+ transport SMTP réel)
+# SUP02 — Dashboard de supervision (opérateur d'instance)
 
-Segment console-web · sous-branche `feat/console-web-SUP03` · slot-3 · session `orch-20260608-191844-Liakont-s3`
+Branche : `feat/console-web-SUP02` (segment console-web). Blueprint : blazor-page-item.
 
-## Contexte
-- Le socle Stratum fournit le PIPELINE de notification (templates, queue, retry) mais son seul
-  transport est `StubEmailTransport` (log only). Aucun package SMTP dans `Directory.Packages.props`.
-- Hooks lifecycle = `AlertEvaluationService.ApplyAsync` (SUP01a) : raise (Insert) + resolve (Resolve)
-  → anti-spam naturel (un email au déclenchement, un à la résolution, jamais de répétition).
-- Recipients déjà persistés : `TenantProfileDto.ContactEmailAlerte` + `AlertThresholdsDto.AlertTenantContact`
-  (TenantSettings, tenant-scopé). Opérateur d'instance = config instance (appsettings).
-- Décision archi : composer le sujet/corps FR dans Supervision et enfiler un `EmailSendJobPayload`
-  via `IJobQueue` (réutilise queue+retry+transport du module Notification) — pas de template DB
-  (la résolution de template n'a pas de fallback tenant→système). Transport SMTP réel = Host (composition
-  root), sur l'abstraction `IEmailTransport` vendored (socle NON modifié → pas de provenance à toucher).
+## Décisions d'architecture (vérifiées sur pièce)
+- Lecture cross-tenant = SEULEMENT dans le module Supervision (CLAUDE.md #9/#14). L'agrégateur
+  `CrossTenantSupervisionDashboardQueries` vit dans Supervision.Infrastructure ; interface +
+  DTOs slim dans Supervision.Contracts (Contracts garde sa seule dép : Common.Abstractions).
+- Énumération tenants : `ITenantQueries.ListAsync()` (base système, indép. du tenant ambiant).
+- Scope par tenant depuis HTTP : `ITenantScopeFactory.Create(tenantId)` → `ITenantScope`
+  (précédent : FanOutPortalQueryService ; fan-out parallèle, skip+log sur tenant en échec).
+- Gate serveur de la page : `[Authorize(Policy = LiakontPermissions.Supervision)]`
+  (PermissionPolicyProvider crée la policy ; bloque une nav directe d'un non-superviseur =
+  empêche une fuite cross-tenant). + nav déjà gated (LiakontNavSectionProvider).
+- Données NON fabriquées (producteurs gelés SUP01c / arbitrage fiscal D-a) : taille de file de
+  push, historique des heartbeats, échéance déclarative J-3 → NON affichées (no false-green).
+  Affiché : alertes (IAlertQueries), compteurs documents par état (IDocumentQueries.CountsByState),
+  état agent last-heartbeat + version (IAgentQueries).
 
-## Plan (checkable)
-- [ ] ADR-0018 : dépendance MailKit (+ MimeKit) — justification, alternatives rejetées.
-- [ ] `Directory.Packages.props` : `MailKit` + `MimeKit` 4.17.0.
-- [ ] `SmtpOptions` (Host, section `Smtp`) : Host/Port/User/Password/From/UseStartTls/Enabled.
-- [ ] `SmtpEmailTransport` (Host, internal) : MailKit ; désactivé/non configuré = log + no-op (pas de throw,
-      pas de retry infini) ; activé + échec = throw (le job retente, non bloquant).
-- [ ] `appsettings.json` : sections `Smtp` (placeholder vide, mot de passe jamais en clair) + `Supervision:Notifications`.
-- [ ] AppBootstrap : `Replace` du stub par `SmtpEmailTransport` + bind `SmtpOptions` + `SupervisionNotificationOptions`.
-- [ ] `IAlertNotifier` (Application) : `NotifyRaisedAsync` / `NotifyResolvedAsync` — contrat « ne lève JAMAIS ».
-- [ ] `NullAlertNotifier` (Application) : no-op (défaut des ctors existants → tests SUP01a/b intacts).
-- [ ] `SupervisionNotificationOptions` (Application) : OperatorEmail, SendResolutionEmails, DailyDigestEnabled.
-- [ ] `AlertEvaluationService` : ctor 4-args (+ IAlertNotifier), hooks raise/resolve ; 2/3-args délèguent au Null.
-- [ ] `AlertEmailNotifier` (Infrastructure) : résolution destinataires (opérateur=tout ; contact tenant=critique+opt-in),
-      corps FR actionnable, enqueue `EmailSendJobPayload` (companyId tenant), try/catch→log (jamais throw).
-- [ ] Digest quotidien optionnel (default off) : `IAlertDigestSender` + `SupervisionDigest{Trigger,FanOutHandler,TenantJob}`,
-      résumé des alertes actives à l'opérateur, gated `DailyDigestEnabled`.
-- [ ] DI Supervision : `IAlertNotifier`→`AlertEmailNotifier`, `IAlertDigestSender`→`AlertEmailNotifier`, factory moteur MAJ.
-- [ ] csproj Supervision.Infrastructure : ref `Notification.Contracts` (Contracts-only, OK module-rules) ; pas de secret.
-- [ ] Tests unitaires : destinataires par gravité/opt-in, corps FR, anti-spam (transitions only), non-bloquant ;
-      hook moteur ; construction message SMTP ; digest.
-- [ ] verify-fast (plateforme .NET10 + agent net48) + run-tests + codex-review → clean.
+## Tâches
+- [x] DTOs Contracts : AgentStatusDto, TenantSupervisionRowDto, TenantSupervisionDetailDto, AlertDto
+- [x] Interface Contracts : ISupervisionDashboardQueries (overview / detail / acknowledge)
+- [x] Impl Infrastructure : CrossTenantSupervisionDashboardQueries (fan-out cross-tenant)
+- [x] csproj Host : + Supervision.Contracts ; registration DI (AddSupervisionModule)
+- [x] Page Host /supervision (overview, DeclaredListPage<TenantSupervisionRowDto>)
+- [x] Page Host /supervision/{tenantId} (détail : agents + alertes actives + Acquitter)
+- [x] Column registries + templates (Host : SupervisionTenant/AlertColumnRegistry, SupervisionDisplay)
+- [x] bUnit : SupervisionTests + SupervisionDetailTests (rendu + acquittement)
+- [x] Unit : CrossTenantSupervisionDashboardQueriesTests (fan-out, tri, résilience, acquittement scopé)
+- [x] E2E : SupervisionDashboardE2ETests (superviseur atteint /supervision, dashboard rend sans erreur) ;
+      frontière de permission déjà couverte par PermissionGatedNavE2ETests + DashboardE2ETests
+- [x] verify-fast vert / run-tests vert / codex-review (boucle) / run-e2e vert (arbre intégré feat/console-web)
 
 ## Review
-- ✅ ADR-0018 + MailKit/MimeKit 4.17.0 (CPM) ; SmtpOptions + SmtpEmailTransport (Host, internal) ;
-  `Replace` du stub au composition root ; appsettings placeholders (mot de passe vide).
-- ✅ IAlertNotifier (+ NullAlertNotifier défaut → tests SUP01a/b intacts) ; hooks raise/resolve dans
-  AlertEvaluationService (transitions only = anti-spam) ; AlertEmailNotifier (opérateur=tout, contact
-  tenant=critique+opt-in), corps FR actionnable, enqueue EmailSendJobPayload, fire-and-log.
-- ✅ Digest quotidien optionnel (default off) : IAlertDigestSender + SupervisionDigest{Trigger,FanOutHandler,TenantJob}.
-- ✅ Supervision ne porte aucun secret (mot de passe SMTP = Host) ; refs Contracts-only (Notification/TenantSettings).
-- ✅ verify-fast PASS (plateforme .NET10 + agent net48). run-tests PASS (4436 tests, 0 échec).
-- Tests : 16 nouveaux tests unitaires (notifier 12 + moteur 4 + SMTP 4). codex-review : à lancer.
+Item REPRIS le 2026-06-09 (session orch-20260609-061319-Liakont2-s1) : la session slot-1 d'origine
+(2026-06-08) est morte tôt (lease expiré ~9 h, aucun heartbeat renouvelé) en laissant le travail SUP02
+non commité dans l'arbre. Reprise non-destructive (claimed→in_progress), pipeline mené à terme.
+
+- verify-fast : PASS (après fix_verify délégué — SA1204 réordonnancement statique/instance dans
+  CrossTenantSupervisionDashboardQueries ; CA1859 type concret ; SA1402/SA1649 un type par fichier
+  → split de ConsolePageTestStubs en StubSharedResourcesLocalizer/TestActorContextAccessor/
+  NullGridPreferences/NullSavedFilters).
+- run-tests : PASS (3 suites, 4428 tests, 0 échec).
+- run-e2e : PASS (15 tests E2E, suite Category=E2E complète sur l'arbre intégré feat/console-web — inclut SupervisionDashboardE2ETests : superviseur → /supervision → rendu sans erreur).
+- Décisions de périmètre : pas de taille de file de push, pas d'historique heartbeats, pas d'échéance J-3
+  (producteurs gelés SUP01c / arbitrage fiscal D-a) — aucune donnée fabriquée. Acquittement E2E (seed
+  d'alerte) laissé au bUnit (routage tenant/alerte/opérateur prouvé) ; la frontière de permission est
+  E2E-prouvée (rôle realm → claim → nav gating). Lecture cross-tenant confinée au module Supervision.
+
+### codex-review (boucle, -Base origin/feat/console-web)
+- Round 1 : 0 P1, 3 P2. Corrigés : (a) AcknowledgeAsync avalait l'échec → état d'erreur + bandeau FR +
+  StateHasChanged (callback déclenché par la quick-action enfant) + test bUnit ; (b) doc run-e2e au passé.
+  Accepté : (c) ReadDocumentCountsAsync (GetDocumentsAsync PageSize=1 = 3 requêtes/tenant) — chemin froid,
+  blast radius ~14 implémenteurs IDocumentQueries → fast-follow, pas une régression.
+- Round 2 : 0 P1, 3 P2. Corrigés : (a) le tri-priorité de l'agrégateur était annulé par le re-tri client
+  de DeclaredListPage (affichage alphabétique → critiques plus en tête, + test unit faux-vert sur l'ordre
+  agrégateur) → SortKeySelector composite (échec lecture > critiques > nb d'alertes) + DefaultSort=Priority
+  desc + test bUnit sur l'ordre RENDU ; (b) bandeau _ackFailed rémanent → reset en tête de LoadAsync.
+  Accepté (ré-soulevé) : (c) efficacité ReadDocumentCountsAsync (idem round 1).

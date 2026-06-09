@@ -20,6 +20,11 @@
     <!-- IJobHandler/IJobQueue du module Job (dead-man's-switch = job SYSTÈME ; SUP03 = mise en file des emails
          d'alerte) — accès inter-module par les Contracts uniquement (module-rules §3). -->
     <ProjectReference Include="../../Job/Contracts/Stratum.Modules.Job.Contracts.csproj" />
+    <!-- Lectures agrégées du dashboard cross-tenant (SUP02) : compteurs de documents par état (Documents) et
+         état des agents (Ingestion), résolus dans le scope de CHAQUE tenant — accès inter-module par les
+         Contracts uniquement (module-rules §3). -->
+    <ProjectReference Include="../../Documents/Contracts/Liakont.Modules.Documents.Contracts.csproj" />
+    <ProjectReference Include="../../Ingestion/Contracts/Liakont.Modules.Ingestion.Contracts.csproj" />
     <!-- SUP03 (notifications email) — Contracts UNIQUEMENT (module-rules §3) : charge utile d'email du module
          Notification du socle, et destinataires (contact tenant + seuils) du module TenantSettings. Le module
          Supervision ne porte AUCUN secret (le mot de passe SMTP vit dans le transport SMTP, côté Host). -->
