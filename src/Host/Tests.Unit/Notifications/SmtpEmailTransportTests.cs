@@ -70,4 +70,20 @@ public sealed class SmtpEmailTransportTests
         // Instance sans SMTP : pas d'exception (sinon retry infini du job) ; l'alerte reste au dashboard.
         await act.Should().NotThrowAsync();
     }
+
+    [Theory]
+    [InlineData("", "supervision@liakont.test")]
+    [InlineData("smtp.example.test", "")]
+    public async Task SendAsync_Is_NoOp_When_Enabled_But_Partially_Configured(string host, string fromAddress)
+    {
+        // Enabled=true mais un champ obligatoire manquant : on reste no-op (pas de throw), c'est la branche
+        // qui distingue le vrai transport du stub quand l'opérateur active SMTP en oubliant un champ.
+        var transport = new SmtpEmailTransport(
+            Options.Create(new SmtpOptions { Enabled = true, Host = host, FromAddress = fromAddress }),
+            NullLogger<SmtpEmailTransport>.Instance);
+
+        var act = async () => await transport.SendAsync("ops@liakont.test", "Sujet", "Corps");
+
+        await act.Should().NotThrowAsync();
+    }
 }
