@@ -1134,7 +1134,13 @@ public partial class DeclaredListPage<TItem> : ComponentBase
         try
         {
             await action.Execute(items);
-            ToastService.Show($"{items.Count} élément(s) traité(s).", Severity.Success);
+
+            // Une action qui DIFFÈRE l'opération à une confirmation explicite (SuppressSuccessToast) ne doit pas
+            // afficher de toast « traité(s) » dès le retour d'Execute : ce serait trompeur (rien n'est encore fait).
+            if (!action.SuppressSuccessToast)
+            {
+                ToastService.Show($"{items.Count} élément(s) traité(s).", Severity.Success);
+            }
         }
         catch (Exception ex)
         {

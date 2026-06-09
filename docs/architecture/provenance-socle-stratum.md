@@ -220,6 +220,8 @@ Security/ReflectionPermissionCatalog.cs`). Les lignes vides et les lignes de com
 ancré sur le chemin complet.
 
 <!-- SOCLE-CONSIGNED-DRIFT:START -->
+src/Common/UI/Models/BulkActionConfig.cs
+src/Common/UI/Components/DeclaredListPage.razor.cs
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -276,6 +278,30 @@ Code Liakont **hors** socle (pas de consignation requise, mais cité pour le con
 `src/Host/Liakont.Host/MultiTenancy/TenantScopeFactory.cs` (implémentation du seam, positionne le
 `MutableTenantContext` interne au Host) + son enregistrement dans `MultiTenantServiceCollectionExtensions`
 et `AppBootstrap`. **Aucun fichier `Stratum.*` existant n'a été modifié par SOL06.**
+
+### 4.15 `BulkActionConfig` + `DeclaredListPage.ExecuteBulkAsync` — option `SuppressSuccessToast` (WEB05)
+La barre d'actions groupées de `DeclaredListPage` (`ExecuteBulkAsync`) affichait un toast de succès
+**inconditionnel** (`"{N} élément(s) traité(s)."`) dès que le rappel `Execute` retournait sans exception.
+WEB05 (« Envoyer la sélection ») doit, comme « Tout envoyer », passer par une **confirmation explicite**
+avant un envoi fiscal IRRÉVERSIBLE (acceptance WEB05 : « Envoi sélection ET tout-envoyer avec confirmation »).
+Or l'action groupée n'EXÉCUTE pas l'envoi : elle ouvre la confirmation — un toast « traité(s) » au retour
+d'`Execute` serait donc trompeur (rien n'est encore envoyé), exactement le défaut d'ambiguïté opérateur que
+proscrit CLAUDE.md n°12 (produit de conformité fiscale).
+
+Deux modifications **rétro-compatibles** (marquées par le commentaire de garde dans le code) :
+- `src/Common/UI/Models/BulkActionConfig.cs` : ajout d'un paramètre optionnel `bool SuppressSuccessToast = false`
+  (dernier paramètre positionnel du record ; valeur par défaut = comportement inchangé pour toutes les actions
+  groupées existantes).
+- `src/Common/UI/Components/DeclaredListPage.razor.cs` (`ExecuteBulkAsync`) : le toast de succès n'est affiché
+  que si `!action.SuppressSuccessToast`. Le reste du flux (gestion d'erreur via `_bulkError`, désélection,
+  rechargement) est inchangé.
+
+Capacité GÉNÉRIQUE du design-system (toute action groupée différée à une confirmation en bénéficie), candidate
+à reverser en amont (§6). La garde est un simple test booléen autour de l'appel `ToastService.Show` existant ;
+aucun test socle dédié n'est ajouté car l'exercer exigerait de simuler la sélection de lignes de la grille Radzen,
+qui dépend d'un JS interop indisponible en bUnit (`JSRuntimeMode.Loose`) — même contrainte que le câblage
+« Envoyer la sélection » de la page, couvert côté Liakont par un test bUnit invoquant directement le rappel
+`Execute` (`Liakont.Host.Tests.Unit.Pages.DocumentsTests`).
 
 ## 5. ADR du socle hérités
 

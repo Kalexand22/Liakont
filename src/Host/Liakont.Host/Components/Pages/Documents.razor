@@ -80,15 +80,25 @@ else
         </div>
     }
 
-    @* ── Confirmation du « Tout envoyer » (F10) : récapitulatif (nombre + montant total TTC) AVANT l'envoi,
-       avec la mention « action irréversible ». L'envoi réel n'est déclenché qu'après confirmation explicite. ── *@
-    @if (_confirmSendAllVisible)
+    @* ── Confirmation d'envoi (F10) : récapitulatif (nombre + montant total TTC) AVANT l'envoi, avec la mention
+       « action irréversible ». Partagée par « Tout envoyer » et « Envoyer la sélection » : dans les DEUX cas le
+       traitement d'envoi du tenant émet TOUS les documents prêts (ADR-0016), donc le récapitulatif est le même ;
+       en mode sélection, le texte rappelle EXPLICITEMENT que l'envoi dépasse la sélection. L'envoi réel n'est
+       déclenché qu'après confirmation explicite. ── *@
+    @if (_confirmSendVisible)
     {
-        <div class="doc-send-confirm" role="dialog" aria-label="Confirmer l'envoi groupé" data-testid="documents-send-all-confirm">
+        <div class="doc-send-confirm" role="dialog" aria-label="Confirmer l'envoi" data-testid="documents-send-all-confirm">
             <p class="doc-send-confirm__text" data-testid="documents-send-all-confirm-text">
                 @if (_sendAllSummary is { Count: > 0 } summary)
                 {
-                    <text>Vous allez envoyer @summary.Count document(s) prêt(s) à l'envoi, pour un montant total de @summary.TotalGross.ToString("N2", Fr) €. Cette action est IRRÉVERSIBLE.</text>
+                    @if (_confirmMode == SendConfirmMode.Selection)
+                    {
+                        <text>L'envoi émet TOUS les documents prêts à l'envoi du tenant (@summary.Count document(s), montant total @summary.TotalGross.ToString("N2", Fr) €), pas seulement votre sélection. Cette action est IRRÉVERSIBLE.</text>
+                    }
+                    else
+                    {
+                        <text>Vous allez envoyer @summary.Count document(s) prêt(s) à l'envoi, pour un montant total de @summary.TotalGross.ToString("N2", Fr) €. Cette action est IRRÉVERSIBLE.</text>
+                    }
                 }
                 else
                 {
@@ -100,14 +110,14 @@ else
                                Variant="ButtonVariant.Primary"
                                Size="ButtonSize.Small"
                                Disabled="@(_sendInProgress || _sendAllSummary is null || _sendAllSummary.Count == 0)"
-                               OnClick="ConfirmSendAllAsync"
+                               OnClick="ConfirmSendAsync"
                                TestId="documents-send-all-confirm-button" />
                 <StratumButton Text="Annuler"
                                Variant="ButtonVariant.Secondary"
                                Outline
                                Size="ButtonSize.Small"
                                Disabled="@_sendInProgress"
-                               OnClick="CancelSendAll"
+                               OnClick="CancelSend"
                                TestId="documents-send-all-cancel" />
             </div>
         </div>
@@ -200,8 +210,18 @@ else
     private bool _sendInProgress;
     private string? _sendFeedback;
     private bool _sendFailed;
-    private bool _confirmSendAllVisible;
+    private bool _confirmSendVisible;
+    private SendConfirmMode _confirmMode = SendConfirmMode.None;
+    private IReadOnlyList<Guid> _pendingSelectionIds = [];
     private DocumentSendSummary? _sendAllSummary;
+
+    /// <summary>Mode de la confirmation d'envoi partagée : « Tout envoyer » ou « Envoyer la sélection ».</summary>
+    private enum SendConfirmMode
+    {
+        None,
+        SendAll,
+        Selection,
+    }
 
     private readonly IReadOnlyList<GridRowAction<DocumentSummaryDto>> _rowActions;
     private readonly Dictionary<string, RenderFragment<DocumentSummaryDto>> _columnTemplates;
@@ -270,7 +290,11 @@ else
                     Label: "Envoyer la sélection",
                     Permission: LiakontPermissions.Actions,
                     PermissionDisabledReason: "La permission « actions » (liakont.actions) est requise pour envoyer.",
-                    Execute: SendSelectionAsync),
+                    // L'action OUVRE la confirmation (envoi fiscal irréversible) : elle n'exécute pas l'envoi au
+                    // clic. SuppressSuccessToast évite le toast « traité(s) » générique de la barre groupée, qui
+                    // serait trompeur avant la confirmation (le retour réel passe par le bandeau après confirmation).
+                    Execute: OpenSelectionConfirmAsync,
+                    SuppressSuccessToast: true),
             ];
         }
 
@@ -411,10 +435,23 @@ else
     // API02a / runs-trigger) — aucune logique fiscale ni machine à états ici (CLAUDE.md n°19).
 
     /// <summary>Ouvre la confirmation du « Tout envoyer » : récapitule d'abord les documents prêts (nombre + montant total).</summary>
-    private async Task OpenSendAllConfirmAsync()
+    private Task OpenSendAllConfirmAsync() => OpenSendConfirmAsync(SendConfirmMode.SendAll, selectionIds: []);
+
+    /// <summary>
+    /// Callback de la barre d'actions groupées (« Envoyer la sélection ») : OUVRE la confirmation (mémorise la
+    /// sélection ; l'envoi RÉEL n'a lieu qu'après confirmation, comme « Tout envoyer »). Per ADR-0016, l'envoi
+    /// dépasse la sélection (tout le tenant) — le récapitulatif et le texte de confirmation le disent explicitement.
+    /// </summary>
+    private Task OpenSelectionConfirmAsync(IReadOnlyList<DocumentSummaryDto> selected) =>
+        OpenSendConfirmAsync(SendConfirmMode.Selection, selected.Select(d => d.Id).ToList());
+
+    /// <summary>Ouvre la confirmation d'envoi (récapitulatif des documents prêts) dans le mode donné, sans rien déclencher.</summary>
+    private async Task OpenSendConfirmAsync(SendConfirmMode mode, IReadOnlyList<Guid> selectionIds)
     {
         _sendFeedback = null;
         _sendFailed = false;
+        _confirmMode = mode;
+        _pendingSelectionIds = selectionIds;
         try
         {
             _sendAllSummary = await SendActions.SummarizeReadyToSendAsync();
@@ -424,31 +461,43 @@ else
             // Le récapitulatif n'a pas pu être calculé : on ouvre quand même la confirmation, qui affiche alors
             // « aucun document » et désactive l'envoi (jamais d'envoi sur un total inconnu). L'échec est tracé.
             _sendAllSummary = null;
-            Logger.LogError(ex, "Failed to summarize ready-to-send documents for the send-all confirmation.");
+            Logger.LogError(ex, "Failed to summarize ready-to-send documents for the send confirmation.");
         }
 
-        _confirmSendAllVisible = true;
+        _confirmSendVisible = true;
+        // Ouvert par la barre d'actions groupées (mode sélection) : forcer le re-rendu de CETTE page (le cadre
+        // de la grille ne re-rend que lui-même après l'action groupée).
+        StateHasChanged();
     }
 
-    /// <summary>Annule le « Tout envoyer » sans rien déclencher.</summary>
-    private void CancelSendAll()
+    /// <summary>Annule l'envoi en cours de confirmation sans rien déclencher.</summary>
+    private void CancelSend()
     {
-        _confirmSendAllVisible = false;
+        _confirmSendVisible = false;
+        _confirmMode = SendConfirmMode.None;
+        _pendingSelectionIds = [];
         _sendAllSummary = null;
     }
 
-    /// <summary>Confirme le « Tout envoyer » : déclenche l'envoi groupé du tenant et affiche le retour opérateur.</summary>
-    private async Task ConfirmSendAllAsync()
+    /// <summary>
+    /// Confirme l'envoi : déclenche l'envoi groupé du tenant (« Tout envoyer ») ou la sélection (« Envoyer la
+    /// sélection » — validation par document côté service) selon le mode, et affiche le retour opérateur.
+    /// </summary>
+    private async Task ConfirmSendAsync()
     {
         if (_sendInProgress)
         {
             return;
         }
 
+        var mode = _confirmMode;
+        var selectionIds = _pendingSelectionIds;
         _sendInProgress = true;
         try
         {
-            var result = await SendActions.SendAllAsync();
+            var result = mode == SendConfirmMode.Selection
+                ? await SendActions.SendSelectionAsync(selectionIds)
+                : await SendActions.SendAllAsync();
             _sendFeedback = result.Message;
             _sendFailed = !result.Success;
         }
@@ -456,12 +505,14 @@ else
         {
             _sendFailed = true;
             _sendFeedback = "L'envoi n'a pas pu être déclenché pour le moment. Réessayez plus tard.";
-            Logger.LogError(ex, "Send-all action failed.");
+            Logger.LogError(ex, "Send action failed (mode {Mode}).", mode);
         }
         finally
         {
             _sendInProgress = false;
-            _confirmSendAllVisible = false;
+            _confirmSendVisible = false;
+            _confirmMode = SendConfirmMode.None;
+            _pendingSelectionIds = [];
             _sendAllSummary = null;
         }
     }
@@ -495,20 +546,4 @@ else
         }
     }
 
-    /// <summary>
-    /// Callback de la barre d'actions groupées (« Envoyer la sélection ») : déclenche l'envoi des documents
-    /// sélectionnés (validation par document côté service) et affiche le retour opérateur agrégé. Les refus
-    /// métier reviennent en RÉSULTAT (pas d'exception) ; un échec inattendu remonte au cadre de la grille.
-    /// </summary>
-    private async Task SendSelectionAsync(IReadOnlyList<DocumentSummaryDto> selected)
-    {
-        var ids = selected.Select(d => d.Id).ToList();
-        var result = await SendActions.SendSelectionAsync(ids);
-        _sendFeedback = result.Message;
-        _sendFailed = !result.Success;
-
-        // La barre d'actions groupées appartient à DeclaredListPage : on force le re-rendu de CETTE page pour
-        // afficher le retour opérateur (le cadre de la grille ne re-rend que lui-même après l'action groupée).
-        StateHasChanged();
-    }
 }

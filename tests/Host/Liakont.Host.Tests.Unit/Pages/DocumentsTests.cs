@@ -149,20 +149,33 @@ public sealed class DocumentsTests : BunitContext
     }
 
     [Fact]
-    public async Task Envoyer_La_Selection_Bulk_Action_Calls_The_Service_And_Shows_Feedback()
+    public async Task Envoyer_La_Selection_Confirms_Then_Calls_The_Service_And_Shows_Feedback()
     {
-        var send = new FakeSendActions { SendSelectionResult = DocumentSendActionResult.Ok("Envoi déclenché : sélection traitée.") };
+        var send = new FakeSendActions
+        {
+            Summary = new DocumentSendSummary(2, 162.80m),
+            SendSelectionResult = DocumentSendActionResult.Ok("Envoi déclenché : le traitement d'envoi du tenant émet TOUS les documents prêts."),
+        };
         var selected = Doc("2018", "invoice", "ReadyToSend");
         var cut = RenderAsOperator(send, selected, Doc("2019", "invoice", "ReadyToSend"));
 
         // « Envoyer la sélection » est la barre d'actions groupées de DeclaredListPage : son rappel Execute EST
-        // le câblage page→service→retour de WEB05 (avec le StateHasChanged() explicite). On l'invoque directement
-        // (la sélection réelle d'une ligne de la grille Radzen dépend d'un JS interop indisponible en bUnit), ce
-        // qui exerce de façon DÉTERMINISTE Documents.SendSelectionAsync → IDocumentSendActions → bandeau de retour.
+        // le câblage WEB05 (ouvre la confirmation, puis envoi APRÈS confirmation explicite). On l'invoque
+        // directement (la sélection réelle d'une ligne de la grille Radzen dépend d'un JS interop indisponible en
+        // bUnit), ce qui exerce de façon DÉTERMINISTE Documents → confirmation → IDocumentSendActions → bandeau.
         var listPage = cut.FindComponent<DeclaredListPage<DocumentSummaryDto>>();
         var action = listPage.Instance.BulkActions!.Single(a => a.Id == "send-selection");
+        action.SuppressSuccessToast.Should().BeTrue("l'action ouvre une confirmation : pas de toast « traité(s) » trompeur avant l'envoi");
 
         await cut.InvokeAsync(() => action.Execute!(new[] { selected }));
+
+        // L'envoi N'EST PAS encore déclenché : seule la confirmation s'affiche, avec le périmètre RÉEL (tout le
+        // tenant, ADR-0016), pas seulement la sélection — et la mention irréversible.
+        send.LastSelection.Should().BeNull("rien n'est envoyé tant que l'opérateur n'a pas confirmé");
+        cut.Find("[data-testid='documents-send-all-confirm-text']").TextContent
+            .Should().Contain("TOUS les documents prêts").And.Contain("IRRÉVERSIBLE");
+
+        cut.Find("[data-testid='documents-send-all-confirm-button']").Click();
 
         send.LastSelection.Should().ContainSingle().Which.Should().Be(selected.Id, "le service reçoit l'identifiant du document sélectionné");
         cut.Find("[data-testid='documents-send-feedback']").TextContent.Should().Contain("Envoi déclenché");

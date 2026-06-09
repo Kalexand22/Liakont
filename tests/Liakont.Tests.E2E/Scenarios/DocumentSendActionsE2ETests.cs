@@ -14,13 +14,24 @@ using Xunit.Abstractions;
 /// OPÉRATEUR sous OIDC réel : l'utilisateur de rôle <c>operateur</c> (= <c>lecture</c> + le claim
 /// <c>liakont.actions</c> PROJETÉ depuis son rôle realm par le pont IDN01) se connecte, ouvre la page
 /// Documents, VOIT les actions d'envoi (« Tout envoyer », « Lancer un traitement ») — masquées pour un
-/// simple lecteur (DocumentsListE2ETests) — et DÉCLENCHE l'envoi groupé : la confirmation (récapitulatif +
-/// mention irréversible) s'affiche, puis l'envoi déclenché rend un retour opérateur.
+/// simple lecteur (DocumentsListE2ETests) — et OUVRE la confirmation d'envoi : le récapitulatif RÉEL (lecture
+/// tenant-scopée du document seedé) et la mention IRRÉVERSIBLE s'affichent.
 /// <para>
 /// C'est l'E2E opérateur qui ferme le trou structurel ayant bloqué WEB05 : sans IDN01, aucun claim
 /// <c>permission</c> n'était posé sous OIDC, donc les éléments permission-gated étaient masqués pour TOUS les
-/// rôles E2E (aucun super-admin dans le realm). Le détail des actions (validation par document, codes d'audit,
-/// refus métier) est couvert par les tests unitaires (DocumentSendActionsServiceTests) et bUnit (DocumentsTests).
+/// rôles E2E (aucun super-admin dans le realm). Le détail des actions (validation par document, publication du
+/// déclencheur, codes d'audit, refus métier) est couvert par les tests unitaires (DocumentSendActionsServiceTests)
+/// et bUnit (DocumentsTests).
+/// </para>
+/// <para>
+/// LIMITE ASSUMÉE — l'envoi RÉEL n'est pas confirmé en E2E : dans le harnais, le circuit InteractiveServer
+/// résout le tenant <c>__system__</c> (un SEUL <c>NpgsqlDataSource</c> créé ; le tenant <c>default</c> partage
+/// cette base — d'où la réussite des LECTURES), si bien que <c>actor.TenantId</c> est vide et que l'envoi
+/// renvoie « Tenant non résolu » (comme le ferait l'endpoint HTTP). Le SUCCÈS de l'envoi (publication du
+/// déclencheur mono-tenant + audit, tenant résolu) est donc prouvé par les tests UNITAIRES, pas ici. Ce test
+/// prouve la VISIBILITÉ permission-gated et l'INTERACTIVITÉ (ouverture de la confirmation) sous OIDC réel — la
+/// régression structurelle qu'IDN01 a corrigée. La résolution du tenant dans le circuit sous OIDC est un sujet
+/// plateforme (analogue au pont permission d'IDN01), hors périmètre WEB05.
 /// </para>
 /// </summary>
 [Trait("Category", "E2E")]
@@ -44,7 +55,7 @@ public sealed class DocumentSendActionsE2ETests : KeycloakBaseE2ETest
     }
 
     [Fact]
-    public async Task Operator_sees_and_triggers_the_send_actions_on_the_documents_page()
+    public async Task Operator_sees_and_opens_the_send_confirmation_under_oidc()
     {
         // « operateur » = lecture + liakont.actions (projeté depuis le rôle realm par IDN01, sous OIDC réel).
         await LoginViaKeycloakAsync("operateur");
@@ -62,25 +73,25 @@ public sealed class DocumentSendActionsE2ETests : KeycloakBaseE2ETest
         (await Page.Locator("[data-testid='documents-trigger-run']").IsVisibleAsync())
             .Should().BeTrue("l'opérateur voit « Lancer un traitement »");
 
-        // DÉCLENCHE « Tout envoyer » : la confirmation (récapitulatif + mention irréversible) s'affiche après
-        // hydratation du circuit (retry du clic tant que le circuit interactif n'est pas hydraté — jamais un sleep).
+        // OUVRE « Tout envoyer » : la confirmation s'affiche après hydratation du circuit (retry du clic tant que
+        // le circuit interactif n'est pas hydraté — jamais un sleep). Assertion SPÉCIFIQUE (pas une simple
+        // visibilité de bouton) : le récapitulatif RÉEL montre le document seedé prêt à l'envoi (lecture
+        // tenant-scopée sous OIDC, count>0 → branche IRRÉVERSIBLE) et le bouton de confirmation est proposé.
+        // L'envoi RÉEL n'est pas confirmé ici (cf. LIMITE ASSUMÉE en tête de classe : tenant du circuit non
+        // résolu dans le harnais → « Tenant non résolu » ; le succès est prouvé par les tests unitaires).
         await ClickAndWaitAsync("documents-send-all", "documents-send-all-confirm");
         (await Page.Locator("[data-testid='documents-send-all-confirm-text']").TextContentAsync())
-            .Should().Contain("IRRÉVERSIBLE", "la confirmation prévient que l'envoi est irréversible (F10)");
-
-        // Confirme : l'envoi groupé du tenant est déclenché et un retour opérateur s'affiche (le circuit est
-        // désormais hydraté — le clic précédent a abouti —, un simple clic suffit ici).
-        var feedback = Page.Locator("[data-testid='documents-send-feedback']");
-        await Page.Locator("[data-testid='documents-send-all-confirm-button']").ClickAsync();
-        await feedback.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 30_000 });
-        (await feedback.IsVisibleAsync()).Should().BeTrue("l'envoi déclenché affiche un retour opérateur");
+            .Should().Contain("IRRÉVERSIBLE", "la confirmation montre un récapitulatif réel (document prêt) et prévient que l'envoi est irréversible (F10)");
+        (await Page.Locator("[data-testid='documents-send-all-confirm-button']").IsVisibleAsync())
+            .Should().BeTrue("le bouton de confirmation de l'envoi est proposé à l'opérateur");
     }
 
-    // NB : le câblage page → service → retour de la barre d'actions groupées « Envoyer la sélection » (et le
-    // StateHasChanged() explicite qu'il exige) est couvert de façon DÉTERMINISTE par un test bUnit (DocumentsTests :
-    // « Envoyer_La_Selection_Bulk_Action_Calls_The_Service_And_Shows_Feedback »), qui invoque directement le rappel
-    // Execute de la BulkActionConfig — la sélection RÉELLE d'une ligne de la grille Radzen dépend d'un actionnement
-    // (visible/enabled/stable) instable en E2E (re-rendu du circuit), ce qui rendrait ce test E2E intermittent.
+    // NB : le câblage « Envoyer la sélection » (barre d'actions groupées → confirmation → service → retour) est
+    // couvert de façon DÉTERMINISTE par un test bUnit (DocumentsTests :
+    // « Envoyer_La_Selection_Confirms_Then_Calls_The_Service_And_Shows_Feedback »), qui invoque directement le
+    // rappel Execute de la BulkActionConfig — la sélection RÉELLE d'une ligne de la grille Radzen dépend d'un
+    // actionnement (visible/enabled/stable) instable en E2E (re-rendu du circuit), ce qui rendrait ce test E2E
+    // intermittent.
 
     /// <summary>
     /// Clique un bouton (par data-testid) et attend qu'un élément attendu apparaisse, avec retry d'hydratation
