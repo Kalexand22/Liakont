@@ -43,8 +43,9 @@ else
                       GridKey="Liakont.Supervision"
                       RowActions="_rowActions"
                       AriaLabel="Vue d'ensemble de supervision par tenant"
-                      DefaultSortColumn="DisplayName"
-                      DefaultSortDirection="SortDirection.Ascending"
+                      SortKeySelector="SortKey"
+                      DefaultSortColumn="Priority"
+                      DefaultSortDirection="SortDirection.Descending"
                       SearchPlaceholder="Rechercher un tenant… (raccourci : /)"
                       AllowExport="true"
                       ExportFileName="supervision-tenants">
@@ -135,4 +136,27 @@ else
             Logger.LogError(ex, "Failed to load the supervision instance overview.");
         }
     }
+
+    // Tri par défaut = priorité opérateur (à traiter en tête), aligné sur l'ordre de l'agrégateur.
+    // DeclaredListPage re-trie côté client : sans cette clé il retomberait sur un tri alphabétique
+    // par nom, et un tenant critique en fin d'alphabet pourrait passer en page 2 — exactement la panne
+    // silencieuse que la supervision doit éviter (F12 §5). Les colonnes cliquables gardent leur tri propre.
+    private static object SortKey(TenantSupervisionRowDto row, string column) => column switch
+    {
+        "ActiveAlertCount" => row.ActiveAlertCount,
+        "AgentCount" => row.AgentCount,
+        "LastAgentSeenUtc" => row.LastAgentSeenUtc ?? DateTimeOffset.MinValue,
+        "BlockedDocumentCount" => row.BlockedDocumentCount,
+        "RejectedByPaDocumentCount" => row.RejectedByPaDocumentCount,
+        "PendingDocumentCount" => row.PendingDocumentCount,
+        "DisplayName" => row.DisplayName,
+        _ => PriorityRank(row),
+    };
+
+    // Rang de priorité décroissant : lecture en échec > présence de critiques > nombre d'alertes actives.
+    // L'égalité de rang conserve l'ordre d'entrée (tri stable) — l'agrégateur fournit déjà les lignes par nom.
+    private static long PriorityRank(TenantSupervisionRowDto row) =>
+        (row.ReadFailed ? 1L << 40 : 0L)
+        + (row.CriticalAlertCount > 0 ? 1L << 20 : 0L)
+        + row.ActiveAlertCount;
 }

@@ -46,3 +46,14 @@ non commité dans l'arbre. Reprise non-destructive (claimed→in_progress), pipe
   (producteurs gelés SUP01c / arbitrage fiscal D-a) — aucune donnée fabriquée. Acquittement E2E (seed
   d'alerte) laissé au bUnit (routage tenant/alerte/opérateur prouvé) ; la frontière de permission est
   E2E-prouvée (rôle realm → claim → nav gating). Lecture cross-tenant confinée au module Supervision.
+
+### codex-review (boucle, -Base origin/feat/console-web)
+- Round 1 : 0 P1, 3 P2. Corrigés : (a) AcknowledgeAsync avalait l'échec → état d'erreur + bandeau FR +
+  StateHasChanged (callback déclenché par la quick-action enfant) + test bUnit ; (b) doc run-e2e au passé.
+  Accepté : (c) ReadDocumentCountsAsync (GetDocumentsAsync PageSize=1 = 3 requêtes/tenant) — chemin froid,
+  blast radius ~14 implémenteurs IDocumentQueries → fast-follow, pas une régression.
+- Round 2 : 0 P1, 3 P2. Corrigés : (a) le tri-priorité de l'agrégateur était annulé par le re-tri client
+  de DeclaredListPage (affichage alphabétique → critiques plus en tête, + test unit faux-vert sur l'ordre
+  agrégateur) → SortKeySelector composite (échec lecture > critiques > nb d'alertes) + DefaultSort=Priority
+  desc + test bUnit sur l'ordre RENDU ; (b) bandeau _ackFailed rémanent → reset en tête de LoadAsync.
+  Accepté (ré-soulevé) : (c) efficacité ReadDocumentCountsAsync (idem round 1).

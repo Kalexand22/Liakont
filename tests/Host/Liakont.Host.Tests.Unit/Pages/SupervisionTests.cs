@@ -75,6 +75,25 @@ public sealed class SupervisionTests : BunitContext
         cut.FindAll("[data-testid='supervision-error']").Should().ContainSingle();
     }
 
+    [Fact]
+    public void Should_Render_Tenants_To_Treat_First_Regardless_Of_Alphabetical_Order()
+    {
+        // « Zeta » (critique) est alphabétiquement APRÈS « Alpha » (sain) : si la grille triait par nom,
+        // Alpha serait en tête. La priorité opérateur (à traiter d'abord) doit placer Zeta en premier —
+        // sinon un tenant critique en fin d'alphabet pourrait basculer en page 2 (panne silencieuse).
+        Services.AddScoped<ISupervisionDashboardQueries>(_ => FakeSupervisionDashboardQueries.WithOverview(
+            Row("alpha", "Alpha SARL", activeAlerts: 0, criticalAlerts: 0, worstSeverity: null),
+            Row("zeta", "Zeta SARL", activeAlerts: 2, criticalAlerts: 1, worstSeverity: "Critical")));
+
+        var cut = Render<Supervision>();
+
+        var markup = cut.Markup;
+        markup.IndexOf("Zeta SARL", StringComparison.Ordinal)
+            .Should().BeLessThan(
+                markup.IndexOf("Alpha SARL", StringComparison.Ordinal),
+                "le tenant à traiter (alerte critique) est rendu avant un tenant sain, malgré l'ordre alphabétique");
+    }
+
     private static TenantSupervisionRowDto Row(
         string tenantId,
         string displayName,

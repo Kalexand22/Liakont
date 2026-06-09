@@ -175,6 +175,9 @@ else
 
     private async Task LoadAsync()
     {
+        // Repart d'un état propre : un bandeau d'échec d'acquittement ne doit pas survivre à un
+        // rechargement (la page de détail est une route réutilisée d'un tenant à l'autre).
+        _ackFailed = false;
         try
         {
             _detail = await Dashboard.GetTenantDetailAsync(TenantId);
