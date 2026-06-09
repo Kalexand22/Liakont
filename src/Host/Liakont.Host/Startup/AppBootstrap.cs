@@ -433,6 +433,12 @@ public static class AppBootstrap
         // garde liakont.actions). Isole l'accès au module hors de la page.
         builder.Services.AddScoped<Liakont.Host.Reconciliation.IReconciliationConsoleService, Liakont.Host.Reconciliation.ReconciliationConsoleService>();
 
+        // Composition de la page « Gestion des agents » (WEB09) : lecture du parc (registre système tenant-scopé,
+        // indicateur « muet » depuis le seuil de supervision F12 §5.2) et actions de cycle de vie (enregistrement,
+        // révocation, rotation) déléguées aux commandes PIV05 in-process — avec parité d'audit avec les endpoints
+        // API05 (garde liakont.settings côté page et côté endpoint). Isole l'accès au module hors de la page.
+        builder.Services.AddScoped<Liakont.Host.AgentManagement.IAgentManagementConsoleService, Liakont.Host.AgentManagement.AgentManagementConsoleService>();
+
         // Pré-chargement déterministe de l'état de console à l'ouverture du circuit (avant rendu de la nav).
         builder.Services.AddScoped<Liakont.Host.Navigation.LiakontConsoleCircuitHandler>();
         builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler>(

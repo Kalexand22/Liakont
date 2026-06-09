@@ -1,0 +1,125 @@
+@namespace Liakont.Host.Components
+@using Liakont.Modules.Ingestion.Contracts.DTOs
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* Dialogue d'ENREGISTREMENT d'un agent (WEB09). Composant PUR (aucune injection, aucune logique métier) :
+ * il saisit le nom et délègue l'action au parent (OnSubmit), puis affiche la clé émise UNE seule fois
+ * (avertissement + copie). 100 % français, vocabulaire opérateur (pas de jargon « API key »). *@
+
+@if (IsOpen)
+{
+    <div class="liakont-agent-dialog" role="dialog" aria-label="Enregistrer un nouvel agent" data-testid="agent-register-dialog">
+        <div class="liakont-agent-dialog__panel">
+            @if (IssuedKey is { } key)
+            {
+                @* Phase 2 : la clé n'existe que dans CE rendu — elle ne pourra plus être affichée. *@
+                <h2 class="liakont-agent-dialog__title">Clé du nouvel agent</h2>
+                <div class="liakont-agent-dialog__alert" role="alert" data-testid="agent-register-key-warning">
+                    Cette clé ne pourra plus être affichée — copiez-la maintenant et transmettez-la à l'agent.
+                </div>
+                <div class="liakont-agent-dialog__key-panel" data-testid="agent-register-key-panel">
+                    <code class="liakont-agent-dialog__key" data-testid="agent-register-key">@key.FullKey</code>
+                </div>
+                <div class="liakont-agent-dialog__actions">
+                    <StratumButton Text="Copier la clé"
+                                   Variant="ButtonVariant.Secondary"
+                                   Outline
+                                   Size="ButtonSize.Small"
+                                   OnClick="@(() => OnCopyKey.InvokeAsync(key.FullKey))"
+                                   TestId="agent-register-copy" />
+                    <StratumButton Text="J'ai copié la clé — fermer"
+                                   Variant="ButtonVariant.Primary"
+                                   Size="ButtonSize.Small"
+                                   OnClick="@(() => OnClose.InvokeAsync())"
+                                   TestId="agent-register-close" />
+                </div>
+            }
+            else
+            {
+                @* Phase 1 : saisie du nom. *@
+                <h2 class="liakont-agent-dialog__title">Enregistrer un nouvel agent</h2>
+                <p class="liakont-agent-dialog__text">
+                    Donnez un nom à l'agent (par exemple le nom du poste ou du serveur). Sa clé sera affichée
+                    une seule fois après l'enregistrement.
+                </p>
+                <label class="liakont-agent-dialog__label" for="agent-register-name">Nom de l'agent</label>
+                <input id="agent-register-name"
+                       class="liakont-agent-dialog__input"
+                       type="text"
+                       value="@_name"
+                       @oninput="OnNameChanged"
+                       disabled="@Busy"
+                       data-testid="agent-register-name" />
+
+                @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+                {
+                    <div class="liakont-agent-dialog__alert" role="alert" data-testid="agent-register-error">@ErrorMessage</div>
+                }
+
+                <div class="liakont-agent-dialog__actions">
+                    <StratumButton Text="@(Busy ? "Enregistrement…" : "Enregistrer l'agent")"
+                                   Variant="ButtonVariant.Primary"
+                                   Size="ButtonSize.Small"
+                                   Disabled="@(Busy || string.IsNullOrWhiteSpace(_name))"
+                                   OnClick="SubmitAsync"
+                                   TestId="agent-register-submit" />
+                    <StratumButton Text="Annuler"
+                                   Variant="ButtonVariant.Secondary"
+                                   Outline
+                                   Size="ButtonSize.Small"
+                                   Disabled="@Busy"
+                                   OnClick="@(() => OnClose.InvokeAsync())"
+                                   TestId="agent-register-cancel" />
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private string? _name;
+
+    /// <summary><c>true</c> quand le dialogue est ouvert.</summary>
+    [Parameter]
+    public bool IsOpen { get; set; }
+
+    /// <summary>Action en cours (désactive la saisie et les boutons).</summary>
+    [Parameter]
+    public bool Busy { get; set; }
+
+    /// <summary>Message d'erreur français à afficher, ou <c>null</c>.</summary>
+    [Parameter]
+    public string? ErrorMessage { get; set; }
+
+    /// <summary>Clé émise (phase 2) : quand renseignée, le dialogue affiche la clé au lieu du formulaire.</summary>
+    [Parameter]
+    public AgentKeyIssuedDto? IssuedKey { get; set; }
+
+    /// <summary>Déclenché à la soumission avec le nom saisi.</summary>
+    [Parameter]
+    public EventCallback<string> OnSubmit { get; set; }
+
+    /// <summary>Déclenché à la fermeture (annulation ou après copie de la clé).</summary>
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    /// <summary>Déclenché quand l'opérateur demande la copie de la clé (le parent porte le presse-papiers).</summary>
+    [Parameter]
+    public EventCallback<string> OnCopyKey { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        // À l'ouverture (et tant que la clé n'est pas émise), repartir d'un champ vierge : on ne conserve pas
+        // un nom saisi entre deux ouvertures successives.
+        if (!IsOpen)
+        {
+            _name = null;
+        }
+    }
+
+    private void OnNameChanged(ChangeEventArgs e) => _name = e.Value?.ToString();
+
+    private Task SubmitAsync() =>
+        string.IsNullOrWhiteSpace(_name) ? Task.CompletedTask : OnSubmit.InvokeAsync(_name);
+}

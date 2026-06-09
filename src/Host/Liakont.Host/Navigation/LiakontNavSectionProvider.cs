@@ -47,6 +47,14 @@ internal sealed class LiakontNavSectionProvider : INavSectionProvider
 
         items.Add(new NavItem("Paramétrage", "/parametrage"));
 
+        // Gestion des agents (parc + clés API, WEB09) : réservée au paramétrage (gestion de secrets). Le lien
+        // n'apparaît qu'aux porteurs de liakont.settings — la page elle-même refuse l'accès sans cette
+        // permission (défense en profondeur côté serveur : commandes PIV05 + endpoints API05 exigent settings).
+        if (_permissions.HasPermission(LiakontPermissions.Settings))
+        {
+            items.Add(new NavItem("Agents", "/agents"));
+        }
+
         // Supervision : réservée au superviseur (vues cross-tenant en lecture seule, module Supervision).
         if (_permissions.HasPermission(LiakontPermissions.Supervision))
         {
