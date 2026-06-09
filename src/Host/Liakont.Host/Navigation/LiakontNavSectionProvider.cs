@@ -49,7 +49,10 @@ internal sealed class LiakontNavSectionProvider : INavSectionProvider
 
         // Gestion des agents (parc + clés API, WEB09) : réservée au paramétrage (gestion de secrets). Le lien
         // n'apparaît qu'aux porteurs de liakont.settings — la page elle-même refuse l'accès sans cette
-        // permission (défense en profondeur côté serveur : commandes PIV05 + endpoints API05 exigent settings).
+        // permission. La console dispatche les commandes PIV05 IN-PROCESS : la garde liakont.settings du
+        // chemin console est donc portée par la PAGE (côté serveur, circuit Blazor) ; les endpoints API05,
+        // eux, portent la garde du chemin HTTP (RequireAuthorization). Les handlers PIV05 n'imposent que le
+        // scope tenant.
         if (_permissions.HasPermission(LiakontPermissions.Settings))
         {
             items.Add(new NavItem("Agents", "/agents"));

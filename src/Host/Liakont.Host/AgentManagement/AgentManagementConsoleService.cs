@@ -157,6 +157,12 @@ internal sealed partial class AgentManagementConsoleService : IAgentManagementCo
 
             return new AgentKeyIssuedResult(AgentActionStatus.Succeeded, issued);
         }
+        catch (ConflictException ex)
+        {
+            // Conflit métier attendu (collision de préfixe de clé, F12 §4.2) : message du domaine porté tel
+            // quel (parité 409 endpoint), pas une panne → on ne journalise pas en erreur.
+            return new AgentKeyIssuedResult(AgentActionStatus.Conflict, IssuedKey: null, ex.Message);
+        }
         catch (Exception ex)
         {
             LogRegisterFailed(_logger, ex);
@@ -217,6 +223,13 @@ internal sealed partial class AgentManagementConsoleService : IAgentManagementCo
         catch (NotFoundException)
         {
             return new AgentKeyIssuedResult(AgentActionStatus.NotFound, IssuedKey: null);
+        }
+        catch (ConflictException ex)
+        {
+            // Conflit métier attendu : rotation d'un agent révoqué (course « révocation entre l'affichage de
+            // la liste et la rotation »). Message du domaine porté tel quel (parité 409 endpoint), pas une
+            // panne → on ne journalise pas en erreur.
+            return new AgentKeyIssuedResult(AgentActionStatus.Conflict, IssuedKey: null, ex.Message);
         }
         catch (Exception ex)
         {

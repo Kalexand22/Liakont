@@ -135,12 +135,14 @@ else
                 Id: "rotate",
                 Label: "Renouveler la clé…",
                 Icon: "vpn_key",
+                IsQuickAction: true,
                 IsEnabled: a => !a.IsRevoked,
                 Callback: a => { OpenRotate(a); return Task.CompletedTask; }),
             new GridRowAction<AgentConsoleLine>(
                 Id: "revoke",
                 Label: "Révoquer…",
                 Icon: "block",
+                IsQuickAction: true,
                 IsSeparatorBefore: true,
                 IsEnabled: a => !a.IsRevoked,
                 Callback: a => { OpenRevoke(a); return Task.CompletedTask; }),
@@ -183,8 +185,11 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        // Toute la page est réservée au paramétrage (gestion de secrets) : sans la permission, aucune
-        // donnée n'est chargée et seul le message d'accès refusé est rendu.
+        // Toute la page est réservée au paramétrage (gestion de secrets) : sans la permission, aucune donnée
+        // n'est chargée et seul le message d'accès refusé est rendu. NB : la console dispatche les commandes
+        // PIV05 EN IN-PROCESS — cette garde de page est donc l'UNIQUE contrôle liakont.settings du chemin
+        // console (les endpoints API05 portent la garde du chemin HTTP). Le contrôle s'exécute côté serveur
+        // (circuit Blazor Server), non falsifiable côté client.
         _canManage = Permissions.HasPermission(LiakontPermissions.Settings);
         if (_canManage)
         {
@@ -235,7 +240,8 @@ else
             }
             else
             {
-                _registerError = DescribeError(result.Status);
+                // Sur conflit, le message du domaine (parité endpoint API05) est porté ; sinon message générique.
+                _registerError = result.ErrorMessage ?? DescribeError(result.Status);
             }
         }
         finally
@@ -328,7 +334,8 @@ else
             }
             else
             {
-                _rotateError = DescribeError(result.Status);
+                // Sur conflit (agent révoqué), le message du domaine (parité endpoint API05) est porté.
+                _rotateError = result.ErrorMessage ?? DescribeError(result.Status);
             }
         }
         finally

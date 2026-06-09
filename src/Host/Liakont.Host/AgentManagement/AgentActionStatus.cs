@@ -14,6 +14,12 @@ public enum AgentActionStatus
     /// <summary>L'agent est introuvable dans le tenant courant (déjà retiré, ou course).</summary>
     NotFound,
 
+    /// <summary>
+    /// Conflit d'état métier attendu (ex. rotation d'un agent révoqué, collision de préfixe de clé) :
+    /// le message du domaine est porté tel quel à l'opérateur (parité avec le 409 de l'endpoint API05).
+    /// </summary>
+    Conflict,
+
     /// <summary>Échec technique inattendu (tracé) — message générique à l'opérateur.</summary>
     Failed,
 }

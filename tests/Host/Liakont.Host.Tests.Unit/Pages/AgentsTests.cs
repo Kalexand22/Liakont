@@ -95,6 +95,119 @@ public sealed class AgentsTests : BunitContext
         cut.FindAll("[data-testid='agents-register-btn']").Should().BeEmpty("la liste n'est pas exposée sur échec de chargement");
     }
 
+    [Fact]
+    public void Registering_an_agent_displays_the_one_time_key_and_reloads_the_list()
+    {
+        var service = FakeAgentManagementService.Returning(Line("Poste A"));
+        service.RegisterResult = new AgentKeyIssuedResult(
+            AgentActionStatus.Succeeded,
+            new AgentKeyIssuedDto { AgentId = Guid.NewGuid(), KeyPrefix = "lk_pub", FullKey = "lk_pub.secret-xyz" });
+        Use(service, canManage: true);
+
+        var cut = Render<Agents>();
+        service.ListCalls.Should().Be(1);
+
+        cut.Find("[data-testid='agents-register-btn']").Click();
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='agent-register-name']").Should().ContainSingle());
+        cut.Find("[data-testid='agent-register-name']").Input("Poste comptable");
+        cut.Find("[data-testid='agent-register-submit']").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            service.RegisterCalls.Should().Be(1);
+            service.LastRegisterName.Should().Be("Poste comptable");
+            cut.Find("[data-testid='agent-register-key']").TextContent.Should().Contain("lk_pub.secret-xyz");
+            service.ListCalls.Should().Be(2, "la liste est rechargée après l'enregistrement");
+        });
+    }
+
+    [Fact]
+    public void Register_failure_shows_a_french_error_and_no_key()
+    {
+        var service = FakeAgentManagementService.Returning(Line("Poste A"));
+        service.RegisterResult = new AgentKeyIssuedResult(AgentActionStatus.Failed, IssuedKey: null);
+        Use(service, canManage: true);
+
+        var cut = Render<Agents>();
+        cut.Find("[data-testid='agents-register-btn']").Click();
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='agent-register-name']").Should().ContainSingle());
+        cut.Find("[data-testid='agent-register-name']").Input("Poste comptable");
+        cut.Find("[data-testid='agent-register-submit']").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.Find("[data-testid='agent-register-error']").TextContent.Should().Contain("Réessayez plus tard");
+            cut.FindAll("[data-testid='agent-register-key']").Should().BeEmpty();
+        });
+    }
+
+    [Fact]
+    public void Rotating_via_row_action_opens_the_dialog_and_shows_the_new_key_on_confirm()
+    {
+        var service = FakeAgentManagementService.Returning(Line("Poste A"));
+        service.RotateResult = new AgentKeyIssuedResult(
+            AgentActionStatus.Succeeded,
+            new AgentKeyIssuedDto { AgentId = Guid.NewGuid(), KeyPrefix = "lk2", FullKey = "lk2.secret-new" });
+        Use(service, canManage: true);
+
+        var cut = Render<Agents>();
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='quick-action-rotate']").Should().NotBeEmpty());
+        cut.FindAll("[data-testid='quick-action-rotate']")[0].Click();
+
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='agent-rotate-dialog']").Should().ContainSingle());
+        cut.Find("[data-testid='agent-rotate-confirm']").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            service.RotateCalls.Should().Be(1);
+            cut.Find("[data-testid='agent-rotate-key']").TextContent.Should().Contain("lk2.secret-new");
+        });
+    }
+
+    [Fact]
+    public void Rotating_a_revoked_agent_race_shows_the_domain_conflict_message()
+    {
+        var service = FakeAgentManagementService.Returning(Line("Poste A"));
+        service.RotateResult = new AgentKeyIssuedResult(
+            AgentActionStatus.Conflict,
+            IssuedKey: null,
+            ErrorMessage: "Impossible de faire pivoter la clé d'un agent révoqué.");
+        Use(service, canManage: true);
+
+        var cut = Render<Agents>();
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='quick-action-rotate']").Should().NotBeEmpty());
+        cut.FindAll("[data-testid='quick-action-rotate']")[0].Click();
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='agent-rotate-dialog']").Should().ContainSingle());
+        cut.Find("[data-testid='agent-rotate-confirm']").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.Find("[data-testid='agent-rotate-error']").TextContent.Should().Contain("agent révoqué");
+            cut.FindAll("[data-testid='agent-rotate-key']").Should().BeEmpty("aucune clé n'est émise sur conflit");
+        });
+    }
+
+    [Fact]
+    public void Revoking_via_row_action_confirms_calls_the_service_and_reloads()
+    {
+        var service = FakeAgentManagementService.Returning(Line("Poste A"));
+        Use(service, canManage: true);
+
+        var cut = Render<Agents>();
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='quick-action-revoke']").Should().NotBeEmpty());
+        cut.FindAll("[data-testid='quick-action-revoke']")[0].Click();
+
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='agent-revoke-dialog']").Should().ContainSingle());
+        cut.Find("[data-testid='agent-revoke-confirm']").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            service.RevokeCalls.Should().Be(1);
+            cut.FindAll("[data-testid='agent-revoke-dialog']").Should().BeEmpty("le dialogue se ferme après succès");
+            service.ListCalls.Should().Be(2, "la liste est rechargée après la révocation");
+        });
+    }
+
     private static AgentConsoleLine Line(string name, bool revoked = false, bool silent = false) => new()
     {
         Id = Guid.NewGuid(),
@@ -124,12 +237,33 @@ public sealed class AgentsTests : BunitContext
             _throws = throws;
         }
 
+        public int ListCalls { get; private set; }
+
+        public int RegisterCalls { get; private set; }
+
+        public string? LastRegisterName { get; private set; }
+
+        public int RevokeCalls { get; private set; }
+
+        public int RotateCalls { get; private set; }
+
+        public AgentKeyIssuedResult RegisterResult { get; set; } = new(
+            AgentActionStatus.Succeeded,
+            new AgentKeyIssuedDto { AgentId = Guid.NewGuid(), KeyPrefix = "lk", FullKey = "lk.secret" });
+
+        public AgentActionStatus RevokeResult { get; set; } = AgentActionStatus.Succeeded;
+
+        public AgentKeyIssuedResult RotateResult { get; set; } = new(
+            AgentActionStatus.Succeeded,
+            new AgentKeyIssuedDto { AgentId = Guid.NewGuid(), KeyPrefix = "lk2", FullKey = "lk2.secret" });
+
         public static FakeAgentManagementService Returning(params AgentConsoleLine[] agents) => new(agents, throws: false);
 
         public static FakeAgentManagementService Throwing() => new(null, throws: true);
 
         public Task<IReadOnlyList<AgentConsoleLine>> ListAsync(CancellationToken cancellationToken = default)
         {
+            ListCalls++;
             if (_throws)
             {
                 throw new InvalidOperationException("Échec simulé de chargement du parc d'agents.");
@@ -138,18 +272,24 @@ public sealed class AgentsTests : BunitContext
             return Task.FromResult(_agents!);
         }
 
-        public Task<AgentKeyIssuedResult> RegisterAsync(string? name, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new AgentKeyIssuedResult(
-                AgentActionStatus.Succeeded,
-                new AgentKeyIssuedDto { AgentId = Guid.NewGuid(), KeyPrefix = "lk", FullKey = "lk.secret" }));
+        public Task<AgentKeyIssuedResult> RegisterAsync(string? name, CancellationToken cancellationToken = default)
+        {
+            RegisterCalls++;
+            LastRegisterName = name;
+            return Task.FromResult(RegisterResult);
+        }
 
-        public Task<AgentActionStatus> RevokeAsync(Guid agentId, CancellationToken cancellationToken = default) =>
-            Task.FromResult(AgentActionStatus.Succeeded);
+        public Task<AgentActionStatus> RevokeAsync(Guid agentId, CancellationToken cancellationToken = default)
+        {
+            RevokeCalls++;
+            return Task.FromResult(RevokeResult);
+        }
 
-        public Task<AgentKeyIssuedResult> RotateKeyAsync(Guid agentId, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new AgentKeyIssuedResult(
-                AgentActionStatus.Succeeded,
-                new AgentKeyIssuedDto { AgentId = agentId, KeyPrefix = "lk2", FullKey = "lk2.secret" }));
+        public Task<AgentKeyIssuedResult> RotateKeyAsync(Guid agentId, CancellationToken cancellationToken = default)
+        {
+            RotateCalls++;
+            return Task.FromResult(RotateResult);
+        }
     }
 
     private sealed class FakePermissionService : IPermissionService

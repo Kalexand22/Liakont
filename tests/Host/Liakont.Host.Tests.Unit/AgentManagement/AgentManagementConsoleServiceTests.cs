@@ -208,6 +208,36 @@ public sealed class AgentManagementConsoleServiceTests
         result.IssuedKey.Should().BeNull();
     }
 
+    [Fact]
+    public async Task RotateKeyAsync_Maps_Domain_Conflict_And_Carries_The_Message()
+    {
+        // Rotation d'un agent révoqué (course liste→action) : ConflictException du domaine → Conflict + message
+        // porté tel quel (parité 409 endpoint), pas un Failed « Réessayez plus tard ».
+        const string domainMessage = "Impossible de faire pivoter la clé d'un agent révoqué.";
+        var sender = new FakeSender { ThrowOnSend = new ConflictException(domainMessage) };
+        var service = Build(new FakeAgentQueries(), tenantId: "t", sender: sender);
+
+        var result = await service.RotateKeyAsync(Guid.NewGuid());
+
+        result.Status.Should().Be(AgentActionStatus.Conflict);
+        result.IssuedKey.Should().BeNull();
+        result.ErrorMessage.Should().Be(domainMessage);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_Maps_Domain_Conflict_And_Carries_The_Message()
+    {
+        const string domainMessage = "Conflit de préfixe de clé d'agent — relancer l'enregistrement.";
+        var sender = new FakeSender { ThrowOnSend = new ConflictException(domainMessage) };
+        var service = Build(new FakeAgentQueries(), tenantId: "t", sender: sender);
+
+        var result = await service.RegisterAsync("Poste comptable");
+
+        result.Status.Should().Be(AgentActionStatus.Conflict);
+        result.IssuedKey.Should().BeNull();
+        result.ErrorMessage.Should().Be(domainMessage);
+    }
+
     private static AgentManagementConsoleService Build(
         FakeAgentQueries agents,
         string? tenantId,
