@@ -17,6 +17,7 @@ internal sealed class FakeSupervisionDashboardQueries : ISupervisionDashboardQue
     private readonly IReadOnlyList<TenantSupervisionRowDto>? _overview;
     private readonly TenantSupervisionDetailDto? _detail;
     private readonly bool _throws;
+    private bool _ackResult = true;
 
     private FakeSupervisionDashboardQueries(
         IReadOnlyList<TenantSupervisionRowDto>? overview,
@@ -39,6 +40,13 @@ internal sealed class FakeSupervisionDashboardQueries : ISupervisionDashboardQue
 
     public static FakeSupervisionDashboardQueries Throwing() =>
         new(overview: null, detail: null, throws: true);
+
+    public static FakeSupervisionDashboardQueries WithDetailAckFailing(TenantSupervisionDetailDto? detail)
+    {
+        var fake = new FakeSupervisionDashboardQueries(overview: null, detail, throws: false);
+        fake._ackResult = false;
+        return fake;
+    }
 
     public Task<IReadOnlyList<TenantSupervisionRowDto>> GetInstanceOverviewAsync(CancellationToken cancellationToken = default)
     {
@@ -63,6 +71,6 @@ internal sealed class FakeSupervisionDashboardQueries : ISupervisionDashboardQue
     public Task<bool> AcknowledgeAsync(string tenantId, Guid alertId, string operatorIdentity, CancellationToken cancellationToken = default)
     {
         Acknowledgements.Add((tenantId, alertId, operatorIdentity));
-        return Task.FromResult(true);
+        return Task.FromResult(_ackResult);
     }
 }

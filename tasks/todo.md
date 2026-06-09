@@ -29,7 +29,7 @@ Branche : `feat/console-web-SUP02` (segment console-web). Blueprint : blazor-pag
 - [x] Unit : CrossTenantSupervisionDashboardQueriesTests (fan-out, tri, résilience, acquittement scopé)
 - [x] E2E : SupervisionDashboardE2ETests (superviseur atteint /supervision, dashboard rend sans erreur) ;
       frontière de permission déjà couverte par PermissionGatedNavE2ETests + DashboardE2ETests
-- [x] verify-fast vert / run-tests vert / codex-review (boucle) ; run-e2e à exécuter sur l'arbre intégré
+- [x] verify-fast vert / run-tests vert / codex-review (boucle) / run-e2e vert (arbre intégré feat/console-web)
 
 ## Review
 Item REPRIS le 2026-06-09 (session orch-20260609-061319-Liakont2-s1) : la session slot-1 d'origine
@@ -41,8 +41,7 @@ non commité dans l'arbre. Reprise non-destructive (claimed→in_progress), pipe
   → split de ConsolePageTestStubs en StubSharedResourcesLocalizer/TestActorContextAccessor/
   NullGridPreferences/NullSavedFilters).
 - run-tests : PASS (3 suites, 4428 tests, 0 échec).
-- E2E : ajout de SupervisionDashboardE2ETests (parcours superviseur → /supervision → rendu). À exécuter
-  via run-e2e sur l'arbre synchronisé avec feat/console-web (WEB08 + main).
+- run-e2e : PASS (15 tests E2E, suite Category=E2E complète sur l'arbre intégré feat/console-web — inclut SupervisionDashboardE2ETests : superviseur → /supervision → rendu sans erreur).
 - Décisions de périmètre : pas de taille de file de push, pas d'historique heartbeats, pas d'échéance J-3
   (producteurs gelés SUP01c / arbitrage fiscal D-a) — aucune donnée fabriquée. Acquittement E2E (seed
   d'alerte) laissé au bUnit (routage tenant/alerte/opérateur prouvé) ; la frontière de permission est

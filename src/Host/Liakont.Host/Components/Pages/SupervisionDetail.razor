@@ -37,6 +37,13 @@ else
 {
     <h1 data-testid="supervision-detail-title">Supervision — @_detail.DisplayName</h1>
 
+    @if (_ackFailed)
+    {
+        <div role="alert" data-testid="supervision-detail-ack-error">
+            L'acquittement de l'alerte n'a pas pu être enregistré. Réessayez ; si le problème persiste, vérifiez que l'alerte est toujours active.
+        </div>
+    }
+
     @* ── Compteurs de documents (périmètre du tenant) ── *@
     <div class="supervision-detail__counts" data-testid="supervision-detail-counts">
         <span class="supervision-detail__count" data-testid="supervision-detail-blocked">
@@ -113,6 +120,7 @@ else
     private readonly SupervisionAlertColumnRegistry _registry = new();
 
     private bool _loadFailed;
+    private bool _ackFailed;
     private TenantSupervisionDetailDto? _detail;
     private IReadOnlyList<AlertDto> _alerts = [];
     private int _loadEpoch;
@@ -184,14 +192,31 @@ else
 
     private async Task AcknowledgeAsync(AlertDto alert)
     {
+        _ackFailed = false;
         try
         {
-            await Dashboard.AcknowledgeAsync(TenantId, alert.Id, OperatorIdentity());
-            await LoadAsync();
+            bool ok = await Dashboard.AcknowledgeAsync(TenantId, alert.Id, OperatorIdentity());
+            if (ok)
+            {
+                _ackFailed = false;
+                await LoadAsync();
+            }
+            else
+            {
+                _ackFailed = true;
+            }
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to acknowledge alert {AlertId} for tenant {TenantId}.", alert.Id, TenantId);
+            _ackFailed = true;
+        }
+        finally
+        {
+            // L'acquittement est déclenché par la quick-action de la grille enfant (DeclaredListPage) :
+            // Blazor re-rend l'enfant, pas cette page. Forcer le re-rendu pour que le bandeau d'échec
+            // (ou l'écran rechargé) soit réellement visible pour l'opérateur.
+            StateHasChanged();
         }
     }
 

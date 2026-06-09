@@ -68,6 +68,21 @@ public sealed class SupervisionDetailTests : BunitContext
     }
 
     [Fact]
+    public void Acknowledging_An_Alert_Shows_Error_Banner_When_Ack_Returns_False()
+    {
+        var alertId = Guid.NewGuid();
+        var fake = FakeSupervisionDashboardQueries.WithDetailAckFailing(Detail(Alert(alertId, "Critical", active: true)));
+        Services.AddScoped<ISupervisionDashboardQueries>(_ => fake);
+
+        var cut = Render<SupervisionDetail>(p => p.Add(c => c.TenantId, "alpha"));
+
+        cut.Find("[data-testid='quick-action-acknowledge']").Click();
+
+        cut.FindAll("[data-testid='supervision-detail-ack-error']").Should().ContainSingle();
+        cut.FindAll("[data-testid='supervision-detail-error']").Should().BeEmpty();
+    }
+
+    [Fact]
     public void Should_Show_NotFound_When_Tenant_Is_Unknown()
     {
         Services.AddScoped<ISupervisionDashboardQueries>(_ => FakeSupervisionDashboardQueries.WithDetail(null));
