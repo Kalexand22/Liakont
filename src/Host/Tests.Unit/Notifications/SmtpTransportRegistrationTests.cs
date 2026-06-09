@@ -1,0 +1,37 @@
+namespace Liakont.Host.Tests.Unit.Notifications;
+
+using FluentAssertions;
+using Liakont.Host.Notifications;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Stratum.Modules.Notification.Contracts;
+using Stratum.Modules.Notification.Infrastructure;
+using Xunit;
+
+/// <summary>
+/// Garde anti-régression du cœur du livrable SUP03 : le transport SMTP réel REMPLACE bien le
+/// <c>StubEmailTransport</c> enregistré par <c>AddNotificationModule</c>. Si une évolution future du module
+/// changeait l'enregistrement de <see cref="IEmailTransport"/> (TryAdd, double enregistrement, ordre), ce test
+/// échouerait au lieu de retomber silencieusement sur le stub (emails qui ne partent plus, sans rien casser).
+/// </summary>
+public sealed class SmtpTransportRegistrationTests
+{
+    [Fact]
+    public void Smtp_Transport_Replaces_Stub_From_Notification_Module()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddNotificationModule();
+        services.Configure<SmtpOptions>(_ => { });
+
+        // Reproduit l'enregistrement du composition root (AppBootstrap) : Replace du stub par le vrai transport.
+        services.Replace(ServiceDescriptor.Scoped<IEmailTransport, SmtpEmailTransport>());
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+
+        var transport = scope.ServiceProvider.GetRequiredService<IEmailTransport>();
+
+        transport.Should().BeOfType<SmtpEmailTransport>();
+    }
+}

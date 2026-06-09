@@ -31,12 +31,22 @@ public static class SupervisionModuleRegistration
             sp.GetRequiredService<IAlertStore>(),
             sp.GetService<TimeProvider>() ?? TimeProvider.System));
 
+        // Notification des alertes par email (SUP03, F12 §5.3) : un seul AlertEmailNotifier scoped sert les
+        // DEUX abstractions (transitions d'alerte + digest). Tenant-scopé par construction (lectures
+        // TenantSettings/Alert + mise en file via la connexion du tenant). Ne porte AUCUN secret (le mot de
+        // passe SMTP vit dans le transport SMTP, côté Host). Le contenu/destinataires sont composés ici ;
+        // l'envoi réel (et son retry) est porté par le pipeline de jobs du module Notification.
+        services.AddScoped<AlertEmailNotifier>();
+        services.AddScoped<IAlertNotifier>(sp => sp.GetRequiredService<AlertEmailNotifier>());
+        services.AddScoped<IAlertDigestSender>(sp => sp.GetRequiredService<AlertEmailNotifier>());
+
         // Moteur d'évaluation : dispatche sur toutes les IAlertRule enregistrées.
-        // Fabrique explicite pour lever toute ambiguïté de constructeur et utiliser l'horloge partagée.
+        // Fabrique explicite pour lever toute ambiguïté de constructeur et utiliser l'horloge partagée + le notifieur.
         services.AddScoped<IAlertEvaluationService>(sp => new AlertEvaluationService(
             sp.GetServices<IAlertRule>(),
             sp.GetRequiredService<IAlertStore>(),
-            sp.GetService<TimeProvider>() ?? TimeProvider.System));
+            sp.GetService<TimeProvider>() ?? TimeProvider.System,
+            sp.GetRequiredService<IAlertNotifier>()));
 
         // Règles d'alerte constructibles (SUP01b, F12 §5.2) — chacune lit une donnée DÉJÀ persistée et
         // tenant-scopée via le Contract du module propriétaire, résolu dans le scope tenant du job. Les 5

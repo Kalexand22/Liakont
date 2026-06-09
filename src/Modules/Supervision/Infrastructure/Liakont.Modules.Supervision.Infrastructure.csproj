@@ -17,8 +17,13 @@
     <ProjectReference Include="../Contracts/Liakont.Modules.Supervision.Contracts.csproj" />
     <ProjectReference Include="../../../Common/Abstractions/Stratum.Common.Abstractions.csproj" />
     <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
-    <!-- IJobHandler du module Job (le dead-man's-switch est un job SYSTÈME dont le handler fait le fan-out
-         multi-tenant via ITenantJobRunner) — accès inter-module par les Contracts uniquement (module-rules §3). -->
+    <!-- IJobHandler/IJobQueue du module Job (dead-man's-switch = job SYSTÈME ; SUP03 = mise en file des emails
+         d'alerte) — accès inter-module par les Contracts uniquement (module-rules §3). -->
     <ProjectReference Include="../../Job/Contracts/Stratum.Modules.Job.Contracts.csproj" />
+    <!-- SUP03 (notifications email) — Contracts UNIQUEMENT (module-rules §3) : charge utile d'email du module
+         Notification du socle, et destinataires (contact tenant + seuils) du module TenantSettings. Le module
+         Supervision ne porte AUCUN secret (le mot de passe SMTP vit dans le transport SMTP, côté Host). -->
+    <ProjectReference Include="../../Notification/Contracts/Stratum.Modules.Notification.Contracts.csproj" />
+    <ProjectReference Include="../../TenantSettings/Contracts/Liakont.Modules.TenantSettings.Contracts.csproj" />
   </ItemGroup>
 </Project>
