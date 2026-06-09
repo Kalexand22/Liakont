@@ -117,9 +117,9 @@ public static class PipelineEndpointMapping
             var jobId = await queue.EnqueueAsync(new SendTenantTrigger(actor.TenantId, simulate), companyId: actor.CompanyId, ct: ct);
 
             await activityLogger.LogActivityAsync(
-                "PipelineRun",
-                "manual-trigger",
-                "pipeline.run_triggered",
+                PipelineRunActionContract.RunEntityType,
+                PipelineRunActionContract.RunEntityId,
+                PipelineRunActionContract.RunTriggeredActivity,
                 string.Create(CultureInfo.InvariantCulture, $"Traitement déclenché manuellement par l'opérateur{(simulate ? " (simulation)" : string.Empty)}."),
                 ActorId(actor),
                 metadata: new { jobId, dryRun = simulate },

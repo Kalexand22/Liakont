@@ -8,8 +8,12 @@
 @using Stratum.Common.UI.Components
 @using Stratum.Common.UI.Models
 @using Liakont.Host.Documents
+@using Liakont.Host.Security
 @using Liakont.Modules.Documents.Contracts.DTOs
+@using Stratum.Common.Abstractions.Security
 @inject IDocumentConsoleQueries DocumentQueries
+@inject IDocumentSendActions SendActions
+@inject IPermissionService Permissions
 @inject NavigationManager Nav
 @inject ILogger<Documents> Logger
 
@@ -65,6 +69,50 @@ else
         </div>
     </div>
 
+    @* ── Retour visuel des actions d'envoi (WEB05) : message opérateur en français (succès ou refus), avec
+       le numéro de document quand c'est pertinent (CLAUDE.md n°12). Masqué tant qu'aucune action n'a eu lieu. ── *@
+    @if (_sendFeedback is not null)
+    {
+        <div class="doc-send-feedback @(_sendFailed ? "doc-send-feedback--error" : "doc-send-feedback--ok")"
+             role="@(_sendFailed ? "alert" : "status")"
+             data-testid="documents-send-feedback">
+            @_sendFeedback
+        </div>
+    }
+
+    @* ── Confirmation du « Tout envoyer » (F10) : récapitulatif (nombre + montant total TTC) AVANT l'envoi,
+       avec la mention « action irréversible ». L'envoi réel n'est déclenché qu'après confirmation explicite. ── *@
+    @if (_confirmSendAllVisible)
+    {
+        <div class="doc-send-confirm" role="dialog" aria-label="Confirmer l'envoi groupé" data-testid="documents-send-all-confirm">
+            <p class="doc-send-confirm__text" data-testid="documents-send-all-confirm-text">
+                @if (_sendAllSummary is { Count: > 0 } summary)
+                {
+                    <text>Vous allez envoyer @summary.Count document(s) prêt(s) à l'envoi, pour un montant total de @summary.TotalGross.ToString("N2", Fr) €. Cette action est IRRÉVERSIBLE.</text>
+                }
+                else
+                {
+                    <text>Aucun document n'est prêt à l'envoi : il n'y a rien à envoyer.</text>
+                }
+            </p>
+            <div class="doc-send-confirm__actions">
+                <StratumButton Text="@(_sendInProgress ? "Envoi en cours…" : "Confirmer l'envoi")"
+                               Variant="ButtonVariant.Primary"
+                               Size="ButtonSize.Small"
+                               Disabled="@(_sendInProgress || _sendAllSummary is null || _sendAllSummary.Count == 0)"
+                               OnClick="ConfirmSendAllAsync"
+                               TestId="documents-send-all-confirm-button" />
+                <StratumButton Text="Annuler"
+                               Variant="ButtonVariant.Secondary"
+                               Outline
+                               Size="ButtonSize.Small"
+                               Disabled="@_sendInProgress"
+                               OnClick="CancelSendAll"
+                               TestId="documents-send-all-cancel" />
+            </div>
+        </div>
+    }
+
     @* ── Synthèse PERMANENTE par état (F10 §2.1). Périmètre = période + type (clic = filtre État).
        Décision assumée : le bandeau est une synthèse de PÉRIMÈTRE (comme les compteurs du tableau de
        bord WEB01), volontairement INDÉPENDANTE de la recherche libre « / » de la grille (un quick-find
@@ -85,6 +133,7 @@ else
                       ColumnTemplates="_columnTemplates"
                       GridKey="Liakont.Documents"
                       RowActions="_rowActions"
+                      BulkActions="_bulkActions"
                       CustomFilterPredicate="MatchesCustomFilters"
                       ActiveCustomFilterCount="_activeCustomFilterCount"
                       CustomFilterVersion="_customFilterVersion"
@@ -96,22 +145,26 @@ else
                       ExportFormats="@(ExportFormat.Csv | ExportFormat.Excel | ExportFormat.Pdf)"
                       ExportFileName="documents">
         <ToolbarActions>
-            @* Actions d'envoi PRÉSENTES mais désactivées : branchées en WEB05 (F10). Le title porte
-               l'explication opérateur. *@
-            <span class="doc-send-action" title="Action disponible une fois l'envoi branché (WEB05).">
-                <StratumButton Text="Envoyer la sélection"
-                               Variant="ButtonVariant.Secondary"
-                               Size="ButtonSize.Small"
-                               Disabled="true"
-                               TestId="documents-send-selection" />
-            </span>
-            <span class="doc-send-action" title="Action disponible une fois l'envoi branché (WEB05).">
+            @* Actions d'envoi (WEB05), MASQUÉES sans la permission liakont.actions (lecture seule). « Envoyer
+               la sélection » est la barre d'actions groupées de la grille (multi-sélection) — proposée seulement
+               quand BulkActions est fourni (donc seulement aux porteurs de la permission). Ici : « Tout envoyer »
+               (avec confirmation) et « Lancer un traitement ». L'application réelle reste serveur (service
+               in-process tenant-scopé), aucune logique fiscale dans la page. *@
+            @if (_canAct)
+            {
                 <StratumButton Text="Tout envoyer"
                                Variant="ButtonVariant.Secondary"
                                Size="ButtonSize.Small"
-                               Disabled="true"
+                               Disabled="@_sendInProgress"
+                               OnClick="OpenSendAllConfirmAsync"
                                TestId="documents-send-all" />
-            </span>
+                <StratumButton Text="Lancer un traitement"
+                               Variant="ButtonVariant.Secondary"
+                               Size="ButtonSize.Small"
+                               Disabled="@_sendInProgress"
+                               OnClick="TriggerRunAsync"
+                               TestId="documents-trigger-run" />
+            }
         </ToolbarActions>
         <EmptyContent>
             <p data-testid="documents-empty">Aucun document ne correspond à ces critères.</p>
@@ -139,6 +192,16 @@ else
     private int _periodEpoch;
     private int _customFilterVersion;
     private int _activeCustomFilterCount;
+
+    // ── Actions d'envoi (WEB05) ── Permission d'action opérateur + état de l'UI d'envoi. Sans liakont.actions :
+    // _canAct=false, _bulkActions=null (pas de sélection ni de barre d'actions groupées), aucun bouton d'envoi.
+    private bool _canAct;
+    private IReadOnlyList<BulkActionConfig<DocumentSummaryDto>>? _bulkActions;
+    private bool _sendInProgress;
+    private string? _sendFeedback;
+    private bool _sendFailed;
+    private bool _confirmSendAllVisible;
+    private DocumentSendSummary? _sendAllSummary;
 
     private readonly IReadOnlyList<GridRowAction<DocumentSummaryDto>> _rowActions;
     private readonly Dictionary<string, RenderFragment<DocumentSummaryDto>> _columnTemplates;
@@ -194,6 +257,23 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        // Permission d'action opérateur (WEB05) : les actions d'envoi ne sont proposées qu'aux porteurs de
+        // liakont.actions. Sans cette permission, AUCUNE barre d'actions groupées (BulkActions null → pas de
+        // sélection) et aucun bouton d'envoi dans la barre d'outils — la page reste consultable en lecture.
+        _canAct = Permissions.HasPermission(LiakontPermissions.Actions);
+        if (_canAct)
+        {
+            _bulkActions =
+            [
+                new BulkActionConfig<DocumentSummaryDto>(
+                    Id: "send-selection",
+                    Label: "Envoyer la sélection",
+                    Permission: LiakontPermissions.Actions,
+                    PermissionDisabledReason: "La permission « actions » (liakont.actions) est requise pour envoyer.",
+                    Execute: SendSelectionAsync),
+            ];
+        }
+
         var today = DateOnly.FromDateTime(DateTime.Today);
         _from = new DateOnly(today.Year, today.Month, 1);
         _to = _from.AddMonths(1).AddDays(-1);
@@ -324,5 +404,111 @@ else
     {
         // L'input HTML type=date émet toujours « yyyy-MM-dd » (format invariant).
         return DateOnly.TryParseExact(raw as string, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
+    }
+
+    // ── Actions d'envoi (WEB05) ── La page orchestre l'UI (confirmation, retour) et délègue TOUTE l'action au
+    // service in-process IDocumentSendActions (publication du déclencheur tenant + audit, comme les endpoints
+    // API02a / runs-trigger) — aucune logique fiscale ni machine à états ici (CLAUDE.md n°19).
+
+    /// <summary>Ouvre la confirmation du « Tout envoyer » : récapitule d'abord les documents prêts (nombre + montant total).</summary>
+    private async Task OpenSendAllConfirmAsync()
+    {
+        _sendFeedback = null;
+        _sendFailed = false;
+        try
+        {
+            _sendAllSummary = await SendActions.SummarizeReadyToSendAsync();
+        }
+        catch (Exception ex)
+        {
+            // Le récapitulatif n'a pas pu être calculé : on ouvre quand même la confirmation, qui affiche alors
+            // « aucun document » et désactive l'envoi (jamais d'envoi sur un total inconnu). L'échec est tracé.
+            _sendAllSummary = null;
+            Logger.LogError(ex, "Failed to summarize ready-to-send documents for the send-all confirmation.");
+        }
+
+        _confirmSendAllVisible = true;
+    }
+
+    /// <summary>Annule le « Tout envoyer » sans rien déclencher.</summary>
+    private void CancelSendAll()
+    {
+        _confirmSendAllVisible = false;
+        _sendAllSummary = null;
+    }
+
+    /// <summary>Confirme le « Tout envoyer » : déclenche l'envoi groupé du tenant et affiche le retour opérateur.</summary>
+    private async Task ConfirmSendAllAsync()
+    {
+        if (_sendInProgress)
+        {
+            return;
+        }
+
+        _sendInProgress = true;
+        try
+        {
+            var result = await SendActions.SendAllAsync();
+            _sendFeedback = result.Message;
+            _sendFailed = !result.Success;
+        }
+        catch (Exception ex)
+        {
+            _sendFailed = true;
+            _sendFeedback = "L'envoi n'a pas pu être déclenché pour le moment. Réessayez plus tard.";
+            Logger.LogError(ex, "Send-all action failed.");
+        }
+        finally
+        {
+            _sendInProgress = false;
+            _confirmSendAllVisible = false;
+            _sendAllSummary = null;
+        }
+    }
+
+    /// <summary>Déclenche manuellement un traitement du tenant (« Lancer un traitement ») et affiche le retour opérateur.</summary>
+    private async Task TriggerRunAsync()
+    {
+        if (_sendInProgress)
+        {
+            return;
+        }
+
+        _sendInProgress = true;
+        _sendFeedback = null;
+        _sendFailed = false;
+        try
+        {
+            var result = await SendActions.TriggerRunAsync();
+            _sendFeedback = result.Message;
+            _sendFailed = !result.Success;
+        }
+        catch (Exception ex)
+        {
+            _sendFailed = true;
+            _sendFeedback = "Le traitement n'a pas pu être déclenché pour le moment. Réessayez plus tard.";
+            Logger.LogError(ex, "Trigger run action failed.");
+        }
+        finally
+        {
+            _sendInProgress = false;
+        }
+    }
+
+    /// <summary>
+    /// Callback de la barre d'actions groupées (« Envoyer la sélection ») : déclenche l'envoi des documents
+    /// sélectionnés (validation par document côté service) et affiche le retour opérateur agrégé. Les refus
+    /// métier reviennent en RÉSULTAT (pas d'exception) ; un échec inattendu remonte au cadre de la grille.
+    /// </summary>
+    private async Task SendSelectionAsync(IReadOnlyList<DocumentSummaryDto> selected)
+    {
+        var ids = selected.Select(d => d.Id).ToList();
+        var result = await SendActions.SendSelectionAsync(ids);
+        _sendFeedback = result.Message;
+        _sendFailed = !result.Success;
+
+        // La barre d'actions groupées appartient à DeclaredListPage : on force le re-rendu de CETTE page pour
+        // afficher le retour opérateur (le cadre de la grille ne re-rend que lui-même après l'action groupée).
+        StateHasChanged();
     }
 }

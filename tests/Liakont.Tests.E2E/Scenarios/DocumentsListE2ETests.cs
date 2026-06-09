@@ -10,9 +10,10 @@ using Xunit.Abstractions;
 /// Test E2E de la page Documents (WEB02) : un utilisateur de rôle <c>lecture</c> se connecte (flux OIDC
 /// Keycloak), navigue depuis la section « Documents » de la navigation maître Liakont et voit la vue
 /// centrale — titre, barre de filtres métier (F10 §2.1), synthèse par état et grille (gabarit
-/// DeclaredListPage). Les actions d'envoi sont présentes mais désactivées (branchées en WEB05). Le
+/// DeclaredListPage). Sans <c>liakont.actions</c>, les actions d'envoi (WEB05) sont MASQUÉES. Le
 /// comportement détaillé des filtres et des compteurs est couvert par les tests bUnit ; ici on prouve
-/// le parcours réel (navigation → page rendue) de bout en bout.
+/// le parcours réel (navigation → page rendue) de bout en bout. La vue/déclenchement des actions d'envoi
+/// par un opérateur est couvert par DocumentSendActionsE2ETests.
 /// </summary>
 [Trait("Category", "E2E")]
 public sealed class DocumentsListE2ETests : KeycloakBaseE2ETest
@@ -59,9 +60,11 @@ public sealed class DocumentsListE2ETests : KeycloakBaseE2ETest
         (await Page.Locator("[data-testid='doc-counts-all']").IsVisibleAsync())
             .Should().BeTrue("la synthèse par état s'affiche au-dessus de la liste");
 
-        // Actions d'envoi présentes mais désactivées (branchées en WEB05).
-        var sendSelection = Page.Locator("[data-testid='documents-send-selection']");
-        (await sendSelection.IsVisibleAsync()).Should().BeTrue("le bouton « Envoyer la sélection » est présent");
-        (await sendSelection.IsDisabledAsync()).Should().BeTrue("il reste désactivé tant que l'envoi n'est pas branché");
+        // Actions d'envoi MASQUÉES pour un utilisateur lecture (WEB05) : sans liakont.actions, ni « Tout
+        // envoyer », ni « Lancer un traitement », ni barre d'actions groupées « Envoyer la sélection ».
+        (await Page.Locator("[data-testid='documents-send-all']").CountAsync())
+            .Should().Be(0, "sans liakont.actions, « Tout envoyer » est masqué");
+        (await Page.Locator("[data-testid='documents-trigger-run']").CountAsync())
+            .Should().Be(0, "sans liakont.actions, « Lancer un traitement » est masqué");
     }
 }
