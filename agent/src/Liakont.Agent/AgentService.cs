@@ -18,9 +18,14 @@ internal sealed class AgentService : ServiceBase
     private AgentHost? _host;
     private FileAgentLog? _log;
 
-    public AgentService()
+    public AgentService(AgentInstance instance)
     {
-        ServiceName = "LiakontAgent";
+        if (instance is null)
+        {
+            throw new ArgumentNullException(nameof(instance));
+        }
+
+        ServiceName = instance.ServiceName;
         CanStop = true;
         CanShutdown = true;
     }

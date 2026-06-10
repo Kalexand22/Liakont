@@ -8,13 +8,16 @@ using Liakont.Agent.Adapters.EncheresV6;
 using Liakont.Agent.Cli.Commands;
 using Liakont.Agent.Cli.Diagnostics;
 using Liakont.Agent.Core;
-using Liakont.Agent.Core.Hosting;
 using Liakont.Agent.Core.Security;
 
 /// <summary>
 /// CLI de diagnostic et de mise en service de l'agent (F12 §2.1, AGT05) : check-config, test-odbc,
 /// test-api, encrypt, run, show-queue, version. Outil utilisé par l'intégrateur/éditeur ; messages
 /// 100 % français (CLAUDE.md n°12) ; codes de retour 0 = OK, 1 = problème détecté, 2 = erreur.
+/// <para>
+/// Option globale <c>--instance &lt;nom&gt;</c> (multi-instances, OPS05 pt 5) : cible la
+/// configuration, la file locale et le verrou de run de CETTE instance (défaut : Default).
+/// </para>
 /// <para>
 /// Composition root : il câble les commandes à leurs dépendances réelles (DPAPI, sondes ODBC/HTTP,
 /// file locale, verrou de run partagé). Les commandes elles-mêmes restent testables avec des doublures.
@@ -30,10 +33,18 @@ internal static class Program
     {
         TryEnableUtf8Console();
 
+        if (!AgentInstance.TryFromCommandLine(args, out AgentInstance instance, out string[] remaining, out string? instanceError))
+        {
+            Console.Error.WriteLine(instanceError);
+            return CliExitCode.ExecutionError;
+        }
+
+        AgentPaths.Initialize(instance);
+
         try
         {
-            CommandRouter router = BuildRouter();
-            return router.Execute(args, Console.Out);
+            CommandRouter router = BuildRouter(instance);
+            return router.Execute(remaining, Console.Out);
         }
         catch (Exception ex)
         {
@@ -44,7 +55,7 @@ internal static class Program
         }
     }
 
-    private static CommandRouter BuildRouter()
+    private static CommandRouter BuildRouter(AgentInstance instance)
     {
         ISecretProtector protector = new DpapiSecretProtector();
         string configPath = AgentPaths.ConfigPath;
@@ -56,7 +67,7 @@ internal static class Program
             new TestOdbcCommand(configPath, protector, OdbcProbe.Probe),
             new TestApiCommand(configPath, protector, HttpPlatformProbe.Probe),
             new EncryptCommand(protector, Console.In),
-            new RunCommand(NeutralRunCycle, InterProcessRunLock.DefaultMutexName, RunLockAcquireTimeout),
+            new RunCommand(NeutralRunCycle, instance.RunMutexName, RunLockAcquireTimeout),
             new ShowQueueCommand(() => LocalQueueSnapshotReader.Read(AgentPaths.DatabasePath)),
             new VersionCommand(),
         };

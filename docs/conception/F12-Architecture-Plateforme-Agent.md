@@ -13,6 +13,14 @@
 > séparé** (`liakont-agent`), son contrat partagé via **NuGet versionné** — voir **ADR-0005** ; la
 > bascule outillage/orchestration est différée aux lots AGT/SOL02 (jusque-là l'agent reste dans
 > `agent/` et `verify-fast` build les deux solutions).
+>
+> **Amendement 2026-06-10 (multi-instances, OPS05 pt 5)** : l'agent supporte **plusieurs instances
+> sur un même poste** (serveur SaaS mutualisé d'un éditeur : N bases clientes = N services, un par
+> base). Une instance est identifiée par son **nom** (option `--instance <nom>`, défaut `Default`)
+> qui dérive le service (`LiakontAgent$<nom>`), le mutex de run (`Global\LiakontAgentRun-<nom>`) et
+> la racine de données (`%ProgramData%\Liakont\<nom>\`) — voir `Liakont.Agent.Core/AgentInstance.cs`.
+> Les chemins cités en §2.3/§2.4 (« `C:\ProgramData\Liakont\…` ») se lisent comme ceux de
+> l'instance **Default**, strictement inchangés (compat installations déployées).
 
 ---
 
