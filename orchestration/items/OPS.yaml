@@ -3,6 +3,10 @@
 # Réfs décisions 2026-06-03 : 3 topologies (self-hosted éditeur / dédiée hébergée / mutualisée),
 # marque grise = une instance par éditeur, réversibilité = item de V1 (pas une option).
 # Absorbe l'ex-lot PKG (packaging) du manifest v5.
+# Réf décision 2026-06-10 (engagement Isatech, serveur SaaS mutualisé type AZMUT : N bases
+# clientes sur une même machine) : MULTI-INSTANCES de l'agent = un service Windows par base.
+# Exigence portée par OPS05 (script d'installation + prérequis code agent), OPS08a (champ
+# instanceName du moteur de profil) et OPS08b (wizard : détection/installation par instance).
 
 items:
   # OPS01 re-découpé en OPS01a/b/c (2026-06-07, v15) : appliance build+run / sauvegarde-restauration-PRA / ADR topologie IdP — un livrable atomique par sous-item.
@@ -212,16 +216,36 @@ items:
       4. docs/installation-agent.md : prérequis (Windows 7 SP1+, .NET Framework 4.8, driver
          ODBC source), installation pas à pas, configuration, vérification (CLI check-config /
          test-odbc / test-api), dépannage des erreurs courantes. Public : intégrateur/éditeur.
-      5. Test : le package x86 ET x64 s'installe sur machine propre, le service démarre,
-         le CLI check-config passe.
+      5. MULTI-INSTANCES (décision 2026-06-10, engagement Isatech — serveur SaaS mutualisé type
+         AZMUT : N bases clientes sur une même machine = N agents, un service par base) :
+         le script d'installation accepte un NOM D'INSTANCE (défaut « Default ») et dérive TOUT
+         de ce nom : service Windows « LiakontAgent$<instance> », dossier d'installation des
+         binaires par instance, ProgramData par instance (C:\ProgramData\Liakont\<instance>\ —
+         mêmes ACL qu'AGT01), buffer SQLite et logs par instance.
+         PRÉREQUIS CODE AGENT porté par cet item (petite reprise du lot AGT, déjà mergé) :
+         rendre paramétrables par instance —
+         - le ServiceName en dur (AgentService.cs, AgentServiceInstaller.cs, Program.cs --install) ;
+         - le mutex inter-processus Global\LiakontAgentRun (InterProcessRunLock.cs) : DOIT être
+           suffixé par le nom d'instance, sinon deux instances partagent le même verrou de run ;
+         - les chemins ProgramData (config, buffer, logs, marqueur heartbeat) ;
+         - l'updater (AGT04/Updater) cible le service et les binaires de SON instance uniquement.
+         L'instance « Default » garde un comportement identique à l'existant (compat installations
+         mono-instance déjà déployées : mêmes noms, mêmes chemins).
+      6. Test : le package x86 ET x64 s'installe sur machine propre, le service démarre,
+         le CLI check-config passe. PUIS coexistence : une DEUXIÈME instance s'installe sur la
+         même machine (nom distinct) — deux services distincts, configs/buffers/logs distincts,
+         runs simultanés sans interférence (verrous indépendants), désinstallation de l'une
+         sans impact sur l'autre.
     acceptance:
       - "package-agent.ps1 produit les packages x86 et x64"
       - "Règle de choix x86/x64 documentée (x86 par défaut si adaptateur ODBC 32-bit ; même bitness service/adaptateurs)"
       - "SQLite.Interop.dll de la bonne plateforme dans chaque package (testé sur les deux)"
       - "ACL ProgramData posées par l'installeur (service + CLI — exigence AGT01)"
       - "Pré-configuration par tenant fonctionnelle (clé jamais en clair dans le package)"
+      - "Multi-instances : nom d'instance paramétrable dérivant service + ProgramData + mutex de run + logs (ServiceName et mutex en dur repris dans le code agent ; instance Default = comportement identique à l'existant)"
+      - "Coexistence de 2 instances sur la même machine testée (services, configs, runs indépendants ; désinstallation sélective)"
       - "Installation testée sur machine propre (service démarre, check-config passe)"
-      - "docs/installation-agent.md exécutable par un intégrateur"
+      - "docs/installation-agent.md exécutable par un intégrateur (section multi-instances incluse)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -349,12 +373,19 @@ items:
          JAMAIS imposée par le profil (secret).
       4. Garde-fous : apiKey jamais imposée ; secrets destinés à agent.json chiffrés DPAPI (machine
          scope, SecretProtector AGT01).
-      5. Tests unitaires du moteur : profil pilotant la visibilité (3 états + défaut ouvert), masquage
-         sans valeur rejeté, apiKey non imposable, champ requis résolu.
+      5. MULTI-INSTANCES (décision 2026-06-10, cas AZMUT — voir OPS05 pt 5) : « instanceName » est
+         un champ DÉCLARÉ du moteur de profil comme les autres (3 états + valeur par défaut
+         « Default ») — un profil intégrateur « hébergeur SaaS » peut ainsi l'afficher en premier,
+         un profil mono-site peut le masquer (avec sa valeur par défaut). La validation de schéma
+         rejette un instanceName vide ou contenant des caractères invalides pour un nom de
+         service Windows.
+      6. Tests unitaires du moteur : profil pilotant la visibilité (3 états + défaut ouvert), masquage
+         sans valeur rejeté, apiKey non imposable, champ requis résolu, instanceName validé (format).
     acceptance:
       - "Projet Liakont.Agent.Installer (WinForms net48) réutilisant Agent.Core + commandes AGT05 (aucune logique dupliquée)"
       - "Moteur de profil déclaratif : 3 états (affiché/verrouillé/masqué) + valeur par défaut, défaut ouvert, itération data-driven"
       - "Validation de schéma : clé inconnue / masqué sans valeur / requis non résolu = erreur"
+      - "Champ instanceName déclaré dans le moteur (3 états + défaut « Default »), format de nom de service validé"
       - "Garde-fous testés : apiKey jamais imposée par le profil ; aucun if(integrateur) (review)"
       - "Tests unitaires du moteur de profil"
       - "verify-fast passes"
@@ -374,13 +405,21 @@ items:
          puis écriture de agent.json avec secrets chiffrés DPAPI (SecretProtector AGT01) ; check-config
          final affiché en clair.
       4. Mode silencieux (fichier de réponses) partageant le MÊME moteur de configuration que le wizard.
-      5. Test du wizard (Liakont.Agent.Core mocké) : déroulé complet, tests source/serveur, mode
-         silencieux, agent.json écrit avec secrets chiffrés DPAPI.
+      5. MULTI-INSTANCES (décision 2026-06-10, cas AZMUT — voir OPS05 pt 5) : le wizard DÉTECTE les
+         instances Liakont déjà installées sur la machine (services LiakontAgent$*), les affiche,
+         propose le nom de la nouvelle instance (champ instanceName du profil OPS08a, unicité
+         vérifiée) et installe service + config + binaires DE CETTE INSTANCE sans toucher aux
+         autres. La désinstallation cible une instance précise. Cas nominal du serveur SaaS
+         éditeur : enchaîner N installations sur la même machine, une par base cliente.
+      6. Test du wizard (Liakont.Agent.Core mocké) : déroulé complet, tests source/serveur, mode
+         silencieux, agent.json écrit avec secrets chiffrés DPAPI, détection d'instances existantes
+         + refus d'un nom déjà pris.
     acceptance:
       - "Wizard : écran source (CheckHealth lecture seule) + écran serveur central (heartbeat à blanc) avec tests"
       - "Écriture agent.json avec secrets chiffrés DPAPI (clé API + ODBC) — vérifié"
       - "Mode silencieux partageant le moteur de configuration du wizard"
-      - "Test du wizard (Core mocké) : déroulé complet + tests source/serveur"
+      - "Multi-instances : détection des instances existantes, unicité du nom, installation d'une nouvelle instance sans impact sur les autres, désinstallation sélective"
+      - "Test du wizard (Core mocké) : déroulé complet + tests source/serveur + détection/refus de doublon d'instance"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 

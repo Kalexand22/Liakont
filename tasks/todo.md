@@ -1,45 +1,67 @@
-# PIP04 — Rectificatifs e-reporting (flux RE annule-et-remplace)
+# Reprise multi-instances de l'agent (prérequis OPS05) — 2026-06-10
 
-Session orchestration : `orch-20260607-010607-slot1` · slot-1 · sous-branche `feat/pipeline-PIP04`.
+Session interactive, branche `feat/agent-multi-instance` (depuis main). Décision opérateur
+2026-06-10 (engagement Isatech, serveur SaaS mutualisé type AZMUT : N bases clientes sur une
+même machine = N agents, un service par base). Spec : OPS05 pt 5 (orchestration/items/OPS.yaml,
+inscrit ce jour). Porte UNIQUEMENT la reprise du code agent (les scripts d'installation,
+le packaging et le wizard restent dans OPS05/OPS08).
 
-## Source fiscale (jamais inventée)
-- F07-F08 §B.1 : correction e-reporting (B2C / paiements) = **flux rectificatif type RE** qui
-  **annule et remplace l'ensemble des données agrégées de la période** (par SIREN + période).
-- F09 §5.4 : trop-perçu / remboursement = montant négatif dans l'agrégat (via rectificatif RE — cf. F7).
-- Périmètre item (re-découpage 2026-06-06) : PIP04 = **mécanisme RE** (builder + idempotence + capacité +
-  historique append-only) sur l'infra d'agrégation **PIP03a**. Les rectificatifs de PAIEMENT (10.4) ne
-  portent de données réelles qu'une fois **PIP03b** actif (fenêtrage + envoi, GELÉ). Le mécanisme RE des
-  e-reporting B2C (10.3) + correction sur avoir/altération source restent V1.
+## Constat (verrous actuels)
+- `AgentService.cs:23` + `AgentServiceInstaller.cs:29` + `Program.cs` : ServiceName « LiakontAgent » en dur
+- `InterProcessRunLock.cs:24` : mutex `Global\LiakontAgentRun` partagé par toutes les instances
+- `AgentPaths.cs` : racine `C:\ProgramData\Liakont` unique
 
-## Conception (100 % dans le module Pipeline — frontières respectées)
-- Projection PIP03a `pipeline.payment_aggregations` (jour×taux, `IPaymentAggregationStore.GetAllAsync`)
-  = source des lignes corrigées. Les bornes de période sont une ENTRÉE (pas de fenêtrage = PIP03b).
-- `SendPaymentReportAsync(PaymentReportPeriod{Flux,Start,End})` existe déjà (ne porte pas de lignes — PIP03b
-  les enrichira). Capacité `SupportsReportRectification` existe déjà.
-- Journal `pipeline.report_rectifications` APPEND-ONLY (triggers base) — DISTINCT de `payment_aggregate_events`
-  (audit de transmission écrit par PIP03b) et de la projection (recalculée).
+## Conception
+- Nouveau `Liakont.Agent.Core/AgentInstance.cs` : identité d'instance validée
+  (`^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$`, noms réservés : logs, update-work, périphériques Windows),
+  « Default » (insensible à la casse) = instance par défaut. Dérivations centralisées :
+  ServiceName (`LiakontAgent` / `LiakontAgent$<nom>`), DisplayName, RunMutexName
+  (`Global\LiakontAgentRun` / `Global\LiakontAgentRun-<nom>`), DataDirectory
+  (`%ProgramData%\Liakont` / `%ProgramData%\Liakont\<nom>`).
+  Parsing ligne de commande : `TryFromCommandLine(args, out instance, out remaining, out error)`
+  (option `--instance <nom>`, partagée service + CLI).
+- `AgentPaths` : `Initialize(AgentInstance)` au démarrage du process (garde : pas de bascule
+  d'instance en cours de process), chemins dérivés de l'instance courante. Instance Default =
+  chemins STRICTEMENT identiques à l'existant (compat installations déployées).
+- `AgentService` : ctor prend l'instance → ServiceName dynamique.
+- `AgentServiceInstaller` : paramètre d'installation `/instance=<nom>` (Context.Parameters) →
+  ServiceName/DisplayName dynamiques + ImagePath enrichi de `--instance <nom>` (instances
+  nommées seulement ; Default = ImagePath inchangé).
+- `Program.cs` (service) : parse `--instance`, Initialize, passe `/instance=` à l'installeur,
+  messages français avec le nom de service réel.
+- CLI `Program.cs` : option globale `--instance` (avant le nom de commande), RunCommand
+  verrouillé sur le mutex DE L'instance ; ligne d'usage ajoutée.
+- Updater/MutexRunActivityProbe : déjà paramétrables (serviceName/mutexName en paramètres) —
+  aucun changement ; le câblage prod futur passera par AgentInstance.
 
 ## Tâches
-- [ ] Domain : `RectificationLine`, `ReportRectification`, `ReportRectificationStatus`, `RectificationBuilder`
-      (pur, decimal-only, empreinte SHA-256 déterministe — annule-et-remplace, toutes les lignes de la période).
-- [ ] Application : `IReportRectificationLedger` + `ReportRectificationEntry` (+ réf Transmission.Contracts pour `PaymentReportFlux`).
-- [ ] Contracts : `PipelineRunType.Rectify` (+ `RectifyReportsAllTrigger`).
-- [ ] Infrastructure :
-      - `V005__create_report_rectifications_table.sql` (append-only, triggers UPDATE/DELETE/TRUNCATE).
-      - `PostgresReportRectificationLedger` (Dapper, montants en chaînes invariantes, jamais float).
-      - `ReportRectificationService` (build -> idempotence -> capacité -> transmission Fake -> journal + RunLog).
-      - `ReportRectificationTenantJob` (ITenantJob) + `RectifyReportsAllFanOutHandler` (fan-out SOL06).
-      - DI dans `PipelineModuleRegistration`.
-- [ ] Tests.Unit : `RectificationBuilderTests` (complétude, déterminisme du hash, decimal, filtrage bornes, tri).
-- [ ] Tests.Integration : `ReportRectificationIntegrationTests` (Testcontainer Postgres) —
-      avoir sur période déclarée, rectificatif manuel, PA sans capacité (PendingCapability, aucun envoi),
-      idempotence (double déclenchement = 1 seule transmission), append-only (UPDATE/DELETE rejeté).
-- [ ] Docs module : INV-PIPELINE-033..036 + SCENARIOS.
-- [ ] verify-fast vert · run-tests vert · codex-review propre.
+- [x] `AgentInstance.cs` (Core) + `AgentInstanceTests` (validation, dérivations, parsing args)
+- [x] `AgentPaths.cs` : Initialize/Current + `ResetForTesting` (InternalsVisibleTo Core.Tests ajouté au csproj) + `AgentPathsTests`
+- [x] `AgentService.cs` : ctor(AgentInstance)
+- [x] `AgentServiceInstaller.cs` : /instance= + ImagePath (OnBeforeInstall/OnBeforeUninstall)
+- [x] `Program.cs` service : --instance + messages avec le nom de service réel
+- [x] CLI `Program.cs` : --instance global + mutex d'instance + usage (CommandRouter)
+- [x] Amendement daté en tête de F12 (chemins §2.3/§2.4 = instance Default)
+- [x] verify-fast (2 solutions) PASS, tests EXÉCUTÉS (agent: unit-tests 66 s, plateforme verte)
+- [ ] codex-review boucle propre
+- [ ] Commit (merge humain ensuite — PR)
 
-## Invariants clés (anti-régression fiscale)
-- Montants `decimal`, jamais float (hash + persistance via chaînes invariantes).
-- Aucune règle fiscale inventée : le rebuild ne fait que re-sommer les lignes existantes de la période.
-- Capacité absente = en attente (jamais d'envoi à l'aveugle, jamais de blocage produit).
-- Journal append-only (triggers base) ; ancien état jamais effacé.
-- Pipeline ne référence aucun plug-in PA concret (NetArchTest) ; tenant-scopé.
+## Review
+- Round 1 : 1 P1 — mutex d'instance sensible à la casse alors que les chemins Windows ne le
+  sont pas (« ClientA » service vs « clienta » CLI = même file SQLite mais deux verrous → runs
+  concurrents possibles). Fix : composante instance du RunMutexName canonicalisée en
+  majuscules + test `Case_variants_of_the_same_name_share_the_same_run_mutex`.
+  verify-fast re-PASS après fix.
+- Round 2 : 1 P2 — « éditer orchestration/items/OPS.yaml en session interactive viole le
+  workflow ». **ACCEPTÉ avec justification** : l'inscription de l'exigence multi-instances dans
+  OPS05/OPS08a/b est une décision OPÉRATEUR explicite du 2026-06-10 (Karl : « go »), prise hors
+  orchestration comme les re-découpages v12-v17 du manifest. Aucun item ajouté ni retiré (pas de
+  risque « manifest sans state »), aucun changement de manifest.yaml/protocol.md ; seules les
+  descriptions d'items NON ENCORE EXÉCUTÉS (lot OPS, pas commencé) sont enrichies. La règle
+  « ignore orchestration files » du CLAUDE.md s'applique au travail de dev autonome, pas aux
+  décisions de backlog portées par l'opérateur.
+- Note outillage : codex-review.ps1 sort exit 1 (« neither findings nor sentinel ») même quand
+  le reviewer produit des findings exploitables — le parsing du sentinel ne reconnaît pas le
+  format de sortie du moteur codex. À signaler (faux « engine failure », pattern lessons.md
+  2026-06-02 n°2 sur les faux verts/rouges d'outillage) ; les findings ont été traités
+  manuellement (P1 fixé, P2 accepté ci-dessus).

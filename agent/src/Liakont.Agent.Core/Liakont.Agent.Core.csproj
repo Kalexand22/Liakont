@@ -1,5 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- ResetForTesting d'AgentPaths (état statique de processus) : accessible au projet de test. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Agent.Core.Tests" />
+  </ItemGroup>
+
   <!-- Contrat partagé agent <-> plateforme (cross-solution, vers src/Contracts).
        Règle de frontière (blueprint.md §6) : Core ne référence QUE Liakont.Agent.Contracts,
        jamais un projet de la plateforme (src/Host, src/Modules, src/Common). -->
