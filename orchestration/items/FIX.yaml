@@ -3,7 +3,7 @@
 # (commits e934a35..5690c66 du dépôt d'état) — détail, evidence et suggested_fix y sont consignés.
 # Branche : feat/console-web (segment console-web). La gate GATE_CONSOLE_WEB dépend des items P1.
 #
-# ── DÉCISIONS OPÉRATEUR (à confirmer avant lancement — défauts recommandés inscrits) ──
+# ── DÉCISIONS OPÉRATEUR — CONFIRMÉES par Karl le 2026-06-11 (les défauts ci-dessous font foi) ──
 # D1 (FIX01a) point d'entrée de l'import de seed tenant : DevTenantSeeder étendu (dev) + endpoint
 #    admin SystemAdmin (prod). Défaut recommandé : les deux.
 # D2 (FIX01b) création de la table TVA : bouton UI sur l'état vide + création implicite à la
