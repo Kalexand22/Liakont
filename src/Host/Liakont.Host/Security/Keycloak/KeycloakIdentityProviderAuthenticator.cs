@@ -292,6 +292,11 @@ internal sealed class KeycloakIdentityProviderAuthenticator : IIdentityProviderA
         options.ClaimActions.MapUniqueJsonKey(
             System.Security.Claims.ClaimTypes.NameIdentifier, "sub");
 
+        // Conserve le claim « iss » dans le cookie (le handler OIDC le SUPPRIME par défaut) :
+        // OidcIssuerTenantResolver peut alors résoudre le tenant du circuit Blazor même sans
+        // sous-domaine (bug-inbox « amorçage console », facette résolution de tenant circuit).
+        options.ClaimActions.Remove("iss");
+
         // Post-logout redirect: Keycloak sends the user here after end_session
         options.SignedOutRedirectUri = postLogoutRedirectUri;
 

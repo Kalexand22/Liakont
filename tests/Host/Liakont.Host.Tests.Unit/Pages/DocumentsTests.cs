@@ -41,6 +41,9 @@ public sealed class DocumentsTests : BunitContext
         // Les tests qui exercent l'envoi RÉ-ENREGISTRENT IPermissionService (canAct: true) et un faux configuré.
         Services.AddScoped<IDocumentSendActions>(_ => new FakeSendActions());
         Services.AddScoped<IPermissionService>(_ => new FakePermissionService(canAct: false));
+
+        // Mémoire de circuit des filtres (issue #33) : instance fraîche par test (vide par défaut).
+        Services.AddScoped<DocumentsListFilterMemory>();
     }
 
     [Fact]
@@ -264,6 +267,87 @@ public sealed class DocumentsTests : BunitContext
 
         cut.Markup.Should().Contain("BOBBY");
         cut.Markup.Should().NotContain("ALICE");
+    }
+
+    // ── Persistance des filtres (issue GitHub #33) ── Les filtres survivent à l'aller-retour vers la
+    // fiche détail : publiés dans l'URL (lien partageable, bouton Précédent) ET dans la mémoire de
+    // circuit (le « Retour à la liste » de la fiche est un lien statique /documents sans query).
+    [Fact]
+    public void Changing_A_Filter_Should_Publish_It_To_The_Url_And_The_Circuit_Memory()
+    {
+        Services.AddScoped<IDocumentConsoleQueries>(_ => FakeDocumentConsoleQueries.Returning(
+            Doc("2018", "invoice", "Issued"),
+            Doc("2019", "invoice", "Blocked")));
+
+        var cut = Render<Documents>();
+        cut.Find("[data-testid='documents-filter-state']").Change("Blocked");
+
+        var nav = Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
+        nav.Uri.Should().Contain("etat=Blocked", "le filtre État est publié dans l'URL (lien partageable, retour navigateur)");
+        nav.Uri.Should().Contain("du=", "la période est publiée dans l'URL");
+
+        var memory = Services.GetRequiredService<DocumentsListFilterMemory>();
+        memory.State.Should().Be("Blocked", "le filtre État est mémorisé pour le « Retour à la liste » de la fiche");
+        memory.From.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Rendering_With_Filter_Query_Parameters_Should_Restore_The_Filters()
+    {
+        Services.AddScoped<IDocumentConsoleQueries>(_ => FakeDocumentConsoleQueries.Returning(
+            Doc("2018", "invoice", "Issued", customer: "ALICE"),
+            Doc("2019", "invoice", "Blocked", customer: "BOBBY")));
+
+        var nav = Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
+        nav.NavigateTo("/documents?du=2026-06-01&au=2026-06-30&etat=Blocked");
+
+        var cut = Render<Documents>();
+
+        cut.Find("[data-testid='documents-filter-state']").GetAttribute("value").Should().Be("Blocked");
+        cut.Markup.Should().Contain("BOBBY");
+        cut.Markup.Should().NotContain("ALICE", "le filtre État restauré depuis l'URL s'applique dès le premier rendu");
+
+        // L'URL alimente AUSSI la mémoire de circuit : après l'ouverture d'un lien partagé, le
+        // « Retour à la liste » de la fiche (lien statique /documents) retrouve les mêmes filtres.
+        var memory = Services.GetRequiredService<DocumentsListFilterMemory>();
+        memory.State.Should().Be("Blocked");
+        memory.From.Should().Be(new DateOnly(2026, 6, 1));
+    }
+
+    [Fact]
+    public void Rendering_With_An_Unknown_State_In_The_Url_Should_Fall_Back_To_All()
+    {
+        Services.AddScoped<IDocumentConsoleQueries>(_ => FakeDocumentConsoleQueries.Returning(
+            Doc("2018", "invoice", "Issued", customer: "ALICE")));
+
+        var nav = Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
+        nav.NavigateTo("/documents?etat=NImporteQuoi");
+
+        var cut = Render<Documents>();
+
+        // URL retouchée à la main : la clé d'état inconnue est ignorée, jamais d'erreur.
+        cut.Find("[data-testid='documents-filter-state']").GetAttribute("value").Should().BeNullOrEmpty();
+        cut.Markup.Should().Contain("ALICE");
+    }
+
+    [Fact]
+    public void Rendering_After_A_Detail_Round_Trip_Should_Restore_The_Memorized_Filters()
+    {
+        Services.AddScoped<IDocumentConsoleQueries>(_ => FakeDocumentConsoleQueries.Returning(
+            Doc("2018", "invoice", "Issued", customer: "ALICE"),
+            Doc("2019", "invoice", "Blocked", customer: "BOBBY")));
+
+        // Simule le retour depuis la fiche détail dans le MÊME circuit : la mémoire contient les
+        // derniers filtres, l'URL (/documents, lien statique du bouton « Retour à la liste ») est nue.
+        var memory = Services.GetRequiredService<DocumentsListFilterMemory>();
+        memory.Remember(new DateOnly(2026, 6, 1), new DateOnly(2026, 6, 30), "Blocked", typeLabel: null);
+
+        var cut = Render<Documents>();
+
+        cut.Find("[data-testid='documents-filter-state']").GetAttribute("value").Should().Be("Blocked");
+        cut.Markup.Should().Contain("BOBBY");
+        cut.Markup.Should().NotContain("ALICE", "les filtres mémorisés sont restaurés au retour de la fiche");
+        cut.Find("[data-testid='documents-filter-from']").GetAttribute("value").Should().Be("2026-06-01");
     }
 
     [Fact]

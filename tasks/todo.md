@@ -1,34 +1,51 @@
-# Housekeeping — suites de l'audit projet (2026-06-10)
+# Lot bugs console — issues GitHub #31/#32/#33 + bug-inbox console-web (2026-06-10)
 
-Session interactive (hors orchestration), branche `feat/console-web`. Audit complet du repo
-(5 agents : architecture, tests, dette, tooling, docs) → verdict globalement sain ; ce lot
-traite les actions rapides retenues par Karl.
+Session interactive autonome (hors orchestration), branche `feat/console-web`. Sources :
+les 3 issues GitHub ouvertes (captures BugCapture) + les 4 entrées P2 de
+`bug-inbox.jsonl` (repo d'orchestration, tests humains GATE_CONSOLE_WEB).
 
 ## Tâches
-- [x] Versionner le script de seed démo : `.dev-seed-demo-docs.ps1` (racine, untracked) →
-      `tools/dev-seed-demo-docs.ps1` (en-tête révisé : usage, données 100% fictives, clé d'agent jamais versionnée)
-- [x] Annoter `deploy/docker/docker-compose.keycloak.yml` : avertissement explicite
-      « defaults dev uniquement, jamais en prod sans KC_DB_PASSWORD/KC_ADMIN_PASSWORD »
-- [x] bUnit pages Host restantes sans test : `LoginTests` (5 facts : formulaire local,
-      redirection OIDC, déjà-authentifié, anti open-redirect, sans HttpContext),
-      `LogoutTests` (3 facts : GET sans signout, POST→oidc-logout, POST legacy signout cookie),
-      `UserPreferencesPageTests` (2 facts : rendu anonyme sans lecture base, reflet des préférences persistées)
-- [x] CLAUDE.md : règle review 19 + checklist — périmètre du P1 « page sans test » précisé :
-      pages Liakont (Host + Liakont.Modules.*) ; socle vendored Stratum.Modules.* non modifié exempté
-- [x] verify-fast PASS (les 2 solutions ; 10 nouveaux tests bUnit EXÉCUTÉS et verts)
-- [x] codex-review boucle propre (round 1 : 1 P2 ; round 2 : clean)
-
-## Constats d'audit NON traités ici (assumés / suivis ailleurs)
-- Handlers des modules socle (Identity/Audit/Job) sans tests unitaires : même logique de
-  périmètre que les pages socle — couvert par l'exemption consignée dans CLAUDE.md.
-- TODO(PIP03b) et TODO(ADR-0012) : items du manifest, hors scope.
-- Module Party Contracts-only, double lignée Stratum.*/Liakont.* : design assumé (vendoring tracé).
+- [x] Bug-inbox « collision Agents » : entrée nav Liakont renommée « Agents d'extraction »
+      (`LiakontNavSectionProvider`) — libellé socle Stratum intouché ; +2 tests nav
+- [x] Issue #31 (en-tête redondant) : h1 des pages de section masqués visuellement
+      (`.visually-hidden`, a11y conservée) ; l'onglet TabBar devient le seul titre visible →
+      segments Liakont ajoutés à `LocalizedTabTitleProvider` + clés resx FR accentuées.
+      Les pages de DÉTAIL (Document n°, Supervision tenant) gardent leur h1 (info propre)
+- [x] Issue #32 (blocs/carrés) : `DocumentCountsBanner` re-stylé en pastilles compactes
+      (nombre + badge côte à côte, arrondis, transitions, tabular-nums) — CSS uniquement
+- [x] Issue #33 (filtres perdus) : filtres période/état/type publiés dans l'URL
+      (`du/au/etat/type`, replace, coexiste avec les `filter=` de DeclaredListPage) +
+      mémoire de circuit `DocumentsListFilterMemory` pour le lien statique « Retour à la
+      liste » ; restauration URL > mémoire > défauts, tolérante ; +4 tests bUnit
+- [x] Bug-inbox « langue jamais appliquée » (décision Karl) : `DefaultCulture = fr` ;
+      `PersistedLanguageRequestCultureProvider` (base = source de vérité, cache 5 min
+      invalidé au changement, cookie = repli anonyme) ; middleware localisation déplacé
+      APRÈS l'authentification ; `IsLanguageActive` aligné sur la culture effective ;
+      +8 tests provider
+- [x] Bug-inbox « company context » (triage) : cause dev = seed sans company_id → claim
+      `company_id` codé en dur dans le realm dev (société fictive). La dégradation
+      gracieuse des pages Notification reste NON faite : socle vendored (modification =
+      provenance), l'exception reste visible et tracée — assumé
+- [x] Bug-inbox « amorçage console » : realm dev usernames courts (lecture/operateur/
+      parametrage/superviseur, e-mails conservés) ; `DevTenantSeeder` (Development +
+      section `DevTenantSeed` uniquement, idempotent, base système seulement) amorce le
+      tenant `default` rattaché à `liakont-dev` ; claim `iss` conservé dans le cookie
+      (`ClaimActions.Remove("iss")`) → `OidcIssuerTenantResolver` fonctionne sur le
+      circuit sans sous-domaine ; doc `deploy/docker/README.md`. Le chemin SystemAdmin /
+      `/admin/tenants` reste production (documenté), non requis pour l'amorçage dev
+- [x] verify-fast PASS (2 solutions) ; tests unit Host verts (dont 16 nouveaux)
+- [x] run-tests (intégration) PASS — 4 572 tests (plateforme + agent x86/x64)
+- [x] codex-review boucle propre (4 rounds)
 
 ## Review
-- Round 1 : 1 P2 — l'en-tête du script de seed annonçait « montants en decimal » mais les
-  littéraux PowerShell sont des double et `totalGross` était une addition IEEE-754.
-  Fix : casts `[decimal]` sur totalNet/totalTax/totalGross (sérialisation vérifiée :
-  `125 + 6.88 → 131.88` propre via ConvertTo-Json).
-- Round 2 : clean (re-review confirmant tests non faux-verts, payload conforme au contrat
-  agent v1, narrowing CLAUDE.md assumé). verify-fast PASS antérieur au fix ; le fix ne touche
-  qu'un script PowerShell hors périmètre de build — syntaxe revalidée par PSParser.
+- Round 1 : 1 P2 — le provider de culture lisait la base SYSTÈME (localisation avant
+  résolution du tenant) alors que identity.user_preferences est PER-TENANT : en
+  database-per-tenant la préférence n'aurait jamais été relue. Fix : middleware
+  `UseRequestLocalization` déplacé APRÈS `UseStratumMultiTenancy`.
+- Round 2 : 1 P2 — contrat « changer la langue invalide UserCultureCache » non testé
+  (régression silencieuse possible). Fix : fact bUnit `Switching_The_Language_Invalidates_
+  The_User_Culture_Cache` (cache pré-rempli, clic « fr », cache vidé + préférence persistée).
+- Round 3 : 1 P2 — `RestoreFilters` depuis l'URL n'alimentait pas la mémoire de circuit :
+  lien partagé → fiche → « Retour à la liste » perdait les filtres. Fix :
+  `FilterMemory.Remember(...)` avant le `return` + assertion dans le test de restauration URL.
+- Round 4 : CLEAN. verify-fast + tests re-exécutés après le dernier changement de code.

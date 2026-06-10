@@ -7,6 +7,20 @@ html, body {
     color: var(--color-text-primary);
 }
 
+/* Titre de page pour lecteurs d'écran uniquement : l'onglet du TabBar porte déjà le nom
+   de la page à l'écran (issue #31 — en-tête redondant), on garde le h1 pour l'accessibilité. */
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 .error-message {
     color: var(--color-error-500);
     font-size: 0.875rem;

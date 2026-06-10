@@ -10,16 +10,18 @@
 @using Liakont.Host.Documents
 @using Liakont.Host.Security
 @using Liakont.Modules.Documents.Contracts.DTOs
+@using Microsoft.AspNetCore.WebUtilities
 @using Stratum.Common.Abstractions.Security
 @inject IDocumentConsoleQueries DocumentQueries
 @inject IDocumentSendActions SendActions
 @inject IPermissionService Permissions
+@inject DocumentsListFilterMemory FilterMemory
 @inject NavigationManager Nav
 @inject ILogger<Documents> Logger
 
 <PageTitle>Documents — Liakont</PageTitle>
 
-<h1>Documents</h1>
+<h1 class="visually-hidden">Documents</h1>
 
 @if (_loadFailed)
 {
@@ -301,7 +303,11 @@ else
         var today = DateOnly.FromDateTime(DateTime.Today);
         _from = new DateOnly(today.Year, today.Month, 1);
         _to = _from.AddMonths(1).AddDays(-1);
+        RestoreFilters();
         await ReloadPeriodAsync();
+        // Le type restauré a pu être réinitialisé par RecomputeTypeOptions (absent du périmètre) :
+        // le compteur de filtres actifs est calculé APRÈS le chargement.
+        _activeCustomFilterCount = (_selectedState is null ? 0 : 1) + (_selectedType is null ? 0 : 1);
     }
 
     private Task<IReadOnlyList<DocumentSummaryDto>> LoadItemsAsync() => Task.FromResult(_periodSet);
@@ -330,6 +336,7 @@ else
         {
             _from = date;
             await ReloadPeriodAsync();
+            PersistFilters();
         }
     }
 
@@ -339,6 +346,7 @@ else
         {
             _to = date;
             await ReloadPeriodAsync();
+            PersistFilters();
         }
     }
 
@@ -366,7 +374,91 @@ else
     {
         _activeCustomFilterCount = (_selectedState is null ? 0 : 1) + (_selectedType is null ? 0 : 1);
         _customFilterVersion++;
+        PersistFilters();
         StateHasChanged();
+    }
+
+    // ── Persistance des filtres (issue GitHub #33) ── Deux supports complémentaires : l'URL (query
+    // string — lien partageable, bouton Précédent du navigateur) et la mémoire de circuit (le « Retour
+    // à la liste » de la fiche détail est un lien statique /documents sans query). L'URL est PRIORITAIRE
+    // à la restauration. Restauration tolérante : valeur illisible → ignorée (une URL retouchée à la
+    // main ne casse jamais la page).
+
+    /// <summary>Restaure les filtres depuis l'URL, sinon depuis la mémoire de circuit, sinon les défauts.</summary>
+    private void RestoreFilters()
+    {
+        var query = QueryHelpers.ParseQuery(new Uri(Nav.Uri).Query);
+        var restoredFromUrl = false;
+
+        if (query.TryGetValue("du", out var duRaw) && TryParseDate(duRaw.ToString(), out var du))
+        {
+            _from = du;
+            restoredFromUrl = true;
+        }
+
+        if (query.TryGetValue("au", out var auRaw) && TryParseDate(auRaw.ToString(), out var au))
+        {
+            _to = au;
+            restoredFromUrl = true;
+        }
+
+        if (query.TryGetValue("etat", out var etatRaw))
+        {
+            var etat = etatRaw.ToString();
+            // Seule une clé d'état CONNUE est restaurée (l'URL est une entrée utilisateur).
+            if (DocumentStateDisplay.CanonicalOrder.Contains(etat, StringComparer.Ordinal))
+            {
+                _selectedState = etat;
+            }
+
+            restoredFromUrl = true;
+        }
+
+        if (query.TryGetValue("type", out var typeRaw))
+        {
+            // Libellé d'affichage : validé contre le périmètre par RecomputeTypeOptions après chargement.
+            _selectedType = NormalizeSelection(typeRaw.ToString());
+            restoredFromUrl = true;
+        }
+
+        if (restoredFromUrl)
+        {
+            // Aligne la mémoire de circuit sur l'URL : après l'ouverture d'un lien partagé, le
+            // « Retour à la liste » de la fiche (lien statique /documents) retrouve aussi les filtres.
+            FilterMemory.Remember(_from, _to, _selectedState, _selectedType);
+            return;
+        }
+
+        if (FilterMemory.From is { } memorizedFrom && FilterMemory.To is { } memorizedTo)
+        {
+            _from = memorizedFrom;
+            _to = memorizedTo;
+            _selectedState = FilterMemory.State;
+            _selectedType = FilterMemory.TypeLabel;
+        }
+    }
+
+    /// <summary>
+    /// Publie les filtres courants dans la mémoire de circuit et dans l'URL (replace : pas d'entrée
+    /// d'historique par changement de filtre). Les autres paramètres de query (dont les « filter » de
+    /// la grille DeclaredListPage) sont préservés par GetUriWithQueryParameters.
+    /// </summary>
+    private void PersistFilters()
+    {
+        FilterMemory.Remember(_from, _to, _selectedState, _selectedType);
+
+        var target = Nav.GetUriWithQueryParameters(new Dictionary<string, object?>
+        {
+            ["du"] = _from.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            ["au"] = _to.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            ["etat"] = _selectedState,
+            ["type"] = _selectedType,
+        });
+
+        if (!string.Equals(target, Nav.Uri, StringComparison.Ordinal))
+        {
+            Nav.NavigateTo(target, replace: true);
+        }
     }
 
     // Prédicat de filtre CLIENT appliqué par DeclaredListPage : état exact + type (par libellé d'affichage).

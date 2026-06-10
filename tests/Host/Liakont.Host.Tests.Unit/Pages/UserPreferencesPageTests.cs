@@ -23,6 +23,10 @@ public sealed class UserPreferencesPageTests : BunitContext
         Services.AddLogging();
         Services.AddLocalization();
         Services.AddSingleton<IUserPreferencesService>(_preferencesService);
+
+        // Cache de langue du provider de culture : invalidé par le panneau au changement de langue.
+        Services.AddMemoryCache();
+        Services.AddSingleton<Liakont.Host.Localization.UserCultureCache>();
     }
 
     [Fact]
@@ -57,6 +61,31 @@ public sealed class UserPreferencesPageTests : BunitContext
         {
             cut.Find("[data-testid='pref-theme-dark']").GetAttribute("aria-pressed").Should().Be("true");
             cut.Find("[data-testid='pref-density-compact']").GetAttribute("aria-pressed").Should().Be("true");
+        });
+    }
+
+    [Fact]
+    public void Switching_The_Language_Invalidates_The_User_Culture_Cache()
+    {
+        // Culture effective déterministe : « en » actif → le bouton « fr » est cliquable.
+        System.Globalization.CultureInfo.CurrentUICulture = System.Globalization.CultureInfo.GetCultureInfo("en");
+
+        var userId = Guid.NewGuid();
+        UseUser(AuthenticatedUser(userId));
+        _preferencesService.Stored = UserPreferences.Default;
+
+        var cut = Render<PreferencesPage>();
+        var cache = Services.GetRequiredService<Liakont.Host.Localization.UserCultureCache>();
+        cache.Set(userId, "en");
+
+        cut.Find("[data-testid='pref-language-fr']").Click();
+
+        // Sans l'invalidation, le provider de culture relirait « en » depuis le cache (TTL 5 min)
+        // au rechargement : la nouvelle langue ne s'appliquerait pas immédiatement (bug-inbox langue).
+        cut.WaitForAssertion(() =>
+        {
+            cache.TryGet(userId, out _).Should().BeFalse("le changement de langue doit invalider le cache du provider");
+            _preferencesService.Stored!.Language.Should().Be("fr");
         });
     }
 

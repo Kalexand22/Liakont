@@ -97,6 +97,11 @@ public static class AppBootstrap
         // Localization
         builder.Services.AddLocalization();
 
+        // Cache court de la préférence de langue persistée (PersistedLanguageRequestCultureProvider) :
+        // la base reste la source de vérité, sans lecture par requête.
+        builder.Services.AddMemoryCache();
+        builder.Services.AddSingleton<Liakont.Host.Localization.UserCultureCache>();
+
         // Localized tab title provider — registered before AddCommonUI so TryAdd doesn't override.
         builder.Services.AddScoped<Stratum.Common.UI.Services.ITabTitleProvider, LocalizedTabTitleProvider>();
 
@@ -403,6 +408,10 @@ public static class AppBootstrap
         // sur la liste paginée serveur, aucune troncature) hors de la page.
         builder.Services.AddScoped<Liakont.Host.Documents.IDocumentConsoleQueries, Liakont.Host.Documents.DocumentConsoleQueryService>();
 
+        // Mémoire de circuit des filtres de la liste Documents (issue #33) : le « Retour à la liste »
+        // de la fiche détail retrouve la liste telle que l'opérateur l'avait filtrée.
+        builder.Services.AddScoped<Liakont.Host.Documents.DocumentsListFilterMemory>();
+
         // Composition en lecture de la page détail document (WEB03a) : assemble en-tête + piste d'audit +
         // motif de blocage courant + référence d'archive d'un document, hors de la page.
         builder.Services.AddScoped<Liakont.Host.Documents.IDocumentDetailConsoleQueries, Liakont.Host.Documents.DocumentDetailConsoleQueryService>();
@@ -476,6 +485,10 @@ public static class AppBootstrap
     public static async Task InitializeDataAsync(WebApplication app)
     {
         app.MigrateDatabase();
+
+        // Seed dev du tenant par défaut (Development uniquement, section DevTenantSeed) — AVANT la
+        // migration des tenants existants pour que le tenant amorcé soit migré dans la même passe.
+        await app.SeedDevTenantAsync();
         await MigrateExistingTenantsAsync(app);
         await app.Services.SeedAdminUserAsync();
         await SeedRealmRegistryFromDatabaseAsync(app);
@@ -489,7 +502,17 @@ public static class AppBootstrap
         contentTypeProvider.Mappings[".module"] = "application/javascript";
         app.UseStaticFiles(new StaticFileOptions { ContentTypeProvider = contentTypeProvider });
 
-        // Localization middleware — must be before authentication so culture is available for all requests
+        app.UseAuthentication();
+        app.UseStratumMultiTenancy();
+
+        // Localisation APRÈS l'authentification ET la résolution du tenant : la préférence Language
+        // PERSISTÉE de l'utilisateur (base = source de vérité — décision opérateur 2026-06-10,
+        // bug-inbox console-web) prime sur le cookie. Le provider lit les claims du principal
+        // authentifié, et identity.user_preferences est une table PAR TENANT : la lecture passe par
+        // TenantScopedConnectionFactory, qui exige un tenant déjà résolu pour router vers la bonne
+        // base (en database-per-tenant, lire avant la résolution retomberait silencieusement sur la
+        // base système, où la préférence n'existe pas). Le cookie .AspNetCore.Culture ne sert que de
+        // repli pour les requêtes anonymes (ex. /login).
         app.UseRequestLocalization(new RequestLocalizationOptions
         {
             DefaultRequestCulture = new RequestCulture(SupportedCultures.DefaultCulture),
@@ -497,12 +520,11 @@ public static class AppBootstrap
             SupportedUICultures = SupportedCultures.All,
             RequestCultureProviders =
             [
+                new Liakont.Host.Localization.PersistedLanguageRequestCultureProvider(),
                 new CookieRequestCultureProvider { CookieName = ".AspNetCore.Culture" },
             ],
         });
 
-        app.UseAuthentication();
-        app.UseStratumMultiTenancy();
         app.UseAuthorization();
         app.UseAntiforgery();
         app.UseRateLimiter();

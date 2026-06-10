@@ -55,7 +55,9 @@ internal sealed class LiakontNavSectionProvider : INavSectionProvider
         // scope tenant.
         if (_permissions.HasPermission(LiakontPermissions.Settings))
         {
-            items.Add(new NavItem("Agents", "/agents"));
+            // « Agents d'extraction » (pas « Agents ») : la nav Stratum a déjà une entrée « Agents »
+            // (/admin/agents, utilisateurs de la console) — libellé socle non modifiable (CLAUDE.md n°11).
+            items.Add(new NavItem("Agents d'extraction", "/agents"));
         }
 
         // Supervision : réservée au superviseur (vues cross-tenant en lecture seule, module Supervision).

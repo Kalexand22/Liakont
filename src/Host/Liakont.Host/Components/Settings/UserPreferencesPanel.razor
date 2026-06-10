@@ -14,6 +14,7 @@
 @inject IStringLocalizer<HostResources> L
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IUserPreferencesService PreferencesService
+@inject Liakont.Host.Localization.UserCultureCache CultureCache
 @inject ILogger<UserPreferencesPanel> Logger
 
 @* UserPreferencesPanel — reusable preferences form (GUX06).
@@ -110,7 +111,6 @@
 @code {
     private bool _isDark;
     private string _density = UserPreferences.DensityStandard;
-    private string? _persistedLanguage;
     private int _gridPageSize = 25;
     private Guid _userId;
     private bool _themeFromDb;
@@ -155,8 +155,6 @@
             {
                 return;
             }
-
-            _persistedLanguage = preferences.Language;
 
             // Only treat the DB value as authoritative when it is an explicit
             // light/dark choice. Theme == "system" means the user has not
@@ -225,15 +223,12 @@
         }
     }
 
-    private bool IsLanguageActive(string cultureName)
+    private static bool IsLanguageActive(string cultureName)
     {
-        // Prefer the DB-persisted language so the highlighted button always
-        // matches the source of truth, even if the culture cookie is stale.
-        if (!string.IsNullOrEmpty(_persistedLanguage))
-        {
-            return _persistedLanguage.StartsWith(cultureName, StringComparison.OrdinalIgnoreCase);
-        }
-
+        // La culture EFFECTIVE de la session fait foi. Depuis que PersistedLanguageRequestCultureProvider
+        // pilote la culture des requêtes authentifiées depuis la base, culture effective == préférence
+        // persistée ; surligner la valeur base quand le rendu est dans une autre langue masquerait une
+        // désynchronisation au lieu de la montrer (bug-inbox console-web, 2026-06-10).
         return string.Equals(
             CultureInfo.CurrentUICulture.TwoLetterISOLanguageName,
             cultureName,
@@ -245,7 +240,9 @@
         if (_userId != Guid.Empty && Liakont.Host.Localization.SupportedCultures.IsSupported(culture))
         {
             await TryPersistAsync(p => p with { Language = culture });
-            _persistedLanguage = culture;
+            // Le provider de culture lit la base à travers un cache court : on l'invalide pour que le
+            // rechargement (setCulture) applique la nouvelle langue immédiatement.
+            CultureCache.Invalidate(_userId);
         }
 
         try

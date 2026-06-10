@@ -69,6 +69,25 @@ public sealed class LiakontNavSectionProviderTests
     }
 
     [Fact]
+    public void GetSection_Should_Label_The_Extraction_Agents_Entry_Distinctly_From_Stratum_Agents()
+    {
+        var section = BuildProvider(permissions: [LiakontPermissions.Settings]).GetSection();
+
+        // La nav Stratum (Annuaire) a déjà une entrée « Agents » (/admin/agents) : l'entrée Liakont
+        // doit porter un libellé distinct pour ne pas confondre les deux concepts (bug-inbox console-web).
+        Labels(section).Should().Contain("Agents d'extraction");
+        Labels(section).Should().NotContain("Agents");
+    }
+
+    [Fact]
+    public void GetSection_Should_Hide_Extraction_Agents_Without_Settings_Permission()
+    {
+        var section = BuildProvider(permissions: []).GetSection();
+
+        Labels(section).Should().NotContain("Agents d'extraction");
+    }
+
+    [Fact]
     public void GetSection_Should_Hide_Supervision_Without_Permission()
     {
         var section = BuildProvider(permissions: []).GetSection();

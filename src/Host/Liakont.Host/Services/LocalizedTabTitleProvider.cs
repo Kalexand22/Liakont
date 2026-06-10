@@ -31,6 +31,17 @@ internal sealed class LocalizedTabTitleProvider(IStringLocalizer<HostResources> 
 
         // Notification module
         ["routing"] = "Tab_RoutingRules",
+
+        // Console Liakont — l'onglet est le SEUL titre visible de la page (le h1 est
+        // masqué visuellement, issue #31) : libellés français accentués obligatoires.
+        ["documents"] = "Tab_Documents",
+        ["encaissements"] = "Tab_Encaissements",
+        ["traitements"] = "Tab_Traitements",
+        ["reconciliation"] = "Tab_Reconciliation",
+        ["parametrage"] = "Tab_Parametrage",
+        ["table-tva"] = "Tab_TableTva",
+        ["supervision"] = "Tab_Supervision",
+        ["agents"] = "Tab_AgentsExtraction",
     };
 
     public string GetTitle(string url)
