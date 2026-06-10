@@ -68,7 +68,13 @@ meta:
   #   realm Keycloak → claims "permission" depuis la matrice §3 de identity-permissions-liakont.md
   #   (aucune règle inventée). Recâblage : WEB05 +IDN01 (déblocage réel) ; GATE_CONSOLE_WEB +IDN01
   #   (le segment n'est pas « done » tant que le permission-gating ne marche pas sous OIDC).
-  version: 17
+  # version 18 = lot FIX (recette humaine GATE_CONSOLE_WEB du 2026-06-10/11, 19 findings dans
+  #   $ORCH_REPO/bug-inbox.jsonl) : FIX01a-d (provisioning OPS03 jamais câblé : profil tenant,
+  #   table TVA, comptes PA, plug-in Fake), FIX02 (audit recheck), FIX03 (vertical enchères),
+  #   FIX04-07 (P2 console/pipeline/dev-ex). Décisions opérateur D1-D7 inscrites dans items/FIX.yaml.
+  #   Recâblage : GATE_CONSOLE_WEB += {FIX01a, FIX01b, FIX01c, FIX01d, FIX02, FIX03} (P1 bloquants
+  #   de gate ; les P2 du lot restent hors gate).
+  version: 18
   host: multi_agent_v1
 
 segments:
@@ -130,7 +136,7 @@ segments:
   console-web:
     branch: feat/console-web
     base: main
-    lots: [API, WEB, SUP, IDN]
+    lots: [API, WEB, SUP, IDN, FIX]
     gate: GATE_CONSOLE_WEB
     depends_on_gate: [GATE_PIPELINE, GATE_AGENT]
 
@@ -293,7 +299,21 @@ items:
   - { id: SUP01c, lot: SUP, priority: 6704, depends_on: [SUP01b] }
   - { id: SUP02, lot: SUP, blueprint: blazor-page-item, priority: 6710, depends_on: [SUP01a, WEB01] }
   - { id: SUP03, lot: SUP, priority: 6720, depends_on: [SUP01b] }
-  - { id: GATE_CONSOLE_WEB, type: gate, executor: human, priority: 6900, depends_on: [IDN01, WEB03b, WEB03c, WEB04a, WEB05, WEB06, WEB07b, WEB08, WEB09, SUP02, SUP03, API03] }
+  # ── FIX ──
+  - { id: FIX01a, lot: FIX, priority: 6800, depends_on: [] }
+  - { id: FIX01b, lot: FIX, priority: 6805, depends_on: [] }
+  - { id: FIX01c, lot: FIX, priority: 6810, depends_on: [] }
+  - { id: FIX01d, lot: FIX, priority: 6815, depends_on: [FIX01a, FIX01c] }
+  - { id: FIX02, lot: FIX, priority: 6820, depends_on: [] }
+  - { id: FIX03, lot: FIX, priority: 6825, depends_on: [] }
+  - { id: FIX04a, lot: FIX, blueprint: blazor-page-item, priority: 6830, depends_on: [] }
+  - { id: FIX04b, lot: FIX, blueprint: blazor-page-item, priority: 6835, depends_on: [] }
+  - { id: FIX05, lot: FIX, priority: 6840, depends_on: [] }
+  - { id: FIX06, lot: FIX, priority: 6845, depends_on: [] }
+  - { id: FIX07a, lot: FIX, blueprint: tooling-item, priority: 6850, depends_on: [] }
+  - { id: FIX07b, lot: FIX, priority: 6855, depends_on: [] }
+  - { id: FIX07c, lot: FIX, priority: 6860, depends_on: [] }
+  - { id: GATE_CONSOLE_WEB, type: gate, executor: human, priority: 6900, depends_on: [IDN01, WEB03b, WEB03c, WEB04a, WEB05, WEB06, WEB07b, WEB08, WEB09, SUP02, SUP03, API03, FIX01a, FIX01b, FIX01c, FIX01d, FIX02, FIX03] }
 
   # ── OPS ──
   # Ordre : OPS05 (packaging agent) précède OPS03 (assistant tenant, qui fournit le package
