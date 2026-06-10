@@ -1,0 +1,314 @@
+# Lot FIX — Corrections issues de la recette humaine GATE_CONSOLE_WEB (2026-06-10/11)
+# Source de chaque item : les entrées du 2026-06-10/11 dans $ORCH_REPO/bug-inbox.jsonl
+# (commits e934a35..5690c66 du dépôt d'état) — détail, evidence et suggested_fix y sont consignés.
+# Branche : feat/console-web (segment console-web). La gate GATE_CONSOLE_WEB dépend des items P1.
+#
+# ── DÉCISIONS OPÉRATEUR (à confirmer avant lancement — défauts recommandés inscrits) ──
+# D1 (FIX01a) point d'entrée de l'import de seed tenant : DevTenantSeeder étendu (dev) + endpoint
+#    admin SystemAdmin (prod). Défaut recommandé : les deux.
+# D2 (FIX01b) création de la table TVA : bouton UI sur l'état vide + création implicite à la
+#    première règle, EN PLUS de l'import de seed. Défaut recommandé : oui (les deux chemins).
+# D3 (FIX01c) écran de saisie/rotation de la clé API PA dans /parametrage : inclus dans ce lot.
+#    Défaut recommandé : oui (sans lui, aucun envoi réel ne sera jamais configurable).
+# D4 (FIX03) où vit l'activation du vertical enchères : paramétrage produit du TENANT (en base),
+#    défaut OFF. Jamais un flag doublonnant une capacité PA (CLAUDE.md n°8).
+# D5 (FIX06) périmètre multi-motifs du CHECK : minimal (garde-fou acheteur + contrôles de forme
+#    indépendants du mapping évalués même quand le mapping échoue). Défaut recommandé : minimal.
+# D6 (FIX07b) remède aux documents zombies : re-stage au re-push agent + emplacement de staging
+#    stable configurable. L'alerte supervision « en attente de contenu » part en fast-follow.
+# D7 (FIX07c) /admin/jobs : corriger la cible de nav côté Liakont si possible ; si la correction
+#    est dans Stratum.* vendored → consigner en provenance (CLAUDE.md n°11).
+#
+# Mapping bug-inbox → items :
+#   FIX01a profil tenant (P1) · FIX01b table TVA increable (P1) · FIX01c compte PA increable (P1)
+#   FIX01d plug-in Fake non câblé (P1) · FIX02 recheck sans audit (P1) · FIX03 part enchères (P1)
+#   + contrôle cohérence (P2) · FIX04a CSS couverture + grille non rafraîchie + tenant invisible
+#   (3 P2) · FIX04b actions enfouies (P2) · FIX05 feedback run d'envoi (P2) · FIX06 première cause
+#   seulement (P2) · FIX07a redirect_uri + import realm sauté + seed dates/lignes (4 P2)
+#   · FIX07b zombies staging (P2) · FIX07c /admin/jobs vide (P2)
+
+items:
+  FIX01a:
+    title: "Provisioning tenant (CFG02) : import de seed câblé + état « paramétrage incomplet » visible"
+    description: |
+      Bug-inbox P1 « Profil tenant (CFG02) sans aucun chemin de creation ». Le CHECK exige le
+      companyId du profil ; sans profil, tous les documents restent Detected et partent en
+      dead-letter sans AUCUN signal opérateur.
+      1. Câbler ImportTenantSeedCommand (module TenantSettings, format config/exemples/tenant-seed/)
+         sur deux points d'entrée (décision D1) : DevTenantSeeder étendu en Development (profil
+         fictif documenté, idempotent) ET endpoint admin POST /admin/tenants/{id}/seed (SystemAdmin,
+         chemin OPS03 production). Aucun secret écrit par l'import (INV-TENANTSETTINGS-007 inchangé).
+      2. Surface UI : quand le profil tenant est absent, le dashboard ET /parametrage affichent un
+         état explicite « Paramétrage du tenant incomplet — le traitement des documents est
+         suspendu » (message français, action corrective). Jamais le silence actuel.
+      3. Les événements dead-letter « aucun profil tenant » doivent redevenir traitables une fois le
+         profil créé : soit retry automatique à la création du profil, soit documentation du rejeu.
+      4. Tests d'intégration : ingestion sans profil → docs Detected + état UI visible ; création du
+         profil → CHECK passe. Tests EXÉCUTÉS.
+    acceptance:
+      - "DevTenantSeeder (Development) amorce profil tenant fictif idempotent ; un POST batch sur env dev vierge aboutit à des documents classés (pas de dead-letter CFG02)"
+      - "Endpoint admin de seed (SystemAdmin) important profil + fiscal + seuils depuis le format tenant-seed ; aucun secret écrit"
+      - "Dashboard + /parametrage : état « paramétrage incomplet — traitement suspendu » quand le profil manque (français, action corrective)"
+      - "Tests d'intégration exécutés (sans profil → suspendu visible ; avec profil → CHECK ok)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX01b:
+    title: "Table de mapping TVA créable : UI état vide + création à la première règle + import seed"
+    description: |
+      Bug-inbox P1 « Table de mapping TVA impossible a creer ». État vide sans bouton
+      (TableTvaView), AddMappingRuleHandler exige une table existante, MappingTableSeedReader
+      jamais invoqué hors tests, message opérateur renvoyant vers une console qui ne sait pas faire.
+      Décision D2 : les deux chemins.
+      1. UI : sur l'état « Aucune table TVA paramétrée », bouton [Créer la table] (permission
+         liakont.settings) créant une table vide NON VALIDÉE (version initiale, defaultBehavior
+         Block), journalisée dans MappingChangeLog. Le rapport de couverture et [Créer une règle]
+         deviennent alors disponibles.
+      2. Handler : AddMappingRuleCommand crée la table implicitement si absente (même chemin
+         journalisé), au lieu de NotFoundException.
+      3. Import de seed mapping (config/exemples/mapping-exemple.json via MappingTableSeedReader)
+         câblé sur le même point d'entrée OPS03 que FIX01a.
+      4. Le message opérateur de blocage « créez la table dans la console » devient exact.
+      5. Tests bUnit (état vide → bouton → table créée) + intégration (première règle crée la
+         table ; seed importé). EXÉCUTÉS.
+    acceptance:
+      - "État vide de /parametrage/table-tva : action de création visible (liakont.settings) ; table créée NON VALIDÉE + entrée MappingChangeLog"
+      - "Première règle sur tenant sans table : création implicite journalisée (plus de NotFoundException)"
+      - "Seed mapping importable par le point d'entrée OPS03 (table d'exemple → NON VALIDÉE, marqueur conservé)"
+      - "Tests bUnit + intégration exécutés"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX01c:
+    title: "Comptes PA configurables : import seed + écran de saisie/rotation de la clé API (chiffrée)"
+    description: |
+      Bug-inbox P1 « Compte Plateforme Agreee impossible a creer ». /parametrage est en lecture
+      seule, l'import pa-accounts.json n'a aucun point d'entrée, l'écran de saisie de clé annoncé
+      par config/exemples/tenant-seed/README.md n'existe pas. Décision D3 : inclus.
+      1. Import des comptes PA (pa-accounts.json, clé JAMAIS importée — placeholder) via le point
+         d'entrée OPS03 de FIX01a.
+      2. Écran /parametrage : création/édition d'un compte PA (plugin_type depuis le registre des
+         plug-ins enregistrés, environnement, identifiants de compte) + saisie/rotation de la clé
+         API — chiffrée en base par tenant (CLAUDE.md n°10), jamais réaffichée, masquée à l'écran.
+         Permission liakont.settings. Gabarit Stratum (DeclaredFormPage/StratumDialog).
+      3. Aucune fonctionnalité pilotée par un type de PA concret : seules les capacités déclarées
+         (PaCapabilities) pilotent (CLAUDE.md n°8).
+      4. Tests bUnit (écran) + intégration (création compte, chiffrement au repos, rotation).
+         EXÉCUTÉS.
+    acceptance:
+      - "Comptes PA importables par le point d'entrée OPS03 (sans clé) ; création/édition + saisie/rotation de clé depuis /parametrage (liakont.settings)"
+      - "Clé API chiffrée en base par tenant, jamais en clair (ni log, ni écran après saisie) — P1 CLAUDE.md n°10/18 respecté"
+      - "Aucun if sur un type de PA concret ; plugin_type proposé depuis le registre"
+      - "Tests bUnit + intégration exécutés"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX01d:
+    title: "Plug-in PA Fake câblé au Host (Development) — envoi exerçable de bout en bout en dev"
+    description: |
+      Bug-inbox P1 « Plug-in PA Fake (PAA02, done) jamais cable au Host ». Le Host ne référence
+      aucun projet PaClients : IPaClientRegistry ne résout rien, l'envoi est inexerçable partout.
+      1. Référencer Liakont.PaClients.Fake depuis le Host et appeler AddFakePaClient au composition
+         root, conditionné à l'environnement Development OU à une section de configuration explicite
+         (jamais actif par défaut en production). La frontière reste intacte : Transmission ne
+         référence aucun plug-in (CLAUDE.md n°6) — le câblage vit au composition root uniquement.
+      2. Seed dev : compte PA Fake actif (environnement non-Production) ajouté au DevTenantSeeder
+         (avec FIX01a/FIX01c).
+      3. Test de bout en bout en dev : batch agent → CHECK → ReadyToSend → SEND → Issued via Fake ;
+         piste d'audit complète ; visible dans la console (états Émis, onglet Archive). EXÉCUTÉ.
+    acceptance:
+      - "AddFakePaClient câblé au composition root (Development/config explicite) ; aucune référence PA concrète dans les modules (NetArchTest vert)"
+      - "Seed dev : compte PA Fake actif non-Production ; sur env dev vierge le parcours ingéré→émis se déroule sans intervention SQL"
+      - "Test d'intégration/E2E exécuté : ReadyToSend → Issued via Fake, événements d'audit complets, états visibles dans la console"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX02:
+    title: "Re-vérification : trace d'audit append-only + motif de blocage persisté à jour"
+    description: |
+      Bug-inbox P1 « Re-verification restee bloquee : AUCUNE trace dans la piste d'audit et motif
+      persiste perime ». DocumentRecheckService retourne StillBlocked sans persistance : action
+      opérateur invisible (F06), motif affiché périmé après rechargement.
+      1. Chaque re-vérification écrit un DocumentEvent append-only : horodatage, auteur (identité
+         opérateur), résultat (reste bloqué + motif réévalué / prêt à l'envoi). AUCUN chemin
+         update/delete sur document_events (CLAUDE.md n°4).
+      2. Le motif de blocage courant du document est mis à jour quand la réévaluation produit un
+         motif différent (le motif affiché = dernier évalué), sans réécrire l'historique.
+      3. Vérifier le même invariant pour le verdict B2C/B2B et « traiter manuellement » (tracés ?
+         compléter si trou).
+      4. Tests d'intégration : recheck infructueux → événement + motif à jour ; recheck fructueux →
+         événement + transition (déjà existant). EXÉCUTÉS.
+    acceptance:
+      - "Recheck (succès OU échec) = DocumentEvent append-only avec auteur et résultat ; aucun update/delete sur la piste"
+      - "Motif de blocage persisté = dernier évalué (l'onglet Contrôles n'affiche plus un motif périmé après rechargement)"
+      - "Verdict B2C/B2B et résolution manuelle vérifiés tracés (complétés si besoin)"
+      - "Tests d'intégration exécutés"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX03:
+    title: "Vertical enchères : part Adjudication/Frais derrière une activation tenant + cohérence du paramétrage"
+    description: |
+      Bug-inbox P1 « decoupage Adjudication/Frais (spe encheres) expose dans le produit generique »
+      + P2 « controle de coherence du parametrage TVA ». Décisions opérateur 2026-06-10 consignées
+      dans les deux entrées. Décision D4 : activation = paramétrage produit du tenant, défaut OFF.
+      1. Activation « vertical enchères » : paramètre de TENANT (en base, modifiable avec
+         liakont.settings, journalisé). Défaut OFF. JAMAIS un flag doublonnant une capacité PA.
+      2. Éditeur de règle TVA : quand l'activation est OFF, le champ part est masqué et la valeur
+         Autre est implicite ; quand ON, les trois parts sont proposées. Le rapport de couverture
+         pré-remplit TOUJOURS la part réellement observée.
+      3. Contrôle de cohérence du paramétrage (symétrique du rapport de couverture TVA03) : à la
+         création/édition ET avant « Marquer comme validée », signaler les règles MORTES (part
+         jamais consultée par le pipeline du tenant, code régime jamais observé). Avertissement
+         explicite avant validation — pas un blocage inventé, un signal.
+      4. Tests bUnit (masquage selon activation, avertissement règles mortes) + intégration
+         (activation tenant-scopée). EXÉCUTÉS.
+    acceptance:
+      - "Paramètre tenant « vertical enchères » (défaut OFF, liakont.settings, journalisé) ; champ part masqué quand OFF (Autre implicite), visible quand ON"
+      - "Couverture : part observée pré-remplie ; impossible de créer silencieusement une règle morte depuis ce chemin"
+      - "Rapport de cohérence avant validation : règles ne matchant aucune part consultée / aucun régime observé signalées explicitement"
+      - "Tests bUnit + intégration exécutés"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX04a:
+    title: "Console — mécanique UI : couverture TVA stylée, grille des règles rafraîchie, tenant courant visible"
+    description: |
+      Trois P2 bug-inbox : « Rapport de couverture TVA : code, libelle et compteur colles »,
+      « la liste des regles ne se rafraichit pas apres l'ajout », « Tenant courant invisible ».
+      1. CSS scoped pour la liste de couverture (espacement code / libellé / compteur / bouton),
+         cohérent avec le gabarit Stratum.
+      2. La grille « Table de mapping TVA » reflète création/modification/suppression sans
+         navigation (rebind du DeclaredListPage) ; idem la disparition du régime mappé dans la
+         section couverture. Test bUnit « la règle créée apparaît sans navigation ».
+      3. Afficher le tenant résolu (DisplayName) dans le chrome de la console (en-tête ou menu
+         utilisateur), en accès sous-domaine comme en hôte nu.
+    acceptance:
+      - "Liste de couverture lisible (espacement) — plus de « 0Exonere1 occurrence(s) »"
+      - "Mutations de règles visibles immédiatement (grille + couverture) ; test bUnit exécuté"
+      - "Tenant courant (DisplayName) visible sur toutes les pages console"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX04b:
+    title: "Détail document : barre d'actions permanente (plus d'actions enfouies dans les onglets)"
+    description: |
+      Bug-inbox P2 « Actions documents pas assez visibles - boutons enfouis dans les onglets ».
+      Décision opérateur 2026-06-10 : TOUTES les actions directement accessibles, principe valable
+      partout dans la console.
+      1. Détail document : barre d'actions permanente au niveau de l'en-tête (Revérifier, verdict
+         B2C/B2B, Traiter manuellement, Lier au remplaçant, Envoyer — selon état du document et
+         permission liakont.actions). Les onglets ne portent plus que du CONTENU.
+      2. Passer en revue les autres écrans console avec le même principe (au minimum : recenser et
+         consigner ce qui reste à déplacer si hors périmètre raisonnable de l'item).
+      3. Tests bUnit : visibilité des actions selon état + permission. EXÉCUTÉS.
+    acceptance:
+      - "Barre d'actions permanente sur le détail document (actions selon état + permission, masquées sans liakont.actions)"
+      - "Onglets = contenu uniquement ; aucune action accessible UNIQUEMENT via un onglet"
+      - "Revue des autres écrans faite (corrigé ou consigné)"
+      - "Tests bUnit exécutés"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX05:
+    title: "Résultat des runs d'envoi remonté à l'opérateur (fin du « Traitement déclenché » silencieux)"
+    description: |
+      Bug-inbox P2 « Resultat du traitement d'envoi jamais remonte a l'operateur ». Le run terminé
+      sans envoi (ex. aucun compte PA actif) ressemble à un succès ; le motif n'existe que dans les
+      logs serveur.
+      1. Chaque run d'envoi (manuel ou planifié) produit une entrée visible dans /traitements avec
+         son résultat : documents envoyés/rejetés OU « aucun envoi » + motif opérateur français
+         (« aucun compte Plateforme Agréée actif... »).
+      2. Pour un run déclenché depuis la console : notification/bandeau de fin sur la page
+         (succès, partiel, rien-envoyé+motif) — pas de polling manuel.
+      3. Un run qui n'envoie rien pour cause de paramétrage manquant n'est JAMAIS présenté comme un
+         succès silencieux.
+      4. Tests d'intégration (run sans compte PA → motif visible) + bUnit (bandeau). EXÉCUTÉS.
+    acceptance:
+      - "/traitements : chaque run d'envoi visible avec résultat et motif français quand rien n'est parti"
+      - "Run manuel : feedback de fin visible sur la page d'origine (succès / partiel / rien + motif)"
+      - "Tests intégration + bUnit exécutés"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX06:
+    title: "CHECK : motifs de blocage indépendants agrégés (l'opérateur voit tout ce qui est corrigeable)"
+    description: |
+      Bug-inbox P2 « Le CHECK ne remonte que la premiere cause de blocage ». Early-returns en
+      cascade : l'opérateur découvre les couches une par une à coups de Revérifier. Décision D5 :
+      périmètre MINIMAL — les volets indépendants du mapping (garde-fou acheteur B2B/B2C, contrôles
+      de forme ne dépendant pas de l'enrichissement TVA) sont évalués et agrégés au motif même
+      quand le mapping échoue. La garde-fou production et les étapes réellement dépendantes
+      restent séquentielles. AUCUNE validation affaiblie (CLAUDE.md n°3) — on en montre PLUS, pas
+      moins.
+      Tests : document cumulant « table absente » + « acheteur pro » → les DEUX motifs dans le
+      blocage. EXÉCUTÉS.
+    acceptance:
+      - "Un document à causes multiples indépendantes affiche tous les motifs indépendants du mapping dès le premier CHECK"
+      - "Aucun contrôle affaibli ; ordre des couches documenté pour les volets restant séquentiels"
+      - "Tests d'intégration exécutés (cas multi-motifs)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX07a:
+    title: "Bring-up dev : realm complet (redirect sous-domaine), reset Keycloak outillé, seed transmissible"
+    description: |
+      Quatre P2 bug-inbox : « redirect_uri du sous-domaine absent du realm dev committe »,
+      « Import du realm silencieusement saute si volume Keycloak residuel », « Seed de demo
+      committe date en dur janvier-mai », « seed de demo committe produit des documents SANS
+      LIGNE ».
+      1. realm-export.json : ajouter http://default.localhost:55996/* aux redirectUris.
+      2. tools/keycloak-dev.ps1 : action reset (down -v + up + attente realm importé) ; et au
+         démarrage du Host en Development, warn explicite si le realm joignable n'a pas les comptes
+         attendus (détection du « import skipped »).
+      3. tools/dev-seed-demo-docs.ps1 : dates relatives à la date du jour (réparties sur les
+         derniers mois, plusieurs dans le mois courant) ET lignes complètes (sourceRegimeCodes +
+         taxes:[{taxAmount, rate}], totaux = somme des lignes) pour que le parcours aille jusqu'à
+         l'envoi. Le format validé en recette est documenté dans l'entrée bug-inbox.
+      4. deploy/docker/README.md mis à jour (reset, parcours complet).
+    acceptance:
+      - "Login sous-domaine OK depuis les artefacts committés (realm réimporté)"
+      - "keycloak-dev.ps1 reset opérationnel ; warn Host explicite sur realm périmé"
+      - "Seed committé : documents datés relativement, AVEC lignes/ventilations, qui atteignent ReadyToSend sur un env dev provisionné"
+      - "README à jour"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX07b:
+    title: "Documents au staging perdu : re-stage par re-push agent + emplacement de staging stable"
+    description: |
+      Bug-inbox P2 « Documents definitivement zombies quand le contenu stage (PIP00) disparait ».
+      Décision D6 : re-stage + emplacement stable ; l'alerte supervision part en fast-follow.
+      1. Re-push agent d'un document Detected dont le staging est absent : re-stager (extension du
+         chemin « reçu mais non rangé » existant) au lieu de répondre Duplicate sans effet. Hash
+         re-vérifié (le contenu re-poussé doit correspondre à l'empreinte d'origine — jamais une
+         résurrection altérée).
+      2. Emplacement de staging configurable et stable hors arbre de build (défaut documenté),
+         pour que la perte ne se reproduise pas au premier redéploiement.
+      3. Documenter le rejeu des dead-letter « contenu stagé absent » après re-stage.
+      4. Tests d'intégration : staging supprimé → re-push → re-stage → CHECK passe. EXÉCUTÉS.
+    acceptance:
+      - "Re-push d'un Detected sans staging : contenu re-stagé (hash vérifié) puis CHECK déroulable — plus de zombie définitif"
+      - "Chemin de staging configurable, hors bin/, documenté"
+      - "Tests d'intégration exécutés"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX07c:
+    title: "Nav Jobs › Planifications : plus de page vide silencieuse"
+    description: |
+      Bug-inbox P2 « /admin/jobs rend une page entierement VIDE ». Décision D7 : corriger côté
+      Liakont si possible ; toute modification de Stratum.* vendored est consignée dans
+      docs/architecture/provenance-socle-stratum.md (CLAUDE.md n°11).
+      1. Diagnostiquer : cible de nav erronée (/admin/jobs vs /admin/job-schedules) ou page
+         manquante.
+      2. Corriger la cible (ou la page) ; et s'assurer qu'une route inconnue rend un « page
+         introuvable » explicite français, jamais un contenu vide.
+      3. Test bUnit/E2E léger sur la nav corrigée. EXÉCUTÉ.
+    acceptance:
+      - "L'entrée de nav Planifications mène à une page fonctionnelle"
+      - "Route inconnue → « page introuvable » explicite (plus de page vide)"
+      - "Si Stratum.* touché : provenance consignée"
+      - "Test exécuté"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
