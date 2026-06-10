@@ -7,10 +7,12 @@ using Liakont.Agent.Core.Hosting;
 
 /// <summary>
 /// Commande <c>run</c> (F12 §2.1) : déclenche un run d'extraction manuel. Le run manuel et le run
-/// planifié (service) partagent le MÊME verrou nommé (<see cref="InterProcessRunLock.DefaultMutexName"/>,
-/// défini en AGT01) : si un run est déjà en cours, le run manuel le détecte et refuse plutôt que
-/// d'extraire/pousser deux fois en parallèle. Le cycle d'extraction lui-même est injecté — son contenu
-/// réel (extraction → push) est câblé par AGT02 ; cette commande porte la sérialisation et le rapport.
+/// planifié (service) de la MÊME instance partagent le même verrou nommé (mutex de l'instance,
+/// <c>AgentInstance.RunMutexName</c> — multi-instances OPS05 pt 5) : si un run est déjà en cours,
+/// le run manuel le détecte et refuse plutôt que d'extraire/pousser deux fois en parallèle ; deux
+/// instances distinctes du même poste, elles, ne se bloquent pas mutuellement. Le cycle d'extraction
+/// lui-même est injecté — son contenu réel (extraction → push) est câblé par AGT02 ; cette commande
+/// porte la sérialisation et le rapport.
 /// </summary>
 internal sealed class RunCommand : ICliCommand
 {

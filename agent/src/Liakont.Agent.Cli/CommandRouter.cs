@@ -51,7 +51,10 @@ internal sealed class CommandRouter
     private void WriteUsage(TextWriter output)
     {
         output.WriteLine("Liakont Agent — CLI de diagnostic et de mise en service.");
-        output.WriteLine("Usage : liakont-agent-cli <commande> [arguments]");
+        output.WriteLine("Usage : liakont-agent-cli <commande> [arguments] [--instance <nom>]");
+        output.WriteLine();
+        output.WriteLine("Option globale : --instance <nom> — cible une instance nommée de l'agent");
+        output.WriteLine("(multi-instances : un service par base sur le même poste ; défaut : Default).");
         output.WriteLine();
         output.WriteLine("Commandes :");
         foreach (ICliCommand command in _commands.OrderBy(c => c.Name, StringComparer.Ordinal))

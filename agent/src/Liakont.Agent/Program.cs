@@ -12,32 +12,43 @@ using Liakont.Agent.Core.Time;
 
 /// <summary>
 /// Point d'entrée de l'agent. Sans argument : exécution comme service Windows (SCM). Arguments
-/// reconnus : <c>install</c> / <c>uninstall</c> (auto-installation du service) et <c>--console</c>
-/// (exécution interactive pour le diagnostic). Messages opérateur en français (CLAUDE.md n°12).
+/// reconnus : <c>install</c> / <c>uninstall</c> (auto-installation du service), <c>--console</c>
+/// (exécution interactive pour le diagnostic) et l'option <c>--instance &lt;nom&gt;</c>
+/// (multi-instances, OPS05 pt 5 : un service par base cliente sur un même poste — l'option est
+/// inscrite dans le chemin d'image du service à l'installation). Messages opérateur en français
+/// (CLAUDE.md n°12).
 /// </summary>
 internal static class Program
 {
     private static int Main(string[] args)
     {
-        if (args.Length > 0)
+        if (!AgentInstance.TryFromCommandLine(args, out AgentInstance instance, out string[] remaining, out string? error))
         {
-            switch (args[0].ToLowerInvariant())
+            Console.Error.WriteLine(error);
+            return 1;
+        }
+
+        AgentPaths.Initialize(instance);
+
+        if (remaining.Length > 0)
+        {
+            switch (remaining[0].ToLowerInvariant())
             {
                 case "install":
-                    return RunInstaller(uninstall: false);
+                    return RunInstaller(uninstall: false, instance);
                 case "uninstall":
-                    return RunInstaller(uninstall: true);
+                    return RunInstaller(uninstall: true, instance);
                 case "--console":
                 case "console":
                     return RunConsole();
                 default:
                     Console.Error.WriteLine(
-                        $"Argument inconnu : « {args[0]} ». Usage : Liakont.Agent.exe [install | uninstall | --console].");
+                        $"Argument inconnu : « {remaining[0]} ». Usage : Liakont.Agent.exe [install | uninstall | --console] [--instance <nom>].");
                     return 1;
             }
         }
 
-        using (var service = new AgentService())
+        using (var service = new AgentService(instance))
         {
             ServiceBase.Run(service);
         }
@@ -45,7 +56,7 @@ internal static class Program
         return 0;
     }
 
-    private static int RunInstaller(bool uninstall)
+    private static int RunInstaller(bool uninstall, AgentInstance instance)
     {
         try
         {
@@ -56,12 +67,15 @@ internal static class Program
                 installArgs.Add("/u");
             }
 
+            // Le nom d'instance traverse vers AgentServiceInstaller via les paramètres d'installation
+            // (Context.Parameters) — y compris à la désinstallation, pour cibler le bon service.
+            installArgs.Add($"/instance={instance.Name}");
             installArgs.Add(exePath);
             ManagedInstallerClass.InstallHelper(installArgs.ToArray());
 
             Console.WriteLine(uninstall
-                ? "Service « LiakontAgent » désinstallé."
-                : "Service « LiakontAgent » installé. Démarrez-le via les Services Windows ou « sc start LiakontAgent ».");
+                ? $"Service « {instance.ServiceName} » désinstallé."
+                : $"Service « {instance.ServiceName} » installé. Démarrez-le via les Services Windows ou « sc start {instance.ServiceName} ».");
             return 0;
         }
         catch (Exception ex)
@@ -79,7 +93,7 @@ internal static class Program
         using (var stopped = new ManualResetEventSlim(initialState: false))
         {
             host.Start();
-            Console.WriteLine("Agent Liakont démarré en mode console. Ctrl+C pour arrêter.");
+            Console.WriteLine($"Agent Liakont (instance « {AgentPaths.Current.Name} ») démarré en mode console. Ctrl+C pour arrêter.");
 
             ConsoleCancelEventHandler onCancel = (sender, e) =>
             {
