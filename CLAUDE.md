@@ -135,7 +135,7 @@ Claude owns the entire verification + review loop. The human only gives the obje
 - [ ] No fiscal rule without a traceable source in docs/conception/
 - [ ] DocumentEvent stays append-only (no update/delete paths added)
 - [ ] Business queries are tenant-scoped
-- [ ] UI items (Blazor pages) have bUnit and/or Playwright tests
+- [ ] UI items (Blazor pages) have bUnit and/or Playwright tests (pages Liakont ; socle vendored non modifié exempté — voir règle review 19)
 - [ ] Vendored Stratum code (`Stratum.*`) modifications are logged in the provenance file
 - [ ] Review has been re-run after the last code change
 - [ ] Tests were EXECUTED, not just written (a written-but-never-run test is a false-green)
@@ -161,7 +161,7 @@ Claude owns the entire verification + review loop. The human only gives the obje
 16. **Dépendance à un PA concret hors de son plug-in est un P1 :** `if (pa is B2Brouter)`, flag produit doublonnant une capacité, fonctionnalité désactivée parce qu'« un PA ne le supporte pas ».
 17. **Requête métier non tenant-scopée est un P1** (fuite de données entre tenants — seul le module Supervision a des vues cross-tenant, en lecture seule).
 18. **Secret en clair (clé API, mot de passe SMTP) est un P1.**
-19. **Page/écran Blazor sans test (bUnit ou Playwright) est un P1.** Aucune logique métier dans les pages (déléguée aux handlers MediatR).
+19. **Page/écran Blazor sans test (bUnit ou Playwright) est un P1.** Aucune logique métier dans les pages (déléguée aux handlers MediatR). Périmètre : pages Liakont (Host + `Liakont.Modules.*`). Les pages du socle vendored (`Stratum.Modules.*`) non modifiées par un item sont EXEMPTÉES (la dérive du socle est gardée par socle-baseline + provenance) ; une page socle MODIFIÉE par un item entre dans le périmètre.
 20. **Modification du socle vendored (`Stratum.*`) non consignée dans la provenance est un P1.**
 
 **Format per finding:**

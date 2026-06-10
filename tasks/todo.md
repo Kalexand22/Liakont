@@ -1,59 +1,34 @@
-# SUP02 — Dashboard de supervision (opérateur d'instance)
+# Housekeeping — suites de l'audit projet (2026-06-10)
 
-Branche : `feat/console-web-SUP02` (segment console-web). Blueprint : blazor-page-item.
-
-## Décisions d'architecture (vérifiées sur pièce)
-- Lecture cross-tenant = SEULEMENT dans le module Supervision (CLAUDE.md #9/#14). L'agrégateur
-  `CrossTenantSupervisionDashboardQueries` vit dans Supervision.Infrastructure ; interface +
-  DTOs slim dans Supervision.Contracts (Contracts garde sa seule dép : Common.Abstractions).
-- Énumération tenants : `ITenantQueries.ListAsync()` (base système, indép. du tenant ambiant).
-- Scope par tenant depuis HTTP : `ITenantScopeFactory.Create(tenantId)` → `ITenantScope`
-  (précédent : FanOutPortalQueryService ; fan-out parallèle, skip+log sur tenant en échec).
-- Gate serveur de la page : `[Authorize(Policy = LiakontPermissions.Supervision)]`
-  (PermissionPolicyProvider crée la policy ; bloque une nav directe d'un non-superviseur =
-  empêche une fuite cross-tenant). + nav déjà gated (LiakontNavSectionProvider).
-- Données NON fabriquées (producteurs gelés SUP01c / arbitrage fiscal D-a) : taille de file de
-  push, historique des heartbeats, échéance déclarative J-3 → NON affichées (no false-green).
-  Affiché : alertes (IAlertQueries), compteurs documents par état (IDocumentQueries.CountsByState),
-  état agent last-heartbeat + version (IAgentQueries).
+Session interactive (hors orchestration), branche `feat/console-web`. Audit complet du repo
+(5 agents : architecture, tests, dette, tooling, docs) → verdict globalement sain ; ce lot
+traite les actions rapides retenues par Karl.
 
 ## Tâches
-- [x] DTOs Contracts : AgentStatusDto, TenantSupervisionRowDto, TenantSupervisionDetailDto, AlertDto
-- [x] Interface Contracts : ISupervisionDashboardQueries (overview / detail / acknowledge)
-- [x] Impl Infrastructure : CrossTenantSupervisionDashboardQueries (fan-out cross-tenant)
-- [x] csproj Host : + Supervision.Contracts ; registration DI (AddSupervisionModule)
-- [x] Page Host /supervision (overview, DeclaredListPage<TenantSupervisionRowDto>)
-- [x] Page Host /supervision/{tenantId} (détail : agents + alertes actives + Acquitter)
-- [x] Column registries + templates (Host : SupervisionTenant/AlertColumnRegistry, SupervisionDisplay)
-- [x] bUnit : SupervisionTests + SupervisionDetailTests (rendu + acquittement)
-- [x] Unit : CrossTenantSupervisionDashboardQueriesTests (fan-out, tri, résilience, acquittement scopé)
-- [x] E2E : SupervisionDashboardE2ETests (superviseur atteint /supervision, dashboard rend sans erreur) ;
-      frontière de permission déjà couverte par PermissionGatedNavE2ETests + DashboardE2ETests
-- [x] verify-fast vert / run-tests vert / codex-review (boucle) / run-e2e vert (arbre intégré feat/console-web)
+- [x] Versionner le script de seed démo : `.dev-seed-demo-docs.ps1` (racine, untracked) →
+      `tools/dev-seed-demo-docs.ps1` (en-tête révisé : usage, données 100% fictives, clé d'agent jamais versionnée)
+- [x] Annoter `deploy/docker/docker-compose.keycloak.yml` : avertissement explicite
+      « defaults dev uniquement, jamais en prod sans KC_DB_PASSWORD/KC_ADMIN_PASSWORD »
+- [x] bUnit pages Host restantes sans test : `LoginTests` (5 facts : formulaire local,
+      redirection OIDC, déjà-authentifié, anti open-redirect, sans HttpContext),
+      `LogoutTests` (3 facts : GET sans signout, POST→oidc-logout, POST legacy signout cookie),
+      `UserPreferencesPageTests` (2 facts : rendu anonyme sans lecture base, reflet des préférences persistées)
+- [x] CLAUDE.md : règle review 19 + checklist — périmètre du P1 « page sans test » précisé :
+      pages Liakont (Host + Liakont.Modules.*) ; socle vendored Stratum.Modules.* non modifié exempté
+- [x] verify-fast PASS (les 2 solutions ; 10 nouveaux tests bUnit EXÉCUTÉS et verts)
+- [x] codex-review boucle propre (round 1 : 1 P2 ; round 2 : clean)
+
+## Constats d'audit NON traités ici (assumés / suivis ailleurs)
+- Handlers des modules socle (Identity/Audit/Job) sans tests unitaires : même logique de
+  périmètre que les pages socle — couvert par l'exemption consignée dans CLAUDE.md.
+- TODO(PIP03b) et TODO(ADR-0012) : items du manifest, hors scope.
+- Module Party Contracts-only, double lignée Stratum.*/Liakont.* : design assumé (vendoring tracé).
 
 ## Review
-Item REPRIS le 2026-06-09 (session orch-20260609-061319-Liakont2-s1) : la session slot-1 d'origine
-(2026-06-08) est morte tôt (lease expiré ~9 h, aucun heartbeat renouvelé) en laissant le travail SUP02
-non commité dans l'arbre. Reprise non-destructive (claimed→in_progress), pipeline mené à terme.
-
-- verify-fast : PASS (après fix_verify délégué — SA1204 réordonnancement statique/instance dans
-  CrossTenantSupervisionDashboardQueries ; CA1859 type concret ; SA1402/SA1649 un type par fichier
-  → split de ConsolePageTestStubs en StubSharedResourcesLocalizer/TestActorContextAccessor/
-  NullGridPreferences/NullSavedFilters).
-- run-tests : PASS (3 suites, 4428 tests, 0 échec).
-- run-e2e : PASS (15 tests E2E, suite Category=E2E complète sur l'arbre intégré feat/console-web — inclut SupervisionDashboardE2ETests : superviseur → /supervision → rendu sans erreur).
-- Décisions de périmètre : pas de taille de file de push, pas d'historique heartbeats, pas d'échéance J-3
-  (producteurs gelés SUP01c / arbitrage fiscal D-a) — aucune donnée fabriquée. Acquittement E2E (seed
-  d'alerte) laissé au bUnit (routage tenant/alerte/opérateur prouvé) ; la frontière de permission est
-  E2E-prouvée (rôle realm → claim → nav gating). Lecture cross-tenant confinée au module Supervision.
-
-### codex-review (boucle, -Base origin/feat/console-web)
-- Round 1 : 0 P1, 3 P2. Corrigés : (a) AcknowledgeAsync avalait l'échec → état d'erreur + bandeau FR +
-  StateHasChanged (callback déclenché par la quick-action enfant) + test bUnit ; (b) doc run-e2e au passé.
-  Accepté : (c) ReadDocumentCountsAsync (GetDocumentsAsync PageSize=1 = 3 requêtes/tenant) — chemin froid,
-  blast radius ~14 implémenteurs IDocumentQueries → fast-follow, pas une régression.
-- Round 2 : 0 P1, 3 P2. Corrigés : (a) le tri-priorité de l'agrégateur était annulé par le re-tri client
-  de DeclaredListPage (affichage alphabétique → critiques plus en tête, + test unit faux-vert sur l'ordre
-  agrégateur) → SortKeySelector composite (échec lecture > critiques > nb d'alertes) + DefaultSort=Priority
-  desc + test bUnit sur l'ordre RENDU ; (b) bandeau _ackFailed rémanent → reset en tête de LoadAsync.
-  Accepté (ré-soulevé) : (c) efficacité ReadDocumentCountsAsync (idem round 1).
+- Round 1 : 1 P2 — l'en-tête du script de seed annonçait « montants en decimal » mais les
+  littéraux PowerShell sont des double et `totalGross` était une addition IEEE-754.
+  Fix : casts `[decimal]` sur totalNet/totalTax/totalGross (sérialisation vérifiée :
+  `125 + 6.88 → 131.88` propre via ConvertTo-Json).
+- Round 2 : clean (re-review confirmant tests non faux-verts, payload conforme au contrat
+  agent v1, narrowing CLAUDE.md assumé). verify-fast PASS antérieur au fix ; le fix ne touche
+  qu'un script PowerShell hors périmètre de build — syntaxe revalidée par PSParser.
