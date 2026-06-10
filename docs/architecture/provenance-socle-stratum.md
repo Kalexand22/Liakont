@@ -223,6 +223,7 @@ ancré sur le chemin complet.
 src/Common/UI/Models/BulkActionConfig.cs
 src/Common/UI/Components/DeclaredListPage.razor.cs
 src/Common/Infrastructure/BugCapture/VideoAnalysisService.cs
+src/Common/UI/Services/BugCapture/BugCaptureService.cs
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -317,6 +318,40 @@ Modification (marquée `// Liakont:` dans le code) : les deux variantes du promp
 `BuildPrompt` instruisent désormais que la narration audio, si présente, est la source PRINCIPALE
 du titre/résumé/étapes, la vidéo servant d'illustration. Aucun changement de signature, de parsing
 (`ParseResponse`) ni de format JSON attendu. Candidate à reverser en amont (§6).
+
+**Itération 2 (même jour) — transcription Whisper en deux passes.** L'instruction de prompt seule
+ne suffit pas : rejoué 3× sur la même capture réelle, le modèle n'exploite l'audio qu'1 fois sur 3
+et HALLUCINE sinon un bug générique (« connexion impossible ») sans rapport avec la dictée. Whisper,
+lui, transcrit la même piste mot à mot à chaque essai (l'API accepte le conteneur WebM vidéo tel
+quel, vérifié avec le content-type `audio/webm` déjà émis par `TranscriptionService` — inchangé).
+Fix en deux passes (marqué `// Liakont:`) :
+- `VideoAnalysisService.AnalyzeAsync` : paramètre optionnel `transcript` (défaut `null`, rétro-
+  compatible) ; `BuildPrompt` ajoute en fin de prompt la transcription comme narration de référence.
+- `src/Common/UI/Services/BugCapture/BugCaptureService.cs` (`BuildExpensiveDataAsync`) : quand il
+  n'y a pas d'enregistrement audio séparé et que la vidéo ≤ 25 Mo (limite d'upload Whisper), la
+  piste audio de la vidéo est transcrite via `TranscriptionService` et passée à `AnalyzeAsync`.
+  Effet de bord voulu : la transcription alimente aussi `_cachedTranscription`, donc le verbatim
+  de la dictée apparaît dans la description du rapport (`[Transcription] …`) même si l'analyse
+  vidéo échoue. Sans `WhisperApiKey`, `TranscribeAsync` retourne `string.Empty` : comportement
+  strictement identique à l'amont (dégradation silencieuse préservée).
+
+Suites de review (round 1, 3 P2) :
+- **Décision opérateur (Karl, 2026-06-10) — OpenAI actée comme second sous-traitant BugCapture** :
+  la 2e passe envoie le conteneur WebM vidéo COMPLET (frames d'écran incluses) à l'API Whisper
+  d'OpenAI, alors que l'écran ne partait auparavant que vers OpenRouter. Accepté : BugCapture est
+  un outil de QA/dev à clés optionnelles fournies par l'opérateur — configurer `WhisperApiKey`
+  vaut acceptation qu'OpenAI reçoive le contenu des captures. Alternative « extraire la piste
+  audio seule » écartée (parsing Matroska ou dépendance ffmpeg = nouveau package = ADR).
+- Skip de la transcription au-delà de la limite d'upload Whisper (25 Mo) désormais TRACÉ
+  (`ILogger<BugCaptureService>` ajouté au constructeur, `LogWarning` avec la taille) — plus de
+  dégradation invisible vers l'analyse multimodale seule.
+- Tests AJOUTÉS (pas de dérive baseline, même logique que §4.14) :
+  `tests/Common.Infrastructure.Tests.Unit/BugCapture/VideoAnalysisServiceTests.cs` — le transcript
+  fourni atterrit dans le corps de la requête OpenRouter (fr/en), absent si non fourni, aucun
+  appel HTTP sans clé. Le garde 25 Mo de `BugCaptureService` n'a pas de test dédié : l'exercer
+  exige d'instancier les 13 dépendances et de piloter une session de capture complète — même
+  arbitrage que §4.15 (mocking lourd disproportionné), le branchement étant un simple test de
+  taille désormais journalisé.
 
 ## 5. ADR du socle hérités
 

@@ -3,11 +3,15 @@ namespace Stratum.Common.UI.Services.BugCapture;
 using System.Globalization;
 using System.Text;
 using Microsoft.Extensions.Localization;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Stratum.Common.Infrastructure.BugCapture;
 
-public sealed class BugCaptureService : IBugCaptureService
+public sealed partial class BugCaptureService : IBugCaptureService
 {
+    // Liakont: Whisper API upload limit — videos above it skip the narration transcription pass.
+    private const int WhisperUploadLimitBytes = 25 * 1024 * 1024;
+
     private readonly IUserActionLogger _userActionLogger;
     private readonly IClientLogProvider _clientLogProvider;
     private readonly IHttpTrafficRecorder _httpTrafficRecorder;
@@ -21,6 +25,7 @@ public sealed class BugCaptureService : IBugCaptureService
     private readonly IToastService _toastService;
     private readonly IStringLocalizer<SharedResources> _localizer;
     private readonly CaptureConfiguration _config;
+    private readonly ILogger<BugCaptureService> _logger;
 
     private CaptureSession? _session;
     private CaptureBundle? _preparedBundle;
@@ -43,7 +48,8 @@ public sealed class BugCaptureService : IBugCaptureService
         VideoAnalysisService videoAnalysisService,
         IToastService toastService,
         IStringLocalizer<SharedResources> localizer,
-        IOptions<CaptureConfiguration> options)
+        IOptions<CaptureConfiguration> options,
+        ILogger<BugCaptureService> logger)
     {
         _userActionLogger = userActionLogger;
         _clientLogProvider = clientLogProvider;
@@ -58,6 +64,7 @@ public sealed class BugCaptureService : IBugCaptureService
         _toastService = toastService;
         _localizer = localizer;
         _config = options.Value;
+        _logger = logger;
     }
 
     public event EventHandler? StateChanged;
@@ -375,6 +382,9 @@ public sealed class BugCaptureService : IBugCaptureService
         }
     }
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Video size {SizeBytes} exceeds the Whisper upload limit (25 MB): narration transcription skipped, video analysis relies on the multimodal model alone.")]
+    private static partial void LogTranscriptionSkippedVideoTooLarge(ILogger logger, int sizeBytes);
+
     /// <summary>
     /// Performs the expensive operations: stops recordings, saves media files,
     /// transcribes audio, analyzes video, and extracts key frames.
@@ -471,9 +481,27 @@ public sealed class BugCaptureService : IBugCaptureService
                 Sequence = medias.Count,
             });
 
+            // Liakont: transcribe the video's audio track via Whisper (deterministic) when no
+            // separate audio recording exists — the multimodal model's own audio understanding
+            // ignores the narration ~2/3 of the time (vérifié sur pièce 2026-06-10). Whisper
+            // accepts WebM video directly.
+            if (transcription.Length == 0)
+            {
+                if (videoBytes.Length <= WhisperUploadLimitBytes)
+                {
+                    transcription = await _transcriptionService.TranscribeAsync(videoBytes);
+                }
+                else
+                {
+                    LogTranscriptionSkippedVideoTooLarge(_logger, videoBytes.Length);
+                }
+            }
+
             // AI video analysis via OpenRouter/Gemini.
             videoAnalysis = await _videoAnalysisService.AnalyzeAsync(
-                videoBytes, CultureInfo.CurrentUICulture);
+                videoBytes,
+                CultureInfo.CurrentUICulture,
+                transcription.Length > 0 ? transcription : null);
 
             // Extract key frames identified by the AI (best-effort).
             if (videoAnalysis.KeyMoments.Count > 0)
