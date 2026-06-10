@@ -222,6 +222,7 @@ ancré sur le chemin complet.
 <!-- SOCLE-CONSIGNED-DRIFT:START -->
 src/Common/UI/Models/BulkActionConfig.cs
 src/Common/UI/Components/DeclaredListPage.razor.cs
+src/Common/Infrastructure/BugCapture/VideoAnalysisService.cs
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -302,6 +303,20 @@ aucun test socle dédié n'est ajouté car l'exercer exigerait de simuler la sé
 qui dépend d'un JS interop indisponible en bUnit (`JSRuntimeMode.Loose`) — même contrainte que le câblage
 « Envoyer la sélection » de la page, couvert côté Liakont par un test bUnit invoquant directement le rappel
 `Execute` (`Liakont.Host.Tests.Unit.Pages.DocumentsTests`).
+
+### 4.16 `VideoAnalysisService.BuildPrompt` — la narration audio devient la source principale du rapport
+Le prompt d'analyse vidéo BugCapture (fr et en) demandait un rapport QA basé sur ce qui est
+**visible à l'écran**, sans jamais mentionner la piste audio. Or l'usage réel de l'outil est la
+**dictée** : l'opérateur narre le problème au micro pendant la capture. Vérifié sur pièce
+(2026-06-10, test GATE_CONSOLE_WEB) : Gemini reçoit bien la piste audio via OpenRouter (il la
+transcrit mot à mot sur demande explicite), mais avec le prompt d'origine il décrit l'écran et
+ignore la narration → rapport sans rapport avec le bug dicté. Défaut présent à l'identique dans
+Stratum amont (fichier vendored == fichier source au moment du fix).
+
+Modification (marquée `// Liakont:` dans le code) : les deux variantes du prompt (fr/en) de
+`BuildPrompt` instruisent désormais que la narration audio, si présente, est la source PRINCIPALE
+du titre/résumé/étapes, la vidéo servant d'illustration. Aucun changement de signature, de parsing
+(`ParseResponse`) ni de format JSON attendu. Candidate à reverser en amont (§6).
 
 ## 5. ADR du socle hérités
 
