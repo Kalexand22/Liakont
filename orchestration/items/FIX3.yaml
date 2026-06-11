@@ -195,3 +195,23 @@ items:
       - "Vérification outillée (Playwright) ou vérification manuelle documentée"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
+
+  # Définition de la gate du segment console-polish (déclarée au manifest v20). Sa définition de lot
+  # manquait ici, ce que manifest-sanity (verify-fast) refuse : reciprocité manifest -> lot file.
+  GATE_CONSOLE_POLISH:
+    type: gate
+    executor: human
+    title: "Gate : passe ergonomie console (re-recette écran par écran)"
+    description: |
+      Validation humaine de la passe ergonomie post-gate CONSOLE_WEB (lot FIX3). Re-recette
+      ÉCRAN PAR ÉCRAN de la console sur instance de dev, depuis deux comptes de rôles différents
+      (preuve des permissions). Au-delà des items FIX3 (paramètres fiscaux éditables, actions en
+      masse, section nav AUDIT masquée, seeds committés cohérents, acteur nommé dans l'audit, layout
+      du shell), la gate re-valide AUSSI les livrables FIX2 jamais vus à l'écran au run 3
+      (FIX205/206/208/211, témoin de vie, re-stage). Le verdict détaillé et les éventuels nouveaux
+      findings vont au bug-inbox.
+    acceptance:
+      - "Tous les items FIX3 (FIX301..FIX306) sont done"
+      - "Re-recette écran par écran : chaque page présentable, depuis deux rôles différents (permissions prouvées)"
+      - "Livrables FIX2 non vus au run 3 re-validés à l'écran (FIX205/206/208/211, témoin de vie, re-stage)"
+      - "PR du segment feat/console-polish revue et mergée dans main"
