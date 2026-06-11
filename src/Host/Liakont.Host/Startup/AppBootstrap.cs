@@ -180,19 +180,10 @@ public static class AppBootstrap
         builder.Services.AddStagingModule(builder.Configuration);
         builder.Services.AddScoped<IArchivedDocumentProbe, ArchiveStoreArchivedDocumentProbe>();
 
-        // Emplacement du magasin de staging : PARAMÉTRAGE d'INSTANCE (Staging:Storage:FileSystem:RootPath ;
-        // une prod configure un volume dédié). À défaut, repli STABLE sous le content root — JAMAIS sous l'arbre
-        // de build (FIX07b) : le repli du module est AppContext.BaseDirectory, c.-à-d. bin/ en dev, effacé au
-        // rebuild/redéploiement → contenu stagé perdu → documents zombies. On le remplace par App_Data (hors bin/),
-        // comme les PDF reçus (PdfRootPath ci-dessous). NB : via Configure (et non PostConfigure) pour s'exécuter
-        // AVANT le PostConfigure de repli BaseDirectory du module (qui ne s'appliquera donc plus).
-        builder.Services.Configure<FileSystemPayloadStagingStoreOptions>(opts =>
-        {
-            if (string.IsNullOrWhiteSpace(opts.RootPath))
-            {
-                opts.RootPath = System.IO.Path.Combine(builder.Environment.ContentRootPath, "App_Data", "staging-store");
-            }
-        });
+        // Emplacement du magasin de staging : repli STABLE hors arbre de build (FIX07b) quand aucune racine
+        // d'instance n'est configurée (Staging:Storage:FileSystem:RootPath). Voir StagingHostRegistration —
+        // remplace le repli bin/ du module, cause de la perte de contenu (documents zombies).
+        builder.Services.AddStableStagingRoot(builder.Environment.ContentRootPath);
 
         // Reconciliation (TRK07) après Archive : rapproche les PDF du pool non lié des documents émis et
         // ajoute le PDF réconcilié au paquet d'archive en addendum (consomme IArchiveService). Le job
