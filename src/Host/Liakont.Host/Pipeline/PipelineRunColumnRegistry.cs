@@ -26,6 +26,10 @@ internal sealed class PipelineRunColumnRegistry : ColumnRegistryBase<PipelineRun
         Column(nameof(PipelineRunRow.DocumentsProcessed), "Traités", SourceTable, ColumnDataType.Number, defaultVisible: true, sortOrder: 4);
         Column(nameof(PipelineRunRow.DocumentsValidated), "Validés", SourceTable, ColumnDataType.Number, defaultVisible: true, sortOrder: 5);
         Column(nameof(PipelineRunRow.DocumentsFailed), "En échec", SourceTable, ColumnDataType.Number, defaultVisible: true, sortOrder: 6);
-        Column(nameof(PipelineRunRow.Detail), "Détail", SourceTable, ColumnDataType.Text, defaultVisible: false, sortOrder: 7);
+
+        // Détail VISIBLE par défaut (FIX05) : il porte le MOTIF opérateur d'un run qui n'a rien envoyé
+        // (« aucun compte Plateforme Agréée actif… ») écrit par SendTenantJob. Masqué, un run sans envoi
+        // affichait 0/0/0 et « ressemblait à un succès » ; le motif n'apparaissait que dans les logs serveur.
+        Column(nameof(PipelineRunRow.Detail), "Détail", SourceTable, ColumnDataType.Text, defaultVisible: true, sortOrder: 7);
     }
 }

@@ -9,7 +9,9 @@ using FluentAssertions;
 using Liakont.Host.Documents;
 using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Documents.Contracts.Queries;
+using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Contracts.Jobs;
+using Liakont.Modules.Pipeline.Contracts.Queries;
 using Microsoft.Extensions.DependencyInjection;
 using Stratum.Common.Abstractions.Audit;
 using Stratum.Common.Abstractions.Security;
@@ -29,6 +31,9 @@ public sealed class DocumentSendActionsServiceTests
     private const string TenantId = "tenant-send";
     private static readonly Guid OperatorId = new("66666666-6666-6666-6666-666666666666");
     private static readonly Guid CompanyId = new("33333333-3333-3333-3333-333333333333");
+
+    // Horloge fixe du déclenchement (FIX05) : le run corrélé doit démarrer à cet instant ou après.
+    private static readonly DateTimeOffset TriggerInstant = new(2026, 6, 11, 8, 0, 0, TimeSpan.Zero);
 
     [Fact]
     public async Task SummarizeReadyToSend_Counts_And_Sums_Across_Pages_In_Decimal()
@@ -190,17 +195,64 @@ public sealed class DocumentSendActionsServiceTests
     [Fact]
     public async Task TriggerRun_Publishes_A_Tenant_Trigger_And_Audits()
     {
+        // Aucun run clôturé dans le journal : le déclenchement réussit, l'audit est posé, et le résultat
+        // dégrade gracieusement vers le journal — sans prétendre que l'envoi a abouti (FIX05).
         var (service, queue, audit) = Build(new FakeDocumentQueries());
 
         var result = await service.TriggerRunAsync();
 
         result.Success.Should().BeTrue();
-        result.Message.Should().Contain("Traitement déclenché");
+        result.Message.Should().Contain("journal des traitements");
 
         queue.Enqueued.Should().ContainSingle();
         queue.Enqueued[0].Payload.Should().BeOfType<SendTenantTrigger>()
             .Which.Should().BeEquivalentTo(new { TenantId, DryRun = false });
         audit.Entries.Should().ContainSingle().Which.ActivityType.Should().Be("pipeline.run_triggered");
+    }
+
+    [Fact]
+    public async Task TriggerRun_Reports_The_Emitted_Count_When_The_Run_Sent_Documents()
+    {
+        // FIX05 : le run d'envoi manuel clôturé ayant émis 3 documents est remonté à l'opérateur.
+        var run = SendRun(succeeded: 3, failed: 0, detail: "SEND : 3 émis, 0 en échec, 0 différés, 0 ignorés.");
+        var (service, queue, _) = Build(new FakeDocumentQueries(), runs: new[] { run });
+
+        var result = await service.TriggerRunAsync();
+
+        result.Success.Should().BeTrue();
+        result.Message.Should().Contain("3 document(s) émis");
+        queue.Enqueued.Should().ContainSingle("le run reste déclenché normalement");
+    }
+
+    [Fact]
+    public async Task TriggerRun_Surfaces_The_Motif_And_Is_Not_A_Success_When_Nothing_Was_Sent()
+    {
+        // FIX05 (cœur du bug) : un run terminé SANS rien envoyer (aucun compte PA) ne doit PAS ressembler à
+        // un succès — il est signalé (Success == false) avec le motif opérateur écrit par le pipeline.
+        const string Motif = "SEND : aucun compte Plateforme Agréée actif pour ce tenant — aucun envoi. Action opérateur : configurez et activez un compte PA (Paramétrage › Plateforme Agréée).";
+        var run = SendRun(succeeded: 0, failed: 0, detail: Motif);
+        var (service, _, _) = Build(new FakeDocumentQueries(), runs: new[] { run });
+
+        var result = await service.TriggerRunAsync();
+
+        result.Success.Should().BeFalse("un run qui n'envoie rien ne ressemble pas à un succès");
+        result.Message.Should().Contain("aucun document émis").And.Contain("aucun compte Plateforme Agréée actif");
+    }
+
+    [Fact]
+    public async Task TriggerRun_Ignores_A_Scheduled_Or_Older_Run_And_Falls_Back_To_The_Journal()
+    {
+        // Corrélation : seule une exécution SEND MANUELLE clôturée démarrée à l'instant du déclenchement (ou
+        // après) compte. Un run planifié, et un run manuel ANTÉRIEUR, sont ignorés → dégradation gracieuse.
+        var scheduledAfter = SendRun(succeeded: 9, failed: 0, detail: "planifié", trigger: PipelineRunTrigger.Scheduled);
+        var olderManual = SendRun(succeeded: 5, failed: 0, detail: "ancien", startedAt: TriggerInstant.AddMinutes(-1));
+        var (service, _, _) = Build(new FakeDocumentQueries(), runs: new[] { scheduledAfter, olderManual });
+
+        var result = await service.TriggerRunAsync();
+
+        result.Success.Should().BeTrue();
+        result.Message.Should().Contain("journal des traitements");
+        result.Message.Should().NotContain("9 document").And.NotContain("5 document");
     }
 
     [Fact]
@@ -216,10 +268,31 @@ public sealed class DocumentSendActionsServiceTests
         audit.Entries.Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData(4, 0, true, "4 document(s) émis")]
+    [InlineData(3, 1, true, "3 document(s) émis, 1 en échec")]
+    [InlineData(0, 2, false, "aucun document émis, 2 en échec")]
+    [InlineData(0, 0, false, "aucun document émis")]
+    public void DescribeSendRunOutcome_Maps_Counts_And_Motif_To_An_Operator_Message(
+        int succeeded, int failed, bool expectedSuccess, string expectedFragment)
+    {
+        var run = SendRun(succeeded, failed, detail: "motif-pipeline");
+
+        var result = DocumentSendActionsService.DescribeSendRunOutcome(run);
+
+        result.Success.Should().Be(expectedSuccess);
+        result.Message.Should().Contain(expectedFragment);
+        if (!expectedSuccess)
+        {
+            result.Message.Should().Contain("motif-pipeline", "un run sans émission expose le motif du pipeline");
+        }
+    }
+
     private static (DocumentSendActionsService Service, CapturingJobQueue Queue, CapturingActivityLogger Audit) Build(
         FakeDocumentQueries queries,
         bool canAct = true,
-        string? tenantId = TenantId)
+        string? tenantId = TenantId,
+        IReadOnlyList<PipelineRunLogDto>? runs = null)
     {
         var queue = new CapturingJobQueue();
         var scopeFactory = BuildScopeFactory(queue);
@@ -229,9 +302,31 @@ public sealed class DocumentSendActionsServiceTests
             scopeFactory,
             new StubActorContextAccessor(OperatorId, CompanyId, tenantId),
             audit,
-            new FakePermissionService(canAct));
+            new FakePermissionService(canAct),
+            new FakeRunQueries(runs ?? Array.Empty<PipelineRunLogDto>()),
+            new FixedTimeProvider(TriggerInstant),
+            new SendRunWaitPolicy(TimeSpan.Zero, MaxAttempts: 3)); // sonde sans délai réel (FIX05 — déterministe)
         return (service, queue, audit);
     }
+
+    /// <summary>Construit une exécution SEND clôturée pour les tests de remontée du résultat (FIX05).</summary>
+    private static PipelineRunLogDto SendRun(
+        int succeeded,
+        int failed,
+        string? detail,
+        PipelineRunTrigger trigger = PipelineRunTrigger.Manual,
+        DateTimeOffset? startedAt = null) => new()
+    {
+        Id = Guid.NewGuid(),
+        RunType = PipelineRunType.Send,
+        Trigger = trigger,
+        StartedAt = startedAt ?? TriggerInstant,
+        CompletedAt = (startedAt ?? TriggerInstant).AddSeconds(2),
+        DocumentsProcessed = succeeded + failed,
+        DocumentsSucceeded = succeeded,
+        DocumentsFailed = failed,
+        Detail = detail,
+    };
 
     /// <summary>
     /// Fabrique de scope RÉELLE (conteneur Microsoft.Extensions.DependencyInjection) résolvant la file factice :
@@ -305,6 +400,34 @@ public sealed class DocumentSendActionsServiceTests
         public Task<DocumentSummaryDto?> GetOldestDocumentInStateAsync(string state, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         public Task<DocumentStatusDto?> FindStatusBySourceReferenceAndPayloadHashAsync(string sourceReference, string payloadHash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class FakeRunQueries : IPipelineRunQueries
+    {
+        private readonly IReadOnlyList<PipelineRunLogDto> _runs;
+
+        public FakeRunQueries(IReadOnlyList<PipelineRunLogDto> runs) => _runs = runs;
+
+        // Le journal réel rend les exécutions les plus récentes en tête (started_at décroissant) ; on respecte
+        // ce contrat pour que FirstOrDefault côté service sélectionne bien la plus récente qui matche.
+        public Task<IReadOnlyList<PipelineRunLogDto>> GetRecentRunsAsync(int limit, CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<PipelineRunLogDto> ordered = _runs.OrderByDescending(r => r.StartedAt).Take(limit).ToList();
+            return Task.FromResult(ordered);
+        }
+
+        public Task<IReadOnlyList<PipelineRunLogDto>> GetRunsAsync(
+            DateOnly? fromInclusive, DateOnly? toInclusive, int limit, CancellationToken cancellationToken = default) =>
+            GetRecentRunsAsync(limit, cancellationToken);
+    }
+
+    private sealed class FixedTimeProvider : TimeProvider
+    {
+        private readonly DateTimeOffset _now;
+
+        public FixedTimeProvider(DateTimeOffset now) => _now = now;
+
+        public override DateTimeOffset GetUtcNow() => _now;
     }
 
     private sealed class CapturingJobQueue : IJobQueue

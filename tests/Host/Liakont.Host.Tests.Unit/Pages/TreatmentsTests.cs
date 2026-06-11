@@ -108,6 +108,37 @@ public sealed class TreatmentsTests : BunitContext
         });
     }
 
+    [Fact]
+    public void Shows_The_Motif_Of_A_Send_Run_That_Sent_Nothing_By_Default()
+    {
+        // FIX05 : la colonne Détail est visible par défaut — le MOTIF d'un run d'envoi qui n'a rien émis
+        // (« aucun compte Plateforme Agréée actif… ») apparaît dans le journal au lieu de rester dans les logs.
+        const string Motif = "SEND : aucun compte Plateforme Agréée actif pour ce tenant — aucun envoi. Action opérateur : configurez et activez un compte PA (Paramétrage › Plateforme Agréée).";
+        var started = new DateTimeOffset(2026, 6, 8, 2, 0, 0, TimeSpan.Zero);
+        var runs = new[]
+        {
+            new PipelineRunLogDto
+            {
+                Id = Guid.NewGuid(),
+                RunType = PipelineRunType.Send,
+                Trigger = PipelineRunTrigger.Manual,
+                StartedAt = started,
+                CompletedAt = started.AddSeconds(2),
+                DocumentsProcessed = 0,
+                DocumentsSucceeded = 0,
+                DocumentsFailed = 0,
+                Detail = Motif,
+            },
+        };
+
+        Services.AddScoped<IPipelineRunQueries>(_ => new FakePipelineRunQueries(runs));
+
+        var cut = Render<Treatments>();
+
+        cut.WaitForAssertion(() =>
+            cut.Markup.Should().Contain("aucun compte Plateforme Agréée actif", "le motif est visible par défaut (colonne Détail)"));
+    }
+
     private sealed class FakePipelineRunQueries : IPipelineRunQueries
     {
         private readonly IReadOnlyList<PipelineRunLogDto> _runs;

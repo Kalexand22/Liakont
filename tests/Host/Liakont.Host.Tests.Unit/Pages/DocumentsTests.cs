@@ -134,6 +134,26 @@ public sealed class DocumentsTests : BunitContext
     }
 
     [Fact]
+    public void Lancer_Un_Traitement_Qui_N_Envoie_Rien_Affiche_Le_Motif_En_Alerte()
+    {
+        // FIX05 : un run manuel terminé sans rien envoyer remonte le MOTIF (français) en bandeau d'ALERTE —
+        // il ne ressemble pas à un succès. Le service renvoie un échec (Success == false) avec le motif.
+        var send = new FakeSendActions
+        {
+            TriggerRunResult = DocumentSendActionResult.Failure(
+                "Traitement terminé : aucun document émis. SEND : aucun compte Plateforme Agréée actif pour ce tenant — aucun envoi. Action opérateur : configurez et activez un compte PA (Paramétrage › Plateforme Agréée)."),
+        };
+        var cut = RenderAsOperator(send, Doc("2018", "invoice", "ReadyToSend"));
+
+        cut.Find("[data-testid='documents-trigger-run']").Click();
+
+        var feedback = cut.Find("[data-testid='documents-send-feedback']");
+        feedback.TextContent.Should().Contain("aucun document émis").And.Contain("aucun compte Plateforme Agréée actif");
+        feedback.GetAttribute("class").Should().Contain("doc-send-feedback--error", "un run sans envoi n'est pas un succès");
+        feedback.GetAttribute("role").Should().Be("alert");
+    }
+
+    [Fact]
     public void A_Failed_Send_Surfaces_An_Error_Feedback()
     {
         var send = new FakeSendActions
