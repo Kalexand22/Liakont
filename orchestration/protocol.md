@@ -212,7 +212,11 @@ carry it (terminal — they will not re-run); do not wire a new gate to it.
      - Append transition to events.jsonl
      - If this is the segment's gate, and the segment branch has commits:
        - Push the branch: `git push -u origin <branch>`
-       - Create PR: `gh pr create --base main --head <branch> --title "<gate title>" --body "..."`
+       - Create PR: `gh pr create --base main --head <branch> --title "<GATE_ID> — <gate title>" --body "..."`
+         The title MUST start with the gate id followed by a delimiter (space/dash):
+         `tools/orch-reconcile-gates.ps1` only flips a gate to `done` on a merged PR whose
+         title starts with its gate id (an older merged PR on the same segment branch must
+         never be mistaken for the gate PR — PR #15/#41 incident, 2026-06-11).
        - Update segment status via orch-state.ps1
      - Write session-log entry to `$ORCH_REPO/session-log/`
      - Release slot (delete `$ORCH_REPO/leases/slot-$SLOT_ID.yaml`)
@@ -429,7 +433,7 @@ it is scoped to gates with `executor` ≠ `human`, and it never runs on a red ch
 
 1. **With a remote configured** (PR auto-merge — keeps an audit trail; now the only mode):
    - `git push origin <segment-branch>`
-   - `gh pr create --base main --head <segment-branch> --title "<gate title>" --body "Automated integration gate: verify + run-tests + integration review green on <segment-branch>. Session log in $ORCH_REPO."`
+   - `gh pr create --base main --head <segment-branch> --title "<GATE_ID> — <gate title>" --body "Automated integration gate: verify + run-tests + integration review green on <segment-branch>. Session log in $ORCH_REPO."` (title MUST start with the gate id — see the Step 1.4 reconcile contract)
    - `gh pr merge --merge` (auto-merges; if branch protection requires CI checks, add `--auto`
      so the PR lands when checks pass). A squash/rebase policy may replace `--merge` per repo
      convention — never force.
