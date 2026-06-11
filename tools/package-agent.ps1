@@ -237,13 +237,15 @@ function Assert-Package {
     $binDir = Join-Path $StageDir 'bin'
     $errors = @()
 
-    # 1. Exécutables présents et du BON bitness (l'EXE x86 doit être 32 bits pour charger un ODBC 32 bits).
+    # 1. Exécutables présents et du BON bitness. Contrôle par ProcessorArchitecture (managé) : il
+    #    distingue x86 (32BITREQUIRED, requis pour un driver ODBC 32 bits) d'AnyCPU/MSIL — le champ
+    #    Machine du PE rapporte I386 pour les deux et laisserait passer un EXE AnyCPU.
     $exes = @('Liakont.Agent.exe', 'Liakont.Agent.Cli.exe', 'Liakont.Agent.Updater.exe')
     foreach ($exe in $exes) {
         $path = Join-Path $binDir $exe
         if (-not (Test-Path -LiteralPath $path)) { $errors += "EXE manquant : $exe"; continue }
-        $machine = Get-PeMachineType -Path $path
-        if ($machine -ne $Plat) { $errors += "$exe est « $machine » mais le package est « $Plat »." }
+        $arch = Get-AgentBinaryArchitecture -Path $path
+        if ($arch -ne $Plat) { $errors += "$exe est « $arch » mais le package est « $Plat » (AnyCPU/MSIL refusé : le bitness doit être forcé)." }
     }
 
     # 2. SQLite.Interop.dll de la BONNE plateforme présent ; celui de l'AUTRE plateforme absent.

@@ -46,11 +46,13 @@ l'auto-update (ADR-0013), il renforce la chaîne au niveau OS.
 
 ### 2. Un package PAR plateforme, élagué et vérifié (anti-faux-vert)
 
-Chaque ZIP est mono-plateforme : l'EXE est **réellement** du bon bitness (x86 = PE32 / I386,
-x64 = PE32+ / AMD64), et seul le sous-dossier natif `SQLite.Interop.dll` correspondant est conservé
-(l'autre est élagué). `package-agent.ps1` **vérifie** ces invariants (type machine PE de l'EXE et du
-natif) avant de produire le ZIP : un package au mauvais bitness échoue le build, il n'est jamais
-livré silencieusement.
+Chaque ZIP est mono-plateforme : l'EXE est **réellement** du bon bitness, et seul le sous-dossier
+natif `SQLite.Interop.dll` correspondant est conservé (l'autre est élagué). `package-agent.ps1`
+**vérifie** ces invariants avant de produire le ZIP : un package au mauvais bitness échoue le build,
+il n'est jamais livré silencieusement. Le contrôle de l'EXE utilise l'**architecture managée**
+(`ProcessorArchitecture` : X86 / Amd64 / **MSIL**) — et non le seul champ Machine du PE, qui rapporte
+I386 aussi bien pour x86 (32BITREQUIRED) que pour AnyCPU et laisserait passer un EXE AnyCPU au lieu
+d'un x86 forcé. Le natif `SQLite.Interop.dll` (non managé) est vérifié par son type machine PE.
 
 ### 3. Transport de la clé API de pré-configuration = chiffrement par mot de passe à usage unique
 
@@ -81,8 +83,14 @@ HMAC.
   (`update-signing.pubkey.xml`, ADR-0013) quand elle est fournie au packaging.
 - La validation « installation réelle sur machine propre + coexistence de 2 instances » est exercée
   à la gate humaine **GATE_TOOLKIT** (mutation de machine : service Windows, ACL) ; la logique pure
-  (dérivation d'instance, bitness PE, transport chiffré) est couverte par les tests Pester
-  `tools/tests/package-agent.Tests.ps1` et le contrôle intégré de `package-agent.ps1`.
+  (dérivation d'instance, bitness, transport chiffré) est couverte par `tools/test-agent-packaging.ps1`,
+  **câblé dans `tools/run-tests.ps1` ET `.github/workflows/ci.yml`** (gate permanente, pas seulement
+  un nœud d'orchestration ponctuel), plus le contrôle anti-faux-vert intégré de `package-agent.ps1`.
+- Le répertoire de données (tampon SQLite des données fiscales extraites) est posé en **moindre
+  privilège** : héritage retiré, accès explicite à SYSTEM (service) et aux Administrateurs
+  uniquement ; un compte intégrateur non administrateur reçoit Modify seulement s'il est fourni
+  explicitement (`-IntegratorAccount`). Aucun droit n'est accordé au groupe « Utilisateurs » — sur
+  un hôte mutualisé, aucun utilisateur local n'accède au tampon d'un autre tenant.
 
 ## Références
 

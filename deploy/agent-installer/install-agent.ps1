@@ -25,9 +25,11 @@
     Racine d'installation des binaires (défaut « %ProgramFiles%\Liakont\Agent »). Les binaires de
     l'instance sont posés sous <InstallRoot>\<instance>.
 .PARAMETER IntegratorAccount
-    Compte ou groupe (nom ou SID) recevant le droit Modify sur le répertoire de données, en plus du
-    compte du service. Défaut : groupe local « Utilisateurs » (SID *S-1-5-32-545) — l'intégrateur qui
-    lance le CLI doit pouvoir écrire la file SQLite partagée avec le service.
+    Compte ou groupe DÉDIÉ (nom ou SID) recevant le droit Modify sur le répertoire de données, en plus
+    du service (SYSTEM) et des Administrateurs. À fournir quand le CLI de diagnostic est lancé par un
+    compte NON administrateur (il doit pouvoir écrire la file SQLite partagée avec le service). Par
+    défaut VIDE : moindre privilège — seuls SYSTEM et les Administrateurs accèdent au tampon de
+    données fiscales (aucun droit accordé au groupe « Utilisateurs », important sur un hôte mutualisé).
 .PARAMETER PreConfigPassword
     Mot de passe à usage unique (communiqué SÉPARÉMENT) déchiffrant la clé API d'un package
     pré-configuré. Requis seulement si le package contient preconfig.json.
@@ -41,7 +43,7 @@
 param(
     [string]$InstanceName = 'Default',
     [string]$InstallRoot = (Join-Path $env:ProgramFiles 'Liakont\Agent'),
-    [string]$IntegratorAccount = '*S-1-5-32-545',
+    [string]$IntegratorAccount = '',
     [string]$PreConfigPassword,
     [switch]$Silent,
     [switch]$DryRun
@@ -83,17 +85,9 @@ try {
     $preconfigPath = Join-Path $scriptRoot 'preconfig.json'
     $hasPreconfig = Test-Path -LiteralPath $preconfigPath
     if ($hasPreconfig) {
+        # Le mot de passe à usage unique n'est demandé qu'au moment du déchiffrement (étape 7),
+        # JAMAIS en -DryRun (qui ne déchiffre ni n'écrit rien) : un -DryRun -Silent reste possible.
         Write-Step "Pré-configuration: preconfig.json présent (agent.json sera généré)"
-        if (-not $PreConfigPassword) {
-            if ($Silent) {
-                throw "Le package est pré-configuré mais aucun -PreConfigPassword n'a été fourni en " +
-                      "mode silencieux. Indiquez le mot de passe à usage unique communiqué séparément."
-            }
-            $secure = Read-Host "Mot de passe à usage unique de pré-configuration" -AsSecureString
-            $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-            try { $PreConfigPassword = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
-            finally { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
-        }
     }
 
     $pubkeyPath = Join-Path $scriptRoot 'update-signing.pubkey.xml'
@@ -103,7 +97,8 @@ try {
         Write-Host ""
         Write-Host "[DryRun] Plan validé — aucune modification effectuée." -ForegroundColor Yellow
         Write-Step "Copierait les binaires vers : $installDir"
-        Write-Step "Créerait/ACL le répertoire  : $($instance.DataDirectory) (service + « $IntegratorAccount »)"
+        $aclWho = if ($IntegratorAccount) { "SYSTEM + Administrateurs + « $IntegratorAccount »" } else { 'SYSTEM + Administrateurs' }
+        Write-Step "Créerait/ACL le répertoire  : $($instance.DataDirectory) ($aclWho)"
         if ($hasPreconfig) { Write-Step "Génèrerait agent.json depuis preconfig.json (clé API DPAPI)" }
         if ($hasPubkey) { Write-Step "Provisionnerait update-signing.pubkey.xml" }
         Write-Step "Enregistrerait le service   : $($instance.ServiceName)"
@@ -134,16 +129,36 @@ try {
     if (-not (Test-Path -LiteralPath $instance.DataDirectory)) {
         New-Item -ItemType Directory -Path $instance.DataDirectory -Force | Out-Null
     }
-    # SYSTEM (compte du service, LocalSystem) = contrôle total ; compte intégrateur = Modify.
-    # SID littéraux (préfixe *) = indépendants de la langue de Windows.
-    & icacls "$($instance.DataDirectory)" /grant "*S-1-5-18:(OI)(CI)F" "${IntegratorAccount}:(OI)(CI)M" | Out-Null
+    # Moindre privilège sur le tampon de données fiscales : on RETIRE l'héritage (la racine
+    # %ProgramData% accorde un droit d'écriture au groupe « Utilisateurs ») et on n'accorde
+    # explicitement qu'à SYSTEM (le service, LocalSystem) et aux Administrateurs (gestion + CLI lancé
+    # en administrateur). Sur un hôte mutualisé, aucun utilisateur local non privilégié n'accède au
+    # tampon d'un autre tenant. SID littéraux (préfixe *) = indépendants de la langue de Windows.
+    & icacls "$($instance.DataDirectory)" /inheritance:r /grant "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Échec de la pose des ACL sur « $($instance.DataDirectory) » (icacls a renvoyé $LASTEXITCODE)."
+    }
+    # Compte intégrateur DÉDIÉ (CLI lancé par un compte non administrateur) : droit Modify ciblé.
+    if ($IntegratorAccount) {
+        & icacls "$($instance.DataDirectory)" /grant "${IntegratorAccount}:(OI)(CI)M" | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Échec de la pose des ACL pour « $IntegratorAccount » sur « $($instance.DataDirectory) » (icacls a renvoyé $LASTEXITCODE)."
+        }
     }
 
     # ── 7. Pré-configuration : génération d'agent.json (clé API jamais en clair) ──
     if ($hasPreconfig) {
         Write-Host "Génération de la configuration pré-remplie..." -ForegroundColor Cyan
+        if (-not $PreConfigPassword) {
+            if ($Silent) {
+                throw "Le package est pré-configuré mais aucun -PreConfigPassword n'a été fourni en " +
+                      "mode silencieux. Indiquez le mot de passe à usage unique communiqué séparément."
+            }
+            $secure = Read-Host "Mot de passe à usage unique de pré-configuration" -AsSecureString
+            $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+            try { $PreConfigPassword = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+            finally { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+        }
         $preconfig = Get-Content -LiteralPath $preconfigPath -Raw | ConvertFrom-Json
         $plainApiKey = Unprotect-AgentPreConfigSecret -Secret $preconfig.apiKeySecret -Password $PreConfigPassword
 

@@ -138,6 +138,43 @@ function Get-PeMachineType {
     }
 }
 
+function Get-AgentBinaryArchitecture {
+    <#
+    .SYNOPSIS
+        Rend l'architecture d'un binaire (« x86 », « x64 », « anycpu » ou « native »).
+    .DESCRIPTION
+        Pour un assembly MANAGÉ (EXE/DLL .NET), le champ Machine de l'en-tête PE rapporte I386
+        AUSSI BIEN pour x86 (32BITREQUIRED) que pour AnyCPU — <see cref="Get-PeMachineType"/> ne les
+        distingue donc pas. ProcessorArchitecture (lu sans charger l'assembly) tranche : X86 (force le
+        32 bits, requis pour un driver ODBC 32 bits), Amd64, ou MSIL (AnyCPU). Un binaire NATIF
+        (ex. SQLite.Interop.dll) n'est pas un assembly managé : GetAssemblyName lève → « native »
+        (utiliser <see cref="Get-PeMachineType"/> pour celui-ci).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw "Binaire introuvable pour le contrôle d'architecture : « $Path »."
+    }
+
+    try {
+        $arch = [System.Reflection.AssemblyName]::GetAssemblyName($Path).ProcessorArchitecture
+    }
+    catch {
+        return 'native'
+    }
+
+    switch ($arch) {
+        'X86'   { return 'x86' }
+        'Amd64' { return 'x64' }
+        'MSIL'  { return 'anycpu' }
+        default { return 'native' }
+    }
+}
+
 function Protect-AgentPreConfigSecret {
     <#
     .SYNOPSIS
@@ -362,6 +399,6 @@ function New-AgentOneTimePassword {
     return ($blocks -join '-')
 }
 
-Export-ModuleMember -Function Resolve-AgentInstance, Get-PeMachineType,
+Export-ModuleMember -Function Resolve-AgentInstance, Get-PeMachineType, Get-AgentBinaryArchitecture,
     Protect-AgentPreConfigSecret, Unprotect-AgentPreConfigSecret, Compare-ConstantTime,
     New-AgentOneTimePassword

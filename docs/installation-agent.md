@@ -76,9 +76,17 @@ powershell -ExecutionPolicy Bypass -File install-agent.ps1 -InstanceName ClientA
 ```
 
 L'installeur : copie les binaires sous `%ProgramFiles%\Liakont\Agent\<instance>`, crée le répertoire
-de données `%ProgramData%\Liakont\<instance>` avec les **ACL** requises (le service ET le CLI y
-écrivent la file SQLite partagée), génère `agent.json` si le package est pré-configuré, provisionne
-la clé publique de signature d'auto-update si elle est fournie, puis enregistre le service Windows.
+de données `%ProgramData%\Liakont\<instance>` avec des **ACL en moindre privilège** (héritage retiré ;
+accès au seul **SYSTEM** — le service — et aux **Administrateurs**), génère `agent.json` si le package
+est pré-configuré, provisionne la clé publique de signature d'auto-update si elle est fournie, puis
+enregistre le service Windows.
+
+> **CLI lancé par un compte NON administrateur** : le CLI partage la file SQLite avec le service et
+> doit donc pouvoir y écrire. Donnez le droit Modify à ce compte dédié à l'installation :
+> `install-agent.ps1 -InstanceName ClientA -IntegratorAccount CONTOSO\liakont-ops`. Par défaut
+> (CLI lancé en administrateur), aucun compte supplémentaire n'est nécessaire. Sur un hôte mutualisé,
+> ce moindre privilège garantit qu'aucun utilisateur local n'accède au tampon de données fiscales
+> d'un autre tenant.
 
 Démarrer ensuite le service :
 
