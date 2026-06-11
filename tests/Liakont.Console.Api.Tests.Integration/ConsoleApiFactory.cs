@@ -88,6 +88,13 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     /// </summary>
     public const string TenantVerdict = "tenant-verdict";
 
+    /// <summary>
+    /// Tenant VIERGE (identité seulement, AUCUN profil) dédié à l'import de seed admin (FIX01a) : un test
+    /// y importe un profil via <c>POST /admin/tenants/{id}/seed</c>. Isolé (sa mutation — création de
+    /// profil — ne pollue pas l'export de réversibilité API03 ni les comptes EXACTS des autres suites).
+    /// </summary>
+    public const string TenantSeed = "tenant-seed";
+
     public const string BlockedReasonText = "Régime TVA non mappé : compléter la table TVA (document FA-A-002).";
 
     public const string OlderBlockedReasonText = "Ancien motif (corrigé puis re-bloqué).";
@@ -138,6 +145,12 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
 
     /// <summary>Société (companyId) du tenant de verdict/recheck (API02b) — résolue par le profil du tenant.</summary>
     public static readonly Guid TenantVerdictCompanyId = new("dddddddd-0000-0000-0000-0000000000d1");
+
+    /// <summary>Société (companyId) du tenant vierge — passée à l'import de seed admin (FIX01a).</summary>
+    public static readonly Guid TenantSeedCompanyId = new("eeeeeeee-0000-0000-0000-0000000000e1");
+
+    /// <summary>Utilisateur SystemAdmin (rôle porté par l'en-tête X-Test-Roles) — exécute /admin/tenants/*.</summary>
+    public static readonly Guid SystemAdminUserId = new("88888888-8888-8888-8888-888888888888");
 
     /// <summary>SIREN émetteur FICTIF mais valide (Luhn) du profil du tenant de verdict — exigé par SupplierIdentityRule au recheck.</summary>
     private const string VerdictProfileSiren = "404833048";
@@ -232,6 +245,7 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         var tenantArchBadConn = WithDatabase(systemConn, "tc_tenant_arch_bad");
         var tenantApi04Conn = WithDatabase(systemConn, "tc_tenant_api04");
         var tenantVerdictConn = WithDatabase(systemConn, "tc_tenant_verdict");
+        var tenantSeedConn = WithDatabase(systemConn, "tc_tenant_seed");
         _connectionsByTenant[TenantA] = tenantAConn;
         _connectionsByTenant[TenantB] = tenantBConn;
         _connectionsByTenant[TenantAction] = tenantActConn;
@@ -239,6 +253,7 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         _connectionsByTenant[TenantArchiveTampered] = tenantArchBadConn;
         _connectionsByTenant[TenantApi04] = tenantApi04Conn;
         _connectionsByTenant[TenantVerdict] = tenantVerdictConn;
+        _connectionsByTenant[TenantSeed] = tenantSeedConn;
 
         var hostDir = Path.GetFullPath(Path.Combine(
             AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "Host", "Liakont.Host"));
@@ -263,6 +278,7 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantArchiveTampered}"] = tenantArchBadConn;
         builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantApi04}"] = tenantApi04Conn;
         builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantVerdict}"] = tenantVerdictConn;
+        builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantSeed}"] = tenantSeedConn;
 
         // Magasin de staging (PIP00) sur un répertoire de test dédié et isolé (un par run) ; nettoyé au Dispose.
         // Requis par la re-vérification (API02b) qui relit le pivot stagé du document bloqué.
@@ -325,6 +341,12 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         MigrateDatabase(migrationAssemblies, tenantArchBadConn);
         MigrateDatabase(migrationAssemblies, tenantApi04Conn);
         MigrateDatabase(migrationAssemblies, tenantVerdictConn);
+        MigrateDatabase(migrationAssemblies, tenantSeedConn);
+
+        // Tenant vierge (FIX01a) : enregistré dans le catalogue système (outbox.tenants) pour que
+        // l'endpoint d'admin le RÉSOLVE (ITenantQueries.GetByIdAsync), mais SANS profil ni identité — un
+        // test y importe un profil via POST /admin/tenants/{id}/seed.
+        await RegisterSystemTenantAsync(systemConn, TenantSeed, "tc_tenant_seed");
 
         await SeedTenantAAsync(tenantAConn);
         await SeedTenantBAsync(tenantBConn);
@@ -368,7 +390,7 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     /// Crée un client HTTP ciblant l'hôte in-process, avec l'en-tête de tenant (<c>X-Tenant-Id</c>) et,
     /// si fourni, l'identité de test (<c>X-Test-User</c>). Sans utilisateur, la requête est anonyme.
     /// </summary>
-    public HttpClient CreateClient(string tenantId, Guid? userId = null, Guid? companyId = null)
+    public HttpClient CreateClient(string tenantId, Guid? userId = null, Guid? companyId = null, string? roles = null)
     {
         var client = new HttpClient { BaseAddress = new Uri(BaseUrl) };
         client.DefaultRequestHeaders.Add("X-Tenant-Id", tenantId);
@@ -382,6 +404,13 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         if (companyId is { } company)
         {
             client.DefaultRequestHeaders.Add(TestAuthHandler.CompanyHeader, company.ToString());
+        }
+
+        // Rôles (ex. SystemAdmin) : portés par le jeton de l'IdP en production ; fournis ici pour les
+        // endpoints gardés par rôle (/admin/tenants). Omis = aucun claim de rôle.
+        if (!string.IsNullOrWhiteSpace(roles))
+        {
+            client.DefaultRequestHeaders.Add(TestAuthHandler.RolesHeader, roles);
         }
 
         return client;
@@ -576,6 +605,30 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         await using var conn = new NpgsqlConnection(connectionString);
         await conn.OpenAsync();
         await SeedIdentityAsync(conn);
+    }
+
+    /// <summary>
+    /// Enregistre un tenant dans le catalogue système (<c>outbox.tenants</c>, base SYSTÈME) pour qu'il
+    /// soit RÉSOLU par <c>ITenantQueries</c> (l'endpoint d'admin vérifie l'existence du tenant cible).
+    /// </summary>
+    private static async Task RegisterSystemTenantAsync(string systemConnectionString, string tenantId, string databaseName)
+    {
+        await using var conn = new NpgsqlConnection(systemConnectionString);
+        await conn.OpenAsync();
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO outbox.tenants (id, display_name, admin_email, database_name, realm_name, is_active)
+            VALUES (@Id, @DisplayName, @AdminEmail, @DatabaseName, @RealmName, TRUE)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            new
+            {
+                Id = tenantId,
+                DisplayName = "Tenant vierge (seed)",
+                AdminEmail = "admin@tenant-seed.test",
+                DatabaseName = databaseName,
+                RealmName = "stratum-" + tenantId,
+            });
     }
 
     private static async Task SeedIdentityAsync(NpgsqlConnection conn)

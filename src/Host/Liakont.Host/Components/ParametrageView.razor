@@ -13,6 +13,15 @@
 
 <div class="liakont-parametrage" data-testid="liakont-parametrage">
 
+    @if (Model.Profile is null)
+    {
+        <div class="liakont-parametrage__alert" role="alert" data-testid="parametrage-profile-incomplete">
+            <StatusBadge Label="PARAMÉTRAGE INCOMPLET" Severity="Severity.Error" />
+            <span>Le profil du tenant n'est pas encore créé — le traitement des documents est suspendu.
+                Importez le paramétrage du tenant (profil légal) pour reprendre le traitement.</span>
+        </div>
+    }
+
     <SectionCard Title="Profil" TestId="parametrage-profil">
         @if (Model.Profile is { } profile)
         {
