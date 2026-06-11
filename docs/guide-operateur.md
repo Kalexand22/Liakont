@@ -7,7 +7,7 @@ paramétrer la table TVA, réconcilier les PDF, exporter la piste d'audit.
 
 > Ce guide décrit la console **telle qu'elle est livrée**. Les libellés entre guillemets
 > (« … ») sont ceux affichés à l'écran. Les écrans dépendent de vos **autorisations**
-> (voir [§ Qui peut faire quoi](#qui-peut-faire-quoi)) : certaines actions ou pages
+> (voir [§ Qui peut faire quoi](#17-qui-peut-faire-quoi)) : certaines actions ou pages
 > peuvent ne pas vous être visibles.
 
 ---
