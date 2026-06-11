@@ -15,6 +15,9 @@
 @inject Stratum.Modules.Job.Contracts.Services.IJobTypeCatalog JobTypeCatalog
 
 <PermissionGate Permission="@JobPermissions.View">
+@* Export désactivé (FIX211) : l'export de la grille lit la propriété brute JobType (FullName .NET) en ignorant
+   le ColumnTemplate FR — il contredirait l'invariant « FullName jamais affiché » (E7). Même raison que la page
+   des exécutions. DeclaredListPage n'expose pas de projection d'export. *@
 <DeclaredListPage TItem="ScheduleDto"
                   Title="Planifications de jobs"
                   TestId="admin-jobs"
@@ -31,8 +34,7 @@
                   AriaLabel="Liste des planifications de jobs"
                   DefaultSortColumn="Name"
                   SearchPlaceholder="Chercher une planification… (raccourci : /)"
-                  AllowExport="true"
-                  ExportFileName="job-schedules" />
+                  AllowExport="false" />
 </PermissionGate>
 
 @code {
