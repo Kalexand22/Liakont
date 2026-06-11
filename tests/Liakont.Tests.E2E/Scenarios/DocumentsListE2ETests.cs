@@ -60,6 +60,13 @@ public sealed class DocumentsListE2ETests : KeycloakBaseE2ETest
         (await Page.Locator("[data-testid='doc-counts-all']").IsVisibleAsync())
             .Should().BeTrue("la synthèse par état s'affiche au-dessus de la liste");
 
+        // FIX206 : la barre d'outils du gabarit commun des listes (DeclaredListPage → StratumDataGrid)
+        // expose une icône Rafraîchir (relance la requête en conservant filtres/pagination).
+        var refresh = Page.Locator("[data-testid='refresh-btn']");
+        await refresh.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 30_000 });
+        (await refresh.IsVisibleAsync())
+            .Should().BeTrue("la liste expose une icône Rafraîchir (FIX206)");
+
         // Actions d'envoi MASQUÉES pour un utilisateur lecture (WEB05) : sans liakont.actions, ni « Tout
         // envoyer », ni « Lancer un traitement », ni barre d'actions groupées « Envoyer la sélection ».
         (await Page.Locator("[data-testid='documents-send-all']").CountAsync())

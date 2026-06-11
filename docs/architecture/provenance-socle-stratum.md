@@ -224,6 +224,11 @@ src/Common/UI/Models/BulkActionConfig.cs
 src/Common/UI/Components/DeclaredListPage.razor.cs
 src/Common/Infrastructure/BugCapture/VideoAnalysisService.cs
 src/Common/UI/Services/BugCapture/BugCaptureService.cs
+src/Common/UI/Components/StratumDataGrid.razor
+src/Common/UI/Components/DeclaredListPage.razor
+src/Common/UI/Components/StratumButton.razor
+src/Common/UI/Resources/SharedResources.resx
+src/Common/UI/Resources/SharedResources.fr.resx
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -352,6 +357,46 @@ Suites de review (round 1, 3 P2) :
   exige d'instancier les 13 dépendances et de piloter une session de capture complète — même
   arbitrage que §4.15 (mocking lourd disproportionné), le branchement étant un simple test de
   taille désormais journalisé.
+
+### 4.17 Barre d'outils des listes — Rafraîchir + bouton Export unique (FIX206)
+
+La recette humaine GATE_CONSOLE_WEB (run 2, 2026-06-11) a relevé deux défauts du gabarit commun
+des listes (`DeclaredListPage` → `StratumDataGrid`) : aucun bouton de rafraîchissement (le pipeline
+étant asynchrone — CHECK event-driven, envoi par job — l'opérateur n'avait que F5 pour voir un
+changement d'état), et **trois icônes d'export identiques** (`Icon="download"`, sans libellé) pour
+CSV/Excel/PDF, indistinguables. Décision opérateur E3 : une icône **Rafraîchir** à côté des exports
+(relançant la requête serveur en CONSERVANT filtres/tri/pagination) et **un seul bouton « Exporter »**
+ouvrant un menu CSV/Excel/PDF. Correctif porté sur le gabarit COMMUN pour couvrir toutes les listes
+d'un coup. Modifications **rétro-compatibles** (marquées par leurs commentaires de garde / `FIX206`) :
+
+- `src/Common/UI/Components/StratumDataGrid.razor` :
+  - les **trois** `StratumButton` d'export identiques (`export-csv-btn`/`export-excel-btn`/`export-pdf-btn`)
+    sont remplacés par **un** `StratumSplitButton` « Exporter » (`export-btn`) dont le menu liste les
+    formats déclarés par `ExportFormats`. Le **comportement d'export est inchangé** : le bouton primaire
+    exporte le premier format activé, chaque item du menu appelle le même `HandleExportAsync(format)`
+    qu'avant (aucun format ajouté/retiré, Excel reste no-op sans `OnExport` custom, exactement comme
+    le bouton Excel d'origine).
+  - nouveau paramètre **optionnel** `EventCallback OnRefresh` : quand un délégué est fourni, une icône
+    `refresh` (`refresh-btn`) est rendue dans la barre d'outils ; sinon rien (rétro-compatible — aucune
+    liste existante n'affiche le bouton sans câblage explicite). La condition d'affichage de la barre
+    d'outils inclut désormais `OnRefresh.HasDelegate`.
+- `src/Common/UI/Components/DeclaredListPage.razor` : les trois usages de `StratumDataGrid` (vue
+  multi-modes + deux vues simples) câblent `OnRefresh="LoadAsync"`. `LoadAsync` ré-exécute le rappel
+  `LoadItems` (requête serveur) puis `ApplyFilters()`, qui ré-applique l'état `_filterState`/tri/page
+  EXISTANT → filtres et pagination conservés (acceptance FIX206). `DeclaredListPage.razor.cs` n'est PAS
+  modifié par FIX206 (il figure déjà dans le bloc de dérive depuis §4.15).
+- `src/Common/UI/Components/StratumButton.razor` : ajout d'un paramètre **optionnel** `Title` (mappé
+  sur les attributs `title` + `aria-label`) pour donner un nom accessible / une infobulle aux boutons
+  icône seule — utilisé par l'icône Rafraîchir. Aucun impact sur les boutons existants (défaut `null`).
+- `src/Common/UI/Resources/SharedResources.resx` + `SharedResources.fr.resx` : deux clés
+  `Grid_ExportButton` (Export / Exporter) et `Grid_RefreshButton` (Refresh / Rafraîchir). Les libellés
+  de format du menu (CSV/Excel/PDF) sont des littéraux (acronymes universels, non traduits).
+
+Tests : `tests/Common.UI/Unit/StratumDataGridTests.cs` (projet de test, **non épinglé** par le baseline
+§4.12 — sous `tests/`, pas `src/`) — les tests d'export sont mis à jour vers le bouton unique (`export-btn`,
+menu CSV/Excel/PDF, désactivation chargement/vide, export par défaut CSV) et trois tests Rafraîchir sont
+ajoutés (rendu conditionnel au délégué, invocation du rappel). Capacité GÉNÉRIQUE du design-system,
+candidate à reverser en amont (§6).
 
 ## 5. ADR du socle hérités
 
