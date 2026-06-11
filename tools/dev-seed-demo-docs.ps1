@@ -14,34 +14,61 @@ $ErrorActionPreference = 'Stop'
 $supplier = @{ name = "SVV Exemple"; siren = "123456782" }
 
 # 15 documents variés : FAC/AVO, 3 natures d'opération, taux 20/10/5,5/0, B2B et B2C.
+# Dates RELATIVES à la date du jour (champ `ago` = nb de jours en arrière) — jamais en dur :
+# la page Documents filtre par défaut sur le mois courant, des dates figées rendraient l'écran
+# vide juste après le seed (bug-inbox FIX07a). `cur=$true` = document garanti dans le mois
+# courant (plusieurs, pour une première impression non vide). Chaque ligne porte son régime
+# source brut (`reg`) aligné sur sourceTaxRegimes (20/10/5.5/0) et sa ventilation TVA (`rate`).
 $docs = @(
-  @{ k="FAC"; n="F-2026-001"; d="2026-01-08T00:00:00"; r="SRC-0001"; cat="LivraisonBiens";    ht=1000.00; tva=200.00; cust="Garage Dupont SARL" }
-  @{ k="FAC"; n="F-2026-002"; d="2026-01-15T00:00:00"; r="SRC-0002"; cat="LivraisonBiens";    ht=450.50;  tva=90.10;  cust="Boucherie Martin" }
-  @{ k="FAC"; n="F-2026-003"; d="2026-01-23T00:00:00"; r="SRC-0003"; cat="PrestationServices"; ht=800.00;  tva=160.00; cust="Cabinet Lefevre" }
-  @{ k="FAC"; n="F-2026-004"; d="2026-02-03T00:00:00"; r="SRC-0004"; cat="LivraisonBiens";    ht=250.00;  tva=25.00;  cust="Hotel des Voyageurs" }   # 10%
-  @{ k="FAC"; n="F-2026-005"; d="2026-02-11T00:00:00"; r="SRC-0005"; cat="LivraisonBiens";    ht=200.00;  tva=11.00;  cust="Librairie Centrale" }     # 5,5%
-  @{ k="FAC"; n="F-2026-006"; d="2026-02-19T00:00:00"; r="SRC-0006"; cat="PrestationServices"; ht=500.00;  tva=0.00;   cust="Clinique Saint-Joseph" }  # exonéré
-  @{ k="FAC"; n="F-2026-007"; d="2026-02-27T00:00:00"; r="SRC-0007"; cat="LivraisonBiens";    ht=80.00;   tva=16.00;  cust=$null }                    # B2C
-  @{ k="FAC"; n="F-2026-008"; d="2026-03-05T00:00:00"; r="SRC-0008"; cat="Mixte";             ht=1500.00; tva=300.00; cust="Commune de Plouezoch" }
-  @{ k="FAC"; n="F-2026-009"; d="2026-03-12T00:00:00"; r="SRC-0009"; cat="PrestationServices"; ht=320.00;  tva=64.00;  cust="Agence Web Bleue" }
-  @{ k="FAC"; n="F-2026-010"; d="2026-03-20T00:00:00"; r="SRC-0010"; cat="LivraisonBiens";    ht=2750.00; tva=550.00; cust="Distrib Ouest SAS" }
-  @{ k="AVO"; n="A-2026-001"; d="2026-03-25T00:00:00"; r="SRC-0011"; cat="LivraisonBiens";    ht=100.00;  tva=20.00;  cust="Garage Dupont SARL" }      # avoir
-  @{ k="FAC"; n="F-2026-011"; d="2026-04-02T00:00:00"; r="SRC-0012"; cat="PrestationServices"; ht=640.00;  tva=128.00; cust="Cabinet Lefevre" }
-  @{ k="FAC"; n="F-2026-012"; d="2026-04-15T00:00:00"; r="SRC-0013"; cat="LivraisonBiens";    ht=125.00;  tva=6.88;   cust="Librairie Centrale" }      # 5,5% arrondi
-  @{ k="AVO"; n="A-2026-002"; d="2026-04-22T00:00:00"; r="SRC-0014"; cat="PrestationServices"; ht=50.00;   tva=10.00;  cust="Agence Web Bleue" }        # avoir
-  @{ k="FAC"; n="F-2026-013"; d="2026-05-06T00:00:00"; r="SRC-0015"; cat="LivraisonBiens";    ht=900.00;  tva=180.00; cust=$null }                    # B2C
+  @{ k="FAC"; n="F-2026-001"; ago=150; cur=$false; r="SRC-0001"; cat="LivraisonBiens";    ht=1000.00; tva=200.00; reg="20";  rate=20;  cust="Garage Dupont SARL" }
+  @{ k="FAC"; n="F-2026-002"; ago=135; cur=$false; r="SRC-0002"; cat="LivraisonBiens";    ht=450.50;  tva=90.10;  reg="20";  rate=20;  cust="Boucherie Martin" }
+  @{ k="FAC"; n="F-2026-003"; ago=120; cur=$false; r="SRC-0003"; cat="PrestationServices"; ht=800.00;  tva=160.00; reg="20";  rate=20;  cust="Cabinet Lefevre" }
+  @{ k="FAC"; n="F-2026-004"; ago=105; cur=$false; r="SRC-0004"; cat="LivraisonBiens";    ht=250.00;  tva=25.00;  reg="10";  rate=10;  cust="Hotel des Voyageurs" }
+  @{ k="FAC"; n="F-2026-005"; ago=92;  cur=$false; r="SRC-0005"; cat="LivraisonBiens";    ht=200.00;  tva=11.00;  reg="5.5"; rate=5.5; cust="Librairie Centrale" }
+  @{ k="FAC"; n="F-2026-006"; ago=78;  cur=$false; r="SRC-0006"; cat="PrestationServices"; ht=500.00;  tva=0.00;   reg="0";   rate=0;   cust="Clinique Saint-Joseph" }
+  @{ k="FAC"; n="F-2026-007"; ago=64;  cur=$false; r="SRC-0007"; cat="LivraisonBiens";    ht=80.00;   tva=16.00;  reg="20";  rate=20;  cust=$null }
+  @{ k="FAC"; n="F-2026-008"; ago=50;  cur=$false; r="SRC-0008"; cat="Mixte";             ht=1500.00; tva=300.00; reg="20";  rate=20;  cust="Commune de Plouezoch" }
+  @{ k="FAC"; n="F-2026-009"; ago=40;  cur=$false; r="SRC-0009"; cat="PrestationServices"; ht=320.00;  tva=64.00;  reg="20";  rate=20;  cust="Agence Web Bleue" }
+  @{ k="FAC"; n="F-2026-010"; ago=33;  cur=$false; r="SRC-0010"; cat="LivraisonBiens";    ht=2750.00; tva=550.00; reg="20";  rate=20;  cust="Distrib Ouest SAS" }
+  @{ k="AVO"; n="A-2026-001"; ago=24;  cur=$false; r="SRC-0011"; cat="LivraisonBiens";    ht=100.00;  tva=20.00;  reg="20";  rate=20;  cust="Garage Dupont SARL" }
+  @{ k="FAC"; n="F-2026-011"; ago=10;  cur=$true;  r="SRC-0012"; cat="PrestationServices"; ht=640.00;  tva=128.00; reg="20";  rate=20;  cust="Cabinet Lefevre" }
+  @{ k="FAC"; n="F-2026-012"; ago=7;   cur=$true;  r="SRC-0013"; cat="LivraisonBiens";    ht=125.00;  tva=6.88;   reg="5.5"; rate=5.5; cust="Librairie Centrale" }
+  @{ k="AVO"; n="A-2026-002"; ago=4;   cur=$true;  r="SRC-0014"; cat="PrestationServices"; ht=50.00;   tva=10.00;  reg="20";  rate=20;  cust="Agence Web Bleue" }
+  @{ k="FAC"; n="F-2026-013"; ago=1;   cur=$true;  r="SRC-0015"; cat="LivraisonBiens";    ht=900.00;  tva=180.00; reg="20";  rate=20;  cust=$null }
 )
 
+# Dates relatives, calculées à l'exécution. Pour un document `cur`, on clampe la date au 1er du
+# mois courant si le décalage la ferait basculer sur le mois précédent (garantit « plusieurs dans
+# le mois courant » quel que soit le jour d'exécution).
+$today        = (Get-Date).Date
+$firstOfMonth = (Get-Date -Day 1).Date
+function Get-IssueDate([int] $ago, [bool] $currentMonth) {
+  $d = $today.AddDays(-$ago)
+  if ($currentMonth -and $d -lt $firstOfMonth) { $d = $firstOfMonth }
+  return $d.ToString("yyyy-MM-ddT00:00:00")
+}
+
 $documents = foreach ($x in $docs) {
+  # Une ligne par document (EN 16931 BG-25), porteuse du régime source brut + de la ventilation
+  # de TVA — sans ligne, la validation bloque (« aucune ligne »), le parcours n'atteint jamais
+  # « Prêt à envoyer » (bug-inbox FIX07a). Catégorie/VATEX sont nuls : c'est le mapping PLATEFORME
+  # qui les remplit (le pivot ne calcule rien). Totaux = somme des lignes (ici une seule ligne).
+  $line = [ordered]@{
+    description       = "Ligne principale ($($x.cat))"
+    netAmount         = [decimal]$x.ht
+    sourceRegimeCodes = @($x.reg)
+    taxes             = @( [ordered]@{ taxAmount = [decimal]$x.tva; rate = [decimal]$x.rate } )
+  }
   $doc = [ordered]@{
     sourceDocumentKind = $x.k
     number             = $x.n
-    issueDate          = $x.d
+    issueDate          = (Get-IssueDate $x.ago $x.cur)
     sourceReference    = $x.r
     supplier           = $supplier
     totals             = [ordered]@{ totalNet = [decimal]$x.ht; totalTax = [decimal]$x.tva; totalGross = ([decimal]$x.ht + [decimal]$x.tva) }
     operationCategory  = $x.cat
     currencyCode       = "EUR"
+    lines              = @($line)
   }
   if ($x.cust) { $doc.customer = @{ name = $x.cust; isCompanyHint = $true } }
   $doc
@@ -51,7 +78,7 @@ $body = [ordered]@{
   contractVersion  = "1"
   documents        = @($documents)
   sourceTaxRegimes = @(
-    @{ code = "20";  label = "Taux normal";        occurrences = 7 }
+    @{ code = "20";  label = "Taux normal";        occurrences = 11 }
     @{ code = "10";  label = "Taux intermediaire"; occurrences = 1 }
     @{ code = "5.5"; label = "Taux reduit";        occurrences = 2 }
     @{ code = "0";   label = "Exonere";            occurrences = 1 }
