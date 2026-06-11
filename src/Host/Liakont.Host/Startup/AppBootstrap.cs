@@ -394,7 +394,15 @@ public static class AppBootstrap
         builder.Services.AddSingleton<INavSectionProvider, Stratum.Modules.Identity.Web.SecurityNavSectionProvider>();
         builder.Services.AddSingleton<INavSectionProvider, Stratum.Modules.Notification.Web.NotificationNavSectionProvider>();
         builder.Services.AddSingleton<INavSectionProvider, Stratum.Modules.Audit.Web.AuditNavSectionProvider>();
-        builder.Services.AddSingleton<INavSectionProvider, Stratum.Modules.Job.Web.JobNavSectionProvider>();
+
+        // Section « Jobs » du socle filtrée par permission côté Liakont (FIX07c) : le provider socle déclare
+        // « Planifications » (/admin/jobs) inconditionnellement, mais la page socle exige la permission socle
+        // job.view — jamais accordée par un rôle Liakont (RolePermissionCatalog, matrice §3 immuable) ; seul un
+        // super-admin l'ouvre. Sans filtre, l'entrée menait à une page entièrement vide pour tout opérateur normal
+        // (recette GATE_CONSOLE_WEB). SCOPED car la visibilité dépend de l'utilisateur (comme LiakontNavSectionProvider).
+        // Le socle vendored n'est PAS modifié ; la découverte de la ROUTE /admin/jobs (Routes.razor +
+        // MapRazorComponents) reste intacte pour le super-admin.
+        builder.Services.AddScoped<INavSectionProvider, Liakont.Host.Navigation.JobNavVisibilityFilter>();
 
         // Navigation maître Liakont (WEB01) : SCOPED car la visibilité des sections dépend du tenant
         // courant (pool PDF → Réconciliation) et du rôle de l'utilisateur (permission → Supervision).
