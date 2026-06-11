@@ -519,6 +519,231 @@ public sealed class TableTvaViewTests : BunitContext
         cut.FindAll("[data-testid='table-tva-consistency']").Should().BeEmpty();
     }
 
+    // ── Composante (décision E2 / lot FIX2) ─────────────────────────────
+    [Fact]
+    public void Composante_column_is_shown_with_hors_encheres_value_when_vertical_on()
+    {
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(SingleRuleTable("Autre"), tenantResolved: true, auctionVerticalEnabled: true))
+            .Add(v => v.CanEdit, false));
+
+        // Colonne « Composante » (clé technique « Part ») présente ; valeur Autre rendue « Hors Enchères ».
+        cut.WaitForAssertion(() =>
+            cut.Find("[data-testid='grid-cell-Part']").TextContent.Trim().Should().Be("Hors Enchères"));
+    }
+
+    [Fact]
+    public void Composante_column_is_hidden_when_vertical_off()
+    {
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(SingleRuleTable("Autre"), tenantResolved: true, auctionVerticalEnabled: false))
+            .Add(v => v.CanEdit, false));
+
+        // Vertical OFF : la notion n'apparaît nulle part — aucune colonne « Composante » dans la grille.
+        cut.WaitForAssertion(() => RegimeCells(cut).Should().ContainSingle());
+        cut.FindAll("[data-testid='grid-cell-Part']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Dead_rule_uses_composante_vocabulary_when_vertical_on()
+    {
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable(), tenantResolved: true, auctionVerticalEnabled: true, consistency: ConsistencyWithDeadRule()))
+            .Add(v => v.CanEdit, true));
+
+        var entry = cut.Find("[data-testid='table-tva-consistency-entry']").TextContent;
+        entry.Should().Contain("ADJ");
+        entry.Should().Contain("(Adjudication)");
+        entry.Should().Contain("Composante non consultée par le pipeline");
+    }
+
+    [Fact]
+    public void Changelog_renders_before_after_diff_for_an_update()
+    {
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable(), UpdateChangeLog()))
+            .Add(v => v.CanValidate, false));
+
+        cut.FindAll("[data-testid='table-tva-changelog-diff']").Should().ContainSingle();
+        cut.FindAll("[data-testid='table-tva-changelog-diff-line']").Should().NotBeEmpty();
+
+        var markup = cut.Markup;
+        markup.Should().Contain("Ancien libellé → Nouveau libellé");
+        markup.Should().Contain("S → AA");
+        markup.Should().Contain("20 % → 10 %");
+    }
+
+    [Fact]
+    public void Changelog_renders_created_values_for_an_add()
+    {
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable(), AddChangeLog()))
+            .Add(v => v.CanValidate, false));
+
+        cut.FindAll("[data-testid='table-tva-changelog-diff-line']").Should().NotBeEmpty();
+        var markup = cut.Markup;
+        markup.Should().Contain("Régime source");
+        markup.Should().Contain("44");
+        markup.Should().Contain("Calculé depuis la source");
+    }
+
+    [Fact]
+    public void Changelog_renders_removed_values_for_a_remove()
+    {
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable(), RemoveChangeLog()))
+            .Add(v => v.CanValidate, false));
+
+        cut.FindAll("[data-testid='table-tva-changelog-diff-line']").Should().NotBeEmpty();
+        var markup = cut.Markup;
+        markup.Should().Contain("Obsolète");
+        markup.Should().Contain("VATEX-EU-O");
+    }
+
+    [Fact]
+    public void Changelog_renders_validator_diff_for_a_validate()
+    {
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable(), ValidateChangeLog()))
+            .Add(v => v.CanValidate, false));
+
+        cut.FindAll("[data-testid='table-tva-changelog-diff-line']").Should().NotBeEmpty();
+        var markup = cut.Markup;
+        markup.Should().Contain("Validé par");
+        markup.Should().Contain("Alice Martin");
+        markup.Should().Contain("2026-06-01");
+    }
+
+    [Fact]
+    public void Changelog_diff_shows_composante_only_when_vertical_on()
+    {
+        // Vertical ON : la composante modifiée apparaît, valeur Autre → « Hors Enchères ».
+        var on = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable(), PartOnlyUpdateChangeLog(), tenantResolved: true, auctionVerticalEnabled: true))
+            .Add(v => v.CanValidate, false));
+        on.Markup.Should().Contain("Composante");
+        on.Markup.Should().Contain("Adjudication → Hors Enchères");
+
+        // Vertical OFF : la composante n'est jamais mentionnée — la seule modif portant sur la part
+        // ne produit donc AUCUNE ligne de diff (E2).
+        var off = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable(), PartOnlyUpdateChangeLog()))
+            .Add(v => v.CanValidate, false));
+        off.Markup.Should().NotContain("Composante");
+        off.FindAll("[data-testid='table-tva-changelog-diff-line']").Should().BeEmpty();
+    }
+
+    private static MappingTableDto SingleRuleTable(string part) => new()
+    {
+        Id = Guid.NewGuid(),
+        CompanyId = Guid.NewGuid(),
+        MappingVersion = "v1",
+        ValidatedBy = null,
+        ValidatedDate = null,
+        IsValidated = false,
+        DefaultBehavior = "Block",
+        CreatedAt = new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero),
+        UpdatedAt = null,
+        Rules =
+        [
+            new MappingRuleDto
+            {
+                SourceRegimeCode = "20",
+                Label = "TVA 20 %",
+                Part = part,
+                Category = "S",
+                Vatex = null,
+                RateMode = "Fixed",
+                RateValue = 20m,
+            },
+        ],
+    };
+
+    private static IReadOnlyList<MappingChangeLogEntryDto> UpdateChangeLog() =>
+    [
+        new MappingChangeLogEntryDto
+        {
+            Id = Guid.NewGuid(),
+            ChangeType = "UpdateRule",
+            SourceRegimeCode = "20",
+            Part = "Autre",
+            MappingVersion = "v1",
+            BeforeJson = """{"SourceRegimeCode":"20","Label":"Ancien libellé","Part":"Autre","Category":"S","RateMode":"Fixed","RateValue":20}""",
+            AfterJson = """{"SourceRegimeCode":"20","Label":"Nouveau libellé","Part":"Autre","Category":"AA","RateMode":"Fixed","RateValue":10}""",
+            OperatorId = Guid.NewGuid(),
+            OperatorName = "Alice Martin",
+            OccurredAt = new DateTimeOffset(2026, 6, 1, 9, 0, 0, TimeSpan.Zero),
+        },
+    ];
+
+    private static IReadOnlyList<MappingChangeLogEntryDto> AddChangeLog() =>
+    [
+        new MappingChangeLogEntryDto
+        {
+            Id = Guid.NewGuid(),
+            ChangeType = "AddRule",
+            SourceRegimeCode = "44",
+            Part = "Autre",
+            MappingVersion = "v1",
+            BeforeJson = null,
+            AfterJson = """{"SourceRegimeCode":"44","Label":"Intracommunautaire","Part":"Autre","Category":"K","RateMode":"ComputedFromSource"}""",
+            OperatorId = Guid.NewGuid(),
+            OperatorName = "Alice Martin",
+            OccurredAt = new DateTimeOffset(2026, 6, 1, 9, 0, 0, TimeSpan.Zero),
+        },
+    ];
+
+    private static IReadOnlyList<MappingChangeLogEntryDto> RemoveChangeLog() =>
+    [
+        new MappingChangeLogEntryDto
+        {
+            Id = Guid.NewGuid(),
+            ChangeType = "RemoveRule",
+            SourceRegimeCode = "99",
+            Part = "Autre",
+            MappingVersion = "v1",
+            BeforeJson = """{"SourceRegimeCode":"99","Label":"Obsolète","Part":"Autre","Category":"E","Vatex":"VATEX-EU-O","RateMode":"ComputedFromSource"}""",
+            AfterJson = null,
+            OperatorId = Guid.NewGuid(),
+            OperatorName = "Alice Martin",
+            OccurredAt = new DateTimeOffset(2026, 6, 1, 9, 0, 0, TimeSpan.Zero),
+        },
+    ];
+
+    private static IReadOnlyList<MappingChangeLogEntryDto> ValidateChangeLog() =>
+    [
+        new MappingChangeLogEntryDto
+        {
+            Id = Guid.NewGuid(),
+            ChangeType = "Validate",
+            SourceRegimeCode = null,
+            Part = null,
+            MappingVersion = "v1",
+            BeforeJson = "{}",
+            AfterJson = """{"ValidatedBy":"Alice Martin","ValidatedDate":"2026-06-01"}""",
+            OperatorId = Guid.NewGuid(),
+            OperatorName = "Alice Martin",
+            OccurredAt = new DateTimeOffset(2026, 6, 1, 9, 0, 0, TimeSpan.Zero),
+        },
+    ];
+
+    private static IReadOnlyList<MappingChangeLogEntryDto> PartOnlyUpdateChangeLog() =>
+    [
+        new MappingChangeLogEntryDto
+        {
+            Id = Guid.NewGuid(),
+            ChangeType = "UpdateRule",
+            SourceRegimeCode = "20",
+            Part = "Autre",
+            MappingVersion = "v1",
+            BeforeJson = """{"SourceRegimeCode":"20","Part":"Adjudication","Category":"S","RateMode":"Fixed","RateValue":20}""",
+            AfterJson = """{"SourceRegimeCode":"20","Part":"Autre","Category":"S","RateMode":"Fixed","RateValue":20}""",
+            OperatorId = Guid.NewGuid(),
+            OperatorName = "Alice Martin",
+            OccurredAt = new DateTimeOffset(2026, 6, 1, 9, 0, 0, TimeSpan.Zero),
+        },
+    ];
+
     private static TvaMappingTableViewModel ModelWith(
         MappingTableDto? table,
         IReadOnlyList<MappingChangeLogEntryDto>? changeLog = null,

@@ -5,19 +5,39 @@ using Stratum.Common.UI.Models;
 using Stratum.Common.UI.Services;
 
 /// <summary>
-/// Registre de colonnes de la table de mapping TVA (F03 §4.1 : régime source, libellé, part, catégorie,
-/// taux, VATEX). Pilote <see cref="DeclaredListPage{TItem}"/> (filtres avancés, sélecteur de colonnes,
-/// export) : les clés correspondent aux propriétés de <see cref="MappingRuleDto"/>. L'affichage
-/// (badge catégorie, taux mode-aware, VATEX/libellé optionnels) est fourni par les ColumnTemplates de
-/// la page.
+/// Registre de colonnes de la table de mapping TVA (F03 §4.1 : régime source, libellé, composante,
+/// catégorie, taux, VATEX). Pilote <see cref="DeclaredListPage{TItem}"/> (filtres avancés, sélecteur de
+/// colonnes, export) : les clés correspondent aux propriétés de <see cref="MappingRuleDto"/>. L'affichage
+/// (badge catégorie, taux mode-aware, composante/VATEX/libellé) est fourni par les ColumnTemplates de
+/// la page. La colonne « Composante » (clé technique <c>Part</c>) n'est registrée QUE si le vertical
+/// enchères est actif (décision E2 / lot FIX2 : hors vertical, la notion n'apparaît nulle part).
 /// </summary>
 internal sealed class TvaMappingRuleColumnRegistry : ColumnRegistryBase<MappingRuleDto>
 {
+    private readonly bool _includeComposante;
+
+    /// <param name="includeComposante">
+    /// <c>true</c> quand le vertical « vente aux enchères » est actif : la colonne « Composante » est
+    /// exposée. <c>false</c> (défaut produit) : la notion est entièrement masquée (E2).
+    /// </param>
+    public TvaMappingRuleColumnRegistry(bool includeComposante)
+    {
+        // Configure() est appelé en initialisation PARESSEUSE (au premier accès aux colonnes), jamais
+        // dans le constructeur de base : ce champ est donc déjà positionné quand Configure() s'exécute.
+        _includeComposante = includeComposante;
+    }
+
     protected override void Configure()
     {
         Column("SourceRegimeCode", "Régime source", "RègleTVA", ColumnDataType.Text, defaultVisible: true, sortOrder: 0);
         Column("Label", "Libellé", "RègleTVA", ColumnDataType.Text, defaultVisible: true, sortOrder: 1);
-        Column("Part", "Part", "RègleTVA", ColumnDataType.Text, defaultVisible: true, sortOrder: 2);
+
+        if (_includeComposante)
+        {
+            // Clé technique « Part » conservée (tri / filtre / export sur la propriété du DTO) ; libellé
+            // d'affichage « Composante » et valeur rendue (Autre → « Hors Enchères ») via le ColumnTemplate.
+            Column("Part", "Composante", "RègleTVA", ColumnDataType.Text, defaultVisible: true, sortOrder: 2);
+        }
 
         // Catégorie : code UNCL5305 (S, AA, AAA, Z, E, AE, G, K, O). Texte (PAS Enum) : le DTO l'expose
         // déjà par son code string ; l'affichage passe par un CategoryBadge via le ColumnTemplate.

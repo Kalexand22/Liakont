@@ -199,10 +199,10 @@ public sealed class TvaRuleEditorTests : BunitContext
     }
 
     [Fact]
-    public void Part_field_is_hidden_and_autre_is_implicit_when_auction_vertical_off()
+    public void Composante_notion_is_entirely_hidden_when_auction_vertical_off()
     {
-        // Vertical enchères désactivé (FIX03, D4) : le champ part est masqué et la part Autre est
-        // implicite (le découpage Adjudication / Frais ne doit pas encombrer l'interface générique).
+        // Décision E2 (lot FIX2) : vertical enchères désactivé ⇒ la « Composante » n'apparaît PAS DU TOUT
+        // (ni champ, ni valeur, ni note). La part Autre reste fixée implicitement (logique, pas affichage).
         var model = new TvaRuleFormModel();
         var cut = Render<TvaRuleEditor>(p => p
             .Add(e => e.Options, Options())
@@ -210,13 +210,14 @@ public sealed class TvaRuleEditorTests : BunitContext
             .Add(e => e.IsCreate, true)
             .Add(e => e.ShowPart, false));
 
-        cut.FindAll("[data-testid='tva-rule-part']").Should().BeEmpty("le champ part est masqué hors vertical enchères");
-        cut.Find("[data-testid='tva-rule-part-implicit']").TextContent.Should().Contain("Autre");
+        cut.FindAll("[data-testid='tva-rule-part']").Should().BeEmpty("le champ composante est masqué hors vertical enchères");
+        cut.FindAll("[data-testid='tva-rule-part-implicit']").Should().BeEmpty("aucune note ne remplace le champ (E2)");
+        cut.Markup.Should().NotContain("Composante", "aucune mention de la notion hors vertical enchères");
         model.Part.Should().Be("Autre", "une création hors vertical enchères porte la part Autre implicite");
     }
 
     [Fact]
-    public void Part_field_is_shown_when_auction_vertical_on()
+    public void Composante_field_is_shown_with_label_and_hors_encheres_value_when_auction_vertical_on()
     {
         var cut = Render<TvaRuleEditor>(p => p
             .Add(e => e.Options, Options())
@@ -226,6 +227,10 @@ public sealed class TvaRuleEditorTests : BunitContext
 
         cut.Find("[data-testid='tva-rule-part']").NodeName.Should().Be("SELECT");
         cut.FindAll("[data-testid='tva-rule-part-implicit']").Should().BeEmpty();
+
+        // Vocabulaire E2 : libellé « Composante », valeur Autre affichée « Hors Enchères ».
+        cut.Markup.Should().Contain("Composante");
+        cut.Find("[data-testid='tva-rule-part']").TextContent.Should().Contain("Hors Enchères");
     }
 
     [Fact]
@@ -275,7 +280,7 @@ public sealed class TvaRuleEditorTests : BunitContext
         [
             new TvaMappingOptionDto("Adjudication", "Adjudication (le bien vendu)"),
             new TvaMappingOptionDto("Frais", "Frais"),
-            new TvaMappingOptionDto("Autre", "Autre"),
+            new TvaMappingOptionDto("Autre", "Hors Enchères"),
         ],
         RateModes =
         [
