@@ -523,6 +523,30 @@ en SQL (pas de scan plafonné). La lecture cible la base SYSTÈME (jobs système
 pas une requête métier tenant-scopée (CLAUDE.md n°9) : elle ne retourne qu'un horodatage d'achèvement, aucune
 donnée de tenant. Candidate à reverser en amont (§6).
 
+### 4.22 `DeclaredListPage` — option `EnablePersistentSelection` pour désactiver la barre de sélection persistante (FIX302)
+La recette run 3 (2026-06-11, décision opérateur F2) a relevé que la page Documents affiche, à la sélection,
+DEUX barres concurrentes : la barre d'actions groupées (`declared-list__bulk-bar`, qui héberge « Envoyer la
+sélection » / « Revérifier la sélection ») ET la barre de sélection **persistante** Stratum (GUX03,
+`StratumPersistentSelectionBar`, overlay « N sélectionné(s) (M au total) » avec Ajouter / Retirer / Voir / Vider).
+La page ne consomme PAS la sélection persistante (ses actions groupées opèrent sur la sélection de la page
+courante), donc le compteur de la 2ᵉ barre reste figé à « (0 au total) » — l'opérateur le lit comme incohérent
+(« 4 sélectionnés (0 au total) ») et, regardant cette barre, ne trouve pas « Revérifier la sélection » (qui est
+dans l'AUTRE barre). Le binding persistant était créé **inconditionnellement** dans `OnInitialized` pour toute
+`DeclaredListPage`. Une modification **additive, rétro-compatible** (marquée `FIX302`) :
+
+- `src/Common/UI/Components/DeclaredListPage.razor.cs` : ajout d'un paramètre **optionnel**
+  `bool EnablePersistentSelection = true` (défaut = comportement INCHANGÉ pour toutes les listes existantes). Quand
+  il vaut `false`, `_persistentBinding` reste `null` dans `OnInitialized` → le `StratumDataGrid` reçoit
+  `PersistentSelection = null` → aucune barre de sélection persistante rendue. La sélection elle-même reste active
+  (`AllowSelection` retombe sur la présence de `BulkActions`), donc la barre d'actions groupées fonctionne toujours.
+
+Aucune autre logique modifiée ; aucun fichier `Stratum.*` supplémentaire touché. Le fichier figure déjà dans le bloc
+`SOCLE-CONSIGNED-DRIFT` (§4.15) — la garde de provenance reste verte. Capacité GÉNÉRIQUE du design-system (toute
+liste pilotant ses actions de masse sur la sélection courante peut désactiver la barre persistante), candidate à
+reverser en amont (§6). Côté Liakont (hors socle), `Documents.razor` pose `EnablePersistentSelection="false"`,
+retire « Revérifier tout » des actions groupées et la déclare en action GLOBALE de la barre d'outils (désactivée
+quand aucun document n'est bloqué dans le périmètre — plus jamais de bouton orphelin sur liste vide).
+
 ## 5. ADR du socle hérités
 
 Les ADR Stratum pertinents au socle sont copiés dans `docs/adr/socle/` (référence, non re-décidés).
