@@ -209,6 +209,13 @@ public static class AppBootstrap
         // la découvrira. Le pipeline (PIP) consomme IPaClientRegistry pour résoudre la PA du tenant.
         builder.Services.AddTransmissionModule();
 
+        // Plug-ins PA câblés au COMPOSITION ROOT (FIX01d) — seul endroit autorisé à référencer un
+        // plug-in PA concret (CLAUDE.md n°6/14). En Development (ou via PaClients:Fake:Enabled), le
+        // plug-in factice (PAA02) est ajouté pour rendre l'envoi exerçable de bout en bout sans PA
+        // réelle (bug-inbox « Fake jamais câblé » : sans lui le registre ci-dessus ne résout rien) ;
+        // en production il reste absent. Le registre le découvre et le résout par PaType (CLAUDE.md n°8).
+        builder.Services.AddConfiguredPaClients(builder.Environment, builder.Configuration);
+
         // Pipeline (PIP01a — fondations) : lecteur canonique du contenu stagé + journal d'exécutions
         // (pipeline.run_logs) + points d'entrée Contracts consommés par CHECK/SEND/SYNC. AUCUN comportement
         // de pipeline ici (PIP01b-d) ; le pipeline ne référence aucune PA concrète (CLAUDE.md n°6).
