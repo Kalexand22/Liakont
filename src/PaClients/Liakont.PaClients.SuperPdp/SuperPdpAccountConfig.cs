@@ -59,14 +59,20 @@ public sealed record SuperPdpAccountConfig
 
     /// <summary>
     /// URL de base de l'API selon l'environnement (F14 §3.1). L'hôte sandbox est confirmé (test OAuth réel
-    /// du 2026-06-11) ; une base de production distincte, si Super PDP en a une, est confirmée en sandbox
-    /// (PAS03, F14 §12 O1) — on n'invente PAS d'hôte fictif (CLAUDE.md n°15).
+    /// du 2026-06-11). La base PRODUCTION n'est PAS confirmée (F14 §12 O1) : accéder à cette propriété pour
+    /// un compte <c>Production</c> lève <see cref="NotSupportedException"/> — bloquer plutôt qu'envoyer faux
+    /// (CLAUDE.md n°3). La structure de sélection par environnement est conservée : le jour où PAS03 confirme
+    /// la base de production, il suffit d'ajouter le bras <c>Production</c> ici (et dans
+    /// <see cref="SuperPdpDefaults"/>) sans autre refactorisation.
     /// </summary>
-    public Uri BaseUrl => new(
-        Environment == SuperPdpEnvironment.Production
-            ? SuperPdpDefaults.ProductionBaseUrl
-            : SuperPdpDefaults.SandboxBaseUrl,
-        UriKind.Absolute);
+    public Uri BaseUrl => Environment switch
+    {
+        SuperPdpEnvironment.Sandbox => new Uri(SuperPdpDefaults.SandboxBaseUrl, UriKind.Absolute),
+        _ => throw new NotSupportedException(
+            $"La base d'API Super PDP PRODUCTION n'est pas confirmée (F14 §12 O1). " +
+            $"Un compte configuré en environnement « {Environment} » ne peut pas être utilisé avant que PAS03 " +
+            $"établisse l'URL de production. Configurez le compte en environnement Sandbox jusqu'à cette confirmation."),
+    };
 
     /// <summary>Représentation CAVIARDÉE : ne révèle jamais les secrets OAuth (CLAUDE.md n°10).</summary>
     public override string ToString() =>

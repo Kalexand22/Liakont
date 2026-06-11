@@ -10,17 +10,24 @@ using Xunit;
 /// </summary>
 public sealed class SuperPdpAccountConfigTests
 {
-    [Theory]
-    [InlineData(SuperPdpEnvironment.Sandbox)]
-    [InlineData(SuperPdpEnvironment.Production)]
-    public void BaseUrl_Is_Selected_By_Environment(SuperPdpEnvironment environment)
+    [Fact]
+    public void BaseUrl_Sandbox_Uses_The_Confirmed_Host()
     {
-        var config = new SuperPdpAccountConfig(environment, "ACC-1", "client-FICTIF", "secret-FICTIF");
+        var config = new SuperPdpAccountConfig(SuperPdpEnvironment.Sandbox, "ACC-1", "client-FICTIF", "secret-FICTIF");
 
-        var expected = environment == SuperPdpEnvironment.Production
-            ? SuperPdpDefaults.ProductionBaseUrl
-            : SuperPdpDefaults.SandboxBaseUrl;
-        config.BaseUrl.Should().Be(new Uri(expected, UriKind.Absolute));
+        config.BaseUrl.Should().Be(new Uri(SuperPdpDefaults.SandboxBaseUrl, UriKind.Absolute));
+    }
+
+    [Fact]
+    public void BaseUrl_Production_Is_Fail_Closed_Until_The_Prod_Base_Is_Confirmed()
+    {
+        var config = new SuperPdpAccountConfig(SuperPdpEnvironment.Production, "ACC-1", "client-FICTIF", "secret-FICTIF");
+
+        var act = () => _ = config.BaseUrl;
+
+        act.Should().Throw<NotSupportedException>(
+            because: "la base d'API Super PDP PRODUCTION n'est pas confirmée (F14 §12 O1) — " +
+                     "bloquer plutôt qu'envoyer faux (CLAUDE.md n°3)");
     }
 
     [Fact]

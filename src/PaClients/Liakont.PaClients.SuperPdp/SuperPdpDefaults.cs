@@ -47,18 +47,15 @@ public static class SuperPdpDefaults
 
     /// <summary>
     /// Base d'API SANDBOX (✅ confirmée par le test OAuth réel du 2026-06-11 : <c>api.superpdp.tech</c>).
+    /// <para>
+    /// ⛔ La base PRODUCTION n'est PAS confirmée (F14 §12 O1 — Super PDP peut exposer un hôte prod distinct
+    /// ou utiliser le même hôte avec des comptes séparés : non tranché). On n'invente PAS un hôte fictif
+    /// (CLAUDE.md n°15) : un compte configuré en <c>Production</c> est BLOQUÉ à la construction
+    /// (<see cref="SuperPdpAccountConfig.BaseUrl"/> lève <see cref="NotSupportedException"/>) jusqu'à ce que
+    /// PAS03 confirme la base de production — bloquer plutôt qu'envoyer faux (CLAUDE.md n°3).
+    /// </para>
     /// </summary>
     public const string SandboxBaseUrl = "https://api.superpdp.tech";
-
-    /// <summary>
-    /// Base d'API PRODUCTION (🟠 à confirmer — Super PDP peut servir prod et sandbox depuis le MÊME hôte
-    /// avec des comptes/identifiants distincts, ou exposer un hôte prod séparé : non confirmé, F14 §12 O1).
-    /// On n'invente PAS un sous-domaine prod fictif (CLAUDE.md n°15) : la valeur reprend l'hôte confirmé et
-    /// PAS03 figera l'éventuelle base de production distincte. La sélection par environnement
-    /// (<see cref="SuperPdpAccountConfig.BaseUrl"/>) reste en place pour ne toucher qu'un point le jour où
-    /// la base prod sera connue.
-    /// </summary>
-    public const string ProductionBaseUrl = "https://api.superpdp.tech";
 
     /// <summary>
     /// Marge de sécurité retranchée à <c>expires_in</c> avant de considérer le jeton expiré : le jeton est
