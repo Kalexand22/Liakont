@@ -59,6 +59,7 @@
       "secret": "liakont-dev-secret",
       "redirectUris": [
         "http://localhost:55996/*",
+        "http://default.localhost:55996/*",
         "https://localhost:55995/*"
       ],
       "webOrigins": ["+"],
@@ -71,7 +72,7 @@
       "authorizationServicesEnabled": false,
       "fullScopeAllowed": true,
       "attributes": {
-        "post.logout.redirect.uris": "http://localhost:55996/*##https://localhost:55995/*"
+        "post.logout.redirect.uris": "http://localhost:55996/*##http://default.localhost:55996/*##https://localhost:55995/*"
       },
       "defaultClientScopes": [
         "openid",

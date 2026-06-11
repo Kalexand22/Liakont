@@ -13,15 +13,27 @@ uniquement** : identifiants fictifs, secrets placeholder, aucune donnée client.
 ## 2. Keycloak
 
 ```powershell
-docker compose -f deploy/docker/docker-compose.keycloak.yml up -d
+powershell -ExecutionPolicy Bypass -File tools/keycloak-dev.ps1 start
 ```
+
+(équivaut à `docker compose -f deploy/docker/docker-compose.keycloak.yml up -d`, et attend en plus
+que le realm soit effectivement importé et joignable.)
 
 Le realm `liakont-dev` est importé automatiquement depuis `keycloak/realm-export.json`.
 
-> **Realm déjà importé ?** L'import (`--import-realm`) ne réimporte PAS un realm existant.
-> Après une modification de `realm-export.json`, supprimer le realm dans la console
-> d'administration Keycloak (http://localhost:8080, `admin`/`admin`) ou réinitialiser le
-> volume : `docker compose -f deploy/docker/docker-compose.keycloak.yml down -v`.
+> **Realm déjà importé / périmé ?** L'import (`--import-realm`, stratégie `IGNORE_EXISTING`) ne
+> réimporte PAS un realm `liakont-dev` déjà présent dans le volume. Un poste ayant déjà servi garde
+> donc l'ANCIEN realm (anciens comptes) et la console répond « identifiants invalides » sans signal.
+> Remède — réinitialiser proprement (supprime le volume puis réimporte) :
+>
+> ```powershell
+> powershell -ExecutionPolicy Bypass -File tools/keycloak-dev.ps1 reset
+> ```
+>
+> Au démarrage du Host en `Development`, un diagnostic best-effort vérifie le realm et émet un
+> avertissement explicite dans les logs s'il est joignable mais périmé (compte attendu absent),
+> en rappelant la commande `reset` ci-dessus. Actions disponibles du script : `start`, `stop`,
+> `reset`, `status`. Console d'admin Keycloak : http://localhost:8080 (`admin`/`admin`).
 
 ### Utilisateurs de test (mot de passe : `Test@1234`)
 
@@ -70,3 +82,10 @@ powershell -ExecutionPolicy Bypass -File tools/dev-seed-demo-docs.ps1 -AgentKey 
 
 (Enregistrer d'abord un agent d'extraction via la page « Agents d'extraction » avec
 l'utilisateur `parametrage` pour obtenir une clé API — jamais versionnée.)
+
+Les 15 documents fictifs sont datés **relativement à la date du jour** (répartis sur les derniers
+mois, plusieurs dans le mois courant) — la page Documents, filtrée par défaut sur le mois courant,
+n'est donc pas vide après le seed. Chaque document porte une **ligne complète** (régime source brut
+`20`/`10`/`5.5`/`0`, ventilation de TVA) : une fois la table de mapping TVA créée et validée pour ces
+régimes (page « Paramétrage comptable — Table TVA »), le parcours nominal *ingérer → vérifier →
+envoyer* est déroulable jusqu'à « Prêt à envoyer ».

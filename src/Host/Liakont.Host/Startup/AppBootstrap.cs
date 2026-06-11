@@ -498,6 +498,10 @@ public static class AppBootstrap
         await MigrateExistingTenantsAsync(app);
         await app.Services.SeedAdminUserAsync();
         await SeedRealmRegistryFromDatabaseAsync(app);
+
+        // Diagnostic d'expérience de dev (FIX07a) : avertit si le realm Keycloak de dev est joignable
+        // mais périmé (import sauté à cause d'un volume résiduel). Development uniquement, best-effort.
+        await app.WarnIfDevRealmStaleAsync();
     }
 
     /// <summary>Configures the HTTP pipeline and maps all endpoints.</summary>
