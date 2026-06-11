@@ -13,10 +13,13 @@
         passe à usage unique, décision documentée dans docs/adr/ADR-0019).
 
     AUTORITÉ DE VALIDATION : la règle de nommage d'instance est portée, côté exécution, par
-    Liakont.Agent.Core.AgentInstance.TryParse (C#). La validation ci-dessous en est un
-    MIROIR STRICT (même expression rationnelle, mêmes noms réservés) servant de pré-contrôle
-    fail-fast : un nom rejeté ici ne touche jamais le système de fichiers ni le SCM. Le binaire
-    reste l'autorité finale (il revalide à « Liakont.Agent.exe install --instance <nom> »).
+    Liakont.Agent.Core.AgentInstance.TryParse (C#). Les RÈGLES de validation ci-dessous en sont le
+    miroir (même expression rationnelle, mêmes noms réservés), servant de pré-contrôle fail-fast :
+    un nom rejeté ici ne touche jamais le système de fichiers ni le SCM. Une différence VOULUE :
+    une chaîne vide/blanche est normalisée vers « Default » (convenance du paramètre -InstanceName,
+    qui vaut « Default » par défaut), là où le C# rejette une valeur --instance vide explicite — le
+    script ne transmet jamais de nom vide au binaire. Le binaire reste l'autorité finale (il
+    revalide à « Liakont.Agent.exe install --instance <nom> »).
 
     Messages opérateur en français (CLAUDE.md n°12).
 #>
@@ -43,9 +46,11 @@ function Resolve-AgentInstance {
     .SYNOPSIS
         Valide un nom d'instance et rend ses dérivations (service, mutex, répertoire de données).
     .DESCRIPTION
-        Miroir strict de Liakont.Agent.Core.AgentInstance. « Default » (toute casse) est normalisé
-        vers l'instance par défaut, qui conserve STRICTEMENT les noms et chemins historiques. Lève
-        une exception avec un message français orienté intégrateur en cas de nom invalide ou réservé.
+        Reprend les règles de validation de Liakont.Agent.Core.AgentInstance (regex, noms réservés).
+        Une chaîne vide/blanche OU « Default » (toute casse) est normalisée vers l'instance par défaut,
+        qui conserve STRICTEMENT les noms et chemins historiques (la chaîne vide est une convenance du
+        paramètre -InstanceName, voir l'en-tête du module). Lève une exception avec un message français
+        orienté intégrateur en cas de nom invalide ou réservé.
     .OUTPUTS
         PSCustomObject { Name; IsDefault; ServiceName; DisplayName; RunMutexName; DataDirectory }
     #>
@@ -375,11 +380,28 @@ function New-AgentOneTimePassword {
     )
 
     $alphabet = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'
+    $alphabetLen = $alphabet.Length
     $total = $Groups * $GroupSize
-    $bytes = New-Object byte[] $total
+
+    # Rejection sampling : 256 n'est pas un multiple de 31, donc un simple « octet % 31 » biaiserait
+    # le tirage vers les premiers symboles. On rejette les octets >= (256 - 256 % 31) avant la
+    # réduction modulo → chaque symbole du secret est équiprobable.
+    $limit = 256 - (256 % $alphabetLen)
+    $chars = New-Object char[] $total
     $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
     try {
-        $rng.GetBytes($bytes)
+        $produced = 0
+        $buffer = New-Object byte[] ($total * 2)
+        while ($produced -lt $total) {
+            $rng.GetBytes($buffer)
+            foreach ($b in $buffer) {
+                if ($b -lt $limit) {
+                    $chars[$produced] = $alphabet[$b % $alphabetLen]
+                    $produced++
+                    if ($produced -eq $total) { break }
+                }
+            }
+        }
     }
     finally {
         $rng.Dispose()
@@ -389,12 +411,7 @@ function New-AgentOneTimePassword {
     # typé [int] — réutiliser le nom casserait la conversion du tableau de groupes).
     $blocks = New-Object System.Collections.Generic.List[string]
     for ($g = 0; $g -lt $Groups; $g++) {
-        $block = ''
-        for ($c = 0; $c -lt $GroupSize; $c++) {
-            $index = $bytes[($g * $GroupSize) + $c] % $alphabet.Length
-            $block += $alphabet[$index]
-        }
-        $blocks.Add($block)
+        $blocks.Add(-join $chars[($g * $GroupSize)..(($g * $GroupSize) + $GroupSize - 1)])
     }
     return ($blocks -join '-')
 }
