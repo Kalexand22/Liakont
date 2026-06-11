@@ -237,6 +237,7 @@ src/Modules/Job/Infrastructure/JobModuleRegistration.cs
 src/Modules/Job/Web/Pages/AdminJobScheduleForm.razor
 src/Modules/Job/Web/Pages/AdminJobSchedules.razor
 src/Modules/Job/Web/JobNavSectionProvider.cs
+src/Modules/Job/Infrastructure/JobHandlerResolver.cs
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -453,6 +454,9 @@ ces points. Comme les pages d'admin des jobs sont des pages SOCLE vendored, la c
 - `src/Modules/Job/Web/JobNavSectionProvider.cs` : ajout de l'entrée de menu « Exécutions »
   (`/admin/jobs/executions`). Le filtre de visibilité Liakont `JobNavVisibilityFilter` (FIX07c) délègue à ce
   provider, donc l'entrée reste gardée par la permission `job.view`.
+- `src/Modules/Job/Infrastructure/JobHandlerResolver.cs` : ajout de `JsonStringEnumConverter` aux
+  options de désérialisation (les paramètres de payload de type enum, saisis par nom dans l'admin des
+  jobs, doivent se désérialiser ; additif, accepte aussi les nombres — rétro-compatible).
 
 Fichiers **AJOUTÉS** sous les dossiers vendored (non épinglés par le baseline §4.12 — comme les ajouts SOL06
 §4.14 ; consignés ici pour la re-convergence NuGet, marqués `Liakont addition (FIX211)`) :

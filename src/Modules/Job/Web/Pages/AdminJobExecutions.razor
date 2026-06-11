@@ -57,6 +57,9 @@
 
     @* DetailUrl est requis par DeclaredListPage ; aucune fiche détail d'exécution n'existe, donc le double-clic
        d'une ligne pointe sur l'URL courante (no-op, conserve les filtres). *@
+    @* Export désactivé (FIX211) : l'export de la grille lit les propriétés brutes (FullName du type,
+       statut en anglais) en ignorant les libellés FR des ColumnTemplates — il contredirait l'invariant
+       « FullName jamais affiché ». DeclaredListPage n'expose pas de projection d'export. *@
     <DeclaredListPage @key="_epoch"
                       TItem="JobDto"
                       Title="Exécutions de jobs"
@@ -70,8 +73,7 @@
                       DefaultSortColumn="CreatedAt"
                       DefaultSortDirection="SortDirection.Descending"
                       SearchPlaceholder="Chercher une exécution…"
-                      AllowExport="true"
-                      ExportFileName="job-executions">
+                      AllowExport="false">
         <EmptyContent>
             <p data-testid="job-executions-empty">Aucune exécution ne correspond à ces critères.</p>
         </EmptyContent>
