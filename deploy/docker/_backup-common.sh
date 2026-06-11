@@ -65,11 +65,26 @@ bk_filesize() {
 # Liste des bases applicatives à sauvegarder : base système + bases tenant actives (depuis outbox.tenants),
 # dédupliquées. Tolérant : si la table n'existe pas encore (instance neuve), retombe sur la seule base système.
 bk_list_app_databases() {
-  local tenants
-  tenants="$(bk_compose exec -T "${LIAKONT_DB_SERVICE}" \
-    psql -U "${LIAKONT_DB_USER}" -d "${LIAKONT_SYSTEM_DB}" -At \
-    -c "SELECT database_name FROM outbox.tenants WHERE is_active = true AND database_name IS NOT NULL" \
-    2>/dev/null || true)"
+  local tenants errfile
+  errfile="$(mktemp)"
+  # Repli « base système seule » toléré UNIQUEMENT si outbox.tenants est absente (instance neuve).
+  # Toute AUTRE erreur psql (droits, timeout, hoquet) doit échouer : omettre des bases tenant
+  # silencieusement serait un faux vert (archives fiscales non sauvegardées).
+  if tenants="$(bk_compose exec -T "${LIAKONT_DB_SERVICE}" \
+      psql -U "${LIAKONT_DB_USER}" -d "${LIAKONT_SYSTEM_DB}" -At \
+      -c "SELECT database_name FROM outbox.tenants WHERE is_active = true AND database_name IS NOT NULL" \
+      2>"${errfile}")"; then
+    rm -f "${errfile}"
+  elif grep -qiE 'relation .*tenants.* does not exist' "${errfile}"; then
+    bk_warn "Table outbox.tenants absente (instance neuve) : seule la base système est sauvegardée."
+    tenants=""
+    rm -f "${errfile}"
+  else
+    local msg
+    msg="$(cat "${errfile}")"
+    rm -f "${errfile}"
+    bk_die "Énumération des bases tenant en échec (omission silencieuse = faux vert) : ${msg}"
+  fi
   { printf '%s\n' "${LIAKONT_SYSTEM_DB}"; printf '%s\n' "${tenants}"; } | sed '/^[[:space:]]*$/d' | sort -u
 }
 
@@ -83,18 +98,31 @@ bk_dump_database() {
 # tar gzip d'un volume nommé via un conteneur jetable (inclut les fichiers cachés). L'archive est
 # STREAMÉE sur stdout puis redirigée sur l'hôte (comme pg_dump) : aucun montage de dossier hôte, donc
 # aucun aléa de traduction de chemins (Docker Desktop/Windows) — robuste sur Linux comme sur Git-Bash.
+# GARDE anti-faux-vert : « docker run -v <nom>:/data » CRÉE un volume vide si <nom> n'existe pas (projet
+# mal nommé) → on sauvegarderait un coffre VIDE en sortant 0. On exige donc que le volume EXISTE.
 bk_archive_volume() {
   local vol="$1" out="$2"
+  if ! bk_docker volume inspect "${vol}" >/dev/null 2>&1; then
+    bk_die "Volume introuvable : ${vol}. Le projet/volume ne correspond pas à l'appliance — refus de produire une sauvegarde vide. Préciser LIAKONT_PROJECT / LIAKONT_APP_VOLUME."
+  fi
   bk_log "Archivage du volume ${vol} → $(basename "${out}")"
   bk_docker run --rm -v "${vol}":/data:ro "${LIAKONT_TAR_IMAGE}" tar czf - -C /data . > "${out}"
 }
 
 # Vrai si le volume nommé est vide (aucune entrée) — garde anti-écrasement du coffre WORM au restore.
+# Échoue FERMÉ : un volume inexistant = cible vierge (vide légitime) ; mais une SONDE en échec (Docker
+# indispo) ne doit JAMAIS être interprétée comme « vide » (sinon la garde autoriserait l'écrasement).
 bk_volume_is_empty() {
-  local vol="$1" count
-  count="$(bk_docker run --rm -v "${vol}":/data:ro "${LIAKONT_TAR_IMAGE}" \
-    sh -c 'find /data -mindepth 1 -maxdepth 1 | head -n 1 | wc -l' 2>/dev/null || echo 0)"
-  [ "${count}" = "0" ]
+  local vol="$1" out
+  if ! bk_docker volume inspect "${vol}" >/dev/null 2>&1; then
+    return 0
+  fi
+  if out="$(bk_docker run --rm -v "${vol}":/data:ro "${LIAKONT_TAR_IMAGE}" \
+      sh -c 'find /data -mindepth 1 -maxdepth 1 | head -n 1')"; then
+    [ -z "${out}" ]
+  else
+    bk_die "Sonde du volume ${vol} en échec : la garde anti-écrasement échoue FERMÉE (restauration interrompue)."
+  fi
 }
 
 # Empreintes SHA-256 vérifiables par sha256sum -c (format « <hash>  <fichier> », chemins relatifs).
@@ -175,7 +203,8 @@ bk_restore_database() {
   local svc="$1" user="$2" db="$3" dump="$4"
   bk_log "Restauration base ${db} (service ${svc}) depuis $(basename "${dump}")"
   bk_compose exec -T "${svc}" createdb -U "${user}" "${db}" 2>/dev/null || true
-  bk_compose exec -T "${svc}" pg_restore -U "${user}" --clean --if-exists -d "${db}" < "${dump}"
+  # --exit-on-error : un échec SQL interrompt et propage un code non nul (pas de restauration partielle « réussie »).
+  bk_compose exec -T "${svc}" pg_restore -U "${user}" --clean --if-exists --exit-on-error -d "${db}" < "${dump}"
 }
 
 # Restaure un volume depuis un tar.gz. Garde : refuse d'écraser un volume non vide sauf force=1.

@@ -132,7 +132,7 @@ tenant — c'est la preuve que les archives fiscales sont intègres et opposable
 | Niveau | Quoi | Lancement |
 |---|---|---|
 | **Intégration** (CI) | `restore → vérifieur TRK06 vert` + 2 contrôles négatifs (base seule / volume seul) | `tools/run-tests.ps1` |
-| **Mécanique scripts** | round-trip réel `backup.sh`/`restore.sh` sur stack réduite (bases + volume + refus d'altération) | `deploy/docker/test-backup-restore.sh` (docker requis) |
+| **Mécanique scripts** | round-trip réel `backup.sh`/`restore.sh` sur stack réduite (bases + volume + refus d'altération + refus d'un volume introuvable) | `deploy/docker/test-backup-restore.sh` (docker requis ; **hors `verify-fast`/`run-tests`** — lancé avant merge + à `GATE_TOOLKIT`) |
 | **Bout-en-bout machine** | restauration d'une instance complète (Host + Keycloak + DNS réel) | **recette humaine `GATE_TOOLKIT`** |
 
 ---

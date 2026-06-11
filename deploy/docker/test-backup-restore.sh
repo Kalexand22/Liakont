@@ -107,6 +107,15 @@ for f in db-liakont.dump db-stratum_t1.dump db-stratum_t2.dump db-keycloak.dump 
   [ -f "${BK}/${f}" ] || fail "artefact attendu absent : ${f}"
 done
 
+# ── Garde anti-faux-vert : un volume introuvable/mal nommé DOIT faire échouer la sauvegarde ──
+log "Contrôle : sauvegarde refusée si le volume est introuvable"
+if LIAKONT_PROJECT="${SRC_PROJECT}" LIAKONT_COMPOSE_FILE="${COMPOSE_FILE}" LIAKONT_APP_VOLUME="liakont-bktest-absent-$$" \
+     bash "${SCRIPT_DIR}/backup.sh" -d "${WORK}/bad" >/dev/null 2>&1; then
+  fail "backup.sh a produit une sauvegarde malgré un volume introuvable (faux vert)"
+else
+  log "OK : volume introuvable → sauvegarde refusée"
+fi
+
 # ── Garde anti-corruption : une sauvegarde altérée DOIT être refusée ──
 log "Contrôle : restauration refusée si artefact altéré"
 TAMPER="${WORK}/tampered"
