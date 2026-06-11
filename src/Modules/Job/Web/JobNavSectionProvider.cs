@@ -11,5 +11,6 @@ public sealed class JobNavSectionProvider : INavSectionProvider
         Items:
         [
             new NavItem("Planifications", "/admin/jobs"),
+            new NavItem("Exécutions", "/admin/jobs/executions"),
         ]);
 }

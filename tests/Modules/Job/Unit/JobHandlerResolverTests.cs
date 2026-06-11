@@ -8,6 +8,12 @@ using Xunit;
 
 public class JobHandlerResolverTests
 {
+    public enum EnumMode
+    {
+        Fast,
+        Slow,
+    }
+
     [Fact]
     public void CanHandle_Should_Return_True_For_Registered_Type()
     {
@@ -124,6 +130,20 @@ public class JobHandlerResolverTests
             .WithMessage("*scope*");
     }
 
+    [Fact]
+    public async Task ExecuteAsync_Should_Deserialize_String_Enum_Payload()
+    {
+        var handler = new EnumPayloadHandler();
+        var services = new ServiceCollection();
+        services.AddSingleton<IJobHandler<EnumPayload>>(handler);
+        var sp = services.BuildServiceProvider();
+        var resolver = new JobHandlerResolver(new[] { new JobHandlerRegistration(typeof(EnumPayload)) });
+
+        await resolver.ExecuteAsync(sp, typeof(EnumPayload).FullName!, """{"Mode":"Slow"}""", CancellationToken.None);
+
+        handler.LastPayload!.Mode.Should().Be(EnumMode.Slow);
+    }
+
     private static (JobHandlerResolver Resolver, IServiceProvider Services) CreateResolver<TPayload, THandler>()
         where THandler : class, IJobHandler<TPayload>, new()
     {
@@ -144,6 +164,22 @@ public class JobHandlerResolverTests
         public TestPayload? LastPayload { get; private set; }
 
         public Task HandleAsync(TestPayload payload, CancellationToken ct = default)
+        {
+            LastPayload = payload;
+            return Task.CompletedTask;
+        }
+    }
+
+    public record EnumPayload
+    {
+        public EnumMode Mode { get; init; }
+    }
+
+    public class EnumPayloadHandler : IJobHandler<EnumPayload>
+    {
+        public EnumPayload? LastPayload { get; private set; }
+
+        public Task HandleAsync(EnumPayload payload, CancellationToken ct = default)
         {
             LastPayload = payload;
             return Task.CompletedTask;

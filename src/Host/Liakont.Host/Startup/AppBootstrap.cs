@@ -141,8 +141,10 @@ public static class AppBootstrap
         builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
         builder.Services.Replace(ServiceDescriptor.Scoped<IEmailTransport, SmtpEmailTransport>());
 
-        builder.Services.AddJobHandler<EmailSendJobPayload, EmailSendJobHandler>();
-        builder.Services.AddJobHandler<DeliveryRetryJobPayload, DeliveryRetryJobHandler>();
+        // Libellé FR fourni à l'enregistrement (FIX211) : l'admin des planifications affiche ce libellé, jamais
+        // le FullName .NET (clé technique stockée). Surfacé par IJobTypeCatalog.
+        builder.Services.AddJobHandler<EmailSendJobPayload, EmailSendJobHandler>("Envoi d'e-mail");
+        builder.Services.AddJobHandler<DeliveryRetryJobPayload, DeliveryRetryJobHandler>("Relance d'envoi d'e-mail");
         builder.Services.AddAuditModule();
         builder.Services.AddTenantSettingsModule();
         builder.Services.AddIngestionModule();
@@ -170,7 +172,7 @@ public static class AppBootstrap
         // module Job (même mécanique que EmailSend/DeliveryRetry). La PLANIFICATION (cron quotidien) est
         // créée par l'opérateur via l'admin des schedules (job.schedules), comme tout job récurrent de la
         // plateforme — la fréquence et l'activation relèvent du déploiement (ADR-0011).
-        builder.Services.AddJobHandler<DailyAnchoringTrigger, DailyAnchoringFanOutHandler>();
+        builder.Services.AddJobHandler<DailyAnchoringTrigger, DailyAnchoringFanOutHandler>("Ancrage quotidien du coffre d'archive");
 
         // Staging du contenu pivot (PIP00, ADR-0014) : la plateforme détient DURABLEMENT le pivot dès
         // l'intake (l'agent redevient un filet de sécurité). Magasin transitoire purgeable, chiffré au
@@ -189,7 +191,7 @@ public static class AppBootstrap
         // ajoute le PDF réconcilié au paquet d'archive en addendum (consomme IArchiveService). Le job
         // système fait le fan-out de la passe sur tous les tenants via le TenantJobRunner (SOL06).
         builder.Services.AddReconciliationModule();
-        builder.Services.AddJobHandler<ReconciliationFanOutJobPayload, ReconciliationFanOutJobHandler>();
+        builder.Services.AddJobHandler<ReconciliationFanOutJobPayload, ReconciliationFanOutJobHandler>("Rapprochement des PDF (réconciliation)");
 
         // Supervision (SUP01a, F12 §5) : moteur d'alertes + dead-man's-switch. Le handler du job SYSTÈME fait
         // le fan-out de l'évaluation sur TOUS les tenants via le TenantJobRunner (SOL06) — c'est la plateforme
@@ -198,7 +200,7 @@ public static class AppBootstrap
         // La PLANIFICATION (cron toutes les 15 min, F12 §5.1) est créée par l'opérateur via l'admin des
         // schedules (job.schedules), comme l'ancrage quotidien (TRK06) — la fréquence relève du déploiement.
         builder.Services.AddSupervisionModule();
-        builder.Services.AddJobHandler<SupervisionEvaluationTrigger, SupervisionEvaluationFanOutHandler>();
+        builder.Services.AddJobHandler<SupervisionEvaluationTrigger, SupervisionEvaluationFanOutHandler>("Évaluation de la supervision");
 
         // Notifications email des alertes (SUP03, F12 §5.3) : destinataires/options d'instance liés depuis la
         // section "Supervision:Notifications". Le récapitulatif quotidien (digest, OPTIONNEL, défaut désactivé)
@@ -206,7 +208,7 @@ public static class AppBootstrap
         // créée par l'opérateur via l'admin des schedules, comme l'évaluation (15 min) et l'ancrage TRK06.
         builder.Services.Configure<SupervisionNotificationOptions>(
             builder.Configuration.GetSection(SupervisionNotificationOptions.SectionName));
-        builder.Services.AddJobHandler<SupervisionDigestTrigger, SupervisionDigestFanOutHandler>();
+        builder.Services.AddJobHandler<SupervisionDigestTrigger, SupervisionDigestFanOutHandler>("Récapitulatif quotidien de supervision");
 
         // Transmission (PAA01) : registre de types des plug-ins PA. Aucun plug-in n'est référencé ici
         // (le module ne connaît AUCUNE PA concrète — CLAUDE.md n°6) ; chaque plug-in PA (PAA02 Fake,
@@ -232,7 +234,7 @@ public static class AppBootstrap
         // quand une action « send / send-all / runs-trigger » publie le déclencheur sur la queue système.
         // À la différence du SendAllTrigger planifié (fan-out tous-tenants, cron), il rétablit le SEUL tenant
         // de l'opérateur via ITenantScopeFactory.Create — aucune itération multi-tenant (CLAUDE.md n°9).
-        builder.Services.AddJobHandler<SendTenantTrigger, SendTenantFanInHandler>();
+        builder.Services.AddJobHandler<SendTenantTrigger, SendTenantFanInHandler>("Envoi des documents (tenant courant)");
 
         // Stockage des PDF reçus (PIV04) : chemin racine = PARAMÉTRAGE de déploiement (jamais en dur,
         // CLAUDE.md n°7). Lié depuis la config ; à défaut, repli sous le content root de l'instance.

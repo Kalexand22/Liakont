@@ -35,6 +35,10 @@ public sealed class JobNavVisibilityFilterTests
         section.Title.Should().Be("Jobs");
         section.Items.Select(i => i.Label).Should().Contain("Planifications");
         section.Items.Select(i => i.Href).Should().Contain("/admin/jobs");
+
+        // FIX211 : la section porte aussi l'entrée « Exécutions » (gardée par la même permission).
+        section.Items.Select(i => i.Label).Should().Contain("Exécutions");
+        section.Items.Select(i => i.Href).Should().Contain("/admin/jobs/executions");
     }
 
     private sealed class FakePermissionService : IPermissionService

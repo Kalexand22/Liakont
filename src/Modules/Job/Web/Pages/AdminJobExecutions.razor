@@ -1,0 +1,249 @@
+@page "/admin/jobs/executions"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using Stratum.Common.Abstractions.Security
+@using Stratum.Modules.Job.Contracts.Services
+@using Stratum.Modules.Job.Web.Registries
+@inject IJobExecutionsQueries ExecutionsQueries
+@inject IJobTypeCatalog JobTypeCatalog
+@inject IActorContextAccessor ActorContext
+@inject NavigationManager Nav
+
+@* AdminJobExecutions (FIX211) : liste des EXÉCUTIONS de jobs (job.jobs), tenant-scopée, avec filtres
+   statut / type / période. Aucune logique métier ici (lecture seule via IJobExecutionsQueries). *@
+<PageTitle>Exécutions de jobs — Stratum ERP</PageTitle>
+
+<PermissionGate Permission="@JobPermissions.View">
+    <div class="d-flex flex-wrap gap-3 mb-3" data-testid="job-executions-filters">
+        <div>
+            <label class="form-label small mb-1">Statut</label>
+            <select class="form-select form-select-sm"
+                    value="@_status"
+                    @onchange="HandleStatusChange"
+                    data-testid="job-executions-filter-status">
+                <option value="">Tous</option>
+                @foreach (var s in StatusOptions)
+                {
+                    <option value="@s.Key" selected="@(s.Key == _status)">@s.Value</option>
+                }
+            </select>
+        </div>
+        <div>
+            <label class="form-label small mb-1">Type de job</label>
+            <select class="form-select form-select-sm"
+                    value="@_type"
+                    @onchange="HandleTypeChange"
+                    data-testid="job-executions-filter-type">
+                <option value="">Tous</option>
+                @foreach (var t in _jobTypes)
+                {
+                    <option value="@t.TechnicalKey" selected="@(t.TechnicalKey == _type)">@t.DisplayName</option>
+                }
+            </select>
+        </div>
+        <div>
+            <label class="form-label small mb-1">Du</label>
+            <input type="date" class="form-control form-control-sm"
+                   value="@_from" @onchange="HandleFromChange"
+                   data-testid="job-executions-filter-from" />
+        </div>
+        <div>
+            <label class="form-label small mb-1">Au</label>
+            <input type="date" class="form-control form-control-sm"
+                   value="@_to" @onchange="HandleToChange"
+                   data-testid="job-executions-filter-to" />
+        </div>
+    </div>
+
+    @* DetailUrl est requis par DeclaredListPage ; aucune fiche détail d'exécution n'existe, donc le double-clic
+       d'une ligne pointe sur l'URL courante (no-op, conserve les filtres). *@
+    @* Export désactivé (FIX211) : l'export de la grille lit les propriétés brutes (FullName du type,
+       statut en anglais) en ignorant les libellés FR des ColumnTemplates — il contredirait l'invariant
+       « FullName jamais affiché ». DeclaredListPage n'expose pas de projection d'export. *@
+    <DeclaredListPage @key="_epoch"
+                      TItem="JobDto"
+                      Title="Exécutions de jobs"
+                      TestId="job-executions"
+                      LoadItems="LoadExecutionsAsync"
+                      DetailUrl="@(_ => Nav.Uri)"
+                      ColumnRegistry="_registry"
+                      ColumnTemplates="_columnTemplates"
+                      GridKey="Job.Executions"
+                      AriaLabel="Liste des exécutions de jobs"
+                      DefaultSortColumn="CreatedAt"
+                      DefaultSortDirection="SortDirection.Descending"
+                      SearchPlaceholder="Chercher une exécution…"
+                      AllowExport="false">
+        <EmptyContent>
+            <p data-testid="job-executions-empty">Aucune exécution ne correspond à ces critères.</p>
+        </EmptyContent>
+    </DeclaredListPage>
+</PermissionGate>
+
+@code {
+    private readonly JobExecutionColumnRegistry _registry = new();
+    private Dictionary<string, RenderFragment<JobDto>> _columnTemplates = new();
+    private IReadOnlyList<JobTypeDescriptor> _jobTypes = [];
+    private int _epoch;
+
+    private string _status = string.Empty;
+    private string _type = string.Empty;
+    private string _from = string.Empty;
+    private string _to = string.Empty;
+
+    private static readonly System.Globalization.CultureInfo FrCulture = new("fr-FR");
+
+    private static readonly IReadOnlyList<KeyValuePair<string, string>> StatusOptions =
+    [
+        new("Pending", "En attente"),
+        new("Running", "En cours"),
+        new("Completed", "Terminé"),
+        new("Failed", "Échec"),
+        new("Dead", "Abandonné"),
+    ];
+
+    protected override void OnInitialized()
+    {
+        _jobTypes = JobTypeCatalog.GetAll();
+
+        // Pré-filtre par type depuis le lien « Voir les exécutions » d'une planification (FIX211).
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(Nav.ToAbsoluteUri(Nav.Uri).Query);
+        if (query.TryGetValue("type", out var type) && !string.IsNullOrWhiteSpace(type))
+        {
+            _type = type.ToString();
+        }
+
+        _columnTemplates = new()
+        {
+            ["Type"] = item => builder => builder.AddContent(0, JobTypeLabel(item.Type)),
+            ["Status"] = item => builder =>
+            {
+                builder.OpenComponent<StatusBadge>(0);
+                builder.AddAttribute(1, "Severity", StatusSeverity(item.Status));
+                builder.AddAttribute(2, "Label", StatusLabel(item.Status));
+                builder.CloseComponent();
+            },
+            ["CreatedAt"] = item => builder => builder.AddContent(0, FormatUtc(item.CreatedAt)),
+            ["StartedAt"] = item => builder => builder.AddContent(0, FormatUtc(item.StartedAt)),
+            ["CompletedAt"] = item => builder => builder.AddContent(0, FormatUtc(item.CompletedAt)),
+            ["RetryCount"] = item => builder => builder.AddContent(0, $"{item.RetryCount} / {item.MaxRetries}"),
+            ["ErrorMessage"] = item => builder =>
+            {
+                if (string.IsNullOrEmpty(item.ErrorMessage))
+                {
+                    builder.AddContent(0, "—");
+                    return;
+                }
+
+                builder.OpenElement(0, "span");
+                builder.AddAttribute(1, "class", "text-danger small");
+                builder.AddAttribute(2, "title", item.ErrorMessage);
+                builder.AddContent(3, Truncate(item.ErrorMessage, 120));
+                builder.CloseElement();
+            },
+        };
+    }
+
+    private async Task<IReadOnlyList<JobDto>> LoadExecutionsAsync()
+    {
+        var companyId = ActorContext.Current.CompanyId;
+        if (companyId is null)
+        {
+            return [];
+        }
+
+        var filter = new JobExecutionsFilter
+        {
+            CompanyId = companyId.Value,
+            Status = string.IsNullOrWhiteSpace(_status) ? null : _status,
+            Type = string.IsNullOrWhiteSpace(_type) ? null : _type,
+            From = ParseStartOfDay(_from),
+            To = ParseEndOfDay(_to),
+        };
+
+        return await ExecutionsQueries.ListAsync(filter);
+    }
+
+    private void HandleStatusChange(ChangeEventArgs e)
+    {
+        _status = e.Value?.ToString() ?? string.Empty;
+        Reload();
+    }
+
+    private void HandleTypeChange(ChangeEventArgs e)
+    {
+        _type = e.Value?.ToString() ?? string.Empty;
+        Reload();
+    }
+
+    private void HandleFromChange(ChangeEventArgs e)
+    {
+        _from = e.Value?.ToString() ?? string.Empty;
+        Reload();
+    }
+
+    private void HandleToChange(ChangeEventArgs e)
+    {
+        _to = e.Value?.ToString() ?? string.Empty;
+        Reload();
+    }
+
+    // DeclaredListPage ne recharge pas seule : on incrémente la clé pour forcer une relecture serveur
+    // (même mécanique que la liste des documents, re-key au changement de période).
+    private void Reload() => _epoch++;
+
+    private string JobTypeLabel(string technicalKey)
+    {
+        if (string.IsNullOrEmpty(technicalKey))
+        {
+            return "—";
+        }
+
+        var descriptor = JobTypeCatalog.Find(technicalKey);
+        if (descriptor is not null)
+        {
+            return descriptor.DisplayName;
+        }
+
+        var lastDot = technicalKey.LastIndexOf('.');
+        return lastDot >= 0 && lastDot < technicalKey.Length - 1
+            ? technicalKey[(lastDot + 1)..]
+            : technicalKey;
+    }
+
+    private static string FormatUtc(DateTimeOffset? value) =>
+        value.HasValue ? value.Value.UtcDateTime.ToString("dd/MM/yyyy HH:mm 'UTC'", FrCulture) : "—";
+
+    private static string Truncate(string value, int max) =>
+        value.Length <= max ? value : string.Concat(value.AsSpan(0, max), "…");
+
+    private static DateTimeOffset? ParseStartOfDay(string raw) =>
+        DateOnly.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var d)
+            ? new DateTimeOffset(d.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero)
+            : null;
+
+    private static DateTimeOffset? ParseEndOfDay(string raw) =>
+        DateOnly.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var d)
+            ? new DateTimeOffset(d.ToDateTime(new TimeOnly(23, 59, 59)), TimeSpan.Zero)
+            : null;
+
+    private static Severity StatusSeverity(string status) => status switch
+    {
+        "Completed" => Severity.Success,
+        "Running" => Severity.Info,
+        "Pending" => Severity.Neutral,
+        "Failed" => Severity.Warning,
+        "Dead" => Severity.Error,
+        _ => Severity.Neutral,
+    };
+
+    private static string StatusLabel(string status) => status switch
+    {
+        "Pending" => "En attente",
+        "Running" => "En cours",
+        "Completed" => "Terminé",
+        "Failed" => "Échec",
+        "Dead" => "Abandonné",
+        _ => status,
+    };
+}
