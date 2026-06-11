@@ -146,14 +146,21 @@ function Get-PeMachineType {
 function Get-AgentBinaryArchitecture {
     <#
     .SYNOPSIS
-        Rend l'architecture d'un binaire (« x86 », « x64 », « anycpu » ou « native »).
+        Rend l'architecture d'un binaire (« x86 », « x64 », « anycpu », « native » ou « unknown »).
     .DESCRIPTION
-        Pour un assembly MANAGÉ (EXE/DLL .NET), le champ Machine de l'en-tête PE rapporte I386
-        AUSSI BIEN pour x86 (32BITREQUIRED) que pour AnyCPU — <see cref="Get-PeMachineType"/> ne les
-        distingue donc pas. ProcessorArchitecture (lu sans charger l'assembly) tranche : X86 (force le
-        32 bits, requis pour un driver ODBC 32 bits), Amd64, ou MSIL (AnyCPU). Un binaire NATIF
-        (ex. SQLite.Interop.dll) n'est pas un assembly managé : GetAssemblyName lève → « native »
-        (utiliser <see cref="Get-PeMachineType"/> pour celui-ci).
+        Pour un assembly MANAGÉ (EXE/DLL .NET), le champ Machine de l'en-tête PE rapporte I386 AUSSI
+        BIEN pour x86 (32BITREQUIRED) que pour AnyCPU — <see cref="Get-PeMachineType"/> ne les distingue
+        donc pas. On lit donc directement le PE : le champ Machine + l'en-tête CLR (IMAGE_COR20_HEADER)
+        et son drapeau COMIMAGE_FLAGS_32BITREQUIRED.
+        <para>
+        Cette lecture d'octets est IDENTIQUE en .NET Framework (Windows PowerShell 5.1) et en .NET
+        (PowerShell 7 / pwsh, runtime de la CI) — contrairement à AssemblyName.ProcessorArchitecture,
+        obsolète sous .NET Core+ (SYSLIB0037) où elle rend « None » pour tout assembly.
+        </para>
+        <para>
+        x64 (Machine AMD64, managé) → « x64 » ; Machine I386 + CLR + 32BITREQUIRED → « x86 » ;
+        Machine I386 + CLR sans 32BITREQUIRED → « anycpu » ; pas d'en-tête CLR → « native ».
+        </para>
     #>
     [CmdletBinding()]
     param(
@@ -165,18 +172,63 @@ function Get-AgentBinaryArchitecture {
         throw "Binaire introuvable pour le contrôle d'architecture : « $Path »."
     }
 
+    $stream = [System.IO.File]::OpenRead($Path)
     try {
-        $arch = [System.Reflection.AssemblyName]::GetAssemblyName($Path).ProcessorArchitecture
-    }
-    catch {
-        return 'native'
-    }
+        $reader = New-Object System.IO.BinaryReader($stream)
 
-    switch ($arch) {
-        'X86'   { return 'x86' }
-        'Amd64' { return 'x64' }
-        'MSIL'  { return 'anycpu' }
-        default { return 'native' }
+        $stream.Seek(0x3C, [System.IO.SeekOrigin]::Begin) | Out-Null
+        $peOffset = $reader.ReadInt32()
+        $stream.Seek($peOffset, [System.IO.SeekOrigin]::Begin) | Out-Null
+        if ($reader.ReadUInt32() -ne 0x00004550) { return 'unknown' }   # 'PE\0\0'
+
+        # En-tête COFF (20 octets).
+        $machine = $reader.ReadUInt16()
+        $numSections = $reader.ReadUInt16()
+        $reader.ReadUInt32() | Out-Null   # TimeDateStamp
+        $reader.ReadUInt32() | Out-Null   # PointerToSymbolTable
+        $reader.ReadUInt32() | Out-Null   # NumberOfSymbols
+        $sizeOptionalHeader = $reader.ReadUInt16()
+        $reader.ReadUInt16() | Out-Null   # Characteristics
+
+        $optionalHeaderStart = $stream.Position           # peOffset + 24
+        $magic = $reader.ReadUInt16()                     # 0x10B = PE32, 0x20B = PE32+
+        # Répertoire de données : index 14 = en-tête CLR (COM descriptor).
+        $dataDirOffset = if ($magic -eq 0x20B) { $optionalHeaderStart + 112 } else { $optionalHeaderStart + 96 }
+        $stream.Seek($dataDirOffset + (14 * 8), [System.IO.SeekOrigin]::Begin) | Out-Null
+        $cliRva = $reader.ReadUInt32()
+        $reader.ReadUInt32() | Out-Null                   # taille (non utilisée)
+        if ($cliRva -eq 0) { return 'native' }            # pas d'en-tête CLR → binaire natif
+
+        # Mappe la RVA de l'en-tête CLR vers un offset fichier via les en-têtes de section (40 octets).
+        $sectionHeaderStart = $optionalHeaderStart + $sizeOptionalHeader
+        $cliFileOffset = 0
+        for ($i = 0; $i -lt $numSections; $i++) {
+            $stream.Seek($sectionHeaderStart + ($i * 40) + 8, [System.IO.SeekOrigin]::Begin) | Out-Null
+            $virtualSize = $reader.ReadUInt32()
+            $virtualAddress = $reader.ReadUInt32()
+            $reader.ReadUInt32() | Out-Null               # SizeOfRawData
+            $pointerToRawData = $reader.ReadUInt32()
+            $span = if ($virtualSize -gt 0) { $virtualSize } else { $reader.ReadUInt32() }
+            if ($cliRva -ge $virtualAddress -and $cliRva -lt ($virtualAddress + $span)) {
+                $cliFileOffset = $cliRva - $virtualAddress + $pointerToRawData
+                break
+            }
+        }
+        if ($cliFileOffset -eq 0) { return 'unknown' }
+
+        # IMAGE_COR20_HEADER.Flags est à l'offset +16 ; COMIMAGE_FLAGS_32BITREQUIRED = 0x2.
+        $stream.Seek($cliFileOffset + 16, [System.IO.SeekOrigin]::Begin) | Out-Null
+        $corFlags = $reader.ReadUInt32()
+        $requires32Bit = ($corFlags -band 0x2) -ne 0
+
+        switch ($machine) {
+            0x8664 { return 'x64' }                                            # AMD64
+            0x014C { if ($requires32Bit) { return 'x86' } else { return 'anycpu' } }   # I386
+            default { return 'unknown' }
+        }
+    }
+    finally {
+        $stream.Close()
     }
 }
 
