@@ -46,6 +46,8 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -107,6 +109,21 @@ public static class AppBootstrap
 
         // Common UI services (IToastService, IConnectionStatusService)
         builder.Services.AddCommonUI(builder.Configuration);
+
+        // Persistance du trousseau Data Protection (CFG02) — exigence appliance (F12 §6.2). En
+        // conteneur, sans persistance explicite le trousseau vit dans le système de fichiers ÉPHÉMÈRE
+        // du conteneur : il est RÉGÉNÉRÉ à chaque redéploiement et les secrets tenant chiffrés (clés
+        // API des PA) deviennent ILLISIBLES. Quand DataProtection:KeyRingPath est renseigné (volume
+        // monté), le trousseau y survit. Non renseigné (dev/test) : comportement inchangé — le module
+        // TenantSettings pose déjà ApplicationName "Liakont" sur le trousseau par défaut.
+        var dataProtectionKeyRingPath = builder.Configuration["DataProtection:KeyRingPath"];
+        if (!string.IsNullOrWhiteSpace(dataProtectionKeyRingPath))
+        {
+            Directory.CreateDirectory(dataProtectionKeyRingPath);
+            builder.Services.AddDataProtection()
+                .SetApplicationName("Liakont")
+                .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyRingPath));
+        }
 
         // Infrastructure
         builder.Services.AddStratumDatabase(builder.Configuration);
@@ -582,6 +599,42 @@ public static class AppBootstrap
     /// <summary>Configures the HTTP pipeline and maps all endpoints.</summary>
     public static void ConfigureMiddleware(WebApplication app)
     {
+        // Reverse proxy de l'appliance (Caddy, F12 §6.2/6.6) — DOIT être le tout premier middleware :
+        // honorer X-Forwarded-* pour que le SCHÉMA et l'HÔTE publics soient corrects (redirect_uri
+        // OIDC, cookies marqués Secure) et que la fenêtre anti-flood par IP (AddRateLimiter) retrouve
+        // l'IP cliente réelle au lieu de celle du proxy. STRICTEMENT borné aux réseaux/proxys de
+        // confiance déclarés : sinon X-Forwarded-For est usurpable et la limite par IP contournable.
+        // Dans l'appliance, le port du Host n'est PAS publié hors du réseau interne (seul Caddy l'est),
+        // donc déclarer ce réseau interne comme de confiance est sûr. Désactivé par défaut → un accès
+        // direct (dev/test, sans proxy) reste inchangé.
+        var forwardedHeaders = app.Configuration.GetSection("ForwardedHeaders");
+        if (forwardedHeaders.GetValue<bool>("Enabled"))
+        {
+            var forwardedOptions = new ForwardedHeadersOptions
+            {
+                ForwardedHeaders = ForwardedHeaders.XForwardedFor
+                    | ForwardedHeaders.XForwardedProto
+                    | ForwardedHeaders.XForwardedHost,
+            };
+
+            // Ne JAMAIS conserver la confiance loopback par défaut : repartir d'une liste vide et
+            // déclarer explicitement les réseaux/proxys autorisés (sinon la borne ne sert à rien).
+            forwardedOptions.KnownIPNetworks.Clear();
+            forwardedOptions.KnownProxies.Clear();
+
+            foreach (var cidr in forwardedHeaders.GetSection("KnownNetworks").Get<string[]>() ?? [])
+            {
+                forwardedOptions.KnownIPNetworks.Add(System.Net.IPNetwork.Parse(cidr));
+            }
+
+            foreach (var proxy in forwardedHeaders.GetSection("KnownProxies").Get<string[]>() ?? [])
+            {
+                forwardedOptions.KnownProxies.Add(System.Net.IPAddress.Parse(proxy));
+            }
+
+            app.UseForwardedHeaders(forwardedOptions);
+        }
+
         app.UseStratumErrorHandling();
         var contentTypeProvider = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
         contentTypeProvider.Mappings[".module"] = "application/javascript";

@@ -1,0 +1,173 @@
+# Appliance Docker Liakont (OPS01a, F12 §6.2) — instance complète sur une machine.
+#
+#   Host (.NET 10) + PostgreSQL (système + tenants) + Keycloak (IdP) + Caddy (reverse proxy, TLS auto).
+#
+# Démarrage :  cp .env.example .env  →  renseigner .env (AUCUN secret par défaut)  →  docker compose up -d
+# Voir README.md pour la procédure pas à pas, les prérequis et le dépannage.
+#
+# Sécurité réseau : SEUL Caddy publie des ports (80/443) sur la machine hôte. Les ports du Host, de
+# Keycloak et de PostgreSQL restent INTERNES au réseau de l'appliance → aucune surface directe.
+
+name: liakont-appliance
+
+services:
+  # ── Base PostgreSQL applicative : base système + une base par tenant (database-per-tenant) ──
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: liakont
+      POSTGRES_USER: liakont
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?renseignez POSTGRES_PASSWORD dans .env}
+    volumes:
+      - liakont-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U liakont -d liakont"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - liakont-net
+
+  # ── Base PostgreSQL dédiée à Keycloak (isolée de la base applicative) ──
+  keycloak-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD:?renseignez KC_DB_PASSWORD dans .env}
+    volumes:
+      - liakont-keycloak-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - liakont-net
+
+  # ── Keycloak : fournisseur d'identité (realm Liakont importé au démarrage) ──
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    restart: unless-stopped
+    # start (mode PRODUCTION, pas start-dev) + import du realm. KC_HTTP_ENABLED=true car TLS terminé
+    # par Caddy en façade ; KC_PROXY_HEADERS=xforwarded pour respecter le schéma/hôte publics.
+    # Pas de --optimized : les options de build (KC_DB) sont fournies à l'exécution → Keycloak
+    # exécute son build au démarrage (quelques secondes de plus, mais aucune image custom requise).
+    command: ["start", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD:?renseignez KC_DB_PASSWORD dans .env}
+      # Hostname PUBLIC (issuer + endpoints frontaux). Le back-channel est dynamique (résolu depuis
+      # la requête) → le Host peut interroger Keycloak en réseau interne sans aller-retour par Caddy.
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:?renseignez KEYCLOAK_PUBLIC_URL dans .env}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      # Compte d'amorçage de l'admin Keycloak (console d'admin). AUCUNE valeur par défaut.
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME:?renseignez KC_BOOTSTRAP_ADMIN_USERNAME dans .env}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:?renseignez KC_BOOTSTRAP_ADMIN_PASSWORD dans .env}
+      # Active la substitution des ${PLACEHOLDER} du realm importé par des variables d'environnement
+      # (sinon Keycloak n'interpole PAS le fichier de realm). Voir realm-liakont.json.
+      JAVA_OPTS_APPEND: "-Dkeycloak.migration.replace-placeholders=true"
+      # Variables injectées DANS le realm importé (secret du client confidentiel + URLs de redirection).
+      KEYCLOAK_LIAKONT_CLIENT_SECRET: ${KEYCLOAK_LIAKONT_CLIENT_SECRET:?renseignez KEYCLOAK_LIAKONT_CLIENT_SECRET dans .env}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?renseignez PUBLIC_BASE_URL dans .env}
+    volumes:
+      - ./keycloak/realm-liakont.json:/opt/keycloak/data/import/realm-liakont.json:ro
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    # Pas de healthcheck conteneur : l'image Keycloak minimale n'embarque ni curl ni wget, et la
+    # connexion OIDC du Host est PARESSEUSE (découverte au premier login, pas au démarrage). La
+    # disponibilité réelle se constate via la console d'admin Keycloak (façade Caddy) ou le login.
+    networks:
+      - liakont-net
+
+  # ── Host applicatif Liakont (.NET 10) ──
+  liakont:
+    build:
+      context: ../../..
+      dockerfile: deploy/docker/appliance/Dockerfile
+    restart: unless-stopped
+    environment:
+      # Base système + tenants (en V1 le tenant par défaut partage la base système ; le provisioning
+      # de tenants dédiés database-per-tenant est porté par OPS02/OPS03).
+      Database__ConnectionString: "Host=postgres;Port=5432;Database=liakont;Username=liakont;Password=${POSTGRES_PASSWORD}"
+      TenantConnections__ConnectionStrings__default: "Host=postgres;Port=5432;Database=liakont;Username=liakont;Password=${POSTGRES_PASSWORD}"
+      # OIDC : Authority = issuer PUBLIC (redirection navigateur + validation) ; MetadataAddress =
+      # découverte INTERNE (pas d'aller-retour par Caddy). RequireHttpsMetadata=false car la découverte
+      # interne est en http sur le réseau privé de l'appliance (la sécurité publique est portée par Caddy).
+      Keycloak__Authority: "${KEYCLOAK_PUBLIC_URL}/realms/liakont"
+      Keycloak__MetadataAddress: "http://keycloak:8080/realms/liakont/.well-known/openid-configuration"
+      Keycloak__ClientId: liakont
+      Keycloak__ClientSecret: ${KEYCLOAK_LIAKONT_CLIENT_SECRET}
+      Keycloak__RequireHttpsMetadata: "false"
+      Keycloak__RealmTenantMap__liakont: default
+      Keycloak__AppBaseUrl: ${PUBLIC_BASE_URL}
+      # Reverse proxy : honorer X-Forwarded-* émis par Caddy, confiance bornée au réseau interne.
+      ForwardedHeaders__Enabled: "true"
+      ForwardedHeaders__KnownNetworks__0: "172.28.0.0/16"
+      # Données persistées en volume (survivent au redéploiement) : trousseau Data Protection (secrets
+      # tenant), staging du pivot, PDF reçus, et coffre WORM (conservation fiscale 10 ans).
+      DataProtection__KeyRingPath: /app/App_Data/dataprotection-keys
+      Staging__Storage__FileSystem__RootPath: /app/App_Data/staging-store
+      Ingestion__Storage__FileSystem__PdfRootPath: /app/App_Data/ingestion-pdf
+      Archive__Storage__FileSystem__RootPath: /app/App_Data/archive-store
+      # E-mail sortant (OPTIONNEL — désactivé tant que SMTP__ENABLED n'est pas true).
+      Smtp__Enabled: ${SMTP_ENABLED:-false}
+      Smtp__Host: ${SMTP_HOST:-}
+      Smtp__Port: ${SMTP_PORT:-587}
+      Smtp__Username: ${SMTP_USERNAME:-}
+      Smtp__Password: ${SMTP_PASSWORD:-}
+      Smtp__FromAddress: ${SMTP_FROM_ADDRESS:-}
+      Supervision__Notifications__OperatorEmail: ${OPERATOR_EMAIL:-}
+    volumes:
+      - liakont-app-data:/app/App_Data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - liakont-net
+
+  # ── Caddy : reverse proxy + TLS automatique (Let's Encrypt) pour les hôtes publics ──
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      PUBLIC_HOSTNAME: ${PUBLIC_HOSTNAME:?renseignez PUBLIC_HOSTNAME dans .env}
+      KEYCLOAK_HOSTNAME: ${KEYCLOAK_HOSTNAME:?renseignez KEYCLOAK_HOSTNAME dans .env}
+      ACME_EMAIL: ${ACME_EMAIL:?renseignez ACME_EMAIL dans .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - liakont
+      - keycloak
+    networks:
+      - liakont-net
+
+volumes:
+  liakont-db-data:
+  liakont-keycloak-db-data:
+  liakont-app-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  liakont-net:
+    driver: bridge
+    ipam:
+      config:
+        # Sous-réseau FIXE : déclaré comme réseau de confiance des en-têtes X-Forwarded-* du Host
+        # (ForwardedHeaders__KnownNetworks__0 du service liakont). Garder les deux cohérents.
+        - subnet: 172.28.0.0/16
