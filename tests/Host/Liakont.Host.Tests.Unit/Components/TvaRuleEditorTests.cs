@@ -198,6 +198,71 @@ public sealed class TvaRuleEditorTests : BunitContext
         cut.Find("[data-testid='tva-rule-editor-error']").TextContent.Should().Contain("sans code VATEX");
     }
 
+    [Fact]
+    public void Part_field_is_hidden_and_autre_is_implicit_when_auction_vertical_off()
+    {
+        // Vertical enchères désactivé (FIX03, D4) : le champ part est masqué et la part Autre est
+        // implicite (le découpage Adjudication / Frais ne doit pas encombrer l'interface générique).
+        var model = new TvaRuleFormModel();
+        var cut = Render<TvaRuleEditor>(p => p
+            .Add(e => e.Options, Options())
+            .Add(e => e.Model, model)
+            .Add(e => e.IsCreate, true)
+            .Add(e => e.ShowPart, false));
+
+        cut.FindAll("[data-testid='tva-rule-part']").Should().BeEmpty("le champ part est masqué hors vertical enchères");
+        cut.Find("[data-testid='tva-rule-part-implicit']").TextContent.Should().Contain("Autre");
+        model.Part.Should().Be("Autre", "une création hors vertical enchères porte la part Autre implicite");
+    }
+
+    [Fact]
+    public void Part_field_is_shown_when_auction_vertical_on()
+    {
+        var cut = Render<TvaRuleEditor>(p => p
+            .Add(e => e.Options, Options())
+            .Add(e => e.Model, new TvaRuleFormModel())
+            .Add(e => e.IsCreate, true)
+            .Add(e => e.ShowPart, true));
+
+        cut.Find("[data-testid='tva-rule-part']").NodeName.Should().Be("SELECT");
+        cut.FindAll("[data-testid='tva-rule-part-implicit']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Save_is_enabled_without_part_field_when_auction_vertical_off()
+    {
+        // La part Autre implicite satisfait la garde de présence : l'enregistrement reste possible
+        // sans champ part visible.
+        var model = new TvaRuleFormModel();
+        var cut = Render<TvaRuleEditor>(p => p
+            .Add(e => e.Options, Options())
+            .Add(e => e.Model, model)
+            .Add(e => e.IsCreate, true)
+            .Add(e => e.ShowPart, false));
+
+        cut.Find("[data-testid='tva-rule-code']").Input("6");
+        cut.Find("[data-testid='tva-rule-category']").Change("E");
+        cut.Find("[data-testid='tva-rule-ratemode']").Change("ComputedFromSource");
+
+        cut.Find("[data-testid='tva-rule-save-btn']").HasAttribute("disabled").Should().BeFalse();
+    }
+
+    [Fact]
+    public void Edit_mode_off_preserves_an_existing_non_autre_part()
+    {
+        // En modification, la part existante (clé figée) est préservée même hors vertical enchères :
+        // l'opérateur peut corriger / supprimer une règle Adjudication héritée (seed / import).
+        var model = new TvaRuleFormModel { SourceRegimeCode = "20", Part = "Adjudication", Category = "S", RateMode = "Fixed", RateValue = 20m };
+        var cut = Render<TvaRuleEditor>(p => p
+            .Add(e => e.Options, Options())
+            .Add(e => e.Model, model)
+            .Add(e => e.IsCreate, false)
+            .Add(e => e.ShowPart, false));
+
+        cut.FindAll("[data-testid='tva-rule-part']").Should().BeEmpty();
+        model.Part.Should().Be("Adjudication", "la part de la clé n'est jamais réécrite en modification");
+    }
+
     private static TvaMappingEditOptionsDto Options() => new()
     {
         Categories =

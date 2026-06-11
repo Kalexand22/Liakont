@@ -197,4 +197,20 @@ public sealed class PostgresTenantSettingsQueries : ITenantSettingsQueries
             UpdatedAt = TenantSettingsRowReader.ToNullableDateTimeOffset((object?)row.updated_at),
         };
     }
+
+    public async Task<bool> GetAuctionVerticalEnabled(Guid companyId, CancellationToken ct = default)
+    {
+        const string sql = """
+            SELECT enabled
+            FROM tenantsettings.auction_vertical_settings
+            WHERE company_id = @CompanyId
+            """;
+
+        using var conn = await _connectionFactory.OpenAsync(ct);
+        var enabled = await conn.QuerySingleOrDefaultAsync<bool?>(
+            new CommandDefinition(sql, new { CompanyId = companyId }, cancellationToken: ct));
+
+        // Ligne absente = vertical enchères DÉSACTIVÉ (défaut produit D4, jamais une activation implicite).
+        return enabled ?? false;
+    }
 }

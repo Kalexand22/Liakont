@@ -36,6 +36,9 @@ else
                   OnOpenConfirm="OpenConfirm"
                   OnCancelConfirm="CancelConfirm"
                   OnConfirmValidate="ConfirmValidateAsync"
+                  AuctionVerticalBusy="_auctionVerticalBusy"
+                  AuctionVerticalError="@_auctionVerticalError"
+                  OnToggleAuctionVertical="ToggleAuctionVerticalAsync"
                   EditorOpen="_editorOpen"
                   EditorIsCreate="_editorIsCreate"
                   EditorModel="_editorModel"
@@ -64,6 +67,10 @@ else
     private bool _confirmOpen;
     private bool _validating;
     private string? _validateError;
+
+    // ── État de l'activation du vertical enchères (FIX03) ─────────
+    private bool _auctionVerticalBusy;
+    private string? _auctionVerticalError;
 
     // ── État de l'éditeur de règle (WEB07b) ──────────────────────
     private bool _editorOpen;
@@ -134,6 +141,39 @@ else
         finally
         {
             _validating = false;
+        }
+    }
+
+    // ── Activation du vertical enchères (FIX03) ───────────────────
+
+    private async Task ToggleAuctionVerticalAsync()
+    {
+        if (_model is null)
+        {
+            return;
+        }
+
+        _auctionVerticalBusy = true;
+        _auctionVerticalError = null;
+
+        try
+        {
+            // Bascule l'état courant. La commande est journalisée et tenant-scopée côté handler ; la garde
+            // de permission (liakont.settings) est portée par le rendu du bouton (CanEdit).
+            await TableQueries.SetAuctionVerticalAsync(!_model.AuctionVerticalEnabled);
+            // Recharge : l'éditeur de règle proposera (ou masquera) le champ « part » et le rapport de
+            // cohérence est recalculé avec les nouvelles parts consultées.
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur et tracé — jamais avalé en silence.
+            _auctionVerticalError = "La mise à jour du vertical enchères a échoué. Réessayez plus tard.";
+            Logger.LogError(ex, "Failed to toggle the auction vertical activation from the console.");
+        }
+        finally
+        {
+            _auctionVerticalBusy = false;
         }
     }
 

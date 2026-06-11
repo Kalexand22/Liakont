@@ -199,6 +199,8 @@ public sealed class TenantSettingsConsoleQueriesTests
         public Task<AlertThresholdsDto?> GetAlertThresholds(Guid companyId, CancellationToken ct = default) => Task.FromResult<AlertThresholdsDto?>(null);
 
         public Task<Guid?> GetCurrentCompanyId(CancellationToken ct = default) => Task.FromResult(CompanyId);
+
+        public Task<bool> GetAuctionVerticalEnabled(Guid companyId, CancellationToken ct = default) => Task.FromResult(false);
     }
 
     private sealed class StubTvaMappingQueries : ITvaMappingQueries

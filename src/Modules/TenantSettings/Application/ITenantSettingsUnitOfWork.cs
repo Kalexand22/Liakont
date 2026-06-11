@@ -47,6 +47,13 @@ public interface ITenantSettingsUnitOfWork : IAsyncDisposable
 
     Task UpdateAlertThresholdsAsync(AlertThresholds thresholds, CancellationToken ct = default);
 
+    // ── Activation du vertical enchères (FIX03) ──
+    Task<AuctionVerticalSettings?> GetAuctionVerticalSettingsByCompanyAsync(Guid companyId, CancellationToken ct = default);
+
+    Task InsertAuctionVerticalSettingsAsync(AuctionVerticalSettings settings, CancellationToken ct = default);
+
+    Task UpdateAuctionVerticalSettingsAsync(AuctionVerticalSettings settings, CancellationToken ct = default);
+
     Task CommitAsync(CancellationToken ct = default);
 }
 

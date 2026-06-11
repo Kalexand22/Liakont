@@ -6,6 +6,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Liakont.Host.TvaMappingTable;
+using Liakont.Modules.TenantSettings.Contracts.Commands;
+using Liakont.Modules.TenantSettings.Contracts.DTOs;
+using Liakont.Modules.TenantSettings.Contracts.Queries;
 using Liakont.Modules.TvaMapping.Contracts.Commands;
 using Liakont.Modules.TvaMapping.Contracts.DTOs;
 using Liakont.Modules.TvaMapping.Contracts.Queries;
@@ -25,7 +28,7 @@ public sealed class TvaMappingTableQueryServiceTests
     public async Task GetTableAsync_With_No_Resolved_Company_Returns_Empty_And_Does_Not_Read()
     {
         var queries = new FakeTvaMappingQueries(table: SomeTable());
-        var service = new TvaMappingTableQueryService(queries, Actor(companyId: null), new CapturingSender());
+        var service = new TvaMappingTableQueryService(queries, Actor(companyId: null), new CapturingSender(), new FakeTenantSettingsQueries());
 
         var model = await service.GetTableAsync();
 
@@ -41,7 +44,7 @@ public sealed class TvaMappingTableQueryServiceTests
         var table = SomeTable();
         var log = new[] { SomeLogEntry() };
         var queries = new FakeTvaMappingQueries(table, log);
-        var service = new TvaMappingTableQueryService(queries, Actor(companyId: companyId), new CapturingSender());
+        var service = new TvaMappingTableQueryService(queries, Actor(companyId: companyId), new CapturingSender(), new FakeTenantSettingsQueries());
 
         var model = await service.GetTableAsync();
 
@@ -58,7 +61,8 @@ public sealed class TvaMappingTableQueryServiceTests
         var service = new TvaMappingTableQueryService(
             new FakeTvaMappingQueries(table: null),
             Actor(companyId: null, displayName: displayName, email: email),
-            new CapturingSender());
+            new CapturingSender(),
+            new FakeTenantSettingsQueries());
 
         var model = await service.GetTableAsync();
 
@@ -72,7 +76,8 @@ public sealed class TvaMappingTableQueryServiceTests
         var service = new TvaMappingTableQueryService(
             new FakeTvaMappingQueries(table: null),
             Actor(companyId: null, displayName: null, email: null, userId: userId),
-            new CapturingSender());
+            new CapturingSender(),
+            new FakeTenantSettingsQueries());
 
         var model = await service.GetTableAsync();
 
@@ -86,12 +91,68 @@ public sealed class TvaMappingTableQueryServiceTests
         var service = new TvaMappingTableQueryService(
             new FakeTvaMappingQueries(table: SomeTable()),
             Actor(companyId: Guid.NewGuid(), displayName: "Alice Martin"),
-            sender);
+            sender,
+            new FakeTenantSettingsQueries());
 
         await service.ValidateAsync();
 
         sender.Captured.Should().BeOfType<ValidateMappingTableCommand>()
             .Which.ValidatedBy.Should().Be("Alice Martin", "le valideur est l'identité authentifiée, jamais une valeur de l'UI");
+    }
+
+    [Fact]
+    public async Task GetTableAsync_Reads_AuctionVerticalActivation_And_Consistency_For_Resolved_Company()
+    {
+        var companyId = Guid.NewGuid();
+        var settingsQueries = new FakeTenantSettingsQueries { AuctionVerticalEnabled = true };
+        var service = new TvaMappingTableQueryService(
+            new FakeTvaMappingQueries(table: SomeTable()),
+            Actor(companyId: companyId),
+            new CapturingSender(),
+            settingsQueries);
+
+        var model = await service.GetTableAsync();
+
+        settingsQueries.CapturedCompanyId.Should().Be(companyId, "l'activation est lue pour la société du contexte (tenant-scopé)");
+        model.TenantResolved.Should().BeTrue();
+        model.AuctionVerticalEnabled.Should().BeTrue();
+        model.Consistency.Should().NotBeNull("le rapport de cohérence est calculé pour un tenant résolu");
+    }
+
+    [Fact]
+    public async Task GetTableAsync_Unresolved_Company_Does_Not_Read_Activation()
+    {
+        var settingsQueries = new FakeTenantSettingsQueries { AuctionVerticalEnabled = true };
+        var service = new TvaMappingTableQueryService(
+            new FakeTvaMappingQueries(table: null),
+            Actor(companyId: null),
+            new CapturingSender(),
+            settingsQueries);
+
+        var model = await service.GetTableAsync();
+
+        model.TenantResolved.Should().BeFalse();
+        model.AuctionVerticalEnabled.Should().BeFalse("défaut OFF en vue vide");
+        model.Consistency.Should().BeNull();
+        settingsQueries.CapturedCompanyId.Should().BeNull("aucune lecture tenant sans société résolue");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task SetAuctionVerticalAsync_Sends_Command_With_Requested_State(bool enabled)
+    {
+        var sender = new CapturingSender();
+        var service = new TvaMappingTableQueryService(
+            new FakeTvaMappingQueries(table: SomeTable()),
+            Actor(companyId: Guid.NewGuid()),
+            sender,
+            new FakeTenantSettingsQueries());
+
+        await service.SetAuctionVerticalAsync(enabled);
+
+        sender.Captured.Should().BeOfType<SetAuctionVerticalActivationCommand>()
+            .Which.Enabled.Should().Be(enabled);
     }
 
     private static MappingTableDto SomeTable() => new()
@@ -219,6 +280,11 @@ public sealed class TvaMappingTableQueryServiceTests
                     CoveredRegimes = Array.Empty<RegimeCoverageDto>(),
                     AbsentRegimes = Array.Empty<RegimeCoverageDto>(),
                 },
+                GetMappingConsistencyReportQuery => new MappingConsistencyReportDto
+                {
+                    IsTableConfigured = false,
+                    DeadRules = Array.Empty<DeadMappingRuleDto>(),
+                },
                 _ => throw new NotSupportedException(),
             };
 
@@ -233,5 +299,37 @@ public sealed class TvaMappingTableQueryServiceTests
 
         public IAsyncEnumerable<object?> CreateStream(object request, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class FakeTenantSettingsQueries : ITenantSettingsQueries
+    {
+        public bool AuctionVerticalEnabled { get; init; }
+
+        public Guid? CapturedCompanyId { get; private set; }
+
+        public Task<bool> GetAuctionVerticalEnabled(Guid companyId, CancellationToken ct = default)
+        {
+            CapturedCompanyId = companyId;
+            return Task.FromResult(AuctionVerticalEnabled);
+        }
+
+        // Autres lectures du paramétrage non exercées par le service de la table TVA.
+        public Task<TenantProfileDto?> GetTenantProfile(Guid companyId, CancellationToken ct = default) =>
+            Task.FromResult<TenantProfileDto?>(null);
+
+        public Task<FiscalSettingsDto?> GetFiscalSettings(Guid companyId, CancellationToken ct = default) =>
+            Task.FromResult<FiscalSettingsDto?>(null);
+
+        public Task<IReadOnlyList<PaAccountDto>> GetPaAccounts(Guid companyId, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<PaAccountDto>>(Array.Empty<PaAccountDto>());
+
+        public Task<ExtractionScheduleDto?> GetExtractionSchedule(Guid companyId, CancellationToken ct = default) =>
+            Task.FromResult<ExtractionScheduleDto?>(null);
+
+        public Task<AlertThresholdsDto?> GetAlertThresholds(Guid companyId, CancellationToken ct = default) =>
+            Task.FromResult<AlertThresholdsDto?>(null);
+
+        public Task<Guid?> GetCurrentCompanyId(CancellationToken ct = default) =>
+            Task.FromResult<Guid?>(null);
     }
 }

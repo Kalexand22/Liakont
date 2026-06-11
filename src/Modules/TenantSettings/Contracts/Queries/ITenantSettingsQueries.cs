@@ -20,6 +20,13 @@ public interface ITenantSettingsQueries
     Task<AlertThresholdsDto?> GetAlertThresholds(Guid companyId, CancellationToken ct = default);
 
     /// <summary>
+    /// Indique si le vertical « vente aux enchères » est activé pour le tenant (paramétrage produit,
+    /// décision opérateur D4, lot FIX03). Défaut produit <c>false</c> : une ligne absente vaut « OFF »
+    /// (jamais une activation implicite — blueprint §2 règle 7).
+    /// </summary>
+    Task<bool> GetAuctionVerticalEnabled(Guid companyId, CancellationToken ct = default);
+
+    /// <summary>
     /// Identifiant de l'UNIQUE société du tenant courant, résolu SANS <c>companyId</c> (depuis
     /// <c>tenantsettings.tenant_profiles</c>, où <c>company_id</c> est unique par base — database-per-tenant,
     /// blueprint §7). <c>null</c> tant que le profil du tenant n'est pas créé (CFG02). Permet à un job tenant
