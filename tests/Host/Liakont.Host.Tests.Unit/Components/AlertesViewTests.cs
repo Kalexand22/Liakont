@@ -83,7 +83,60 @@ public sealed class AlertesViewTests : BunitContext
         cut.FindAll("[data-testid='alertes-contact-editor']").Should().BeEmpty();
     }
 
-    private static AlertesViewModel Model(bool operatorEmailConfigured = true, bool profileExists = true) => new()
+    [Fact]
+    public void Empty_Routing_Matrix_Shows_The_Default_Model_Notice()
+    {
+        var cut = Render<AlertesView>(p => p.Add(v => v.Model, Model()));
+
+        // Matrice vide : le routage par défaut (modèle simple) est annoncé, aucune ligne.
+        cut.FindAll("[data-testid='alertes-routing-empty']").Should().ContainSingle();
+        cut.FindAll("[data-testid='alertes-routing-row']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Routing_Matrix_Renders_Existing_Rows()
+    {
+        var routing = new AlertesRoutingFormModel
+        {
+            Rows =
+            {
+                new AlertesRoutingRow { Selector = "rule:documents.pa_rejected", RecipientsCsv = "compta@acme.test" },
+                new AlertesRoutingRow { Selector = "severity:Critical", RecipientsCsv = "it@acme.test, admin@acme.test" },
+            },
+        };
+
+        var cut = Render<AlertesView>(p => p.Add(v => v.Model, Model(routing: routing)));
+
+        cut.FindAll("[data-testid='alertes-routing-row']").Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void Adding_A_Routing_Entry_Appends_A_Row()
+    {
+        var cut = Render<AlertesView>(p => p.Add(v => v.Model, Model()));
+
+        cut.Find("[data-testid='alertes-routing-add-btn']").Click();
+
+        cut.FindAll("[data-testid='alertes-routing-row']").Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Saving_The_Routing_Matrix_Invokes_The_Callback()
+    {
+        var saved = false;
+        var cut = Render<AlertesView>(p => p
+            .Add(v => v.Model, Model())
+            .Add(v => v.OnSaveRouting, EventCallback.Factory.Create(this, () => saved = true)));
+
+        cut.Find("[data-testid='alertes-routing-save-btn']").Click();
+
+        saved.Should().BeTrue();
+    }
+
+    private static AlertesViewModel Model(
+        bool operatorEmailConfigured = true,
+        bool profileExists = true,
+        AlertesRoutingFormModel? routing = null) => new()
     {
         Device = new AlertDeviceStatusDto
         {
@@ -104,6 +157,7 @@ public sealed class AlertesViewTests : BunitContext
             AlertTenantContact = false,
             ContactEmailAlerte = "alertes@exemple.test",
         },
+        Routing = routing ?? new AlertesRoutingFormModel(),
         ProfileExists = profileExists,
     };
 }

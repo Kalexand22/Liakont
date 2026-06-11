@@ -45,7 +45,11 @@ else
                  ContactBusy="_contactBusy"
                  ContactMessage="@_contactMessage"
                  ContactIsError="_contactIsError"
-                 OnSaveContact="SaveContactAsync" />
+                 OnSaveContact="SaveContactAsync"
+                 RoutingBusy="_routingBusy"
+                 RoutingMessage="@_routingMessage"
+                 RoutingIsError="_routingIsError"
+                 OnSaveRouting="SaveRoutingAsync" />
 }
 
 @code {
@@ -62,6 +66,10 @@ else
     private bool _contactBusy;
     private string? _contactMessage;
     private bool _contactIsError;
+
+    private bool _routingBusy;
+    private string? _routingMessage;
+    private bool _routingIsError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -166,6 +174,42 @@ else
         finally
         {
             _contactBusy = false;
+        }
+    }
+
+    private async Task SaveRoutingAsync()
+    {
+        if (_model is null)
+        {
+            return;
+        }
+
+        _routingBusy = true;
+        _routingMessage = null;
+        _routingIsError = false;
+
+        try
+        {
+            await Service.SaveRoutingAsync(_model.Routing);
+            await LoadAsync();
+            _routingMessage = "Matrice de routage enregistrée.";
+            _routingIsError = false;
+        }
+        catch (ArgumentException)
+        {
+            // Saisie invalide (sélecteur manquant, destinataire mal formé) : message opérateur, jamais d'envoi faux.
+            _routingMessage = "La matrice est invalide : chaque entrée doit cibler une règle ou une gravité et lister au moins un e-mail valide.";
+            _routingIsError = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save the Liakont alert routing matrix.");
+            _routingMessage = "L'enregistrement de la matrice a échoué. Réessayez plus tard.";
+            _routingIsError = true;
+        }
+        finally
+        {
+            _routingBusy = false;
         }
     }
 }

@@ -33,6 +33,11 @@ public static class TenantSettingsModuleRegistration
 
         services.AddScoped<ITenantSettingsUnitOfWorkFactory, PostgresTenantSettingsUnitOfWorkFactory>();
         services.AddScoped<ITenantSettingsQueries, PostgresTenantSettingsQueries>();
+
+        // Lecture SÉGRÉGÉE de la matrice de routage des alertes (FIX212, F12 §5.3.1) : consommée par le
+        // routage des notifications (Supervision) et la page de paramétrage, sans imposer la méthode aux
+        // nombreux implémenteurs d'ITenantSettingsQueries (tests inclus).
+        services.AddScoped<IAlertRoutingQueries, PostgresAlertRoutingQueries>();
         services.AddSingleton<ISecretProtector, DataProtectionSecretProtector>();
         services.AddScoped<TenantSettingsJournal>();
 

@@ -26,4 +26,12 @@ internal interface IAlertesConsoleService
     /// exister (sinon <see cref="Stratum.Common.Abstractions.Exceptions.NotFoundException"/>, message porté par la page).
     /// </summary>
     Task SaveContactAsync(string? contactEmailAlerte, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Enregistre EN BLOC la matrice de routage des alertes (FIX212, <c>SetAlertRoutingMatrixCommand</c>) :
+    /// décode chaque ligne (cible + destinataires CSV), ignore les lignes entièrement vides, et délègue la
+    /// validation au domaine (une saisie invalide lève <see cref="System.ArgumentException"/>, message porté
+    /// par la page). Une matrice vide rétablit le modèle simple par défaut.
+    /// </summary>
+    Task SaveRoutingAsync(AlertesRoutingFormModel routing, CancellationToken cancellationToken = default);
 }

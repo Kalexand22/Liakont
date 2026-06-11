@@ -54,6 +54,15 @@ public interface ITenantSettingsUnitOfWork : IAsyncDisposable
 
     Task UpdateAuctionVerticalSettingsAsync(AuctionVerticalSettings settings, CancellationToken ct = default);
 
+    // ── Matrice de routage des alertes (FIX212) ──
+
+    /// <summary>
+    /// Remplace EN BLOC la matrice de routage des alertes du tenant (table de PARAMÉTRAGE mutable, ≠ piste
+    /// d'audit) : supprime les entrées existantes du <paramref name="companyId"/> puis insère
+    /// <paramref name="rules"/>. Une liste vide efface la matrice (rétablit le modèle simple par défaut).
+    /// </summary>
+    Task ReplaceAlertRoutingRulesAsync(Guid companyId, IReadOnlyList<AlertRoutingRule> rules, CancellationToken ct = default);
+
     Task CommitAsync(CancellationToken ct = default);
 }
 

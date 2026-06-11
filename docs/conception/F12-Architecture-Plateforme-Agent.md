@@ -227,6 +227,37 @@ de l'instance.
 - Le dashboard de supervision (module Supervision, console web) montre la santé de tous les
   tenants de l'instance : dernier heartbeat, file, documents par état, alertes actives.
 
+Ce **modèle simple** (opérateur = toutes les alertes ; contact tenant = critiques opt-in) est le
+**défaut zéro-configuration** : il s'applique tel quel tant que la matrice de routage (§5.3.1) est vide.
+
+#### 5.3.1 Matrice de routage (extension, FIX212)
+
+Pour un argument de pilotage fin côté tenant, le destinataire **tenant** des e-mails peut être routé
+par une **matrice de routage** tenant-scopée qui ÉTEND le modèle simple sans le remplacer :
+
+- Une matrice est une liste ordonnée d'**entrées** `(sélecteur → destinataires)`. Le sélecteur
+  cible **une règle** précise (ex. `documents.pa_rejected`, F12 §5.2) **OU une gravité**
+  (🔴 Critique / 🟠 Avertissement) — au moins l'un des deux. Les destinataires sont une **liste**
+  d'e-mails (plusieurs par entrée).
+- À chaque alerte, les destinataires **tenant** sont l'union des destinataires de **toutes les
+  entrées qui correspondent** (par règle et/ou par gravité). Une alerte correspond à une entrée si
+  (sélecteur de règle absent OU égal à la règle de l'alerte) ET (sélecteur de gravité absent OU
+  égal à la gravité de l'alerte).
+- **Repli (fallback) modèle simple, par alerte** : si AUCUNE entrée ne correspond à une alerte
+  donnée (matrice vide ou sans entrée applicable), le côté tenant retombe sur le modèle simple
+  pour cette alerte (contact critique opt-in du §2/§5.3). Le routage ne peut donc **jamais
+  faire disparaître silencieusement** une alerte côté tenant : il ajoute ou redirige, il ne
+  retire pas le repli.
+- **L'opérateur d'instance reste destinataire de TOUTES les alertes** (inchangé) : la matrice est
+  un paramétrage CÔTÉ TENANT et ne désactive jamais la supervision opérateur (§5.3, supra). Les
+  e-mails de **résolution** (optionnels, §SUP03) restent adressés à l'opérateur seul.
+- **Anti-bruit conservé** : la matrice ne change QUE le choix des destinataires d'une notification ;
+  elle ne touche pas au déclenchement. L'anti-bruit reste porté par le moteur (notification aux
+  seules transitions raise/resolve — une alerte déjà active ne re-notifie pas), inchangé.
+- **Paramétrage** : la matrice est éditée via la console (Paramétrage › Alertes, droit
+  « paramétrage »), tenant-scopée, journalisée (piste append-only) ; aucune règle fiscale, aucune
+  donnée client embarquée dans le code.
+
 ## 6. Configuration et déploiement
 
 ### 6.1 Les trois niveaux de configuration

@@ -1,6 +1,7 @@
 namespace Liakont.Modules.Supervision.Tests.Unit;
 
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Liakont.Modules.Supervision.Application;
@@ -27,10 +28,12 @@ public sealed class AlertEmailNotifierTests
         RecordingJobQueue queue,
         ITenantSettingsQueries tenantSettings,
         SupervisionNotificationOptions options,
-        IAlertQueries? alertQueries = null) =>
+        IAlertQueries? alertQueries = null,
+        IAlertRoutingQueries? routingQueries = null) =>
         new(
             queue,
             tenantSettings,
+            routingQueries ?? new FakeAlertRoutingQueries(),
             alertQueries ?? new FakeAlertQueries(),
             Options.Create(options),
             NullLogger<AlertEmailNotifier>.Instance);
@@ -76,6 +79,14 @@ public sealed class AlertEmailNotifierTests
         Detail = "Détail.",
         TriggeredUtc = Now,
         ResolvedUtc = null,
+    };
+
+    private static AlertRoutingRuleDto RoutingEntry(string? ruleKey, string? severity, params string[] recipients) => new()
+    {
+        RuleKey = ruleKey,
+        Severity = severity,
+        Recipients = recipients,
+        Ordinal = 0,
     };
 
     [Fact]
@@ -162,6 +173,70 @@ public sealed class AlertEmailNotifierTests
     }
 
     [Fact]
+    public async Task Routing_By_Rule_Sends_To_Matrix_Recipients_And_Operator()
+    {
+        var queue = new RecordingJobQueue();
+
+        // Le contact tenant est opt-in : la matrice DOIT primer (pas de repli) quand une entrée correspond.
+        var tenantSettings = new FakeTenantSettingsQueries(Company, Thresholds(tenantContact: true), Profile(TenantContact));
+        var routing = new FakeAlertRoutingQueries(RoutingEntry("agent.mute", null, "it@acme.test", "admin@acme.test"));
+        var notifier = BuildNotifier(queue, tenantSettings, new SupervisionNotificationOptions { OperatorEmail = OperatorEmail }, routingQueries: routing);
+
+        await notifier.NotifyRaisedAsync(RaiseAlert(AlertSeverity.Critical));
+
+        queue.Emails.Select(e => e.RecipientEmail).Should().BeEquivalentTo(
+            new[] { OperatorEmail, "it@acme.test", "admin@acme.test" });
+
+        // La matrice a primé : le contact simple n'est PAS ajouté en plus.
+        queue.Emails.Should().NotContain(e => e.RecipientEmail == TenantContact);
+    }
+
+    [Fact]
+    public async Task Routing_By_Severity_Sends_To_Matrix_Recipients()
+    {
+        var queue = new RecordingJobQueue();
+        var tenantSettings = new FakeTenantSettingsQueries(Company);
+        var routing = new FakeAlertRoutingQueries(RoutingEntry(null, "Warning", "supervision@acme.test"));
+        var notifier = BuildNotifier(queue, tenantSettings, new SupervisionNotificationOptions { OperatorEmail = OperatorEmail }, routingQueries: routing);
+
+        // Une entrée « par gravité » route MÊME un avertissement (que le modèle simple n'enverrait jamais au tenant).
+        await notifier.NotifyRaisedAsync(RaiseAlert(AlertSeverity.Warning));
+
+        queue.Emails.Select(e => e.RecipientEmail).Should().BeEquivalentTo(
+            new[] { OperatorEmail, "supervision@acme.test" });
+    }
+
+    [Fact]
+    public async Task Routing_Falls_Back_To_Simple_Model_When_No_Entry_Matches()
+    {
+        var queue = new RecordingJobQueue();
+        var tenantSettings = new FakeTenantSettingsQueries(Company, Thresholds(tenantContact: true), Profile(TenantContact));
+
+        // L'entrée vise une AUTRE règle : aucune correspondance pour agent.mute ⇒ repli sur le contact critique opt-in.
+        var routing = new FakeAlertRoutingQueries(RoutingEntry("documents.blocked", null, "autre@acme.test"));
+        var notifier = BuildNotifier(queue, tenantSettings, new SupervisionNotificationOptions { OperatorEmail = OperatorEmail }, routingQueries: routing);
+
+        await notifier.NotifyRaisedAsync(RaiseAlert(AlertSeverity.Critical));
+
+        queue.Emails.Select(e => e.RecipientEmail).Should().BeEquivalentTo(new[] { OperatorEmail, TenantContact });
+        queue.Emails.Should().NotContain(e => e.RecipientEmail == "autre@acme.test");
+    }
+
+    [Fact]
+    public async Task Routing_Never_Drops_The_Operator()
+    {
+        var queue = new RecordingJobQueue();
+        var tenantSettings = new FakeTenantSettingsQueries(Company);
+        var routing = new FakeAlertRoutingQueries(RoutingEntry(null, "Critical", "compta@acme.test"));
+        var notifier = BuildNotifier(queue, tenantSettings, new SupervisionNotificationOptions { OperatorEmail = OperatorEmail }, routingQueries: routing);
+
+        await notifier.NotifyRaisedAsync(RaiseAlert(AlertSeverity.Critical));
+
+        // L'opérateur d'instance reste destinataire de toutes les alertes (la matrice est un paramétrage tenant).
+        queue.Emails.Should().Contain(e => e.RecipientEmail == OperatorEmail);
+    }
+
+    [Fact]
     public async Task Resolution_Not_Sent_When_Disabled()
     {
         var queue = new RecordingJobQueue();
@@ -207,6 +282,7 @@ public sealed class AlertEmailNotifierTests
         var notifier = new AlertEmailNotifier(
             new ThrowingJobQueue(),
             tenantSettings,
+            new FakeAlertRoutingQueries(),
             new FakeAlertQueries(),
             Options.Create(new SupervisionNotificationOptions { OperatorEmail = OperatorEmail }),
             NullLogger<AlertEmailNotifier>.Instance);
