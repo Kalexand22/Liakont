@@ -1,7 +1,6 @@
 @namespace Liakont.Host.Components
 @using System
 @using System.Globalization
-@using System.Linq
 @using Liakont.Host.Documents
 @using Stratum.Common.UI.Components
 @using Stratum.Common.UI.Models
@@ -76,7 +75,7 @@
              * pivot, pas cette restitution LISIBLE : tableau en français, montants à 2 décimales, régime source →
              * catégorie/VATEX résultante du mapping. Le pivot intègre reste dans le dossier d'export (onglet Archive). *@
             <SectionCard Title="Détail des lignes" TestId="document-detail-lines-card">
-                @if (HasLines)
+                @if (Content.HasLines)
                 {
                     <table class="liakont-doc-detail__lines" data-testid="document-detail-lines">
                         <thead>
@@ -92,7 +91,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var line in Model.Lines)
+                            @foreach (var line in Content.Lines)
                             {
                                 <tr data-testid="document-detail-line">
                                     <td>@line.Label</td>
@@ -108,25 +107,60 @@
                         </tbody>
                     </table>
 
-                    @* Contrôle visuel de cohérence (scénario de recette S2.5) : les totaux de l'en-tête (lus de la
-                     * source) doivent égaler la somme des lignes. Tout écart est SIGNALÉ (jamais corrigé : on ne
-                     * recalcule aucun montant — CLAUDE.md n°1/2). *@
-                    @if (TotalsConsistent)
+                    @* Charges et remises de NIVEAU DOCUMENT (BG-20/BG-21 : éco-contribution, remise globale…) : affichées
+                     * à part des lignes pour que le rapprochement avec le Total HT soit complet et lisible. *@
+                    @if (Content.Charges.Count > 0)
                     {
-                        <p class="liakont-doc-detail__coherent" data-testid="document-detail-lines-coherent">
-                            Les totaux de l'en-tête concordent avec le détail des lignes.
-                        </p>
+                        <table class="liakont-doc-detail__charges" data-testid="document-detail-charges">
+                            <caption>Charges et remises de niveau document</caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col">Type</th>
+                                    <th scope="col">Motif</th>
+                                    <th scope="col" class="liakont-doc-detail__num">Montant HT</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var charge in Content.Charges)
+                                {
+                                    <tr data-testid="document-detail-charge">
+                                        <td>@(charge.IsCharge ? "Charge" : "Remise")</td>
+                                        <td>@charge.Label</td>
+                                        <td class="liakont-doc-detail__num">@(charge.IsCharge ? "+" : "−")@FormatMoney(charge.Amount)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
                     }
-                    else
+
+                    @* Contrôle de cohérence totaux ↔ lignes (recette S2.5), MIROIR de LineTotalsRule (BR-CO-13) :
+                     * net réconcilié AVEC les charges/remises document ; TVA réconciliée seulement sans charge globale.
+                     * Calculé dans la projection (pivot complet) ; ici on REND le verdict — on ne recalcule rien. *@
+                    @if (Content.Totals is { } totals)
                     {
-                        <div class="liakont-doc-detail__alert" role="alert" data-testid="document-detail-lines-mismatch">
-                            <span class="liakont-doc-detail__alert-title">Écart entre les totaux et le détail des lignes</span>
-                            <span>
-                                Total HT — en-tête @FormatMoney(Model.Document.TotalNet), somme des lignes @FormatMoney(LinesNetTotal) ;
-                                TVA — en-tête @FormatMoney(Model.Document.TotalTax), somme des lignes @FormatMoney(LinesTaxTotal).
-                                Vérifiez la source : totaux et lignes devraient correspondre.
-                            </span>
-                        </div>
+                        @if (totals.Consistent)
+                        {
+                            <p class="liakont-doc-detail__coherent" data-testid="document-detail-lines-coherent">
+                                Les lignes@(Content.Charges.Count > 0 ? " et charges" : string.Empty) concordent avec les totaux du document.
+                            </p>
+                        }
+                        else
+                        {
+                            <div class="liakont-doc-detail__alert" role="alert" data-testid="document-detail-lines-mismatch">
+                                <span class="liakont-doc-detail__alert-title">Écart entre les totaux et le détail</span>
+                                <span>
+                                    @if (!totals.NetConsistent)
+                                    {
+                                        <text>Total HT — document @FormatMoney(totals.DocumentNet), somme des lignes corrigée des charges/remises @FormatMoney(totals.ExpectedNet).</text>
+                                    }
+                                    @if (totals.TaxChecked && !totals.TaxConsistent)
+                                    {
+                                        <text> TVA — document @FormatMoney(totals.DocumentTax), somme des lignes @FormatMoney(totals.LinesTax).</text>
+                                    }
+                                    <text> Vérifiez le document dans le logiciel source.</text>
+                                </span>
+                            </div>
+                        }
                     }
                 }
                 else
@@ -282,17 +316,8 @@
     /// <summary>Montant en français, 2 décimales (cohérent avec la colonne « Montant » de la liste, WEB02).</summary>
     private static string FormatMoney(decimal value) => value.ToString("N2", Fr);
 
-    /// <summary><c>true</c> si le document transmis porte des lignes à afficher (onglet Contenu, FIX205).</summary>
-    private bool HasLines => Model.Lines.Count > 0;
-
-    /// <summary>Somme des montants HT des lignes (contrôle de cohérence S2.5) — aucun recalcul, simple addition d'affichage.</summary>
-    private decimal LinesNetTotal => Model.Lines.Sum(l => l.NetAmount);
-
-    /// <summary>Somme des montants de TVA des lignes (contrôle de cohérence S2.5).</summary>
-    private decimal LinesTaxTotal => Model.Lines.Sum(l => l.TaxAmount ?? 0m);
-
-    /// <summary>Les totaux de l'en-tête (lus de la source) concordent exactement avec la somme des lignes.</summary>
-    private bool TotalsConsistent => LinesNetTotal == Model.Document.TotalNet && LinesTaxTotal == Model.Document.TotalTax;
+    /// <summary>Contenu projeté du document (lignes, charges, contrôle de cohérence) — onglet Contenu (FIX205).</summary>
+    private DocumentContentView Content => Model.Content;
 
     /// <summary>Quantité en français, décimales significatives seulement (« 1 », « 2,5 »).</summary>
     private static string FormatQuantity(decimal value) => value.ToString("0.###", Fr);

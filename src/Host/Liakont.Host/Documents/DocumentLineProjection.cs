@@ -4,21 +4,24 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using Liakont.Agent.Contracts;
 using Liakont.Agent.Contracts.Pivot;
 using Liakont.Host.Components;
 using Liakont.Modules.Pipeline.Infrastructure.Serialization;
 
 /// <summary>
 /// Projette le pivot TRANSMIS d'un document (snapshot canonique ADR-0007 porté par le dernier événement
-/// <c>DocumentIssued</c>/<c>DocumentRejected</c>) en lignes prêtes à afficher (<see cref="DocumentLineView"/>)
-/// pour l'onglet « Contenu » du détail (FIX205, F10 §2.3). Le snapshot étant le pivot RÉELLEMENT envoyé à la
-/// Plateforme Agréée, la catégorie/le VATEX y sont déjà résolus par le mapping plateforme — c'est la seule
-/// source au niveau Contracts qui porte « régime source → catégorie/VATEX résultante » (un document non
-/// transmis n'a pas encore de pivot mappé exposé : la vue affiche alors une note, pas de ligne inventée).
-/// PURE et SANS état : aucune règle métier ni calcul fiscal — les montants viennent du pivot (la source),
-/// la désérialisation réutilise le lecteur canonique du Pipeline (échelle décimale préservée, ADR-0007).
-/// Un snapshot illisible NE DOIT JAMAIS casser le détail en lecture (le pivot fait foi dans l'export WORM) :
-/// la projection retombe sur une liste vide.
+/// <c>DocumentIssued</c>/<c>DocumentRejected</c>) en contenu affichable (<see cref="DocumentContentView"/>)
+/// pour l'onglet « Contenu » du détail (FIX205, F10 §2.3) : lignes, charges/remises de niveau document, et
+/// contrôle de cohérence des totaux. Le snapshot étant le pivot RÉELLEMENT envoyé à la Plateforme Agréée, la
+/// catégorie/le VATEX y sont déjà résolus par le mapping plateforme — c'est la seule source au niveau Contracts
+/// qui porte « régime source → catégorie/VATEX résultante » (un document non transmis n'a pas encore de pivot
+/// mappé exposé : la vue affiche alors une note, pas de ligne inventée). PURE et SANS état : aucune règle métier
+/// ni calcul fiscal inventé — les montants viennent du pivot (la source), la désérialisation réutilise le lecteur
+/// canonique du Pipeline (échelle décimale préservée, ADR-0007) et le contrôle de cohérence est le MIROIR de la
+/// règle de validation <c>LineTotalsRule</c> (F04 §3.3, BR-CO-13), via l'arrondi commun <see cref="PivotRounding"/>.
+/// Un snapshot illisible NE DOIT JAMAIS casser le détail en lecture (le pivot fait foi dans l'export WORM) : la
+/// projection retombe sur un contenu vide.
 /// </summary>
 public static class DocumentLineProjection
 {
@@ -28,15 +31,15 @@ public static class DocumentLineProjection
     private const string Placeholder = "—";
 
     /// <summary>
-    /// Construit les lignes affichables depuis le JSON canonique du pivot transmis. <c>null</c>/vide (document
-    /// non encore transmis) ou snapshot illisible → liste vide (la vue bascule alors sur sa note).
+    /// Construit le contenu affichable depuis le JSON canonique du pivot transmis. <c>null</c>/vide (document
+    /// non encore transmis) ou snapshot illisible → contenu vide (la vue bascule alors sur sa note).
     /// </summary>
     /// <param name="transmittedPivotJson">JSON canonique du pivot transmis (PayloadSnapshot), ou <c>null</c>.</param>
-    public static IReadOnlyList<DocumentLineView> FromTransmittedSnapshot(string? transmittedPivotJson)
+    public static DocumentContentView FromTransmittedSnapshot(string? transmittedPivotJson)
     {
         if (string.IsNullOrWhiteSpace(transmittedPivotJson))
         {
-            return Array.Empty<DocumentLineView>();
+            return DocumentContentView.Empty;
         }
 
         PivotDocumentDto pivot;
@@ -55,10 +58,15 @@ public static class DocumentLineProjection
             // Snapshot transmis illisible (jamais attendu : il a été produit par le writer canonique au moment
             // de l'envoi) : on NE casse PAS la lecture du détail — le pivot intègre reste dans le coffre WORM,
             // récupérable via l'export pour contrôle fiscal (onglet Archive). La vue affichera sa note.
-            return Array.Empty<DocumentLineView>();
+            return DocumentContentView.Empty;
         }
 
-        return pivot.Lines.Select(ToView).ToList();
+        return new DocumentContentView
+        {
+            Lines = pivot.Lines.Select(ToView).ToList(),
+            Charges = pivot.DocumentCharges.Select(ToChargeView).ToList(),
+            Totals = BuildTotalsCheck(pivot),
+        };
     }
 
     private static DocumentLineView ToView(PivotLineDto line)
@@ -77,6 +85,47 @@ public static class DocumentLineProjection
             Vatex = VatexDisplay(taxes),
             TaxAmount = taxes.Count == 0 ? null : taxes.Sum(t => t.TaxAmount),
             Rate = UniformRate(taxes),
+        };
+    }
+
+    private static DocumentChargeView ToChargeView(PivotDocumentChargeDto charge) => new()
+    {
+        Label = string.IsNullOrWhiteSpace(charge.Reason)
+            ? (charge.IsCharge ? "Charge de niveau document" : "Remise de niveau document")
+            : charge.Reason!,
+        IsCharge = charge.IsCharge,
+        Amount = charge.Amount,
+    };
+
+    /// <summary>
+    /// Contrôle de cohérence MIROIR de <c>LineTotalsRule</c> (BR-CO-13, F04 §3.3) : net réconcilié AVEC les
+    /// charges/remises de niveau document ; TVA réconciliée UNIQUEMENT en l'absence de charge/remise globale
+    /// (sa TVA n'est pas résolue à ce stade — sinon faux écart). Arrondi half-up 2 déc., tolérance 0.
+    /// </summary>
+    private static DocumentTotalsCheck BuildTotalsCheck(PivotDocumentDto pivot)
+    {
+        var linesNet = pivot.Lines.Sum(line => line.NetAmount);
+        var chargesNet = pivot.DocumentCharges.Sum(charge => charge.IsCharge ? charge.Amount : -charge.Amount);
+        var expectedNet = PivotRounding.RoundAmount(linesNet + chargesNet);
+        var documentNet = PivotRounding.RoundAmount(pivot.Totals.TotalNet);
+
+        // La TVA des charges/remises de niveau document n'est pas résolue à ce stade : ne réconcilier la TVA
+        // que lorsque le document n'en porte aucune (même limite connue que LineTotalsRule, F04 §3.3).
+        var taxChecked = pivot.DocumentCharges.Count == 0;
+        var linesTax = PivotRounding.RoundAmount(pivot.Lines.Sum(line => line.Taxes.Sum(tax => tax.TaxAmount)));
+        var documentTax = PivotRounding.RoundAmount(pivot.Totals.TotalTax);
+
+        return new DocumentTotalsCheck
+        {
+            LinesNet = PivotRounding.RoundAmount(linesNet),
+            ChargesNet = PivotRounding.RoundAmount(chargesNet),
+            ExpectedNet = expectedNet,
+            DocumentNet = documentNet,
+            NetConsistent = expectedNet == documentNet,
+            TaxChecked = taxChecked,
+            LinesTax = linesTax,
+            DocumentTax = documentTax,
+            TaxConsistent = !taxChecked || linesTax == documentTax,
         };
     }
 

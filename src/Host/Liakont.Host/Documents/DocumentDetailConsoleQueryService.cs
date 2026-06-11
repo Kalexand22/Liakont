@@ -72,7 +72,7 @@ internal sealed class DocumentDetailConsoleQueryService : IDocumentDetailConsole
             Document = document,
             Events = events,
             BlockingReason = blockingReason,
-            Lines = DocumentLineProjection.FromTransmittedSnapshot(transmittedPivotJson),
+            Content = DocumentLineProjection.FromTransmittedSnapshot(transmittedPivotJson),
             Archive = archive,
             IsArchived = archive is not null,
         };

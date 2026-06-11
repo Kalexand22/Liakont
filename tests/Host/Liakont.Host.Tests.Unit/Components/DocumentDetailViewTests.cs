@@ -57,7 +57,7 @@ public sealed class DocumentDetailViewTests : BunitContext
             Line("Vente principale", netAmount: 900m, category: "S — Taux normal", sourceRegime: "FR-STD", taxAmount: 150m, rate: 20m),
             Line("Frais de port", netAmount: 100m, category: "AA — Taux réduit", sourceRegime: "FR-RED", taxAmount: 12.80m, rate: 10m),
         };
-        var model = BuildModel(doc: Doc("2026-010", "Issued"), lines: lines);
+        var model = BuildModel(doc: Doc("2026-010", "Issued"), content: Content(lines));
 
         var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
 
@@ -82,27 +82,46 @@ public sealed class DocumentDetailViewTests : BunitContext
     [Fact]
     public void Should_Show_Lines_Note_When_Document_Not_Yet_Transmitted()
     {
-        // Document non transmis (aucun pivot mappé exposé) : pas de tableau, une note honnête — jamais de ligne inventée.
-        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(doc: Doc("2026-011", "Blocked"), lines: [])));
+        // Document non transmis (contenu vide : aucun pivot mappé exposé) : pas de tableau, une note honnête — jamais de ligne inventée.
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(doc: Doc("2026-011", "Blocked"))));
 
         cut.FindAll("[data-testid='document-detail-lines-empty']").Should().ContainSingle();
         cut.FindAll("[data-testid='document-detail-lines']").Should().BeEmpty();
         cut.FindAll("[data-testid='document-detail-line']").Should().BeEmpty();
+        cut.FindAll("[data-testid='document-detail-lines-coherent']").Should().BeEmpty();
     }
 
     [Fact]
     public void Should_Flag_Totals_Mismatch_Between_Header_And_Lines()
     {
-        // Contrôle de cohérence S2.5 : si la somme des lignes ne colle pas aux totaux de l'en-tête, l'écart est
-        // SIGNALÉ (jamais corrigé). Doc par défaut : TotalNet 1000 ; une seule ligne à 500 HT → écart.
+        // Contrôle de cohérence S2.5 : un contrôle net incohérent (calculé en amont par la projection) est REND
+        // comme une alerte d'écart (jamais corrigé). La vue rend le verdict fourni, elle ne le recalcule pas.
         var lines = new[] { Line("Ligne unique", netAmount: 500m, category: "S — Taux normal", taxAmount: 100m) };
-        var model = BuildModel(doc: Doc("2026-012", "Issued"), lines: lines);
+        var model = BuildModel(doc: Doc("2026-012", "Issued"), content: Content(lines, totals: Check(netConsistent: false)));
 
         var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
 
         cut.FindAll("[data-testid='document-detail-lines-mismatch']").Should().ContainSingle();
         cut.Find("[data-testid='document-detail-lines-mismatch']").TextContent.Should().Contain("Écart");
         cut.FindAll("[data-testid='document-detail-lines-coherent']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Should_Render_Document_Charges_When_Present()
+    {
+        // FIX205 (P1 review) : les charges/remises de NIVEAU DOCUMENT (éco-contribution, remise globale) sont
+        // affichées à part, et le verdict de cohérence en tient compte (« lignes et charges concordent »).
+        var lines = new[] { Line("Vente", netAmount: 900m, category: "S — Taux normal", taxAmount: 180m) };
+        var charges = new[] { Charge("éco-contribution", isCharge: true, amount: 100m) };
+        var model = BuildModel(doc: Doc("2026-013", "Issued"), content: Content(lines, charges: charges));
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        cut.FindAll("[data-testid='document-detail-charges']").Should().ContainSingle();
+        var chargeRows = cut.FindAll("[data-testid='document-detail-charge']");
+        chargeRows.Should().ContainSingle();
+        cut.Find("[data-testid='document-detail-charges']").TextContent.Should().Contain("éco-contribution").And.Contain("Charge");
+        cut.Find("[data-testid='document-detail-lines-coherent']").TextContent.Should().Contain("et charges");
     }
 
     [Fact]
@@ -264,14 +283,24 @@ public sealed class DocumentDetailViewTests : BunitContext
         string? blockingReason = null,
         ArchiveReferenceDto? archive = null,
         bool isArchived = false,
-        IReadOnlyList<DocumentLineView>? lines = null) => new()
+        DocumentContentView? content = null) => new()
     {
         Document = doc ?? Doc("2026-000", "Issued"),
         Events = events ?? [],
         BlockingReason = blockingReason,
         Archive = archive,
         IsArchived = isArchived,
-        Lines = lines ?? [],
+        Content = content ?? DocumentContentView.Empty,
+    };
+
+    private static DocumentContentView Content(
+        IReadOnlyList<DocumentLineView> lines,
+        IReadOnlyList<DocumentChargeView>? charges = null,
+        DocumentTotalsCheck? totals = null) => new()
+    {
+        Lines = lines,
+        Charges = charges ?? [],
+        Totals = totals ?? Check(),
     };
 
     private static DocumentLineView Line(
@@ -292,6 +321,27 @@ public sealed class DocumentDetailViewTests : BunitContext
         Vatex = vatex,
         TaxAmount = taxAmount,
         Rate = rate,
+    };
+
+    private static DocumentChargeView Charge(string label, bool isCharge, decimal amount) => new()
+    {
+        Label = label,
+        IsCharge = isCharge,
+        Amount = amount,
+    };
+
+    // Contrôle de cohérence factice pour la vue (le calcul réel est testé dans DocumentLineProjectionTests).
+    private static DocumentTotalsCheck Check(bool netConsistent = true, bool taxChecked = true, bool taxConsistent = true) => new()
+    {
+        LinesNet = 1000m,
+        ChargesNet = 0m,
+        ExpectedNet = 1000m,
+        DocumentNet = netConsistent ? 1000m : 500m,
+        NetConsistent = netConsistent,
+        TaxChecked = taxChecked,
+        LinesTax = 162.80m,
+        DocumentTax = taxConsistent ? 162.80m : 100m,
+        TaxConsistent = taxConsistent,
     };
 
     private static DocumentDto Doc(

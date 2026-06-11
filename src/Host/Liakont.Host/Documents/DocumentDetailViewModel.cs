@@ -20,11 +20,12 @@ public sealed record DocumentDetailViewModel
     public required IReadOnlyList<DocumentEventDto> Events { get; init; }
 
     /// <summary>
-    /// Détail ligne à ligne du document tel que transmis (onglet Contenu, FIX205 / F10 §2.3), projeté depuis le
-    /// pivot du dernier événement d'envoi (<see cref="DocumentLineProjection.FromTransmittedSnapshot"/>). Vide
-    /// quand le document n'a pas encore été transmis (la vue affiche alors une note, jamais une ligne inventée).
+    /// Contenu affichable du document tel que transmis (onglet Contenu, FIX205 / F10 §2.3) : lignes, charges/remises
+    /// de niveau document, et contrôle de cohérence des totaux, projeté depuis le pivot du dernier événement d'envoi
+    /// (<see cref="DocumentLineProjection.FromTransmittedSnapshot"/>). Vide quand le document n'a pas encore été
+    /// transmis (la vue affiche alors une note, jamais une ligne ou un verdict inventés).
     /// </summary>
-    public IReadOnlyList<DocumentLineView> Lines { get; init; } = System.Array.Empty<DocumentLineView>();
+    public DocumentContentView Content { get; init; } = DocumentContentView.Empty;
 
     /// <summary>
     /// Motif de blocage courant (dernier événement <c>DocumentBlocked</c>) UNIQUEMENT quand le document est
