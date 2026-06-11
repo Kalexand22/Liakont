@@ -42,6 +42,59 @@ internal sealed class DocumentLifecycle : IDocumentLifecycle
     public Task MarkReadyToSendAsync(Guid documentId, string mappingVersion, CancellationToken cancellationToken = default) =>
         TransitionAsync(documentId, (document, at) => document.MarkReadyToSendWithMapping(at, mappingVersion), cancellationToken);
 
+    public async Task<DocumentRecheckPersistOutcome> MarkReadyToSendByRecheckAsync(
+        Guid documentId, string mappingVersion, string operatorIdentity, CancellationToken cancellationToken = default)
+    {
+        await using IDocumentUnitOfWork unitOfWork = await _unitOfWorkFactory.BeginAsync(cancellationToken);
+
+        Document? document = await unitOfWork.GetForUpdateAsync(documentId, cancellationToken);
+        if (document is null)
+        {
+            return DocumentRecheckPersistOutcome.DocumentNotFound;
+        }
+
+        // Légalité du déblocage vérifiée SOUS le verrou (source unique : la machine à états), comme
+        // ResolveManuallyAsync : un geste opérateur concurrent qui a sorti le document de Blocked est un refus
+        // ATTENDU retourné comme résultat — jamais une exception (pas de 500). Une vraie erreur de persistance
+        // (CommitAsync) reste, elle, une exception qui remonte.
+        if (!DocumentStateMachine.IsAllowed(document.State, DocumentState.ReadyToSend))
+        {
+            return DocumentRecheckPersistOutcome.StateChanged;
+        }
+
+        DocumentEvent documentEvent = document.MarkReadyToSendWithMapping(
+            _timeProvider.GetUtcNow(), mappingVersion, detail: "Débloqué par re-vérification de l'opérateur.", operatorIdentity: operatorIdentity);
+        await unitOfWork.UpsertDocumentAsync(document, cancellationToken);
+        await unitOfWork.AppendEventAsync(documentEvent, cancellationToken);
+        await unitOfWork.CommitAsync(cancellationToken);
+        return DocumentRecheckPersistOutcome.Persisted;
+    }
+
+    public async Task<DocumentRecheckPersistOutcome> RecordRecheckStillBlockedAsync(
+        Guid documentId, string reevaluatedReason, string operatorIdentity, CancellationToken cancellationToken = default)
+    {
+        await using IDocumentUnitOfWork unitOfWork = await _unitOfWorkFactory.BeginAsync(cancellationToken);
+
+        Document? document = await unitOfWork.GetForUpdateAsync(documentId, cancellationToken);
+        if (document is null)
+        {
+            return DocumentRecheckPersistOutcome.DocumentNotFound;
+        }
+
+        // On n'inscrit le fait d'audit « toujours bloqué » QUE si le document est encore Blocked SOUS le verrou :
+        // un geste concurrent qui l'a débloqué/résolu est un refus attendu (StateChanged), pas un faux audit ni un 500.
+        if (document.State != DocumentState.Blocked)
+        {
+            return DocumentRecheckPersistOutcome.StateChanged;
+        }
+
+        DocumentEvent documentEvent = document.RecordRecheckStillBlocked(reevaluatedReason, operatorIdentity, _timeProvider.GetUtcNow());
+        await unitOfWork.UpsertDocumentAsync(document, cancellationToken);
+        await unitOfWork.AppendEventAsync(documentEvent, cancellationToken);
+        await unitOfWork.CommitAsync(cancellationToken);
+        return DocumentRecheckPersistOutcome.Persisted;
+    }
+
     public Task BeginSendingAsync(Guid documentId, CancellationToken cancellationToken = default) =>
         TransitionAsync(documentId, (document, at) => document.BeginSending(at), cancellationToken);
 

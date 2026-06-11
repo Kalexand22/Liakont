@@ -29,8 +29,11 @@ public static class DocumentsEndpointMapping
     /// <summary>Taille de page par défaut quand l'appelant n'en fournit pas.</summary>
     private const int DefaultPageSize = 50;
 
-    /// <summary>Nom d'événement (DocumentEventType, Domain) portant le motif de blocage agrégé.</summary>
+    /// <summary>Nom d'événement (DocumentEventType, Domain) portant le motif de blocage agrégé (entrée en Blocked).</summary>
     private const string BlockedEventType = "DocumentBlocked";
+
+    /// <summary>Nom d'événement (DocumentEventType, Domain) d'une re-vérification opérateur toujours bloquée (item FIX02) : porte le motif RÉÉVALUÉ, qui prime comme motif courant quand il est le dernier évalué.</summary>
+    private const string RecheckedStillBlockedEventType = "DocumentRecheckedStillBlocked";
 
     /// <summary>Nom d'événement (DocumentEventType, Domain) portant le snapshot du pivot transmis.</summary>
     private const string IssuedEventType = "DocumentIssued";
@@ -86,8 +89,13 @@ public static class DocumentsEndpointMapping
             var events = await queries.GetEventsAsync(id, ct);
             var archive = await queries.GetArchiveReferenceAsync(id, ct);
 
+            // Motif courant = le DERNIER événement porteur d'un motif de blocage, qu'il s'agisse de l'entrée en
+            // Blocked (DocumentBlocked) ou d'une re-vérification opérateur restée bloquée avec un motif réévalué
+            // (DocumentRecheckedStillBlocked, item FIX02) : ainsi l'onglet Contrôles affiche le dernier motif évalué,
+            // jamais un motif périmé après un recheck.
             var blockingReason = events
-                .Where(e => string.Equals(e.EventType, BlockedEventType, StringComparison.Ordinal))
+                .Where(e => string.Equals(e.EventType, BlockedEventType, StringComparison.Ordinal)
+                    || string.Equals(e.EventType, RecheckedStillBlockedEventType, StringComparison.Ordinal))
                 .OrderByDescending(e => e.TimestampUtc)
                 .ThenByDescending(e => e.Id)
                 .Select(e => e.Detail)

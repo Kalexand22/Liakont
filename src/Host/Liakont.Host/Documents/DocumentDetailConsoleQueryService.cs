@@ -19,6 +19,7 @@ internal sealed class DocumentDetailConsoleQueryService : IDocumentDetailConsole
     // Noms d'événements/d'état du domaine Documents, référencés en CHAÎNE (un projet du Host ne référence pas
     // le Domain d'un module — frontière de dépendance) ; mêmes valeurs que DocumentsEndpointMapping.
     private const string BlockedEventType = "DocumentBlocked";
+    private const string RecheckedStillBlockedEventType = "DocumentRecheckedStillBlocked";
     private const string BlockedDocumentState = "Blocked";
 
     private readonly IDocumentQueries _documents;
@@ -39,11 +40,15 @@ internal sealed class DocumentDetailConsoleQueryService : IDocumentDetailConsole
         var events = await _documents.GetEventsAsync(id, cancellationToken).ConfigureAwait(false);
         var archive = await _documents.GetArchiveReferenceAsync(id, cancellationToken).ConfigureAwait(false);
 
-        // Motif de blocage = le DERNIER événement DocumentBlocked, et seulement si le document est ENCORE
-        // bloqué (sinon le motif est périmé → message trompeur). Tri stable par horodatage puis Id.
+        // Motif de blocage = le DERNIER événement porteur d'un motif (entrée en Blocked, OU re-vérification
+        // opérateur restée bloquée avec un motif réévalué — DocumentRecheckedStillBlocked, item FIX02), et
+        // seulement si le document est ENCORE bloqué (sinon le motif est périmé → message trompeur). Ainsi
+        // l'onglet Contrôles affiche le DERNIER motif évalué après un recheck, plus un motif périmé. Tri stable
+        // par horodatage puis Id.
         var blockingReason = string.Equals(document.State, BlockedDocumentState, StringComparison.Ordinal)
             ? events
-                .Where(e => string.Equals(e.EventType, BlockedEventType, StringComparison.Ordinal))
+                .Where(e => string.Equals(e.EventType, BlockedEventType, StringComparison.Ordinal)
+                    || string.Equals(e.EventType, RecheckedStillBlockedEventType, StringComparison.Ordinal))
                 .OrderByDescending(e => e.TimestampUtc)
                 .ThenByDescending(e => e.Id)
                 .Select(e => e.Detail)

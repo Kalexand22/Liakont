@@ -23,6 +23,21 @@ public sealed class DocumentMappingVersionTests
         document.State.Should().Be(DocumentState.ReadyToSend);
         document.MappingVersion.Should().Be("2026.1");
         documentEvent.EventType.Should().Be(DocumentEventType.DocumentReadyToSend);
+        documentEvent.OperatorIdentity.Should().BeNull("un déblocage système (pipeline) n'a pas d'opérateur.");
+    }
+
+    [Fact]
+    public void MarkReadyToSendWithMapping_Records_The_Operator_When_Provided()
+    {
+        // FIX02 : un déblocage par re-vérification opérateur attribue l'événement ReadyToSend à l'opérateur
+        // (geste tracé, pas un déblocage système anonyme).
+        var document = Detected();
+
+        var documentEvent = document.MarkReadyToSendWithMapping(At.AddMinutes(1), "2026.1", detail: "Débloqué par re-vérification.", operatorIdentity: "alice@cmp");
+
+        document.State.Should().Be(DocumentState.ReadyToSend);
+        documentEvent.EventType.Should().Be(DocumentEventType.DocumentReadyToSend);
+        documentEvent.OperatorIdentity.Should().Be("alice@cmp");
     }
 
     [Fact]

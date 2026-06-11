@@ -26,10 +26,12 @@ using Stratum.Common.Abstractions.MultiTenancy;
 /// garde-fou production et toutes les autres règles restent appliquées sans changement.
 /// </summary>
 /// <remarks>
-/// <para>La seule transition possible est <c>Blocked → ReadyToSend</c> : la machine à états interdit
-/// <c>Blocked → Blocked</c> (TRK02). Un document toujours bloqué après re-vérification ne subit AUCUNE
-/// transition (pas de re-blocage, pas de churn de la piste d'audit append-only) ; ses nouveaux motifs sont
-/// renvoyés dans le résultat pour affichage immédiat dans la console (WEB03b).</para>
+/// <para>La seule transition d'ÉTAT possible est <c>Blocked → ReadyToSend</c> : la machine à états interdit
+/// <c>Blocked → Blocked</c> (TRK02). Mais CHAQUE re-vérification qui tourne laisse une trace d'audit append-only
+/// attribuée à l'opérateur (item FIX02) : au déblocage, l'événement <c>ReadyToSend</c> porte l'opérateur ; si le
+/// document reste bloqué, un événement <c>RecheckedStillBlocked</c> (SANS transition d'état) inscrit le geste et
+/// le motif RÉÉVALUÉ — ce motif devient le motif COURANT affiché (plus de motif périmé après rechargement). Les
+/// nouveaux motifs sont aussi renvoyés dans le résultat pour affichage immédiat dans la console (WEB03b).</para>
 /// <para>Au passage <c>ReadyToSend</c>, le snapshot de ventilation TVA sourcée est écrit AVANT la transition
 /// (ADR-0015 §4, happened-before — sinon le document débloqué par recheck serait absent de l'agrégation de
 /// paiement PIP03a), exactement comme le consommateur CHECK. Idempotent sur (document_id, mapping_version).</para>
@@ -58,8 +60,13 @@ internal sealed class DocumentRecheckService : IDocumentRecheckService
     }
 
     /// <inheritdoc />
-    public async Task<DocumentRecheckResult> RecheckAsync(Guid documentId, CancellationToken cancellationToken = default)
+    public async Task<DocumentRecheckResult> RecheckAsync(Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(operatorIdentity))
+        {
+            throw new ArgumentException("L'identité de l'opérateur est obligatoire pour une re-vérification (piste d'audit, F06 §3).", nameof(operatorIdentity));
+        }
+
         var tenantId = _tenantContext.TenantId;
         if (string.IsNullOrWhiteSpace(tenantId))
         {
@@ -118,17 +125,45 @@ internal sealed class DocumentRecheckService : IDocumentRecheckService
             buyerConfirmedB2C: document.BuyerConfirmedAsIndividual,
             cancellationToken: cancellationToken);
 
+        var lifecycle = _services.GetRequiredService<IDocumentLifecycle>();
+
         if (!decision.IsReady)
         {
-            return DocumentRecheckResult.StillBlocked(decision.BlockReason!);
+            // Toujours bloqué : aucune transition (Blocked → Blocked interdit), mais on TRACE le geste opérateur
+            // et le motif réévalué (item FIX02) — la re-vérification n'est plus invisible dans la piste (F06 §3)
+            // et le motif affiché devient le dernier évalué (plus de motif périmé après rechargement). Le cycle de
+            // vie vérifie l'état SOUS le verrou : un geste concurrent qui a débloqué/résolu le document est rendu
+            // gracieusement (jamais un faux audit ni un 500), une vraie erreur de persistance remonte.
+            var stillBlocked = await lifecycle.RecordRecheckStillBlockedAsync(documentId, decision.BlockReason!, operatorIdentity, cancellationToken);
+            return stillBlocked == DocumentRecheckPersistOutcome.Persisted
+                ? DocumentRecheckResult.StillBlocked(decision.BlockReason!)
+                : await CurrentStateResultAsync(queries, documentId, cancellationToken);
         }
 
-        // Prêt : snapshot de ventilation sourcée AVANT la transition (ADR-0015), puis Blocked → ReadyToSend.
+        // Prêt : snapshot de ventilation sourcée AVANT la transition (ADR-0015), puis Blocked → ReadyToSend
+        // (événement d'audit attribué à l'opérateur qui a déclenché la re-vérification — item FIX02). Un changement
+        // d'état concurrent est rendu gracieusement (le snapshot de ventilation, idempotent, reste sans effet).
         await WriteVentilationSnapshotAsync(document, decision, cancellationToken);
-        await _services.GetRequiredService<IDocumentLifecycle>()
-            .MarkReadyToSendAsync(documentId, decision.MappingVersion!, cancellationToken);
+        var unblocked = await lifecycle.MarkReadyToSendByRecheckAsync(documentId, decision.MappingVersion!, operatorIdentity, cancellationToken);
+        return unblocked == DocumentRecheckPersistOutcome.Persisted
+            ? DocumentRecheckResult.ReadyToSend()
+            : await CurrentStateResultAsync(queries, documentId, cancellationToken);
+    }
 
-        return DocumentRecheckResult.ReadyToSend();
+    /// <summary>
+    /// Relit l'état COURANT du document quand le cycle de vie verrouillé a refusé l'écriture (l'état a changé sous
+    /// une action opérateur concurrente entre la lecture non verrouillée et l'écriture FOR UPDATE) et le mappe vers
+    /// un résultat GRACIEUX — <see cref="DocumentRecheckResult.NotBlocked"/> (→ 409 « état modifié ») ou
+    /// <see cref="DocumentRecheckResult.NotFound"/> — au lieu de laisser remonter une exception (HTTP 500). Garde la
+    /// piste d'audit fidèle : aucun fait d'audit n'est inscrit sur un document qui n'est plus dans l'état attendu.
+    /// </summary>
+    private static async Task<DocumentRecheckResult> CurrentStateResultAsync(
+        IDocumentQueries queries, Guid documentId, CancellationToken cancellationToken)
+    {
+        var current = await queries.GetByIdAsync(documentId, cancellationToken);
+        return current is null
+            ? DocumentRecheckResult.NotFound()
+            : DocumentRecheckResult.NotBlocked(current.State);
     }
 
     /// <summary>

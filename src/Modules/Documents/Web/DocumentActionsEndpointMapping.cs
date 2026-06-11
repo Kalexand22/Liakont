@@ -330,8 +330,10 @@ public static class DocumentActionsEndpointMapping
         // POST /api/v1/documents/{id}/recheck — re-vérifie UN document Blocked (CHECK complet : mapping TVA →
         // garde-fou production → validation) sans attendre le prochain traitement : Blocked → ReadyToSend s'il
         // passe désormais (table TVA complétée/validée, verdict B2C posé), sinon reste Blocked avec les NOUVEAUX
-        // motifs (renvoyés pour affichage immédiat — la machine à états interdit Blocked → Blocked, aucun
-        // événement n'est ré-écrit). 404 hors tenant, 409 si non bloqué ou contenu pivot indisponible.
+        // motifs (renvoyés pour affichage immédiat — la machine à états interdit Blocked → Blocked). DANS LES DEUX
+        // cas, le geste opérateur est tracé dans la piste d'audit append-only (item FIX02) : événement ReadyToSend
+        // attribué au déblocage, ou événement RecheckedStillBlocked portant le motif réévalué (qui devient le motif
+        // courant affiché). 404 hors tenant, 409 si non bloqué ou contenu pivot indisponible.
         group.MapPost("/{id:guid}/recheck", async (
             Guid id,
             IDocumentRecheckService recheckService,
@@ -339,7 +341,9 @@ public static class DocumentActionsEndpointMapping
             IActivityLogger activityLogger,
             CancellationToken ct) =>
         {
-            var result = await recheckService.RecheckAsync(id, ct);
+            var actor = actorAccessor.Current;
+            var operatorId = ActorId(actor);
+            var result = await recheckService.RecheckAsync(id, operatorId, ct);
 
             switch (result.Outcome)
             {
@@ -356,13 +360,12 @@ public static class DocumentActionsEndpointMapping
                         "Le contenu du document n'est pas disponible pour la re-vérification (pas encore stagé, ou altéré/illisible). Action : relancez l'extraction du document depuis le logiciel source, puis réessayez."));
 
                 default:
-                    var actor = actorAccessor.Current;
                     await activityLogger.LogActivityAsync(
                         DocumentEntityType,
                         id.ToString(),
                         DocumentActionContract.RecheckActivity,
                         string.Create(CultureInfo.InvariantCulture, $"Re-vérification déclenchée par l'opérateur — résultat : « {result.State} »."),
-                        ActorId(actor),
+                        operatorId,
                         metadata: new { State = result.State, Outcome = result.Outcome.ToString() },
                         companyId: actor.CompanyId,
                         cancellationToken: ct);

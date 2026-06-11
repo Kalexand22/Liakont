@@ -207,7 +207,7 @@ public sealed class Document
     /// <see cref="MarkReadyToSend(DateTimeOffset, string?)"/>) afin qu'aucun appelant ne puisse passer la
     /// version en positionnel et la voir liée au paramètre <c>detail</c> — perte de traçabilité F03 silencieuse.
     /// </summary>
-    public DocumentEvent MarkReadyToSendWithMapping(DateTimeOffset occurredAtUtc, string mappingVersion, string? detail = null)
+    public DocumentEvent MarkReadyToSendWithMapping(DateTimeOffset occurredAtUtc, string mappingVersion, string? detail = null, string? operatorIdentity = null)
     {
         var version = RequireText(
             mappingVersion,
@@ -216,8 +216,9 @@ public sealed class Document
 
         // Garde de légalité AVANT toute mutation (cohérent avec les autres transitions, F06 §3) : la version
         // n'est consignée qu'une fois la transition ReadyToSend acceptée — une transition refusée ne laisse
-        // aucune trace, même en mémoire.
-        var documentEvent = ApplyTransition(DocumentState.ReadyToSend, DocumentEventType.DocumentReadyToSend, occurredAtUtc, detail, operatorIdentity: null);
+        // aucune trace, même en mémoire. <paramref name="operatorIdentity"/> trace l'opérateur quand le
+        // déblocage est une action de re-vérification (FIX02) ; <c>null</c> pour un déblocage système (pipeline).
+        var documentEvent = ApplyTransition(DocumentState.ReadyToSend, DocumentEventType.DocumentReadyToSend, occurredAtUtc, detail, operatorIdentity);
         MappingVersion = version;
         return documentEvent;
     }
@@ -353,6 +354,36 @@ public sealed class Document
         LastUpdateUtc = occurredAtUtc;
 
         return DocumentEvent.BuyerConfirmedAsIndividual(Id, occurredAtUtc, op);
+    }
+
+    /// <summary>
+    /// Trace une RE-VÉRIFICATION OPÉRATEUR ayant laissé le document BLOQUÉ (item FIX02) : depuis l'état
+    /// <see cref="DocumentState.Blocked"/>, inscrit le fait d'audit append-only du recheck (identité de
+    /// l'opérateur OBLIGATOIRE, motif RÉÉVALUÉ porté) SANS changer l'état (la machine à états interdit
+    /// <c>Blocked → Blocked</c>). L'horodatage de mise à jour est avancé. Le motif inscrit devient le motif
+    /// COURANT affiché (dernier évalué). Refusé hors de l'état <c>Blocked</c> (un recheck-toujours-bloqué ne
+    /// concerne qu'un document bloqué — cohérent avec la pré-vérification de la re-vérification).
+    /// </summary>
+    public DocumentEvent RecordRecheckStillBlocked(string reevaluatedReason, string operatorIdentity, DateTimeOffset occurredAtUtc)
+    {
+        var motif = RequireText(
+            reevaluatedReason,
+            nameof(reevaluatedReason),
+            "Le motif réévalué est obligatoire pour tracer une re-vérification toujours bloquée (piste d'audit, F06 §3).");
+        var op = RequireText(
+            operatorIdentity,
+            nameof(operatorIdentity),
+            "L'identité de l'opérateur est obligatoire pour une re-vérification (piste d'audit, F06 §3).");
+
+        if (State != DocumentState.Blocked)
+        {
+            throw new InvalidOperationException(
+                $"Une re-vérification toujours bloquée ne se trace que sur un document bloqué (état actuel : {State}).");
+        }
+
+        LastUpdateUtc = occurredAtUtc;
+
+        return DocumentEvent.RecheckedStillBlocked(Id, occurredAtUtc, motif, op);
     }
 
     private static string RequireText(string value, string paramName, string message)

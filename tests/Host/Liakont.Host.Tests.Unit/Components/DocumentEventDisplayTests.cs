@@ -20,6 +20,7 @@ public sealed class DocumentEventDisplayTests
     [InlineData("DocumentReconciledAuto", "PDF rapproché automatiquement")]
     [InlineData("DocumentReconciledManual", "PDF rapproché manuellement")]
     [InlineData("DocumentBuyerConfirmedB2C", "Acheteur confirmé particulier (B2C)")]
+    [InlineData("DocumentRecheckedStillBlocked", "Re-vérifié (toujours bloqué)")]
     public void For_Should_Map_Known_Event_Types_To_French(string raw, string expected)
     {
         DocumentEventDisplay.For(raw).Should().Be(expected);

@@ -29,6 +29,7 @@ public static class DocumentEventDisplay
         "DocumentReconciledAuto" => "PDF rapproché automatiquement",
         "DocumentReconciledManual" => "PDF rapproché manuellement",
         "DocumentBuyerConfirmedB2C" => "Acheteur confirmé particulier (B2C)",
+        "DocumentRecheckedStillBlocked" => "Re-vérifié (toujours bloqué)",
         _ => string.IsNullOrWhiteSpace(eventType) ? "—" : eventType!,
     };
 }
