@@ -14,6 +14,8 @@
     « passer » silencieusement (anti-faux-vert).
 #>
 $ErrorActionPreference = 'Stop'
+# Les scripts enfants sortent volontairement en code 1 ; sur pwsh 7.4+ l'appel natif ne doit pas lever, le code de sortie est lu via $LASTEXITCODE.
+$PSNativeCommandUseErrorActionPreference = $false
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $provDir = Join-Path $repoRoot 'deploy\provisioning'
