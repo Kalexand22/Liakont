@@ -48,8 +48,12 @@ DEST="${BACKUP_DIR}/${STAMP}"
 mkdir -p "${DEST}"
 bk_log "Sauvegarde de l'appliance « ${LIAKONT_PROJECT} » → ${DEST}"
 
-# ── 1. Bases applicatives : système + une par tenant (énumérées depuis outbox.tenants) ──
-mapfile -t APP_DBS < <(bk_list_app_databases)
+# ── 1. Bases applicatives : système + une par tenant (énumérées par existence sur le cluster) ──
+# Capture HORS substitution de processus : un bk_die de l'énumération doit tuer backup.sh (set -e),
+# pas seulement le sous-shell d'un « < <(…) » (sinon APP_DBS vide → sauvegarde sans aucune base, sortie 0).
+app_dbs_out="$(bk_list_app_databases)"
+[ -n "${app_dbs_out}" ] || bk_die "Aucune base applicative trouvée (la base système devrait toujours être présente) — abandon."
+mapfile -t APP_DBS <<< "${app_dbs_out}"
 bk_log "Bases applicatives à sauvegarder : ${APP_DBS[*]}"
 for db in "${APP_DBS[@]}"; do
   bk_dump_database "${LIAKONT_DB_SERVICE}" "${LIAKONT_DB_USER}" "${db}" "${DEST}/db-${db}.dump"

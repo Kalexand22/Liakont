@@ -62,30 +62,19 @@ bk_filesize() {
   wc -c < "$1" | tr -d '[:space:]'
 }
 
-# Liste des bases applicatives à sauvegarder : base système + bases tenant actives (depuis outbox.tenants),
-# dédupliquées. Tolérant : si la table n'existe pas encore (instance neuve), retombe sur la seule base système.
+# Liste des bases applicatives à sauvegarder : énumérées par EXISTENCE sur le cluster (pg_database),
+# PAS par l'état métier. Sauvegarder toute base présente (système + tenants, y compris un tenant
+# SUSPENDU dont la base survit — archives fiscales soumises à la rétention 10 ans) : filtrer sur
+# outbox.tenants.is_active = true exclurait silencieusement ces bases (faux vert). Templates et base
+# de maintenance « postgres » exclues. Un échec d'énumération ABANDONNE (jamais de sauvegarde partielle).
 bk_list_app_databases() {
-  local tenants errfile
-  errfile="$(mktemp)"
-  # Repli « base système seule » toléré UNIQUEMENT si outbox.tenants est absente (instance neuve).
-  # Toute AUTRE erreur psql (droits, timeout, hoquet) doit échouer : omettre des bases tenant
-  # silencieusement serait un faux vert (archives fiscales non sauvegardées).
-  if tenants="$(bk_compose exec -T "${LIAKONT_DB_SERVICE}" \
+  local out
+  if ! out="$(bk_compose exec -T "${LIAKONT_DB_SERVICE}" \
       psql -U "${LIAKONT_DB_USER}" -d "${LIAKONT_SYSTEM_DB}" -At \
-      -c "SELECT database_name FROM outbox.tenants WHERE is_active = true AND database_name IS NOT NULL" \
-      2>"${errfile}")"; then
-    rm -f "${errfile}"
-  elif grep -qiE 'relation .*tenants.* does not exist' "${errfile}"; then
-    bk_warn "Table outbox.tenants absente (instance neuve) : seule la base système est sauvegardée."
-    tenants=""
-    rm -f "${errfile}"
-  else
-    local msg
-    msg="$(cat "${errfile}")"
-    rm -f "${errfile}"
-    bk_die "Énumération des bases tenant en échec (omission silencieuse = faux vert) : ${msg}"
+      -c "SELECT datname FROM pg_database WHERE datistemplate = false AND datname <> 'postgres' ORDER BY datname" 2>&1)"; then
+    bk_die "Énumération des bases du cluster en échec (omission silencieuse = faux vert) : ${out}"
   fi
-  { printf '%s\n' "${LIAKONT_SYSTEM_DB}"; printf '%s\n' "${tenants}"; } | sed '/^[[:space:]]*$/d' | sort -u
+  printf '%s\n' "${out}" | sed '/^[[:space:]]*$/d'
 }
 
 # pg_dump custom format (-Fc) d'UNE base via le service compose, écrit sur l'hôte.
