@@ -1,0 +1,23 @@
+{
+  "_commentaire": "MODÈLE FICTIF de profil intégrateur de l'installeur agent (OPS08, F13 §5). Il ne contient QUE du branding et de la visibilité par champ — AUCUN secret, AUCUNE donnée client (CLAUDE.md n°7, F13 §5.5). Le profil réel d'un intégrateur est embarqué au packaging (OPS08c) ; la config tenant (clé API, ODBC, SIREN) est saisie au wizard, jamais ici. États possibles par champ : « affiché » (visible et éditable), « verrouillé » (visible non éditable, valeur imposée), « masqué » (caché, valeur imposée). Un champ masqué DOIT porter une valeur ; apiKey ne peut jamais recevoir de valeur (secret).",
+
+  "profil": "exemple-integrateur",
+
+  "branding": {
+    "nom": "Exemple Intégrateur",
+    "logo": "logo.png",
+    "couleurPrincipale": "#0a5"
+  },
+
+  "champs": {
+    "adapter": { "etat": "masqué", "valeur": "EncheresV6" },
+    "platformUrl": { "etat": "verrouillé", "valeur": "https://liakont.exemple-integrateur.fr" },
+    "apiKey": { "etat": "affiché" },
+    "odbcConnection": { "etat": "affiché" },
+    "odbcAdvanced": { "etat": "masqué", "valeur": "false" },
+    "schedule": { "etat": "affiché", "valeur": "03:00,13:00" },
+    "logging": { "etat": "masqué", "valeur": "info/90j" },
+    "autoUpdate": { "etat": "verrouillé", "valeur": true },
+    "instanceName": { "etat": "masqué", "valeur": "Default" }
+  }
+}

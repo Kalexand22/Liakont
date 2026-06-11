@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Bootstrapper GUI WinForms (F13 §3) : sous-système Windows, pas de console parasite.
+         Les écrans guidés sont livrés par OPS08b ; OPS08a livre le projet + le moteur de profil. -->
+    <OutputType>WinExe</OutputType>
+    <!-- net48 exe : le SDK infère un RuntimeIdentifier pour un build x64. On déclare les deux
+         RID pour qu'UN seul restore couvre x86 ET x64 (comme le service et le CLI). -->
+    <RuntimeIdentifiers>win-x86;win-x64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <!-- Les types de l'installeur restent internal ; le projet de test y accède (moteur de profil mocké). -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Agent.Installer.Tests" />
+  </ItemGroup>
+
+  <!-- Réutilise le cœur agent — AUCUNE logique dupliquée (F13 §3, CLAUDE.md n°6) : la validation du
+       nom d'instance s'appuie sur Liakont.Agent.Core.AgentInstance, le chiffrement DPAPI sur
+       SecretProtector (AGT01). Frontière respectée : l'installeur ne référence que Liakont.Agent.*
+       (blueprint.md §6). -->
+  <ItemGroup>
+    <ProjectReference Include="..\Liakont.Agent.Core\Liakont.Agent.Core.csproj" />
+  </ItemGroup>
+
+  <!-- Profil intégrateur déclaratif sérialisé en JSON (Newtonsoft.Json, déjà au catalogue central
+       de l'agent — pas d'ADR pour un nouveau paquet). -->
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" />
+  </ItemGroup>
+
+  <!-- Bootstrapper GUI WinForms (écrans livrés par OPS08b) : assemblies du framework net48 (signés
+       Microsoft). La frontière agent/plateforme (blueprint.md §6) est gardée par AgentBoundaryTests sur
+       les assemblies BIBLIOTHÈQUE (Contracts/Core/Adapters) ; les exe racines de composition (cet
+       installeur, comme le CLI/le service/l'updater) n'y sont pas scannés — l'installeur ne référence
+       que Liakont.Agent.Core, frontière respectée par construction. -->
+  <ItemGroup>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+  </ItemGroup>
+
+</Project>
