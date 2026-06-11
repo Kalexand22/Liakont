@@ -172,6 +172,29 @@ public sealed class DocumentsTests : BunitContext
     }
 
     [Fact]
+    public void Tout_Envoyer_Qui_N_Envoie_Rien_Affiche_Le_Motif_En_Alerte()
+    {
+        // FIX202 : « Tout envoyer » remonte désormais le RÉSULTAT du run (comme « Lancer un traitement »). Un run
+        // clôturé sans rien émettre (SIREN non publié) s'affiche en ALERTE avec le motif + l'action corrective —
+        // plus de bandeau « déclenché » statique répété en boucle.
+        var send = new FakeSendActions
+        {
+            Summary = new DocumentSendSummary(1, 100m),
+            SendAllResult = DocumentSendActionResult.Failure(
+                "Le traitement d'envoi du tenant est terminé : aucun document émis. SEND : SIREN non publié auprès de la PA — aucun envoi. Action opérateur : faites publier le SIREN auprès de la PA, puis relancez l'envoi."),
+        };
+        var cut = RenderAsOperator(send, Doc("2018", "invoice", "ReadyToSend"));
+
+        cut.Find("[data-testid='documents-send-all']").Click();
+        cut.Find("[data-testid='documents-send-all-confirm-button']").Click();
+
+        var feedback = cut.Find("[data-testid='documents-send-feedback']");
+        feedback.TextContent.Should().Contain("aucun document émis").And.Contain("SIREN non publié");
+        feedback.GetAttribute("class").Should().Contain("doc-send-feedback--error", "un envoi sans émission n'est pas un succès");
+        feedback.GetAttribute("role").Should().Be("alert");
+    }
+
+    [Fact]
     public async Task Envoyer_La_Selection_Confirms_Then_Calls_The_Service_And_Shows_Feedback()
     {
         var send = new FakeSendActions
@@ -202,6 +225,32 @@ public sealed class DocumentsTests : BunitContext
 
         send.LastSelection.Should().ContainSingle().Which.Should().Be(selected.Id, "le service reçoit l'identifiant du document sélectionné");
         cut.Find("[data-testid='documents-send-feedback']").TextContent.Should().Contain("Envoi déclenché");
+    }
+
+    [Fact]
+    public async Task Envoyer_La_Selection_Qui_N_Envoie_Rien_Affiche_Le_Motif_En_Alerte()
+    {
+        // FIX202 : « Envoyer la sélection » remonte désormais le RÉSULTAT du run (comme « Tout envoyer » et « Lancer
+        // un traitement »). Un run clôturé sans rien émettre s'affiche en ALERTE avec le motif — le chemin d'échec UI
+        // PROPRE À LA SÉLECTION est asservi (le rendu d'échec est asserté par mode : role="alert" + --error).
+        var send = new FakeSendActions
+        {
+            Summary = new DocumentSendSummary(1, 100m),
+            SendSelectionResult = DocumentSendActionResult.Failure(
+                "Le traitement d'envoi du tenant est terminé : aucun document émis. SEND : SIREN non publié auprès de la PA — aucun envoi. Action opérateur : faites publier le SIREN auprès de la PA, puis relancez l'envoi."),
+        };
+        var selected = Doc("2018", "invoice", "ReadyToSend");
+        var cut = RenderAsOperator(send, selected);
+
+        var listPage = cut.FindComponent<DeclaredListPage<DocumentSummaryDto>>();
+        var action = listPage.Instance.BulkActions!.Single(a => a.Id == "send-selection");
+        await cut.InvokeAsync(() => action.Execute!(new[] { selected }));
+        cut.Find("[data-testid='documents-send-all-confirm-button']").Click();
+
+        var feedback = cut.Find("[data-testid='documents-send-feedback']");
+        feedback.TextContent.Should().Contain("aucun document émis").And.Contain("SIREN non publié");
+        feedback.GetAttribute("class").Should().Contain("doc-send-feedback--error", "un envoi sans émission n'est pas un succès");
+        feedback.GetAttribute("role").Should().Be("alert");
     }
 
     private IRenderedComponent<Documents> RenderAsOperator(FakeSendActions send, params DocumentSummaryDto[] docs)

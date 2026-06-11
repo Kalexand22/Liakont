@@ -65,9 +65,9 @@ public sealed class DocumentSendActionsServiceTests
 
         result.Success.Should().BeTrue();
 
-        // Le total fr-FR utilise une espace insécable comme séparateur de milliers (« 1 162,80 ») : on vérifie
-        // la partie contiguë « 162,80 » pour ne pas dépendre du séparateur.
-        result.Message.Should().Contain("2 document").And.Contain("162,80");
+        // FIX202 : aucun run corrélé dans le journal (runs vides) → dégradation gracieuse renvoyant au journal
+        // (plus de bandeau « déclenché » statique). Le nombre + le montant total restent tracés dans l'AUDIT.
+        result.Message.Should().Contain("journal des traitements");
 
         queue.Enqueued.Should().ContainSingle();
         var trigger = queue.Enqueued[0];
@@ -75,8 +75,12 @@ public sealed class DocumentSendActionsServiceTests
             .Which.Should().BeEquivalentTo(new { TenantId, DryRun = false }, "un SEUL déclencheur mono-tenant (ADR-0016)");
         trigger.CompanyId.Should().Be(CompanyId);
 
-        audit.Entries.Should().ContainSingle()
-            .Which.ActivityType.Should().Be("documents.send_all_triggered");
+        var entry = audit.Entries.Should().ContainSingle().Which;
+        entry.ActivityType.Should().Be("documents.send_all_triggered");
+
+        // Le total fr-FR utilise une espace insécable comme séparateur de milliers (« 1 162,80 ») : on vérifie
+        // la partie contiguë « 162,80 » pour ne pas dépendre du séparateur. (Audit en « 0.00 » invariant.)
+        entry.Description.Should().Contain("2 document").And.Contain("162.80");
     }
 
     [Fact]
@@ -137,8 +141,11 @@ public sealed class DocumentSendActionsServiceTests
         var result = await service.SendSelectionAsync(new[] { ready1, ready2, notReady, missing });
 
         result.Success.Should().BeTrue();
-        result.Message.Should().Contain("2 document").And.Contain("Ignoré");
-        result.Message.Should().Contain("F-003").And.Contain("introuvable");
+
+        // FIX202 : aucun run corrélé (runs vides) → résultat = renvoi au journal, AVEC les documents écartés
+        // restitués À CÔTÉ (suffixe « Ignoré(s) à la sélection »). Les 2 documents prêts sont prouvés par l'audit.
+        result.Message.Should().Contain("journal des traitements");
+        result.Message.Should().Contain("Ignoré").And.Contain("F-003").And.Contain("introuvable");
 
         // ADR-0016 : un SEUL déclencheur pour toute la sélection (le SEND du tenant émet tous les ReadyToSend),
         // mais chaque document PRÊT est journalisé (parité d'audit avec POST /documents/{id}/send).
@@ -296,6 +303,93 @@ public sealed class DocumentSendActionsServiceTests
         result.Message.Should().Contain("liakont.actions");
         queue.Enqueued.Should().BeEmpty();
         audit.Entries.Should().BeEmpty();
+    }
+
+    // ── FIX202 : « Envoyer la sélection » et « Tout envoyer » remontent le RÉSULTAT du run (comme « Lancer un
+    // traitement », FIX05), au lieu d'un bandeau « déclenché » statique répété en boucle. Même corrélation (run
+    // SEND manuel clôturé ≥ instant du déclenchement), même projection opérateur (émis / aucun envoi + motif). ──
+    [Fact]
+    public async Task SendAll_Reports_The_Run_Outcome_When_The_Run_Sent_Documents()
+    {
+        var queries = new FakeDocumentQueries();
+        queries.ReadyToSend.Add(Summary(Guid.NewGuid(), "F-1", "ReadyToSend", 1000m));
+        queries.ReadyToSend.Add(Summary(Guid.NewGuid(), "F-2", "ReadyToSend", 162.80m));
+        var run = SendRun(succeeded: 2, failed: 0, detail: "SEND : 2 émis, 0 en échec.");
+        var (service, queue, _) = Build(queries, runs: new[] { run });
+
+        var result = await service.SendAllAsync();
+
+        result.Success.Should().BeTrue();
+        result.Message.Should().Contain("2 document(s) émis");
+        queue.Enqueued.Should().ContainSingle("le run reste déclenché normalement");
+    }
+
+    [Fact]
+    public async Task SendAll_Surfaces_The_Motif_And_Is_Not_A_Success_When_Nothing_Was_Sent()
+    {
+        // Cœur du bug FIX202 : l'opérateur clique « Tout envoyer », le run se clôt sans rien émettre (SIREN non
+        // publié) — il doit voir le MOTIF + l'action corrective, pas un « envoi déclenché » qui boucle.
+        const string Motif = "SEND : SIREN non publié auprès de la PA — aucun envoi. Action opérateur : faites publier le SIREN auprès de la PA, puis relancez l'envoi.";
+        var queries = new FakeDocumentQueries();
+        queries.ReadyToSend.Add(Summary(Guid.NewGuid(), "F-1", "ReadyToSend", 1000m));
+        var run = SendRun(succeeded: 0, failed: 0, detail: Motif);
+        var (service, _, _) = Build(queries, runs: new[] { run });
+
+        var result = await service.SendAllAsync();
+
+        result.Success.Should().BeFalse("un envoi groupé qui n'émet rien ne ressemble pas à un succès");
+        result.Message.Should().Contain("aucun document émis").And.Contain("SIREN non publié");
+    }
+
+    [Fact]
+    public async Task SendSelection_Reports_The_Run_Outcome_When_The_Run_Sent_Documents()
+    {
+        var ready = Guid.NewGuid();
+        var queries = new FakeDocumentQueries();
+        queries.ById[ready] = Doc(ready, "F-001", "ReadyToSend");
+        var run = SendRun(succeeded: 1, failed: 0, detail: "SEND : 1 émis.");
+        var (service, queue, _) = Build(queries, runs: new[] { run });
+
+        var result = await service.SendSelectionAsync(new[] { ready });
+
+        result.Success.Should().BeTrue();
+        result.Message.Should().Contain("1 document(s) émis");
+        queue.Enqueued.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task SendSelection_Surfaces_The_Motif_When_Nothing_Was_Sent()
+    {
+        const string Motif = "SEND : SIREN non publié auprès de la PA — aucun envoi. Action opérateur : faites publier le SIREN auprès de la PA, puis relancez l'envoi.";
+        var ready = Guid.NewGuid();
+        var queries = new FakeDocumentQueries();
+        queries.ById[ready] = Doc(ready, "F-001", "ReadyToSend");
+        var run = SendRun(succeeded: 0, failed: 0, detail: Motif);
+        var (service, _, _) = Build(queries, runs: new[] { run });
+
+        var result = await service.SendSelectionAsync(new[] { ready });
+
+        result.Success.Should().BeFalse();
+        result.Message.Should().Contain("aucun document émis").And.Contain("SIREN non publié");
+    }
+
+    [Fact]
+    public async Task SendSelection_Appends_The_Skipped_Documents_Next_To_The_Run_Outcome()
+    {
+        // Les documents écartés (non prêts / introuvables) sont restitués À CÔTÉ du résultat du run, pas à sa place.
+        var ready = Guid.NewGuid();
+        var notReady = Guid.NewGuid();
+        var queries = new FakeDocumentQueries();
+        queries.ById[ready] = Doc(ready, "F-001", "ReadyToSend");
+        queries.ById[notReady] = Doc(notReady, "F-003", "Blocked");
+        var run = SendRun(succeeded: 1, failed: 0, detail: "SEND : 1 émis.");
+        var (service, _, _) = Build(queries, runs: new[] { run });
+
+        var result = await service.SendSelectionAsync(new[] { ready, notReady });
+
+        result.Success.Should().BeTrue();
+        result.Message.Should().Contain("1 document(s) émis", "le résultat du run est restitué");
+        result.Message.Should().Contain("Ignoré").And.Contain("F-003", "les documents écartés sont restitués à côté du résultat");
     }
 
     [Theory]
