@@ -23,4 +23,7 @@ internal sealed class ValidationService : IValidationService
 
     public Task<ValidationResult> ValidateAsync(DocumentValidationContext context, CancellationToken cancellationToken = default) =>
         _pipeline.ValidateAsync(context, cancellationToken);
+
+    public Task<ValidationResult> ValidateMappingIndependentAsync(DocumentValidationContext context, CancellationToken cancellationToken = default) =>
+        _pipeline.ValidateMappingIndependentAsync(context, cancellationToken);
 }

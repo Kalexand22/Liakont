@@ -13,6 +13,13 @@ public sealed class CategoryRateConsistencyRuleTests
 
     private readonly CategoryRateConsistencyRule _rule = new();
 
+    [Fact]
+    public void Depends_on_tva_mapping_so_it_is_excluded_from_independent_aggregation()
+    {
+        // FIX06 : la cohérence catégorie/taux ne porte que sur la catégorie posée par l'enrichissement → exclue.
+        _rule.DependsOnTvaMapping.Should().BeTrue();
+    }
+
     [Theory]
     [InlineData(VatCategory.S)]
     [InlineData(VatCategory.AA)]

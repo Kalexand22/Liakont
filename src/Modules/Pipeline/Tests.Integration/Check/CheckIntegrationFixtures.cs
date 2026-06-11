@@ -12,7 +12,7 @@ internal static class CheckIntegrationFixtures
 {
     public static string PayloadHashOf(PivotDocumentDto pivot) => PayloadHasher.ComputeHash(CanonicalJson.Serialize(pivot));
 
-    public static PivotDocumentDto BuildPivot(string sourceReference, string regimeCode)
+    public static PivotDocumentDto BuildPivot(string sourceReference, string regimeCode, PivotPartyDto? customer = null)
     {
         var line = new PivotLineDto(
             description: "Adjudication lot 7 — vase décoratif",
@@ -31,8 +31,15 @@ internal static class CheckIntegrationFixtures
             supplier: new PivotPartyDto("Étude Fictïve SVV"),
             totals: new PivotTotalsDto(120.00m, 24.00m, 144.00m, 144.00m),
             operationCategory: OperationCategory.LivraisonBiens,
+            customer: customer,
             lines: new[] { line });
     }
+
+    /// <summary>
+    /// Acheteur présentant un indice « professionnel » (champ société + forme juridique « SARL ») — déclenche
+    /// le garde-fou B2B/B2C (VAL05) SANS dépendre du mapping TVA. Aucun SIREN/pays : seul ce garde-fou bloque.
+    /// </summary>
+    public static PivotPartyDto ProfessionalBuyer() => new("Client SARL", isCompanyHint: true);
 
     /// <summary>
     /// Construit un AVOIR (pivot) référençant une ou plusieurs factures d'origine — montants POSITIFS (la nature

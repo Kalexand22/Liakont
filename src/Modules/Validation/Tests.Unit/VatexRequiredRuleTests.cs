@@ -12,6 +12,13 @@ public sealed class VatexRequiredRuleTests
     private readonly VatexRequiredRule _rule = new();
 
     [Fact]
+    public void Depends_on_tva_mapping_so_it_is_excluded_from_independent_aggregation()
+    {
+        // FIX06 : la règle lit la catégorie/VATEX posés par l'enrichissement → exclue de l'agrégation indépendante.
+        _rule.DependsOnTvaMapping.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Exonerated_line_without_vatex_is_blocking()
     {
         var doc = Document(lines: new[]

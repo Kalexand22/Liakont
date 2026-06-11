@@ -113,6 +113,8 @@ public sealed class DocumentReceivedConsumerTests
         harness.Lifecycle.BlockedId.Should().Be(documentId);
         harness.Lifecycle.BlockReason.Should().Contain("Production");
         harness.Validation.WasCalled.Should().BeFalse("la garde-fou production bloque avant la validation");
+        harness.Validation.MappingIndependentWasCalled.Should().BeFalse(
+            "la garde-fou production reste SÉQUENTIELLE (FIX06, D5) : elle n'agrège aucun autre motif");
         harness.Lifecycle.ReadyToSendId.Should().BeNull();
     }
 
@@ -149,8 +151,66 @@ public sealed class DocumentReceivedConsumerTests
 
         harness.Lifecycle.BlockedId.Should().Be(documentId);
         harness.Lifecycle.BlockReason.Should().Contain("Aucune table de mapping", "l'action corrective est « créez la table », pas « validez »");
-        harness.Validation.WasCalled.Should().BeFalse();
+        harness.Validation.WasCalled.Should().BeFalse("la validation COMPLÈTE (document enrichi) ne s'exécute pas quand le mapping échoue");
+        harness.Validation.MappingIndependentWasCalled.Should().BeTrue(
+            "FIX06 : on agrège les motifs indépendants du mapping même quand la table est absente");
         harness.RunLog.Saved!.DocumentsFailed.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Absent_Table_Aggregates_Mapping_Independent_Reasons_In_Single_Block()
+    {
+        // FIX06 (D5) : table absente + acheteur « pro » → les DEUX motifs dès le premier CHECK.
+        var documentId = Guid.NewGuid();
+        var buyerProIssue = new ValidationResult(new[]
+        {
+            ValidationIssue.Blocking(
+                "BUYER_LOOKS_PROFESSIONAL",
+                "L'acheteur \"Client SARL\" du document n° F-2026-0007 semble être un professionnel."),
+        });
+        var harness = Build(
+            document: CheckTestData.Document(documentId, "Detected"),
+            companyId: Guid.NewGuid(),
+            staging: Staging(CheckTestData.SingleLinePivot()),
+            mapping: CheckTestData.MissingTableResult(),
+            validation: ValidOk,
+            mappingIndependentValidation: buyerProIssue);
+
+        await harness.Consumer.HandleAsync(CheckTestData.Event(documentId));
+
+        harness.Lifecycle.BlockedId.Should().Be(documentId);
+        harness.Lifecycle.BlockReason.Should().Contain("Aucune table de mapping", "le motif de mapping reste présent");
+        harness.Lifecycle.BlockReason.Should().Contain("semble être un professionnel", "le motif indépendant est agrégé (FIX06)");
+        harness.Validation.MappingIndependentWasCalled.Should().BeTrue();
+        harness.Lifecycle.ReadyToSendId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Unmapped_Regime_Aggregates_Mapping_Independent_Reasons_In_Single_Block()
+    {
+        // FIX06 (D5) : régime non couvert + acheteur « pro » → les DEUX motifs dès le premier CHECK.
+        var documentId = Guid.NewGuid();
+        var buyerProIssue = new ValidationResult(new[]
+        {
+            ValidationIssue.Blocking(
+                "BUYER_LOOKS_PROFESSIONAL",
+                "L'acheteur \"Client SARL\" du document n° F-2026-0007 semble être un professionnel."),
+        });
+        var harness = Build(
+            document: CheckTestData.Document(documentId, "Detected"),
+            companyId: Guid.NewGuid(),
+            staging: Staging(CheckTestData.SingleLinePivot(regimeCode: "INCONNU")),
+            mapping: CheckTestData.BlockedLineResult(),
+            validation: ValidOk,
+            mappingIndependentValidation: buyerProIssue);
+
+        await harness.Consumer.HandleAsync(CheckTestData.Event(documentId));
+
+        harness.Lifecycle.BlockedId.Should().Be(documentId);
+        harness.Lifecycle.BlockReason.Should().Contain("absent de la table de mapping", "le motif de mapping reste présent");
+        harness.Lifecycle.BlockReason.Should().Contain("semble être un professionnel", "le motif indépendant est agrégé (FIX06)");
+        harness.Validation.MappingIndependentWasCalled.Should().BeTrue();
+        harness.Lifecycle.ReadyToSendId.Should().BeNull();
     }
 
     [Fact]
@@ -256,11 +316,12 @@ public sealed class DocumentReceivedConsumerTests
         IPayloadStagingStore staging,
         DocumentTvaMappingResult mapping,
         ValidationResult validation,
-        IReadOnlyList<PaAccountDto>? paAccounts = null)
+        IReadOnlyList<PaAccountDto>? paAccounts = null,
+        ValidationResult? mappingIndependentValidation = null)
     {
         var lifecycle = new FakeDocumentLifecycle();
         var runLog = new FakeRunLogStore();
-        var validationService = new FakeValidationService(validation);
+        var validationService = new FakeValidationService(validation, mappingIndependentValidation);
         var snapshots = new FakeVentilationSnapshotStore();
 
         var services = new Dictionary<Type, object>

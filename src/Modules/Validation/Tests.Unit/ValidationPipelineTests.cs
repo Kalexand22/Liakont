@@ -115,6 +115,36 @@ public sealed class ValidationPipelineTests
     }
 
     [Fact]
+    public async Task ValidateMappingIndependent_runs_only_rules_independent_of_tva_mapping()
+    {
+        // FIX06 : le sous-ensemble n'exécute QUE les règles indépendantes du mapping (DependsOnTvaMapping == false).
+        var independent = new StubRule("INDEP", ValidationIssue.Blocking("B_INDEP", "Motif indépendant."));
+        var dependent = new StubRule("DEP", dependsOnTvaMapping: true, ValidationIssue.Blocking("B_DEP", "Motif dépendant du mapping."));
+        var pipeline = new ValidationPipeline(new IDocumentRule[] { independent, dependent });
+
+        var result = await pipeline.ValidateMappingIndependentAsync(Context());
+
+        var codes = result.Issues.Select(issue => issue.Code).ToList();
+        codes.Should().Contain("B_INDEP");
+        codes.Should().NotContain("B_DEP", "une règle dépendante du mapping est exclue de l'agrégation indépendante");
+    }
+
+    [Fact]
+    public async Task ValidateMappingIndependent_keeps_full_validation_unchanged()
+    {
+        // Garde anti-affaiblissement : ValidateAsync reste COMPLET (toutes les règles), y compris les dépendantes.
+        var independent = new StubRule("INDEP", ValidationIssue.Blocking("B_INDEP", "Motif indépendant."));
+        var dependent = new StubRule("DEP", dependsOnTvaMapping: true, ValidationIssue.Blocking("B_DEP", "Motif dépendant du mapping."));
+        var pipeline = new ValidationPipeline(new IDocumentRule[] { independent, dependent });
+
+        var result = await pipeline.ValidateAsync(Context());
+
+        var codes = result.Issues.Select(issue => issue.Code).ToList();
+        codes.Should().Contain("B_INDEP");
+        codes.Should().Contain("B_DEP", "la validation complète exécute TOUTES les règles (rien n'est affaibli)");
+    }
+
+    [Fact]
     public void Empty_rule_set_is_allowed()
     {
         var act = () => new ValidationPipeline(Array.Empty<IDocumentRule>());
@@ -150,12 +180,20 @@ public sealed class ValidationPipelineTests
         private readonly ValidationIssue[] _issues;
 
         public StubRule(string code, params ValidationIssue[] issues)
+            : this(code, dependsOnTvaMapping: false, issues)
+        {
+        }
+
+        public StubRule(string code, bool dependsOnTvaMapping, params ValidationIssue[] issues)
         {
             Code = code;
+            DependsOnTvaMapping = dependsOnTvaMapping;
             _issues = issues;
         }
 
         public string Code { get; }
+
+        public bool DependsOnTvaMapping { get; }
 
         public Task<IReadOnlyList<ValidationIssue>> ValidateAsync(DocumentValidationContext context, CancellationToken cancellationToken = default)
         {

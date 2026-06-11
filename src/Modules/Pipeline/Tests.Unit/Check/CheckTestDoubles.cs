@@ -130,15 +130,33 @@ internal static class CheckTestDoubles
     internal sealed class FakeValidationService : IValidationService
     {
         private readonly ValidationResult _result;
+        private readonly ValidationResult _mappingIndependentResult;
 
-        public FakeValidationService(ValidationResult result) => _result = result;
+        public FakeValidationService(ValidationResult result, ValidationResult? mappingIndependentResult = null)
+        {
+            _result = result;
 
+            // Par défaut, le sous-ensemble indépendant renvoie le même résultat (suffit aux tests qui ne
+            // distinguent pas les deux chemins) ; les tests FIX06 fournissent un résultat dédié.
+            _mappingIndependentResult = mappingIndependentResult ?? result;
+        }
+
+        /// <summary>Vrai si la validation COMPLÈTE (<see cref="ValidateAsync"/>) a été appelée.</summary>
         public bool WasCalled { get; private set; }
+
+        /// <summary>Vrai si la validation des seules règles INDÉPENDANTES du mapping (FIX06) a été appelée.</summary>
+        public bool MappingIndependentWasCalled { get; private set; }
 
         public Task<ValidationResult> ValidateAsync(DocumentValidationContext context, CancellationToken cancellationToken = default)
         {
             WasCalled = true;
             return Task.FromResult(_result);
+        }
+
+        public Task<ValidationResult> ValidateMappingIndependentAsync(DocumentValidationContext context, CancellationToken cancellationToken = default)
+        {
+            MappingIndependentWasCalled = true;
+            return Task.FromResult(_mappingIndependentResult);
         }
     }
 
