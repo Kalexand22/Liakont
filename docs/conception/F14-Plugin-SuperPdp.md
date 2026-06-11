@@ -1,10 +1,24 @@
 # F14 — Plug-in PA Super PDP (`IPaClient`)
 ### Document de conception — `src/PaClients/Liakont.PaClients.SuperPdp`
 
-> Statut : 🟨 **étude de conception (PAS01)** — rédigée AVANT ouverture de la sandbox Super PDP.
-> Tout ce qui n'est pas vérifiable sur source publique ou sandbox est marqué **« à confirmer
-> sandbox/support »** et n'est JAMAIS affirmé (CLAUDE.md n°2 : aucune règle inventée ; PAS01).
-> Dernière mise à jour : 2026-06-05.
+> Statut : 🟩 **plug-in livré (PAS02) + tests de contrat & sandbox livrés (PAS03)** — étude de conception
+> initiale (PAS01) rédigée AVANT ouverture de la sandbox. Tout ce qui n'est pas vérifiable sur source
+> publique ou sandbox reste marqué **« à confirmer sandbox/support »** et n'est JAMAIS affirmé (CLAUDE.md
+> n°2 : aucune règle inventée).
+> Dernière mise à jour : 2026-06-11 (PAS03).
+>
+> **État PAS03 (2026-06-11)** — ce qui est CONFIRMÉ vs ce qui reste OUVERT :
+> - ✅ **Connexion sandbox OAuth confirmée par test réel** (lot `orchestration/items/PAS.yaml`, en-tête) :
+>   `POST https://api.superpdp.tech/oauth2/token` (`grant_type=client_credentials`) → `200`, `token_type
+>   bearer`, `expires_in 1799`. Lève **O1** pour le token-endpoint + la base URL sandbox (les scopes et la
+>   base URL **prod** restent à confirmer). Identifiants en variables d'env (jamais versionnés).
+> - ✅ **Suite de contrat héritée verte** + **suite sandbox réelle livrée** (§8), exclue de la CI.
+> - 🟠 **AUCUNE réponse support obtenue** sur les points fiscaux/fonctionnels **O3, O4, O5, O7, O8, O9**
+>   (flux paiement 10.2/10.4, endpoint de téléchargement, archivage NF Z42-013, modèle d'avoir, montage
+>   marque grise, rectification). Les questions §10 restent **à envoyer/obtenir** (action humaine, comme
+>   l'ouverture de sandbox). **Tant qu'une réponse n'est pas obtenue, la capacité correspondante reste
+>   `false`** (§5) — aucune valeur n'est devinée (CLAUDE.md n°2). La mise à jour de F14 « avec les réponses
+>   support » se fera quand ces réponses arriveront ; elle n'est pas un prérequis de la livraison des tests.
 >
 > **⚠️ Numérotation** : l'item PAS01 du backlog demande le fichier `F13-Plugin-SuperPdp.md`, mais
 > le numéro **F13 est déjà pris** par [F13 — Installateur agent + profils intégrateur](F13-Installateur-Agent-Profils-Integrateur.md)
@@ -258,18 +272,21 @@ Super PDP **apparaît à l'inscription du client**. Implications pour le plug-in
 
 ## 8. Stratégie de test (préparée pour PAS03)
 
-- **Suite de contrat héritée** : dériver `PaClientContractTests`
-  (`tests/Liakont.PaClients.Contract.Tests/`) dans le projet de test du plug-in
-  (`Liakont.PaClients.SuperPdp.Tests.Unit`), en pilotant `SuperPdpClient` par un **handler HTTP
-  mocké** (les PA réelles n'ont pas de mode mémoire). La suite commune vérifie envoi valide, avoir,
-  rejet, erreur silencieuse, timeout, idempotence, conservation `RawResponse`, et — surtout — que
-  **toute capacité absente dégrade en résultat typé, jamais une exception**. Exemple vivant :
-  `FakePaClientContractTests`.
+- **Suite de contrat héritée** ✅ **livrée (PAS03)** : `SuperPdpPaClientContractTests`
+  (`src/PaClients/Liakont.PaClients.SuperPdp.Tests.Unit/`) dérive `PaClientContractTests`
+  (`tests/Liakont.PaClients.Contract.Tests/`) et pilote `SuperPdpClient` par un **handler HTTP mocké**
+  (`RoutedHttpMessageHandler` — les PA réelles n'ont pas de mode mémoire). La suite commune vérifie envoi
+  valide, avoir, rejet, erreur silencieuse, timeout, idempotence, conservation `RawResponse`, et — surtout —
+  que **toute capacité absente dégrade en résultat typé, jamais une exception** (déterminant pour Super PDP
+  qui ne déclare que B2C en V1, §5). Exemple vivant : `FakePaClientContractTests`.
 - **Garde de frontière NetArchTest** (cf. `FakePaClientBoundaryTests`) : le plug-in ne référence que
-  `Transmission.Contracts`.
-- **Suite sandbox réelle** : `[Trait("Category","Sandbox")]`, **exclue de `verify-fast`, `run-tests`,
-  `run-e2e` et de la CI** (testing-strategy §8). Clé locale via variable d'env `SUPERPDP_SANDBOX_KEY`
-  (et `client_id`), **jamais committée**. Documentée dans `testing-strategy.md` (PAS03).
+  `Transmission.Contracts` (déjà couverte par `SuperPdpBoundaryTests`, PAS02).
+- **Suite sandbox réelle** ✅ **livrée (PAS03)** : `SuperPdpSandboxTests`
+  (`[Trait("Category","Sandbox")]`), **exclue de `verify-fast`, `run-tests`, `run-e2e` et de la CI**
+  (testing-strategy §8.2). Authentification **OAuth 2.0 `client_credentials`** (§3.1) : identifiants locaux
+  via les variables d'env **`SUPERPDP_SANDBOX_CLIENT_ID`** / **`SUPERPDP_SANDBOX_CLIENT_SECRET`**, **jamais
+  committées** (CLAUDE.md n°10). Envoie une facture fixture (numéro unique) puis relit son statut. Documentée
+  dans `testing-strategy.md` §8.2 (PAS03).
 
 ---
 
@@ -333,7 +350,7 @@ les réponses du §10. **Sans sandbox ouverte** :
 
 | # | Point ouvert | Levée par |
 |---|---|---|
-| O1 | Base URLs sandbox/prod + token-endpoint OAuth + scopes | sandbox (§10 q.9) |
+| O1 | ✅ token-endpoint OAuth + base URL **sandbox** confirmés par test réel (2026-06-11, PAS03) ; base URL **prod** + scopes restent à confirmer | sandbox (§10 q.9) |
 | O2 | Endpoints exacts (émission, statut, tax reports, settings, compte) | sandbox / OpenAPI (§10 q.10) |
 | O3 | Couverture flux paiement 10.2/10.4 | support (§10 q.1) |
 | O4 | Endpoint de téléchargement de la facture générée (→ `SupportsDocumentRetrieval`) | support (§10 q.3) |
