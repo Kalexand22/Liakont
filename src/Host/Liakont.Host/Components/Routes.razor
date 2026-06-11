@@ -16,4 +16,8 @@
         </AuthorizeRouteView>
         <FocusOnNavigate RouteData="routeData" Selector="h1" />
     </Found>
+    @* Route inconnue : message « page introuvable » explicite (RouteNotFound), jamais une page vide (FIX07c). *@
+    <NotFound>
+        <RouteNotFound />
+    </NotFound>
 </Router>
