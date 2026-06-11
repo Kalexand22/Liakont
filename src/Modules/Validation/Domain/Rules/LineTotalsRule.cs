@@ -41,10 +41,9 @@ public sealed class LineTotalsRule : IDocumentRule
         var issues = new List<ValidationIssue>();
 
         // BR-CO-13 : Total HT (BT-109) = Σ lignes HT (BT-131) − Σ remises document (BG-20)
-        // + Σ charges document (BG-21). Les remises/charges de niveau document sont en HT
-        // (PivotDocumentChargeDto.Amount ; IsCharge = true ajoute, false retranche).
-        var documentChargeNet = document.DocumentCharges.Sum(charge => charge.IsCharge ? charge.Amount : -charge.Amount);
-        var expectedNet = PivotRounding.RoundAmount(document.Lines.Sum(line => line.NetAmount) + documentChargeNet);
+        // + Σ charges document (BG-21). Formule centralisée dans PivotReconciliation (source UNIQUE
+        // partagée avec l'affichage console FIX205, pour qu'elles ne divergent jamais).
+        var expectedNet = PivotReconciliation.ExpectedNet(document);
         var totalNet = PivotRounding.RoundAmount(document.Totals.TotalNet);
         if (expectedNet != totalNet)
         {
