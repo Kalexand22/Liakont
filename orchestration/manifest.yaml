@@ -81,7 +81,17 @@ meta:
   #   nav socle assainie, dispositif d'alerte visible, admin jobs utilisable), FIX212 (évolution :
   #   matrice de routage des alertes). Décisions opérateur E1-E8 inscrites dans items/FIX2.yaml.
   #   Recâblage : GATE_CONSOLE_WEB += {FIX201} (seul P1 ; les P2 restent hors gate).
-  version: 19
+  # version 20 = GATE_CONSOLE_WEB VALIDÉE (run 3 du 2026-06-11 : envoi bout-en-bout exercé, 0 P1,
+  #   PR #38 mergée) + lot FIX3 dans un NOUVEAU segment console-polish (feat/console-polish, base
+  #   main — la branche feat/console-web est consommée par le merge). Passe ergonomie post-gate :
+  #   FIX301 (paramètres fiscaux éditables — e-reporting encaissements activable sans SQL),
+  #   FIX302 (actions en masse : sélection servie, action globale, compteurs), FIX303 (section nav
+  #   AUDIT masquée), FIX304 (seeds committés cohérents), FIX305 (acteur nommé dans l'audit),
+  #   FIX306 (layout du shell). Décisions opérateur F1-F7 inscrites dans items/FIX3.yaml ; la
+  #   « grande passe ergonomie » écran par écran est portée par la GATE humaine CONSOLE_POLISH
+  #   (re-recette), pas par un item de dev — elle re-validera aussi les livrables FIX2 jamais vus
+  #   à l'écran au run 3 (FIX205/206/208/211, témoin de vie, re-stage).
+  version: 20
   host: multi_agent_v1
 
 segments:
@@ -146,6 +156,13 @@ segments:
     lots: [API, WEB, SUP, IDN, FIX, FIX2]
     gate: GATE_CONSOLE_WEB
     depends_on_gate: [GATE_PIPELINE, GATE_AGENT]
+
+  console-polish:
+    branch: feat/console-polish
+    base: main
+    lots: [FIX3]
+    gate: GATE_CONSOLE_POLISH
+    depends_on_gate: GATE_CONSOLE_WEB
 
   deploiement-toolkit:
     branch: feat/deploiement-toolkit
@@ -334,6 +351,17 @@ items:
   - { id: FIX211, lot: FIX2, priority: 6883, depends_on: [] }
   - { id: FIX212, lot: FIX2, priority: 6885, depends_on: [FIX210] }
   - { id: GATE_CONSOLE_WEB, type: gate, executor: human, priority: 6900, depends_on: [IDN01, WEB03b, WEB03c, WEB04a, WEB05, WEB06, WEB07b, WEB08, WEB09, SUP02, SUP03, API03, FIX01a, FIX01b, FIX01c, FIX01d, FIX02, FIX03, FIX201] }
+
+  # ── FIX3 (segment console-polish — passe ergonomie post-gate, recette run 3 du 2026-06-11) ──
+  # Détail et décisions opérateur F1-F7 : orchestration/items/FIX3.yaml. Sources : entrées `open`
+  # du bug-inbox (commits 842cc04..79e18a5). Items indépendants (parallélisables).
+  - { id: FIX301, lot: FIX3, blueprint: blazor-page-item, priority: 6910, depends_on: [] }
+  - { id: FIX302, lot: FIX3, blueprint: blazor-page-item, priority: 6912, depends_on: [] }
+  - { id: FIX303, lot: FIX3, blueprint: blazor-page-item, priority: 6914, depends_on: [] }
+  - { id: FIX304, lot: FIX3, blueprint: tooling-item, priority: 6916, depends_on: [] }
+  - { id: FIX305, lot: FIX3, priority: 6918, depends_on: [] }
+  - { id: FIX306, lot: FIX3, blueprint: blazor-page-item, priority: 6920, depends_on: [] }
+  - { id: GATE_CONSOLE_POLISH, type: gate, executor: human, priority: 6990, depends_on: [FIX301, FIX302, FIX303, FIX304, FIX305, FIX306] }
 
   # ── OPS ──
   # Ordre : OPS05 (packaging agent) précède OPS03 (assistant tenant, qui fournit le package

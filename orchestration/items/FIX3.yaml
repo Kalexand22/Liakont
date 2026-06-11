@@ -1,0 +1,197 @@
+# Lot FIX3 — Passe ergonomie post-gate (segment console-polish), recette run 3 du 2026-06-11
+# Source de chaque item : les entrées `open` du run 3 dans $ORCH_REPO/bug-inbox.jsonl
+# (commits 842cc04..79e18a5) — détail, verbatims opérateur, evidence et suggested_fix y sont consignés.
+# Branche : feat/console-polish (segment console-polish, base main — la console est mergée, PR #38).
+#
+# Contexte : GATE_CONSOLE_WEB validée au run 3 (envoi de bout en bout exercé : 2 Issued + archive
+# WORM + export contrôle fiscal ; 0 P1). Les P2 restants sont des défauts d'ergonomie/cohérence qui
+# ne bloquaient pas la gate. Décision opérateur (Karl, clôture run 3) : « c'est bon globalement, il
+# y a une grosse passe à faire sur l'ergonomie globale… on fera ça plus tard » → ce lot.
+#
+# ── DÉCISIONS OPÉRATEUR — dictées par Karl EN SÉANCE au run 3 (verbatims au bug-inbox) ──
+# F1 (FIX301) les paramètres fiscaux DOIVENT être renseignables dans la console (« ça se renseigne
+#    comment ça ? » → nulle part). Aucune valeur par défaut, aucune liste inventée : les valeurs
+#    fermées viennent du contrat (OperationCategory, FeeImputationMethod), ReportingFrequency reste
+#    une chaîne OPAQUE (F12-A §3.3, INV-TENANTSETTINGS-008) — null = décision expert-comptable en
+#    attente = suspension.
+# F2 (FIX302) actions en masse : « Revérifier la sélection » DANS la barre de sélection quand une
+#    sélection est active (« ça ne devrait être là que lors d'une multi-sélection, pas avant ») ;
+#    « Revérifier tout » = action GLOBALE en haut à droite avec [Tout envoyer] / [Lancer un
+#    traitement], masquée/désactivée sur liste vide ; compteur « (0 au total) » corrigé.
+# F3 (FIX303) section nav AUDIT : pages vides hors super-admin → masquer comme les autres sections
+#    socle (même traitement que FIX209/E5).
+# F4 (FIX304) les deux seeds committés doivent être cohérents entre eux : le défaut (vertical OFF)
+#    amorce une table OPÉRANTE pour les docs de démo ; l'exemple enchères devient une VARIANTE
+#    documentée. Aucune catégorie TVA inventée : recomposition des mappings DÉJÀ tracés (F03/F05).
+# F5 (FIX305) un acteur s'affiche par son NOM, jamais en GUID brut — nom persisté AVEC l'événement
+#    (pattern operator_name du journal TVA), GUID en détail technique. DocumentEvent append-only :
+#    on n'altère JAMAIS les événements existants (règle CLAUDE.md n°4).
+# F6 (FIX306) layout du shell : plus de scroll au-delà du bas de page ni de menu latéral cassé —
+#    défaut estimé GLOBAL (observé sur /parametrage/alertes). Évolution du socle Stratum vendored
+#    AUTORISÉE (décision E4 reconduite), provenance obligatoire (CLAUDE.md n°11).
+# F7 (gate) la « grande passe d'ergonomie » écran par écran n'est PAS inventoriable par les
+#    runners : elle se fait en RECETTE HUMAINE (GATE_CONSOLE_POLISH), qui re-valide AUSSI les
+#    livrables jamais vus à l'écran au run 3 : FIX205 (onglet Contenu), FIX206 (refresh/exports en
+#    détail), FIX208 (exports d'archive), FIX211 (admin jobs), témoin de vie supervision (FIX210),
+#    re-stage des zombies (FIX07b) — plus le reliquat S6/S7/S8, la rotation/révocation de clé agent
+#    et [Vérifier intégrité archive] (voir tasks/recette-gate-console-web.md).
+#
+# Mapping bug-inbox → items :
+#   FIX301 paramètres fiscaux non éditables (P2 fonctionnel) · FIX302 « Revérifier tout » sur liste
+#   vide + reliquat FIX207 (sélection absente, placement, compteur) (2 P2) · FIX303 section AUDIT
+#   visible pages vides (P2) · FIX304 seeds committés incohérents (P2) · FIX305 acteur en GUID brut
+#   (P2) · FIX306 layout global scroll/menu (P2). L'entrée chapeau « grande passe ergonomie » est
+#   portée par la gate (F7), pas par un item de dev.
+
+items:
+  FIX301:
+    title: "Paramètres fiscaux du tenant éditables dans la console (l'e-reporting des encaissements devient activable sans SQL)"
+    description: |
+      Bug-inbox P2 « Parametres fiscaux du tenant ... non editables ». Le dashboard affiche
+      « Fréquence déclarative non renseignée — consultez votre expert-comptable » SANS remède UI :
+      SetFiscalSettingsCommand (TenantSettings.Contracts) existe et valide, mais aucun appelant
+      Host (grep = 0). Tant que vatOnDebits/operationCategory/reportingFrequency sont null,
+      l'agrégation des encaissements est SUSPENDUE (PaymentAggregationCalculator:189) — c'est le
+      comportement voulu (jamais de défaut), mais l'opérateur n'a aucun moyen de renseigner la
+      décision de l'expert-comptable.
+      1. Écran d'édition dans /parametrage (garde liakont.settings), libellés français expliqués :
+         TVA sur les débits (oui/non/non renseigné), catégorie d'opération et méthode d'imputation
+         des frais (listes fermées = les valeurs admises par le contrat, RIEN d'autre), fréquence
+         déclarative (chaîne OPAQUE, jamais interprétée — F12-A §3.3, INV-TENANTSETTINGS-008).
+         Texte d'accompagnement : « décision à valider avec votre expert-comptable ». Aucune valeur
+         par défaut (null = en attente = suspension, comportement conservé).
+      2. La modification est journalisée (qui, quand, avant→après) dans la piste d'audit du
+         paramétrage existante.
+      3. Le message du dashboard et de /parametrage pointe vers cet écran (action corrective au
+         lieu d'un message sans action).
+      4. Aucune logique métier dans la page (handler MediatR) ; tests bUnit exécutés (édition,
+         valeur inconnue rejetée, null accepté).
+    acceptance:
+      - "Écran d'édition (liakont.settings) : les 4 champs du contrat éditables, listes fermées = valeurs du contrat uniquement, fréquence déclarative opaque (aucune liste inventée), aucun défaut appliqué"
+      - "Modification journalisée (acteur, horodatage, avant→après) et visible dans la piste d'audit du paramétrage"
+      - "Dashboard/diagnostics : le message « non renseignée » devient une action corrective vers l'écran"
+      - "Tests bUnit exécutés (édition nominale, rejet valeur inconnue, null = suspension conservée)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX302:
+    title: "Actions en masse sur les documents : « Revérifier la sélection » dans la barre, « Revérifier tout » en action globale, jamais d'action orpheline"
+    description: |
+      Bug-inbox 2 P2 run 3 : « Reverifier tout affiche sur une liste VIDE » et « FIX207 KO :
+      Reverifier la selection ABSENT de la barre de selection ». Le FONCTIONNEL recheck de masse
+      marche (validé run 3) ; c'est le câblage UI qui est en défaut.
+      1. Diagnostiquer pourquoi l'action de sélection FIX207 n'est pas rendue dans la barre de
+         sélection Stratum (déclaration du module non découverte ? garde permission ? condition
+         d'état ?) et la rétablir : « Revérifier la sélection » visible quand une sélection est
+         active ET permission liakont.actions.
+      2. « Revérifier tout » = action GLOBALE : déplacée en haut à droite avec [Tout envoyer] /
+         [Lancer un traitement] ; masquée ou désactivée quand il n'y a aucun document à revérifier
+         (liste vide ou aucun résultat) — plus jamais de bouton flottant orphelin.
+      3. Compteur de la barre de sélection corrigé : « 4 sélectionnés (0 au total) » est incohérent
+         (socle Stratum → provenance obligatoire si modifié).
+      4. Tests bUnit exécutés : barre AVEC l'action quand sélection active + permission ; action
+         globale absente/désactivée sur liste vide ; compteurs cohérents.
+    acceptance:
+      - "« Revérifier la sélection » rendue dans la barre de sélection (sélection active + liakont.actions) et fonctionnelle"
+      - "« Revérifier tout » placée avec les actions globales (haut à droite), masquée/désactivée sur liste vide"
+      - "Compteur de la barre cohérent (sélectionnés / total)"
+      - "Toute modification du socle Stratum consignée dans la provenance"
+      - "Tests bUnit exécutés sur les trois comportements"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX303:
+    title: "Nav : section AUDIT (Journal d'audit, Politiques) masquée hors super-admin — fin des pages socle vides"
+    description: |
+      Bug-inbox P2 run 3 « Section nav AUDIT ... restee visible apres FIX209 - pages VIDES en
+      compte parametrage ». FIX209 a assaini Annuaire/Sécurité/Notifications/Règles de routage mais
+      la section AUDIT du socle est restée : en compte opérateur elle rend des pages vides
+      (permissions socle non projetées — même cause que l'entrée FIX209/E5).
+      1. Masquer la section AUDIT pour les comptes qui n'y ont aucun contenu (même mécanisme de
+         filtre de nav que FIX209 — pas de nouveau mécanisme).
+      2. La page « Politiques » vide est couverte par le même masquage (verbatim run 3 : « c'est
+         vide donc autant masquer »).
+      3. Test bUnit du filtre de nav : section absente en compte opérateur, présente en super-admin
+         (où les pages ont du contenu).
+    acceptance:
+      - "Compte opérateur (lecture/operateur/parametrage) : section AUDIT absente de la nav"
+      - "Compte super-admin : section visible et pages fonctionnelles"
+      - "Réutilisation du filtre de nav existant (FIX209), pas de mécanisme parallèle"
+      - "Tests bUnit exécutés"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX304:
+    title: "Seeds committés cohérents : l'exemple générique amorce une table TVA opérante, l'exemple enchères devient une variante"
+    description: |
+      Bug-inbox P2 run 3 « Les deux seeds committes sont incoherents entre eux » :
+      config/exemples/tenant-seed/mapping-tva.json est un exemple ENCHÈRES (régimes NORMAL/MARGE,
+      composantes Adjudication/Frais) alors que tools/dev-seed-demo-docs.ps1 émet des documents aux
+      régimes 20/10/5.5/0 → dès l'amorçage d'un environnement neuf : 3 règles mortes signalées par
+      le contrôle de cohérence (FIX03) et 0 règle applicable aux documents de démo (l'opérateur
+      recrée la table à la main — constaté aux runs 2 ET 3).
+      1. Le seed par défaut (vertical enchères OFF) amorce une table couvrant les régimes des
+         documents de démo. AUCUNE catégorie TVA inventée : recomposer à partir des mappings déjà
+         tracés dans les fichiers existants (sources F03/F05 déjà citées dans ces fichiers) — si un
+         mapping nécessaire n'y figure pas, BLOQUER l'item (CLAUDE.md n°2), ne pas deviner.
+      2. L'exemple enchères part dans une variante claire (ex. config/exemples/tenant-seed/
+         encheres/) documentée « nécessite le vertical enchères ».
+      3. Test d'intégration EXÉCUTÉ : boot vierge + dev-seed-demo-docs → contrôle de cohérence sans
+         règle morte, CHECK des 15 documents sans « aucune règle applicable ».
+    acceptance:
+      - "Boot vierge + seed démo : 0 règle morte au contrôle de cohérence, les documents de démo trouvent leurs règles"
+      - "Aucun mapping TVA inventé : chaque règle du seed se trace vers les fichiers/sources existants (F03/F05)"
+      - "Variante enchères séparée et documentée (vertical ON requis)"
+      - "Test d'intégration exécuté sur le scénario d'amorçage réel"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX305:
+    title: "Piste d'audit lisible : l'acteur restitué par son nom (persisté avec l'événement), le GUID en détail technique"
+    description: |
+      Bug-inbox P2 run 3 « l operateur est affiche en GUID brut (par 30da7398-...) ». La trace de
+      re-vérification (FIX02) affiche l'identifiant technique de l'opérateur ; un vérificateur doit
+      lire QUI a agi. Le pattern existe déjà : mapping_change_log porte operator_name.
+      1. Persister le nom d'affichage de l'acteur AVEC l'événement au moment où il se produit
+         (comme operator_name du journal TVA) — jamais de résolution différée (l'audit ne doit pas
+         changer si le compte est renommé/supprimé).
+      2. DocumentEvent et MappingChangeLog restent APPEND-ONLY (CLAUDE.md n°4) : AUCUNE migration
+         de données, AUCUN update des événements existants — les événements antérieurs sans nom
+         affichent le GUID avec une mention neutre (« compte 30da7398… »).
+      3. Balayer TOUTES les restitutions d'acteur : historique document (verdict, recheck,
+         résolution manuelle, envoi manuel), acquittement d'alertes, exécutions de traitements —
+         nom affiché, GUID en détail/infobulle.
+      4. Tests exécutés : nouvel événement → nom persisté et affiché ; événement ancien (sans nom)
+         → repli GUID sans erreur.
+    acceptance:
+      - "Tout nouvel événement d'audit porte le nom d'affichage de l'acteur, persisté au moment de l'événement"
+      - "Aucun chemin d'update/delete ajouté sur DocumentEvent/MappingChangeLog (append-only vérifié)"
+      - "Écrans balayés : historique document, alertes, traitements — nom affiché, GUID en détail"
+      - "Repli propre pour les événements antérieurs (GUID + mention, pas d'erreur)"
+      - "Tests exécutés (nouveau + repli)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX306:
+    title: "Layout du shell : scroll borné au contenu, sidebar stable — plus de page fantôme ni de menu cassé"
+    description: |
+      Bug-inbox P2 run 3 « Layout global : scroll possible au-dela du bas de page et menu lateral
+      casse quand on scrolle trop bas ». Observé sur /parametrage/alertes ; décision opérateur : le
+      défaut est estimé GLOBAL au shell (« je pense que c'est global »), pas propre à la page.
+      1. Reproduire sur plusieurs pages longues (alertes, fiche document, listes) pour confirmer la
+         cause au niveau du shell (conteneur principal non contraint, sidebar qui ne suit pas).
+      2. Corriger le layout du shell : hauteur bornée au contenu/viewport (plus de zone blanche
+         scrollable après le bas réel), sidebar pleine hauteur/sticky qui ne se désynchronise
+         jamais du contenu.
+      3. Socle Stratum vendored : provenance obligatoire (CLAUDE.md n°11) — décision E4 reconduite
+         (polir le socle est assumé).
+      4. Vérification : Playwright si une assertion de layout est outillable (hauteur du scroll
+         container vs contenu), sinon vérification manuelle documentée page par page dans le
+         message de session.
+    acceptance:
+      - "Plus de scroll au-delà du bas réel du contenu sur les pages longues testées (alertes, fiche document, listes)"
+      - "Sidebar stable à toute position de scroll (jamais tronquée/désynchronisée)"
+      - "Modification du socle consignée dans la provenance"
+      - "Vérification outillée (Playwright) ou vérification manuelle documentée"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
