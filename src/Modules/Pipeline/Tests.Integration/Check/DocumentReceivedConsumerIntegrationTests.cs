@@ -68,6 +68,34 @@ public sealed class DocumentReceivedConsumerIntegrationTests : IClassFixture<Pip
         run.DocumentsSucceeded.Should().Be(0);
     }
 
+    [Fact]
+    public async Task Unmapped_Regime_And_Professional_Buyer_Surfaces_Both_Motifs_In_Single_Block()
+    {
+        // FIX06 (D5) : un document cumulant deux causes INDÉPENDANTES — régime non couvert (mapping) ET acheteur
+        // « pro » (garde-fou B2B/B2C, indépendant du mapping) — montre les DEUX motifs dès le PREMIER CHECK, au
+        // lieu de les découvrir l'un après l'autre. Vérifie l'agrégation contre les VRAIES règles de validation.
+        var documentId = Guid.NewGuid();
+        var sourceReference = "no_ba=" + documentId.ToString("N");
+        var pivot = CheckIntegrationFixtures.BuildPivot(
+            sourceReference, regimeCode: "INCONNU", customer: CheckIntegrationFixtures.ProfessionalBuyer());
+
+        await SeedAndStageAsync(documentId, sourceReference, pivot);
+
+        await ConsumeAsync(documentId, sourceReference, CheckIntegrationFixtures.PayloadHashOf(pivot));
+
+        (await _harness.GetDocumentStateAsync(documentId)).Should().Be("Blocked");
+
+        var events = await _harness.GetEventsAsync(documentId);
+        var motif = events
+            .Where(e => e.Detail != null)
+            .Select(e => e.Detail!)
+            .FirstOrDefault(detail => detail.Contains("table de mapping", StringComparison.Ordinal));
+        motif.Should().NotBeNull("le motif de blocage de mapping doit être consigné dans la piste d'audit (INV-PIPELINE-011)");
+        motif.Should().Contain(
+            "professionnel",
+            "le motif INDÉPENDANT du mapping (garde-fou B2B/B2C) est agrégé au même blocage dès le premier CHECK (FIX06)");
+    }
+
     private async Task SeedAndStageAsync(Guid documentId, string sourceReference, PivotDocumentDto pivot)
     {
         var json = CanonicalJson.Serialize(pivot);

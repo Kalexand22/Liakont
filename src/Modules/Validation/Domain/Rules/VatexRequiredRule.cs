@@ -28,6 +28,10 @@ public sealed class VatexRequiredRule : IDocumentRule
     public string Code => "VATEX_REQUIRED";
 
     /// <inheritdoc />
+    /// <remarks>Dépend du mapping : lit la catégorie UNCL5305 et le code VATEX posés par l'enrichissement (E + VATEX).</remarks>
+    public bool DependsOnTvaMapping => true;
+
+    /// <inheritdoc />
     public Task<IReadOnlyList<ValidationIssue>> ValidateAsync(DocumentValidationContext context, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(context);
