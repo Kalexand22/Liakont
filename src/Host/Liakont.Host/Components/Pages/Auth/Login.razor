@@ -6,13 +6,16 @@
 @using Microsoft.Extensions.Localization
 @using Microsoft.Extensions.Options
 @using Liakont.Host
+@using Liakont.Host.Configuration
 @using Liakont.Host.Security
 @inject NavigationManager Nav
 @inject ILogger<Login> Logger
 @inject IStringLocalizer<HostResources> L
 @inject IOptions<KeycloakSettings> KcOptions
+@inject IOptions<BrandingOptions> Branding
 
-<PageTitle>@L["Login_Submit"] - @L["Login_Title"]</PageTitle>
+@* Premier écran : marque d'instance (BRD01, marque grise), jamais la marque socle « Stratum ERP ». *@
+<PageTitle>@L["Login_Submit"] - @Branding.Value.CommercialName</PageTitle>
 
 @if (_useLocalForm)
 {
@@ -27,7 +30,7 @@
                     <rect x="3" y="14" width="7" height="7"/>
                 </svg>
             </div>
-            <h1 class="login-title">@L["Login_Title"]</h1>
+            <h1 class="login-title">@Branding.Value.CommercialName</h1>
         </div>
         <form method="post" action="/auth/test-login">
             <div class="form-group">
@@ -58,7 +61,7 @@ else
                     <rect x="3" y="14" width="7" height="7"/>
                 </svg>
             </div>
-            <h1 class="login-title">@L["Login_Title"]</h1>
+            <h1 class="login-title">@Branding.Value.CommercialName</h1>
             <p>@L["Login_RedirectingToProvider"]</p>
         </div>
     </div>
