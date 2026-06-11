@@ -57,6 +57,50 @@ public sealed class StagingModuleRegistrationTests
         probe.Should().NotBeNull("IArchivedDocumentProbe doit être résolu après l'enregistrement de la sonde au Host");
     }
 
+    [Fact]
+    public void Default_Staging_Root_Is_Stable_Outside_The_Build_Tree()
+    {
+        // FIX07b : sans racine d'instance configurée, le défaut du Host doit être STABLE (App_Data, hors arbre de
+        // build) et l'emporter sur le repli AppContext.BaseDirectory (bin/) du module — sinon le contenu stagé est
+        // effacé au redéploiement (documents zombies). Ordre de production : module PUIS défaut stable du Host.
+        var services = new ServiceCollection();
+        var contentRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "liakont-content-" + System.Guid.NewGuid().ToString("N"));
+
+        services.AddStagingModule(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>()).Build());
+        services.AddStableStagingRoot(contentRoot);
+
+        using ServiceProvider provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<FileSystemPayloadStagingStoreOptions>>().Value;
+
+        options.RootPath.Should().Be(
+            System.IO.Path.Combine(contentRoot, "App_Data", "staging-store"),
+            "le défaut stable du Host (hors bin/) doit l'emporter sur le repli BaseDirectory du module");
+        options.RootPath.Should().NotStartWith(
+            System.AppContext.BaseDirectory,
+            "le staging ne doit JAMAIS retomber sous l'arbre de build (bin/) — repli BaseDirectory du module = cause du bug zombie FIX07b");
+    }
+
+    [Fact]
+    public void Explicit_Staging_Root_Config_Wins_Over_Host_Default()
+    {
+        // Une racine explicitement configurée (paramétrage d'instance) l'emporte sur le défaut stable du Host.
+        var services = new ServiceCollection();
+        var configured = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "liakont-volume-dedie");
+
+        services.AddStagingModule(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Staging:Storage:FileSystem:RootPath"] = configured,
+            })
+            .Build());
+        services.AddStableStagingRoot(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ignored-content-root"));
+
+        using ServiceProvider provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<FileSystemPayloadStagingStoreOptions>>().Value;
+
+        options.RootPath.Should().Be(configured, "la racine configurée par l'instance prime sur le défaut du Host");
+    }
+
     private sealed class StubTenantContext : ITenantContext
     {
         public StubTenantContext(string tenantId)
