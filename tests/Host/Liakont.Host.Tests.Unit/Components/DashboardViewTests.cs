@@ -129,6 +129,15 @@ public sealed class DashboardViewTests : BunitContext
     }
 
     [Fact]
+    public void Should_Show_Fiscal_Link_In_Missing_Frequency_Banner()
+    {
+        var cut = Render<DashboardView>(p => p.Add(v => v.Model, BuildModel(reportingFrequency: null)));
+
+        var link = cut.Find("[data-testid='dashboard-frequency-missing-link']");
+        link.GetAttribute("href").Should().Be("/parametrage/fiscal");
+    }
+
+    [Fact]
     public void Should_Show_Declared_Frequency_Without_Computing_A_Deadline()
     {
         var cut = Render<DashboardView>(p => p.Add(v => v.Model, BuildModel(reportingFrequency: "Mensuelle")));

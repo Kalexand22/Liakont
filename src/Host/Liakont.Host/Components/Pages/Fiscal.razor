@@ -1,0 +1,136 @@
+@page "/parametrage/fiscal"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using Liakont.Host.Fiscal
+@using Liakont.Host.Components
+@using Liakont.Host.Security
+@using Stratum.Common.Abstractions.Security
+@inject IFiscalConsoleService Service
+@inject IPermissionService Permissions
+@inject ILogger<Fiscal> Logger
+
+<PageTitle>Paramètres fiscaux — Liakont</PageTitle>
+
+<h1 class="visually-hidden">Paramètres fiscaux du tenant</h1>
+
+@if (!_canManage)
+{
+    @* Paramétrage du tenant : réservé à liakont.settings. Sans la permission, aucune donnée n'est chargée et
+       seul le message d'accès refusé est rendu (la garde serveur reste l'unique contrôle du chemin console). *@
+    <div role="alert" data-testid="fiscal-denied">
+        Accès refusé : le paramétrage fiscal du tenant requiert l'autorisation de paramétrage (liakont.settings).
+        Rapprochez-vous de l'administrateur de votre organisation.
+    </div>
+}
+else if (_loadFailed)
+{
+    <div role="alert" data-testid="fiscal-error">
+        Impossible de charger le paramétrage fiscal du tenant pour le moment. Réessayez plus tard.
+    </div>
+}
+else if (_model is null)
+{
+    <p data-testid="fiscal-loading">Chargement…</p>
+}
+else
+{
+    <FiscalView Model="_model"
+                Busy="_busy"
+                Message="@_message"
+                IsError="_isError"
+                OnSave="SaveAsync" />
+}
+
+@code {
+    private FiscalViewModel? _model;
+    private bool _loadFailed;
+
+    /// <summary>Permission de paramétrage du tenant : conditionne TOUTE la page (accès + actions).</summary>
+    private bool _canManage;
+
+    private bool _busy;
+    private string? _message;
+    private bool _isError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Contrôle côté serveur (circuit Blazor Server), non falsifiable côté client.
+        _canManage = Permissions.HasPermission(LiakontPermissions.Settings);
+        if (_canManage)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _model = await Service.GetAsync();
+            _loadFailed = false;
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the Liakont tenant fiscal settings page.");
+        }
+    }
+
+    private async Task ReloadAfterSaveAsync()
+    {
+        try
+        {
+            _model = await Service.GetAsync();
+        }
+        catch (Exception ex)
+        {
+            // Un échec de RECHARGEMENT après un enregistrement réussi ne doit pas masquer la réussite
+            // (l'opérateur croirait l'envoi échoué — leçon WEB09). On garde le _model précédent.
+            Logger.LogError(ex, "Failed to reload the Liakont tenant fiscal settings after a successful save.");
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_model is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _isError = false;
+
+        try
+        {
+            await Service.SaveAsync(new FiscalSettingsInput
+            {
+                VatOnDebits = _model.Form.VatOnDebits,
+                OperationCategory = _model.Form.OperationCategory,
+                FeeImputationMethod = _model.Form.FeeImputationMethod,
+                ReportingFrequency = _model.Form.ReportingFrequency,
+            });
+            await ReloadAfterSaveAsync();
+            _message = "Paramètres fiscaux enregistrés.";
+            _isError = false;
+        }
+        catch (ArgumentException)
+        {
+            // Valeur hors liste fermée rejetée par le handler (défense en profondeur) : message opérateur,
+            // jamais de valeur devinée à la place de l'expert-comptable.
+            _message = "Valeur de paramètre fiscal non reconnue. Choisissez une valeur proposée ou laissez « non renseigné ».";
+            _isError = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save the Liakont tenant fiscal settings.");
+            _message = "L'enregistrement des paramètres fiscaux a échoué. Réessayez plus tard.";
+            _isError = true;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}
