@@ -304,6 +304,115 @@ public sealed class ParametrageViewTests : BunitContext
         clicked.Should().BeTrue();
     }
 
+    [Fact]
+    public void Should_Hide_Audit_Export_Without_Read_Permission()
+    {
+        // Sans liakont.read, aucune section d'export d'audit (défaut : CanExportAudit = false).
+        var cut = Render<ParametrageView>(p => p.Add(v => v.Model, BuildModel()));
+
+        cut.FindAll("[data-testid='parametrage-audit-export']").Should().BeEmpty();
+        cut.FindAll("[data-testid='parametrage-exports']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Should_Require_At_Least_One_Bound_For_Audit_Export()
+    {
+        var cut = Render<ParametrageView>(p => p
+            .Add(v => v.Model, BuildModel())
+            .Add(v => v.CanExportAudit, true));
+
+        // Sans borne saisie : pas de lien de téléchargement, message de validation explicite.
+        cut.FindAll("[data-testid='parametrage-audit-export-link']").Should().BeEmpty();
+        cut.Find("[data-testid='parametrage-audit-export-invalid']").TextContent.Should().Contain("au moins une borne");
+    }
+
+    [Fact]
+    public void Should_Offer_Audit_Export_Link_With_Single_Bound()
+    {
+        var cut = Render<ParametrageView>(p => p
+            .Add(v => v.Model, BuildModel())
+            .Add(v => v.CanExportAudit, true));
+
+        // Une seule borne « Du » suffit : le lien apparaît, pointe sur l'endpoint API03, en téléchargement.
+        cut.Find("[data-testid='parametrage-audit-from']").Change("2026-05-01");
+
+        var link = cut.Find("[data-testid='parametrage-audit-export-link']");
+        link.GetAttribute("href").Should().Be("/api/v1/audit-export?from=2026-05-01");
+        link.HasAttribute("download").Should().BeTrue();
+    }
+
+    [Fact]
+    public void Should_Build_Audit_Url_With_Both_Bounds()
+    {
+        var cut = Render<ParametrageView>(p => p
+            .Add(v => v.Model, BuildModel())
+            .Add(v => v.CanExportAudit, true));
+
+        cut.Find("[data-testid='parametrage-audit-from']").Change("2026-05-01");
+        cut.Find("[data-testid='parametrage-audit-to']").Change("2026-05-31");
+
+        cut.Find("[data-testid='parametrage-audit-export-link']").GetAttribute("href")
+            .Should().Be("/api/v1/audit-export?from=2026-05-01&to=2026-05-31");
+    }
+
+    [Fact]
+    public void Should_Reject_Inverted_Audit_Bounds()
+    {
+        var cut = Render<ParametrageView>(p => p
+            .Add(v => v.Model, BuildModel())
+            .Add(v => v.CanExportAudit, true));
+
+        cut.Find("[data-testid='parametrage-audit-from']").Change("2026-05-31");
+        cut.Find("[data-testid='parametrage-audit-to']").Change("2026-05-01");
+
+        cut.FindAll("[data-testid='parametrage-audit-export-link']").Should().BeEmpty();
+        cut.Find("[data-testid='parametrage-audit-export-invalid']").TextContent.Should().Contain("précède");
+    }
+
+    [Fact]
+    public void Should_Hide_Tenant_Export_Without_Settings_Permission()
+    {
+        // Avec liakont.read seul, l'export d'audit est offert mais PAS la réversibilité (liakont.settings).
+        var cut = Render<ParametrageView>(p => p
+            .Add(v => v.Model, BuildModel())
+            .Add(v => v.CanExportAudit, true));
+
+        cut.FindAll("[data-testid='parametrage-tenant-export']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Should_Confirm_Before_Offering_Tenant_Reversibility_Download()
+    {
+        var cut = Render<ParametrageView>(p => p
+            .Add(v => v.Model, BuildModel())
+            .Add(v => v.CanExportTenant, true));
+
+        // Bouton présent, dialog de confirmation absente initialement.
+        cut.FindAll("[data-testid='parametrage-tenant-export-btn']").Should().ContainSingle();
+        cut.FindAll("[data-testid='parametrage-tenant-export-confirm-dialog']").Should().BeEmpty();
+
+        cut.Find("[data-testid='parametrage-tenant-export-btn']").Click();
+
+        // Après confirmation explicite : lien de téléchargement vers l'endpoint de réversibilité (API03).
+        var confirm = cut.Find("[data-testid='parametrage-tenant-export-confirm']");
+        confirm.GetAttribute("href").Should().Be("/api/v1/tenant-export");
+        confirm.HasAttribute("download").Should().BeTrue();
+    }
+
+    [Fact]
+    public void Should_Cancel_Tenant_Reversibility_Confirmation()
+    {
+        var cut = Render<ParametrageView>(p => p
+            .Add(v => v.Model, BuildModel())
+            .Add(v => v.CanExportTenant, true));
+
+        cut.Find("[data-testid='parametrage-tenant-export-btn']").Click();
+        cut.Find("[data-testid='parametrage-tenant-export-cancel']").Click();
+
+        cut.FindAll("[data-testid='parametrage-tenant-export-confirm-dialog']").Should().BeEmpty();
+        cut.FindAll("[data-testid='parametrage-tenant-export-btn']").Should().ContainSingle();
+    }
+
     private static ParametrageViewModel BuildModel(
         TenantProfileDto? profile = null,
         FiscalSettingsDto? fiscal = null,

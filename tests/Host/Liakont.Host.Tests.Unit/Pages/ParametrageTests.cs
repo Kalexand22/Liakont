@@ -1,14 +1,17 @@
 namespace Liakont.Host.Tests.Unit.Pages;
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Bunit;
 using FluentAssertions;
 using Liakont.Host.Components.Pages;
 using Liakont.Host.Parametrage;
+using Liakont.Host.Security;
 using Liakont.Modules.Archive.Contracts;
 using Microsoft.Extensions.DependencyInjection;
+using Stratum.Common.Abstractions.Security;
 using Xunit;
 
 public sealed class ParametrageTests : BunitContext
@@ -18,6 +21,9 @@ public sealed class ParametrageTests : BunitContext
         // RadzenButton (StratumButton) dans la vue imbriquée appelle du JS : mode permissif.
         JSInterop.Mode = JSRuntimeMode.Loose;
         Services.AddLogging();
+
+        // Permission par défaut : aucune (les tests qui exercent les exports en réenregistrent une).
+        Services.AddScoped<IPermissionService>(_ => new StubPermissionService());
     }
 
     [Fact]
@@ -76,6 +82,32 @@ public sealed class ParametrageTests : BunitContext
         cut.FindAll("[data-testid='parametrage-integrite-report']").Should().BeEmpty();
     }
 
+    [Fact]
+    public void Should_Offer_Both_Archive_Exports_To_A_Settings_Operator()
+    {
+        Services.AddScoped<IPermissionService>(_ =>
+            new StubPermissionService(LiakontPermissions.Read, LiakontPermissions.Settings));
+        Services.AddScoped<IParametrageQueries>(_ => FakeParametrageQueries.Succeeding(BuildModel()));
+
+        var cut = Render<Parametrage>();
+
+        cut.FindAll("[data-testid='parametrage-audit-export']").Should().ContainSingle();
+        cut.FindAll("[data-testid='parametrage-tenant-export']").Should().ContainSingle();
+        cut.FindAll("[data-testid='parametrage-tenant-export-btn']").Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Should_Offer_Audit_Export_But_Hide_Reversibility_To_A_Reader()
+    {
+        Services.AddScoped<IPermissionService>(_ => new StubPermissionService(LiakontPermissions.Read));
+        Services.AddScoped<IParametrageQueries>(_ => FakeParametrageQueries.Succeeding(BuildModel()));
+
+        var cut = Render<Parametrage>();
+
+        cut.FindAll("[data-testid='parametrage-audit-export']").Should().ContainSingle();
+        cut.FindAll("[data-testid='parametrage-tenant-export']").Should().BeEmpty();
+    }
+
     private static ParametrageViewModel BuildModel() => new()
     {
         Profile = null,
@@ -84,6 +116,22 @@ public sealed class ParametrageTests : BunitContext
         PaAccounts = [],
         Agents = [],
     };
+
+    private sealed class StubPermissionService : IPermissionService
+    {
+        private readonly HashSet<string> _granted;
+
+        public StubPermissionService(params string[] granted) =>
+            _granted = new HashSet<string>(granted, StringComparer.Ordinal);
+
+        public event Action? OnPermissionsChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public bool HasPermission(string permission) => _granted.Contains(permission);
+    }
 
     private sealed class FakeParametrageQueries : IParametrageQueries
     {
