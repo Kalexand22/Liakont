@@ -237,9 +237,11 @@ function Assert-Package {
     $binDir = Join-Path $StageDir 'bin'
     $errors = @()
 
-    # 1. Exécutables présents et du BON bitness. Contrôle par ProcessorArchitecture (managé) : il
-    #    distingue x86 (32BITREQUIRED, requis pour un driver ODBC 32 bits) d'AnyCPU/MSIL — le champ
-    #    Machine du PE rapporte I386 pour les deux et laisserait passer un EXE AnyCPU.
+    # 1. Exécutables présents et du BON bitness. Get-AgentBinaryArchitecture lit le PE (champ Machine
+    #    + drapeau COMIMAGE_FLAGS_32BITREQUIRED de l'en-tête CLR) : il distingue x86 (32 bits forcé,
+    #    requis pour un driver ODBC 32 bits) d'AnyCPU — le seul champ Machine rapporte I386 pour les
+    #    deux et laisserait passer un EXE AnyCPU. (ProcessorArchitecture écarté : obsolète/None sous
+    #    .NET Core+, donc inopérant sous pwsh.)
     $exes = @('Liakont.Agent.exe', 'Liakont.Agent.Cli.exe', 'Liakont.Agent.Updater.exe')
     foreach ($exe in $exes) {
         $path = Join-Path $binDir $exe

@@ -49,10 +49,13 @@ l'auto-update (ADR-0013), il renforce la chaîne au niveau OS.
 Chaque ZIP est mono-plateforme : l'EXE est **réellement** du bon bitness, et seul le sous-dossier
 natif `SQLite.Interop.dll` correspondant est conservé (l'autre est élagué). `package-agent.ps1`
 **vérifie** ces invariants avant de produire le ZIP : un package au mauvais bitness échoue le build,
-il n'est jamais livré silencieusement. Le contrôle de l'EXE utilise l'**architecture managée**
-(`ProcessorArchitecture` : X86 / Amd64 / **MSIL**) — et non le seul champ Machine du PE, qui rapporte
-I386 aussi bien pour x86 (32BITREQUIRED) que pour AnyCPU et laisserait passer un EXE AnyCPU au lieu
-d'un x86 forcé. Le natif `SQLite.Interop.dll` (non managé) est vérifié par son type machine PE.
+il n'est jamais livré silencieusement. Le contrôle de l'EXE lit directement le PE — **champ Machine +
+drapeau `COMIMAGE_FLAGS_32BITREQUIRED`** de l'en-tête CLR — pour distinguer x86 (32 bits forcé)
+d'AnyCPU : le seul champ Machine rapporte I386 pour les deux et laisserait passer un EXE AnyCPU au
+lieu d'un x86 forcé. Cette lecture d'octets est identique en .NET Framework et en .NET (pwsh, runtime
+de la CI), contrairement à `AssemblyName.ProcessorArchitecture`, **obsolète sous .NET Core+**
+(SYSLIB0037, rend `None`). Le natif `SQLite.Interop.dll` (non managé) est vérifié par son type
+machine PE.
 
 ### 3. Transport de la clé API de pré-configuration = chiffrement par mot de passe à usage unique
 
