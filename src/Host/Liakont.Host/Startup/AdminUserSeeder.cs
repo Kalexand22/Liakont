@@ -122,11 +122,12 @@ internal static partial class AdminUserSeeder
         ILogger logger,
         CancellationToken ct)
     {
+        Guid userId;
         try
         {
             LogSeedingAdmin(logger, options.Username);
 
-            var userId = await sender.Send(
+            userId = await sender.Send(
                 new CreateUserCommand
                 {
                     Username = options.Username,
@@ -135,17 +136,19 @@ internal static partial class AdminUserSeeder
                     ExternalId = options.ExternalId,
                 },
                 ct);
-
-            await EnsureAdminRoleAsync(sender, userId, logger, ct);
-
-            LogAdminSeeded(logger, options.Username);
         }
         catch (Exception ex)
         {
             // Cas 23505 (ou tout autre échec de création) : un utilisateur porte déjà cet ExternalId.
             // L'accès super-admin sous OIDC vient du rôle realm stratum-admin — le Host doit démarrer.
             LogAdminSeedExternalIdConflict(logger, options.Username, options.ExternalId, ex);
+            return;
         }
+
+        // Hors du try-catch de création : une erreur d'assignation remonte au rempart externe (Error).
+        await AssignAdminRoleAsync(sender, userId, ct);
+
+        LogAdminSeeded(logger, options.Username);
     }
 
     /// <summary>
@@ -175,26 +178,24 @@ internal static partial class AdminUserSeeder
                 ct);
         }
 
-        await EnsureAdminRoleAsync(sender, existing.Id, logger, ct);
+        if (existing.Roles.Any(r => string.Equals(r, "Admin", StringComparison.OrdinalIgnoreCase)))
+        {
+            LogAdminRoleAlreadyPresent(logger, existing.Id);
+        }
+        else
+        {
+            await AssignAdminRoleAsync(sender, existing.Id, ct);
+        }
 
         LogAdminAlreadyExists(logger, options.Username);
     }
 
     /// <summary>
-    /// Garantit le rôle Admin de l'utilisateur de façon IDEMPOTENTE : l'assignation de rôle lève
-    /// INV-IDENTITY-003 si le rôle est déjà présent — ce cas est avalé (rien à faire).
+    /// Envoie <see cref="AssignUserRoleCommand"/> sans try/catch : toute erreur remonte au rempart
+    /// externe de <see cref="SeedAsync"/> (journalisée au niveau Error).
     /// </summary>
-    private static async Task EnsureAdminRoleAsync(ISender sender, Guid userId, ILogger logger, CancellationToken ct)
-    {
-        try
-        {
-            await sender.Send(new AssignUserRoleCommand { UserId = userId, RoleName = "Admin" }, ct);
-        }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("INV-IDENTITY-003", StringComparison.Ordinal))
-        {
-            LogAdminRoleAlreadyPresent(logger, userId);
-        }
-    }
+    private static Task AssignAdminRoleAsync(ISender sender, Guid userId, CancellationToken ct) =>
+        sender.Send(new AssignUserRoleCommand { UserId = userId, RoleName = "Admin" }, ct);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "AdminSeed:ExternalId is not configured — skipping admin seed. Set AdminSeed:ExternalId to the Keycloak subject ID.")]
     private static partial void LogAdminSeedSkipped(ILogger logger);
@@ -222,8 +223,8 @@ internal static partial class AdminUserSeeder
     private static partial void LogAdminRoleAlreadyPresent(ILogger logger, Guid userId);
 
     [LoggerMessage(
-        Level = LogLevel.Warning,
-        Message = "AdminSeed : l'amorçage de l'administrateur a échoué — le Host démarre malgré tout "
+        Level = LogLevel.Error,
+        Message = "AdminSeed : l'amorçage de l'administrateur a échoué de façon inattendue — le Host démarre malgré tout "
             + "(l'accès super-admin sous OIDC vient du rôle realm 'stratum-admin').")]
     private static partial void LogAdminSeedFailed(ILogger logger, Exception exception);
 }

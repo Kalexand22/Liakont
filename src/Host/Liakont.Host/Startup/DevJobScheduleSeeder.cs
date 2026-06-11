@@ -3,6 +3,7 @@ namespace Liakont.Host.Startup;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Stratum.Modules.Job.Application;
 using Stratum.Modules.Job.Contracts.Commands;
 
 /// <summary>
@@ -40,22 +41,31 @@ internal static partial class DevJobScheduleSeeder
             return;
         }
 
-        await using var scope = app.Services.CreateAsyncScope();
-        var sender = scope.ServiceProvider.GetRequiredService<ISender>();
-
-        foreach (var job in SystemJobDefinitions.All)
+        try
         {
-            await TrySeedScheduleAsync(sender, job, companyId, logger);
+            await using var scope = app.Services.CreateAsyncScope();
+            var sender = scope.ServiceProvider.GetRequiredService<ISender>();
+            var uowFactory = scope.ServiceProvider.GetRequiredService<IScheduleUnitOfWorkFactory>();
+
+            foreach (var job in SystemJobDefinitions.All)
+            {
+                await TrySeedScheduleAsync(sender, uowFactory, job, companyId, logger);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogSeedInfraFailed(logger, ex);
         }
     }
 
     /// <summary>
-    /// Crée une planification (create-only, idempotent). Un schedule de même nom pour la company existe
-    /// déjà (re-boot) ⇒ <c>INV-JOB-005</c> avalé, l'existant n'est PAS écrasé. Tout autre échec est
-    /// journalisé sans propager (le démarrage ne doit jamais planter pour un seed de dev).
+    /// Crée une planification (create-only, idempotent). Vérifie d'abord l'existence via la UoW pour
+    /// éviter tout couplage au message d'exception socle. Tout échec est journalisé sans propager
+    /// (le démarrage ne doit jamais planter pour un seed de dev).
     /// </summary>
     internal static async Task TrySeedScheduleAsync(
         ISender sender,
+        IScheduleUnitOfWorkFactory uowFactory,
         SystemJobDefinition job,
         Guid companyId,
         ILogger logger,
@@ -63,6 +73,16 @@ internal static partial class DevJobScheduleSeeder
     {
         try
         {
+            await using (var uow = await uowFactory.BeginAsync(ct))
+            {
+                if (await uow.ExistsByNameAndCompanyAsync(job.ScheduleName, companyId, ct: ct))
+                {
+                    // Déjà planifié : create-only, on n'écrase pas l'existant.
+                    LogScheduleAlreadyPresent(logger, job.ScheduleName);
+                    return;
+                }
+            }
+
             await sender.Send(
                 new CreateScheduleCommand
                 {
@@ -74,11 +94,6 @@ internal static partial class DevJobScheduleSeeder
                 ct);
 
             LogScheduleSeeded(logger, job.ScheduleName, job.CronExpression);
-        }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("INV-JOB-005", StringComparison.Ordinal))
-        {
-            // Déjà planifié : create-only, on n'écrase pas l'existant.
-            LogScheduleAlreadyPresent(logger, job.ScheduleName);
         }
         catch (Exception ex)
         {
@@ -109,4 +124,10 @@ internal static partial class DevJobScheduleSeeder
         Level = LogLevel.Debug,
         Message = "Amorçage des planifications système ignoré : DevTenantSeed:CompanyId absent ou invalide ({Raw}).")]
     private static partial void LogSeedSkippedNoCompany(ILogger logger, string raw);
+
+    [LoggerMessage(
+        EventId = 7214,
+        Level = LogLevel.Error,
+        Message = "Amorçage des planifications système impossible — démarrage poursuivi.")]
+    private static partial void LogSeedInfraFailed(ILogger logger, Exception exception);
 }

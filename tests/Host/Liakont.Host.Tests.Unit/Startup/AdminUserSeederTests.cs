@@ -28,7 +28,7 @@ public sealed class AdminUserSeederTests
         DisplayName = "Administrateur systeme (dev)",
     };
 
-    private static UserDto ExistingUser(string? externalId) => new()
+    private static UserDto ExistingUser(string? externalId, params string[] roles) => new()
     {
         Id = Guid.NewGuid(),
         Username = "sysadmin",
@@ -36,7 +36,7 @@ public sealed class AdminUserSeederTests
         DisplayName = "Administrateur systeme (dev)",
         ExternalId = externalId,
         IsActive = true,
-        Roles = [],
+        Roles = roles,
     };
 
     [Fact]
@@ -75,6 +75,7 @@ public sealed class AdminUserSeederTests
     [Fact]
     public async Task SeedAsync_Should_Promote_Existing_User_Without_Creating()
     {
+        // Utilisateur existant sans rôle Admin → doit envoyer AssignUserRoleCommand.
         var queries = new FakeIdentityQueries(userByUsername: ExistingUser(externalId: "ad000000-0000-4000-b000-000000000001"));
         var sender = new FakeSender();
 
@@ -96,19 +97,15 @@ public sealed class AdminUserSeederTests
     }
 
     [Fact]
-    public async Task SeedAsync_Should_Swallow_AlreadyHasRole_On_Promotion()
+    public async Task SeedAsync_Should_Not_Reassign_When_User_Already_Has_Admin_Role()
     {
-        var queries = new FakeIdentityQueries(userByUsername: ExistingUser(externalId: "ad000000-0000-4000-b000-000000000001"));
-        var sender = new FakeSender
-        {
-            ThrowOn = req => req is AssignUserRoleCommand
-                ? new InvalidOperationException("User 'x' already has role 'Admin'. (INV-IDENTITY-003)")
-                : null,
-        };
+        // Garde amont : Roles contient déjà "Admin" → pas d'envoi de AssignUserRoleCommand.
+        var queries = new FakeIdentityQueries(userByUsername: ExistingUser(externalId: "ad000000-0000-4000-b000-000000000001", "Admin"));
+        var sender = new FakeSender();
 
-        var act = async () => await AdminUserSeeder.SeedAsync(sender, queries, Options(), new CapturingLogger());
+        await AdminUserSeeder.SeedAsync(sender, queries, Options(), new CapturingLogger());
 
-        await act.Should().NotThrowAsync("le rôle déjà présent (INV-IDENTITY-003) est un cas idempotent, pas une erreur");
+        sender.Sent.OfType<AssignUserRoleCommand>().Should().BeEmpty("la garde Roles.Any(Admin) évite l'envoi redondant");
     }
 
     [Fact]

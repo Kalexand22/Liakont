@@ -8,6 +8,7 @@ using FluentAssertions;
 using Liakont.Host.Startup;
 using MediatR;
 using Microsoft.Extensions.Logging;
+using Stratum.Modules.Job.Application;
 using Stratum.Modules.Job.Contracts.Commands;
 using Xunit;
 
@@ -27,8 +28,9 @@ public sealed class DevJobScheduleSeederTests
     public async Task TrySeedSchedule_Should_Send_CreateScheduleCommand_With_Definition_Values()
     {
         var sender = new FakeSender();
+        var uowFactory = new FakeScheduleUowFactory { Exists = false };
 
-        await DevJobScheduleSeeder.TrySeedScheduleAsync(sender, Sample, Company, new NullTestLogger());
+        await DevJobScheduleSeeder.TrySeedScheduleAsync(sender, uowFactory, Sample, Company, new NullTestLogger());
 
         sender.Sent.Should().ContainSingle(r => r is CreateScheduleCommand);
         var cmd = (CreateScheduleCommand)sender.Sent[0];
@@ -41,22 +43,22 @@ public sealed class DevJobScheduleSeederTests
     [Fact]
     public async Task TrySeedSchedule_Should_Swallow_AlreadyExists_So_Boot_Is_Idempotent()
     {
-        var sender = new FakeSender
-        {
-            ThrowOn = _ => new InvalidOperationException("INV-JOB-005: A schedule named 'x' already exists for this company."),
-        };
+        var sender = new FakeSender();
+        var uowFactory = new FakeScheduleUowFactory { Exists = true };
 
-        var act = async () => await DevJobScheduleSeeder.TrySeedScheduleAsync(sender, Sample, Company, new NullTestLogger());
+        var act = async () => await DevJobScheduleSeeder.TrySeedScheduleAsync(sender, uowFactory, Sample, Company, new NullTestLogger());
 
         await act.Should().NotThrowAsync("create-only : un re-boot ne doit pas planter sur un schedule déjà présent");
+        sender.Sent.OfType<CreateScheduleCommand>().Should().BeEmpty("schedule déjà présent — pas de création");
     }
 
     [Fact]
     public async Task TrySeedSchedule_Should_Swallow_Unexpected_Errors()
     {
         var sender = new FakeSender { ThrowOn = _ => new InvalidOperationException("base indisponible") };
+        var uowFactory = new FakeScheduleUowFactory { Exists = false };
 
-        var act = async () => await DevJobScheduleSeeder.TrySeedScheduleAsync(sender, Sample, Company, new NullTestLogger());
+        var act = async () => await DevJobScheduleSeeder.TrySeedScheduleAsync(sender, uowFactory, Sample, Company, new NullTestLogger());
 
         await act.Should().NotThrowAsync("le seed de dev ne doit jamais faire planter le démarrage");
     }
@@ -100,6 +102,41 @@ public sealed class DevJobScheduleSeederTests
 
         public IAsyncEnumerable<object?> CreateStream(object request, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class FakeScheduleUowFactory : IScheduleUnitOfWorkFactory
+    {
+        public bool Exists { get; init; }
+
+        public Task<IScheduleUnitOfWork> BeginAsync(CancellationToken ct = default) =>
+            Task.FromResult<IScheduleUnitOfWork>(new FakeScheduleUow { Exists = Exists });
+    }
+
+    private sealed class FakeScheduleUow : IScheduleUnitOfWork
+    {
+        public bool Exists { get; init; }
+
+        public Task<bool> ExistsByNameAndCompanyAsync(string name, Guid companyId, Guid? excludeId = null, CancellationToken ct = default) =>
+            Task.FromResult(Exists);
+
+        public Task InsertScheduleAsync(Stratum.Modules.Job.Domain.Entities.JobSchedule schedule, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public Task UpdateScheduleAsync(Stratum.Modules.Job.Domain.Entities.JobSchedule schedule, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public Task<Stratum.Modules.Job.Domain.Entities.JobSchedule?> GetScheduleByIdAsync(Guid scheduleId, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<Stratum.Modules.Job.Domain.Entities.JobSchedule>> GetDueSchedulesAsync(DateTimeOffset now, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<string>> GetActiveJobTypesAsync(CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public Task CommitAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class NullTestLogger : ILogger
