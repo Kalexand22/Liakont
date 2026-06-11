@@ -2,8 +2,11 @@
 @rendermode InteractiveServer
 @attribute [Authorize]
 @using Liakont.Host.Parametrage
+@using Liakont.Host.Security
 @using Liakont.Modules.Archive.Contracts
+@using Stratum.Common.Abstractions.Security
 @inject IParametrageQueries ParametrageQueries
+@inject IPermissionService Permissions
 @inject ILogger<Parametrage> Logger
 
 <PageTitle>Paramétrage du tenant — Liakont</PageTitle>
@@ -26,7 +29,9 @@ else
                      OnVerifyIntegrity="VerifyIntegrityAsync"
                      IntegrityReport="_integrityReport"
                      IsVerifying="_isVerifying"
-                     IntegrityError="@_integrityError" />
+                     IntegrityError="@_integrityError"
+                     CanExportAudit="_canExportAudit"
+                     CanExportTenant="_canExportTenant" />
 }
 
 @code {
@@ -37,8 +42,17 @@ else
     private bool _isVerifying;
     private string? _integrityError;
 
+    // Visibilité des exports d'archive (FIX208), calculée côté page et passée à la vue pure.
+    // La garde RÉELLE reste serveur (endpoints API03 RequireAuthorization) : ici on n'OFFRE
+    // l'action qu'au porteur. Audit par période = liakont.read ; réversibilité complète = liakont.settings.
+    private bool _canExportAudit;
+    private bool _canExportTenant;
+
     protected override async Task OnInitializedAsync()
     {
+        _canExportAudit = Permissions.HasPermission(LiakontPermissions.Read);
+        _canExportTenant = Permissions.HasPermission(LiakontPermissions.Settings);
+
         try
         {
             _model = await ParametrageQueries.GetParametrageAsync();

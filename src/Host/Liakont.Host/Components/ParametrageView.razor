@@ -1,5 +1,6 @@
 @namespace Liakont.Host.Components
 @using System.Collections.Generic
+@using System.Globalization
 @using Liakont.Host.Parametrage
 @using Liakont.Modules.Archive.Contracts
 @using Liakont.Modules.TenantSettings.Contracts.DTOs
@@ -253,6 +254,92 @@
         }
     </SectionCard>
 
+    @* Exports d'archive (FIX208) — expose les endpoints API03 streamés. Téléchargement réel via un
+     * <a href ... download> (et non un bouton Blazor) : l'endpoint renvoie un ZIP en pièce jointe HORS
+     * routeur Blazor ; l'auth passe par le cookie de session (permission re-vérifiée côté serveur). *@
+    @if (CanExportAudit || CanExportTenant)
+    {
+        <SectionCard Title="Exports d'archive" TestId="parametrage-exports">
+
+            @if (CanExportAudit)
+            {
+                <div class="liakont-parametrage__export" data-testid="parametrage-audit-export">
+                    <h3 class="liakont-parametrage__export-title">Dossier d'audit par période</h3>
+                    <p>Constitue le dossier d'archive (pivots transmis, accusés de la Plateforme Agréée, preuves d'intégrité) au format ZIP — pour répondre à un contrôle fiscal sur une période donnée.</p>
+                    <div class="liakont-parametrage__export-period">
+                        <label for="parametrage-audit-from">Du</label>
+                        <input id="parametrage-audit-from" type="date" data-testid="parametrage-audit-from"
+                               value="@(_auditFrom?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))"
+                               @onchange="OnAuditFromChanged" />
+                        <span class="liakont-parametrage__export-sep">→</span>
+                        <label for="parametrage-audit-to">Au</label>
+                        <input id="parametrage-audit-to" type="date" data-testid="parametrage-audit-to"
+                               value="@(_auditTo?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))"
+                               @onchange="OnAuditToChanged" />
+                    </div>
+                    <p class="liakont-parametrage__hint">L'export couvre les mois entiers touchés par la période choisie (granularité mensuelle du coffre d'archive).</p>
+
+                    @if (AuditRangeValid)
+                    {
+                        <a class="liakont-parametrage__export-link"
+                           href="@AuditExportUrl"
+                           data-testid="parametrage-audit-export-link"
+                           download>
+                            Télécharger le dossier d'audit (ZIP)
+                        </a>
+                    }
+                    else
+                    {
+                        <p class="liakont-parametrage__alert" role="alert" data-testid="parametrage-audit-export-invalid">
+                            @AuditRangeMessage
+                        </p>
+                    }
+                </div>
+            }
+
+            @if (CanExportTenant)
+            {
+                <div class="liakont-parametrage__export" data-testid="parametrage-tenant-export">
+                    <h3 class="liakont-parametrage__export-title">Réversibilité : dossier complet du tenant</h3>
+                    <p>Exporte l'intégralité du dossier du tenant (coffre d'archive, suivi des documents, paramétrage et journal d'audit) au format ZIP. Opération lourde, destinée à une restitution — par exemple lors d'un changement de logiciel.</p>
+
+                    @if (!_showTenantConfirm)
+                    {
+                        <StratumButton Text="Exporter le dossier complet du tenant"
+                                       Variant="ButtonVariant.Secondary"
+                                       Size="ButtonSize.Small"
+                                       OnClick="@(_ => _showTenantConfirm = true)"
+                                       TestId="parametrage-tenant-export-btn" />
+                    }
+                    else
+                    {
+                        <div class="liakont-parametrage__confirm" role="dialog" aria-label="Confirmer l'export de réversibilité"
+                             data-testid="parametrage-tenant-export-confirm-dialog">
+                            <p data-testid="parametrage-tenant-export-confirm-text">
+                                Vous allez télécharger l'intégralité du dossier du tenant. L'opération peut être longue selon le volume archivé. Confirmer ?
+                            </p>
+                            <div class="liakont-parametrage__confirm-actions">
+                                <a class="liakont-parametrage__export-link"
+                                   href="@TenantExportUrl"
+                                   data-testid="parametrage-tenant-export-confirm"
+                                   @onclick="@(_ => _showTenantConfirm = false)"
+                                   download>
+                                    Confirmer et télécharger
+                                </a>
+                                <StratumButton Text="Annuler"
+                                               Variant="ButtonVariant.Secondary"
+                                               Outline
+                                               Size="ButtonSize.Small"
+                                               OnClick="@(_ => _showTenantConfirm = false)"
+                                               TestId="parametrage-tenant-export-cancel" />
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </SectionCard>
+    }
+
 </div>
 
 @code {
@@ -281,6 +368,60 @@
     /// <summary>Message d'erreur de la vérification (échec de l'appel), ou <c>null</c>.</summary>
     [Parameter]
     public string? IntegrityError { get; set; }
+
+    /// <summary>L'opérateur porte <c>liakont.read</c> : l'export du dossier d'audit par période est offert (FIX208).</summary>
+    [Parameter]
+    public bool CanExportAudit { get; set; }
+
+    /// <summary>L'opérateur porte <c>liakont.settings</c> : l'export de réversibilité du tenant est offert (FIX208).</summary>
+    [Parameter]
+    public bool CanExportTenant { get; set; }
+
+    /// <summary>Endpoint d'export de réversibilité (Archive, API03) — dossier complet du tenant.</summary>
+    private const string TenantExportUrl = "/api/v1/tenant-export";
+
+    private DateOnly? _auditFrom;
+    private DateOnly? _auditTo;
+    private bool _showTenantConfirm;
+
+    /// <summary>Au moins une borne, et la borne haute ne précède pas la borne basse (validation miroir du serveur API03).</summary>
+    private bool AuditRangeValid =>
+        (_auditFrom is not null || _auditTo is not null)
+        && !(_auditFrom is { } from && _auditTo is { } to && to < from);
+
+    private string AuditRangeMessage =>
+        _auditFrom is { } from && _auditTo is { } to && to < from
+            ? "La borne « Au » précède la borne « Du »."
+            : "Préciser au moins une borne (« Du » et/ou « Au ») pour exporter le dossier d'audit.";
+
+    /// <summary>URL de l'export d'audit par période (Archive, API03), bornes optionnelles mais au moins une exigée.</summary>
+    private string AuditExportUrl
+    {
+        get
+        {
+            var parameters = new List<string>(2);
+            if (_auditFrom is { } from)
+            {
+                parameters.Add($"from={from.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}");
+            }
+
+            if (_auditTo is { } to)
+            {
+                parameters.Add($"to={to.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}");
+            }
+
+            return "/api/v1/audit-export?" + string.Join("&", parameters);
+        }
+    }
+
+    private void OnAuditFromChanged(ChangeEventArgs e) => _auditFrom = ParseDate(e.Value);
+
+    private void OnAuditToChanged(ChangeEventArgs e) => _auditTo = ParseDate(e.Value);
+
+    private static DateOnly? ParseDate(object? raw) =>
+        DateOnly.TryParseExact(raw as string, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
+            ? date
+            : null;
 
     private static string FormatHeartbeat(DateTimeOffset? when) =>
         when is { } value ? value.ToLocalTime().ToString("dd/MM/yyyy HH:mm") : "jamais";
