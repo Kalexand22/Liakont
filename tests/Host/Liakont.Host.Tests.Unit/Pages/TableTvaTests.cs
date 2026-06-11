@@ -174,9 +174,9 @@ public sealed class TableTvaTests : BunitContext
         cut.WaitForAssertion(() => cut.FindAll("[data-testid='table-tva-create-btn']").Should().ContainSingle());
         cut.Find("[data-testid='table-tva-create-btn']").Click();
 
-        // Saisie via les listes FERMÉES + code régime.
+        // Saisie via les listes FERMÉES + code régime. Vertical enchères désactivé (défaut) : le champ
+        // part est masqué et la part Autre est implicite (FIX03) — on ne le renseigne pas.
         cut.Find("[data-testid='tva-rule-code']").Input("6");
-        cut.Find("[data-testid='tva-rule-part']").Change("Adjudication");
         cut.Find("[data-testid='tva-rule-category']").Change("S");
         cut.Find("[data-testid='tva-rule-ratemode']").Change("Fixed");
         cut.Find("[data-testid='tva-rule-rate']").Change("20");
@@ -266,7 +266,6 @@ public sealed class TableTvaTests : BunitContext
         cut.Find("[data-testid='table-tva-create-btn']").Click();
 
         cut.Find("[data-testid='tva-rule-code']").Input("6");
-        cut.Find("[data-testid='tva-rule-part']").Change("Adjudication");
         cut.Find("[data-testid='tva-rule-category']").Change("E");
         cut.Find("[data-testid='tva-rule-ratemode']").Change("ComputedFromSource");
         cut.Find("[data-testid='tva-rule-save-btn']").Click();
@@ -279,20 +278,54 @@ public sealed class TableTvaTests : BunitContext
         });
     }
 
+    [Fact]
+    public void Toggling_auction_vertical_calls_the_service_and_reloads()
+    {
+        var fake = FakeTableQueries.NotValidated();
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(hasSettings: true));
+        Services.AddScoped<ITvaMappingTableQueries>(_ => fake);
+
+        var cut = Render<TableTva>();
+
+        // Le toggle d'activation est visible (tenant résolu + permission settings).
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='table-tva-auction-vertical-toggle']").Should().ContainSingle());
+        cut.Find("[data-testid='table-tva-auction-vertical-toggle']").Click();
+
+        cut.WaitForAssertion(() => fake.SetAuctionVerticalCalls.Should().Be(1, "la (dé)activation passe par le service, puis recharge"));
+    }
+
+    [Fact]
+    public void Toggle_failure_shows_a_visible_error_banner()
+    {
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(hasSettings: true));
+        Services.AddScoped<ITvaMappingTableQueries>(_ => FakeTableQueries.FailingAuctionVertical());
+
+        var cut = Render<TableTva>();
+
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='table-tva-auction-vertical-toggle']").Should().ContainSingle());
+        cut.Find("[data-testid='table-tva-auction-vertical-toggle']").Click();
+
+        // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='table-tva-auction-vertical-error']").Should().ContainSingle());
+    }
+
     private sealed class FakeTableQueries : ITvaMappingTableQueries
     {
         private readonly bool _throwOnLoad;
         private readonly bool _throwOnValidate;
         private readonly bool _throwOnMutate;
+        private readonly bool _throwOnSetAuctionVertical;
         private readonly string _operator;
         private bool _validated;
         private bool _tableExists = true;
+        private bool _auctionEnabled;
 
-        private FakeTableQueries(bool throwOnLoad, bool throwOnValidate, bool throwOnMutate, bool validated, string op)
+        private FakeTableQueries(bool throwOnLoad, bool throwOnValidate, bool throwOnMutate, bool validated, string op, bool throwOnSetAuctionVertical = false)
         {
             _throwOnLoad = throwOnLoad;
             _throwOnValidate = throwOnValidate;
             _throwOnMutate = throwOnMutate;
+            _throwOnSetAuctionVertical = throwOnSetAuctionVertical;
             _validated = validated;
             _operator = op;
         }
@@ -306,6 +339,8 @@ public sealed class TableTvaTests : BunitContext
         public int UpdateCalls { get; private set; }
 
         public int RemoveCalls { get; private set; }
+
+        public int SetAuctionVerticalCalls { get; private set; }
 
         public static FakeTableQueries NotValidated(string op = "Alice Martin") => new(false, false, false, validated: false, op);
 
@@ -323,6 +358,8 @@ public sealed class TableTvaTests : BunitContext
         public static FakeTableQueries NotValidatedFailingValidate(string op = "Alice Martin") => new(false, true, false, validated: false, op);
 
         public static FakeTableQueries FailingMutate(string op = "Alice Martin") => new(false, false, true, validated: false, op);
+
+        public static FakeTableQueries FailingAuctionVertical(string op = "Alice Martin") => new(false, false, false, validated: false, op, throwOnSetAuctionVertical: true);
 
         private static TvaMappingEditOptionsDto EditOptions() => new()
         {
@@ -401,6 +438,18 @@ public sealed class TableTvaTests : BunitContext
             return Task.CompletedTask;
         }
 
+        public Task SetAuctionVerticalAsync(bool enabled, CancellationToken cancellationToken = default)
+        {
+            if (_throwOnSetAuctionVertical)
+            {
+                throw new InvalidOperationException("Échec simulé de la (dé)activation du vertical enchères.");
+            }
+
+            SetAuctionVerticalCalls++;
+            _auctionEnabled = enabled;
+            return Task.CompletedTask;
+        }
+
         private TvaMappingTableViewModel BuildModel() => _tableExists ? BuildModelWithTable() : new()
         {
             Table = null,
@@ -439,6 +488,13 @@ public sealed class TableTvaTests : BunitContext
             },
             ChangeLog = Array.Empty<MappingChangeLogEntryDto>(),
             CurrentOperatorName = _operator,
+            TenantResolved = true,
+            AuctionVerticalEnabled = _auctionEnabled,
+            Consistency = new MappingConsistencyReportDto
+            {
+                IsTableConfigured = true,
+                DeadRules = Array.Empty<DeadMappingRuleDto>(),
+            },
             Coverage = new MappingCoverageReportDto
             {
                 IsTableConfigured = true,

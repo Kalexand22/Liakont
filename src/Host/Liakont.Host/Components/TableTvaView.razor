@@ -57,6 +57,17 @@
                                 <strong data-testid="table-tva-confirm-operator">@Model.CurrentOperatorName</strong>.
                                 Pour confirmer, ressaisissez votre nom de validateur ci-dessous.
                             </p>
+
+                            @if (DeadRules.Count > 0)
+                            {
+                                @* Contrôle de cohérence avant validation (lot FIX03) : on AVERTIT sans bloquer
+                                   (CLAUDE.md n°3) que des règles resteront inopérantes. *@
+                                <div class="liakont-tva-table__alert" role="alert" data-testid="table-tva-validate-deadrules-warning">
+                                    Attention : @DeadRules.Count règle(s) ne pourront jamais s'appliquer (voir
+                                    « Cohérence du paramétrage »). La validation reste possible, mais ces règles
+                                    resteront sans effet.
+                                </div>
+                            }
                             <label class="liakont-tva-table__confirm-label" for="table-tva-validator-input">Nom du validateur</label>
                             <input id="table-tva-validator-input"
                                    class="liakont-tva-table__confirm-input"
@@ -121,6 +132,71 @@
         }
     </SectionCard>
 
+    @if (Model.TenantResolved)
+    {
+        @* Activation du vertical « vente aux enchères » (paramétrage produit D4, lot FIX03) : gouverne
+           l'exposition du champ « part » dans l'éditeur. Défaut OFF. Modifiable avec liakont.settings. *@
+        <SectionCard Title="Vertical « vente aux enchères »" TestId="table-tva-auction-vertical">
+            <div class="liakont-tva-table__auction" data-testid="table-tva-auction-vertical-state">
+                @if (Model.AuctionVerticalEnabled)
+                {
+                    <StatusBadge Label="Activé" Severity="Severity.Info" />
+                }
+                else
+                {
+                    <StatusBadge Label="Désactivé" Severity="Severity.Neutral" />
+                }
+                <span class="liakont-tva-table__meta">
+                    À activer uniquement pour un tenant opérant des ventes aux enchères : le découpage
+                    Adjudication / Frais apparaît alors dans l'éditeur de règle. Désactivé, la part
+                    « Autre » est implicite (interface générique non encombrée).
+                </span>
+            </div>
+
+            @if (CanEdit)
+            {
+                @if (!string.IsNullOrWhiteSpace(AuctionVerticalError))
+                {
+                    <div class="liakont-tva-table__alert" role="alert" data-testid="table-tva-auction-vertical-error">
+                        @AuctionVerticalError
+                    </div>
+                }
+
+                <StratumButton Text="@(AuctionVerticalBusy
+                                   ? "Mise à jour…"
+                                   : (Model.AuctionVerticalEnabled ? "Désactiver le vertical enchères" : "Activer le vertical enchères"))"
+                               Variant="ButtonVariant.Secondary"
+                               Outline
+                               Size="ButtonSize.Small"
+                               Disabled="@AuctionVerticalBusy"
+                               OnClick="@(_ => OnToggleAuctionVertical.InvokeAsync())"
+                               TestId="table-tva-auction-vertical-toggle" />
+            }
+        </SectionCard>
+    }
+
+    @if (DeadRules.Count > 0)
+    {
+        @* Contrôle de cohérence (lot FIX03) : règles qui ne pourront JAMAIS s'appliquer (part non
+           consultée / code jamais observé). Signal d'avertissement, jamais un blocage (CLAUDE.md n°3). *@
+        <SectionCard Title="Cohérence du paramétrage — règles inopérantes" TestId="table-tva-consistency">
+            <p class="liakont-tva-table__meta">
+                Ces règles ne pourront jamais s'appliquer aux documents de ce tenant. Ce n'est pas un
+                blocage : la table reste validable, mais ces règles resteront sans effet — corrigez-les
+                ou supprimez-les.
+            </p>
+            <ul class="liakont-tva-table__consistency">
+                @foreach (var rule in DeadRules)
+                {
+                    <li class="liakont-tva-table__consistency-entry" data-testid="table-tva-consistency-entry">
+                        <span class="liakont-tva-table__consistency-code">@rule.SourceRegimeCode (@rule.Part)</span>
+                        <span class="liakont-tva-table__consistency-why">@DescribeDeadRule(rule)</span>
+                    </li>
+                }
+            </ul>
+        </SectionCard>
+    }
+
     @if (Model.Table is not null && AbsentRegimes.Count > 0)
     {
         @* Rapport de couverture (TVA03) : régimes source observés non mappés, à compléter en priorité.
@@ -162,6 +238,7 @@
             <TvaRuleEditor Options="Model.EditOptions"
                            Model="EditorModel"
                            IsCreate="EditorIsCreate"
+                           ShowPart="Model.AuctionVerticalEnabled"
                            Busy="EditorBusy"
                            Error="@EditorError"
                            OnSubmit="OnSubmitEditor"
@@ -340,6 +417,20 @@
     [Parameter]
     public EventCallback OnConfirmValidate { get; set; }
 
+    // ── Activation du vertical enchères (FIX03) ───────────────────
+
+    /// <summary><c>true</c> pendant l'envoi de l'activation/désactivation du vertical enchères.</summary>
+    [Parameter]
+    public bool AuctionVerticalBusy { get; set; }
+
+    /// <summary>Message d'erreur de l'activation du vertical enchères (échec de l'appel), ou <c>null</c>.</summary>
+    [Parameter]
+    public string? AuctionVerticalError { get; set; }
+
+    /// <summary>Déclenché quand l'opérateur (dé)active le vertical enchères (permission liakont.settings).</summary>
+    [Parameter]
+    public EventCallback OnToggleAuctionVertical { get; set; }
+
     // ── Édition (WEB07b) ──────────────────────────────────────────
 
     /// <summary><c>true</c> quand l'éditeur de règle est ouvert.</summary>
@@ -471,6 +562,21 @@
             return sb.ToString();
         }
     }
+
+    /// <summary>Règles mortes détectées par le contrôle de cohérence (lot FIX03), vide si aucune.</summary>
+    private IReadOnlyList<DeadMappingRuleDto> DeadRules =>
+        Model.Consistency?.DeadRules ?? (IReadOnlyList<DeadMappingRuleDto>)Array.Empty<DeadMappingRuleDto>();
+
+    /// <summary>Phrase opérateur (française) décrivant pourquoi une règle est morte.</summary>
+    private static string DescribeDeadRule(DeadMappingRuleDto rule) =>
+        string.Join(" ; ", rule.Reasons.Select(DescribeDeadRuleReason));
+
+    private static string DescribeDeadRuleReason(string reason) => reason switch
+    {
+        "PartNotConsulted" => "part non consultée par le pipeline (découpage adjudication/frais non appliqué)",
+        "RegimeNeverObserved" => "code régime jamais observé dans la source",
+        _ => reason,
+    };
 
     protected override void OnParametersSet()
     {

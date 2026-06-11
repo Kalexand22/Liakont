@@ -177,5 +177,7 @@ public sealed class SupplierIdentityRuleTests
         public Task<AlertThresholdsDto?> GetAlertThresholds(Guid companyId, CancellationToken ct = default) => throw new NotSupportedException();
 
         public Task<Guid?> GetCurrentCompanyId(CancellationToken ct = default) => throw new NotSupportedException();
+
+        public Task<bool> GetAuctionVerticalEnabled(Guid companyId, CancellationToken ct = default) => Task.FromResult(false);
     }
 }

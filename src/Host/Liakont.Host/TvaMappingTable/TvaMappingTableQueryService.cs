@@ -4,6 +4,8 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Liakont.Modules.TenantSettings.Contracts.Commands;
+using Liakont.Modules.TenantSettings.Contracts.Queries;
 using Liakont.Modules.TvaMapping.Contracts.Commands;
 using Liakont.Modules.TvaMapping.Contracts.DTOs;
 using Liakont.Modules.TvaMapping.Contracts.Queries;
@@ -26,15 +28,18 @@ internal sealed class TvaMappingTableQueryService : ITvaMappingTableQueries
     private readonly ITvaMappingQueries _queries;
     private readonly IActorContextAccessor _actorContext;
     private readonly ISender _sender;
+    private readonly ITenantSettingsQueries _tenantSettingsQueries;
 
     public TvaMappingTableQueryService(
         ITvaMappingQueries queries,
         IActorContextAccessor actorContext,
-        ISender sender)
+        ISender sender,
+        ITenantSettingsQueries tenantSettingsQueries)
     {
         _queries = queries;
         _actorContext = actorContext;
         _sender = sender;
+        _tenantSettingsQueries = tenantSettingsQueries;
     }
 
     public async Task<TvaMappingTableViewModel> GetTableAsync(CancellationToken cancellationToken = default)
@@ -56,6 +61,9 @@ internal sealed class TvaMappingTableQueryService : ITvaMappingTableQueries
                 ChangeLog = Array.Empty<MappingChangeLogEntryDto>(),
                 CurrentOperatorName = ResolveOperatorIdentity(),
                 Coverage = null,
+                TenantResolved = false,
+                AuctionVerticalEnabled = false,
+                Consistency = null,
                 EditOptions = editOptions,
             };
         }
@@ -68,12 +76,28 @@ internal sealed class TvaMappingTableQueryService : ITvaMappingTableQueries
         // résolu par le handler (CLAUDE.md n°9) — il porte sur la même société que la table ci-dessus.
         var coverage = await _sender.Send(new GetMappingCoverageReportQuery(), cancellationToken).ConfigureAwait(false);
 
+        // Activation du vertical enchères (paramétrage produit D4) : gouverne l'exposition du champ
+        // « part » dans l'éditeur (et RIEN d'autre — la cohérence reflète la réalité du pipeline, pas
+        // l'activation). Lue une fois ici (défaut OFF si absente).
+        var auctionVerticalEnabled = await _tenantSettingsQueries
+            .GetAuctionVerticalEnabled(companyId.Value, cancellationToken)
+            .ConfigureAwait(false);
+
+        // Rapport de cohérence (lot FIX03) : règles mortes (part non consultée par le pipeline, code
+        // jamais observé) signalées avant validation. Recalculé à la demande, comme la couverture.
+        var consistency = await _sender
+            .Send(new GetMappingConsistencyReportQuery(), cancellationToken)
+            .ConfigureAwait(false);
+
         return new TvaMappingTableViewModel
         {
             Table = table,
             ChangeLog = changeLog,
             CurrentOperatorName = ResolveOperatorIdentity(),
             Coverage = coverage,
+            TenantResolved = true,
+            AuctionVerticalEnabled = auctionVerticalEnabled,
+            Consistency = consistency,
             EditOptions = editOptions,
         };
     }
@@ -83,6 +107,13 @@ internal sealed class TvaMappingTableQueryService : ITvaMappingTableQueries
         // Création d'une table vide « NON VALIDÉE » (item FIX01b) : pass-through pur vers la commande
         // TvaMapping (le handler crée la table, applique le comportement block par défaut et journalise).
         return _sender.Send(new CreateMappingTableCommand(), cancellationToken);
+    }
+
+    public Task SetAuctionVerticalAsync(bool enabled, CancellationToken cancellationToken = default)
+    {
+        // Mutation du paramétrage produit (D4) : commande TenantSettings journalisée côté handler. La
+        // garde de permission (liakont.settings) est appliquée par la page (parité avec la validation).
+        return _sender.Send(new SetAuctionVerticalActivationCommand { Enabled = enabled }, cancellationToken);
     }
 
     public Task ValidateAsync(CancellationToken cancellationToken = default)

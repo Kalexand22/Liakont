@@ -30,21 +30,35 @@
                    data-testid="tva-rule-code" />
         </FormField>
 
-        <FormField Label="Part" FieldId="tva-rule-part" Required="true"
-                   HelpText="@(IsCreate ? null : "La part fait partie de la clé : non modifiable (supprimez puis recréez pour la changer).")">
-            <select id="tva-rule-part"
-                    class="form-select"
-                    value="@Model.Part"
-                    @onchange="OnPartChange"
-                    disabled="@(!IsCreate || Busy)"
-                    data-testid="tva-rule-part">
-                <option value="">— Choisir —</option>
-                @foreach (var part in Options.Parts)
-                {
-                    <option value="@part.Code">@part.Label</option>
-                }
-            </select>
-        </FormField>
+        @if (ShowPart)
+        {
+            <FormField Label="Part" FieldId="tva-rule-part" Required="true"
+                       HelpText="@(IsCreate ? null : "La part fait partie de la clé : non modifiable (supprimez puis recréez pour la changer).")">
+                <select id="tva-rule-part"
+                        class="form-select"
+                        value="@Model.Part"
+                        @onchange="OnPartChange"
+                        disabled="@(!IsCreate || Busy)"
+                        data-testid="tva-rule-part">
+                    <option value="">— Choisir —</option>
+                    @foreach (var part in Options.Parts)
+                    {
+                        <option value="@part.Code">@part.Label</option>
+                    }
+                </select>
+            </FormField>
+        }
+        else
+        {
+            @* Vertical « vente aux enchères » désactivé (paramétrage produit D4) : le découpage
+               Adjudication / Frais n'est pas proposé ; la part Autre est implicite (fixée plus bas). *@
+            <FormField Label="Part" FieldId="tva-rule-part-implicit">
+                <p class="liakont-tva-editor__implicit-part" data-testid="tva-rule-part-implicit">
+                    Autre — le vertical « vente aux enchères » est désactivé pour ce tenant (le découpage
+                    Adjudication / Frais n'est pas proposé).
+                </p>
+            </FormField>
+        }
 
         <FormField Label="Libellé (facultatif)" FieldId="tva-rule-label">
             <input id="tva-rule-label"
@@ -173,6 +187,15 @@
     [Parameter]
     public bool IsCreate { get; set; }
 
+    /// <summary>
+    /// <c>true</c> pour proposer le champ « part » (Adjudication / Frais / Autre) — vertical enchères
+    /// activé (D4, lot FIX03). <c>false</c> (défaut) : champ masqué, part <c>Autre</c> implicite sur une
+    /// création. Le DÉFAUT <c>true</c> préserve le comportement et les tests existants : la page passe
+    /// explicitement l'activation du tenant.
+    /// </summary>
+    [Parameter]
+    public bool ShowPart { get; set; } = true;
+
     /// <summary><c>true</c> pendant l'envoi (champs et boutons désactivés).</summary>
     [Parameter]
     public bool Busy { get; set; }
@@ -188,6 +211,21 @@
     /// <summary>Déclenché à l'annulation.</summary>
     [Parameter]
     public EventCallback OnCancel { get; set; }
+
+    /// <summary>Valeur de part implicite quand le vertical enchères est désactivé (D4).</summary>
+    private const string ImplicitPart = "Autre";
+
+    protected override void OnParametersSet()
+    {
+        // Vertical enchères désactivé : sur une CRÉATION, la part Autre est implicite (le champ est masqué).
+        // On la fixe pour que la règle soit créée avec la SEULE part consultée par le pipeline générique
+        // (CheckTvaMapping.LinePart) — jamais une part vide ni un découpage inopérant. En MODIFICATION, la
+        // part existante (clé figée) est préservée telle quelle, même si elle vaut Adjudication / Frais.
+        if (!ShowPart && IsCreate && string.IsNullOrWhiteSpace(Model.Part))
+        {
+            Model.Part = ImplicitPart;
+        }
+    }
 
     private bool IsFixedRate => string.Equals(Model.RateMode, "Fixed", StringComparison.Ordinal);
 

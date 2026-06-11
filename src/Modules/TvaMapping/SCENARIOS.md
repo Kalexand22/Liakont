@@ -62,6 +62,26 @@
 - `Handle_NoObservedRegimes_ReturnsComplete` — tenant sans régime remonté → complet.
 - `Handle_UnresolvedTenant_Throws` (slug `null`/vide/blanc) — aucune lecture tant que le tenant n'est pas résolu (message opérateur FR + action).
 
+### MappingConsistencyAnalyzerTests (contrôle de cohérence FIX03 — INV-TVAMAPPING-013)
+- `PipelineConsulted_IsAutreOnly` — le jeu consulté reflète la réalité du pipeline (`{Autre}`, PIP03b gelé), indépendant de l'activation.
+- `AdjudicationRule_IsDead_PartNotConsulted_UnderPipelineReality` — une règle Adjudication est morte (part non consultée par le pipeline).
+- `Analyzer_IsGeneric_WhenPartIsConsulted_RuleNotDeadForPart` — l'analyseur est générique : si on lui DÉCLARE une part consultée (cas futur PIP03b), la règle n'est pas morte pour ce motif.
+- `RegimeNeverObserved_IsFlagged_WhenObservationsExist` — code jamais observé signalé (faute de frappe), quand des régimes ont été observés.
+- `RegimeNeverObserved_IsNotFlagged_OnFreshTenant_NoObservations` — tenant vierge : aucun faux positif « jamais observé ».
+- `Rule_CanCarry_BothReasons` — une règle peut cumuler les deux motifs.
+- `CodeMatching_IsOrdinalCaseSensitive` — comparaison EXACTE (cohérence moteur INV-011).
+- `NoDeadRules_WhenAllConsultedAndObserved` — aucune règle morte quand tout est consulté et observé.
+
+### GetMappingConsistencyReportHandlerTests (câblage FIX03 — INV-TVAMAPPING-008/013)
+- `Handle_RoutesResolvedSlugToRegimeQuery_AndCompanyIdToMappingQuery` — **isolation tenant** : slug vers les régimes observés, `company_id` vers la table.
+- `Handle_AdjudicationRule_IsReportedDead_PipelineConsultsAutreOnly` — le pipeline ne consulte qu'`Autre` : une règle Adjudication est morte (indépendant de l'activation).
+- `Handle_AutreRuleOnObservedRegime_IsNotDead` — une règle `Autre` sur un régime observé n'est pas morte.
+- `Handle_NoTableConfigured_ReturnsNotConfigured_NoDeadRules` — aucune table → `IsTableConfigured=false`, aucune règle morte.
+- `Handle_UnresolvedTenant_Throws_AndReadsNothing` (slug `null`/vide/blanc) — aucune lecture sans tenant résolu.
+
+> **Tests d'intégration (Testcontainers) : non requis pour le contrôle de cohérence FIX03 (même justification que TVA03).**
+> L'analyse est du croisement PUR au-dessus des MÊMES deux lectures déjà couvertes en intégration (table par `company_id`, régimes observés par slug). Aucun nouveau schéma ni nouvelle requête SQL. Le routage de tenant est vérifié EN DIRECT par `Handle_RoutesResolvedSlugToRegimeQuery_AndCompanyIdToMappingQuery`.
+
 > **Tests d'intégration (Testcontainers) : non requis pour TVA03 (node `integration_tests` sauté).**
 > La détection est du croisement PUR (analyseur de domaine) au-dessus de DEUX lectures déjà couvertes
 > par des tests d'intégration Postgres en amont : la table de mapping par `company_id`

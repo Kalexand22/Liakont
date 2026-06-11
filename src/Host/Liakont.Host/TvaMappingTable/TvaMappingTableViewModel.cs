@@ -34,6 +34,26 @@ public sealed class TvaMappingTableViewModel
     public MappingCoverageReportDto? Coverage { get; init; }
 
     /// <summary>
+    /// <c>true</c> si une société (profil tenant) est résolue pour la requête : conditionne l'affichage
+    /// du paramétrage propre au tenant (activation du vertical enchères). <c>false</c> tant que le profil
+    /// n'est pas créé (CFG02) — la page reste alors en vue vide transitoire.
+    /// </summary>
+    public bool TenantResolved { get; init; }
+
+    /// <summary>
+    /// Activation du vertical « vente aux enchères » du tenant (paramétrage produit, décision opérateur
+    /// D4 — lot FIX03). Quand <c>false</c> (défaut), le champ « part » de l'éditeur de règle est masqué
+    /// (part <c>Autre</c> implicite) ; quand <c>true</c>, les trois parts sont proposées.
+    /// </summary>
+    public bool AuctionVerticalEnabled { get; init; }
+
+    /// <summary>
+    /// Rapport de cohérence du paramétrage (lot FIX03) : règles mortes (part non consultée, code jamais
+    /// observé) signalées avant validation. <c>null</c> si aucune société n'est résolue (CFG02).
+    /// </summary>
+    public MappingConsistencyReportDto? Consistency { get; init; }
+
+    /// <summary>
     /// Listes FERMÉES proposées à l'édition d'une règle (catégories UNCL5305, parts, modes de taux,
     /// codes VATEX). Sourcées (F03 §2.1/§2.2 + énumérations du domaine) ; jamais de saisie libre.
     /// </summary>

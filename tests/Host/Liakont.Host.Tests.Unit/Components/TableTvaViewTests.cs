@@ -431,16 +431,125 @@ public sealed class TableTvaViewTests : BunitContext
         cut.Markup.Should().Contain("Table créée");
     }
 
+    [Fact]
+    public void Auction_vertical_section_is_hidden_when_tenant_not_resolved()
+    {
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(null, tenantResolved: false))
+            .Add(v => v.CanEdit, true));
+
+        cut.FindAll("[data-testid='table-tva-auction-vertical']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Auction_vertical_toggle_is_shown_for_editor_when_tenant_resolved()
+    {
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable(), tenantResolved: true, auctionVerticalEnabled: false))
+            .Add(v => v.CanEdit, true));
+
+        cut.FindAll("[data-testid='table-tva-auction-vertical-state']").Should().ContainSingle();
+        cut.Find("[data-testid='table-tva-auction-vertical-toggle']").TextContent.Should().Contain("Activer");
+    }
+
+    [Fact]
+    public void Auction_vertical_toggle_is_hidden_without_settings_permission()
+    {
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable(), tenantResolved: true))
+            .Add(v => v.CanEdit, false));
+
+        // L'état reste informatif, mais aucun bouton de bascule sans liakont.settings.
+        cut.FindAll("[data-testid='table-tva-auction-vertical-state']").Should().ContainSingle();
+        cut.FindAll("[data-testid='table-tva-auction-vertical-toggle']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Toggling_auction_vertical_invokes_the_callback()
+    {
+        var toggled = false;
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable(), tenantResolved: true))
+            .Add(v => v.CanEdit, true)
+            .Add(v => v.OnToggleAuctionVertical, () => { toggled = true; }));
+
+        cut.Find("[data-testid='table-tva-auction-vertical-toggle']").Click();
+
+        toggled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Dead_rules_consistency_section_is_rendered()
+    {
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable(), tenantResolved: true, consistency: ConsistencyWithDeadRule()))
+            .Add(v => v.CanEdit, true));
+
+        cut.FindAll("[data-testid='table-tva-consistency']").Should().ContainSingle();
+        cut.FindAll("[data-testid='table-tva-consistency-entry']").Should().ContainSingle();
+        cut.Find("[data-testid='table-tva-consistency-entry']").TextContent.Should().Contain("ADJ");
+        cut.Find("[data-testid='table-tva-consistency-entry']").TextContent.Should().Contain("part non consultée par le pipeline");
+    }
+
+    [Fact]
+    public void Dead_rules_warning_appears_in_the_validate_confirm_dialog()
+    {
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable(), tenantResolved: true, consistency: ConsistencyWithDeadRule()))
+            .Add(v => v.CanValidate, true)
+            .Add(v => v.ConfirmOpen, true));
+
+        // L'avertissement signale les règles inopérantes sans bloquer la validation (CLAUDE.md n°3).
+        cut.FindAll("[data-testid='table-tva-validate-deadrules-warning']").Should().ContainSingle();
+        cut.Find("[data-testid='table-tva-confirm-btn']").Should().NotBeNull();
+    }
+
+    [Fact]
+    public void No_consistency_section_when_no_dead_rules()
+    {
+        var emptyConsistency = new MappingConsistencyReportDto
+        {
+            IsTableConfigured = true,
+            DeadRules = Array.Empty<DeadMappingRuleDto>(),
+        };
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable(), tenantResolved: true, consistency: emptyConsistency))
+            .Add(v => v.CanEdit, true));
+
+        cut.FindAll("[data-testid='table-tva-consistency']").Should().BeEmpty();
+    }
+
     private static TvaMappingTableViewModel ModelWith(
         MappingTableDto? table,
         IReadOnlyList<MappingChangeLogEntryDto>? changeLog = null,
-        MappingCoverageReportDto? coverage = null) => new()
+        MappingCoverageReportDto? coverage = null,
+        bool tenantResolved = false,
+        bool auctionVerticalEnabled = false,
+        MappingConsistencyReportDto? consistency = null) => new()
     {
         Table = table,
         ChangeLog = changeLog ?? Array.Empty<MappingChangeLogEntryDto>(),
         CurrentOperatorName = "Alice Martin",
         Coverage = coverage,
+        TenantResolved = tenantResolved,
+        AuctionVerticalEnabled = auctionVerticalEnabled,
+        Consistency = consistency,
         EditOptions = EditOptions(),
+    };
+
+    private static MappingConsistencyReportDto ConsistencyWithDeadRule() => new()
+    {
+        IsTableConfigured = true,
+        DeadRules =
+        [
+            new DeadMappingRuleDto
+            {
+                SourceRegimeCode = "ADJ",
+                Part = "Adjudication",
+                Label = "Adjudication héritée",
+                Reasons = ["PartNotConsulted"],
+            },
+        ],
     };
 
     private static TvaMappingEditOptionsDto EditOptions() => new()

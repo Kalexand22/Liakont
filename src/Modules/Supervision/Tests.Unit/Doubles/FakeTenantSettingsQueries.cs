@@ -30,6 +30,8 @@ internal sealed class FakeTenantSettingsQueries : ITenantSettingsQueries
 
     public Task<Guid?> GetCurrentCompanyId(CancellationToken ct = default) => Task.FromResult(_companyId);
 
+    public Task<bool> GetAuctionVerticalEnabled(Guid companyId, CancellationToken ct = default) => Task.FromResult(false);
+
     public Task<AlertThresholdsDto?> GetAlertThresholds(Guid companyId, CancellationToken ct = default) =>
         Task.FromResult(_thresholds);
 

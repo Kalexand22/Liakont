@@ -24,6 +24,11 @@
 ### ExtractionScheduleTests
 - Heure au mauvais format rejetée — INV-TENANTSETTINGS-002
 
+### AuctionVerticalSettingsTests (FIX03)
+- `CreateDefault` désactive le vertical enchères (défaut OFF, D4) — INV-TENANTSETTINGS-010
+- `Create` persiste l'état demandé (activé / désactivé)
+- `Update` bascule l'état et pose `updated_at`
+
 ### TenantSettingsConsoleQueriesTests (API01c)
 - Vue VIDE tant que le profil du tenant n'existe pas (companyId null) — état transitoire, jamais une erreur
 - Projection de l'état de la table TVA (version, validateur, validation, comportement par défaut, nombre de règles)
@@ -39,6 +44,11 @@
 
 ### FiscalSettingsIntegrationTests
 - Upsert fiscal avec paramètres `null` persistés et relus `null` — INV-TENANTSETTINGS-004
+
+### AuctionVerticalSettingsIntegrationTests (FIX03)
+- Ligne absente ⇒ lecture `false` (défaut OFF) — INV-TENANTSETTINGS-010
+- Activation puis désactivation : round-trip + journalisation `created`/`updated` — INV-TENANTSETTINGS-005/010
+- Activation d'un tenant sans effet sur un autre (tenant-scopé) — INV-TENANTSETTINGS-006
 
 ### PaAccountIntegrationTests
 - La clé API est chiffrée en base (la colonne ne contient pas le clair) — INV-TENANTSETTINGS-003

@@ -56,4 +56,11 @@ internal interface ITvaMappingTableQueries
     /// identifiée par le couple (code régime, part). Mêmes garanties d'invalidation et de journalisation.
     /// </summary>
     Task RemoveRuleAsync(string sourceRegimeCode, string part, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Active ou désactive le vertical « vente aux enchères » du tenant courant (paramétrage produit,
+    /// décision opérateur D4 — lot FIX03). Journalisé côté handler. Permission <c>liakont.settings</c>
+    /// (gardée par la page). Quand actif, l'éditeur de règle expose le champ « part ».
+    /// </summary>
+    Task SetAuctionVerticalAsync(bool enabled, CancellationToken cancellationToken = default);
 }
