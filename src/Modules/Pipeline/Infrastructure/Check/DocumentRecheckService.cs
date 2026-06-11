@@ -125,13 +125,27 @@ internal sealed class DocumentRecheckService : IDocumentRecheckService
             buyerConfirmedB2C: document.BuyerConfirmedAsIndividual,
             cancellationToken: cancellationToken);
 
+        var lifecycle = _services.GetRequiredService<IDocumentLifecycle>();
+
         if (!decision.IsReady)
         {
             // Toujours bloqué : aucune transition (Blocked → Blocked interdit), mais on TRACE le geste opérateur
             // et le motif réévalué (item FIX02) — la re-vérification n'est plus invisible dans la piste (F06 §3)
             // et le motif affiché devient le dernier évalué (plus de motif périmé après rechargement).
-            await _services.GetRequiredService<IDocumentLifecycle>()
-                .RecordRecheckStillBlockedAsync(documentId, decision.BlockReason!, operatorIdentity, cancellationToken);
+            try
+            {
+                await lifecycle.RecordRecheckStillBlockedAsync(documentId, decision.BlockReason!, operatorIdentity, cancellationToken);
+            }
+            catch (InvalidOperationException)
+            {
+                // Course étroite : entre la lecture NON verrouillée (ci-dessus) et l'écriture VERROUILLÉE (FOR UPDATE)
+                // du cycle de vie, un geste opérateur concurrent (résolution manuelle, ou un recheck qui débloque) a
+                // transitionné le document hors de Blocked. On ne trace JAMAIS un faux « toujours bloqué » sur un
+                // document qui ne l'est plus, et on ne propage pas un 500 : on rend l'état courant (→ 409 « la
+                // re-vérification ne s'applique qu'à un document bloqué »). InvalidDocumentTransitionException dérive
+                // d'InvalidOperationException ; on l'attrape par sa base SANS référencer le Domain Documents (frontière).
+                return await CurrentStateResultAsync(queries, documentId, cancellationToken);
+            }
 
             return DocumentRecheckResult.StillBlocked(decision.BlockReason!);
         }
@@ -139,10 +153,35 @@ internal sealed class DocumentRecheckService : IDocumentRecheckService
         // Prêt : snapshot de ventilation sourcée AVANT la transition (ADR-0015), puis Blocked → ReadyToSend
         // (événement d'audit attribué à l'opérateur qui a déclenché la re-vérification — item FIX02).
         await WriteVentilationSnapshotAsync(document, decision, cancellationToken);
-        await _services.GetRequiredService<IDocumentLifecycle>()
-            .MarkReadyToSendByRecheckAsync(documentId, decision.MappingVersion!, operatorIdentity, cancellationToken);
+        try
+        {
+            await lifecycle.MarkReadyToSendByRecheckAsync(documentId, decision.MappingVersion!, operatorIdentity, cancellationToken);
+        }
+        catch (InvalidOperationException)
+        {
+            // Même course concurrente, côté déblocage : la machine à états refuse Blocked → ReadyToSend si l'état a
+            // changé entre la lecture non verrouillée et l'écriture verrouillée. On rend l'état courant plutôt qu'un
+            // 500 (le snapshot de ventilation, idempotent sur (document_id, mapping_version), reste sans effet).
+            return await CurrentStateResultAsync(queries, documentId, cancellationToken);
+        }
 
         return DocumentRecheckResult.ReadyToSend();
+    }
+
+    /// <summary>
+    /// Relit l'état COURANT du document quand le cycle de vie verrouillé a refusé l'écriture (l'état a changé sous
+    /// une action opérateur concurrente entre la lecture non verrouillée et l'écriture FOR UPDATE) et le mappe vers
+    /// un résultat GRACIEUX — <see cref="DocumentRecheckResult.NotBlocked"/> (→ 409 « état modifié ») ou
+    /// <see cref="DocumentRecheckResult.NotFound"/> — au lieu de laisser remonter une exception (HTTP 500). Garde la
+    /// piste d'audit fidèle : aucun fait d'audit n'est inscrit sur un document qui n'est plus dans l'état attendu.
+    /// </summary>
+    private static async Task<DocumentRecheckResult> CurrentStateResultAsync(
+        IDocumentQueries queries, Guid documentId, CancellationToken cancellationToken)
+    {
+        var current = await queries.GetByIdAsync(documentId, cancellationToken);
+        return current is null
+            ? DocumentRecheckResult.NotFound()
+            : DocumentRecheckResult.NotBlocked(current.State);
     }
 
     /// <summary>
