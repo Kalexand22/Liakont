@@ -36,4 +36,11 @@ internal sealed class DevTenantSeedOptions
     /// Vide = pas d'import de profil. Aucun secret n'est importé (INV-TENANTSETTINGS-007).
     /// </summary>
     public string? SeedDirectoryPath { get; init; }
+
+    /// <summary>
+    /// Valeurs FICTIVES de publication du SIREN pour le compte PA actif (Fake) — décision E1, point 2 :
+    /// un environnement de dev vierge devient transmissible sans geste manuel. <c>null</c> = publication de
+    /// dev désactivée.
+    /// </summary>
+    public DevTenantTaxReportSettingOptions? TaxReportSetting { get; init; }
 }

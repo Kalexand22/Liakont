@@ -1,0 +1,236 @@
+@namespace Liakont.Host.Components
+@using System.Globalization
+@using Liakont.Host.PaAccounts
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* PaPublicationView — rendu PUR du panneau « Publication du SIREN / transmission » (FIX201, décision E1).
+ * Reçoit l'état et le modèle de saisie en paramètres (aucune injection, aucune logique métier) pour être
+ * testable en bUnit sans auth ni base. L'opérateur publie le SIREN auprès de la Plateforme Agréée active :
+ * sans publication, aucun envoi n'est possible (diagnostic F04 §3.1). Le SIREN vient du profil (affiché,
+ * non saisi) ; la date de début, le type d'opération et la taille d'entreprise sont fournis par l'opérateur
+ * (jamais inventés — CLAUDE.md n°2/7). 100 % français. *@
+
+<SectionCard Title="Publication du SIREN / transmission" TestId="pa-publication">
+
+    <p class="liakont-pa-publication__intro">
+        Avant tout envoi, le SIREN doit être publié auprès de la Plateforme Agréée (activation du
+        <em>tax_report_setting</em>). Sans cette étape, le traitement d'envoi reste bloqué (« transmission
+        non disponible »).
+    </p>
+
+    @if (!State.HasActiveAccount)
+    {
+        <p role="alert" data-testid="pa-publication-no-account">
+            Aucun compte Plateforme Agréée actif pour ce tenant. Configurez et activez un compte ci-dessus
+            avant de publier le SIREN.
+        </p>
+    }
+    else
+    {
+        <div class="liakont-pa-publication__state" data-testid="pa-publication-state">
+            <span class="liakont-pa-publication__account">@State.PluginType — @State.Environment</span>
+
+            @if (!State.StateAvailable)
+            {
+                <StatusBadge Label="État indisponible" Severity="Severity.Warning" />
+                <span class="liakont-pa-publication__meta" data-testid="pa-publication-unavailable">
+                    L'état du réglage n'a pas pu être relu auprès de la Plateforme Agréée (plug-in non câblé,
+                    clé API absente ou PA injoignable). La publication reste possible une fois le compte complété.
+                </span>
+            }
+            else if (State.IsPublished && State.StartDate is { } start)
+            {
+                <StatusBadge Label="Publié" Severity="Severity.Success" />
+                <span class="liakont-pa-publication__meta" data-testid="pa-publication-published">
+                    Transmission active depuis le @start.ToString("dd/MM/yyyy", Fr).
+                </span>
+            }
+            else if (State.StartDate is { } scheduled)
+            {
+                @* StartDate renseignée mais non « publié » (IsPublished applique StartDate <= aujourd'hui,
+                   comme le gating d'envoi) ⇒ date FUTURE : programmé, l'envoi reste refusé avant cette date (F05 §2). *@
+                <StatusBadge Label="Programmé" Severity="Severity.Warning" />
+                <span class="liakont-pa-publication__meta" data-testid="pa-publication-scheduled">
+                    Transmission programmée : active le @scheduled.ToString("dd/MM/yyyy", Fr) (date future — aucun envoi possible avant).
+                </span>
+            }
+            else
+            {
+                <StatusBadge Label="Non publié" Severity="Severity.Info" />
+                <span class="liakont-pa-publication__meta" data-testid="pa-publication-unpublished">
+                    Le SIREN n'est pas publié : la transmission n'est pas active. Publiez-le pour pouvoir envoyer.
+                </span>
+            }
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(SuccessMessage))
+        {
+            <div class="liakont-pa-publication__success" role="status" data-testid="pa-publication-success">
+                @SuccessMessage
+            </div>
+        }
+
+        @if (!FormOpen)
+        {
+            <StratumButton Text="Publier le SIREN / activer la transmission…"
+                           Variant="ButtonVariant.Primary"
+                           Size="ButtonSize.Small"
+                           OnClick="@(_ => OnOpen.InvokeAsync())"
+                           TestId="pa-publication-open-btn" />
+        }
+        else
+        {
+            <div class="liakont-pa-publication__form" data-testid="pa-publication-form">
+                <div class="liakont-pa-publication__grid">
+                    <FormField Label="SIREN (profil)" FieldId="pa-publication-siren"
+                               HelpText="Lu du profil du tenant. Le réglage est assigné au niveau SIREN (cin_scheme « 0002 »).">
+                        <input id="pa-publication-siren"
+                               class="form-control"
+                               type="text"
+                               value="@(string.IsNullOrWhiteSpace(State.Siren) ? "— profil incomplet —" : State.Siren)"
+                               disabled
+                               data-testid="pa-publication-siren" />
+                    </FormField>
+
+                    <FormField Label="Date de début de publication" FieldId="pa-publication-startdate" Required="true"
+                               HelpText="Une date future = SIREN non publié (aucun envoi avant cette date).">
+                        <input id="pa-publication-startdate"
+                               class="form-control"
+                               type="date"
+                               value="@Form.StartDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)"
+                               @onchange="OnStartDateChange"
+                               disabled="@Busy"
+                               data-testid="pa-publication-startdate" />
+                    </FormField>
+
+                    <FormField Label="Type d'opération" FieldId="pa-publication-typeoperation" Required="true"
+                               HelpText="Valeur attendue par votre Plateforme Agréée (F05). Jamais devinée par le produit.">
+                        <input id="pa-publication-typeoperation"
+                               class="form-control"
+                               type="text"
+                               value="@Form.TypeOperation"
+                               @oninput="OnTypeOperationInput"
+                               disabled="@Busy"
+                               data-testid="pa-publication-typeoperation" />
+                    </FormField>
+
+                    <FormField Label="Taille d'entreprise" FieldId="pa-publication-enterprisesize" Required="true"
+                               HelpText="Valeur attendue par votre Plateforme Agréée (F05). Jamais devinée par le produit.">
+                        <input id="pa-publication-enterprisesize"
+                               class="form-control"
+                               type="text"
+                               value="@Form.EnterpriseSize"
+                               @oninput="OnEnterpriseSizeInput"
+                               disabled="@Busy"
+                               data-testid="pa-publication-enterprisesize" />
+                    </FormField>
+
+                    <FormField Label="Code NAF (facultatif)" FieldId="pa-publication-naf"
+                               HelpText="Code INSEE, facultatif. Laissez vide si non requis.">
+                        <input id="pa-publication-naf"
+                               class="form-control"
+                               type="text"
+                               value="@Form.NafCode"
+                               @oninput="OnNafInput"
+                               disabled="@Busy"
+                               data-testid="pa-publication-naf" />
+                    </FormField>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(Error))
+                {
+                    <div class="liakont-pa-publication__alert" role="alert" data-testid="pa-publication-error">
+                        @Error
+                    </div>
+                }
+
+                <div class="liakont-pa-publication__actions">
+                    <StratumButton Text="@(Busy ? "Publication…" : "Publier")"
+                                   Variant="ButtonVariant.Primary"
+                                   Size="ButtonSize.Small"
+                                   Disabled="@(!CanSubmit)"
+                                   OnClick="@(_ => OnSubmit.InvokeAsync())"
+                                   TestId="pa-publication-submit-btn" />
+                    <StratumButton Text="Annuler"
+                                   Variant="ButtonVariant.Secondary"
+                                   Outline
+                                   Size="ButtonSize.Small"
+                                   Disabled="@Busy"
+                                   OnClick="@(_ => OnCancel.InvokeAsync())"
+                                   TestId="pa-publication-cancel-btn" />
+                </div>
+            </div>
+        }
+    }
+
+</SectionCard>
+
+@code {
+    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+
+    /// <summary>État de publication du compte PA actif (jamais <c>null</c> : la page en fournit toujours un).</summary>
+    [Parameter, EditorRequired]
+    public PaPublicationState State { get; set; } = null!;
+
+    /// <summary>Modèle de saisie (instance partagée avec la page), muté par les champs.</summary>
+    [Parameter, EditorRequired]
+    public PaPublicationFormModel Form { get; set; } = null!;
+
+    /// <summary><c>true</c> quand le formulaire de publication est ouvert.</summary>
+    [Parameter]
+    public bool FormOpen { get; set; }
+
+    /// <summary><c>true</c> pendant l'envoi de la publication (champs et boutons désactivés).</summary>
+    [Parameter]
+    public bool Busy { get; set; }
+
+    /// <summary>Message d'erreur de la publication, ou <c>null</c>.</summary>
+    [Parameter]
+    public string? Error { get; set; }
+
+    /// <summary>Message de succès de la dernière publication, ou <c>null</c>.</summary>
+    [Parameter]
+    public string? SuccessMessage { get; set; }
+
+    /// <summary>Déclenché pour ouvrir le formulaire de publication.</summary>
+    [Parameter]
+    public EventCallback OnOpen { get; set; }
+
+    /// <summary>Déclenché à la soumission du formulaire de publication.</summary>
+    [Parameter]
+    public EventCallback OnSubmit { get; set; }
+
+    /// <summary>Déclenché à l'annulation du formulaire.</summary>
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    /// <summary>
+    /// Validation de PRÉSENCE uniquement (type d'opération + taille d'entreprise). Le SIREN vient du profil ;
+    /// la conformité fine des valeurs est validée par la Plateforme Agréée, dont l'erreur est affichée.
+    /// </summary>
+    private bool CanSubmit =>
+        !Busy
+        && !string.IsNullOrWhiteSpace(Form.TypeOperation)
+        && !string.IsNullOrWhiteSpace(Form.EnterpriseSize);
+
+    private void OnStartDateChange(ChangeEventArgs e)
+    {
+        if (DateOnly.TryParse(e.Value as string, CultureInfo.InvariantCulture, out var parsed))
+        {
+            Form.StartDate = parsed;
+        }
+    }
+
+    private void OnTypeOperationInput(ChangeEventArgs e) => Form.TypeOperation = e.Value as string ?? string.Empty;
+
+    private void OnEnterpriseSizeInput(ChangeEventArgs e) => Form.EnterpriseSize = e.Value as string ?? string.Empty;
+
+    private void OnNafInput(ChangeEventArgs e) => Form.NafCode = NullIfEmpty(e.Value as string);
+
+    private static string? NullIfEmpty(string? value)
+    {
+        var trimmed = value?.Trim();
+        return string.IsNullOrEmpty(trimmed) ? null : trimmed;
+    }
+}
