@@ -107,9 +107,12 @@ Un `docker compose pull && docker compose up -d` (mise à jour) **préserve** :
 > tranchés par **OPS01b** (sauvegarde/PRA) / **OPS01c** (ADR topologie). En V1, la promesse « secrets
 > chiffrés » (CLAUDE.md n°10) est donc conditionnée à la protection de ce volume.
 
-> **Sauvegarde** : la procédure `pg_dump` par base + copie des volumes d'archive est outillée par
-> l'item **OPS01b** (sauvegarde/restauration/PRA). Tant qu'OPS01b n'est pas livré, sauvegarder
-> manuellement les volumes ci-dessus avant toute opération sensible.
+> **Sauvegarde / restauration / PRA** (OPS01b) : outillées par [`../backup.sh`](../backup.sh),
+> [`../restore.sh`](../restore.sh) et le plan [`../SAUVEGARDE-PRA.md`](../SAUVEGARDE-PRA.md)
+> — sauvegarde **par base** (`pg_dump -Fc`) + archive du volume du coffre, empreintes **SHA-256
+> vérifiées au restore**, objectifs RTO/RPO, et restauration en **instance vierge prouvée par test**
+> (`restore → vérifieur du coffre TRK06 vert`). **Chiffrer les sauvegardes** (le volume
+> `liakont-app-data` est porteur de secret — voir l'avertissement ci-dessus).
 
 ---
 
