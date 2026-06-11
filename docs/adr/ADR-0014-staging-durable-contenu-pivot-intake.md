@@ -10,6 +10,45 @@ la plateforme devient le détenteur durable du contenu pendant le traitement). F
 
 ---
 
+## Amendement FIX07b (2026-06-11) — staging perdu : emplacement stable + réhydratation au re-push
+
+Recette humaine GATE_CONSOLE_WEB : un document `Detected` dont le **contenu stagé a disparu**
+devenait un **zombie définitif**. Deux causes, deux corrections (décision opérateur D6) :
+
+1. **Emplacement de staging STABLE et configurable.** La racine est du paramétrage d'instance
+   (`Staging:Storage:FileSystem:RootPath`). Le **repli** par défaut était `AppContext.BaseDirectory/
+   staging-store`, c.-à-d. **sous l'arbre de build** (`bin/`) — effacé au rebuild/redéploiement, d'où
+   la perte. Le composition root (Host) impose désormais un repli **hors `bin/`** :
+   `ContentRootPath/App_Data/staging-store` (même logique que les PDF reçus, `IngestionStorageOptions.
+   PdfRootPath`). **Une instance de production configure un volume dédié** (distinct du coffre WORM,
+   qui reste immuable). Le staging demeure transitoire et purgeable (ce N'EST NI une table d'audit NI
+   le coffre — CLAUDE.md n°4 inchangé).
+
+2. **Réhydratation au re-push de l'agent.** `IngestDocumentBatchHandler` re-stage désormais le pivot
+   d'un document **rangé MAIS dont le staging est absent** (et plus seulement « reçu mais non rangé »,
+   ADR-0012). Le re-push de l'agent (filet de sécurité) re-fournit le **même** contenu : l'empreinte
+   étant déjà connue (chemin doublon), la clé de staging porte cette même empreinte, re-vérifiée à la
+   relecture — **jamais une résurrection altérée**. Un vrai doublon terminal (rangé **et** staging
+   présent) reste sans effet.
+
+### Runbook — rejeu d'un événement dead-letté « contenu stagé absent »
+
+Re-stager rend le document re-traitable **tant que l'événement `DocumentReceivedV1` d'origine est
+encore dans l'outbox** : la re-livraison (transitoire, §3) aboutira d'elle-même. Mais l'outbox du
+socle **dead-lette** un événement après `OutboxWorkerOptions.MaxRetries` échecs de CHECK
+(`outbox.pending_events` → `outbox.dead_letter_events`). Si l'absence de staging a persisté assez
+longtemps pour épuiser ces tentatives, **le re-stage seul ne re-déclenche pas le CHECK** : l'événement
+est figé en dead-letter.
+
+Conformément à la décision « **pas de rejeu automatique inventé** » (le socle outbox n'expose aucun
+re-drive), le rejeu est un **geste opérateur** : après re-stage du contenu, **remettre l'événement en
+file** en déplaçant la ligne de `outbox.dead_letter_events` vers `outbox.pending_events`
+(`processed_at = NULL`, `retry_count = 0`). Le CHECK relit alors le contenu re-stagé et fait avancer le
+document. L'**alerte de supervision « document en attente de contenu »** (détection proactive de ce cas)
+est un **fast-follow** (D6) — non couvert par FIX07b.
+
+---
+
 ## Contexte
 
 Le pipeline de traitement (PIP01 : CHECK → SEND → SYNC) exige le **pivot COMPLET** à chaque

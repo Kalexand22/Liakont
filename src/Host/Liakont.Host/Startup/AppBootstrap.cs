@@ -180,6 +180,11 @@ public static class AppBootstrap
         builder.Services.AddStagingModule(builder.Configuration);
         builder.Services.AddScoped<IArchivedDocumentProbe, ArchiveStoreArchivedDocumentProbe>();
 
+        // Emplacement du magasin de staging : repli STABLE hors arbre de build (FIX07b) quand aucune racine
+        // d'instance n'est configurée (Staging:Storage:FileSystem:RootPath). Voir StagingHostRegistration —
+        // remplace le repli bin/ du module, cause de la perte de contenu (documents zombies).
+        builder.Services.AddStableStagingRoot(builder.Environment.ContentRootPath);
+
         // Reconciliation (TRK07) après Archive : rapproche les PDF du pool non lié des documents émis et
         // ajoute le PDF réconcilié au paquet d'archive en addendum (consomme IArchiveService). Le job
         // système fait le fan-out de la passe sur tous les tenants via le TenantJobRunner (SOL06).
