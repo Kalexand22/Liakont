@@ -14,7 +14,9 @@ CREATE TABLE IF NOT EXISTS tenantsettings.alert_routing_rules (
 
     CONSTRAINT pk_alert_routing_rules PRIMARY KEY (id),
     -- Au moins un sélecteur (par règle OU par gravité) : une entrée « attrape-tout » silencieuse est interdite.
-    CONSTRAINT ck_alert_routing_rules_selector CHECK (rule_key IS NOT NULL OR severity IS NOT NULL)
+    CONSTRAINT ck_alert_routing_rules_selector CHECK (rule_key IS NOT NULL OR severity IS NOT NULL),
+    -- Au moins un destinataire : symétrique de la garde du domaine (AlertRoutingRule.Create), défense en profondeur.
+    CONSTRAINT ck_alert_routing_rules_recipients CHECK (cardinality(recipients) > 0)
 );
 
 CREATE INDEX IF NOT EXISTS ix_alert_routing_rules_company

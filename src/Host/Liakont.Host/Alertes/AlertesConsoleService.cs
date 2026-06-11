@@ -89,6 +89,17 @@ internal sealed class AlertesConsoleService : IAlertesConsoleService
     {
         ArgumentNullException.ThrowIfNull(routing);
 
+        // Clés de règle VALIDES = celles qui alimentent la liste déroulante (catalogue F12 §5.2, exposé par le
+        // Contract Supervision). Une clé mal saisie ou d'une règle renommée produirait sinon une entrée MORTE qui
+        // ne correspond jamais — l'équipe destinataire cesserait silencieusement de recevoir l'alerte. La garde
+        // vit ici (Host a accès aux deux côtés) ; TenantSettings.Domain ne référence pas AlertRuleCatalog (frontière).
+        var device = await _deviceQueries.GetDeviceStatusAsync(cancellationToken).ConfigureAwait(false);
+        var knownRuleKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rule in device.Rules)
+        {
+            knownRuleKeys.Add(rule.RuleKey);
+        }
+
         var rules = new List<AlertRoutingRuleInput>();
         foreach (var row in routing.Rows)
         {
@@ -100,6 +111,11 @@ internal sealed class AlertesConsoleService : IAlertesConsoleService
             if (ruleKey is null && severity is null && recipients.Length == 0)
             {
                 continue;
+            }
+
+            if (ruleKey is not null && !knownRuleKeys.Contains(ruleKey))
+            {
+                throw new ArgumentException($"Règle de routage inconnue : « {ruleKey} ».", nameof(routing));
             }
 
             rules.Add(new AlertRoutingRuleInput
