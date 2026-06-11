@@ -171,11 +171,13 @@ public sealed class DocumentTransitionTests
         var evt = doc.MarkManuallyHandled(
             reason: "Avoir orphelin traité dans le logiciel source",
             operatorIdentity: "alice@cmp",
-            occurredAtUtc: T0.AddMinutes(1));
+            occurredAtUtc: T0.AddMinutes(1),
+            operatorName: "Alice Comptable");
 
         doc.State.Should().Be(DocumentState.ManuallyHandled);
         evt.EventType.Should().Be(DocumentEventType.DocumentManuallyHandled);
         evt.OperatorIdentity.Should().Be("alice@cmp");
+        evt.OperatorName.Should().Be("Alice Comptable", "le nom d'affichage est porté par l'événement (FIX305).");
         evt.Detail.Should().Contain("Avoir orphelin traité dans le logiciel source");
     }
 
@@ -222,11 +224,13 @@ public sealed class DocumentTransitionTests
         var evt = doc.Supersede(
             replacementReference: "F-2026-002",
             operatorIdentity: "carol@cmp",
-            occurredAtUtc: T0.AddMinutes(1));
+            occurredAtUtc: T0.AddMinutes(1),
+            operatorName: "Carole Comptable");
 
         doc.State.Should().Be(DocumentState.Superseded);
         evt.EventType.Should().Be(DocumentEventType.DocumentSuperseded);
         evt.OperatorIdentity.Should().Be("carol@cmp");
+        evt.OperatorName.Should().Be("Carole Comptable", "le nom d'affichage est porté par l'événement (FIX305).");
         evt.Detail.Should().Contain("F-2026-002");
     }
 
@@ -250,13 +254,14 @@ public sealed class DocumentTransitionTests
         // SANS changer l'état (le document reste Blocked ; la re-vérification le débloque ensuite).
         var doc = InState(DocumentState.Blocked);
 
-        var evt = doc.ConfirmBuyerAsIndividual(operatorIdentity: "alice@cmp", occurredAtUtc: T0.AddMinutes(1));
+        var evt = doc.ConfirmBuyerAsIndividual(operatorIdentity: "alice@cmp", occurredAtUtc: T0.AddMinutes(1), operatorName: "Alice Comptable");
 
         doc.State.Should().Be(DocumentState.Blocked, "le verdict B2C ne change pas l'état (recheck requis pour débloquer).");
         doc.BuyerConfirmedAsIndividual.Should().BeTrue();
         doc.LastUpdateUtc.Should().Be(T0.AddMinutes(1));
         evt.EventType.Should().Be(DocumentEventType.DocumentBuyerConfirmedB2C);
         evt.OperatorIdentity.Should().Be("alice@cmp");
+        evt.OperatorName.Should().Be("Alice Comptable", "le nom d'affichage est porté par l'événement (FIX305).");
         evt.DocumentId.Should().Be(doc.Id);
     }
 
@@ -298,12 +303,13 @@ public sealed class DocumentTransitionTests
         // courant affiché.
         var doc = InState(DocumentState.Blocked);
 
-        var evt = doc.RecordRecheckStillBlocked("Acheteur professionnel non confirmé.", operatorIdentity: "alice@cmp", occurredAtUtc: T0.AddMinutes(2));
+        var evt = doc.RecordRecheckStillBlocked("Acheteur professionnel non confirmé.", operatorIdentity: "alice@cmp", occurredAtUtc: T0.AddMinutes(2), operatorName: "Alice Comptable");
 
         doc.State.Should().Be(DocumentState.Blocked, "le recheck toujours bloqué ne change pas l'état.");
         doc.LastUpdateUtc.Should().Be(T0.AddMinutes(2));
         evt.EventType.Should().Be(DocumentEventType.DocumentRecheckedStillBlocked);
         evt.OperatorIdentity.Should().Be("alice@cmp");
+        evt.OperatorName.Should().Be("Alice Comptable", "le nom d'affichage est porté par l'événement (FIX305).");
         evt.Detail.Should().Be("Acheteur professionnel non confirmé.", "le motif réévalué porté par l'événement = le motif courant.");
         evt.DocumentId.Should().Be(doc.Id);
     }

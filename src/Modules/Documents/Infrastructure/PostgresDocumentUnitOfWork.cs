@@ -79,10 +79,10 @@ internal sealed class PostgresDocumentUnitOfWork : IDocumentUnitOfWork
     private const string InsertEventSql = """
         INSERT INTO documents.document_events
             (id, document_id, timestamp_utc, event_type, detail, payload_snapshot,
-             pa_response_snapshot, mapping_trace, operator_identity)
+             pa_response_snapshot, mapping_trace, operator_identity, operator_name)
         VALUES
             (@Id, @DocumentId, @TimestampUtc, @EventType, @Detail, @PayloadSnapshot::jsonb,
-             @PaResponseSnapshot::jsonb, @MappingTrace::jsonb, @OperatorIdentity)
+             @PaResponseSnapshot::jsonb, @MappingTrace::jsonb, @OperatorIdentity, @OperatorName)
         """;
 
     private readonly TransactionScope _txn;
@@ -181,6 +181,7 @@ internal sealed class PostgresDocumentUnitOfWork : IDocumentUnitOfWork
                 documentEvent.PaResponseSnapshot,
                 documentEvent.MappingTrace,
                 documentEvent.OperatorIdentity,
+                documentEvent.OperatorName,
             },
             _txn.Transaction,
             cancellationToken: cancellationToken));

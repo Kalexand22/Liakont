@@ -55,6 +55,7 @@ public sealed class DocumentResolutionConsoleServiceTests
         lifecycle.LastResolveId.Should().Be(DocId);
         lifecycle.LastResolveReason.Should().Be("Avoir orphelin.");
         lifecycle.LastResolveOperator.Should().Be(userId.ToString(), "l'identité d'audit est l'opérateur authentifié, jamais une valeur de l'UI");
+        lifecycle.LastResolveOperatorName.Should().Be("Alice Martin", "le nom d'affichage de l'opérateur authentifié est aussi capturé pour la piste d'audit (FIX305)");
         audit.Calls.Should().Be(1);
         audit.LastActivityType.Should().Be("documents.resolved_manually");
     }
@@ -115,6 +116,7 @@ public sealed class DocumentResolutionConsoleServiceTests
         lifecycle.LastSupersedeId.Should().Be(DocId);
         lifecycle.LastReplacementId.Should().Be(ReplacementId);
         lifecycle.LastSupersedeOperator.Should().Be(userId.ToString());
+        lifecycle.LastSupersedeOperatorName.Should().Be("Alice Martin", "le nom d'affichage de l'opérateur est aussi capturé pour la piste d'audit (FIX305)");
         audit.Calls.Should().Be(1);
         audit.LastActivityType.Should().Be("documents.superseded");
     }
@@ -229,23 +231,29 @@ public sealed class DocumentResolutionConsoleServiceTests
 
         public string? LastSupersedeOperator { get; private set; }
 
+        public string? LastResolveOperatorName { get; private set; }
+
+        public string? LastSupersedeOperatorName { get; private set; }
+
         public Task<DocumentResolutionOutcome> ResolveManuallyAsync(
-            Guid documentId, string reason, string operatorIdentity, CancellationToken cancellationToken = default)
+            Guid documentId, string reason, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default)
         {
             ResolveManuallyCalls++;
             LastResolveId = documentId;
             LastResolveReason = reason;
             LastResolveOperator = operatorIdentity;
+            LastResolveOperatorName = operatorName;
             return Task.FromResult(ResolveOutcome);
         }
 
         public Task<DocumentResolutionOutcome> SupersedeAsync(
-            Guid documentId, Guid replacementDocumentId, string operatorIdentity, CancellationToken cancellationToken = default)
+            Guid documentId, Guid replacementDocumentId, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default)
         {
             SupersedeCalls++;
             LastSupersedeId = documentId;
             LastReplacementId = replacementDocumentId;
             LastSupersedeOperator = operatorIdentity;
+            LastSupersedeOperatorName = operatorName;
             return Task.FromResult(SupersedeOutcome);
         }
 
@@ -253,9 +261,9 @@ public sealed class DocumentResolutionConsoleServiceTests
 
         public Task MarkReadyToSendAsync(Guid documentId, string mappingVersion, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
-        public Task<DocumentRecheckPersistOutcome> MarkReadyToSendByRecheckAsync(Guid documentId, string mappingVersion, string operatorIdentity, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<DocumentRecheckPersistOutcome> MarkReadyToSendByRecheckAsync(Guid documentId, string mappingVersion, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
-        public Task<DocumentRecheckPersistOutcome> RecordRecheckStillBlockedAsync(Guid documentId, string reevaluatedReason, string operatorIdentity, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<DocumentRecheckPersistOutcome> RecordRecheckStillBlockedAsync(Guid documentId, string reevaluatedReason, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         public Task BeginSendingAsync(Guid documentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
@@ -265,7 +273,7 @@ public sealed class DocumentResolutionConsoleServiceTests
 
         public Task MarkTechnicalErrorAsync(Guid documentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
-        public Task ConfirmBuyerAsIndividualAsync(Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task ConfirmBuyerAsIndividualAsync(Guid documentId, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class FakeDocumentQueries : IDocumentQueries

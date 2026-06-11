@@ -227,6 +227,45 @@ public sealed class DocumentDetailViewTests : BunitContext
     }
 
     [Fact]
+    public void History_Should_Show_Operator_By_Name_With_The_Guid_In_The_Tooltip()
+    {
+        // FIX305 : un événement portant un NOM persisté l'affiche (« par Marie Comptable ») ; le GUID brut
+        // n'apparaît PAS dans le texte, mais reste disponible en détail technique (infobulle title).
+        var guid = "30da7398-1111-2222-3333-444455556666";
+        var events = new List<DocumentEventDto>
+        {
+            Event("DocumentRecheckedStillBlocked", new DateTimeOffset(2026, 6, 1, 9, 0, 0, TimeSpan.Zero), detail: "Acheteur professionnel non confirmé.", op: guid, opName: "Marie Comptable"),
+        };
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(events: events)));
+
+        SelectTab(cut, "Historique");
+        var operatorSpan = cut.Find("[data-testid='document-detail-event'] .liakont-doc-detail__event-operator");
+        operatorSpan.TextContent.Should().Contain("Marie Comptable").And.NotContain(guid);
+        operatorSpan.GetAttribute("title").Should().Be(guid, "le GUID reste le détail technique en infobulle");
+    }
+
+    [Fact]
+    public void History_Should_Fall_Back_To_A_Neutral_Account_Mention_For_Legacy_Events_Without_A_Name()
+    {
+        // FIX305 : un événement ANTÉRIEUR (sans nom persisté) ne doit pas afficher un GUID brut illisible —
+        // repli sur une mention neutre « compte 30da7398… », le GUID complet restant en infobulle. Append-only :
+        // l'événement ancien n'est jamais réécrit, c'est la RESTITUTION qui retombe proprement.
+        var guid = "30da7398-1111-2222-3333-444455556666";
+        var events = new List<DocumentEventDto>
+        {
+            Event("DocumentManuallyHandled", new DateTimeOffset(2026, 6, 1, 9, 0, 0, TimeSpan.Zero), detail: "Traité manuellement.", op: guid, opName: null),
+        };
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(events: events)));
+
+        SelectTab(cut, "Historique");
+        var operatorSpan = cut.Find("[data-testid='document-detail-event'] .liakont-doc-detail__event-operator");
+        operatorSpan.TextContent.Should().Contain("compte 30da7398").And.NotContain("30da7398-1111", "le GUID brut complet n'est pas affiché en clair");
+        operatorSpan.GetAttribute("title").Should().Be(guid, "le GUID complet reste accessible en infobulle");
+    }
+
+    [Fact]
     public void Should_Render_Archive_Reference_And_Export_Link_When_Archived()
     {
         var archive = new ArchiveReferenceDto
@@ -367,7 +406,7 @@ public sealed class DocumentDetailViewTests : BunitContext
         LastUpdateUtc = new DateTimeOffset(2026, 6, 1, 9, 0, 0, TimeSpan.Zero),
     };
 
-    private static DocumentEventDto Event(string type, DateTimeOffset when, string? detail = null, string? op = null) => new()
+    private static DocumentEventDto Event(string type, DateTimeOffset when, string? detail = null, string? op = null, string? opName = null) => new()
     {
         Id = Guid.NewGuid(),
         DocumentId = Guid.Empty,
@@ -375,5 +414,6 @@ public sealed class DocumentDetailViewTests : BunitContext
         EventType = type,
         Detail = detail,
         OperatorIdentity = op,
+        OperatorName = opName,
     };
 }

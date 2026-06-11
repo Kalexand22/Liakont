@@ -79,7 +79,7 @@ internal sealed class DocumentControlActionsService : IDocumentControlActions
         if (verdict == ConsoleVerdict.ConfirmIndividualB2c)
         {
             // Enregistre la décision B2C (persistée + journalisée) SANS changer l'état (la re-vérification débloque).
-            await _lifecycle.ConfirmBuyerAsIndividualAsync(documentId, operatorId, cancellationToken).ConfigureAwait(false);
+            await _lifecycle.ConfirmBuyerAsIndividualAsync(documentId, operatorId, ActorName(actor), cancellationToken).ConfigureAwait(false);
             await _activityLogger.LogActivityAsync(
                 DocumentActionContract.DocumentEntityType,
                 documentId.ToString(),
@@ -99,7 +99,7 @@ internal sealed class DocumentControlActionsService : IDocumentControlActions
         // handle_manually : Blocked → ManuallyHandled (terminal), via la résolution terminale PARTAGÉE (API02c,
         // ResolveManuallyAsync) — une seule mécanique de traitement manuel, motif dérivé du garde-fou (B2B hors
         // passerelle). Le résultat (pas d'exception) mappe proprement un refus concurrent en message opérateur.
-        var manualOutcome = await _lifecycle.ResolveManuallyAsync(documentId, DocumentActionContract.ManualB2bReason, operatorId, cancellationToken).ConfigureAwait(false);
+        var manualOutcome = await _lifecycle.ResolveManuallyAsync(documentId, DocumentActionContract.ManualB2bReason, operatorId, ActorName(actor), cancellationToken).ConfigureAwait(false);
         if (manualOutcome is not DocumentResolutionOutcome.Succeeded)
         {
             return DocumentControlActionResult.Failure(ResolutionFailureMessage(manualOutcome, document.DocumentNumber));
@@ -129,7 +129,7 @@ internal sealed class DocumentControlActionsService : IDocumentControlActions
 
         var actor = _actorAccessor.Current;
         var operatorId = ActorId(actor);
-        var result = await _recheck.RecheckAsync(documentId, operatorId, cancellationToken).ConfigureAwait(false);
+        var result = await _recheck.RecheckAsync(documentId, operatorId, ActorName(actor), cancellationToken).ConfigureAwait(false);
 
         switch (result.Outcome)
         {
@@ -192,7 +192,7 @@ internal sealed class DocumentControlActionsService : IDocumentControlActions
 
         // Toute la boucle + la décision de blocage vivent dans le cœur Pipeline (source unique) : la trace d'audit
         // fiscale FIX02 est inscrite PAR document par le cycle de vie. Aucune logique fiscale ni machine à états ici.
-        var summary = await _recheck.RecheckManyAsync(documentIds, operatorId, cancellationToken).ConfigureAwait(false);
+        var summary = await _recheck.RecheckManyAsync(documentIds, operatorId, ActorName(actor), cancellationToken).ConfigureAwait(false);
 
         // On journalise EN PLUS le geste GROUPÉ de l'opérateur (un seul fait d'activité, non rattaché à un document
         // unique — même convention que « Tout envoyer ») pour la visibilité d'exploitation. Aucun fait journalisé si
@@ -218,6 +218,10 @@ internal sealed class DocumentControlActionsService : IDocumentControlActions
     /// <summary>Identité d'audit de l'opérateur (GUID utilisateur ; « system » si non authentifié) — identique aux endpoints.</summary>
     private static string ActorId(IActorContext actor) =>
         actor.IsAuthenticated ? actor.UserId.ToString() : "system";
+
+    /// <summary>Nom d'affichage de l'opérateur capturé pour la piste d'audit (item FIX305 ; <c>null</c> = repli sur le GUID) — identique aux endpoints.</summary>
+    private static string? ActorName(IActorContext actor) =>
+        actor.IsAuthenticated ? (actor.DisplayName ?? actor.Email) : null;
 
     /// <summary>Message opérateur pour un refus de résolution manuelle (B2B), citant le numéro de document (CLAUDE.md n°12).</summary>
     private static string ResolutionFailureMessage(DocumentResolutionOutcome outcome, string documentNumber) => outcome switch
