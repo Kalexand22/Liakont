@@ -174,6 +174,10 @@ try {
         $out = [System.IO.File]::ReadAllText($dst)
         Assert-True (-not $out.Contains("`r")) 'aucun CRLF dans la destination'
         Assert-Equal "reverse_proxy liakont:8080`nencode gzip`n" $out 'contenu utile préservé en LF'
+        # Aucun BOM UTF-8 : un BOM en tête d'un Caddyfile casse la 1re directive sous Linux (même
+        # classe de bug silencieux que le CRLF) — la lecture via ReadAllText masquerait un BOM régressé.
+        $dstBytes = [System.IO.File]::ReadAllBytes($dst)
+        Assert-True (-not ($dstBytes.Length -ge 3 -and $dstBytes[0] -eq 0xEF -and $dstBytes[1] -eq 0xBB -and $dstBytes[2] -eq 0xBF)) 'aucun BOM UTF-8 dans la destination'
         # Idempotence : une source déjà en LF reste identique.
         $dst2 = Join-Path $tmpRoot 'crlf-dst2.conf'
         Copy-DeploymentFileAsLf -Source $dst -Destination $dst2
