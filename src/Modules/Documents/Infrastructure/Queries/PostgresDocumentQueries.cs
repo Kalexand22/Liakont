@@ -183,7 +183,7 @@ public sealed class PostgresDocumentQueries : IDocumentQueries
                    payload_snapshot::text AS payload_snapshot,
                    pa_response_snapshot::text AS pa_response_snapshot,
                    mapping_trace::text AS mapping_trace,
-                   operator_identity
+                   operator_identity, operator_name
             FROM documents.document_events
             WHERE document_id = @DocumentId
             ORDER BY timestamp_utc
@@ -402,6 +402,7 @@ public sealed class PostgresDocumentQueries : IDocumentQueries
             PaResponseSnapshot = (string?)row.pa_response_snapshot,
             MappingTrace = (string?)row.mapping_trace,
             OperatorIdentity = (string?)row.operator_identity,
+            OperatorName = (string?)row.operator_name,
         };
     }
 }

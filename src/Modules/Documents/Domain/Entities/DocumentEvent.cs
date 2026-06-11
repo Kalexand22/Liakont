@@ -44,6 +44,16 @@ public sealed class DocumentEvent
     public string? OperatorIdentity { get; private set; }
 
     /// <summary>
+    /// Nom d'affichage de l'opérateur CAPTURÉ AU MOMENT de l'événement (item FIX305, même motif que
+    /// <c>operator_name</c> du journal de mapping TVA) : la piste d'audit reste lisible même si le compte
+    /// est renommé ou supprimé plus tard (jamais de résolution différée). <c>null</c> pour un événement
+    /// système, ou pour un événement ANTÉRIEUR à FIX305 sans nom persisté — la restitution retombe alors
+    /// sur l'<see cref="OperatorIdentity"/> (GUID), gardé comme détail technique. L'événement reste
+    /// append-only : aucun nom n'est jamais réécrit après coup (CLAUDE.md n°4).
+    /// </summary>
+    public string? OperatorName { get; private set; }
+
+    /// <summary>
     /// Crée l'événement de GENÈSE écrit à la détection du document par l'ingestion (PIV04). Événement
     /// SYSTÈME (aucun opérateur), sans snapshot (le document n'est pas encore transmis).
     /// </summary>
@@ -75,7 +85,8 @@ public sealed class DocumentEvent
         DocumentEventType eventType,
         DateTimeOffset occurredAtUtc,
         string detail,
-        string? operatorIdentity)
+        string? operatorIdentity,
+        string? operatorName = null)
     {
         return new DocumentEvent
         {
@@ -88,6 +99,7 @@ public sealed class DocumentEvent
             PaResponseSnapshot = null,
             MappingTrace = null,
             OperatorIdentity = operatorIdentity,
+            OperatorName = NormalizeOperatorName(operatorName),
         };
     }
 
@@ -227,7 +239,7 @@ public sealed class DocumentEvent
     /// snapshot ; n'emporte AUCUNE transition d'état (le document reste <c>Blocked</c> jusqu'à la
     /// re-vérification — c'est elle qui débloque, le verdict ne fait que lever le garde-fou pour ce document).
     /// </summary>
-    public static DocumentEvent BuyerConfirmedAsIndividual(Guid documentId, DateTimeOffset occurredAtUtc, string operatorIdentity)
+    public static DocumentEvent BuyerConfirmedAsIndividual(Guid documentId, DateTimeOffset occurredAtUtc, string operatorIdentity, string? operatorName = null)
     {
         if (string.IsNullOrWhiteSpace(operatorIdentity))
         {
@@ -246,6 +258,7 @@ public sealed class DocumentEvent
             PaResponseSnapshot = null,
             MappingTrace = null,
             OperatorIdentity = operatorIdentity.Trim(),
+            OperatorName = NormalizeOperatorName(operatorName),
         };
     }
 
@@ -257,7 +270,7 @@ public sealed class DocumentEvent
     /// motif COURANT (dernier évalué, plus de motif périmé après rechargement). Sans snapshot ; n'emporte
     /// AUCUNE transition d'état (la machine à états interdit <c>Blocked → Blocked</c>).
     /// </summary>
-    public static DocumentEvent RecheckedStillBlocked(Guid documentId, DateTimeOffset occurredAtUtc, string reevaluatedReason, string operatorIdentity)
+    public static DocumentEvent RecheckedStillBlocked(Guid documentId, DateTimeOffset occurredAtUtc, string reevaluatedReason, string operatorIdentity, string? operatorName = null)
     {
         if (string.IsNullOrWhiteSpace(reevaluatedReason))
         {
@@ -280,6 +293,7 @@ public sealed class DocumentEvent
             PaResponseSnapshot = null,
             MappingTrace = null,
             OperatorIdentity = operatorIdentity.Trim(),
+            OperatorName = NormalizeOperatorName(operatorName),
         };
     }
 
@@ -293,7 +307,8 @@ public sealed class DocumentEvent
         string? payloadSnapshot,
         string? paResponseSnapshot,
         string? mappingTrace,
-        string? operatorIdentity)
+        string? operatorIdentity,
+        string? operatorName = null)
     {
         return new DocumentEvent
         {
@@ -306,6 +321,11 @@ public sealed class DocumentEvent
             PaResponseSnapshot = paResponseSnapshot,
             MappingTrace = mappingTrace,
             OperatorIdentity = operatorIdentity,
+            OperatorName = NormalizeOperatorName(operatorName),
         };
     }
+
+    /// <summary>Normalise le nom d'affichage capturé : <c>null</c> si vide/blanc, sinon élagué (cohérent avec l'identité).</summary>
+    private static string? NormalizeOperatorName(string? operatorName)
+        => string.IsNullOrWhiteSpace(operatorName) ? null : operatorName.Trim();
 }

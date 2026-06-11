@@ -207,7 +207,7 @@ public sealed class Document
     /// <see cref="MarkReadyToSend(DateTimeOffset, string?)"/>) afin qu'aucun appelant ne puisse passer la
     /// version en positionnel et la voir liée au paramètre <c>detail</c> — perte de traçabilité F03 silencieuse.
     /// </summary>
-    public DocumentEvent MarkReadyToSendWithMapping(DateTimeOffset occurredAtUtc, string mappingVersion, string? detail = null, string? operatorIdentity = null)
+    public DocumentEvent MarkReadyToSendWithMapping(DateTimeOffset occurredAtUtc, string mappingVersion, string? detail = null, string? operatorIdentity = null, string? operatorName = null)
     {
         var version = RequireText(
             mappingVersion,
@@ -216,9 +216,10 @@ public sealed class Document
 
         // Garde de légalité AVANT toute mutation (cohérent avec les autres transitions, F06 §3) : la version
         // n'est consignée qu'une fois la transition ReadyToSend acceptée — une transition refusée ne laisse
-        // aucune trace, même en mémoire. <paramref name="operatorIdentity"/> trace l'opérateur quand le
-        // déblocage est une action de re-vérification (FIX02) ; <c>null</c> pour un déblocage système (pipeline).
-        var documentEvent = ApplyTransition(DocumentState.ReadyToSend, DocumentEventType.DocumentReadyToSend, occurredAtUtc, detail, operatorIdentity);
+        // aucune trace, même en mémoire. <paramref name="operatorIdentity"/>/<paramref name="operatorName"/>
+        // tracent l'opérateur (GUID + nom affiché, FIX305) quand le déblocage est une action de re-vérification
+        // (FIX02) ; <c>null</c> pour un déblocage système (pipeline).
+        var documentEvent = ApplyTransition(DocumentState.ReadyToSend, DocumentEventType.DocumentReadyToSend, occurredAtUtc, detail, operatorIdentity, operatorName);
         MappingVersion = version;
         return documentEvent;
     }
@@ -282,7 +283,7 @@ public sealed class Document
     /// Blocked ou RejectedByPa). Le <paramref name="reason"/> est OBLIGATOIRE (motif journalisé, F06 §3) et
     /// l'identité de l'opérateur tracée. Cas : avoir orphelin, document non transmissible.
     /// </summary>
-    public DocumentEvent MarkManuallyHandled(string reason, string operatorIdentity, DateTimeOffset occurredAtUtc)
+    public DocumentEvent MarkManuallyHandled(string reason, string operatorIdentity, DateTimeOffset occurredAtUtc, string? operatorName = null)
     {
         var motif = RequireText(
             reason,
@@ -298,7 +299,8 @@ public sealed class Document
             DocumentEventType.DocumentManuallyHandled,
             occurredAtUtc,
             $"Traité manuellement hors passerelle. Motif : {motif}",
-            op);
+            op,
+            operatorName);
     }
 
     /// <summary>
@@ -308,7 +310,7 @@ public sealed class Document
     /// de l'opérateur est tracée. La passerelle n'invente jamais de numéro de remplacement (amendement F05 du
     /// 2026-06-03 : remplace le « suffixe -R1 »).
     /// </summary>
-    public DocumentEvent Supersede(string replacementReference, string operatorIdentity, DateTimeOffset occurredAtUtc)
+    public DocumentEvent Supersede(string replacementReference, string operatorIdentity, DateTimeOffset occurredAtUtc, string? operatorName = null)
     {
         var remplacant = RequireText(
             replacementReference,
@@ -324,7 +326,8 @@ public sealed class Document
             DocumentEventType.DocumentSuperseded,
             occurredAtUtc,
             $"Remplacé par le document « {remplacant} » (la source est le seul créateur de numéros, F06 §4).",
-            op);
+            op,
+            operatorName);
     }
 
     /// <summary>
@@ -337,7 +340,7 @@ public sealed class Document
     /// dans la même transaction. Refusé hors de l'état <c>Blocked</c> (le verdict ne s'applique qu'à un
     /// document bloqué par le garde-fou — cohérent avec la pré-vérification de l'endpoint API02b).
     /// </summary>
-    public DocumentEvent ConfirmBuyerAsIndividual(string operatorIdentity, DateTimeOffset occurredAtUtc)
+    public DocumentEvent ConfirmBuyerAsIndividual(string operatorIdentity, DateTimeOffset occurredAtUtc, string? operatorName = null)
     {
         var op = RequireText(
             operatorIdentity,
@@ -353,7 +356,7 @@ public sealed class Document
         BuyerConfirmedAsIndividual = true;
         LastUpdateUtc = occurredAtUtc;
 
-        return DocumentEvent.BuyerConfirmedAsIndividual(Id, occurredAtUtc, op);
+        return DocumentEvent.BuyerConfirmedAsIndividual(Id, occurredAtUtc, op, operatorName);
     }
 
     /// <summary>
@@ -364,7 +367,7 @@ public sealed class Document
     /// COURANT affiché (dernier évalué). Refusé hors de l'état <c>Blocked</c> (un recheck-toujours-bloqué ne
     /// concerne qu'un document bloqué — cohérent avec la pré-vérification de la re-vérification).
     /// </summary>
-    public DocumentEvent RecordRecheckStillBlocked(string reevaluatedReason, string operatorIdentity, DateTimeOffset occurredAtUtc)
+    public DocumentEvent RecordRecheckStillBlocked(string reevaluatedReason, string operatorIdentity, DateTimeOffset occurredAtUtc, string? operatorName = null)
     {
         var motif = RequireText(
             reevaluatedReason,
@@ -383,7 +386,7 @@ public sealed class Document
 
         LastUpdateUtc = occurredAtUtc;
 
-        return DocumentEvent.RecheckedStillBlocked(Id, occurredAtUtc, motif, op);
+        return DocumentEvent.RecheckedStillBlocked(Id, occurredAtUtc, motif, op, operatorName);
     }
 
     private static string RequireText(string value, string paramName, string message)
@@ -429,7 +432,8 @@ public sealed class Document
         DocumentEventType eventType,
         DateTimeOffset occurredAtUtc,
         string? detail,
-        string? operatorIdentity)
+        string? operatorIdentity,
+        string? operatorName = null)
     {
         var from = State;
         DocumentStateMachine.EnsureCanTransition(from, target);
@@ -441,7 +445,7 @@ public sealed class Document
             ? $"Transition {from} → {target}."
             : $"Transition {from} → {target}. {detail.Trim()}";
 
-        return DocumentEvent.Transition(Id, eventType, occurredAtUtc, auditDetail, operatorIdentity);
+        return DocumentEvent.Transition(Id, eventType, occurredAtUtc, auditDetail, operatorIdentity, operatorName);
     }
 
     /// <summary>

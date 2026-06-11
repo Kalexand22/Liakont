@@ -71,12 +71,13 @@ public sealed class DocumentLifecycleTests
         var unitOfWork = new FakeUnitOfWork(document);
         var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
 
-        var outcome = await lifecycle.RecordRecheckStillBlockedAsync(document.Id, "Acheteur professionnel non confirmé.", "alice@cmp");
+        var outcome = await lifecycle.RecordRecheckStillBlockedAsync(document.Id, "Acheteur professionnel non confirmé.", "alice@cmp", "Alice Comptable");
 
         outcome.Should().Be(DocumentRecheckPersistOutcome.Persisted);
         document.State.Should().Be(DocumentState.Blocked, "le recheck toujours bloqué ne change pas l'état");
         unitOfWork.AppendedEvents.Should().ContainSingle().Which.EventType.Should().Be(DocumentEventType.DocumentRecheckedStillBlocked);
         unitOfWork.AppendedEvents[0].OperatorIdentity.Should().Be("alice@cmp");
+        unitOfWork.AppendedEvents[0].OperatorName.Should().Be("Alice Comptable", "le nom d'affichage de l'opérateur est persisté AVEC l'événement (FIX305)");
         unitOfWork.Committed.Should().BeTrue();
     }
 
@@ -89,7 +90,7 @@ public sealed class DocumentLifecycleTests
         var unitOfWork = new FakeUnitOfWork(document);
         var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
 
-        var outcome = await lifecycle.RecordRecheckStillBlockedAsync(document.Id, "Motif.", "alice@cmp");
+        var outcome = await lifecycle.RecordRecheckStillBlockedAsync(document.Id, "Motif.", "alice@cmp", "Alice Comptable");
 
         outcome.Should().Be(DocumentRecheckPersistOutcome.StateChanged);
         unitOfWork.AppendedEvents.Should().BeEmpty("aucun fait d'audit n'est inscrit sur un document qui n'est plus bloqué");
@@ -103,13 +104,14 @@ public sealed class DocumentLifecycleTests
         var unitOfWork = new FakeUnitOfWork(document);
         var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
 
-        var outcome = await lifecycle.MarkReadyToSendByRecheckAsync(document.Id, "2026.1", "alice@cmp");
+        var outcome = await lifecycle.MarkReadyToSendByRecheckAsync(document.Id, "2026.1", "alice@cmp", "Alice Comptable");
 
         outcome.Should().Be(DocumentRecheckPersistOutcome.Persisted);
         document.State.Should().Be(DocumentState.ReadyToSend);
         document.MappingVersion.Should().Be("2026.1");
         unitOfWork.AppendedEvents.Should().ContainSingle().Which.EventType.Should().Be(DocumentEventType.DocumentReadyToSend);
         unitOfWork.AppendedEvents[0].OperatorIdentity.Should().Be("alice@cmp", "le déblocage par recheck est attribué à l'opérateur");
+        unitOfWork.AppendedEvents[0].OperatorName.Should().Be("Alice Comptable", "le nom d'affichage de l'opérateur est persisté AVEC l'événement de déblocage (FIX305)");
         unitOfWork.Committed.Should().BeTrue();
     }
 
@@ -123,7 +125,7 @@ public sealed class DocumentLifecycleTests
         var unitOfWork = new FakeUnitOfWork(document);
         var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
 
-        var outcome = await lifecycle.MarkReadyToSendByRecheckAsync(document.Id, "2026.1", "alice@cmp");
+        var outcome = await lifecycle.MarkReadyToSendByRecheckAsync(document.Id, "2026.1", "alice@cmp", "Alice Comptable");
 
         outcome.Should().Be(DocumentRecheckPersistOutcome.StateChanged);
         unitOfWork.AppendedEvents.Should().BeEmpty();
@@ -136,9 +138,9 @@ public sealed class DocumentLifecycleTests
         var unitOfWork = new FakeUnitOfWork(document: null);
         var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
 
-        (await lifecycle.RecordRecheckStillBlockedAsync(Guid.NewGuid(), "Motif.", "alice@cmp"))
+        (await lifecycle.RecordRecheckStillBlockedAsync(Guid.NewGuid(), "Motif.", "alice@cmp", "Alice Comptable"))
             .Should().Be(DocumentRecheckPersistOutcome.DocumentNotFound);
-        (await lifecycle.MarkReadyToSendByRecheckAsync(Guid.NewGuid(), "2026.1", "alice@cmp"))
+        (await lifecycle.MarkReadyToSendByRecheckAsync(Guid.NewGuid(), "2026.1", "alice@cmp", "Alice Comptable"))
             .Should().Be(DocumentRecheckPersistOutcome.DocumentNotFound);
         unitOfWork.Committed.Should().BeFalse();
     }

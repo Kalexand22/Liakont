@@ -142,6 +142,9 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     /// </summary>
     public static readonly Guid OperatorUserId = new("66666666-6666-6666-6666-666666666666");
 
+    /// <summary>Nom d'affichage de l'opérateur de test, capturé avec les événements d'audit (item FIX305).</summary>
+    public static readonly string OperatorDisplayName = "Opérateur de test";
+
     /// <summary>Société (companyId) du tenant d'édition API04 — claim company_id porté par X-Test-Company.</summary>
     public static readonly Guid TenantApi04CompanyId = new("cccccccc-0000-0000-0000-0000000000c1");
 
@@ -921,7 +924,7 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         var scopeFactory = _app!.Services.GetRequiredService<ITenantScopeFactory>();
         await using ITenantScope scope = scopeFactory.Create(tenant);
         var lifecycle = scope.Services.GetRequiredService<IDocumentLifecycle>();
-        await lifecycle.ConfirmBuyerAsIndividualAsync(documentId, OperatorUserId.ToString(), cancellationToken);
+        await lifecycle.ConfirmBuyerAsIndividualAsync(documentId, OperatorUserId.ToString(), OperatorDisplayName, cancellationToken);
     }
 
     /// <summary>
@@ -935,7 +938,7 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         var scopeFactory = _app!.Services.GetRequiredService<ITenantScopeFactory>();
         await using ITenantScope scope = scopeFactory.Create(tenant);
         var recheck = scope.Services.GetRequiredService<IDocumentRecheckService>();
-        return await recheck.RecheckManyAsync(documentIds, OperatorUserId.ToString(), cancellationToken);
+        return await recheck.RecheckManyAsync(documentIds, OperatorUserId.ToString(), OperatorDisplayName, cancellationToken);
     }
 
     /// <summary>

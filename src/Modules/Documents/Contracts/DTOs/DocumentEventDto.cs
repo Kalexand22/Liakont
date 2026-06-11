@@ -25,4 +25,11 @@ public sealed record DocumentEventDto
     public string? MappingTrace { get; init; }
 
     public string? OperatorIdentity { get; init; }
+
+    /// <summary>
+    /// Nom d'affichage de l'opérateur capturé au moment de l'événement (item FIX305) : la restitution
+    /// affiche ce nom, l'<see cref="OperatorIdentity"/> (GUID) restant le détail technique. <c>null</c>
+    /// pour un événement système ou antérieur à FIX305 (repli sur le GUID).
+    /// </summary>
+    public string? OperatorName { get; init; }
 }
