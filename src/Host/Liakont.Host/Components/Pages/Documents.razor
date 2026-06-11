@@ -159,6 +159,7 @@ else
                       GridKey="Liakont.Documents"
                       RowActions="_rowActions"
                       BulkActions="_bulkActions"
+                      EnablePersistentSelection="false"
                       CustomFilterPredicate="MatchesCustomFilters"
                       ActiveCustomFilterCount="_activeCustomFilterCount"
                       CustomFilterVersion="_customFilterVersion"
@@ -170,11 +171,13 @@ else
                       ExportFormats="@(ExportFormat.Csv | ExportFormat.Excel | ExportFormat.Pdf)"
                       ExportFileName="documents">
         <ToolbarActions>
-            @* Actions d'envoi (WEB05), MASQUÉES sans la permission liakont.actions (lecture seule). « Envoyer
-               la sélection » est la barre d'actions groupées de la grille (multi-sélection) — proposée seulement
-               quand BulkActions est fourni (donc seulement aux porteurs de la permission). Ici : « Tout envoyer »
-               (avec confirmation) et « Lancer un traitement ». L'application réelle reste serveur (service
-               in-process tenant-scopé), aucune logique fiscale dans la page. *@
+            @* Actions GLOBALES (haut à droite), MASQUÉES sans la permission liakont.actions (lecture seule).
+               « Envoyer la sélection » et « Revérifier la sélection » sont, elles, dans la barre d'actions groupées
+               de la grille (multi-sélection). Ici les actions de PÉRIMÈTRE : « Tout envoyer » (avec confirmation),
+               « Lancer un traitement » et « Revérifier tout » (FIX302 : déplacée ici depuis la barre de sélection —
+               c'est une action globale, désactivée quand il n'y a aucun document bloqué à revérifier, donc plus
+               jamais de bouton orphelin sur liste vide). L'application réelle reste serveur (service in-process
+               tenant-scopé), aucune logique fiscale dans la page. *@
             @if (_canAct)
             {
                 <StratumButton Text="Tout envoyer"
@@ -189,6 +192,12 @@ else
                                Disabled="@_sendInProgress"
                                OnClick="TriggerRunAsync"
                                TestId="documents-trigger-run" />
+                <StratumButton Text="@(_recheckInProgress ? "Revérification…" : "Revérifier tout")"
+                               Variant="ButtonVariant.Secondary"
+                               Size="ButtonSize.Small"
+                               Disabled="@(_recheckInProgress || !HasBlockedInScope)"
+                               OnClick="RecheckAllBlockedAsync"
+                               TestId="documents-recheck-all" />
             }
         </ToolbarActions>
         <EmptyContent>
@@ -226,9 +235,12 @@ else
     private string? _sendFeedback;
     private bool _sendFailed;
 
-    // ── Re-vérification en masse (FIX207) ── Retour opérateur (compteurs), bandeau distinct de l'envoi.
+    // ── Re-vérification en masse (FIX207/FIX302) ── Retour opérateur (compteurs), bandeau distinct de l'envoi.
+    // _recheckInProgress garde l'action globale « Revérifier tout » de la barre d'outils contre les double-clics
+    // (la barre d'actions groupées a, elle, sa propre garde _executingBulk dans DeclaredListPage).
     private string? _recheckFeedback;
     private bool _recheckFailed;
+    private bool _recheckInProgress;
     private bool _confirmSendVisible;
     private SendConfirmMode _confirmMode = SendConfirmMode.None;
     private IReadOnlyList<Guid> _pendingSelectionIds = [];
@@ -314,8 +326,11 @@ else
                     // serait trompeur avant la confirmation (le retour réel passe par le bandeau après confirmation).
                     Execute: OpenSelectionConfirmAsync,
                     SuppressSuccessToast: true),
-                // FIX207 — re-vérification en masse dans la barre de sélection. SuppressSuccessToast : le retour réel
-                // (compteurs « N débloqués, N restés bloqués ») passe par le bandeau de re-vérification, pas le toast.
+                // FIX207/FIX302 — « Revérifier la sélection » : action SÉLECTION-SCOPÉE de la barre d'actions groupées
+                // (rendue seulement quand une sélection est active). SuppressSuccessToast : le retour réel (compteurs
+                // « N débloqués, N restés bloqués ») passe par le bandeau de re-vérification, pas le toast.
+                // « Revérifier tout » N'EST PLUS une action groupée (FIX302) : c'est une action GLOBALE de la barre
+                // d'outils (ToolbarActions ci-dessus), désactivée quand il n'y a aucun bloqué — voir RecheckAllBlockedAsync.
                 new BulkActionConfig<DocumentSummaryDto>(
                     Id: "recheck-selection",
                     Label: "Revérifier la sélection",
@@ -323,16 +338,6 @@ else
                     PermissionDisabledReason: "La permission « actions » (liakont.actions) est requise pour re-vérifier.",
                     Execute: RecheckSelectionAsync,
                     SuppressSuccessToast: true),
-                // « Revérifier tout » est GLOBALE (RequiresSelection: false) : accessible sans sélection (tous les
-                // bloqués du périmètre courant), conformément à la décision opérateur E4.
-                new BulkActionConfig<DocumentSummaryDto>(
-                    Id: "recheck-all",
-                    Label: "Revérifier tout",
-                    Permission: LiakontPermissions.Actions,
-                    PermissionDisabledReason: "La permission « actions » (liakont.actions) est requise pour re-vérifier.",
-                    Execute: _ => RecheckAllBlockedAsync(),
-                    SuppressSuccessToast: true,
-                    RequiresSelection: false),
             ];
         }
 
@@ -702,6 +707,13 @@ else
             selected.Where(IsBlocked).Select(d => d.Id).ToList(),
             "Aucun document bloqué dans la sélection à re-vérifier.");
 
+    /// <summary>
+    /// Existe-t-il au moins un document BLOQUÉ dans le périmètre courant (période + filtres état/type) ? Pilote
+    /// l'activation de l'action globale « Revérifier tout » (désactivée — donc jamais orpheline — quand il n'y a
+    /// rien à revérifier, FIX302).
+    /// </summary>
+    private bool HasBlockedInScope => _periodSet.Any(d => IsBlocked(d) && MatchesCustomFilters(d));
+
     /// <summary>« Revérifier tout » : re-vérifie tous les documents BLOQUÉS du périmètre courant (période + filtres état/type).</summary>
     private Task RecheckAllBlockedAsync() =>
         RunBulkRecheckAsync(
@@ -711,6 +723,11 @@ else
     /// <summary>Déclenche la re-vérification en masse côté serveur et affiche le retour opérateur (compteurs en français).</summary>
     private async Task RunBulkRecheckAsync(IReadOnlyList<Guid> documentIds, string emptyMessage)
     {
+        if (_recheckInProgress)
+        {
+            return;
+        }
+
         _recheckFeedback = null;
         _recheckFailed = false;
 
@@ -721,6 +738,7 @@ else
             return;
         }
 
+        _recheckInProgress = true;
         try
         {
             var result = await ControlActions.RecheckManyAsync(documentIds);
@@ -736,9 +754,13 @@ else
             _recheckFeedback = "La re-vérification n'a pas pu être déclenchée pour le moment. Réessayez plus tard.";
             Logger.LogError(ex, "Bulk recheck action failed.");
         }
+        finally
+        {
+            _recheckInProgress = false;
+        }
 
-        // La barre de sélection ne re-rend que son propre cadre après l'action groupée : forcer le re-rendu de la
-        // page pour afficher le bandeau de compteurs et la synthèse par état rafraîchie.
+        // La barre de sélection / la barre d'outils ne re-rendent que leur propre cadre après l'action : forcer le
+        // re-rendu de la page pour afficher le bandeau de compteurs et la synthèse par état rafraîchie.
         StateHasChanged();
     }
 

@@ -211,6 +211,17 @@ public partial class DeclaredListPage<TItem> : ComponentBase
     [Parameter]
     public IReadOnlyList<BulkActionConfig<TItem>>? BulkActions { get; set; }
 
+    /// <summary>
+    /// GUX03 / FIX302 — opt out of the cross-page persistent selection bar (the floating
+    /// "N sélectionné(s) (M au total)" overlay with Ajouter / Retirer / Voir / Vider). Default true
+    /// preserves the existing behavior for every page. A page that drives its bulk actions off the
+    /// current-page selection only (e.g. Documents) sets this to false so a SINGLE selection bar — the
+    /// bulk-actions bar — is shown; otherwise a second, confusing bar appears whose "(0 au total)"
+    /// counter never moves because the page never feeds the persistent set.
+    /// </summary>
+    [Parameter]
+    public bool EnablePersistentSelection { get; set; } = true;
+
     /// <summary>Static StratumColumn children (alternative to ColumnRegistry).</summary>
     [Parameter]
     public RenderFragment? Columns { get; set; }
@@ -335,7 +346,13 @@ public partial class DeclaredListPage<TItem> : ComponentBase
 
         // GUX03 — using TItem as its own key keeps DeclaredListPage single-typed.
         // DTOs loaded in one LoadItems() call keep stable references for the session.
-        _persistentBinding = new PersistentSelectionBinding<TItem, TItem>(PersistentSelectionService, item => item);
+        // FIX302 — a page can opt out (EnablePersistentSelection=false): leave the binding null so the
+        // grid renders no persistent selection bar (its "(0 au total)" counter is meaningless on pages
+        // that drive bulk actions off the current-page selection only).
+        if (EnablePersistentSelection)
+        {
+            _persistentBinding = new PersistentSelectionBinding<TItem, TItem>(PersistentSelectionService, item => item);
+        }
     }
 
     protected override async Task OnInitializedAsync()
