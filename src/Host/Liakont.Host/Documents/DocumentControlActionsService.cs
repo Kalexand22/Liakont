@@ -126,7 +126,9 @@ internal sealed class DocumentControlActionsService : IDocumentControlActions
             return denied;
         }
 
-        var result = await _recheck.RecheckAsync(documentId, cancellationToken).ConfigureAwait(false);
+        var actor = _actorAccessor.Current;
+        var operatorId = ActorId(actor);
+        var result = await _recheck.RecheckAsync(documentId, operatorId, cancellationToken).ConfigureAwait(false);
 
         switch (result.Outcome)
         {
@@ -143,15 +145,16 @@ internal sealed class DocumentControlActionsService : IDocumentControlActions
                     "Le contenu du document n'est pas disponible pour la re-vérification (pas encore stagé, ou altéré/illisible). Action : relancez l'extraction du document depuis le logiciel source, puis réessayez.");
 
             default:
-                // ReadyToSend ou StillBlocked : la re-vérification a tourné — on journalise (comme l'endpoint)
-                // et on rend le résultat. Le motif de re-blocage éventuel est renvoyé pour affichage immédiat.
-                var actor = _actorAccessor.Current;
+                // ReadyToSend ou StillBlocked : la re-vérification a tourné — le geste opérateur et son résultat
+                // sont déjà tracés dans la piste d'audit append-only par le service (item FIX02). On journalise
+                // aussi l'activité (comme l'endpoint) et on rend le résultat ; le motif de re-blocage éventuel est
+                // renvoyé pour affichage immédiat.
                 await _activityLogger.LogActivityAsync(
                     DocumentActionContract.DocumentEntityType,
                     documentId.ToString(),
                     DocumentActionContract.RecheckActivity,
                     string.Create(CultureInfo.InvariantCulture, $"Re-vérification déclenchée par l'opérateur — résultat : « {result.State} »."),
-                    ActorId(actor),
+                    operatorId,
                     metadata: new { State = result.State, Outcome = result.Outcome.ToString() },
                     companyId: actor.CompanyId,
                     cancellationToken: cancellationToken).ConfigureAwait(false);

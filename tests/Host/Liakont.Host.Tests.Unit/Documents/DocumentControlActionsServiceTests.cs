@@ -160,6 +160,20 @@ public sealed class DocumentControlActionsServiceTests
     }
 
     [Fact]
+    public async Task Recheck_Threads_The_Operator_Identity_To_The_Recheck_Service()
+    {
+        // FIX02 : la re-vérification est une action OPÉRATEUR ; son identité doit voyager jusqu'au service de
+        // recheck pour être inscrite dans la piste d'audit append-only (auteur du geste).
+        var recheck = new FakeRecheckService { Result = DocumentRecheckResult.StillBlocked("Régime TVA non mappé.") };
+        var service = Build(new FakeDocumentQueries(), new RecordingLifecycle(), recheck, new CapturingActivityLogger());
+
+        await service.RecheckAsync(Guid.NewGuid());
+
+        recheck.Operators.Should().ContainSingle()
+            .Which.Should().Be(OperatorId.ToString(), "l'identité de l'opérateur est threadée jusqu'au service de re-vérification (audit FIX02)");
+    }
+
+    [Fact]
     public async Task Recheck_On_A_Non_Blocked_Document_Is_Refused_Without_Auditing()
     {
         var recheck = new FakeRecheckService { Result = DocumentRecheckResult.NotBlocked("Issued") };
@@ -259,9 +273,12 @@ public sealed class DocumentControlActionsServiceTests
 
         public List<Guid> Calls { get; } = [];
 
-        public Task<DocumentRecheckResult> RecheckAsync(Guid documentId, CancellationToken cancellationToken = default)
+        public List<string> Operators { get; } = [];
+
+        public Task<DocumentRecheckResult> RecheckAsync(Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default)
         {
             Calls.Add(documentId);
+            Operators.Add(operatorIdentity);
             return Task.FromResult(Result);
         }
     }
@@ -290,6 +307,10 @@ public sealed class DocumentControlActionsServiceTests
         public Task BlockAsync(Guid documentId, string reason, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         public Task MarkReadyToSendAsync(Guid documentId, string mappingVersion, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task MarkReadyToSendByRecheckAsync(Guid documentId, string mappingVersion, string operatorIdentity, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task RecordRecheckStillBlockedAsync(Guid documentId, string reevaluatedReason, string operatorIdentity, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         public Task BeginSendingAsync(Guid documentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 

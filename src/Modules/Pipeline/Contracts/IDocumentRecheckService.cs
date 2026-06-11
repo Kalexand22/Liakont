@@ -16,10 +16,13 @@ using System.Threading.Tasks;
 public interface IDocumentRecheckService
 {
     /// <summary>
-    /// Re-vérifie le document <paramref name="documentId"/> du tenant courant. Retourne l'issue (introuvable,
-    /// non bloqué, contenu indisponible, débloqué vers ReadyToSend, ou toujours bloqué avec les nouveaux motifs).
-    /// Ne transitionne le document que vers <c>ReadyToSend</c> (la machine à états interdit <c>Blocked → Blocked</c> :
-    /// un document toujours bloqué ne subit aucune transition, les nouveaux motifs sont renvoyés pour affichage).
+    /// Re-vérifie le document <paramref name="documentId"/> du tenant courant à la demande de l'opérateur
+    /// <paramref name="operatorIdentity"/>. Retourne l'issue (introuvable, non bloqué, contenu indisponible,
+    /// débloqué vers ReadyToSend, ou toujours bloqué avec les nouveaux motifs). Ne transitionne le document que
+    /// vers <c>ReadyToSend</c> (la machine à états interdit <c>Blocked → Blocked</c>). Dans TOUS les cas où le
+    /// recheck a réellement tourné (FIX02), un fait d'audit append-only portant l'opérateur et le résultat est
+    /// inscrit : déblocage (événement <c>ReadyToSend</c> attribué) ou toujours bloqué (événement
+    /// <c>RecheckedStillBlocked</c> portant le motif réévalué — qui devient le motif courant affiché).
     /// </summary>
-    Task<DocumentRecheckResult> RecheckAsync(Guid documentId, CancellationToken cancellationToken = default);
+    Task<DocumentRecheckResult> RecheckAsync(Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default);
 }

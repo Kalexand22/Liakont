@@ -112,6 +112,27 @@ public sealed class DocumentDetailConsoleQueryServiceTests
     }
 
     [Fact]
+    public async Task GetDetailAsync_Should_Prefer_The_Latest_Recheck_Reason_Over_The_Original_Block()
+    {
+        // FIX02 : après une re-vérification restée bloquée, le motif COURANT affiché est le dernier évalué
+        // (événement DocumentRecheckedStillBlocked), jamais le motif initial périmé.
+        var fake = new FakeDocumentQueries
+        {
+            Document = Doc("2026-006", "Blocked"),
+            Events =
+            [
+                Event("DocumentBlocked", new DateTimeOffset(2026, 6, 1, 8, 5, 0, TimeSpan.Zero), detail: "Motif initial (table TVA absente)."),
+                Event("DocumentRecheckedStillBlocked", new DateTimeOffset(2026, 6, 1, 10, 0, 0, TimeSpan.Zero), detail: "Motif réévalué (acheteur professionnel)."),
+            ],
+        };
+        var service = new DocumentDetailConsoleQueryService(fake);
+
+        var result = await service.GetDetailAsync(DocId);
+
+        result!.BlockingReason.Should().Be("Motif réévalué (acheteur professionnel).", "le motif courant = le dernier événement porteur d'un motif (recheck inclus), pas le motif initial périmé");
+    }
+
+    [Fact]
     public async Task GetDetailAsync_Should_Report_Not_Archived_When_No_Archive_Reference()
     {
         var fake = new FakeDocumentQueries

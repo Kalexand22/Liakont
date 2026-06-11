@@ -166,6 +166,12 @@ internal static class CheckTestDoubles
             return Task.CompletedTask;
         }
 
+        public Task MarkReadyToSendByRecheckAsync(Guid documentId, string mappingVersion, string operatorIdentity, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task RecordRecheckStillBlockedAsync(Guid documentId, string reevaluatedReason, string operatorIdentity, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task BeginSendingAsync(Guid documentId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 

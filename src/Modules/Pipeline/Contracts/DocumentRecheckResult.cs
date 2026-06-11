@@ -15,15 +15,17 @@ public enum DocumentRecheckOutcome
     /// <summary>Le document passe désormais : transition <c>Blocked → ReadyToSend</c> effectuée.</summary>
     ReadyToSend,
 
-    /// <summary>Le document reste bloqué avec les nouveaux motifs (aucune transition — <c>Blocked → Blocked</c> interdit).</summary>
+    /// <summary>Le document reste bloqué avec les nouveaux motifs (aucune transition d'état — <c>Blocked → Blocked</c> interdit — mais un fait d'audit append-only de re-vérification est inscrit, item FIX02).</summary>
     StillBlocked,
 }
 
 /// <summary>
 /// Résultat d'une re-vérification (item API02b). Porte l'issue, l'état résultant et — si le document reste
 /// bloqué — les motifs frais (message opérateur agrégé), pour affichage immédiat dans la console (WEB03b) sans
-/// rechargement. Le résultat « toujours bloqué » N'EST PAS persisté comme nouvel événement (la machine à états
-/// interdit <c>Blocked → Blocked</c>) : il n'existe que dans cette réponse.
+/// rechargement. Le « toujours bloqué » n'emporte AUCUNE transition d'état (la machine à états interdit
+/// <c>Blocked → Blocked</c>), mais le service de re-vérification l'INSCRIT dans la piste d'audit append-only via
+/// un événement <c>RecheckedStillBlocked</c> (item FIX02) — geste opérateur + motif réévalué tracés et persistés ;
+/// ce résultat n'est donc pas la SEULE trace, il sert l'affichage immédiat.
 /// </summary>
 public sealed record DocumentRecheckResult
 {

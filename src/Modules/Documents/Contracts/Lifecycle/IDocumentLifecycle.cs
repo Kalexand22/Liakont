@@ -19,6 +19,23 @@ public interface IDocumentLifecycle
     /// <summary>→ ReadyToSend en consignant la version de table de mapping TVA appliquée (obligatoire — F03).</summary>
     Task MarkReadyToSendAsync(Guid documentId, string mappingVersion, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Action OPÉRATEUR (item FIX02, re-vérification console) : <c>Blocked</c> → <c>ReadyToSend</c> déclenché par
+    /// un recheck d'opérateur. Identique à <see cref="MarkReadyToSendAsync"/> mais le fait d'audit append-only
+    /// porte l'<paramref name="operatorIdentity"/> (OBLIGATOIRE) : la re-vérification réussie n'est pas un
+    /// déblocage système anonyme mais un geste opérateur tracé (auteur + résultat, F06 §3).
+    /// </summary>
+    Task MarkReadyToSendByRecheckAsync(Guid documentId, string mappingVersion, string operatorIdentity, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Action OPÉRATEUR (item FIX02, re-vérification console) : trace une re-vérification ayant laissé le document
+    /// <c>Blocked</c>. Inscrit un fait d'audit append-only (auteur OBLIGATOIRE + motif RÉÉVALUÉ) SANS changer
+    /// l'état (la machine à états interdit <c>Blocked → Blocked</c>). Rend l'action opérateur visible dans la piste
+    /// (F06 §3) et fait du motif inscrit le motif COURANT affiché (dernier évalué — plus de motif périmé après
+    /// rechargement). Lève si le document est inconnu ou n'est pas <c>Blocked</c>.
+    /// </summary>
+    Task RecordRecheckStillBlockedAsync(Guid documentId, string reevaluatedReason, string operatorIdentity, CancellationToken cancellationToken = default);
+
     /// <summary>ReadyToSend → Sending : la transmission à la Plateforme Agréée est engagée.</summary>
     Task BeginSendingAsync(Guid documentId, CancellationToken cancellationToken = default);
 

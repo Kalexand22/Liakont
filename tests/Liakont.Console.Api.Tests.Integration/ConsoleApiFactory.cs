@@ -420,6 +420,21 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     }
 
     /// <summary>
+    /// Lit l'identité de l'opérateur (<c>operator_identity</c>) du DERNIER événement d'audit d'un type donné pour
+    /// un document — prouve qu'une action OPÉRATEUR (ex. re-vérification FIX02) est attribuée dans la piste
+    /// append-only, et non écrite comme un événement système anonyme.
+    /// </summary>
+    public async Task<string?> GetLatestEventOperatorIdentityAsync(string tenant, Guid documentId, string eventType, CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(ConnectionStringFor(tenant));
+        await conn.OpenAsync(ct);
+        return await conn.ExecuteScalarAsync<string?>(new CommandDefinition(
+            "SELECT operator_identity FROM documents.document_events WHERE document_id = @Id AND event_type = @EventType ORDER BY timestamp_utc DESC, id DESC LIMIT 1",
+            new { Id = documentId, EventType = eventType },
+            cancellationToken: ct));
+    }
+
+    /// <summary>
     /// Compte les entrées de la piste d'activité opérateur (<c>audit.activities</c>, base SYSTÈME) pour un type
     /// d'activité et une entité donnés — prouve qu'une action de la console est journalisée (anti faux-vert ;
     /// l'écriture d'audit est awaitée par l'endpoint avant la réponse HTTP).

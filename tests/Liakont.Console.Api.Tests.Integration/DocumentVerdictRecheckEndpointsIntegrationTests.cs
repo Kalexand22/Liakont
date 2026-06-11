@@ -248,7 +248,52 @@ public sealed class DocumentVerdictRecheckEndpointsIntegrationTests
             .Should().BePositive("la re-vérification est journalisée");
     }
 
+    [Fact]
+    public async Task PostRecheck_StillBlocked_Writes_AppendOnly_Event_With_Operator_And_Updates_Persisted_Reason()
+    {
+        // FIX02 : une re-vérification restée bloquée n'est plus invisible. Elle écrit un fait d'audit append-only
+        // attribué à l'opérateur (auteur + motif réévalué), et le motif PERSISTÉ affiché devient le dernier évalué
+        // (plus de motif périmé après rechargement). Aucune transition d'état (Blocked → Blocked interdit).
+        var documentId = await _factory.SeedBlockedProfessionalBuyerDocumentAsync(ConsoleApiFactory.TenantVerdict);
+        using var client = _factory.CreateClient(ConsoleApiFactory.TenantVerdict, ConsoleApiFactory.OperatorUserId);
+
+        var response = await client.PostAsync(RecheckPath(documentId), content: null);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // 1) Trace d'audit append-only du geste opérateur, portant SON identité (jamais système anonyme).
+        (await _factory.CountDocumentEventsAsync(ConsoleApiFactory.TenantVerdict, documentId, "DocumentRecheckedStillBlocked"))
+            .Should().Be(1, "une re-vérification restée bloquée inscrit un fait d'audit append-only (FIX02)");
+        (await _factory.GetLatestEventOperatorIdentityAsync(ConsoleApiFactory.TenantVerdict, documentId, "DocumentRecheckedStillBlocked"))
+            .Should().Be(ConsoleApiFactory.OperatorUserId.ToString(), "le fait d'audit de re-vérification porte l'identité de l'opérateur");
+
+        // 2) Motif PERSISTÉ = dernier évalué : le détail (GET, après « rechargement ») renvoie le motif frais.
+        var detail = await client.GetFromJsonAsync<DetailBlockingReason>($"/api/v1/documents/{documentId}", JsonOptions);
+        detail.Should().NotBeNull();
+        detail!.BlockingReason.Should().NotBeNullOrWhiteSpace().And.Contain("professionnel", "l'onglet Contrôles affiche le dernier motif évalué (DocumentRecheckedStillBlocked), pas un motif périmé");
+
+        // 3) Aucune transition d'état : le document reste bloqué.
+        (await _factory.GetDocumentStateAsync(ConsoleApiFactory.TenantVerdict, documentId)).Should().Be("Blocked");
+    }
+
+    [Fact]
+    public async Task PostRecheck_That_Unblocks_Attributes_The_ReadyToSend_Event_To_The_Operator()
+    {
+        // FIX02 : une re-vérification RÉUSSIE est un geste opérateur tracé (auteur + résultat), pas un déblocage
+        // système anonyme — l'événement ReadyToSend porte l'identité de l'opérateur.
+        var documentId = await _factory.SeedBlockedProfessionalBuyerDocumentAsync(ConsoleApiFactory.TenantVerdict);
+        using var client = _factory.CreateClient(ConsoleApiFactory.TenantVerdict, ConsoleApiFactory.OperatorUserId);
+
+        (await client.PostAsync(VerdictPath(documentId), Verdict("confirm_b2c"))).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await client.PostAsync(RecheckPath(documentId), content: null)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await _factory.GetDocumentStateAsync(ConsoleApiFactory.TenantVerdict, documentId)).Should().Be("ReadyToSend");
+        (await _factory.GetLatestEventOperatorIdentityAsync(ConsoleApiFactory.TenantVerdict, documentId, "DocumentReadyToSend"))
+            .Should().Be(ConsoleApiFactory.OperatorUserId.ToString(), "le déblocage par re-vérification est attribué à l'opérateur (FIX02)");
+    }
+
     private sealed record VerdictResponse(Guid DocumentId, string Verdict, string State);
 
     private sealed record RecheckResponse(Guid DocumentId, string State, string? BlockingReason);
+
+    private sealed record DetailBlockingReason(string? BlockingReason);
 }

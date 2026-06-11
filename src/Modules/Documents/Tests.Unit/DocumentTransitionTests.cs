@@ -290,6 +290,63 @@ public sealed class DocumentTransitionTests
         doc.State.Should().Be(state, "verdict refusé : l'état n'a pas changé.");
     }
 
+    [Fact]
+    public void RecordRecheckStillBlocked_From_Blocked_Records_Operator_And_Reason_Without_State_Change()
+    {
+        // FIX02 : une re-vérification restée bloquée trace le geste opérateur + le motif RÉÉVALUÉ comme fait
+        // d'audit append-only, SANS changer l'état (Blocked → Blocked interdit). Le motif porté devient le motif
+        // courant affiché.
+        var doc = InState(DocumentState.Blocked);
+
+        var evt = doc.RecordRecheckStillBlocked("Acheteur professionnel non confirmé.", operatorIdentity: "alice@cmp", occurredAtUtc: T0.AddMinutes(2));
+
+        doc.State.Should().Be(DocumentState.Blocked, "le recheck toujours bloqué ne change pas l'état.");
+        doc.LastUpdateUtc.Should().Be(T0.AddMinutes(2));
+        evt.EventType.Should().Be(DocumentEventType.DocumentRecheckedStillBlocked);
+        evt.OperatorIdentity.Should().Be("alice@cmp");
+        evt.Detail.Should().Be("Acheteur professionnel non confirmé.", "le motif réévalué porté par l'événement = le motif courant.");
+        evt.DocumentId.Should().Be(doc.Id);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void RecordRecheckStillBlocked_Requires_An_Operator_Identity(string blank)
+    {
+        var doc = InState(DocumentState.Blocked);
+
+        var act = () => doc.RecordRecheckStillBlocked("Motif réévalué.", blank, T0);
+
+        act.Should().Throw<ArgumentException>().WithParameterName("operatorIdentity");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void RecordRecheckStillBlocked_Requires_A_Reevaluated_Reason(string blank)
+    {
+        var doc = InState(DocumentState.Blocked);
+
+        var act = () => doc.RecordRecheckStillBlocked(blank, "alice@cmp", T0);
+
+        act.Should().Throw<ArgumentException>().WithParameterName("reevaluatedReason");
+    }
+
+    [Theory]
+    [InlineData(DocumentState.Detected)]
+    [InlineData(DocumentState.ReadyToSend)]
+    [InlineData(DocumentState.Issued)]
+    public void RecordRecheckStillBlocked_Is_Rejected_Outside_Blocked(DocumentState state)
+    {
+        // Un recheck-toujours-bloqué ne se trace que sur un document bloqué (cohérent avec la pré-vérification).
+        var doc = InState(state);
+
+        var act = () => doc.RecordRecheckStillBlocked("Motif réévalué.", "alice@cmp", T0);
+
+        act.Should().Throw<InvalidOperationException>();
+        doc.State.Should().Be(state, "recheck refusé : l'état n'a pas changé.");
+    }
+
     [Theory]
     [InlineData(DocumentState.Issued)]
     [InlineData(DocumentState.Superseded)]

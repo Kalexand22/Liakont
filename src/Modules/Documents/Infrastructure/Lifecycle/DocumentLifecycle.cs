@@ -42,6 +42,18 @@ internal sealed class DocumentLifecycle : IDocumentLifecycle
     public Task MarkReadyToSendAsync(Guid documentId, string mappingVersion, CancellationToken cancellationToken = default) =>
         TransitionAsync(documentId, (document, at) => document.MarkReadyToSendWithMapping(at, mappingVersion), cancellationToken);
 
+    public Task MarkReadyToSendByRecheckAsync(Guid documentId, string mappingVersion, string operatorIdentity, CancellationToken cancellationToken = default) =>
+        TransitionAsync(
+            documentId,
+            (document, at) => document.MarkReadyToSendWithMapping(at, mappingVersion, detail: "Débloqué par re-vérification de l'opérateur.", operatorIdentity: operatorIdentity),
+            cancellationToken);
+
+    public Task RecordRecheckStillBlockedAsync(Guid documentId, string reevaluatedReason, string operatorIdentity, CancellationToken cancellationToken = default) =>
+        TransitionAsync(
+            documentId,
+            (document, at) => document.RecordRecheckStillBlocked(reevaluatedReason, operatorIdentity, at),
+            cancellationToken);
+
     public Task BeginSendingAsync(Guid documentId, CancellationToken cancellationToken = default) =>
         TransitionAsync(documentId, (document, at) => document.BeginSending(at), cancellationToken);
 
