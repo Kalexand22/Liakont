@@ -30,6 +30,10 @@ public sealed class ComptesPaTests : BunitContext
         Services.AddLocalization();
         Services.AddCommonUI();
         Services.AddSingleton<IActorContextAccessor>(new FakeActorContextAccessor());
+
+        // Service de publication (FIX201) injecté par la page : un défaut bénin (aucun compte actif) suffit
+        // aux tests existants ; les tests dédiés en réenregistrent un (le dernier enregistrement gagne).
+        Services.AddScoped<IPaPublicationConsoleService>(_ => new FakePublicationService());
     }
 
     [Fact]
@@ -200,6 +204,63 @@ public sealed class ComptesPaTests : BunitContext
         });
     }
 
+    [Fact]
+    public void Publication_panel_renders_the_publish_action_for_an_active_account()
+    {
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(hasSettings: true));
+        Services.AddScoped<IPaAccountConsoleService>(_ => new FakePaService(accounts: [Account()], pluginTypes: ["Fake"]));
+        Services.AddScoped<IPaPublicationConsoleService>(_ => new FakePublicationService(new PaPublicationState
+        {
+            HasActiveAccount = true,
+            PluginType = "Fake",
+            Environment = "Staging",
+            StateAvailable = true,
+            IsPublished = false,
+            Siren = "123456782",
+        }));
+
+        var cut = Render<ComptesPa>();
+
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='pa-publication-open-btn']").Should().ContainSingle());
+        cut.FindAll("[data-testid='pa-publication-unpublished']").Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Publishing_calls_the_service_and_shows_a_success_message()
+    {
+        var publication = new FakePublicationService(new PaPublicationState
+        {
+            HasActiveAccount = true,
+            PluginType = "Fake",
+            Environment = "Staging",
+            StateAvailable = true,
+            IsPublished = false,
+            Siren = "123456782",
+        })
+        {
+            ResultToReturn = PaPublicationResult.Ok("SIREN publié : la transmission est active depuis le 01/01/2026."),
+        };
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(hasSettings: true));
+        Services.AddScoped<IPaAccountConsoleService>(_ => new FakePaService(accounts: [Account()], pluginTypes: ["Fake"]));
+        Services.AddScoped<IPaPublicationConsoleService>(_ => publication);
+
+        var cut = Render<ComptesPa>();
+
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='pa-publication-open-btn']").Should().ContainSingle());
+        cut.Find("[data-testid='pa-publication-open-btn']").Click();
+
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='pa-publication-form']").Should().ContainSingle());
+        cut.Find("[data-testid='pa-publication-typeoperation']").Input("LBS");
+        cut.Find("[data-testid='pa-publication-enterprisesize']").Input("PME");
+        cut.Find("[data-testid='pa-publication-submit-btn']").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            publication.PublishCalls.Should().Be(1);
+            cut.Find("[data-testid='pa-publication-success']").TextContent.Should().Contain("SIREN publié");
+        });
+    }
+
     private static PaAccountDto Account() => new()
     {
         Id = Guid.NewGuid(),
@@ -283,6 +344,27 @@ public sealed class ComptesPaTests : BunitContext
 
             DeactivateCalls++;
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakePublicationService : IPaPublicationConsoleService
+    {
+        private readonly PaPublicationState _state;
+
+        public FakePublicationService(PaPublicationState? state = null) =>
+            _state = state ?? new PaPublicationState { HasActiveAccount = false, StateAvailable = false };
+
+        public PaPublicationResult ResultToReturn { get; init; } = PaPublicationResult.Ok("SIREN publié.");
+
+        public int PublishCalls { get; private set; }
+
+        public Task<PaPublicationState> GetStateAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(_state);
+
+        public Task<PaPublicationResult> PublishAsync(PaPublicationFormModel form, CancellationToken cancellationToken = default)
+        {
+            PublishCalls++;
+            return Task.FromResult(ResultToReturn);
         }
     }
 

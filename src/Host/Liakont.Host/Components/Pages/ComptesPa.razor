@@ -8,6 +8,7 @@
 @using Stratum.Common.Abstractions.Exceptions
 @using Stratum.Common.Abstractions.Security
 @inject IPaAccountConsoleService Service
+@inject IPaPublicationConsoleService PublicationService
 @inject IPermissionService Permissions
 @inject ILogger<ComptesPa> Logger
 
@@ -53,6 +54,19 @@ else
                    OnRequestDeactivate="RequestDeactivate"
                    OnConfirmDeactivate="ConfirmDeactivateAsync"
                    OnCancelDeactivate="CancelDeactivate" />
+
+    @if (_publicationState is not null)
+    {
+        <PaPublicationView State="_publicationState"
+                           Form="_publicationForm"
+                           FormOpen="_publicationFormOpen"
+                           Busy="_publicationBusy"
+                           Error="@_publicationError"
+                           SuccessMessage="@_publicationSuccess"
+                           OnOpen="OpenPublication"
+                           OnSubmit="SubmitPublicationAsync"
+                           OnCancel="CancelPublication" />
+    }
 }
 
 @code {
@@ -74,6 +88,14 @@ else
     private bool _deactivateBusy;
     private string? _deactivateError;
 
+    // ── Publication du SIREN / transmission (FIX201) ─────────────
+    private PaPublicationState? _publicationState;
+    private PaPublicationFormModel _publicationForm = new();
+    private bool _publicationFormOpen;
+    private bool _publicationBusy;
+    private string? _publicationError;
+    private string? _publicationSuccess;
+
     protected override async Task OnInitializedAsync()
     {
         // La page gère des secrets (clé API PA) : sans liakont.settings, aucune donnée n'est chargée et seul
@@ -91,6 +113,8 @@ else
         try
         {
             _model = await Service.GetModelAsync();
+            // État de publication du SIREN (lecture défensive côté service : ne lève pas si la PA est injoignable).
+            _publicationState = await PublicationService.GetStateAsync();
             _loadFailed = false;
         }
         catch (Exception ex)
@@ -206,6 +230,58 @@ else
         finally
         {
             _deactivateBusy = false;
+        }
+    }
+
+    // ── Publication du SIREN / transmission (FIX201) ──────────────
+
+    private void OpenPublication()
+    {
+        // Date de début par défaut = aujourd'hui (publication immédiate) ; l'opérateur peut la changer.
+        _publicationForm = new PaPublicationFormModel
+        {
+            StartDate = DateOnly.FromDateTime(DateTime.UtcNow),
+        };
+        _publicationError = null;
+        _publicationSuccess = null;
+        _publicationFormOpen = true;
+    }
+
+    private void CancelPublication()
+    {
+        _publicationFormOpen = false;
+        _publicationError = null;
+    }
+
+    private async Task SubmitPublicationAsync()
+    {
+        _publicationBusy = true;
+        _publicationError = null;
+
+        try
+        {
+            var result = await PublicationService.PublishAsync(_publicationForm);
+            if (result.Success)
+            {
+                _publicationSuccess = result.Message;
+                _publicationFormOpen = false;
+                // Recharge l'état (et la liste) pour refléter « Publié depuis le … ».
+                await LoadAsync();
+            }
+            else
+            {
+                _publicationError = result.Message;
+            }
+        }
+        catch (Exception ex)
+        {
+            // Chemin inattendu (le service renvoie normalement un résultat typé) : message générique + trace.
+            Logger.LogError(ex, "Liakont PA SIREN publication failed unexpectedly from the console.");
+            _publicationError = "La publication a échoué. Réessayez plus tard.";
+        }
+        finally
+        {
+            _publicationBusy = false;
         }
     }
 

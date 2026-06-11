@@ -530,16 +530,10 @@ public sealed partial class SendTenantJob : ITenantJob
     }
 
     /// <summary>SIREN publié / paramétrage de transmission actif : <c>StartDate</c> renseignée et non future (F04 §3.1).</summary>
-    private static bool IsTaxReportSettingActive(PaTaxReportSetting setting, TimeProvider timeProvider)
-    {
-        if (setting.StartDate is not { } startDate)
-        {
-            return false;
-        }
-
-        var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
-        return startDate <= today;
-    }
+    /// <remarks>Délègue à <see cref="PaTaxReportSetting.IsActiveOn"/> (source UNIQUE de la règle) : l'état
+    /// affiché par la console (FIX201) et ce gating d'envoi ne peuvent ainsi jamais diverger.</remarks>
+    private static bool IsTaxReportSettingActive(PaTaxReportSetting setting, TimeProvider timeProvider) =>
+        setting.IsActiveOn(DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime));
 
     private static bool IsUnsendableCreditNote(PivotDocumentDto pivot, IPaClient paClient) =>
         pivot.CreditNoteRefs.Count > 0 && !paClient.Capabilities.SupportsCreditNotes;

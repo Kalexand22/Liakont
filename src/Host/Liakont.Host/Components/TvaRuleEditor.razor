@@ -16,7 +16,7 @@
 
 <div class="liakont-tva-editor" data-testid="tva-rule-editor">
     <h3 class="liakont-tva-editor__title">
-        @(IsCreate ? "Créer une règle de mapping" : $"Modifier la règle — régime {Model.SourceRegimeCode} ({Model.Part})")
+        @(IsCreate ? "Créer une règle de mapping" : EditTitle)
     </h3>
 
     <div class="liakont-tva-editor__grid">
@@ -32,8 +32,11 @@
 
         @if (ShowPart)
         {
-            <FormField Label="Part" FieldId="tva-rule-part" Required="true"
-                       HelpText="@(IsCreate ? null : "La part fait partie de la clé : non modifiable (supprimez puis recréez pour la changer).")">
+            @* Vertical « vente aux enchères » actif : la « Composante » (Adjudication / Frais / Hors
+               Enchères) est proposée. Hors vertical, RIEN n'est rendu (décision E2 : aucune mention —
+               ni champ, ni valeur, ni note) ; la part Autre reste fixée implicitement (OnParametersSet). *@
+            <FormField Label="@TvaComposanteVocabulary.FieldLabel" FieldId="tva-rule-part" Required="true"
+                       HelpText="@(IsCreate ? null : "La composante fait partie de la clé : non modifiable (supprimez puis recréez pour la changer).")">
                 <select id="tva-rule-part"
                         class="form-select"
                         value="@Model.Part"
@@ -46,17 +49,6 @@
                         <option value="@part.Code">@part.Label</option>
                     }
                 </select>
-            </FormField>
-        }
-        else
-        {
-            @* Vertical « vente aux enchères » désactivé (paramétrage produit D4) : le découpage
-               Adjudication / Frais n'est pas proposé ; la part Autre est implicite (fixée plus bas). *@
-            <FormField Label="Part" FieldId="tva-rule-part-implicit">
-                <p class="liakont-tva-editor__implicit-part" data-testid="tva-rule-part-implicit">
-                    Autre — le vertical « vente aux enchères » est désactivé pour ce tenant (le découpage
-                    Adjudication / Frais n'est pas proposé).
-                </p>
             </FormField>
         }
 
@@ -226,6 +218,16 @@
             Model.Part = ImplicitPart;
         }
     }
+
+    /// <summary>
+    /// Titre en MODIFICATION : « Modifier la règle — régime X », suffixé de la composante (vertical
+    /// enchères actif uniquement, valeur Autre → « Hors Enchères » via <see cref="TvaComposanteVocabulary"/>).
+    /// Hors vertical, la composante n'est jamais mentionnée (décision E2).
+    /// </summary>
+    private string EditTitle =>
+        ShowPart && !string.IsNullOrWhiteSpace(Model.Part)
+            ? $"Modifier la règle — régime {Model.SourceRegimeCode} ({TvaComposanteVocabulary.ValueLabel(Model.Part)})"
+            : $"Modifier la règle — régime {Model.SourceRegimeCode}";
 
     private bool IsFixedRate => string.Equals(Model.RateMode, "Fixed", StringComparison.Ordinal);
 
