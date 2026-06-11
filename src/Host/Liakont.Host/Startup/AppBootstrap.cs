@@ -454,6 +454,12 @@ public static class AppBootstrap
         // API05 (garde liakont.settings côté page et côté endpoint). Isole l'accès au module hors de la page.
         builder.Services.AddScoped<Liakont.Host.AgentManagement.IAgentManagementConsoleService, Liakont.Host.AgentManagement.AgentManagementConsoleService>();
 
+        // Composition de la page « Comptes plateforme agréée » (FIX01c) : lecture des comptes PA du tenant
+        // (sans la clé) + types de plug-ins enregistrés (IPaClientRegistry), et mutations (création, édition,
+        // saisie/rotation de clé chiffrée, désactivation) déléguées aux commandes TenantSettings in-process
+        // (garde liakont.settings côté page). Isole l'accès au module hors de la page.
+        builder.Services.AddScoped<Liakont.Host.PaAccounts.IPaAccountConsoleService, Liakont.Host.PaAccounts.PaAccountConsoleService>();
+
         // Pré-chargement déterministe de l'état de console à l'ouverture du circuit (avant rendu de la nav).
         builder.Services.AddScoped<Liakont.Host.Navigation.LiakontConsoleCircuitHandler>();
         builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler>(

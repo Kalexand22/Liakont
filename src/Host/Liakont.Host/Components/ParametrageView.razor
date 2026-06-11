@@ -149,6 +149,12 @@
                 }
             </ul>
         }
+        <StratumButton Text="Gérer les comptes PA"
+                       Variant="ButtonVariant.Secondary"
+                       Outline
+                       Size="ButtonSize.Small"
+                       Href="@ComptesPaPageUrl"
+                       TestId="parametrage-pa-link" />
     </SectionCard>
 
     <SectionCard Title="Table TVA" TestId="parametrage-tva">
@@ -243,6 +249,9 @@
 @code {
     /// <summary>Route de la page table TVA (WEB07) — référence avant livraison de cet écran.</summary>
     private const string TvaMappingPageUrl = "/parametrage/table-tva";
+
+    /// <summary>Route de la page de gestion des comptes plateforme agréée (FIX01c).</summary>
+    private const string ComptesPaPageUrl = "/parametrage/comptes-pa";
 
     /// <summary>Données assemblées de la page (jamais <c>null</c> : la page en fournit toujours un).</summary>
     [Parameter, EditorRequired]
