@@ -1,7 +1,13 @@
 namespace Liakont.Host.Startup;
 
+using Liakont.Modules.TenantSettings.Contracts.Commands;
+using Liakont.Modules.TenantSettings.Contracts.DTOs;
+using Liakont.Modules.TenantSettings.Contracts.Queries;
+using MediatR;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Npgsql;
+using Stratum.Common.Abstractions.MultiTenancy;
 using Stratum.Common.Infrastructure.Database;
 
 /// <summary>
@@ -78,8 +84,100 @@ internal static partial class DevTenantSeeder
         }
     }
 
+    /// <summary>
+    /// Importe (idempotent) le profil de paramétrage FICTIF du tenant de dev dans SA base, APRÈS sa
+    /// migration (le schéma <c>tenantsettings</c> n'existe qu'à ce stade). Sans profil, le CHECK suspend
+    /// tout document (CFG02, bug-inbox) : cet amorçage donne à un environnement de dev vierge un profil
+    /// valide pour que le parcours ingéré→émis se déroule sans intervention SQL. Tenant-scopé via
+    /// <see cref="ITenantScopeFactory"/> (même seam que le CHECK / TenantJobRunner) ; le companyId est
+    /// explicite (claim <c>company_id</c> du realm de dev). N'écrit AUCUN secret (INV-TENANTSETTINGS-007).
+    /// <para>
+    /// Garde-fous : Development uniquement ; nécessite <c>DevTenantSeed</c> avec un <c>CompanyId</c> et un
+    /// <c>SeedDirectoryPath</c>. Strictement NON FATAL : toute défaillance (dossier absent, import en
+    /// erreur) est journalisée et n'empêche jamais le démarrage.
+    /// </para>
+    /// </summary>
+    public static async Task SeedDevTenantProfileAsync(this WebApplication app)
+    {
+        if (!app.Environment.IsDevelopment())
+        {
+            return;
+        }
+
+        var options = app.Configuration.GetSection("DevTenantSeed").Get<DevTenantSeedOptions>();
+        if (options is null || string.IsNullOrWhiteSpace(options.TenantId))
+        {
+            return;
+        }
+
+        var logger = app.Services
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger("Liakont.Host.Startup.DevTenantSeeder");
+
+        // Sans companyId ou sans dossier de seed : seul le tenant système est amorcé (profil non importé).
+        if (options.CompanyId == Guid.Empty || string.IsNullOrWhiteSpace(options.SeedDirectoryPath))
+        {
+            LogDevProfileSeedSkipped(logger, options.TenantId);
+            return;
+        }
+
+        // Chemin relatif résolu par rapport au ContentRoot (en dev : src/Host/Liakont.Host).
+        var seedDir = Path.IsPathRooted(options.SeedDirectoryPath)
+            ? options.SeedDirectoryPath
+            : Path.GetFullPath(Path.Combine(app.Environment.ContentRootPath, options.SeedDirectoryPath));
+
+        if (!Directory.Exists(seedDir))
+        {
+            LogDevProfileSeedDirectoryMissing(logger, seedDir, options.TenantId);
+            return;
+        }
+
+        try
+        {
+            await using var scope = app.Services.GetRequiredService<ITenantScopeFactory>().Create(options.TenantId);
+
+            // Idempotent / non destructif : si le profil existe déjà, ne PAS réimporter (un ré-import
+            // remettrait à la baseline du seed des réglages éventuellement modifiés via la console).
+            var settingsQueries = scope.Services.GetRequiredService<ITenantSettingsQueries>();
+            if (await settingsQueries.GetCurrentCompanyId() is not null)
+            {
+                LogDevProfileAlreadyConfigured(logger, options.TenantId);
+                return;
+            }
+
+            var sender = scope.Services.GetRequiredService<ISender>();
+            var result = await sender.Send(new ImportTenantSeedCommand
+            {
+                SeedDirectoryPath = seedDir,
+                CompanyId = options.CompanyId,
+            });
+
+            LogDevProfileSeeded(logger, options.TenantId, result.ProfileImported, result.FiscalImported, result.PaAccountsImported);
+        }
+        catch (Exception ex)
+        {
+            // NON FATAL : l'amorçage du profil de dev ne doit jamais empêcher le démarrage.
+            LogDevProfileSeedFailed(logger, options.TenantId, ex);
+        }
+    }
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "Seed du tenant de dev « {TenantId} » ignoré : RealmName et DatabaseName sont requis (section DevTenantSeed).")]
     private static partial void LogDevTenantSeedIncomplete(ILogger logger, string tenantId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Amorçage du profil de dev ignoré pour « {TenantId} » : CompanyId et SeedDirectoryPath sont requis (section DevTenantSeed).")]
+    private static partial void LogDevProfileSeedSkipped(ILogger logger, string tenantId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Amorçage du profil de dev ignoré : dossier de seed introuvable « {SeedDir} » (tenant « {TenantId} »).")]
+    private static partial void LogDevProfileSeedDirectoryMissing(ILogger logger, string seedDir, string tenantId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Amorçage du profil de dev ignoré pour « {TenantId} » : un profil existe déjà (ré-import non destructif évité).")]
+    private static partial void LogDevProfileAlreadyConfigured(ILogger logger, string tenantId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Profil de dev amorcé pour « {TenantId} » (profil={ProfileImported}, fiscal={FiscalImported}, comptes PA={PaAccounts}).")]
+    private static partial void LogDevProfileSeeded(ILogger logger, string tenantId, bool profileImported, bool fiscalImported, int paAccounts);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Échec de l'amorçage du profil de dev pour « {TenantId} » (non fatal — le démarrage continue).")]
+    private static partial void LogDevProfileSeedFailed(ILogger logger, string tenantId, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Tenant de dev « {TenantId} » amorcé dans outbox.tenants (realm « {RealmName} »).")]
     private static partial void LogDevTenantSeeded(ILogger logger, string tenantId, string realmName);

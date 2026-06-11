@@ -9,6 +9,15 @@
 
 <div class="liakont-dashboard" data-testid="liakont-dashboard">
 
+    @if (!Model.ProfileConfigured)
+    {
+        <div class="liakont-dashboard__alert" role="alert" data-testid="dashboard-profile-incomplete">
+            <StatusBadge Label="PARAMÉTRAGE INCOMPLET" Severity="Severity.Error" />
+            <span>Le profil du tenant n'est pas encore créé — le traitement des documents est suspendu.
+                Importez le paramétrage du tenant (profil légal) pour reprendre le traitement.</span>
+        </div>
+    }
+
     <SectionCard Title="Documents" TestId="dashboard-documents">
         <div class="liakont-dashboard__counters" data-testid="dashboard-counters">
             @foreach (var counter in Model.StateCounts)

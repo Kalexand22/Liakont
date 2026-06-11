@@ -48,6 +48,15 @@ public sealed class TestAuthHandler : AuthenticationHandler<AuthenticationScheme
     /// </summary>
     public const string TenantHeader = "X-Tenant-Id";
 
+    /// <summary>
+    /// En-tête OPTIONNEL portant les rôles de l'utilisateur (séparés par des virgules), projetés en claims
+    /// de rôle. En production ces rôles viennent du jeton de l'IdP ; le harness les fournit ici pour les
+    /// endpoints gardés par rôle (ex. <c>/admin/tenants</c> → <c>SystemAdmin</c>, via <c>RequireRole</c>).
+    /// La décision d'autorisation reste celle de production (la garde lit le claim) — seule l'identité de
+    /// test remplace le flux IdP.
+    /// </summary>
+    public const string RolesHeader = "X-Test-Roles";
+
     private const string PermissionClaimType = "permission";
 
     public TestAuthHandler(
@@ -94,6 +103,15 @@ public sealed class TestAuthHandler : AuthenticationHandler<AuthenticationScheme
             foreach (var permission in await identityQueries.GetUserPermissions(userGuid, Context.RequestAborted))
             {
                 claims.Add(new Claim(PermissionClaimType, permission));
+            }
+        }
+
+        // Rôles (ex. SystemAdmin) projetés en claims de rôle — la garde RequireRole les lit (comme l'IdP).
+        if (Request.Headers.TryGetValue(RolesHeader, out var roleValues))
+        {
+            foreach (var role in roleValues.ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                claims.Add(new Claim(ClaimTypes.Role, role));
             }
         }
 
