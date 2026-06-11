@@ -29,7 +29,7 @@ instances hébergées — d'où l'exigence d'une **mesure**, pas d'une estimatio
 Mesure sur la **stack appliance OPS01a** (`deploy/docker/appliance/docker-compose.yml`), services
 `keycloak` + `keycloak-db` uniquement (Host et Caddy non requis pour mesurer l'IdP), image
 `quay.io/keycloak/keycloak:26.0` (→ **26.0.8**, JVM Quarkus 3.15.1) en **mode PRODUCTION**
-(`start --import-realm`, l'image exécute `kc.sh start --optimized`), realm `liakont` importé.
+(`command: ["start", "--import-realm"]`, **sans `--optimized`** : le build s'exécute AU DÉMARRAGE, cf. commentaire du compose ; les temps relevés 9,1 s / 6,5 s l'incluent), realm `liakont` importé.
 Relevé `docker stats --no-stream` après démarrage à froid, **au repos** (aucune session pilotée).
 
 **Hôte de mesure** : Docker Engine 28.4.0 (Docker Desktop), VM Docker voyant **31,02 GiB** de RAM /
@@ -76,8 +76,8 @@ l'intérieur** d'une instance se fait par **un realm par tenant** (mécanique du
 `RealmRegistry`, `MultiRealmJwksKeyResolver`). On **n'adopte PAS** un Keycloak mutualisé entre
 plusieurs instances/éditeurs. Motifs :
 
-- **Isolation par éditeur** : `blueprint.md` §3.3 — « la marque grise = une instance de plateforme
-  PAR éditeur ». Un IdP mutualisé entre éditeurs serait un point de défaillance et un périmètre de
+- **Isolation par éditeur** : `blueprint.md` — principe « la marque grise = une instance de plateforme
+  PAR éditeur » (et §3.3, les trois topologies de déploiement). Un IdP mutualisé entre éditeurs serait un point de défaillance et un périmètre de
   compromission partagés, et couplerait leurs cadences de montée de version / patch CVE.
 - **Réversibilité de V1 (non négociable)** : OPS06b migre une instance dédiée hébergée → self-hosted
   par dump/restore + bascule DNS. Un Keycloak par instance fait **voyager l'IdP avec l'instance**
