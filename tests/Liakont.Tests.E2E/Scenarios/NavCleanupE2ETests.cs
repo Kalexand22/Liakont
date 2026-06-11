@@ -27,6 +27,8 @@ public sealed class NavCleanupE2ETests : KeycloakBaseE2ETest
     private const string WebhooksNavTestId = "nav-link-admin-notifications-webhooks";     // Webhooks (retiré)
     private const string TemplatesNavTestId = "nav-link-admin-notifications-templates";   // Templates (conservé)
     private const string DocumentsNavTestId = "nav-link-documents";
+    private const string AuditJournalNavTestId = "nav-link-admin-audit";          // Audit › Journal d'audit (masqué FIX303)
+    private const string AuditPoliciesNavTestId = "nav-link-admin-audit-policies"; // Audit › Politiques (masqué FIX303)
 
     public NavCleanupE2ETests(
         KeycloakE2EWebFactory factory,
@@ -73,5 +75,22 @@ public sealed class NavCleanupE2ETests : KeycloakBaseE2ETest
         // Templates est gardé par liakont.settings : l'operateur (read + actions) ne le voit pas.
         (await Page.GetByTestId(TemplatesNavTestId).CountAsync())
             .Should().Be(0, "l'operateur ne porte pas liakont.settings → l'entrée Templates est masquée");
+    }
+
+    [Fact]
+    public async Task Superviseur_Nav_Has_No_Audit_Section()
+    {
+        // Le superviseur porte TOUTES les permissions Liakont (read/actions/settings/supervision) mais JAMAIS la
+        // permission socle audit.trail.view (hors matrice §3) : la section « Audit » du socle reste masquée
+        // (FIX303). Anti-faux-vert : les deux entrées socle sont réellement ABSENTES du DOM pour ce rôle élevé.
+        await LoginViaKeycloakAsync("superviseur");
+
+        var shell = GetShellPage();
+        await shell.WaitForShellAsync();
+
+        (await Page.GetByTestId(AuditJournalNavTestId).CountAsync())
+            .Should().Be(0, "« Journal d'audit » exige audit.trail.view, jamais accordé à un rôle Liakont (FIX303)");
+        (await Page.GetByTestId(AuditPoliciesNavTestId).CountAsync())
+            .Should().Be(0, "« Politiques » d'audit exige audit.trail.view, jamais accordé à un rôle Liakont (FIX303)");
     }
 }
