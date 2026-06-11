@@ -2,6 +2,7 @@ namespace Liakont.Host.Alertes;
 
 using System.Threading;
 using System.Threading.Tasks;
+using Liakont.Modules.Supervision.Application;
 using Liakont.Modules.Supervision.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.Commands;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
@@ -18,16 +19,6 @@ using MediatR;
 /// </summary>
 internal sealed class AlertesConsoleService : IAlertesConsoleService
 {
-    // Défauts produit F12 §5.2 (dupliqués ici car la valeur du Domain TenantSettings n'est pas accessible hors
-    // de ce module — même pattern que les règles SUP01b ; la source reste F12 §5.2). Utilisés pour pré-remplir
-    // le formulaire et préserver les seuils gelés quand le tenant n'a pas encore de ligne de seuils.
-    private const int DefaultAgentSilentHours = 24;
-    private const int DefaultMissedRunHours = 36;
-    private const int DefaultPushQueueMaxItems = 50;
-    private const int DefaultPushQueueMaxAgeHours = 6;
-    private const int DefaultBlockedDocumentsDays = 5;
-    private const int DefaultPaRejectionsDays = 2;
-
     private readonly ISender _sender;
     private readonly IAlertDeviceQueries _deviceQueries;
 
@@ -43,11 +34,13 @@ internal sealed class AlertesConsoleService : IAlertesConsoleService
         var thresholds = await _sender.Send(new GetAlertThresholdsQuery(), cancellationToken).ConfigureAwait(false);
         var profile = await _sender.Send(new GetTenantProfileQuery(), cancellationToken).ConfigureAwait(false);
 
+        // Défauts produit F12 §5.2 issus de l'UNIQUE source partagée (AlertRuleCatalog, module Supervision) :
+        // le défaut AFFICHÉ et le défaut PRÉSERVÉ à l'enregistrement ne peuvent plus diverger.
         var form = new AlertesFormModel
         {
-            AgentSilentHours = thresholds?.AgentSilentHours ?? DefaultAgentSilentHours,
-            BlockedDocumentsDays = thresholds?.BlockedDocumentsDays ?? DefaultBlockedDocumentsDays,
-            PaRejectionsDays = thresholds?.PaRejectionsDays ?? DefaultPaRejectionsDays,
+            AgentSilentHours = thresholds?.AgentSilentHours ?? AlertRuleCatalog.DefaultAgentSilentHours,
+            BlockedDocumentsDays = thresholds?.BlockedDocumentsDays ?? AlertRuleCatalog.DefaultBlockedDocumentsDays,
+            PaRejectionsDays = thresholds?.PaRejectionsDays ?? AlertRuleCatalog.DefaultPaRejectionsDays,
             AlertTenantContact = thresholds?.AlertTenantContact ?? false,
             ContactEmailAlerte = profile?.ContactEmailAlerte,
         };
@@ -73,9 +66,9 @@ internal sealed class AlertesConsoleService : IAlertesConsoleService
             BlockedDocumentsDays = input.BlockedDocumentsDays,
             PaRejectionsDays = input.PaRejectionsDays,
             AlertTenantContact = input.AlertTenantContact,
-            MissedRunHours = existing?.MissedRunHours ?? DefaultMissedRunHours,
-            PushQueueMaxItems = existing?.PushQueueMaxItems ?? DefaultPushQueueMaxItems,
-            PushQueueMaxAgeHours = existing?.PushQueueMaxAgeHours ?? DefaultPushQueueMaxAgeHours,
+            MissedRunHours = existing?.MissedRunHours ?? AlertRuleCatalog.DefaultMissedRunHours,
+            PushQueueMaxItems = existing?.PushQueueMaxItems ?? AlertRuleCatalog.DefaultPushQueueMaxItems,
+            PushQueueMaxAgeHours = existing?.PushQueueMaxAgeHours ?? AlertRuleCatalog.DefaultPushQueueMaxAgeHours,
         };
 
         await _sender.Send(command, cancellationToken).ConfigureAwait(false);

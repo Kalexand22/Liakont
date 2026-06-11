@@ -23,9 +23,6 @@ using Microsoft.Extensions.Options;
 /// </summary>
 public sealed class AlertDeviceQueries : IAlertDeviceQueries
 {
-    /// <summary>Cadence du dead-man's-switch (F12 §5.1 : toutes les 15 min) — restituée à l'opérateur.</summary>
-    public const int EvaluationIntervalMinutes = 15;
-
     private readonly IReadOnlyCollection<string> _activeRuleKeys;
     private readonly ITenantSettingsQueries _tenantSettings;
     private readonly SupervisionNotificationOptions _notificationOptions;
@@ -65,7 +62,7 @@ public sealed class AlertDeviceQueries : IAlertDeviceQueries
         {
             Rules = rules,
             OperatorEmailConfigured = !string.IsNullOrWhiteSpace(_notificationOptions.OperatorEmail),
-            EvaluationIntervalMinutes = EvaluationIntervalMinutes,
+            EvaluationIntervalMinutes = SupervisionEvaluationCadence.IntervalMinutes,
         };
     }
 

@@ -1,14 +1,16 @@
 namespace Liakont.Host.Tests.Unit.Supervision;
 
+using System.Linq;
 using FluentAssertions;
 using Liakont.Host.Startup;
+using Liakont.Modules.Supervision.Contracts;
 using Liakont.Modules.Supervision.Infrastructure;
 using Xunit;
 
 /// <summary>
 /// Verrouille la cohérence cadence ↔ cron (FIX210, F12 §5.1) : si l'expression cron de
 /// <see cref="SystemJobDefinitions"/> change sans mettre à jour
-/// <see cref="AlertDeviceQueries.EvaluationIntervalMinutes"/>, la fenêtre « en retard » (×2)
+/// <see cref="SupervisionEvaluationCadence.IntervalMinutes"/>, la fenêtre « en retard » (×2)
 /// devient silencieusement fausse. Les deux DOIVENT changer ensemble — ce test casse sinon.
 /// </summary>
 public sealed class SupervisionCadenceLockTests
@@ -22,9 +24,10 @@ public sealed class SupervisionCadenceLockTests
 
         entry.Should().NotBeNull("le job de supervision doit être déclaré dans SystemJobDefinitions.All");
 
-        var expectedCron = $"*/{AlertDeviceQueries.EvaluationIntervalMinutes} * * * *";
+        var expectedCron = $"*/{SupervisionEvaluationCadence.IntervalMinutes} * * * *";
 
-        var reason = $"la cadence F12 §5.1 est {AlertDeviceQueries.EvaluationIntervalMinutes} min — AlertDeviceQueries.EvaluationIntervalMinutes et le cron de SystemJobDefinitions doivent changer ensemble";
+        var reason = $"la cadence F12 §5.1 est {SupervisionEvaluationCadence.IntervalMinutes} min — "
+            + "SupervisionEvaluationCadence.IntervalMinutes et le cron de SystemJobDefinitions doivent changer ensemble";
         entry!.CronExpression.Should().Be(expectedCron, reason);
     }
 }

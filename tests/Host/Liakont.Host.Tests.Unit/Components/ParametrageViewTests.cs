@@ -9,6 +9,7 @@ using Liakont.Host.Parametrage;
 using Liakont.Modules.Archive.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Microsoft.AspNetCore.Components;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 public sealed class ParametrageViewTests : BunitContext
@@ -150,6 +151,19 @@ public sealed class ParametrageViewTests : BunitContext
         var cut = Render<ParametrageView>(p => p.Add(v => v.Model, BuildModel()));
 
         cut.FindAll("[data-testid='parametrage-pa-link']").Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Should_Link_To_The_Alert_Settings_Page()
+    {
+        // Le lien « Paramétrer les alertes » mène à la page dédiée (garde liakont.settings, FIX210).
+        var cut = Render<ParametrageView>(p => p.Add(v => v.Model, BuildModel()));
+
+        cut.FindAll("[data-testid='parametrage-alertes-link']").Should().ContainSingle();
+
+        // StratumButton(Href) navigue au clic : on vérifie la CIBLE réelle.
+        cut.Find("[data-testid='parametrage-alertes-link']").Click();
+        cut.Services.GetRequiredService<NavigationManager>().Uri.Should().EndWith("/parametrage/alertes");
     }
 
     [Fact]

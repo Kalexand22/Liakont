@@ -1,35 +1,23 @@
 namespace Liakont.Host.Supervision;
 
 using System;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Liakont.Modules.Supervision.Infrastructure;
+using Liakont.Modules.Supervision.Contracts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Stratum.Modules.Job.Contracts.Queries;
 
 /// <summary>
 /// Témoin de vie de la supervision (FIX210, F12 §5.1). L'évaluation du dead-man's-switch est un job SYSTÈME
-/// (<see cref="SupervisionEvaluationTrigger"/>, fan-out cross-tenant) : ses exécutions vivent dans la base
-/// SYSTÈME. On les lit via le Contract du module Job (<see cref="IJobQueries"/>) dans un scope SYSTÈME — un
-/// scope DI neuf sans tenant ambiant route la connexion vers la base système (même mécanique que l'amorçage
-/// au démarrage). La dernière exécution « Completed » de ce type donne la dernière évaluation ; au-delà du
-/// double de la cadence (F12 §5.1), le dispositif est jugé en retard. La lecture est best-effort : un échec
-/// rend un état « indéterminé », jamais une fausse alerte.
+/// (fan-out cross-tenant) : sa dernière exécution vit dans la base SYSTÈME. On la lit via le Contract du module
+/// Supervision (<see cref="ISupervisionLivenessQueries"/>) résolu dans un scope SYSTÈME — un scope DI neuf sans
+/// tenant ambiant route la connexion vers la base système (même mécanique que l'amorçage au démarrage). Le
+/// type technique du job reste interne au module Supervision (le Host ne dépend que des Contracts). Au-delà du
+/// double de la cadence (F12 §5.1), le dispositif est jugé en retard. Lecture best-effort : un échec rend un
+/// état « indéterminé », jamais une fausse alerte.
 /// </summary>
 internal sealed partial class SupervisionLivenessProvider : ISupervisionLivenessProvider
 {
-    /// <summary>Statut persistant d'un job terminé avec succès (valeur stable de <c>JobStatus.Completed</c>).</summary>
-    private const string CompletedStatus = "Completed";
-
-    /// <summary>Plafond de lecture des jobs terminés récents (toutes natures) — l'évaluation tourne toutes les
-    /// 15 min, sa dernière exécution est donc dans une fenêtre courte ; un volume non couvert dégrade
-    /// prudemment vers « en retard » (jamais un faux « sain »).</summary>
-    private const int CompletedJobScanLimit = 200;
-
-    private static readonly string SupervisionJobType = typeof(SupervisionEvaluationTrigger).FullName!;
-
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<SupervisionLivenessProvider> _logger;
@@ -49,17 +37,11 @@ internal sealed partial class SupervisionLivenessProvider : ISupervisionLiveness
         DateTimeOffset? lastEvaluationUtc;
         try
         {
-            // Scope DI neuf SANS tenant ambiant ⇒ IConnectionFactory route vers la base SYSTÈME (où vivent les
-            // jobs système). Lecture par le Contract du module Job (jamais de SQL maison cross-module, CLAUDE.md n°14).
+            // Scope DI neuf SANS tenant ambiant ⇒ la connexion route vers la base SYSTÈME (où vivent les jobs
+            // système). Lecture par le Contract du module Supervision (jamais de SQL maison cross-module, CLAUDE.md n°14).
             await using var scope = _scopeFactory.CreateAsyncScope();
-            var jobQueries = scope.ServiceProvider.GetRequiredService<IJobQueries>();
-            var completed = await jobQueries.ListByStatusAsync(CompletedStatus, CompletedJobScanLimit, cancellationToken)
-                .ConfigureAwait(false);
-
-            lastEvaluationUtc = completed
-                .Where(j => string.Equals(j.Type, SupervisionJobType, StringComparison.Ordinal) && j.CompletedAt is not null)
-                .Select(j => j.CompletedAt)
-                .Max();
+            var livenessQueries = scope.ServiceProvider.GetRequiredService<ISupervisionLivenessQueries>();
+            lastEvaluationUtc = await livenessQueries.GetLastEvaluationUtcAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -69,11 +51,11 @@ internal sealed partial class SupervisionLivenessProvider : ISupervisionLiveness
             {
                 LastEvaluationUtc = null,
                 Status = SupervisionLivenessStatus.Unknown,
-                IntervalMinutes = AlertDeviceQueries.EvaluationIntervalMinutes,
+                IntervalMinutes = SupervisionEvaluationCadence.IntervalMinutes,
             };
         }
 
-        return Evaluate(lastEvaluationUtc, _timeProvider.GetUtcNow(), AlertDeviceQueries.EvaluationIntervalMinutes);
+        return Evaluate(lastEvaluationUtc, _timeProvider.GetUtcNow(), SupervisionEvaluationCadence.IntervalMinutes);
     }
 
     /// <summary>

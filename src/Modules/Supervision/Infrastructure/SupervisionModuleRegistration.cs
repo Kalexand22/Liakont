@@ -35,6 +35,10 @@ public static class SupervisionModuleRegistration
         // seuils effectifs (CFG02) + état e-mail opérateur (F12 §5.3). Tenant-scopée, sans secret exposé.
         services.AddScoped<IAlertDeviceQueries, AlertDeviceQueries>();
 
+        // Lecture de la dernière évaluation du dead-man's-switch (FIX210, F12 §5.1) : dernier achèvement du job
+        // SYSTÈME d'évaluation, via le Contract Job. Résolue dans un scope SYSTÈME par le témoin de vie (Host).
+        services.AddScoped<ISupervisionLivenessQueries, SupervisionLivenessQueries>();
+
         // Acquittement : horloge partagée si enregistrée (sinon horloge système) — horodatage déterministe en test.
         services.AddScoped<IAlertAcknowledgementService>(sp => new AlertAcknowledgementService(
             sp.GetRequiredService<IAlertStore>(),
