@@ -4,6 +4,7 @@ using System.Security.Claims;
 using Bunit;
 using FluentAssertions;
 using Liakont.Host.Components.Pages.Auth;
+using Liakont.Host.Configuration;
 using Liakont.Host.Security;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Http;
@@ -68,6 +69,32 @@ public sealed class LoginTests : BunitContext
 
         // Anti open-redirect : un returnUrl absolu est ramené à "/".
         nav.Uri.Should().Be(nav.BaseUri);
+    }
+
+    [Fact]
+    public void Login_Title_Uses_Instance_Commercial_Name()
+    {
+        // Branding d'instance (BRD01) : titre + heading du premier écran portent le nom commercial de
+        // l'éditeur, jamais la marque socle « Stratum ERP » (retirée des resx).
+        ConfigureKeycloak(active: false);
+        Services.AddSingleton<IOptions<BrandingOptions>>(Options.Create(new BrandingOptions { CommercialName = "Acme Facture" }));
+
+        var cut = Render<Login>(ps => ps.AddCascadingValue<HttpContext>(AnonymousHttpContext()));
+
+        cut.Find("h1.login-title").TextContent.Should().Be("Acme Facture");
+        cut.Markup.Should().NotContain("Stratum ERP");
+    }
+
+    [Fact]
+    public void Login_Defaults_To_Liakont_Brand_Never_Socle_Name()
+    {
+        // Sans branding configuré, le défaut produit « Liakont » s'applique — jamais « Stratum ERP ».
+        ConfigureKeycloak(active: false);
+
+        var cut = Render<Login>(ps => ps.AddCascadingValue<HttpContext>(AnonymousHttpContext()));
+
+        cut.Find("h1.login-title").TextContent.Should().Be(BrandingOptions.DefaultCommercialName);
+        cut.Markup.Should().NotContain("Stratum ERP");
     }
 
     [Fact]

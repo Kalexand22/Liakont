@@ -4,6 +4,7 @@ using Bunit;
 using FluentAssertions;
 using Liakont.Host.Components.Layout;
 using Liakont.Host.Configuration;
+using Liakont.Modules.Archive.Application;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Xunit;
@@ -64,6 +65,16 @@ public sealed class BrandingHeadTests : BunitContext
         style.Should().Contain("--color-primary:#123456;");
         style.Should().Contain("--color-primary-600:#123456;", "la barre latérale dérive de --color-primary-600");
         style.Should().Contain("--color-primary-container:#abcdef;", "l'accent surcharge le conteneur primaire");
+    }
+
+    [Fact]
+    public void Default_Commercial_Name_Is_Consistent_Across_Branding_Readers()
+    {
+        // Garde anti-divergence (BRD01) : la marque produit par défaut doit rester identique des deux
+        // côtés — coquille/emails via BrandingOptions, notice d'export via ReversibilityBranding — bien
+        // que la section "Branding" soit lue par deux chemins (isolation de module : Archive ne dépend
+        // pas du Host). Si l'un des défauts change sans l'autre, ce test échoue.
+        ReversibilityBranding.DefaultCommercialName.Should().Be(BrandingOptions.DefaultCommercialName);
     }
 
     [Fact]

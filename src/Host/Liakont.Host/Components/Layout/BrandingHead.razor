@@ -30,7 +30,10 @@
     /// <summary>
     /// Construit la surcharge <c>:root</c> des jetons de thème à partir des seules couleurs hex valides.
     /// La barre latérale dérive de <c>--color-primary-600/700</c> (tokens.css) ; on surcharge donc la
-    /// rampe primaire ancre, et l'accent surcharge <c>--color-primary-container</c>.
+    /// rampe primaire ancre, et l'accent surcharge <c>--color-primary-container</c>. Émis au niveau
+    /// <c>:root</c> APRÈS tokens.css : la marque s'applique en thème clair ET sombre (constante d'un thème
+    /// à l'autre — voulu). CONTRAT : <c>PrimaryColor</c> doit être SOMBRE (texte de sidebar clair) — voir
+    /// <see cref="BrandingOptions.PrimaryColor"/>.
     /// </summary>
     private static string? BuildColorCss(BrandingOptions brand)
     {

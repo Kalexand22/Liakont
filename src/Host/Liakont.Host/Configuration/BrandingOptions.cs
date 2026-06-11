@@ -27,10 +27,19 @@ public sealed class BrandingOptions
     /// <summary>URL / chemin du favicon. Vide = aucun favicon dédié.</summary>
     public string FaviconUrl { get; init; } = string.Empty;
 
-    /// <summary>Couleur primaire (hex CSS, ex. <c>#001b44</c>). Vide ou invalide = thème socle par défaut.</summary>
+    /// <summary>
+    /// Couleur primaire de marque (hex CSS, ex. <c>#001b44</c>). Vide ou invalide = thème socle par défaut.
+    /// CONTRAT : doit être une couleur SOMBRE (comme le bleu marine par défaut) — la barre latérale en dérive
+    /// (<c>--color-primary-600/700</c>) et y affiche du texte CLAIR (<c>--sidebar-text</c>) ; une primaire
+    /// claire rendrait ce texte illisible. La surcharge s'applique en thème clair ET sombre (la marque est
+    /// constante d'un thème à l'autre — comportement voulu, pas une fuite).
+    /// </summary>
     public string PrimaryColor { get; init; } = string.Empty;
 
-    /// <summary>Couleur d'accent (hex CSS). Vide ou invalide = pas de surcharge d'accent.</summary>
+    /// <summary>
+    /// Couleur d'accent de marque (hex CSS). Vide ou invalide = pas de surcharge d'accent. Surcharge
+    /// <c>--color-primary-container</c> en thème clair ET sombre (marque constante d'un thème à l'autre).
+    /// </summary>
     public string AccentColor { get; init; } = string.Empty;
 
     /// <summary>Domaine public de l'instance (informatif). Vide = non renseigné.</summary>
