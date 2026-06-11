@@ -50,10 +50,10 @@
         {
           "name": "company_id",
           "protocol": "openid-connect",
-          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
           "config": {
-            "user.attribute": "company_id",
             "claim.name": "company_id",
+            "claim.value": "00000000-0000-4000-a000-000000000001",
             "jsonType.label": "String",
             "id.token.claim": "true",
             "access.token.claim": "true",
