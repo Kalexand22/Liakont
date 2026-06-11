@@ -50,5 +50,12 @@ public sealed class SupervisionDashboardE2ETests : KeycloakBaseE2ETest
         // signalé ligne par ligne, jamais un échec global ici sur un backend sain).
         (await Page.Locator("[data-testid='supervision-error']").CountAsync())
             .Should().Be(0, "la vue d'ensemble de supervision se charge sans erreur contre le backend réel");
+
+        // Témoin de vie du dead-man's-switch (FIX210, F12 §5.1) : le bandeau d'état du dispositif est rendu en
+        // tête de page contre le backend réel — une supervision muette serait visible au lieu d'être confondue
+        // avec une absence d'alerte.
+        var liveness = Page.Locator("[data-testid='supervision-liveness']");
+        await liveness.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 30_000 });
+        (await liveness.IsVisibleAsync()).Should().BeTrue("le témoin de vie de la supervision est rendu en tête de page");
     }
 }

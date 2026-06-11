@@ -210,6 +210,16 @@
                        TestId="parametrage-tva-link" />
     </SectionCard>
 
+    <SectionCard Title="Alertes &amp; supervision" TestId="parametrage-alertes">
+        <p>Règles d'alerte (seuils), contact d'alerte du tenant et état du dispositif de supervision.</p>
+        <StratumButton Text="Paramétrer les alertes"
+                       Variant="ButtonVariant.Secondary"
+                       Outline
+                       Size="ButtonSize.Small"
+                       Href="@AlertesPageUrl"
+                       TestId="parametrage-alertes-link" />
+    </SectionCard>
+
     <SectionCard Title="Intégrité de l'archive" TestId="parametrage-integrite">
         <p>Recalcule le contenu, le chaînage et les ancrages temporels de tout le coffre d'archive du tenant.</p>
         <StratumButton Text="Vérifier l'intégrité de l'archive"
@@ -261,6 +271,9 @@
 
     /// <summary>Route de la page de gestion des comptes plateforme agréée (FIX01c).</summary>
     private const string ComptesPaPageUrl = "/parametrage/comptes-pa";
+
+    /// <summary>Route de la page de paramétrage des alertes &amp; supervision (FIX210).</summary>
+    private const string AlertesPageUrl = "/parametrage/alertes";
 
     /// <summary>Données assemblées de la page (jamais <c>null</c> : la page en fournit toujours un).</summary>
     [Parameter, EditorRequired]

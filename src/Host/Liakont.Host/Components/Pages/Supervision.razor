@@ -22,6 +22,10 @@
     documents. Les tenants à traiter (alertes critiques) apparaissent en tête.
 </p>
 
+@* Témoin de vie du dead-man's-switch (FIX210, F12 §5.1) : « aucune alerte » est sain SEULEMENT si le
+   dispositif tourne — sinon c'est une panne silencieuse. Le bandeau rend cette distinction visible. *@
+<SupervisionLivenessBanner />
+
 @if (_loadFailed)
 {
     <div role="alert" data-testid="supervision-error">

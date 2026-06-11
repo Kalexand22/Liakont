@@ -1,0 +1,171 @@
+@page "/parametrage/alertes"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using Liakont.Host.Alertes
+@using Liakont.Host.Components
+@using Liakont.Host.Security
+@using Stratum.Common.Abstractions.Exceptions
+@using Stratum.Common.Abstractions.Security
+@inject IAlertesConsoleService Service
+@inject IPermissionService Permissions
+@inject ILogger<Alertes> Logger
+
+<PageTitle>Alertes &amp; supervision — Liakont</PageTitle>
+
+<h1 class="visually-hidden">Paramétrage des alertes &amp; supervision</h1>
+
+@if (!_canManage)
+{
+    @* Paramétrage du tenant : réservé à liakont.settings. Sans la permission, aucune donnée n'est chargée et
+       seul le message d'accès refusé est rendu (la garde serveur reste l'unique contrôle du chemin console). *@
+    <div role="alert" data-testid="alertes-denied">
+        Accès refusé : le paramétrage des alertes requiert l'autorisation de paramétrage (liakont.settings).
+        Rapprochez-vous de l'administrateur de votre organisation.
+    </div>
+}
+else if (_loadFailed)
+{
+    <div role="alert" data-testid="alertes-error">
+        Impossible de charger le paramétrage des alertes pour le moment. Réessayez plus tard.
+    </div>
+}
+else if (_model is null)
+{
+    <p data-testid="alertes-loading">Chargement…</p>
+}
+else
+{
+    <SupervisionLivenessBanner />
+
+    <AlertesView Model="_model"
+                 ThresholdsBusy="_thresholdsBusy"
+                 ThresholdsMessage="@_thresholdsMessage"
+                 ThresholdsIsError="_thresholdsIsError"
+                 OnSaveThresholds="SaveThresholdsAsync"
+                 ContactBusy="_contactBusy"
+                 ContactMessage="@_contactMessage"
+                 ContactIsError="_contactIsError"
+                 OnSaveContact="SaveContactAsync" />
+}
+
+@code {
+    private AlertesViewModel? _model;
+    private bool _loadFailed;
+
+    /// <summary>Permission de paramétrage du tenant : conditionne TOUTE la page (accès + actions).</summary>
+    private bool _canManage;
+
+    private bool _thresholdsBusy;
+    private string? _thresholdsMessage;
+    private bool _thresholdsIsError;
+
+    private bool _contactBusy;
+    private string? _contactMessage;
+    private bool _contactIsError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Contrôle côté serveur (circuit Blazor Server), non falsifiable côté client.
+        _canManage = Permissions.HasPermission(LiakontPermissions.Settings);
+        if (_canManage)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _model = await Service.GetAsync();
+            _loadFailed = false;
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the Liakont alert settings page.");
+        }
+    }
+
+    private async Task SaveThresholdsAsync()
+    {
+        if (_model is null)
+        {
+            return;
+        }
+
+        _thresholdsBusy = true;
+        _thresholdsMessage = null;
+        _thresholdsIsError = false;
+
+        try
+        {
+            await Service.SaveThresholdsAsync(new AlertesThresholdInput
+            {
+                AgentSilentHours = _model.Form.AgentSilentHours,
+                BlockedDocumentsDays = _model.Form.BlockedDocumentsDays,
+                PaRejectionsDays = _model.Form.PaRejectionsDays,
+                AlertTenantContact = _model.Form.AlertTenantContact,
+            });
+            await LoadAsync();
+            _thresholdsMessage = "Seuils d'alerte enregistrés.";
+            _thresholdsIsError = false;
+        }
+        catch (ArgumentException)
+        {
+            _thresholdsMessage = "Les seuils doivent être des nombres strictement positifs.";
+            _thresholdsIsError = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save the Liakont alert thresholds.");
+            _thresholdsMessage = "L'enregistrement des seuils a échoué. Réessayez plus tard.";
+            _thresholdsIsError = true;
+        }
+        finally
+        {
+            _thresholdsBusy = false;
+        }
+    }
+
+    private async Task SaveContactAsync()
+    {
+        if (_model is null)
+        {
+            return;
+        }
+
+        _contactBusy = true;
+        _contactMessage = null;
+        _contactIsError = false;
+
+        try
+        {
+            await Service.SaveContactAsync(_model.Form.ContactEmailAlerte);
+            await LoadAsync();
+            _contactMessage = "Contact d'alerte enregistré.";
+            _contactIsError = false;
+        }
+        catch (NotFoundException)
+        {
+            _contactMessage = "Le profil du tenant n'est pas encore créé : créez-le avant de renseigner un contact d'alerte.";
+            _contactIsError = true;
+        }
+        catch (ArgumentException)
+        {
+            _contactMessage = "L'e-mail de contact d'alerte est invalide.";
+            _contactIsError = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save the Liakont alert contact email.");
+            _contactMessage = "L'enregistrement du contact a échoué. Réessayez plus tard.";
+            _contactIsError = true;
+        }
+        finally
+        {
+            _contactBusy = false;
+        }
+    }
+}

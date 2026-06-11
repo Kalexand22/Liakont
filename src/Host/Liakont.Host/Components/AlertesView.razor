@@ -1,0 +1,220 @@
+@namespace Liakont.Host.Components
+@using Liakont.Host.Alertes
+@using Liakont.Modules.Supervision.Contracts.DTOs
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* AlertesView — rendu PUR de la page « Paramétrage › Alertes » (FIX210, F12 §5). Reçoit son modèle et l'état
+ * d'enregistrement en paramètres (aucune injection métier, aucune logique) pour être testable en bUnit sans
+ * auth ni base. MONTRE le dispositif (règles actives + gelées, seuils effectifs, routage, e-mail opérateur)
+ * et ÉDITE les seuils des règles actives, l'activation et le contact d'alerte. Aucune adresse opérateur ni
+ * secret affiché (CLAUDE.md n°10). Gabarit Stratum (SectionCard, FormField, StatusBadge, StratumButton). FR. *@
+
+<div class="liakont-alertes" data-testid="alertes">
+
+    <SectionCard Title="Dispositif d'alerte (règles)" TestId="alertes-rules">
+        <p class="liakont-alertes__intro">
+            La supervision évalue ces règles toutes les @Model.Device.EvaluationIntervalMinutes minutes (UTC, F12 §5.1).
+            Les règles gelées sont déclarées mais pas encore évaluées (source de données à venir) — elles ne
+            couvrent rien tant qu'elles sont gelées.
+        </p>
+        <table class="liakont-alertes__table" data-testid="alertes-rules-table">
+            <thead>
+                <tr>
+                    <th scope="col">Règle</th>
+                    <th scope="col">Gravité</th>
+                    <th scope="col">État</th>
+                    <th scope="col">Seuil</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var rule in Model.Device.Rules)
+                {
+                    <tr data-testid="alertes-rule-row">
+                        <td>@rule.DisplayName</td>
+                        <td>@rule.Severity</td>
+                        <td>
+                            @if (rule.IsActive)
+                            {
+                                <StatusBadge Label="Active" Severity="Severity.Success" />
+                            }
+                            else
+                            {
+                                <span data-testid="alertes-rule-frozen">
+                                    <StatusBadge Label="Gelée" Severity="Severity.Info" />
+                                </span>
+                            }
+                        </td>
+                        <td>@rule.ThresholdDisplay</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </SectionCard>
+
+    <SectionCard Title="Seuils des règles actives" TestId="alertes-thresholds">
+        <p class="liakont-alertes__intro">
+            Seuls les seuils des règles actives sont modifiables (les valeurs par défaut viennent de F12 §5.2).
+        </p>
+        <div class="liakont-alertes__editor" data-testid="alertes-thresholds-editor">
+            <div class="liakont-alertes__editor-grid">
+                <FormField Label="Agent muet — seuil (heures)" FieldId="alertes-agent-silent-hours" Required="true">
+                    <input id="alertes-agent-silent-hours"
+                           class="form-control"
+                           type="number"
+                           min="1"
+                           @bind="Model.Form.AgentSilentHours"
+                           disabled="@ThresholdsBusy"
+                           data-testid="alertes-agent-silent-hours" />
+                </FormField>
+
+                <FormField Label="Documents bloqués — seuil (jours)" FieldId="alertes-blocked-days" Required="true">
+                    <input id="alertes-blocked-days"
+                           class="form-control"
+                           type="number"
+                           min="1"
+                           @bind="Model.Form.BlockedDocumentsDays"
+                           disabled="@ThresholdsBusy"
+                           data-testid="alertes-blocked-days" />
+                </FormField>
+
+                <FormField Label="Rejets PA — seuil (jours)" FieldId="alertes-pa-rejections-days" Required="true">
+                    <input id="alertes-pa-rejections-days"
+                           class="form-control"
+                           type="number"
+                           min="1"
+                           @bind="Model.Form.PaRejectionsDays"
+                           disabled="@ThresholdsBusy"
+                           data-testid="alertes-pa-rejections-days" />
+                </FormField>
+            </div>
+
+            <div class="liakont-alertes__toggle">
+                <label>
+                    <input type="checkbox"
+                           @bind="Model.Form.AlertTenantContact"
+                           disabled="@ThresholdsBusy"
+                           data-testid="alertes-tenant-contact-toggle" />
+                    Envoyer les alertes critiques au contact d'alerte du tenant (F12 §5.3)
+                </label>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(ThresholdsMessage))
+            {
+                <div class="liakont-alertes__feedback"
+                     role="@(ThresholdsIsError ? "alert" : "status")"
+                     data-testid="alertes-thresholds-feedback">
+                    @ThresholdsMessage
+                </div>
+            }
+
+            <StratumButton Text="@(ThresholdsBusy ? "Enregistrement…" : "Enregistrer les seuils")"
+                           Variant="ButtonVariant.Primary"
+                           Size="ButtonSize.Small"
+                           Disabled="@ThresholdsBusy"
+                           OnClick="@(_ => OnSaveThresholds.InvokeAsync())"
+                           TestId="alertes-thresholds-save-btn" />
+        </div>
+    </SectionCard>
+
+    <SectionCard Title="Destinataires & routage" TestId="alertes-routing">
+        <dl class="liakont-alertes__defs">
+            <div class="liakont-alertes__row">
+                <dt>Opérateur de l'instance</dt>
+                <dd data-testid="alertes-operator-email">
+                    @if (Model.Device.OperatorEmailConfigured)
+                    {
+                        <StatusBadge Label="E-mail configuré" Severity="Severity.Success" />
+                        <span>reçoit toutes les alertes (dashboard + e-mail).</span>
+                    }
+                    else
+                    {
+                        <StatusBadge Label="E-mail non configuré" Severity="Severity.Info" />
+                        <span>les alertes restent visibles au dashboard, mais aucun e-mail opérateur n'est envoyé
+                            (configuration d'instance).</span>
+                    }
+                </dd>
+            </div>
+            <div class="liakont-alertes__row">
+                <dt>Contact du tenant</dt>
+                <dd>reçoit les alertes <strong>critiques</strong> par e-mail, uniquement si l'option ci-dessus est activée (F12 §5.3).</dd>
+            </div>
+        </dl>
+
+        @if (!Model.ProfileExists)
+        {
+            <div class="liakont-alertes__feedback" role="alert" data-testid="alertes-contact-no-profile">
+                Le profil du tenant n'est pas encore créé : créez-le (profil légal) avant de renseigner un contact d'alerte.
+            </div>
+        }
+        else
+        {
+            <div class="liakont-alertes__editor" data-testid="alertes-contact-editor">
+                <FormField Label="E-mail de contact d'alerte du tenant (facultatif)" FieldId="alertes-contact-email"
+                           HelpText="Laisser vide pour ne pas notifier de contact tenant. Destinataire des alertes critiques quand l'option ci-dessus est active.">
+                    <input id="alertes-contact-email"
+                           class="form-control"
+                           type="email"
+                           @bind="Model.Form.ContactEmailAlerte"
+                           disabled="@ContactBusy"
+                           data-testid="alertes-contact-email" />
+                </FormField>
+
+                @if (!string.IsNullOrWhiteSpace(ContactMessage))
+                {
+                    <div class="liakont-alertes__feedback"
+                         role="@(ContactIsError ? "alert" : "status")"
+                         data-testid="alertes-contact-feedback">
+                        @ContactMessage
+                    </div>
+                }
+
+                <StratumButton Text="@(ContactBusy ? "Enregistrement…" : "Enregistrer le contact")"
+                               Variant="ButtonVariant.Primary"
+                               Size="ButtonSize.Small"
+                               Disabled="@ContactBusy"
+                               OnClick="@(_ => OnSaveContact.InvokeAsync())"
+                               TestId="alertes-contact-save-btn" />
+            </div>
+        }
+    </SectionCard>
+
+</div>
+
+@code {
+    /// <summary>Données assemblées de la page (jamais <c>null</c> : la page en fournit toujours un).</summary>
+    [Parameter, EditorRequired]
+    public AlertesViewModel Model { get; set; } = null!;
+
+    /// <summary><c>true</c> pendant l'enregistrement des seuils (champs et bouton désactivés).</summary>
+    [Parameter]
+    public bool ThresholdsBusy { get; set; }
+
+    /// <summary>Message de retour de l'enregistrement des seuils, ou <c>null</c>.</summary>
+    [Parameter]
+    public string? ThresholdsMessage { get; set; }
+
+    /// <summary><c>true</c> si <see cref="ThresholdsMessage"/> est une erreur (rendu en alerte).</summary>
+    [Parameter]
+    public bool ThresholdsIsError { get; set; }
+
+    /// <summary>Déclenché à l'enregistrement des seuils.</summary>
+    [Parameter]
+    public EventCallback OnSaveThresholds { get; set; }
+
+    /// <summary><c>true</c> pendant l'enregistrement du contact (champ et bouton désactivés).</summary>
+    [Parameter]
+    public bool ContactBusy { get; set; }
+
+    /// <summary>Message de retour de l'enregistrement du contact, ou <c>null</c>.</summary>
+    [Parameter]
+    public string? ContactMessage { get; set; }
+
+    /// <summary><c>true</c> si <see cref="ContactMessage"/> est une erreur (rendu en alerte).</summary>
+    [Parameter]
+    public bool ContactIsError { get; set; }
+
+    /// <summary>Déclenché à l'enregistrement du contact d'alerte.</summary>
+    [Parameter]
+    public EventCallback OnSaveContact { get; set; }
+}

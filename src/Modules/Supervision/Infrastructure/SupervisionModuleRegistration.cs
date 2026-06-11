@@ -31,6 +31,10 @@ public static class SupervisionModuleRegistration
         // (CLAUDE.md n°9). L'acquittement d'alerte est routé dans le scope du tenant concerné.
         services.AddScoped<ISupervisionDashboardQueries, CrossTenantSupervisionDashboardQueries>();
 
+        // Lecture du DISPOSITIF d'alerte du tenant courant (FIX210) : règles actives/gelées (F12 §5.2) +
+        // seuils effectifs (CFG02) + état e-mail opérateur (F12 §5.3). Tenant-scopée, sans secret exposé.
+        services.AddScoped<IAlertDeviceQueries, AlertDeviceQueries>();
+
         // Acquittement : horloge partagée si enregistrée (sinon horloge système) — horodatage déterministe en test.
         services.AddScoped<IAlertAcknowledgementService>(sp => new AlertAcknowledgementService(
             sp.GetRequiredService<IAlertStore>(),
