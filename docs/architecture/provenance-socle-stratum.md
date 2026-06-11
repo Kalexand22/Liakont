@@ -224,6 +224,8 @@ src/Common/UI/Models/BulkActionConfig.cs
 src/Common/UI/Components/DeclaredListPage.razor.cs
 src/Common/Infrastructure/BugCapture/VideoAnalysisService.cs
 src/Common/UI/Services/BugCapture/BugCaptureService.cs
+src/Modules/Job/Application/IScheduleUnitOfWork.cs
+src/Modules/Job/Infrastructure/PostgresScheduleUnitOfWork.cs
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -352,6 +354,28 @@ Suites de review (round 1, 3 P2) :
   exige d'instancier les 13 dépendances et de piloter une session de capture complète — même
   arbitrage que §4.15 (mocking lourd disproportionné), le branchement étant un simple test de
   taille désormais journalisé.
+
+### 4.17 `IScheduleUnitOfWork.GetActiveJobTypesAsync` — lecture des jobs planifiés (FIX203b)
+La recette run 2 (2026-06-11) a révélé que `job.schedules` reste VIDE après un bring-up complet :
+le dead-man's-switch de supervision (15 min, F12 §5.1) et l'ancrage quotidien du coffre (TRK06,
+ADR-0011) ne sont JAMAIS planifiés → supervision morte en silence, coffre jamais ancré. FIX203b
+amorce ces planifications en dev (`DevJobScheduleSeeder`, Host) ET ajoute un diagnostic de démarrage
+(`SystemJobScheduleHealthCheck`, Host) qui AVERTIT, en dev comme en prod, si un job SYSTÈME attendu
+n'a aucun schedule actif (même pattern que `DevRealmHealthCheck`).
+
+Ce diagnostic doit lire les `job_type` ayant au moins un schedule actif. Aucune méthode read-only
+n'existait : `GetDueSchedulesAsync` pose un `FOR UPDATE SKIP LOCKED` (réservé au scheduler) et
+`ExistsByNameAndCompanyAsync` exige le couple (nom, company) — inconnu en prod (l'opérateur nomme et
+scope librement). Deux modifications **additives, lecture seule** (marquées `// Liakont addition (FIX203b)`) :
+- `src/Modules/Job/Application/IScheduleUnitOfWork.cs` : ajout de
+  `Task<IReadOnlyList<string>> GetActiveJobTypesAsync(CancellationToken)`.
+- `src/Modules/Job/Infrastructure/PostgresScheduleUnitOfWork.cs` : implémentation
+  (`SELECT DISTINCT job_type FROM job.schedules WHERE is_active = true`, sans verrou).
+
+Aucune signature existante modifiée, aucun comportement du scheduler changé. Candidate à reverser en
+amont (§6). Le diagnostic lit les types système au niveau instance (table `job.schedules` de la base
+SYSTÈME, comme le scheduler lui-même) — ce n'est pas une requête métier tenant-scopée (CLAUDE.md n°9) :
+elle ne retourne que des noms de types techniques, aucune donnée de tenant.
 
 ## 5. ADR du socle hérités
 
