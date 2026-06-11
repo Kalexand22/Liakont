@@ -74,15 +74,27 @@
     </div>
 }
 
-@if (BulkActions is not null && _selectedItems.Count > 0)
+@* La barre de sélection s'affiche dès qu'il y a une sélection OU au moins une action GLOBALE déclarée
+   (RequiresSelection=false, ex. « Revérifier tout » — FIX207) : l'action globale reste accessible sans
+   sélection. Les actions SÉLECTION-SCOPÉES (défaut) ne sont rendues qu'avec une sélection. *@
+@if (BulkActions is not null && (_selectedItems.Count > 0 || HasGlobalBulkActions))
 {
     <div class="declared-list__bulk-bar"
          data-testid="@($"{TestId}-bulk-bar")"
          role="region"
          aria-label="Actions de sélection">
-        <span class="declared-list__bulk-bar__count">@_selectedItems.Count élément(s) sélectionné(s)</span>
+        @if (_selectedItems.Count > 0)
+        {
+            <span class="declared-list__bulk-bar__count">@_selectedItems.Count élément(s) sélectionné(s)</span>
+        }
         @foreach (var action in BulkActions)
         {
+            // Action SÉLECTION-SCOPÉE sans sélection : masquée (FIX207). Une action GLOBALE (RequiresSelection=false) reste rendue.
+            if (action.RequiresSelection && _selectedItems.Count == 0)
+            {
+                continue;
+            }
+
             if (action.Permission is not null)
             {
                 <PermissionGate Permission="@action.Permission"
@@ -106,11 +118,14 @@
                                TestId="@($"{TestId}-bulk-{action.Id}")" />
             }
         }
-        <StratumButton Text="Tout désélectionner"
-                       Variant="ButtonVariant.Secondary"
-                       Outline
-                       Size="ButtonSize.Small"
-                       OnClick="@(_ => ClearSelection())" />
+        @if (_selectedItems.Count > 0)
+        {
+            <StratumButton Text="Tout désélectionner"
+                           Variant="ButtonVariant.Secondary"
+                           Outline
+                           Size="ButtonSize.Small"
+                           OnClick="@(_ => ClearSelection())" />
+        }
     </div>
 }
 

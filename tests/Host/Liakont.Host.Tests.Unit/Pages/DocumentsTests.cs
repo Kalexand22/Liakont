@@ -10,6 +10,7 @@ using FluentAssertions;
 using Liakont.Host.Components.Pages;
 using Liakont.Host.Documents;
 using Liakont.Modules.Documents.Contracts.DTOs;
+using Liakont.Modules.Pipeline.Contracts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Localization;
 using Stratum.Common.Abstractions.Grid;
@@ -40,6 +41,9 @@ public sealed class DocumentsTests : BunitContext
         // Actions d'envoi (WEB05) : par défaut SANS la permission d'action (lecture seule), service factice.
         // Les tests qui exercent l'envoi RÉ-ENREGISTRENT IPermissionService (canAct: true) et un faux configuré.
         Services.AddScoped<IDocumentSendActions>(_ => new FakeSendActions());
+
+        // Re-vérification (FIX207) : la page injecte IDocumentControlActions quel que soit le rôle ⇒ un faux par défaut.
+        Services.AddScoped<IDocumentControlActions>(_ => new FakeControlActions());
         Services.AddScoped<IPermissionService>(_ => new FakePermissionService(canAct: false));
 
         // Mémoire de circuit des filtres (issue #33) : instance fraîche par test (vide par défaut).
@@ -253,10 +257,116 @@ public sealed class DocumentsTests : BunitContext
         feedback.GetAttribute("role").Should().Be("alert");
     }
 
-    private IRenderedComponent<Documents> RenderAsOperator(FakeSendActions send, params DocumentSummaryDto[] docs)
+    [Fact]
+    public void An_Operator_Sees_Reverifier_Tout_In_The_Selection_Bar_Even_Without_A_Selection()
+    {
+        // FIX207 : « Revérifier tout » est une action GLOBALE ⇒ la barre de sélection est visible SANS sélection et la
+        // propose ; les actions SÉLECTION-SCOPÉES (envoi / revérif sélection) ne sont PAS rendues sans sélection.
+        var cut = RenderAsOperator(new FakeSendActions(), Doc("2018", "invoice", "Blocked"));
+
+        cut.FindAll("[data-testid='documents-bulk-bar']").Should().ContainSingle();
+        cut.FindAll("[data-testid='documents-bulk-recheck-all']").Should().ContainSingle();
+        cut.FindAll("[data-testid='documents-bulk-recheck-selection']").Should().BeEmpty("action sélection-scopée masquée sans sélection");
+        cut.FindAll("[data-testid='documents-bulk-send-selection']").Should().BeEmpty("action sélection-scopée masquée sans sélection");
+    }
+
+    [Fact]
+    public void Readers_See_No_Selection_Bar_And_No_Recheck_Actions()
+    {
+        Services.AddScoped<IDocumentConsoleQueries>(_ => FakeDocumentConsoleQueries.Returning(Doc("2019", "invoice", "Blocked")));
+
+        var cut = Render<Documents>();
+
+        // Sans liakont.actions : BulkActions null ⇒ aucune barre de sélection, aucune action de re-vérification.
+        cut.FindAll("[data-testid='documents-bulk-bar']").Should().BeEmpty();
+        cut.FindAll("[data-testid='documents-bulk-recheck-all']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Reverifier_Tout_And_La_Selection_Are_Declared_With_The_Right_Scope()
+    {
+        var cut = RenderAsOperator(new FakeSendActions(), Doc("2018", "invoice", "Blocked"));
+        var listPage = cut.FindComponent<DeclaredListPage<DocumentSummaryDto>>();
+
+        var all = listPage.Instance.BulkActions!.Single(a => a.Id == "recheck-all");
+        all.RequiresSelection.Should().BeFalse("« Revérifier tout » reste accessible sans sélection (décision E4)");
+        all.SuppressSuccessToast.Should().BeTrue("le retour réel passe par le bandeau de compteurs, pas un toast");
+
+        var selection = listPage.Instance.BulkActions!.Single(a => a.Id == "recheck-selection");
+        selection.RequiresSelection.Should().BeTrue("« Revérifier la sélection » est sélection-scopée");
+    }
+
+    [Fact]
+    public async Task Reverifier_Tout_Rechecks_All_Blocked_In_Scope_And_Shows_Counters()
+    {
+        var control = new FakeControlActions
+        {
+            BulkResult = DocumentBulkRecheckResult.From(
+                new DocumentBulkRecheckSummary { Total = 2, Unblocked = 1, StillBlocked = 1, Unavailable = 0, Skipped = 0 }),
+        };
+        var blocked1 = Doc("2018", "invoice", "Blocked");
+        var blocked2 = Doc("2019", "invoice", "Blocked");
+        var issued = Doc("2020", "invoice", "Issued");
+        var cut = RenderAsOperator(new FakeSendActions(), control, blocked1, blocked2, issued);
+
+        var listPage = cut.FindComponent<DeclaredListPage<DocumentSummaryDto>>();
+        var action = listPage.Instance.BulkActions!.Single(a => a.Id == "recheck-all");
+
+        // L'action globale ignore son argument et opère sur le périmètre de la page (tous les bloqués chargés).
+        await cut.InvokeAsync(() => action.Execute!(Array.Empty<DocumentSummaryDto>()));
+
+        // Seuls les BLOQUÉS du périmètre sont re-vérifiés (l'émis est exclu).
+        control.LastRecheckedIds.Should().BeEquivalentTo(new[] { blocked1.Id, blocked2.Id });
+        cut.Find("[data-testid='documents-recheck-feedback']").TextContent
+            .Should().Contain("1 débloqué").And.Contain("1 resté bloqué");
+    }
+
+    [Fact]
+    public async Task Reverifier_La_Selection_Rechecks_Only_The_Blocked_Selected_Documents()
+    {
+        var control = new FakeControlActions
+        {
+            BulkResult = DocumentBulkRecheckResult.From(
+                new DocumentBulkRecheckSummary { Total = 1, Unblocked = 1, StillBlocked = 0, Unavailable = 0, Skipped = 0 }),
+        };
+        var blocked = Doc("2018", "invoice", "Blocked");
+        var issued = Doc("2019", "invoice", "Issued");
+        var cut = RenderAsOperator(new FakeSendActions(), control, blocked, issued);
+
+        var listPage = cut.FindComponent<DeclaredListPage<DocumentSummaryDto>>();
+        var action = listPage.Instance.BulkActions!.Single(a => a.Id == "recheck-selection");
+
+        // La sélection contient un bloqué + un émis ; seul le bloqué part au recheck (le serveur re-valide ensuite).
+        await cut.InvokeAsync(() => action.Execute!(new[] { blocked, issued }));
+
+        control.LastRecheckedIds.Should().ContainSingle().Which.Should().Be(blocked.Id);
+        cut.Find("[data-testid='documents-recheck-feedback']").TextContent.Should().Contain("1 débloqué");
+    }
+
+    [Fact]
+    public async Task Reverifier_La_Selection_Sans_Document_Bloque_Affiche_Un_Message_Sans_Appeler_Le_Service()
+    {
+        var control = new FakeControlActions();
+        var issued = Doc("2019", "invoice", "Issued");
+        var cut = RenderAsOperator(new FakeSendActions(), control, issued);
+
+        var listPage = cut.FindComponent<DeclaredListPage<DocumentSummaryDto>>();
+        var action = listPage.Instance.BulkActions!.Single(a => a.Id == "recheck-selection");
+        await cut.InvokeAsync(() => action.Execute!(new[] { issued }));
+
+        control.LastRecheckedIds.Should().BeNull("aucun document bloqué : le service n'est pas appelé");
+        cut.Find("[data-testid='documents-recheck-feedback']").TextContent
+            .Should().Contain("Aucun document bloqué dans la sélection");
+    }
+
+    private IRenderedComponent<Documents> RenderAsOperator(FakeSendActions send, params DocumentSummaryDto[] docs) =>
+        RenderAsOperator(send, new FakeControlActions(), docs);
+
+    private IRenderedComponent<Documents> RenderAsOperator(FakeSendActions send, FakeControlActions control, params DocumentSummaryDto[] docs)
     {
         Services.AddScoped<IDocumentConsoleQueries>(_ => FakeDocumentConsoleQueries.Returning(docs));
         Services.AddScoped<IDocumentSendActions>(_ => send);
+        Services.AddScoped<IDocumentControlActions>(_ => control);
         Services.AddScoped<IPermissionService>(_ => new FakePermissionService(canAct: true));
         return Render<Documents>();
     }
@@ -519,6 +629,26 @@ public sealed class DocumentsTests : BunitContext
         {
             TriggerRunCalls++;
             return Task.FromResult(TriggerRunResult);
+        }
+    }
+
+    private sealed class FakeControlActions : IDocumentControlActions
+    {
+        public DocumentBulkRecheckResult BulkResult { get; set; } = DocumentBulkRecheckResult.From(
+            new DocumentBulkRecheckSummary { Total = 0, Unblocked = 0, StillBlocked = 0, Unavailable = 0, Skipped = 0 });
+
+        public IReadOnlyList<Guid>? LastRecheckedIds { get; private set; }
+
+        public Task<DocumentControlActionResult> SubmitVerdictAsync(Guid documentId, ConsoleVerdict verdict, CancellationToken cancellationToken = default) =>
+            Task.FromResult(DocumentControlActionResult.Ok("ok", "Blocked"));
+
+        public Task<DocumentControlActionResult> RecheckAsync(Guid documentId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(DocumentControlActionResult.Ok("ok", "ReadyToSend"));
+
+        public Task<DocumentBulkRecheckResult> RecheckManyAsync(IReadOnlyList<Guid> documentIds, CancellationToken cancellationToken = default)
+        {
+            LastRecheckedIds = documentIds.ToList();
+            return Task.FromResult(BulkResult);
         }
     }
 

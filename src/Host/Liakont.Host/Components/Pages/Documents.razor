@@ -9,11 +9,13 @@
 @using Stratum.Common.UI.Models
 @using Liakont.Host.Documents
 @using Liakont.Host.Security
+@using Liakont.Modules.Documents.Contracts
 @using Liakont.Modules.Documents.Contracts.DTOs
 @using Microsoft.AspNetCore.WebUtilities
 @using Stratum.Common.Abstractions.Security
 @inject IDocumentConsoleQueries DocumentQueries
 @inject IDocumentSendActions SendActions
+@inject IDocumentControlActions ControlActions
 @inject IPermissionService Permissions
 @inject DocumentsListFilterMemory FilterMemory
 @inject NavigationManager Nav
@@ -79,6 +81,17 @@ else
              role="@(_sendFailed ? "alert" : "status")"
              data-testid="documents-send-feedback">
             @_sendFeedback
+        </div>
+    }
+
+    @* ── Retour visuel des actions de re-vérification en masse (FIX207) : compteurs « N débloqués, N restés
+       bloqués » ou message d'information. Bandeau DISTINCT de l'envoi (lifecycles indépendants), même style. ── *@
+    @if (_recheckFeedback is not null)
+    {
+        <div class="doc-send-feedback @(_recheckFailed ? "doc-send-feedback--error" : "doc-send-feedback--ok")"
+             role="@(_recheckFailed ? "alert" : "status")"
+             data-testid="documents-recheck-feedback">
+            @_recheckFeedback
         </div>
     }
 
@@ -212,6 +225,10 @@ else
     private bool _sendInProgress;
     private string? _sendFeedback;
     private bool _sendFailed;
+
+    // ── Re-vérification en masse (FIX207) ── Retour opérateur (compteurs), bandeau distinct de l'envoi.
+    private string? _recheckFeedback;
+    private bool _recheckFailed;
     private bool _confirmSendVisible;
     private SendConfirmMode _confirmMode = SendConfirmMode.None;
     private IReadOnlyList<Guid> _pendingSelectionIds = [];
@@ -297,6 +314,25 @@ else
                     // serait trompeur avant la confirmation (le retour réel passe par le bandeau après confirmation).
                     Execute: OpenSelectionConfirmAsync,
                     SuppressSuccessToast: true),
+                // FIX207 — re-vérification en masse dans la barre de sélection. SuppressSuccessToast : le retour réel
+                // (compteurs « N débloqués, N restés bloqués ») passe par le bandeau de re-vérification, pas le toast.
+                new BulkActionConfig<DocumentSummaryDto>(
+                    Id: "recheck-selection",
+                    Label: "Revérifier la sélection",
+                    Permission: LiakontPermissions.Actions,
+                    PermissionDisabledReason: "La permission « actions » (liakont.actions) est requise pour re-vérifier.",
+                    Execute: RecheckSelectionAsync,
+                    SuppressSuccessToast: true),
+                // « Revérifier tout » est GLOBALE (RequiresSelection: false) : accessible sans sélection (tous les
+                // bloqués du périmètre courant), conformément à la décision opérateur E4.
+                new BulkActionConfig<DocumentSummaryDto>(
+                    Id: "recheck-all",
+                    Label: "Revérifier tout",
+                    Permission: LiakontPermissions.Actions,
+                    PermissionDisabledReason: "La permission « actions » (liakont.actions) est requise pour re-vérifier.",
+                    Execute: _ => RecheckAllBlockedAsync(),
+                    SuppressSuccessToast: true,
+                    RequiresSelection: false),
             ];
         }
 
@@ -314,19 +350,35 @@ else
 
     private async Task ReloadPeriodAsync()
     {
+        if (await FetchPeriodSetAsync())
+        {
+            // Re-key la liste (DeclaredListPage relit LoadItems) au changement de PÉRIMÈTRE serveur (période).
+            _periodEpoch++;
+        }
+    }
+
+    /// <summary>
+    /// Recharge le périmètre (période) du tenant et recalcule types + compteurs, SANS re-keyer la liste. Renvoie
+    /// <c>true</c> en cas de succès. <see cref="ReloadPeriodAsync"/> l'appelle puis re-key (changement de période) ;
+    /// la re-vérification en masse (FIX207) l'appelle pour refléter les déblocages alors que la barre de sélection
+    /// recharge déjà le gabarit — évitant un double rechargement.
+    /// </summary>
+    private async Task<bool> FetchPeriodSetAsync()
+    {
         try
         {
             _periodSet = await DocumentQueries.GetDocumentsInPeriodAsync(_from, _to);
             _loadFailed = false;
             RecomputeTypeOptions();
             RecomputeCounts();
-            _periodEpoch++;
+            return true;
         }
         catch (Exception ex)
         {
             // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
             _loadFailed = true;
             Logger.LogError(ex, "Failed to load the Liakont documents list for the current period.");
+            return false;
         }
     }
 
@@ -637,5 +689,61 @@ else
             _sendInProgress = false;
         }
     }
+
+    // ── Re-vérification en masse (FIX207) ── Portées par la barre de sélection (gabarit DeclaredListPage). La page
+    // calcule le PÉRIMÈTRE (sélection / tous les bloqués filtrés) et délègue TOUTE l'action au service in-process
+    // IDocumentControlActions (garde liakont.actions, boucle + décision de blocage dans le cœur Pipeline, audit FIX02
+    // par document) — aucune logique fiscale ici (CLAUDE.md n°19). Le serveur re-valide CHAQUE document (seuls les
+    // bloqués transitionnent) : une vue cliente légèrement périmée n'est jamais une fuite ni une fausse action.
+
+    /// <summary>« Revérifier la sélection » : re-vérifie les documents BLOQUÉS de la sélection.</summary>
+    private Task RecheckSelectionAsync(IReadOnlyList<DocumentSummaryDto> selected) =>
+        RunBulkRecheckAsync(
+            selected.Where(IsBlocked).Select(d => d.Id).ToList(),
+            "Aucun document bloqué dans la sélection à re-vérifier.");
+
+    /// <summary>« Revérifier tout » : re-vérifie tous les documents BLOQUÉS du périmètre courant (période + filtres état/type).</summary>
+    private Task RecheckAllBlockedAsync() =>
+        RunBulkRecheckAsync(
+            _periodSet.Where(MatchesCustomFilters).Where(IsBlocked).Select(d => d.Id).ToList(),
+            "Aucun document bloqué dans ce périmètre à re-vérifier.");
+
+    /// <summary>Déclenche la re-vérification en masse côté serveur et affiche le retour opérateur (compteurs en français).</summary>
+    private async Task RunBulkRecheckAsync(IReadOnlyList<Guid> documentIds, string emptyMessage)
+    {
+        _recheckFeedback = null;
+        _recheckFailed = false;
+
+        if (documentIds.Count == 0)
+        {
+            _recheckFeedback = emptyMessage;
+            StateHasChanged();
+            return;
+        }
+
+        try
+        {
+            var result = await ControlActions.RecheckManyAsync(documentIds);
+            _recheckFeedback = result.Message;
+            _recheckFailed = !result.Success;
+            // Reflète immédiatement les nouveaux états (débloqués) dans la grille et les compteurs, SANS re-keyer la
+            // liste (la barre de sélection recharge déjà le gabarit après l'action) — évite un double rechargement.
+            await FetchPeriodSetAsync();
+        }
+        catch (Exception ex)
+        {
+            _recheckFailed = true;
+            _recheckFeedback = "La re-vérification n'a pas pu être déclenchée pour le moment. Réessayez plus tard.";
+            Logger.LogError(ex, "Bulk recheck action failed.");
+        }
+
+        // La barre de sélection ne re-rend que son propre cadre après l'action groupée : forcer le re-rendu de la
+        // page pour afficher le bandeau de compteurs et la synthèse par état rafraîchie.
+        StateHasChanged();
+    }
+
+    /// <summary>Document dans l'état « Bloqué » (seul état re-vérifiable — le serveur re-valide ensuite).</summary>
+    private static bool IsBlocked(DocumentSummaryDto document) =>
+        string.Equals(document.State, DocumentActionContract.BlockedState, StringComparison.Ordinal);
 
 }

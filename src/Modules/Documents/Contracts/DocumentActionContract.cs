@@ -39,6 +39,12 @@ public static class DocumentActionContract
     /// <summary>Code d'audit de la re-vérification d'un document bloqué.</summary>
     public const string RecheckActivity = "documents.rechecked";
 
+    /// <summary>Code d'audit de la re-vérification EN MASSE (actions « Revérifier la sélection » / « Revérifier tout » — FIX207). La trace d'audit fiscale FIX02 reste écrite PAR document par le cycle de vie ; ceci journalise le geste groupé.</summary>
+    public const string RecheckBulkActivity = "documents.rechecked_bulk";
+
+    /// <summary>Identifiant d'entité de la piste d'audit de la re-vérification en masse (non rattachée à un document unique — même convention que <see cref="SendAllEntityId"/>).</summary>
+    public const string RecheckBulkEntityId = "recheck-bulk";
+
     /// <summary>Code d'audit de l'envoi déclenché depuis un document (action « Envoyer » / « Envoyer la sélection » — API02a / WEB05).</summary>
     public const string SendTriggeredActivity = "documents.send_triggered";
 

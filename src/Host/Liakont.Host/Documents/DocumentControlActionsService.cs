@@ -1,6 +1,7 @@
 namespace Liakont.Host.Documents;
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -175,6 +176,43 @@ internal sealed class DocumentControlActionsService : IDocumentControlActions
                     string.Create(CultureInfo.CurrentCulture, $"Re-vérification effectuée : le document reste bloqué. {reason}"),
                     result.State);
         }
+    }
+
+    public async Task<DocumentBulkRecheckResult> RecheckManyAsync(
+        IReadOnlyList<Guid> documentIds, CancellationToken cancellationToken = default)
+    {
+        // Défense en profondeur : même garde que la re-vérification unitaire (le masquage UI n'est qu'un confort).
+        if (!_permissions.HasPermission(LiakontPermissions.Actions))
+        {
+            return DocumentBulkRecheckResult.Denied();
+        }
+
+        var actor = _actorAccessor.Current;
+        var operatorId = ActorId(actor);
+
+        // Toute la boucle + la décision de blocage vivent dans le cœur Pipeline (source unique) : la trace d'audit
+        // fiscale FIX02 est inscrite PAR document par le cycle de vie. Aucune logique fiscale ni machine à états ici.
+        var summary = await _recheck.RecheckManyAsync(documentIds, operatorId, cancellationToken).ConfigureAwait(false);
+
+        // On journalise EN PLUS le geste GROUPÉ de l'opérateur (un seul fait d'activité, non rattaché à un document
+        // unique — même convention que « Tout envoyer ») pour la visibilité d'exploitation. Aucun fait journalisé si
+        // rien n'a été re-vérifié (liste vide).
+        if (summary.Total > 0)
+        {
+            await _activityLogger.LogActivityAsync(
+                DocumentActionContract.SendAllEntityType,
+                DocumentActionContract.RecheckBulkEntityId,
+                DocumentActionContract.RecheckBulkActivity,
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"Re-vérification en masse déclenchée par l'opérateur — {summary.Total} document(s) : {summary.Unblocked} débloqué(s), {summary.StillBlocked} resté(s) bloqué(s), {summary.Unavailable} indisponible(s), {summary.Skipped} ignoré(s)."),
+                operatorId,
+                metadata: new { summary.Total, summary.Unblocked, summary.StillBlocked, summary.Unavailable, summary.Skipped },
+                companyId: actor.CompanyId,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+
+        return DocumentBulkRecheckResult.From(summary);
     }
 
     /// <summary>Identité d'audit de l'opérateur (GUID utilisateur ; « system » si non authentifié) — identique aux endpoints.</summary>

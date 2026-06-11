@@ -13,7 +13,9 @@ using Liakont.Agent.Contracts.Serialization;
 using Liakont.Host.Startup;
 using Liakont.Modules.Archive.Contracts;
 using Liakont.Modules.Archive.Domain;
+using Liakont.Modules.Documents.Contracts.Lifecycle;
 using Liakont.Modules.Ingestion.Contracts;
+using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Domain.Payments;
 using Liakont.Modules.Reconciliation.Application;
 using Liakont.Modules.Reconciliation.Domain;
@@ -907,6 +909,33 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         await staging.WriteAsync(new StagedPayloadKey(tenant, documentId, hash), json, cancellationToken);
 
         return documentId;
+    }
+
+    /// <summary>
+    /// Pose le verdict « confirmer particulier (B2C) » sur un document bloqué, IN-PROCESS dans un scope tenant
+    /// (le cycle de vie est tenant-scopé). Permet de préparer un document qui se DÉBLOQUERA à la re-vérification
+    /// (le garde-fou B2B/B2C ne bloque plus) — sans passer par l'endpoint HTTP. Attribué à l'opérateur de test.
+    /// </summary>
+    public async Task ConfirmBuyerB2cInScopeAsync(string tenant, Guid documentId, CancellationToken cancellationToken = default)
+    {
+        var scopeFactory = _app!.Services.GetRequiredService<ITenantScopeFactory>();
+        await using ITenantScope scope = scopeFactory.Create(tenant);
+        var lifecycle = scope.Services.GetRequiredService<IDocumentLifecycle>();
+        await lifecycle.ConfirmBuyerAsIndividualAsync(documentId, OperatorUserId.ToString(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Re-vérifie EN MASSE (FIX207) les documents donnés IN-PROCESS dans un scope tenant (le cœur de re-vérification
+    /// est tenant-scopé : le tenant est résolu par le scope, comme la requête HTTP). Renvoie la synthèse compteurs.
+    /// Le geste est attribué à l'opérateur de test (piste d'audit FIX02 par document, écrite par le cycle de vie).
+    /// </summary>
+    public async Task<DocumentBulkRecheckSummary> RecheckManyInScopeAsync(
+        string tenant, IReadOnlyList<Guid> documentIds, CancellationToken cancellationToken = default)
+    {
+        var scopeFactory = _app!.Services.GetRequiredService<ITenantScopeFactory>();
+        await using ITenantScope scope = scopeFactory.Create(tenant);
+        var recheck = scope.Services.GetRequiredService<IDocumentRecheckService>();
+        return await recheck.RecheckManyAsync(documentIds, OperatorUserId.ToString(), cancellationToken);
     }
 
     /// <summary>
