@@ -4,6 +4,9 @@ obj/
 publish/
 packages/
 
+## Packaging agent (OPS05) — sortie de tools/package-agent.ps1, jamais versionnée
+artifacts/
+
 ## IDE
 .vs/
 .idea/

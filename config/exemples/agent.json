@@ -1,0 +1,20 @@
+{
+  "_commentaire": "MODÈLE FICTIF de configuration de l'agent Liakont (OPS05). Copiez-le dans le répertoire de données de l'instance (C:\\ProgramData\\Liakont\\<instance>\\agent.json, ou C:\\ProgramData\\Liakont\\agent.json pour l'instance Default), puis remplacez les valeurs. Les secrets (apiKey, odbcConnectionString) doivent être CHIFFRÉS via « Liakont.Agent.Cli.exe encrypt » — jamais en clair. Aucune donnée client réelle ici (CLAUDE.md n°7).",
+
+  "platformUrl": "https://liakont.editeur-exemple.fr",
+
+  "_apiKey": "Collez la valeur produite par : Liakont.Agent.Cli.exe encrypt  (la clé API en clair est lue sur l'entrée standard, jamais en argument).",
+  "apiKey": "AQAAANCMnd8BFdERjHoAwE_EXEMPLE_FICTIF_REMPLACEZ_MOI",
+
+  "heartbeatMinutes": 15,
+
+  "extraction": {
+    "adapter": "EncheresV6",
+
+    "_odbcConnectionString": "Optionnel selon l'adaptateur. Si requis : chiffrez-le aussi via « encrypt ». Exemple FICTIF de DSN à remplacer par le paramétrage du client (deployments/<client>/).",
+    "odbcConnectionString": "AQAAANCMnd8_EXEMPLE_FICTIF_DSN_CHIFFRE_REMPLACEZ_MOI",
+
+    "schedule": ["03:00", "13:00"],
+    "catchUpOnStart": false
+  }
+}
