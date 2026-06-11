@@ -43,6 +43,7 @@ Le realm `liakont-dev` est importé automatiquement depuis `keycloak/realm-expor
 | `operateur` | lecture, operateur | Actions opérateur (envoi, déblocage) |
 | `parametrage` | + parametrage | Table TVA, gestion des agents d'extraction |
 | `superviseur` | + superviseur | Supervision cross-tenant |
+| `sysadmin` | stratum-admin | **Super-admin d'instance** : admin des planifications de jobs, provisioning tenant |
 
 Les usernames sont **courts** (pas des e-mails) : le value object Username du module
 Identity n'accepte que 3-50 caractères alphanumériques (la connexion par e-mail reste
@@ -66,6 +67,11 @@ aucun appel `/admin/tenants` n'est nécessaire en dev.
 dotnet run --project src/Host/Liakont.Host
 ```
 
+`src/Host/Liakont.Host/Properties/launchSettings.json` est **versionné** (profil `Development`,
+`applicationUrl http://localhost:55996`) : `dotnet run` seul démarre donc en environnement
+`Development` sur le port **55996** (le seul présent dans les redirectUris du realm), sans qu'il
+faille poser `ASPNETCORE_ENVIRONMENT` ni `ASPNETCORE_URLS` à la main.
+
 Accès : **http://localhost:55996** ou **http://default.localhost:55996**.
 
 Deux résolveurs de tenant couvrent le circuit Blazor :
@@ -74,7 +80,43 @@ Deux résolveurs de tenant couvrent le circuit Blazor :
 - **hôte nu** (`localhost`) : `OidcIssuerTenantResolver` via le claim `iss` conservé
   dans le cookie de session (mappé au sign-in OIDC).
 
-## 5. Données de démonstration
+### Accès super-admin (admin des planifications, provisioning tenant)
+
+L'admin des planifications de jobs (`/admin/jobs`) et le provisioning de tenant exigent un
+**super-admin**. Sous OIDC, ce statut vient d'un **claim de rôle realm** (`stratum-admin`), pas
+d'un utilisateur Identity en base. Le realm committé fournit le compte **`sysadmin`** (mot de
+passe `Test@1234`) porteur du rôle realm `stratum-admin` : se connecter avec lui suffit pour voir
+la section **Jobs**.
+
+`AdminSeed` (section `AdminSeed` d'`appsettings.Development.json`) amorce en plus l'utilisateur
+Identity correspondant (par défaut `ExternalId` = le sub de `sysadmin`) pour lui accorder les
+permissions des modules socle. **L'amorçage est tolérant** : si un utilisateur portant déjà cet
+`ExternalId` existe (auto-provisionné à une connexion OIDC antérieure), il est promu / no-op
+journalisé — **jamais un crash du Host** (un `ExternalId` mal configuré ne casse pas l'instance).
+
+## 5. Planifications des jobs système (supervision, ancrage du coffre)
+
+Deux jobs SYSTÈME récurrents protègent la plateforme :
+
+| Job | Cadence | Source |
+|---|---|---|
+| Évaluation de la supervision (dead-man's-switch) | toutes les 15 min (`*/15 * * * *`) | F12 §5.1 |
+| Ancrage quotidien du coffre d'archive (TRK06) | quotidien (`0 0 * * *`) | ADR-0011 |
+
+> **Les expressions cron sont interprétées en UTC** (parseur Cronos du `JobScheduler`). Un cron
+> `0 0 * * *` se déclenche donc à **minuit UTC**, pas à l'heure locale.
+
+- **En développement** : le Host amorce ces planifications automatiquement au démarrage
+  (`DevJobScheduleSeeder`, Development uniquement, **create-only** — un schedule existant n'est
+  jamais écrasé). Aucun geste manuel.
+- **En production** : la planification est un **geste opérateur** via l'admin des planifications
+  (`/admin/jobs`, super-admin) — la fréquence et l'activation relèvent du déploiement (ADR-0011).
+- Dans **tous les environnements**, un diagnostic de démarrage best-effort
+  (`SystemJobScheduleHealthCheck`) émet un **avertissement explicite** dans les logs si un de ces
+  jobs système n'a **aucune planification active** (sinon la supervision serait muette et le coffre
+  jamais ancré, sans aucun signal — constat de la recette).
+
+## 6. Données de démonstration
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/dev-seed-demo-docs.ps1 -AgentKey "prefix.secret"
