@@ -62,10 +62,24 @@
                 <dd>@RenderStringParam(Model.FiscalSettings?.OperationCategory, "operationcategory")</dd>
             </div>
             <div class="liakont-parametrage__row">
+                <dt>Méthode d'imputation des frais</dt>
+                <dd>@RenderStringParam(Model.FiscalSettings?.FeeImputationMethod, "feeimputationmethod")</dd>
+            </div>
+            <div class="liakont-parametrage__row">
                 <dt>Fréquence déclarative</dt>
                 <dd>@RenderStringParam(Model.FiscalSettings?.ReportingFrequency, "reportingfrequency")</dd>
             </div>
         </dl>
+        <p class="liakont-parametrage__hint">
+            Ces paramètres relèvent d'une décision de l'expert-comptable. Renseignez-les pour lever la suspension
+            des transmissions qui en dépendent (e-reporting des encaissements).
+        </p>
+        <StratumButton Text="Modifier les paramètres fiscaux"
+                       Variant="ButtonVariant.Secondary"
+                       Outline
+                       Size="ButtonSize.Small"
+                       Href="@FiscalPageUrl"
+                       TestId="parametrage-fiscal-link" />
     </SectionCard>
 
     <SectionCard Title="Agents" TestId="parametrage-agents">
@@ -361,6 +375,9 @@
 
     /// <summary>Route de la page de paramétrage des alertes &amp; supervision (FIX210).</summary>
     private const string AlertesPageUrl = "/parametrage/alertes";
+
+    /// <summary>Route de l'écran d'édition des paramètres fiscaux du tenant (FIX301).</summary>
+    private const string FiscalPageUrl = "/parametrage/fiscal";
 
     /// <summary>Données assemblées de la page (jamais <c>null</c> : la page en fournit toujours un).</summary>
     [Parameter, EditorRequired]

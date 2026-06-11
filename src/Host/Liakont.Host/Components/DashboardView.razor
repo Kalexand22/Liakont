@@ -86,7 +86,8 @@
         @if (string.IsNullOrWhiteSpace(Model.ReportingFrequency))
         {
             <div class="liakont-dashboard__alert" role="alert" data-testid="dashboard-frequency-missing">
-                Fréquence déclarative non renseignée — consultez votre expert-comptable.
+                Fréquence déclarative non renseignée (décision de votre expert-comptable) —
+                <a href="/parametrage/fiscal" data-testid="dashboard-frequency-missing-link">renseignez-la dans le paramétrage fiscal</a>.
             </div>
         }
         else

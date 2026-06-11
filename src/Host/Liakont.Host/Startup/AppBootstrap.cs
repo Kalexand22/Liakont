@@ -504,6 +504,12 @@ public static class AppBootstrap
         // (seuils, contact) déléguées aux commandes TenantSettings (garde liakont.settings côté page).
         builder.Services.AddScoped<Liakont.Host.Alertes.IAlertesConsoleService, Liakont.Host.Alertes.AlertesConsoleService>();
 
+        // Composition de l'écran « Paramétrage › Fiscal » (FIX301) : lecture du paramétrage fiscal du tenant
+        // (GetFiscalSettingsQuery) et modification (SetFiscalSettingsCommand, qui valide/parse/journalise),
+        // déléguées en in-process (garde liakont.settings côté page). Rend l'e-reporting des encaissements
+        // activable sans SQL : sans cet écran, le paramètre restait non renseignable (suspension perpétuelle).
+        builder.Services.AddScoped<Liakont.Host.Fiscal.IFiscalConsoleService, Liakont.Host.Fiscal.FiscalConsoleService>();
+
         // Témoin de vie du dead-man's-switch (FIX210, F12 §5.1) : lit les exécutions du job SYSTÈME
         // d'évaluation (base système) via un scope SANS tenant ambiant. Horloge partagée (TimeProvider) pour
         // un « en retard » déterministe en test.

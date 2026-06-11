@@ -195,3 +195,22 @@ items:
       - "Vérification outillée (Playwright) ou vérification manuelle documentée"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
+
+  GATE_CONSOLE_POLISH:
+    type: gate
+    executor: human
+    title: "Gate : passe ergonomie de la console (re-recette écran par écran)"
+    description: |
+      Validation humaine de la passe ergonomie post-gate (décision opérateur F7). La « grande passe
+      d'ergonomie » écran par écran n'est pas inventoriable par les runners : elle se fait en RECETTE
+      HUMAINE. Cette gate re-valide les livrables FIX3 (paramètres fiscaux éditables, actions en masse,
+      nav AUDIT masquée, seeds cohérents, acteur nommé, layout du shell) ET les livrables jamais vus à
+      l'écran au run 3 : FIX205 (onglet Contenu), FIX206 (refresh/exports en détail), FIX208 (exports
+      d'archive), FIX211 (admin jobs), témoin de vie supervision (FIX210), re-stage des zombies (FIX07b)
+      — plus le reliquat S6/S7/S8, la rotation/révocation de clé agent et [Vérifier intégrité archive]
+      (voir tasks/recette-gate-console-web.md).
+    acceptance:
+      - "Tous les items FIX3 sont done"
+      - "Re-recette écran par écran : ergonomie globale revue (scroll, nav, actions, libellés)"
+      - "Livrables run 3 jamais vus à l'écran re-validés (FIX205/206/208/210/211, FIX07b)"
+      - "PR du segment feat/console-polish revue et mergée dans main"
