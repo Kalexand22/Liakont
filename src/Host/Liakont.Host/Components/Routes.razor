@@ -16,19 +16,8 @@
         </AuthorizeRouteView>
         <FocusOnNavigate RouteData="routeData" Selector="h1" />
     </Found>
-    @* Route inconnue : message « page introuvable » explicite dans le shell, jamais une page vide (FIX07c).
-       Garde d'authentification cohérente avec la branche Found (un visiteur non connecté est redirigé vers
-       la connexion, comme pour toute page de la console). *@
+    @* Route inconnue : message « page introuvable » explicite (RouteNotFound), jamais une page vide (FIX07c). *@
     <NotFound>
-        <AuthorizeView>
-            <Authorized>
-                <LayoutView Layout="typeof(Layout.ErpShellLayout)">
-                    <PageNotFound />
-                </LayoutView>
-            </Authorized>
-            <NotAuthorized>
-                <RedirectToLogin />
-            </NotAuthorized>
-        </AuthorizeView>
+        <RouteNotFound />
     </NotFound>
 </Router>
