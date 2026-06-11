@@ -342,7 +342,6 @@
                 @foreach (var entry in Model.ChangeLog)
                 {
                     var diff = ChangeDiff(entry);
-                    var twoSidedDiff = entry.ChangeType is "UpdateRule" or "Validate";
                     <li class="liakont-tva-table__changelog-entry" data-testid="table-tva-changelog-entry">
                         <span class="liakont-tva-table__changelog-when">@entry.OccurredAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr)</span>
                         <span class="liakont-tva-table__changelog-what">@DescribeChange(entry)</span>
@@ -357,7 +356,7 @@
                                 {
                                     <li class="liakont-tva-table__changelog-diff-line" data-testid="table-tva-changelog-diff-line">
                                         <span class="liakont-tva-table__changelog-diff-field">@line.Field</span>
-                                        <span class="liakont-tva-table__changelog-diff-value">@FormatDiffLine(line, twoSidedDiff)</span>
+                                        <span class="liakont-tva-table__changelog-diff-value">@line.Value</span>
                                     </li>
                                 }
                             </ul>
@@ -709,26 +708,11 @@
             ? $" ({TvaComposanteVocabulary.ValueLabel(part)})"
             : string.Empty;
 
-    /// <summary>Diff lisible avant → après d'une entrée du journal (vide si aucun champ restituable).</summary>
+    /// <summary>
+    /// Diff lisible (déjà rendu) d'une entrée du journal — vide si aucun champ restituable. Le formateur
+    /// porte SEUL la décision de rendu (« avant → après » bilatéral vs valeur unique) : la vue se contente
+    /// d'afficher <c>line.Value</c>.
+    /// </summary>
     private IReadOnlyList<MappingChangeDiffLine> ChangeDiff(MappingChangeLogEntryDto entry) =>
         MappingChangeLogDiffFormatter.Describe(entry, Model.AuctionVerticalEnabled);
-
-    private const string ValeurVide = "(vide)";
-
-    /// <summary>
-    /// Rend une ligne de diff. Pour une MODIFICATION ou une VALIDATION (changement bilatéral), toujours
-    /// « avant → après » avec « (vide) » pour un champ ajouté ou RETIRÉ — sinon un champ vidé (ex. taux
-    /// fixe supprimé au passage en mode calculé) s'afficherait comme une valeur courante, ce qui est
-    /// trompeur dans un journal de conformité. Pour un AJOUT / une SUPPRESSION / une CRÉATION (entrée
-    /// à un seul versant), on affiche la valeur unique (créée ou supprimée selon le sens de l'entrée).
-    /// </summary>
-    private static string FormatDiffLine(MappingChangeDiffLine line, bool twoSided)
-    {
-        if (twoSided)
-        {
-            return $"{line.Before ?? ValeurVide} → {line.After ?? ValeurVide}";
-        }
-
-        return line.After ?? line.Before ?? string.Empty;
-    }
 }

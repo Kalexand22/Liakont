@@ -17,6 +17,8 @@ using Liakont.Modules.TvaMapping.Contracts.DTOs;
 /// </summary>
 internal static class MappingChangeLogDiffFormatter
 {
+    private const string Vide = "(vide)";
+
     private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
 
     private static readonly IReadOnlyDictionary<string, JsonElement> Empty =
@@ -60,11 +62,11 @@ internal static class MappingChangeLogDiffFormatter
         var ruleFields = RuleFields(auctionVerticalEnabled);
         return entry.ChangeType switch
         {
-            "AddRule" => Side(ruleFields, entry.AfterJson, after: true),
-            "RemoveRule" => Side(ruleFields, entry.BeforeJson, after: false),
+            "AddRule" => Side(ruleFields, entry.AfterJson),
+            "RemoveRule" => Side(ruleFields, entry.BeforeJson),
             "UpdateRule" => Diff(ruleFields, entry.BeforeJson, entry.AfterJson),
             "Validate" => Diff(ValidationFieldDefs, entry.BeforeJson, entry.AfterJson),
-            "CreateTable" => Side(CreationFieldDefs, entry.AfterJson, after: true),
+            "CreateTable" => Side(CreationFieldDefs, entry.AfterJson),
             _ => System.Array.Empty<MappingChangeDiffLine>(),
         };
     }
@@ -76,7 +78,7 @@ internal static class MappingChangeLogDiffFormatter
             : RuleFieldDefs.Where(f => f.JsonName != "Part").ToArray();
 
     private static List<MappingChangeDiffLine> Side(
-        IReadOnlyList<FieldDef> fields, string? json, bool after)
+        IReadOnlyList<FieldDef> fields, string? json)
     {
         var obj = ParseObject(json);
         var lines = new List<MappingChangeDiffLine>();
@@ -90,9 +92,8 @@ internal static class MappingChangeLogDiffFormatter
             var value = field.Format(element);
             if (!string.IsNullOrEmpty(value))
             {
-                lines.Add(after
-                    ? new MappingChangeDiffLine(field.Label, null, value)
-                    : new MappingChangeDiffLine(field.Label, value, null));
+                // Mono-versant (ajout / suppression / création) : valeur unique, sans flèche.
+                lines.Add(new MappingChangeDiffLine(field.Label, value));
             }
         }
 
@@ -113,12 +114,16 @@ internal static class MappingChangeLogDiffFormatter
             // Seuls les champs qui CHANGENT (présence ou valeur) apparaissent dans le diff.
             if (!string.Equals(b, a, System.StringComparison.Ordinal))
             {
-                lines.Add(new MappingChangeDiffLine(field.Label, b, a));
+                lines.Add(new MappingChangeDiffLine(field.Label, RenderChange(b, a)));
             }
         }
 
         return lines;
     }
+
+    // « avant → après » ; « (vide) » distingue un champ ajouté ou RETIRÉ d'une valeur courante. Les deux
+    // côtés ne sont jamais null simultanément (Diff n'émet une ligne que si avant ≠ après).
+    private static string RenderChange(string? before, string? after) => $"{before ?? Vide} → {after ?? Vide}";
 
     private static IReadOnlyDictionary<string, JsonElement> ParseObject(string? json)
     {
