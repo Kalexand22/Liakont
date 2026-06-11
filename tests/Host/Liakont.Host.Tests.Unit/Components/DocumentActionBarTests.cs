@@ -35,6 +35,9 @@ public sealed class DocumentActionBarTests : BunitContext
         cut.FindAll("[data-testid='document-detail-verdict-b2b']").Should().ContainSingle();
         cut.FindAll("[data-testid='document-detail-recheck']").Should().ContainSingle();
         cut.FindAll("[data-testid='document-detail-send']").Should().BeEmpty("un document bloqué n'est pas envoyable");
+
+        // Le hint d'envoi ADR-0016 est absent sur un document bloqué (il n'est pas ReadyToSend).
+        cut.FindAll("[data-testid='document-detail-send-hint']").Should().BeEmpty();
     }
 
     [Fact]
@@ -86,6 +89,9 @@ public sealed class DocumentActionBarTests : BunitContext
 
         cut.FindAll("[data-testid='document-detail-action-bar']").Should().ContainSingle();
         cut.FindAll("[data-testid='document-detail-send']").Should().ContainSingle();
+
+        // Le hint ADR-0016 avertit que l'envoi émet TOUS les ReadyToSend du tenant.
+        cut.FindAll("[data-testid='document-detail-send-hint']").Should().ContainSingle();
 
         // Sur un document prêt à l'envoi, ni verdict ni re-vérification (réservés au blocage).
         cut.FindAll("[data-testid='document-detail-verdict-b2c']").Should().BeEmpty();

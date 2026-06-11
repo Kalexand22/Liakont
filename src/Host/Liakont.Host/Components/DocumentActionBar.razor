@@ -24,6 +24,12 @@
                 L'acheteur semble être un professionnel (garde-fou B2B/B2C). Tranchez :
             </p>
         }
+        @if (IsReadyToSend)
+        {
+            <p class="liakont-doc-detail__actions-hint" data-testid="document-detail-send-hint">
+                L'envoi déclenche le traitement d'envoi du tenant : tous les documents prêts à l'envoi sont émis (celui-ci inclus).
+            </p>
+        }
 
         <ActionBar Sticky="false" TestId="document-detail-action-bar">
             @if (ShowVerdict)
@@ -49,6 +55,7 @@
                                OnClick="@(_ => OnRecheck.InvokeAsync())"
                                TestId="document-detail-recheck" />
             }
+            @* « Envoyer » réutilise le chemin d'envoi tenant (ADR-0016) : déclenche le traitement qui émet TOUS les ReadyToSend du tenant — sémantique annoncée par le hint ci-dessus et par le message de retour. *@
             @if (IsReadyToSend)
             {
                 <StratumButton Text="Envoyer"
