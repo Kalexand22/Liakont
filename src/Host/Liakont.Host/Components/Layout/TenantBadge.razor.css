@@ -1,0 +1,31 @@
+/* Badge « tenant courant » dans l'en-tête de la console (FIX04a). Tokens du design-system Stratum,
+   cohérent avec le user-chip voisin (mêmes hauteur, rayon, typographie). */
+
+.erp-topbar__tenant {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    min-width: 0;
+    max-width: clamp(8rem, 16vw, 16rem);
+    height: var(--density-button-height);
+    padding: 0 var(--spacing-3);
+    border: 1px solid var(--color-border-ghost);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-surface);
+    color: var(--color-text-secondary);
+}
+
+.erp-topbar__tenant-icon {
+    flex: none;
+    color: var(--color-text-secondary);
+}
+
+.erp-topbar__tenant-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--color-text-primary);
+}

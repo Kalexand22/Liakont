@@ -19,6 +19,42 @@
     font-size: 0.9rem;
 }
 
+/* Rapport de couverture (TVA03) : code / libellé / compteur / bouton sur une ligne aérée.
+   Sans ces règles les spans se collent (« 0Exonere1 occurrence(s) ») — FIX04a. */
+.liakont-tva-table__coverage {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.liakont-tva-table__coverage-entry {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--border-color, #eee);
+}
+
+.liakont-tva-table__coverage-code {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    min-width: 3rem;
+}
+
+.liakont-tva-table__coverage-label {
+    color: var(--text-secondary, #555);
+}
+
+.liakont-tva-table__coverage-count {
+    color: var(--text-secondary, #555);
+    font-variant-numeric: tabular-nums;
+    margin-left: auto;
+}
+
 /* Bandeau d'alerte permanent (NON VALIDÉE / erreur) — toujours visible, jamais avalé. */
 .liakont-tva-table__alert {
     display: flex;

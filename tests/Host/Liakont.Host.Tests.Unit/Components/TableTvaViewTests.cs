@@ -2,6 +2,7 @@ namespace Liakont.Host.Tests.Unit.Components;
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Bunit;
@@ -23,6 +24,8 @@ using Xunit;
 /// </summary>
 public sealed class TableTvaViewTests : BunitContext
 {
+    private static readonly string[] RegimesAfterAdd = ["20", "44"];
+
     public TableTvaViewTests()
     {
         // Radzen / grille s'appuient sur le JS interop — loose mode capte tous les appels.
@@ -111,6 +114,82 @@ public sealed class TableTvaViewTests : BunitContext
         // Catégorie affichée en badge.
         cut.FindAll("[data-testid='category-badge']").Should().NotBeEmpty();
     }
+
+    [Fact]
+    public void Rules_grid_refreshes_when_the_model_changes_without_navigation()
+    {
+        // Régression FIX04a : le gabarit DeclaredListPage charge ses lignes une seule fois
+        // (OnInitializedAsync) et ne ré-interroge pas LoadItems quand le modèle parent est rechargé.
+        // La clé de recréation (@key="RulesGridKey") doit rendre une règle ajoutée visible SANS navigation.
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(TableWithRules("20")))
+            .Add(v => v.CanEdit, true));
+
+        // Au départ : la grille n'affiche que le régime 20 (on cible les cellules, pas le markup entier —
+        // les id générés par la grille pourraient contenir n'importe quelle sous-chaîne).
+        RegimeCells(cut).Should().ContainSingle().Which.Should().Be("20");
+
+        // Rechargement du modèle après mutation (nouvelle règle « 44 ») — exactement ce que fait la page.
+        cut.Render(p => p
+            .Add(v => v.Model, ModelWith(TableWithRules("20", "44"))));
+
+        // La grille reflète la mutation immédiatement, sans navigation.
+        cut.WaitForAssertion(() => RegimeCells(cut).Should().BeEquivalentTo(RegimesAfterAdd));
+    }
+
+    [Fact]
+    public void Rules_grid_refreshes_when_only_label_changes_in_place()
+    {
+        // Régression FIX04a (édition en place du libellé) : MappingVersion et Rules.Count restent
+        // identiques après UpdateRule → seul Label change. La clé doit détecter ce changement et
+        // forcer la recréation de la grille. Ce test échoue avec l'ancienne clé (sans rule.Label)
+        // et passe avec la nouvelle.
+        var fixedUpdatedAt = new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero);
+
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(TableWithLabeledRule("Ancien libellé", fixedUpdatedAt)))
+            .Add(v => v.CanEdit, true));
+
+        // Re-rendu avec MÊME MappingVersion, MÊME UpdatedAt, MÊME SourceRegimeCode/Part/Category/RateMode —
+        // SEUL Label change : c'est ce que fait la page après un UpdateRule.
+        cut.Render(p => p
+            .Add(v => v.Model, ModelWith(TableWithLabeledRule("Nouveau libellé", fixedUpdatedAt)))
+            .Add(v => v.CanEdit, true));
+
+        cut.WaitForAssertion(() =>
+            cut.Find("[data-testid='grid-cell-Label']").TextContent.Trim().Should().Be("Nouveau libellé"));
+    }
+
+    private static List<string> RegimeCells(IRenderedComponent<TableTvaView> cut) =>
+        cut.FindAll("[data-testid='grid-cell-SourceRegimeCode']")
+            .Select(cell => cell.TextContent.Trim())
+            .ToList();
+
+    private static MappingTableDto TableWithLabeledRule(string label, DateTimeOffset updatedAt) => new()
+    {
+        Id = Guid.NewGuid(),
+        CompanyId = Guid.NewGuid(),
+        MappingVersion = "v1",
+        ValidatedBy = null,
+        ValidatedDate = null,
+        IsValidated = false,
+        DefaultBehavior = "Block",
+        CreatedAt = new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero),
+        UpdatedAt = updatedAt,
+        Rules =
+        [
+            new MappingRuleDto
+            {
+                SourceRegimeCode = "20",
+                Label = label,
+                Part = "Autre",
+                Category = "E",
+                Vatex = null,
+                RateMode = "ComputedFromSource",
+                RateValue = null,
+            },
+        ],
+    };
 
     [Fact]
     public void Changelog_entries_are_rendered_in_french()
@@ -389,6 +468,31 @@ public sealed class TableTvaViewTests : BunitContext
                 LastSeenAtUtc = new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero),
             },
         ],
+    };
+
+    private static MappingTableDto TableWithRules(params string[] sourceRegimeCodes) => new()
+    {
+        Id = Guid.NewGuid(),
+        CompanyId = Guid.NewGuid(),
+        MappingVersion = "v1",
+        ValidatedBy = null,
+        ValidatedDate = null,
+        IsValidated = false,
+        DefaultBehavior = "Block",
+        CreatedAt = new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero),
+        UpdatedAt = null,
+        Rules = sourceRegimeCodes
+            .Select(code => new MappingRuleDto
+            {
+                SourceRegimeCode = code,
+                Label = null,
+                Part = "Autre",
+                Category = "E",
+                Vatex = "VATEX-EU-O",
+                RateMode = "ComputedFromSource",
+                RateValue = null,
+            })
+            .ToList(),
     };
 
     private static MappingTableDto ValidatedTable() => BuildTable(
