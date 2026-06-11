@@ -11,6 +11,14 @@ using Stratum.Common.Abstractions.Messaging;
 /// </summary>
 public record ImportTenantSeedCommand : ICommand<ImportTenantSeedResult>
 {
+    /// <summary>
+    /// Nom du fichier de seed de mapping TVA attendu dans le dossier de seed (item FIX01b). Exposé sur
+    /// le contrat (et non plus interne au handler) parce que le chemin d'amorçage (DevTenantSeeder) doit
+    /// pouvoir rejouer l'import de CE composant seul quand le profil existe déjà mais que la table manque
+    /// (récupération d'un seed partiel — FIX203a), sans rejouer ni écraser le reste du paramétrage.
+    /// </summary>
+    public const string MappingSeedFileName = "mapping-tva.json";
+
     /// <summary>Chemin du dossier de seed (ex. <c>deployments/cmp/</c>).</summary>
     public required string SeedDirectoryPath { get; init; }
 
