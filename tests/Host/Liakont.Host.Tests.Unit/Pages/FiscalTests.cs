@@ -94,19 +94,50 @@ public sealed class FiscalTests : BunitContext
             cut.Find("[data-testid='fiscal-feedback']").TextContent.Should().Contain("non reconnue"));
     }
 
+    [Fact]
+    public void Reload_failure_after_successful_save_keeps_the_success_message()
+    {
+        var fake = new FakeFiscalService { FailOnReload = true };
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(hasSettings: true));
+        Services.AddScoped<IFiscalConsoleService>(_ => fake);
+
+        var cut = Render<Fiscal>();
+
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='fiscal-save-btn']").Should().ContainSingle());
+        cut.Find("[data-testid='fiscal-save-btn']").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.Find("[data-testid='fiscal-feedback']").TextContent.Should().Contain("enregistrés");
+            cut.FindAll("[data-testid='fiscal-error']").Should().BeEmpty();
+            cut.FindAll("[data-testid='fiscal']").Should().ContainSingle();
+        });
+    }
+
     private sealed class FakeFiscalService : IFiscalConsoleService
     {
+        private int _getCallCount;
+
         public bool ThrowOnLoad { get; init; }
 
         public bool ThrowArgumentOnSave { get; init; }
+
+        public bool FailOnReload { get; init; }
 
         public int SaveCalls { get; private set; }
 
         public Task<FiscalViewModel> GetAsync(CancellationToken cancellationToken = default)
         {
-            if (ThrowOnLoad)
+            _getCallCount++;
+
+            if (ThrowOnLoad && _getCallCount == 1)
             {
                 throw new InvalidOperationException("Échec simulé du chargement du paramétrage fiscal.");
+            }
+
+            if (FailOnReload && _getCallCount > 1)
+            {
+                throw new InvalidOperationException("Échec simulé du rechargement post-enregistrement.");
             }
 
             return Task.FromResult(new FiscalViewModel
