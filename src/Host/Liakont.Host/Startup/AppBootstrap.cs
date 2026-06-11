@@ -480,6 +480,11 @@ public static class AppBootstrap
         // (garde liakont.settings côté page). Isole l'accès au module hors de la page.
         builder.Services.AddScoped<Liakont.Host.PaAccounts.IPaAccountConsoleService, Liakont.Host.PaAccounts.PaAccountConsoleService>();
 
+        // Onboarding de la transmission (FIX201, décision E1) : publie le SIREN / active le tax_report_setting
+        // du compte PA actif (appel idempotent EnsureTaxReportSettingAsync, garde liakont.settings, audit).
+        // Sans cette action, le diagnostic pré-envoi (F04 §3.1) refuse tout envoi (« Transport not available »).
+        builder.Services.AddScoped<Liakont.Host.PaAccounts.IPaPublicationConsoleService, Liakont.Host.PaAccounts.PaPublicationConsoleService>();
+
         // Pré-chargement déterministe de l'état de console à l'ouverture du circuit (avant rendu de la nav).
         builder.Services.AddScoped<Liakont.Host.Navigation.LiakontConsoleCircuitHandler>();
         builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler>(
@@ -525,6 +530,12 @@ public static class AppBootstrap
         // n'existe qu'à ce stade) : sans profil, le CHECK suspend tout document (CFG02). Development only,
         // non fatal.
         await app.SeedDevTenantProfileAsync();
+
+        // Onboarding de la transmission du tenant de dev (FIX201, décision E1 point 2) : publie le SIREN /
+        // active le tax_report_setting du compte PA Fake, APRÈS l'amorçage du profil. Sans cette étape, le
+        // diagnostic pré-envoi refuse tout envoi (« Transport not available »). Rejouée à chaque démarrage
+        // (l'état du Fake vit en mémoire). Development only, non fatal.
+        await app.SeedDevTenantPublicationAsync();
 
         await app.Services.SeedAdminUserAsync();
         await SeedRealmRegistryFromDatabaseAsync(app);
