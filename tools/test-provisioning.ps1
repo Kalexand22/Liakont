@@ -85,7 +85,13 @@ try {
     }
     Test-Case '.env : URL publique dérivée de l''hôte' {
         $env1 = New-InstanceEnvContent -PublicHostname 'liakont.acme.test' -KeycloakHostname 'id.acme.test' -AcmeEmail 'a@test'
-        Assert-True ($env1 -match '(?m)^PUBLIC_BASE_URL=https://liakont\.acme\.test\r?$') 'PUBLIC_BASE_URL'
+        # Ancre stricte « $ » VOULUE : passe sur du LF (état normalisé), échoue sur du CRLF — garde
+        # ainsi la normalisation LF (un CRLF résiduel laisserait un « \r » en fin de valeur sous Linux).
+        Assert-True ($env1 -match '(?m)^PUBLIC_BASE_URL=https://liakont\.acme\.test$') 'PUBLIC_BASE_URL'
+    }
+    Test-Case '.env : fins de ligne LF (aucun CRLF — consommé sous Linux)' {
+        $env1 = New-InstanceEnvContent -PublicHostname 'h.test' -KeycloakHostname 'id.test' -AcmeEmail 'a@test'
+        Assert-True (-not ($env1.Contains("`r"))) 'le .env ne doit contenir aucun CRLF (corromprait secrets/URL côté conteneur)'
     }
     Test-Case '.env : secrets uniques entre deux instances' {
         $a = New-InstanceEnvContent -PublicHostname 'h.test' -KeycloakHostname 'id.test' -AcmeEmail 'a@test'

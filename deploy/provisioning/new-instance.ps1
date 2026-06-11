@@ -118,8 +118,10 @@ try {
         [System.IO.File]::WriteAllText((Join-Path $instanceDir 'docker-compose.yml'), $composeOut, (New-Object System.Text.UTF8Encoding($false)))
     }
 
-    Copy-Item -LiteralPath (Join-Path $applianceDir 'Caddyfile') -Destination (Join-Path $instanceDir 'Caddyfile')
-    Copy-Item -LiteralPath (Join-Path $scriptRoot 'maintenance.Caddyfile') -Destination (Join-Path $instanceDir 'maintenance.Caddyfile')
+    # Caddyfiles : copiés en LF (consommés par Caddy côté Linux — un CRLF résiduel du checkout
+    # Windows suffixerait les directives d'un « \r », cf. Copy-DeploymentFileAsLf).
+    Copy-DeploymentFileAsLf -Source (Join-Path $applianceDir 'Caddyfile') -Destination (Join-Path $instanceDir 'Caddyfile')
+    Copy-DeploymentFileAsLf -Source (Join-Path $scriptRoot 'maintenance.Caddyfile') -Destination (Join-Path $instanceDir 'maintenance.Caddyfile')
     New-Item -ItemType Directory -Path (Join-Path $instanceDir 'keycloak') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $applianceDir 'keycloak\realm-liakont.json') -Destination (Join-Path $instanceDir 'keycloak\realm-liakont.json')
     if ($Mode -eq 'hosted') {

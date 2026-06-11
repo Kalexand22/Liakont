@@ -178,6 +178,26 @@ OPERATOR_EMAIL=
     return ($content -replace "`r`n", "`n")
 }
 
+function Copy-DeploymentFileAsLf {
+    <#
+    .SYNOPSIS
+        Copie un fichier de déploiement en NORMALISANT ses fins de ligne en LF.
+    .DESCRIPTION
+        Les fichiers de stack (Caddyfile, maintenance.Caddyfile) sont versionnés en LF mais
+        ressortent en CRLF au checkout Windows (core.autocrlf) ; or ils sont consommés par des
+        conteneurs LINUX. Un CRLF résiduel suffixe les valeurs d'un « \r » (ex. upstream
+        « reverse_proxy liakont:8080\r »). On copie donc en réécrivant le contenu en LF (UTF-8 sans
+        BOM), au lieu d'une copie octet-à-octet. Idempotent si la source est déjà en LF.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+    $content = [System.IO.File]::ReadAllText($Source) -replace "`r`n", "`n"
+    [System.IO.File]::WriteAllText($Destination, $content, (New-Object System.Text.UTF8Encoding($false)))
+}
+
 # ── Registre des instances (instances.yaml) ───────────────────────────────────
 # Format YAML simple et DÉTERMINISTE, écrit et lu uniquement par ces scripts. Chaque instance est
 # une entrée scalaire (aucune structure imbriquée) → un lecteur ligne-à-ligne suffit et reste fiable.
@@ -514,4 +534,5 @@ Export-ModuleMember -Function `
     Resolve-InstanceName, New-StrongSecret, New-InstanceEnvContent, `
     Read-InstanceRegistry, Write-InstanceRegistry, Set-InstanceRegistryEntry, `
     Protect-YamlScalar, Unprotect-YamlScalar, `
-    Test-DockerAvailable, Get-InstanceDatabases, Backup-InstanceDatabases, Wait-InstanceHealthy
+    Test-DockerAvailable, Get-InstanceDatabases, Backup-InstanceDatabases, Wait-InstanceHealthy, `
+    Copy-DeploymentFileAsLf
