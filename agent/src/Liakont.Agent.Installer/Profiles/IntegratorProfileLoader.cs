@@ -47,7 +47,7 @@ internal static class IntegratorProfileLoader
                 $"Profil « {sourceName} » : JSON illisible ({ex.Message}).", ex);
         }
 
-        string profileName = (root.Value<string>("profil") ?? string.Empty).Trim();
+        string profileName = (ReadString(root, "profil", sourceName) ?? string.Empty).Trim();
         if (profileName.Length == 0)
         {
             profileName = "(sans nom)";
@@ -74,9 +74,9 @@ internal static class IntegratorProfileLoader
 
         var obj = (JObject)token;
         return new IntegratorBranding(
-            obj.Value<string>("nom"),
-            obj.Value<string>("logo"),
-            obj.Value<string>("couleurPrincipale"));
+            ReadString(obj, "nom", sourceName),
+            ReadString(obj, "logo", sourceName),
+            ReadString(obj, "couleurPrincipale", sourceName));
     }
 
     private static Dictionary<string, FieldDeclaration> ParseFields(JToken? token, string sourceName)
@@ -111,7 +111,7 @@ internal static class IntegratorProfileLoader
 
         var obj = (JObject)token;
 
-        string? rawState = obj.Value<string>("etat");
+        string? rawState = ReadString(obj, "etat", sourceName);
         if (string.IsNullOrWhiteSpace(rawState))
         {
             throw new ProfileFormatException(
@@ -167,5 +167,22 @@ internal static class IntegratorProfileLoader
                 throw new ProfileFormatException(
                     $"Profil « {sourceName} » : la « valeur » du champ « {key} » doit être un scalaire (texte, booléen ou nombre).");
         }
+    }
+
+    private static string? ReadString(JObject obj, string propertyName, string sourceName)
+    {
+        JToken? token = obj[propertyName];
+        if (token == null || token.Type == JTokenType.Null)
+        {
+            return null;
+        }
+
+        if (token.Type == JTokenType.Object || token.Type == JTokenType.Array)
+        {
+            throw new ProfileFormatException(
+                $"Profil « {sourceName} » : la propriété « {propertyName} » doit être une chaîne de caractères.");
+        }
+
+        return token.Value<string>();
     }
 }

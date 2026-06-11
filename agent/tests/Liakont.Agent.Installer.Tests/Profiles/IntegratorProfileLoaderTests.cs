@@ -88,5 +88,26 @@ public class IntegratorProfileLoaderTests
         act.Should().Throw<ProfileFormatException>().WithMessage("*scalaire*");
     }
 
+    [Fact]
+    public void Profil_name_of_wrong_type_throws_format_exception()
+    {
+        System.Action act = () => Parse(@"{ ""profil"": {}, ""champs"": {} }");
+        act.Should().Throw<ProfileFormatException>().WithMessage("*profil*");
+    }
+
+    [Fact]
+    public void Branding_field_of_wrong_type_throws_format_exception()
+    {
+        System.Action act = () => Parse(@"{ ""branding"": { ""nom"": {} } }");
+        act.Should().Throw<ProfileFormatException>().WithMessage("*nom*");
+    }
+
+    [Fact]
+    public void State_of_wrong_type_throws_format_exception()
+    {
+        System.Action act = () => Parse(@"{ ""champs"": { ""adapter"": { ""etat"": [] } } }");
+        act.Should().Throw<ProfileFormatException>();
+    }
+
     private static IntegratorProfile Parse(string json) => IntegratorProfileLoader.Parse(json, "(test)");
 }

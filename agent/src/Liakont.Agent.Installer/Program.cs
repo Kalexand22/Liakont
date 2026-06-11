@@ -2,6 +2,7 @@ namespace Liakont.Agent.Installer;
 
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using Liakont.Agent.Installer.Profiles;
 
 /// <summary>
@@ -13,9 +14,16 @@ using Liakont.Agent.Installer.Profiles;
 /// </summary>
 internal static class Program
 {
+    private const int AttachParentProcess = -1;
+
     [STAThread]
     internal static int Main(string[] args)
     {
+        // Rattache la console du processus parent pour que le mode headless « --validate » (réutilisé
+        // par le packaging OPS08c) affiche ses messages français quand il est lancé depuis un terminal.
+        // Sans console parente (futur wizard lancé depuis l'explorateur), l'appel échoue sans effet.
+        // Contrat pour l'automatisation : capturer/rediriger stdout+stderr et lire le code de sortie.
+        AttachConsole(AttachParentProcess);
         if (args.Length >= 1 && string.Equals(args[0], "--validate", StringComparison.OrdinalIgnoreCase))
         {
             return RunValidate(args);
@@ -91,4 +99,9 @@ internal static class Program
                 return state.ToString();
         }
     }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AttachConsole(int processId);
 }
