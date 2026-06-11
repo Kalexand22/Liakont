@@ -12,6 +12,9 @@ packages/
 *.userprefs
 *.sln.docstates
 **/Properties/launchSettings.json
+# Exception : le profil de lancement du Host est VERSIONNÉ (FIX203b) — `dotnet run` seul démarre
+# en Development sur le port du realm dev (55996) sans poser de variable d'environnement.
+!src/Host/Liakont.Host/Properties/launchSettings.json
 
 ## OS
 Thumbs.db

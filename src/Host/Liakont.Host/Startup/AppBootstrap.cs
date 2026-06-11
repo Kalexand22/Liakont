@@ -532,6 +532,15 @@ public static class AppBootstrap
         // Diagnostic d'expérience de dev (FIX07a) : avertit si le realm Keycloak de dev est joignable
         // mais périmé (import sauté à cause d'un volume résiduel). Development uniquement, best-effort.
         await app.WarnIfDevRealmStaleAsync();
+
+        // Amorçage DEV des planifications des jobs SYSTÈME (FIX203b) : supervision (15 min, F12 §5.1) et
+        // ancrage quotidien du coffre (TRK06, ADR-0011). Sans elles, job.schedules reste VIDE → supervision
+        // morte en silence + coffre jamais ancré (recette run 2). Development uniquement, create-only, best-effort.
+        await app.SeedDevJobSchedulesAsync();
+
+        // Diagnostic (dev ET prod, FIX203b) : avertit si un job SYSTÈME attendu n'a aucune planification
+        // active. En prod la planification est un geste OPS (README) ; ce warning évite la panne silencieuse.
+        await app.WarnIfSystemJobsUnscheduledAsync();
     }
 
     /// <summary>Configures the HTTP pipeline and maps all endpoints.</summary>

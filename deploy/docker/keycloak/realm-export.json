@@ -45,6 +45,10 @@
       {
         "name": "superviseur",
         "description": "Supervision cross-tenant en lecture seule (toutes les permissions liakont.*)"
+      },
+      {
+        "name": "stratum-admin",
+        "description": "Administrateur d'instance (super-admin) : admin des planifications de jobs, provisioning tenant. Compte sysadmin de dev (FIX203b)."
       }
     ]
   },
@@ -200,6 +204,23 @@
         }
       ],
       "realmRoles": ["lecture", "operateur", "parametrage", "superviseur"]
+    },
+    {
+      "id": "ad000000-0000-4000-b000-000000000001",
+      "username": "sysadmin",
+      "email": "sysadmin@liakont.local",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Sacha",
+      "lastName": "Sysadmin",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Test@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["stratum-admin"]
     }
   ],
   "scopeMappings": [],
