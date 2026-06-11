@@ -187,3 +187,31 @@ Deux fois la même erreur en une journée.
   j'enchaîne », c'est un drapeau rouge → remplacer par une surveillance active ou faire l'étape
   avant (ordre alternatif sûr : seeder state AVANT le merge est inoffensif si les runners ignorent
   les items absents du manifest — à vérifier UNE fois, puis normaliser l'ordre le plus robuste).
+
+## 2026-06-11 (soir) — Lot FIX3 : gate déclarée au manifest SANS définition de lot → manifest-sanity RED sur main, segment toolkit bloqué collatéralement
+
+**Contexte :** livraison du lot FIX3 (manifest v20, PR #39). La transaction de bout en bout a été
+respectée (PR mergée + state seedé + branche segment poussée — leçon de l'après-midi appliquée),
+MAIS le contenu livré était incomplet : `GATE_CONSOLE_POLISH` déclarée dans le manifest sans bloc
+structuré dans `items/FIX3.yaml` (j'avais vérifié si FIX2.yaml définissait sa gate — non — et
+conclu à tort que les gates ne vivaient pas dans les lots ; PAS.yaml, que j'ai relu LE SOIR MÊME
+pour Super PDP, définit pourtant `GATE_PA_SUPERPDP:` en toutes lettres). `verify-fast` exige la
+réciprocité manifest→lots pour les gates → RED pour TOUT clone sur main : DOC03 (session slot-5)
+bloqué sur une cause externe à son item, tout le segment toolkit menacé. Un runner FIX3 avait
+silencieusement réparé sur SA branche (feat/console-polish) — le défaut restait sur main.
+
+**Règles :**
+- **Toute modification d'orchestration (manifest, items/*.yaml) se vérifie en EXÉCUTANT le check
+  qui la garde AVANT livraison** : `verify-fast` au complet, ou a minima rejouer le step
+  `manifest-sanity` en standalone. Je ne l'ai PAS lancé sur la PR #39 — c'est exactement le
+  « Scripts/CI/config/docs require the same review discipline » de CLAUDE.md que j'ai sauté.
+- **Réciprocité complète d'un lot** : item au manifest ⇒ bloc dans items/<LOT>.yaml ; gate au
+  manifest ⇒ bloc gate dans UN fichier de lot ; item au state ⇒ déclaré au manifest. La checklist
+  de seed (matin) gagne un 5e point : (5) verify-fast/manifest-sanity vert sur le résultat final.
+- **Un runner qui répare un défaut de main sur sa branche de segment ne répare RIEN pour les
+  autres** : si un correctif d'orchestration doit servir à tous, il doit être commité sur main
+  (geste opérateur) — reprendre le bloc À L'IDENTIQUE de la branche pour éviter le conflit au
+  merge de gate.
+- **Après remise en pending d'un item bloqué pour cause externe, surveiller les sessions parties
+  AVANT le fix** : elles tomberont sur le même RED (OPS05, BRD01 dans ce cas) et devront être
+  repassées pending de la même façon.
