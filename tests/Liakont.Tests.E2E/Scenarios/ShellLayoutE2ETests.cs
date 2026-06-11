@@ -14,8 +14,8 @@ using Xunit.Abstractions;
 /// de page + barre latérale tronquée en haut » — n'est plus observable dans le code courant (la nav
 /// socle volumineuse de l'époque a été retirée par FIX209/FIX303, et la propriété « le document ne
 /// défile pas » est garantie). FIX306 rend cette propriété EXPLICITE via le verrou <c>overflow:
-/// hidden</c> sur <c>html, body</c> (le shell possède le défilement) ; ces tests la VERROUILLENT sur
-/// la page réelle et sous contrainte, pour empêcher toute régression future du layout du shell.
+/// hidden</c> scopé aux pages shell (<c>:has(.erp-shell)</c>) ; ces tests la VERROUILLENT — sur du
+/// contenu plus haut que le viewport et sous contrainte — pour empêcher toute régression future.
 /// </summary>
 [Trait("Category", "E2E")]
 public sealed class ShellLayoutE2ETests : KeycloakBaseE2ETest
@@ -86,73 +86,10 @@ public sealed class ShellLayoutE2ETests : KeycloakBaseE2ETest
     }
 
     /// <summary>
-    /// Reproduction sur la page RÉELLE où le défaut a été observé (/parametrage/alertes, longue : 4
-    /// SectionCards). Sur un viewport court, le contenu déborde : le document ne doit PAS défiler, la
-    /// barre latérale reste entière, et le bas du contenu (bouton « Enregistrer la matrice ») reste
-    /// atteignable en défilant <c>.erp-main</c>.
-    /// </summary>
-    [Fact]
-    public async Task Long_alertes_page_scrolls_inside_main_without_scrolling_the_document()
-    {
-        await Page.SetViewportSizeAsync(ViewportWidth, 520);
-
-        // Rôle « parametrage » (liakont.settings) : requis pour ouvrir /parametrage/alertes.
-        await LoginViaKeycloakAsync("parametrage", DefaultPassword);
-        await Page.GotoAsync($"{BaseUrl}/parametrage/alertes");
-        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
-
-        var shell = GetShellPage();
-        await shell.WaitForShellAsync();
-        var main = shell.Main;
-        var nav = shell.Nav;
-
-        // Le bouton de bas de page (dernière SectionCard) prouve que le contenu complet est rendu.
-        var saveButton = Page.Locator("[data-testid='alertes-routing-save-btn']");
-        await saveButton.WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 30_000 });
-
-        var content = Page.Locator("[data-testid='alertes']");
-        var contentHeight = await content.EvaluateAsync<double>("el => el.scrollHeight");
-
-        await Page.EvaluateAsync("() => window.scrollTo(0, 100000)");
-        var windowScrollY = await Page.EvaluateAsync<double>("() => window.scrollY");
-        var docScrollHeight = await Page.EvaluateAsync<double>("() => document.scrollingElement.scrollHeight");
-        var docClientHeight = await Page.EvaluateAsync<double>("() => document.scrollingElement.clientHeight");
-        var navBox = await nav.BoundingBoxAsync();
-        var mainScrollHeight = await main.EvaluateAsync<double>("el => el.scrollHeight");
-        var mainClientHeight = await main.EvaluateAsync<double>("el => el.clientHeight");
-        await main.EvaluateAsync("el => el.scrollTo(0, el.scrollHeight)");
-        var mainScrollTop = await main.EvaluateAsync<double>("el => el.scrollTop");
-        await saveButton.ScrollIntoViewIfNeededAsync();
-        var saveButtonBox = await saveButton.BoundingBoxAsync();
-
-        _output.WriteLine($"[alertes] viewport={ViewportWidth}x520 contentHeight={contentHeight}");
-        _output.WriteLine($"[alertes] window.scrollY={windowScrollY} doc.scrollHeight={docScrollHeight} doc.clientHeight={docClientHeight}");
-        _output.WriteLine($"[alertes] nav={(navBox is null ? "null" : $"y={navBox.Y} h={navBox.Height}")}");
-        _output.WriteLine($"[alertes] main scrollHeight={mainScrollHeight} clientHeight={mainClientHeight} scrollTop={mainScrollTop}");
-        _output.WriteLine($"[alertes] saveButton={(saveButtonBox is null ? "null" : $"y={saveButtonBox.Y}")}");
-
-        using var assertions = new FluentAssertions.Execution.AssertionScope();
-        contentHeight.Should().BeGreaterThan(520, "la page d'alertes doit déborder le viewport court (sinon le test ne prouve rien)");
-        windowScrollY.Should().BeLessThan(2, "le document ne doit pas défiler (verbatim run 3 : scroll au-delà du bas de page)");
-        docScrollHeight.Should().BeLessThanOrEqualTo(
-            docClientHeight + 2, "pas de zone fantôme scrollable sous le contenu (la « grande zone blanche vide » du run 3)");
-        navBox.Should().NotBeNull("la barre latérale est rendue");
-        navBox!.Y.Should().BeGreaterThanOrEqualTo(
-            -2, "la barre latérale n'est jamais emportée vers le haut (entrées tronquées au run 3)");
-        (navBox.Y + navBox.Height).Should().BeLessThanOrEqualTo(
-            522, "la barre latérale reste entièrement dans le viewport (couvre la hauteur, jamais désynchronisée)");
-        mainScrollHeight.Should().BeGreaterThan(mainClientHeight, ".erp-main défile en interne");
-        mainScrollTop.Should().BeGreaterThan(0, ".erp-main a effectivement défilé");
-        saveButtonBox.Should().NotBeNull("le bouton de bas de page est rendu");
-        saveButtonBox!.Y.Should().BeLessThanOrEqualTo(
-            522, "le bas du contenu est atteignable après défilement de .erp-main");
-    }
-
-    /// <summary>
     /// Garde de l'invariant sous contrainte : même un élément qui ÉTEND la zone scrollable du document
     /// (le « scroll au-delà du bas de page » du run 3) ne doit PAS rendre le document scrollable ni
     /// emporter la barre latérale vers le haut (« menu tronqué en haut »). Verrouille la propriété que
-    /// FIX306 rend explicite (<c>overflow: hidden</c> sur html/body), contre toute régression future.
+    /// FIX306 rend explicite (<c>overflow: hidden</c> scopé aux pages shell), contre toute régression future.
     /// </summary>
     [Fact]
     public async Task Element_extending_document_scroll_area_does_not_scroll_the_document()

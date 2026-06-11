@@ -5,13 +5,20 @@ html, body {
     margin: 0;
     background-color: var(--color-bg-page);
     color: var(--color-text-primary);
-    /* FIX306 — rend EXPLICITE la propriété « le shell possède le défilement » : .erp-shell = 100vh
-       avec overflow caché, .erp-main défile en interne, donc le DOCUMENT ne doit jamais défiler.
-       Sans ce verrou la propriété ne tenait que par accident (html/body en height: 100%) et restait
-       fragile (overshoot 100vh vs viewport visible, barre de défilement résiduelle) — symptôme run 3 :
-       « scroll au-delà du bas de page » + barre latérale (height: 100vh) emportée hors du viewport
-       (« menu tronqué en haut »). Le verrou supprime toute barre de défilement du document (donc
-       100vh == viewport visible exact) ; le contenu reste atteignable via le défilement de .erp-main. */
+}
+
+/* FIX306 — rend EXPLICITE la propriété « le shell possède le défilement » : .erp-shell = 100vh avec
+   overflow caché, .erp-main défile en interne, donc le DOCUMENT ne doit pas défiler. Sans ce verrou la
+   propriété ne tenait que par accident (html/body en height: 100%) et restait fragile (overshoot 100vh
+   vs viewport visible, barre de défilement résiduelle) — symptôme run 3 : « scroll au-delà du bas de
+   page » + barre latérale (height: 100vh) emportée hors du viewport (« menu tronqué en haut »). Le
+   verrou supprime toute barre de défilement du document (100vh == viewport visible exact) ; le contenu
+   reste atteignable via le défilement de .erp-main.
+   SCOPÉ via :has(.erp-shell) aux SEULES pages shell : les pages AuthLayout (/login, /logout) n'ont pas
+   de conteneur de défilement propre et conservent le défilement du document en repli (sinon un contenu
+   plus haut que le viewport deviendrait inatteignable). */
+html:has(.erp-shell),
+body:has(.erp-shell) {
     overflow: hidden;
 }
 
