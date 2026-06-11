@@ -1,0 +1,54 @@
+// Table de mapping TVA d'EXEMPLE — VARIANTE VERTICAL ENCHÈRES (item FIX304/F4).
+//
+// NÉCESSITE LE VERTICAL ENCHÈRES (AuctionVerticalSettings.Enabled = true). Cette variante illustre le
+// découpage propre aux ventes aux enchères : adjudication (le bien vendu) + frais acheteur, et le régime
+// de la marge (art. 297 A CGI). Elle N'EST PAS le seed par défaut : sur un tenant générique (vertical
+// OFF), le pipeline mappe toujours en part « Autre » (CheckTvaMapping.LinePart), donc ces règles
+// Adjudication/Frais seraient MORTES au contrôle de cohérence (DeadRuleReason.PartNotConsulted). Le seed
+// par défaut générique est ../mapping-tva.json (régimes 20/10/5.5/0, part Autre).
+//
+// Pour utiliser cette variante : remplacer ../mapping-tva.json par ce fichier dans le dossier de seed du
+// tenant (l'import lit le mapping-tva.json à la RACINE du dossier de seed — un sous-dossier n'est jamais
+// importé automatiquement) ET activer le vertical enchères du tenant.
+//
+// Données STRICTEMENT FICTIVES (codes régimes inventés NORMAL/MARGE) : AUCUNE donnée d'un client réel
+// (blueprint.md §2, CLAUDE.md n°7/15). Modèle 2 lignes du régime de la marge validé staging (F03 §2.3) :
+// adjudication exonérée (E, VATEX-EU-J) + frais acheteur taxables (S, taux calculé depuis la source).
+//
+// MARQUEUR « table d'exemple » : validatedBy explicite + validatedDate absent → « NON VALIDÉE »
+// (IsValidated = false) ; le garde-fou d'envoi (PIP01) refuse tout envoi réel tant que l'expert-comptable
+// ne l'a pas validée.
+{
+  "mappingVersion": "tenant-seed-encheres-exemple-v1",
+  "validatedBy": "Table d'exemple (seed tenant — variante enchères) — usage démo/tests uniquement",
+  "validatedDate": null,
+  "defaultBehavior": "Block",
+  "rules": [
+    {
+      "sourceRegimeCode": "NORMAL",
+      "label": "Taux normal (assujetti) — adjudication",
+      "part": "Adjudication",
+      "category": "S",
+      "rateMode": "Fixed",
+      "rateValue": 20
+    },
+    {
+      "sourceRegimeCode": "MARGE",
+      "label": "Régime de la marge — objets de collection (art. 297 A CGI)",
+      "part": "Adjudication",
+      "category": "E",
+      "vatex": "VATEX-EU-J",
+      "rateMode": "Fixed",
+      "rateValue": 0,
+      "note": "Adjudication exonérée : la TVA porte sur la marge, jamais distincte (F03 §2.3)."
+    },
+    {
+      "sourceRegimeCode": "NORMAL",
+      "label": "Frais acheteur — taux calculé depuis la source",
+      "part": "Frais",
+      "category": "S",
+      "rateMode": "ComputedFromSource",
+      "note": "Frais toujours taxables ; taux = montant_tva_frais / montant_frais_ht (F03 §4.1)."
+    }
+  ]
+}

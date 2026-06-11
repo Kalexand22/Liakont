@@ -4,6 +4,7 @@ using FluentAssertions;
 using Liakont.Agent.Contracts.ContractTests;
 using Liakont.Agent.Contracts.Pivot;
 using Liakont.Modules.TvaMapping.Contracts.Commands;
+using Liakont.Modules.TvaMapping.Domain.ConsistencyDetection;
 using Liakont.Modules.TvaMapping.Domain.Entities;
 using Liakont.Modules.TvaMapping.Domain.Mapping;
 using Liakont.Modules.TvaMapping.Domain.Services;
@@ -31,6 +32,19 @@ public sealed class MappingSeedImportIntegrationTests
     private const string ExampleMarker = "Table d'exemple — usage démo/tests uniquement";
     private static readonly DateTimeOffset MappedAt = new(2026, 6, 4, 12, 0, 0, TimeSpan.Zero);
 
+    // Régimes source poussés par le seed de documents de démo (tools/dev-seed-demo-docs.ps1,
+    // champ sourceTaxRegimes du batch) → catégorie attendue de la table de seed par défaut. La table
+    // par défaut DOIT couvrir exactement ces régimes en part Autre, sinon le CHECK des documents de
+    // démo bloque (« aucune règle applicable ») — item FIX304. Catégories tracées F03 §2.1
+    // (20→S, 10/5,5→AA) et règle TAUX-ZERO de mapping-exemple.json (0→Z).
+    private static readonly (string Regime, VatCategory Category)[] DemoRegimeExpectations =
+    {
+        ("20", VatCategory.S),
+        ("10", VatCategory.AA),
+        ("5.5", VatCategory.AA),
+        ("0", VatCategory.Z),
+    };
+
     private readonly TvaMappingDatabaseFixture _fixture;
 
     public MappingSeedImportIntegrationTests(TvaMappingDatabaseFixture fixture)
@@ -43,6 +57,9 @@ public sealed class MappingSeedImportIntegrationTests
 
     private static string TenantSeedMappingPath =>
         Path.Combine(AppContext.BaseDirectory, "config", "exemples", "tenant-seed", "mapping-tva.json");
+
+    private static string EncheresVariantMappingPath =>
+        Path.Combine(AppContext.BaseDirectory, "config", "exemples", "tenant-seed", "encheres", "mapping-tva.json");
 
     [Fact]
     public async Task ExampleSeed_Imports_And_Exposes_NonValidated_ExampleMarker()
@@ -254,9 +271,85 @@ public sealed class MappingSeedImportIntegrationTests
 
         var dto = await harness.Queries.GetMappingTable(companyId);
         dto.Should().NotBeNull();
-        dto!.MappingVersion.Should().Be("tenant-seed-exemple-v1");
+        dto!.MappingVersion.Should().Be("tenant-seed-exemple-v2");
         dto.IsValidated.Should().BeFalse("le fichier de seed livré est NON VALIDÉE (garde-fou PIP01).");
-        dto.Rules.Should().HaveCount(3);
+        dto.Rules.Should().HaveCount(4, "le seed par défaut générique couvre les régimes de démo 20/10/5.5/0 (item FIX304).");
+    }
+
+    [Fact]
+    public async Task DefaultTenantSeed_Has_No_DeadRules_On_FreshTenant()
+    {
+        // Acceptation FIX304 : boot vierge + seed par défaut → 0 règle morte au contrôle de cohérence
+        // (FIX03). Toutes les règles du seed sont en part Autre — la seule part consultée par le pipeline
+        // générique (ConsultedMappingParts.PipelineConsulted) — donc aucune n'est PartNotConsulted. Sur un
+        // tenant vierge, aucun régime n'est observé, donc RegimeNeverObserved ne s'applique pas non plus.
+        var harness = new TvaMappingHarness(_fixture);
+        var companyId = Guid.NewGuid();
+        var table = await ImportDefaultTenantSeedAsync(harness, companyId);
+
+        var views = table.Rules
+            .Select(r => new MappingRuleConsistencyView
+            {
+                SourceRegimeCode = r.SourceRegimeCode,
+                Part = r.Part,
+                Label = r.Label,
+            })
+            .ToList();
+
+        var report = MappingConsistencyAnalyzer.Analyze(
+            views,
+            ConsultedMappingParts.PipelineConsulted(),
+            Array.Empty<string>(),
+            tableConfigured: true);
+
+        report.HasDeadRules.Should().BeFalse(
+            "le seed par défaut ne doit signaler AUCUNE règle morte sur un environnement neuf (item FIX304) — "
+            + "régimes mortes signalés : "
+            + string.Join(", ", report.DeadRules.Select(d => $"{d.SourceRegimeCode}/{d.Part}")));
+    }
+
+    [Fact]
+    public async Task Encheres_Variant_Seed_Imports_As_Valid_Auction_Table()
+    {
+        // La variante enchères (config/exemples/tenant-seed/encheres/) reste un fichier de seed VALIDE et
+        // SÉPARÉ (item FIX304/F4) : table d'enchères (adjudication/frais, régime de la marge), distincte du
+        // seed par défaut générique. Elle s'importe sans erreur fiscale (E + VATEX présent), part Frais incluse.
+        var companyId = Guid.NewGuid();
+
+        var table = await MappingTableSeedReader.ImportFileAsync(EncheresVariantMappingPath, companyId);
+
+        table.MappingVersion.Should().Be("tenant-seed-encheres-exemple-v1");
+        table.IsValidated.Should().BeFalse("la variante reste NON VALIDÉE (garde-fou PIP01).");
+        table.Rules.Should().HaveCount(3);
+        table.Rules.Should().Contain(r => r.Part == MappingPart.Adjudication,
+            "la variante enchères porte le découpage adjudication.");
+        table.Rules.Should().Contain(r => r.Part == MappingPart.Frais,
+            "la variante enchères porte le découpage frais acheteur.");
+    }
+
+    [Fact]
+    public async Task DefaultTenantSeed_Covers_Demo_Document_Regimes()
+    {
+        // Acceptation FIX304 : le CHECK des documents de démo (régimes 20/10/5.5/0, part Autre) trouve
+        // toujours une règle applicable — jamais « aucune règle applicable ». Le moteur clé sur
+        // (code régime, part) ; on exerce exactement la requête que CheckTvaMapping construit (part Autre).
+        var harness = new TvaMappingHarness(_fixture);
+        var companyId = Guid.NewGuid();
+        await ImportDefaultTenantSeedAsync(harness, companyId);
+        var table = await ReloadAsync(harness, companyId);
+
+        foreach (var (regime, expectedCategory) in DemoRegimeExpectations)
+        {
+            var result = TvaMapper.Map(
+                table,
+                new MappingRequest { SourceRegimeCode = regime, Part = MappingPart.Autre },
+                MappedAt);
+
+            result.IsMapped.Should().BeTrue(
+                $"le régime de démo « {regime} » doit trouver une règle (part Autre) — sinon le CHECK bloque « aucune règle applicable ».");
+            result.Category.Should().Be(
+                expectedCategory, $"le régime de démo « {regime} » est tracé vers la catégorie « {expectedCategory} » (F03 §2.1).");
+        }
     }
 
     [Fact]
@@ -313,6 +406,16 @@ public sealed class MappingSeedImportIntegrationTests
         await using var uow = await harness.UowFactory.BeginAsync();
         await uow.InsertMappingTableAsync(table);
         await uow.CommitAsync();
+    }
+
+    /// <summary>Importe et persiste le seed de tenant PAR DÉFAUT (générique, régimes 20/10/5.5/0) et retourne la table construite.</summary>
+    private static async Task<MappingTable> ImportDefaultTenantSeedAsync(TvaMappingHarness harness, Guid companyId)
+    {
+        var table = await MappingTableSeedReader.ImportFileAsync(TenantSeedMappingPath, companyId);
+        await using var uow = await harness.UowFactory.BeginAsync();
+        await uow.InsertMappingTableAsync(table);
+        await uow.CommitAsync();
+        return table;
     }
 
     private static async Task<MappingTable> ReloadAsync(TvaMappingHarness harness, Guid companyId)
