@@ -28,6 +28,19 @@ using Stratum.Common.Infrastructure.Database;
 /// </summary>
 internal static partial class DevTenantSeeder
 {
+    /// <summary>Action d'amorçage à exécuter, décidée par <see cref="DecideSeedAction"/>.</summary>
+    internal enum DevSeedAction
+    {
+        /// <summary>Boot à froid (aucun profil) : importer le seed complet — les 4 composants, table comprise.</summary>
+        ImportFullSeed,
+
+        /// <summary>Profil présent + un fichier de mapping est disponible : rattraper la SEULE table (idempotent).</summary>
+        BackfillMappingTable,
+
+        /// <summary>Profil présent, aucun fichier de mapping à amorcer : rien à faire.</summary>
+        Skip,
+    }
+
     /// <summary>Insère le tenant de dev s'il n'existe pas. Appelé AVANT la migration des tenants existants.</summary>
     public static async Task SeedDevTenantAsync(this WebApplication app)
     {
@@ -138,49 +151,52 @@ internal static partial class DevTenantSeeder
             await using var scope = app.Services.GetRequiredService<ITenantScopeFactory>().Create(options.TenantId);
             var sender = scope.Services.GetRequiredService<ISender>();
 
-            // Amorçage idempotent PAR COMPOSANT (FIX203a). Le paramétrage TenantSettings (profil, fiscal,
-            // comptes PA, planification, seuils) est importé en UNE transaction ; seule la table de mapping
-            // TVA (transaction distincte du module TvaMapping) peut rester absente après un échec partiel.
-            // Donc :
-            //  • profil absent (boot à froid) → import complet du seed (les 4 composants, table comprise) ;
-            //  • profil présent (ré-import / récupération) → ne JAMAIS rejouer le paramétrage (un ré-import
-            //    écraserait des réglages édités via la console), mais RATTRAPER la seule table qui a pu
-            //    manquer — l'import de table est lui-même idempotent (no-op si déjà paramétrée).
+            // Amorçage idempotent PAR COMPOSANT (FIX203a) — décision extraite dans DecideSeedAction.
             var settingsQueries = scope.Services.GetRequiredService<ITenantSettingsQueries>();
-            if (await settingsQueries.GetCurrentCompanyId() is null)
-            {
-                var result = await sender.Send(new ImportTenantSeedCommand
-                {
-                    SeedDirectoryPath = seedDir,
-                    CompanyId = options.CompanyId,
-                });
-
-                LogDevProfileSeeded(logger, options.TenantId, result.ProfileImported, result.FiscalImported, result.PaAccountsImported);
-                return;
-            }
-
-            // Profil déjà présent : rattraper la SEULE table de mapping si un seed partiel l'avait laissée
-            // absente. Le companyId est explicite (le contexte de société ambiant n'est pas posé au boot).
+            var existingCompanyId = await settingsQueries.GetCurrentCompanyId();
             var mappingFilePath = Path.Combine(seedDir, ImportTenantSeedCommand.MappingSeedFileName);
-            if (!File.Exists(mappingFilePath))
-            {
-                LogDevProfileAlreadyConfigured(logger, options.TenantId);
-                return;
-            }
 
-            var mappingImported = await sender.Send(new ImportMappingTableSeedCommand
+            switch (DecideSeedAction(existingCompanyId is not null, File.Exists(mappingFilePath)))
             {
-                SeedFilePath = mappingFilePath,
-                CompanyId = options.CompanyId,
-            });
+                case DevSeedAction.ImportFullSeed:
+                {
+                    var result = await sender.Send(new ImportTenantSeedCommand
+                    {
+                        SeedDirectoryPath = seedDir,
+                        CompanyId = options.CompanyId,
+                    });
 
-            if (mappingImported)
-            {
-                LogDevMappingBackfilled(logger, options.TenantId);
-            }
-            else
-            {
-                LogDevProfileAlreadyConfigured(logger, options.TenantId);
+                    LogDevProfileSeeded(logger, options.TenantId, result.ProfileImported, result.FiscalImported, result.PaAccountsImported);
+                    break;
+                }
+
+                case DevSeedAction.BackfillMappingTable:
+                {
+                    // Profil déjà présent : ne JAMAIS rejouer le paramétrage (un ré-import écraserait des
+                    // réglages édités via la console) ; rattraper la SEULE table qui a pu manquer, scopée sur
+                    // le companyId RÉEL du profil présent (pas la config, qui pourrait diverger d'un boot
+                    // antérieur — sinon la table irait dans une société sans profil). Import idempotent.
+                    var mappingImported = await sender.Send(new ImportMappingTableSeedCommand
+                    {
+                        SeedFilePath = mappingFilePath,
+                        CompanyId = existingCompanyId,
+                    });
+
+                    if (mappingImported)
+                    {
+                        LogDevMappingBackfilled(logger, options.TenantId);
+                    }
+                    else
+                    {
+                        LogDevProfileAlreadyConfigured(logger, options.TenantId);
+                    }
+
+                    break;
+                }
+
+                default:
+                    LogDevProfileAlreadyConfigured(logger, options.TenantId);
+                    break;
             }
         }
         catch (Exception ex)
@@ -188,6 +204,25 @@ internal static partial class DevTenantSeeder
             // NON FATAL : l'amorçage du profil de dev ne doit jamais empêcher le démarrage.
             LogDevProfileSeedFailed(logger, options.TenantId, ex);
         }
+    }
+
+    /// <summary>
+    /// Décision d'amorçage idempotente PAR COMPOSANT (FIX203a), pure et testable hors d'un WebApplication.
+    /// Le paramétrage TenantSettings (profil, fiscal, comptes PA, planification, seuils) est importé en UNE
+    /// transaction — il n'est donc jamais partiel ; seule la table de mapping TVA (transaction distincte)
+    /// peut rester absente après un échec, et c'est le seul composant à rattraper sans rejouer (ni écraser)
+    /// le reste du paramétrage.
+    /// </summary>
+    /// <param name="profileExists">Un profil tenant est déjà présent (un import a déjà eu lieu).</param>
+    /// <param name="mappingSeedFileExists">Un fichier de seed de mapping TVA est disponible dans le dossier.</param>
+    internal static DevSeedAction DecideSeedAction(bool profileExists, bool mappingSeedFileExists)
+    {
+        if (!profileExists)
+        {
+            return DevSeedAction.ImportFullSeed;
+        }
+
+        return mappingSeedFileExists ? DevSeedAction.BackfillMappingTable : DevSeedAction.Skip;
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Seed du tenant de dev « {TenantId} » ignoré : RealmName et DatabaseName sont requis (section DevTenantSeed).")]
