@@ -83,7 +83,86 @@ public sealed class AlertesViewTests : BunitContext
         cut.FindAll("[data-testid='alertes-contact-editor']").Should().BeEmpty();
     }
 
-    private static AlertesViewModel Model(bool operatorEmailConfigured = true, bool profileExists = true) => new()
+    [Fact]
+    public void Empty_Routing_Matrix_Shows_The_Default_Model_Notice()
+    {
+        var cut = Render<AlertesView>(p => p.Add(v => v.Model, Model()));
+
+        // Matrice vide : le routage par défaut (modèle simple) est annoncé, aucune ligne.
+        cut.FindAll("[data-testid='alertes-routing-empty']").Should().ContainSingle();
+        cut.FindAll("[data-testid='alertes-routing-row']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Routing_Matrix_Renders_Existing_Rows()
+    {
+        var routing = new AlertesRoutingFormModel
+        {
+            Rows =
+            {
+                new AlertesRoutingRow { Selector = "rule:documents.pa_rejected", RecipientsCsv = "compta@acme.test" },
+                new AlertesRoutingRow { Selector = "severity:Critical", RecipientsCsv = "it@acme.test, admin@acme.test" },
+            },
+        };
+
+        var cut = Render<AlertesView>(p => p.Add(v => v.Model, Model(routing: routing)));
+
+        cut.FindAll("[data-testid='alertes-routing-row']").Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void Adding_A_Routing_Entry_Appends_A_Row()
+    {
+        var cut = Render<AlertesView>(p => p.Add(v => v.Model, Model()));
+
+        cut.Find("[data-testid='alertes-routing-add-btn']").Click();
+
+        cut.FindAll("[data-testid='alertes-routing-row']").Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Saving_The_Routing_Matrix_Invokes_The_Callback()
+    {
+        var saved = false;
+        var cut = Render<AlertesView>(p => p
+            .Add(v => v.Model, Model())
+            .Add(v => v.OnSaveRouting, EventCallback.Factory.Create(this, () => saved = true)));
+
+        cut.Find("[data-testid='alertes-routing-save-btn']").Click();
+
+        saved.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Removing_A_Middle_Routing_Row_Keeps_The_Others_Intact()
+    {
+        var routing = new AlertesRoutingFormModel
+        {
+            Rows =
+            {
+                new AlertesRoutingRow { Selector = "rule:agent.mute", RecipientsCsv = "a@acme.test" },
+                new AlertesRoutingRow { Selector = "severity:Critical", RecipientsCsv = "b@acme.test" },
+                new AlertesRoutingRow { Selector = "rule:documents.pa_rejected", RecipientsCsv = "c@acme.test" },
+            },
+        };
+
+        var cut = Render<AlertesView>(p => p.Add(v => v.Model, Model(routing: routing)));
+
+        // Retirer la ligne du MILIEU : le @key garantit que les lignes restantes conservent leurs valeurs.
+        cut.FindAll("[data-testid='alertes-routing-remove-btn']")[1].Click();
+
+        var recipients = cut.FindAll("[data-testid='alertes-routing-recipients']");
+        recipients.Should().HaveCount(2);
+        recipients[0].GetAttribute("value").Should().Be("a@acme.test");
+        recipients[1].GetAttribute("value").Should().Be("c@acme.test");
+        routing.Rows.Should().HaveCount(2);
+        routing.Rows.Should().NotContain(r => r.RecipientsCsv == "b@acme.test");
+    }
+
+    private static AlertesViewModel Model(
+        bool operatorEmailConfigured = true,
+        bool profileExists = true,
+        AlertesRoutingFormModel? routing = null) => new()
     {
         Device = new AlertDeviceStatusDto
         {
@@ -104,6 +183,7 @@ public sealed class AlertesViewTests : BunitContext
             AlertTenantContact = false,
             ContactEmailAlerte = "alertes@exemple.test",
         },
+        Routing = routing ?? new AlertesRoutingFormModel(),
         ProfileExists = profileExists,
     };
 }

@@ -1,5 +1,7 @@
 namespace Liakont.Host.Alertes;
 
+using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Liakont.Modules.Supervision.Application;
@@ -33,6 +35,7 @@ internal sealed class AlertesConsoleService : IAlertesConsoleService
         var device = await _deviceQueries.GetDeviceStatusAsync(cancellationToken).ConfigureAwait(false);
         var thresholds = await _sender.Send(new GetAlertThresholdsQuery(), cancellationToken).ConfigureAwait(false);
         var profile = await _sender.Send(new GetTenantProfileQuery(), cancellationToken).ConfigureAwait(false);
+        var matrix = await _sender.Send(new GetAlertRoutingMatrixQuery(), cancellationToken).ConfigureAwait(false);
 
         // Défauts produit F12 §5.2 issus de l'UNIQUE source partagée (AlertRuleCatalog, module Supervision) :
         // le défaut AFFICHÉ et le défaut PRÉSERVÉ à l'enregistrement ne peuvent plus diverger.
@@ -50,6 +53,7 @@ internal sealed class AlertesConsoleService : IAlertesConsoleService
             Device = device,
             Form = form,
             ProfileExists = profile is not null,
+            Routing = ToRoutingForm(matrix),
         };
     }
 
@@ -79,5 +83,74 @@ internal sealed class AlertesConsoleService : IAlertesConsoleService
         await _sender.Send(
             new SetAlertContactEmailCommand { ContactEmailAlerte = contactEmailAlerte },
             cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task SaveRoutingAsync(AlertesRoutingFormModel routing, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(routing);
+
+        // Clés de règle VALIDES = celles qui alimentent la liste déroulante (catalogue F12 §5.2, exposé par le
+        // Contract Supervision). Une clé mal saisie ou d'une règle renommée produirait sinon une entrée MORTE qui
+        // ne correspond jamais — l'équipe destinataire cesserait silencieusement de recevoir l'alerte. La garde
+        // vit ici (Host a accès aux deux côtés) ; TenantSettings.Domain ne référence pas AlertRuleCatalog (frontière).
+        var device = await _deviceQueries.GetDeviceStatusAsync(cancellationToken).ConfigureAwait(false);
+        var knownRuleKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rule in device.Rules)
+        {
+            knownRuleKeys.Add(rule.RuleKey);
+        }
+
+        var rules = new List<AlertRoutingRuleInput>();
+        foreach (var row in routing.Rows)
+        {
+            var (ruleKey, severity) = AlertesRoutingSelector.Decode(row.Selector);
+            var recipients = SplitRecipients(row.RecipientsCsv);
+
+            // Ligne entièrement vide (ajoutée puis non remplie) : ignorée silencieusement. Toute autre saisie
+            // est transmise telle quelle et VALIDÉE par le domaine (sélecteur requis, destinataires valides).
+            if (ruleKey is null && severity is null && recipients.Length == 0)
+            {
+                continue;
+            }
+
+            if (ruleKey is not null && !knownRuleKeys.Contains(ruleKey))
+            {
+                throw new ArgumentException($"Règle de routage inconnue : « {ruleKey} ».", nameof(routing));
+            }
+
+            rules.Add(new AlertRoutingRuleInput
+            {
+                RuleKey = ruleKey,
+                Severity = severity,
+                Recipients = recipients,
+            });
+        }
+
+        await _sender.Send(new SetAlertRoutingMatrixCommand { Rules = rules }, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static AlertesRoutingFormModel ToRoutingForm(IReadOnlyList<AlertRoutingRuleDto> matrix)
+    {
+        var form = new AlertesRoutingFormModel();
+        foreach (var entry in matrix)
+        {
+            form.Rows.Add(new AlertesRoutingRow
+            {
+                Selector = AlertesRoutingSelector.Encode(entry.RuleKey, entry.Severity),
+                RecipientsCsv = string.Join(", ", entry.Recipients),
+            });
+        }
+
+        return form;
+    }
+
+    private static string[] SplitRecipients(string? csv)
+    {
+        if (string.IsNullOrWhiteSpace(csv))
+        {
+            return [];
+        }
+
+        return csv.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 }

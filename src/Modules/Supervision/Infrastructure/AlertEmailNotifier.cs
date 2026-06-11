@@ -35,6 +35,7 @@ internal sealed partial class AlertEmailNotifier : IAlertNotifier, IAlertDigestS
 
     private readonly IJobQueue _jobQueue;
     private readonly ITenantSettingsQueries _tenantSettings;
+    private readonly IAlertRoutingQueries _routingQueries;
     private readonly IAlertQueries _alertQueries;
     private readonly SupervisionNotificationOptions _options;
     private readonly ILogger<AlertEmailNotifier> _logger;
@@ -42,6 +43,7 @@ internal sealed partial class AlertEmailNotifier : IAlertNotifier, IAlertDigestS
     public AlertEmailNotifier(
         IJobQueue jobQueue,
         ITenantSettingsQueries tenantSettings,
+        IAlertRoutingQueries routingQueries,
         IAlertQueries alertQueries,
         IOptions<SupervisionNotificationOptions> options,
         ILogger<AlertEmailNotifier> logger)
@@ -49,6 +51,7 @@ internal sealed partial class AlertEmailNotifier : IAlertNotifier, IAlertDigestS
         ArgumentNullException.ThrowIfNull(options);
         _jobQueue = jobQueue;
         _tenantSettings = tenantSettings;
+        _routingQueries = routingQueries;
         _alertQueries = alertQueries;
         _options = options.Value;
         _logger = logger;
@@ -68,20 +71,28 @@ internal sealed partial class AlertEmailNotifier : IAlertNotifier, IAlertDigestS
                 alert.TenantId);
             var body = BuildRaisedBody(alert);
 
-            // Opérateur d'instance : TOUTES les alertes (F12 §5.3).
-            if (!string.IsNullOrWhiteSpace(_options.OperatorEmail))
+            // Destinataires DÉDOUBLONNÉS (insensible à la casse). L'opérateur d'instance reçoit TOUTES les
+            // alertes (F12 §5.3, inchangé) ; le côté tenant est routé par la matrice (F12 §5.3.1) avec repli
+            // sur le modèle simple. L'opérateur n'est jamais retiré par la matrice (paramétrage côté tenant).
+            var recipients = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (!string.IsNullOrWhiteSpace(_options.OperatorEmail) && seen.Add(_options.OperatorEmail))
             {
-                await EnqueueEmailAsync(_options.OperatorEmail, subject, body, RaisedTemplateCode, companyId, alert.RuleKey, cancellationToken).ConfigureAwait(false);
+                recipients.Add(_options.OperatorEmail);
             }
 
-            // Contact du tenant : alertes CRITIQUES uniquement, si configuré ET activé (F12 §5.3).
-            if (alert.Severity == AlertSeverity.Critical && companyId is Guid tenantCompanyId)
+            foreach (var tenantRecipient in await ResolveTenantRecipientsAsync(alert, companyId, cancellationToken).ConfigureAwait(false))
             {
-                var contact = await ResolveTenantContactAsync(tenantCompanyId, cancellationToken).ConfigureAwait(false);
-                if (contact is not null)
+                if (seen.Add(tenantRecipient))
                 {
-                    await EnqueueEmailAsync(contact, subject, body, RaisedTemplateCode, companyId, alert.RuleKey, cancellationToken).ConfigureAwait(false);
+                    recipients.Add(tenantRecipient);
                 }
+            }
+
+            foreach (var recipient in recipients)
+            {
+                await EnqueueEmailAsync(recipient, subject, body, RaisedTemplateCode, companyId, alert.RuleKey, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -252,6 +263,39 @@ internal sealed partial class AlertEmailNotifier : IAlertNotifier, IAlertDigestS
 
         await _jobQueue.EnqueueAsync(payload, companyId: companyId, ct: cancellationToken).ConfigureAwait(false);
         LogEnqueued(_logger, recipient, ruleKey);
+    }
+
+    /// <summary>
+    /// Destinataires CÔTÉ TENANT d'une alerte (F12 §5.3.1) : union dédoublonnée des destinataires des
+    /// entrées de matrice qui correspondent (par règle et/ou gravité). Si AUCUNE entrée ne correspond
+    /// (matrice vide ou sans entrée applicable), repli sur le MODÈLE SIMPLE pour cette alerte : le contact
+    /// critique opt-in (F12 §5.3). Le routage ne fait donc jamais disparaître le repli.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> ResolveTenantRecipientsAsync(Alert alert, Guid? companyId, CancellationToken cancellationToken)
+    {
+        if (companyId is not Guid company)
+        {
+            return [];
+        }
+
+        var matrix = await _routingQueries.GetAlertRoutingMatrix(company, cancellationToken).ConfigureAwait(false);
+        var matched = AlertRoutingMatcher.ResolveRecipients(matrix, alert.RuleKey, alert.Severity);
+        if (matched.Count > 0)
+        {
+            return matched;
+        }
+
+        // Repli modèle simple : contact du tenant pour les CRITIQUES uniquement, si configuré ET activé (F12 §5.3).
+        if (alert.Severity == AlertSeverity.Critical)
+        {
+            var contact = await ResolveTenantContactAsync(company, cancellationToken).ConfigureAwait(false);
+            if (contact is not null)
+            {
+                return [contact];
+            }
+        }
+
+        return [];
     }
 
     private async Task<string?> ResolveTenantContactAsync(Guid companyId, CancellationToken cancellationToken)

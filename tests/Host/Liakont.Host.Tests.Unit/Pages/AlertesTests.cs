@@ -99,6 +99,21 @@ public sealed class AlertesTests : BunitContext
     }
 
     [Fact]
+    public void Saving_routing_matrix_calls_the_service()
+    {
+        var fake = new FakeAlertesService();
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(hasSettings: true));
+        Services.AddScoped<IAlertesConsoleService>(_ => fake);
+
+        var cut = Render<Alertes>();
+
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='alertes-routing-save-btn']").Should().ContainSingle());
+        cut.Find("[data-testid='alertes-routing-save-btn']").Click();
+
+        cut.WaitForAssertion(() => fake.SaveRoutingCalls.Should().Be(1));
+    }
+
+    [Fact]
     public void Missing_profile_on_contact_save_shows_a_french_error()
     {
         var fake = new FakeAlertesService { ThrowNotFoundOnContact = true };
@@ -124,6 +139,8 @@ public sealed class AlertesTests : BunitContext
 
         public int SaveContactCalls { get; private set; }
 
+        public int SaveRoutingCalls { get; private set; }
+
         public Task<AlertesViewModel> GetAsync(CancellationToken cancellationToken = default)
         {
             if (ThrowOnLoad)
@@ -143,6 +160,7 @@ public sealed class AlertesTests : BunitContext
                     },
                 },
                 Form = new AlertesFormModel { AgentSilentHours = 24, BlockedDocumentsDays = 5, PaRejectionsDays = 2 },
+                Routing = new AlertesRoutingFormModel(),
                 ProfileExists = true,
             });
         }
@@ -161,6 +179,12 @@ public sealed class AlertesTests : BunitContext
             }
 
             SaveContactCalls++;
+            return Task.CompletedTask;
+        }
+
+        public Task SaveRoutingAsync(AlertesRoutingFormModel routing, CancellationToken cancellationToken = default)
+        {
+            SaveRoutingCalls++;
             return Task.CompletedTask;
         }
     }

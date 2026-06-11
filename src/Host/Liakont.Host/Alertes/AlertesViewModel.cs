@@ -16,6 +16,12 @@ public sealed record AlertesViewModel
     public required AlertesFormModel Form { get; init; }
 
     /// <summary>
+    /// Matrice de routage éditable (FIX212, F12 §5.3.1) : extension du modèle simple. Vide ⇒ routage par
+    /// défaut (opérateur = toutes les alertes ; contact = critiques opt-in).
+    /// </summary>
+    public required AlertesRoutingFormModel Routing { get; init; }
+
+    /// <summary>
     /// <c>true</c> si le profil du tenant existe (le contact d'alerte se rattache au profil) : sinon le
     /// contact n'est pas éditable tant que le profil légal n'est pas créé.
     /// </summary>

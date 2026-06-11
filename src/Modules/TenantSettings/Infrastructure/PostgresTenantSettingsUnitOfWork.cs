@@ -512,6 +512,48 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
         EnsureUpdated(rows, "AuctionVerticalSettings", settings.Id);
     }
 
+    // ──────────────────── Matrice de routage des alertes (FIX212) ───────────────────
+    public async Task ReplaceAlertRoutingRulesAsync(Guid companyId, IReadOnlyList<AlertRoutingRule> rules, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(rules);
+
+        // Table de PARAMÉTRAGE mutable (≠ piste d'audit append-only) : la sémantique d'enregistrement est
+        // un remplacement en bloc. La suppression est scopée au tenant courant (jamais cross-tenant).
+        const string deleteSql = "DELETE FROM tenantsettings.alert_routing_rules WHERE company_id = @CompanyId";
+        await _txn.Connection.ExecuteAsync(new CommandDefinition(
+            deleteSql, new { CompanyId = companyId }, _txn.Transaction, cancellationToken: ct));
+
+        if (rules.Count == 0)
+        {
+            return;
+        }
+
+        const string insertSql = """
+            INSERT INTO tenantsettings.alert_routing_rules
+                (id, company_id, rule_key, severity, recipients, ordinal, created_at)
+            VALUES
+                (@Id, @CompanyId, @RuleKey, @Severity, @Recipients, @Ordinal, @CreatedAt)
+            """;
+
+        foreach (var rule in rules)
+        {
+            await _txn.Connection.ExecuteAsync(new CommandDefinition(
+                insertSql,
+                new
+                {
+                    rule.Id,
+                    CompanyId = companyId,
+                    rule.RuleKey,
+                    rule.Severity,
+                    Recipients = rule.Recipients.ToArray(),
+                    rule.Ordinal,
+                    rule.CreatedAt,
+                },
+                _txn.Transaction,
+                cancellationToken: ct));
+        }
+    }
+
     public async Task CommitAsync(CancellationToken ct = default)
     {
         await _txn.CommitAsync(ct);

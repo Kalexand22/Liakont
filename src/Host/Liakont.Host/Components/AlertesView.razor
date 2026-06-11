@@ -179,6 +179,94 @@
         }
     </SectionCard>
 
+    <SectionCard Title="Matrice de routage des alertes" TestId="alertes-routing-matrix">
+        <p class="liakont-alertes__intro">
+            Extension du modèle simple (F12 §5.3.1) : routez certaines alertes vers des destinataires précis,
+            par règle ou par gravité. Tant que la matrice est vide, le routage par défaut s'applique
+            (l'opérateur reçoit toutes les alertes ; le contact du tenant les critiques si l'option est activée).
+            Une alerte sans entrée correspondante retombe sur ce modèle simple.
+        </p>
+
+        <div class="liakont-alertes__editor" data-testid="alertes-routing-editor">
+            @if (Model.Routing.Rows.Count == 0)
+            {
+                <p data-testid="alertes-routing-empty">Aucune entrée : routage par défaut (modèle simple).</p>
+            }
+            else
+            {
+                <table class="liakont-alertes__table" data-testid="alertes-routing-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Cible</th>
+                            <th scope="col">Destinataires (e-mails séparés par des virgules)</th>
+                            <th scope="col"><span class="visually-hidden">Action</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in Model.Routing.Rows)
+                        {
+                            <tr data-testid="alertes-routing-row" @key="row">
+                                <td>
+                                    <select class="form-select" @bind="row.Selector" disabled="@RoutingBusy"
+                                            data-testid="alertes-routing-selector">
+                                        <option value="">— Choisir une cible —</option>
+                                        <optgroup label="Par règle">
+                                            @foreach (var rule in Model.Device.Rules)
+                                            {
+                                                <option value="@AlertesRoutingSelector.ForRule(rule.RuleKey)">@rule.DisplayName (@rule.Severity)</option>
+                                            }
+                                        </optgroup>
+                                        <optgroup label="Par gravité">
+                                            <option value="@AlertesRoutingSelector.ForSeverity(AlertesRoutingSelector.SeverityCriticalToken)">Toutes les alertes critiques</option>
+                                            <option value="@AlertesRoutingSelector.ForSeverity(AlertesRoutingSelector.SeverityWarningToken)">Toutes les alertes d'avertissement</option>
+                                        </optgroup>
+                                    </select>
+                                </td>
+                                <td>
+                                    <input class="form-control" type="text" @bind="row.RecipientsCsv" disabled="@RoutingBusy"
+                                           placeholder="compta@exemple.fr, it@exemple.fr"
+                                           data-testid="alertes-routing-recipients" />
+                                </td>
+                                <td>
+                                    <StratumButton Text="Retirer"
+                                                   Variant="ButtonVariant.Danger"
+                                                   Size="ButtonSize.Small"
+                                                   Disabled="@RoutingBusy"
+                                                   OnClick="@(_ => { Model.Routing.Rows.Remove(row); })"
+                                                   TestId="alertes-routing-remove-btn" />
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(RoutingMessage))
+            {
+                <div class="liakont-alertes__feedback"
+                     role="@(RoutingIsError ? "alert" : "status")"
+                     data-testid="alertes-routing-feedback">
+                    @RoutingMessage
+                </div>
+            }
+
+            <div class="liakont-alertes__routing-actions">
+                <StratumButton Text="Ajouter une entrée"
+                               Variant="ButtonVariant.Secondary"
+                               Size="ButtonSize.Small"
+                               Disabled="@RoutingBusy"
+                               OnClick="@(_ => Model.Routing.Rows.Add(new AlertesRoutingRow()))"
+                               TestId="alertes-routing-add-btn" />
+                <StratumButton Text="@(RoutingBusy ? "Enregistrement…" : "Enregistrer la matrice")"
+                               Variant="ButtonVariant.Primary"
+                               Size="ButtonSize.Small"
+                               Disabled="@RoutingBusy"
+                               OnClick="@(_ => OnSaveRouting.InvokeAsync())"
+                               TestId="alertes-routing-save-btn" />
+            </div>
+        </div>
+    </SectionCard>
+
 </div>
 
 @code {
@@ -217,4 +305,20 @@
     /// <summary>Déclenché à l'enregistrement du contact d'alerte.</summary>
     [Parameter]
     public EventCallback OnSaveContact { get; set; }
+
+    /// <summary><c>true</c> pendant l'enregistrement de la matrice de routage (champs et boutons désactivés).</summary>
+    [Parameter]
+    public bool RoutingBusy { get; set; }
+
+    /// <summary>Message de retour de l'enregistrement de la matrice, ou <c>null</c>.</summary>
+    [Parameter]
+    public string? RoutingMessage { get; set; }
+
+    /// <summary><c>true</c> si <see cref="RoutingMessage"/> est une erreur (rendu en alerte).</summary>
+    [Parameter]
+    public bool RoutingIsError { get; set; }
+
+    /// <summary>Déclenché à l'enregistrement de la matrice de routage.</summary>
+    [Parameter]
+    public EventCallback OnSaveRouting { get; set; }
 }
