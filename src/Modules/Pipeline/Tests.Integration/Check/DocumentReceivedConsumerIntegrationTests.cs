@@ -8,6 +8,7 @@ using Liakont.Agent.Contracts.Pivot;
 using Liakont.Agent.Contracts.Serialization;
 using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Infrastructure.Check;
+using Liakont.Modules.Staging.Contracts;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -66,6 +67,35 @@ public sealed class DocumentReceivedConsumerIntegrationTests : IClassFixture<Pip
         var run = runs.Single(r => r.Detail != null && r.Detail.Contains(documentId.ToString(), StringComparison.Ordinal));
         run.DocumentsFailed.Should().Be(1);
         run.DocumentsSucceeded.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Absent_Staging_Is_Transient_Then_Reaches_ReadyToSend_After_Re_Stage()
+    {
+        // FIX07b : un document Detected dont le contenu stagé a disparu (perte de staging) ne doit ni se bloquer
+        // ni se perdre. CHECK est TRANSITOIRE (ADR-0014) : il propage StagedPayloadNotFoundException pour que
+        // l'outbox re-livre, le document RESTE Detected. Une fois le contenu RE-STAGÉ (réhydratation au re-push
+        // de l'agent), le CHECK est déroulable et le document avance — plus de zombie.
+        var documentId = Guid.NewGuid();
+        var sourceReference = "no_ba=" + documentId.ToString("N");
+        var pivot = CheckIntegrationFixtures.BuildPivot(sourceReference, regimeCode: "NORMAL");
+        var json = CanonicalJson.Serialize(pivot);
+        var hash = PayloadHasher.ComputeHash(json);
+
+        // Document Detected mais contenu PAS (ou plus) stagé.
+        await _harness.SeedDetectedDocumentAsync(documentId, sourceReference, hash, pivot);
+
+        Func<Task> checkWithoutStaging = () => ConsumeAsync(documentId, sourceReference, hash);
+        await checkWithoutStaging.Should().ThrowAsync<StagedPayloadNotFoundException>();
+        (await _harness.GetDocumentStateAsync(documentId)).Should().Be(
+            "Detected", "contenu stagé absent = transitoire (ADR-0014), jamais un blocage terminal inventé");
+
+        // Réhydratation du contenu (re-push agent) puis CHECK : le document est de nouveau traitable.
+        await _harness.StagePayloadAsync(documentId, hash, json);
+        await ConsumeAsync(documentId, sourceReference, hash);
+
+        (await _harness.GetDocumentStateAsync(documentId)).Should().Be(
+            "ReadyToSend", "le contenu re-stagé rend le CHECK déroulable — plus de zombie définitif (FIX07b)");
     }
 
     private async Task SeedAndStageAsync(Guid documentId, string sourceReference, PivotDocumentDto pivot)
