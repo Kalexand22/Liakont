@@ -202,6 +202,37 @@ dynamique et CLAUDE.md interdit d'ajouter `Xunit.SkippableFact` sans ADR ; un `[
 un faux-vert — §9). C'est volontaire : la suite ne tourne que lancée délibérément par un opérateur,
 avec la clé en place. URL staging = `api-staging.b2brouter.net` (PAS `app-staging` — F05 §2).
 
+### 8.2 Lancer la suite sandbox Super PDP
+
+La suite `SuperPdpSandboxTests` (`[Trait("Category","Sandbox")]`, projet
+`src/PaClients/Liakont.PaClients.SuperPdp.Tests.Unit`) envoie une facture fixture (numéro unique) sur la
+sandbox Super PDP réelle puis relit son statut. Elle est exclue de `verify-fast` ET de `run-tests` par leur
+filtre (`Category!=Sandbox`) : on l'exécute directement avec `dotnet test`.
+
+**Prérequis** : une sandbox Super PDP ouverte (action humaine DR17-A4) et ses identifiants OAuth 2.0
+`client_credentials` (jamais committés — CLAUDE.md n°10). Différence avec B2Brouter (clé statique) : Super PDP
+s'authentifie par un échange `POST <base>/oauth2/token` (`grant_type=client_credentials`) → jeton bearer
+(F14 §3.1). Deux variables d'environnement portent la configuration :
+
+| Variable | Contenu |
+|---|---|
+| `SUPERPDP_SANDBOX_CLIENT_ID` | Identifiant client OAuth de la sandbox |
+| `SUPERPDP_SANDBOX_CLIENT_SECRET` | Secret client OAuth de la sandbox |
+
+**Commande** (PowerShell) :
+
+```powershell
+$env:SUPERPDP_SANDBOX_CLIENT_ID = "<client id sandbox — ne jamais committer>"
+$env:SUPERPDP_SANDBOX_CLIENT_SECRET = "<client secret sandbox — ne jamais committer>"
+dotnet test src/PaClients/Liakont.PaClients.SuperPdp.Tests.Unit `
+  --filter "Category=Sandbox"
+```
+
+Sans ces variables, la suite **échoue avec un message d'action explicite** (même règle anti-faux-vert que
+§8.1 : pas de skip silencieux). C'est volontaire : la suite ne tourne que lancée délibérément par un
+opérateur, identifiants en place. Base URL sandbox = `https://api.superpdp.tech` (token-endpoint
+`<base>/oauth2/token`, confirmés par test réel le 2026-06-11 — F14 §12 O1).
+
 ---
 
 ## 9. Faux verts interdits (`blueprint.md` §9, `CLAUDE.md`)

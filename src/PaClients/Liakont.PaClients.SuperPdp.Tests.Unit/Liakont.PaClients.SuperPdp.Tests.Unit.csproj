@@ -24,5 +24,8 @@
     <ProjectReference Include="../../Modules/Transmission/Infrastructure/Liakont.Modules.Transmission.Infrastructure.csproj" />
     <!-- PivotDocumentDto pour construire des documents de test (facture 20 %, marge 2 lignes, avoir). -->
     <ProjectReference Include="../../Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
+    <!-- Suite de contrat PA COMMUNE (PAA03), héritée et rejouée sur Super PDP via mock HTTP (PAS03 ;
+         ajouter-un-plugin-pa.md §4 ; F14 §8). La bibliothèque ne tire aucune autre PA en dépendance transitive. -->
+    <ProjectReference Include="../../../tests/Liakont.PaClients.Contract.Tests/Liakont.PaClients.Contract.Tests.csproj" />
   </ItemGroup>
 </Project>
