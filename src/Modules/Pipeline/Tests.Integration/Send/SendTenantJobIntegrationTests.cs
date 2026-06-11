@@ -154,5 +154,16 @@ public sealed class SendTenantJobIntegrationTests : IClassFixture<PipelineSendHa
             .Should().Be("ReadyToSend", "SIREN non publié = aucun envoi à l'aveugle (« Transport not available », F04 §3.1).");
         _harness.PaClient.IssuedDocumentNumbers.Should().BeEmpty("le diagnostic court-circuite avant tout envoi (plug-in factice neuf).");
         (await _harness.IsStagedAsync(documentId, hash)).Should().BeTrue();
+
+        // FIX05 : un run qui n'envoie RIEN est tout de même journalisé avec le MOTIF opérateur (français,
+        // action corrective) — il devient ainsi visible dans /traitements au lieu de ne vivre que dans les logs
+        // serveur. Même garantie pour le chemin « aucun compte PA actif » (WriteRunLogAsync sur chaque sortie).
+        var runs = await _harness.GetRunsAsync();
+        runs.Should().Contain(
+            r => r.RunType == Liakont.Modules.Pipeline.Contracts.PipelineRunType.Send
+                 && r.Detail != null
+                 && r.Detail.Contains("aucun envoi", StringComparison.Ordinal)
+                 && r.Detail.Contains("Action opérateur", StringComparison.Ordinal),
+            "le run sans envoi porte le motif opérateur dans le journal (FIX05).");
     }
 }

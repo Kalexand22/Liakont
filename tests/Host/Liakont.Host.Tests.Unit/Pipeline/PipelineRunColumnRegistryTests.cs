@@ -48,12 +48,14 @@ public sealed class PipelineRunColumnRegistryTests
     }
 
     [Fact]
-    public void Detail_Is_The_Only_Column_Hidden_By_Default()
+    public void Detail_Is_Visible_By_Default_So_The_Motif_Of_A_Run_Is_Surfaced()
     {
+        // FIX05 : le Détail porte le MOTIF d'un run qui n'a rien envoyé (« aucun compte PA actif… »). Masqué,
+        // un tel run « ressemblait à un succès » (0/0/0) et le motif ne vivait que dans les logs serveur.
         var defaultVisible = _registry.GetDefaultVisibleColumns().Select(c => c.Title).ToArray();
 
-        defaultVisible.Should().HaveCount(7);
-        defaultVisible.Should().NotContain("Détail");
+        defaultVisible.Should().HaveCount(8);
+        defaultVisible.Should().Contain("Détail");
     }
 
     [Fact]
