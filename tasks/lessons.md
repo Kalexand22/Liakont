@@ -144,3 +144,26 @@ absent, go écrire »).
 - **Variabilité par intégrateur = déclarative.** Même réflexe que pour les PA : un profil de
   capacités/visibilité, jamais un `if (integrateur == X)`. Et « masquer une option » impose une
   valeur par défaut explicite (sinon donnée implicite cachée = faux vert).
+
+
+## 2026-06-11 — Lot FIX livré sans seed state.yaml = nuit de runner perdue (récidive)
+
+**Contexte :** lot FIX (13 items, manifest v18, PR #35) préparé pour un run nocturne explicitement
+demandé (« lancer un agent cette nuit »). Le manifest + items/FIX.yaml ont été livrés et mergés,
+mais `state.yaml` ($ORCH_REPO) n'a PAS été seedé. Résultat : 51 sessions « no actionable items »
+pendant la nuit, zéro item traité. C'est la récidive EXACTE du piège déjà consigné le 2026-06-03
+(« manifest sans state = faux prévu ») — la leçon existait, elle n'a pas été appliquée.
+
+**Règles pour l'avenir :**
+- **« Prêt pour le runner » a une définition vérifiable, pas déclarative.** Avant d'annoncer
+  qu'un lot est prêt : (1) items dans `manifest.yaml`, (2) détail dans `orchestration/items/<lot>.yaml`,
+  (3) items seedés `pending` dans `$ORCH_REPO/state.yaml` ET poussés, (4) au moins un item
+  éligible (deps vides ou done). Vérifier les 4, dans cet ordre, à chaque création de lot.
+- **La leçon de 2026-06-03 disait « laisser le seed à l'opérateur » — c'était le mauvais remède.**
+  Quand l'humain demande explicitement un run nocturne, le seed fait partie du livrable :
+  le faire (aucune session active, aucun lease = conditions du précédent 2026-06-03 bis), le
+  committer, le pousser, et le DIRE dans le résumé. Ne jamais laisser une étape bloquante
+  implicite « à la charge de l'opérateur » sans la nommer.
+- **Une gate déjà passée en `gate_pending` dont la PR est fermée ne se rouvre pas seule.**
+  Si la recette échoue et qu'un lot correctif recâble la gate, repasser la gate
+  `gate_pending → pending` fait partie du même geste que le seed.

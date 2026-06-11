@@ -74,7 +74,14 @@ meta:
   #   FIX04-07 (P2 console/pipeline/dev-ex). Décisions opérateur D1-D7 inscrites dans items/FIX.yaml.
   #   Recâblage : GATE_CONSOLE_WEB += {FIX01a, FIX01b, FIX01c, FIX01d, FIX02, FIX03} (P1 bloquants
   #   de gate ; les P2 du lot restent hors gate).
-  version: 18
+  # version 19 = lot FIX2 (recette humaine run 2 du 2026-06-11, env vierge, 22 findings dans
+  #   $ORCH_REPO/bug-inbox.jsonl) : FIX201 (P1 : publication SIREN/PA jamais câblée — l'envoi reste
+  #   inexerçable), FIX202-FIX211 (P2 : feedback envoi, seed/bring-up dev, vocabulaire Composante +
+  #   diff audit TVA, lignes visibles, refresh/export listes, actions en masse, exports archive,
+  #   nav socle assainie, dispositif d'alerte visible, admin jobs utilisable), FIX212 (évolution :
+  #   matrice de routage des alertes). Décisions opérateur E1-E8 inscrites dans items/FIX2.yaml.
+  #   Recâblage : GATE_CONSOLE_WEB += {FIX201} (seul P1 ; les P2 restent hors gate).
+  version: 19
   host: multi_agent_v1
 
 segments:
@@ -136,7 +143,7 @@ segments:
   console-web:
     branch: feat/console-web
     base: main
-    lots: [API, WEB, SUP, IDN, FIX]
+    lots: [API, WEB, SUP, IDN, FIX, FIX2]
     gate: GATE_CONSOLE_WEB
     depends_on_gate: [GATE_PIPELINE, GATE_AGENT]
 
@@ -313,7 +320,20 @@ items:
   - { id: FIX07a, lot: FIX, blueprint: tooling-item, priority: 6850, depends_on: [] }
   - { id: FIX07b, lot: FIX, priority: 6855, depends_on: [] }
   - { id: FIX07c, lot: FIX, priority: 6860, depends_on: [] }
-  - { id: GATE_CONSOLE_WEB, type: gate, executor: human, priority: 6900, depends_on: [IDN01, WEB03b, WEB03c, WEB04a, WEB05, WEB06, WEB07b, WEB08, WEB09, SUP02, SUP03, API03, FIX01a, FIX01b, FIX01c, FIX01d, FIX02, FIX03] }
+  - { id: FIX201, lot: FIX2, priority: 6861, depends_on: [] }
+  - { id: FIX202, lot: FIX2, priority: 6863, depends_on: [] }
+  - { id: FIX203a, lot: FIX2, priority: 6865, depends_on: [] }
+  - { id: FIX203b, lot: FIX2, blueprint: tooling-item, priority: 6867, depends_on: [] }
+  - { id: FIX204, lot: FIX2, blueprint: blazor-page-item, priority: 6869, depends_on: [] }
+  - { id: FIX205, lot: FIX2, blueprint: blazor-page-item, priority: 6871, depends_on: [] }
+  - { id: FIX206, lot: FIX2, blueprint: blazor-page-item, priority: 6873, depends_on: [] }
+  - { id: FIX207, lot: FIX2, priority: 6875, depends_on: [] }
+  - { id: FIX208, lot: FIX2, blueprint: blazor-page-item, priority: 6877, depends_on: [] }
+  - { id: FIX209, lot: FIX2, blueprint: blazor-page-item, priority: 6879, depends_on: [] }
+  - { id: FIX210, lot: FIX2, blueprint: blazor-page-item, priority: 6881, depends_on: [] }
+  - { id: FIX211, lot: FIX2, priority: 6883, depends_on: [] }
+  - { id: FIX212, lot: FIX2, priority: 6885, depends_on: [FIX210] }
+  - { id: GATE_CONSOLE_WEB, type: gate, executor: human, priority: 6900, depends_on: [IDN01, WEB03b, WEB03c, WEB04a, WEB05, WEB06, WEB07b, WEB08, WEB09, SUP02, SUP03, API03, FIX01a, FIX01b, FIX01c, FIX01d, FIX02, FIX03, FIX201] }
 
   # ── OPS ──
   # Ordre : OPS05 (packaging agent) précède OPS03 (assistant tenant, qui fournit le package
