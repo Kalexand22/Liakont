@@ -62,11 +62,22 @@ public static partial class PaClientBootstrap
     /// </summary>
     public static void WarnIfFakePaClientForcedOutsideDevelopment(this WebApplication app)
     {
-        if (!app.Environment.IsDevelopment() && app.Configuration.GetValue<bool>(EnableFakeConfigKey))
+        var logger = app.Services
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger("Liakont.Host.Startup.PaClientBootstrap");
+        WarnIfFakePaClientForcedOutsideDevelopment(app.Environment, app.Configuration, logger);
+    }
+
+    /// <summary>
+    /// Overload interne testable sans WebApplication : contient la logique de décision.
+    /// </summary>
+    internal static void WarnIfFakePaClientForcedOutsideDevelopment(
+        IHostEnvironment environment,
+        IConfiguration configuration,
+        ILogger logger)
+    {
+        if (!environment.IsDevelopment() && configuration.GetValue<bool>(EnableFakeConfigKey))
         {
-            var logger = app.Services
-                .GetRequiredService<ILoggerFactory>()
-                .CreateLogger("Liakont.Host.Startup.PaClientBootstrap");
             LogFakePaClientForcedOutsideDevelopment(logger);
         }
     }

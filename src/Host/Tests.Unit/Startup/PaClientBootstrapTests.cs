@@ -10,6 +10,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 /// <summary>
@@ -57,6 +58,46 @@ public sealed class PaClientBootstrapTests
             "le drapeau PaClients:Fake:Enabled branche explicitement le plug-in factice hors Development.");
     }
 
+    [Fact]
+    public void WarnIfFakePaClientForcedOutsideDevelopment_Production_Flag_True_Logs_Warning()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                [PaClientBootstrap.EnableFakeConfigKey] = "true",
+            })
+            .Build();
+        var capturingLogger = new CapturingLogger();
+
+        PaClientBootstrap.WarnIfFakePaClientForcedOutsideDevelopment(
+            new StubHostEnvironment("Production"),
+            configuration,
+            capturingLogger);
+
+        capturingLogger.Captured.Should().ContainSingle(e => e.Level == LogLevel.Warning,
+            "un Warning doit être émis quand le plug-in factice est activé hors Development.");
+    }
+
+    [Fact]
+    public void WarnIfFakePaClientForcedOutsideDevelopment_Development_No_Log_Emitted()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                [PaClientBootstrap.EnableFakeConfigKey] = "true",
+            })
+            .Build();
+        var capturingLogger = new CapturingLogger();
+
+        PaClientBootstrap.WarnIfFakePaClientForcedOutsideDevelopment(
+            new StubHostEnvironment("Development"),
+            configuration,
+            capturingLogger);
+
+        capturingLogger.Captured.Should().BeEmpty(
+            "aucun log ne doit être émis en Development (chemin nominal silencieux).");
+    }
+
     private static IPaClientRegistry BuildRegistry(string environment, bool? fakeEnabledFlag)
     {
         var configValues = new Dictionary<string, string?>();
@@ -87,5 +128,20 @@ public sealed class PaClientBootstrapTests
         public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
 
         public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+    }
+
+    private sealed class CapturingLogger : ILogger
+    {
+        public List<(LogLevel Level, string Message)> Captured { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            Captured.Add((logLevel, formatter(state, exception)));
+        }
     }
 }
