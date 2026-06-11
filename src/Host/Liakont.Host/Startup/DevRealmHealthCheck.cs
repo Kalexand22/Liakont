@@ -41,11 +41,6 @@ internal static partial class DevRealmHealthCheck
     /// <summary>Émet un avertissement si le realm Keycloak de dev est joignable mais périmé.</summary>
     public static async Task WarnIfDevRealmStaleAsync(this WebApplication app)
     {
-        if (!app.Environment.IsDevelopment())
-        {
-            return;
-        }
-
         var logger = app.Services
             .GetRequiredService<ILoggerFactory>()
             .CreateLogger("Liakont.Host.Startup.DevRealmHealthCheck");
@@ -57,41 +52,58 @@ internal static partial class DevRealmHealthCheck
             realmName = admin?.PrimaryRealmName;
         }
 
+        var outcome = await RunCheckAsync(app.Environment.IsDevelopment(), admin, realmName, DefaultProbeAsync);
+        switch (outcome)
+        {
+            case DevRealmOutcome.Healthy:
+                LogHealthy(logger, realmName ?? "?", ExpectedDevUsername);
+                break;
+            case DevRealmOutcome.Stale:
+                LogStale(logger, realmName ?? "?", ExpectedDevUsername);
+                break;
+            default:
+                LogIndeterminate(logger, realmName ?? "?");
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Cœur de décision TESTABLE, isolé de toute E/S réseau (la sonde réelle est injectée).
+    /// Court-circuite hors Development (jamais d'appel à l'API admin Keycloak — donc jamais
+    /// d'envoi du mot de passe admin — en dehors du dev) et quand l'admin n'est pas configuré ;
+    /// dans ces cas la <paramref name="probe"/> n'est JAMAIS invoquée. Une exception de sonde
+    /// (Keycloak injoignable / en démarrage) est traitée comme « indéterminé », pas comme « périmé ».
+    /// </summary>
+    internal static async Task<DevRealmOutcome> RunCheckAsync(
+        bool isDevelopment,
+        KeycloakAdminOptions? admin,
+        string? realmName,
+        Func<KeycloakAdminOptions, string, CancellationToken, Task<bool>> probe,
+        CancellationToken cancellationToken = default)
+    {
+        if (!isDevelopment)
+        {
+            return DevRealmOutcome.Indeterminate;
+        }
+
         if (admin is null || !admin.IsConfigured || string.IsNullOrWhiteSpace(realmName))
         {
             // Sans admin Keycloak configuré, on ne peut pas inspecter les comptes : on s'abstient.
-            LogIndeterminate(logger, realmName ?? "?");
-            return;
+            return DevRealmOutcome.Indeterminate;
         }
 
-        var reachable = false;
-        var accountPresent = false;
         try
         {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-            var token = await AcquireAdminTokenAsync(http, admin, cts.Token);
-            accountPresent = await IsExpectedAccountPresentAsync(http, admin.AdminBaseUrl, realmName, token, cts.Token);
-            reachable = true;
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(6));
+            var accountPresent = await probe(admin, realmName, cts.Token);
+            return Classify(adminConfigured: true, realmReachable: true, accountPresent: accountPresent);
         }
         catch (Exception)
         {
             // Best-effort : Keycloak peut être en cours de démarrage. Une indisponibilité transitoire
             // n'est pas un realm « périmé » — on reste silencieux (debug) et on ne bloque pas le boot.
-            reachable = false;
-        }
-
-        switch (Classify(adminConfigured: true, realmReachable: reachable, accountPresent: accountPresent))
-        {
-            case DevRealmOutcome.Healthy:
-                LogHealthy(logger, realmName, ExpectedDevUsername);
-                break;
-            case DevRealmOutcome.Stale:
-                LogStale(logger, realmName, ExpectedDevUsername);
-                break;
-            default:
-                LogIndeterminate(logger, realmName);
-                break;
+            return Classify(adminConfigured: true, realmReachable: false, accountPresent: false);
         }
     }
 
@@ -107,6 +119,14 @@ internal static partial class DevRealmHealthCheck
         }
 
         return accountPresent ? DevRealmOutcome.Healthy : DevRealmOutcome.Stale;
+    }
+
+    /// <summary>Sonde RÉELLE : interroge l'API admin Keycloak pour la présence du compte attendu.</summary>
+    private static async Task<bool> DefaultProbeAsync(KeycloakAdminOptions admin, string realmName, CancellationToken ct)
+    {
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+        var token = await AcquireAdminTokenAsync(http, admin, ct);
+        return await IsExpectedAccountPresentAsync(http, admin.AdminBaseUrl, realmName, token, ct);
     }
 
     /// <summary>Jeton admin du realm master (grant password, client admin-cli) — dev local.</summary>
