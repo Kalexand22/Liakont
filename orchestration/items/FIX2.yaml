@@ -1,0 +1,348 @@
+# Lot FIX2 — Corrections issues de la recette humaine GATE_CONSOLE_WEB run 2 (2026-06-11)
+# Source de chaque item : les entrées du 2026-06-11 (≥ 09:26 UTC) dans $ORCH_REPO/bug-inbox.jsonl
+# (commits b4a3c64..5bf0a3e du dépôt d'état) — détail, evidence et suggested_fix y sont consignés.
+# Branche : feat/console-web (segment console-web). GATE_CONSOLE_WEB dépend en plus de FIX201 (P1).
+#
+# Contexte run 2 : environnement VIERGE, zéro workaround SQL. Le parcours est allé jusqu'au
+# déclenchement de l'envoi — verrouillé par UNE voie restante (FIX201). Les chemins livrés par le
+# lot FIX (seed tenant, table TVA UI, comptes PA UI, plug-in Fake, recheck audité, multi-motifs)
+# ont été VALIDÉS en recette.
+#
+# ── DÉCISIONS OPÉRATEUR — tranchées par Karl EN SÉANCE le 2026-06-11 (verbatims au bug-inbox) ──
+# E1 (FIX201) publication SIREN : action console visible (Paramétrage › Plateforme Agréée) ET
+#    invocation automatique par le seed dev pour le compte Fake. Défaut : les deux.
+# E2 (FIX204) vocabulaire : « Composante », valeurs « Adjudication / Frais / Hors Enchères ».
+#    Vertical enchères OFF ⇒ la notion n'apparaît PAS DU TOUT (ni champ, ni note).
+# E3 (FIX206) Rafraîchir = ICONE à côté des boutons d'export ; UN bouton Exporter unique
+#    (menu CSV/Excel/PDF) au lieu de 3 icônes identiques.
+# E4 (FIX207) les actions en masse vivent dans la BARRE DE SÉLECTION Stratum (bas d'écran) ;
+#    évolution du socle vendored AUTORISÉE (« c'est le plus d'éprouver aussi ce socle et de le
+#    polir ») — provenance obligatoire (CLAUDE.md n°11).
+# E5 (FIX209) nav socle : Annuaire SUPPRIMÉ ; Sécurité MASQUÉ (sort définitif à l'ADR IdP/OPS01c) ;
+#    Notifications réduit à Templates SEUL (réparé) ; « Règles de routage » supprimé (vestige
+#    services municipaux du produit d'origine).
+# E6 (FIX210) modèle de routage des alertes SIMPLE validé (F12 §5.3) ; il faut la VUE du dispositif
+#    autant que l'édition (« comment visualiser ça ? »).
+# E7 (FIX211) type de job : liste FIXE obligatoire (« il faut absolument une liste fixe »),
+#    libellés français user-friendly (jamais le FullName .NET), payload JSON masqué si le type n'a
+#    pas de paramètres (champs typés sinon), helper cron (presets + aperçu en français + fuseau).
+# E8 (FIX212) matrice de routage des alertes : évolution ACTÉE (« vrai argument en démo »), hors
+#    gate, après FIX210. Le modèle simple reste le défaut zéro-configuration.
+#
+# Mapping bug-inbox → items :
+#   FIX201 publication SIREN/PA jamais câblée (P1, GATE) · FIX202 feedback run d'envoi no-op +
+#   wording (P2) · FIX203a seed dev partiel CompanyFilter + non idempotent (P2) · FIX203b
+#   dotnet run hors realm + AdminSeed crash + super-admin absent + schedules jamais planifiés +
+#   doc (4 P2) · FIX204 Composante hors vertical + renommage + diff audit TVA (2 P2) · FIX205
+#   lignes invisibles fiche document (P2) · FIX206 refresh + export unique (2 P2) · FIX207
+#   actions en masse barre de sélection (P2) · FIX208 exports archive masse sans UI (P2) ·
+#   FIX209 nav socle sections inutiles + double sélection (2 P2) · FIX210 dispositif d'alerte
+#   ni visible ni éditable + supervision sans témoin de vie (2 P2) · FIX211 page exécutions
+#   manquante + type texte libre + helper cron (3 P2) · FIX212 matrice de routage (P2 évolution)
+
+items:
+  FIX201:
+    title: "Publication du SIREN auprès de la PA : onboarding de la transmission câblé (l'envoi devient exerçable)"
+    description: |
+      Bug-inbox P1 « Publication du SIREN aupres de la PA (EnsureTaxReportSettingAsync) jamais
+      cablee ». Le diagnostic pré-envoi F04 §3.1 (SendTenantJob) lit GetTaxReportSettingAsync :
+      sans publication préalable, IsTaxReportSettingActive=false → « Transport not available »,
+      aucun envoi, pour TOUJOURS. EnsureTaxReportSettingAsync n'est appelé QUE par les tests
+      (SendTenantJobTests:246, PipelineSendHarness:127, PipelineE2ETenant:339) — faux vert.
+      Décision E1 : les deux points d'entrée.
+      1. Action console « Publier le SIREN / activer la transmission » sur Paramétrage › Plateforme
+         Agréée (garde liakont.settings) : appelle EnsureTaxReportSettingAsync avec les données du
+         profil tenant (SIREN, date de début — AUCUNE donnée inventée), affiche l'état du réglage
+         (« actif depuis le JJ/MM » / « non publié », français) et trace l'opération.
+      2. Seed dev : DevTenantSeeder invoque la publication pour le compte Fake (l'environnement de
+         dev est transmissible sans geste manuel).
+      3. ATTENTION lifetime : le réglage « assuré » vit dans l'instance FakePaClient ; garantir la
+         MÊME instance par compte entre onboarding et envoi (état porté par la fabrique singleton,
+         par compte), sinon l'activation est perdue à la résolution suivante.
+      4. Le run d'envoi après publication émet réellement : ReadyToSend → Sending → Issued via le
+         plug-in Fake, archive WORM alimentée (parcours validé par un test d'intégration EXÉCUTÉ).
+    acceptance:
+      - "Action console de publication (liakont.settings) : état du réglage visible (actif/non publié, français), appel EnsureTaxReportSettingAsync avec les données du profil (rien d'inventé)"
+      - "Seed dev : compte Fake publié automatiquement — un env vierge permet l'envoi sans aucun geste hors console"
+      - "Réglage persistant entre résolutions du plug-in (test prouvant onboarding puis envoi sur deux résolutions)"
+      - "Test d'intégration bout-en-bout EXÉCUTÉ : ReadyToSend → Issued via Fake après publication ; sans publication → aucun envoi + motif inchangé"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX202:
+    title: "Feedback du run d'envoi : le résultat (émis/échec/aucun envoi + motif + action) remonte là où l'opérateur a cliqué"
+    description: |
+      Bug-inbox P2 « Run d envoi sans emission : la console repete Envoi declenche... ». Le run-log
+      contient le verdict complet (visible dans /traitements — confirmé en recette) mais la page
+      Documents n'affiche jamais le résultat : bandeau générique en boucle. FIX05 couvrait le chemin
+      avec émissions ; le chemin no-op (diagnostic pré-envoi en échec) ne remonte rien.
+      1. Après déclenchement, attendre la fin du run (mécanique SendRunWaitPolicy existante) et
+         afficher SON résultat dans le bandeau : « N émis, N en échec » OU « Aucun envoi : <motif du
+         run-log> » + action corrective. Plus jamais le même bandeau deux fois sans nouvelle info.
+      2. Wording (décision opérateur) : expliquer le modèle — « Le traitement d'envoi du tenant a
+         été lancé ; il émet tous les documents prêts à l'envoi. Résultat affiché ici à la fin. »
+      3. Tests bUnit : chemin émissions, chemin échecs, chemin no-op (motif restitué).
+    acceptance:
+      - "Run sans émission : le bandeau affiche le motif exact du run-log + action corrective (plus de boucle silencieuse)"
+      - "Run avec émissions : compteurs émis/échec affichés"
+      - "Wording du déclenchement clarifié (français, modèle expliqué)"
+      - "Tests bUnit exécutés sur les trois chemins"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX203a:
+    title: "Seed tenant : import complet et idempotent PAR COMPOSANT (fin du seed partiel CompanyFilter)"
+    description: |
+      Bug-inbox P2 « Seed dev tenant PARTIEL ». Sur base vierge, ImportTenantSeedCommand importe
+      profil+fiscal+PA puis le dispatch imbriqué ImportMappingTableSeedCommand échoue :
+      ImportMappingTableSeedHandler.cs:32 exige un company context AMBIANT (CompanyFilter), null au
+      démarrage. Résultat : table TVA jamais amorcée, et le boot suivant court-circuite
+      (« profil existe déjà », DevTenantSeeder.cs:142-146) → état partiel DÉFINITIF.
+      Incohérence interne : FIX01a a introduit le CompanyId explicite précisément pour ce contexte,
+      FIX01b ne l'a pas repris.
+      1. Threader le CompanyId explicite dans ImportMappingTableSeedCommand (même pattern et même
+         garde anti-injection que ImportTenantSeedCommand).
+      2. Amorçage idempotent PAR COMPOSANT : au boot, re-tenter ce qui manque (profil présent mais
+         table absente ⇒ importer la table), sans jamais écraser l'existant (create-only conservé).
+      3. Test d'intégration EXÉCUTÉ reproduisant le scénario réel : boot à froid sans company
+         context → les 4 composants importés ; boot avec profil présent et table absente → la table
+         est importée.
+    acceptance:
+      - "ImportMappingTableSeedCommand porte un CompanyId explicite (plus de dépendance au contexte ambiant au démarrage)"
+      - "Boot à froid : profil + fiscal + comptes PA + table TVA tous importés (vérifié par test d'intégration démarrage-réaliste, sans company context posé)"
+      - "Re-boot après échec partiel : les composants manquants sont importés, l'existant n'est jamais écrasé"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX203b:
+    title: "Lancement dev reproductible : launchSettings + super-admin fourni + AdminSeed idempotent + planifications par défaut + README"
+    description: |
+      Bug-inbox 4 P2 du bring-up run 2 : (a) « dotnet run demarre sur :5000 hors realm » —
+      launchSettings.json absent, ASPNETCORE_ENVIRONMENT non documenté ; (b) « AdminSeed : CRASH
+      COMPLET du Host » si l'ExternalId correspond à un utilisateur déjà auto-provisionné
+      (23505 ix_users_external_id non rattrapée) + sous OIDC l'accès super-admin vient du rôle
+      realm stratum-admin (SuperAdminRoles) ABSENT du realm committé ; (c) « Aucun job recurrent
+      n est planifie » — job.schedules vide : supervision (15 min), ancrage quotidien du coffre
+      TRK06, digest jamais exécutés, page admin réservée super-admin, aucun amorçage ni doc ;
+      (d) README muet sur tout cela.
+      1. Versionner src/Host/Liakont.Host/Properties/launchSettings.json (profil Development,
+         applicationUrl http://localhost:55996) — `dotnet run` seul marche.
+      2. Realm dev committé : compte `sysadmin` (mdp de dev) AVEC le rôle realm `stratum-admin` ;
+         AdminSeed:ExternalId par défaut correspondant dans appsettings.Development.json.
+      3. AdminSeed idempotent et tolérant : user existant avec ce external_id ⇒ promu SystemAdmin
+         (ou no-op loggé explicite), JAMAIS un crash du Host.
+      4. Planifications par défaut amorcées en dev (create-only) : évaluation supervision
+         (*/15 * * * *), ancrage quotidien archive — fréquences F12 §5.1 / ADR-0011, pas de cadence
+         inventée. En prod le geste reste OPS (documenté) ; ajouter une vérification au démarrage :
+         warning explicite si un job système attendu n'a aucun schedule actif (pattern
+         DevRealmHealthCheck).
+      5. README deploy/docker : lancement (env + port), accès super-admin, planifications, fuseau
+         des crons (UTC).
+    acceptance:
+      - "Clone vierge : keycloak-dev start + dotnet run + login = console sur :55996 sans poser aucune variable"
+      - "Compte sysadmin (rôle stratum-admin) livré par le realm committé ; section Jobs visible avec lui"
+      - "AdminSeed ne crash JAMAIS le Host (user existant ⇒ promotion ou no-op loggé) — test couvrant le cas 23505"
+      - "Env dev vierge : supervision et ancrage planifiés automatiquement (create-only) ; warning de démarrage si un job système attendu n'est pas planifié"
+      - "README à jour (lancement, super-admin, planifications, fuseau UTC des crons)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX204:
+    title: "Éditeur TVA : « Composante » (Adjudication / Frais / Hors Enchères), invisible hors vertical — et journal avec diff avant/après"
+    description: |
+      Bug-inbox 2 P2. (a) « la notion Part reste visible (figee Autre + note technique) quand le
+      vertical encheres est desactive, et le terme Part est incomprehensible » — décision E2 :
+      vertical OFF ⇒ ne RIEN rendre (ni champ, ni valeur, ni note — une fonctionnalité désactivée
+      est invisible, pas expliquée) ; vertical ON ⇒ libellé « Composante », valeurs « Adjudication /
+      Frais / Hors Enchères ». Le nom technique TvaMappingPart.Autre ne change pas (rendu seul).
+      Appliquer partout : éditeur, grille des règles, rapport de cohérence, messages.
+      (b) « le detail avant/apres de chaque modification est persiste mais JAMAIS restitue » — le
+      journal mapping_change_log porte déjà before_value/after_value JSON complets (TVA05) ; rendre
+      le diff lisible par entrée : champs modifiés « avant → après » (ex. Catégorie : S → E ;
+      VATEX : — → VATEX-FR-…), règle identifiée par code régime + libellé ; AddRule = valeurs
+      créées, RemoveRule = valeurs supprimées, Validate = validateur avant/après. Aucune migration
+      (données déjà complètes). Vocabulaire « Composante » dans ce rendu.
+    acceptance:
+      - "Vertical enchères OFF : aucune mention de la notion dans l'éditeur (ni champ, ni note) — test bUnit"
+      - "Vertical ON : libellé « Composante », valeurs Adjudication/Frais/Hors Enchères, partout (éditeur, grille, cohérence, messages)"
+      - "Journal de la table TVA : diff avant→après lisible par entrée (modif, ajout, suppression, validation) — tests bUnit"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX205:
+    title: "Fiche document : le détail ligne à ligne visible à l'écran (onglet Contenu)"
+    description: |
+      Bug-inbox P2 « le detail ligne a ligne n est visible NULLE PART » — l'onglet Contenu n'affiche
+      que l'en-tête et les totaux + un renvoi vers l'export d'archive (DocumentDetailView.razor:72-77,
+      justifié par F10 §1 « zéro JSON »). L'opérateur a besoin des lignes À L'ÉCRAN : comprendre un
+      blocage de mapping, vérifier la cohérence totaux/lignes (scénario S2.5 de la recette,
+      invérifiable aujourd'hui), répondre à un client.
+      1. RELIRE F10 §1 et sourcer la présentation : le « zéro JSON » proscrit le dump technique du
+         pivot, pas une restitution lisible. Ne pas inventer de règle d'affichage fiscal.
+      2. Onglet Contenu : tableau lisible des lignes — libellé, quantité, montant HT, régime source
+         → catégorie TVA/VATEX issus du mapping, montant TVA, taux. Montants à 2 décimales.
+      3. Contrôle visuel totaux = somme des lignes (écart signalé en français).
+      4. Tests bUnit (rendu des lignes, document sans ligne, écart totaux).
+    acceptance:
+      - "Onglet Contenu : lignes visibles en tableau lisible (jamais de JSON), conforme à F10 §1 relu et cité"
+      - "Cohérence totaux/lignes vérifiable à l'écran (S2.5 exerçable)"
+      - "Tests bUnit exécutés"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX206:
+    title: "Barre d'outils des listes : icône Rafraîchir + bouton Exporter unique (menu CSV/Excel/PDF)"
+    description: |
+      Bug-inbox 2 P2, décision E3. (a) « Aucun bouton Rafraichir sur les listes » : pipeline
+      asynchrone (CHECK event-driven, envoi par job) ⇒ l'opérateur attend un changement d'état et
+      n'a que F5. Icône Rafraîchir À CÔTÉ des boutons d'export, qui relance la requête serveur en
+      CONSERVANT filtres/pagination. (b) « 3 icones d export IDENTIQUES sans libelle » : un seul
+      bouton Exporter ouvrant un menu CSV / Excel / PDF (libellés français).
+      Sur le gabarit COMMUN des listes (DeclaredListPage / barre d'outils) pour couvrir toutes les
+      pages d'un coup — toute modification Stratum.* consignée dans la provenance (CLAUDE.md n°11).
+      Tests bUnit sur une page représentative.
+    acceptance:
+      - "Icône Rafraîchir près des exports, sur toutes les listes (gabarit commun) ; filtres et pagination conservés"
+      - "Un bouton Exporter unique avec menu CSV/Excel/PDF (libellés français) remplace les 3 icônes"
+      - "Modification socle consignée dans provenance-socle-stratum.md"
+      - "Tests bUnit exécutés sur une page représentative"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX207:
+    title: "Actions en masse via la barre de sélection : Revérifier la sélection / Revérifier tout"
+    description: |
+      Bug-inbox P2, décision E4. La re-vérification n'existe qu'au détail document ; il faut des
+      actions en masse depuis la liste, portées par la BARRE DE SÉLECTION Stratum (bas d'écran).
+      1. Socle : point d'extension DÉCLARATIF sur la barre de sélection — le module déclare ses
+         actions de sélection (pattern capacités, AUCUNE logique métier dans Stratum) ; modification
+         vendored consignée dans la provenance.
+      2. Liakont : « Revérifier la sélection » + « Revérifier tout » (les bloqués du périmètre
+         courant) — garde liakont.actions, exécution serveur tenant-scopée, trace d'audit FIX02 par
+         document re-vérifié, feedback de fin avec compteurs (« N débloqués, N restés bloqués »).
+      3. Extensible : l'envoi de la sélection (existant) migre ou se double dans la barre de
+         sélection si cohérent — pas d'action enfouie (décision transverse run 1).
+      4. Tests bUnit (barre + actions) et d'intégration (recheck en masse audité) EXÉCUTÉS.
+    acceptance:
+      - "Barre de sélection : point d'extension déclaratif socle (provenance consignée), actions Liakont déclarées par le module"
+      - "Revérifier la sélection + Revérifier tout : tenant-scopé, garde liakont.actions, audit par document, feedback compteurs en français"
+      - "Tests bUnit + intégration exécutés"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX208:
+    title: "Exports d'archive en masse dans la console : dossier d'audit par période + réversibilité tenant"
+    description: |
+      Bug-inbox P2 « les endpoints API03 existent mais AUCUNE UI ne les expose ». Cas opérateur :
+      contrôle fiscal (période), client qui change de logiciel (réversibilité). Les endpoints
+      streamés existent : GET /api/v1/audit-export?from=&to= (liakont.read, une borne exigée) et
+      GET /api/v1/tenant-export (liakont.settings).
+      1. Export d'audit par période : action sur la page Documents (ou Paramétrage › Archive),
+         sélecteur de bornes, téléchargement du zip (garde liakont.read).
+      2. Export de réversibilité : action dans Paramétrage (garde liakont.settings) avec
+         confirmation explicite (opération lourde, dossier complet du tenant).
+      3. Optionnel si simple : « Exporter le dossier d'audit de la sélection » via la barre de
+         sélection (FIX207).
+      4. Se coordonner avec OPS06a (notice de restitution commune — ne pas dupliquer).
+      5. Tests bUnit (présence, gardes par permission) EXÉCUTÉS.
+    acceptance:
+      - "Export d'audit par période déclenchable depuis la console (bornes, zip téléchargé, garde liakont.read)"
+      - "Export de réversibilité déclenchable depuis Paramétrage (confirmation explicite, garde liakont.settings)"
+      - "Tests bUnit exécutés (visibilité par permission)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX209:
+    title: "Nav socle assainie : Annuaire supprimé, Sécurité masqué, Notifications = Templates seul (réparé), état actif exclusif"
+    description: |
+      Bug-inbox 2 P2, décisions E5 affinées en séance. (a) Sections socle inutiles/vides pour un
+      opérateur Liakont : ANNUAIRE (Agents/Équipes/Délégations — collision avec les agents
+      d'extraction) ⇒ SUPPRIMER de la nav Liakont ; SÉCURITÉ (Utilisateurs/Rôles — les comptes
+      vivent dans Keycloak sous OIDC) ⇒ MASQUER (sort définitif à l'ADR IdP, OPS01c) ;
+      NOTIFICATIONS ⇒ ne garder QUE « Templates » (les e-mails d'alerte SUP03 utilisent les
+      templates socle supervision.alert.*) en RÉPARANT l'accès (erreur « No company context »,
+      P2 connu) et sa permission ; « Règles de routage » supprimé (vestige du routage vers services
+      municipaux du produit d'origine). Mécanique : retrait du CÂBLAGE côté composition root Liakont
+      (pattern JobNavVisibilityFilter en retrait/remplacement des INavSectionProvider socle) —
+      AUCUNE suppression de code socle (il sert à d'autres produits Stratum).
+      (b) Bug visuel socle : l'état sélectionné de la nav ne s'exclut pas (Agents ET Délégations
+      surlignés) — l'entrée active = celle de l'onglet au premier plan, exclusive ; correctif socle
+      consigné dans la provenance.
+      Tests bUnit : visibilité des sections par rôle, état actif exclusif, page Templates
+      fonctionnelle pour la permission retenue.
+    acceptance:
+      - "Nav opérateur Liakont : plus d'Annuaire, plus de Sécurité, plus de Règles de routage ; Templates accessible et fonctionnel (company context réparé, permission définie)"
+      - "Aucun code socle supprimé (retraits au composition root) ; modifications socle consignées dans la provenance"
+      - "État actif de la nav exclusif (une seule entrée surlignée) — test bUnit"
+      - "Tests bUnit exécutés (visibilité par rôle)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX210:
+    title: "Paramétrage › Alertes : le dispositif VISIBLE et éditable (règles, seuils, routage) + témoin de vie de la supervision"
+    description: |
+      Bug-inbox 2 P2, décision E6 (modèle simple F12 §5.3 validé). (a) « Dispositif d alerte ni
+      VISIBLE ni editable » : page Paramétrage › Alertes qui MONTRE — règles actives avec leur
+      seuil effectif, règles gelées (SUP01c, pour ne pas laisser croire à une couverture), qui
+      reçoit quoi (modèle expliqué en français), état de l'e-mail opérateur d'instance — et qui
+      ÉDITE : seuils par règle (défauts F12 §5.2 affichés), ContactEmailAlerte, AlertTenantContact
+      (garde liakont.settings, modifications journalisées). Backend existant
+      (SetAlertThresholdsHandler, update profil).
+      (b) « Page Supervision : Aucune alerte recente est indistinguable d une supervision MORTE » :
+      bandeau d'état du dispositif en tête des pages supervision — dernière évaluation (« il y a
+      X min » / « JAMAIS » en rouge), règles actives/gelées, prochaine échéance. « Jamais évalué »
+      ou « évaluation en retard » rendu comme une ALERTE visuelle (panne du filet de sécurité).
+      Tests bUnit + intégration EXÉCUTÉS.
+    acceptance:
+      - "Page Paramétrage › Alertes : dispositif visible (règles actives + seuils effectifs, règles gelées, routage expliqué, e-mail opérateur) et éditable (seuils, contact, activation — liakont.settings, journalisé)"
+      - "Pages supervision : témoin de vie (dernière évaluation, jamais/retard = alerte visuelle)"
+      - "Tests bUnit + intégration exécutés"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX211:
+    title: "Admin des jobs utilisable : liste fixe des types (libellés français), paramètres typés, helper cron, page des exécutions"
+    description: |
+      Bug-inbox 3 P2, décision E7 (exigences fermes). (a) Type de job : liste FIXE alimentée par le
+      registre des handlers (JobHandlerResolver) — libellé FRANÇAIS user-friendly fourni à
+      l'enregistrement (« Évaluation de la supervision », « Ancrage quotidien du coffre
+      d'archive »…), le FullName .NET reste la clé technique stockée, JAMAIS affiché ; validation
+      que le type existe. (b) Payload : masqué si le type n'a aucun paramètre (cas majoritaire :
+      records vides) ; champs TYPÉS sinon (SendAllTrigger.DryRun ⇒ case à cocher) — générés depuis
+      les propriétés du type de payload. (c) Cron : helper — presets courants (toutes les 15 min,
+      toutes les heures, tous les jours à HH:MM…), mode avancé, APERÇU en français des 3 prochaines
+      exécutions calculé avec LE MÊME parseur que le JobScheduler, validation bloquante si
+      inparsable, FUSEAU affiché (les crons sont interprétés en UTC — constaté en recette).
+      (d) Page des EXÉCUTIONS (job.jobs) : gabarit DeclaredListPage — libellé du job, statut, dates,
+      erreur, retries ; filtres statut/type/période ; lien depuis une planification vers ses
+      exécutions. Modifications socle consignées dans la provenance. Tests bUnit EXÉCUTÉS.
+    acceptance:
+      - "Type de job : liste fixe depuis le registre, libellés français (FullName jamais affiché), type inexistant impossible"
+      - "Payload : masqué sans paramètres, champs typés sinon (plus de JSON brut)"
+      - "Helper cron : presets + aperçu français des 3 prochaines exécutions (même parseur que le scheduler) + fuseau explicite + validation bloquante"
+      - "Page des exécutions : statuts/erreurs/retries visibles et filtrables ; lien planification → exécutions"
+      - "Modifications socle consignées dans la provenance ; tests bUnit exécutés"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  FIX212:
+    title: "Matrice de routage des alertes : par règle, par gravité, plusieurs destinataires (argument démo)"
+    description: |
+      Bug-inbox P2 « BACKLOG (evolution, pas un bug) », décision E8. Étendre le modèle simple
+      (F12 §5.3, qui RESTE le défaut zéro-configuration) avec une table de routage tenant-scopée :
+      règle × gravité → liste de destinataires.
+      1. Amender F12 §5.3 dans docs/conception (la matrice ÉTEND la spec, ne la contredit pas
+         silencieusement).
+      2. Évaluation dans AlertEmailNotifier : fallback = modèle simple si aucune entrée de matrice ;
+         l'anti-spam existant (une alerte active ne re-notifie pas) DOIT survivre au routage.
+      3. UI : extension de la page Paramétrage › Alertes (FIX210) — matrice éditable, garde
+         liakont.settings, changements journalisés.
+      4. Tests : routage par règle/gravité/destinataires multiples, fallback, anti-spam conservé —
+         EXÉCUTÉS.
+    acceptance:
+      - "F12 §5.3 amendé dans docs/conception (extension sourcée, défaut inchangé)"
+      - "Routage effectif par règle × gravité × destinataires ; fallback modèle simple sans configuration ; anti-spam conservé (tests)"
+      - "Matrice éditable dans Paramétrage › Alertes (liakont.settings, journalisé)"
+      - "Tests exécutés (routage, fallback, anti-spam)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
