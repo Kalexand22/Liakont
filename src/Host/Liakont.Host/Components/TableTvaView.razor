@@ -496,7 +496,7 @@
 
     private static string DescribeDeadRuleReason(string reason) => reason switch
     {
-        "PartNotConsulted" => "part non consultée par le pipeline (vertical enchères désactivé)",
+        "PartNotConsulted" => "part non consultée par le pipeline (découpage adjudication/frais non appliqué)",
         "RegimeNeverObserved" => "code régime jamais observé dans la source",
         _ => reason,
     };

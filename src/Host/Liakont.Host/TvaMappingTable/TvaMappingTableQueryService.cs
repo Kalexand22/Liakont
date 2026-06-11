@@ -77,17 +77,16 @@ internal sealed class TvaMappingTableQueryService : ITvaMappingTableQueries
         var coverage = await _sender.Send(new GetMappingCoverageReportQuery(), cancellationToken).ConfigureAwait(false);
 
         // Activation du vertical enchères (paramétrage produit D4) : gouverne l'exposition du champ
-        // « part » dans l'éditeur ET les parts consultées pour le contrôle de cohérence. Lue une fois ici
-        // (défaut OFF si absente) et fournie au rapport de cohérence — TvaMapping ne lit jamais le
-        // paramétrage d'un autre module (l'appelant fournit l'activation, comme la part au moteur).
+        // « part » dans l'éditeur (et RIEN d'autre — la cohérence reflète la réalité du pipeline, pas
+        // l'activation). Lue une fois ici (défaut OFF si absente).
         var auctionVerticalEnabled = await _tenantSettingsQueries
             .GetAuctionVerticalEnabled(companyId.Value, cancellationToken)
             .ConfigureAwait(false);
 
-        // Rapport de cohérence (lot FIX03) : règles mortes (part non consultée, code jamais observé)
-        // signalées avant validation. Recalculé à la demande, comme la couverture.
+        // Rapport de cohérence (lot FIX03) : règles mortes (part non consultée par le pipeline, code
+        // jamais observé) signalées avant validation. Recalculé à la demande, comme la couverture.
         var consistency = await _sender
-            .Send(new GetMappingConsistencyReportQuery { AuctionVerticalEnabled = auctionVerticalEnabled }, cancellationToken)
+            .Send(new GetMappingConsistencyReportQuery(), cancellationToken)
             .ConfigureAwait(false);
 
         return new TvaMappingTableViewModel

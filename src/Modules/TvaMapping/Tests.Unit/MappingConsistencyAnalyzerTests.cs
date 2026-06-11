@@ -10,38 +10,35 @@ using Xunit;
 /// <summary>
 /// Contrôle de cohérence du paramétrage TVA (lot FIX03), symétrique du rapport de couverture (TVA03).
 /// Vérifie que les règles MORTES sont signalées (part non consultée, code jamais observé) sans jamais
-/// bloquer — c'est un signal (CLAUDE.md n°3) — et que la dérivation des parts consultées suit
-/// l'activation du vertical enchères (D4), sans inventer de règle fiscale.
+/// bloquer — c'est un signal (CLAUDE.md n°3). Les parts consultées reflètent la RÉALITÉ du pipeline
+/// (<c>{Autre}</c> tant que PIP03b est gelé), pas l'activation du vertical (qui ne gouverne que
+/// l'éditeur) ; l'analyseur lui-même reste générique sur l'ensemble consulté qu'on lui fournit.
 /// </summary>
 public sealed class MappingConsistencyAnalyzerTests
 {
     private static readonly MappingPart[] AutreOnly = { MappingPart.Autre };
-    private static readonly MappingPart[] AllParts = { MappingPart.Adjudication, MappingPart.Frais, MappingPart.Autre };
+    private static readonly IReadOnlySet<MappingPart> AutreSet = new HashSet<MappingPart> { MappingPart.Autre };
+
+    private static readonly IReadOnlySet<MappingPart> AllPartsSet =
+        new HashSet<MappingPart> { MappingPart.Adjudication, MappingPart.Frais, MappingPart.Autre };
+
     private static readonly string[] ObservedA = { "R-A" };
     private static readonly string[] ObservedAB = { "R-A", "R-B" };
 
     [Fact]
-    public void AuctionVerticalOff_OnlyAutre_IsConsulted()
+    public void PipelineConsulted_IsAutreOnly()
     {
-        var parts = ConsultedMappingParts.For(auctionVerticalEnabled: false);
-
-        parts.Should().BeEquivalentTo(AutreOnly);
+        // Le pipeline générique mappe toujours avec Autre (CheckTvaMapping.LinePart, PIP03b gelé) — le
+        // jeu consulté ne dépend PAS de l'activation du vertical enchères.
+        ConsultedMappingParts.PipelineConsulted().Should().BeEquivalentTo(AutreOnly);
     }
 
     [Fact]
-    public void AuctionVerticalOn_AllParts_AreConsulted()
-    {
-        var parts = ConsultedMappingParts.For(auctionVerticalEnabled: true);
-
-        parts.Should().BeEquivalentTo(AllParts);
-    }
-
-    [Fact]
-    public void VerticalOff_AdjudicationRule_IsDead_PartNotConsulted()
+    public void AdjudicationRule_IsDead_PartNotConsulted_UnderPipelineReality()
     {
         var report = Analyze(
             rules: new[] { Rule("R-A", MappingPart.Adjudication), Rule("R-A", MappingPart.Autre) },
-            auctionVerticalEnabled: false,
+            consultedParts: ConsultedMappingParts.PipelineConsulted(),
             observed: ObservedA);
 
         report.DeadRules.Should().ContainSingle();
@@ -52,14 +49,16 @@ public sealed class MappingConsistencyAnalyzerTests
     }
 
     [Fact]
-    public void VerticalOn_AdjudicationRule_IsNotDead_WhenObserved()
+    public void Analyzer_IsGeneric_WhenPartIsConsulted_RuleNotDeadForPart()
     {
+        // L'analyseur est pur et générique : si on lui DÉCLARE Adjudication consultée (cas futur PIP03b),
+        // la règle n'est pas morte pour ce motif. La réalité {Autre} est imposée par le handler, pas ici.
         var report = Analyze(
             rules: new[] { Rule("R-A", MappingPart.Adjudication), Rule("R-A", MappingPart.Frais) },
-            auctionVerticalEnabled: true,
+            consultedParts: AllPartsSet,
             observed: ObservedA);
 
-        report.HasDeadRules.Should().BeFalse("le tenant a déclaré le vertical enchères : ces parts sont en scope");
+        report.HasDeadRules.Should().BeFalse();
     }
 
     [Fact]
@@ -67,7 +66,7 @@ public sealed class MappingConsistencyAnalyzerTests
     {
         var report = Analyze(
             rules: new[] { Rule("TYPO-X", MappingPart.Autre) },
-            auctionVerticalEnabled: false,
+            consultedParts: AutreSet,
             observed: ObservedAB);
 
         report.DeadRules.Should().ContainSingle();
@@ -81,7 +80,7 @@ public sealed class MappingConsistencyAnalyzerTests
         // (sinon TOUTES les règles seraient « mortes » sur un tenant vierge).
         var report = Analyze(
             rules: new[] { Rule("R-A", MappingPart.Autre), Rule("R-B", MappingPart.Autre) },
-            auctionVerticalEnabled: false,
+            consultedParts: AutreSet,
             observed: Array.Empty<string>());
 
         report.HasDeadRules.Should().BeFalse();
@@ -92,7 +91,7 @@ public sealed class MappingConsistencyAnalyzerTests
     {
         var report = Analyze(
             rules: new[] { Rule("TYPO-X", MappingPart.Adjudication) },
-            auctionVerticalEnabled: false,
+            consultedParts: AutreSet,
             observed: ObservedA);
 
         report.DeadRules[0].Reasons.Should()
@@ -105,7 +104,7 @@ public sealed class MappingConsistencyAnalyzerTests
         // Cohérent avec TvaMapper (INV-011) : un code de casse différente ne matcherait pas à l'exécution.
         var report = Analyze(
             rules: new[] { Rule("r-a", MappingPart.Autre) },
-            auctionVerticalEnabled: false,
+            consultedParts: AutreSet,
             observed: ObservedA);
 
         report.DeadRules[0].Reasons.Should().Equal(DeadRuleReason.RegimeNeverObserved);
@@ -116,7 +115,7 @@ public sealed class MappingConsistencyAnalyzerTests
     {
         var report = Analyze(
             rules: new[] { Rule("R-A", MappingPart.Autre) },
-            auctionVerticalEnabled: false,
+            consultedParts: AutreSet,
             observed: ObservedA);
 
         report.HasDeadRules.Should().BeFalse();
@@ -125,14 +124,10 @@ public sealed class MappingConsistencyAnalyzerTests
 
     private static MappingConsistencyReport Analyze(
         IReadOnlyList<MappingRuleConsistencyView> rules,
-        bool auctionVerticalEnabled,
+        IReadOnlySet<MappingPart> consultedParts,
         IReadOnlyCollection<string> observed)
     {
-        return MappingConsistencyAnalyzer.Analyze(
-            rules,
-            ConsultedMappingParts.For(auctionVerticalEnabled),
-            observed,
-            tableConfigured: true);
+        return MappingConsistencyAnalyzer.Analyze(rules, consultedParts, observed, tableConfigured: true);
     }
 
     private static MappingRuleConsistencyView Rule(string code, MappingPart part) => new()

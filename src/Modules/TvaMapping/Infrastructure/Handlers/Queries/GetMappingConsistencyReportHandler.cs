@@ -77,7 +77,10 @@ public sealed class GetMappingConsistencyReportHandler
             })
             .ToArray();
 
-        var consultedParts = ConsultedMappingParts.For(request.AuctionVerticalEnabled);
+        // Parts réellement consultées par le pipeline = réalité (toujours {Autre} tant que PIP03b n'est
+        // pas livré), JAMAIS l'activation du vertical (qui ne gouverne que l'éditeur — D4). Voir
+        // ConsultedMappingParts : déclarer Adjudication/Frais consultées vertical ON serait un faux-négatif.
+        var consultedParts = ConsultedMappingParts.PipelineConsulted();
 
         var report = MappingConsistencyAnalyzer.Analyze(rules, consultedParts, observedCodes, tableConfigured: true);
         return ToDto(report);

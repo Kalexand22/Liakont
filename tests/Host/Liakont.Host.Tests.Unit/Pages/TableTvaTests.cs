@@ -260,20 +260,37 @@ public sealed class TableTvaTests : BunitContext
         cut.WaitForAssertion(() => fake.SetAuctionVerticalCalls.Should().Be(1, "la (dé)activation passe par le service, puis recharge"));
     }
 
+    [Fact]
+    public void Toggle_failure_shows_a_visible_error_banner()
+    {
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(hasSettings: true));
+        Services.AddScoped<ITvaMappingTableQueries>(_ => FakeTableQueries.FailingAuctionVertical());
+
+        var cut = Render<TableTva>();
+
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='table-tva-auction-vertical-toggle']").Should().ContainSingle());
+        cut.Find("[data-testid='table-tva-auction-vertical-toggle']").Click();
+
+        // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='table-tva-auction-vertical-error']").Should().ContainSingle());
+    }
+
     private sealed class FakeTableQueries : ITvaMappingTableQueries
     {
         private readonly bool _throwOnLoad;
         private readonly bool _throwOnValidate;
         private readonly bool _throwOnMutate;
+        private readonly bool _throwOnSetAuctionVertical;
         private readonly string _operator;
         private bool _validated;
         private bool _auctionEnabled;
 
-        private FakeTableQueries(bool throwOnLoad, bool throwOnValidate, bool throwOnMutate, bool validated, string op)
+        private FakeTableQueries(bool throwOnLoad, bool throwOnValidate, bool throwOnMutate, bool validated, string op, bool throwOnSetAuctionVertical = false)
         {
             _throwOnLoad = throwOnLoad;
             _throwOnValidate = throwOnValidate;
             _throwOnMutate = throwOnMutate;
+            _throwOnSetAuctionVertical = throwOnSetAuctionVertical;
             _validated = validated;
             _operator = op;
         }
@@ -297,6 +314,8 @@ public sealed class TableTvaTests : BunitContext
         public static FakeTableQueries NotValidatedFailingValidate(string op = "Alice Martin") => new(false, true, false, validated: false, op);
 
         public static FakeTableQueries FailingMutate(string op = "Alice Martin") => new(false, false, true, validated: false, op);
+
+        public static FakeTableQueries FailingAuctionVertical(string op = "Alice Martin") => new(false, false, false, validated: false, op, throwOnSetAuctionVertical: true);
 
         private static TvaMappingEditOptionsDto EditOptions() => new()
         {
@@ -367,6 +386,11 @@ public sealed class TableTvaTests : BunitContext
 
         public Task SetAuctionVerticalAsync(bool enabled, CancellationToken cancellationToken = default)
         {
+            if (_throwOnSetAuctionVertical)
+            {
+                throw new InvalidOperationException("Échec simulé de la (dé)activation du vertical enchères.");
+            }
+
             SetAuctionVerticalCalls++;
             _auctionEnabled = enabled;
             return Task.CompletedTask;

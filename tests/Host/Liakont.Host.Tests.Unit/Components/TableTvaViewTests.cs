@@ -348,7 +348,7 @@ public sealed class TableTvaViewTests : BunitContext
         cut.FindAll("[data-testid='table-tva-consistency']").Should().ContainSingle();
         cut.FindAll("[data-testid='table-tva-consistency-entry']").Should().ContainSingle();
         cut.Find("[data-testid='table-tva-consistency-entry']").TextContent.Should().Contain("ADJ");
-        cut.Find("[data-testid='table-tva-consistency-entry']").TextContent.Should().Contain("vertical enchères désactivé");
+        cut.Find("[data-testid='table-tva-consistency-entry']").TextContent.Should().Contain("part non consultée par le pipeline");
     }
 
     [Fact]

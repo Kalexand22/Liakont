@@ -63,9 +63,9 @@
 - `Handle_UnresolvedTenant_Throws` (slug `null`/vide/blanc) — aucune lecture tant que le tenant n'est pas résolu (message opérateur FR + action).
 
 ### MappingConsistencyAnalyzerTests (contrôle de cohérence FIX03 — INV-TVAMAPPING-013)
-- `AuctionVerticalOff_OnlyAutre_IsConsulted` / `AuctionVerticalOn_AllParts_AreConsulted` — dérivation des parts consultées depuis l'activation (D4) : OFF ⇒ `{Autre}`, ON ⇒ `{Adjudication, Frais, Autre}`.
-- `VerticalOff_AdjudicationRule_IsDead_PartNotConsulted` — hors vertical, une règle Adjudication est morte (part non consultée).
-- `VerticalOn_AdjudicationRule_IsNotDead_WhenObserved` — vertical activé : le tenant a déclaré ces parts, plus de signal.
+- `PipelineConsulted_IsAutreOnly` — le jeu consulté reflète la réalité du pipeline (`{Autre}`, PIP03b gelé), indépendant de l'activation.
+- `AdjudicationRule_IsDead_PartNotConsulted_UnderPipelineReality` — une règle Adjudication est morte (part non consultée par le pipeline).
+- `Analyzer_IsGeneric_WhenPartIsConsulted_RuleNotDeadForPart` — l'analyseur est générique : si on lui DÉCLARE une part consultée (cas futur PIP03b), la règle n'est pas morte pour ce motif.
 - `RegimeNeverObserved_IsFlagged_WhenObservationsExist` — code jamais observé signalé (faute de frappe), quand des régimes ont été observés.
 - `RegimeNeverObserved_IsNotFlagged_OnFreshTenant_NoObservations` — tenant vierge : aucun faux positif « jamais observé ».
 - `Rule_CanCarry_BothReasons` — une règle peut cumuler les deux motifs.
@@ -74,7 +74,8 @@
 
 ### GetMappingConsistencyReportHandlerTests (câblage FIX03 — INV-TVAMAPPING-008/013)
 - `Handle_RoutesResolvedSlugToRegimeQuery_AndCompanyIdToMappingQuery` — **isolation tenant** : slug vers les régimes observés, `company_id` vers la table.
-- `Handle_VerticalOff_AdjudicationRule_IsReportedDead` / `Handle_VerticalOn_AdjudicationRule_IsNotDead_WhenObserved` — l'activation fournie pilote les parts consultées.
+- `Handle_AdjudicationRule_IsReportedDead_PipelineConsultsAutreOnly` — le pipeline ne consulte qu'`Autre` : une règle Adjudication est morte (indépendant de l'activation).
+- `Handle_AutreRuleOnObservedRegime_IsNotDead` — une règle `Autre` sur un régime observé n'est pas morte.
 - `Handle_NoTableConfigured_ReturnsNotConfigured_NoDeadRules` — aucune table → `IsTableConfigured=false`, aucune règle morte.
 - `Handle_UnresolvedTenant_Throws_AndReadsNothing` (slug `null`/vide/blanc) — aucune lecture sans tenant résolu.
 

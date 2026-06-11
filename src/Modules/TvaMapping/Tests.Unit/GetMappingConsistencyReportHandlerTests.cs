@@ -33,20 +33,22 @@ public sealed class GetMappingConsistencyReportHandlerTests
         var mappingQueries = new FakeTvaMappingQueries(TableDto(Rule("R-A", "Autre")));
         var handler = CreateHandler(regimeQueries, mappingQueries, companyId, tenantSlug: "acme");
 
-        await handler.Handle(new GetMappingConsistencyReportQuery { AuctionVerticalEnabled = false }, CancellationToken.None);
+        await handler.Handle(new GetMappingConsistencyReportQuery(), CancellationToken.None);
 
         regimeQueries.CapturedTenantId.Should().Be("acme");
         mappingQueries.CapturedCompanyId.Should().Be(companyId);
     }
 
     [Fact]
-    public async Task Handle_VerticalOff_AdjudicationRule_IsReportedDead()
+    public async Task Handle_AdjudicationRule_IsReportedDead_PipelineConsultsAutreOnly()
     {
+        // Le pipeline ne consulte que la part Autre (PIP03b gelé) : une règle Adjudication est morte,
+        // indépendamment de toute activation du vertical (qui ne gouverne que l'éditeur).
         var regimeQueries = new FakeSourceTaxRegimeQueries(new[] { Regime("R-A") });
         var mappingQueries = new FakeTvaMappingQueries(TableDto(Rule("R-A", "Adjudication"), Rule("R-A", "Autre")));
         var handler = CreateHandler(regimeQueries, mappingQueries);
 
-        var dto = await handler.Handle(new GetMappingConsistencyReportQuery { AuctionVerticalEnabled = false }, CancellationToken.None);
+        var dto = await handler.Handle(new GetMappingConsistencyReportQuery(), CancellationToken.None);
 
         dto.IsTableConfigured.Should().BeTrue();
         dto.DeadRules.Should().ContainSingle();
@@ -57,13 +59,13 @@ public sealed class GetMappingConsistencyReportHandlerTests
     }
 
     [Fact]
-    public async Task Handle_VerticalOn_AdjudicationRule_IsNotDead_WhenObserved()
+    public async Task Handle_AutreRuleOnObservedRegime_IsNotDead()
     {
         var regimeQueries = new FakeSourceTaxRegimeQueries(new[] { Regime("R-A") });
-        var mappingQueries = new FakeTvaMappingQueries(TableDto(Rule("R-A", "Adjudication")));
+        var mappingQueries = new FakeTvaMappingQueries(TableDto(Rule("R-A", "Autre")));
         var handler = CreateHandler(regimeQueries, mappingQueries);
 
-        var dto = await handler.Handle(new GetMappingConsistencyReportQuery { AuctionVerticalEnabled = true }, CancellationToken.None);
+        var dto = await handler.Handle(new GetMappingConsistencyReportQuery(), CancellationToken.None);
 
         dto.DeadRules.Should().BeEmpty();
     }
@@ -75,7 +77,7 @@ public sealed class GetMappingConsistencyReportHandlerTests
         var mappingQueries = new FakeTvaMappingQueries(table: null);
         var handler = CreateHandler(regimeQueries, mappingQueries);
 
-        var dto = await handler.Handle(new GetMappingConsistencyReportQuery { AuctionVerticalEnabled = false }, CancellationToken.None);
+        var dto = await handler.Handle(new GetMappingConsistencyReportQuery(), CancellationToken.None);
 
         dto.IsTableConfigured.Should().BeFalse();
         dto.DeadRules.Should().BeEmpty();
@@ -91,7 +93,7 @@ public sealed class GetMappingConsistencyReportHandlerTests
         var mappingQueries = new FakeTvaMappingQueries(TableDto(Rule("R-A", "Autre")));
         var handler = CreateHandler(regimeQueries, mappingQueries, tenantSlug: slug);
 
-        var act = () => handler.Handle(new GetMappingConsistencyReportQuery { AuctionVerticalEnabled = false }, CancellationToken.None);
+        var act = () => handler.Handle(new GetMappingConsistencyReportQuery(), CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>();
         regimeQueries.CapturedTenantId.Should().BeNull("aucune lecture ne doit partir sans tenant résolu");
