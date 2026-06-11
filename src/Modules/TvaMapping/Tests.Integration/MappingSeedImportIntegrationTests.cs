@@ -38,6 +38,9 @@ public sealed class MappingSeedImportIntegrationTests
     private static string ExampleSeedPath =>
         Path.Combine(AppContext.BaseDirectory, "config", "exemples", "mapping-exemple.json");
 
+    private static string TenantSeedMappingPath =>
+        Path.Combine(AppContext.BaseDirectory, "config", "exemples", "tenant-seed", "mapping-tva.json");
+
     [Fact]
     public async Task ExampleSeed_Imports_And_Exposes_NonValidated_ExampleMarker()
     {
@@ -231,6 +234,26 @@ public sealed class MappingSeedImportIntegrationTests
         var second = await handler.Handle(
             new ImportMappingTableSeedCommand { SeedFilePath = ExampleSeedPath }, CancellationToken.None);
         second.Should().BeFalse("une table existante n'est jamais écrasée par un ré-import (idempotent).");
+    }
+
+    [Fact]
+    public async Task Shipped_TenantSeed_Mapping_File_Imports_And_Is_NonValidated()
+    {
+        var harness = new TvaMappingHarness(_fixture);
+        var companyId = Guid.NewGuid();
+        var accessor = new TestActorContextAccessor(Guid.NewGuid(), companyId);
+        var filter = new TestCompanyFilter(accessor);
+        var handler = new ImportMappingTableSeedHandler(harness.UowFactory, filter);
+
+        var imported = await handler.Handle(
+            new ImportMappingTableSeedCommand { SeedFilePath = TenantSeedMappingPath }, CancellationToken.None);
+        imported.Should().BeTrue();
+
+        var dto = await harness.Queries.GetMappingTable(companyId);
+        dto.Should().NotBeNull();
+        dto!.MappingVersion.Should().Be("tenant-seed-exemple-v1");
+        dto.IsValidated.Should().BeFalse("le fichier de seed livré est NON VALIDÉE (garde-fou PIP01).");
+        dto.Rules.Should().HaveCount(3);
     }
 
     private static async Task ImportAndPersistAsync(TvaMappingHarness harness, Guid companyId)

@@ -4,6 +4,7 @@ using Liakont.Modules.TvaMapping.Application;
 using Liakont.Modules.TvaMapping.Contracts.Commands;
 using Liakont.Modules.TvaMapping.Infrastructure.Seed;
 using MediatR;
+using Stratum.Common.Abstractions.Exceptions;
 using Stratum.Common.Infrastructure.DataIsolation;
 
 /// <summary>
@@ -44,8 +45,18 @@ public sealed class ImportMappingTableSeedHandler : IRequestHandler<ImportMappin
         // conservés ; tout code inconnu est rejeté par le reader avant l'insertion).
         var table = await MappingTableSeedReader.ImportFileAsync(request.SeedFilePath, companyId, cancellationToken);
 
-        await uow.InsertMappingTableAsync(table, cancellationToken);
-        await uow.CommitAsync(cancellationToken);
+        try
+        {
+            await uow.InsertMappingTableAsync(table, cancellationToken);
+            await uow.CommitAsync(cancellationToken);
+        }
+        catch (ConflictException)
+        {
+            // Course concurrente (un autre OPS03 / « Créer la table » console a inséré entre-temps) :
+            // l'import de seed n'écrase jamais — idempotent, on ignore (CLAUDE.md : amorçage seulement).
+            return false;
+        }
+
         return true;
     }
 }

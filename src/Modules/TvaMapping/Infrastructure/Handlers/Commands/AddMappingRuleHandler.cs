@@ -64,9 +64,12 @@ public sealed class AddMappingRuleHandler : IRequestHandler<AddMappingRuleComman
                 validatedDate: null,
                 MappingDefaultBehavior.Block,
                 rules: []);
-            table.AddRule(rule);
 
+            // CreateTable journalise la NAISSANCE de la table vide (RuleCount=0, cohérent avec CreateMappingTableHandler) ;
+            // l'entrée est figée AVANT l'ajout de la règle.
             var createEntry = MappingChangeLogFactory.ForCreateTable(table, actor.UserId, actor.DisplayName);
+
+            table.AddRule(rule);
             var addEntry = MappingChangeLogFactory.ForAddRule(table, rule, actor.UserId, actor.DisplayName);
             await uow.InsertMappingTableAsync(table, [createEntry, addEntry], cancellationToken);
             await uow.CommitAsync(cancellationToken);

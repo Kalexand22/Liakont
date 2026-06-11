@@ -29,5 +29,6 @@
        tests d'intégration (import dans un tenant de test, puis mapping des golden PIV03). -->
   <ItemGroup>
     <None Include="../../../../config/exemples/mapping-exemple.json" Link="config/exemples/mapping-exemple.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../../../config/exemples/tenant-seed/mapping-tva.json" Link="config/exemples/tenant-seed/mapping-tva.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

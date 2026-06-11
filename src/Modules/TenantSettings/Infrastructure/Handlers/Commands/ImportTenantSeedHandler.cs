@@ -13,8 +13,11 @@ using Stratum.Common.Infrastructure.DataIsolation;
 
 /// <summary>
 /// Importe (idempotent) le seed d'un dossier <c>deployments/&lt;client&gt;/</c> dans le tenant courant
-/// (F12-A §8). Atomique (une seule transaction). N'écrit JAMAIS une clé API : chaque compte PA est
-/// créé/mis à jour sans secret, avec un avertissement de complétion via la console (F12-A §8.2).
+/// (F12-A §8). Le paramétrage TenantSettings (profil, fiscal, planification, seuils, comptes PA) est écrit
+/// en UNE transaction. La table de mapping TVA (item FIX01b) est importée APRÈS ce commit, dans une
+/// transaction distincte (module TvaMapping) — donc PAS d'atomicité globale : si l'import de mapping
+/// échoue (seed illisible/code rejeté), le paramétrage TenantSettings est déjà committé ; les deux côtés
+/// étant idempotents, un ré-run récupère l'état complet. N'écrit JAMAIS une clé API (placeholders vides).
 /// </summary>
 public sealed class ImportTenantSeedHandler : IRequestHandler<ImportTenantSeedCommand, ImportTenantSeedResult>
 {
