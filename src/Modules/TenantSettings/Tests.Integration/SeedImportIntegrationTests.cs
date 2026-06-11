@@ -4,6 +4,9 @@ using FluentAssertions;
 using Liakont.Modules.TenantSettings.Contracts.Commands;
 using Liakont.Modules.TenantSettings.Infrastructure.Handlers.Commands;
 using Liakont.Modules.TenantSettings.Tests.Integration.Fixtures;
+using Liakont.Modules.TvaMapping.Contracts.Commands;
+using Stratum.Common.Abstractions.Exceptions;
+using Stratum.Common.Infrastructure.DataIsolation;
 using Xunit;
 
 [Collection("TenantSettingsIntegration")]
@@ -44,9 +47,13 @@ public sealed class SeedImportIntegrationTests
             await File.WriteAllTextAsync(Path.Combine(dir, "pa-accounts.json"), PaAccountsJson);
 
             var harness = new TenantSettingsHarness(_fixture, Guid.NewGuid(), Guid.NewGuid());
-            var handler = new ImportTenantSeedHandler(harness.UowFactory, harness.CompanyFilter, harness.Journal);
+            var handler = new ImportTenantSeedHandler(harness.UowFactory, harness.CompanyFilter, harness.ActorAccessor, harness.Journal, harness.Sender);
 
             var result = await handler.Handle(new ImportTenantSeedCommand { SeedDirectoryPath = dir }, CancellationToken.None);
+
+            // Aucun mapping-tva.json dans ce dossier → import de mapping non déclenché (drapeau faux, sender non sollicité).
+            result.TvaMappingImported.Should().BeFalse();
+            harness.Sender.LastRequest.Should().BeNull();
 
             result.ProfileImported.Should().BeTrue();
             result.FiscalImported.Should().BeTrue();
@@ -85,7 +92,7 @@ public sealed class SeedImportIntegrationTests
             await File.WriteAllTextAsync(Path.Combine(dir, "pa-accounts.json"), PaAccountsJson);
 
             var harness = new TenantSettingsHarness(_fixture, Guid.NewGuid(), Guid.NewGuid());
-            var handler = new ImportTenantSeedHandler(harness.UowFactory, harness.CompanyFilter, harness.Journal);
+            var handler = new ImportTenantSeedHandler(harness.UowFactory, harness.CompanyFilter, harness.ActorAccessor, harness.Journal, harness.Sender);
             var command = new ImportTenantSeedCommand { SeedDirectoryPath = dir };
 
             await handler.Handle(command, CancellationToken.None);
@@ -102,10 +109,158 @@ public sealed class SeedImportIntegrationTests
         }
     }
 
+    [Fact]
+    public async Task Import_With_Mapping_Seed_Dispatches_Mapping_Import_Command()
+    {
+        const string mappingJson = """
+            {
+              "mappingVersion": "tenant-seed-exemple-v1",
+              "validatedBy": "Table d'exemple — tests",
+              "validatedDate": null,
+              "defaultBehavior": "Block",
+              "rules": [
+                { "sourceRegimeCode": "NORMAL", "label": "Normal", "part": "Adjudication", "category": "S", "rateMode": "Fixed", "rateValue": 20 }
+              ]
+            }
+            """;
+
+        var dir = CreateSeedDir();
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(dir, "tenant-profile.json"), ProfileJson);
+            var mappingPath = Path.Combine(dir, "mapping-tva.json");
+            await File.WriteAllTextAsync(mappingPath, mappingJson);
+
+            var harness = new TenantSettingsHarness(_fixture, Guid.NewGuid(), Guid.NewGuid());
+            var handler = new ImportTenantSeedHandler(harness.UowFactory, harness.CompanyFilter, harness.ActorAccessor, harness.Journal, harness.Sender);
+
+            var result = await handler.Handle(new ImportTenantSeedCommand { SeedDirectoryPath = dir }, CancellationToken.None);
+
+            // Le point d'entrée OPS03 (import de seed) dispatche bien l'import de mapping TVA, avec le chemin
+            // du fichier présent dans le dossier de seed (item FIX01b), et reporte le résultat dans le drapeau.
+            result.TvaMappingImported.Should().BeTrue();
+            var dispatched = harness.Sender.LastRequest.Should().BeOfType<ImportMappingTableSeedCommand>().Subject;
+            dispatched.SeedFilePath.Should().Be(mappingPath);
+            dispatched.CompanyId.Should().Be(harness.CompanyId,
+                "le companyId résolu est propagé à l'import de table (plus de re-déduction ambiante au boot — FIX203a).");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Import_With_Explicit_CompanyId_Bypasses_The_Actor_CompanyFilter()
+    {
+        // Chemin amorçage / endpoint admin : aucun actor du tenant cible n'est établi. Un companyId
+        // explicite DOIT être utilisé directement (le filtre actor n'est jamais consulté) — sinon le
+        // 1er profil ne pourrait pas être créé (FIX01a).
+        var dir = CreateSeedDir();
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(dir, "tenant-profile.json"), ProfileJson);
+
+            var companyId = Guid.NewGuid();
+            var harness = new TenantSettingsHarness(_fixture, companyId, Guid.NewGuid());
+            var handler = new ImportTenantSeedHandler(harness.UowFactory, new ThrowingCompanyFilter(), harness.ActorAccessor, harness.Journal, harness.Sender);
+
+            var result = await handler.Handle(
+                new ImportTenantSeedCommand { SeedDirectoryPath = dir, CompanyId = companyId },
+                CancellationToken.None);
+
+            result.ProfileImported.Should().BeTrue();
+            (await harness.Queries.GetTenantProfile(companyId))!.Siren.Should().Be("123456782");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Import_With_Explicit_CompanyId_Threads_It_To_The_Mapping_Dispatch()
+    {
+        // Boot à froid (FIX203a) : avec un companyId explicite et SANS contexte de société ambiant (filtre
+        // qui échoue), l'import de mapping TVA dispatché porte ce MÊME companyId explicite — donc le handler
+        // de mapping n'a plus à re-déduire la société (qui manquait au démarrage, laissant la table jamais
+        // amorcée). Le filtre qui échoue prouve qu'aucune résolution ambiante n'intervient.
+        const string mappingJson = """
+            {
+              "mappingVersion": "tenant-seed-exemple-v1",
+              "validatedBy": "Table d'exemple — tests",
+              "validatedDate": null,
+              "defaultBehavior": "Block",
+              "rules": [
+                { "sourceRegimeCode": "NORMAL", "label": "Normal", "part": "Adjudication", "category": "S", "rateMode": "Fixed", "rateValue": 20 }
+              ]
+            }
+            """;
+
+        var dir = CreateSeedDir();
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(dir, "tenant-profile.json"), ProfileJson);
+            var mappingPath = Path.Combine(dir, "mapping-tva.json");
+            await File.WriteAllTextAsync(mappingPath, mappingJson);
+
+            var companyId = Guid.NewGuid();
+            var harness = new TenantSettingsHarness(_fixture, companyId, Guid.NewGuid());
+            var handler = new ImportTenantSeedHandler(harness.UowFactory, new ThrowingCompanyFilter(), harness.ActorAccessor, harness.Journal, harness.Sender);
+
+            var result = await handler.Handle(
+                new ImportTenantSeedCommand { SeedDirectoryPath = dir, CompanyId = companyId },
+                CancellationToken.None);
+
+            result.TvaMappingImported.Should().BeTrue();
+            var dispatched = harness.Sender.LastRequest.Should().BeOfType<ImportMappingTableSeedCommand>().Subject;
+            dispatched.SeedFilePath.Should().Be(mappingPath);
+            dispatched.CompanyId.Should().Be(companyId,
+                "le companyId explicite de l'amorçage est propagé à l'import de table (aucune dépendance au contexte ambiant).");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Import_With_CompanyId_Conflicting_With_Actor_Is_Rejected()
+    {
+        // Garde anti-injection (P2) : un companyId explicite qui CONTREDIT la société d'un acteur de
+        // tenant présent (chemin opérateur) est refusé — empêche un profil orphelin / une confusion de scope.
+        var dir = CreateSeedDir();
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(dir, "tenant-profile.json"), ProfileJson);
+
+            var actorCompanyId = Guid.NewGuid();
+            var harness = new TenantSettingsHarness(_fixture, actorCompanyId, Guid.NewGuid());
+            var handler = new ImportTenantSeedHandler(harness.UowFactory, harness.CompanyFilter, harness.ActorAccessor, harness.Journal, harness.Sender);
+
+            var act = async () => await handler.Handle(
+                new ImportTenantSeedCommand { SeedDirectoryPath = dir, CompanyId = Guid.NewGuid() },
+                CancellationToken.None);
+
+            await act.Should().ThrowAsync<ConflictException>();
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     private static string CreateSeedDir()
     {
         var dir = Path.Combine(Path.GetTempPath(), "liakont-seed-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         return dir;
+    }
+
+    /// <summary>Filtre de société qui échoue : prouve qu'un companyId explicite ne consulte jamais l'actor.</summary>
+    private sealed class ThrowingCompanyFilter : ICompanyFilter
+    {
+        public Guid GetRequiredCompanyId() =>
+            throw new InvalidOperationException("Le filtre de société ne doit pas être consulté quand un companyId explicite est fourni.");
     }
 }

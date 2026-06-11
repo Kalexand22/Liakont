@@ -1,0 +1,55 @@
+/* DocumentCountsBanner (WEB02) — pastilles de synthèse cliquables. Layout uniquement ;
+   les couleurs d'état viennent du DocumentStateBadge (design-system StatusBadge).
+   Issue GitHub #32 : pastilles compactes sur une seule ligne (nombre + badge côte à côte,
+   coins arrondis, transitions douces) au lieu de blocs carrés disparates empilant le
+   nombre au-dessus du libellé. */
+
+.doc-counts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.doc-counts__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.3125rem 0.875rem;
+    border: 1px solid var(--color-border, #d1d5db);
+    border-radius: 999px;
+    background: var(--color-surface, #fff);
+    color: inherit;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.doc-counts__chip:hover {
+    border-color: var(--color-primary, #2563eb);
+    background: var(--color-primary-50, #eff6ff);
+}
+
+.doc-counts__chip:focus-visible {
+    outline: 2px solid var(--color-primary, #2563eb);
+    outline-offset: 2px;
+}
+
+.doc-counts__chip--active {
+    border-color: var(--color-primary, #2563eb);
+    background: var(--color-primary-50, #eff6ff);
+    box-shadow: inset 0 0 0 1px var(--color-primary, #2563eb);
+}
+
+.doc-counts__value {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    line-height: 1;
+    /* Chiffres à chasse fixe : les pastilles ne « sautent » pas quand les compteurs changent. */
+    font-variant-numeric: tabular-nums;
+}
+
+.doc-counts__label {
+    font-size: 0.875rem;
+    color: var(--color-text-muted, #6b7280);
+}

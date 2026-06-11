@@ -76,6 +76,16 @@ ADR-0014 §4) : un document stagé n'est purgé que si son paquet d'archive est 
 terminal, abandon du traitement) ne sera JAMAIS purgé par `PurgeIfArchivedAsync`. En l'absence de politique
 de rétention, le staging croît de façon non bornée pour ces documents.
 
+**Sous-cas FIX07b (réhydratation au re-push) :** la réhydratation du staging perdu au re-push de l'agent
+(`IngestDocumentBatchHandler.RetryRangingIfNotRangedAsync`) ré-écrit un blob même pour un document déjà
+`Issued` dont le staging a été légitimement purgé — uniquement en reprise après PERTE D'ÉTAT de l'agent
+(re-scan/re-push d'un document terminal). Sans effet fonctionnel (aucun événement ne subsiste → ni re-range
+ni ré-émission ; le document reste `Issued`), mais ce blob ne repassera pas par la purge du SEND : il relève
+de la MÊME dette « croissance non bornée » (rare, idempotent, borné par document). Le borner à l'intake
+exigerait la connaissance du cycle de vie / présence WORM dans le chemin chaud et risquerait de re-casser la
+réhydratation légitime des états pré-émission (Detected/ReadyToSend/Blocked, INV-STAGING-007) — il est donc
+laissé à la politique de rétention PIP01 ci-dessous.
+
 **Prérequis PIP01 (propriétaire du cycle de vie) :** définir et appliquer une politique bornant cette
 croissance (purge sur échec terminal OU balayage d'expiration borné). La durée de rétention et les critères
 d'éligibilité DOIVENT être issus de `docs/conception/` et ne sont PAS définis ici.

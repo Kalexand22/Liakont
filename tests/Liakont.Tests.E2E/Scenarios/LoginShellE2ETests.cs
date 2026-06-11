@@ -35,9 +35,9 @@ public sealed class LoginShellE2ETests : KeycloakBaseE2ETest
         (await shell.Shell.IsVisibleAsync()).Should().BeTrue(
             "le shell .erp-shell s'affiche pour un utilisateur authentifié (layout par défaut ErpShellLayout)");
 
-        // L'accueil protégé "/" affiche le titre de l'application.
-        var heading = Page.GetByRole(AriaRole.Heading, new() { Name = "Liakont" });
+        // L'accueil protégé "/" est désormais le tableau de bord (WEB01).
+        var heading = Page.GetByRole(AriaRole.Heading, new() { Name = "Tableau de bord" });
         (await heading.IsVisibleAsync()).Should().BeTrue(
-            "la page d'accueil protégée affiche le titre « Liakont » après authentification");
+            "la page d'accueil protégée affiche le tableau de bord après authentification");
     }
 }

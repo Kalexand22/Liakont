@@ -28,6 +28,14 @@ public sealed class MappingCoverageRule : IDocumentRule
     public string Code => "MAPPING_COVERAGE";
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Dépend du mapping : elle CONSTATE l'absence de catégorie résolue. L'évaluer sur un document non encore
+    /// mappé la ferait déclencher pour toute ligne (régime non résolu) — un motif redondant avec le blocage de
+    /// mapping lui-même. Exclue de l'agrégation des motifs indépendants (FIX06).
+    /// </remarks>
+    public bool DependsOnTvaMapping => true;
+
+    /// <inheritdoc />
     public Task<IReadOnlyList<ValidationIssue>> ValidateAsync(DocumentValidationContext context, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(context);

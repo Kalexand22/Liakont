@@ -4,7 +4,9 @@ using System.Globalization;
 
 internal static class SupportedCultures
 {
-    public static readonly string DefaultCulture = "en";
+    // « fr » par défaut : Liakont est un produit de conformité fiscale FRANÇAIS (messages opérateur
+    // en français, CLAUDE.md n°12) — décision opérateur 2026-06-10 (bug-inbox console-web).
+    public static readonly string DefaultCulture = "fr";
 
     private static readonly CultureInfo[] Cultures =
     [

@@ -1,0 +1,66 @@
+@namespace Liakont.Host.Components
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* Dialogue de RÉVOCATION d'un agent (WEB09). Composant PUR : il affiche la conséquence EXPLICITE et délègue
+ * l'action au parent (OnConfirm). 100 % français. *@
+
+@if (IsOpen)
+{
+    <div class="liakont-agent-dialog" role="dialog" aria-label="Révoquer l'agent" data-testid="agent-revoke-dialog">
+        <div class="liakont-agent-dialog__panel">
+            <h2 class="liakont-agent-dialog__title">Révoquer l'agent « @AgentName »</h2>
+            <div class="liakont-agent-dialog__alert" role="alert" data-testid="agent-revoke-consequence">
+                L'agent « @AgentName » ne pourra plus pousser de documents : sa clé est immédiatement refusée à
+                l'ingestion. Cette action est définitive — pour réutiliser ce poste, enregistrez un nouvel agent.
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+            {
+                <div class="liakont-agent-dialog__alert" role="alert" data-testid="agent-revoke-error">@ErrorMessage</div>
+            }
+
+            <div class="liakont-agent-dialog__actions">
+                <StratumButton Text="@(Busy ? "Révocation…" : "Révoquer l'agent")"
+                               Variant="ButtonVariant.Danger"
+                               Size="ButtonSize.Small"
+                               Disabled="@Busy"
+                               OnClick="@(() => OnConfirm.InvokeAsync())"
+                               TestId="agent-revoke-confirm" />
+                <StratumButton Text="Annuler"
+                               Variant="ButtonVariant.Secondary"
+                               Outline
+                               Size="ButtonSize.Small"
+                               Disabled="@Busy"
+                               OnClick="@(() => OnCancel.InvokeAsync())"
+                               TestId="agent-revoke-cancel" />
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary><c>true</c> quand le dialogue est ouvert.</summary>
+    [Parameter]
+    public bool IsOpen { get; set; }
+
+    /// <summary>Nom de l'agent ciblé (affiché dans la conséquence — CLAUDE.md n°12).</summary>
+    [Parameter]
+    public string AgentName { get; set; } = string.Empty;
+
+    /// <summary>Action en cours (désactive les boutons).</summary>
+    [Parameter]
+    public bool Busy { get; set; }
+
+    /// <summary>Message d'erreur français à afficher, ou <c>null</c>.</summary>
+    [Parameter]
+    public string? ErrorMessage { get; set; }
+
+    /// <summary>Déclenché à la confirmation de la révocation.</summary>
+    [Parameter]
+    public EventCallback OnConfirm { get; set; }
+
+    /// <summary>Déclenché à l'annulation.</summary>
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+}

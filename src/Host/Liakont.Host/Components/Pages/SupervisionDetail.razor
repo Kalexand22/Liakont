@@ -1,0 +1,235 @@
+@page "/supervision/{TenantId}"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = LiakontPermissions.Supervision)]
+@using System.Globalization
+@using Microsoft.Extensions.Logging
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.Abstractions.Security
+@using Stratum.Common.UI.Models
+@using Liakont.Host.Security
+@using Liakont.Host.Supervision
+@using Liakont.Modules.Supervision.Contracts
+@using Liakont.Modules.Supervision.Contracts.DTOs
+@inject ISupervisionDashboardQueries Dashboard
+@inject IActorContextAccessor ActorContext
+@inject ILogger<SupervisionDetail> Logger
+
+<PageTitle>Supervision — Liakont</PageTitle>
+
+<p class="supervision-detail__back">
+    <a href="/supervision" data-testid="supervision-detail-back">← Retour à la supervision</a>
+</p>
+
+@* Témoin de vie du dead-man's-switch (FIX210, F12 §5.1) : une supervision muette est rendue visible. *@
+<SupervisionLivenessBanner />
+
+@if (_loadFailed)
+{
+    <div role="alert" data-testid="supervision-detail-error">
+        Impossible de charger la supervision de ce tenant pour le moment. Réessayez plus tard.
+    </div>
+}
+else if (_detail is null)
+{
+    <h1>Tenant inconnu</h1>
+    <p data-testid="supervision-detail-notfound">
+        Aucun tenant actif ne correspond à « @TenantId ».
+    </p>
+}
+else
+{
+    <h1 data-testid="supervision-detail-title">Supervision — @_detail.DisplayName</h1>
+
+    @if (_ackFailed)
+    {
+        <div role="alert" data-testid="supervision-detail-ack-error">
+            L'acquittement de l'alerte n'a pas pu être enregistré. Réessayez ; si le problème persiste, vérifiez que l'alerte est toujours active.
+        </div>
+    }
+
+    @* ── Compteurs de documents (périmètre du tenant) ── *@
+    <div class="supervision-detail__counts" data-testid="supervision-detail-counts">
+        <span class="supervision-detail__count" data-testid="supervision-detail-blocked">
+            Bloqués : @_detail.BlockedDocumentCount
+        </span>
+        <span class="supervision-detail__count" data-testid="supervision-detail-rejected">
+            Rejetés PA : @_detail.RejectedByPaDocumentCount
+        </span>
+        <span class="supervision-detail__count" data-testid="supervision-detail-pending">
+            En attente : @_detail.PendingDocumentCount
+        </span>
+    </div>
+
+    @* ── État des agents du tenant (dernier heartbeat + version ; PAS de taille de file — producteur
+         gelé SUP01c, ne pas fabriquer la donnée). ── *@
+    <h2>Agents</h2>
+    @if (_detail.Agents.Count == 0)
+    {
+        <p data-testid="supervision-detail-agents-empty">Aucun agent enregistré pour ce tenant.</p>
+    }
+    else
+    {
+        <ul class="supervision-detail__agents" data-testid="supervision-detail-agents">
+            @foreach (var agent in _detail.Agents)
+            {
+                <li data-testid="supervision-detail-agent">
+                    <span class="supervision-detail__agent-name">@agent.Name</span>
+                    @if (agent.IsRevoked)
+                    {
+                        <span class="supervision-detail__agent-revoked">(révoqué)</span>
+                    }
+                    <span class="supervision-detail__agent-version">
+                        version : @(agent.LastAgentVersion ?? "inconnue")
+                    </span>
+                    <span class="supervision-detail__agent-seen">
+                        dernier heartbeat : @(agent.LastSeenAtUtc is { } seen
+                            ? seen.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr)
+                            : "jamais vu")
+                    </span>
+                </li>
+            }
+        </ul>
+    }
+
+    @* ── Alertes du tenant (actives + historique récent). Acquittement = quick-action sur une alerte
+         active non encore acquittée. Gabarit DeclaredListPage (aucune grille « maison »). ── *@
+    <h2>Alertes</h2>
+    <DeclaredListPage @key="_loadEpoch"
+                      TItem="AlertDto"
+                      Title="Alertes"
+                      TestId="supervision-alerts"
+                      LoadItems="LoadAlertsAsync"
+                      DetailUrl="@(_ => $"/supervision/{TenantId}")"
+                      ColumnRegistry="_registry"
+                      ColumnTemplates="_columnTemplates"
+                      GridKey="Liakont.Supervision.Alerts"
+                      RowActions="_rowActions"
+                      AriaLabel="Alertes du tenant"
+                      DefaultSortColumn="TriggeredUtc"
+                      DefaultSortDirection="SortDirection.Descending"
+                      SearchPlaceholder="Rechercher une alerte… (raccourci : /)">
+        <EmptyContent>
+            <p data-testid="supervision-alerts-empty">Aucune alerte récente pour ce tenant.</p>
+        </EmptyContent>
+    </DeclaredListPage>
+}
+
+@code {
+    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+
+    [Parameter]
+    public string TenantId { get; set; } = default!;
+
+    private readonly SupervisionAlertColumnRegistry _registry = new();
+
+    private bool _loadFailed;
+    private bool _ackFailed;
+    private TenantSupervisionDetailDto? _detail;
+    private IReadOnlyList<AlertDto> _alerts = [];
+    private int _loadEpoch;
+
+    private readonly IReadOnlyList<GridRowAction<AlertDto>> _rowActions;
+    private readonly Dictionary<string, RenderFragment<AlertDto>> _columnTemplates;
+
+    public SupervisionDetail()
+    {
+        _rowActions =
+        [
+            new GridRowAction<AlertDto>(
+                Id: "acknowledge",
+                Label: "Acquitter",
+                Icon: "check",
+                IsQuickAction: true,
+                // Acquittable uniquement si l'alerte est active ET pas déjà acquittée.
+                IsEnabled: alert => alert.IsActive && alert.AcknowledgedBy is null,
+                Callback: AcknowledgeAsync),
+        ];
+
+        _columnTemplates = new Dictionary<string, RenderFragment<AlertDto>>
+        {
+            ["Severity"] = alert => __builder =>
+            {
+                __builder.AddContent(0, SupervisionDisplay.SeverityLabel(alert.Severity));
+            },
+            ["Detail"] = alert => __builder =>
+            {
+                __builder.AddContent(0, alert.Detail ?? "—");
+            },
+            ["TriggeredUtc"] = alert => __builder =>
+            {
+                __builder.AddContent(0, alert.TriggeredUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr));
+            },
+            ["ResolvedUtc"] = alert => __builder =>
+            {
+                __builder.AddContent(0, alert.ResolvedUtc is { } resolved
+                    ? resolved.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr)
+                    : "Active");
+            },
+            ["AcknowledgedBy"] = alert => __builder =>
+            {
+                __builder.AddContent(0, alert.AcknowledgedBy ?? "—");
+            },
+        };
+    }
+
+    protected override async Task OnParametersSetAsync() => await LoadAsync();
+
+    private Task<IReadOnlyList<AlertDto>> LoadAlertsAsync() => Task.FromResult(_alerts);
+
+    private async Task LoadAsync()
+    {
+        // Repart d'un état propre : un bandeau d'échec d'acquittement ne doit pas survivre à un
+        // rechargement (la page de détail est une route réutilisée d'un tenant à l'autre).
+        _ackFailed = false;
+        try
+        {
+            _detail = await Dashboard.GetTenantDetailAsync(TenantId);
+            _alerts = _detail?.RecentAlerts ?? [];
+            _loadFailed = false;
+            _loadEpoch++;
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load supervision detail for tenant {TenantId}.", TenantId);
+        }
+    }
+
+    private async Task AcknowledgeAsync(AlertDto alert)
+    {
+        _ackFailed = false;
+        try
+        {
+            bool ok = await Dashboard.AcknowledgeAsync(TenantId, alert.Id, OperatorIdentity());
+            if (ok)
+            {
+                _ackFailed = false;
+                await LoadAsync();
+            }
+            else
+            {
+                _ackFailed = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to acknowledge alert {AlertId} for tenant {TenantId}.", alert.Id, TenantId);
+            _ackFailed = true;
+        }
+        finally
+        {
+            // L'acquittement est déclenché par la quick-action de la grille enfant (DeclaredListPage) :
+            // Blazor re-rend l'enfant, pas cette page. Forcer le re-rendu pour que le bandeau d'échec
+            // (ou l'écran rechargé) soit réellement visible pour l'opérateur.
+            StateHasChanged();
+        }
+    }
+
+    // Identité opérateur journalisée avec l'acquittement (nom affichable, à défaut l'email, à défaut l'id).
+    private string OperatorIdentity()
+    {
+        var actor = ActorContext.Current;
+        return actor.DisplayName ?? actor.Email ?? actor.UserId.ToString();
+    }
+}

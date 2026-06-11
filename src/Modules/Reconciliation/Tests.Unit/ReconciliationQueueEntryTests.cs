@@ -77,4 +77,49 @@ public sealed class ReconciliationQueueEntryTests
 
         act.Should().Throw<ArgumentException>();
     }
+
+    [Fact]
+    public void RejectProposal_OnPendingProposal_BecomesOrphanWithoutProposedDocument()
+    {
+        var entry = ReconciliationQueueEntry.PendingProposal("p1", "doc.pdf", DocId, "date+montant", Now);
+
+        entry.RejectProposal("comptable.test", Now.AddHours(1));
+
+        entry.Status.Should().Be(ReconciliationStatus.Orphan);
+        entry.ProposedDocumentId.Should().BeNull();
+        entry.Strategy.Should().BeNull();
+        entry.Confidence.Should().BeNull();
+        entry.OperatorIdentity.Should().Be("comptable.test");
+        entry.Detail.Should().Contain("rejetée");
+    }
+
+    [Fact]
+    public void RejectProposal_OnOrphan_Throws()
+    {
+        var entry = ReconciliationQueueEntry.Orphan("p1", "scan.pdf", "orphelin", Now);
+
+        Action act = () => entry.RejectProposal("comptable.test", Now.AddHours(1));
+
+        act.Should().Throw<InvalidOperationException>("un orphelin n'a aucune correspondance à rejeter");
+    }
+
+    [Fact]
+    public void RejectProposal_OnReconciledEntry_Throws()
+    {
+        var entry = ReconciliationQueueEntry.AutoReconciled("p1", "FAC.pdf", DocId, MatchStrategy.FileName, "auto", Now);
+
+        Action act = () => entry.RejectProposal("comptable.test", Now.AddHours(1));
+
+        act.Should().Throw<InvalidOperationException>("un rapprochement effectué ne se défait pas");
+    }
+
+    [Fact]
+    public void RejectProposal_WithoutOperator_Throws()
+    {
+        var entry = ReconciliationQueueEntry.PendingProposal("p1", "doc.pdf", DocId, "date+montant", Now);
+
+        Action act = () => entry.RejectProposal("  ", Now);
+
+        act.Should().Throw<ArgumentException>();
+    }
 }

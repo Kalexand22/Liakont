@@ -6,6 +6,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Liakont.Modules.Documents.Application;
+using Liakont.Modules.Documents.Contracts.DTOs;
+using Liakont.Modules.Documents.Contracts.Lifecycle;
+using Liakont.Modules.Documents.Contracts.Queries;
 using Liakont.Modules.Documents.Domain.Entities;
 using Liakont.Modules.Documents.Infrastructure.Lifecycle;
 using Xunit;
@@ -24,7 +27,7 @@ public sealed class DocumentLifecycleTests
     {
         var document = Detected();
         var unitOfWork = new FakeUnitOfWork(document);
-        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork));
+        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
 
         await lifecycle.BlockAsync(document.Id, "Table TVA non validée");
 
@@ -40,7 +43,7 @@ public sealed class DocumentLifecycleTests
     {
         var document = Detected();
         var unitOfWork = new FakeUnitOfWork(document);
-        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork));
+        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
 
         await lifecycle.MarkReadyToSendAsync(document.Id, "2026.1");
 
@@ -53,11 +56,90 @@ public sealed class DocumentLifecycleTests
     public async Task Unknown_Document_Throws_And_Does_Not_Commit()
     {
         var unitOfWork = new FakeUnitOfWork(document: null);
-        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork));
+        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
 
         var act = async () => await lifecycle.BlockAsync(Guid.NewGuid(), "motif");
 
         await act.Should().ThrowAsync<InvalidOperationException>();
+        unitOfWork.Committed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task RecordRecheckStillBlockedAsync_On_A_Blocked_Document_Appends_Operator_Event_And_Commits()
+    {
+        var document = Blocked();
+        var unitOfWork = new FakeUnitOfWork(document);
+        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
+
+        var outcome = await lifecycle.RecordRecheckStillBlockedAsync(document.Id, "Acheteur professionnel non confirmé.", "alice@cmp");
+
+        outcome.Should().Be(DocumentRecheckPersistOutcome.Persisted);
+        document.State.Should().Be(DocumentState.Blocked, "le recheck toujours bloqué ne change pas l'état");
+        unitOfWork.AppendedEvents.Should().ContainSingle().Which.EventType.Should().Be(DocumentEventType.DocumentRecheckedStillBlocked);
+        unitOfWork.AppendedEvents[0].OperatorIdentity.Should().Be("alice@cmp");
+        unitOfWork.Committed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task RecordRecheckStillBlockedAsync_When_No_Longer_Blocked_Returns_StateChanged_Without_Writing()
+    {
+        // FIX02 : un geste concurrent a sorti le document de Blocked sous le verrou → refus gracieux, AUCUN faux
+        // audit, AUCUN commit (et surtout pas une exception → pas de 500).
+        var document = Detected();
+        var unitOfWork = new FakeUnitOfWork(document);
+        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
+
+        var outcome = await lifecycle.RecordRecheckStillBlockedAsync(document.Id, "Motif.", "alice@cmp");
+
+        outcome.Should().Be(DocumentRecheckPersistOutcome.StateChanged);
+        unitOfWork.AppendedEvents.Should().BeEmpty("aucun fait d'audit n'est inscrit sur un document qui n'est plus bloqué");
+        unitOfWork.Committed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task MarkReadyToSendByRecheckAsync_On_A_Blocked_Document_Unblocks_With_Operator_And_Commits()
+    {
+        var document = Blocked();
+        var unitOfWork = new FakeUnitOfWork(document);
+        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
+
+        var outcome = await lifecycle.MarkReadyToSendByRecheckAsync(document.Id, "2026.1", "alice@cmp");
+
+        outcome.Should().Be(DocumentRecheckPersistOutcome.Persisted);
+        document.State.Should().Be(DocumentState.ReadyToSend);
+        document.MappingVersion.Should().Be("2026.1");
+        unitOfWork.AppendedEvents.Should().ContainSingle().Which.EventType.Should().Be(DocumentEventType.DocumentReadyToSend);
+        unitOfWork.AppendedEvents[0].OperatorIdentity.Should().Be("alice@cmp", "le déblocage par recheck est attribué à l'opérateur");
+        unitOfWork.Committed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task MarkReadyToSendByRecheckAsync_When_Already_Unblocked_Returns_StateChanged_Without_Writing()
+    {
+        // Course concurrente : un autre recheck a déjà débloqué le document (ReadyToSend) → ReadyToSend → ReadyToSend
+        // est illégal ; refus gracieux sans rien écrire, jamais une exception.
+        var document = Blocked();
+        document.MarkReadyToSend(At.AddMinutes(5));
+        var unitOfWork = new FakeUnitOfWork(document);
+        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
+
+        var outcome = await lifecycle.MarkReadyToSendByRecheckAsync(document.Id, "2026.1", "alice@cmp");
+
+        outcome.Should().Be(DocumentRecheckPersistOutcome.StateChanged);
+        unitOfWork.AppendedEvents.Should().BeEmpty();
+        unitOfWork.Committed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Recheck_Persistence_On_An_Unknown_Document_Returns_DocumentNotFound_Without_Throwing()
+    {
+        var unitOfWork = new FakeUnitOfWork(document: null);
+        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
+
+        (await lifecycle.RecordRecheckStillBlockedAsync(Guid.NewGuid(), "Motif.", "alice@cmp"))
+            .Should().Be(DocumentRecheckPersistOutcome.DocumentNotFound);
+        (await lifecycle.MarkReadyToSendByRecheckAsync(Guid.NewGuid(), "2026.1", "alice@cmp"))
+            .Should().Be(DocumentRecheckPersistOutcome.DocumentNotFound);
         unitOfWork.Committed.Should().BeFalse();
     }
 
@@ -76,6 +158,13 @@ public sealed class DocumentLifecycleTests
         payloadHash: "hash-1",
         detectedAtUtc: At);
 
+    private static Document Blocked()
+    {
+        var document = Detected();
+        document.MarkBlocked(At.AddMinutes(1), "Table TVA non validée");
+        return document;
+    }
+
     private sealed class FakeFactory : IDocumentUnitOfWorkFactory
     {
         private readonly IDocumentUnitOfWork _unitOfWork;
@@ -84,6 +173,36 @@ public sealed class DocumentLifecycleTests
 
         public Task<IDocumentUnitOfWork> BeginAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(_unitOfWork);
+    }
+
+    private sealed class FakeQueries : IDocumentQueries
+    {
+        public Task<DocumentDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<DocumentDto?> GetByNumberAsync(string documentNumber, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<DocumentSummaryDto>> GetByStateAsync(string state, int page, int pageSize, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<DocumentListResult> GetDocumentsAsync(DocumentListFilter filter, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<DocumentEventDto>> GetEventsAsync(Guid documentId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<ArchiveReferenceDto?> GetArchiveReferenceAsync(Guid documentId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<DocumentSummaryDto>> GetPotentiallySentDocumentsAsync(CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<DocumentStatusDto?> FindStatusBySourceReferenceAndPayloadHashAsync(string sourceReference, string payloadHash, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<DocumentSummaryDto?> GetOldestDocumentInStateAsync(string state, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     private sealed class FakeUnitOfWork : IDocumentUnitOfWork

@@ -3,12 +3,18 @@ namespace Liakont.Modules.TvaMapping.Tests.Integration;
 using FluentAssertions;
 using Liakont.Agent.Contracts.ContractTests;
 using Liakont.Agent.Contracts.Pivot;
+using Liakont.Modules.TvaMapping.Contracts.Commands;
 using Liakont.Modules.TvaMapping.Domain.Entities;
 using Liakont.Modules.TvaMapping.Domain.Mapping;
 using Liakont.Modules.TvaMapping.Domain.Services;
 using Liakont.Modules.TvaMapping.Infrastructure;
+using Liakont.Modules.TvaMapping.Infrastructure.Handlers.Commands;
 using Liakont.Modules.TvaMapping.Infrastructure.Seed;
+using Liakont.Modules.TvaMapping.Tests.Integration.Doubles;
 using Liakont.Modules.TvaMapping.Tests.Integration.Fixtures;
+using Stratum.Common.Abstractions.Exceptions;
+using Stratum.Common.Infrastructure.DataIsolation;
+using Stratum.Common.Testing;
 using Xunit;
 
 /// <summary>
@@ -34,6 +40,9 @@ public sealed class MappingSeedImportIntegrationTests
 
     private static string ExampleSeedPath =>
         Path.Combine(AppContext.BaseDirectory, "config", "exemples", "mapping-exemple.json");
+
+    private static string TenantSeedMappingPath =>
+        Path.Combine(AppContext.BaseDirectory, "config", "exemples", "tenant-seed", "mapping-tva.json");
 
     [Fact]
     public async Task ExampleSeed_Imports_And_Exposes_NonValidated_ExampleMarker()
@@ -203,6 +212,101 @@ public sealed class MappingSeedImportIntegrationTests
             "l'import dans un tenant ne crée aucune table pour un autre tenant (CLAUDE.md n°9).");
     }
 
+    [Fact]
+    public async Task ImportMappingTableSeedCommand_Imports_NonValidated_And_Is_Idempotent()
+    {
+        // Item FIX01b : la commande d'import (câblée au point d'entrée OPS03) amorce un tenant vierge
+        // depuis le fichier de seed, conserve le marqueur « table d'exemple » (NON VALIDÉE), et reste
+        // idempotente (un second import sur un tenant déjà paramétré est ignoré — pas d'écrasement).
+        var harness = new TvaMappingHarness(_fixture);
+        var companyId = Guid.NewGuid();
+        var accessor = new TestActorContextAccessor(Guid.NewGuid(), companyId);
+        var filter = new TestCompanyFilter(accessor);
+        var handler = new ImportMappingTableSeedHandler(harness.UowFactory, filter, accessor);
+
+        var first = await handler.Handle(
+            new ImportMappingTableSeedCommand { SeedFilePath = ExampleSeedPath }, CancellationToken.None);
+        first.Should().BeTrue("un tenant vierge importe la table de seed.");
+
+        var dto = await harness.Queries.GetMappingTable(companyId);
+        dto.Should().NotBeNull();
+        dto!.MappingVersion.Should().Be("exemple-v1");
+        dto.IsValidated.Should().BeFalse("la table d'exemple reste NON VALIDÉE (garde-fou PIP01).");
+        dto.ValidatedBy.Should().Be(ExampleMarker, "le marqueur « table d'exemple » est conservé.");
+
+        var second = await handler.Handle(
+            new ImportMappingTableSeedCommand { SeedFilePath = ExampleSeedPath }, CancellationToken.None);
+        second.Should().BeFalse("une table existante n'est jamais écrasée par un ré-import (idempotent).");
+    }
+
+    [Fact]
+    public async Task Shipped_TenantSeed_Mapping_File_Imports_And_Is_NonValidated()
+    {
+        var harness = new TvaMappingHarness(_fixture);
+        var companyId = Guid.NewGuid();
+        var accessor = new TestActorContextAccessor(Guid.NewGuid(), companyId);
+        var filter = new TestCompanyFilter(accessor);
+        var handler = new ImportMappingTableSeedHandler(harness.UowFactory, filter, accessor);
+
+        var imported = await handler.Handle(
+            new ImportMappingTableSeedCommand { SeedFilePath = TenantSeedMappingPath }, CancellationToken.None);
+        imported.Should().BeTrue();
+
+        var dto = await harness.Queries.GetMappingTable(companyId);
+        dto.Should().NotBeNull();
+        dto!.MappingVersion.Should().Be("tenant-seed-exemple-v1");
+        dto.IsValidated.Should().BeFalse("le fichier de seed livré est NON VALIDÉE (garde-fou PIP01).");
+        dto.Rules.Should().HaveCount(3);
+    }
+
+    [Fact]
+    public async Task ImportMappingTableSeedCommand_With_Explicit_CompanyId_Imports_Without_Ambient_Context()
+    {
+        // Scénario d'amorçage (FIX203a) : au démarrage, AUCUN contexte de société ambiant n'est posé
+        // (acteur boot sans tenant → CompanyId null) et le filtre de société échouerait s'il était
+        // consulté. Un companyId EXPLICITE doit suffire à importer la table — sinon le dispatch imbriqué
+        // de l'import de seed laissait la table TVA jamais amorcée (le seed partiel corrigé).
+        var harness = new TvaMappingHarness(_fixture);
+        var companyId = Guid.NewGuid();
+        var bootAccessor = new StubActorContextAccessor(); // acteur boot : CompanyId == null
+        var handler = new ImportMappingTableSeedHandler(harness.UowFactory, new ThrowingCompanyFilter(), bootAccessor);
+
+        var first = await handler.Handle(
+            new ImportMappingTableSeedCommand { SeedFilePath = ExampleSeedPath, CompanyId = companyId },
+            CancellationToken.None);
+        first.Should().BeTrue("un companyId explicite amorce la table sans dépendre du contexte ambiant.");
+
+        var dto = await harness.Queries.GetMappingTable(companyId);
+        dto.Should().NotBeNull("la table est scopée sur le companyId explicite fourni.");
+        dto!.IsValidated.Should().BeFalse("la table d'exemple reste NON VALIDÉE (garde-fou PIP01).");
+
+        // Ré-import (récupération / re-boot) : l'existant n'est JAMAIS écrasé — idempotent par composant.
+        var second = await handler.Handle(
+            new ImportMappingTableSeedCommand { SeedFilePath = ExampleSeedPath, CompanyId = companyId },
+            CancellationToken.None);
+        second.Should().BeFalse("une table déjà présente pour ce tenant n'est jamais réécrite (create-only).");
+    }
+
+    [Fact]
+    public async Task ImportMappingTableSeedCommand_With_CompanyId_Conflicting_With_Actor_Is_Rejected()
+    {
+        // Garde anti-injection cross-tenant (CLAUDE.md n°9/17) : un companyId explicite qui CONTREDIT la
+        // société d'un acteur de tenant présent (chemin opérateur) est refusé — empêche une table écrite
+        // dans le mauvais tenant. Aligné sur la garde de ImportTenantSeedHandler (FIX01a).
+        var harness = new TvaMappingHarness(_fixture);
+        var actorCompanyId = Guid.NewGuid();
+        var accessor = new TestActorContextAccessor(Guid.NewGuid(), actorCompanyId);
+        var handler = new ImportMappingTableSeedHandler(harness.UowFactory, new TestCompanyFilter(accessor), accessor);
+
+        var act = async () => await handler.Handle(
+            new ImportMappingTableSeedCommand { SeedFilePath = ExampleSeedPath, CompanyId = Guid.NewGuid() },
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<ConflictException>();
+        (await harness.Queries.GetMappingTable(actorCompanyId)).Should().BeNull(
+            "aucune table n'est écrite quand l'override de société est refusé.");
+    }
+
     private static async Task ImportAndPersistAsync(TvaMappingHarness harness, Guid companyId)
     {
         var table = await MappingTableSeedReader.ImportFileAsync(ExampleSeedPath, companyId);
@@ -218,5 +322,12 @@ public sealed class MappingSeedImportIntegrationTests
             connection, companyId, transaction: null, CancellationToken.None);
         table.Should().NotBeNull("la table importée doit être rechargeable depuis la base.");
         return table!;
+    }
+
+    /// <summary>Filtre de société qui échoue : prouve qu'un companyId explicite ne consulte jamais l'ambiant.</summary>
+    private sealed class ThrowingCompanyFilter : ICompanyFilter
+    {
+        public Guid GetRequiredCompanyId() =>
+            throw new InvalidOperationException("Le filtre de société ne doit pas être consulté quand un companyId explicite est fourni.");
     }
 }

@@ -130,15 +130,33 @@ internal static class CheckTestDoubles
     internal sealed class FakeValidationService : IValidationService
     {
         private readonly ValidationResult _result;
+        private readonly ValidationResult _mappingIndependentResult;
 
-        public FakeValidationService(ValidationResult result) => _result = result;
+        public FakeValidationService(ValidationResult result, ValidationResult? mappingIndependentResult = null)
+        {
+            _result = result;
 
+            // Par défaut, le sous-ensemble indépendant renvoie le même résultat (suffit aux tests qui ne
+            // distinguent pas les deux chemins) ; les tests FIX06 fournissent un résultat dédié.
+            _mappingIndependentResult = mappingIndependentResult ?? result;
+        }
+
+        /// <summary>Vrai si la validation COMPLÈTE (<see cref="ValidateAsync"/>) a été appelée.</summary>
         public bool WasCalled { get; private set; }
+
+        /// <summary>Vrai si la validation des seules règles INDÉPENDANTES du mapping (FIX06) a été appelée.</summary>
+        public bool MappingIndependentWasCalled { get; private set; }
 
         public Task<ValidationResult> ValidateAsync(DocumentValidationContext context, CancellationToken cancellationToken = default)
         {
             WasCalled = true;
             return Task.FromResult(_result);
+        }
+
+        public Task<ValidationResult> ValidateMappingIndependentAsync(DocumentValidationContext context, CancellationToken cancellationToken = default)
+        {
+            MappingIndependentWasCalled = true;
+            return Task.FromResult(_mappingIndependentResult);
         }
     }
 
@@ -166,6 +184,12 @@ internal static class CheckTestDoubles
             return Task.CompletedTask;
         }
 
+        public Task<DocumentRecheckPersistOutcome> MarkReadyToSendByRecheckAsync(Guid documentId, string mappingVersion, string operatorIdentity, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<DocumentRecheckPersistOutcome> RecordRecheckStillBlockedAsync(Guid documentId, string reevaluatedReason, string operatorIdentity, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task BeginSendingAsync(Guid documentId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
@@ -176,6 +200,15 @@ internal static class CheckTestDoubles
             throw new NotSupportedException();
 
         public Task MarkTechnicalErrorAsync(Guid documentId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<DocumentResolutionOutcome> ResolveManuallyAsync(Guid documentId, string reason, string operatorIdentity, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<DocumentResolutionOutcome> SupersedeAsync(Guid documentId, Guid replacementDocumentId, string operatorIdentity, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task ConfirmBuyerAsIndividualAsync(Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
     }
 
@@ -202,6 +235,15 @@ internal static class CheckTestDoubles
 
         public Task<DocumentStatusDto?> FindStatusBySourceReferenceAndPayloadHashAsync(string sourceReference, string payloadHash, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+
+        public Task<DocumentListResult> GetDocumentsAsync(DocumentListFilter filter, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<ArchiveReferenceDto?> GetArchiveReferenceAsync(Guid documentId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<DocumentSummaryDto?> GetOldestDocumentInStateAsync(string state, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     internal sealed class FakeTenantSettingsQueries : ITenantSettingsQueries
@@ -216,6 +258,8 @@ internal static class CheckTestDoubles
         }
 
         public Task<Guid?> GetCurrentCompanyId(CancellationToken ct = default) => Task.FromResult(_companyId);
+
+        public Task<bool> GetAuctionVerticalEnabled(Guid companyId, CancellationToken ct = default) => Task.FromResult(false);
 
         public Task<IReadOnlyList<PaAccountDto>> GetPaAccounts(Guid companyId, CancellationToken ct = default) =>
             Task.FromResult(_paAccounts);

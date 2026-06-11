@@ -66,4 +66,13 @@ internal sealed class FakeDocumentQueries : IDocumentQueries
 
     public Task<DocumentStatusDto?> FindStatusBySourceReferenceAndPayloadHashAsync(string sourceReference, string payloadHash, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException();
+
+    public Task<DocumentListResult> GetDocumentsAsync(DocumentListFilter filter, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
+
+    public Task<ArchiveReferenceDto?> GetArchiveReferenceAsync(Guid documentId, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
+
+    public Task<DocumentSummaryDto?> GetOldestDocumentInStateAsync(string state, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
 }

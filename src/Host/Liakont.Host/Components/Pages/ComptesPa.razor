@@ -1,0 +1,309 @@
+@page "/parametrage/comptes-pa"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using Liakont.Host.Components
+@using Liakont.Host.PaAccounts
+@using Liakont.Host.Security
+@using Liakont.Modules.TenantSettings.Contracts.DTOs
+@using Stratum.Common.Abstractions.Exceptions
+@using Stratum.Common.Abstractions.Security
+@inject IPaAccountConsoleService Service
+@inject IPaPublicationConsoleService PublicationService
+@inject IPermissionService Permissions
+@inject ILogger<ComptesPa> Logger
+
+<PageTitle>Comptes plateforme agréée — Liakont</PageTitle>
+
+<h1 class="visually-hidden">Comptes plateforme agréée</h1>
+
+@if (!_canManage)
+{
+    @* Écran de gestion de secrets (clé API PA) : réservé au paramétrage. Sans la permission, aucune donnée
+       n'est chargée et seul le message d'accès refusé est rendu (le lien depuis /parametrage mène ici, mais
+       la garde serveur reste l'unique contrôle du chemin console). *@
+    <div role="alert" data-testid="comptes-pa-denied">
+        Accès refusé : la gestion des comptes plateforme agréée requiert l'autorisation de paramétrage
+        (liakont.settings). Rapprochez-vous de l'administrateur de votre organisation.
+    </div>
+}
+else if (_loadFailed)
+{
+    <div role="alert" data-testid="comptes-pa-error">
+        Impossible de charger les comptes plateforme agréée pour le moment. Réessayez plus tard.
+    </div>
+}
+else if (_model is null)
+{
+    <p data-testid="comptes-pa-loading">Chargement…</p>
+}
+else
+{
+    <ComptesPaView Model="_model"
+                   EditorOpen="_editorOpen"
+                   EditorIsCreate="_editorIsCreate"
+                   EditorModel="_editorModel"
+                   EditorBusy="_editorBusy"
+                   EditorError="@_editorError"
+                   OnCreate="OpenCreate"
+                   OnEdit="OpenEdit"
+                   OnSubmitEditor="SubmitEditorAsync"
+                   OnCancelEditor="CancelEditor"
+                   DeactivateTarget="_deactivateTarget"
+                   DeactivateBusy="_deactivateBusy"
+                   DeactivateError="@_deactivateError"
+                   OnRequestDeactivate="RequestDeactivate"
+                   OnConfirmDeactivate="ConfirmDeactivateAsync"
+                   OnCancelDeactivate="CancelDeactivate" />
+
+    @if (_publicationState is not null)
+    {
+        <PaPublicationView State="_publicationState"
+                           Form="_publicationForm"
+                           FormOpen="_publicationFormOpen"
+                           Busy="_publicationBusy"
+                           Error="@_publicationError"
+                           SuccessMessage="@_publicationSuccess"
+                           OnOpen="OpenPublication"
+                           OnSubmit="SubmitPublicationAsync"
+                           OnCancel="CancelPublication" />
+    }
+}
+
+@code {
+    private PaAccountConsoleModel? _model;
+    private bool _loadFailed;
+
+    /// <summary>Permission de gestion de secrets (clé API PA) : conditionne TOUTE la page (accès + actions).</summary>
+    private bool _canManage;
+
+    // ── Éditeur (création / modification) ────────────────────────
+    private bool _editorOpen;
+    private bool _editorIsCreate;
+    private PaAccountFormModel? _editorModel;
+    private bool _editorBusy;
+    private string? _editorError;
+
+    // ── Désactivation ────────────────────────────────────────────
+    private PaAccountDto? _deactivateTarget;
+    private bool _deactivateBusy;
+    private string? _deactivateError;
+
+    // ── Publication du SIREN / transmission (FIX201) ─────────────
+    private PaPublicationState? _publicationState;
+    private PaPublicationFormModel _publicationForm = new();
+    private bool _publicationFormOpen;
+    private bool _publicationBusy;
+    private string? _publicationError;
+    private string? _publicationSuccess;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // La page gère des secrets (clé API PA) : sans liakont.settings, aucune donnée n'est chargée et seul
+        // le message d'accès refusé est rendu. Le contrôle s'exécute côté serveur (circuit Blazor Server),
+        // non falsifiable côté client — la lecture seule des comptes (sans clé) reste disponible sur /parametrage.
+        _canManage = Permissions.HasPermission(LiakontPermissions.Settings);
+        if (_canManage)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _model = await Service.GetModelAsync();
+            // État de publication du SIREN (lecture défensive côté service : ne lève pas si la PA est injoignable).
+            _publicationState = await PublicationService.GetStateAsync();
+            _loadFailed = false;
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the Liakont PA accounts management page.");
+        }
+    }
+
+    // ── Éditeur ───────────────────────────────────────────────────
+
+    private void OpenCreate()
+    {
+        _editorModel = new PaAccountFormModel();
+        _editorIsCreate = true;
+        _editorError = null;
+        _editorOpen = true;
+    }
+
+    private void OpenEdit(PaAccountDto account)
+    {
+        // La clé n'est JAMAIS pré-remplie (le DTO ne l'expose pas) : le champ reste vide = clé inchangée.
+        _editorModel = new PaAccountFormModel
+        {
+            PaAccountId = account.Id,
+            PluginType = account.PluginType,
+            Environment = account.Environment,
+            AccountIdentifiers = account.AccountIdentifiers,
+            ApiKey = null,
+        };
+        _editorIsCreate = false;
+        _editorError = null;
+        _editorOpen = true;
+    }
+
+    private void CancelEditor()
+    {
+        _editorOpen = false;
+        _editorError = null;
+        _editorModel = null;
+    }
+
+    private async Task SubmitEditorAsync()
+    {
+        if (_editorModel is null)
+        {
+            return;
+        }
+
+        _editorBusy = true;
+        _editorError = null;
+
+        try
+        {
+            if (_editorIsCreate)
+            {
+                await Service.CreateAsync(_editorModel);
+            }
+            else
+            {
+                await Service.UpdateAsync(_editorModel);
+            }
+
+            await LoadAsync();
+            _editorOpen = false;
+            _editorModel = null;
+        }
+        catch (Exception ex)
+        {
+            _editorError = MapMutationError(ex);
+        }
+        finally
+        {
+            _editorBusy = false;
+        }
+    }
+
+    // ── Désactivation ─────────────────────────────────────────────
+
+    private void RequestDeactivate(PaAccountDto account)
+    {
+        _deactivateTarget = account;
+        _deactivateError = null;
+    }
+
+    private void CancelDeactivate()
+    {
+        _deactivateTarget = null;
+        _deactivateError = null;
+    }
+
+    private async Task ConfirmDeactivateAsync()
+    {
+        if (_deactivateTarget is not { } target)
+        {
+            return;
+        }
+
+        _deactivateBusy = true;
+        _deactivateError = null;
+
+        try
+        {
+            await Service.DeactivateAsync(target.Id);
+            await LoadAsync();
+            _deactivateTarget = null;
+        }
+        catch (Exception ex)
+        {
+            _deactivateError = MapMutationError(ex);
+        }
+        finally
+        {
+            _deactivateBusy = false;
+        }
+    }
+
+    // ── Publication du SIREN / transmission (FIX201) ──────────────
+
+    private void OpenPublication()
+    {
+        // Date de début par défaut = aujourd'hui (publication immédiate) ; l'opérateur peut la changer.
+        _publicationForm = new PaPublicationFormModel
+        {
+            StartDate = DateOnly.FromDateTime(DateTime.UtcNow),
+        };
+        _publicationError = null;
+        _publicationSuccess = null;
+        _publicationFormOpen = true;
+    }
+
+    private void CancelPublication()
+    {
+        _publicationFormOpen = false;
+        _publicationError = null;
+    }
+
+    private async Task SubmitPublicationAsync()
+    {
+        _publicationBusy = true;
+        _publicationError = null;
+
+        try
+        {
+            var result = await PublicationService.PublishAsync(_publicationForm);
+            if (result.Success)
+            {
+                _publicationSuccess = result.Message;
+                _publicationFormOpen = false;
+                // Recharge l'état (et la liste) pour refléter « Publié depuis le … ».
+                await LoadAsync();
+            }
+            else
+            {
+                _publicationError = result.Message;
+            }
+        }
+        catch (Exception ex)
+        {
+            // Chemin inattendu (le service renvoie normalement un résultat typé) : message générique + trace.
+            Logger.LogError(ex, "Liakont PA SIREN publication failed unexpectedly from the console.");
+            _publicationError = "La publication a échoué. Réessayez plus tard.";
+        }
+        finally
+        {
+            _publicationBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Traduit une exception de mutation en message opérateur français (CLAUDE.md n°12). Seules les
+    /// exceptions métier ATTENDUES portent un message dédié : conflit d'unicité (plug-in, environnement) et
+    /// compte introuvable. Toute autre exception (chemin inatteignable depuis les listes fermées de l'UI)
+    /// est générique + tracée (jamais une stack technique exposée, jamais avalée en silence). La clé API
+    /// n'est jamais présente dans ces messages ni journalisée (CLAUDE.md n°10).
+    /// </summary>
+    private string MapMutationError(Exception ex)
+    {
+        switch (ex)
+        {
+            case ConflictException:
+                return "Un compte plateforme agréée existe déjà pour ce plug-in et cet environnement. "
+                    + "Modifiez le compte existant ou choisissez un autre environnement.";
+            case NotFoundException:
+                return "Ce compte plateforme agréée est introuvable (il a peut-être déjà été retiré). Actualisez la page.";
+            default:
+                Logger.LogError(ex, "PA account mutation failed from the console.");
+                return "L'opération a échoué. Réessayez plus tard.";
+        }
+    }
+}

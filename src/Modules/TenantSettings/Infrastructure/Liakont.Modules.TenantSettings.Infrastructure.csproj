@@ -15,6 +15,10 @@
     <ProjectReference Include="../Domain/Liakont.Modules.TenantSettings.Domain.csproj" />
     <ProjectReference Include="../Application/Liakont.Modules.TenantSettings.Application.csproj" />
     <ProjectReference Include="../Contracts/Liakont.Modules.TenantSettings.Contracts.csproj" />
+    <!-- Lecture composée de la console (API01c) : état de la table TVA + capacités déclarées des PA,
+         consommés via leurs Contracts uniquement (frontière inter-modules, CLAUDE.md n°14). -->
+    <ProjectReference Include="../../TvaMapping/Contracts/Liakont.Modules.TvaMapping.Contracts.csproj" />
+    <ProjectReference Include="../../Transmission/Contracts/Liakont.Modules.Transmission.Contracts.csproj" />
     <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

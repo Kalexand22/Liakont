@@ -1,0 +1,749 @@
+@page "/documents"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using System.Globalization
+@using System.Linq
+@using Microsoft.Extensions.Logging
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Liakont.Host.Documents
+@using Liakont.Host.Security
+@using Liakont.Modules.Documents.Contracts
+@using Liakont.Modules.Documents.Contracts.DTOs
+@using Microsoft.AspNetCore.WebUtilities
+@using Stratum.Common.Abstractions.Security
+@inject IDocumentConsoleQueries DocumentQueries
+@inject IDocumentSendActions SendActions
+@inject IDocumentControlActions ControlActions
+@inject IPermissionService Permissions
+@inject DocumentsListFilterMemory FilterMemory
+@inject NavigationManager Nav
+@inject ILogger<Documents> Logger
+
+<PageTitle>Documents — Liakont</PageTitle>
+
+<h1 class="visually-hidden">Documents</h1>
+
+@if (_loadFailed)
+{
+    <div role="alert" data-testid="documents-error">
+        Impossible de charger les documents pour le moment. Réessayez plus tard.
+    </div>
+}
+else
+{
+    @* ── Barre de filtres métier (F10 §2.1). Période = filtre SERVEUR (recharge le périmètre) ;
+       État/Type = filtres CLIENT appliqués en mémoire par DeclaredListPage ; la recherche libre
+       (n°, acheteur) est la recherche « / » intégrée de la grille. ── *@
+    <div class="doc-filters" data-testid="documents-filters">
+        <div class="doc-filters__group">
+            <label class="doc-filters__label" for="doc-from">Période</label>
+            <input id="doc-from" type="date" class="doc-filters__input" data-testid="documents-filter-from"
+                   value="@_from.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)"
+                   @onchange="OnFromChangedAsync" />
+            <span class="doc-filters__sep">→</span>
+            <input id="doc-to" type="date" class="doc-filters__input" data-testid="documents-filter-to"
+                   value="@_to.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)"
+                   @onchange="OnToChangedAsync" />
+        </div>
+
+        <div class="doc-filters__group">
+            <label class="doc-filters__label" for="doc-state">État</label>
+            <select id="doc-state" class="doc-filters__input" data-testid="documents-filter-state"
+                    value="@(_selectedState ?? string.Empty)" @onchange="OnStateChanged">
+                <option value="">Tous</option>
+                @foreach (var state in DocumentStateDisplay.CanonicalOrder)
+                {
+                    <option value="@state">@DocumentStateDisplay.For(state).Label</option>
+                }
+            </select>
+        </div>
+
+        <div class="doc-filters__group">
+            <label class="doc-filters__label" for="doc-type">Type</label>
+            <select id="doc-type" class="doc-filters__input" data-testid="documents-filter-type"
+                    value="@(_selectedType ?? string.Empty)" @onchange="OnTypeChanged">
+                <option value="">Tous</option>
+                @foreach (var type in _typeOptions)
+                {
+                    <option value="@type">@type</option>
+                }
+            </select>
+        </div>
+    </div>
+
+    @* ── Retour visuel des actions d'envoi (WEB05) : message opérateur en français (succès ou refus), avec
+       le numéro de document quand c'est pertinent (CLAUDE.md n°12). Masqué tant qu'aucune action n'a eu lieu. ── *@
+    @if (_sendFeedback is not null)
+    {
+        <div class="doc-send-feedback @(_sendFailed ? "doc-send-feedback--error" : "doc-send-feedback--ok")"
+             role="@(_sendFailed ? "alert" : "status")"
+             data-testid="documents-send-feedback">
+            @_sendFeedback
+        </div>
+    }
+
+    @* ── Retour visuel des actions de re-vérification en masse (FIX207) : compteurs « N débloqués, N restés
+       bloqués » ou message d'information. Bandeau DISTINCT de l'envoi (lifecycles indépendants), même style. ── *@
+    @if (_recheckFeedback is not null)
+    {
+        <div class="doc-send-feedback @(_recheckFailed ? "doc-send-feedback--error" : "doc-send-feedback--ok")"
+             role="@(_recheckFailed ? "alert" : "status")"
+             data-testid="documents-recheck-feedback">
+            @_recheckFeedback
+        </div>
+    }
+
+    @* ── Confirmation d'envoi (F10) : récapitulatif (nombre + montant total TTC) AVANT l'envoi, avec la mention
+       « action irréversible ». Partagée par « Tout envoyer » et « Envoyer la sélection » : dans les DEUX cas le
+       traitement d'envoi du tenant émet TOUS les documents prêts (ADR-0016), donc le récapitulatif est le même ;
+       en mode sélection, le texte rappelle EXPLICITEMENT que l'envoi dépasse la sélection. L'envoi réel n'est
+       déclenché qu'après confirmation explicite. ── *@
+    @if (_confirmSendVisible)
+    {
+        <div class="doc-send-confirm" role="dialog" aria-label="Confirmer l'envoi" data-testid="documents-send-all-confirm">
+            <p class="doc-send-confirm__text" data-testid="documents-send-all-confirm-text">
+                @if (_sendAllSummary is { Count: > 0 } summary)
+                {
+                    @if (_confirmMode == SendConfirmMode.Selection)
+                    {
+                        <text>L'envoi émet TOUS les documents prêts à l'envoi du tenant (@summary.Count document(s), montant total @summary.TotalGross.ToString("N2", Fr) €), pas seulement votre sélection. Cette action est IRRÉVERSIBLE.</text>
+                    }
+                    else
+                    {
+                        <text>Vous allez envoyer @summary.Count document(s) prêt(s) à l'envoi, pour un montant total de @summary.TotalGross.ToString("N2", Fr) €. Cette action est IRRÉVERSIBLE.</text>
+                    }
+                }
+                else
+                {
+                    <text>Aucun document n'est prêt à l'envoi : il n'y a rien à envoyer.</text>
+                }
+            </p>
+            <div class="doc-send-confirm__actions">
+                <StratumButton Text="@(_sendInProgress ? "Envoi en cours…" : "Confirmer l'envoi")"
+                               Variant="ButtonVariant.Primary"
+                               Size="ButtonSize.Small"
+                               Disabled="@(_sendInProgress || _sendAllSummary is null || _sendAllSummary.Count == 0)"
+                               OnClick="ConfirmSendAsync"
+                               TestId="documents-send-all-confirm-button" />
+                <StratumButton Text="Annuler"
+                               Variant="ButtonVariant.Secondary"
+                               Outline
+                               Size="ButtonSize.Small"
+                               Disabled="@_sendInProgress"
+                               OnClick="CancelSend"
+                               TestId="documents-send-all-cancel" />
+            </div>
+        </div>
+    }
+
+    @* ── Synthèse PERMANENTE par état (F10 §2.1). Périmètre = période + type (clic = filtre État).
+       Décision assumée : le bandeau est une synthèse de PÉRIMÈTRE (comme les compteurs du tableau de
+       bord WEB01), volontairement INDÉPENDANTE de la recherche libre « / » de la grille (un quick-find
+       transitoire, propriété interne du composant). La recherche libre n'altère donc pas les compteurs. ── *@
+    <DocumentCountsBanner Counts="_counts"
+                          SelectedState="_selectedState"
+                          OnStateSelected="OnStateSelectedFromBanner" />
+
+    @* ── Liste : gabarit DeclaredListPage (aucune grille « maison »). Rechargée (re-key) au changement
+       de période ; re-filtrée en mémoire (CustomFilterVersion) au changement d'état/type. ── *@
+    <DeclaredListPage @key="_periodEpoch"
+                      TItem="DocumentSummaryDto"
+                      Title="Documents"
+                      TestId="documents"
+                      LoadItems="LoadItemsAsync"
+                      DetailUrl="@(d => $"/documents/{d.Id}")"
+                      ColumnRegistry="_registry"
+                      ColumnTemplates="_columnTemplates"
+                      GridKey="Liakont.Documents"
+                      RowActions="_rowActions"
+                      BulkActions="_bulkActions"
+                      CustomFilterPredicate="MatchesCustomFilters"
+                      ActiveCustomFilterCount="_activeCustomFilterCount"
+                      CustomFilterVersion="_customFilterVersion"
+                      AriaLabel="Liste des documents"
+                      DefaultSortColumn="IssueDate"
+                      DefaultSortDirection="SortDirection.Descending"
+                      SearchPlaceholder="Rechercher un n° ou un acheteur… (raccourci : /)"
+                      AllowExport="true"
+                      ExportFormats="@(ExportFormat.Csv | ExportFormat.Excel | ExportFormat.Pdf)"
+                      ExportFileName="documents">
+        <ToolbarActions>
+            @* Actions d'envoi (WEB05), MASQUÉES sans la permission liakont.actions (lecture seule). « Envoyer
+               la sélection » est la barre d'actions groupées de la grille (multi-sélection) — proposée seulement
+               quand BulkActions est fourni (donc seulement aux porteurs de la permission). Ici : « Tout envoyer »
+               (avec confirmation) et « Lancer un traitement ». L'application réelle reste serveur (service
+               in-process tenant-scopé), aucune logique fiscale dans la page. *@
+            @if (_canAct)
+            {
+                <StratumButton Text="Tout envoyer"
+                               Variant="ButtonVariant.Secondary"
+                               Size="ButtonSize.Small"
+                               Disabled="@_sendInProgress"
+                               OnClick="OpenSendAllConfirmAsync"
+                               TestId="documents-send-all" />
+                <StratumButton Text="Lancer un traitement"
+                               Variant="ButtonVariant.Secondary"
+                               Size="ButtonSize.Small"
+                               Disabled="@_sendInProgress"
+                               OnClick="TriggerRunAsync"
+                               TestId="documents-trigger-run" />
+            }
+        </ToolbarActions>
+        <EmptyContent>
+            <p data-testid="documents-empty">Aucun document ne correspond à ces critères.</p>
+        </EmptyContent>
+    </DeclaredListPage>
+}
+
+@code {
+    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+
+    private readonly DocumentColumnRegistry _registry = new();
+
+    private bool _loadFailed;
+    private IReadOnlyList<DocumentSummaryDto> _periodSet = [];
+    private IReadOnlyDictionary<string, int> _counts = new Dictionary<string, int>();
+    private IReadOnlyList<string> _typeOptions = [];
+
+    private DateOnly _from;
+    private DateOnly _to;
+    private string? _selectedState;
+    private string? _selectedType;
+
+    // @key de la liste : incrémenté à chaque rechargement de période pour forcer DeclaredListPage à
+    // relire LoadItems (il ne recharge pas tout seul). Les filtres état/type passent par CustomFilterVersion.
+    private int _periodEpoch;
+    private int _customFilterVersion;
+    private int _activeCustomFilterCount;
+
+    // ── Actions d'envoi (WEB05) ── Permission d'action opérateur + état de l'UI d'envoi. Sans liakont.actions :
+    // _canAct=false, _bulkActions=null (pas de sélection ni de barre d'actions groupées), aucun bouton d'envoi.
+    private bool _canAct;
+    private IReadOnlyList<BulkActionConfig<DocumentSummaryDto>>? _bulkActions;
+    private bool _sendInProgress;
+    private string? _sendFeedback;
+    private bool _sendFailed;
+
+    // ── Re-vérification en masse (FIX207) ── Retour opérateur (compteurs), bandeau distinct de l'envoi.
+    private string? _recheckFeedback;
+    private bool _recheckFailed;
+    private bool _confirmSendVisible;
+    private SendConfirmMode _confirmMode = SendConfirmMode.None;
+    private IReadOnlyList<Guid> _pendingSelectionIds = [];
+    private DocumentSendSummary? _sendAllSummary;
+
+    /// <summary>Mode de la confirmation d'envoi partagée : « Tout envoyer » ou « Envoyer la sélection ».</summary>
+    private enum SendConfirmMode
+    {
+        None,
+        SendAll,
+        Selection,
+    }
+
+    private readonly IReadOnlyList<GridRowAction<DocumentSummaryDto>> _rowActions;
+    private readonly Dictionary<string, RenderFragment<DocumentSummaryDto>> _columnTemplates;
+
+    public Documents()
+    {
+        // [Voir] → page de détail `/documents/{id}` livrée par WEB03a (dépend de WEB02). Référence avant
+        // (forward-reference) ASSUMÉE, cohérente avec les liens de la nav maître posés par WEB01 (qui
+        // pointaient déjà vers /documents avant l'existence de cette page) : le routeur rend un NotFound
+        // gracieux jusqu'à la livraison de WEB03a. À distinguer des boutons d'envoi (actions MUTANTES)
+        // désactivés tant que WEB05 n'est pas branché — une action mutante ne doit jamais sembler active ;
+        // une navigation vers une page à venir est bénigne.
+        _rowActions =
+        [
+            new GridRowAction<DocumentSummaryDto>(
+                Id: "view",
+                Label: "Voir",
+                Icon: "visibility",
+                IsQuickAction: true,
+                Callback: item =>
+                {
+                    Nav.NavigateTo($"/documents/{item.Id}");
+                    return Task.CompletedTask;
+                }),
+        ];
+
+        _columnTemplates = new Dictionary<string, RenderFragment<DocumentSummaryDto>>
+        {
+            ["State"] = item => __builder =>
+            {
+                __builder.OpenComponent<DocumentStateBadge>(0);
+                __builder.AddAttribute(1, "State", item.State);
+                __builder.CloseComponent();
+            },
+            ["DocumentType"] = item => __builder =>
+            {
+                __builder.AddContent(0, DocumentTypeDisplay.For(item.DocumentType));
+            },
+            ["TotalGross"] = item => __builder =>
+            {
+                __builder.AddContent(0, item.TotalGross.ToString("N2", Fr));
+            },
+            ["IssueDate"] = item => __builder =>
+            {
+                __builder.AddContent(0, item.IssueDate.ToString("dd/MM/yyyy", Fr));
+            },
+            ["LastUpdateUtc"] = item => __builder =>
+            {
+                __builder.AddContent(0, item.LastUpdateUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr));
+            },
+        };
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Permission d'action opérateur (WEB05) : les actions d'envoi ne sont proposées qu'aux porteurs de
+        // liakont.actions. Sans cette permission, AUCUNE barre d'actions groupées (BulkActions null → pas de
+        // sélection) et aucun bouton d'envoi dans la barre d'outils — la page reste consultable en lecture.
+        _canAct = Permissions.HasPermission(LiakontPermissions.Actions);
+        if (_canAct)
+        {
+            _bulkActions =
+            [
+                new BulkActionConfig<DocumentSummaryDto>(
+                    Id: "send-selection",
+                    Label: "Envoyer la sélection",
+                    Permission: LiakontPermissions.Actions,
+                    PermissionDisabledReason: "La permission « actions » (liakont.actions) est requise pour envoyer.",
+                    // L'action OUVRE la confirmation (envoi fiscal irréversible) : elle n'exécute pas l'envoi au
+                    // clic. SuppressSuccessToast évite le toast « traité(s) » générique de la barre groupée, qui
+                    // serait trompeur avant la confirmation (le retour réel passe par le bandeau après confirmation).
+                    Execute: OpenSelectionConfirmAsync,
+                    SuppressSuccessToast: true),
+                // FIX207 — re-vérification en masse dans la barre de sélection. SuppressSuccessToast : le retour réel
+                // (compteurs « N débloqués, N restés bloqués ») passe par le bandeau de re-vérification, pas le toast.
+                new BulkActionConfig<DocumentSummaryDto>(
+                    Id: "recheck-selection",
+                    Label: "Revérifier la sélection",
+                    Permission: LiakontPermissions.Actions,
+                    PermissionDisabledReason: "La permission « actions » (liakont.actions) est requise pour re-vérifier.",
+                    Execute: RecheckSelectionAsync,
+                    SuppressSuccessToast: true),
+                // « Revérifier tout » est GLOBALE (RequiresSelection: false) : accessible sans sélection (tous les
+                // bloqués du périmètre courant), conformément à la décision opérateur E4.
+                new BulkActionConfig<DocumentSummaryDto>(
+                    Id: "recheck-all",
+                    Label: "Revérifier tout",
+                    Permission: LiakontPermissions.Actions,
+                    PermissionDisabledReason: "La permission « actions » (liakont.actions) est requise pour re-vérifier.",
+                    Execute: _ => RecheckAllBlockedAsync(),
+                    SuppressSuccessToast: true,
+                    RequiresSelection: false),
+            ];
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        _from = new DateOnly(today.Year, today.Month, 1);
+        _to = _from.AddMonths(1).AddDays(-1);
+        RestoreFilters();
+        await ReloadPeriodAsync();
+        // Le type restauré a pu être réinitialisé par RecomputeTypeOptions (absent du périmètre) :
+        // le compteur de filtres actifs est calculé APRÈS le chargement.
+        _activeCustomFilterCount = (_selectedState is null ? 0 : 1) + (_selectedType is null ? 0 : 1);
+    }
+
+    private Task<IReadOnlyList<DocumentSummaryDto>> LoadItemsAsync() => Task.FromResult(_periodSet);
+
+    private async Task ReloadPeriodAsync()
+    {
+        if (await FetchPeriodSetAsync())
+        {
+            // Re-key la liste (DeclaredListPage relit LoadItems) au changement de PÉRIMÈTRE serveur (période).
+            _periodEpoch++;
+        }
+    }
+
+    /// <summary>
+    /// Recharge le périmètre (période) du tenant et recalcule types + compteurs, SANS re-keyer la liste. Renvoie
+    /// <c>true</c> en cas de succès. <see cref="ReloadPeriodAsync"/> l'appelle puis re-key (changement de période) ;
+    /// la re-vérification en masse (FIX207) l'appelle pour refléter les déblocages alors que la barre de sélection
+    /// recharge déjà le gabarit — évitant un double rechargement.
+    /// </summary>
+    private async Task<bool> FetchPeriodSetAsync()
+    {
+        try
+        {
+            _periodSet = await DocumentQueries.GetDocumentsInPeriodAsync(_from, _to);
+            _loadFailed = false;
+            RecomputeTypeOptions();
+            RecomputeCounts();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the Liakont documents list for the current period.");
+            return false;
+        }
+    }
+
+    private async Task OnFromChangedAsync(ChangeEventArgs e)
+    {
+        if (TryParseDate(e.Value, out var date))
+        {
+            _from = date;
+            await ReloadPeriodAsync();
+            PersistFilters();
+        }
+    }
+
+    private async Task OnToChangedAsync(ChangeEventArgs e)
+    {
+        if (TryParseDate(e.Value, out var date))
+        {
+            _to = date;
+            await ReloadPeriodAsync();
+            PersistFilters();
+        }
+    }
+
+    private void OnStateChanged(ChangeEventArgs e)
+    {
+        _selectedState = NormalizeSelection(e.Value as string);
+        ApplyCustomFilters();
+    }
+
+    private void OnTypeChanged(ChangeEventArgs e)
+    {
+        _selectedType = NormalizeSelection(e.Value as string);
+        // Le type change le périmètre des compteurs (les compteurs honorent période + type, pas l'état).
+        RecomputeCounts();
+        ApplyCustomFilters();
+    }
+
+    private void OnStateSelectedFromBanner(string? state)
+    {
+        _selectedState = state;
+        ApplyCustomFilters();
+    }
+
+    private void ApplyCustomFilters()
+    {
+        _activeCustomFilterCount = (_selectedState is null ? 0 : 1) + (_selectedType is null ? 0 : 1);
+        _customFilterVersion++;
+        PersistFilters();
+        StateHasChanged();
+    }
+
+    // ── Persistance des filtres (issue GitHub #33) ── Deux supports complémentaires : l'URL (query
+    // string — lien partageable, bouton Précédent du navigateur) et la mémoire de circuit (le « Retour
+    // à la liste » de la fiche détail est un lien statique /documents sans query). L'URL est PRIORITAIRE
+    // à la restauration. Restauration tolérante : valeur illisible → ignorée (une URL retouchée à la
+    // main ne casse jamais la page).
+
+    /// <summary>Restaure les filtres depuis l'URL, sinon depuis la mémoire de circuit, sinon les défauts.</summary>
+    private void RestoreFilters()
+    {
+        var query = QueryHelpers.ParseQuery(new Uri(Nav.Uri).Query);
+        var restoredFromUrl = false;
+
+        if (query.TryGetValue("du", out var duRaw) && TryParseDate(duRaw.ToString(), out var du))
+        {
+            _from = du;
+            restoredFromUrl = true;
+        }
+
+        if (query.TryGetValue("au", out var auRaw) && TryParseDate(auRaw.ToString(), out var au))
+        {
+            _to = au;
+            restoredFromUrl = true;
+        }
+
+        if (query.TryGetValue("etat", out var etatRaw))
+        {
+            var etat = etatRaw.ToString();
+            // Seule une clé d'état CONNUE est restaurée (l'URL est une entrée utilisateur).
+            if (DocumentStateDisplay.CanonicalOrder.Contains(etat, StringComparer.Ordinal))
+            {
+                _selectedState = etat;
+            }
+
+            restoredFromUrl = true;
+        }
+
+        if (query.TryGetValue("type", out var typeRaw))
+        {
+            // Libellé d'affichage : validé contre le périmètre par RecomputeTypeOptions après chargement.
+            _selectedType = NormalizeSelection(typeRaw.ToString());
+            restoredFromUrl = true;
+        }
+
+        if (restoredFromUrl)
+        {
+            // Aligne la mémoire de circuit sur l'URL : après l'ouverture d'un lien partagé, le
+            // « Retour à la liste » de la fiche (lien statique /documents) retrouve aussi les filtres.
+            FilterMemory.Remember(_from, _to, _selectedState, _selectedType);
+            return;
+        }
+
+        if (FilterMemory.From is { } memorizedFrom && FilterMemory.To is { } memorizedTo)
+        {
+            _from = memorizedFrom;
+            _to = memorizedTo;
+            _selectedState = FilterMemory.State;
+            _selectedType = FilterMemory.TypeLabel;
+        }
+    }
+
+    /// <summary>
+    /// Publie les filtres courants dans la mémoire de circuit et dans l'URL (replace : pas d'entrée
+    /// d'historique par changement de filtre). Les autres paramètres de query (dont les « filter » de
+    /// la grille DeclaredListPage) sont préservés par GetUriWithQueryParameters.
+    /// </summary>
+    private void PersistFilters()
+    {
+        FilterMemory.Remember(_from, _to, _selectedState, _selectedType);
+
+        var target = Nav.GetUriWithQueryParameters(new Dictionary<string, object?>
+        {
+            ["du"] = _from.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            ["au"] = _to.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            ["etat"] = _selectedState,
+            ["type"] = _selectedType,
+        });
+
+        if (!string.Equals(target, Nav.Uri, StringComparison.Ordinal))
+        {
+            Nav.NavigateTo(target, replace: true);
+        }
+    }
+
+    // Prédicat de filtre CLIENT appliqué par DeclaredListPage : état exact + type (par libellé d'affichage).
+    private bool MatchesCustomFilters(DocumentSummaryDto document)
+    {
+        if (_selectedState is not null && !string.Equals(document.State, _selectedState, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (_selectedType is not null
+            && !string.Equals(DocumentTypeDisplay.For(document.DocumentType), _selectedType, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    // Compteurs = synthèse par état du périmètre période FILTRÉ PAR TYPE (l'état est volontairement
+    // ignoré pour montrer la répartition de tous les états). Pure agrégation d'affichage.
+    private void RecomputeCounts()
+    {
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var document in _periodSet)
+        {
+            if (_selectedType is not null
+                && !string.Equals(DocumentTypeDisplay.For(document.DocumentType), _selectedType, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            counts[document.State] = counts.TryGetValue(document.State, out var n) ? n + 1 : 1;
+        }
+
+        _counts = counts;
+    }
+
+    private void RecomputeTypeOptions()
+    {
+        _typeOptions = _periodSet
+            .Select(d => DocumentTypeDisplay.For(d.DocumentType))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(label => label, StringComparer.CurrentCulture)
+            .ToList();
+
+        // Si le type sélectionné n'existe plus dans la nouvelle période, on retombe sur « Tous ».
+        if (_selectedType is not null && !_typeOptions.Contains(_selectedType, StringComparer.Ordinal))
+        {
+            _selectedType = null;
+            _activeCustomFilterCount = (_selectedState is null ? 0 : 1);
+        }
+    }
+
+    private static string? NormalizeSelection(string? value) =>
+        string.IsNullOrEmpty(value) ? null : value;
+
+    private static bool TryParseDate(object? raw, out DateOnly date)
+    {
+        // L'input HTML type=date émet toujours « yyyy-MM-dd » (format invariant).
+        return DateOnly.TryParseExact(raw as string, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
+    }
+
+    // ── Actions d'envoi (WEB05) ── La page orchestre l'UI (confirmation, retour) et délègue TOUTE l'action au
+    // service in-process IDocumentSendActions (publication du déclencheur tenant + audit, comme les endpoints
+    // API02a / runs-trigger) — aucune logique fiscale ni machine à états ici (CLAUDE.md n°19).
+
+    /// <summary>Ouvre la confirmation du « Tout envoyer » : récapitule d'abord les documents prêts (nombre + montant total).</summary>
+    private Task OpenSendAllConfirmAsync() => OpenSendConfirmAsync(SendConfirmMode.SendAll, selectionIds: []);
+
+    /// <summary>
+    /// Callback de la barre d'actions groupées (« Envoyer la sélection ») : OUVRE la confirmation (mémorise la
+    /// sélection ; l'envoi RÉEL n'a lieu qu'après confirmation, comme « Tout envoyer »). Per ADR-0016, l'envoi
+    /// dépasse la sélection (tout le tenant) — le récapitulatif et le texte de confirmation le disent explicitement.
+    /// </summary>
+    private Task OpenSelectionConfirmAsync(IReadOnlyList<DocumentSummaryDto> selected) =>
+        OpenSendConfirmAsync(SendConfirmMode.Selection, selected.Select(d => d.Id).ToList());
+
+    /// <summary>Ouvre la confirmation d'envoi (récapitulatif des documents prêts) dans le mode donné, sans rien déclencher.</summary>
+    private async Task OpenSendConfirmAsync(SendConfirmMode mode, IReadOnlyList<Guid> selectionIds)
+    {
+        _sendFeedback = null;
+        _sendFailed = false;
+        _confirmMode = mode;
+        _pendingSelectionIds = selectionIds;
+        try
+        {
+            _sendAllSummary = await SendActions.SummarizeReadyToSendAsync();
+        }
+        catch (Exception ex)
+        {
+            // Le récapitulatif n'a pas pu être calculé : on ouvre quand même la confirmation, qui affiche alors
+            // « aucun document » et désactive l'envoi (jamais d'envoi sur un total inconnu). L'échec est tracé.
+            _sendAllSummary = null;
+            Logger.LogError(ex, "Failed to summarize ready-to-send documents for the send confirmation.");
+        }
+
+        _confirmSendVisible = true;
+        // Ouvert par la barre d'actions groupées (mode sélection) : forcer le re-rendu de CETTE page (le cadre
+        // de la grille ne re-rend que lui-même après l'action groupée).
+        StateHasChanged();
+    }
+
+    /// <summary>Annule l'envoi en cours de confirmation sans rien déclencher.</summary>
+    private void CancelSend()
+    {
+        _confirmSendVisible = false;
+        _confirmMode = SendConfirmMode.None;
+        _pendingSelectionIds = [];
+        _sendAllSummary = null;
+    }
+
+    /// <summary>
+    /// Confirme l'envoi : déclenche l'envoi groupé du tenant (« Tout envoyer ») ou la sélection (« Envoyer la
+    /// sélection » — validation par document côté service) selon le mode, et affiche le retour opérateur.
+    /// </summary>
+    private async Task ConfirmSendAsync()
+    {
+        if (_sendInProgress)
+        {
+            return;
+        }
+
+        var mode = _confirmMode;
+        var selectionIds = _pendingSelectionIds;
+        _sendInProgress = true;
+        try
+        {
+            var result = mode == SendConfirmMode.Selection
+                ? await SendActions.SendSelectionAsync(selectionIds)
+                : await SendActions.SendAllAsync();
+            _sendFeedback = result.Message;
+            _sendFailed = !result.Success;
+        }
+        catch (Exception ex)
+        {
+            _sendFailed = true;
+            _sendFeedback = "L'envoi n'a pas pu être déclenché pour le moment. Réessayez plus tard.";
+            Logger.LogError(ex, "Send action failed (mode {Mode}).", mode);
+        }
+        finally
+        {
+            _sendInProgress = false;
+            _confirmSendVisible = false;
+            _confirmMode = SendConfirmMode.None;
+            _pendingSelectionIds = [];
+            _sendAllSummary = null;
+        }
+    }
+
+    /// <summary>Déclenche manuellement un traitement du tenant (« Lancer un traitement ») et affiche le retour opérateur.</summary>
+    private async Task TriggerRunAsync()
+    {
+        if (_sendInProgress)
+        {
+            return;
+        }
+
+        _sendInProgress = true;
+        _sendFeedback = null;
+        _sendFailed = false;
+        try
+        {
+            var result = await SendActions.TriggerRunAsync();
+            _sendFeedback = result.Message;
+            _sendFailed = !result.Success;
+        }
+        catch (Exception ex)
+        {
+            _sendFailed = true;
+            _sendFeedback = "Le traitement n'a pas pu être déclenché pour le moment. Réessayez plus tard.";
+            Logger.LogError(ex, "Trigger run action failed.");
+        }
+        finally
+        {
+            _sendInProgress = false;
+        }
+    }
+
+    // ── Re-vérification en masse (FIX207) ── Portées par la barre de sélection (gabarit DeclaredListPage). La page
+    // calcule le PÉRIMÈTRE (sélection / tous les bloqués filtrés) et délègue TOUTE l'action au service in-process
+    // IDocumentControlActions (garde liakont.actions, boucle + décision de blocage dans le cœur Pipeline, audit FIX02
+    // par document) — aucune logique fiscale ici (CLAUDE.md n°19). Le serveur re-valide CHAQUE document (seuls les
+    // bloqués transitionnent) : une vue cliente légèrement périmée n'est jamais une fuite ni une fausse action.
+
+    /// <summary>« Revérifier la sélection » : re-vérifie les documents BLOQUÉS de la sélection.</summary>
+    private Task RecheckSelectionAsync(IReadOnlyList<DocumentSummaryDto> selected) =>
+        RunBulkRecheckAsync(
+            selected.Where(IsBlocked).Select(d => d.Id).ToList(),
+            "Aucun document bloqué dans la sélection à re-vérifier.");
+
+    /// <summary>« Revérifier tout » : re-vérifie tous les documents BLOQUÉS du périmètre courant (période + filtres état/type).</summary>
+    private Task RecheckAllBlockedAsync() =>
+        RunBulkRecheckAsync(
+            _periodSet.Where(MatchesCustomFilters).Where(IsBlocked).Select(d => d.Id).ToList(),
+            "Aucun document bloqué dans ce périmètre à re-vérifier.");
+
+    /// <summary>Déclenche la re-vérification en masse côté serveur et affiche le retour opérateur (compteurs en français).</summary>
+    private async Task RunBulkRecheckAsync(IReadOnlyList<Guid> documentIds, string emptyMessage)
+    {
+        _recheckFeedback = null;
+        _recheckFailed = false;
+
+        if (documentIds.Count == 0)
+        {
+            _recheckFeedback = emptyMessage;
+            StateHasChanged();
+            return;
+        }
+
+        try
+        {
+            var result = await ControlActions.RecheckManyAsync(documentIds);
+            _recheckFeedback = result.Message;
+            _recheckFailed = !result.Success;
+            // Reflète immédiatement les nouveaux états (débloqués) dans la grille et les compteurs, SANS re-keyer la
+            // liste (la barre de sélection recharge déjà le gabarit après l'action) — évite un double rechargement.
+            await FetchPeriodSetAsync();
+        }
+        catch (Exception ex)
+        {
+            _recheckFailed = true;
+            _recheckFeedback = "La re-vérification n'a pas pu être déclenchée pour le moment. Réessayez plus tard.";
+            Logger.LogError(ex, "Bulk recheck action failed.");
+        }
+
+        // La barre de sélection ne re-rend que son propre cadre après l'action groupée : forcer le re-rendu de la
+        // page pour afficher le bandeau de compteurs et la synthèse par état rafraîchie.
+        StateHasChanged();
+    }
+
+    /// <summary>Document dans l'état « Bloqué » (seul état re-vérifiable — le serveur re-valide ensuite).</summary>
+    private static bool IsBlocked(DocumentSummaryDto document) =>
+        string.Equals(document.State, DocumentActionContract.BlockedState, StringComparison.Ordinal);
+
+}

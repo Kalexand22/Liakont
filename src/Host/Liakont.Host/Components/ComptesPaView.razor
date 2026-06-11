@@ -1,0 +1,337 @@
+@namespace Liakont.Host.Components
+@using System.Collections.Generic
+@using Liakont.Host.PaAccounts
+@using Liakont.Modules.TenantSettings.Contracts.DTOs
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* ComptesPaView — rendu PUR de la page « Comptes plateforme agréée » (FIX01c). Reçoit son modèle et
+ * l'état d'édition en paramètres (aucune injection métier, aucune logique) pour être testable en bUnit
+ * sans auth ni base. Création / édition / saisie-rotation de clé / désactivation via des listes FERMÉES
+ * (type de plug-in proposé depuis le registre, environnement) ; la clé API est saisie en champ masqué et
+ * n'est JAMAIS réaffichée (CLAUDE.md n°10). Gabarit Stratum (SectionCard, FormField, StatusBadge,
+ * StratumButton). 100 % français. *@
+
+<div class="liakont-comptes-pa" data-testid="comptes-pa">
+
+    <SectionCard Title="Comptes plateforme agréée (PA)" TestId="comptes-pa-list">
+        <p class="liakont-comptes-pa__intro">
+            Un compte par Plateforme Agréée et par environnement. La clé API est chiffrée en base et n'est
+            jamais réaffichée après sa saisie.
+        </p>
+
+        @if (Model.Accounts.Count == 0)
+        {
+            <p data-testid="comptes-pa-none">Aucun compte PA configuré pour ce tenant.</p>
+        }
+        else
+        {
+            <ul class="liakont-comptes-pa__accounts">
+                @foreach (var account in Model.Accounts)
+                {
+                    <li class="liakont-comptes-pa__account" data-testid="comptes-pa-account">
+                        <div class="liakont-comptes-pa__account-head">
+                            <span class="liakont-comptes-pa__account-name">@account.PluginType — @account.Environment</span>
+                            @if (account.IsActive)
+                            {
+                                <StatusBadge Label="Actif" Severity="Severity.Success" />
+                            }
+                            else
+                            {
+                                <StatusBadge Label="Inactif" Severity="Severity.Info" />
+                            }
+                        </div>
+                        <span class="liakont-comptes-pa__account-meta">Identifiants : @(string.IsNullOrWhiteSpace(account.AccountIdentifiers) ? "—" : account.AccountIdentifiers)</span>
+                        <span class="liakont-comptes-pa__account-meta" data-testid="comptes-pa-secret">
+                            Clé API : @(account.HasApiKey ? "configurée (masquée)" : "non configurée")
+                        </span>
+                        <div class="liakont-comptes-pa__account-actions">
+                            <StratumButton Text="Modifier / saisir la clé…"
+                                           Variant="ButtonVariant.Secondary"
+                                           Outline
+                                           Size="ButtonSize.Small"
+                                           Disabled="@(EditorOpen || DeactivateTarget is not null)"
+                                           OnClick="@(_ => OnEdit.InvokeAsync(account))"
+                                           TestId="@($"comptes-pa-edit-{account.Id}")" />
+                            @if (account.IsActive)
+                            {
+                                <StratumButton Text="Désactiver…"
+                                               Variant="ButtonVariant.Danger"
+                                               Outline
+                                               Size="ButtonSize.Small"
+                                               Disabled="@(EditorOpen || DeactivateTarget is not null)"
+                                               OnClick="@(_ => OnRequestDeactivate.InvokeAsync(account))"
+                                               TestId="@($"comptes-pa-deactivate-{account.Id}")" />
+                            }
+                        </div>
+                    </li>
+                }
+            </ul>
+        }
+
+        <StratumButton Text="Ajouter un compte PA…"
+                       Variant="ButtonVariant.Primary"
+                       Size="ButtonSize.Small"
+                       Disabled="@(EditorOpen || DeactivateTarget is not null)"
+                       OnClick="@(_ => OnCreate.InvokeAsync())"
+                       TestId="comptes-pa-add-btn" />
+    </SectionCard>
+
+    @if (EditorOpen && EditorModel is not null)
+    {
+        <SectionCard Title="@(EditorIsCreate ? "Ajouter un compte PA" : "Modifier le compte PA")" TestId="comptes-pa-editor-card">
+            <div class="liakont-comptes-pa__editor" data-testid="comptes-pa-editor">
+                <div class="liakont-comptes-pa__editor-grid">
+                    <FormField Label="Type de plug-in PA" FieldId="comptes-pa-plugintype" Required="true"
+                               HelpText="@(EditorIsCreate ? "Proposé depuis les plug-ins enregistrés par le Host." : "Le type identifie le plug-in : non modifiable (désactivez puis recréez pour le changer).")">
+                        @if (EditorIsCreate)
+                        {
+                            @if (Model.RegisteredPluginTypes.Count == 0)
+                            {
+                                <p class="liakont-comptes-pa__alert" role="alert" data-testid="comptes-pa-no-plugins">
+                                    Aucun plug-in PA n'est enregistré sur cette instance. Câblez un plug-in PA
+                                    (déploiement) avant de créer un compte — un type inconnu serait inutilisable à l'envoi.
+                                </p>
+                            }
+                            else
+                            {
+                                <select id="comptes-pa-plugintype"
+                                        class="form-select"
+                                        value="@EditorModel.PluginType"
+                                        @onchange="OnPluginTypeChange"
+                                        disabled="@EditorBusy"
+                                        data-testid="comptes-pa-plugintype">
+                                    <option value="">— Choisir —</option>
+                                    @foreach (var type in Model.RegisteredPluginTypes)
+                                    {
+                                        <option value="@type">@type</option>
+                                    }
+                                </select>
+                            }
+                        }
+                        else
+                        {
+                            <input id="comptes-pa-plugintype"
+                                   class="form-control"
+                                   type="text"
+                                   value="@EditorModel.PluginType"
+                                   disabled
+                                   data-testid="comptes-pa-plugintype" />
+                        }
+                    </FormField>
+
+                    <FormField Label="Environnement" FieldId="comptes-pa-environment" Required="true">
+                        <select id="comptes-pa-environment"
+                                class="form-select"
+                                value="@EditorModel.Environment"
+                                @onchange="OnEnvironmentChange"
+                                disabled="@EditorBusy"
+                                data-testid="comptes-pa-environment">
+                            <option value="">— Choisir —</option>
+                            <option value="Staging">Staging (pré-production)</option>
+                            <option value="Production">Production</option>
+                        </select>
+                    </FormField>
+
+                    <FormField Label="Identifiants de compte (facultatif)" FieldId="comptes-pa-identifiers"
+                               HelpText="Identifiants opaques attendus par le plug-in (ex. identifiant de compte). Jamais un secret.">
+                        <input id="comptes-pa-identifiers"
+                               class="form-control"
+                               type="text"
+                               value="@EditorModel.AccountIdentifiers"
+                               @oninput="OnIdentifiersInput"
+                               disabled="@EditorBusy"
+                               data-testid="comptes-pa-identifiers" />
+                    </FormField>
+
+                    <FormField Label="Clé API" FieldId="comptes-pa-apikey"
+                               HelpText="@(EditorIsCreate ? "Facultative : peut être saisie plus tard. Chiffrée en base, jamais réaffichée." : "Laissez vide pour conserver la clé actuelle. Une nouvelle valeur remplace la clé (rotation).")">
+                        <input id="comptes-pa-apikey"
+                               class="form-control"
+                               type="password"
+                               autocomplete="new-password"
+                               value="@EditorModel.ApiKey"
+                               @oninput="OnApiKeyInput"
+                               disabled="@EditorBusy"
+                               data-testid="comptes-pa-apikey" />
+                    </FormField>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(EditorError))
+                {
+                    <div class="liakont-comptes-pa__alert" role="alert" data-testid="comptes-pa-editor-error">
+                        @EditorError
+                    </div>
+                }
+
+                <div class="liakont-comptes-pa__editor-actions">
+                    <StratumButton Text="@(EditorBusy ? "Enregistrement…" : "Enregistrer")"
+                                   Variant="ButtonVariant.Primary"
+                                   Size="ButtonSize.Small"
+                                   Disabled="@(!CanSubmit)"
+                                   OnClick="@(_ => OnSubmitEditor.InvokeAsync())"
+                                   TestId="comptes-pa-save-btn" />
+                    <StratumButton Text="Annuler"
+                                   Variant="ButtonVariant.Secondary"
+                                   Outline
+                                   Size="ButtonSize.Small"
+                                   Disabled="@EditorBusy"
+                                   OnClick="@(_ => OnCancelEditor.InvokeAsync())"
+                                   TestId="comptes-pa-cancel-btn" />
+                </div>
+            </div>
+        </SectionCard>
+    }
+
+    @if (DeactivateTarget is { } target)
+    {
+        <SectionCard Title="Désactiver un compte PA" TestId="comptes-pa-deactivate-card">
+            <div class="liakont-comptes-pa__confirm" data-testid="comptes-pa-deactivate-confirm">
+                <p class="liakont-comptes-pa__confirm-text">
+                    Désactiver le compte <strong>@target.PluginType — @target.Environment</strong> ? Il ne sera
+                    plus utilisé pour l'envoi. La clé chiffrée est conservée, mais le compte n'apparaîtra plus
+                    comme actif.
+                </p>
+
+                @if (!string.IsNullOrWhiteSpace(DeactivateError))
+                {
+                    <div class="liakont-comptes-pa__alert" role="alert" data-testid="comptes-pa-deactivate-error">
+                        @DeactivateError
+                    </div>
+                }
+
+                <div class="liakont-comptes-pa__confirm-actions">
+                    <StratumButton Text="@(DeactivateBusy ? "Désactivation…" : "Confirmer la désactivation")"
+                                   Variant="ButtonVariant.Danger"
+                                   Size="ButtonSize.Small"
+                                   Disabled="@DeactivateBusy"
+                                   OnClick="@(_ => OnConfirmDeactivate.InvokeAsync())"
+                                   TestId="comptes-pa-deactivate-confirm-btn" />
+                    <StratumButton Text="Annuler"
+                                   Variant="ButtonVariant.Secondary"
+                                   Outline
+                                   Size="ButtonSize.Small"
+                                   Disabled="@DeactivateBusy"
+                                   OnClick="@(_ => OnCancelDeactivate.InvokeAsync())"
+                                   TestId="comptes-pa-deactivate-cancel-btn" />
+                </div>
+            </div>
+        </SectionCard>
+    }
+
+</div>
+
+@code {
+    /// <summary>Données assemblées de la page (jamais <c>null</c> : la page en fournit toujours un).</summary>
+    [Parameter, EditorRequired]
+    public PaAccountConsoleModel Model { get; set; } = null!;
+
+    /// <summary><c>true</c> quand l'éditeur (création ou modification) est ouvert.</summary>
+    [Parameter]
+    public bool EditorOpen { get; set; }
+
+    /// <summary><c>true</c> si l'éditeur est en mode création (sinon modification).</summary>
+    [Parameter]
+    public bool EditorIsCreate { get; set; }
+
+    /// <summary>Modèle de saisie en cours d'édition (instance partagée avec la page), ou <c>null</c>.</summary>
+    [Parameter]
+    public PaAccountFormModel? EditorModel { get; set; }
+
+    /// <summary><c>true</c> pendant l'envoi d'une mutation (champs et boutons désactivés).</summary>
+    [Parameter]
+    public bool EditorBusy { get; set; }
+
+    /// <summary>Message d'erreur de l'éditeur (validation handler ou échec), ou <c>null</c>.</summary>
+    [Parameter]
+    public string? EditorError { get; set; }
+
+    /// <summary>Déclenché pour ouvrir l'éditeur en création.</summary>
+    [Parameter]
+    public EventCallback OnCreate { get; set; }
+
+    /// <summary>Déclenché pour ouvrir l'éditeur en modification d'un compte existant.</summary>
+    [Parameter]
+    public EventCallback<PaAccountDto> OnEdit { get; set; }
+
+    /// <summary>Déclenché à l'enregistrement de l'éditeur (création ou modification).</summary>
+    [Parameter]
+    public EventCallback OnSubmitEditor { get; set; }
+
+    /// <summary>Déclenché à l'annulation de l'éditeur.</summary>
+    [Parameter]
+    public EventCallback OnCancelEditor { get; set; }
+
+    /// <summary>Compte ciblé par une désactivation en attente de confirmation, ou <c>null</c>.</summary>
+    [Parameter]
+    public PaAccountDto? DeactivateTarget { get; set; }
+
+    /// <summary><c>true</c> pendant l'envoi de la désactivation.</summary>
+    [Parameter]
+    public bool DeactivateBusy { get; set; }
+
+    /// <summary>Message d'erreur de la désactivation, ou <c>null</c>.</summary>
+    [Parameter]
+    public string? DeactivateError { get; set; }
+
+    /// <summary>Déclenché quand l'opérateur demande la désactivation (ouvre la confirmation).</summary>
+    [Parameter]
+    public EventCallback<PaAccountDto> OnRequestDeactivate { get; set; }
+
+    /// <summary>Déclenché quand l'opérateur confirme la désactivation.</summary>
+    [Parameter]
+    public EventCallback OnConfirmDeactivate { get; set; }
+
+    /// <summary>Déclenché quand l'opérateur annule la désactivation.</summary>
+    [Parameter]
+    public EventCallback OnCancelDeactivate { get; set; }
+
+    /// <summary>
+    /// Validation de PRÉSENCE uniquement (type de plug-in + environnement). La clé et les identifiants sont
+    /// facultatifs. L'unicité (plug-in, environnement) et le parsing d'environnement sont validés par le
+    /// handler, dont le message français est affiché en cas d'erreur (jamais dupliqué côté UI).
+    /// </summary>
+    private bool CanSubmit =>
+        EditorModel is not null
+        && !EditorBusy
+        && !string.IsNullOrWhiteSpace(EditorModel.PluginType)
+        && !string.IsNullOrWhiteSpace(EditorModel.Environment);
+
+    private void OnPluginTypeChange(ChangeEventArgs e)
+    {
+        if (EditorModel is not null)
+        {
+            EditorModel.PluginType = e.Value as string ?? string.Empty;
+        }
+    }
+
+    private void OnEnvironmentChange(ChangeEventArgs e)
+    {
+        if (EditorModel is not null)
+        {
+            EditorModel.Environment = e.Value as string ?? string.Empty;
+        }
+    }
+
+    private void OnIdentifiersInput(ChangeEventArgs e)
+    {
+        if (EditorModel is not null)
+        {
+            EditorModel.AccountIdentifiers = NullIfEmpty(e.Value as string);
+        }
+    }
+
+    private void OnApiKeyInput(ChangeEventArgs e)
+    {
+        if (EditorModel is not null)
+        {
+            EditorModel.ApiKey = e.Value as string;
+        }
+    }
+
+    private static string? NullIfEmpty(string? value)
+    {
+        var trimmed = value?.Trim();
+        return string.IsNullOrEmpty(trimmed) ? null : trimmed;
+    }
+}

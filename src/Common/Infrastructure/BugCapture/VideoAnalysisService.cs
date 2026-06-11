@@ -33,11 +33,15 @@ public sealed partial class VideoAnalysisService
     /// </summary>
     /// <param name="videoBytes">WebM video bytes.</param>
     /// <param name="culture">Current UI culture — prompt language adapts accordingly.</param>
+    /// <param name="transcript">Verbatim transcript of the user's audio narration (Whisper), if available.
+    /// When provided, it is embedded in the prompt as the authoritative narration — the multimodal
+    /// model's own audio understanding is unreliable (Liakont, vérifié sur pièce 2026-06-10).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Analysis result, or empty analysis if unconfigured or on failure.</returns>
     public async Task<VideoAnalysis> AnalyzeAsync(
         byte[] videoBytes,
         CultureInfo? culture = null,
+        string? transcript = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(_config.OpenRouterApiKey) || videoBytes.Length == 0)
@@ -49,7 +53,7 @@ public sealed partial class VideoAnalysisService
         {
             var base64Video = Convert.ToBase64String(videoBytes);
             var dataUri = string.Concat("data:video/webm;base64,", base64Video);
-            var prompt = BuildPrompt(culture);
+            var prompt = BuildPrompt(culture, transcript);
 
             var payload = new
             {
@@ -102,14 +106,30 @@ public sealed partial class VideoAnalysisService
         }
     }
 
-    private static string BuildPrompt(CultureInfo? culture)
+    private static string BuildPrompt(CultureInfo? culture, string? transcript = null)
     {
         var isFrench = culture?.TwoLetterISOLanguageName.Equals("fr", StringComparison.OrdinalIgnoreCase) is true;
 
+        // Liakont: when a Whisper transcript is available, embed it as the authoritative
+        // narration — asking the model to listen by itself ignores the audio ~2/3 of the time.
+        var transcriptBlock = string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(transcript))
+        {
+            transcriptBlock = isFrench
+                ? $"\n\nTranscription EXACTE de la narration audio de l'utilisateur (source PRINCIPALE — le rapport DOIT en découler) :\n« {transcript} »"
+                : $"\n\nEXACT transcript of the user's audio narration (PRIMARY source — the report MUST derive from it):\n\"{transcript}\"";
+        }
+
         if (isFrench)
         {
+            // Liakont: la narration audio de l'utilisateur est la source PRINCIPALE du rapport
+            // (sans cette consigne, le modèle décrit l'écran et ignore la dictée).
             return """
                 Tu es un testeur QA qui analyse un enregistrement d'écran d'une application web.
+                Si l'enregistrement contient une narration audio de l'utilisateur, c'est la source
+                PRINCIPALE du rapport : écoute-la attentivement et base le titre, le résumé et les
+                étapes sur ce que la voix décrit. La vidéo sert à illustrer et préciser la narration.
                 Génère un rapport de bug structuré en français.
 
                 Règles :
@@ -118,15 +138,20 @@ public sealed partial class VideoAnalysisService
                 - "steps" : étapes pour reproduire le bug, une par ligne, numérotées (ex: "1. Ouvrir la page X\n2. Cliquer sur Y")
                 - "key_moments" : moments clés avec timestamps
 
-                Si aucun bug n'est visible, décris simplement ce qui se passe.
+                Si aucun bug n'est décrit par la voix ni visible à l'écran, décris simplement ce qui se passe.
 
                 Réponds en JSON strict :
                 {"title": "...", "summary": "...", "steps": "1. ...\n2. ...", "key_moments": [{"timestamp_seconds": N, "description": "..."}]}
-                """;
+                """ + transcriptBlock;
         }
 
+        // Liakont: the user's audio narration is the PRIMARY source of the report
+        // (without this instruction, the model describes the screen and ignores the dictation).
         return """
             You are a QA tester analyzing a screen recording of a web application.
+            If the recording contains the user's audio narration, it is the PRIMARY source of
+            the report: listen to it carefully and base the title, summary and steps on what
+            the voice describes. The video serves to illustrate and refine the narration.
             Generate a structured bug report in English.
 
             Rules:
@@ -135,11 +160,11 @@ public sealed partial class VideoAnalysisService
             - "steps": steps to reproduce, one per line, numbered (e.g. "1. Open page X\n2. Click Y")
             - "key_moments": key moments with timestamps
 
-            If no bug is visible, simply describe what happens.
+            If no bug is described by the voice nor visible on screen, simply describe what happens.
 
             Respond in strict JSON:
             {"title": "...", "summary": "...", "steps": "1. ...\n2. ...", "key_moments": [{"timestamp_seconds": N, "description": "..."}]}
-            """;
+            """ + transcriptBlock;
     }
 
     private static VideoAnalysis ParseResponse(string responseJson)

@@ -156,6 +156,28 @@ internal sealed class PostgresScheduleUnitOfWork : IScheduleUnitOfWork
         return schedules;
     }
 
+    // Liakont addition (FIX203b) : lecture seule des job_type ayant au moins un schedule actif.
+    // Pas de FOR UPDATE (contrairement à GetDueSchedulesAsync) — n'interfère pas avec le scheduler.
+    public async Task<IReadOnlyList<string>> GetActiveJobTypesAsync(CancellationToken ct = default)
+    {
+        const string sql = """
+            SELECT DISTINCT job_type
+            FROM job.schedules
+            WHERE is_active = true
+            """;
+
+        var rows = await _txn.Connection.QueryAsync<string>(
+            new CommandDefinition(sql, transaction: _txn.Transaction, cancellationToken: ct));
+
+        var jobTypes = new List<string>();
+        foreach (var jobType in rows)
+        {
+            jobTypes.Add(jobType);
+        }
+
+        return jobTypes;
+    }
+
     public async Task CommitAsync(CancellationToken ct = default)
     {
         await _txn.CommitAsync(ct);

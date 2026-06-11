@@ -71,6 +71,15 @@
   <data name="Breadcrumb_Preferences" xml:space="preserve"><value>Préférences</value></data>
   <!-- Tab titles -->
   <data name="Tab_RoutingRules" xml:space="preserve"><value>Règles de routage</value></data>
+  <!-- Onglets console Liakont : vocabulaire opérateur français (produit fiscal FR) -->
+  <data name="Tab_Documents" xml:space="preserve"><value>Documents</value></data>
+  <data name="Tab_Encaissements" xml:space="preserve"><value>Encaissements</value></data>
+  <data name="Tab_Traitements" xml:space="preserve"><value>Traitements</value></data>
+  <data name="Tab_Reconciliation" xml:space="preserve"><value>Réconciliation</value></data>
+  <data name="Tab_Parametrage" xml:space="preserve"><value>Paramétrage</value></data>
+  <data name="Tab_TableTva" xml:space="preserve"><value>Table TVA</value></data>
+  <data name="Tab_Supervision" xml:space="preserve"><value>Supervision</value></data>
+  <data name="Tab_AgentsExtraction" xml:space="preserve"><value>Agents d'extraction</value></data>
   <!-- Preferences page -->
   <data name="Preferences_PageTitle" xml:space="preserve"><value>Préférences</value></data>
   <data name="Preferences_Subtitle" xml:space="preserve"><value>Personnalisez votre expérience</value></data>

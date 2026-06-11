@@ -381,7 +381,13 @@ public sealed class StratumDataGridTests : BunitContext
             .Add(g => g.AllowExport, true));
 
         cut.Find("[role='toolbar']").Should().NotBeNull();
-        cut.Find("[data-testid='export-csv-btn']").Should().NotBeNull();
+
+        // A single consolidated "Export" menu button replaces the former three identical
+        // download icons (FIX206).
+        cut.Find("[data-testid='export-btn']").Should().NotBeNull();
+        cut.FindAll("[data-testid='export-csv-btn']").Should().BeEmpty();
+        cut.FindAll("[data-testid='export-excel-btn']").Should().BeEmpty();
+        cut.FindAll("[data-testid='export-pdf-btn']").Should().BeEmpty();
     }
 
     [Fact]
@@ -400,8 +406,8 @@ public sealed class StratumDataGridTests : BunitContext
             .Add(g => g.Loading, true)
             .Add(g => g.AllowExport, true));
 
-        var btn = cut.Find("[data-testid='export-csv-btn']");
-        btn.HasAttribute("disabled").Should().BeTrue();
+        var exportBtn = cut.Find("[data-testid='export-btn']");
+        exportBtn.QuerySelectorAll("button").Any(b => b.HasAttribute("disabled")).Should().BeTrue();
     }
 
     [Fact]
@@ -411,12 +417,12 @@ public sealed class StratumDataGridTests : BunitContext
             .Add(g => g.Data, Array.Empty<TestItem>())
             .Add(g => g.AllowExport, true));
 
-        var btn = cut.Find("[data-testid='export-csv-btn']");
-        btn.HasAttribute("disabled").Should().BeTrue();
+        var exportBtn = cut.Find("[data-testid='export-btn']");
+        exportBtn.QuerySelectorAll("button").Any(b => b.HasAttribute("disabled")).Should().BeTrue();
     }
 
     [Fact]
-    public async Task ExportButtonShouldFireOnExportCallback()
+    public async Task ExportButtonShouldFireOnExportCallbackWithDefaultFormat()
     {
         ExportArgs? exportArgs = null;
         var data = SampleData();
@@ -426,8 +432,9 @@ public sealed class StratumDataGridTests : BunitContext
             .Add(g => g.AllowExport, true)
             .Add(g => g.OnExport, EventCallback.Factory.Create<ExportArgs>(this, args => exportArgs = args)));
 
-        var btn = cut.Find("[data-testid='export-csv-btn']");
-        await btn.ClickAsync(new MouseEventArgs());
+        // The primary "Export" button exports the first enabled format (CSV by default).
+        var primary = cut.Find("[data-testid='export-btn']").QuerySelector("button")!;
+        await primary.ClickAsync(new MouseEventArgs());
 
         exportArgs.Should().NotBeNull();
         exportArgs!.Format.Should().Be(ExportFormat.Csv);
@@ -435,15 +442,64 @@ public sealed class StratumDataGridTests : BunitContext
     }
 
     [Fact]
-    public void ShouldRenderExcelExportButtonWhenConfigured()
+    public void ExportMenuShouldListConfiguredFormats()
     {
         var cut = Render<StratumDataGrid<TestItem>>(p => p
             .Add(g => g.Data, SampleData())
             .Add(g => g.AllowExport, true)
-            .Add(g => g.ExportFormats, ExportFormat.Csv | ExportFormat.Excel));
+            .Add(g => g.ExportFormats, ExportFormat.Csv | ExportFormat.Excel | ExportFormat.Pdf));
 
-        cut.Find("[data-testid='export-csv-btn']").Should().NotBeNull();
-        cut.Find("[data-testid='export-excel-btn']").Should().NotBeNull();
+        cut.Find("[data-testid='export-btn']").Should().NotBeNull();
+
+        // The three formats are offered as menu items (CSV / Excel / PDF) under the single button.
+        cut.Markup.Should().Contain("CSV");
+        cut.Markup.Should().Contain("Excel");
+        cut.Markup.Should().Contain("PDF");
+    }
+
+    [Fact]
+    public void ShouldRenderRefreshButtonWhenOnRefreshSet()
+    {
+        var cut = Render<StratumDataGrid<TestItem>>(p => p
+            .Add(g => g.Data, SampleData())
+            .Add(g => g.OnRefresh, EventCallback.Factory.Create(this, () => { })));
+
+        cut.Find("[role='toolbar']").Should().NotBeNull();
+        cut.Find("[data-testid='refresh-btn']").Should().NotBeNull();
+    }
+
+    [Fact]
+    public void ShouldNotRenderRefreshButtonByDefault()
+    {
+        var cut = Render<StratumDataGrid<TestItem>>(p => p
+            .Add(g => g.Data, SampleData()));
+
+        cut.FindAll("[data-testid='refresh-btn']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RefreshButtonShouldInvokeOnRefreshCallback()
+    {
+        var refreshed = false;
+        var cut = Render<StratumDataGrid<TestItem>>(p => p
+            .Add(g => g.Data, SampleData())
+            .Add(g => g.OnRefresh, EventCallback.Factory.Create(this, () => refreshed = true)));
+
+        var btn = cut.Find("[data-testid='refresh-btn']");
+        await btn.ClickAsync(new MouseEventArgs());
+
+        refreshed.Should().BeTrue();
+    }
+
+    [Fact]
+    public void RefreshButtonShouldBeDisabledWhenLoading()
+    {
+        var cut = Render<StratumDataGrid<TestItem>>(p => p
+            .Add(g => g.Loading, true)
+            .Add(g => g.OnRefresh, EventCallback.Factory.Create(this, () => { })));
+
+        var btn = cut.Find("[data-testid='refresh-btn']");
+        btn.HasAttribute("disabled").Should().BeTrue();
     }
 
     [Fact]

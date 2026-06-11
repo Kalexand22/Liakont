@@ -1,6 +1,10 @@
 # Docker Compose for Keycloak dev environment (Liakont)
 # Usage: docker compose -f docker-compose.keycloak.yml up -d
 # Or use: tools/keycloak-dev.ps1 start
+#
+# AVERTISSEMENT : les valeurs par défaut ci-dessous (keycloak_dev_password, admin)
+# sont des identifiants de DEV LOCAL uniquement. Ne JAMAIS utiliser ce fichier en
+# production sans définir KC_DB_PASSWORD et KC_ADMIN_PASSWORD via l'environnement.
 
 services:
   keycloak-db:

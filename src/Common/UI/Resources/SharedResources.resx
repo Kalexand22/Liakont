@@ -120,6 +120,8 @@
   <data name="CellMenu.OpenEntityTabLimit" xml:space="preserve"><value>Nombre maximum d'onglets atteint.</value></data>
   <!-- Grid / DataGrid -->
   <data name="Grid_ToolbarAriaLabel" xml:space="preserve"><value>Grid actions</value></data>
+  <data name="Grid_ExportButton" xml:space="preserve"><value>Export</value></data>
+  <data name="Grid_RefreshButton" xml:space="preserve"><value>Refresh</value></data>
   <data name="Grid_ReorderAriaLabel" xml:space="preserve"><value>Reorder row</value></data>
   <data name="Grid_TreeExpand" xml:space="preserve"><value>Expand</value></data>
   <data name="Grid_TreeCollapse" xml:space="preserve"><value>Collapse</value></data>

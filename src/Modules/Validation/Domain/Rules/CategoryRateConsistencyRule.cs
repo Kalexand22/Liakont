@@ -41,6 +41,10 @@ public sealed class CategoryRateConsistencyRule : IDocumentRule
     public string Code => "CATEGORY_RATE";
 
     /// <inheritdoc />
+    /// <remarks>Dépend du mapping : la cohérence catégorie/taux ne se vérifie que sur la catégorie UNCL5305 posée par l'enrichissement.</remarks>
+    public bool DependsOnTvaMapping => true;
+
+    /// <inheritdoc />
     public Task<IReadOnlyList<ValidationIssue>> ValidateAsync(DocumentValidationContext context, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(context);

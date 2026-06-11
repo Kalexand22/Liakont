@@ -11,23 +11,35 @@ using Liakont.Host.Components;
 using Liakont.Host.Localization;
 using Liakont.Host.MultiTenancy;
 using Liakont.Host.Navigation;
+using Liakont.Host.Notifications;
 using Liakont.Host.Security;
 using Liakont.Host.Security.Abstractions;
 using Liakont.Host.Security.Keycloak;
 using Liakont.Host.Services;
 using Liakont.Host.Staging;
 using Liakont.Modules.Archive.Infrastructure;
+using Liakont.Modules.Archive.Web;
 using Liakont.Modules.Documents.Infrastructure;
+using Liakont.Modules.Documents.Web;
 using Liakont.Modules.Ingestion.Application;
 using Liakont.Modules.Ingestion.Infrastructure;
+using Liakont.Modules.Ingestion.Web;
 using Liakont.Modules.Payments.Infrastructure;
+using Liakont.Modules.Pipeline.Contracts.Jobs;
 using Liakont.Modules.Pipeline.Infrastructure;
+using Liakont.Modules.Pipeline.Infrastructure.Send;
+using Liakont.Modules.Pipeline.Web;
 using Liakont.Modules.Reconciliation.Infrastructure;
+using Liakont.Modules.Reconciliation.Web;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.Staging.Infrastructure;
+using Liakont.Modules.Supervision.Application;
+using Liakont.Modules.Supervision.Infrastructure;
 using Liakont.Modules.TenantSettings.Infrastructure;
+using Liakont.Modules.TenantSettings.Web;
 using Liakont.Modules.Transmission.Infrastructure;
 using Liakont.Modules.TvaMapping.Infrastructure;
+using Liakont.Modules.TvaMapping.Web;
 using Liakont.Modules.Validation.Infrastructure;
 using MediatR;
 using Microsoft.AspNetCore.Authentication;
@@ -36,6 +48,7 @@ using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 using Stratum.Common.Abstractions.MultiTenancy;
@@ -64,6 +77,7 @@ using Stratum.Modules.Identity.Infrastructure;
 using Stratum.Modules.Identity.Web;
 using Stratum.Modules.Job.Infrastructure;
 using Stratum.Modules.Job.Web;
+using Stratum.Modules.Notification.Contracts;
 using Stratum.Modules.Notification.Contracts.DTOs;
 using Stratum.Modules.Notification.Infrastructure;
 using Stratum.Modules.Notification.Infrastructure.Handlers.Jobs;
@@ -82,6 +96,11 @@ public static class AppBootstrap
     {
         // Localization
         builder.Services.AddLocalization();
+
+        // Cache court de la préférence de langue persistée (PersistedLanguageRequestCultureProvider) :
+        // la base reste la source de vérité, sans lecture par requête.
+        builder.Services.AddMemoryCache();
+        builder.Services.AddSingleton<Liakont.Host.Localization.UserCultureCache>();
 
         // Localized tab title provider — registered before AddCommonUI so TryAdd doesn't override.
         builder.Services.AddScoped<Stratum.Common.UI.Services.ITabTitleProvider, LocalizedTabTitleProvider>();
@@ -114,8 +133,18 @@ public static class AppBootstrap
         builder.Services.AddIdentityModule(builder.Configuration);
         builder.Services.AddJobModule(builder.Configuration);
         builder.Services.AddNotificationModule();
-        builder.Services.AddJobHandler<EmailSendJobPayload, EmailSendJobHandler>();
-        builder.Services.AddJobHandler<DeliveryRetryJobPayload, DeliveryRetryJobHandler>();
+
+        // Transport SMTP réel (ADR-0018, SUP03) EN REMPLACEMENT du StubEmailTransport du socle (vendored, NON
+        // modifié). Config d'instance liée depuis la section "Smtp" (gabarit vide dans appsettings.json ; mot de
+        // passe injecté au déploiement, jamais en clair — CLAUDE.md n°10). Désactivé/non configuré = no-op
+        // journalisé (pas de retry infini). Consommé par EmailSendJobHandler au moment de la livraison.
+        builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
+        builder.Services.Replace(ServiceDescriptor.Scoped<IEmailTransport, SmtpEmailTransport>());
+
+        // Libellé FR fourni à l'enregistrement (FIX211) : l'admin des planifications affiche ce libellé, jamais
+        // le FullName .NET (clé technique stockée). Surfacé par IJobTypeCatalog.
+        builder.Services.AddJobHandler<EmailSendJobPayload, EmailSendJobHandler>("Envoi d'e-mail");
+        builder.Services.AddJobHandler<DeliveryRetryJobPayload, DeliveryRetryJobHandler>("Relance d'envoi d'e-mail");
         builder.Services.AddAuditModule();
         builder.Services.AddTenantSettingsModule();
         builder.Services.AddIngestionModule();
@@ -143,7 +172,7 @@ public static class AppBootstrap
         // module Job (même mécanique que EmailSend/DeliveryRetry). La PLANIFICATION (cron quotidien) est
         // créée par l'opérateur via l'admin des schedules (job.schedules), comme tout job récurrent de la
         // plateforme — la fréquence et l'activation relèvent du déploiement (ADR-0011).
-        builder.Services.AddJobHandler<DailyAnchoringTrigger, DailyAnchoringFanOutHandler>();
+        builder.Services.AddJobHandler<DailyAnchoringTrigger, DailyAnchoringFanOutHandler>("Ancrage quotidien du coffre d'archive");
 
         // Staging du contenu pivot (PIP00, ADR-0014) : la plateforme détient DURABLEMENT le pivot dès
         // l'intake (l'agent redevient un filet de sécurité). Magasin transitoire purgeable, chiffré au
@@ -153,11 +182,33 @@ public static class AppBootstrap
         builder.Services.AddStagingModule(builder.Configuration);
         builder.Services.AddScoped<IArchivedDocumentProbe, ArchiveStoreArchivedDocumentProbe>();
 
+        // Emplacement du magasin de staging : repli STABLE hors arbre de build (FIX07b) quand aucune racine
+        // d'instance n'est configurée (Staging:Storage:FileSystem:RootPath). Voir StagingHostRegistration —
+        // remplace le repli bin/ du module, cause de la perte de contenu (documents zombies).
+        builder.Services.AddStableStagingRoot(builder.Environment.ContentRootPath);
+
         // Reconciliation (TRK07) après Archive : rapproche les PDF du pool non lié des documents émis et
         // ajoute le PDF réconcilié au paquet d'archive en addendum (consomme IArchiveService). Le job
         // système fait le fan-out de la passe sur tous les tenants via le TenantJobRunner (SOL06).
         builder.Services.AddReconciliationModule();
-        builder.Services.AddJobHandler<ReconciliationFanOutJobPayload, ReconciliationFanOutJobHandler>();
+        builder.Services.AddJobHandler<ReconciliationFanOutJobPayload, ReconciliationFanOutJobHandler>("Rapprochement des PDF (réconciliation)");
+
+        // Supervision (SUP01a, F12 §5) : moteur d'alertes + dead-man's-switch. Le handler du job SYSTÈME fait
+        // le fan-out de l'évaluation sur TOUS les tenants via le TenantJobRunner (SOL06) — c'est la plateforme
+        // qui détecte l'absence (panne silencieuse), pas l'agent qui signale sa présence. AUCUNE règle concrète
+        // n'est enregistrée ici (SUP01b livre les 8 règles) : sans règle, l'évaluation ne produit aucune alerte.
+        // La PLANIFICATION (cron toutes les 15 min, F12 §5.1) est créée par l'opérateur via l'admin des
+        // schedules (job.schedules), comme l'ancrage quotidien (TRK06) — la fréquence relève du déploiement.
+        builder.Services.AddSupervisionModule();
+        builder.Services.AddJobHandler<SupervisionEvaluationTrigger, SupervisionEvaluationFanOutHandler>("Évaluation de la supervision");
+
+        // Notifications email des alertes (SUP03, F12 §5.3) : destinataires/options d'instance liés depuis la
+        // section "Supervision:Notifications". Le récapitulatif quotidien (digest, OPTIONNEL, défaut désactivé)
+        // est un job SYSTÈME dont le handler fait le fan-out par tenant — sa PLANIFICATION (cron quotidien) est
+        // créée par l'opérateur via l'admin des schedules, comme l'évaluation (15 min) et l'ancrage TRK06.
+        builder.Services.Configure<SupervisionNotificationOptions>(
+            builder.Configuration.GetSection(SupervisionNotificationOptions.SectionName));
+        builder.Services.AddJobHandler<SupervisionDigestTrigger, SupervisionDigestFanOutHandler>("Récapitulatif quotidien de supervision");
 
         // Transmission (PAA01) : registre de types des plug-ins PA. Aucun plug-in n'est référencé ici
         // (le module ne connaît AUCUNE PA concrète — CLAUDE.md n°6) ; chaque plug-in PA (PAA02 Fake,
@@ -165,10 +216,25 @@ public static class AppBootstrap
         // la découvrira. Le pipeline (PIP) consomme IPaClientRegistry pour résoudre la PA du tenant.
         builder.Services.AddTransmissionModule();
 
+        // Plug-ins PA câblés au COMPOSITION ROOT (FIX01d) — seul endroit autorisé à référencer un
+        // plug-in PA concret (CLAUDE.md n°6/14). En Development (ou via PaClients:Fake:Enabled), le
+        // plug-in factice (PAA02) est ajouté pour rendre l'envoi exerçable de bout en bout sans PA
+        // réelle (bug-inbox « Fake jamais câblé » : sans lui le registre ci-dessus ne résout rien) ;
+        // en production il reste absent. Le registre le découvre et le résout par PaType (CLAUDE.md n°8).
+        builder.Services.AddConfiguredPaClients(builder.Environment, builder.Configuration);
+
         // Pipeline (PIP01a — fondations) : lecteur canonique du contenu stagé + journal d'exécutions
         // (pipeline.run_logs) + points d'entrée Contracts consommés par CHECK/SEND/SYNC. AUCUN comportement
         // de pipeline ici (PIP01b-d) ; le pipeline ne référence aucune PA concrète (CLAUDE.md n°6).
         builder.Services.AddPipelineModule();
+
+        // SEND déclenché par une ACTION de console (API02a, ADR-0016) : handler SYSTÈME du déclencheur
+        // MONO-TENANT SendTenantTrigger. Enregistré au composition root (comme DailyAnchoring/Supervision)
+        // pour exposer sa JobHandlerRegistration au JobHandlerResolver — c'est lui que le JobWorker résout
+        // quand une action « send / send-all / runs-trigger » publie le déclencheur sur la queue système.
+        // À la différence du SendAllTrigger planifié (fan-out tous-tenants, cron), il rétablit le SEUL tenant
+        // de l'opérateur via ITenantScopeFactory.Create — aucune itération multi-tenant (CLAUDE.md n°9).
+        builder.Services.AddJobHandler<SendTenantTrigger, SendTenantFanInHandler>("Envoi des documents (tenant courant)");
 
         // Stockage des PDF reçus (PIV04) : chemin racine = PARAMÉTRAGE de déploiement (jamais en dur,
         // CLAUDE.md n°7). Lié depuis la config ; à défaut, repli sous le content root de l'instance.
@@ -338,11 +404,116 @@ public static class AppBootstrap
 
         // Navigation providers (sidebar)
         builder.Services.AddSingleton<INavSectionProvider, HostNavSectionProvider>();
-        builder.Services.AddSingleton<INavSectionProvider, Stratum.Modules.Identity.Web.IdentityNavSectionProvider>();
-        builder.Services.AddSingleton<INavSectionProvider, Stratum.Modules.Identity.Web.SecurityNavSectionProvider>();
-        builder.Services.AddSingleton<INavSectionProvider, Stratum.Modules.Notification.Web.NotificationNavSectionProvider>();
+
+        // FIX209 — assainissement de la nav socle (décision opérateur E5, recette GATE_CONSOLE_WEB run 2) :
+        // l'« Annuaire » socle (Agents/Équipes/Délégations — collision avec les « Agents d'extraction » Liakont)
+        // et la « Sécurité » socle (Utilisateurs/Rôles — les comptes vivent dans Keycloak sous OIDC ; sort
+        // définitif renvoyé à l'ADR IdP / OPS01c) ne sont PLUS câblés dans la nav Liakont. Le socle vendored
+        // n'est PAS modifié (CLAUDE.md n°11) : on retire seulement l'ENREGISTREMENT au composition root — les
+        // providers Stratum.Modules.Identity.Web.{Identity,Security}NavSectionProvider et leurs routes restent
+        // intacts (autres produits Stratum, accès super-admin). La section « Notifications » du socle est, elle,
+        // RÉDUITE à « Templates » et gardée par permission via NotificationNavVisibilityFilter (plus bas, SCOPED).
         builder.Services.AddSingleton<INavSectionProvider, Stratum.Modules.Audit.Web.AuditNavSectionProvider>();
-        builder.Services.AddSingleton<INavSectionProvider, Stratum.Modules.Job.Web.JobNavSectionProvider>();
+
+        // Section « Jobs » du socle filtrée par permission côté Liakont (FIX07c) : le provider socle déclare
+        // « Planifications » (/admin/jobs) inconditionnellement, mais la page socle exige la permission socle
+        // job.view — jamais accordée par un rôle Liakont (RolePermissionCatalog, matrice §3 immuable) ; seul un
+        // super-admin l'ouvre. Sans filtre, l'entrée menait à une page entièrement vide pour tout opérateur normal
+        // (recette GATE_CONSOLE_WEB). SCOPED car la visibilité dépend de l'utilisateur (comme LiakontNavSectionProvider).
+        // Le socle vendored n'est PAS modifié ; la découverte de la ROUTE /admin/jobs (Routes.razor +
+        // MapRazorComponents) reste intacte pour le super-admin.
+        builder.Services.AddScoped<INavSectionProvider, Liakont.Host.Navigation.JobNavVisibilityFilter>();
+
+        // Section « Notifications » du socle RÉDUITE à « Templates » et gardée par liakont.settings (FIX209,
+        // décision E5). Les six autres entrées socle (Règles de routage, Webhooks, Simulation, SLA, Services,
+        // Integrations) sont hors périmètre Liakont et plusieurs lèvent « No company context » sous OIDC. SCOPED
+        // car la visibilité dépend de l'utilisateur. Le provider socle n'est pas modifié (le filtre y délègue).
+        builder.Services.AddScoped<INavSectionProvider, Liakont.Host.Navigation.NotificationNavVisibilityFilter>();
+
+        // Navigation maître Liakont (WEB01) : SCOPED car la visibilité des sections dépend du tenant
+        // courant (pool PDF → Réconciliation) et du rôle de l'utilisateur (permission → Supervision).
+        builder.Services.AddScoped<INavSectionProvider, Liakont.Host.Navigation.LiakontNavSectionProvider>();
+        builder.Services.AddScoped<Liakont.Host.Navigation.ILiakontConsoleContext, Liakont.Host.Navigation.LiakontConsoleContext>();
+
+        // Composition en lecture du tableau de bord d'accueil (WEB01) : isole l'assemblage hors de la page.
+        builder.Services.AddScoped<Liakont.Host.Dashboard.IDashboardQueries, Liakont.Host.Dashboard.DashboardQueryService>();
+
+        // Composition en lecture de la page Documents (WEB02) : charge tout le périmètre période (boucle
+        // sur la liste paginée serveur, aucune troncature) hors de la page.
+        builder.Services.AddScoped<Liakont.Host.Documents.IDocumentConsoleQueries, Liakont.Host.Documents.DocumentConsoleQueryService>();
+
+        // Mémoire de circuit des filtres de la liste Documents (issue #33) : le « Retour à la liste »
+        // de la fiche détail retrouve la liste telle que l'opérateur l'avait filtrée.
+        builder.Services.AddScoped<Liakont.Host.Documents.DocumentsListFilterMemory>();
+
+        // Composition en lecture de la page détail document (WEB03a) : assemble en-tête + piste d'audit +
+        // motif de blocage courant + référence d'archive d'un document, hors de la page.
+        builder.Services.AddScoped<Liakont.Host.Documents.IDocumentDetailConsoleQueries, Liakont.Host.Documents.DocumentDetailConsoleQueryService>();
+
+        // Actions de résolution terminale du détail document (WEB03c) : traitement manuel hors passerelle
+        // et liaison à un document de remplacement. Appelle le port du module (IDocumentLifecycle) + audit,
+        // comme les endpoints API02c — aucune logique métier dans la page.
+        builder.Services.AddScoped<Liakont.Host.Documents.IDocumentResolutionConsoleService, Liakont.Host.Documents.DocumentResolutionConsoleService>();
+
+        // Composition en écriture de l'onglet Contrôles du détail (WEB03b) : verdict garde-fou B2B/B2C +
+        // re-vérification d'un document bloqué (API02b), appelés in-process par la page (tenant-scopé).
+        builder.Services.AddScoped<Liakont.Host.Documents.IDocumentControlActions, Liakont.Host.Documents.DocumentControlActionsService>();
+
+        // Actions d'envoi de la page Documents (WEB05) : « Envoyer la sélection », « Tout envoyer » (avec
+        // récapitulatif de confirmation) et « Lancer un traitement ». Publie le déclencheur mono-tenant
+        // SendTenantTrigger sur la queue SYSTÈME (ADR-0016) + audit, comme les endpoints API02a / runs-trigger —
+        // aucun second chemin d'envoi, aucune logique fiscale dans la page (garde liakont.actions, tenant-scopé).
+        builder.Services.AddScoped<Liakont.Host.Documents.IDocumentSendActions, Liakont.Host.Documents.DocumentSendActionsService>();
+
+        // Composition en lecture de la page Paramétrage du tenant (WEB04b) : assemble /settings + agents
+        // et déclenche la vérification d'intégrité du coffre (API03). Isole l'assemblage hors de la page.
+        builder.Services.AddScoped<Liakont.Host.Parametrage.IParametrageQueries, Liakont.Host.Parametrage.ParametrageQueryService>();
+
+        // Composition de la page « Paramétrage comptable — Table TVA » (WEB07a) : lecture de la table +
+        // journal (API04) et validation humaine (commande TVA05). Isole l'assemblage hors de la page.
+        builder.Services.AddScoped<Liakont.Host.TvaMappingTable.ITvaMappingTableQueries, Liakont.Host.TvaMappingTable.TvaMappingTableQueryService>();
+
+        // Composition en lecture de la page Encaissements (WEB06) : assemble les agrégats jour×taux (PIP03a,
+        // GET /payments) et l'état du paramétrage pertinent (capacité PA, complétude fiscale — GET /settings).
+        builder.Services.AddScoped<Liakont.Host.Payments.IEncaissementsConsoleQueries, Liakont.Host.Payments.EncaissementsConsoleQueryService>();
+
+        // Composition de la page Réconciliation des PDF (WEB08) : lecture des trois files (TRK07/API04) et
+        // actions opérateur (confirmer / rejeter / lier), appelées in-process par la page (tenant-scopé,
+        // garde liakont.actions). Isole l'accès au module hors de la page.
+        builder.Services.AddScoped<Liakont.Host.Reconciliation.IReconciliationConsoleService, Liakont.Host.Reconciliation.ReconciliationConsoleService>();
+
+        // Composition de la page « Gestion des agents » (WEB09) : lecture du parc (registre système tenant-scopé,
+        // indicateur « muet » depuis le seuil de supervision F12 §5.2) et actions de cycle de vie (enregistrement,
+        // révocation, rotation) déléguées aux commandes PIV05 in-process — avec parité d'audit avec les endpoints
+        // API05 (garde liakont.settings côté page et côté endpoint). Isole l'accès au module hors de la page.
+        builder.Services.AddScoped<Liakont.Host.AgentManagement.IAgentManagementConsoleService, Liakont.Host.AgentManagement.AgentManagementConsoleService>();
+
+        // Composition de la page « Comptes plateforme agréée » (FIX01c) : lecture des comptes PA du tenant
+        // (sans la clé) + types de plug-ins enregistrés (IPaClientRegistry), et mutations (création, édition,
+        // saisie/rotation de clé chiffrée, désactivation) déléguées aux commandes TenantSettings in-process
+        // (garde liakont.settings côté page). Isole l'accès au module hors de la page.
+        builder.Services.AddScoped<Liakont.Host.PaAccounts.IPaAccountConsoleService, Liakont.Host.PaAccounts.PaAccountConsoleService>();
+
+        // Onboarding de la transmission (FIX201, décision E1) : publie le SIREN / active le tax_report_setting
+        // du compte PA actif (appel idempotent EnsureTaxReportSettingAsync, garde liakont.settings, audit).
+        // Sans cette action, le diagnostic pré-envoi (F04 §3.1) refuse tout envoi (« Transport not available »).
+        builder.Services.AddScoped<Liakont.Host.PaAccounts.IPaPublicationConsoleService, Liakont.Host.PaAccounts.PaPublicationConsoleService>();
+
+        // Composition de la page « Paramétrage › Alertes » (FIX210) : dispositif d'alerte du tenant (règles
+        // actives/gelées + seuils effectifs + e-mail opérateur, via le Contract Supervision) et mutations
+        // (seuils, contact) déléguées aux commandes TenantSettings (garde liakont.settings côté page).
+        builder.Services.AddScoped<Liakont.Host.Alertes.IAlertesConsoleService, Liakont.Host.Alertes.AlertesConsoleService>();
+
+        // Témoin de vie du dead-man's-switch (FIX210, F12 §5.1) : lit les exécutions du job SYSTÈME
+        // d'évaluation (base système) via un scope SANS tenant ambiant. Horloge partagée (TimeProvider) pour
+        // un « en retard » déterministe en test.
+        builder.Services.TryAddSingleton(TimeProvider.System);
+        builder.Services.AddScoped<Liakont.Host.Supervision.ISupervisionLivenessProvider, Liakont.Host.Supervision.SupervisionLivenessProvider>();
+
+        // Pré-chargement déterministe de l'état de console à l'ouverture du circuit (avant rendu de la nav).
+        builder.Services.AddScoped<Liakont.Host.Navigation.LiakontConsoleCircuitHandler>();
+        builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler>(
+            sp => sp.GetRequiredService<Liakont.Host.Navigation.LiakontConsoleCircuitHandler>());
 
         // Blazor Server-Side Rendering
         builder.Services.AddRazorComponents()
@@ -369,10 +540,43 @@ public static class AppBootstrap
     /// </summary>
     public static async Task InitializeDataAsync(WebApplication app)
     {
+        // Signale l'activation du puits factice hors Development avant toute initialisation,
+        // pour qu'un opérateur ayant posé PaClients:Fake:Enabled=true par erreur le voie immédiatement.
+        app.WarnIfFakePaClientForcedOutsideDevelopment();
+
         app.MigrateDatabase();
+
+        // Seed dev du tenant par défaut (Development uniquement, section DevTenantSeed) — AVANT la
+        // migration des tenants existants pour que le tenant amorcé soit migré dans la même passe.
+        await app.SeedDevTenantAsync();
         await MigrateExistingTenantsAsync(app);
+
+        // Amorce le profil de paramétrage du tenant de dev APRÈS sa migration (le schéma tenantsettings
+        // n'existe qu'à ce stade) : sans profil, le CHECK suspend tout document (CFG02). Development only,
+        // non fatal.
+        await app.SeedDevTenantProfileAsync();
+
+        // Onboarding de la transmission du tenant de dev (FIX201, décision E1 point 2) : publie le SIREN /
+        // active le tax_report_setting du compte PA Fake, APRÈS l'amorçage du profil. Sans cette étape, le
+        // diagnostic pré-envoi refuse tout envoi (« Transport not available »). Rejouée à chaque démarrage
+        // (l'état du Fake vit en mémoire). Development only, non fatal.
+        await app.SeedDevTenantPublicationAsync();
+
         await app.Services.SeedAdminUserAsync();
         await SeedRealmRegistryFromDatabaseAsync(app);
+
+        // Diagnostic d'expérience de dev (FIX07a) : avertit si le realm Keycloak de dev est joignable
+        // mais périmé (import sauté à cause d'un volume résiduel). Development uniquement, best-effort.
+        await app.WarnIfDevRealmStaleAsync();
+
+        // Amorçage DEV des planifications des jobs SYSTÈME (FIX203b) : supervision (15 min, F12 §5.1) et
+        // ancrage quotidien du coffre (TRK06, ADR-0011). Sans elles, job.schedules reste VIDE → supervision
+        // morte en silence + coffre jamais ancré (recette run 2). Development uniquement, create-only, best-effort.
+        await app.SeedDevJobSchedulesAsync();
+
+        // Diagnostic (dev ET prod, FIX203b) : avertit si un job SYSTÈME attendu n'a aucune planification
+        // active. En prod la planification est un geste OPS (README) ; ce warning évite la panne silencieuse.
+        await app.WarnIfSystemJobsUnscheduledAsync();
     }
 
     /// <summary>Configures the HTTP pipeline and maps all endpoints.</summary>
@@ -383,7 +587,17 @@ public static class AppBootstrap
         contentTypeProvider.Mappings[".module"] = "application/javascript";
         app.UseStaticFiles(new StaticFileOptions { ContentTypeProvider = contentTypeProvider });
 
-        // Localization middleware — must be before authentication so culture is available for all requests
+        app.UseAuthentication();
+        app.UseStratumMultiTenancy();
+
+        // Localisation APRÈS l'authentification ET la résolution du tenant : la préférence Language
+        // PERSISTÉE de l'utilisateur (base = source de vérité — décision opérateur 2026-06-10,
+        // bug-inbox console-web) prime sur le cookie. Le provider lit les claims du principal
+        // authentifié, et identity.user_preferences est une table PAR TENANT : la lecture passe par
+        // TenantScopedConnectionFactory, qui exige un tenant déjà résolu pour router vers la bonne
+        // base (en database-per-tenant, lire avant la résolution retomberait silencieusement sur la
+        // base système, où la préférence n'existe pas). Le cookie .AspNetCore.Culture ne sert que de
+        // repli pour les requêtes anonymes (ex. /login).
         app.UseRequestLocalization(new RequestLocalizationOptions
         {
             DefaultRequestCulture = new RequestCulture(SupportedCultures.DefaultCulture),
@@ -391,12 +605,11 @@ public static class AppBootstrap
             SupportedUICultures = SupportedCultures.All,
             RequestCultureProviders =
             [
+                new Liakont.Host.Localization.PersistedLanguageRequestCultureProvider(),
                 new CookieRequestCultureProvider { CookieName = ".AspNetCore.Culture" },
             ],
         });
 
-        app.UseAuthentication();
-        app.UseStratumMultiTenancy();
         app.UseAuthorization();
         app.UseAntiforgery();
         app.UseRateLimiter();
@@ -561,6 +774,14 @@ public static class AppBootstrap
         v1.MapNotificationEndpoints();
         v1.MapAuditEndpoints();
         v1.MapTenantAdminEndpoints();
+        v1.MapDocumentsEndpoints();
+        v1.MapDocumentActionsEndpoints();
+        v1.MapPipelineEndpoints();
+        v1.MapArchiveEndpoints();
+        v1.MapTenantSettingsEndpoints();
+        v1.MapTvaMappingEndpoints();
+        v1.MapReconciliationEndpoints();
+        v1.MapAgentManagementEndpoints();
 
         // API agent → plateforme (contrat d'ingestion, F12 §3) : groupe /api/agent/v1 distinct de
         // l'API console OIDC, authentifié par clé API (filtre) et protégé par rate limiting.

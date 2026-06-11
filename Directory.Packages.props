@@ -58,5 +58,9 @@
     <!-- GIS spatial operations (ADR-0016) -->
     <PackageVersion Include="NetTopologySuite" Version="2.6.0" />
     <PackageVersion Include="NetTopologySuite.IO.GeoJSON4STJ" Version="4.0.0" />
+    <!-- Transport SMTP réel des notifications (ADR-0018, SUP03) — Host uniquement. MimeKit est la
+         dépendance de MailKit (même auteur, versions verrouillées) : composition du message MIME. -->
+    <PackageVersion Include="MailKit" Version="4.17.0" />
+    <PackageVersion Include="MimeKit" Version="4.17.0" />
   </ItemGroup>
 </Project>

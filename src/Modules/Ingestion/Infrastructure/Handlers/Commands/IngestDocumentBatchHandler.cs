@@ -83,6 +83,9 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
     [LoggerMessage(Level = LogLevel.Warning, Message = "Re-rangement d'un doublon reçu mais non rangé échoué pour {DocumentId} (best-effort, non bloquant ; le renvoi de l'agent re-tentera — ADR-0012)")]
     private static partial void LogReRangingFailed(ILogger logger, Guid documentId, Exception exception);
 
+    [LoggerMessage(Level = LogLevel.Information, Message = "Contenu stagé re-fourni pour le document rangé {DocumentId} dont le staging était absent (re-push agent — FIX07b/ADR-0014) ; le CHECK re-tournera à la re-livraison de l'événement.")]
+    private static partial void LogReStagedLostContent(ILogger logger, Guid documentId);
+
     private async Task PersistSourceTaxRegimesBestEffortAsync(IngestDocumentBatchCommand request, CancellationToken cancellationToken)
     {
         if (request.SourceTaxRegimes.Count == 0)
@@ -285,8 +288,9 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
 
         if (!accepted)
         {
-            // Doublon par empreinte : re-tenter le rangement d'un document reçu mais NON rangé (ADR-0012), jamais
-            // écarter aveuglément. Hors transaction (comme le rangement best-effort accepté).
+            // Doublon par empreinte : re-tenter le rangement d'un document reçu mais NON rangé (ADR-0012) — ou
+            // re-stager un document rangé dont le staging a été perdu (FIX07b) — jamais écarter aveuglément.
+            // Hors transaction (comme le rangement best-effort accepté).
             await RetryRangingIfNotRangedAsync(duplicateOriginalId, request, sourceReference, payloadHash, document, receivedAt, canonicalJson, cancellationToken);
             return new DocumentPushResultDto(sourceReference, DocumentPushStatus.Duplicate);
         }
@@ -302,11 +306,30 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
     }
 
     /// <summary>
-    /// AFFINAGE DÉDOUBLONNAGE (ADR-0012) : sur un doublon par empreinte, distingue « déjà rangé » (le
-    /// <c>Detected</c> existe → vrai doublon, terminal, aucun effet) de « reçu mais NON rangé » (re-tenter le
-    /// rangement, idempotent). Dans le second cas seulement : re-stage le pivot (filet de sécurité ADR-0014 —
-    /// non rangé ⟹ non Issued ⟹ staging non purgé, donc jamais une résurrection d'un staging purgé) puis
-    /// re-tente le rangement best-effort avec l'IDENTITÉ DE LA RÉCEPTION D'ORIGINE (idempotent sur DocumentId).
+    /// AFFINAGE DÉDOUBLONNAGE (ADR-0012) + RÉHYDRATATION DU STAGING PERDU (FIX07b) : sur un doublon par
+    /// empreinte, on NE renvoie « duplicate » sans effet QUE pour un VRAI doublon terminal — <c>Detected</c>
+    /// présent ET contenu encore stagé. Sinon on RE-STAGE le pivot (idempotent, content-addressed) :
+    /// <list type="bullet">
+    ///   <item>« reçu mais NON rangé » (ADR-0012) → re-stage puis re-range (idempotent sur DocumentId) ;</item>
+    ///   <item>« rangé mais staging PERDU » (FIX07b) → document ZOMBIE (Detected sans contenu, CHECK bloqué) :
+    ///   le re-push de l'agent re-fournit le même contenu, on le re-stage pour le rendre re-traitable au lieu
+    ///   d'écarter aveuglément.</item>
+    /// </list>
+    /// Jamais une résurrection altérée : ce chemin n'est atteint que parce que l'empreinte est déjà connue, et la
+    /// clé de staging porte cette même empreinte (re-vérifiée à la relecture par le magasin) — un contenu altéré
+    /// aurait une empreinte différente, donc le chemin ACCEPTÉ (altération), pas celui-ci. Le re-push de l'agent ne
+    /// concerne que les éléments pas encore « Processed » (staged+Detected) de SON point de vue (ADR-0014). Le
+    /// re-stage réhydrate donc les états PRÉ-ÉMISSION dont le staging a réellement été perdu (Detected mais aussi
+    /// ReadyToSend/Blocked, qui en ont encore besoin pour le SEND/recheck — INV-STAGING-007). CAS RÉSIDUEL : un
+    /// document déjà <c>Issued</c> (staging légitimement purgé après WORM, ADR-0014 §4) n'atteint ce chemin qu'en
+    /// reprise après PERTE D'ÉTAT de l'agent (re-scan/re-push). Le re-stage y est SANS EFFET FONCTIONNEL — aucun
+    /// événement <c>DocumentReceived</c> ne subsiste dans l'outbox (ni re-range ni ré-émission ; le document reste
+    /// <c>Issued</c>) — mais il ré-écrit un blob qui ne repassera PAS par la purge du SEND
+    /// (<see cref="IStagingPurgeService"/> ne purge qu'une fois, pendant le SEND). Ce cas (rare,
+    /// idempotent, borné par document) relève de la DETTE « croissance non bornée du staging » (Staging/MODULE.md,
+    /// propriétaire PIP01), PAS d'une re-purge automatique : le borner ici exigerait la connaissance du cycle de
+    /// vie / de la présence WORM dans le chemin chaud d'intake et risquerait de re-casser la réhydratation des
+    /// états pré-émission ci-dessus.
     /// </summary>
     private async Task RetryRangingIfNotRangedAsync(
         Guid? originalDocumentId,
@@ -330,22 +353,37 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
         // par document déjà committés : on avale, on journalise, l'agent renvoie au prochain cycle (ADR-0012).
         try
         {
-            // Déjà rangé (Detected présent) = vrai doublon, terminal, aucun effet.
-            if (await _documentIntake.IsDocumentRangedAsync(documentId, request.TenantId, cancellationToken))
+            var stagingKey = new StagedPayloadKey(request.TenantId, documentId, payloadHash);
+            var ranged = await _documentIntake.IsDocumentRangedAsync(documentId, request.TenantId, cancellationToken);
+
+            // VRAI doublon TERMINAL : déjà rangé ET contenu stagé encore présent → aucun effet (le contenu de la
+            // 1re réception suffit). Chemin DOMINANT en régime permanent.
+            if (ranged && await _stagingStore.ExistsAsync(stagingKey, cancellationToken))
             {
                 return;
             }
 
-            // Reçu mais NON rangé : re-stage (idempotent — non rangé ⟹ non Issued ⟹ staging non purgé) puis re-range.
-            await _stagingStore.WriteAsync(
-                new StagedPayloadKey(request.TenantId, documentId, payloadHash),
-                canonicalJson,
-                cancellationToken);
-            await RegisterDetectedDocumentBestEffortAsync(documentId, request, sourceReference, payloadHash, document, receivedAt, cancellationToken);
+            // Sinon, RE-STAGE (idempotent, content-addressed) : « reçu mais non rangé » OU « rangé mais staging
+            // perdu » (zombie — FIX07b). Le contenu n'est plus jamais jeté.
+            await _stagingStore.WriteAsync(stagingKey, canonicalJson, cancellationToken);
+
+            if (ranged)
+            {
+                // Zombie réhydraté : le Detected existe déjà (ne pas re-ranger). Le CHECK re-tournera à la
+                // re-livraison de l'événement DocumentReceived d'origine tant qu'il est dans l'outbox ; s'il a déjà
+                // été dead-letté (≥ MaxRetries de CHECK sur staging absent), le rejeu est un geste opérateur
+                // documenté (ADR-0014, amendement FIX07b) — aucun rejeu automatique n'est inventé ici.
+                LogReStagedLostContent(_logger, documentId);
+            }
+            else
+            {
+                // Reçu mais NON rangé : ranger maintenant, avec l'IDENTITÉ DE LA RÉCEPTION D'ORIGINE (idempotent sur DocumentId).
+                await RegisterDetectedDocumentBestEffortAsync(documentId, request, sourceReference, payloadHash, document, receivedAt, cancellationToken);
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // Le document reste « reçu mais non rangé » ; le renvoi de l'agent re-tentera (jamais une perte).
+            // Le document reste « reçu mais non rangé » (ou son staging non réhydraté) ; le renvoi de l'agent re-tentera (jamais une perte).
             LogReRangingFailed(_logger, documentId, ex);
         }
     }

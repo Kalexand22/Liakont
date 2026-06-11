@@ -19,4 +19,10 @@ internal sealed class RecordingReconciliationService : IReconciliationService
 
     public Task ConfirmManualReconciliationAsync(Guid queueEntryId, Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default) =>
         Task.CompletedTask;
+
+    public Task ConfirmProposalAsync(Guid queueEntryId, string operatorIdentity, CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
+
+    public Task RejectProposalAsync(Guid queueEntryId, string operatorIdentity, CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
 }

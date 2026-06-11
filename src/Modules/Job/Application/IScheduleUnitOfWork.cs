@@ -14,6 +14,12 @@ public interface IScheduleUnitOfWork : IAsyncDisposable
 
     Task<IReadOnlyList<JobSchedule>> GetDueSchedulesAsync(DateTimeOffset now, CancellationToken ct = default);
 
+    // Liakont addition (FIX203b) : lecture seule, sans verrou, des types de jobs ayant au moins un
+    // schedule ACTIF — consommée par le diagnostic de démarrage qui avertit si un job SYSTÈME attendu
+    // (évaluation de la supervision, ancrage quotidien du coffre) n'a aucune planification active.
+    // Distincte de GetDueSchedulesAsync (FOR UPDATE SKIP LOCKED, réservée au scheduler).
+    Task<IReadOnlyList<string>> GetActiveJobTypesAsync(CancellationToken ct = default);
+
     Task CommitAsync(CancellationToken ct = default);
 }
 

@@ -45,6 +45,10 @@
       {
         "name": "superviseur",
         "description": "Supervision cross-tenant en lecture seule (toutes les permissions liakont.*)"
+      },
+      {
+        "name": "stratum-admin",
+        "description": "Administrateur d'instance (super-admin) : admin des planifications de jobs, provisioning tenant. Compte sysadmin de dev (FIX203b)."
       }
     ]
   },
@@ -59,6 +63,7 @@
       "secret": "liakont-dev-secret",
       "redirectUris": [
         "http://localhost:55996/*",
+        "http://default.localhost:55996/*",
         "https://localhost:55995/*"
       ],
       "webOrigins": ["+"],
@@ -71,7 +76,7 @@
       "authorizationServicesEnabled": false,
       "fullScopeAllowed": true,
       "attributes": {
-        "post.logout.redirect.uris": "http://localhost:55996/*##https://localhost:55995/*"
+        "post.logout.redirect.uris": "http://localhost:55996/*##http://default.localhost:55996/*##https://localhost:55995/*"
       },
       "defaultClientScopes": [
         "openid",
@@ -84,12 +89,12 @@
       ],
       "protocolMappers": [
         {
-          "name": "company_id",
+          "name": "company_id (societe fictive de dev)",
           "protocol": "openid-connect",
-          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
           "config": {
-            "user.attribute": "company_id",
             "claim.name": "company_id",
+            "claim.value": "00000000-0000-4000-a000-000000000001",
             "jsonType.label": "String",
             "id.token.claim": "true",
             "access.token.claim": "true",
@@ -137,7 +142,7 @@
   ],
   "users": [
     {
-      "username": "lecture@liakont.local",
+      "username": "lecture",
       "email": "lecture@liakont.local",
       "emailVerified": true,
       "enabled": true,
@@ -153,7 +158,7 @@
       "realmRoles": ["lecture"]
     },
     {
-      "username": "operateur@liakont.local",
+      "username": "operateur",
       "email": "operateur@liakont.local",
       "emailVerified": true,
       "enabled": true,
@@ -169,7 +174,7 @@
       "realmRoles": ["lecture", "operateur"]
     },
     {
-      "username": "parametrage@liakont.local",
+      "username": "parametrage",
       "email": "parametrage@liakont.local",
       "emailVerified": true,
       "enabled": true,
@@ -185,7 +190,7 @@
       "realmRoles": ["lecture", "operateur", "parametrage"]
     },
     {
-      "username": "superviseur@liakont.local",
+      "username": "superviseur",
       "email": "superviseur@liakont.local",
       "emailVerified": true,
       "enabled": true,
@@ -199,6 +204,23 @@
         }
       ],
       "realmRoles": ["lecture", "operateur", "parametrage", "superviseur"]
+    },
+    {
+      "id": "ad000000-0000-4000-b000-000000000001",
+      "username": "sysadmin",
+      "email": "sysadmin@liakont.local",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Sacha",
+      "lastName": "Sysadmin",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Test@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["stratum-admin"]
     }
   ],
   "scopeMappings": [],

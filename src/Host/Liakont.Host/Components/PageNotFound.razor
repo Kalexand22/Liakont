@@ -1,0 +1,13 @@
+@* Contenu rendu par le <NotFound> du routeur (Routes.razor) pour toute route inconnue (FIX07c).
+   Message opérateur français explicite + action corrective (CLAUDE.md n°12) — JAMAIS une page vide. *@
+
+<PageTitle>Page introuvable — Liakont</PageTitle>
+
+<section class="py-5 text-center" data-testid="page-not-found" role="alert" aria-live="polite">
+    <h1 class="h3 mb-3">Page introuvable</h1>
+    <p class="text-muted mb-4">
+        La page demandée n'existe pas ou a été déplacée. Vérifiez l'adresse saisie,
+        ou revenez au tableau de bord.
+    </p>
+    <a href="/" class="btn btn-primary" data-testid="page-not-found-home">Retour au tableau de bord</a>
+</section>

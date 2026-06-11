@@ -1,0 +1,281 @@
+@namespace Liakont.Host.Components
+@using System.Collections.Generic
+@using System.Globalization
+@using Liakont.Host.TvaMappingTable
+@using Liakont.Modules.TvaMapping.Contracts.DTOs
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* TvaRuleEditor — formulaire PUR d'édition d'une règle de mapping TVA (WEB07b). Listes FERMÉES
+ * (catégorie UNCL5305, part, mode de taux, VATEX) via des <select> natifs : AUCUNE saisie libre sur
+ * ces champs (les valeurs proviennent des contrats TVA05 — item TVA05, F03 §2.1/§2.2). Aucune logique
+ * fiscale ici : la validation structurelle (E → VATEX, taux, doublon) est faite par le handler et son
+ * message d'erreur français est affiché en bandeau. Le couple (régime, part) IDENTIFIE la règle : il
+ * n'est saisissable qu'à la création (en modification, on supprime puis on recrée pour changer la clé).
+ * 100 % français, testable en bUnit (aucune injection métier). *@
+
+<div class="liakont-tva-editor" data-testid="tva-rule-editor">
+    <h3 class="liakont-tva-editor__title">
+        @(IsCreate ? "Créer une règle de mapping" : EditTitle)
+    </h3>
+
+    <div class="liakont-tva-editor__grid">
+        <FormField Label="Régime source" FieldId="tva-rule-code" Required="true">
+            <input id="tva-rule-code"
+                   class="form-control"
+                   type="text"
+                   value="@Model.SourceRegimeCode"
+                   @oninput="OnCodeInput"
+                   disabled="@(!IsCreate || Busy)"
+                   data-testid="tva-rule-code" />
+        </FormField>
+
+        @if (ShowPart)
+        {
+            @* Vertical « vente aux enchères » actif : la « Composante » (Adjudication / Frais / Hors
+               Enchères) est proposée. Hors vertical, RIEN n'est rendu (décision E2 : aucune mention —
+               ni champ, ni valeur, ni note) ; la part Autre reste fixée implicitement (OnParametersSet). *@
+            <FormField Label="@TvaComposanteVocabulary.FieldLabel" FieldId="tva-rule-part" Required="true"
+                       HelpText="@(IsCreate ? null : "La composante fait partie de la clé : non modifiable (supprimez puis recréez pour la changer).")">
+                <select id="tva-rule-part"
+                        class="form-select"
+                        value="@Model.Part"
+                        @onchange="OnPartChange"
+                        disabled="@(!IsCreate || Busy)"
+                        data-testid="tva-rule-part">
+                    <option value="">— Choisir —</option>
+                    @foreach (var part in Options.Parts)
+                    {
+                        <option value="@part.Code">@part.Label</option>
+                    }
+                </select>
+            </FormField>
+        }
+
+        <FormField Label="Libellé (facultatif)" FieldId="tva-rule-label">
+            <input id="tva-rule-label"
+                   class="form-control"
+                   type="text"
+                   value="@Model.Label"
+                   @oninput="OnLabelInput"
+                   disabled="@Busy"
+                   data-testid="tva-rule-label" />
+        </FormField>
+
+        <FormField Label="Catégorie de TVA (UNCL5305)" FieldId="tva-rule-category" Required="true">
+            <select id="tva-rule-category"
+                    class="form-select"
+                    value="@Model.Category"
+                    @onchange="OnCategoryChange"
+                    disabled="@Busy"
+                    data-testid="tva-rule-category">
+                <option value="">— Choisir —</option>
+                @foreach (var category in Options.Categories)
+                {
+                    <option value="@category.Code">@category.Code — @category.Label</option>
+                }
+            </select>
+        </FormField>
+
+        <FormField Label="Code VATEX (motif d'exonération)" FieldId="tva-rule-vatex"
+                   HelpText="Obligatoire pour une catégorie E (exonéré).">
+            <select id="tva-rule-vatex"
+                    class="form-select"
+                    value="@(Model.Vatex ?? string.Empty)"
+                    @onchange="OnVatexChange"
+                    disabled="@Busy"
+                    data-testid="tva-rule-vatex">
+                <option value="">— Aucun —</option>
+                @foreach (var vatex in Options.VatexCodes)
+                {
+                    <option value="@vatex.Code">@vatex.Label</option>
+                }
+            </select>
+        </FormField>
+
+        <FormField Label="Mode de taux" FieldId="tva-rule-ratemode" Required="true">
+            <select id="tva-rule-ratemode"
+                    class="form-select"
+                    value="@Model.RateMode"
+                    @onchange="OnRateModeChange"
+                    disabled="@Busy"
+                    data-testid="tva-rule-ratemode">
+                <option value="">— Choisir —</option>
+                @foreach (var mode in Options.RateModes)
+                {
+                    <option value="@mode.Code">@mode.Label</option>
+                }
+            </select>
+        </FormField>
+
+        @if (IsFixedRate)
+        {
+            <FormField Label="Taux fixe (%)" FieldId="tva-rule-rate" Required="true">
+                <input id="tva-rule-rate"
+                       class="form-control"
+                       type="number"
+                       step="0.01"
+                       min="0"
+                       @bind="Model.RateValue"
+                       disabled="@Busy"
+                       data-testid="tva-rule-rate" />
+            </FormField>
+        }
+
+        <FormField Label="Note (facultatif)" FieldId="tva-rule-note">
+            <input id="tva-rule-note"
+                   class="form-control"
+                   type="text"
+                   value="@Model.Note"
+                   @oninput="OnNoteInput"
+                   disabled="@Busy"
+                   data-testid="tva-rule-note" />
+        </FormField>
+    </div>
+
+    @if (Model.SourceFlags is { Count: > 0 })
+    {
+        @* Conditions sur flags source : préservées, non éditables en console V1 (affichées pour transparence). *@
+        <p class="liakont-tva-editor__flags" data-testid="tva-rule-flags">
+            Conditions sur flags source (conservées) :
+            @string.Join(", ", FlagPairs)
+        </p>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <div class="liakont-tva-table__alert" role="alert" data-testid="tva-rule-editor-error">
+            @Error
+        </div>
+    }
+
+    <div class="liakont-tva-editor__actions">
+        <StratumButton Text="@(Busy ? "Enregistrement…" : "Enregistrer")"
+                       Variant="ButtonVariant.Primary"
+                       Size="ButtonSize.Small"
+                       Disabled="@(!CanSubmit)"
+                       OnClick="@(_ => OnSubmit.InvokeAsync())"
+                       TestId="tva-rule-save-btn" />
+        <StratumButton Text="Annuler"
+                       Variant="ButtonVariant.Secondary"
+                       Outline
+                       Size="ButtonSize.Small"
+                       Disabled="@Busy"
+                       OnClick="@(_ => OnCancel.InvokeAsync())"
+                       TestId="tva-rule-cancel-btn" />
+    </div>
+</div>
+
+@code {
+    /// <summary>Listes FERMÉES sourcées (catégories / parts / modes de taux / VATEX).</summary>
+    [Parameter, EditorRequired]
+    public TvaMappingEditOptionsDto Options { get; set; } = null!;
+
+    /// <summary>Modèle de saisie (muté directement — instance partagée avec la page hôte).</summary>
+    [Parameter, EditorRequired]
+    public TvaRuleFormModel Model { get; set; } = null!;
+
+    /// <summary><c>true</c> en création (clé saisissable) ; <c>false</c> en modification (clé figée).</summary>
+    [Parameter]
+    public bool IsCreate { get; set; }
+
+    /// <summary>
+    /// <c>true</c> pour proposer le champ « part » (Adjudication / Frais / Autre) — vertical enchères
+    /// activé (D4, lot FIX03). <c>false</c> (défaut) : champ masqué, part <c>Autre</c> implicite sur une
+    /// création. Le DÉFAUT <c>true</c> préserve le comportement et les tests existants : la page passe
+    /// explicitement l'activation du tenant.
+    /// </summary>
+    [Parameter]
+    public bool ShowPart { get; set; } = true;
+
+    /// <summary><c>true</c> pendant l'envoi (champs et boutons désactivés).</summary>
+    [Parameter]
+    public bool Busy { get; set; }
+
+    /// <summary>Message d'erreur (validation handler ou échec d'envoi), ou <c>null</c>.</summary>
+    [Parameter]
+    public string? Error { get; set; }
+
+    /// <summary>Déclenché à l'enregistrement (la page lit <see cref="Model"/> et émet la commande).</summary>
+    [Parameter]
+    public EventCallback OnSubmit { get; set; }
+
+    /// <summary>Déclenché à l'annulation.</summary>
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    /// <summary>Valeur de part implicite quand le vertical enchères est désactivé (D4).</summary>
+    private const string ImplicitPart = "Autre";
+
+    protected override void OnParametersSet()
+    {
+        // Vertical enchères désactivé : sur une CRÉATION, la part Autre est implicite (le champ est masqué).
+        // On la fixe pour que la règle soit créée avec la SEULE part consultée par le pipeline générique
+        // (CheckTvaMapping.LinePart) — jamais une part vide ni un découpage inopérant. En MODIFICATION, la
+        // part existante (clé figée) est préservée telle quelle, même si elle vaut Adjudication / Frais.
+        if (!ShowPart && IsCreate && string.IsNullOrWhiteSpace(Model.Part))
+        {
+            Model.Part = ImplicitPart;
+        }
+    }
+
+    /// <summary>
+    /// Titre en MODIFICATION : « Modifier la règle — régime X », suffixé de la composante (vertical
+    /// enchères actif uniquement, valeur Autre → « Hors Enchères » via <see cref="TvaComposanteVocabulary"/>).
+    /// Hors vertical, la composante n'est jamais mentionnée (décision E2).
+    /// </summary>
+    private string EditTitle =>
+        ShowPart && !string.IsNullOrWhiteSpace(Model.Part)
+            ? $"Modifier la règle — régime {Model.SourceRegimeCode} ({TvaComposanteVocabulary.ValueLabel(Model.Part)})"
+            : $"Modifier la règle — régime {Model.SourceRegimeCode}";
+
+    private bool IsFixedRate => string.Equals(Model.RateMode, "Fixed", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Validation de PRÉSENCE uniquement (clé + catégorie + mode de taux ; taux fixe renseigné si mode
+    /// Fixed). Aucune règle fiscale ici : la cohérence (E → VATEX, taux, doublon) est validée par le
+    /// handler, dont le message français est affiché en cas d'erreur (jamais dupliquée côté UI).
+    /// </summary>
+    private bool CanSubmit =>
+        !Busy
+        && !string.IsNullOrWhiteSpace(Model.SourceRegimeCode)
+        && !string.IsNullOrWhiteSpace(Model.Part)
+        && !string.IsNullOrWhiteSpace(Model.Category)
+        && !string.IsNullOrWhiteSpace(Model.RateMode)
+        && (!IsFixedRate || Model.RateValue is not null);
+
+    private IEnumerable<string> FlagPairs =>
+        Model.SourceFlags is null
+            ? Array.Empty<string>()
+            : Model.SourceFlags.Select(kv => $"{kv.Key} = {kv.Value}");
+
+    private void OnCodeInput(ChangeEventArgs e) => Model.SourceRegimeCode = e.Value as string ?? string.Empty;
+
+    private void OnLabelInput(ChangeEventArgs e) => Model.Label = NullIfEmpty(e.Value as string);
+
+    private void OnNoteInput(ChangeEventArgs e) => Model.Note = NullIfEmpty(e.Value as string);
+
+    private void OnPartChange(ChangeEventArgs e) => Model.Part = e.Value as string ?? string.Empty;
+
+    private void OnCategoryChange(ChangeEventArgs e) => Model.Category = e.Value as string ?? string.Empty;
+
+    private void OnVatexChange(ChangeEventArgs e) => Model.Vatex = NullIfEmpty(e.Value as string);
+
+    private void OnRateModeChange(ChangeEventArgs e)
+    {
+        Model.RateMode = e.Value as string ?? string.Empty;
+
+        // Mode « calculé depuis la source » : aucun taux fixe (le validateur rejette une valeur fixe en
+        // mode calculé). On efface la valeur pour rester cohérent — jamais un taux deviné.
+        if (!IsFixedRate)
+        {
+            Model.RateValue = null;
+        }
+    }
+
+    private static string? NullIfEmpty(string? value)
+    {
+        var trimmed = value?.Trim();
+        return string.IsNullOrEmpty(trimmed) ? null : trimmed;
+    }
+}

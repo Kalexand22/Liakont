@@ -1,0 +1,215 @@
+namespace Liakont.Host.Tests.Unit.Pages;
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Bunit;
+using FluentAssertions;
+using MediatR;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Localization;
+using Stratum.Common.Abstractions.Grid;
+using Stratum.Common.Abstractions.Security;
+using Stratum.Common.UI;
+using Stratum.Modules.Job.Contracts;
+using Stratum.Modules.Job.Contracts.DTOs;
+using Stratum.Modules.Job.Contracts.Queries;
+using Stratum.Modules.Job.Contracts.Services;
+using Stratum.Modules.Job.Web.Pages;
+using Xunit;
+
+// FIX211 : page socle des planifications, MODIFIÉE par l'item (colonne « Type de job » en libellé FR + action
+// de ligne « Voir les exécutions ») → entre dans le périmètre de test (CLAUDE.md règle 19).
+public sealed class AdminJobSchedulesTests : BunitContext
+{
+    private const string SupervisionKey = "Liakont.Modules.Supervision.Infrastructure.SupervisionEvaluationTrigger";
+    private static readonly Guid TenantCompany = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+    public AdminJobSchedulesTests()
+    {
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        Services.AddLogging();
+        Services.AddCommonUI();
+        Services.AddSingleton<IStringLocalizer<SharedResources>>(new StubStringLocalizer());
+        Services.AddScoped<IGridPreferenceService>(_ => new NullGridPreferenceService());
+        Services.AddScoped<ISavedFilterService>(_ => new NullSavedFilterService());
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(JobPermissions.View, JobPermissions.ManageSchedules));
+        Services.AddScoped<ISender>(_ => new NoopSender());
+        Services.AddScoped<IActorContextAccessor>(_ => new StubActorContextAccessor(TenantCompany));
+        Services.AddScoped<IJobTypeCatalog>(_ => new FakeCatalog(
+            new JobTypeDescriptor(SupervisionKey, "Évaluation de la supervision", [])));
+        Services.AddScoped<IScheduleQueries>(_ => new FakeScheduleQueries(Schedule(SupervisionKey)));
+    }
+
+    [Fact]
+    public void Job_Type_Column_Renders_The_French_Label_Never_The_FullName()
+    {
+        var cut = Render<AdminJobSchedules>();
+
+        cut.Markup.Should().Contain("Évaluation de la supervision");
+        cut.Markup.Should().NotContain(SupervisionKey, "la colonne affiche le libellé FR, jamais le FullName .NET");
+    }
+
+    [Fact]
+    public void Voir_Les_Executions_Navigates_To_The_Executions_Page_Filtered_By_Type()
+    {
+        var cut = Render<AdminJobSchedules>();
+
+        cut.Find("[data-testid='quick-action-executions']").Click();
+
+        var nav = Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
+        var expected = $"/admin/jobs/executions?type={Uri.EscapeDataString(SupervisionKey)}";
+        nav.Uri.Should().EndWith(expected, "le lien planification → exécutions pré-filtre par le type");
+    }
+
+    private static ScheduleDto Schedule(string jobType) => new()
+    {
+        Id = Guid.NewGuid(),
+        Name = "Supervision",
+        CronExpression = "*/15 * * * *",
+        JobType = jobType,
+        PayloadTemplate = "{}",
+        IsActive = true,
+        NextRunAt = new DateTimeOffset(2026, 6, 11, 8, 15, 0, TimeSpan.Zero),
+        LastRunAt = null,
+        CompanyId = TenantCompany,
+        CreatedAt = new DateTimeOffset(2026, 6, 11, 8, 0, 0, TimeSpan.Zero),
+        UpdatedAt = new DateTimeOffset(2026, 6, 11, 8, 0, 0, TimeSpan.Zero),
+    };
+
+    private sealed class FakeScheduleQueries : IScheduleQueries
+    {
+        private readonly IReadOnlyList<ScheduleDto> _rows;
+
+        public FakeScheduleQueries(params ScheduleDto[] rows) => _rows = rows;
+
+        public Task<ScheduleDto?> GetByIdAsync(Guid scheduleId, CancellationToken ct = default) =>
+            Task.FromResult(_rows.FirstOrDefault(s => s.Id == scheduleId));
+
+        public Task<IReadOnlyList<ScheduleDto>> ListByCompanyAsync(Guid companyId, CancellationToken ct = default) =>
+            Task.FromResult(_rows);
+    }
+
+    private sealed class FakeCatalog : IJobTypeCatalog
+    {
+        private readonly IReadOnlyList<JobTypeDescriptor> _all;
+
+        public FakeCatalog(params JobTypeDescriptor[] all) => _all = all;
+
+        public IReadOnlyList<JobTypeDescriptor> GetAll() => _all;
+
+        public JobTypeDescriptor? Find(string technicalKey) =>
+            _all.FirstOrDefault(d => d.TechnicalKey == technicalKey);
+    }
+
+    private sealed class NoopSender : ISender
+    {
+        public Task<TResponse> Send<TResponse>(IRequest<TResponse> request, CancellationToken cancellationToken = default) =>
+            Task.FromResult<TResponse>(default!);
+
+        public Task Send<TRequest>(TRequest request, CancellationToken cancellationToken = default)
+            where TRequest : IRequest =>
+            Task.CompletedTask;
+
+        public Task<object?> Send(object request, CancellationToken cancellationToken = default) =>
+            Task.FromResult<object?>(null);
+
+        public IAsyncEnumerable<TResponse> CreateStream<TResponse>(IStreamRequest<TResponse> request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public IAsyncEnumerable<object?> CreateStream(object request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class FakePermissionService : IPermissionService
+    {
+        private readonly HashSet<string> _permissions;
+
+        public FakePermissionService(params string[] permissions) =>
+            _permissions = new HashSet<string>(permissions, StringComparer.Ordinal);
+
+        public event Action? OnPermissionsChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public bool HasPermission(string permission) => _permissions.Contains(permission);
+    }
+
+    private sealed class NullSavedFilterService : ISavedFilterService
+    {
+        public Task<IReadOnlyList<SavedFilter>> ListAsync(Guid userId, string gridKey, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<SavedFilter>>([]);
+
+        public Task<SavedFilter?> GetAsync(Guid id, CancellationToken ct = default) =>
+            Task.FromResult<SavedFilter?>(null);
+
+        public Task<SavedFilter> SaveAsync(SavedFilter filter, CancellationToken ct = default) =>
+            Task.FromResult(filter);
+
+        public Task DeleteAsync(Guid id, CancellationToken ct = default) => Task.CompletedTask;
+
+        public Task SetDefaultAsync(Guid id, CancellationToken ct = default) => Task.CompletedTask;
+    }
+
+    private sealed class NullGridPreferenceService : IGridPreferenceService
+    {
+        public Task<UserGridPreference?> GetPreferenceAsync(Guid userId, string gridKey, CancellationToken ct = default) =>
+            Task.FromResult<UserGridPreference?>(null);
+
+        public Task SavePreferenceAsync(Guid userId, string gridKey, IReadOnlyList<string> columnKeys, CancellationToken ct = default) =>
+            Task.CompletedTask;
+
+        public Task SaveViewPreferenceAsync(Guid userId, string gridKey, ViewKind viewKind, CancellationToken ct = default) =>
+            Task.CompletedTask;
+
+        public Task SaveFilterStateAsync(Guid userId, string gridKey, string? filterStateJson, CancellationToken ct = default) =>
+            Task.CompletedTask;
+
+        public Task SaveColumnWidthsAsync(Guid userId, string gridKey, IReadOnlyDictionary<string, string> columnWidths, CancellationToken ct = default) =>
+            Task.CompletedTask;
+    }
+
+    private sealed class StubStringLocalizer : IStringLocalizer<SharedResources>
+    {
+        public LocalizedString this[string name] => new(name, name, resourceNotFound: true);
+
+        public LocalizedString this[string name, params object[] arguments] =>
+            new(name, string.Format(System.Globalization.CultureInfo.InvariantCulture, name, arguments), resourceNotFound: true);
+
+        public IEnumerable<LocalizedString> GetAllStrings(bool includeParentCultures) => [];
+    }
+
+    private sealed class StubActorContextAccessor : IActorContextAccessor
+    {
+        public StubActorContextAccessor(Guid? companyId) => Current = new StubActorContext(companyId);
+
+        public IActorContext Current { get; }
+
+        private sealed class StubActorContext : IActorContext
+        {
+            public StubActorContext(Guid? companyId) => CompanyId = companyId;
+
+            public Guid UserId => Guid.Empty;
+
+            public Guid CorrelationId => Guid.Empty;
+
+            public bool IsAuthenticated => true;
+
+            public string? DisplayName => "Admin";
+
+            public string? Email => null;
+
+            public Guid? CompanyId { get; }
+
+            public string? Timezone => null;
+
+            public string? Language => "fr";
+
+            public string? TenantId => "tenant-test";
+        }
+    }
+}

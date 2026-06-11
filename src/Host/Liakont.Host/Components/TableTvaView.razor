@@ -1,0 +1,718 @@
+@namespace Liakont.Host.Components
+@using System.Globalization
+@using System.Collections.Generic
+@using Liakont.Host.TvaMappingTable
+@using Liakont.Modules.TvaMapping.Contracts.DTOs
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* TableTvaView — rendu PUR de la page « Paramétrage comptable — Table TVA » (WEB07a lecture + WEB07b
+ * édition). Reçoit son modèle et l'état d'édition en paramètres (aucune injection métier, aucune logique
+ * fiscale) pour être testable en bUnit sans auth ni base. Table des règles = gabarit DeclaredListPage
+ * (AUCUNE grille « maison ») ; édition (ajout / modification / suppression) via listes FERMÉES, gardée
+ * par la permission liakont.settings (CanEdit) ; couverture des régimes non mappés « à compléter »
+ * (TVA03) ; état de validation + bandeau NON VALIDÉE + changelog en composition Stratum. 100 % français. *@
+
+<div class="liakont-tva-table" data-testid="liakont-tva-table">
+
+    <SectionCard Title="État de validation" TestId="table-tva-validation">
+        @if (Model.Table is { } table)
+        {
+            @if (table.IsValidated)
+            {
+                <div class="liakont-tva-table__validated" data-testid="table-tva-validated">
+                    <StatusBadge Label="Validée" Severity="Severity.Success" />
+                    @if (!string.IsNullOrWhiteSpace(table.ValidatedBy))
+                    {
+                        <span class="liakont-tva-table__meta">
+                            Validée par @table.ValidatedBy@(table.ValidatedDate is { } date ? $" le {date.ToString("dd/MM/yyyy", Fr)}" : string.Empty)
+                        </span>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="liakont-tva-table__alert" role="alert" data-testid="table-tva-not-validated">
+                    <StatusBadge Label="NON VALIDÉE" Severity="Severity.Error" />
+                    <span>Les envois sont suspendus jusqu'à validation par l'expert-comptable.</span>
+                </div>
+
+                @if (CanValidate)
+                {
+                    @if (!ConfirmOpen)
+                    {
+                        <StratumButton Text="Marquer comme validée"
+                                       Variant="ButtonVariant.Primary"
+                                       Size="ButtonSize.Small"
+                                       OnClick="@(_ => OnOpenConfirm.InvokeAsync())"
+                                       TestId="table-tva-validate-btn" />
+                    }
+                    else
+                    {
+                        <div class="liakont-tva-table__confirm" data-testid="table-tva-confirm">
+                            <p class="liakont-tva-table__confirm-text">
+                                La validation de la table de mapping TVA engage votre responsabilité et lève la
+                                suspension des envois. Elle sera enregistrée à votre nom :
+                                <strong data-testid="table-tva-confirm-operator">@Model.CurrentOperatorName</strong>.
+                                Pour confirmer, ressaisissez votre nom de validateur ci-dessous.
+                            </p>
+
+                            @if (DeadRules.Count > 0)
+                            {
+                                @* Contrôle de cohérence avant validation (lot FIX03) : on AVERTIT sans bloquer
+                                   (CLAUDE.md n°3) que des règles resteront inopérantes. *@
+                                <div class="liakont-tva-table__alert" role="alert" data-testid="table-tva-validate-deadrules-warning">
+                                    Attention : @DeadRules.Count règle(s) ne pourront jamais s'appliquer (voir
+                                    « Cohérence du paramétrage »). La validation reste possible, mais ces règles
+                                    resteront sans effet.
+                                </div>
+                            }
+                            <label class="liakont-tva-table__confirm-label" for="table-tva-validator-input">Nom du validateur</label>
+                            <input id="table-tva-validator-input"
+                                   class="liakont-tva-table__confirm-input"
+                                   type="text"
+                                   value="@_validatorInput"
+                                   @oninput="OnValidatorInputChanged"
+                                   disabled="@Validating"
+                                   data-testid="table-tva-validator-input" />
+
+                            @if (!string.IsNullOrWhiteSpace(ValidateError))
+                            {
+                                <div class="liakont-tva-table__alert" role="alert" data-testid="table-tva-validate-error">
+                                    @ValidateError
+                                </div>
+                            }
+
+                            <div class="liakont-tva-table__confirm-actions">
+                                <StratumButton Text="@(Validating ? "Validation en cours…" : "Confirmer la validation")"
+                                               Variant="ButtonVariant.Primary"
+                                               Size="ButtonSize.Small"
+                                               Disabled="@(!CanConfirm)"
+                                               OnClick="@(_ => OnConfirmValidate.InvokeAsync())"
+                                               TestId="table-tva-confirm-btn" />
+                                <StratumButton Text="Annuler"
+                                               Variant="ButtonVariant.Secondary"
+                                               Outline
+                                               Size="ButtonSize.Small"
+                                               Disabled="@Validating"
+                                               OnClick="@(_ => OnCancelConfirm.InvokeAsync())"
+                                               TestId="table-tva-cancel-btn" />
+                            </div>
+                        </div>
+                    }
+                }
+            }
+        }
+        else
+        {
+            <div class="liakont-tva-table__alert" role="alert" data-testid="table-tva-none">
+                <span>
+                    Aucune table TVA paramétrée — le traitement des documents portant un régime à mapper est
+                    suspendu (blocage par défaut). Créez la table pour commencer le paramétrage.
+                </span>
+            </div>
+
+            @if (CanEdit)
+            {
+                <StratumButton Text="@(CreatingTable ? "Création…" : "Créer la table")"
+                               Variant="ButtonVariant.Primary"
+                               Size="ButtonSize.Small"
+                               Disabled="@CreatingTable"
+                               OnClick="@(_ => OnCreateTable.InvokeAsync())"
+                               TestId="table-tva-create-table-btn" />
+
+                @if (!string.IsNullOrWhiteSpace(CreateError))
+                {
+                    <div class="liakont-tva-table__alert" role="alert" data-testid="table-tva-create-error">
+                        @CreateError
+                    </div>
+                }
+            }
+        }
+    </SectionCard>
+
+    @if (Model.TenantResolved)
+    {
+        @* Activation du vertical « vente aux enchères » (paramétrage produit D4, lot FIX03) : gouverne
+           l'exposition du champ « part » dans l'éditeur. Défaut OFF. Modifiable avec liakont.settings. *@
+        <SectionCard Title="Vertical « vente aux enchères »" TestId="table-tva-auction-vertical">
+            <div class="liakont-tva-table__auction" data-testid="table-tva-auction-vertical-state">
+                @if (Model.AuctionVerticalEnabled)
+                {
+                    <StatusBadge Label="Activé" Severity="Severity.Info" />
+                }
+                else
+                {
+                    <StatusBadge Label="Désactivé" Severity="Severity.Neutral" />
+                }
+                <span class="liakont-tva-table__meta">
+                    À activer uniquement pour un tenant opérant des ventes aux enchères : le découpage
+                    Adjudication / Frais apparaît alors dans l'éditeur de règle. Désactivé, la part
+                    « Autre » est implicite (interface générique non encombrée).
+                </span>
+            </div>
+
+            @if (CanEdit)
+            {
+                @if (!string.IsNullOrWhiteSpace(AuctionVerticalError))
+                {
+                    <div class="liakont-tva-table__alert" role="alert" data-testid="table-tva-auction-vertical-error">
+                        @AuctionVerticalError
+                    </div>
+                }
+
+                <StratumButton Text="@(AuctionVerticalBusy
+                                   ? "Mise à jour…"
+                                   : (Model.AuctionVerticalEnabled ? "Désactiver le vertical enchères" : "Activer le vertical enchères"))"
+                               Variant="ButtonVariant.Secondary"
+                               Outline
+                               Size="ButtonSize.Small"
+                               Disabled="@AuctionVerticalBusy"
+                               OnClick="@(_ => OnToggleAuctionVertical.InvokeAsync())"
+                               TestId="table-tva-auction-vertical-toggle" />
+            }
+        </SectionCard>
+    }
+
+    @if (DeadRules.Count > 0)
+    {
+        @* Contrôle de cohérence (lot FIX03) : règles qui ne pourront JAMAIS s'appliquer (part non
+           consultée / code jamais observé). Signal d'avertissement, jamais un blocage (CLAUDE.md n°3). *@
+        <SectionCard Title="Cohérence du paramétrage — règles inopérantes" TestId="table-tva-consistency">
+            <p class="liakont-tva-table__meta">
+                Ces règles ne pourront jamais s'appliquer aux documents de ce tenant. Ce n'est pas un
+                blocage : la table reste validable, mais ces règles resteront sans effet — corrigez-les
+                ou supprimez-les.
+            </p>
+            <ul class="liakont-tva-table__consistency">
+                @foreach (var rule in DeadRules)
+                {
+                    <li class="liakont-tva-table__consistency-entry" data-testid="table-tva-consistency-entry">
+                        <span class="liakont-tva-table__consistency-code">@rule.SourceRegimeCode@ComposanteSuffix(rule.Part)</span>
+                        <span class="liakont-tva-table__consistency-why">@DescribeDeadRule(rule)</span>
+                    </li>
+                }
+            </ul>
+        </SectionCard>
+    }
+
+    @if (Model.Table is not null && AbsentRegimes.Count > 0)
+    {
+        @* Rapport de couverture (TVA03) : régimes source observés non mappés, à compléter en priorité.
+           Bouton [Créer la règle] pré-rempli (code + libellé) gardé par la permission. *@
+        <SectionCard Title="À compléter — régimes non mappés" TestId="table-tva-coverage">
+            <p class="liakont-tva-table__meta">
+                Ces régimes ont été observés dans la source mais ne sont pas (encore) mappés. Tant qu'ils
+                ne le sont pas, les documents qui les portent sont bloqués (sécurité par défaut).
+            </p>
+            <ul class="liakont-tva-table__coverage">
+                @foreach (var regime in AbsentRegimes)
+                {
+                    <li class="liakont-tva-table__coverage-entry" data-testid="table-tva-coverage-entry">
+                        <span class="liakont-tva-table__coverage-code">@regime.Code</span>
+                        @if (!string.IsNullOrWhiteSpace(regime.Label))
+                        {
+                            <span class="liakont-tva-table__coverage-label">@regime.Label</span>
+                        }
+                        <span class="liakont-tva-table__coverage-count">@regime.Occurrences occurrence(s)</span>
+                        @if (CanEdit)
+                        {
+                            <StratumButton Text="Créer la règle"
+                                           Variant="ButtonVariant.Secondary"
+                                           Outline
+                                           Size="ButtonSize.Small"
+                                           Disabled="@EditorOpen"
+                                           OnClick="@(_ => OnCreateRuleForRegime.InvokeAsync(regime))"
+                                           TestId="@($"table-tva-coverage-create-{regime.Code}")" />
+                        }
+                    </li>
+                }
+            </ul>
+        </SectionCard>
+    }
+
+    @if (EditorOpen && EditorModel is not null)
+    {
+        <SectionCard Title="Édition de règle" TestId="table-tva-editor-card">
+            <TvaRuleEditor Options="Model.EditOptions"
+                           Model="EditorModel"
+                           IsCreate="EditorIsCreate"
+                           ShowPart="Model.AuctionVerticalEnabled"
+                           Busy="EditorBusy"
+                           Error="@EditorError"
+                           OnSubmit="OnSubmitEditor"
+                           OnCancel="OnCancelEditor" />
+        </SectionCard>
+    }
+
+    @if (DeleteTarget is { } deleteRule)
+    {
+        <SectionCard Title="Supprimer une règle" TestId="table-tva-delete-card">
+            <div class="liakont-tva-table__confirm" data-testid="table-tva-delete-confirm">
+                <p class="liakont-tva-table__confirm-text">
+                    Supprimer la règle du régime
+                    <strong>@deleteRule.SourceRegimeCode@ComposanteSuffix(deleteRule.Part)</strong> ? Cette modification
+                    repassera la table « NON VALIDÉE » et suspendra les envois jusqu'à une nouvelle
+                    validation par l'expert-comptable.
+                </p>
+
+                @if (!string.IsNullOrWhiteSpace(DeleteError))
+                {
+                    <div class="liakont-tva-table__alert" role="alert" data-testid="table-tva-delete-error">
+                        @DeleteError
+                    </div>
+                }
+
+                <div class="liakont-tva-table__confirm-actions">
+                    <StratumButton Text="@(DeleteBusy ? "Suppression…" : "Confirmer la suppression")"
+                                   Variant="ButtonVariant.Danger"
+                                   Size="ButtonSize.Small"
+                                   Disabled="@DeleteBusy"
+                                   OnClick="@(_ => OnConfirmDelete.InvokeAsync())"
+                                   TestId="table-tva-delete-confirm-btn" />
+                    <StratumButton Text="Annuler"
+                                   Variant="ButtonVariant.Secondary"
+                                   Outline
+                                   Size="ButtonSize.Small"
+                                   Disabled="@DeleteBusy"
+                                   OnClick="@(_ => OnCancelDelete.InvokeAsync())"
+                                   TestId="table-tva-delete-cancel-btn" />
+                </div>
+            </div>
+        </SectionCard>
+    }
+
+    @if (Model.Table is { } rulesTable)
+    {
+        <SectionCard Title="Table de mapping TVA" TestId="table-tva-rules">
+            <p class="liakont-tva-table__meta" data-testid="table-tva-version">
+                Version @rulesTable.MappingVersion — comportement par défaut : @DescribeDefault(rulesTable.DefaultBehavior)
+            </p>
+
+            @if (CanEdit)
+            {
+                <StratumButton Text="Créer une règle"
+                               Variant="ButtonVariant.Primary"
+                               Size="ButtonSize.Small"
+                               Disabled="@EditorOpen"
+                               OnClick="@(_ => OnCreateRule.InvokeAsync())"
+                               TestId="table-tva-create-btn" />
+            }
+
+            @* Gabarit DeclaredListPage : aucune grille « maison ». Édition par règle via les quick-actions
+               (Modifier / Supprimer), exposées uniquement aux porteurs de liakont.settings. *@
+            @* @key recrée la grille dès que l'ensemble des règles change : le gabarit DeclaredListPage
+               charge ses lignes une seule fois (OnInitializedAsync) et ne ré-interroge pas LoadItems
+               quand le modèle parent est rechargé après une mutation. Sans cette clé, une règle créée /
+               modifiée / supprimée resterait invisible jusqu'à une navigation (FIX04a). *@
+            <DeclaredListPage @key="RulesGridKey"
+                              TItem="MappingRuleDto"
+                              Title="Table de mapping TVA"
+                              TestId="table-tva-grid"
+                              ShowHeader="false"
+                              LoadItems="LoadRulesAsync"
+                              DetailUrl="@(_ => RulesPageUrl)"
+                              ColumnRegistry="_registry"
+                              ColumnTemplates="_columnTemplates"
+                              RowActions="_rowActions"
+                              GridKey="Liakont.TvaMapping"
+                              AriaLabel="Table de mapping TVA"
+                              DefaultSortColumn="SourceRegimeCode"
+                              DefaultSortDirection="SortDirection.Ascending"
+                              SearchPlaceholder="Rechercher un régime, une catégorie… (raccourci : /)"
+                              AllowExport="true"
+                              ExportFormats="@(ExportFormat.Csv | ExportFormat.Excel | ExportFormat.Pdf)"
+                              ExportFileName="table-tva">
+                <EmptyContent>
+                    <p data-testid="table-tva-empty">Aucune règle de mapping dans cette table.</p>
+                </EmptyContent>
+            </DeclaredListPage>
+        </SectionCard>
+    }
+
+    <SectionCard Title="Historique des modifications" TestId="table-tva-changelog">
+        @if (Model.ChangeLog.Count == 0)
+        {
+            <p data-testid="table-tva-changelog-none">Aucune modification enregistrée.</p>
+        }
+        else
+        {
+            <ul class="liakont-tva-table__changelog">
+                @foreach (var entry in Model.ChangeLog)
+                {
+                    var diff = ChangeDiff(entry);
+                    <li class="liakont-tva-table__changelog-entry" data-testid="table-tva-changelog-entry">
+                        <span class="liakont-tva-table__changelog-when">@entry.OccurredAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr)</span>
+                        <span class="liakont-tva-table__changelog-what">@DescribeChange(entry)</span>
+                        <span class="liakont-tva-table__changelog-who">par @(string.IsNullOrWhiteSpace(entry.OperatorName) ? entry.OperatorId.ToString() : entry.OperatorName)</span>
+                        @if (diff.Count > 0)
+                        {
+                            @* Diff lisible avant → après (décision E2) : valeurs persistées par TVA05, ici
+                               restituées. Ajout = valeurs créées, suppression = valeurs supprimées,
+                               modification = avant → après, validation = validateur avant/après. *@
+                            <ul class="liakont-tva-table__changelog-diff" data-testid="table-tva-changelog-diff">
+                                @foreach (var line in diff)
+                                {
+                                    <li class="liakont-tva-table__changelog-diff-line" data-testid="table-tva-changelog-diff-line">
+                                        <span class="liakont-tva-table__changelog-diff-field">@line.Field</span>
+                                        <span class="liakont-tva-table__changelog-diff-value">@line.Value</span>
+                                    </li>
+                                }
+                            </ul>
+                        }
+                    </li>
+                }
+            </ul>
+        }
+    </SectionCard>
+
+</div>
+
+@code {
+    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+
+    /// <summary>Route de la page table TVA — DetailUrl no-op (l'activation de ligne reste sur la page ;
+    /// l'édition par règle passe par les quick-actions Modifier / Supprimer).</summary>
+    private const string RulesPageUrl = "/parametrage/table-tva";
+
+    /// <summary>
+    /// Registre de colonnes de la grille. Reconstruit quand l'activation du vertical enchères change
+    /// (la colonne « Composante » n'existe qu'en vertical actif — E2). La grille est recréée en parallèle
+    /// via <see cref="RulesGridKey"/> (qui inclut l'activation) pour relire le nouveau jeu de colonnes.
+    /// </summary>
+    private TvaMappingRuleColumnRegistry _registry = new(includeComposante: false);
+    private bool _registryIncludesComposante;
+    private readonly Dictionary<string, RenderFragment<MappingRuleDto>> _columnTemplates;
+
+    /// <summary>Quick-actions de la grille (Modifier / Supprimer) ; <c>null</c> sans permission d'édition.</summary>
+    private IReadOnlyList<GridRowAction<MappingRuleDto>>? _rowActions;
+
+    /// <summary>Saisie locale du nom de validateur (garde de confirmation « ressaisir son nom »).</summary>
+    private string _validatorInput = string.Empty;
+
+    /// <summary>Données assemblées de la page (jamais <c>null</c> : la page en fournit toujours un).</summary>
+    [Parameter, EditorRequired]
+    public TvaMappingTableViewModel Model { get; set; } = null!;
+
+    /// <summary><c>true</c> si l'opérateur détient <c>liakont.settings</c> (peut valider la table).</summary>
+    [Parameter]
+    public bool CanValidate { get; set; }
+
+    /// <summary><c>true</c> si l'opérateur peut ÉDITER la table (permission <c>liakont.settings</c>).</summary>
+    [Parameter]
+    public bool CanEdit { get; set; }
+
+    /// <summary><c>true</c> pendant la création de la table (bouton « Créer la table » désactivé).</summary>
+    [Parameter]
+    public bool CreatingTable { get; set; }
+
+    /// <summary>Message d'erreur de la création de table (échec de l'appel), ou <c>null</c>.</summary>
+    [Parameter]
+    public string? CreateError { get; set; }
+
+    /// <summary>Déclenché quand l'opérateur demande la création d'une table vide (état vide, item FIX01b).</summary>
+    [Parameter]
+    public EventCallback OnCreateTable { get; set; }
+
+    /// <summary><c>true</c> quand le dialogue de confirmation de validation est ouvert.</summary>
+    [Parameter]
+    public bool ConfirmOpen { get; set; }
+
+    /// <summary><c>true</c> pendant l'envoi de la validation (boutons et saisie désactivés).</summary>
+    [Parameter]
+    public bool Validating { get; set; }
+
+    /// <summary>Message d'erreur de la validation (échec de l'appel), ou <c>null</c>.</summary>
+    [Parameter]
+    public string? ValidateError { get; set; }
+
+    /// <summary>Déclenché quand l'opérateur demande l'ouverture du dialogue de confirmation.</summary>
+    [Parameter]
+    public EventCallback OnOpenConfirm { get; set; }
+
+    /// <summary>Déclenché quand l'opérateur annule la confirmation.</summary>
+    [Parameter]
+    public EventCallback OnCancelConfirm { get; set; }
+
+    /// <summary>Déclenché quand l'opérateur confirme la validation (nom de validateur ressaisi).</summary>
+    [Parameter]
+    public EventCallback OnConfirmValidate { get; set; }
+
+    // ── Activation du vertical enchères (FIX03) ───────────────────
+
+    /// <summary><c>true</c> pendant l'envoi de l'activation/désactivation du vertical enchères.</summary>
+    [Parameter]
+    public bool AuctionVerticalBusy { get; set; }
+
+    /// <summary>Message d'erreur de l'activation du vertical enchères (échec de l'appel), ou <c>null</c>.</summary>
+    [Parameter]
+    public string? AuctionVerticalError { get; set; }
+
+    /// <summary>Déclenché quand l'opérateur (dé)active le vertical enchères (permission liakont.settings).</summary>
+    [Parameter]
+    public EventCallback OnToggleAuctionVertical { get; set; }
+
+    // ── Édition (WEB07b) ──────────────────────────────────────────
+
+    /// <summary><c>true</c> quand l'éditeur de règle est ouvert.</summary>
+    [Parameter]
+    public bool EditorOpen { get; set; }
+
+    /// <summary><c>true</c> si l'éditeur est en mode création (sinon modification).</summary>
+    [Parameter]
+    public bool EditorIsCreate { get; set; }
+
+    /// <summary>Modèle de saisie en cours d'édition (instance partagée avec la page), ou <c>null</c>.</summary>
+    [Parameter]
+    public TvaRuleFormModel? EditorModel { get; set; }
+
+    /// <summary><c>true</c> pendant l'envoi d'une mutation de règle.</summary>
+    [Parameter]
+    public bool EditorBusy { get; set; }
+
+    /// <summary>Message d'erreur de l'éditeur (validation handler ou échec), ou <c>null</c>.</summary>
+    [Parameter]
+    public string? EditorError { get; set; }
+
+    /// <summary>Déclenché pour créer une règle vierge.</summary>
+    [Parameter]
+    public EventCallback OnCreateRule { get; set; }
+
+    /// <summary>Déclenché pour créer une règle pré-remplie depuis un régime non mappé.</summary>
+    [Parameter]
+    public EventCallback<RegimeCoverageDto> OnCreateRuleForRegime { get; set; }
+
+    /// <summary>Déclenché pour modifier une règle existante.</summary>
+    [Parameter]
+    public EventCallback<MappingRuleDto> OnEditRule { get; set; }
+
+    /// <summary>Déclenché à l'enregistrement de l'éditeur (ajout ou modification).</summary>
+    [Parameter]
+    public EventCallback OnSubmitEditor { get; set; }
+
+    /// <summary>Déclenché à l'annulation de l'éditeur.</summary>
+    [Parameter]
+    public EventCallback OnCancelEditor { get; set; }
+
+    /// <summary>Cible de suppression en attente de confirmation, ou <c>null</c>.</summary>
+    [Parameter]
+    public MappingRuleDto? DeleteTarget { get; set; }
+
+    /// <summary><c>true</c> pendant l'envoi de la suppression.</summary>
+    [Parameter]
+    public bool DeleteBusy { get; set; }
+
+    /// <summary>Message d'erreur de la suppression, ou <c>null</c>.</summary>
+    [Parameter]
+    public string? DeleteError { get; set; }
+
+    /// <summary>Déclenché quand l'opérateur demande la suppression d'une règle (ouvre la confirmation).</summary>
+    [Parameter]
+    public EventCallback<MappingRuleDto> OnRequestDelete { get; set; }
+
+    /// <summary>Déclenché quand l'opérateur confirme la suppression.</summary>
+    [Parameter]
+    public EventCallback OnConfirmDelete { get; set; }
+
+    /// <summary>Déclenché quand l'opérateur annule la suppression.</summary>
+    [Parameter]
+    public EventCallback OnCancelDelete { get; set; }
+
+    public TableTvaView()
+    {
+        _columnTemplates = new Dictionary<string, RenderFragment<MappingRuleDto>>
+        {
+            // Composante (clé technique « Part ») : valeur d'affichage opérateur (Autre → « Hors Enchères »).
+            // La colonne n'est registrée qu'en vertical enchères actif ; le template est inerte sinon.
+            ["Part"] = rule => __builder =>
+            {
+                __builder.AddContent(0, TvaComposanteVocabulary.ValueLabel(rule.Part));
+            },
+            ["Category"] = rule => __builder =>
+            {
+                __builder.OpenComponent<CategoryBadge>(0);
+                __builder.AddAttribute(1, "Label", rule.Category);
+                __builder.CloseComponent();
+            },
+            ["RateValue"] = rule => __builder =>
+            {
+                __builder.AddContent(0, FormatRate(rule));
+            },
+            ["Vatex"] = rule => __builder =>
+            {
+                __builder.AddContent(0, string.IsNullOrWhiteSpace(rule.Vatex) ? "—" : rule.Vatex);
+            },
+            ["Label"] = rule => __builder =>
+            {
+                __builder.AddContent(0, string.IsNullOrWhiteSpace(rule.Label) ? "—" : rule.Label);
+            },
+        };
+    }
+
+    private IReadOnlyList<RegimeCoverageDto> AbsentRegimes =>
+        Model.Coverage?.AbsentRegimes ?? (IReadOnlyList<RegimeCoverageDto>)Array.Empty<RegimeCoverageDto>();
+
+    /// <summary>
+    /// Clé de recréation de la grille <c>DeclaredListPage</c> (<c>@key</c>). La signature change dès qu'une
+    /// règle est ajoutée, retirée ou éditée (version + contenu de chaque règle) et reste stable sinon
+    /// (ouverture / fermeture de l'éditeur) pour préserver le tri et le filtre de la grille entre deux
+    /// mutations. Voir le commentaire sur le <c>DeclaredListPage</c> (FIX04a).
+    /// </summary>
+    private string RulesGridKey
+    {
+        get
+        {
+            if (Model.Table is not { } table)
+            {
+                return "no-table";
+            }
+
+            var sb = new System.Text.StringBuilder();
+            // UpdatedAt est incrémenté à CHAQUE mutation (Invalidate()) : il couvre toute édition en place,
+            // y compris un champ que la signature par règle n'énumère pas. La signature par règle reste
+            // explicite pour les colonnes affichées / éditables (dont Label), en défense.
+            sb.Append(table.MappingVersion)
+              .Append('|').Append(table.UpdatedAt?.UtcTicks.ToString(CultureInfo.InvariantCulture))
+              .Append('|').Append(table.Rules.Count)
+              // Le jeu de colonnes dépend de l'activation du vertical (colonne « Composante ») :
+              // l'inclure recrée la grille — et fait relire le registre — au basculement.
+              .Append('|').Append(Model.AuctionVerticalEnabled);
+            foreach (var rule in table.Rules)
+            {
+                sb.Append('|')
+                  .Append(rule.SourceRegimeCode).Append('·')
+                  .Append(rule.Part).Append('·')
+                  .Append(rule.Label).Append('·')
+                  .Append(rule.Category).Append('·')
+                  .Append(rule.Vatex).Append('·')
+                  .Append(rule.RateMode).Append('·')
+                  .Append(rule.RateValue?.ToString(CultureInfo.InvariantCulture));
+            }
+
+            return sb.ToString();
+        }
+    }
+
+    /// <summary>Règles mortes détectées par le contrôle de cohérence (lot FIX03), vide si aucune.</summary>
+    private IReadOnlyList<DeadMappingRuleDto> DeadRules =>
+        Model.Consistency?.DeadRules ?? (IReadOnlyList<DeadMappingRuleDto>)Array.Empty<DeadMappingRuleDto>();
+
+    /// <summary>Phrase opérateur (française) décrivant pourquoi une règle est morte.</summary>
+    private string DescribeDeadRule(DeadMappingRuleDto rule) =>
+        string.Join(" ; ", rule.Reasons.Select(DescribeDeadRuleReason));
+
+    private string DescribeDeadRuleReason(string reason) => reason switch
+    {
+        // Vocabulaire « Composante » en vertical enchères actif (E2) ; hors vertical, formulation
+        // neutre (la notion n'y est pas mise en avant — un opérateur générique n'a pas le découpage).
+        "PartNotConsulted" => Model.AuctionVerticalEnabled
+            ? "Composante non consultée par le pipeline (découpage Adjudication / Frais non appliqué)"
+            : "part non consultée par le pipeline (découpage adjudication/frais non appliqué)",
+        "RegimeNeverObserved" => "code régime jamais observé dans la source",
+        _ => reason,
+    };
+
+    protected override void OnParametersSet()
+    {
+        // Colonne « Composante » exposée seulement en vertical enchères actif (E2) : reconstruire le
+        // registre quand l'activation change (la grille est recréée en parallèle via RulesGridKey).
+        if (_registry is null || _registryIncludesComposante != Model.AuctionVerticalEnabled)
+        {
+            _registryIncludesComposante = Model.AuctionVerticalEnabled;
+            _registry = new TvaMappingRuleColumnRegistry(_registryIncludesComposante);
+        }
+
+        // Le dialogue de validation fermé (annulation OU succès) repart d'une saisie vierge.
+        if (!ConfirmOpen)
+        {
+            _validatorInput = string.Empty;
+        }
+
+        // Quick-actions exposées UNIQUEMENT aux porteurs de la permission (édition masquée sinon).
+        _rowActions = CanEdit
+            ? new[]
+            {
+                new GridRowAction<MappingRuleDto>(
+                    Id: "edit",
+                    Label: "Modifier",
+                    Icon: "edit",
+                    Callback: rule => OnEditRule.InvokeAsync(rule),
+                    IsQuickAction: true),
+                new GridRowAction<MappingRuleDto>(
+                    Id: "delete",
+                    Label: "Supprimer",
+                    Icon: "delete",
+                    Callback: rule => OnRequestDelete.InvokeAsync(rule),
+                    IsSeparatorBefore: true,
+                    IsQuickAction: true),
+            }
+            : null;
+    }
+
+    /// <summary>La confirmation n'est possible qu'après ressaisie exacte du nom de l'opérateur (un
+    /// opérateur ne valide qu'en son propre nom) et hors envoi en cours.</summary>
+    private bool CanConfirm =>
+        !Validating
+        && !string.IsNullOrWhiteSpace(Model.CurrentOperatorName)
+        && string.Equals(_validatorInput.Trim(), Model.CurrentOperatorName.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    private void OnValidatorInputChanged(ChangeEventArgs e) => _validatorInput = e.Value as string ?? string.Empty;
+
+    private Task<IReadOnlyList<MappingRuleDto>> LoadRulesAsync() =>
+        Task.FromResult(Model.Table?.Rules ?? (IReadOnlyList<MappingRuleDto>)Array.Empty<MappingRuleDto>());
+
+    private static string FormatRate(MappingRuleDto rule)
+    {
+        // Mode « calculé depuis la source » : pas de taux fixe à afficher (jamais une valeur devinée).
+        if (string.Equals(rule.RateMode, "ComputedFromSource", StringComparison.Ordinal))
+        {
+            return "Calculé (source)";
+        }
+
+        return rule.RateValue is { } rate ? string.Format(Fr, "{0:0.##} %", rate) : "—";
+    }
+
+    private static string DescribeDefault(string defaultBehavior) =>
+        string.Equals(defaultBehavior, "Block", StringComparison.Ordinal)
+            ? "blocage (régime non mappé)"
+            : defaultBehavior;
+
+    private string DescribeChange(MappingChangeLogEntryDto entry)
+    {
+        var what = entry.ChangeType switch
+        {
+            "AddRule" => "Règle ajoutée",
+            "UpdateRule" => "Règle modifiée",
+            "RemoveRule" => "Règle supprimée",
+            "Validate" => "Table validée",
+            "CreateTable" => "Table créée",
+            _ => entry.ChangeType,
+        };
+
+        if (!string.IsNullOrWhiteSpace(entry.SourceRegimeCode))
+        {
+            what += $" — régime {entry.SourceRegimeCode}{ComposanteSuffix(entry.Part)}";
+        }
+
+        return what;
+    }
+
+    /// <summary>
+    /// Suffixe « (Composante) » d'une règle, rendu UNIQUEMENT en vertical enchères actif (décision E2 :
+    /// aucune mention sinon), avec la valeur d'affichage opérateur (Autre → « Hors Enchères »). Vide hors
+    /// vertical ou pour une part absente. Partagé par le rapport de cohérence, la suppression et le journal.
+    /// </summary>
+    private string ComposanteSuffix(string? part) =>
+        Model.AuctionVerticalEnabled && !string.IsNullOrWhiteSpace(part)
+            ? $" ({TvaComposanteVocabulary.ValueLabel(part)})"
+            : string.Empty;
+
+    /// <summary>
+    /// Diff lisible (déjà rendu) d'une entrée du journal — vide si aucun champ restituable. Le formateur
+    /// porte SEUL la décision de rendu (« avant → après » bilatéral vs valeur unique) : la vue se contente
+    /// d'afficher <c>line.Value</c>.
+    /// </summary>
+    private IReadOnlyList<MappingChangeDiffLine> ChangeDiff(MappingChangeLogEntryDto entry) =>
+        MappingChangeLogDiffFormatter.Describe(entry, Model.AuctionVerticalEnabled);
+}

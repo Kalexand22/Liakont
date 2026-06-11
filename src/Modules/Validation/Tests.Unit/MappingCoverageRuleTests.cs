@@ -18,6 +18,14 @@ public sealed class MappingCoverageRuleTests
     private readonly MappingCoverageRule _rule = new();
 
     [Fact]
+    public void Depends_on_tva_mapping_so_it_is_excluded_from_independent_aggregation()
+    {
+        // FIX06 : elle CONSTATE l'absence de catégorie résolue ; sur un document non mappé elle ferait doublon
+        // avec le blocage de mapping → exclue de l'agrégation indépendante.
+        _rule.DependsOnTvaMapping.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Line_with_regime_and_resolved_category_is_ok()
     {
         var doc = Document(lines: new[]

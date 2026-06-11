@@ -11,6 +11,31 @@ using Stratum.Common.Abstractions.Messaging;
 /// </summary>
 public record ImportTenantSeedCommand : ICommand<ImportTenantSeedResult>
 {
+    /// <summary>
+    /// Nom du fichier de seed de mapping TVA attendu dans le dossier de seed (item FIX01b). Exposé sur
+    /// le contrat (et non plus interne au handler) parce que le chemin d'amorçage (DevTenantSeeder) doit
+    /// pouvoir rejouer l'import de CE composant seul quand le profil existe déjà mais que la table manque
+    /// (récupération d'un seed partiel — FIX203a), sans rejouer ni écraser le reste du paramétrage.
+    /// </summary>
+    public const string MappingSeedFileName = "mapping-tva.json";
+
     /// <summary>Chemin du dossier de seed (ex. <c>deployments/cmp/</c>).</summary>
     public required string SeedDirectoryPath { get; init; }
+
+    /// <summary>
+    /// Société (companyId) du tenant cible, clé de scoping du paramétrage importé. RENSEIGNÉ pour un
+    /// import hors requête opérateur (amorçage de démarrage, endpoint d'administration agissant sur un
+    /// tenant donné) : à la création du PREMIER profil, le companyId ne peut être ni lu en base (aucun
+    /// profil encore) ni déduit d'un actor HTTP du tenant cible — il vaut le <c>company_id</c> que l'IdP
+    /// présentera (claim du realm). <c>null</c> = repli sur le companyId du contexte courant
+    /// (<c>ICompanyFilter</c>, chemin requête opérateur). Aucun secret n'est jamais importé
+    /// (INV-TENANTSETTINGS-007 inchangé).
+    /// <para>
+    /// Garde anti-injection cross-tenant : un override qui CONTREDIT la société d'un acteur de tenant
+    /// présent est REFUSÉ par le handler (la valeur n'est honorée que sur les chemins de provisioning
+    /// sans acteur de tenant — amorçage, endpoint d'administration). Ne JAMAIS exposer cette commande à
+    /// un endpoint opérateur en liant <see cref="CompanyId"/> depuis le corps de requête.
+    /// </para>
+    /// </summary>
+    public Guid? CompanyId { get; init; }
 }

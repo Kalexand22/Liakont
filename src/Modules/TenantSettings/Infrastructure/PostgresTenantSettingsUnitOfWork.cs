@@ -449,6 +449,111 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
         EnsureUpdated(rows, "AlertThresholds", thresholds.Id);
     }
 
+    public async Task<AuctionVerticalSettings?> GetAuctionVerticalSettingsByCompanyAsync(Guid companyId, CancellationToken ct = default)
+    {
+        const string sql = """
+            SELECT id, company_id, enabled, created_at, updated_at
+            FROM tenantsettings.auction_vertical_settings
+            WHERE company_id = @CompanyId
+            """;
+
+        var row = await _txn.Connection.QuerySingleOrDefaultAsync(
+            new CommandDefinition(sql, new { CompanyId = companyId }, _txn.Transaction, cancellationToken: ct));
+
+        return row is null ? null : MapAuctionVertical(row);
+    }
+
+    public async Task InsertAuctionVerticalSettingsAsync(AuctionVerticalSettings settings, CancellationToken ct = default)
+    {
+        const string sql = """
+            INSERT INTO tenantsettings.auction_vertical_settings
+                (id, company_id, enabled, created_at, updated_at)
+            VALUES
+                (@Id, @CompanyId, @Enabled, @CreatedAt, @UpdatedAt)
+            """;
+
+        await ExecuteWriteAsync(
+            new CommandDefinition(
+                sql,
+                new
+                {
+                    settings.Id,
+                    settings.CompanyId,
+                    settings.Enabled,
+                    settings.CreatedAt,
+                    settings.UpdatedAt,
+                },
+                _txn.Transaction,
+                cancellationToken: ct),
+            "Une activation du vertical enchères existe déjà pour cette société.");
+    }
+
+    public async Task UpdateAuctionVerticalSettingsAsync(AuctionVerticalSettings settings, CancellationToken ct = default)
+    {
+        const string sql = """
+            UPDATE tenantsettings.auction_vertical_settings
+            SET enabled    = @Enabled,
+                updated_at = @UpdatedAt
+            WHERE id = @Id AND company_id = @CompanyId
+            """;
+
+        var rows = await _txn.Connection.ExecuteAsync(new CommandDefinition(
+            sql,
+            new
+            {
+                settings.Id,
+                settings.CompanyId,
+                settings.Enabled,
+                settings.UpdatedAt,
+            },
+            _txn.Transaction,
+            cancellationToken: ct));
+
+        EnsureUpdated(rows, "AuctionVerticalSettings", settings.Id);
+    }
+
+    // ──────────────────── Matrice de routage des alertes (FIX212) ───────────────────
+    public async Task ReplaceAlertRoutingRulesAsync(Guid companyId, IReadOnlyList<AlertRoutingRule> rules, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(rules);
+
+        // Table de PARAMÉTRAGE mutable (≠ piste d'audit append-only) : la sémantique d'enregistrement est
+        // un remplacement en bloc. La suppression est scopée au tenant courant (jamais cross-tenant).
+        const string deleteSql = "DELETE FROM tenantsettings.alert_routing_rules WHERE company_id = @CompanyId";
+        await _txn.Connection.ExecuteAsync(new CommandDefinition(
+            deleteSql, new { CompanyId = companyId }, _txn.Transaction, cancellationToken: ct));
+
+        if (rules.Count == 0)
+        {
+            return;
+        }
+
+        const string insertSql = """
+            INSERT INTO tenantsettings.alert_routing_rules
+                (id, company_id, rule_key, severity, recipients, ordinal, created_at)
+            VALUES
+                (@Id, @CompanyId, @RuleKey, @Severity, @Recipients, @Ordinal, @CreatedAt)
+            """;
+
+        foreach (var rule in rules)
+        {
+            await _txn.Connection.ExecuteAsync(new CommandDefinition(
+                insertSql,
+                new
+                {
+                    rule.Id,
+                    CompanyId = companyId,
+                    rule.RuleKey,
+                    rule.Severity,
+                    Recipients = rule.Recipients.ToArray(),
+                    rule.Ordinal,
+                    rule.CreatedAt,
+                },
+                _txn.Transaction,
+                cancellationToken: ct));
+        }
+    }
+
     public async Task CommitAsync(CancellationToken ct = default)
     {
         await _txn.CommitAsync(ct);
@@ -533,6 +638,16 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
             (int)row.blocked_documents_days,
             (int)row.pa_rejections_days,
             (bool)row.alert_tenant_contact,
+            TenantSettingsRowReader.ToDateTimeOffset((object)row.created_at),
+            TenantSettingsRowReader.ToNullableDateTimeOffset((object?)row.updated_at));
+    }
+
+    private static AuctionVerticalSettings MapAuctionVertical(dynamic row)
+    {
+        return AuctionVerticalSettings.Reconstitute(
+            (Guid)row.id,
+            (Guid)row.company_id,
+            (bool)row.enabled,
             TenantSettingsRowReader.ToDateTimeOffset((object)row.created_at),
             TenantSettingsRowReader.ToNullableDateTimeOffset((object?)row.updated_at));
     }

@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- Microsoft.Extensions.* (DI, Logging) du framework partagé — aucun package NuGet nouveau, aucun ADR
+         (repo-standards §4). La supervision ne porte aucun secret. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.Supervision.Tests.Unit" />
+    <InternalsVisibleTo Include="Liakont.Modules.Supervision.Tests.Integration" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.Supervision.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.Supervision.Application.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.Supervision.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Abstractions/Stratum.Common.Abstractions.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+    <!-- IJobHandler/IJobQueue du module Job (dead-man's-switch = job SYSTÈME ; SUP03 = mise en file des emails
+         d'alerte) — accès inter-module par les Contracts uniquement (module-rules §3). -->
+    <ProjectReference Include="../../Job/Contracts/Stratum.Modules.Job.Contracts.csproj" />
+    <!-- Lectures agrégées du dashboard cross-tenant (SUP02) : compteurs de documents par état (Documents) et
+         état des agents (Ingestion), résolus dans le scope de CHAQUE tenant — accès inter-module par les
+         Contracts uniquement (module-rules §3). -->
+    <ProjectReference Include="../../Documents/Contracts/Liakont.Modules.Documents.Contracts.csproj" />
+    <ProjectReference Include="../../Ingestion/Contracts/Liakont.Modules.Ingestion.Contracts.csproj" />
+    <!-- SUP03 (notifications email) — Contracts UNIQUEMENT (module-rules §3) : charge utile d'email du module
+         Notification du socle, et destinataires (contact tenant + seuils) du module TenantSettings. Le module
+         Supervision ne porte AUCUN secret (le mot de passe SMTP vit dans le transport SMTP, côté Host). -->
+    <ProjectReference Include="../../Notification/Contracts/Stratum.Modules.Notification.Contracts.csproj" />
+    <ProjectReference Include="../../TenantSettings/Contracts/Liakont.Modules.TenantSettings.Contracts.csproj" />
+  </ItemGroup>
+</Project>

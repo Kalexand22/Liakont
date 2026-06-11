@@ -57,6 +57,14 @@ internal static class DocumentCheckEvaluator
     /// <param name="companyId">Société du tenant (clé d'isolation du mapping et de la validation).</param>
     /// <param name="documentNumber">Numéro de document, préfixé aux motifs rédigés par le CHECK (CLAUDE.md n°12).</param>
     /// <param name="pivot">Le pivot relu (hash déjà re-vérifié par le magasin de staging).</param>
+    /// <param name="buyerConfirmedB2C">
+    /// Verdict OPÉRATEUR « acheteur confirmé particulier (B2C) » du garde-fou B2B/B2C (F08 §A.4, item API02b) :
+    /// quand <c>true</c>, l'anomalie <c>BUYER_LOOKS_PROFESSIONAL</c> (VAL05) n'est plus produite pour ce
+    /// document (décision tranchée et journalisée incorporée à la validation, jamais un affaiblissement
+    /// silencieux). Par défaut <c>false</c> (CHECK nominal sur un document <c>Detected</c> sans verdict).
+    /// Seul le chemin de RE-VÉRIFICATION (recheck, API02b) le passe à <c>true</c> ; la garde-fou PRODUCTION
+    /// (table TVA non validée) et toutes les autres règles restent appliquées sans changement.
+    /// </param>
     /// <param name="cancellationToken">Jeton d'annulation.</param>
     /// <returns>La décision : bloqué (motif) ou prêt (version de table).</returns>
     public static async Task<CheckDecision> EvaluateAsync(
@@ -64,6 +72,7 @@ internal static class DocumentCheckEvaluator
         Guid companyId,
         string documentNumber,
         PivotDocumentDto pivot,
+        bool buyerConfirmedB2C = false,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -78,13 +87,19 @@ internal static class DocumentCheckEvaluator
             // Table absente AVANT la garde-fou production : sinon, en production (IsValidated=false), l'opérateur
             // recevrait « faites valider la table » alors qu'il n'en existe AUCUNE — l'action correcte est « créez
             // la table » (message opérateur exact, CLAUDE.md n°12). Le document reste Blocked dans les deux cas.
-            return CheckDecision.Blocked(WithDocumentNumber(documentNumber, TableAbsentReason));
+            // FIX06 (D5) : on AGRÈGE aussi les motifs indépendants du mapping (garde-fou B2B/B2C, forme, identité)
+            // pour que l'opérateur voie dès ce premier CHECK tout ce qui est corrigeable sans la table TVA.
+            return await BlockedWithIndependentIssuesAsync(
+                services, companyId, documentNumber, TableAbsentReason, pivot, buyerConfirmedB2C, cancellationToken);
         }
 
         var tenantSettings = services.GetRequiredService<ITenantSettingsQueries>();
         if (!mapping.IsValidated && await IsProductionContextAsync(tenantSettings, companyId, cancellationToken))
         {
             // GARDE-FOU PRODUCTION (item PIP01b §3) — table non validée + compte PA production = tout reste Blocked.
+            // SÉQUENTIELLE (FIX06, décision D5) : on n'agrège PAS d'autres motifs ici — en production avec table non
+            // validée, RIEN ne circule, et l'action unique attendue est « faites valider la table ». NE JAMAIS
+            // affaiblir (CLAUDE.md n°3, P1).
             return CheckDecision.Blocked(WithDocumentNumber(documentNumber, ProductionGuardReason));
         }
 
@@ -92,13 +107,15 @@ internal static class DocumentCheckEvaluator
         if (evaluation.IsBlocked)
         {
             // Motifs de mapping/forme rédigés par CHECK (TvaMapper/CheckTvaMapping) : on cite le n° de document
-            // (CLAUDE.md n°12). Les motifs de VALIDATION, eux, le citent déjà en propre (convention ValidationIssue).
-            return CheckDecision.Blocked(WithDocumentNumber(documentNumber, evaluation.BlockReason!));
+            // (CLAUDE.md n°12). FIX06 (D5) : on AGRÈGE en plus les motifs indépendants du mapping — l'opérateur
+            // découvre toutes les causes corrigeables d'un coup, plus une par une à coups de « Revérifier ».
+            return await BlockedWithIndependentIssuesAsync(
+                services, companyId, documentNumber, evaluation.BlockReason!, pivot, buyerConfirmedB2C, cancellationToken);
         }
 
         var validation = services.GetRequiredService<IValidationService>();
         var validationResult = await validation.ValidateAsync(
-            new DocumentValidationContext(evaluation.EnrichedDocument!, companyId), cancellationToken);
+            new DocumentValidationContext(evaluation.EnrichedDocument!, companyId, buyerConfirmedB2C), cancellationToken);
 
         return validationResult.HasBlockingIssue
             ? CheckDecision.Blocked(AggregateBlockingIssues(validationResult))
@@ -127,6 +144,39 @@ internal static class DocumentCheckEvaluator
             .Where(issue => issue.Severity == ValidationSeverity.Blocking)
             .Select(issue => issue.MessageOperateur);
         return string.Join(Environment.NewLine, messages);
+    }
+
+    /// <summary>
+    /// Construit une décision « bloqué » qui AGRÈGE le motif de blocage du MAPPING avec les motifs des règles de
+    /// validation INDÉPENDANTES du mapping (FIX06, décision D5 — périmètre minimal). Ces règles (garde-fou
+    /// B2B/B2C, forme, identité, arithmétique) sont évaluées sur le pivot NON enrichi — elles n'ont pas besoin de
+    /// la catégorie/VATEX — et révèlent dès le premier CHECK tout ce qui est corrigeable INDÉPENDAMMENT de la
+    /// table TVA, au lieu de le découvrir couche par couche à coups de « Revérifier ». N'affaiblit RIEN
+    /// (CLAUDE.md n°3) : la décision reste « bloqué » (le motif de mapping est toujours présent) — on montre
+    /// seulement PLUS de motifs. Le motif de mapping est préfixé du n° de document (CLAUDE.md n°12) ; les motifs
+    /// de validation le citent déjà en propre (convention ValidationIssue) — pas de double préfixe. L'ordre est
+    /// déterministe : motif de mapping en tête, puis les motifs indépendants dans l'ordre des règles.
+    /// </summary>
+    private static async Task<CheckDecision> BlockedWithIndependentIssuesAsync(
+        IServiceProvider services,
+        Guid companyId,
+        string documentNumber,
+        string mappingReason,
+        PivotDocumentDto pivot,
+        bool buyerConfirmedB2C,
+        CancellationToken cancellationToken)
+    {
+        var reasons = new List<string> { WithDocumentNumber(documentNumber, mappingReason) };
+
+        var validation = services.GetRequiredService<IValidationService>();
+        var validationResult = await validation.ValidateMappingIndependentAsync(
+            new DocumentValidationContext(pivot, companyId, buyerConfirmedB2C), cancellationToken);
+
+        reasons.AddRange(validationResult.Issues
+            .Where(issue => issue.Severity == ValidationSeverity.Blocking)
+            .Select(issue => issue.MessageOperateur));
+
+        return CheckDecision.Blocked(string.Join(Environment.NewLine, reasons));
     }
 
     /// <summary>Préfixe un motif de blocage rédigé par CHECK avec le numéro de document (CLAUDE.md n°12).</summary>

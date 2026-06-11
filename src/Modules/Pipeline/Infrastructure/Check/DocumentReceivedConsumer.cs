@@ -154,7 +154,7 @@ public sealed partial class DocumentReceivedConsumer : IIntegrationEventConsumer
         //    des avoirs (PIP02, SendTenantJob) via DocumentCheckEvaluator : une SEULE source de la décision de
         //    blocage fiscal (deux implémentations divergentes seraient un risque de conformité — CLAUDE.md n°2/3).
         var decision = await DocumentCheckEvaluator.EvaluateAsync(
-            services, companyId.Value, current.DocumentNumber, pivot, cancellationToken);
+            services, companyId.Value, current.DocumentNumber, pivot, cancellationToken: cancellationToken);
 
         // 3) Transition d'état + trace d'exécution. CHECK n'a vérifié l'état Detected qu'en amont : si une
         // course de rejeu a fait avancer le document entre-temps, la transition lèvera et l'événement sera

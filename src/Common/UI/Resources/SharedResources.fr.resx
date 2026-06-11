@@ -113,6 +113,8 @@
   <data name="BugCapture_Preparing" xml:space="preserve"><value>Préparation…</value></data>
   <!-- Grid / DataGrid -->
   <data name="Grid_ToolbarAriaLabel" xml:space="preserve"><value>Actions de la grille</value></data>
+  <data name="Grid_ExportButton" xml:space="preserve"><value>Exporter</value></data>
+  <data name="Grid_RefreshButton" xml:space="preserve"><value>Rafraîchir</value></data>
   <data name="Grid_ReorderAriaLabel" xml:space="preserve"><value>Réordonner la ligne</value></data>
   <data name="Grid_TreeExpand" xml:space="preserve"><value>Développer</value></data>
   <data name="Grid_TreeCollapse" xml:space="preserve"><value>Réduire</value></data>

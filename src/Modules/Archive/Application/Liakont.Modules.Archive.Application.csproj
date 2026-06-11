@@ -3,7 +3,12 @@
     <ProjectReference Include="../Domain/Liakont.Modules.Archive.Domain.csproj" />
     <ProjectReference Include="../Contracts/Liakont.Modules.Archive.Contracts.csproj" />
     <!-- Module → Contracts d'un autre module uniquement (CLAUDE.md n°6) : la chronologie de l'export
-         contrôle fiscal (TRK06) lit les DocumentEvents via la surface de lecture du module Documents. -->
+         contrôle fiscal (TRK06) lit les DocumentEvents via la surface de lecture du module Documents ;
+         l'export de réversibilité (API03) agrège en plus le paramétrage et le journal d'audit du tenant,
+         toujours par leurs seuls Contracts. -->
     <ProjectReference Include="../../Documents/Contracts/Liakont.Modules.Documents.Contracts.csproj" />
+    <ProjectReference Include="../../TenantSettings/Contracts/Liakont.Modules.TenantSettings.Contracts.csproj" />
+    <ProjectReference Include="../../TvaMapping/Contracts/Liakont.Modules.TvaMapping.Contracts.csproj" />
+    <ProjectReference Include="../../Audit/Contracts/Stratum.Modules.Audit.Contracts.csproj" />
   </ItemGroup>
 </Project>

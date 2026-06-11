@@ -1,0 +1,13 @@
+@* Contenu rendu par le <NotFound> du routeur (Routes.razor, FIX07c). Garde d'authentification cohérente
+   avec la branche Found : un visiteur non connecté est redirigé vers la connexion (AUCUN contenu applicatif
+   rendu à un anonyme) ; un utilisateur connecté voit le message « page introuvable » explicite — jamais une
+   page vide. Extrait en composant dédié pour rendre cette logique de routage/sécurité testable (bUnit). *@
+
+<AuthorizeView>
+    <Authorized>
+        <PageNotFound />
+    </Authorized>
+    <NotAuthorized>
+        <RedirectToLogin />
+    </NotAuthorized>
+</AuthorizeView>

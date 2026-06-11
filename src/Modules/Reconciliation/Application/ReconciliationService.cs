@@ -14,6 +14,7 @@ using Liakont.Modules.Ingestion.Contracts;
 using Liakont.Modules.Reconciliation.Contracts;
 using Liakont.Modules.Reconciliation.Contracts.DTOs;
 using Liakont.Modules.Reconciliation.Domain;
+using Stratum.Common.Abstractions.Exceptions;
 using Stratum.Common.Abstractions.MultiTenancy;
 
 /// <summary>
@@ -158,21 +159,21 @@ public sealed class ReconciliationService : IReconciliationService, IReconciliat
         string tenant = RequireTenant();
 
         ReconciliationQueueEntry entry = await _queue.GetByIdAsync(queueEntryId, cancellationToken)
-            ?? throw new InvalidOperationException($"Entrée de réconciliation {queueEntryId} introuvable dans ce tenant.");
+            ?? throw new NotFoundException($"Entrée de réconciliation {queueEntryId} introuvable dans ce tenant.");
 
         // Sérialise la confirmation manuelle sous verrou advisory pour éviter un double effet si deux
         // requêtes concurrentes confirment le même PDF. Re-lecture de l'entrée sous verrou pour détecter
         // une course gagnée par une autre passe.
         await using IAsyncDisposable processingLock = await _queue.AcquireProcessingLockAsync(entry.PoolPdfId, cancellationToken);
         entry = await _queue.GetByIdAsync(queueEntryId, cancellationToken)
-            ?? throw new InvalidOperationException($"Entrée de réconciliation {queueEntryId} introuvable dans ce tenant.");
+            ?? throw new NotFoundException($"Entrée de réconciliation {queueEntryId} introuvable dans ce tenant.");
 
         DocumentDto document = await _documentQueries.GetByIdAsync(documentId, cancellationToken)
-            ?? throw new InvalidOperationException($"Document {documentId} introuvable : rapprochement manuel impossible.");
+            ?? throw new NotFoundException($"Document {documentId} introuvable : rapprochement manuel impossible.");
 
         if (!string.Equals(document.State, IssuedState, StringComparison.Ordinal))
         {
-            throw new InvalidOperationException(
+            throw new ConflictException(
                 $"Le document {document.DocumentNumber} n'est pas émis (état {document.State}) : seul un document émis peut recevoir un PDF réconcilié (TRK07).");
         }
 
@@ -180,12 +181,91 @@ public sealed class ReconciliationService : IReconciliationService, IReconciliat
 
         // Valide AVANT tout effet (lève si l'entrée est déjà rapprochée — course gagnée par une autre passe
         // sous verrou) ; la mutation n'est persistée qu'après l'addendum WORM et le fait d'audit.
-        entry.ConfirmManually(documentId, operatorIdentity, reason, _timeProvider.GetUtcNow());
+        try
+        {
+            entry.ConfirmManually(documentId, operatorIdentity, reason, _timeProvider.GetUtcNow());
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new ConflictException(ex.Message, ex);
+        }
 
         byte[] bytes = await ReadPoolPdfBytesAsync(tenant, entry.PoolPdfId, cancellationToken);
         await AddArchiveAddendumAsync(documentId, document.DocumentNumber, document.IssueDate, entry.FileName, bytes, cancellationToken);
         await _journal.RecordManualReconciliationAsync(documentId, reason, operatorIdentity, cancellationToken);
         await _queue.UpdateAsync(entry, cancellationToken);
+    }
+
+    public async Task ConfirmProposalAsync(Guid queueEntryId, string operatorIdentity, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(operatorIdentity))
+        {
+            throw new ArgumentException("L'identité de l'opérateur est obligatoire (TRK07).", nameof(operatorIdentity));
+        }
+
+        RequireTenant();
+
+        ReconciliationQueueEntry entry = await _queue.GetByIdAsync(queueEntryId, cancellationToken)
+            ?? throw new NotFoundException($"Entrée de réconciliation {queueEntryId} introuvable dans ce tenant.");
+
+        if (entry.Status != ReconciliationStatus.PendingManual || entry.ProposedDocumentId is not { } proposedDocumentId)
+        {
+            throw new ConflictException(
+                $"Le PDF « {entry.FileName} » n'est pas une proposition en attente (état {entry.Status}) : seule une proposition de confiance moyenne peut être confirmée (API04/TRK07).");
+        }
+
+        // Confiance MOYENNE confirmée par l'opérateur → rapprochement manuel vers le document PROPOSÉ
+        // (le serveur fait foi sur la cible). La confirmation manuelle (verrou, addendum WORM, audit) reste
+        // l'unique chemin d'effet : on n'en duplique rien ici.
+        await ConfirmManualReconciliationAsync(queueEntryId, proposedDocumentId, operatorIdentity, cancellationToken);
+    }
+
+    public async Task RejectProposalAsync(Guid queueEntryId, string operatorIdentity, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(operatorIdentity))
+        {
+            throw new ArgumentException("L'identité de l'opérateur est obligatoire (API04/TRK07).", nameof(operatorIdentity));
+        }
+
+        RequireTenant();
+
+        ReconciliationQueueEntry entry = await _queue.GetByIdAsync(queueEntryId, cancellationToken)
+            ?? throw new NotFoundException($"Entrée de réconciliation {queueEntryId} introuvable dans ce tenant.");
+
+        // Sérialise sous verrou advisory (cohérent avec la confirmation) et re-lit l'entrée pour détecter une
+        // course gagnée par une autre opération (ex. une confirmation concurrente sur le même PDF).
+        await using IAsyncDisposable processingLock = await _queue.AcquireProcessingLockAsync(entry.PoolPdfId, cancellationToken);
+        entry = await _queue.GetByIdAsync(queueEntryId, cancellationToken)
+            ?? throw new NotFoundException($"Entrée de réconciliation {queueEntryId} introuvable dans ce tenant.");
+
+        try
+        {
+            // Aucun addendum WORM, aucun fait d'audit document (rien n'est rapproché) : la proposition
+            // redevient un orphelin, avec l'identité de l'opérateur conservée sur l'entrée (audit opérationnel).
+            entry.RejectProposal(operatorIdentity, _timeProvider.GetUtcNow());
+        }
+        catch (InvalidOperationException ex)
+        {
+            // État incompatible (déjà rapproché, orphelin) : conflit métier → 409 (et non 500).
+            throw new ConflictException(ex.Message, ex);
+        }
+
+        await _queue.UpdateAsync(entry, cancellationToken);
+    }
+
+    public async Task<ReconciliationPdfContent?> OpenQueueEntryPdfAsync(Guid queueEntryId, CancellationToken cancellationToken = default)
+    {
+        string tenant = RequireTenant();
+
+        ReconciliationQueueEntry? entry = await _queue.GetByIdAsync(queueEntryId, cancellationToken);
+        if (entry is null)
+        {
+            return null;
+        }
+
+        // Flux en lecture seule du PDF du pool (anti path-traversal côté store). L'appelant DISPOSE le flux.
+        Stream stream = await _pdfStore.OpenPooledPdfAsync(tenant, entry.PoolPdfId, cancellationToken);
+        return new ReconciliationPdfContent(stream, entry.FileName);
     }
 
     public async Task<IReadOnlyList<ReconciliationProposalDto>> GetPendingProposalsAsync(CancellationToken cancellationToken = default)

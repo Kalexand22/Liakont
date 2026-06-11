@@ -12,6 +12,13 @@ using Stratum.Common.Abstractions.Exceptions;
 /// </summary>
 public sealed class MappingTable
 {
+    /// <summary>
+    /// Version d'une table créée depuis la console (item FIX01b) : bouton « Créer la table » sur l'état
+    /// vide ou création implicite à la première règle. La table naît avec cette version initiale et « NON
+    /// VALIDÉE ». La version (obligatoire, traçabilité F03 §5) sert d'empreinte pour les documents émis.
+    /// </summary>
+    public const string InitialMappingVersion = "1";
+
     private MappingTable()
     {
         MappingVersion = string.Empty;

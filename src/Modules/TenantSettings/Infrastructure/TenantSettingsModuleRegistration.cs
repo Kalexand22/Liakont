@@ -33,8 +33,17 @@ public static class TenantSettingsModuleRegistration
 
         services.AddScoped<ITenantSettingsUnitOfWorkFactory, PostgresTenantSettingsUnitOfWorkFactory>();
         services.AddScoped<ITenantSettingsQueries, PostgresTenantSettingsQueries>();
+
+        // Lecture SÉGRÉGÉE de la matrice de routage des alertes (FIX212, F12 §5.3.1) : consommée par le
+        // routage des notifications (Supervision) et la page de paramétrage, sans imposer la méthode aux
+        // nombreux implémenteurs d'ITenantSettingsQueries (tests inclus).
+        services.AddScoped<IAlertRoutingQueries, PostgresAlertRoutingQueries>();
         services.AddSingleton<ISecretProtector, DataProtectionSecretProtector>();
         services.AddScoped<TenantSettingsJournal>();
+
+        // Lecture composée du paramétrage pour la console (API01c, GET /api/v1/settings) : assemble
+        // profil/fiscal/comptes PA (du module) + état TVA + capacités PA (via leurs Contracts).
+        services.AddScoped<ITenantSettingsConsoleQueries, TenantSettingsConsoleQueries>();
 
         return services;
     }

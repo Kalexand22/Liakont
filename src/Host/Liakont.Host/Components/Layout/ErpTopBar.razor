@@ -35,6 +35,9 @@
                     var displayName = GetDisplayName(context.User);
                 }
                 <div class="erp-topbar__identity">
+                    @* Tenant courant (DisplayName) visible sur toutes les pages console — sous-domaine
+                       comme hôte nu (FIX04a). Le badge se résout seul et reste muet sans tenant. *@
+                    <TenantBadge />
                     <div class="erp-topbar__user-chip" data-testid="topbar-user">
                         <span class="erp-topbar__avatar" aria-hidden="true">@GetInitials(displayName)</span>
                         <span class="erp-topbar__user-name">@displayName</span>

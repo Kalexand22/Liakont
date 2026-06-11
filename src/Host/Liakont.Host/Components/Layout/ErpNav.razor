@@ -63,6 +63,7 @@
     {
         _nodes = NavProviders.BuildNavTree(NavNodeProviders);
         _currentPath = GetRelativePath();
+        ComputeActiveHref();
         // Start with all root sections expanded (standard sidebar UX).
         // Users can manually collapse sections they don't need.
         for (var i = 0; i < _nodes.Count; i++)
@@ -127,6 +128,7 @@
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
         _currentPath = GetRelativePath();
+        ComputeActiveHref();
         ExpandActiveParents();
         InvokeAsync(StateHasChanged);
     }
@@ -180,15 +182,58 @@
     }
 
     // ─── Active detection ────────────────────────────────────────
-    private bool IsActive(NavNode node)
+    // L'état actif est EXCLUSIF (FIX209) : une SEULE feuille est surlignée — celle dont le href est le plus
+    // SPÉCIFIQUE (plus long préfixe) correspondant à la route courante. Sans cela, deux feuilles dont l'une
+    // est préfixe de l'autre (ex. /admin/audit « Journal » et /admin/audit/policies « Politiques ») étaient
+    // toutes deux surlignées sur la route enfant. `_activeHref` (href normalisé de la feuille active, ou null
+    // si la route ne correspond à aucune feuille) est recalculé à chaque changement de route.
+    private string? _activeHref;
+
+    private static string NormalizeHref(string href) => href.TrimStart('/').TrimEnd('/');
+
+    /// <summary>Vrai si le href du nœud correspond à la route courante (égalité, ou préfixe pour un nœud non exact).</summary>
+    private bool MatchesCurrentPath(NavNode node)
     {
         if (node.Href is null) return false;
-        var href = node.Href.TrimStart('/').TrimEnd('/');
+        var href = NormalizeHref(node.Href);
         if (node.ExactMatch)
             return _currentPath.Equals(href, StringComparison.OrdinalIgnoreCase);
         return _currentPath.Equals(href, StringComparison.OrdinalIgnoreCase)
             || _currentPath.StartsWith(href + "/", StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// Sélectionne LA feuille active : parmi toutes les feuilles (nœuds sans enfant) qui correspondent à la
+    /// route courante, celle dont le href normalisé est le plus long. Résultat unique → surbrillance exclusive.
+    /// </summary>
+    private void ComputeActiveHref()
+    {
+        string? best = null;
+
+        void Walk(IReadOnlyList<NavNode> nodes)
+        {
+            foreach (var n in nodes)
+            {
+                if (!n.HasChildren && MatchesCurrentPath(n))
+                {
+                    var href = NormalizeHref(n.Href!);
+                    if (best is null || href.Length > best.Length)
+                        best = href;
+                }
+
+                if (n.HasChildren)
+                    Walk(n.Children);
+            }
+        }
+
+        Walk(_nodes);
+        _activeHref = best;
+    }
+
+    private bool IsActive(NavNode node) =>
+        node.Href is not null
+        && _activeHref is not null
+        && NormalizeHref(node.Href).Equals(_activeHref, StringComparison.OrdinalIgnoreCase);
 
     private bool HasActiveDescendant(NavNode node)
     {

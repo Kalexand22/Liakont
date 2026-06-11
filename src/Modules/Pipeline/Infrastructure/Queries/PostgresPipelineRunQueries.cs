@@ -44,6 +44,40 @@ public sealed class PostgresPipelineRunQueries : IPipelineRunQueries
         return rows.Select(MapRun).ToList();
     }
 
+    public async Task<IReadOnlyList<PipelineRunLogDto>> GetRunsAsync(DateOnly? fromInclusive, DateOnly? toInclusive, int limit, CancellationToken cancellationToken = default)
+    {
+        var boundedLimit = limit < 1 ? 1 : Math.Min(limit, MaxLimit);
+
+        // Bornes converties en timestamptz explicites : le filtre porte sur started_at (timestamptz) ;
+        // la borne haute est INCLUSIVE au niveau du jour → lendemain à minuit, exclue.
+        DateTimeOffset? fromTs = fromInclusive is { } f ? new DateTimeOffset(f.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero) : null;
+        DateTimeOffset? toExclusive = toInclusive is { } t ? new DateTimeOffset(t.AddDays(1).ToDateTime(TimeOnly.MinValue), TimeSpan.Zero) : null;
+
+        var where = (fromTs, toExclusive) switch
+        {
+            (not null, not null) => "WHERE started_at >= @From AND started_at < @ToExclusive",
+            (not null, null) => "WHERE started_at >= @From",
+            (null, not null) => "WHERE started_at < @ToExclusive",
+            _ => string.Empty,
+        };
+
+        using var conn = await _connectionFactory.OpenAsync(cancellationToken);
+
+        var sql = $"""
+            SELECT id, run_type, run_trigger, started_at, completed_at,
+                   documents_processed, documents_succeeded, documents_failed, detail
+            FROM pipeline.run_logs
+            {where}
+            ORDER BY started_at DESC, id
+            LIMIT @Limit
+            """;
+
+        var rows = await conn.QueryAsync(new CommandDefinition(
+            sql, new { From = fromTs, ToExclusive = toExclusive, Limit = boundedLimit }, cancellationToken: cancellationToken));
+
+        return rows.Select(MapRun).ToList();
+    }
+
     private static PipelineRunLogDto MapRun(dynamic row)
     {
         return new PipelineRunLogDto

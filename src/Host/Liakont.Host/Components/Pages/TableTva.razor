@@ -1,0 +1,359 @@
+@page "/parametrage/table-tva"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using Liakont.Host.Components
+@using Liakont.Host.Security
+@using Liakont.Host.TvaMappingTable
+@using Liakont.Modules.TvaMapping.Contracts.DTOs
+@using Stratum.Common.Abstractions.Exceptions
+@using Stratum.Common.Abstractions.Security
+@inject ITvaMappingTableQueries TableQueries
+@inject IPermissionService Permissions
+@inject ILogger<TableTva> Logger
+
+<PageTitle>Paramétrage comptable — Table TVA — Liakont</PageTitle>
+
+<h1 class="visually-hidden">Paramétrage comptable — Table TVA</h1>
+
+@if (_loadFailed)
+{
+    <div role="alert" data-testid="table-tva-error">
+        Impossible de charger la table TVA pour le moment. Réessayez plus tard.
+    </div>
+}
+else if (_model is null)
+{
+    <p data-testid="table-tva-loading">Chargement…</p>
+}
+else
+{
+    <TableTvaView Model="_model"
+                  CanValidate="_canSettings"
+                  CanEdit="_canSettings"
+                  CreatingTable="_creatingTable"
+                  CreateError="@_createError"
+                  OnCreateTable="CreateTableAsync"
+                  ConfirmOpen="_confirmOpen"
+                  Validating="_validating"
+                  ValidateError="@_validateError"
+                  OnOpenConfirm="OpenConfirm"
+                  OnCancelConfirm="CancelConfirm"
+                  OnConfirmValidate="ConfirmValidateAsync"
+                  AuctionVerticalBusy="_auctionVerticalBusy"
+                  AuctionVerticalError="@_auctionVerticalError"
+                  OnToggleAuctionVertical="ToggleAuctionVerticalAsync"
+                  EditorOpen="_editorOpen"
+                  EditorIsCreate="_editorIsCreate"
+                  EditorModel="_editorModel"
+                  EditorBusy="_editorBusy"
+                  EditorError="@_editorError"
+                  OnCreateRule="OpenCreate"
+                  OnCreateRuleForRegime="OpenCreateForRegime"
+                  OnEditRule="OpenEdit"
+                  OnSubmitEditor="SubmitEditorAsync"
+                  OnCancelEditor="CancelEditor"
+                  DeleteTarget="_deleteTarget"
+                  DeleteBusy="_deleteBusy"
+                  DeleteError="@_deleteError"
+                  OnRequestDelete="RequestDelete"
+                  OnConfirmDelete="ConfirmDeleteAsync"
+                  OnCancelDelete="CancelDelete" />
+}
+
+@code {
+    private TvaMappingTableViewModel? _model;
+    private bool _loadFailed;
+
+    /// <summary>Permission de paramétrage fiscal : conditionne la validation ET l'édition de la table.</summary>
+    private bool _canSettings;
+
+    // ── État de la création de table (FIX01b) ────────────────────
+    private bool _creatingTable;
+    private string? _createError;
+
+    private bool _confirmOpen;
+    private bool _validating;
+    private string? _validateError;
+
+    // ── État de l'activation du vertical enchères (FIX03) ─────────
+    private bool _auctionVerticalBusy;
+    private string? _auctionVerticalError;
+
+    // ── État de l'éditeur de règle (WEB07b) ──────────────────────
+    private bool _editorOpen;
+    private bool _editorIsCreate;
+    private TvaRuleFormModel? _editorModel;
+    private bool _editorBusy;
+    private string? _editorError;
+
+    // ── État de la suppression de règle (WEB07b) ─────────────────
+    private MappingRuleDto? _deleteTarget;
+    private bool _deleteBusy;
+    private string? _deleteError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Permission de paramétrage fiscal : validation et édition ne sont proposées qu'aux porteurs de
+        // liakont.settings (l'application réelle reste serveur — commandes + handlers MediatR).
+        _canSettings = Permissions.HasPermission(LiakontPermissions.Settings);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _model = await TableQueries.GetTableAsync();
+            _loadFailed = false;
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the Liakont TVA mapping table page.");
+        }
+    }
+
+    /// <summary>
+    /// Crée une table de mapping TVA vide « NON VALIDÉE » (item FIX01b, bouton de l'état vide) puis
+    /// recharge : la page bascule de l'état vide vers la table (bandeau NON VALIDÉE, rapport de couverture
+    /// et [Créer une règle] disponibles), et une entrée « Table créée » apparaît dans l'historique.
+    /// </summary>
+    private async Task CreateTableAsync()
+    {
+        _creatingTable = true;
+        _createError = null;
+
+        try
+        {
+            await TableQueries.CreateTableAsync();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+            _createError = "La création de la table a échoué. Réessayez plus tard.";
+            Logger.LogError(ex, "TVA mapping table creation failed from the console.");
+        }
+        finally
+        {
+            _creatingTable = false;
+        }
+    }
+
+    private void OpenConfirm()
+    {
+        _validateError = null;
+        _confirmOpen = true;
+    }
+
+    private void CancelConfirm()
+    {
+        _confirmOpen = false;
+        _validateError = null;
+    }
+
+    private async Task ConfirmValidateAsync()
+    {
+        _validating = true;
+        _validateError = null;
+
+        try
+        {
+            await TableQueries.ValidateAsync();
+            // Recharge le modèle : la table passe « Validée », le bandeau NON VALIDÉE disparaît et une
+            // entrée « Table validée » apparaît dans l'historique.
+            await LoadAsync();
+            _confirmOpen = false;
+        }
+        catch (Exception ex)
+        {
+            // L'échec de validation reste VISIBLE (dans le dialogue) et tracé — jamais avalé en silence.
+            _validateError = "La validation a échoué. Réessayez plus tard.";
+            Logger.LogError(ex, "TVA mapping table validation failed from the console.");
+        }
+        finally
+        {
+            _validating = false;
+        }
+    }
+
+    // ── Activation du vertical enchères (FIX03) ───────────────────
+
+    private async Task ToggleAuctionVerticalAsync()
+    {
+        if (_model is null)
+        {
+            return;
+        }
+
+        _auctionVerticalBusy = true;
+        _auctionVerticalError = null;
+
+        try
+        {
+            // Bascule l'état courant. La commande est journalisée et tenant-scopée côté handler ; la garde
+            // de permission (liakont.settings) est portée par le rendu du bouton (CanEdit).
+            await TableQueries.SetAuctionVerticalAsync(!_model.AuctionVerticalEnabled);
+            // Recharge : l'éditeur de règle proposera (ou masquera) le champ « part » et le rapport de
+            // cohérence est recalculé avec les nouvelles parts consultées.
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur et tracé — jamais avalé en silence.
+            _auctionVerticalError = "La mise à jour du vertical enchères a échoué. Réessayez plus tard.";
+            Logger.LogError(ex, "Failed to toggle the auction vertical activation from the console.");
+        }
+        finally
+        {
+            _auctionVerticalBusy = false;
+        }
+    }
+
+    // ── Édition de règle ──────────────────────────────────────────
+
+    private void OpenCreate()
+    {
+        _editorModel = new TvaRuleFormModel();
+        _editorIsCreate = true;
+        _editorError = null;
+        _editorOpen = true;
+    }
+
+    private void OpenCreateForRegime(RegimeCoverageDto regime)
+    {
+        // Pré-remplissage depuis un régime non mappé (code + libellé observés). La catégorie, la part et
+        // le taux restent à choisir par l'opérateur (aucune valeur fiscale devinée — CLAUDE.md n°2).
+        _editorModel = new TvaRuleFormModel
+        {
+            SourceRegimeCode = regime.Code,
+            Label = regime.Label,
+        };
+        _editorIsCreate = true;
+        _editorError = null;
+        _editorOpen = true;
+    }
+
+    private void OpenEdit(MappingRuleDto rule)
+    {
+        _editorModel = new TvaRuleFormModel
+        {
+            SourceRegimeCode = rule.SourceRegimeCode,
+            Label = rule.Label,
+            Part = rule.Part,
+            SourceFlags = rule.SourceFlags,
+            Category = rule.Category,
+            Vatex = rule.Vatex,
+            Note = rule.Note,
+            RateMode = rule.RateMode,
+            RateValue = rule.RateValue,
+        };
+        _editorIsCreate = false;
+        _editorError = null;
+        _editorOpen = true;
+    }
+
+    private void CancelEditor()
+    {
+        _editorOpen = false;
+        _editorError = null;
+        _editorModel = null;
+    }
+
+    private async Task SubmitEditorAsync()
+    {
+        if (_editorModel is null)
+        {
+            return;
+        }
+
+        _editorBusy = true;
+        _editorError = null;
+
+        try
+        {
+            if (_editorIsCreate)
+            {
+                await TableQueries.AddRuleAsync(_editorModel);
+            }
+            else
+            {
+                await TableQueries.UpdateRuleAsync(_editorModel);
+            }
+
+            // Recharge : toute mutation repasse la table « NON VALIDÉE » (handler) — le bandeau réapparaît,
+            // la couverture et l'historique sont rafraîchis.
+            await LoadAsync();
+            _editorOpen = false;
+            _editorModel = null;
+        }
+        catch (Exception ex)
+        {
+            _editorError = MapMutationError(ex);
+        }
+        finally
+        {
+            _editorBusy = false;
+        }
+    }
+
+    // ── Suppression de règle ──────────────────────────────────────
+
+    private void RequestDelete(MappingRuleDto rule)
+    {
+        _deleteTarget = rule;
+        _deleteError = null;
+    }
+
+    private void CancelDelete()
+    {
+        _deleteTarget = null;
+        _deleteError = null;
+    }
+
+    private async Task ConfirmDeleteAsync()
+    {
+        if (_deleteTarget is null)
+        {
+            return;
+        }
+
+        _deleteBusy = true;
+        _deleteError = null;
+
+        try
+        {
+            await TableQueries.RemoveRuleAsync(_deleteTarget.SourceRegimeCode, _deleteTarget.Part);
+            await LoadAsync();
+            _deleteTarget = null;
+        }
+        catch (Exception ex)
+        {
+            _deleteError = MapMutationError(ex);
+        }
+        finally
+        {
+            _deleteBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Traduit une exception de mutation en message opérateur. Seules les exceptions métier conçues à cet
+    /// effet portent un message français prêt à l'affichage : <see cref="DomainException"/> (validation
+    /// structurelle) et <see cref="NotFoundException"/> (règle introuvable). Toute autre exception — y
+    /// compris une <see cref="ArgumentException"/> (chemin inatteignable depuis les listes fermées de
+    /// l'interface) — est générique + tracée (jamais avalée en silence, jamais une stack technique exposée
+    /// à l'opérateur).
+    /// </summary>
+    private string MapMutationError(Exception ex)
+    {
+        if (ex is DomainException or NotFoundException)
+        {
+            return ex.Message;
+        }
+
+        Logger.LogError(ex, "TVA mapping rule mutation failed from the console.");
+        return "L'opération a échoué. Réessayez plus tard.";
+    }
+}

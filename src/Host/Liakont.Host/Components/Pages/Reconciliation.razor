@@ -1,0 +1,173 @@
+@page "/reconciliation"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using Liakont.Host.Components
+@using Liakont.Host.Navigation
+@using Liakont.Host.Reconciliation
+@using Liakont.Host.Security
+@using Stratum.Common.Abstractions.Security
+@inject IReconciliationConsoleService ReconciliationService
+@inject ILiakontConsoleContext ConsoleContext
+@inject IPermissionService Permissions
+@inject ILogger<Reconciliation> Logger
+
+<PageTitle>Réconciliation des PDF — Liakont</PageTitle>
+
+<h1 class="visually-hidden">Réconciliation des PDF</h1>
+
+@if (!_available)
+{
+    @* Capacité absente (le tenant n'alimente aucun pool de PDF non rattachés) : la page est masquée dans la
+       navigation ; en accès direct par URL, on l'indique explicitement plutôt que d'afficher une page vide. *@
+    <p data-testid="reconciliation-unavailable">
+        La réconciliation des PDF n'est pas disponible pour ce tenant : aucun pool de PDF non rattachés n'est
+        alimenté par l'agent.
+    </p>
+}
+else if (_loadFailed)
+{
+    <div role="alert" data-testid="reconciliation-error">
+        Impossible de charger la file de réconciliation pour le moment. Réessayez plus tard.
+    </div>
+}
+else if (_model is null)
+{
+    <p data-testid="reconciliation-loading">Chargement…</p>
+}
+else
+{
+    <ReconciliationView Model="_model"
+                        CanAct="_canAct"
+                        PreviewEntryId="_previewEntryId"
+                        LinkingEntryId="_linkingEntryId"
+                        ActionMessage="@_actionMessage"
+                        ActionFailed="_actionFailed"
+                        Busy="_busy"
+                        OnPreview="TogglePreview"
+                        OnConfirm="ConfirmAsync"
+                        OnReject="RejectAsync"
+                        OnStartLink="StartLink"
+                        OnCancelLink="CancelLink"
+                        OnLink="LinkAsync" />
+}
+
+@code {
+    private ReconciliationQueueViewModel? _model;
+    private bool _available;
+    private bool _canAct;
+    private bool _loadFailed;
+
+    private Guid? _previewEntryId;
+    private Guid? _linkingEntryId;
+
+    private string? _actionMessage;
+    private bool _actionFailed;
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // La visibilité de la page suit la même heuristique que la navigation (WEB01) : présence d'un pool de
+        // PDF non rattachés pour le tenant courant. Idempotent — déjà pré-chargé à l'ouverture du circuit.
+        await ConsoleContext.EnsureInitializedAsync();
+        _available = ConsoleContext.ReconciliationAvailable;
+
+        // La file de réconciliation est une fonction opérateur (liakont.actions) — cf. endpoint API04. Sans la
+        // permission, la vue affiche un message de restriction (lecture seule) au lieu des files.
+        _canAct = Permissions.HasPermission(LiakontPermissions.Actions);
+
+        if (!_available)
+        {
+            return;
+        }
+
+        if (_canAct)
+        {
+            await LoadAsync();
+        }
+        else
+        {
+            // Pas d'accès aux files sans la permission : on n'interroge pas le module, la vue affiche la restriction.
+            _model = ReconciliationQueueViewModel.Empty;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _model = await ReconciliationService.GetQueueAsync();
+            _loadFailed = false;
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the Liakont reconciliation queue.");
+        }
+    }
+
+    private void TogglePreview(Guid queueEntryId)
+    {
+        _previewEntryId = _previewEntryId == queueEntryId ? null : queueEntryId;
+        // Ouvrir un aperçu referme le sélecteur de lien (un seul panneau déplié à la fois).
+        _linkingEntryId = null;
+    }
+
+    private void StartLink(Guid queueEntryId)
+    {
+        _linkingEntryId = queueEntryId;
+        _previewEntryId = null;
+        _actionMessage = null;
+    }
+
+    private void CancelLink()
+    {
+        _linkingEntryId = null;
+    }
+
+    private Task ConfirmAsync(Guid queueEntryId) =>
+        RunActionAsync(() => ReconciliationService.ConfirmProposalAsync(queueEntryId));
+
+    private Task RejectAsync(Guid queueEntryId) =>
+        RunActionAsync(() => ReconciliationService.RejectProposalAsync(queueEntryId));
+
+    private Task LinkAsync((Guid QueueEntryId, Guid DocumentId) request) =>
+        RunActionAsync(
+            () => ReconciliationService.LinkManuallyAsync(request.QueueEntryId, request.DocumentId),
+            onSuccess: () => _linkingEntryId = null);
+
+    /// <summary>
+    /// Exécute une action opérateur : désactive les boutons, relaie le message de résultat (succès ou échec —
+    /// jamais avalé), recharge la file pour refléter le nouvel état. Une exception inattendue reste VISIBLE
+    /// (bandeau) et tracée.
+    /// </summary>
+    private async Task RunActionAsync(Func<Task<ReconciliationActionResult>> action, Action? onSuccess = null)
+    {
+        _busy = true;
+        _actionMessage = null;
+
+        try
+        {
+            var result = await action();
+            _actionMessage = result.Message;
+            _actionFailed = !result.Succeeded;
+
+            if (result.Succeeded)
+            {
+                onSuccess?.Invoke();
+                _previewEntryId = null;
+                await LoadAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _actionFailed = true;
+            _actionMessage = "L'action n'a pas pu être effectuée. Réessayez plus tard.";
+            Logger.LogError(ex, "Reconciliation operator action failed from the console.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

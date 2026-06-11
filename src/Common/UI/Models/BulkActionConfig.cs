@@ -11,6 +11,19 @@ namespace Stratum.Common.UI.Models;
 /// <param name="Execute">Callback receiving the filtered list of selected items.</param>
 /// <param name="ItemFilter">Optional predicate to filter selected items before execution (e.g. only active items).</param>
 /// <param name="RequiresConfirmation">Whether to show a confirmation dialog before executing.</param>
+/// <param name="SuppressSuccessToast">
+/// When true, the generic "{N} élément(s) traité(s)." success toast is NOT shown after <see cref="Execute"/>
+/// returns. Use this for actions whose <see cref="Execute"/> does not COMPLETE the operation but defers it to an
+/// explicit confirmation step (so an unconditional "done" toast would be misleading). Defaults to false
+/// (unchanged behaviour for existing bulk actions).
+/// </param>
+/// <param name="RequiresSelection">
+/// When true (the default), the action is SELECTION-SCOPED: it only appears in the selection bar while at least
+/// one row is selected, and <see cref="Execute"/> receives the selected rows. When false, the action is GLOBAL:
+/// it stays available in the selection bar even with NO selection (e.g. a "recheck everything in the current
+/// scope" action), and the page owns the set it operates on (<see cref="Execute"/> receives the — possibly empty
+/// — selection and ignores it). Defaults to true (unchanged behaviour for existing bulk actions). FIX207.
+/// </param>
 public sealed record BulkActionConfig<TItem>(
     string Id,
     string Label,
@@ -19,4 +32,6 @@ public sealed record BulkActionConfig<TItem>(
     string? PermissionDisabledReason = null,
     Func<IReadOnlyList<TItem>, Task>? Execute = null,
     Func<TItem, bool>? ItemFilter = null,
-    bool RequiresConfirmation = false);
+    bool RequiresConfirmation = false,
+    bool SuppressSuccessToast = false,
+    bool RequiresSelection = true);

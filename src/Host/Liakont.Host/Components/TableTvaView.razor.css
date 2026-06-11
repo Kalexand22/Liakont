@@ -1,0 +1,138 @@
+/* Styles scoped de la page « Paramétrage comptable — Table TVA » (WEB07a).
+   Tokens du design-system Stratum (couleurs sémantiques) ; aucune grille « maison ». */
+
+.liakont-tva-table {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.liakont-tva-table__validated {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.liakont-tva-table__meta {
+    color: var(--text-secondary, #555);
+    font-size: 0.9rem;
+}
+
+/* Rapport de couverture (TVA03) : code / libellé / compteur / bouton sur une ligne aérée.
+   Sans ces règles les spans se collent (« 0Exonere1 occurrence(s) ») — FIX04a. */
+.liakont-tva-table__coverage {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.liakont-tva-table__coverage-entry {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--border-color, #eee);
+}
+
+.liakont-tva-table__coverage-code {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    min-width: 3rem;
+}
+
+.liakont-tva-table__coverage-label {
+    color: var(--text-secondary, #555);
+}
+
+.liakont-tva-table__coverage-count {
+    color: var(--text-secondary, #555);
+    font-variant-numeric: tabular-nums;
+    margin-left: auto;
+}
+
+/* Bandeau d'alerte permanent (NON VALIDÉE / erreur) — toujours visible, jamais avalé. */
+.liakont-tva-table__alert {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 0.5rem 0;
+    padding: 0.5rem 0.75rem;
+    border-left: 3px solid var(--color-error, #c0392b);
+    background: var(--color-error-bg, rgba(192, 57, 43, 0.08));
+    color: var(--color-error-text, #8e2a20);
+    border-radius: 4px;
+}
+
+/* Dialogue de confirmation de validation (saisie du nom du validateur). */
+.liakont-tva-table__confirm {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    padding: 0.75rem;
+    border: 1px solid var(--border-color, #ddd);
+    border-radius: 6px;
+    background: var(--surface-alt, #fafafa);
+}
+
+.liakont-tva-table__confirm-text {
+    margin: 0;
+    line-height: 1.4;
+}
+
+.liakont-tva-table__confirm-label {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.liakont-tva-table__confirm-input {
+    max-width: 24rem;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border-color, #ccc);
+    border-radius: 4px;
+    font: inherit;
+}
+
+.liakont-tva-table__confirm-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+}
+
+/* Historique des modifications (changelog append-only, lecture seule). */
+.liakont-tva-table__changelog {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.liakont-tva-table__changelog-entry {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--border-color, #eee);
+}
+
+.liakont-tva-table__changelog-when {
+    color: var(--text-secondary, #555);
+    font-variant-numeric: tabular-nums;
+    min-width: 9rem;
+}
+
+.liakont-tva-table__changelog-what {
+    font-weight: 600;
+}
+
+.liakont-tva-table__changelog-who {
+    color: var(--text-secondary, #555);
+}

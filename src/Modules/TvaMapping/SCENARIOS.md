@@ -62,6 +62,26 @@
 - `Handle_NoObservedRegimes_ReturnsComplete` — tenant sans régime remonté → complet.
 - `Handle_UnresolvedTenant_Throws` (slug `null`/vide/blanc) — aucune lecture tant que le tenant n'est pas résolu (message opérateur FR + action).
 
+### MappingConsistencyAnalyzerTests (contrôle de cohérence FIX03 — INV-TVAMAPPING-013)
+- `PipelineConsulted_IsAutreOnly` — le jeu consulté reflète la réalité du pipeline (`{Autre}`, PIP03b gelé), indépendant de l'activation.
+- `AdjudicationRule_IsDead_PartNotConsulted_UnderPipelineReality` — une règle Adjudication est morte (part non consultée par le pipeline).
+- `Analyzer_IsGeneric_WhenPartIsConsulted_RuleNotDeadForPart` — l'analyseur est générique : si on lui DÉCLARE une part consultée (cas futur PIP03b), la règle n'est pas morte pour ce motif.
+- `RegimeNeverObserved_IsFlagged_WhenObservationsExist` — code jamais observé signalé (faute de frappe), quand des régimes ont été observés.
+- `RegimeNeverObserved_IsNotFlagged_OnFreshTenant_NoObservations` — tenant vierge : aucun faux positif « jamais observé ».
+- `Rule_CanCarry_BothReasons` — une règle peut cumuler les deux motifs.
+- `CodeMatching_IsOrdinalCaseSensitive` — comparaison EXACTE (cohérence moteur INV-011).
+- `NoDeadRules_WhenAllConsultedAndObserved` — aucune règle morte quand tout est consulté et observé.
+
+### GetMappingConsistencyReportHandlerTests (câblage FIX03 — INV-TVAMAPPING-008/013)
+- `Handle_RoutesResolvedSlugToRegimeQuery_AndCompanyIdToMappingQuery` — **isolation tenant** : slug vers les régimes observés, `company_id` vers la table.
+- `Handle_AdjudicationRule_IsReportedDead_PipelineConsultsAutreOnly` — le pipeline ne consulte qu'`Autre` : une règle Adjudication est morte (indépendant de l'activation).
+- `Handle_AutreRuleOnObservedRegime_IsNotDead` — une règle `Autre` sur un régime observé n'est pas morte.
+- `Handle_NoTableConfigured_ReturnsNotConfigured_NoDeadRules` — aucune table → `IsTableConfigured=false`, aucune règle morte.
+- `Handle_UnresolvedTenant_Throws_AndReadsNothing` (slug `null`/vide/blanc) — aucune lecture sans tenant résolu.
+
+> **Tests d'intégration (Testcontainers) : non requis pour le contrôle de cohérence FIX03 (même justification que TVA03).**
+> L'analyse est du croisement PUR au-dessus des MÊMES deux lectures déjà couvertes en intégration (table par `company_id`, régimes observés par slug). Aucun nouveau schéma ni nouvelle requête SQL. Le routage de tenant est vérifié EN DIRECT par `Handle_RoutesResolvedSlugToRegimeQuery_AndCompanyIdToMappingQuery`.
+
 > **Tests d'intégration (Testcontainers) : non requis pour TVA03 (node `integration_tests` sauté).**
 > La détection est du croisement PUR (analyseur de domaine) au-dessus de DEUX lectures déjà couvertes
 > par des tests d'intégration Postgres en amont : la table de mapping par `company_id`
@@ -72,6 +92,15 @@
 > schéma ni nouvelle requête SQL n'est introduit. (Même justification que TVA02 « moteur pur ».)
 
 ## Integration (`Tests.Integration`, Testcontainers PostgreSQL)
+
+### Endpoints console API04 (`tests/Liakont.Console.Api.Tests.Integration/TvaMappingEndpointsIntegrationTests`)
+> Tests d'intégration in-process (harness HTTP API01a + Testcontainers). Les MUTATIONS portent sur un tenant dédié (`tenant-api04`).
+- `GetTvaMapping_Without_Authentication_Returns_401` / `..._Without_Read_Permission_Returns_403` — accès en lecture protégé par `liakont.read`.
+- `GetTvaMapping_As_Reader_Returns_Configured_Table` — la table du tenant (+ règles) est exposée.
+- `GetTvaMapping_Is_Company_Scoped` / `..._Tenant_Isolation_Empty_Table_In_Other_Tenant` — scoping par société et par tenant (CLAUDE.md n°9, table absente = `null`).
+- `Edit_Lifecycle_As_Settings_User_Goes_Through_Tva05_Engine` — ajout (→ invalidation + journal `AddRule`), modification, suppression, re-validation : toute mutation passe par le moteur TVA05.
+- `AddRule_As_Actions_User_Without_Settings_Returns_403` / `AddRule_Without_Authentication_Returns_401` / `ValidateMapping_As_Reader_Without_Settings_Returns_403` — l'édition exige `liakont.settings`.
+- `UpdateRule_Route_Body_Mismatch_Returns_400` — la clé (code régime / part) de l'URL doit correspondre au corps.
 
 ### MappingTablePersistenceIntegrationTests (INV-TVAMAPPING-004..008)
 - `Insert_And_Get_RoundTrips_All_Fields` — en-tête + règles persistés et relus à l'identique (taux decimal exact).

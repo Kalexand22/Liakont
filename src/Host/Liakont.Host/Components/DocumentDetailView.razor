@@ -1,0 +1,332 @@
+@namespace Liakont.Host.Components
+@using System
+@using System.Globalization
+@using Liakont.Host.Documents
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* DocumentDetailView — rendu PUR de la page détail document (WEB03a, F10 §2.3). Reçoit son modèle assemblé
+ * en paramètre (aucune injection, aucune logique métier) pour être testable en bUnit sans auth ni base.
+ * Bâti sur le design-system Stratum (StratumTabs, SectionCard, StatusBadge) ; PAS une fiche DeclaredFormPage
+ * car un document ne s'ÉDITE jamais (les actions de WEB03b/c sont des transitions d'état, pas un formulaire à
+ * « Enregistrer ») — lecture seule sur le précédent WEB04b (Parametrage). 4 onglets : Contenu / Contrôles /
+ * Historique / Archive. L'opérateur ne voit JAMAIS de JSON (F10 §1) : le pivot transmis n'est pas affiché ici,
+ * il est inclus dans le dossier d'export (onglet Archive). 100 % français. *@
+
+<div class="liakont-doc-detail" data-testid="document-detail">
+    <StratumTabs TestId="document-detail-tabs">
+
+        @* ── Onglet 1 : Contenu (le document tel que lu) ───────────────────────────────── *@
+        <StratumTab Title="Contenu">
+            <SectionCard Title="En-tête" TestId="document-detail-content">
+                <dl class="liakont-doc-detail__defs">
+                    <div class="liakont-doc-detail__row">
+                        <dt>N°</dt>
+                        <dd data-testid="document-detail-number">@Model.Document.DocumentNumber</dd>
+                    </div>
+                    <div class="liakont-doc-detail__row">
+                        <dt>Type</dt>
+                        <dd data-testid="document-detail-type">@DocumentTypeDisplay.For(Model.Document.DocumentType)</dd>
+                    </div>
+                    <div class="liakont-doc-detail__row">
+                        <dt>Date d'émission</dt>
+                        <dd>@Model.Document.IssueDate.ToString("dd/MM/yyyy", Fr)</dd>
+                    </div>
+                    <div class="liakont-doc-detail__row">
+                        <dt>Acheteur</dt>
+                        <dd data-testid="document-detail-customer">@(string.IsNullOrWhiteSpace(Model.Document.CustomerName) ? "non renseigné" : Model.Document.CustomerName)</dd>
+                    </div>
+                    <div class="liakont-doc-detail__row">
+                        <dt>SIREN émetteur</dt>
+                        <dd>@(string.IsNullOrWhiteSpace(Model.Document.SupplierSiren) ? "non renseigné" : Model.Document.SupplierSiren)</dd>
+                    </div>
+                    <div class="liakont-doc-detail__row">
+                        <dt>État</dt>
+                        <dd><DocumentStateBadge State="@Model.Document.State" TestId="document-detail-state" /></dd>
+                    </div>
+                </dl>
+
+                <dl class="liakont-doc-detail__defs liakont-doc-detail__totals">
+                    <div class="liakont-doc-detail__row">
+                        <dt>Total HT</dt>
+                        <dd data-testid="document-detail-total-net">@FormatMoney(Model.Document.TotalNet)</dd>
+                    </div>
+                    <div class="liakont-doc-detail__row">
+                        <dt>TVA</dt>
+                        <dd data-testid="document-detail-total-tax">@FormatMoney(Model.Document.TotalTax)</dd>
+                    </div>
+                    <div class="liakont-doc-detail__row">
+                        <dt>Total TTC</dt>
+                        <dd data-testid="document-detail-total-gross">@FormatMoney(Model.Document.TotalGross)</dd>
+                    </div>
+                </dl>
+
+                @if (IsBlocked)
+                {
+                    <div class="liakont-doc-detail__alert" role="alert" data-testid="document-detail-blocking">
+                        <span class="liakont-doc-detail__alert-title">Ce qui a déclenché le blocage</span>
+                        <span>@BlockingMessage</span>
+                    </div>
+                }
+
+            </SectionCard>
+
+            @* Détail ligne à ligne (FIX205, F10 §2.3). Le « zéro JSON » de F10 §1 proscrit le DUMP technique du
+             * pivot, pas cette restitution LISIBLE : tableau en français, montants à 2 décimales, régime source →
+             * catégorie/VATEX résultante du mapping. Le pivot intègre reste dans le dossier d'export (onglet Archive). *@
+            <SectionCard Title="Détail des lignes" TestId="document-detail-lines-card">
+                @if (Content.HasLines)
+                {
+                    <table class="liakont-doc-detail__lines" data-testid="document-detail-lines">
+                        <thead>
+                            <tr>
+                                <th scope="col">Désignation</th>
+                                <th scope="col" class="liakont-doc-detail__num">Quantité</th>
+                                <th scope="col" class="liakont-doc-detail__num">Montant HT</th>
+                                <th scope="col">Régime source</th>
+                                <th scope="col">Catégorie TVA</th>
+                                <th scope="col">VATEX</th>
+                                <th scope="col" class="liakont-doc-detail__num">Montant TVA</th>
+                                <th scope="col" class="liakont-doc-detail__num">Taux</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var line in Content.Lines)
+                            {
+                                <tr data-testid="document-detail-line">
+                                    <td>@line.Label</td>
+                                    <td class="liakont-doc-detail__num">@FormatQuantity(line.Quantity)</td>
+                                    <td class="liakont-doc-detail__num">@FormatMoney(line.NetAmount)</td>
+                                    <td>@line.SourceRegime</td>
+                                    <td>@line.Category</td>
+                                    <td>@line.Vatex</td>
+                                    <td class="liakont-doc-detail__num">@(line.TaxAmount is { } tax ? FormatMoney(tax) : "—")</td>
+                                    <td class="liakont-doc-detail__num">@FormatRate(line.Rate)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+
+                    @* Charges et remises de NIVEAU DOCUMENT (BG-20/BG-21 : éco-contribution, remise globale…) : affichées
+                     * à part des lignes pour que le rapprochement avec le Total HT soit complet et lisible. *@
+                    @if (Content.Charges.Count > 0)
+                    {
+                        <table class="liakont-doc-detail__charges" data-testid="document-detail-charges">
+                            <caption>Charges et remises de niveau document</caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col">Type</th>
+                                    <th scope="col">Motif</th>
+                                    <th scope="col" class="liakont-doc-detail__num">Montant HT</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var charge in Content.Charges)
+                                {
+                                    <tr data-testid="document-detail-charge">
+                                        <td>@(charge.IsCharge ? "Charge" : "Remise")</td>
+                                        <td>@charge.Label</td>
+                                        <td class="liakont-doc-detail__num">@(charge.IsCharge ? "+" : "−")@FormatMoney(charge.Amount)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+
+                    @* Contrôle de cohérence totaux ↔ lignes (recette S2.5), MIROIR de LineTotalsRule (BR-CO-13) :
+                     * net réconcilié AVEC les charges/remises document ; TVA réconciliée seulement sans charge globale.
+                     * Calculé dans la projection (pivot complet) ; ici on REND le verdict — on ne recalcule rien. *@
+                    @if (Content.Totals is { } totals)
+                    {
+                        @if (totals.Consistent)
+                        {
+                            <p class="liakont-doc-detail__coherent" data-testid="document-detail-lines-coherent">
+                                Les lignes@(Content.Charges.Count > 0 ? " et charges" : string.Empty) concordent avec les totaux du document.
+                            </p>
+                        }
+                        else
+                        {
+                            <div class="liakont-doc-detail__alert" role="alert" data-testid="document-detail-lines-mismatch">
+                                <span class="liakont-doc-detail__alert-title">Écart entre les totaux et le détail</span>
+                                <span>
+                                    @if (!totals.NetConsistent)
+                                    {
+                                        <text>Total HT — document @FormatMoney(totals.DocumentNet), somme des lignes corrigée des charges/remises @FormatMoney(totals.ExpectedNet).</text>
+                                    }
+                                    @if (totals.TaxChecked && !totals.TaxConsistent)
+                                    {
+                                        <text> TVA — document @FormatMoney(totals.DocumentTax), somme des lignes @FormatMoney(totals.LinesTax).</text>
+                                    }
+                                    <text> Vérifiez le document dans le logiciel source.</text>
+                                </span>
+                            </div>
+                        }
+                    }
+                }
+                else
+                {
+                    @* Document pas encore transmis : aucun pivot mappé n'est exposé — on n'affiche AUCUNE ligne
+                     * inventée. L'en-tête et les totaux résument le document tel que lu ; le détail complet
+                     * apparaîtra ici une fois le document transmis (et reste dans le dossier d'export, onglet Archive). *@
+                    <p class="liakont-doc-detail__hint" data-testid="document-detail-lines-empty">
+                        Le détail ligne à ligne s'affichera ici une fois le document transmis à la Plateforme Agréée.
+                        En attendant, l'en-tête et les totaux ci-dessus résument le document tel que lu ; le contenu
+                        complet est inclus dans le dossier d'export pour contrôle fiscal (onglet Archive).
+                    </p>
+                }
+            </SectionCard>
+        </StratumTab>
+
+        @* ── Onglet 2 : Contrôles avant envoi (F04) ─────────────────────────────────────── *@
+        <StratumTab Title="Contrôles">
+            <SectionCard Title="Contrôles avant envoi" TestId="document-detail-controls">
+                <p class="liakont-doc-detail__controls-state">
+                    État courant : <DocumentStateBadge State="@Model.Document.State" TestId="document-detail-controls-state" />
+                </p>
+
+                @if (IsBlocked)
+                {
+                    <div class="liakont-doc-detail__alert" role="alert" data-testid="document-detail-controls-blocked">
+                        <span class="liakont-doc-detail__alert-title">Contrôle échoué — action requise</span>
+                        <span>@BlockingMessage</span>
+                    </div>
+                }
+                else if (IsRejected)
+                {
+                    <div class="liakont-doc-detail__alert" role="alert" data-testid="document-detail-controls-rejected">
+                        <span class="liakont-doc-detail__alert-title">Refusé par la Plateforme Agréée</span>
+                        <span>Le motif de rejet figure dans l'onglet Historique. Corrigez puis renvoyez le document.</span>
+                    </div>
+                }
+                else
+                {
+                    <p data-testid="document-detail-controls-ok">Aucun contrôle en échec pour le moment.</p>
+                }
+
+                @* L'onglet « Contrôles » ne porte que du CONTENU (état + motif). Les ACTIONS (verdict garde-fou
+                 * B2B/B2C, re-vérification, envoi) ne sont plus enfouies ici : elles vivent dans la barre d'actions
+                 * PERMANENTE en tête de fiche (DocumentActionBar, FIX04b), visible quel que soit l'onglet — avec le
+                 * message de retour de la dernière action. *@
+            </SectionCard>
+        </StratumTab>
+
+        @* ── Onglet 3 : Historique (piste d'audit) ──────────────────────────────────────── *@
+        <StratumTab Title="Historique">
+            <SectionCard Title="Piste d'audit" TestId="document-detail-history">
+                @if (Model.Events.Count == 0)
+                {
+                    <p data-testid="document-detail-history-empty">Aucun événement enregistré pour ce document.</p>
+                }
+                else
+                {
+                    <ol class="liakont-doc-detail__timeline" data-testid="document-detail-history-list">
+                        @foreach (var entry in Model.Events)
+                        {
+                            <li class="liakont-doc-detail__event" data-testid="document-detail-event">
+                                <span class="liakont-doc-detail__event-when">@FormatDateTime(entry.TimestampUtc)</span>
+                                <span class="liakont-doc-detail__event-type">@DocumentEventDisplay.For(entry.EventType)</span>
+                                @if (!string.IsNullOrWhiteSpace(entry.Detail))
+                                {
+                                    <span class="liakont-doc-detail__event-detail">@entry.Detail</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(entry.OperatorIdentity))
+                                {
+                                    <span class="liakont-doc-detail__event-operator">par @entry.OperatorIdentity</span>
+                                }
+                            </li>
+                        }
+                    </ol>
+                }
+            </SectionCard>
+        </StratumTab>
+
+        @* ── Onglet 4 : Archive (preuve WORM + export contrôle fiscal) ───────────────────── *@
+        <StratumTab Title="Archive">
+            <SectionCard Title="Coffre d'archive" TestId="document-detail-archive">
+                @if (Model.Archive is { } archive)
+                {
+                    <dl class="liakont-doc-detail__defs">
+                        <div class="liakont-doc-detail__row">
+                            <dt>État d'intégrité</dt>
+                            <dd><StatusBadge Label="Archivé (coffre WORM)" Severity="Severity.Success" TestId="document-detail-archive-state" /></dd>
+                        </div>
+                        <div class="liakont-doc-detail__row">
+                            <dt>Archivé le</dt>
+                            <dd>@FormatDateTime(archive.ArchivedUtc)</dd>
+                        </div>
+                        <div class="liakont-doc-detail__row">
+                            <dt>Empreinte du paquet</dt>
+                            <dd class="liakont-doc-detail__hash">@archive.PackageHash</dd>
+                        </div>
+                        <div class="liakont-doc-detail__row">
+                            <dt>Empreinte de chaînage</dt>
+                            <dd class="liakont-doc-detail__hash">@archive.ChainHash</dd>
+                        </div>
+                    </dl>
+                }
+                else
+                {
+                    <p data-testid="document-detail-archive-none">Document non encore archivé.</p>
+                }
+
+                @* Téléchargement réel via un <a href> (et non un bouton Blazor) : l'endpoint API renvoie un ZIP
+                 * en pièce jointe (Content-Disposition: attachment) HORS routeur Blazor — un <a> est l'élément
+                 * sémantiquement correct et fiable pour un téléchargement de fichier. L'auth se fait par le
+                 * cookie de session de la console (SmartDefault → Cookie sans en-tête Bearer ; permission liakont.read). *@
+                <a class="liakont-doc-detail__export"
+                   href="@AuditExportUrl"
+                   data-testid="document-detail-export"
+                   download>
+                    Exporter pour contrôle fiscal
+                </a>
+                <p class="liakont-doc-detail__export-hint">
+                    Télécharge le dossier complet (pivot transmis, accusé de la Plateforme Agréée, preuves d'archive) au format ZIP.
+                </p>
+            </SectionCard>
+        </StratumTab>
+
+    </StratumTabs>
+</div>
+
+@code {
+    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+
+    /// <summary>État « rejeté par la PA » (DocumentState, F06 §3) — comparé en chaîne pour rester découplé de l'enum.</summary>
+    private const string RejectedDocumentState = "RejectedByPa";
+
+    /// <summary>Détail assemblé du document (jamais <c>null</c> : la page en fournit toujours un).</summary>
+    [Parameter, EditorRequired]
+    public DocumentDetailViewModel Model { get; set; } = null!;
+
+    private bool IsRejected => string.Equals(Model.Document.State, RejectedDocumentState, StringComparison.Ordinal);
+
+    /// <summary>État « bloqué » (DocumentState, F06 §3) — comparé en chaîne pour rester découplé de l'enum.</summary>
+    private const string BlockedDocumentState = "Blocked";
+
+    private bool IsBlocked => string.Equals(Model.Document.State, BlockedDocumentState, StringComparison.Ordinal);
+
+    /// <summary>Message de blocage : le motif s'il existe, sinon un texte générique (le motif est optionnel — un document peut être Blocked sans Detail).</summary>
+    private string BlockingMessage => string.IsNullOrWhiteSpace(Model.BlockingReason)
+        ? "Un contrôle a échoué avant l'envoi. Consultez l'onglet Historique pour le détail."
+        : Model.BlockingReason!;
+
+    /// <summary>URL de l'export contrôle fiscal du document (endpoint Archive, API03), monté sous /api/v1.</summary>
+    private string AuditExportUrl => $"/api/v1/documents/{Model.Document.Id}/audit-export";
+
+    /// <summary>Montant en français, 2 décimales (cohérent avec la colonne « Montant » de la liste, WEB02).</summary>
+    private static string FormatMoney(decimal value) => value.ToString("N2", Fr);
+
+    /// <summary>Contenu projeté du document (lignes, charges, contrôle de cohérence) — onglet Contenu (FIX205).</summary>
+    private DocumentContentView Content => Model.Content;
+
+    /// <summary>Quantité en français, décimales significatives seulement (« 1 », « 2,5 »).</summary>
+    private static string FormatQuantity(decimal value) => value.ToString("0.###", Fr);
+
+    /// <summary>Taux en pourcentage français (« 20 % »), ou « — » si inconnu / non uniforme sur la ligne.</summary>
+    private static string FormatRate(decimal? rate) => rate is { } value ? $"{value.ToString("0.##", Fr)} %" : "—";
+
+    // Piste d'audit et archive : horodatage affiché en UTC EXPLICITE, pour s'aligner sur le dossier d'export
+    // pour contrôle fiscal (rendu en UTC ISO-8601) — un vérificateur recoupe écran et export sans ambiguïté de
+    // fuseau (en Blazor Server, l'heure « locale » serait celle du SERVEUR, pas de l'opérateur).
+    private static string FormatDateTime(DateTimeOffset when) => when.ToUniversalTime().ToString("dd/MM/yyyy HH:mm 'UTC'", Fr);
+}

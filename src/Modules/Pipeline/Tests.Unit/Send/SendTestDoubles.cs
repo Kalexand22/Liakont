@@ -104,6 +104,15 @@ internal static class SendTestDoubles
 
         public Task<DocumentStatusDto?> FindStatusBySourceReferenceAndPayloadHashAsync(string sourceReference, string payloadHash, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+
+        public Task<DocumentListResult> GetDocumentsAsync(DocumentListFilter filter, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<ArchiveReferenceDto?> GetArchiveReferenceAsync(Guid documentId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<DocumentSummaryDto?> GetOldestDocumentInStateAsync(string state, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     internal sealed class RecordingDocumentLifecycle : IDocumentLifecycle
@@ -132,6 +141,12 @@ internal static class SendTestDoubles
             return Task.CompletedTask;
         }
 
+        public Task<DocumentRecheckPersistOutcome> MarkReadyToSendByRecheckAsync(Guid documentId, string mappingVersion, string operatorIdentity, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<DocumentRecheckPersistOutcome> RecordRecheckStillBlockedAsync(Guid documentId, string reevaluatedReason, string operatorIdentity, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task BeginSendingAsync(Guid documentId, CancellationToken cancellationToken = default)
         {
             BeganSending.Add(documentId);
@@ -155,6 +170,15 @@ internal static class SendTestDoubles
             TechnicalError.Add(documentId);
             return Task.CompletedTask;
         }
+
+        public Task<DocumentResolutionOutcome> ResolveManuallyAsync(Guid documentId, string reason, string operatorIdentity, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<DocumentResolutionOutcome> SupersedeAsync(Guid documentId, Guid replacementDocumentId, string operatorIdentity, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task ConfirmBuyerAsIndividualAsync(Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     internal sealed class MapStagingStore : IPayloadStagingStore
@@ -238,6 +262,8 @@ internal static class SendTestDoubles
         }
 
         public Task<Guid?> GetCurrentCompanyId(CancellationToken ct = default) => Task.FromResult(_companyId);
+
+        public Task<bool> GetAuctionVerticalEnabled(Guid companyId, CancellationToken ct = default) => Task.FromResult(false);
 
         public Task<IReadOnlyList<PaAccountDto>> GetPaAccounts(Guid companyId, CancellationToken ct = default) =>
             Task.FromResult(_accounts);

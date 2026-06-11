@@ -31,7 +31,7 @@ public sealed class DocumentLifecycleIntegrationTests
     {
         var harness = new DocumentsHarness(_fixture);
         var id = await SeedDetectedAsync(harness);
-        var lifecycle = new DocumentLifecycle(harness.UowFactory);
+        var lifecycle = new DocumentLifecycle(harness.UowFactory, harness.Queries);
 
         await lifecycle.BlockAsync(id, "Table TVA non validée — validation expert-comptable requise");
 
@@ -49,7 +49,7 @@ public sealed class DocumentLifecycleIntegrationTests
     {
         var harness = new DocumentsHarness(_fixture);
         var id = await SeedDetectedAsync(harness);
-        var lifecycle = new DocumentLifecycle(harness.UowFactory);
+        var lifecycle = new DocumentLifecycle(harness.UowFactory, harness.Queries);
 
         await lifecycle.MarkReadyToSendAsync(id, "2026.1");
 
@@ -71,7 +71,7 @@ public sealed class DocumentLifecycleIntegrationTests
     public async Task Lifecycle_On_Unknown_Document_Throws()
     {
         var harness = new DocumentsHarness(_fixture);
-        var lifecycle = new DocumentLifecycle(harness.UowFactory);
+        var lifecycle = new DocumentLifecycle(harness.UowFactory, harness.Queries);
 
         var act = async () => await lifecycle.BlockAsync(Guid.NewGuid(), "motif");
 

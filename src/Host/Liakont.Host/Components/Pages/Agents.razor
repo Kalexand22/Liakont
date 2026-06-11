@@ -1,0 +1,404 @@
+@page "/agents"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using System.Globalization
+@using Microsoft.Extensions.Logging
+@using Microsoft.JSInterop
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.Abstractions.Security
+@using Stratum.Common.UI.Models
+@using Stratum.Common.UI.Services
+@using Liakont.Host.AgentManagement
+@using Liakont.Host.Security
+@using Liakont.Modules.Ingestion.Contracts.DTOs
+@inject IAgentManagementConsoleService Service
+@inject IPermissionService Permissions
+@inject IJSRuntime JS
+@inject IToastService ToastService
+@inject ILogger<Agents> Logger
+
+<PageTitle>Gestion des agents — Liakont</PageTitle>
+
+<h1 class="visually-hidden">Gestion des agents</h1>
+
+@if (!_canManage)
+{
+    @* La gestion du parc (secrets) est réservée au paramétrage : page non accessible en lecture seule
+       (le lien de navigation est lui aussi masqué sans liakont.settings — WEB01). *@
+    <div role="alert" data-testid="agents-denied">
+        Accès refusé : la gestion des agents requiert l'autorisation de paramétrage (liakont.settings).
+        Rapprochez-vous de l'administrateur de votre organisation.
+    </div>
+}
+else if (_loadFailed)
+{
+    <div role="alert" data-testid="agents-error">
+        Impossible de charger le parc d'agents pour le moment. Réessayez plus tard.
+    </div>
+}
+else
+{
+    @* Liste : gabarit DeclaredListPage (aucune grille « maison »). Re-key au rechargement (après une action)
+       pour relire LoadItems. Les actions de ligne (renouveler / révoquer) et l'enregistrement ouvrent des
+       dialogues dédiés ; aucune logique métier ici (déléguée au service → commandes PIV05). *@
+    <DeclaredListPage @key="_epoch"
+                      TItem="AgentConsoleLine"
+                      Title="Agents"
+                      TestId="agents"
+                      LoadItems="LoadItemsAsync"
+                      DetailUrl="@(_ => "/agents")"
+                      ColumnRegistry="_registry"
+                      ColumnTemplates="_columnTemplates"
+                      GridKey="Liakont.Agents"
+                      RowActions="_rowActions"
+                      AriaLabel="Parc d'agents du tenant"
+                      DefaultSortColumn="Name"
+                      DefaultSortDirection="SortDirection.Ascending"
+                      SearchPlaceholder="Rechercher un agent… (raccourci : /)"
+                      AllowExport="true"
+                      ExportFileName="agents">
+        <ToolbarActions>
+            <StratumButton Text="Enregistrer un nouvel agent…"
+                           Variant="ButtonVariant.Primary"
+                           Size="ButtonSize.Small"
+                           OnClick="OpenRegister"
+                           TestId="agents-register-btn" />
+        </ToolbarActions>
+        <EmptyContent>
+            <p data-testid="agents-empty">Aucun agent enregistré pour ce tenant.</p>
+        </EmptyContent>
+    </DeclaredListPage>
+
+    <AgentRegisterDialog IsOpen="_registerOpen"
+                         Busy="_registerBusy"
+                         ErrorMessage="@_registerError"
+                         IssuedKey="_registerKey"
+                         OnSubmit="SubmitRegisterAsync"
+                         OnClose="CloseRegister"
+                         OnCopyKey="CopyKeyAsync" />
+
+    <AgentRevokeDialog IsOpen="@(_revokeTarget is not null)"
+                       AgentName="@(_revokeTarget?.Name ?? string.Empty)"
+                       Busy="_revokeBusy"
+                       ErrorMessage="@_revokeError"
+                       OnConfirm="ConfirmRevokeAsync"
+                       OnCancel="CancelRevoke" />
+
+    <AgentRotateKeyDialog IsOpen="@(_rotateTarget is not null)"
+                          AgentName="@(_rotateTarget?.Name ?? string.Empty)"
+                          Busy="_rotateBusy"
+                          ErrorMessage="@_rotateError"
+                          IssuedKey="_rotateKey"
+                          OnConfirm="ConfirmRotateAsync"
+                          OnCancel="CancelRotate"
+                          OnClose="CloseRotate"
+                          OnCopyKey="CopyKeyAsync" />
+}
+
+@code {
+    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+
+    private readonly AgentConsoleColumnRegistry _registry = new();
+    private readonly IReadOnlyList<GridRowAction<AgentConsoleLine>> _rowActions;
+    private readonly Dictionary<string, RenderFragment<AgentConsoleLine>> _columnTemplates;
+
+    /// <summary>Permission de gestion de secrets : conditionne TOUTE la page (accès + actions).</summary>
+    private bool _canManage;
+    private bool _loadFailed;
+    private IReadOnlyList<AgentConsoleLine> _agents = [];
+
+    // @key de la liste : incrémenté à chaque rechargement pour forcer DeclaredListPage à relire LoadItems.
+    private int _epoch;
+
+    // ── Enregistrement ───────────────────────────────────────────
+    private bool _registerOpen;
+    private bool _registerBusy;
+    private string? _registerError;
+    private AgentKeyIssuedDto? _registerKey;
+
+    // ── Révocation ───────────────────────────────────────────────
+    private AgentConsoleLine? _revokeTarget;
+    private bool _revokeBusy;
+    private string? _revokeError;
+
+    // ── Rotation de clé ──────────────────────────────────────────
+    private AgentConsoleLine? _rotateTarget;
+    private bool _rotateBusy;
+    private string? _rotateError;
+    private AgentKeyIssuedDto? _rotateKey;
+
+    public Agents()
+    {
+        _rowActions =
+        [
+            new GridRowAction<AgentConsoleLine>(
+                Id: "rotate",
+                Label: "Renouveler la clé…",
+                Icon: "vpn_key",
+                IsQuickAction: true,
+                IsEnabled: a => !a.IsRevoked,
+                Callback: a => { OpenRotate(a); return Task.CompletedTask; }),
+            new GridRowAction<AgentConsoleLine>(
+                Id: "revoke",
+                Label: "Révoquer…",
+                Icon: "block",
+                IsQuickAction: true,
+                IsSeparatorBefore: true,
+                IsEnabled: a => !a.IsRevoked,
+                Callback: a => { OpenRevoke(a); return Task.CompletedTask; }),
+        ];
+
+        _columnTemplates = new Dictionary<string, RenderFragment<AgentConsoleLine>>
+        {
+            ["StateLabel"] = item => __builder =>
+            {
+                var (label, severity) = item.IsRevoked
+                    ? ("Révoqué", Severity.Error)
+                    : item.IsSilent
+                        ? ("Muet", Severity.Warning)
+                        : ("Actif", Severity.Success);
+
+                __builder.OpenElement(0, "span");
+                __builder.AddAttribute(1, "data-testid", $"agent-state-{item.Id}");
+                __builder.OpenComponent<StatusBadge>(2);
+                __builder.AddAttribute(3, "Label", label);
+                __builder.AddAttribute(4, "Severity", severity);
+                __builder.CloseComponent();
+                __builder.CloseElement();
+            },
+            ["LastSeenUtc"] = item => __builder =>
+            {
+                __builder.AddContent(0, item.LastSeenUtc is { } seen
+                    ? seen.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr)
+                    : "jamais");
+            },
+            ["Version"] = item => __builder =>
+            {
+                __builder.AddContent(0, string.IsNullOrWhiteSpace(item.Version) ? "inconnue" : item.Version);
+            },
+            ["CreatedAt"] = item => __builder =>
+            {
+                __builder.AddContent(0, item.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy", Fr));
+            },
+        };
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Toute la page est réservée au paramétrage (gestion de secrets) : sans la permission, aucune donnée
+        // n'est chargée et seul le message d'accès refusé est rendu. NB : la console dispatche les commandes
+        // PIV05 EN IN-PROCESS — cette garde de page est donc l'UNIQUE contrôle liakont.settings du chemin
+        // console (les endpoints API05 portent la garde du chemin HTTP). Le contrôle s'exécute côté serveur
+        // (circuit Blazor Server), non falsifiable côté client.
+        _canManage = Permissions.HasPermission(LiakontPermissions.Settings);
+        if (_canManage && !await LoadAgentsAsync())
+        {
+            // Échec du chargement INITIAL : aucune donnée à afficher → bandeau d'erreur (VISIBLE, jamais
+            // silencieux). Un échec de RAFRAÎCHISSEMENT post-action est traité différemment (toast non bloquant).
+            _loadFailed = true;
+        }
+    }
+
+    private Task<IReadOnlyList<AgentConsoleLine>> LoadItemsAsync() => Task.FromResult(_agents);
+
+    private async Task<bool> LoadAgentsAsync()
+    {
+        try
+        {
+            _agents = await Service.ListAsync();
+            _epoch++;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // Tracé, jamais avalé en silence. Le traitement de l'échec (bandeau initial vs toast de
+            // rafraîchissement) est décidé par l'appelant.
+            Logger.LogError(ex, "Failed to load the Liakont agent fleet for the current tenant.");
+            return false;
+        }
+    }
+
+    private async Task RefreshAfterActionAsync()
+    {
+        // Rafraîchissement APRÈS une action réussie : un échec ici ne doit PAS masquer la page ni démonter un
+        // dialogue de clé ouvert — la clé unique vient peut-être d'être affichée et n'est plus récupérable
+        // (rotation = ancienne clé déjà invalidée). On signale donc l'échec par un toast NON bloquant, sans
+        // repasser toute la page en bandeau d'erreur.
+        if (!await LoadAgentsAsync())
+        {
+            ToastService.Show(
+                "Action effectuée, mais la liste n'a pas pu être actualisée. Rechargez la page pour la mettre à jour.",
+                Severity.Warning);
+        }
+    }
+
+    // ── Enregistrement ───────────────────────────────────────────
+
+    private void OpenRegister()
+    {
+        _registerOpen = true;
+        _registerBusy = false;
+        _registerError = null;
+        _registerKey = null;
+    }
+
+    private async Task SubmitRegisterAsync(string name)
+    {
+        _registerBusy = true;
+        _registerError = null;
+        try
+        {
+            var result = await Service.RegisterAsync(name);
+            if (result.Status == AgentActionStatus.Succeeded)
+            {
+                // La clé n'existe que dans ce résultat : on l'affiche (phase 2) et on rafraîchit la liste.
+                _registerKey = result.IssuedKey;
+                await RefreshAfterActionAsync();
+            }
+            else
+            {
+                // Sur conflit, le message du domaine (parité endpoint API05) est porté ; sinon message générique.
+                _registerError = result.ErrorMessage ?? DescribeError(result.Status);
+            }
+        }
+        finally
+        {
+            _registerBusy = false;
+        }
+    }
+
+    private void CloseRegister()
+    {
+        _registerOpen = false;
+        _registerBusy = false;
+        _registerError = null;
+        _registerKey = null;
+    }
+
+    // ── Révocation ───────────────────────────────────────────────
+
+    private void OpenRevoke(AgentConsoleLine agent)
+    {
+        _revokeTarget = agent;
+        _revokeBusy = false;
+        _revokeError = null;
+        StateHasChanged();
+    }
+
+    private async Task ConfirmRevokeAsync()
+    {
+        if (_revokeTarget is not { } target)
+        {
+            return;
+        }
+
+        _revokeBusy = true;
+        _revokeError = null;
+        try
+        {
+            var status = await Service.RevokeAsync(target.Id);
+            if (status == AgentActionStatus.Succeeded)
+            {
+                ToastService.Show($"L'agent « {target.Name} » a été révoqué.", Severity.Success);
+                _revokeTarget = null;
+                await RefreshAfterActionAsync();
+            }
+            else
+            {
+                _revokeError = DescribeError(status);
+            }
+        }
+        finally
+        {
+            _revokeBusy = false;
+        }
+    }
+
+    private void CancelRevoke()
+    {
+        _revokeTarget = null;
+        _revokeError = null;
+    }
+
+    // ── Rotation de clé ──────────────────────────────────────────
+
+    private void OpenRotate(AgentConsoleLine agent)
+    {
+        _rotateTarget = agent;
+        _rotateBusy = false;
+        _rotateError = null;
+        _rotateKey = null;
+        StateHasChanged();
+    }
+
+    private async Task ConfirmRotateAsync()
+    {
+        if (_rotateTarget is not { } target)
+        {
+            return;
+        }
+
+        _rotateBusy = true;
+        _rotateError = null;
+        try
+        {
+            var result = await Service.RotateKeyAsync(target.Id);
+            if (result.Status == AgentActionStatus.Succeeded)
+            {
+                // La NOUVELLE clé n'existe que dans ce résultat : on l'affiche (phase 2) et on rafraîchit la liste.
+                _rotateKey = result.IssuedKey;
+                await RefreshAfterActionAsync();
+            }
+            else
+            {
+                // Sur conflit (agent révoqué), le message du domaine (parité endpoint API05) est porté.
+                _rotateError = result.ErrorMessage ?? DescribeError(result.Status);
+            }
+        }
+        finally
+        {
+            _rotateBusy = false;
+        }
+    }
+
+    private void CancelRotate()
+    {
+        _rotateTarget = null;
+        _rotateError = null;
+    }
+
+    private void CloseRotate()
+    {
+        _rotateTarget = null;
+        _rotateError = null;
+        _rotateKey = null;
+    }
+
+    // ── Copie de clé (presse-papiers) ────────────────────────────
+
+    private async Task CopyKeyAsync(string fullKey)
+    {
+        // La clé n'est JAMAIS journalisée (CLAUDE.md n°10) : seul le résultat de la copie est tracé/affiché.
+        try
+        {
+            var copied = await JS.InvokeAsync<bool>("stratumUI.copyToClipboard", fullKey);
+            ToastService.Show(
+                copied ? "Clé copiée dans le presse-papiers." : "Impossible de copier la clé. Copiez-la manuellement.",
+                copied ? Severity.Success : Severity.Warning);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Clipboard copy of an agent key failed.");
+            ToastService.Show("Impossible de copier la clé. Copiez-la manuellement.", Severity.Warning);
+        }
+    }
+
+    /// <summary>Message opérateur français pour une issue d'action attendue (CLAUDE.md n°12).</summary>
+    private static string DescribeError(AgentActionStatus status) => status switch
+    {
+        AgentActionStatus.NameRequired => "Le nom de l'agent est obligatoire.",
+        AgentActionStatus.NotFound =>
+            "Cet agent est introuvable dans votre parc (il a peut-être déjà été retiré). Actualisez la liste.",
+        _ => "L'action n'a pas pu être effectuée pour le moment. Réessayez plus tard.",
+    };
+}

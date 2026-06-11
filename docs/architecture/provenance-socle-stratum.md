@@ -220,6 +220,26 @@ Security/ReflectionPermissionCatalog.cs`). Les lignes vides et les lignes de com
 ancré sur le chemin complet.
 
 <!-- SOCLE-CONSIGNED-DRIFT:START -->
+src/Common/UI/Models/BulkActionConfig.cs
+src/Common/UI/Components/DeclaredListPage.razor.cs
+src/Common/Infrastructure/BugCapture/VideoAnalysisService.cs
+src/Common/UI/Services/BugCapture/BugCaptureService.cs
+src/Common/UI/Components/StratumDataGrid.razor
+src/Common/UI/Components/DeclaredListPage.razor
+src/Common/UI/Components/StratumButton.razor
+src/Common/UI/Resources/SharedResources.resx
+src/Common/UI/Resources/SharedResources.fr.resx
+src/Modules/Job/Application/IScheduleUnitOfWork.cs
+src/Modules/Job/Infrastructure/PostgresScheduleUnitOfWork.cs
+src/Modules/Job/Infrastructure/JobHandlerRegistration.cs
+src/Modules/Job/Infrastructure/JobHandlerRegistrationExtensions.cs
+src/Modules/Job/Infrastructure/JobModuleRegistration.cs
+src/Modules/Job/Web/Pages/AdminJobScheduleForm.razor
+src/Modules/Job/Web/Pages/AdminJobSchedules.razor
+src/Modules/Job/Web/JobNavSectionProvider.cs
+src/Modules/Job/Infrastructure/JobHandlerResolver.cs
+src/Modules/Job/Contracts/Queries/IJobQueries.cs
+src/Modules/Job/Infrastructure/Queries/PostgresJobQueries.cs
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -276,6 +296,232 @@ Code Liakont **hors** socle (pas de consignation requise, mais cité pour le con
 `src/Host/Liakont.Host/MultiTenancy/TenantScopeFactory.cs` (implémentation du seam, positionne le
 `MutableTenantContext` interne au Host) + son enregistrement dans `MultiTenantServiceCollectionExtensions`
 et `AppBootstrap`. **Aucun fichier `Stratum.*` existant n'a été modifié par SOL06.**
+
+### 4.15 `BulkActionConfig` + `DeclaredListPage.ExecuteBulkAsync` — option `SuppressSuccessToast` (WEB05)
+La barre d'actions groupées de `DeclaredListPage` (`ExecuteBulkAsync`) affichait un toast de succès
+**inconditionnel** (`"{N} élément(s) traité(s)."`) dès que le rappel `Execute` retournait sans exception.
+WEB05 (« Envoyer la sélection ») doit, comme « Tout envoyer », passer par une **confirmation explicite**
+avant un envoi fiscal IRRÉVERSIBLE (acceptance WEB05 : « Envoi sélection ET tout-envoyer avec confirmation »).
+Or l'action groupée n'EXÉCUTE pas l'envoi : elle ouvre la confirmation — un toast « traité(s) » au retour
+d'`Execute` serait donc trompeur (rien n'est encore envoyé), exactement le défaut d'ambiguïté opérateur que
+proscrit CLAUDE.md n°12 (produit de conformité fiscale).
+
+Deux modifications **rétro-compatibles** (marquées par le commentaire de garde dans le code) :
+- `src/Common/UI/Models/BulkActionConfig.cs` : ajout d'un paramètre optionnel `bool SuppressSuccessToast = false`
+  (dernier paramètre positionnel du record ; valeur par défaut = comportement inchangé pour toutes les actions
+  groupées existantes).
+- `src/Common/UI/Components/DeclaredListPage.razor.cs` (`ExecuteBulkAsync`) : le toast de succès n'est affiché
+  que si `!action.SuppressSuccessToast`. Le reste du flux (gestion d'erreur via `_bulkError`, désélection,
+  rechargement) est inchangé.
+
+Capacité GÉNÉRIQUE du design-system (toute action groupée différée à une confirmation en bénéficie), candidate
+à reverser en amont (§6). La garde est un simple test booléen autour de l'appel `ToastService.Show` existant ;
+aucun test socle dédié n'est ajouté car l'exercer exigerait de simuler la sélection de lignes de la grille Radzen,
+qui dépend d'un JS interop indisponible en bUnit (`JSRuntimeMode.Loose`) — même contrainte que le câblage
+« Envoyer la sélection » de la page, couvert côté Liakont par un test bUnit invoquant directement le rappel
+`Execute` (`Liakont.Host.Tests.Unit.Pages.DocumentsTests`).
+
+### 4.16 `VideoAnalysisService.BuildPrompt` — la narration audio devient la source principale du rapport
+Le prompt d'analyse vidéo BugCapture (fr et en) demandait un rapport QA basé sur ce qui est
+**visible à l'écran**, sans jamais mentionner la piste audio. Or l'usage réel de l'outil est la
+**dictée** : l'opérateur narre le problème au micro pendant la capture. Vérifié sur pièce
+(2026-06-10, test GATE_CONSOLE_WEB) : Gemini reçoit bien la piste audio via OpenRouter (il la
+transcrit mot à mot sur demande explicite), mais avec le prompt d'origine il décrit l'écran et
+ignore la narration → rapport sans rapport avec le bug dicté. Défaut présent à l'identique dans
+Stratum amont (fichier vendored == fichier source au moment du fix).
+
+Modification (marquée `// Liakont:` dans le code) : les deux variantes du prompt (fr/en) de
+`BuildPrompt` instruisent désormais que la narration audio, si présente, est la source PRINCIPALE
+du titre/résumé/étapes, la vidéo servant d'illustration. Aucun changement de signature, de parsing
+(`ParseResponse`) ni de format JSON attendu. Candidate à reverser en amont (§6).
+
+**Itération 2 (même jour) — transcription Whisper en deux passes.** L'instruction de prompt seule
+ne suffit pas : rejoué 3× sur la même capture réelle, le modèle n'exploite l'audio qu'1 fois sur 3
+et HALLUCINE sinon un bug générique (« connexion impossible ») sans rapport avec la dictée. Whisper,
+lui, transcrit la même piste mot à mot à chaque essai (l'API accepte le conteneur WebM vidéo tel
+quel, vérifié avec le content-type `audio/webm` déjà émis par `TranscriptionService` — inchangé).
+Fix en deux passes (marqué `// Liakont:`) :
+- `VideoAnalysisService.AnalyzeAsync` : paramètre optionnel `transcript` (défaut `null`, rétro-
+  compatible) ; `BuildPrompt` ajoute en fin de prompt la transcription comme narration de référence.
+- `src/Common/UI/Services/BugCapture/BugCaptureService.cs` (`BuildExpensiveDataAsync`) : quand il
+  n'y a pas d'enregistrement audio séparé et que la vidéo ≤ 25 Mo (limite d'upload Whisper), la
+  piste audio de la vidéo est transcrite via `TranscriptionService` et passée à `AnalyzeAsync`.
+  Effet de bord voulu : la transcription alimente aussi `_cachedTranscription`, donc le verbatim
+  de la dictée apparaît dans la description du rapport (`[Transcription] …`) même si l'analyse
+  vidéo échoue. Sans `WhisperApiKey`, `TranscribeAsync` retourne `string.Empty` : comportement
+  strictement identique à l'amont (dégradation silencieuse préservée).
+
+Suites de review (round 1, 3 P2) :
+- **Décision opérateur (Karl, 2026-06-10) — OpenAI actée comme second sous-traitant BugCapture** :
+  la 2e passe envoie le conteneur WebM vidéo COMPLET (frames d'écran incluses) à l'API Whisper
+  d'OpenAI, alors que l'écran ne partait auparavant que vers OpenRouter. Accepté : BugCapture est
+  un outil de QA/dev à clés optionnelles fournies par l'opérateur — configurer `WhisperApiKey`
+  vaut acceptation qu'OpenAI reçoive le contenu des captures. Alternative « extraire la piste
+  audio seule » écartée (parsing Matroska ou dépendance ffmpeg = nouveau package = ADR).
+- Skip de la transcription au-delà de la limite d'upload Whisper (25 Mo) désormais TRACÉ
+  (`ILogger<BugCaptureService>` ajouté au constructeur, `LogWarning` avec la taille) — plus de
+  dégradation invisible vers l'analyse multimodale seule.
+- Tests AJOUTÉS (pas de dérive baseline, même logique que §4.14) :
+  `tests/Common.Infrastructure.Tests.Unit/BugCapture/VideoAnalysisServiceTests.cs` — le transcript
+  fourni atterrit dans le corps de la requête OpenRouter (fr/en), absent si non fourni, aucun
+  appel HTTP sans clé. Le garde 25 Mo de `BugCaptureService` n'a pas de test dédié : l'exercer
+  exige d'instancier les 13 dépendances et de piloter une session de capture complète — même
+  arbitrage que §4.15 (mocking lourd disproportionné), le branchement étant un simple test de
+  taille désormais journalisé.
+
+### 4.17 Barre d'outils des listes — Rafraîchir + bouton Export unique (FIX206)
+
+La recette humaine GATE_CONSOLE_WEB (run 2, 2026-06-11) a relevé deux défauts du gabarit commun
+des listes (`DeclaredListPage` → `StratumDataGrid`) : aucun bouton de rafraîchissement (le pipeline
+étant asynchrone — CHECK event-driven, envoi par job — l'opérateur n'avait que F5 pour voir un
+changement d'état), et **trois icônes d'export identiques** (`Icon="download"`, sans libellé) pour
+CSV/Excel/PDF, indistinguables. Décision opérateur E3 : une icône **Rafraîchir** à côté des exports
+(relançant la requête serveur en CONSERVANT filtres/tri/pagination) et **un seul bouton « Exporter »**
+ouvrant un menu CSV/Excel/PDF. Correctif porté sur le gabarit COMMUN pour couvrir toutes les listes
+d'un coup. Modifications **rétro-compatibles** (marquées par leurs commentaires de garde / `FIX206`) :
+
+- `src/Common/UI/Components/StratumDataGrid.razor` :
+  - les **trois** `StratumButton` d'export identiques (`export-csv-btn`/`export-excel-btn`/`export-pdf-btn`)
+    sont remplacés par **un** `StratumSplitButton` « Exporter » (`export-btn`) dont le menu liste les
+    formats déclarés par `ExportFormats`. Le **comportement d'export est inchangé** : le bouton primaire
+    exporte le premier format activé, chaque item du menu appelle le même `HandleExportAsync(format)`
+    qu'avant (aucun format ajouté/retiré, Excel reste no-op sans `OnExport` custom, exactement comme
+    le bouton Excel d'origine).
+  - nouveau paramètre **optionnel** `EventCallback OnRefresh` : quand un délégué est fourni, une icône
+    `refresh` (`refresh-btn`) est rendue dans la barre d'outils ; sinon rien (rétro-compatible — aucune
+    liste existante n'affiche le bouton sans câblage explicite). La condition d'affichage de la barre
+    d'outils inclut désormais `OnRefresh.HasDelegate`.
+- `src/Common/UI/Components/DeclaredListPage.razor` : les trois usages de `StratumDataGrid` (vue
+  multi-modes + deux vues simples) câblent `OnRefresh="LoadAsync"`. `LoadAsync` ré-exécute le rappel
+  `LoadItems` (requête serveur) puis `ApplyFilters()`, qui ré-applique l'état `_filterState`/tri/page
+  EXISTANT → filtres et pagination conservés (acceptance FIX206). `DeclaredListPage.razor.cs` n'est PAS
+  modifié par FIX206 (il figure déjà dans le bloc de dérive depuis §4.15).
+- `src/Common/UI/Components/StratumButton.razor` : ajout d'un paramètre **optionnel** `Title` (mappé
+  sur les attributs `title` + `aria-label`) pour donner un nom accessible / une infobulle aux boutons
+  icône seule — utilisé par l'icône Rafraîchir. Aucun impact sur les boutons existants (défaut `null`).
+- `src/Common/UI/Resources/SharedResources.resx` + `SharedResources.fr.resx` : deux clés
+  `Grid_ExportButton` (Export / Exporter) et `Grid_RefreshButton` (Refresh / Rafraîchir). Les libellés
+  de format du menu (CSV/Excel/PDF) sont des littéraux (acronymes universels, non traduits).
+
+Tests : `tests/Common.UI/Unit/StratumDataGridTests.cs` (projet de test, **non épinglé** par le baseline
+§4.12 — sous `tests/`, pas `src/`) — les tests d'export sont mis à jour vers le bouton unique (`export-btn`,
+menu CSV/Excel/PDF, désactivation chargement/vide, export par défaut CSV) et trois tests Rafraîchir sont
+ajoutés (rendu conditionnel au délégué, invocation du rappel). Capacité GÉNÉRIQUE du design-system,
+candidate à reverser en amont (§6).
+### 4.18 `IScheduleUnitOfWork.GetActiveJobTypesAsync` — lecture des jobs planifiés (FIX203b)
+La recette run 2 (2026-06-11) a révélé que `job.schedules` reste VIDE après un bring-up complet :
+le dead-man's-switch de supervision (15 min, F12 §5.1) et l'ancrage quotidien du coffre (TRK06,
+ADR-0011) ne sont JAMAIS planifiés → supervision morte en silence, coffre jamais ancré. FIX203b
+amorce ces planifications en dev (`DevJobScheduleSeeder`, Host) ET ajoute un diagnostic de démarrage
+(`SystemJobScheduleHealthCheck`, Host) qui AVERTIT, en dev comme en prod, si un job SYSTÈME attendu
+n'a aucun schedule actif (même pattern que `DevRealmHealthCheck`).
+
+Ce diagnostic doit lire les `job_type` ayant au moins un schedule actif. Aucune méthode read-only
+n'existait : `GetDueSchedulesAsync` pose un `FOR UPDATE SKIP LOCKED` (réservé au scheduler) et
+`ExistsByNameAndCompanyAsync` exige le couple (nom, company) — inconnu en prod (l'opérateur nomme et
+scope librement). Deux modifications **additives, lecture seule** (marquées `// Liakont addition (FIX203b)`) :
+- `src/Modules/Job/Application/IScheduleUnitOfWork.cs` : ajout de
+  `Task<IReadOnlyList<string>> GetActiveJobTypesAsync(CancellationToken)`.
+- `src/Modules/Job/Infrastructure/PostgresScheduleUnitOfWork.cs` : implémentation
+  (`SELECT DISTINCT job_type FROM job.schedules WHERE is_active = true`, sans verrou).
+
+Aucune signature existante modifiée, aucun comportement du scheduler changé. Candidate à reverser en
+amont (§6). Le diagnostic lit les types système au niveau instance (table `job.schedules` de la base
+SYSTÈME, comme le scheduler lui-même) — ce n'est pas une requête métier tenant-scopée (CLAUDE.md n°9) :
+elle ne retourne que des noms de types techniques, aucune donnée de tenant.
+
+### 4.19 Barre de sélection — actions GLOBALES (sans sélection) déclarées par le module (FIX207)
+
+La recette humaine GATE_CONSOLE_WEB (run 2, 2026-06-11, décision opérateur E4) demande des actions en
+masse « Revérifier la sélection » / « Revérifier tout » portées par la **barre de sélection** Stratum
+(overlay fixé en bas d'écran de `DeclaredListPage`). Le point d'extension déclaratif existait déjà
+(`BulkActions` = liste de `BulkActionConfig`, §4.15), mais il était entièrement **sélection-scopé** : la
+barre ne s'affiche qu'avec une sélection et chaque action ne reçoit que les lignes sélectionnées. « Revérifier
+tout » (tous les bloqués du périmètre courant) n'a, lui, **pas besoin de sélection**. Modifications
+**rétro-compatibles** (marquées `FIX207`) :
+
+- `src/Common/UI/Models/BulkActionConfig.cs` : ajout d'un paramètre **optionnel** `bool RequiresSelection = true`
+  (dernier paramètre positionnel du record ; valeur par défaut = comportement INCHANGÉ pour toutes les actions
+  groupées existantes). `false` = action **globale** (reste disponible sans sélection).
+- `src/Common/UI/Components/DeclaredListPage.razor` : la barre de sélection s'affiche désormais quand il y a une
+  sélection **OU** au moins une action globale déclarée (`HasGlobalBulkActions`) ; les actions sélection-scopées
+  (défaut) ne sont rendues qu'avec une sélection (skip par `continue`), les actions globales sont toujours rendues ;
+  le compteur « N élément(s) sélectionné(s) » et « Tout désélectionner » ne s'affichent qu'avec une sélection.
+- `src/Common/UI/Components/DeclaredListPage.razor.cs` : ajout de la propriété privée `HasGlobalBulkActions`
+  (vrai s'il existe une action `RequiresSelection = false`). Aucune autre logique modifiée — `ExecuteBulkAsync`
+  passe la sélection (éventuellement vide) telle quelle ; une action globale ignore l'argument et opère sur le
+  périmètre que la **page** détermine (aucune logique métier dans le socle, pattern capacités).
+
+Capacité GÉNÉRIQUE du design-system (toute liste peut désormais déclarer une action de masse globale),
+candidate à reverser en amont (§6). Les trois fichiers figurent déjà dans le bloc `SOCLE-CONSIGNED-DRIFT`
+(§4.15/§4.17) — la garde de provenance reste verte. Côté Liakont (hors socle), la page `Documents.razor`
+déclare les deux actions et délègue au service in-process `IDocumentControlActions.RecheckManyAsync` (garde
+`liakont.actions`, boucle + décision de blocage dans le cœur Pipeline `IDocumentRecheckService.RecheckManyAsync`,
+trace d'audit FIX02 par document) — aucun fichier `Stratum.*` supplémentaire n'est touché.
+
+### 4.20 Admin des jobs utilisable : liste fixe des types, payload typé, helper cron, page des exécutions (FIX211)
+La recette run 2 (2026-06-11, décision opérateur E7) a relevé que l'admin des planifications de jobs était
+inexploitable : le type de job se saisissait en TEXTE LIBRE (FullName .NET attendu), le payload en JSON BRUT,
+le cron sans presets ni mention du fuseau, et il n'existait AUCUNE page listant les exécutions. FIX211 corrige
+ces points. Comme les pages d'admin des jobs sont des pages SOCLE vendored, la correction touche le socle
+(évolution autorisée par E4/E7, provenance obligatoire). Modifications **additives, rétro-compatibles** :
+
+- `src/Modules/Job/Infrastructure/JobHandlerRegistration.cs` : ajout d'un paramètre **optionnel**
+  `string? DisplayName = null` au record (libellé FR du type, surfacé par le catalogue ; défaut = comportement
+  inchangé).
+- `src/Modules/Job/Infrastructure/JobHandlerRegistrationExtensions.cs` : `AddJobHandler<TPayload, THandler>`
+  prend un paramètre **optionnel** `string? displayName = null` (transmis à la registration). Les appels
+  existants qui l'omettent gardent le comportement précédent.
+- `src/Modules/Job/Infrastructure/JobModuleRegistration.cs` : enregistrement de deux nouveaux services
+  (`IJobTypeCatalog` singleton, `IJobExecutionsQueries` scoped).
+- `src/Modules/Job/Web/Pages/AdminJobScheduleForm.razor` : le type de job devient une **liste fixe** alimentée
+  par `IJobTypeCatalog` (libellés FR, FullName jamais affiché, validation que le type existe) ; le payload
+  devient des **champs typés** générés depuis le type (masqué quand le type n'a aucun paramètre) ; un **helper
+  cron** (presets 15 min / horaire / quotidien à HH:MM) remplit l'expression ; l'aperçu passe à 3 occurrences
+  affichées en **UTC** avec mention explicite du fuseau (les crons sont interprétés en UTC).
+- `src/Modules/Job/Web/Pages/AdminJobSchedules.razor` : la colonne « Type de job » affiche le **libellé FR**
+  (jamais le FullName) ; ajout d'une action de ligne « Voir les exécutions » (lien planification → exécutions
+  filtrées par type).
+- `src/Modules/Job/Web/JobNavSectionProvider.cs` : ajout de l'entrée de menu « Exécutions »
+  (`/admin/jobs/executions`). Le filtre de visibilité Liakont `JobNavVisibilityFilter` (FIX07c) délègue à ce
+  provider, donc l'entrée reste gardée par la permission `job.view`.
+- `src/Modules/Job/Infrastructure/JobHandlerResolver.cs` : ajout de `JsonStringEnumConverter` aux
+  options de désérialisation (les paramètres de payload de type enum, saisis par nom dans l'admin des
+  jobs, doivent se désérialiser ; additif, accepte aussi les nombres — rétro-compatible).
+
+Fichiers **AJOUTÉS** sous les dossiers vendored (non épinglés par le baseline §4.12 — comme les ajouts SOL06
+§4.14 ; consignés ici pour la re-convergence NuGet, marqués `Liakont addition (FIX211)`) :
+- `src/Modules/Job/Contracts/Services/IJobTypeCatalog.cs`, `JobTypeDescriptor.cs`, `JobParameterDescriptor.cs`,
+  `JobParameterKind.cs` (catalogue des types : clé technique, libellé FR, paramètres typés).
+- `src/Modules/Job/Infrastructure/Services/JobTypeCatalog.cs` (implémentation : dérive les paramètres par
+  réflexion sur les propriétés / paramètres de constructeur du type de payload).
+- `src/Modules/Job/Contracts/Queries/IJobExecutionsQueries.cs` (read-model des exécutions, tenant-scopé) +
+  `src/Modules/Job/Infrastructure/Queries/PostgresJobExecutionsQueries.cs` (SELECT `job.jobs` filtré
+  `company_id = @CompanyId`, sans verrou — lecture seule).
+- `src/Modules/Job/Web/Pages/AdminJobExecutions.razor` (page des exécutions, gabarit `DeclaredListPage`) +
+  `src/Modules/Job/Web/Registries/JobExecutionColumnRegistry.cs` (colonnes).
+
+Aucune signature existante n'a changé de façon cassante ; toutes les modifications sont candidates à reverser
+en amont (§6). Tests : `JobTypeCatalogTests` (réflexion), `AdminJobScheduleFormTests` + `AdminJobExecutionsTests`
+(bUnit), `JobNavVisibilityFilterTests` étendu (entrée « Exécutions »).
+
+### 4.21 `IJobQueries.GetLastCompletedAtByTypeAsync` — dernier achèvement par type de job (FIX210)
+Le témoin de vie de la supervision (FIX210, F12 §5.1) doit savoir QUAND le dead-man's-switch a été évalué
+pour la dernière fois, afin de distinguer une supervision saine d'une supervision muette (« aucune alerte »
+≠ filet de sécurité en panne). Aucune lecture ciblée n'existait : `ListByStatusAsync` renvoie les N jobs
+`Completed` les plus récemment créés, TOUS types confondus (`ORDER BY created_at DESC LIMIT @Limit`). Filtrer
+le type côté client après un `LIMIT` risque, sur une instance chargée, de pousser l'exécution recherchée hors
+fenêtre → faux « jamais évalué ». Une modification **additive, lecture seule** (marquée
+`// Liakont addition (FIX210)`) :
+- `src/Modules/Job/Contracts/Queries/IJobQueries.cs` : ajout de
+  `Task<DateTimeOffset?> GetLastCompletedAtByTypeAsync(string jobType, CancellationToken)`.
+- `src/Modules/Job/Infrastructure/Queries/PostgresJobQueries.cs` : implémentation
+  (`SELECT max(completed_at) FROM job.jobs WHERE type = @Type AND status = 'Completed'`).
+
+Aucune signature existante modifiée, aucun comportement du worker/scheduler changé. Le filtre par type se fait
+en SQL (pas de scan plafonné). La lecture cible la base SYSTÈME (jobs système, comme le scheduler) — ce n'est
+pas une requête métier tenant-scopée (CLAUDE.md n°9) : elle ne retourne qu'un horodatage d'achèvement, aucune
+donnée de tenant. Candidate à reverser en amont (§6).
 
 ## 5. ADR du socle hérités
 

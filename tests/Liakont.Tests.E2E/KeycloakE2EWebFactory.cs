@@ -45,6 +45,14 @@ public sealed class KeycloakE2EWebFactory : IAsyncLifetime, IAsyncDisposable
     /// <summary>URL d'autorité OIDC Keycloak du realm de test E2E.</summary>
     public string KeycloakAuthority { get; private set; } = string.Empty;
 
+    /// <summary>
+    /// Chaîne de connexion PostgreSQL du conteneur de test. En E2E le tenant <c>default</c> partage cette
+    /// base avec le système (cf. remarque de classe) : un test peut donc y SEEDER des données de tenant
+    /// (ex. un document) directement, avant de naviguer dans la console. Disponible une fois la factory
+    /// initialisée (fixture de collection, avant tout test).
+    /// </summary>
+    public string ConnectionString => _postgres.GetConnectionString();
+
     public async Task InitializeAsync()
     {
         // Démarrage de PostgreSQL et Keycloak en parallèle.

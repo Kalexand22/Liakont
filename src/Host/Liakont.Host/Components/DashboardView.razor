@@ -1,0 +1,107 @@
+@namespace Liakont.Host.Components
+@using Liakont.Host.Dashboard
+@using Stratum.Common.UI.Models
+
+@* DashboardView — rendu PUR du tableau de bord d'accueil (WEB01). Reçoit son modèle en paramètre
+ * (aucune injection, aucune logique métier) pour être testable en bUnit sans auth ni base. Bâti sur
+ * les composants du design-system Stratum (SectionCard, StatusBadge) — aucune grille « maison »
+ * (les compteurs sont des tuiles de synthèse, pas une liste d'entités). 100 % français. *@
+
+<div class="liakont-dashboard" data-testid="liakont-dashboard">
+
+    @if (!Model.ProfileConfigured)
+    {
+        <div class="liakont-dashboard__alert" role="alert" data-testid="dashboard-profile-incomplete">
+            <StatusBadge Label="PARAMÉTRAGE INCOMPLET" Severity="Severity.Error" />
+            <span>Le profil du tenant n'est pas encore créé — le traitement des documents est suspendu.
+                Importez le paramétrage du tenant (profil légal) pour reprendre le traitement.</span>
+        </div>
+    }
+
+    <SectionCard Title="Documents" TestId="dashboard-documents">
+        <div class="liakont-dashboard__counters" data-testid="dashboard-counters">
+            @foreach (var counter in Model.StateCounts)
+            {
+                <div class="liakont-dashboard__counter" data-testid="@($"counter-{counter.State}")">
+                    <span class="liakont-dashboard__counter-value">@counter.Count</span>
+                    <DocumentStateBadge State="@counter.State" />
+                </div>
+            }
+        </div>
+    </SectionCard>
+
+    <SectionCard Title="Agent" TestId="dashboard-agent">
+        @if (Model.Agents.Count == 0)
+        {
+            <p data-testid="dashboard-agent-none">Aucun agent enregistré pour ce tenant.</p>
+        }
+        else
+        {
+            <ul class="liakont-dashboard__agents">
+                @foreach (var agent in Model.Agents)
+                {
+                    <li class="liakont-dashboard__agent" data-testid="dashboard-agent-line">
+                        <span class="liakont-dashboard__agent-name">@agent.Name</span>
+                        @if (agent.IsRevoked)
+                        {
+                            <StatusBadge Label="Révoqué" Severity="Severity.Error" />
+                        }
+                        else
+                        {
+                            <StatusBadge Label="Actif" Severity="Severity.Success" />
+                        }
+                        <span class="liakont-dashboard__agent-meta">Dernier contact : @FormatHeartbeat(agent.LastSeenUtc)</span>
+                        <span class="liakont-dashboard__agent-meta">Version : @(string.IsNullOrWhiteSpace(agent.Version) ? "inconnue" : agent.Version)</span>
+                    </li>
+                }
+            </ul>
+        }
+    </SectionCard>
+
+    <SectionCard Title="Table TVA" TestId="dashboard-tva">
+        @switch (Model.TvaStatus)
+        {
+            case DashboardTvaStatus.Validated:
+                <p data-testid="dashboard-tva-validated">
+                    <StatusBadge Label="Validée" Severity="Severity.Success" />
+                    @if (!string.IsNullOrWhiteSpace(Model.TvaValidatedBy))
+                    {
+                        <span class="liakont-dashboard__tva-meta">Validée par @Model.TvaValidatedBy@(Model.TvaValidatedDate is { } date ? $" le {date:dd/MM/yyyy}" : string.Empty)</span>
+                    }
+                </p>
+                break;
+            case DashboardTvaStatus.NotValidated:
+                <div class="liakont-dashboard__alert" role="alert" data-testid="dashboard-tva-alert">
+                    <StatusBadge Label="NON VALIDÉE" Severity="Severity.Error" />
+                    <span>Les envois sont suspendus jusqu'à validation par l'expert-comptable.</span>
+                </div>
+                break;
+            default:
+                <p data-testid="dashboard-tva-none">Aucune table TVA paramétrée.</p>
+                break;
+        }
+    </SectionCard>
+
+    <SectionCard Title="Échéance déclarative" TestId="dashboard-deadline">
+        @if (string.IsNullOrWhiteSpace(Model.ReportingFrequency))
+        {
+            <div class="liakont-dashboard__alert" role="alert" data-testid="dashboard-frequency-missing">
+                Fréquence déclarative non renseignée — consultez votre expert-comptable.
+            </div>
+        }
+        else
+        {
+            <p data-testid="dashboard-frequency">Fréquence déclarative : @Model.ReportingFrequency</p>
+        }
+    </SectionCard>
+
+</div>
+
+@code {
+    /// <summary>Données assemblées du tableau de bord (jamais <c>null</c> : la page en fournit toujours un).</summary>
+    [Parameter, EditorRequired]
+    public DashboardViewModel Model { get; set; } = null!;
+
+    private static string FormatHeartbeat(DateTimeOffset? when) =>
+        when is { } value ? value.ToLocalTime().ToString("dd/MM/yyyy HH:mm") : "jamais";
+}

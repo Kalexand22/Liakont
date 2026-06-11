@@ -220,6 +220,69 @@ public sealed class DocumentEvent
         };
     }
 
+    /// <summary>
+    /// Crée le fait d'audit d'un VERDICT « acheteur confirmé particulier (B2C) » du garde-fou B2B/B2C (item
+    /// API02b, F08 §A.4) : l'opérateur a tranché que l'acheteur est un particulier malgré l'indice
+    /// professionnel (VAL05). L'identité de l'opérateur est OBLIGATOIRE (décision jamais anonyme). Sans
+    /// snapshot ; n'emporte AUCUNE transition d'état (le document reste <c>Blocked</c> jusqu'à la
+    /// re-vérification — c'est elle qui débloque, le verdict ne fait que lever le garde-fou pour ce document).
+    /// </summary>
+    public static DocumentEvent BuyerConfirmedAsIndividual(Guid documentId, DateTimeOffset occurredAtUtc, string operatorIdentity)
+    {
+        if (string.IsNullOrWhiteSpace(operatorIdentity))
+        {
+            throw new ArgumentException("L'identité de l'opérateur est obligatoire pour un verdict de garde-fou B2B/B2C (F08 §A.4).", nameof(operatorIdentity));
+        }
+
+        return new DocumentEvent
+        {
+            Id = Guid.NewGuid(),
+            DocumentId = documentId,
+            TimestampUtc = occurredAtUtc,
+            EventType = DocumentEventType.DocumentBuyerConfirmedB2C,
+            Detail = "Acheteur confirmé « particulier » (B2C) par l'opérateur malgré l'indice professionnel — " +
+                     "garde-fou B2B/B2C levé pour ce document (F08 §A.4). Re-vérification requise pour débloquer.",
+            PayloadSnapshot = null,
+            PaResponseSnapshot = null,
+            MappingTrace = null,
+            OperatorIdentity = operatorIdentity.Trim(),
+        };
+    }
+
+    /// <summary>
+    /// Crée le fait d'audit d'une RE-VÉRIFICATION OPÉRATEUR ayant laissé le document BLOQUÉ (item FIX02) :
+    /// l'opérateur a déclenché un recheck mais le document reste <c>Blocked</c>. L'identité de l'opérateur est
+    /// OBLIGATOIRE (un recheck n'est jamais anonyme) et le <paramref name="reevaluatedReason"/> (motif agrégé
+    /// frais, message opérateur) est inscrit dans le <c>Detail</c> — c'est lui que la console affiche comme
+    /// motif COURANT (dernier évalué, plus de motif périmé après rechargement). Sans snapshot ; n'emporte
+    /// AUCUNE transition d'état (la machine à états interdit <c>Blocked → Blocked</c>).
+    /// </summary>
+    public static DocumentEvent RecheckedStillBlocked(Guid documentId, DateTimeOffset occurredAtUtc, string reevaluatedReason, string operatorIdentity)
+    {
+        if (string.IsNullOrWhiteSpace(reevaluatedReason))
+        {
+            throw new ArgumentException("Le motif réévalué est obligatoire pour tracer une re-vérification toujours bloquée (piste d'audit, F06 §3).", nameof(reevaluatedReason));
+        }
+
+        if (string.IsNullOrWhiteSpace(operatorIdentity))
+        {
+            throw new ArgumentException("L'identité de l'opérateur est obligatoire pour une re-vérification (piste d'audit, F06 §3).", nameof(operatorIdentity));
+        }
+
+        return new DocumentEvent
+        {
+            Id = Guid.NewGuid(),
+            DocumentId = documentId,
+            TimestampUtc = occurredAtUtc,
+            EventType = DocumentEventType.DocumentRecheckedStillBlocked,
+            Detail = reevaluatedReason.Trim(),
+            PayloadSnapshot = null,
+            PaResponseSnapshot = null,
+            MappingTrace = null,
+            OperatorIdentity = operatorIdentity.Trim(),
+        };
+    }
+
     /// <summary>Reconstitue une entrée d'audit depuis la persistance (lecture).</summary>
     public static DocumentEvent Reconstitute(
         Guid id,

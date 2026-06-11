@@ -3,6 +3,7 @@ namespace Stratum.Modules.Job.Infrastructure;
 using System.Collections.Concurrent;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Stratum.Modules.Job.Application;
 using Stratum.Modules.Job.Contracts;
@@ -17,6 +18,10 @@ internal sealed class JobHandlerResolver : IJobHandlerResolver
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true,
+
+        // Liakont (FIX211) : accepte les enums sous forme de nom (les champs typés de l'admin des jobs
+        // sérialisent un enum par son nom) ET de nombre. Additif, rétro-compatible.
+        Converters = { new JsonStringEnumConverter() },
     };
 
     private readonly ConcurrentDictionary<string, Type> _payloadTypeMap;

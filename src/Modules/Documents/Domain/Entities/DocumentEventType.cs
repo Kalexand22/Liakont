@@ -64,4 +64,22 @@ public enum DocumentEventType
     /// addendum chaîné (WORM, TRK05).
     /// </summary>
     DocumentReconciledManual,
+
+    /// <summary>
+    /// Verdict OPÉRATEUR du garde-fou B2B/B2C (item API02b, F08 §A.4) : l'opérateur a confirmé que
+    /// l'acheteur est un PARTICULIER (B2C) malgré l'indice professionnel détecté (VAL05). Fait d'audit
+    /// append-only portant l'identité de l'opérateur ; il NE change PAS l'état du document (la re-vérification
+    /// le débloque ensuite). La décision tranchée prime sur l'heuristique d'indice à la re-validation.
+    /// </summary>
+    DocumentBuyerConfirmedB2C,
+
+    /// <summary>
+    /// Re-vérification OPÉRATEUR ayant laissé le document BLOQUÉ (item FIX02, recette GATE_CONSOLE_WEB) :
+    /// l'opérateur a déclenché une re-vérification (recheck) mais le document reste <c>Blocked</c>. Fait
+    /// d'audit append-only portant l'identité de l'opérateur et le motif RÉÉVALUÉ (dans le <c>Detail</c>) :
+    /// l'action n'est plus invisible dans la piste (F06 §3) et le motif courant affiché est le DERNIER évalué.
+    /// NE change PAS l'état (la machine à états interdit <c>Blocked → Blocked</c>) : aucune transition, juste
+    /// la trace du geste opérateur et de son résultat.
+    /// </summary>
+    DocumentRecheckedStillBlocked,
 }

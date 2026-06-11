@@ -28,4 +28,21 @@ public interface IReconciliationService
     /// l'identité de l'opérateur, et passe l'entrée à l'état rapproché. Lève si l'entrée est déjà rapprochée.
     /// </summary>
     Task ConfirmManualReconciliationAsync(Guid queueEntryId, Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// CONFIRME une PROPOSITION (console API04) : rattache le PDF au document que le moteur a PROPOSÉ pour
+    /// cette entrée (le serveur fait foi — l'opérateur accepte la correspondance affichée, il ne choisit pas
+    /// la cible). Délègue à <see cref="ConfirmManualReconciliationAsync"/> avec le document proposé. Lève une
+    /// <c>NotFoundException</c> si l'entrée n'existe pas dans le tenant, une <c>ConflictException</c> si ce
+    /// n'est pas une proposition en attente.
+    /// </summary>
+    Task ConfirmProposalAsync(Guid queueEntryId, string operatorIdentity, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// REJETTE une PROPOSITION (console API04) : l'opérateur décline la correspondance proposée. Aucun
+    /// addendum WORM n'est créé (le PDF n'est pas rapproché) ; l'entrée REDEVIENT un orphelin en file
+    /// manuelle, avec l'identité de l'opérateur conservée. Lève une <c>NotFoundException</c> si l'entrée
+    /// n'existe pas dans le tenant, une <c>ConflictException</c> si ce n'est pas une proposition en attente.
+    /// </summary>
+    Task RejectProposalAsync(Guid queueEntryId, string operatorIdentity, CancellationToken cancellationToken = default);
 }

@@ -19,6 +19,27 @@ public interface IDocumentLifecycle
     /// <summary>→ ReadyToSend en consignant la version de table de mapping TVA appliquée (obligatoire — F03).</summary>
     Task MarkReadyToSendAsync(Guid documentId, string mappingVersion, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Action OPÉRATEUR (item FIX02, re-vérification console) : <c>Blocked</c> → <c>ReadyToSend</c> déclenché par
+    /// un recheck d'opérateur. Identique à <see cref="MarkReadyToSendAsync"/> mais le fait d'audit append-only
+    /// porte l'<paramref name="operatorIdentity"/> (OBLIGATOIRE) : la re-vérification réussie n'est pas un
+    /// déblocage système anonyme mais un geste opérateur tracé (auteur + résultat, F06 §3). Le déblocage est
+    /// vérifié SOUS le verrou <c>FOR UPDATE</c> et un changement d'état concurrent est retourné comme
+    /// <see cref="DocumentRecheckPersistOutcome.StateChanged"/> (jamais une exception → pas de 500, pas de TOCTOU).
+    /// </summary>
+    Task<DocumentRecheckPersistOutcome> MarkReadyToSendByRecheckAsync(Guid documentId, string mappingVersion, string operatorIdentity, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Action OPÉRATEUR (item FIX02, re-vérification console) : trace une re-vérification ayant laissé le document
+    /// <c>Blocked</c>. Inscrit un fait d'audit append-only (auteur OBLIGATOIRE + motif RÉÉVALUÉ) SANS changer
+    /// l'état (la machine à états interdit <c>Blocked → Blocked</c>). Rend l'action opérateur visible dans la piste
+    /// (F06 §3) et fait du motif inscrit le motif COURANT affiché (dernier évalué — plus de motif périmé après
+    /// rechargement). L'état est vérifié SOUS le verrou <c>FOR UPDATE</c> : si un geste concurrent a sorti le
+    /// document de <c>Blocked</c>, rien n'est inscrit et <see cref="DocumentRecheckPersistOutcome.StateChanged"/>
+    /// est retourné (jamais une exception → pas de 500, pas de faux audit, pas de TOCTOU).
+    /// </summary>
+    Task<DocumentRecheckPersistOutcome> RecordRecheckStillBlockedAsync(Guid documentId, string reevaluatedReason, string operatorIdentity, CancellationToken cancellationToken = default);
+
     /// <summary>ReadyToSend → Sending : la transmission à la Plateforme Agréée est engagée.</summary>
     Task BeginSendingAsync(Guid documentId, CancellationToken cancellationToken = default);
 
@@ -30,4 +51,36 @@ public interface IDocumentLifecycle
 
     /// <summary>Sending → TechnicalError : erreur technique de transmission, re-tentable.</summary>
     Task MarkTechnicalErrorAsync(Guid documentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Action OPÉRATEUR (API02c, console) : <c>Blocked</c> ou <c>RejectedByPa</c> → <c>ManuallyHandled</c>
+    /// (état terminal) — le document est traité hors passerelle. Le <paramref name="reason"/> (motif, F06 §3)
+    /// et l'<paramref name="operatorIdentity"/> sont OBLIGATOIRES et inscrits dans la piste d'audit append-only.
+    /// Retourne un RÉSULTAT (pas d'exception, car le refus est attendu) : <see cref="DocumentResolutionOutcome.DocumentNotFound"/>
+    /// si le document est inconnu dans le tenant, <see cref="DocumentResolutionOutcome.InvalidState"/> si l'état
+    /// courant n'autorise pas la transition. Réutilisé par le verdict garde-fou « traiter manuellement » (API02b).
+    /// </summary>
+    Task<DocumentResolutionOutcome> ResolveManuallyAsync(
+        Guid documentId, string reason, string operatorIdentity, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Action OPÉRATEUR (API02c, console) : <c>RejectedByPa</c> → <c>Superseded</c> (état terminal) — lie le
+    /// document rejeté à son REMPLAÇANT (<paramref name="replacementDocumentId"/>), déjà reçu dans le tenant via
+    /// l'agent (le logiciel source est le seul créateur de numéros, F06 §4 : la passerelle n'invente jamais de
+    /// référence de remplacement). L'<paramref name="operatorIdentity"/> est OBLIGATOIRE (audit). Retourne un
+    /// RÉSULTAT : <see cref="DocumentResolutionOutcome.DocumentNotFound"/> (document rejeté inconnu),
+    /// <see cref="DocumentResolutionOutcome.InvalidState"/> (le document n'est pas <c>RejectedByPa</c>),
+    /// <see cref="DocumentResolutionOutcome.ReplacementNotFound"/> (remplaçant absent du tenant).
+    /// </summary>
+    Task<DocumentResolutionOutcome> SupersedeAsync(
+        Guid documentId, Guid replacementDocumentId, string operatorIdentity, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Verdict garde-fou B2B/B2C (item API02b, F08 §A.4) : depuis <c>Blocked</c>, enregistre que l'opérateur
+    /// a confirmé l'acheteur « particulier » (B2C) malgré l'indice professionnel (VAL05). NE CHANGE PAS l'état
+    /// (la re-vérification débloque ensuite) ; pose le marqueur persistant + un fait d'audit append-only portant
+    /// l'identité de l'opérateur (OBLIGATOIRE). Lève si le document est inconnu ou n'est pas <c>Blocked</c>.
+    /// (L'autre branche du verdict — « traiter manuellement » — réutilise <see cref="ResolveManuallyAsync"/>.)
+    /// </summary>
+    Task ConfirmBuyerAsIndividualAsync(Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default);
 }

@@ -1,0 +1,43 @@
+@using Stratum.Common.Abstractions.MultiTenancy
+@inject ITenantContext TenantContext
+@inject ITenantQueries TenantQueries
+@inject ILogger<TenantBadge> Logger
+
+@* Affiche le nom (DisplayName) du tenant résolu pour la requête courante dans le chrome de la console
+ * (FIX04a — « tenant courant invisible »). Source : le registre administratif des tenants (TenantDto),
+ * indépendant du profil fiscal (qui peut manquer). Lecture tenant-scopée : on n'interroge QUE le tenant
+ * courant (jamais cross-tenant). Rien n'est rendu tant qu'aucun tenant n'est résolu ou en cas d'échec —
+ * le chrome ne casse jamais sur cette lecture annexe. *@
+
+@if (!string.IsNullOrWhiteSpace(_displayName))
+{
+    <div class="erp-topbar__tenant" data-testid="topbar-tenant" title="Organisation : @_displayName">
+        <StratumIcon Name="bi-building" Class="erp-topbar__tenant-icon" />
+        <span class="erp-topbar__tenant-name" aria-label="Organisation courante : @_displayName">@_displayName</span>
+    </div>
+}
+
+@code {
+    private string? _displayName;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Requêtes système / non authentifiées : aucun tenant résolu → pas de badge.
+        if (!TenantContext.IsResolved || string.IsNullOrWhiteSpace(TenantContext.TenantId))
+        {
+            return;
+        }
+
+        try
+        {
+            // Lecture tenant-scopée : on résout le nom du SEUL tenant courant (pas de vue cross-tenant).
+            var tenant = await TenantQueries.GetByIdAsync(TenantContext.TenantId);
+            _displayName = tenant?.DisplayName;
+        }
+        catch (Exception ex)
+        {
+            // Lecture annexe : un échec ne doit jamais casser le chrome — on n'affiche rien, mais on trace.
+            Logger.LogWarning(ex, "Résolution du nom du tenant courant impossible pour le chrome de la console.");
+        }
+    }
+}

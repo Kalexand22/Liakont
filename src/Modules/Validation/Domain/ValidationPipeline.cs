@@ -29,13 +29,36 @@ public sealed class ValidationPipeline
     /// <param name="context">Document à valider + contexte tenant.</param>
     /// <param name="cancellationToken">Jeton d'annulation (propagé, jamais converti en RULE_CRASHED).</param>
     /// <returns>Le résultat agrégé de la validation.</returns>
-    public async Task<ValidationResult> ValidateAsync(DocumentValidationContext context, CancellationToken cancellationToken = default)
+    public Task<ValidationResult> ValidateAsync(DocumentValidationContext context, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(context);
+        return RunAsync(_rules, context, cancellationToken);
+    }
 
+    /// <summary>
+    /// Exécute UNIQUEMENT les règles indépendantes du mapping TVA (<see cref="IDocumentRule.DependsOnTvaMapping"/>
+    /// faux) et agrège leurs anomalies (FIX06). Même garantie « jamais de règle silencieuse » que
+    /// <see cref="ValidateAsync"/> (une règle qui lève → anomalie bloquante). N'affaiblit RIEN : la validation
+    /// complète reste exécutée par <see cref="ValidateAsync"/> quand le mapping aboutit.
+    /// </summary>
+    /// <param name="context">Document à valider + contexte tenant.</param>
+    /// <param name="cancellationToken">Jeton d'annulation (propagé, jamais converti en RULE_CRASHED).</param>
+    /// <returns>Le résultat agrégé des seules règles indépendantes du mapping.</returns>
+    public Task<ValidationResult> ValidateMappingIndependentAsync(DocumentValidationContext context, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        var independentRules = _rules.Where(rule => !rule.DependsOnTvaMapping).ToList();
+        return RunAsync(independentRules, context, cancellationToken);
+    }
+
+    private static async Task<ValidationResult> RunAsync(
+        IReadOnlyList<IDocumentRule> rules,
+        DocumentValidationContext context,
+        CancellationToken cancellationToken)
+    {
         var issues = new List<ValidationIssue>();
 
-        foreach (var rule in _rules)
+        foreach (var rule in rules)
         {
             cancellationToken.ThrowIfCancellationRequested();
 

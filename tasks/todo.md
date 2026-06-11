@@ -1,67 +1,47 @@
-# Reprise multi-instances de l'agent (prérequis OPS05) — 2026-06-10
+# FIX07b — Documents au staging perdu : re-stage par re-push agent + emplacement stable
 
-Session interactive, branche `feat/agent-multi-instance` (depuis main). Décision opérateur
-2026-06-10 (engagement Isatech, serveur SaaS mutualisé type AZMUT : N bases clientes sur une
-même machine = N agents, un service par base). Spec : OPS05 pt 5 (orchestration/items/OPS.yaml,
-inscrit ce jour). Porte UNIQUEMENT la reprise du code agent (les scripts d'installation,
-le packaging et le wizard restent dans OPS05/OPS08).
+## Contexte (bug-inbox P2, décision D6)
+Un document `Detected` dont le contenu stagé (PIP00/ADR-0014) a disparu devient un **zombie
+définitif** : le re-push de l'agent (filet de sécurité ADR-0014) est un doublon par empreinte, et
+`RetryRangingIfNotRangedAsync` fait un early-return dès que `IsDocumentRangedAsync == true` (le
+`Detected` existe) — **sans re-stager**. Le CHECK ne peut alors jamais relire le pivot.
 
-## Constat (verrous actuels)
-- `AgentService.cs:23` + `AgentServiceInstaller.cs:29` + `Program.cs` : ServiceName « LiakontAgent » en dur
-- `InterProcessRunLock.cs:24` : mutex `Global\LiakontAgentRun` partagé par toutes les instances
-- `AgentPaths.cs` : racine `C:\ProgramData\Liakont` unique
+Cause aggravante (récurrence) : le défaut de `Staging:Storage:FileSystem:RootPath` est
+`AppContext.BaseDirectory/staging-store` = **sous l'arbre de build** (`bin/`), effacé au
+redéploiement/rebuild.
 
-## Conception
-- Nouveau `Liakont.Agent.Core/AgentInstance.cs` : identité d'instance validée
-  (`^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$`, noms réservés : logs, update-work, périphériques Windows),
-  « Default » (insensible à la casse) = instance par défaut. Dérivations centralisées :
-  ServiceName (`LiakontAgent` / `LiakontAgent$<nom>`), DisplayName, RunMutexName
-  (`Global\LiakontAgentRun` / `Global\LiakontAgentRun-<nom>`), DataDirectory
-  (`%ProgramData%\Liakont` / `%ProgramData%\Liakont\<nom>`).
-  Parsing ligne de commande : `TryFromCommandLine(args, out instance, out remaining, out error)`
-  (option `--instance <nom>`, partagée service + CLI).
-- `AgentPaths` : `Initialize(AgentInstance)` au démarrage du process (garde : pas de bascule
-  d'instance en cours de process), chemins dérivés de l'instance courante. Instance Default =
-  chemins STRICTEMENT identiques à l'existant (compat installations déployées).
-- `AgentService` : ctor prend l'instance → ServiceName dynamique.
-- `AgentServiceInstaller` : paramètre d'installation `/instance=<nom>` (Context.Parameters) →
-  ServiceName/DisplayName dynamiques + ImagePath enrichi de `--instance <nom>` (instances
-  nommées seulement ; Default = ImagePath inchangé).
-- `Program.cs` (service) : parse `--instance`, Initialize, passe `/instance=` à l'installeur,
-  messages français avec le nom de service réel.
-- CLI `Program.cs` : option globale `--instance` (avant le nom de commande), RunCommand
-  verrouillé sur le mutex DE L'instance ; ligne d'usage ajoutée.
-- Updater/MutexRunActivityProbe : déjà paramétrables (serviceName/mutexName en paramètres) —
-  aucun changement ; le câblage prod futur passera par AgentInstance.
+## Décisions / sources
+- D6 : re-stage au re-push + emplacement de staging stable. Alerte supervision « en attente de
+  contenu » = **fast-follow** (hors périmètre).
+- Outbox dead-letter (socle Stratum, **non modifié**) : `StagedPayloadNotFoundException` est
+  transitoire mais l'événement `DocumentReceivedV1` **dead-lette après 5 retries** (V003). Pas de
+  mécanisme de rejeu (décision existante « pas de rejeu automatique inventé »). → Le rejeu d'un
+  événement déjà dead-letté est un **geste opérateur documenté** (part 3).
 
 ## Tâches
-- [x] `AgentInstance.cs` (Core) + `AgentInstanceTests` (validation, dérivations, parsing args)
-- [x] `AgentPaths.cs` : Initialize/Current + `ResetForTesting` (InternalsVisibleTo Core.Tests ajouté au csproj) + `AgentPathsTests`
-- [x] `AgentService.cs` : ctor(AgentInstance)
-- [x] `AgentServiceInstaller.cs` : /instance= + ImagePath (OnBeforeInstall/OnBeforeUninstall)
-- [x] `Program.cs` service : --instance + messages avec le nom de service réel
-- [x] CLI `Program.cs` : --instance global + mutex d'instance + usage (CommandRouter)
-- [x] Amendement daté en tête de F12 (chemins §2.3/§2.4 = instance Default)
-- [x] verify-fast (2 solutions) PASS, tests EXÉCUTÉS (agent: unit-tests 66 s, plateforme verte)
-- [ ] codex-review boucle propre
-- [ ] Commit (merge humain ensuite — PR)
+- [ ] 1. `IngestDocumentBatchHandler.RetryRangingIfNotRangedAsync` : re-stage quand le document est
+      rangé MAIS le staging est absent (`ExistsAsync == false`) — plus de zombie. Vrai doublon
+      terminal (rangé + staging présent) → inchangé (aucun effet). Hash garanti par construction
+      (chemin atteint car empreinte déjà connue ; clé de staging porte la même empreinte,
+      re-vérifiée à la relecture). Log info dédié.
+- [ ] 2. `AppBootstrap` : défaut stable du RootPath de staging hors arbre de build
+      (`ContentRootPath/App_Data/staging-store`), configurable, prod = volume dédié. Insertion via
+      `services.Configure` (s'exécute AVANT le `PostConfigure` BaseDirectory du module).
+- [ ] 3. `ADR-0014` : amendement FIX07b — emplacement stable + runbook rejeu dead-letter « contenu
+      stagé absent » après re-stage.
+- [ ] 4. Tests d'intégration EXÉCUTÉS :
+      - Ingestion : re-push d'un document rangé sans staging → re-stage (Count back to 1) ; doublon
+        avec staging présent → pas de re-stage (`Duplicate_Document_Is_Not_Re_Staged` reste vert).
+      - Pipeline : staging absent → CHECK transitoire (throw, document reste `Detected`, pas de
+        blocage inventé) → après re-stage → `ReadyToSend`.
+- [ ] 5. verify-fast + run-tests + codex-review propres.
+
+## Frontières respectées
+- Aucune modification du socle Stratum (`src/Common`, outbox) — provenance non impactée.
+- Re-stage idempotent, content-addressed (aucune résurrection altérée). Le staging reste
+  purgeable/transitoire (≠ WORM/audit, CLAUDE.md n°4 inchangé).
+- Le re-push agent ne concerne que les documents pas encore « Processed » (staged+Detected) du
+  point de vue de l'agent ; resurrection d'un Issued non atteignable en pratique.
 
 ## Review
-- Round 1 : 1 P1 — mutex d'instance sensible à la casse alors que les chemins Windows ne le
-  sont pas (« ClientA » service vs « clienta » CLI = même file SQLite mais deux verrous → runs
-  concurrents possibles). Fix : composante instance du RunMutexName canonicalisée en
-  majuscules + test `Case_variants_of_the_same_name_share_the_same_run_mutex`.
-  verify-fast re-PASS après fix.
-- Round 2 : 1 P2 — « éditer orchestration/items/OPS.yaml en session interactive viole le
-  workflow ». **ACCEPTÉ avec justification** : l'inscription de l'exigence multi-instances dans
-  OPS05/OPS08a/b est une décision OPÉRATEUR explicite du 2026-06-10 (Karl : « go »), prise hors
-  orchestration comme les re-découpages v12-v17 du manifest. Aucun item ajouté ni retiré (pas de
-  risque « manifest sans state »), aucun changement de manifest.yaml/protocol.md ; seules les
-  descriptions d'items NON ENCORE EXÉCUTÉS (lot OPS, pas commencé) sont enrichies. La règle
-  « ignore orchestration files » du CLAUDE.md s'applique au travail de dev autonome, pas aux
-  décisions de backlog portées par l'opérateur.
-- Note outillage : codex-review.ps1 sort exit 1 (« neither findings nor sentinel ») même quand
-  le reviewer produit des findings exploitables — le parsing du sentinel ne reconnaît pas le
-  format de sortie du moteur codex. À signaler (faux « engine failure », pattern lessons.md
-  2026-06-02 n°2 sur les faux verts/rouges d'outillage) ; les findings ont été traités
-  manuellement (P1 fixé, P2 accepté ci-dessus).
+_(à compléter)_

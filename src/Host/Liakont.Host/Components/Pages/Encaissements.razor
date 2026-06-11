@@ -1,0 +1,170 @@
+@page "/encaissements"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using System.Globalization
+@using Microsoft.Extensions.Logging
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Liakont.Host.Payments
+@inject IEncaissementsConsoleQueries EncaissementsQueries
+@inject NavigationManager Nav
+@inject ILogger<Encaissements> Logger
+
+<PageTitle>Encaissements — Liakont</PageTitle>
+
+<h1 class="visually-hidden">Encaissements</h1>
+
+@* ── Filtre période (F10 §2.4). TOUJOURS visible (même en erreur) pour permettre de re-sélectionner
+   une période et réessayer. L'endpoint /payments filtre par MOIS (« yyyy-MM ») sur le jour
+   d'encaissement — un filtre de DATE pur, jamais une règle fiscale. Le changement recharge le
+   périmètre serveur (re-key de la liste). ── *@
+<div class="enc-filters" data-testid="encaissements-filters">
+    <div class="enc-filters__group">
+        <label class="enc-filters__label" for="enc-period">Période</label>
+        <input id="enc-period" type="month" class="enc-filters__input" data-testid="encaissements-filter-period"
+               value="@_period" @onchange="OnPeriodChangedAsync" />
+    </div>
+</div>
+
+@if (_loadFailed)
+{
+    <div role="alert" data-testid="encaissements-error">
+        Impossible de charger les encaissements pour le moment. Réessayez plus tard.
+    </div>
+}
+else if (_model is null)
+{
+    <p data-testid="encaissements-loading">Chargement…</p>
+}
+else
+{
+    @* ── Bandeau « décision fiscale en attente » : un paramètre fiscal requis pour l'e-reporting de
+       paiement n'est pas renseigné (TVA sur les débits / catégorie d'opération). Contrôle de complétude,
+       pas une règle fiscale (CLAUDE.md n°2). ── *@
+    @if (_model.FiscalDecisionPending)
+    {
+        <div class="enc-banner enc-banner--warning" role="alert" data-testid="encaissements-fiscal-pending">
+            Décision fiscale en attente (TVA sur les débits / catégorie d'opération) — consultez votre expert-comptable.
+        </div>
+    }
+
+    @* ── Bandeau « capacité PA en attente » : la plateforme configurée ne déclare pas (encore) la
+       transmission des paiements. Piloté par la capacité déclarée de la PA, jamais par son type
+       (CLAUDE.md n°8). Argument démo : les agrégats sont prêts AVANT que la PA ne sache les transmettre. ── *@
+    @if (_model.HasConfiguredPa && !_model.PaymentReportingSupported)
+    {
+        <div class="enc-banner enc-banner--info" role="status" data-testid="encaissements-capability-pending">
+            En attente : la plateforme @(_model.PaName ?? "configurée") ne supporte pas encore la transmission des
+            paiements — les agrégats sont prêts et partiront automatiquement dès l'activation.
+        </div>
+    }
+
+    @* ── Liste : gabarit DeclaredListPage (aucune grille « maison »). Rechargée (re-key) au changement
+       de période. WEB06 n'a pas de fiche de détail d'agrégat : DetailUrl renvoie l'URI courante (activation
+       de ligne sans effet, comme la page Traitements). ── *@
+    <DeclaredListPage @key="_periodEpoch"
+                      TItem="PaymentAggregateRow"
+                      Title="Encaissements"
+                      TestId="encaissements"
+                      LoadItems="LoadItemsAsync"
+                      DetailUrl="@(_ => Nav.Uri)"
+                      ColumnRegistry="_registry"
+                      ColumnTemplates="_columnTemplates"
+                      GridKey="Liakont.Payments"
+                      AriaLabel="Agrégats d'encaissement jour×taux"
+                      DefaultSortColumn="@nameof(PaymentAggregateRow.AggregateDate)"
+                      DefaultSortDirection="SortDirection.Descending"
+                      SearchPlaceholder="Rechercher un jour ou un taux… (raccourci : /)"
+                      AllowExport="true"
+                      ExportFormats="@(ExportFormat.Csv | ExportFormat.Excel | ExportFormat.Pdf)"
+                      ExportFileName="encaissements">
+        <EmptyContent>
+            <p data-testid="encaissements-empty">Aucun encaissement agrégé sur cette période.</p>
+        </EmptyContent>
+    </DeclaredListPage>
+}
+
+@code {
+    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+
+    private readonly PaymentAggregateColumnRegistry _registry = new();
+
+    private EncaissementsViewModel? _model;
+    private bool _loadFailed;
+
+    // Période courante au format « yyyy-MM » (ce que prend l'endpoint /payments et l'input type=month).
+    private string _period = string.Empty;
+
+    // @key de la liste : incrémenté à chaque rechargement de période pour forcer DeclaredListPage à relire
+    // LoadItems (il ne recharge pas tout seul), comme la page Documents.
+    private int _periodEpoch;
+
+    private readonly Dictionary<string, RenderFragment<PaymentAggregateRow>> _columnTemplates;
+
+    public Encaissements()
+    {
+        _columnTemplates = new Dictionary<string, RenderFragment<PaymentAggregateRow>>
+        {
+            [nameof(PaymentAggregateRow.AggregateDate)] = item => __builder =>
+            {
+                __builder.AddContent(0, item.AggregateDate.ToString("dd/MM/yyyy", Fr));
+            },
+            [nameof(PaymentAggregateRow.VatRate)] = item => __builder =>
+            {
+                // Valeur de taux (ex. 20) rendue « 20 % » / « 5,5 % » en français — pur affichage.
+                __builder.AddContent(0, string.Format(Fr, "{0:0.##} %", item.VatRate));
+            },
+            [nameof(PaymentAggregateRow.TaxableBase)] = item => __builder =>
+            {
+                __builder.AddContent(0, item.TaxableBase.ToString("N2", Fr));
+            },
+            [nameof(PaymentAggregateRow.VatAmount)] = item => __builder =>
+            {
+                __builder.AddContent(0, item.VatAmount.ToString("N2", Fr));
+            },
+            [nameof(PaymentAggregateRow.Status)] = item => __builder =>
+            {
+                var (label, severity) = PaymentAggregateStatusDisplay.For(item.Status);
+                __builder.OpenComponent<StatusBadge>(0);
+                __builder.AddAttribute(1, "Label", label);
+                __builder.AddAttribute(2, "Severity", severity);
+                __builder.AddAttribute(3, "TestId", $"payment-status-{item.Status}");
+                __builder.CloseComponent();
+            },
+        };
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        _period = today.ToString("yyyy-MM", CultureInfo.InvariantCulture);
+        await ReloadAsync();
+    }
+
+    private Task<IReadOnlyList<PaymentAggregateRow>> LoadItemsAsync() =>
+        Task.FromResult(_model?.Aggregates ?? []);
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _model = await EncaissementsQueries.GetEncaissementsAsync(_period);
+            _loadFailed = false;
+            _periodEpoch++;
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the Liakont payment aggregates for the current period.");
+        }
+    }
+
+    private async Task OnPeriodChangedAsync(ChangeEventArgs e)
+    {
+        // L'input type=month émet « yyyy-MM » (format invariant) ; vide = aucun filtre de période.
+        _period = (e.Value as string) ?? string.Empty;
+        await ReloadAsync();
+    }
+}

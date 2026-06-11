@@ -15,6 +15,10 @@
     <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" />
+    <!-- Transport SMTP réel des notifications (ADR-0018, SUP03) — confiné au Host (composition root) ;
+         aucun module métier ni module du socle ne référence MailKit/MimeKit. -->
+    <PackageReference Include="MailKit" />
+    <PackageReference Include="MimeKit" />
   </ItemGroup>
 
   <ItemGroup>
@@ -29,17 +33,30 @@
     <ProjectReference Include="..\..\Modules\Audit\Infrastructure\Stratum.Modules.Audit.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Audit\Web\Stratum.Modules.Audit.Web.csproj" />
     <ProjectReference Include="..\..\Modules\TenantSettings\Infrastructure\Liakont.Modules.TenantSettings.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\TenantSettings\Web\Liakont.Modules.TenantSettings.Web.csproj" />
     <ProjectReference Include="..\..\Modules\Ingestion\Infrastructure\Liakont.Modules.Ingestion.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Ingestion\Contracts\Liakont.Modules.Ingestion.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Ingestion\Web\Liakont.Modules.Ingestion.Web.csproj" />
     <ProjectReference Include="..\..\Modules\TvaMapping\Infrastructure\Liakont.Modules.TvaMapping.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\TvaMapping\Web\Liakont.Modules.TvaMapping.Web.csproj" />
     <ProjectReference Include="..\..\Modules\Documents\Infrastructure\Liakont.Modules.Documents.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Documents\Web\Liakont.Modules.Documents.Web.csproj" />
     <ProjectReference Include="..\..\Modules\Payments\Infrastructure\Liakont.Modules.Payments.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Archive\Infrastructure\Liakont.Modules.Archive.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Archive\Web\Liakont.Modules.Archive.Web.csproj" />
     <ProjectReference Include="..\..\Modules\Staging\Infrastructure\Liakont.Modules.Staging.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Reconciliation\Infrastructure\Liakont.Modules.Reconciliation.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Reconciliation\Web\Liakont.Modules.Reconciliation.Web.csproj" />
+    <ProjectReference Include="..\..\Modules\Supervision\Infrastructure\Liakont.Modules.Supervision.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Supervision\Contracts\Liakont.Modules.Supervision.Contracts.csproj" />
     <ProjectReference Include="..\..\Modules\Transmission\Infrastructure\Liakont.Modules.Transmission.Infrastructure.csproj" />
+    <!-- Plug-in PA factice (PAA02) câblé au COMPOSITION ROOT uniquement (FIX01d). Seul le Host
+         référence un plug-in PA concret (CLAUDE.md n°6/14) ; il n'est activé qu'en Development ou via
+         PaClients:Fake:Enabled (voir PaClientBootstrap), jamais par défaut en production. -->
+    <ProjectReference Include="..\..\PaClients\Liakont.PaClients.Fake\Liakont.PaClients.Fake.csproj" />
     <ProjectReference Include="..\..\Modules\Validation\Infrastructure\Liakont.Modules.Validation.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Pipeline\Infrastructure\Liakont.Modules.Pipeline.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Pipeline\Web\Liakont.Modules.Pipeline.Web.csproj" />
     <ProjectReference Include="..\..\Contracts\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj" />
   </ItemGroup>
 

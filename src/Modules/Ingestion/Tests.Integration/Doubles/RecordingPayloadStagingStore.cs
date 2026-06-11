@@ -26,6 +26,11 @@ internal sealed class RecordingPayloadStagingStore : IPayloadStagingStore
     /// <summary>Nombre d'entrées effectivement stagées.</summary>
     public int Count => _staged.Count;
 
+    /// <summary>Simule la PERTE du contenu stagé (ex. magasin sous l'arbre de build effacé au redéploiement) :
+    /// vide les entrées sans toucher au compteur <see cref="WriteAttempts"/> — pour exercer la réhydratation au
+    /// re-push de l'agent (FIX07b).</summary>
+    public void DropAllStaged() => _staged.Clear();
+
     public async Task WriteAsync(StagedPayloadKey key, string canonicalJson, CancellationToken cancellationToken = default)
     {
         WriteAttempts++;

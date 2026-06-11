@@ -176,6 +176,36 @@ public sealed class ReconciliationQueueEntry
         ResolvedUtc = nowUtc;
     }
 
+    /// <summary>
+    /// REJETTE une PROPOSITION de confiance moyenne : l'opérateur décline la correspondance proposée. Le
+    /// PDF n'est PAS rapproché (aucun addendum WORM n'est créé) — il REDEVIENT un
+    /// <see cref="ReconciliationStatus.Orphan"/> en file d'attente manuelle, où l'opérateur pourra le lier
+    /// à un autre document (action « lier ») ou le laisser. Seule une PROPOSITION se rejette : un orphelin
+    /// n'a aucune correspondance à décliner, et un rapprochement déjà effectué (auto/manuel) ne se défait
+    /// pas (le PDF est en addendum WORM). L'identité de l'opérateur est obligatoire et conservée pour l'audit
+    /// opérationnel.
+    /// </summary>
+    public void RejectProposal(string operatorIdentity, DateTimeOffset nowUtc)
+    {
+        if (string.IsNullOrWhiteSpace(operatorIdentity))
+        {
+            throw new ArgumentException("L'identité de l'opérateur est obligatoire pour rejeter une proposition (API04/TRK07).", nameof(operatorIdentity));
+        }
+
+        if (Status != ReconciliationStatus.PendingManual)
+        {
+            throw new InvalidOperationException(
+                $"Le PDF « {FileName} » n'est pas une proposition en attente (état {Status}) : seule une proposition de confiance moyenne peut être rejetée (TRK07).");
+        }
+
+        Status = ReconciliationStatus.Orphan;
+        ProposedDocumentId = null;
+        Strategy = null;
+        Confidence = null;
+        OperatorIdentity = operatorIdentity.Trim();
+        Detail = $"Proposition rejetée par l'opérateur {operatorIdentity.Trim()} : PDF reclassé en orphelin pour rapprochement manuel (API04).";
+    }
+
     private static string RequirePoolPdfId(string poolPdfId)
     {
         if (string.IsNullOrWhiteSpace(poolPdfId))

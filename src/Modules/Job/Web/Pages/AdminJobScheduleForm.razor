@@ -12,6 +12,7 @@
 @inject IScheduleQueries ScheduleQueries
 @inject IActorContextAccessor ActorContext
 @inject ICronPreviewService CronPreview
+@inject IJobTypeCatalog JobTypeCatalog
 @inject NavigationManager Nav
 @inject IToastService ToastService
 
@@ -86,20 +87,59 @@
                     </FormField>
                 </div>
                 <div class="col-md-6">
-                    <FormField Label="Type de job" Required Error="@_jobTypeError">
-                        <input type="text"
-                               class="form-control"
-                               value="@_jobType"
-                               @oninput="HandleJobTypeInput"
-                               placeholder="Ex : cleanup, reminder, sync"
-                               maxlength="200"
-                               disabled="@(ctx.Mode == FormMode.View)"
-                               data-testid="job-schedule-form-job-type" />
+                    <FormField Label="Type de job" Required Error="@_jobTypeError"
+                               HelpText="Liste fixe des types réellement disponibles sur cette instance.">
+                        @if (ctx.Mode == FormMode.View)
+                        {
+                            <p class="form-control-plaintext mb-0" data-testid="job-schedule-form-job-type-label">
+                                @JobTypeLabel(_jobType)
+                            </p>
+                        }
+                        else
+                        {
+                            <select class="form-select"
+                                    value="@_jobType"
+                                    @onchange="HandleJobTypeChange"
+                                    data-testid="job-schedule-form-job-type">
+                                <option value="" disabled selected="@(_jobType.Length == 0)">— Choisir un type —</option>
+                                @foreach (var type in _jobTypes)
+                                {
+                                    <option value="@type.TechnicalKey" selected="@(type.TechnicalKey == _jobType)">@type.DisplayName</option>
+                                }
+                            </select>
+                        }
                     </FormField>
                 </div>
+                @if (ctx.Mode != FormMode.View)
+                {
+                    <div class="col-md-6">
+                        <FormField Label="Fréquence" HelpText="Choisissez un rythme courant, ou « Personnalisé » pour saisir le cron à la main.">
+                            <div class="d-flex gap-2">
+                                <select class="form-select"
+                                        value="@_cronPreset"
+                                        @onchange="HandleCronPresetChange"
+                                        data-testid="job-schedule-form-cron-preset">
+                                    <option value="custom">Personnalisé (avancé)</option>
+                                    <option value="15min">Toutes les 15 minutes</option>
+                                    <option value="hourly">Toutes les heures</option>
+                                    <option value="daily">Tous les jours à…</option>
+                                </select>
+                                @if (_cronPreset == "daily")
+                                {
+                                    <input type="time"
+                                           class="form-control"
+                                           style="max-width: 8rem;"
+                                           value="@_dailyTime"
+                                           @onchange="HandleDailyTimeChange"
+                                           data-testid="job-schedule-form-cron-daily-time" />
+                                }
+                            </div>
+                        </FormField>
+                    </div>
+                }
                 <div class="col-md-6">
                     <FormField Label="Expression cron" Required Error="@_cronError"
-                               HelpText="Format : minute heure jour mois jour-semaine (ex : 0 2 * * * = tous les jours à 2h)">
+                               HelpText="Format : minute heure jour mois jour-semaine. Interprété en UTC.">
                         <input type="text"
                                class="form-control"
                                value="@_cronExpression"
@@ -118,24 +158,51 @@
                                 TestId="job-schedule-form-active" />
                     </FormField>
                 </div>
-                <div class="col-12">
-                    <FormField Label="Template payload (JSON)" Error="@_payloadError"
-                               HelpText="Données JSON transmises au job. Vide = {}">
-                        <textarea class="form-control"
-                                  rows="3"
-                                  value="@_payloadTemplate"
-                                  @oninput="HandlePayloadInput"
-                                  placeholder="{}"
-                                  disabled="@(ctx.Mode == FormMode.View)"
-                                  data-testid="job-schedule-form-payload"></textarea>
-                    </FormField>
-                </div>
+                @* Payload typé (FIX211) : champs générés depuis les propriétés du type sélectionné. Masqué pour
+                   les types sans paramètre (déclencheurs vides : cas majoritaire). Plus de JSON brut à saisir. *@
+                @foreach (var p in _selectedParams)
+                {
+                    <div class="col-md-6" data-testid="@($"job-schedule-form-param-{p.Name}")">
+                        <FormField Label="@p.Label" Required="@p.Required" Error="@GetParamError(p.Name)">
+                            @if (p.Kind == JobParameterKind.Boolean)
+                            {
+                                <Switch Value="@GetParamBool(p.Name)"
+                                        ValueChanged="@(v => HandleParamBoolChange(p.Name, v))"
+                                        Disabled="@(ctx.Mode == FormMode.View)"
+                                        TestId="@($"job-schedule-form-param-input-{p.Name}")" />
+                            }
+                            else if (p.Kind == JobParameterKind.Enum)
+                            {
+                                <select class="form-select"
+                                        value="@GetParamValue(p.Name)"
+                                        @onchange="@(e => HandleParamChange(p.Name, e))"
+                                        disabled="@(ctx.Mode == FormMode.View)"
+                                        data-testid="@($"job-schedule-form-param-input-{p.Name}")">
+                                    <option value="">—</option>
+                                    @foreach (var opt in p.EnumOptions)
+                                    {
+                                        <option value="@opt" selected="@(opt == GetParamValue(p.Name))">@opt</option>
+                                    }
+                                </select>
+                            }
+                            else
+                            {
+                                <input type="@ParamInputType(p.Kind)"
+                                       class="form-control"
+                                       value="@GetParamValue(p.Name)"
+                                       @oninput="@(e => HandleParamChange(p.Name, e))"
+                                       disabled="@(ctx.Mode == FormMode.View)"
+                                       data-testid="@($"job-schedule-form-param-input-{p.Name}")" />
+                            }
+                        </FormField>
+                    </div>
+                }
             </div>
         </SectionCard>
 
         @if (_cronPreviewLines.Count > 0 || _cronPreviewError is not null)
         {
-            <SectionCard Title="Aperçu des 5 prochaines exécutions" TestId="job-schedule-form-cron-preview">
+            <SectionCard Title="Aperçu des 3 prochaines exécutions (UTC)" TestId="job-schedule-form-cron-preview">
                 @if (_cronPreviewError is not null)
                 {
                     <p class="text-danger small" data-testid="job-schedule-form-cron-preview-error">@_cronPreviewError</p>
@@ -201,11 +268,20 @@
     private string? _nameError;
     private string? _cronError;
     private string? _jobTypeError;
-    private string? _payloadError;
     private string? _globalError;
 
     private List<string> _cronPreviewLines = [];
     private string? _cronPreviewError;
+
+    // FIX211 — liste fixe des types de jobs (libellés FR) + payload typé + helper cron.
+    private IReadOnlyList<JobTypeDescriptor> _jobTypes = [];
+    private IReadOnlyList<JobParameterDescriptor> _selectedParams = [];
+    private readonly Dictionary<string, string> _paramValues = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string?> _paramErrors = new(StringComparer.Ordinal);
+    private string _cronPreset = "custom";
+    private string _dailyTime = "02:00";
+
+    private static readonly System.Globalization.CultureInfo FrCulture = new("fr-FR");
 
     private string PageTitleText =>
         IsCreateMode ? "Nouvelle planification" :
@@ -215,9 +291,34 @@
     private string BuildTitle(bool createMode) =>
         createMode ? "Nouvelle planification" : _name.Length > 0 ? _name : "Planification";
 
+    protected override void OnInitialized()
+    {
+        _jobTypes = JobTypeCatalog.GetAll();
+    }
+
     protected override void OnParametersSet()
     {
         _isEditRoute = new Uri(Nav.Uri).AbsolutePath.EndsWith("/edit", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string JobTypeLabel(string technicalKey)
+    {
+        if (string.IsNullOrEmpty(technicalKey))
+        {
+            return "—";
+        }
+
+        var descriptor = JobTypeCatalog.Find(technicalKey);
+        if (descriptor is not null)
+        {
+            return descriptor.DisplayName;
+        }
+
+        // Repli pour un type historique non enregistré : nom court, JAMAIS le FullName complet.
+        var lastDot = technicalKey.LastIndexOf('.');
+        return lastDot >= 0 && lastDot < technicalKey.Length - 1
+            ? technicalKey[(lastDot + 1)..]
+            : technicalKey;
     }
 
     private void MapFromDto(ScheduleDto dto)
@@ -234,6 +335,9 @@
         _origJobType = dto.JobType;
         _origPayloadTemplate = dto.PayloadTemplate;
         _origIsActive = dto.IsActive;
+        LoadSelectedParams();
+        ParsePayloadIntoParams(_payloadTemplate);
+        DetectCronPreset();
         UpdateCronPreview();
     }
 
@@ -253,6 +357,11 @@
         _origIsActive = true;
         _cronPreviewLines = [];
         _cronPreviewError = null;
+        _selectedParams = [];
+        _paramValues.Clear();
+        _paramErrors.Clear();
+        _cronPreset = "custom";
+        _dailyTime = "02:00";
     }
 
     private bool ValidateForm()
@@ -276,16 +385,28 @@
             _jobTypeError = "Le type de job est obligatoire.";
             valid = false;
         }
-
-        if (!string.IsNullOrWhiteSpace(_payloadTemplate))
+        else if (JobTypeCatalog.Find(_jobType) is null)
         {
-            try
+            // Liste fixe : un type qui n'est pas enregistré sur l'instance est refusé (E7).
+            _jobTypeError = "Type de job inexistant sur cette instance.";
+            valid = false;
+        }
+
+        foreach (var p in _selectedParams)
+        {
+            var raw = GetParamValue(p.Name);
+            if (p.Required && p.Kind != JobParameterKind.Boolean && string.IsNullOrWhiteSpace(raw))
             {
-                System.Text.Json.JsonDocument.Parse(_payloadTemplate);
+                _paramErrors[p.Name] = "Ce paramètre est obligatoire.";
+                valid = false;
+                continue;
             }
-            catch (System.Text.Json.JsonException)
+
+            if (!string.IsNullOrWhiteSpace(raw)
+                && p.Kind == JobParameterKind.Number
+                && !decimal.TryParse(raw, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out _))
             {
-                _payloadError = "Le payload doit être un JSON valide.";
+                _paramErrors[p.Name] = "Nombre attendu.";
                 valid = false;
             }
         }
@@ -298,7 +419,7 @@
         _nameError = null;
         _cronError = null;
         _jobTypeError = null;
-        _payloadError = null;
+        _paramErrors.Clear();
     }
 
     private async Task<Guid> CreateAsync()
@@ -337,9 +458,9 @@
             _cronError = message;
         else if (lower.Contains("job type") || lower.Contains("type"))
             _jobTypeError = message;
-        else if (lower.Contains("payload") || lower.Contains("json"))
-            _payloadError = message;
         else
+            // Payload désormais structuré (champs typés) : une erreur de payload/JSON remontée par le serveur
+            // n'a plus de champ unique — surfacée en erreur globale.
             _globalError = message;
     }
 
@@ -358,18 +479,221 @@
         UpdateCronPreview();
     }
 
-    private void HandleJobTypeInput(ChangeEventArgs e)
+    private void HandleJobTypeChange(ChangeEventArgs e)
     {
         _jobType = e.Value?.ToString() ?? string.Empty;
         _isDirty = true;
         _jobTypeError = null;
+        LoadSelectedParams();
+        _paramErrors.Clear();
+        foreach (var p in _selectedParams)
+        {
+            _paramValues[p.Name] = p.DefaultValue ?? (p.Kind == JobParameterKind.Boolean ? "false" : string.Empty);
+        }
+
+        RebuildPayload();
     }
 
-    private void HandlePayloadInput(ChangeEventArgs e)
+    private void LoadSelectedParams()
     {
-        _payloadTemplate = e.Value?.ToString() ?? "{}";
+        var descriptor = string.IsNullOrEmpty(_jobType) ? null : JobTypeCatalog.Find(_jobType);
+        _selectedParams = descriptor?.Parameters ?? [];
+    }
+
+    private string GetParamValue(string name) => _paramValues.TryGetValue(name, out var v) ? v : string.Empty;
+
+    private bool GetParamBool(string name) => bool.TryParse(GetParamValue(name), out var b) && b;
+
+    private string? GetParamError(string name) => _paramErrors.TryGetValue(name, out var e) ? e : null;
+
+    private static string ParamInputType(JobParameterKind kind) =>
+        kind == JobParameterKind.Number ? "number" : "text";
+
+    private void HandleParamChange(string name, ChangeEventArgs e)
+    {
+        _paramValues[name] = e.Value?.ToString() ?? string.Empty;
+        _paramErrors[name] = null;
         _isDirty = true;
-        _payloadError = null;
+        RebuildPayload();
+    }
+
+    private void HandleParamBoolChange(string name, bool value)
+    {
+        _paramValues[name] = value ? "true" : "false";
+        _isDirty = true;
+        RebuildPayload();
+    }
+
+    // Sérialise les champs typés en JSON (clés camelCase, valeurs typées). Le JobHandlerResolver désérialise en
+    // camelCase + insensible à la casse — les valeurs par défaut des records s'appliquent aux clés omises.
+    private void RebuildPayload()
+    {
+        if (_selectedParams.Count == 0)
+        {
+            _payloadTemplate = "{}";
+            return;
+        }
+
+        var dict = new Dictionary<string, object?>(StringComparer.Ordinal);
+        foreach (var p in _selectedParams)
+        {
+            var key = System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(p.Name);
+            var raw = GetParamValue(p.Name);
+            switch (p.Kind)
+            {
+                case JobParameterKind.Boolean:
+                    dict[key] = GetParamBool(p.Name);
+                    break;
+                case JobParameterKind.Number:
+                    if (long.TryParse(raw, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var l))
+                    {
+                        dict[key] = l;
+                    }
+                    else if (decimal.TryParse(raw, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var dec))
+                    {
+                        dict[key] = dec;
+                    }
+
+                    break;
+                default:
+                    if (!string.IsNullOrEmpty(raw))
+                    {
+                        dict[key] = raw;
+                    }
+
+                    break;
+            }
+        }
+
+        _payloadTemplate = System.Text.Json.JsonSerializer.Serialize(dict);
+    }
+
+    private void ParsePayloadIntoParams(string? json)
+    {
+        foreach (var p in _selectedParams)
+        {
+            _paramValues[p.Name] = p.DefaultValue ?? (p.Kind == JobParameterKind.Boolean ? "false" : string.Empty);
+        }
+
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return;
+        }
+
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object)
+            {
+                return;
+            }
+
+            foreach (var p in _selectedParams)
+            {
+                if (!TryGetPropertyCaseInsensitive(doc.RootElement, p.Name, out var el))
+                {
+                    continue;
+                }
+
+                _paramValues[p.Name] = el.ValueKind switch
+                {
+                    System.Text.Json.JsonValueKind.True => "true",
+                    System.Text.Json.JsonValueKind.False => "false",
+                    System.Text.Json.JsonValueKind.String => el.GetString() ?? string.Empty,
+                    System.Text.Json.JsonValueKind.Number => el.GetRawText(),
+                    _ => el.GetRawText(),
+                };
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // Payload historique illisible : on conserve les valeurs par défaut (pas d'exception à l'écran).
+        }
+    }
+
+    private static bool TryGetPropertyCaseInsensitive(System.Text.Json.JsonElement obj, string name, out System.Text.Json.JsonElement value)
+    {
+        foreach (var prop in obj.EnumerateObject())
+        {
+            if (string.Equals(prop.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                value = prop.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private void HandleCronPresetChange(ChangeEventArgs e)
+    {
+        _cronPreset = e.Value?.ToString() ?? "custom";
+        ApplyCronPreset();
+    }
+
+    private void HandleDailyTimeChange(ChangeEventArgs e)
+    {
+        _dailyTime = e.Value?.ToString() ?? "02:00";
+        if (_cronPreset == "daily")
+        {
+            ApplyCronPreset();
+        }
+    }
+
+    private void ApplyCronPreset()
+    {
+        switch (_cronPreset)
+        {
+            case "15min":
+                _cronExpression = "*/15 * * * *";
+                break;
+            case "hourly":
+                _cronExpression = "0 * * * *";
+                break;
+            case "daily":
+                var parts = (_dailyTime ?? "02:00").Split(':');
+                var hour = parts.Length > 0 && int.TryParse(parts[0], out var h) ? h : 0;
+                var minute = parts.Length > 1 && int.TryParse(parts[1], out var m) ? m : 0;
+                _cronExpression = $"{minute} {hour} * * *";
+                break;
+            case "custom":
+            default:
+                // Mode avancé : l'opérateur saisit le cron à la main dans le champ « Expression cron ».
+                break;
+        }
+
+        _isDirty = true;
+        _cronError = null;
+        UpdateCronPreview();
+    }
+
+    private void DetectCronPreset()
+    {
+        var cron = (_cronExpression ?? string.Empty).Trim();
+        if (cron == "*/15 * * * *")
+        {
+            _cronPreset = "15min";
+            return;
+        }
+
+        if (cron == "0 * * * *")
+        {
+            _cronPreset = "hourly";
+            return;
+        }
+
+        var parts = cron.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 5 && parts[2] == "*" && parts[3] == "*" && parts[4] == "*"
+            && int.TryParse(parts[0], out var m) && m is >= 0 and < 60
+            && int.TryParse(parts[1], out var h) && h is >= 0 and < 24)
+        {
+            _cronPreset = "daily";
+            _dailyTime = $"{h:D2}:{m:D2}";
+            return;
+        }
+
+        _cronPreset = "custom";
     }
 
     private void HandleActiveChange(bool value)
@@ -393,9 +717,9 @@
             return;
         }
 
-        var occurrences = CronPreview.GetNextOccurrences(_cronExpression, 5);
+        var occurrences = CronPreview.GetNextOccurrences(_cronExpression, 3);
         _cronPreviewLines = occurrences
-            .Select(o => o.ToLocalTime().ToString("dddd dd MMMM yyyy à HH:mm"))
+            .Select(o => o.UtcDateTime.ToString("dddd dd MMMM yyyy 'à' HH:mm 'UTC'", FrCulture))
             .ToList();
     }
 
@@ -483,6 +807,12 @@
         _origJobType = serverDto.JobType;
         _origPayloadTemplate = serverDto.PayloadTemplate;
         _origIsActive = serverDto.IsActive;
+
+        // Re-synchronise les champs dérivés (params typés du type courant, preset cron) après le merge.
+        LoadSelectedParams();
+        ParsePayloadIntoParams(_payloadTemplate);
+        DetectCronPreset();
+        UpdateCronPreview();
 
         if (conflicts.Count > 0)
         {

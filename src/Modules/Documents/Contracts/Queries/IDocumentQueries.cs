@@ -34,8 +34,23 @@ public interface IDocumentQueries
         int pageSize,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Liste paginée de documents pour la console (API01a, GET /documents) : filtres optionnels (plage de
+    /// dates d'émission, état, type, recherche libre), total correspondant aux filtres, et compteurs par
+    /// état pour le bandeau de synthèse. Triée par dernière mise à jour décroissante.
+    /// </summary>
+    Task<DocumentListResult> GetDocumentsAsync(DocumentListFilter filter, CancellationToken cancellationToken = default);
+
     /// <summary>Piste d'audit complète d'un document (ordre chronologique).</summary>
     Task<IReadOnlyList<DocumentEventDto>> GetEventsAsync(Guid documentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Référence d'archive d'un document (API01a, détail) : la dernière entrée du coffre WORM pour ce
+    /// document (TRK05), ou <c>null</c> si le document n'est pas encore archivé. Lecture seule de
+    /// <c>documents.archive_entries</c> (même schéma tenant). La vérification cryptographique complète du
+    /// coffre est une action à la demande distincte (API03).
+    /// </summary>
+    Task<ArchiveReferenceDto?> GetArchiveReferenceAsync(Guid documentId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Documents dont l'envoi est ENGAGÉ mais dont l'issue est INCERTAINE (état <c>Sending</c>) — F06 §5,
@@ -44,6 +59,16 @@ public interface IDocumentQueries
     /// doublon. Cette lecture fournit la liste à raccrocher. Triés par dernière mise à jour décroissante.
     /// </summary>
     Task<IReadOnlyList<DocumentSummaryDto>> GetPotentiallySentDocumentsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Le document le PLUS ANCIEN actuellement dans l'état <paramref name="state"/> (le plus petit
+    /// <c>last_update_utc</c>), ou <c>null</c> si aucun document n'est dans cet état pour ce tenant.
+    /// Lecture d'âge par état pour la supervision (SUP01b — règles « documents bloqués / rejets PA non
+    /// traités depuis &gt; N jours », F12 §5.2) : l'appelant dérive l'âge de <c>LastUpdateUtc</c> (temps
+    /// passé dans l'état). Bornée à UNE ligne — jamais de pagination de toute la file pour décider d'une
+    /// alerte de seuil.
+    /// </summary>
+    Task<DocumentSummaryDto?> GetOldestDocumentInStateAsync(string state, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Statut d'un document par (référence source, empreinte du payload), ou <c>null</c> si aucun document

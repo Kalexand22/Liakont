@@ -14,5 +14,8 @@
     <ProjectReference Include="../Domain/Liakont.Modules.TenantSettings.Domain.csproj" />
     <ProjectReference Include="../Contracts/Liakont.Modules.TenantSettings.Contracts.csproj" />
     <ProjectReference Include="../Infrastructure/Liakont.Modules.TenantSettings.Infrastructure.csproj" />
+    <!-- Plug-in PA factice (PAA02) : IPaClient réel à capacités configurables pour les tests du
+         service de composition de la console (TenantSettingsConsoleQueries, API01c). -->
+    <ProjectReference Include="../../../PaClients/Liakont.PaClients.Fake/Liakont.PaClients.Fake.csproj" />
   </ItemGroup>
 </Project>
