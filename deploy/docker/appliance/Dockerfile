@@ -3,6 +3,11 @@
 # Le CONTEXTE de build est la RACINE du dépôt (voir docker-compose.yml : build.context),
 # pour accéder à global.json + Directory.*.props + tout src/ (graphe de projets du Host).
 
+# Le SDK de l'image de build DOIT satisfaire global.json (épinglé 10.0.200, rollForward latestFeature) :
+# le tag flottant 10.0 pointe sur le dernier SDK 10.0.x (≥ 10.0.200) et convient. ATTENTION à un cache
+# local PÉRIMÉ de sdk:10.0 antérieur à 10.0.200 → `dotnet restore` échouerait (« compatible SDK not
+# found »). Construire avec --pull (docker build --pull / docker compose build --pull) pour repartir
+# d'une base à jour. Voir README §2/§5.
 ARG DOTNET_SDK_TAG=10.0
 ARG DOTNET_RUNTIME_TAG=10.0
 

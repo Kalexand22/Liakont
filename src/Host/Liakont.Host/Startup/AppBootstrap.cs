@@ -47,7 +47,6 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
-using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -602,36 +601,11 @@ public static class AppBootstrap
         // Reverse proxy de l'appliance (Caddy, F12 §6.2/6.6) — DOIT être le tout premier middleware :
         // honorer X-Forwarded-* pour que le SCHÉMA et l'HÔTE publics soient corrects (redirect_uri
         // OIDC, cookies marqués Secure) et que la fenêtre anti-flood par IP (AddRateLimiter) retrouve
-        // l'IP cliente réelle au lieu de celle du proxy. STRICTEMENT borné aux réseaux/proxys de
-        // confiance déclarés : sinon X-Forwarded-For est usurpable et la limite par IP contournable.
-        // Dans l'appliance, le port du Host n'est PAS publié hors du réseau interne (seul Caddy l'est),
-        // donc déclarer ce réseau interne comme de confiance est sûr. Désactivé par défaut → un accès
-        // direct (dev/test, sans proxy) reste inchangé.
-        var forwardedHeaders = app.Configuration.GetSection("ForwardedHeaders");
-        if (forwardedHeaders.GetValue<bool>("Enabled"))
+        // l'IP cliente réelle au lieu de celle du proxy. Confiance STRICTEMENT bornée aux réseaux/proxys
+        // déclarés (voir ForwardedHeadersConfiguration). Désactivé par défaut → accès direct inchangé.
+        var forwardedOptions = ForwardedHeadersConfiguration.Build(app.Configuration.GetSection("ForwardedHeaders"));
+        if (forwardedOptions is not null)
         {
-            var forwardedOptions = new ForwardedHeadersOptions
-            {
-                ForwardedHeaders = ForwardedHeaders.XForwardedFor
-                    | ForwardedHeaders.XForwardedProto
-                    | ForwardedHeaders.XForwardedHost,
-            };
-
-            // Ne JAMAIS conserver la confiance loopback par défaut : repartir d'une liste vide et
-            // déclarer explicitement les réseaux/proxys autorisés (sinon la borne ne sert à rien).
-            forwardedOptions.KnownIPNetworks.Clear();
-            forwardedOptions.KnownProxies.Clear();
-
-            foreach (var cidr in forwardedHeaders.GetSection("KnownNetworks").Get<string[]>() ?? [])
-            {
-                forwardedOptions.KnownIPNetworks.Add(System.Net.IPNetwork.Parse(cidr));
-            }
-
-            foreach (var proxy in forwardedHeaders.GetSection("KnownProxies").Get<string[]>() ?? [])
-            {
-                forwardedOptions.KnownProxies.Add(System.Net.IPAddress.Parse(proxy));
-            }
-
             app.UseForwardedHeaders(forwardedOptions);
         }
 

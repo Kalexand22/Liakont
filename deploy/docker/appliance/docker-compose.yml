@@ -116,7 +116,7 @@ services:
       # tenant), staging du pivot, PDF reçus, et coffre WORM (conservation fiscale 10 ans).
       DataProtection__KeyRingPath: /app/App_Data/dataprotection-keys
       Staging__Storage__FileSystem__RootPath: /app/App_Data/staging-store
-      Ingestion__Storage__FileSystem__PdfRootPath: /app/App_Data/ingestion-pdf
+      Ingestion__Storage__PdfRootPath: /app/App_Data/ingestion-pdf
       Archive__Storage__FileSystem__RootPath: /app/App_Data/archive-store
       # E-mail sortant (OPTIONNEL — désactivé tant que SMTP__ENABLED n'est pas true).
       Smtp__Enabled: ${SMTP_ENABLED:-false}

@@ -49,7 +49,9 @@ cp .env.example .env
 nano .env
 
 # 4. Construire l'image applicative et démarrer la stack
-docker compose up -d --build
+#    --pull : repart d'images de base à jour (le SDK doit satisfaire global.json — cf. Dockerfile).
+docker compose build --pull
+docker compose up -d
 
 # 5. Suivre l'amorçage (migrations de base, import du realm, obtention du certificat)
 docker compose logs -f liakont caddy keycloak
@@ -97,6 +99,14 @@ Un `docker compose pull && docker compose up -d` (mise à jour) **préserve** :
 - le **staging** du pivot et les **PDF reçus** (`/app/App_Data/staging-store`, `/app/App_Data/ingestion-pdf`) ;
 - les **certificats** TLS (`caddy-data`).
 
+> **⚠️ Le volume `liakont-app-data` est PORTEUR DE SECRET.** Le trousseau Data Protection y est
+> persisté **en clair** (pas de DPAPI hors Windows) : c'est la clé maîtresse qui déchiffre les secrets
+> tenant (clés API des PA) stockés en base. Un accès au volume suffit donc à déchiffrer ces secrets —
+> protéger le volume (permissions disque, accès Docker restreint) et chiffrer ses sauvegardes. Le
+> **chiffrement du trousseau au repos** (certificat / KMS) et la politique de sauvegarde formelle sont
+> tranchés par **OPS01b** (sauvegarde/PRA) / **OPS01c** (ADR topologie). En V1, la promesse « secrets
+> chiffrés » (CLAUDE.md n°10) est donc conditionnée à la protection de ce volume.
+
 > **Sauvegarde** : la procédure `pg_dump` par base + copie des volumes d'archive est outillée par
 > l'item **OPS01b** (sauvegarde/restauration/PRA). Tant qu'OPS01b n'est pas livré, sauvegarder
 > manuellement les volumes ci-dessus avant toute opération sensible.
@@ -107,8 +117,9 @@ Un `docker compose pull && docker compose up -d` (mise à jour) **préserve** :
 
 ```bash
 cd deploy/docker/appliance
-git pull                       # nouvelle version du code/compose
-docker compose up -d --build   # rebuild de l'image Host + redéploiement
+git pull                          # nouvelle version du code/compose
+docker compose build --pull       # rebuild image Host (base SDK/runtime à jour, cf. global.json)
+docker compose up -d              # redéploiement
 ```
 
 Le Host **applique automatiquement les migrations** au démarrage. Les volumes sont conservés
@@ -137,7 +148,11 @@ Le Host **applique automatiquement les migrations** au démarrage. Les volumes s
 - **« invalid client credentials » à la connexion** : le secret du client n'a pas été substitué dans
   Keycloak. Vérifier que `KEYCLOAK_LIAKONT_CLIENT_SECRET` est renseigné dans `.env` (il est injecté à
   la fois dans Keycloak et dans le Host). Le flag `-Dkeycloak.migration.replace-placeholders=true` est
-  posé sur le service `keycloak` (substitution des `${...}` du realm).
+  posé sur le service `keycloak` (substitution des `${...}` du realm). **Repli** si la substitution
+  n'est pas honorée (le champ `secret` resterait littéral `${KEYCLOAK_LIAKONT_CLIENT_SECRET}`) : poser
+  le secret manuellement dans la console d'admin Keycloak (realm `liakont` → Clients → `liakont` →
+  Credentials → coller la valeur de `KEYCLOAK_LIAKONT_CLIENT_SECRET`), ou via l'admin API post-import.
+  Cette substitution est revalidée contre un Keycloak 26 réel à la recette (gate `GATE_TOOLKIT`).
 - **Realm périmé après modification de `realm-liakont.json`** : l'import (`--import-realm`) ne réécrit
   PAS un realm déjà présent. Pour réappliquer la définition : `docker compose down` puis supprimer le
   volume `liakont-keycloak-db-data` (⚠️ efface les utilisateurs Keycloak créés) avant `up`.
