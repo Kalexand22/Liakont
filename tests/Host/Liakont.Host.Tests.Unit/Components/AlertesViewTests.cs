@@ -133,6 +133,32 @@ public sealed class AlertesViewTests : BunitContext
         saved.Should().BeTrue();
     }
 
+    [Fact]
+    public void Removing_A_Middle_Routing_Row_Keeps_The_Others_Intact()
+    {
+        var routing = new AlertesRoutingFormModel
+        {
+            Rows =
+            {
+                new AlertesRoutingRow { Selector = "rule:agent.mute", RecipientsCsv = "a@acme.test" },
+                new AlertesRoutingRow { Selector = "severity:Critical", RecipientsCsv = "b@acme.test" },
+                new AlertesRoutingRow { Selector = "rule:documents.pa_rejected", RecipientsCsv = "c@acme.test" },
+            },
+        };
+
+        var cut = Render<AlertesView>(p => p.Add(v => v.Model, Model(routing: routing)));
+
+        // Retirer la ligne du MILIEU : le @key garantit que les lignes restantes conservent leurs valeurs.
+        cut.FindAll("[data-testid='alertes-routing-remove-btn']")[1].Click();
+
+        var recipients = cut.FindAll("[data-testid='alertes-routing-recipients']");
+        recipients.Should().HaveCount(2);
+        recipients[0].GetAttribute("value").Should().Be("a@acme.test");
+        recipients[1].GetAttribute("value").Should().Be("c@acme.test");
+        routing.Rows.Should().HaveCount(2);
+        routing.Rows.Should().NotContain(r => r.RecipientsCsv == "b@acme.test");
+    }
+
     private static AlertesViewModel Model(
         bool operatorEmailConfigured = true,
         bool profileExists = true,

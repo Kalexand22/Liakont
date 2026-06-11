@@ -205,7 +205,7 @@
                     <tbody>
                         @foreach (var row in Model.Routing.Rows)
                         {
-                            <tr data-testid="alertes-routing-row">
+                            <tr data-testid="alertes-routing-row" @key="row">
                                 <td>
                                     <select class="form-select" @bind="row.Selector" disabled="@RoutingBusy"
                                             data-testid="alertes-routing-selector">
