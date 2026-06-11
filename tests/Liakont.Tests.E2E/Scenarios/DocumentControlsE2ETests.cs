@@ -17,7 +17,7 @@ using Xunit.Abstractions;
 /// (la fiche reste consultable en lecture, conforme à WEB03a).
 /// <para>
 /// Le comportement des actions elles-mêmes (verdict B2C/B2B branché, re-vérification, message immédiat,
-/// boutons visibles AVEC la permission) est couvert par les tests bUnit (DocumentDetailViewTests,
+/// boutons visibles AVEC la permission) est couvert par les tests bUnit (DocumentActionBarTests,
 /// DocumentDetailTests, DocumentControlActionsServiceTests). Ici, comme pour WEB07a, l'E2E prouve la
 /// navigation → rendu réel ; le clic opérateur d'un élément permission-gated sous OIDC est porté par WEB05
 /// (qui dépend du pont rôle→permission IDN01, non encore livré).

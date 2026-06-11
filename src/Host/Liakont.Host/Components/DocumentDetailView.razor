@@ -104,47 +104,10 @@
                     <p data-testid="document-detail-controls-ok">Aucun contrôle en échec pour le moment.</p>
                 }
 
-                @* Actions garde-fou + re-vérification (WEB03b). Masquées sans la permission d'action (CanAct,
-                 * calculée par la page depuis liakont.actions) : la page reste consultable en lecture (WEB03a).
-                 * Le verdict B2B/B2C n'est proposé que lorsque l'acheteur présente l'indice « société » et que le
-                 * verdict n'a pas déjà été posé ; la re-vérification s'applique à tout document bloqué. *@
-                @if (CanAct && IsBlocked)
-                {
-                    <div class="liakont-doc-detail__actions" data-testid="document-detail-controls-actions">
-                        @if (ShowVerdict)
-                        {
-                            <p class="liakont-doc-detail__actions-hint">
-                                L'acheteur semble être un professionnel (garde-fou B2B/B2C). Tranchez :
-                            </p>
-                            <StratumButton Text="Confirmer particulier (B2C)"
-                                           Variant="ButtonVariant.Primary"
-                                           Disabled="ActionInProgress"
-                                           OnClick="@(_ => OnConfirmB2c.InvokeAsync())"
-                                           TestId="document-detail-verdict-b2c" />
-                            <StratumButton Text="Traiter manuellement (B2B)"
-                                           Variant="ButtonVariant.Secondary"
-                                           Outline
-                                           Disabled="ActionInProgress"
-                                           OnClick="@(_ => OnHandleManually.InvokeAsync())"
-                                           TestId="document-detail-verdict-b2b" />
-                        }
-                        <StratumButton Text="Revérifier maintenant"
-                                       Variant="ButtonVariant.Secondary"
-                                       Outline
-                                       Disabled="ActionInProgress"
-                                       OnClick="@(_ => OnRecheck.InvokeAsync())"
-                                       TestId="document-detail-recheck" />
-                    </div>
-                }
-
-                @if (!string.IsNullOrWhiteSpace(ActionFeedback))
-                {
-                    <div class="liakont-doc-detail__action-feedback @(ActionFailed ? "liakont-doc-detail__action-feedback--error" : "liakont-doc-detail__action-feedback--ok")"
-                         role="status"
-                         data-testid="document-detail-action-feedback">
-                        @ActionFeedback
-                    </div>
-                }
+                @* L'onglet « Contrôles » ne porte que du CONTENU (état + motif). Les ACTIONS (verdict garde-fou
+                 * B2B/B2C, re-vérification, envoi) ne sont plus enfouies ici : elles vivent dans la barre d'actions
+                 * PERMANENTE en tête de fiche (DocumentActionBar, FIX04b), visible quel que soit l'onglet — avec le
+                 * message de retour de la dernière action. *@
             </SectionCard>
         </StratumTab>
 
@@ -235,50 +198,6 @@
     /// <summary>Détail assemblé du document (jamais <c>null</c> : la page en fournit toujours un).</summary>
     [Parameter, EditorRequired]
     public DocumentDetailViewModel Model { get; set; } = null!;
-
-    /// <summary>
-    /// L'opérateur porte la permission d'action (<c>liakont.actions</c>, calculée par la page). Quand
-    /// <c>false</c>, les boutons garde-fou / re-vérification ne sont PAS rendus : la fiche reste consultable
-    /// en lecture (conforme à WEB03a). La vue reste pure (le contrôle de permission vit dans la page).
-    /// </summary>
-    [Parameter]
-    public bool CanAct { get; set; }
-
-    /// <summary>Une action est en cours : désactive les boutons pour éviter un double déclenchement.</summary>
-    [Parameter]
-    public bool ActionInProgress { get; set; }
-
-    /// <summary>Message de retour de la dernière action (succès ou refus), affiché dans l'onglet Contrôles.</summary>
-    [Parameter]
-    public string? ActionFeedback { get; set; }
-
-    /// <summary><c>true</c> si <see cref="ActionFeedback"/> rapporte un refus (mise en forme « erreur »).</summary>
-    [Parameter]
-    public bool ActionFailed { get; set; }
-
-    /// <summary>Verdict « confirmer particulier (B2C) » demandé par l'opérateur.</summary>
-    [Parameter]
-    public EventCallback OnConfirmB2c { get; set; }
-
-    /// <summary>Verdict « traiter manuellement (B2B) » demandé par l'opérateur.</summary>
-    [Parameter]
-    public EventCallback OnHandleManually { get; set; }
-
-    /// <summary>Re-vérification immédiate demandée par l'opérateur.</summary>
-    [Parameter]
-    public EventCallback OnRecheck { get; set; }
-
-    /// <summary>
-    /// Le verdict B2B/B2C n'est proposé que lorsque l'acheteur présente l'indice « société » de la source
-    /// (<see cref="DocumentDto.CustomerIsCompanyHint"/>) et que le verdict n'a pas déjà été posé
-    /// (<see cref="DocumentDto.BuyerConfirmedAsIndividual"/>). Signal STRUCTURÉ (aucune analyse de texte du
-    /// motif de blocage) et conservateur : un acheteur professionnel détecté sur un AUTRE indice (n° de TVA,
-    /// forme juridique — non exposés ici) reste résoluble par le « traiter manuellement » général (WEB03c).
-    /// La re-vérification, elle, reste proposée pour tout document bloqué.
-    /// </summary>
-    private bool ShowVerdict => IsBlocked
-        && Model.Document.CustomerIsCompanyHint
-        && !Model.Document.BuyerConfirmedAsIndividual;
 
     private bool IsRejected => string.Equals(Model.Document.State, RejectedDocumentState, StringComparison.Ordinal);
 

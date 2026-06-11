@@ -8,16 +8,20 @@
 @using Stratum.Common.UI.Models
 @inject IDocumentDetailConsoleQueries DetailQueries
 @inject IDocumentControlActions ControlActions
+@inject IDocumentSendActions SendActions
 @inject IPermissionService Permissions
 @inject ILogger<DocumentDetail> Logger
 
 @* Page détail document (WEB03a + actions WEB03b/c, F10 §2.3). Page MINCE : elle charge le détail assemblé via
  * IDocumentDetailConsoleQueries (aucun accès base direct, aucune logique métier) et délègue le rendu à la vue
- * pure DocumentDetailView. Les actions de l'onglet Contrôles (verdict garde-fou B2B/B2C, re-vérification —
- * WEB03b) sont orchestrées ICI via IDocumentControlActions (appel in-process) ; les actions de résolution
- * terminale (WEB03c) sont déléguées au composant interactif DocumentResolutionActions. Après TOUTE action, la
- * page recharge le détail (état + historique à jour, sans rechargement de page). Les boutons d'action ne sont
- * proposés qu'aux porteurs de la permission liakont.actions (la page reste consultable en lecture sinon). *@
+ * pure DocumentDetailView (CONTENU seul : onglets Contenu / Contrôles / Historique / Archive). Les ACTIONS
+ * (verdict garde-fou B2B/B2C, re-vérification — WEB03b ; envoi) sont présentées dans une barre d'actions
+ * PERMANENTE en tête de fiche (DocumentActionBar, FIX04b) — plus aucune action enfouie dans un onglet — et
+ * orchestrées ICI via IDocumentControlActions / IDocumentSendActions (appels in-process) ; les actions de
+ * résolution terminale (WEB03c) sont déléguées au composant interactif DocumentResolutionActions, lui aussi en
+ * tête de fiche. Après TOUTE action, la page recharge le détail (état + historique à jour, sans rechargement de
+ * page). Les boutons d'action ne sont proposés qu'aux porteurs de la permission liakont.actions (la page reste
+ * consultable en lecture sinon). *@
 
 <PageTitle>Détail du document — Liakont</PageTitle>
 
@@ -50,18 +54,35 @@
     else
     {
         <h1 data-testid="document-detail-title">Document @_model.Document.DocumentNumber</h1>
+
+        @* Barre d'actions PERMANENTE en tête de fiche (FIX04b) : verdict garde-fou B2B/B2C, re-vérification et
+         * envoi — selon l'état du document et la permission liakont.actions. Plus aucune action enfouie dans un
+         * onglet ; le message de retour de la dernière action est affiché juste en dessous, toujours visible. *@
+        <DocumentActionBar Model="_model"
+                           CanAct="_canAct"
+                           ActionInProgress="_actionInProgress"
+                           OnConfirmB2c="@(() => SubmitVerdictAsync(ConsoleVerdict.ConfirmIndividualB2c))"
+                           OnHandleManually="@(() => SubmitVerdictAsync(ConsoleVerdict.HandleManuallyB2b))"
+                           OnRecheck="RecheckAsync"
+                           OnSend="SendDocumentAsync" />
+
+        @if (!string.IsNullOrWhiteSpace(_actionFeedback))
+        {
+            <div class="liakont-doc-detail__action-feedback @(_actionFailed ? "liakont-doc-detail__action-feedback--error" : "liakont-doc-detail__action-feedback--ok")"
+                 role="status"
+                 data-testid="document-detail-action-feedback">
+                @_actionFeedback
+            </div>
+        }
+
+        @* Actions de RÉSOLUTION TERMINALE (traiter manuellement hors passerelle, lier au remplaçant) : panneaux
+         * de saisie multi-étapes, eux aussi en tête de fiche — jamais enfouis dans un onglet (WEB03c). *@
         <DocumentResolutionActions DocumentId="_model.Document.Id"
                                    DocumentNumber="@_model.Document.DocumentNumber"
                                    State="@_model.Document.State"
                                    OnResolved="ReloadAsync" />
-        <DocumentDetailView Model="_model"
-                            CanAct="_canAct"
-                            ActionInProgress="_actionInProgress"
-                            ActionFeedback="@_actionFeedback"
-                            ActionFailed="_actionFailed"
-                            OnConfirmB2c="@(() => SubmitVerdictAsync(ConsoleVerdict.ConfirmIndividualB2c))"
-                            OnHandleManually="@(() => SubmitVerdictAsync(ConsoleVerdict.HandleManuallyB2b))"
-                            OnRecheck="RecheckAsync" />
+
+        <DocumentDetailView Model="_model" />
     }
 </div>
 
@@ -129,18 +150,41 @@
 
     /// <summary>Pose un verdict du garde-fou B2B/B2C puis recharge le détail (historique + contrôles à jour).</summary>
     private Task SubmitVerdictAsync(ConsoleVerdict verdict) =>
-        RunActionAsync(() => ControlActions.SubmitVerdictAsync(Id, verdict));
+        RunActionAsync(async () =>
+        {
+            var result = await ControlActions.SubmitVerdictAsync(Id, verdict);
+            return (result.Success, result.Message);
+        });
 
     /// <summary>Re-vérifie le document bloqué puis recharge le détail (le nouvel état / motif s'affiche immédiatement).</summary>
     private Task RecheckAsync() =>
-        RunActionAsync(() => ControlActions.RecheckAsync(Id));
+        RunActionAsync(async () =>
+        {
+            var result = await ControlActions.RecheckAsync(Id);
+            return (result.Success, result.Message);
+        });
 
     /// <summary>
-    /// Exécute une action de l'onglet Contrôles : désactive les boutons le temps de l'appel, mémorise le
-    /// message opérateur (succès ou refus) et RECHARGE le détail pour refléter l'historique et les contrôles
-    /// sans rechargement de page. Tout échec inattendu reste VISIBLE (message) et tracé — jamais avalé.
+    /// Déclenche l'envoi du document (prêt à l'envoi) depuis la barre d'actions, puis recharge le détail.
+    /// Réutilise le chemin d'envoi EXISTANT <see cref="IDocumentSendActions.SendSelectionAsync"/> (sélection
+    /// d'un seul document) — AUCUN second chemin d'envoi : la garde d'état <c>ReadyToSend</c> et la permission
+    /// <c>liakont.actions</c> sont appliquées côté SERVEUR par le service (le bouton n'est qu'un raccourci
+    /// visible). Le résultat (succès ou motif de refus français) s'affiche dans le bandeau d'action.
     /// </summary>
-    private async Task RunActionAsync(Func<Task<DocumentControlActionResult>> action)
+    private Task SendDocumentAsync() =>
+        RunActionAsync(async () =>
+        {
+            var result = await SendActions.SendSelectionAsync(new[] { Id });
+            return (result.Success, result.Message);
+        });
+
+    /// <summary>
+    /// Exécute une action de la barre d'actions (verdict, re-vérification, envoi) : désactive les boutons le
+    /// temps de l'appel, mémorise le message opérateur (succès ou refus) et RECHARGE le détail pour refléter
+    /// l'état, l'historique et les contrôles sans rechargement de page. Tout échec inattendu reste VISIBLE
+    /// (message) et tracé — jamais avalé.
+    /// </summary>
+    private async Task RunActionAsync(Func<Task<(bool Success, string Message)>> action)
     {
         if (_actionInProgress || _model is null)
         {
@@ -153,16 +197,16 @@
 
         try
         {
-            var result = await action();
-            _actionFeedback = result.Message;
-            _actionFailed = !result.Success;
+            var (success, message) = await action();
+            _actionFeedback = message;
+            _actionFailed = !success;
             await ReloadAsync();
         }
         catch (Exception ex)
         {
             _actionFailed = true;
             _actionFeedback = "L'action n'a pas pu être effectuée pour le moment. Réessayez plus tard.";
-            Logger.LogError(ex, "Console control action failed for document {DocumentId}.", Id);
+            Logger.LogError(ex, "Console document action failed for document {DocumentId}.", Id);
         }
         finally
         {

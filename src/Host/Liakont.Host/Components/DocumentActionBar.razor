@@ -1,0 +1,128 @@
+@namespace Liakont.Host.Components
+@using System
+@using Liakont.Host.Documents
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* DocumentActionBar — barre d'actions PERMANENTE de la page détail document (FIX04b, recette GATE_CONSOLE_WEB).
+ * Rendu PUR (aucune injection, aucune logique métier — testable en bUnit sans auth ni base) : reçoit le modèle
+ * assemblé + la permission d'action et expose chaque action en EventCallback orchestré par la page. Les actions
+ * ne sont plus enfouies dans l'onglet « Contrôles » : elles sont toujours visibles, en tête de fiche, quel que
+ * soit l'onglet actif (décision opérateur 2026-06-10 : « TOUTES les actions directement accessibles »). Les
+ * boutons proposés dépendent de l'ÉTAT du document (re-vérification / verdict garde-fou : bloqué ; envoi : prêt
+ * à l'envoi) et sont MASQUÉS sans la permission liakont.actions (la fiche reste consultable en lecture). 100 %
+ * français. Les actions de RÉSOLUTION TERMINALE (traiter manuellement hors passerelle, lier au remplaçant) — qui
+ * ouvrent un panneau de saisie multi-étapes — restent portées par DocumentResolutionActions, co-localisé en tête
+ * de fiche (lui non plus n'est PAS dans un onglet). *@
+
+@if (CanAct && HasAction)
+{
+    <div class="liakont-doc-detail__action-region" data-testid="document-detail-action-region">
+        @if (ShowVerdict)
+        {
+            <p class="liakont-doc-detail__actions-hint" data-testid="document-detail-verdict-hint">
+                L'acheteur semble être un professionnel (garde-fou B2B/B2C). Tranchez :
+            </p>
+        }
+        @if (IsReadyToSend)
+        {
+            <p class="liakont-doc-detail__actions-hint" data-testid="document-detail-send-hint">
+                L'envoi déclenche le traitement d'envoi du tenant : tous les documents prêts à l'envoi sont émis (celui-ci inclus).
+            </p>
+        }
+
+        <ActionBar Sticky="false" TestId="document-detail-action-bar">
+            @if (ShowVerdict)
+            {
+                <StratumButton Text="Confirmer particulier (B2C)"
+                               Variant="ButtonVariant.Primary"
+                               Disabled="ActionInProgress"
+                               OnClick="@(_ => OnConfirmB2c.InvokeAsync())"
+                               TestId="document-detail-verdict-b2c" />
+                <StratumButton Text="Traiter manuellement (B2B)"
+                               Variant="ButtonVariant.Secondary"
+                               Outline
+                               Disabled="ActionInProgress"
+                               OnClick="@(_ => OnHandleManually.InvokeAsync())"
+                               TestId="document-detail-verdict-b2b" />
+            }
+            @if (IsBlocked)
+            {
+                <StratumButton Text="Revérifier maintenant"
+                               Variant="ButtonVariant.Secondary"
+                               Outline
+                               Disabled="ActionInProgress"
+                               OnClick="@(_ => OnRecheck.InvokeAsync())"
+                               TestId="document-detail-recheck" />
+            }
+            @* « Envoyer » réutilise le chemin d'envoi tenant (ADR-0016) : déclenche le traitement qui émet TOUS les ReadyToSend du tenant — sémantique annoncée par le hint ci-dessus et par le message de retour. *@
+            @if (IsReadyToSend)
+            {
+                <StratumButton Text="Envoyer"
+                               Variant="ButtonVariant.Primary"
+                               Disabled="ActionInProgress"
+                               OnClick="@(_ => OnSend.InvokeAsync())"
+                               TestId="document-detail-send" />
+            }
+        </ActionBar>
+    </div>
+}
+
+@code {
+    /// <summary>État « bloqué » (DocumentState, F06 §3) — comparé en chaîne pour rester découplé de l'enum du module.</summary>
+    private const string BlockedDocumentState = "Blocked";
+
+    /// <summary>État « prêt à l'envoi » (DocumentState) — comparé en chaîne pour rester découplé de l'enum du module.</summary>
+    private const string ReadyToSendDocumentState = "ReadyToSend";
+
+    /// <summary>Détail assemblé du document (jamais <c>null</c> : la page en fournit toujours un).</summary>
+    [Parameter, EditorRequired]
+    public DocumentDetailViewModel Model { get; set; } = null!;
+
+    /// <summary>
+    /// L'opérateur porte la permission d'action (<c>liakont.actions</c>, calculée par la page). Quand
+    /// <c>false</c>, AUCUN bouton n'est rendu : la fiche reste consultable en lecture (WEB03a). La vue reste
+    /// pure (le contrôle de permission vit dans la page ; l'application réelle reste serveur, défense en
+    /// profondeur dans les services d'action).
+    /// </summary>
+    [Parameter]
+    public bool CanAct { get; set; }
+
+    /// <summary>Une action est en cours : désactive les boutons pour éviter un double déclenchement.</summary>
+    [Parameter]
+    public bool ActionInProgress { get; set; }
+
+    /// <summary>Verdict « confirmer particulier (B2C) » demandé par l'opérateur.</summary>
+    [Parameter]
+    public EventCallback OnConfirmB2c { get; set; }
+
+    /// <summary>Verdict « traiter manuellement (B2B) » demandé par l'opérateur.</summary>
+    [Parameter]
+    public EventCallback OnHandleManually { get; set; }
+
+    /// <summary>Re-vérification immédiate demandée par l'opérateur.</summary>
+    [Parameter]
+    public EventCallback OnRecheck { get; set; }
+
+    /// <summary>Envoi du document (prêt à l'envoi) demandé par l'opérateur.</summary>
+    [Parameter]
+    public EventCallback OnSend { get; set; }
+
+    private bool IsBlocked => string.Equals(Model.Document.State, BlockedDocumentState, StringComparison.Ordinal);
+
+    private bool IsReadyToSend => string.Equals(Model.Document.State, ReadyToSendDocumentState, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Le verdict B2B/B2C n'est proposé que lorsque l'acheteur présente l'indice « société » de la source
+    /// (<see cref="DocumentDto.CustomerIsCompanyHint"/>) et que le verdict n'a pas déjà été posé
+    /// (<see cref="DocumentDto.BuyerConfirmedAsIndividual"/>). Signal STRUCTURÉ (aucune analyse de texte du
+    /// motif de blocage). La re-vérification, elle, reste proposée pour tout document bloqué — un acheteur
+    /// professionnel détecté sur un autre indice reste résoluble via la résolution terminale (WEB03c).
+    /// </summary>
+    private bool ShowVerdict => IsBlocked
+        && Model.Document.CustomerIsCompanyHint
+        && !Model.Document.BuyerConfirmedAsIndividual;
+
+    /// <summary>Au moins une action est pertinente pour l'état courant (sinon la barre n'est pas rendue).</summary>
+    private bool HasAction => IsBlocked || IsReadyToSend;
+}

@@ -29,10 +29,12 @@ public sealed class DocumentDetailResolutionWiringTests : BunitContext
         JSInterop.Mode = JSRuntimeMode.Loose;
         Services.AddLogging();
 
-        // La page mergée orchestre aussi les actions de l'onglet Contrôles (WEB03b) : IDocumentControlActions
-        // doit être résolvable pour la construire. No-op ici (ces tests portent sur la région de résolution
-        // WEB03c, sur un document RejectedByPa — les actions Contrôles WEB03b ne s'affichent que sur Blocked).
+        // La page orchestre aussi les actions de la barre permanente (FIX04b) : IDocumentControlActions (verdict
+        // garde-fou, re-vérification) ET IDocumentSendActions (envoi) doivent être résolvables pour la construire.
+        // No-op ici (ces tests portent sur la région de résolution WEB03c, sur un document RejectedByPa — verdict
+        // et re-vérification ne s'affichent que sur Blocked, l'envoi que sur ReadyToSend).
         Services.AddScoped<IDocumentControlActions>(_ => new NoOpControlActions());
+        Services.AddScoped<IDocumentSendActions>(_ => new NoOpSendActions());
     }
 
     [Fact]
@@ -151,6 +153,21 @@ public sealed class DocumentDetailResolutionWiringTests : BunitContext
 
         public Task<DocumentControlActionResult> RecheckAsync(Guid documentId, CancellationToken cancellationToken = default) =>
             Task.FromResult(DocumentControlActionResult.Ok("ok", "Blocked"));
+    }
+
+    private sealed class NoOpSendActions : IDocumentSendActions
+    {
+        public Task<DocumentSendActionResult> SendSelectionAsync(IReadOnlyCollection<Guid> documentIds, CancellationToken cancellationToken = default) =>
+            Task.FromResult(DocumentSendActionResult.Ok("ok"));
+
+        public Task<DocumentSendSummary> SummarizeReadyToSendAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new DocumentSendSummary(0, 0m));
+
+        public Task<DocumentSendActionResult> SendAllAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(DocumentSendActionResult.Ok("ok"));
+
+        public Task<DocumentSendActionResult> TriggerRunAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(DocumentSendActionResult.Ok("ok"));
     }
 
     private sealed class FakePermissionService : IPermissionService

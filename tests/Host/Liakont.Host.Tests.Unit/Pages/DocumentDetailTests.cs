@@ -23,12 +23,13 @@ public sealed class DocumentDetailTests : BunitContext
         JSInterop.Mode = JSRuntimeMode.Loose;
         Services.AddLogging();
 
-        // La page rend le composant d'actions de résolution terminale (WEB03c, injecte IDocumentResolutionConsoleService)
-        // ET orchestre les actions de l'onglet Contrôles (WEB03b, IDocumentControlActions + IPermissionService).
-        // Par défaut : pas de permission d'action + services no-op (la fiche reste consultable en lecture) ; les
-        // tests qui exercent une action remplacent ces fakes par des doubles spécifiques.
+        // La page rend la barre d'actions permanente (FIX04b : verdict garde-fou B2B/B2C + re-vérification via
+        // IDocumentControlActions, envoi via IDocumentSendActions) ET le composant de résolution terminale
+        // (WEB03c, IDocumentResolutionConsoleService). Par défaut : pas de permission d'action + services no-op
+        // (la fiche reste consultable en lecture) ; les tests qui exercent une action remplacent ces fakes.
         Services.AddScoped<IPermissionService>(_ => new FakePermissionService(canAct: false));
         Services.AddScoped<IDocumentControlActions>(_ => new FakeControlActions());
+        Services.AddScoped<IDocumentSendActions>(_ => new FakeSendActions());
         Services.AddScoped<IDocumentResolutionConsoleService>(_ => new NoOpResolutionService());
     }
 
@@ -70,7 +71,7 @@ public sealed class DocumentDetailTests : BunitContext
     }
 
     [Fact]
-    public void Should_Offer_Action_Buttons_When_Operator_Has_Actions_Permission()
+    public void Should_Offer_Action_Buttons_In_The_Permanent_Bar_When_Operator_Has_Actions_Permission()
     {
         Services.AddScoped<IPermissionService>(_ => new FakePermissionService(canAct: true));
         Services.AddScoped<IDocumentDetailConsoleQueries>(_ =>
@@ -78,7 +79,8 @@ public sealed class DocumentDetailTests : BunitContext
 
         var cut = Render<DocumentDetail>(p => p.Add(c => c.Id, DocId));
 
-        SelectControlsTab(cut);
+        // Les actions sont dans la barre permanente en tête de fiche — PAS besoin d'ouvrir un onglet (FIX04b).
+        cut.FindAll("[data-testid='document-detail-action-bar']").Should().ContainSingle();
         cut.FindAll("[data-testid='document-detail-verdict-b2c']").Should().ContainSingle();
         cut.FindAll("[data-testid='document-detail-recheck']").Should().ContainSingle();
     }
@@ -92,9 +94,12 @@ public sealed class DocumentDetailTests : BunitContext
 
         var cut = Render<DocumentDetail>(p => p.Add(c => c.Id, DocId));
 
-        SelectControlsTab(cut);
+        cut.FindAll("[data-testid='document-detail-action-bar']").Should().BeEmpty();
         cut.FindAll("[data-testid='document-detail-verdict-b2c']").Should().BeEmpty();
         cut.FindAll("[data-testid='document-detail-recheck']").Should().BeEmpty();
+
+        // … mais le blocage reste visible en lecture, dans l'onglet Contrôles (contenu seul).
+        SelectControlsTab(cut);
         cut.FindAll("[data-testid='document-detail-controls-blocked']").Should().ContainSingle("le blocage reste visible en lecture");
     }
 
@@ -112,7 +117,6 @@ public sealed class DocumentDetailTests : BunitContext
 
         var cut = Render<DocumentDetail>(p => p.Add(c => c.Id, DocId));
 
-        SelectControlsTab(cut);
         var loadsBefore = queries.GetDetailCalls;
         cut.Find("[data-testid='document-detail-recheck']").Click();
 
@@ -120,9 +124,11 @@ public sealed class DocumentDetailTests : BunitContext
         {
             actions.RecheckCalls.Should().ContainSingle().Which.Should().Be(DocId);
 
-            // La page recharge le détail après l'action (historique + contrôles à jour sans rechargement de page).
-            // Le rendu du message de retour est couvert par le test de la vue (DocumentDetailViewTests).
+            // La page recharge le détail après l'action (état + historique à jour sans rechargement de page).
             queries.GetDetailCalls.Should().BeGreaterThan(loadsBefore);
+
+            // Le message de retour s'affiche dans le bandeau d'action, en tête de fiche (déplacé depuis l'onglet — FIX04b).
+            cut.Find("[data-testid='document-detail-action-feedback']").TextContent.Should().Contain("prêt à l'envoi");
         });
     }
 
@@ -139,7 +145,6 @@ public sealed class DocumentDetailTests : BunitContext
 
         var cut = Render<DocumentDetail>(p => p.Add(c => c.Id, DocId));
 
-        SelectControlsTab(cut);
         cut.Find("[data-testid='document-detail-verdict-b2c']").Click();
         cut.WaitForAssertion(() => actions.VerdictCalls.Should().ContainSingle());
 
@@ -148,6 +153,31 @@ public sealed class DocumentDetailTests : BunitContext
 
         actions.VerdictCalls[0].Should().Be((DocId, ConsoleVerdict.ConfirmIndividualB2c));
         actions.VerdictCalls[1].Should().Be((DocId, ConsoleVerdict.HandleManuallyB2b));
+    }
+
+    [Fact]
+    public void Send_Click_Sends_This_Document_And_Reloads_The_Detail()
+    {
+        // FIX04b : le bouton « Envoyer » d'un document prêt à l'envoi déclenche l'envoi de CE document
+        // (sélection mono-document, chemin d'envoi existant) puis recharge le détail.
+        var sender = new FakeSendActions();
+        var queries = FakeDetailQueries.Returning(BuildModel("2026-024", state: "ReadyToSend"));
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(canAct: true));
+        Services.AddScoped<IDocumentSendActions>(_ => sender);
+        Services.AddScoped<IDocumentDetailConsoleQueries>(_ => queries);
+
+        var cut = Render<DocumentDetail>(p => p.Add(c => c.Id, DocId));
+
+        var loadsBefore = queries.GetDetailCalls;
+        cut.FindAll("[data-testid='document-detail-send']").Should().ContainSingle();
+        cut.Find("[data-testid='document-detail-send']").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            sender.SendSelectionCalls.Should().ContainSingle()
+                .Which.Should().BeEquivalentTo(new[] { DocId });
+            queries.GetDetailCalls.Should().BeGreaterThan(loadsBefore);
+        });
     }
 
     private static void SelectControlsTab(IRenderedComponent<DocumentDetail> cut)
@@ -250,6 +280,29 @@ public sealed class DocumentDetailTests : BunitContext
             RecheckCalls.Add(documentId);
             return Task.FromResult(RecheckResult);
         }
+    }
+
+    private sealed class FakeSendActions : IDocumentSendActions
+    {
+        public List<IReadOnlyCollection<Guid>> SendSelectionCalls { get; } = [];
+
+        public DocumentSendActionResult SendResult { get; set; } =
+            DocumentSendActionResult.Ok("Envoi déclenché : le traitement d'envoi du tenant émet ce document.");
+
+        public Task<DocumentSendActionResult> SendSelectionAsync(IReadOnlyCollection<Guid> documentIds, CancellationToken cancellationToken = default)
+        {
+            SendSelectionCalls.Add(documentIds);
+            return Task.FromResult(SendResult);
+        }
+
+        public Task<DocumentSendSummary> SummarizeReadyToSendAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new DocumentSendSummary(0, 0m));
+
+        public Task<DocumentSendActionResult> SendAllAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(DocumentSendActionResult.Ok("Envoi groupé déclenché."));
+
+        public Task<DocumentSendActionResult> TriggerRunAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(DocumentSendActionResult.Ok("Traitement déclenché."));
     }
 
     private sealed class NoOpResolutionService : IDocumentResolutionConsoleService
