@@ -27,4 +27,14 @@ public sealed record PaTaxReportSetting
 
     /// <summary>Réponse brute de la PA, conservée pour l'audit (peut être <c>null</c>).</summary>
     public string? RawResponse { get; init; }
+
+    /// <summary>
+    /// Le SIREN est PUBLIÉ / la transmission est ACTIVE à la date <paramref name="today"/> : la date de
+    /// début est renseignée ET non future (F05 §2 : une <c>start_date</c> future = SIREN non publié, aucun
+    /// envoi possible). SOURCE UNIQUE de cette règle d'activation — consommée par le gating d'envoi
+    /// (diagnostic pré-envoi F04 §3.1) ET par l'affichage de l'état de publication dans la console, pour
+    /// qu'ils ne puissent jamais diverger.
+    /// </summary>
+    /// <param name="today">Jour de référence (UTC) à comparer à la date de début.</param>
+    public bool IsActiveOn(DateOnly today) => StartDate is { } startDate && startDate <= today;
 }
