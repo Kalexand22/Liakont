@@ -272,9 +272,20 @@ function Set-InstanceRegistryEntry {
     )
 
     $existing = @(Read-InstanceRegistry -Path $Path)
+    $prev = $existing | Where-Object { $_.name -eq $Entry['name'] } | Select-Object -First 1
     $kept = @($existing | Where-Object { $_.name -ne $Entry['name'] })
     $merged = [ordered]@{}
-    foreach ($f in $script:RegistryFields) { $merged[$f] = if ($Entry.ContainsKey($f)) { [string]$Entry[$f] } else { '' } }
+    foreach ($f in $script:RegistryFields) {
+        if ($Entry.ContainsKey($f)) {
+            $merged[$f] = [string]$Entry[$f]
+        }
+        elseif ($prev -and ($prev.PSObject.Properties.Name -contains $f)) {
+            $merged[$f] = [string]$prev.$f
+        }
+        else {
+            $merged[$f] = ''
+        }
+    }
     $all = @($kept) + @([PSCustomObject]$merged)
     Write-InstanceRegistry -Path $Path -Instances $all
 }
@@ -342,17 +353,45 @@ function Backup-InstanceDatabases {
 
     if (-not (Test-Path -LiteralPath $OutputDir)) { New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null }
 
+    # Résolution du conteneur postgres (nécessaire pour docker cp).
+    $pgIdArgs = $ComposeArgs + @('ps', '-q', 'postgres')
+    $pgContainerId = (& docker @pgIdArgs 2>$null | Select-Object -First 1)
+    if (-not $pgContainerId) {
+        throw "Conteneur postgres introuvable (Compose args : $ComposeArgs). L'instance est-elle démarrée ?"
+    }
+
     foreach ($db in $Databases) {
         $target = Join-Path $OutputDir "$db.sql"
-        $dumpArgs = $ComposeArgs + @('exec', '-T', 'postgres', 'pg_dump', '-U', $PostgresUser, '-d', $db)
-        # pg_dump écrit le dump sur stdout ; on le redirige vers le fichier hôte.
-        & docker @dumpArgs > $target 2>$null
+        $containerPath = "/tmp/$db.sql"
+
+        # 1. Dump à l'intérieur du conteneur (pas de redirection PowerShell = pas de corruption UTF-16).
+        $dumpArgs = $ComposeArgs + @('exec', '-T', 'postgres', 'pg_dump', '-U', $PostgresUser, '-d', $db, '-f', $containerPath)
+        & docker @dumpArgs 2>$null
         if ($LASTEXITCODE -ne 0) {
-            throw "Échec de la sauvegarde pré-migration de la base « $db ». Migration ANNULÉE (aucune montée " +
+            throw "Échec de la sauvegarde pré-migration de la base « $db » (pg_dump). Migration ANNULÉE (aucune montée " +
                   "de version sans sauvegarde — OPS02 pt 4)."
         }
+
+        # 2. Copier les octets bruts vers l'hôte (docker cp, pas de ré-encodage PowerShell).
+        & docker cp "${pgContainerId}:${containerPath}" $target
+        if ($LASTEXITCODE -ne 0) {
+            throw "Échec de la copie du dump de la base « $db » (docker cp). Migration ANNULÉE (anti-faux-vert)."
+        }
+
+        # 3. Nettoyage du fichier temporaire dans le conteneur (best effort).
+        $rmArgs = $ComposeArgs + @('exec', '-T', 'postgres', 'rm', '-f', $containerPath)
+        & docker @rmArgs 2>$null | Out-Null
+
+        # 4. Gardes post-copie.
         if (-not (Test-Path -LiteralPath $target) -or (Get-Item -LiteralPath $target).Length -eq 0) {
             throw "Sauvegarde de « $db » vide ou absente ($target). Migration ANNULÉE (anti-faux-vert)."
+        }
+        # Garde anti-corruption UTF-16 (BOM 0xFF 0xFE ou 0xFE 0xFF en tête de fichier).
+        $firstBytes = [System.IO.File]::ReadAllBytes($target) | Select-Object -First 2
+        if (($firstBytes.Count -ge 2) -and (
+            ($firstBytes[0] -eq 0xFF -and $firstBytes[1] -eq 0xFE) -or
+            ($firstBytes[0] -eq 0xFE -and $firstBytes[1] -eq 0xFF))) {
+            throw "Dump de « $db » corrompu (BOM UTF-16 détecté — encodage PowerShell). Migration ANNULÉE (anti-faux-vert)."
         }
     }
     return $OutputDir
@@ -361,13 +400,23 @@ function Backup-InstanceDatabases {
 function Wait-InstanceHealthy {
     <#
     .SYNOPSIS
-        Attend que le service Host soit STABLEMENT démarré (ou conclut à l'échec de démarrage).
+        Attend que le service Host soit PRÊT à servir des requêtes (ou conclut à l'échec de démarrage).
     .DESCRIPTION
-        Sans endpoint /health applicatif, la santé se déduit de l'état du conteneur Host : « running »
-        de façon STABLE pendant StableSeconds = démarrage réussi (migrations appliquées). « restarting »
-        ou « exited » = le Host a avorté son démarrage — typiquement une migration tenant en échec
-        (AppBootstrap.InitializeDataAsync relève l'AggregateException de MigrateExistingTenantsAsync,
-        ce qui interrompt le démarrage : aucune requête servie sur une base à demi-migrée).
+        Les migrations DbUp s'exécutent dans InitializeDataAsync AVANT que app.Run() ouvre l'écouteur
+        HTTP : toute réponse HTTP positive prouve donc que les migrations sont terminées. La fonction
+        sonde d'abord via une requête HTTP (wget dans le conteneur caddy vers http://liakont:8080/).
+        Un code HTTP quelconque (200/302/401…) est accepté comme signal de disponibilité.
+
+        Si wget est absent de l'image caddy (probe non disponible), la fonction bascule sur un mode
+        dégradé : elle exige que le conteneur soit « running » ET que le RestartCount n'ait pas augmenté
+        pendant une fenêtre de stabilité continue (max(StableSeconds, 30) s), et émet un avertissement.
+
+        Détection agressive d'échec : « exited » / « dead » OU RestartCount > baseline (crash-loop)
+        déclenchent immédiatement Healthy=$false.
+
+        Note : TenantProvisioningService.MigrateExistingTenantsAsync saute silencieusement un tenant
+        dont la DB est INJOIGNABLE (NpgsqlException enregistrée, pas relancée). Le Host démarre malgré
+        tout — voir instruction post-succès dans update-instance.ps1.
     .OUTPUTS
         PSCustomObject { Healthy [bool]; State [string]; Detail [string] }
     #>
@@ -379,35 +428,73 @@ function Wait-InstanceHealthy {
         [int]$StableSeconds = 15
     )
 
+    # Capture de la baseline RestartCount avant de commencer à attendre.
+    $idArgsBase = $ComposeArgs + @('ps', '-q', $Service)
+    $baseContainerId = (& docker @idArgsBase 2>$null | Select-Object -First 1)
+    $baseRestartCount = 0
+    if ($baseContainerId) {
+        $raw = (& docker inspect -f '{{.State.RestartCount}}' $baseContainerId 2>$null | Select-Object -First 1)
+        if ($raw -match '^\d+$') { $baseRestartCount = [int]$raw }
+    }
+
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    $stableSince = $null
+    $fallbackStableSince = $null
     $lastState = 'unknown'
+    $fallbackSettleSeconds = [Math]::Max($StableSeconds, 30)
+
     while ((Get-Date) -lt $deadline) {
         $idArgs = $ComposeArgs + @('ps', '-q', $Service)
         $containerId = (& docker @idArgs 2>$null | Select-Object -First 1)
-        if ($containerId) {
-            $state = (& docker inspect -f '{{.State.Status}}' $containerId 2>$null | Select-Object -First 1)
-            $restarting = (& docker inspect -f '{{.State.Restarting}}' $containerId 2>$null | Select-Object -First 1)
-            $lastState = "$state"
-            if ($state -eq 'exited' -or $state -eq 'dead') {
-                return [PSCustomObject]@{ Healthy = $false; State = $state
-                    Detail = "Le conteneur « $Service » s'est arrêté (état « $state ») — démarrage du Host avorté." }
-            }
-            if ($state -eq 'running' -and "$restarting" -ne 'true') {
-                if ($null -eq $stableSince) { $stableSince = Get-Date }
-                elseif (((Get-Date) - $stableSince).TotalSeconds -ge $StableSeconds) {
+        if (-not $containerId) { Start-Sleep -Seconds 3; continue }
+
+        $state = (& docker inspect -f '{{.State.Status}}' $containerId 2>$null | Select-Object -First 1)
+        $rawRestart = (& docker inspect -f '{{.State.RestartCount}}' $containerId 2>$null | Select-Object -First 1)
+        $restartCount = if ($rawRestart -match '^\d+$') { [int]$rawRestart } else { 0 }
+        $lastState = "$state"
+
+        # Détection d'échec immédiate.
+        if ($state -eq 'exited' -or $state -eq 'dead') {
+            return [PSCustomObject]@{ Healthy = $false; State = $state
+                Detail = "Le conteneur « $Service » s'est arrêté (état « $state ») — démarrage du Host avorté." }
+        }
+        if ($restartCount -gt $baseRestartCount) {
+            return [PSCustomObject]@{ Healthy = $false; State = $state
+                Detail = "Le conteneur « $Service » a redémarré (RestartCount $restartCount > baseline $baseRestartCount) — crash-loop détecté." }
+        }
+
+        # Signal de disponibilité : sonde HTTP via caddy → listener interne du Host.
+        if ($state -eq 'running') {
+            $probeArgs = $ComposeArgs + @('exec', '-T', 'caddy', 'wget', '-S', '-q', '-O', '/dev/null', '-T', '5', 'http://liakont:8080/')
+            $probe = (& docker @probeArgs 2>&1 | Out-String)
+            if ($probe -match 'not found' -or $probe -match 'applet not found' -or $LASTEXITCODE -eq 127) {
+                # wget absent : mode dégradé — stabilité soutenue.
+                if ($null -eq $fallbackStableSince) {
+                    $fallbackStableSince = Get-Date
+                    Write-WarnMsg "wget non disponible dans le conteneur caddy — santé inférée par stabilité du conteneur (mode dégradé, fenêtre $fallbackSettleSeconds s)."
+                }
+                elseif (((Get-Date) - $fallbackStableSince).TotalSeconds -ge $fallbackSettleSeconds) {
                     return [PSCustomObject]@{ Healthy = $true; State = 'running'
-                        Detail = "Conteneur « $Service » stable depuis $StableSeconds s." }
+                        Detail = "Conteneur « $Service » stable depuis $fallbackSettleSeconds s (sonde HTTP non disponible — mode dégradé)." }
                 }
             }
+            elseif ($probe -match 'HTTP/') {
+                # Réponse HTTP reçue : listener actif → toutes les migrations sont terminées.
+                return [PSCustomObject]@{ Healthy = $true; State = 'running'
+                    Detail = "Sonde HTTP positive (listener actif après migrations) — Host « $Service » prêt." }
+            }
             else {
-                $stableSince = $null   # « restarting » remet le compteur de stabilité à zéro
+                # Pas encore de réponse HTTP mais pas d'erreur wget fatale : remettre le compteur de stabilité.
+                $fallbackStableSince = $null
             }
         }
+        else {
+            $fallbackStableSince = $null
+        }
+
         Start-Sleep -Seconds 3
     }
     return [PSCustomObject]@{ Healthy = $false; State = $lastState
-        Detail = "Délai dépassé ($TimeoutSeconds s) sans démarrage stable du Host (dernier état « $lastState »)." }
+        Detail = "Délai dépassé ($TimeoutSeconds s) sans signal de disponibilité du Host (dernier état « $lastState »)." }
 }
 
 Export-ModuleMember -Function `

@@ -87,8 +87,11 @@ La séquence garantit qu'**une instance ne tourne jamais avec des bases à des v
 3. **Nouvelle image** — `docker compose build --pull`.
 4. **Migration** — `docker compose up -d`. Au démarrage, le Host migre la base **système** puis
    **toutes** les bases tenant (`MigrateExistingTenantsAsync`, boucle DbUp). Si une migration tenant
-   échoue, le Host **avorte son démarrage** (l'`AggregateException` remonte dans
+   **JOIGNABLE** échoue, le Host **avorte son démarrage** (l'`AggregateException` remonte dans
    `AppBootstrap.InitializeDataAsync`) : aucune requête servie sur une base à demi-migrée.
+   > **Attention** : un tenant dont la DB est **injoignable** (NpgsqlException) est ignoré
+   > silencieusement — le Host démarre quand même. Après une mise à jour réussie, vérifiez
+   > `docker compose -p <project> logs liakont` pour tout avertissement « tenant migration skipped ».
 5. **Santé** :
    - **succès** → sortie de maintenance (503 levé), registre mis à jour (version + date) ;
    - **échec** → le service Host est **ARRÊTÉ**, l'instance reste **hors ligne** (jamais d'état mixte

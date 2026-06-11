@@ -123,6 +123,33 @@ try {
         Assert-Equal 2 $read.Count 'deux instances dans l''exemple'
         Assert-True (($read | Where-Object { $_.name -eq 'demo-editeur' }).hosting -eq 'hosted') 'champ hosting lu'
     }
+    Test-Case 'Registre : mise à jour partielle préserve les champs absents (FIX1 — pas de perte de champs)' {
+        $p = Join-Path $tmpRoot 'reg-fix1.yaml'
+        # Écriture initiale complète (tous les champs).
+        Set-InstanceRegistryEntry -Path $p -Entry @{
+            name       = 'fix1-inst'
+            editor     = 'Fix1 SARL'
+            url        = 'https://fix1.test'
+            hosting    = 'self-hosted'
+            version    = 'v1'
+            project    = 'liakont-fix1-inst'
+            created_at = '2024-01-01T00:00:00Z'
+            updated_at = '2024-01-01T00:00:00Z'
+        }
+        # Mise à jour PARTIELLE : seulement name + version + updated_at (comme update-instance.ps1).
+        Set-InstanceRegistryEntry -Path $p -Entry @{
+            name       = 'fix1-inst'
+            version    = 'v2'
+            updated_at = '2024-06-01T00:00:00Z'
+        }
+        $read = @(Read-InstanceRegistry -Path $p)
+        $inst = $read | Where-Object { $_.name -eq 'fix1-inst' }
+        Assert-Equal 'v2'                   $inst.version    'version mise à jour'
+        Assert-Equal '2024-06-01T00:00:00Z' $inst.updated_at 'updated_at mis à jour'
+        Assert-Equal 'Fix1 SARL'            $inst.editor     'editor préservé (non écrasé)'
+        Assert-Equal '2024-01-01T00:00:00Z' $inst.created_at 'created_at préservé (non écrasé)'
+        Assert-Equal 'self-hosted'          $inst.hosting    'hosting préservé (non remplacé par hosted)'
+    }
 
     # ── maintenance.Caddyfile (503 explicite) ──
     Test-Case 'Maintenance : Caddyfile renvoie 503 sur /api/agent/*' {

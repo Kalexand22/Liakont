@@ -76,9 +76,14 @@ function Disable-Maintenance {
     $normal = Join-Path $Dir 'Caddyfile.normal'
     if (Test-Path -LiteralPath $normal) {
         Copy-Item -LiteralPath $normal -Destination $active -Force
-        Remove-Item -LiteralPath $normal -Force
         & docker @ComposeArgs exec -T caddy caddy reload --config /etc/caddy/Caddyfile 2>$null
-        Write-Ok 'Mode maintenance levé : push agents de nouveau acceptés.'
+        if ($LASTEXITCODE -eq 0) {
+            Remove-Item -LiteralPath $normal -Force
+            Write-Ok 'Mode maintenance levé : push agents de nouveau acceptés.'
+        }
+        else {
+            Write-WarnMsg "Rechargement Caddy en échec — Caddyfile.normal CONSERVÉ (le Caddyfile de maintenance est peut-être encore servi). Rechargement manuel : docker compose -p $( ($ComposeArgs | Where-Object { $_ -match '^liakont-' } | Select-Object -First 1) ) exec caddy caddy reload --config /etc/caddy/Caddyfile"
+        }
     }
 }
 
@@ -158,10 +163,11 @@ try {
         Set-InstanceRegistryEntry -Path $RegistryPath -Entry @{
             name = $instance.Name; project = $instance.ProjectName
             url = "https://$( (Get-Content -LiteralPath (Join-Path $instanceDir '.env') | Where-Object { $_ -match '^PUBLIC_HOSTNAME=' } | ForEach-Object { ($_ -split '=', 2)[1] } | Select-Object -First 1) )"
-            version = $TargetVersion; hosting = 'hosted'; updated_at = $stamp
+            version = $TargetVersion; updated_at = $stamp
         }
         Write-Host ''
-        Write-Ok "Instance « $($instance.Name) » à jour (version « $TargetVersion »). Toutes les bases migrées."
+        Write-Ok "Instance « $($instance.Name) » à jour (version « $TargetVersion »)."
+        Write-WarnMsg "Vérifiez les logs : docker compose -p $($instance.ProjectName) logs liakont | Select-String 'tenant migration skipped' — un tenant dont la DB était injoignable au démarrage est ignoré silencieusement (le Host démarre quand même)."
         exit 0
     }
 

@@ -97,23 +97,31 @@ try {
     Write-Step '1/4 Matérialisation du répertoire d''instance'
     New-Item -ItemType Directory -Path $instanceDir -Force | Out-Null
 
-    # docker-compose.yml : copié avec le contexte de build réécrit en chemin ABSOLU (le compte
-    # relatif « ../../.. » de l'appliance ne vaut plus depuis le répertoire d'instance). Les montages
-    # « ./Caddyfile » et « ./keycloak/... » résolvent vers les copies par instance ci-dessous.
-    $composeSrc = Get-Content -LiteralPath (Join-Path $applianceDir 'docker-compose.yml') -Raw
-    $absContext = ($repoRoot -replace '\\', '/')
-    $composeOut = $composeSrc -replace 'context:\s*\.\./\.\./\.\.', "context: $absContext"
-    if ($composeOut -eq $composeSrc) {
-        throw "Le contexte de build « ../../.. » est introuvable dans le compose appliance — la réécriture " +
-              "du contexte a échoué (le format du compose a changé ?). Instance non créée."
+    if ($Mode -eq 'hosted') {
+        # docker-compose.yml : copié avec le contexte de build réécrit en chemin ABSOLU (le chemin
+        # relatif « ../../.. » de l'appliance ne vaut plus depuis le répertoire d'instance).
+        # En mode self-hosted on NE matérialise PAS le compose — le chemin absolu de l'opérateur
+        # n'existe pas sur la machine de l'éditeur et fuiterait son arborescence locale.
+        $composeSrc = Get-Content -LiteralPath (Join-Path $applianceDir 'docker-compose.yml') -Raw
+        $absContext = ($repoRoot -replace '\\', '/')
+        $composeOut = $composeSrc -replace 'context:\s*\.\./\.\./\.\.', "context: $absContext"
+        if ($composeOut -eq $composeSrc) {
+            throw "Le contexte de build « ../../.. » est introuvable dans le compose appliance — la réécriture " +
+                  "du contexte a échoué (le format du compose a changé ?). Instance non créée."
+        }
+        [System.IO.File]::WriteAllText((Join-Path $instanceDir 'docker-compose.yml'), $composeOut, (New-Object System.Text.UTF8Encoding($false)))
     }
-    [System.IO.File]::WriteAllText((Join-Path $instanceDir 'docker-compose.yml'), $composeOut, (New-Object System.Text.UTF8Encoding($false)))
 
     Copy-Item -LiteralPath (Join-Path $applianceDir 'Caddyfile') -Destination (Join-Path $instanceDir 'Caddyfile')
     Copy-Item -LiteralPath (Join-Path $scriptRoot 'maintenance.Caddyfile') -Destination (Join-Path $instanceDir 'maintenance.Caddyfile')
     New-Item -ItemType Directory -Path (Join-Path $instanceDir 'keycloak') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $applianceDir 'keycloak\realm-liakont.json') -Destination (Join-Path $instanceDir 'keycloak\realm-liakont.json')
-    Write-Ok 'Stack copiée (compose, Caddyfile, Caddyfile de maintenance, realm).'
+    if ($Mode -eq 'hosted') {
+        Write-Ok 'Stack copiée (compose, Caddyfile, Caddyfile de maintenance, realm).'
+    }
+    else {
+        Write-Ok 'Configuration copiée (Caddyfile, Caddyfile de maintenance, realm) — compose non matérialisé (self-hosted).'
+    }
 
     # ── 2. Générer le .env (secrets uniques) ──
     Write-Step '2/4 Génération des secrets et du .env'
@@ -135,11 +143,15 @@ try {
         $bundleReadme = @"
 # Bundle d'instance Liakont — $($instance.Name)
 
-Configuration à déposer dans VOTRE copie de l'appliance Liakont (deploy/docker/appliance) :
+Ce bundle contient la configuration de VOTRE instance (.env, Caddyfile, realm Keycloak).
+Il ne contient PAS de docker-compose.yml — utilisez le vôtre (deploy/docker/appliance).
 
-1. Copiez « .env », « Caddyfile » et « keycloak/realm-liakont.json » de ce bundle dans le répertoire
-   de l'appliance (en écrasant le .env.example par votre .env).
-2. Lancez : `docker compose -p $($instance.ProjectName) up -d --build`
+## Procédure de démarrage
+
+1. Copiez « .env », « Caddyfile » et « keycloak/realm-liakont.json » de ce bundle dans votre
+   répertoire d'appliance (deploy/docker/appliance), en remplaçant le .env.example par votre .env.
+2. Depuis ce répertoire d'appliance, lancez :
+   ``docker compose -p $($instance.ProjectName) --env-file .env up -d --build``
 3. Vérifiez : la console répond sur $publicBaseUrl, la connexion Keycloak fonctionne.
 
 Le .env contient des SECRETS uniques à votre instance — ne le partagez pas, ne le versionnez pas.
