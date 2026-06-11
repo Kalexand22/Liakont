@@ -125,6 +125,16 @@ public sealed class ParametrageViewTests : BunitContext
     }
 
     [Fact]
+    public void Should_Link_To_The_Pa_Accounts_Management_Page()
+    {
+        // Le lien « Gérer les comptes PA » est offert même sans compte (création du premier depuis l'écran dédié)
+        // — la page cible porte la garde liakont.settings (FIX01c).
+        var cut = Render<ParametrageView>(p => p.Add(v => v.Model, BuildModel()));
+
+        cut.FindAll("[data-testid='parametrage-pa-link']").Should().ContainSingle();
+    }
+
+    [Fact]
     public void Should_Render_Tva_Validated_With_Validator_And_Link()
     {
         var tva = new TvaMappingSummaryDto
