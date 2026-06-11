@@ -73,10 +73,23 @@ public sealed class BrandingHeadTests : BunitContext
         var cut = Render<BrandingHead>();
 
         string style = cut.Find("style").TextContent;
-        style.Should().Contain(":root{");
         style.Should().Contain("--color-primary:#123456;");
         style.Should().Contain("--color-primary-600:#123456;", "la barre latérale dérive de --color-primary-600");
         style.Should().Contain("--color-primary-container:#abcdef;", "l'accent surcharge le conteneur primaire");
+    }
+
+    [Fact]
+    public void Color_Override_Is_Scoped_To_Light_Theme()
+    {
+        // Le contrat : la surcharge cible le thème CLAIR. Le sélecteur :root:not([data-theme="dark"])
+        // ne matche jamais en thème sombre, où le socle garde sa palette sombre scellée.
+        WithBranding(new BrandingOptions { PrimaryColor = "#123456" });
+
+        var cut = Render<BrandingHead>();
+
+        string style = cut.Find("style").TextContent;
+        style.Should().StartWith(":root:not([data-theme=\"dark\"]){", "la marque ne repeint pas le thème sombre");
+        style.Should().NotContain(":root{", "jamais un :root nu qui s'appliquerait aussi en sombre");
     }
 
     [Fact]

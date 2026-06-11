@@ -52,6 +52,10 @@
             sb.Append("--color-primary-container:").Append(brand.AccentColor).Append(';');
         }
 
-        return sb.Length == 0 ? null : ":root{" + sb + "}";
+        // Scopé au thème CLAIR : :root:not([data-theme="dark"]) a une spécificité (0,2,0) — il gagne en
+        // clair mais ne matche JAMAIS sous <html data-theme="dark">, où le socle garde sa palette sombre
+        // scellée (sinon, à spécificité égale avec [data-theme="dark"], ce bloc émis après tokens.css
+        // l'emporterait aussi en sombre). Rend vrai le contrat documenté ci-dessus.
+        return sb.Length == 0 ? null : ":root:not([data-theme=\"dark\"]){" + sb + "}";
     }
 }
