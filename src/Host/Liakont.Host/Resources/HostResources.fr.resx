@@ -195,7 +195,6 @@
   <!-- Breadcrumb aria -->
   <data name="Breadcrumb_AriaLabel" xml:space="preserve"><value>Fil d'Ariane</value></data>
   <!-- Sidebar navigation -->
-  <data name="Nav_Brand" xml:space="preserve"><value>Stratum ERP</value></data>
   <data name="Nav_AriaLabel" xml:space="preserve"><value>Navigation principale</value></data>
   <data name="Nav_TreeAriaLabel" xml:space="preserve"><value>Menu</value></data>
   <data name="Nav_ExpandSidebar" xml:space="preserve"><value>Déplier la barre latérale (Ctrl+B)</value></data>

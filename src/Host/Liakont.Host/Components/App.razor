@@ -5,7 +5,6 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
-    <title>Stratum ERP</title>
     <script>
         // Apply saved theme before first paint to prevent flash.
         // Must be inline in <head> so it runs before CSS is evaluated.
@@ -42,6 +41,9 @@
     <link rel="stylesheet" href="/_content/Stratum.Common.UI/css/radzen-overrides.css" />
     <link rel="stylesheet" href="/Liakont.Host.styles.css" />
     <link rel="stylesheet" href="/css/app.css" />
+    @* Branding d'instance (BRD01) : titre d'onglet, favicon, surcharge de thème — APRÈS les CSS du socle
+       pour que la surcharge :root l'emporte sur tokens.css. *@
+    <BrandingHead />
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
 <body>

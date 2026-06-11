@@ -195,3 +195,26 @@ items:
       - "Vérification outillée (Playwright) ou vérification manuelle documentée"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
+
+  # Définition de la gate du segment console-polish (présente dans le manifest depuis v20 mais omise
+  # de ce fichier de lot lors du seed — complétée pour rétablir la réciprocité manifest→lot exigée par
+  # manifest-sanity ; routage/depends_on restent dans le manifest). Décision opérateur F7.
+  GATE_CONSOLE_POLISH:
+    type: gate
+    executor: human
+    title: "Gate : re-recette ergonomique de la console (passe écran par écran)"
+    description: |
+      Recette humaine de la « grande passe d'ergonomie » post-gate CONSOLE_WEB : l'opérateur parcourt
+      la console écran par écran et valide que l'expérience est cohérente et opérable (décision F7 — la
+      passe n'est PAS inventoriable par les runners, elle se fait en recette). Cette gate re-valide AUSSI
+      les livrables jamais vus à l'écran au run 3 : FIX205 (onglet Contenu), FIX206 (refresh/exports en
+      détail), FIX208 (exports d'archive), FIX211 (admin jobs), témoin de vie supervision (FIX210),
+      re-stage des zombies (FIX07b), plus le reliquat S6/S7/S8, la rotation/révocation de clé agent et
+      [Vérifier intégrité archive] (voir tasks/recette-gate-console-web.md). Les correctifs FIX301-FIX306
+      (paramètres fiscaux éditables, actions en masse, nav AUDIT masquée, seeds cohérents, acteur nommé
+      dans l'audit, layout du shell) doivent être visibles et corrects à l'écran.
+    acceptance:
+      - "Parcours écran par écran de la console sans régression ergonomique bloquante"
+      - "Correctifs FIX301-FIX306 visibles et corrects à l'écran"
+      - "Livrables FIX2 jamais vus au run 3 re-validés (FIX205/206/208/210/211, FIX07b)"
+      - "Anomalies résiduelles consignées au bug-inbox pour un lot ultérieur"

@@ -1,0 +1,53 @@
+@using System.Text
+@using Liakont.Host.Configuration
+@using Microsoft.Extensions.Options
+@inject IOptions<BrandingOptions> Branding
+
+@* Branding d'instance dans le <head> (BRD01, marque grise) : titre d'onglet, favicon et surcharge des
+   variables de thème. Inclus APRÈS les feuilles de style du socle (App.razor) pour que la règle :root
+   ci-dessous l'emporte sur tokens.css. Les couleurs sont VALIDÉES (hex) avant émission — une valeur de
+   config malformée est ignorée, jamais injectée telle quelle dans le bloc <style>. *@
+<title>@_brand.CommercialName</title>
+@if (!string.IsNullOrWhiteSpace(_brand.FaviconUrl))
+{
+    <link rel="icon" href="@_brand.FaviconUrl" />
+}
+@if (_colorCss is { Length: > 0 })
+{
+    <style>@_colorCss</style>
+}
+
+@code {
+    private BrandingOptions _brand = default!;
+    private string? _colorCss;
+
+    protected override void OnInitialized()
+    {
+        _brand = Branding.Value;
+        _colorCss = BuildColorCss(_brand);
+    }
+
+    /// <summary>
+    /// Construit la surcharge <c>:root</c> des jetons de thème à partir des seules couleurs hex valides.
+    /// La barre latérale dérive de <c>--color-primary-600/700</c> (tokens.css) ; on surcharge donc la
+    /// rampe primaire ancre, et l'accent surcharge <c>--color-primary-container</c>.
+    /// </summary>
+    private static string? BuildColorCss(BrandingOptions brand)
+    {
+        var sb = new StringBuilder();
+
+        if (BrandingOptions.IsHexColor(brand.PrimaryColor))
+        {
+            sb.Append("--color-primary:").Append(brand.PrimaryColor).Append(';');
+            sb.Append("--color-primary-600:").Append(brand.PrimaryColor).Append(';');
+            sb.Append("--color-primary-700:").Append(brand.PrimaryColor).Append(';');
+        }
+
+        if (BrandingOptions.IsHexColor(brand.AccentColor))
+        {
+            sb.Append("--color-primary-container:").Append(brand.AccentColor).Append(';');
+        }
+
+        return sb.Length == 0 ? null : ":root{" + sb + "}";
+    }
+}

@@ -244,7 +244,6 @@
   <!-- Breadcrumb aria -->
   <data name="Breadcrumb_AriaLabel" xml:space="preserve"><value>Breadcrumb</value></data>
   <!-- Sidebar navigation -->
-  <data name="Nav_Brand" xml:space="preserve"><value>Stratum ERP</value></data>
   <data name="Nav_AriaLabel" xml:space="preserve"><value>Main navigation</value></data>
   <data name="Nav_TreeAriaLabel" xml:space="preserve"><value>Menu</value></data>
   <data name="Nav_ExpandSidebar" xml:space="preserve"><value>Expand sidebar (Ctrl+B)</value></data>

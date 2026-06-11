@@ -161,6 +161,29 @@ public sealed class TenantReversibilityExportServiceTests
         await service.Invoking(s => s.BuildAsync()).Should().ThrowAsync<InvalidOperationException>();
     }
 
+    [Fact]
+    public async Task Build_Notice_CarriesInstanceBrand_AndPoweredByMention()
+    {
+        // Marque grise (BRD01) : la notice porte le nom commercial de l'éditeur + la mention « propulsé ».
+        TenantReversibilityExport export = await Create(new ReversibilityBranding("Acme Conformité", PoweredByLiakont: true)).BuildAsync();
+
+        export.Notice.Should().Contain("Acme Conformité");
+        export.Notice.Should().Contain("Plateforme propulsée par Liakont.");
+    }
+
+    [Fact]
+    public async Task Build_Notice_HidesPoweredBy_WhenDisabled()
+    {
+        // L'éditeur masque la marque Liakont : aucune mention « Liakont » ne doit subsister dans la notice.
+        TenantReversibilityExport export = await Create(new ReversibilityBranding("Acme Conformité", PoweredByLiakont: false)).BuildAsync();
+
+        export.Notice.Should().Contain("Acme Conformité");
+        export.Notice.Should().NotContain("Liakont");
+    }
+
     private TenantReversibilityExportService Create() =>
         new(_fiscalExport, _documentQueries, _settings, _tva, _audit, new StubTenantContext("acme"));
+
+    private TenantReversibilityExportService Create(ReversibilityBranding branding) =>
+        new(_fiscalExport, _documentQueries, _settings, _tva, _audit, new StubTenantContext("acme"), branding);
 }

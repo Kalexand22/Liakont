@@ -4,6 +4,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using FluentAssertions;
+using Liakont.Host.Configuration;
 using Liakont.Host.Notifications;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -12,7 +13,8 @@ using Xunit;
 
 /// <summary>
 /// Couvre la composition du message (sans connexion réseau) et le mode non configuré du transport SMTP
-/// (ADR-0018, SUP03). L'envoi SMTP réel relève d'une vérification de déploiement (serveur requis).
+/// (ADR-0018, SUP03). Inclut le branding d'instance (BRD01, marque grise) : expéditeur dérivé du branding
+/// quand il est renseigné, pied de page brandé. L'envoi SMTP réel relève d'une vérification de déploiement.
 /// </summary>
 public sealed class SmtpEmailTransportTests
 {
@@ -25,17 +27,20 @@ public sealed class SmtpEmailTransportTests
         FromName = "Liakont Supervision",
     };
 
+    /// <summary>Branding par défaut (marque « Liakont », mention propulsé) — expéditeur email non surchargé.</summary>
+    private static BrandingOptions DefaultBranding() => new();
+
     [Fact]
     public void BuildMessage_Sets_From_To_Subject_And_Body()
     {
-        var message = SmtpEmailTransport.BuildMessage(ConfiguredOptions(), "ops@liakont.test", "Sujet", "Corps du message.");
+        var message = SmtpEmailTransport.BuildMessage(ConfiguredOptions(), DefaultBranding(), "ops@liakont.test", "Sujet", "Corps du message.");
 
         var from = message.From.Mailboxes.Single();
         from.Address.Should().Be("supervision@liakont.test");
         from.Name.Should().Be("Liakont Supervision");
         message.To.Mailboxes.Single().Address.Should().Be("ops@liakont.test");
         message.Subject.Should().Be("Sujet");
-        message.TextBody.Should().Be("Corps du message.");
+        message.TextBody.Should().StartWith("Corps du message.", "le corps d'origine précède le pied de page brandé");
     }
 
     [Fact]
@@ -44,18 +49,69 @@ public sealed class SmtpEmailTransportTests
         const string subject = "[Liakont] Alerte critique — tenant acme";
         const string body = "L'agent ne répond plus depuis le 2026-06-08. Vérifiez le démarrage du service.";
 
-        var message = SmtpEmailTransport.BuildMessage(ConfiguredOptions(), "ops@liakont.test", subject, body);
+        var message = SmtpEmailTransport.BuildMessage(ConfiguredOptions(), DefaultBranding(), "ops@liakont.test", subject, body);
 
         message.Subject.Should().Be(subject);
-        message.TextBody.Should().Be(body);
+        message.TextBody.Should().StartWith(body);
     }
 
     [Fact]
     public void BuildMessage_Throws_On_Blank_Recipient()
     {
-        var act = () => SmtpEmailTransport.BuildMessage(ConfiguredOptions(), "  ", "Sujet", "Corps");
+        var act = () => SmtpEmailTransport.BuildMessage(ConfiguredOptions(), DefaultBranding(), "  ", "Sujet", "Corps");
 
         act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void BuildMessage_Branding_Overrides_The_Sender()
+    {
+        // Marque grise : un éditeur impose son propre expéditeur (nom + adresse). Le branding l'emporte sur le SMTP.
+        var branding = new BrandingOptions
+        {
+            EmailFromName = "Conformité Acme",
+            EmailFromAddress = "conformite@acme.example",
+        };
+
+        var message = SmtpEmailTransport.BuildMessage(ConfiguredOptions(), branding, "ops@acme.example", "Sujet", "Corps");
+
+        var from = message.From.Mailboxes.Single();
+        from.Name.Should().Be("Conformité Acme");
+        from.Address.Should().Be("conformite@acme.example");
+    }
+
+    [Fact]
+    public void AppendBrandingFooter_Adds_CommercialName_And_PoweredBy()
+    {
+        var branding = new BrandingOptions { CommercialName = "Acme Facture", PoweredByLiakont = true };
+
+        string footer = SmtpEmailTransport.AppendBrandingFooter("Corps.", branding);
+
+        footer.Should().StartWith("Corps.");
+        footer.Should().Contain("Acme Facture");
+        footer.Should().Contain("Propulsé par Liakont.");
+    }
+
+    [Fact]
+    public void AppendBrandingFooter_Hides_PoweredBy_When_Disabled()
+    {
+        // L'éditeur désactive la mention : aucune trace « Liakont » ne doit subsister (blueprint.md §3.3).
+        var branding = new BrandingOptions { CommercialName = "Acme Facture", PoweredByLiakont = false };
+
+        string footer = SmtpEmailTransport.AppendBrandingFooter("Corps.", branding);
+
+        footer.Should().Contain("Acme Facture");
+        footer.Should().NotContain("Liakont");
+    }
+
+    [Fact]
+    public void EffectiveFromAddress_Falls_Back_To_Smtp_When_Branding_Empty()
+    {
+        SmtpEmailTransport.EffectiveFromAddress(ConfiguredOptions(), DefaultBranding())
+            .Should().Be("supervision@liakont.test");
+
+        SmtpEmailTransport.EffectiveFromAddress(ConfiguredOptions(), new BrandingOptions { EmailFromAddress = "x@acme.example" })
+            .Should().Be("x@acme.example");
     }
 
     [Fact]
@@ -63,6 +119,7 @@ public sealed class SmtpEmailTransportTests
     {
         var transport = new SmtpEmailTransport(
             Options.Create(new SmtpOptions { Enabled = false }),
+            Options.Create(DefaultBranding()),
             NullLogger<SmtpEmailTransport>.Instance);
 
         var act = async () => await transport.SendAsync("ops@liakont.test", "Sujet", "Corps");
@@ -80,6 +137,7 @@ public sealed class SmtpEmailTransportTests
         // qui distingue le vrai transport du stub quand l'opérateur active SMTP en oubliant un champ.
         var transport = new SmtpEmailTransport(
             Options.Create(new SmtpOptions { Enabled = true, Host = host, FromAddress = fromAddress }),
+            Options.Create(DefaultBranding()),
             NullLogger<SmtpEmailTransport>.Instance);
 
         var act = async () => await transport.SendAsync("ops@liakont.test", "Sujet", "Corps");

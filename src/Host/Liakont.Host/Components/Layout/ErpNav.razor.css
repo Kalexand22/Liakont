@@ -27,11 +27,29 @@
     box-shadow: inset 0 -1px 0 rgb(255 255 255 / 0.05);
 }
 
+/* Groupe marque (logo + nom commercial) — branding d'instance (BRD01). Le bouton de repli reste à
+   droite (justify-content: space-between du header). min-width:0 autorise la troncature du nom long. */
+.erp-nav-brand-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+.erp-nav-logo {
+    height: 1.5rem;
+    width: auto;
+    flex-shrink: 0;
+}
+
 .erp-nav-brand {
     font-weight: var(--font-weight-semibold);
     font-size: var(--font-size-md);
     color: var(--sidebar-text);
     letter-spacing: 0.02em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* ── Scrollable body ─────────────────────────────────────────────────── */
