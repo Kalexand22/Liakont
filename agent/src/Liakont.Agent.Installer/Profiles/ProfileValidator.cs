@@ -1,5 +1,6 @@
 namespace Liakont.Agent.Installer.Profiles;
 
+using System;
 using System.Collections.Generic;
 using Liakont.Agent.Core;
 
@@ -14,7 +15,8 @@ using Liakont.Agent.Core;
 ///   <item>champ « masqué » sans valeur = erreur (sinon donnée implicite cachée) ;</item>
 ///   <item>secret (apiKey) doté d'une valeur, ou non « affiché », = erreur (jamais imposé, F13 §6) ;</item>
 ///   <item>champ requis (platformUrl, apiKey) non résolu (ni affiché ni doté d'une valeur) = erreur ;</item>
-///   <item>valeur d'« instanceName » invalide comme nom de service Windows = erreur.</item>
+///   <item>valeur d'« instanceName » invalide comme nom de service Windows = erreur ;</item>
+///   <item>valeur imposée d'« odbcConnection » contenant un identifiant (Uid/Pwd/Password) = erreur (F13 §6.1).</item>
 /// </list>
 /// </summary>
 internal static class ProfileValidator
@@ -42,6 +44,7 @@ internal static class ProfileValidator
             ValidateMaskedHasValue(name, key, declaration, errors);
             ValidateSecret(name, key, declaration, errors);
             ValidateInstanceName(name, key, declaration, errors);
+            ValidateNoEmbeddedOdbcCredentials(name, key, declaration, errors);
         }
 
         ValidateRequiredResolved(profile, name, errors);
@@ -93,6 +96,30 @@ internal static class ProfileValidator
         if (!AgentInstance.TryParse(declaration.DefaultValue, out _, out string? error))
         {
             errors.Add($"Profil « {name} » : valeur d'« {key} » invalide. {error}");
+        }
+    }
+
+    private static void ValidateNoEmbeddedOdbcCredentials(string name, string key, FieldDeclaration declaration, List<string> errors)
+    {
+        // Connaissance de SCHÉMA : « odbcConnection » porte les identifiants de la base source.
+        // Une valeur IMPOSÉE par le profil ne doit jamais embarquer d'identifiant dans le .exe versionné
+        // (F13 §6.1, CLAUDE.md n°10) — ils sont saisis au wizard puis chiffrés DPAPI. Un DSN nu reste permis.
+        if (key != ProfileFieldKeys.OdbcConnection || !declaration.HasValue)
+        {
+            return;
+        }
+
+        string[] credentialTokens = { "pwd=", "password=", "uid=", "user id=" };
+        string value = declaration.DefaultValue!;
+        foreach (string token in credentialTokens)
+        {
+            if (value.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                errors.Add($"Profil « {name} » : « {key} » impose une valeur contenant un identifiant " +
+                           "(Uid/Pwd/Password). Les identifiants ODBC sont saisis au wizard puis chiffrés " +
+                           "(F13 §6.1) ; n'imposez qu'un DSN nu.");
+                return;
+            }
         }
     }
 

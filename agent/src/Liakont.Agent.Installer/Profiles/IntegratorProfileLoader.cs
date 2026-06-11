@@ -162,7 +162,16 @@ internal static class IntegratorProfileLoader
                 return token.Value<bool>() ? "true" : "false";
             case JTokenType.Integer:
             case JTokenType.Float:
-                return token.Value<decimal>().ToString(CultureInfo.InvariantCulture);
+                try
+                {
+                    return token.Value<decimal>().ToString(CultureInfo.InvariantCulture);
+                }
+                catch (Exception ex) when (ex is OverflowException || ex is FormatException || ex is InvalidCastException)
+                {
+                    throw new ProfileFormatException(
+                        $"Profil « {sourceName} » : la « valeur » numérique du champ « {key} » est hors intervalle.", ex);
+                }
+
             default:
                 throw new ProfileFormatException(
                     $"Profil « {sourceName} » : la « valeur » du champ « {key} » doit être un scalaire (texte, booléen ou nombre).");

@@ -109,5 +109,13 @@ public class IntegratorProfileLoaderTests
         act.Should().Throw<ProfileFormatException>();
     }
 
+    [Fact]
+    public void Numeric_value_out_of_decimal_range_throws_format_exception()
+    {
+        System.Action act = () => Parse(@"{ ""champs"": { ""schedule"": { ""etat"": ""affiché"", ""valeur"": 1e308 } } }");
+
+        act.Should().Throw<ProfileFormatException>().WithMessage("*hors intervalle*");
+    }
+
     private static IntegratorProfile Parse(string json) => IntegratorProfileLoader.Parse(json, "(test)");
 }

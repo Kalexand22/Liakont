@@ -106,6 +106,23 @@ public class ProfileValidatorTests
         result.Errors.Should().Contain(e => e.Contains("instanceName"));
     }
 
+    [Fact]
+    public void Odbc_connection_with_imposed_credentials_is_rejected()
+    {
+        ProfileValidationResult result = ValidateChamps(@"{ ""odbcConnection"": { ""etat"": ""verrouillé"", ""valeur"": ""Driver={Pervasive};Uid=sa;Pwd=secret"" } }");
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.Contains("odbcConnection") && e.Contains("identifiant"));
+    }
+
+    [Fact]
+    public void Odbc_connection_with_bare_dsn_is_allowed()
+    {
+        ProfileValidationResult result = ValidateChamps(@"{ ""odbcConnection"": { ""etat"": ""verrouillé"", ""valeur"": ""DSN=LiakontSource"" } }");
+
+        result.IsValid.Should().BeTrue(string.Join(" | ", result.Errors));
+    }
+
     private static ProfileValidationResult ValidateChamps(string champsJson)
     {
         string json = "{ \"profil\": \"test\", \"champs\": " + champsJson + " }";
