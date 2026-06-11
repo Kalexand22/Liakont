@@ -4,6 +4,7 @@ using FluentAssertions;
 using Liakont.Modules.TenantSettings.Contracts.Commands;
 using Liakont.Modules.TenantSettings.Infrastructure.Handlers.Commands;
 using Liakont.Modules.TenantSettings.Tests.Integration.Fixtures;
+using Liakont.Modules.TvaMapping.Contracts.Commands;
 using Xunit;
 
 [Collection("TenantSettingsIntegration")]
@@ -44,9 +45,13 @@ public sealed class SeedImportIntegrationTests
             await File.WriteAllTextAsync(Path.Combine(dir, "pa-accounts.json"), PaAccountsJson);
 
             var harness = new TenantSettingsHarness(_fixture, Guid.NewGuid(), Guid.NewGuid());
-            var handler = new ImportTenantSeedHandler(harness.UowFactory, harness.CompanyFilter, harness.Journal);
+            var handler = new ImportTenantSeedHandler(harness.UowFactory, harness.CompanyFilter, harness.Journal, harness.Sender);
 
             var result = await handler.Handle(new ImportTenantSeedCommand { SeedDirectoryPath = dir }, CancellationToken.None);
+
+            // Aucun mapping-tva.json dans ce dossier → import de mapping non déclenché (drapeau faux, sender non sollicité).
+            result.TvaMappingImported.Should().BeFalse();
+            harness.Sender.LastRequest.Should().BeNull();
 
             result.ProfileImported.Should().BeTrue();
             result.FiscalImported.Should().BeTrue();
@@ -85,7 +90,7 @@ public sealed class SeedImportIntegrationTests
             await File.WriteAllTextAsync(Path.Combine(dir, "pa-accounts.json"), PaAccountsJson);
 
             var harness = new TenantSettingsHarness(_fixture, Guid.NewGuid(), Guid.NewGuid());
-            var handler = new ImportTenantSeedHandler(harness.UowFactory, harness.CompanyFilter, harness.Journal);
+            var handler = new ImportTenantSeedHandler(harness.UowFactory, harness.CompanyFilter, harness.Journal, harness.Sender);
             var command = new ImportTenantSeedCommand { SeedDirectoryPath = dir };
 
             await handler.Handle(command, CancellationToken.None);
@@ -95,6 +100,45 @@ public sealed class SeedImportIntegrationTests
             var accounts = await harness.Queries.GetPaAccounts(harness.CompanyId);
             accounts.Should().ContainSingle();
             (await harness.Queries.GetTenantProfile(harness.CompanyId))!.Siren.Should().Be("123456782");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Import_With_Mapping_Seed_Dispatches_Mapping_Import_Command()
+    {
+        const string mappingJson = """
+            {
+              "mappingVersion": "tenant-seed-exemple-v1",
+              "validatedBy": "Table d'exemple — tests",
+              "validatedDate": null,
+              "defaultBehavior": "Block",
+              "rules": [
+                { "sourceRegimeCode": "NORMAL", "label": "Normal", "part": "Adjudication", "category": "S", "rateMode": "Fixed", "rateValue": 20 }
+              ]
+            }
+            """;
+
+        var dir = CreateSeedDir();
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(dir, "tenant-profile.json"), ProfileJson);
+            var mappingPath = Path.Combine(dir, "mapping-tva.json");
+            await File.WriteAllTextAsync(mappingPath, mappingJson);
+
+            var harness = new TenantSettingsHarness(_fixture, Guid.NewGuid(), Guid.NewGuid());
+            var handler = new ImportTenantSeedHandler(harness.UowFactory, harness.CompanyFilter, harness.Journal, harness.Sender);
+
+            var result = await handler.Handle(new ImportTenantSeedCommand { SeedDirectoryPath = dir }, CancellationToken.None);
+
+            // Le point d'entrée OPS03 (import de seed) dispatche bien l'import de mapping TVA, avec le chemin
+            // du fichier présent dans le dossier de seed (item FIX01b), et reporte le résultat dans le drapeau.
+            result.TvaMappingImported.Should().BeTrue();
+            harness.Sender.LastRequest.Should().BeOfType<ImportMappingTableSeedCommand>()
+                .Which.SeedFilePath.Should().Be(mappingPath);
         }
         finally
         {

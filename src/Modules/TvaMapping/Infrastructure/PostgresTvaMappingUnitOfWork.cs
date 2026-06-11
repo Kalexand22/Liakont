@@ -103,6 +103,24 @@ internal sealed class PostgresTvaMappingUnitOfWork : ITvaMappingUnitOfWork
         await InsertRulesAsync(table, ct);
     }
 
+    public async Task InsertMappingTableAsync(
+        MappingTable table,
+        IReadOnlyList<MappingChangeLogEntry> changeLog,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(changeLog);
+
+        // En-tête + règles (réutilise le chemin d'insertion ; lève ConflictException si la table existe
+        // déjà pour ce tenant), puis journal append-only dans la MÊME transaction (atomicité, item FIX01b).
+        await InsertMappingTableAsync(table, ct);
+
+        foreach (var entry in changeLog)
+        {
+            ArgumentNullException.ThrowIfNull(entry);
+            await InsertChangeLogAsync(entry, ct);
+        }
+    }
+
     public async Task<MappingTable?> GetForUpdateAsync(Guid companyId, CancellationToken ct = default)
     {
         // Verrou de la ligne d'en-tête : deux éditions concurrentes du même tenant sont sérialisées
@@ -152,7 +170,26 @@ internal sealed class PostgresTvaMappingUnitOfWork : ITvaMappingUnitOfWork
 
         // 3. Journal APPEND-ONLY, dans la même transaction → atomicité (item TVA05 §5) : un échec ici
         //    annule aussi la mutation (et inversement).
-        await _txn.Connection.ExecuteAsync(
+        await InsertChangeLogAsync(changeLogEntry, ct);
+    }
+
+    public async Task CommitAsync(CancellationToken ct = default)
+    {
+        await _txn.CommitAsync(ct);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _txn.DisposeAsync();
+    }
+
+    private static string? SerializeFlags(IReadOnlyDictionary<string, string>? flags)
+    {
+        return flags is { Count: > 0 } ? JsonSerializer.Serialize(flags) : null;
+    }
+
+    private Task<int> InsertChangeLogAsync(MappingChangeLogEntry changeLogEntry, CancellationToken ct)
+        => _txn.Connection.ExecuteAsync(
             new CommandDefinition(
                 InsertChangeLogSql,
                 new
@@ -170,22 +207,6 @@ internal sealed class PostgresTvaMappingUnitOfWork : ITvaMappingUnitOfWork
                 },
                 _txn.Transaction,
                 cancellationToken: ct));
-    }
-
-    public async Task CommitAsync(CancellationToken ct = default)
-    {
-        await _txn.CommitAsync(ct);
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        await _txn.DisposeAsync();
-    }
-
-    private static string? SerializeFlags(IReadOnlyDictionary<string, string>? flags)
-    {
-        return flags is { Count: > 0 } ? JsonSerializer.Serialize(flags) : null;
-    }
 
     private async Task InsertRulesAsync(MappingTable table, CancellationToken ct)
     {

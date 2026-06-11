@@ -18,4 +18,11 @@ public enum MappingChangeType
 
     /// <summary>Validation humaine de la table (workflow expert-comptable, item TVA05 §4).</summary>
     Validate = 3,
+
+    /// <summary>
+    /// Création de la table de mapping (item FIX01b) : bouton « Créer la table » sur l'état vide, ou
+    /// création implicite à la première règle. La table naît « NON VALIDÉE » — la piste enregistre
+    /// qui l'a fait naître et quand.
+    /// </summary>
+    CreateTable = 4,
 }

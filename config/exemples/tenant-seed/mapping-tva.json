@@ -1,0 +1,45 @@
+// Table de mapping TVA d'EXEMPLE du dossier de seed tenant (item FIX01b — importée par le point
+// d'entrée OPS03 d'import de seed, en plus de tenant-profile.json et pa-accounts.json).
+//
+// Données STRICTEMENT FICTIVES (codes régimes inventés) : AUCUNE donnée d'un client réel. La table
+// réelle d'un déploiement vit dans deployments/<client>/ (lot CMP), JAMAIS dans le code
+// (blueprint.md §2, CLAUDE.md n°7/15). Format complet : config/exemples/mapping-exemple.json.
+//
+// MARQUEUR « table d'exemple » : validatedBy porte le marqueur explicite et validatedDate reste absent
+// → la table est « NON VALIDÉE » (IsValidated = false). Le garde-fou d'envoi en production (PIP01)
+// refuse tout envoi réel tant que l'expert-comptable n'a pas validé la table dans la console. L'import
+// est IDEMPOTENT : il n'amorce qu'un tenant vierge, sans jamais écraser une table déjà paramétrée.
+{
+  "mappingVersion": "tenant-seed-exemple-v1",
+  "validatedBy": "Table d'exemple (seed tenant) — usage démo/tests uniquement",
+  "validatedDate": null,
+  "defaultBehavior": "Block",
+  "rules": [
+    {
+      "sourceRegimeCode": "NORMAL",
+      "label": "Taux normal (assujetti) — adjudication",
+      "part": "Adjudication",
+      "category": "S",
+      "rateMode": "Fixed",
+      "rateValue": 20
+    },
+    {
+      "sourceRegimeCode": "MARGE",
+      "label": "Régime de la marge — objets de collection (art. 297 A CGI)",
+      "part": "Adjudication",
+      "category": "E",
+      "vatex": "VATEX-EU-J",
+      "rateMode": "Fixed",
+      "rateValue": 0,
+      "note": "Adjudication exonérée : la TVA porte sur la marge, jamais distincte (F03 §2.3)."
+    },
+    {
+      "sourceRegimeCode": "NORMAL",
+      "label": "Frais acheteur — taux calculé depuis la source",
+      "part": "Frais",
+      "category": "S",
+      "rateMode": "ComputedFromSource",
+      "note": "Frais toujours taxables ; taux = montant_tva_frais / montant_frais_ht (F03 §4.1)."
+    }
+  ]
+}

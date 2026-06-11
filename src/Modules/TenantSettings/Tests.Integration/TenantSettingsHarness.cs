@@ -27,6 +27,7 @@ internal sealed class TenantSettingsHarness
         ActorAccessor = new TestActorContextAccessor(userId, companyId);
         ActivityLogger = new CapturingActivityLogger();
         Journal = new TenantSettingsJournal(ActivityLogger, ActorAccessor);
+        Sender = new CapturingSender();
     }
 
     public Guid CompanyId { get; }
@@ -48,4 +49,6 @@ internal sealed class TenantSettingsHarness
     public CapturingActivityLogger ActivityLogger { get; }
 
     public TenantSettingsJournal Journal { get; }
+
+    public CapturingSender Sender { get; }
 }

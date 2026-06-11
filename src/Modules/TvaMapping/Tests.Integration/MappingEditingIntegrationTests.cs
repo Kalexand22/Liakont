@@ -188,15 +188,17 @@ public sealed class MappingEditingIntegrationTests
     }
 
     [Fact]
-    public async Task Mutation_On_Absent_Table_Throws_NotFound()
+    public async Task AddRule_On_Absent_Table_Creates_Table_Implicitly_And_Logs_Creation()
     {
+        // Item FIX01b : la première règle d'un tenant SANS table crée la table implicitement (vide,
+        // « NON VALIDÉE », block) au lieu de lever NotFoundException. Naissance + ajout journalisés.
         var harness = new TvaMappingHarness(_fixture);
         var companyId = Guid.NewGuid();
         var operatorId = Guid.NewGuid();
 
         var (filter, accessor) = Deps(operatorId, companyId);
         var handler = new AddMappingRuleHandler(harness.UowFactory, filter, accessor);
-        var act = () => handler.Handle(
+        await handler.Handle(
             new AddMappingRuleCommand
             {
                 SourceRegimeCode = "REGIME-A",
@@ -207,8 +209,60 @@ public sealed class MappingEditingIntegrationTests
             },
             CancellationToken.None);
 
-        await act.Should().ThrowAsync<NotFoundException>();
-        (await ChangeLogCountAsync(harness, companyId)).Should().Be(0);
+        var dto = await harness.Queries.GetMappingTable(companyId);
+        dto.Should().NotBeNull("la table a été créée implicitement par la première règle (plus de NotFoundException).");
+        dto!.Rules.Should().ContainSingle();
+        dto.Rules[0].SourceRegimeCode.Should().Be("REGIME-A");
+        dto.MappingVersion.Should().Be(MappingTable.InitialMappingVersion);
+        dto.DefaultBehavior.Should().Be("Block");
+        dto.IsValidated.Should().BeFalse("une table fraîchement créée est NON VALIDÉE.");
+
+        // Naissance (CreateTable) ET ajout (AddRule) journalisés dans la même transaction (append-only).
+        var log = await ReadChangeLogAsync(harness, companyId);
+        log.Should().HaveCount(2);
+        log.Should().ContainSingle(e => e.ChangeType == (int)MappingChangeType.CreateTable && e.SourceRegimeCode == null);
+        log.Should().ContainSingle(e => e.ChangeType == (int)MappingChangeType.AddRule && e.SourceRegimeCode == "REGIME-A");
+    }
+
+    [Fact]
+    public async Task CreateTable_Creates_Empty_NonValidated_Table_And_Logs_Creation()
+    {
+        var harness = new TvaMappingHarness(_fixture);
+        var companyId = Guid.NewGuid();
+        var operatorId = Guid.NewGuid();
+
+        var (filter, accessor) = Deps(operatorId, companyId);
+        var handler = new CreateMappingTableHandler(harness.UowFactory, filter, accessor);
+        await handler.Handle(new CreateMappingTableCommand(), CancellationToken.None);
+
+        var dto = await harness.Queries.GetMappingTable(companyId);
+        dto.Should().NotBeNull();
+        dto!.Rules.Should().BeEmpty("la table créée depuis l'état vide n'a aucune règle (item FIX01b).");
+        dto.IsValidated.Should().BeFalse();
+        dto.MappingVersion.Should().Be(MappingTable.InitialMappingVersion);
+        dto.DefaultBehavior.Should().Be("Block");
+
+        var log = await ReadChangeLogAsync(harness, companyId);
+        log.Should().ContainSingle();
+        log[0].ChangeType.Should().Be((int)MappingChangeType.CreateTable);
+        log[0].SourceRegimeCode.Should().BeNull("une création ne porte pas sur une règle particulière.");
+        log[0].OperatorId.Should().Be(operatorId);
+    }
+
+    [Fact]
+    public async Task CreateTable_On_Existing_Table_Is_Rejected()
+    {
+        var harness = new TvaMappingHarness(_fixture);
+        var companyId = Guid.NewGuid();
+        var operatorId = Guid.NewGuid();
+        await SeedTableAsync(harness, companyId, validatedBy: "Expert", FixedRule("REGIME-A", VatCategory.S, 20m));
+
+        var (filter, accessor) = Deps(operatorId, companyId);
+        var handler = new CreateMappingTableHandler(harness.UowFactory, filter, accessor);
+        var act = () => handler.Handle(new CreateMappingTableCommand(), CancellationToken.None);
+
+        await act.Should().ThrowAsync<ConflictException>("on n'écrase jamais une table déjà paramétrée.");
+        (await ChangeLogCountAsync(harness, companyId)).Should().Be(0, "la création rejetée n'a rien journalisé.");
     }
 
     [Fact]

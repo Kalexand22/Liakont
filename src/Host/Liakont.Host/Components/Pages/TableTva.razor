@@ -30,6 +30,9 @@ else
     <TableTvaView Model="_model"
                   CanValidate="_canSettings"
                   CanEdit="_canSettings"
+                  CreatingTable="_creatingTable"
+                  CreateError="@_createError"
+                  OnCreateTable="CreateTableAsync"
                   ConfirmOpen="_confirmOpen"
                   Validating="_validating"
                   ValidateError="@_validateError"
@@ -60,6 +63,10 @@ else
 
     /// <summary>Permission de paramétrage fiscal : conditionne la validation ET l'édition de la table.</summary>
     private bool _canSettings;
+
+    // ── État de la création de table (FIX01b) ────────────────────
+    private bool _creatingTable;
+    private string? _createError;
 
     private bool _confirmOpen;
     private bool _validating;
@@ -97,6 +104,33 @@ else
             // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
             _loadFailed = true;
             Logger.LogError(ex, "Failed to load the Liakont TVA mapping table page.");
+        }
+    }
+
+    /// <summary>
+    /// Crée une table de mapping TVA vide « NON VALIDÉE » (item FIX01b, bouton de l'état vide) puis
+    /// recharge : la page bascule de l'état vide vers la table (bandeau NON VALIDÉE, rapport de couverture
+    /// et [Créer une règle] disponibles), et une entrée « Table créée » apparaît dans l'historique.
+    /// </summary>
+    private async Task CreateTableAsync()
+    {
+        _creatingTable = true;
+        _createError = null;
+
+        try
+        {
+            await TableQueries.CreateTableAsync();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+            _createError = "La création de la table a échoué. Réessayez plus tard.";
+            Logger.LogError(ex, "TVA mapping table creation failed from the console.");
+        }
+        finally
+        {
+            _creatingTable = false;
         }
     }
 

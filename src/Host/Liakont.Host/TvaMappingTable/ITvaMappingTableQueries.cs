@@ -20,6 +20,14 @@ internal interface ITvaMappingTableQueries
     Task<TvaMappingTableViewModel> GetTableAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Crée une table de mapping TVA VIDE et « NON VALIDÉE » pour le tenant courant (item FIX01b,
+    /// commande <c>CreateMappingTableCommand</c>) — chemin du bouton « Créer la table » sur l'état vide.
+    /// La création est journalisée (append-only) côté handler. Lève si une table existe déjà
+    /// (le message opérateur est affiché par la page).
+    /// </summary>
+    Task CreateTableAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Marque la table de mapping TVA du tenant courant comme VALIDÉE (lève la suspension des envois,
     /// garde-fou PIP01). Le valideur enregistré est l'identité AUTHENTIFIÉE de l'opérateur — jamais une
     /// valeur fournie par l'appelant (un opérateur ne peut pas signer au nom d'un autre ; parité avec
