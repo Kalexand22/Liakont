@@ -141,7 +141,7 @@ function New-InstanceEnvContent {
         }
     }
 
-    return @"
+    $content = @"
 # ─────────────────────────────────────────────────────────────────────────────
 # Instance Liakont — configuration générée par new-instance.ps1 (OPS02).
 # Secrets générés UNIQUES pour cette instance. NE PAS versionner (gitignore : .env).
@@ -170,6 +170,12 @@ SMTP_PASSWORD=
 SMTP_FROM_ADDRESS=
 OPERATOR_EMAIL=
 "@
+
+    # Fins de ligne LF forcées : le .env est consommé par Docker Compose côté Linux ; un CRLF
+    # laisserait un « \r » en fin de valeur (secret/URL) → corruption silencieuse (ex. secret
+    # client OIDC ou mot de passe PostgreSQL ne correspondant plus). Indépendant de l'EOL du présent
+    # .psm1 (CRLF au checkout Windows via core.autocrlf) : on normalise toujours en LF.
+    return ($content -replace "`r`n", "`n")
 }
 
 # ── Registre des instances (instances.yaml) ───────────────────────────────────

@@ -112,6 +112,9 @@ try {
             throw "Le contexte de build « ../../.. » est introuvable dans le compose appliance — la réécriture " +
                   "du contexte a échoué (le format du compose a changé ?). Instance non créée."
         }
+        # LF forcé : artefact de déploiement consommé côté Linux (cohérent avec le .env, évite tout
+        # CRLF résiduel issu du checkout Windows de la source).
+        $composeOut = $composeOut -replace "`r`n", "`n"
         [System.IO.File]::WriteAllText((Join-Path $instanceDir 'docker-compose.yml'), $composeOut, (New-Object System.Text.UTF8Encoding($false)))
     }
 
