@@ -1,5 +1,6 @@
 namespace Liakont.Modules.TvaMapping.Tests.Integration;
 
+using System.Text.RegularExpressions;
 using FluentAssertions;
 using Liakont.Agent.Contracts.ContractTests;
 using Liakont.Agent.Contracts.Pivot;
@@ -338,6 +339,13 @@ public sealed class MappingSeedImportIntegrationTests
         await ImportDefaultTenantSeedAsync(harness, companyId);
         var table = await ReloadAsync(harness, companyId);
 
+        // Source de vérité : les régimes réellement poussés par le script de démo. Le set attendu doit
+        // correspondre EXACTEMENT — si le script gagne/perd un régime, ce test échoue et force la mise à
+        // jour du seed par défaut ET de DemoRegimeExpectations (sinon le CHECK réel de la démo bloquerait).
+        DemoRegimeCodesFromSeedScript().Should().BeEquivalentTo(
+            DemoRegimeExpectations.Select(e => e.Regime),
+            "le seed par défaut et le test doivent couvrir EXACTEMENT les régimes de tools/dev-seed-demo-docs.ps1 (cohérence FIX304).");
+
         foreach (var (regime, expectedCategory) in DemoRegimeExpectations)
         {
             var result = TvaMapper.Map(
@@ -398,6 +406,27 @@ public sealed class MappingSeedImportIntegrationTests
         await act.Should().ThrowAsync<ConflictException>();
         (await harness.Queries.GetMappingTable(actorCompanyId)).Should().BeNull(
             "aucune table n'est écrite quand l'override de société est refusé.");
+    }
+
+    /// <summary>
+    /// Extrait les codes régime du bloc <c>sourceTaxRegimes</c> du script de démo (source de vérité des
+    /// régimes poussés en démo) : le seed par défaut DOIT les couvrir tous (cohérence FIX304). Dériver du
+    /// script — au lieu de ré-encoder en dur — fait échouer le test si le script gagne/perd un régime.
+    /// </summary>
+    private static List<string> DemoRegimeCodesFromSeedScript()
+    {
+        var scriptPath = Path.Combine(AppContext.BaseDirectory, "tools", "dev-seed-demo-docs.ps1");
+        File.Exists(scriptPath).Should().BeTrue($"le script de démo doit être copié en sortie : « {scriptPath} ».");
+        var script = File.ReadAllText(scriptPath);
+
+        var block = Regex.Match(script, @"sourceTaxRegimes\s*=\s*@\((?<body>.*?)\)", RegexOptions.Singleline);
+        block.Success.Should().BeTrue("le script de démo doit déclarer un bloc sourceTaxRegimes.");
+
+        var codes = Regex.Matches(block.Groups["body"].Value, "code\\s*=\\s*\"(?<code>[^\"]+)\"")
+            .Select(m => m.Groups["code"].Value)
+            .ToList();
+        codes.Should().NotBeEmpty("le bloc sourceTaxRegimes doit déclarer au moins un régime.");
+        return codes;
     }
 
     private static async Task ImportAndPersistAsync(TvaMappingHarness harness, Guid companyId)
