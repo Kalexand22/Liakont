@@ -40,9 +40,11 @@ internal sealed class DocumentSendActionsService : IDocumentSendActions
 
     private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
 
-    /// <summary>Message neutre renvoyant au journal (résultat de run indéterminé ou non corrélable — FIX05).</summary>
+    /// <summary>Message neutre renvoyant au journal (résultat de run indéterminé ou non corrélable — FIX05). Le
+    /// wording explique le MODÈLE d'envoi (traitement du tenant, asynchrone, qui émet tout ce qui est prêt — FIX202,
+    /// décision E) pour que l'opérateur ne re-clique pas en boucle en croyant que rien ne se passe.</summary>
     private static readonly DocumentSendActionResult JournalFallback = DocumentSendActionResult.Ok(
-        "Traitement lancé. Son résultat (documents émis ou motif d'absence d'envoi) apparaîtra dans le journal des traitements dès la fin de l'exécution.");
+        "Le traitement d'envoi du tenant a été lancé ; il émet tous les documents prêts à l'envoi. Son résultat (documents émis ou motif d'absence d'envoi) apparaîtra dans le journal des traitements dès la fin de l'exécution.");
 
     private readonly IDocumentQueries _documents;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -140,6 +142,8 @@ internal sealed class DocumentSendActionsService : IDocumentSendActions
         // ADR-0016 : le traitement d'envoi du tenant émet TOUS les ReadyToSend (il boucle sur l'état, pas sur
         // l'id) — un SEUL déclencheur suffit pour la sélection (publier un job par document serait redondant).
         // Chaque document prêt est néanmoins journalisé (parité d'audit avec POST /documents/{id}/send).
+        // Horodatage AVANT publication : borne basse de corrélation du run déclenché (FIX05/FIX202).
+        var triggeredAtUtc = _timeProvider.GetUtcNow();
         var jobId = await PublishTenantSendAsync(actor, cancellationToken).ConfigureAwait(false);
 
         var operatorId = ActorId(actor);
@@ -156,13 +160,14 @@ internal sealed class DocumentSendActionsService : IDocumentSendActions
                 cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
-        var message = string.Create(Fr, $"Envoi déclenché : le traitement d'envoi du tenant émet TOUS les documents prêts à l'envoi (dont les {ready.Count} document(s) sélectionné(s)).");
-        if (skipped.Count > 0)
-        {
-            message += " Ignoré(s) : " + DescribeSkipped(skipped);
-        }
-
-        return DocumentSendActionResult.Ok(message);
+        // FIX202 : ne PAS renvoyer un « envoi déclenché » statique (qui répète le même bandeau et laisse l'opérateur
+        // re-cliquer en boucle sans jamais savoir si quelque chose est parti). On attend le résultat du run et on le
+        // restitue ICI (émis / partiel / aucun envoi + motif), exactement comme « Lancer un traitement » (FIX05) —
+        // les documents écartés à la sélection sont restitués À CÔTÉ du résultat, pas à sa place.
+        var outcome = await AwaitTriggeredRunOutcomeAsync(triggeredAtUtc, cancellationToken).ConfigureAwait(false);
+        return skipped.Count > 0
+            ? outcome.WithSuffix("Ignoré(s) à la sélection : " + DescribeSkipped(skipped))
+            : outcome;
     }
 
     public async Task<DocumentSendSummary> SummarizeReadyToSendAsync(CancellationToken cancellationToken = default)
@@ -211,6 +216,8 @@ internal sealed class DocumentSendActionsService : IDocumentSendActions
             return DocumentSendActionResult.Failure("Aucun document prêt à l'envoi : il n'y a rien à envoyer.");
         }
 
+        // Horodatage AVANT publication : borne basse de corrélation du run déclenché (FIX05/FIX202).
+        var triggeredAtUtc = _timeProvider.GetUtcNow();
         var jobId = await PublishTenantSendAsync(actor, cancellationToken).ConfigureAwait(false);
 
         await _activityLogger.LogActivityAsync(
@@ -223,7 +230,10 @@ internal sealed class DocumentSendActionsService : IDocumentSendActions
             companyId: actor.CompanyId,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        return DocumentSendActionResult.Ok(string.Create(Fr, $"Envoi groupé déclenché : {summary.Count} document(s) prêt(s), montant total {summary.TotalGross.ToString("N2", Fr)} € (le traitement d'envoi du tenant les émettra)."));
+        // FIX202 : attendre la clôture du run et restituer son résultat réel (émis / aucun envoi + motif), au lieu
+        // d'un « envoi groupé déclenché » statique. Le récapitulatif (nombre + montant) a déjà été présenté à la
+        // confirmation et reste journalisé ci-dessus ; le bandeau de retour porte désormais le RÉSULTAT (FIX05).
+        return await AwaitTriggeredRunOutcomeAsync(triggeredAtUtc, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<DocumentSendActionResult> TriggerRunAsync(CancellationToken cancellationToken = default)
@@ -282,8 +292,8 @@ internal sealed class DocumentSendActionsService : IDocumentSendActions
         if (emitted > 0)
         {
             var head = failed > 0
-                ? string.Create(Fr, $"Traitement terminé : {emitted} document(s) émis, {failed} en échec — consultez les documents en échec.")
-                : string.Create(Fr, $"Traitement terminé : {emitted} document(s) émis.");
+                ? string.Create(Fr, $"Le traitement d'envoi du tenant est terminé : {emitted} document(s) émis, {failed} en échec — consultez les documents en échec.")
+                : string.Create(Fr, $"Le traitement d'envoi du tenant est terminé : {emitted} document(s) émis.");
             if (pending > 0)
             {
                 head += string.Create(Fr, $" {pending} document(s) restent en attente d'envoi (voir le journal des traitements).");
@@ -293,10 +303,11 @@ internal sealed class DocumentSendActionsService : IDocumentSendActions
         }
 
         // Aucun document émis : ce n'est PAS un succès silencieux. On expose le motif (paramétrage manquant,
-        // SIREN non publié, contenu différé, rien de prêt…) pour que l'opérateur sache quoi faire.
+        // SIREN non publié, contenu différé, rien de prêt…) pour que l'opérateur sache quoi faire (FIX202 : ce
+        // motif remonte désormais aussi sur « Envoyer la sélection » et « Tout envoyer », pas seulement le run).
         var none = failed > 0
-            ? string.Create(Fr, $"Traitement terminé : aucun document émis, {failed} en échec.")
-            : "Traitement terminé : aucun document émis.";
+            ? string.Create(Fr, $"Le traitement d'envoi du tenant est terminé : aucun document émis, {failed} en échec.")
+            : "Le traitement d'envoi du tenant est terminé : aucun document émis.";
         return DocumentSendActionResult.Failure(motif is null ? none : none + " " + motif);
     }
 
