@@ -110,9 +110,10 @@ if ($ok) {
             if (-not (Test-Path $lotFile)) { throw "Lot file missing: orchestration/items/$lot.yaml" }
         }
         # Every work item must be defined in its lot file (reciprocity manifest → lots)
-        # Lot names may contain digits (e.g. the FIX2 lot) — same charset as the $lots scan above,
-        # else a lot like "FIX2" is truncated to "FIX" and reciprocity looks in the wrong lot file.
-        $itemLotPairs = [regex]::Matches($manifest, '\{\s*id:\s*([A-Za-z0-9_]+),\s*lot:\s*([A-Z_0-9]+)')
+        # Lot names may carry digits (e.g. FIX2) — match the SAME character class as the lot-file existence
+        # check above ([A-Z0-9_]+). With [A-Z]+ the reciprocity check truncated "FIX2" to "FIX" and looked
+        # for FIX201 in FIX.yaml (false RED blocking the whole FIX2 lot).
+        $itemLotPairs = [regex]::Matches($manifest, '\{\s*id:\s*([A-Za-z0-9_]+),\s*lot:\s*([A-Z0-9_]+)')
         foreach ($m in $itemLotPairs) {
             $iid = $m.Groups[1].Value; $ilot = $m.Groups[2].Value
             $lotContent = Get-Content (Join-Path $repoRoot "orchestration\items\$ilot.yaml") -Raw

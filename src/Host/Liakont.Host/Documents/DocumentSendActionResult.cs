@@ -14,4 +14,12 @@ internal sealed record DocumentSendActionResult(bool Success, string Message)
 
     /// <summary>Refus métier (permission manquante, tenant non résolu, aucun document prêt) : message opérateur.</summary>
     public static DocumentSendActionResult Failure(string message) => new(false, message);
+
+    /// <summary>
+    /// Concatène une information complémentaire au message en préservant le verdict <see cref="Success"/> (FIX202 :
+    /// les documents ignorés à la sélection sont restitués À CÔTÉ du résultat du run, jamais à sa place). Renvoie
+    /// l'instance inchangée si le suffixe est vide.
+    /// </summary>
+    public DocumentSendActionResult WithSuffix(string? suffix) =>
+        string.IsNullOrWhiteSpace(suffix) ? this : this with { Message = Message + " " + suffix.Trim() };
 }
