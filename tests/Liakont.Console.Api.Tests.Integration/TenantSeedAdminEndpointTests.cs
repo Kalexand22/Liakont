@@ -102,6 +102,18 @@ public sealed class TenantSeedAdminEndpointTests
     }
 
     [Fact]
+    public async Task SeedTenant_With_Missing_SeedDirectoryPath_Returns_400()
+    {
+        using var client = _factory.CreateClient(ConsoleApiFactory.TenantSeed, ConsoleApiFactory.SystemAdminUserId, roles: SystemAdminRole);
+
+        var response = await client.PostAsJsonAsync(
+            SeedPath(ConsoleApiFactory.TenantSeed),
+            new { companyId = ConsoleApiFactory.TenantSeedCompanyId, seedDirectoryPath = "  " });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task SeedTenant_As_SystemAdmin_Imports_Profile_Visible_In_Settings_Without_Secret()
     {
         var dir = CreateSeedDir();
@@ -134,6 +146,13 @@ public sealed class TenantSeedAdminEndpointTests
             overview.Profile!.Siren.Should().Be("123456782");
             overview.PaAccounts.Should().ContainSingle();
             overview.PaAccounts[0].Account.HasApiKey.Should().BeFalse("la clé API n'est jamais importée — à saisir via la console");
+
+            // Provisioning create-only : un ré-import sur un tenant déjà paramétré est REFUSÉ (409) — il
+            // n'écrase JAMAIS des réglages saisis via la console avec la baseline du seed.
+            var reseed = await admin.PostAsJsonAsync(
+                SeedPath(ConsoleApiFactory.TenantSeed),
+                new { companyId = ConsoleApiFactory.TenantSeedCompanyId, seedDirectoryPath = dir });
+            reseed.StatusCode.Should().Be(HttpStatusCode.Conflict);
         }
         finally
         {

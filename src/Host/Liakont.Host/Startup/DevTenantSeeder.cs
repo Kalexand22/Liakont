@@ -2,6 +2,7 @@ namespace Liakont.Host.Startup;
 
 using Liakont.Modules.TenantSettings.Contracts.Commands;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
+using Liakont.Modules.TenantSettings.Contracts.Queries;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -134,6 +135,16 @@ internal static partial class DevTenantSeeder
         try
         {
             await using var scope = app.Services.GetRequiredService<ITenantScopeFactory>().Create(options.TenantId);
+
+            // Idempotent / non destructif : si le profil existe déjà, ne PAS réimporter (un ré-import
+            // remettrait à la baseline du seed des réglages éventuellement modifiés via la console).
+            var settingsQueries = scope.Services.GetRequiredService<ITenantSettingsQueries>();
+            if (await settingsQueries.GetCurrentCompanyId() is not null)
+            {
+                LogDevProfileAlreadyConfigured(logger, options.TenantId);
+                return;
+            }
+
             var sender = scope.Services.GetRequiredService<ISender>();
             var result = await sender.Send(new ImportTenantSeedCommand
             {
@@ -158,6 +169,9 @@ internal static partial class DevTenantSeeder
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Amorçage du profil de dev ignoré : dossier de seed introuvable « {SeedDir} » (tenant « {TenantId} »).")]
     private static partial void LogDevProfileSeedDirectoryMissing(ILogger logger, string seedDir, string tenantId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Amorçage du profil de dev ignoré pour « {TenantId} » : un profil existe déjà (ré-import non destructif évité).")]
+    private static partial void LogDevProfileAlreadyConfigured(ILogger logger, string tenantId);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Profil de dev amorcé pour « {TenantId} » (profil={ProfileImported}, fiscal={FiscalImported}, comptes PA={PaAccounts}).")]
     private static partial void LogDevProfileSeeded(ILogger logger, string tenantId, bool profileImported, bool fiscalImported, int paAccounts);

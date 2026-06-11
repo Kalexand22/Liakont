@@ -22,6 +22,12 @@ public record ImportTenantSeedCommand : ICommand<ImportTenantSeedResult>
     /// présentera (claim du realm). <c>null</c> = repli sur le companyId du contexte courant
     /// (<c>ICompanyFilter</c>, chemin requête opérateur). Aucun secret n'est jamais importé
     /// (INV-TENANTSETTINGS-007 inchangé).
+    /// <para>
+    /// Garde anti-injection cross-tenant : un override qui CONTREDIT la société d'un acteur de tenant
+    /// présent est REFUSÉ par le handler (la valeur n'est honorée que sur les chemins de provisioning
+    /// sans acteur de tenant — amorçage, endpoint d'administration). Ne JAMAIS exposer cette commande à
+    /// un endpoint opérateur en liant <see cref="CompanyId"/> depuis le corps de requête.
+    /// </para>
     /// </summary>
     public Guid? CompanyId { get; init; }
 }

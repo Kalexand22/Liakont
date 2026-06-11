@@ -8,6 +8,7 @@ using Liakont.Modules.TenantSettings.Domain.ValueObjects;
 using Liakont.Modules.TenantSettings.Infrastructure.Seed;
 using MediatR;
 using Stratum.Common.Abstractions.Exceptions;
+using Stratum.Common.Abstractions.Security;
 using Stratum.Common.Infrastructure.DataIsolation;
 
 /// <summary>
@@ -19,24 +20,24 @@ public sealed class ImportTenantSeedHandler : IRequestHandler<ImportTenantSeedCo
 {
     private readonly ITenantSettingsUnitOfWorkFactory _uowFactory;
     private readonly ICompanyFilter _companyFilter;
+    private readonly IActorContextAccessor _actorContextAccessor;
     private readonly TenantSettingsJournal _journal;
 
     public ImportTenantSeedHandler(
         ITenantSettingsUnitOfWorkFactory uowFactory,
         ICompanyFilter companyFilter,
+        IActorContextAccessor actorContextAccessor,
         TenantSettingsJournal journal)
     {
         _uowFactory = uowFactory;
         _companyFilter = companyFilter;
+        _actorContextAccessor = actorContextAccessor;
         _journal = journal;
     }
 
     public async Task<ImportTenantSeedResult> Handle(ImportTenantSeedCommand request, CancellationToken cancellationToken)
     {
-        // companyId explicite (amorçage / endpoint d'admin sur un tenant cible) sinon contexte courant
-        // (requête opérateur). Le scope tenant route déjà la connexion vers la bonne base ; le companyId
-        // est la clé de scoping écrite dans les agrégats (et il n'existe pas encore en base au 1er profil).
-        var companyId = request.CompanyId ?? _companyFilter.GetRequiredCompanyId();
+        var companyId = ResolveCompanyId(request);
         var (profileSeed, paAccountSeeds) = await TenantSeedReader.ReadAsync(request.SeedDirectoryPath, cancellationToken);
 
         var warnings = new List<string>();
@@ -262,5 +263,31 @@ public sealed class ImportTenantSeedHandler : IRequestHandler<ImportTenantSeedCo
         }
 
         return imported;
+    }
+
+    /// <summary>
+    /// Résout la clé de scoping de l'import. Un <see cref="ImportTenantSeedCommand.CompanyId"/> explicite
+    /// n'est honoré que sur un chemin PRIVILÉGIÉ (amorçage de démarrage, endpoint d'administration scopé
+    /// sur le tenant cible) — ces chemins n'ont pas d'acteur de tenant (companyId du contexte courant
+    /// <c>null</c>). Si un acteur de tenant est présent (chemin opérateur) et qu'un companyId explicite
+    /// CONTREDIT sa société, l'import est REFUSÉ (garde anti-injection cross-tenant, CLAUDE.md n°9/17).
+    /// Sans companyId explicite, on retombe sur la société du contexte courant (<see cref="ICompanyFilter"/>).
+    /// </summary>
+    private Guid ResolveCompanyId(ImportTenantSeedCommand request)
+    {
+        if (request.CompanyId is not { } explicitCompanyId)
+        {
+            return _companyFilter.GetRequiredCompanyId();
+        }
+
+        var actorCompanyId = _actorContextAccessor.Current.CompanyId;
+        if (actorCompanyId is { } actorId && actorId != explicitCompanyId)
+        {
+            throw new ConflictException(
+                "Le companyId explicite de l'import ne peut pas différer de la société du contexte courant "
+                + "(garde anti-injection cross-tenant). L'override n'est destiné qu'aux chemins de provisioning sans acteur de tenant.");
+        }
+
+        return explicitCompanyId;
     }
 }

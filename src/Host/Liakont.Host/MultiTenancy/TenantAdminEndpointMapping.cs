@@ -1,6 +1,7 @@
 namespace Liakont.Host.MultiTenancy;
 
 using Liakont.Modules.TenantSettings.Contracts.Commands;
+using Liakont.Modules.TenantSettings.Contracts.Queries;
 using MediatR;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -150,6 +151,16 @@ public static class TenantAdminEndpointMapping
         // Scope du tenant CIBLE (la requête SystemAdmin n'est pas scopée sur lui) : la connexion est routée
         // vers sa base et le companyId explicite est la clé de scoping écrite (aucun profil n'existe encore).
         await using var scope = scopeFactory.Create(tenantId);
+
+        // PROVISIONING create-only : si le tenant a DÉJÀ un profil, refuser (409) plutôt que de réimporter
+        // — un re-seed remettrait des réglages fiscaux saisis via la console à la baseline du seed (null).
+        // La reconfiguration passe par la console, jamais par un ré-import de provisioning.
+        var settingsQueries = scope.Services.GetRequiredService<ITenantSettingsQueries>();
+        if (await settingsQueries.GetCurrentCompanyId(ct) is not null)
+        {
+            return Results.Conflict(new { ErrorMessage = "Tenant déjà paramétré (profil existant) — reconfigurez via la console, pas par un ré-import de provisioning." });
+        }
+
         var sender = scope.Services.GetRequiredService<ISender>();
         var result = await sender.Send(
             new ImportTenantSeedCommand { SeedDirectoryPath = body.SeedDirectoryPath, CompanyId = body.CompanyId },
