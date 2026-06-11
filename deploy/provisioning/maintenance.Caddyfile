@@ -1,0 +1,40 @@
+# Caddyfile de MAINTENANCE — OPS02 (montée de version d'instance).
+#
+# Posé par update-instance.ps1 EN REMPLACEMENT du Caddyfile normal pendant la fenêtre de migration,
+# puis rechargé à chaud (« caddy reload »). Effet : les push d'agents reçoivent un 503 EXPLICITE
+# (Service Unavailable) avec Retry-After tout au long de la migration — y compris pendant le
+# redémarrage du Host, où Caddy ne peut plus proxyfier le back-end. Sans cette route courte, Caddy
+# renverrait un 502 Bad Gateway (Host injoignable) là où l'on veut un 503 « reviens plus tard ».
+#
+# Comportement agent attendu (F12 §3.3) : 503 → back-off exponentiel, les éléments RESTENT dans le
+# buffer local de l'agent et sont re-poussés au heartbeat suivant. Aucune perte de document.
+#
+# Tout le reste de la console (chemins hors /api/agent/*) est proxyfié normalement : un opérateur
+# garde l'accès à l'IHM pendant la migration (au prix d'un éventuel 502 transitoire au redémarrage).
+
+{
+	email {$ACME_EMAIL}
+}
+
+# Console applicative Liakont — push agents bloqués (503), reste proxyfié.
+{$PUBLIC_HOSTNAME} {
+	encode zstd gzip
+
+	# Ingestion / heartbeat de l'agent (contrat F12 §3.2, préfixe /api/agent/) → 503 pendant la migration.
+	@agent path /api/agent/*
+	handle @agent {
+		header Retry-After "120"
+		respond "Liakont — maintenance en cours (montée de version). Réessayez plus tard." 503
+	}
+
+	# Reste de la console (IHM opérateur) : proxy normal vers le Host.
+	handle {
+		reverse_proxy liakont:8080
+	}
+}
+
+# Fournisseur d'identité Keycloak (inchangé pendant la maintenance).
+{$KEYCLOAK_HOSTNAME} {
+	encode zstd gzip
+	reverse_proxy keycloak:8080
+}

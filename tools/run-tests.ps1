@@ -176,6 +176,24 @@ if (Test-Path $agentSln) {
     }
 }
 
+# ── Self-test du provisioning d'instances (OPS02) ────────────────
+# Garde PERMANENTE de la logique de provisioning (deploy/provisioning/Provisioning.psm1 + scripts
+# new-instance/update-instance sur les états vide/sale/échec). PowerShell pur, sans Docker (les
+# chemins Docker sont revalidés à la recette GATE_TOOLKIT). Ne dépend d'aucune solution → toujours
+# exécuté (même en bootstrap). Processus séparé pour isoler son code de sortie.
+Write-Host ""
+Write-Host "=== [provisioning self-test] ===" -ForegroundColor Cyan
+$psExe = if ($PSVersionTable.PSEdition -eq 'Core') { 'pwsh' } else { 'powershell' }
+& $psExe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot 'tools\test-provisioning.ps1')
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "FAIL: [provisioning self-test] échec — voir la sortie ci-dessus." -ForegroundColor Red
+    "[provisioning self-test] FAILED (exit $LASTEXITCODE)." | Add-Content $logFile
+    $overallExit = 1
+}
+else {
+    "[provisioning self-test] PASS." | Add-Content $logFile
+}
+
 # ── Summary ──────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "=== run-tests summary ===" -ForegroundColor Cyan
