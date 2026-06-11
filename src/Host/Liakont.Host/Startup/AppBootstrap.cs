@@ -402,9 +402,15 @@ public static class AppBootstrap
 
         // Navigation providers (sidebar)
         builder.Services.AddSingleton<INavSectionProvider, HostNavSectionProvider>();
-        builder.Services.AddSingleton<INavSectionProvider, Stratum.Modules.Identity.Web.IdentityNavSectionProvider>();
-        builder.Services.AddSingleton<INavSectionProvider, Stratum.Modules.Identity.Web.SecurityNavSectionProvider>();
-        builder.Services.AddSingleton<INavSectionProvider, Stratum.Modules.Notification.Web.NotificationNavSectionProvider>();
+
+        // FIX209 — assainissement de la nav socle (décision opérateur E5, recette GATE_CONSOLE_WEB run 2) :
+        // l'« Annuaire » socle (Agents/Équipes/Délégations — collision avec les « Agents d'extraction » Liakont)
+        // et la « Sécurité » socle (Utilisateurs/Rôles — les comptes vivent dans Keycloak sous OIDC ; sort
+        // définitif renvoyé à l'ADR IdP / OPS01c) ne sont PLUS câblés dans la nav Liakont. Le socle vendored
+        // n'est PAS modifié (CLAUDE.md n°11) : on retire seulement l'ENREGISTREMENT au composition root — les
+        // providers Stratum.Modules.Identity.Web.{Identity,Security}NavSectionProvider et leurs routes restent
+        // intacts (autres produits Stratum, accès super-admin). La section « Notifications » du socle est, elle,
+        // RÉDUITE à « Templates » et gardée par permission via NotificationNavVisibilityFilter (plus bas, SCOPED).
         builder.Services.AddSingleton<INavSectionProvider, Stratum.Modules.Audit.Web.AuditNavSectionProvider>();
 
         // Section « Jobs » du socle filtrée par permission côté Liakont (FIX07c) : le provider socle déclare
@@ -415,6 +421,12 @@ public static class AppBootstrap
         // Le socle vendored n'est PAS modifié ; la découverte de la ROUTE /admin/jobs (Routes.razor +
         // MapRazorComponents) reste intacte pour le super-admin.
         builder.Services.AddScoped<INavSectionProvider, Liakont.Host.Navigation.JobNavVisibilityFilter>();
+
+        // Section « Notifications » du socle RÉDUITE à « Templates » et gardée par liakont.settings (FIX209,
+        // décision E5). Les six autres entrées socle (Règles de routage, Webhooks, Simulation, SLA, Services,
+        // Integrations) sont hors périmètre Liakont et plusieurs lèvent « No company context » sous OIDC. SCOPED
+        // car la visibilité dépend de l'utilisateur. Le provider socle n'est pas modifié (le filtre y délègue).
+        builder.Services.AddScoped<INavSectionProvider, Liakont.Host.Navigation.NotificationNavVisibilityFilter>();
 
         // Navigation maître Liakont (WEB01) : SCOPED car la visibilité des sections dépend du tenant
         // courant (pool PDF → Réconciliation) et du rôle de l'utilisateur (permission → Supervision).
