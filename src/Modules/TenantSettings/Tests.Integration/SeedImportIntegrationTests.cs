@@ -139,8 +139,10 @@ public sealed class SeedImportIntegrationTests
             // Le point d'entrée OPS03 (import de seed) dispatche bien l'import de mapping TVA, avec le chemin
             // du fichier présent dans le dossier de seed (item FIX01b), et reporte le résultat dans le drapeau.
             result.TvaMappingImported.Should().BeTrue();
-            harness.Sender.LastRequest.Should().BeOfType<ImportMappingTableSeedCommand>()
-                .Which.SeedFilePath.Should().Be(mappingPath);
+            var dispatched = harness.Sender.LastRequest.Should().BeOfType<ImportMappingTableSeedCommand>().Subject;
+            dispatched.SeedFilePath.Should().Be(mappingPath);
+            dispatched.CompanyId.Should().Be(harness.CompanyId,
+                "le companyId résolu est propagé à l'import de table (plus de re-déduction ambiante au boot — FIX203a).");
         }
         finally
         {
@@ -169,6 +171,52 @@ public sealed class SeedImportIntegrationTests
 
             result.ProfileImported.Should().BeTrue();
             (await harness.Queries.GetTenantProfile(companyId))!.Siren.Should().Be("123456782");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Import_With_Explicit_CompanyId_Threads_It_To_The_Mapping_Dispatch()
+    {
+        // Boot à froid (FIX203a) : avec un companyId explicite et SANS contexte de société ambiant (filtre
+        // qui échoue), l'import de mapping TVA dispatché porte ce MÊME companyId explicite — donc le handler
+        // de mapping n'a plus à re-déduire la société (qui manquait au démarrage, laissant la table jamais
+        // amorcée). Le filtre qui échoue prouve qu'aucune résolution ambiante n'intervient.
+        const string mappingJson = """
+            {
+              "mappingVersion": "tenant-seed-exemple-v1",
+              "validatedBy": "Table d'exemple — tests",
+              "validatedDate": null,
+              "defaultBehavior": "Block",
+              "rules": [
+                { "sourceRegimeCode": "NORMAL", "label": "Normal", "part": "Adjudication", "category": "S", "rateMode": "Fixed", "rateValue": 20 }
+              ]
+            }
+            """;
+
+        var dir = CreateSeedDir();
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(dir, "tenant-profile.json"), ProfileJson);
+            var mappingPath = Path.Combine(dir, "mapping-tva.json");
+            await File.WriteAllTextAsync(mappingPath, mappingJson);
+
+            var companyId = Guid.NewGuid();
+            var harness = new TenantSettingsHarness(_fixture, companyId, Guid.NewGuid());
+            var handler = new ImportTenantSeedHandler(harness.UowFactory, new ThrowingCompanyFilter(), harness.ActorAccessor, harness.Journal, harness.Sender);
+
+            var result = await handler.Handle(
+                new ImportTenantSeedCommand { SeedDirectoryPath = dir, CompanyId = companyId },
+                CancellationToken.None);
+
+            result.TvaMappingImported.Should().BeTrue();
+            var dispatched = harness.Sender.LastRequest.Should().BeOfType<ImportMappingTableSeedCommand>().Subject;
+            dispatched.SeedFilePath.Should().Be(mappingPath);
+            dispatched.CompanyId.Should().Be(companyId,
+                "le companyId explicite de l'amorçage est propagé à l'import de table (aucune dépendance au contexte ambiant).");
         }
         finally
         {

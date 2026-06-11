@@ -3,6 +3,7 @@ namespace Liakont.Host.Startup;
 using Liakont.Modules.TenantSettings.Contracts.Commands;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
+using Liakont.Modules.TvaMapping.Contracts.Commands;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -135,24 +136,52 @@ internal static partial class DevTenantSeeder
         try
         {
             await using var scope = app.Services.GetRequiredService<ITenantScopeFactory>().Create(options.TenantId);
+            var sender = scope.Services.GetRequiredService<ISender>();
 
-            // Idempotent / non destructif : si le profil existe déjà, ne PAS réimporter (un ré-import
-            // remettrait à la baseline du seed des réglages éventuellement modifiés via la console).
+            // Amorçage idempotent PAR COMPOSANT (FIX203a). Le paramétrage TenantSettings (profil, fiscal,
+            // comptes PA, planification, seuils) est importé en UNE transaction ; seule la table de mapping
+            // TVA (transaction distincte du module TvaMapping) peut rester absente après un échec partiel.
+            // Donc :
+            //  • profil absent (boot à froid) → import complet du seed (les 4 composants, table comprise) ;
+            //  • profil présent (ré-import / récupération) → ne JAMAIS rejouer le paramétrage (un ré-import
+            //    écraserait des réglages édités via la console), mais RATTRAPER la seule table qui a pu
+            //    manquer — l'import de table est lui-même idempotent (no-op si déjà paramétrée).
             var settingsQueries = scope.Services.GetRequiredService<ITenantSettingsQueries>();
-            if (await settingsQueries.GetCurrentCompanyId() is not null)
+            if (await settingsQueries.GetCurrentCompanyId() is null)
+            {
+                var result = await sender.Send(new ImportTenantSeedCommand
+                {
+                    SeedDirectoryPath = seedDir,
+                    CompanyId = options.CompanyId,
+                });
+
+                LogDevProfileSeeded(logger, options.TenantId, result.ProfileImported, result.FiscalImported, result.PaAccountsImported);
+                return;
+            }
+
+            // Profil déjà présent : rattraper la SEULE table de mapping si un seed partiel l'avait laissée
+            // absente. Le companyId est explicite (le contexte de société ambiant n'est pas posé au boot).
+            var mappingFilePath = Path.Combine(seedDir, ImportTenantSeedCommand.MappingSeedFileName);
+            if (!File.Exists(mappingFilePath))
             {
                 LogDevProfileAlreadyConfigured(logger, options.TenantId);
                 return;
             }
 
-            var sender = scope.Services.GetRequiredService<ISender>();
-            var result = await sender.Send(new ImportTenantSeedCommand
+            var mappingImported = await sender.Send(new ImportMappingTableSeedCommand
             {
-                SeedDirectoryPath = seedDir,
+                SeedFilePath = mappingFilePath,
                 CompanyId = options.CompanyId,
             });
 
-            LogDevProfileSeeded(logger, options.TenantId, result.ProfileImported, result.FiscalImported, result.PaAccountsImported);
+            if (mappingImported)
+            {
+                LogDevMappingBackfilled(logger, options.TenantId);
+            }
+            else
+            {
+                LogDevProfileAlreadyConfigured(logger, options.TenantId);
+            }
         }
         catch (Exception ex)
         {
@@ -172,6 +201,9 @@ internal static partial class DevTenantSeeder
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Amorçage du profil de dev ignoré pour « {TenantId} » : un profil existe déjà (ré-import non destructif évité).")]
     private static partial void LogDevProfileAlreadyConfigured(ILogger logger, string tenantId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Table de mapping TVA rattrapée pour « {TenantId} » (profil déjà présent mais table absente — seed partiel récupéré, FIX203a).")]
+    private static partial void LogDevMappingBackfilled(ILogger logger, string tenantId);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Profil de dev amorcé pour « {TenantId} » (profil={ProfileImported}, fiscal={FiscalImported}, comptes PA={PaAccounts}).")]
     private static partial void LogDevProfileSeeded(ILogger logger, string tenantId, bool profileImported, bool fiscalImported, int paAccounts);

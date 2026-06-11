@@ -22,9 +22,6 @@ using Stratum.Common.Infrastructure.DataIsolation;
 /// </summary>
 public sealed class ImportTenantSeedHandler : IRequestHandler<ImportTenantSeedCommand, ImportTenantSeedResult>
 {
-    /// <summary>Nom du fichier de seed de mapping TVA dans le dossier de seed (item FIX01b).</summary>
-    private const string MappingFileName = "mapping-tva.json";
-
     private readonly ITenantSettingsUnitOfWorkFactory _uowFactory;
     private readonly ICompanyFilter _companyFilter;
     private readonly IActorContextAccessor _actorContextAccessor;
@@ -91,11 +88,13 @@ public sealed class ImportTenantSeedHandler : IRequestHandler<ImportTenantSeedCo
         // TenantSettings ci-dessus (le module TvaMapping porte sa propre transaction) ; idempotent (ignoré
         // si une table existe déjà). N'amorce que si un fichier de mapping est présent dans le dossier de seed.
         var tvaMappingImported = false;
-        var mappingFilePath = Path.Combine(request.SeedDirectoryPath, MappingFileName);
+        var mappingFilePath = Path.Combine(request.SeedDirectoryPath, ImportTenantSeedCommand.MappingSeedFileName);
         if (File.Exists(mappingFilePath))
         {
+            // Propage le companyId DÉJÀ résolu : au démarrage il n'y a pas de contexte de société ambiant,
+            // donc le handler de mapping ne pourrait pas le re-déduire (cause du seed partiel FIX203a).
             tvaMappingImported = await _sender.Send(
-                new ImportMappingTableSeedCommand { SeedFilePath = mappingFilePath },
+                new ImportMappingTableSeedCommand { SeedFilePath = mappingFilePath, CompanyId = companyId },
                 cancellationToken);
         }
 
