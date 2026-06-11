@@ -40,6 +40,10 @@ internal sealed class DocumentSendActionsService : IDocumentSendActions
 
     private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
 
+    /// <summary>Message neutre renvoyant au journal (résultat de run indéterminé ou non corrélable — FIX05).</summary>
+    private static readonly DocumentSendActionResult JournalFallback = DocumentSendActionResult.Ok(
+        "Traitement lancé. Son résultat (documents émis ou motif d'absence d'envoi) apparaîtra dans le journal des traitements dès la fin de l'exécution.");
+
     private readonly IDocumentQueries _documents;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IActorContextAccessor _actorAccessor;
@@ -235,8 +239,10 @@ internal sealed class DocumentSendActionsService : IDocumentSendActions
             return DocumentSendActionResult.Failure("Tenant non résolu : déclenchement impossible.");
         }
 
-        // Horodatage AVANT publication : le run d'envoi qui en résulte démarrera APRÈS cet instant (même
-        // horloge serveur), ce qui sert de borne basse pour le corréler dans le journal (FIX05).
+        // Horodatage AVANT publication : sert de borne basse pour retrouver, dans le journal, le run d'envoi qui
+        // en résulte (il démarrera après cet instant). En mono-nœud (déploiement V1, un seul Host), le worker
+        // partage l'horloge du Host ; en multi-nœud, une dérive worker < host peut empêcher la corrélation — le
+        // mode d'échec reste GRACIEUX (message neutre renvoyant au journal), jamais un faux résultat (FIX05).
         var triggeredAtUtc = _timeProvider.GetUtcNow();
         var jobId = await PublishTenantSendAsync(actor, cancellationToken).ConfigureAwait(false);
 
@@ -266,24 +272,32 @@ internal sealed class DocumentSendActionsService : IDocumentSendActions
         ArgumentNullException.ThrowIfNull(run);
         var emitted = run.DocumentsSucceeded;
         var failed = run.DocumentsFailed;
+
+        // Documents pris en compte mais ni émis ni en échec : différés (contenu pas encore stagé) ou ignorés
+        // (SendTally — Processed = émis + échec + différés + ignorés). Sans cette mention, un run « 3 émis » qui
+        // diffère 2 documents passerait pour intégralement envoyé (le lot n'est pas clos — FIX05, review P2).
+        var pending = Math.Max(0, run.DocumentsProcessed - emitted - failed);
         var motif = string.IsNullOrWhiteSpace(run.Detail) ? null : run.Detail.Trim();
 
-        if (emitted > 0 && failed == 0)
+        if (emitted > 0)
         {
-            return DocumentSendActionResult.Ok(string.Create(Fr, $"Traitement terminé : {emitted} document(s) émis."));
-        }
+            var head = failed > 0
+                ? string.Create(Fr, $"Traitement terminé : {emitted} document(s) émis, {failed} en échec — consultez les documents en échec.")
+                : string.Create(Fr, $"Traitement terminé : {emitted} document(s) émis.");
+            if (pending > 0)
+            {
+                head += string.Create(Fr, $" {pending} document(s) restent en attente d'envoi (voir le journal des traitements).");
+            }
 
-        if (emitted > 0 && failed > 0)
-        {
-            return DocumentSendActionResult.Ok(string.Create(Fr, $"Traitement terminé : {emitted} document(s) émis, {failed} en échec — consultez les documents en échec."));
+            return DocumentSendActionResult.Ok(head);
         }
 
         // Aucun document émis : ce n'est PAS un succès silencieux. On expose le motif (paramétrage manquant,
-        // SIREN non publié, rien de prêt…) pour que l'opérateur sache quoi faire.
-        var head = failed > 0
+        // SIREN non publié, contenu différé, rien de prêt…) pour que l'opérateur sache quoi faire.
+        var none = failed > 0
             ? string.Create(Fr, $"Traitement terminé : aucun document émis, {failed} en échec.")
             : "Traitement terminé : aucun document émis.";
-        return DocumentSendActionResult.Failure(motif is null ? head : head + " " + motif);
+        return DocumentSendActionResult.Failure(motif is null ? none : none + " " + motif);
     }
 
     /// <summary>Identité d'audit de l'opérateur (GUID utilisateur ; « system » si non authentifié) — identique aux endpoints.</summary>
@@ -306,10 +320,19 @@ internal sealed class DocumentSendActionsService : IDocumentSendActions
     {
         for (var attempt = 1; attempt <= _waitPolicy.MaxAttempts; attempt++)
         {
-            var run = await FindCompletedManualSendRunAsync(triggeredAtUtc, cancellationToken).ConfigureAwait(false);
-            if (run is not null)
+            var candidates = await FindCompletedManualSendRunsAsync(triggeredAtUtc, cancellationToken).ConfigureAwait(false);
+            if (candidates.Count == 1)
             {
-                return DescribeSendRunOutcome(run);
+                return DescribeSendRunOutcome(candidates[0]);
+            }
+
+            if (candidates.Count > 1)
+            {
+                // Plusieurs envois manuels du tenant se sont clôturés dans la fenêtre (déclenchements concurrents).
+                // Le journal ne porte AUCUNE clé de corrélation propre au déclenchement (ni jobId, ni opérateur) :
+                // attribuer l'un de ces runs à CE déclenchement risquerait un résultat chiffré FAUX. On renvoie donc
+                // au journal (source de vérité) plutôt que d'affirmer un chiffre — jamais un faux résultat (FIX05).
+                return JournalFallback;
             }
 
             if (attempt < _waitPolicy.MaxAttempts)
@@ -321,23 +344,23 @@ internal sealed class DocumentSendActionsService : IDocumentSendActions
         // Dégradation gracieuse : le déclenchement a réussi, mais le run n'est pas encore clôturé. On ne prétend
         // PAS qu'il a abouti — on renvoie l'opérateur au journal des traitements (où le résultat ET le motif
         // apparaîtront, colonne Détail visible — FIX05).
-        return DocumentSendActionResult.Ok(
-            "Traitement lancé. Son résultat (documents émis ou motif d'absence d'envoi) apparaîtra dans le journal des traitements dès la fin de l'exécution.");
+        return JournalFallback;
     }
 
     /// <summary>
-    /// Dernière exécution SEND manuelle CLÔTURÉE dont le début est ≥ <paramref name="triggeredAtUtc"/>, ou
-    /// <c>null</c> tant qu'aucune n'est clôturée. Le journal est rendu le plus récent en tête (lecture tenant-scopée).
+    /// Exécutions SEND manuelles CLÔTURÉES dont le début est ≥ <paramref name="triggeredAtUtc"/> (lecture
+    /// tenant-scopée, journal rendu le plus récent en tête). En régime nominal (un seul déclenchement) la liste a
+    /// 0 (run pas encore clôturé) ou 1 élément ; au-delà, l'appelant détecte l'ambiguïté de corrélation.
     /// </summary>
-    private async Task<PipelineRunLogDto?> FindCompletedManualSendRunAsync(
+    private async Task<IReadOnlyList<PipelineRunLogDto>> FindCompletedManualSendRunsAsync(
         DateTimeOffset triggeredAtUtc, CancellationToken cancellationToken)
     {
         var runs = await _runQueries.GetRecentRunsAsync(RunLookupLimit, cancellationToken).ConfigureAwait(false);
-        return runs.FirstOrDefault(r =>
+        return runs.Where(r =>
             r.RunType == PipelineRunType.Send
             && r.Trigger == PipelineRunTrigger.Manual
             && r.CompletedAt is not null
-            && r.StartedAt >= triggeredAtUtc);
+            && r.StartedAt >= triggeredAtUtc).ToList();
     }
 
     /// <summary>

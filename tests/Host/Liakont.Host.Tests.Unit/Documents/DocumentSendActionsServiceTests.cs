@@ -256,6 +256,36 @@ public sealed class DocumentSendActionsServiceTests
     }
 
     [Fact]
+    public async Task TriggerRun_With_Concurrent_Manual_Runs_Falls_Back_To_The_Journal_Without_Asserting_A_Count()
+    {
+        // FIX05 (review P2) : deux envois manuels du tenant clôturés dans la fenêtre (déclenchements concurrents).
+        // Sans clé de corrélation, on n'attribue PAS un chiffre potentiellement faux — on renvoie au journal.
+        var runA = SendRun(succeeded: 3, failed: 0, detail: "A");
+        var runB = SendRun(succeeded: 5, failed: 0, detail: "B", startedAt: TriggerInstant.AddSeconds(1));
+        var (service, _, _) = Build(new FakeDocumentQueries(), runs: new[] { runA, runB });
+
+        var result = await service.TriggerRunAsync();
+
+        result.Success.Should().BeTrue();
+        result.Message.Should().Contain("journal des traitements");
+        result.Message.Should().NotContain("3 document").And.NotContain("5 document");
+    }
+
+    [Fact]
+    public async Task TriggerRun_Mentions_Pending_Documents_When_The_Batch_Is_Not_Fully_Sent()
+    {
+        // FIX05 (review P2) : un run qui émet 3 documents mais en diffère 2 (staging absent) ne doit pas passer
+        // pour intégralement envoyé — les documents restants sont signalés (renvoi au journal).
+        var run = SendRun(succeeded: 3, failed: 0, detail: "SEND : 3 émis, 0 en échec, 2 différés (staging absent), 0 ignorés.", processed: 5);
+        var (service, _, _) = Build(new FakeDocumentQueries(), runs: new[] { run });
+
+        var result = await service.TriggerRunAsync();
+
+        result.Success.Should().BeTrue();
+        result.Message.Should().Contain("3 document(s) émis").And.Contain("2 document(s) restent en attente");
+    }
+
+    [Fact]
     public async Task TriggerRun_Without_Actions_Permission_Is_Refused_Without_Publishing()
     {
         var (service, queue, audit) = Build(new FakeDocumentQueries(), canAct: false);
@@ -309,20 +339,22 @@ public sealed class DocumentSendActionsServiceTests
         return (service, queue, audit);
     }
 
-    /// <summary>Construit une exécution SEND clôturée pour les tests de remontée du résultat (FIX05).</summary>
+    /// <summary>Construit une exécution SEND clôturée pour les tests de remontée du résultat (FIX05).
+    /// <paramref name="processed"/> par défaut = émis + en échec ; le surplus représente les différés/ignorés.</summary>
     private static PipelineRunLogDto SendRun(
         int succeeded,
         int failed,
         string? detail,
         PipelineRunTrigger trigger = PipelineRunTrigger.Manual,
-        DateTimeOffset? startedAt = null) => new()
+        DateTimeOffset? startedAt = null,
+        int? processed = null) => new()
     {
         Id = Guid.NewGuid(),
         RunType = PipelineRunType.Send,
         Trigger = trigger,
         StartedAt = startedAt ?? TriggerInstant,
         CompletedAt = (startedAt ?? TriggerInstant).AddSeconds(2),
-        DocumentsProcessed = succeeded + failed,
+        DocumentsProcessed = processed ?? (succeeded + failed),
         DocumentsSucceeded = succeeded,
         DocumentsFailed = failed,
         Detail = detail,
