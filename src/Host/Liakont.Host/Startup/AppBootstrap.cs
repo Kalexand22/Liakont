@@ -499,6 +499,17 @@ public static class AppBootstrap
         // Sans cette action, le diagnostic pré-envoi (F04 §3.1) refuse tout envoi (« Transport not available »).
         builder.Services.AddScoped<Liakont.Host.PaAccounts.IPaPublicationConsoleService, Liakont.Host.PaAccounts.PaPublicationConsoleService>();
 
+        // Composition de la page « Paramétrage › Alertes » (FIX210) : dispositif d'alerte du tenant (règles
+        // actives/gelées + seuils effectifs + e-mail opérateur, via le Contract Supervision) et mutations
+        // (seuils, contact) déléguées aux commandes TenantSettings (garde liakont.settings côté page).
+        builder.Services.AddScoped<Liakont.Host.Alertes.IAlertesConsoleService, Liakont.Host.Alertes.AlertesConsoleService>();
+
+        // Témoin de vie du dead-man's-switch (FIX210, F12 §5.1) : lit les exécutions du job SYSTÈME
+        // d'évaluation (base système) via un scope SANS tenant ambiant. Horloge partagée (TimeProvider) pour
+        // un « en retard » déterministe en test.
+        builder.Services.TryAddSingleton(TimeProvider.System);
+        builder.Services.AddScoped<Liakont.Host.Supervision.ISupervisionLivenessProvider, Liakont.Host.Supervision.SupervisionLivenessProvider>();
+
         // Pré-chargement déterministe de l'état de console à l'ouverture du circuit (avant rendu de la nav).
         builder.Services.AddScoped<Liakont.Host.Navigation.LiakontConsoleCircuitHandler>();
         builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler>(

@@ -4,6 +4,7 @@ using System;
 using Bunit;
 using FluentAssertions;
 using Liakont.Host.Components.Pages;
+using Liakont.Host.Supervision;
 using Liakont.Modules.Supervision.Contracts;
 using Liakont.Modules.Supervision.Contracts.DTOs;
 using Microsoft.Extensions.DependencyInjection;
@@ -30,6 +31,9 @@ public sealed class SupervisionTests : BunitContext
         Services.AddScoped<IActorContextAccessor>(_ => new TestActorContextAccessor());
         Services.AddScoped<IGridPreferenceService>(_ => new NullGridPreferences());
         Services.AddScoped<ISavedFilterService>(_ => new NullSavedFilters());
+
+        // Le bandeau témoin de vie (FIX210) embarqué dans la page résout ce service à l'initialisation.
+        Services.AddScoped<ISupervisionLivenessProvider>(_ => new FakeSupervisionLivenessProvider());
     }
 
     [Fact]

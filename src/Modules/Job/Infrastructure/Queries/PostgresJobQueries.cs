@@ -83,4 +83,19 @@ internal sealed class PostgresJobQueries : IJobQueries
             CreatedAt = (DateTimeOffset)row.created_at,
         }).ToList();
     }
+
+    // Liakont addition (FIX210) : dernier achèvement d'un type de job, filtré en SQL (pas de scan plafonné).
+    public async Task<DateTimeOffset?> GetLastCompletedAtByTypeAsync(string jobType, CancellationToken ct = default)
+    {
+        using IDbConnection conn = await _connectionFactory.OpenAsync(ct);
+
+        const string sql = """
+            SELECT max(completed_at)
+            FROM job.jobs
+            WHERE type = @Type AND status = 'Completed'
+            """;
+
+        return await conn.ExecuteScalarAsync<DateTimeOffset?>(
+            new CommandDefinition(sql, new { Type = jobType }, cancellationToken: ct));
+    }
 }

@@ -1,0 +1,68 @@
+@namespace Liakont.Host.Components
+@using System.Globalization
+@using Liakont.Host.Supervision
+@using Stratum.Common.UI.Models
+@inject ISupervisionLivenessProvider Liveness
+
+@* SupervisionLivenessBanner — témoin de vie du dead-man's-switch (FIX210, F12 §5.1). Affiché en tête des
+ * pages de supervision : une supervision MUETTE (jamais évaluée / en retard) devient une alerte VISIBLE,
+ * au lieu d'être indiscernable d'un « aucune alerte récente ». Présentationnel : toute la lecture est
+ * portée par ISupervisionLivenessProvider (CLAUDE.md n°19). 100 % français. *@
+
+@if (_view is null)
+{
+    <p class="supervision-liveness" data-testid="supervision-liveness-loading">Vérification de l'état de la supervision…</p>
+}
+else
+{
+    <div class="supervision-liveness"
+         role="@(IsAlert(_view.Status) ? "alert" : "status")"
+         data-testid="supervision-liveness">
+        @switch (_view.Status)
+        {
+            case SupervisionLivenessStatus.NeverEvaluated:
+                <StatusBadge Label="SUPERVISION JAMAIS ÉVALUÉE" Severity="Severity.Error" />
+                <span data-testid="supervision-liveness-never">
+                    Le filet de sécurité n'a encore rien vérifié. Vérifiez qu'une planification « Évaluation de la
+                    supervision » (toutes les @_view.IntervalMinutes min, UTC) est active dans l'admin des planifications.
+                </span>
+                break;
+            case SupervisionLivenessStatus.Overdue:
+                <StatusBadge Label="SUPERVISION EN RETARD" Severity="Severity.Error" />
+                <span data-testid="supervision-liveness-overdue">
+                    Dernière évaluation @FormatUtc(_view.LastEvaluationUtc) — le dispositif devrait s'évaluer toutes
+                    les @_view.IntervalMinutes min (UTC). Le dead-man's-switch ne tourne peut-être plus : vérifiez la planification.
+                </span>
+                break;
+            case SupervisionLivenessStatus.Healthy:
+                <StatusBadge Label="Supervision active" Severity="Severity.Success" />
+                <span data-testid="supervision-liveness-healthy">
+                    Dernière évaluation @FormatUtc(_view.LastEvaluationUtc) (évaluée toutes les @_view.IntervalMinutes min, UTC).
+                </span>
+                break;
+            default:
+                <StatusBadge Label="État indéterminé" Severity="Severity.Info" />
+                <span data-testid="supervision-liveness-unknown">
+                    L'état du dispositif de supervision n'a pas pu être lu pour le moment. Réessayez plus tard.
+                </span>
+                break;
+        }
+    </div>
+}
+
+@code {
+    private SupervisionLivenessView? _view;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Le fournisseur est best-effort (jamais d'exception propagée) : un état indéterminé est rendu sans
+        // fausse alerte. La page reste affichée même si le témoin de vie est indisponible.
+        _view = await Liveness.GetAsync();
+    }
+
+    private static bool IsAlert(SupervisionLivenessStatus status) =>
+        status is SupervisionLivenessStatus.NeverEvaluated or SupervisionLivenessStatus.Overdue;
+
+    private static string FormatUtc(DateTimeOffset? value) =>
+        value is { } v ? v.UtcDateTime.ToString("dd/MM/yyyy HH:mm 'UTC'", CultureInfo.InvariantCulture) : "—";
+}

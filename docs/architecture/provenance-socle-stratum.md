@@ -238,6 +238,8 @@ src/Modules/Job/Web/Pages/AdminJobScheduleForm.razor
 src/Modules/Job/Web/Pages/AdminJobSchedules.razor
 src/Modules/Job/Web/JobNavSectionProvider.cs
 src/Modules/Job/Infrastructure/JobHandlerResolver.cs
+src/Modules/Job/Contracts/Queries/IJobQueries.cs
+src/Modules/Job/Infrastructure/Queries/PostgresJobQueries.cs
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -502,6 +504,24 @@ Fichiers **AJOUTÉS** sous les dossiers vendored (non épinglés par le baseline
 Aucune signature existante n'a changé de façon cassante ; toutes les modifications sont candidates à reverser
 en amont (§6). Tests : `JobTypeCatalogTests` (réflexion), `AdminJobScheduleFormTests` + `AdminJobExecutionsTests`
 (bUnit), `JobNavVisibilityFilterTests` étendu (entrée « Exécutions »).
+
+### 4.21 `IJobQueries.GetLastCompletedAtByTypeAsync` — dernier achèvement par type de job (FIX210)
+Le témoin de vie de la supervision (FIX210, F12 §5.1) doit savoir QUAND le dead-man's-switch a été évalué
+pour la dernière fois, afin de distinguer une supervision saine d'une supervision muette (« aucune alerte »
+≠ filet de sécurité en panne). Aucune lecture ciblée n'existait : `ListByStatusAsync` renvoie les N jobs
+`Completed` les plus récemment créés, TOUS types confondus (`ORDER BY created_at DESC LIMIT @Limit`). Filtrer
+le type côté client après un `LIMIT` risque, sur une instance chargée, de pousser l'exécution recherchée hors
+fenêtre → faux « jamais évalué ». Une modification **additive, lecture seule** (marquée
+`// Liakont addition (FIX210)`) :
+- `src/Modules/Job/Contracts/Queries/IJobQueries.cs` : ajout de
+  `Task<DateTimeOffset?> GetLastCompletedAtByTypeAsync(string jobType, CancellationToken)`.
+- `src/Modules/Job/Infrastructure/Queries/PostgresJobQueries.cs` : implémentation
+  (`SELECT max(completed_at) FROM job.jobs WHERE type = @Type AND status = 'Completed'`).
+
+Aucune signature existante modifiée, aucun comportement du worker/scheduler changé. Le filtre par type se fait
+en SQL (pas de scan plafonné). La lecture cible la base SYSTÈME (jobs système, comme le scheduler) — ce n'est
+pas une requête métier tenant-scopée (CLAUDE.md n°9) : elle ne retourne qu'un horodatage d'achèvement, aucune
+donnée de tenant. Candidate à reverser en amont (§6).
 
 ## 5. ADR du socle hérités
 

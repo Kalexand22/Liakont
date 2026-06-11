@@ -20,6 +20,9 @@
     <a href="/supervision" data-testid="supervision-detail-back">← Retour à la supervision</a>
 </p>
 
+@* Témoin de vie du dead-man's-switch (FIX210, F12 §5.1) : une supervision muette est rendue visible. *@
+<SupervisionLivenessBanner />
+
 @if (_loadFailed)
 {
     <div role="alert" data-testid="supervision-detail-error">

@@ -96,6 +96,18 @@ public sealed class TenantProfile
         UpdatedAt = DateTimeOffset.UtcNow;
     }
 
+    /// <summary>
+    /// Met à jour le SEUL e-mail de contact d'alerte du tenant (F12-A §2 / F12 §5.3), sans toucher au reste
+    /// du profil. Destinataire des alertes critiques quand l'option <c>AlertTenantContact</c> est active
+    /// (seuils, CFG02). Vide ⇒ aucun contact (normalisé en <c>null</c>).
+    /// </summary>
+    public void SetAlertContactEmail(string? contactEmailAlerte)
+    {
+        ValidateEmail(contactEmailAlerte);
+        ContactEmailAlerte = NormalizeEmail(contactEmailAlerte);
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
     public void Suspend()
     {
         if (Statut == TenantStatus.Suspendu)
