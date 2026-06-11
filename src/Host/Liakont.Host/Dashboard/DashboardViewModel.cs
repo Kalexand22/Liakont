@@ -11,6 +11,13 @@ using System.Collections.Generic;
 /// </summary>
 public sealed record DashboardViewModel
 {
+    /// <summary>
+    /// <c>true</c> si le profil légal du tenant (CFG02) est créé. <c>false</c> = paramétrage incomplet :
+    /// le CHECK suspend tout document tant que le profil manque (bug-inbox FIX01a). La vue affiche alors
+    /// un bandeau explicite « traitement suspendu » plutôt que le silence.
+    /// </summary>
+    public required bool ProfileConfigured { get; init; }
+
     /// <summary>Compteur de documents par état, dans l'ordre canonique d'affichage (0 inclus).</summary>
     public required IReadOnlyList<DashboardStateCount> StateCounts { get; init; }
 

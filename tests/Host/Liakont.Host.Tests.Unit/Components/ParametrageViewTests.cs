@@ -41,6 +41,24 @@ public sealed class ParametrageViewTests : BunitContext
     }
 
     [Fact]
+    public void Should_Show_Incomplete_Banner_When_Profile_Null()
+    {
+        var cut = Render<ParametrageView>(p => p.Add(v => v.Model, BuildModel(profile: null)));
+
+        var banner = cut.Find("[data-testid='parametrage-profile-incomplete']");
+        banner.TextContent.Should().Contain("PARAMÉTRAGE INCOMPLET");
+        banner.TextContent.Should().Contain("suspendu");
+    }
+
+    [Fact]
+    public void Should_Not_Show_Incomplete_Banner_When_Profile_Present()
+    {
+        var cut = Render<ParametrageView>(p => p.Add(v => v.Model, BuildModel(profile: BuildProfile())));
+
+        cut.FindAll("[data-testid='parametrage-profile-incomplete']").Should().BeEmpty();
+    }
+
+    [Fact]
     public void Should_Show_Fiscal_Values_When_Present()
     {
         var fiscal = BuildFiscal(vatOnDebits: true, operationCategory: "PRESTATION_SERVICE", reportingFrequency: "MENSUELLE");

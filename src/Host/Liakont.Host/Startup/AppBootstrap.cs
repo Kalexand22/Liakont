@@ -490,6 +490,12 @@ public static class AppBootstrap
         // migration des tenants existants pour que le tenant amorcé soit migré dans la même passe.
         await app.SeedDevTenantAsync();
         await MigrateExistingTenantsAsync(app);
+
+        // Amorce le profil de paramétrage du tenant de dev APRÈS sa migration (le schéma tenantsettings
+        // n'existe qu'à ce stade) : sans profil, le CHECK suspend tout document (CFG02). Development only,
+        // non fatal.
+        await app.SeedDevTenantProfileAsync();
+
         await app.Services.SeedAdminUserAsync();
         await SeedRealmRegistryFromDatabaseAsync(app);
     }

@@ -33,7 +33,10 @@ public sealed class ImportTenantSeedHandler : IRequestHandler<ImportTenantSeedCo
 
     public async Task<ImportTenantSeedResult> Handle(ImportTenantSeedCommand request, CancellationToken cancellationToken)
     {
-        var companyId = _companyFilter.GetRequiredCompanyId();
+        // companyId explicite (amorçage / endpoint d'admin sur un tenant cible) sinon contexte courant
+        // (requête opérateur). Le scope tenant route déjà la connexion vers la bonne base ; le companyId
+        // est la clé de scoping écrite dans les agrégats (et il n'existe pas encore en base au 1er profil).
+        var companyId = request.CompanyId ?? _companyFilter.GetRequiredCompanyId();
         var (profileSeed, paAccountSeeds) = await TenantSeedReader.ReadAsync(request.SeedDirectoryPath, cancellationToken);
 
         var warnings = new List<string>();

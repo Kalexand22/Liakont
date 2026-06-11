@@ -21,8 +21,10 @@ public sealed class DashboardViewTests : BunitContext
         DashboardTvaStatus tvaStatus = DashboardTvaStatus.NotConfigured,
         string? tvaValidatedBy = null,
         DateOnly? tvaValidatedDate = null,
-        string? reportingFrequency = null) => new()
+        string? reportingFrequency = null,
+        bool profileConfigured = true) => new()
         {
+            ProfileConfigured = profileConfigured,
             StateCounts = counts ?? [new DashboardStateCount("Detected", 0)],
             Agents = agents ?? [],
             TvaStatus = tvaStatus,
@@ -72,6 +74,24 @@ public sealed class DashboardViewTests : BunitContext
         line.TextContent.Should().Contain("Agent A");
         line.TextContent.Should().Contain("1.2.3");
         line.TextContent.Should().Contain("Actif");
+    }
+
+    [Fact]
+    public void Should_Show_Profile_Incomplete_Banner_When_Profile_Not_Configured()
+    {
+        var cut = Render<DashboardView>(p => p.Add(v => v.Model, BuildModel(profileConfigured: false)));
+
+        var banner = cut.Find("[data-testid='dashboard-profile-incomplete']");
+        banner.TextContent.Should().Contain("PARAMÉTRAGE INCOMPLET");
+        banner.TextContent.Should().Contain("suspendu");
+    }
+
+    [Fact]
+    public void Should_Not_Show_Profile_Incomplete_Banner_When_Profile_Configured()
+    {
+        var cut = Render<DashboardView>(p => p.Add(v => v.Model, BuildModel(profileConfigured: true)));
+
+        cut.FindAll("[data-testid='dashboard-profile-incomplete']").Should().BeEmpty();
     }
 
     [Fact]

@@ -43,6 +43,7 @@ public sealed class HomeTests : BunitContext
 
     private static DashboardViewModel BuildModel() => new()
     {
+        ProfileConfigured = true,
         StateCounts = [new DashboardStateCount("Detected", 0)],
         Agents = [],
         TvaStatus = DashboardTvaStatus.NotConfigured,

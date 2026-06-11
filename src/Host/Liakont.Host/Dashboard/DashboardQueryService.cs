@@ -53,6 +53,7 @@ internal sealed class DashboardQueryService : IDashboardQueries
 
         return new DashboardViewModel
         {
+            ProfileConfigured = overview.Profile is not null,
             StateCounts = stateCounts,
             Agents = agents,
             TvaStatus = tvaStatus,
