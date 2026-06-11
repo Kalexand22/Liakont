@@ -421,6 +421,35 @@ amont (§6). Le diagnostic lit les types système au niveau instance (table `job
 SYSTÈME, comme le scheduler lui-même) — ce n'est pas une requête métier tenant-scopée (CLAUDE.md n°9) :
 elle ne retourne que des noms de types techniques, aucune donnée de tenant.
 
+### 4.19 Barre de sélection — actions GLOBALES (sans sélection) déclarées par le module (FIX207)
+
+La recette humaine GATE_CONSOLE_WEB (run 2, 2026-06-11, décision opérateur E4) demande des actions en
+masse « Revérifier la sélection » / « Revérifier tout » portées par la **barre de sélection** Stratum
+(overlay fixé en bas d'écran de `DeclaredListPage`). Le point d'extension déclaratif existait déjà
+(`BulkActions` = liste de `BulkActionConfig`, §4.15), mais il était entièrement **sélection-scopé** : la
+barre ne s'affiche qu'avec une sélection et chaque action ne reçoit que les lignes sélectionnées. « Revérifier
+tout » (tous les bloqués du périmètre courant) n'a, lui, **pas besoin de sélection**. Modifications
+**rétro-compatibles** (marquées `FIX207`) :
+
+- `src/Common/UI/Models/BulkActionConfig.cs` : ajout d'un paramètre **optionnel** `bool RequiresSelection = true`
+  (dernier paramètre positionnel du record ; valeur par défaut = comportement INCHANGÉ pour toutes les actions
+  groupées existantes). `false` = action **globale** (reste disponible sans sélection).
+- `src/Common/UI/Components/DeclaredListPage.razor` : la barre de sélection s'affiche désormais quand il y a une
+  sélection **OU** au moins une action globale déclarée (`HasGlobalBulkActions`) ; les actions sélection-scopées
+  (défaut) ne sont rendues qu'avec une sélection (skip par `continue`), les actions globales sont toujours rendues ;
+  le compteur « N élément(s) sélectionné(s) » et « Tout désélectionner » ne s'affichent qu'avec une sélection.
+- `src/Common/UI/Components/DeclaredListPage.razor.cs` : ajout de la propriété privée `HasGlobalBulkActions`
+  (vrai s'il existe une action `RequiresSelection = false`). Aucune autre logique modifiée — `ExecuteBulkAsync`
+  passe la sélection (éventuellement vide) telle quelle ; une action globale ignore l'argument et opère sur le
+  périmètre que la **page** détermine (aucune logique métier dans le socle, pattern capacités).
+
+Capacité GÉNÉRIQUE du design-system (toute liste peut désormais déclarer une action de masse globale),
+candidate à reverser en amont (§6). Les trois fichiers figurent déjà dans le bloc `SOCLE-CONSIGNED-DRIFT`
+(§4.15/§4.17) — la garde de provenance reste verte. Côté Liakont (hors socle), la page `Documents.razor`
+déclare les deux actions et délègue au service in-process `IDocumentControlActions.RecheckManyAsync` (garde
+`liakont.actions`, boucle + décision de blocage dans le cœur Pipeline `IDocumentRecheckService.RecheckManyAsync`,
+trace d'audit FIX02 par document) — aucun fichier `Stratum.*` supplémentaire n'est touché.
+
 ## 5. ADR du socle hérités
 
 Les ADR Stratum pertinents au socle sont copiés dans `docs/adr/socle/` (référence, non re-décidés).

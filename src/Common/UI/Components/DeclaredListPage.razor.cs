@@ -312,6 +312,14 @@ public partial class DeclaredListPage<TItem> : ComponentBase
     /// <summary>Whether multi-view mode is active.</summary>
     private bool IsMultiView => ViewModes is not null;
 
+    /// <summary>
+    /// True when at least one declared bulk action is GLOBAL (<see cref="BulkActionConfig{TItem}.RequiresSelection"/>
+    /// = false — e.g. a "recheck everything in the current scope" action, FIX207). Such actions keep the selection
+    /// bar visible even with no rows selected, so the operator can trigger them at any time; selection-scoped
+    /// actions (the default) stay gated on a selection.
+    /// </summary>
+    private bool HasGlobalBulkActions => BulkActions is not null && BulkActions.Any(static a => !a.RequiresSelection);
+
     // Current global search value (kept as a shortcut property for templates).
     private string SearchValue => _filterState.GlobalSearch ?? string.Empty;
 

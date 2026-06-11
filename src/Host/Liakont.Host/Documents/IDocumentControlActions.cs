@@ -1,6 +1,7 @@
 namespace Liakont.Host.Documents;
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -42,4 +43,16 @@ internal interface IDocumentControlActions
     /// RÉSULTAT avec le message opérateur correspondant (jamais d'exception sur un refus métier).
     /// </summary>
     Task<DocumentControlActionResult> RecheckAsync(Guid documentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Re-vérifie EN MASSE les documents <paramref name="documentIds"/> du tenant courant (FIX207 — actions
+    /// « Revérifier la sélection » / « Revérifier tout » de la barre de sélection). Porte la même garde de
+    /// permission (<c>liakont.actions</c>, défense en profondeur) et délègue la boucle + la décision de blocage au
+    /// cœur <see cref="Liakont.Modules.Pipeline.Contracts.IDocumentRecheckService.RecheckManyAsync"/> (source
+    /// unique, trace d'audit FIX02 par document). Renvoie un RÉSULTAT avec un message opérateur en français portant
+    /// les compteurs (« N débloqués, N restés bloqués ») — jamais d'exception sur un refus de permission.
+    /// TENANT-SCOPÉ par construction (la connexion EST le tenant).
+    /// </summary>
+    Task<DocumentBulkRecheckResult> RecheckManyAsync(
+        IReadOnlyList<Guid> documentIds, CancellationToken cancellationToken = default);
 }

@@ -1,6 +1,8 @@
 namespace Liakont.Modules.Pipeline.Infrastructure.Check;
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Liakont.Agent.Contracts.Pivot;
@@ -148,6 +150,50 @@ internal sealed class DocumentRecheckService : IDocumentRecheckService
         return unblocked == DocumentRecheckPersistOutcome.Persisted
             ? DocumentRecheckResult.ReadyToSend()
             : await CurrentStateResultAsync(queries, documentId, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<DocumentBulkRecheckSummary> RecheckManyAsync(
+        IReadOnlyList<Guid> documentIds, string operatorIdentity, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(documentIds);
+
+        // Boucle la re-vérification UNITAIRE sur les identifiants DISTINCTS (un même document n'est re-vérifié et
+        // audité qu'une fois) et agrège l'issue. Aucune règle fiscale ici — la décision de blocage reste la source
+        // unique appelée par RecheckAsync, et CHAQUE document re-vérifié laisse sa trace d'audit append-only (FIX02).
+        int total = 0, unblocked = 0, stillBlocked = 0, unavailable = 0, skipped = 0;
+        foreach (var documentId in documentIds.Distinct())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            total++;
+            var result = await RecheckAsync(documentId, operatorIdentity, cancellationToken);
+            switch (result.Outcome)
+            {
+                case DocumentRecheckOutcome.ReadyToSend:
+                    unblocked++;
+                    break;
+                case DocumentRecheckOutcome.StillBlocked:
+                    stillBlocked++;
+                    break;
+                case DocumentRecheckOutcome.ContentUnavailable:
+                    unavailable++;
+                    break;
+                default:
+                    // NotFound / NotBlocked : l'état a déjà changé sous un geste concurrent — ignoré gracieusement
+                    // (aucun fait d'audit n'est inscrit sur un document qui n'est plus dans l'état attendu).
+                    skipped++;
+                    break;
+            }
+        }
+
+        return new DocumentBulkRecheckSummary
+        {
+            Total = total,
+            Unblocked = unblocked,
+            StillBlocked = stillBlocked,
+            Unavailable = unavailable,
+            Skipped = skipped,
+        };
     }
 
     /// <summary>

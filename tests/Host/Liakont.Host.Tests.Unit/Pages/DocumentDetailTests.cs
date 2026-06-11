@@ -10,6 +10,7 @@ using FluentAssertions;
 using Liakont.Host.Components.Pages;
 using Liakont.Host.Documents;
 using Liakont.Modules.Documents.Contracts.DTOs;
+using Liakont.Modules.Pipeline.Contracts;
 using Microsoft.Extensions.DependencyInjection;
 using Stratum.Common.Abstractions.Security;
 using Xunit;
@@ -280,6 +281,10 @@ public sealed class DocumentDetailTests : BunitContext
             RecheckCalls.Add(documentId);
             return Task.FromResult(RecheckResult);
         }
+
+        public Task<DocumentBulkRecheckResult> RecheckManyAsync(IReadOnlyList<Guid> documentIds, CancellationToken cancellationToken = default) =>
+            Task.FromResult(DocumentBulkRecheckResult.From(
+                new DocumentBulkRecheckSummary { Total = 0, Unblocked = 0, StillBlocked = 0, Unavailable = 0, Skipped = 0 }));
     }
 
     private sealed class FakeSendActions : IDocumentSendActions

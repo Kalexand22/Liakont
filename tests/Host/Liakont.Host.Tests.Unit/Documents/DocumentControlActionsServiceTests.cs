@@ -2,6 +2,7 @@ namespace Liakont.Host.Tests.Unit.Documents;
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
@@ -240,6 +241,66 @@ public sealed class DocumentControlActionsServiceTests
         audit.Entries.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task RecheckMany_Delegates_To_The_Core_With_Operator_Identity_And_Reports_Counters()
+    {
+        // FIX207 : le service console délègue la boucle + la décision de blocage au cœur Pipeline et journalise le
+        // geste GROUPÉ (un seul fait d'activité) ; les compteurs « N débloqués, N restés bloqués » remontent.
+        var ids = new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
+        var recheck = new FakeRecheckService
+        {
+            BulkSummary = new() { Total = 3, Unblocked = 1, StillBlocked = 2, Unavailable = 0, Skipped = 0 },
+        };
+        var audit = new CapturingActivityLogger();
+        var service = Build(new FakeDocumentQueries(), new RecordingLifecycle(), recheck, audit);
+
+        var result = await service.RecheckManyAsync(ids);
+
+        result.Success.Should().BeTrue();
+        result.Unblocked.Should().Be(1);
+        result.StillBlocked.Should().Be(2);
+        result.Message.Should().Contain("1 débloqué").And.Contain("2 restés bloqués");
+        recheck.BulkIds.Should().BeEquivalentTo(ids, "la liste est déléguée telle quelle au cœur de re-vérification");
+        recheck.BulkOperators.Should().ContainSingle()
+            .Which.Should().Be(OperatorId.ToString(), "l'identité de l'opérateur voyage jusqu'au cœur (audit FIX02)");
+        audit.Entries.Should().ContainSingle("le geste groupé est journalisé une seule fois")
+            .Which.ActivityType.Should().Be("documents.rechecked_bulk");
+    }
+
+    [Fact]
+    public async Task RecheckMany_Surfaces_Unavailable_And_Skipped_In_The_Counters()
+    {
+        var recheck = new FakeRecheckService
+        {
+            BulkSummary = new() { Total = 4, Unblocked = 1, StillBlocked = 1, Unavailable = 1, Skipped = 1 },
+        };
+        var service = Build(new FakeDocumentQueries(), new RecordingLifecycle(), recheck, new CapturingActivityLogger());
+
+        var result = await service.RecheckManyAsync(new[] { Guid.NewGuid() });
+
+        result.Message.Should().Contain("1 débloqué").And.Contain("1 resté bloqué")
+            .And.Contain("indisponible").And.Contain("ignoré");
+    }
+
+    [Fact]
+    public async Task RecheckMany_Without_Actions_Permission_Is_Refused_Without_Touching_The_Core()
+    {
+        // Défense en profondeur (comme la re-vérification unitaire) : pas de permission ⇒ aucun document touché.
+        var recheck = new FakeRecheckService
+        {
+            BulkSummary = new() { Total = 2, Unblocked = 2, StillBlocked = 0, Unavailable = 0, Skipped = 0 },
+        };
+        var audit = new CapturingActivityLogger();
+        var service = Build(new FakeDocumentQueries(), new RecordingLifecycle(), recheck, audit, canAct: false);
+
+        var result = await service.RecheckManyAsync(new[] { Guid.NewGuid() });
+
+        result.Success.Should().BeFalse();
+        result.Message.Should().Contain("liakont.actions");
+        recheck.BulkIds.Should().BeNull("aucun document n'est re-vérifié sans la permission d'action");
+        audit.Entries.Should().BeEmpty();
+    }
+
     private static DocumentControlActionsService Build(
         FakeDocumentQueries queries,
         IDocumentLifecycle lifecycle,
@@ -275,11 +336,27 @@ public sealed class DocumentControlActionsServiceTests
 
         public List<string> Operators { get; } = [];
 
+        // Re-vérification en masse (FIX207) : synthèse configurable + capture des identifiants/opérateur reçus.
+        public DocumentBulkRecheckSummary BulkSummary { get; set; } =
+            new() { Total = 0, Unblocked = 0, StillBlocked = 0, Unavailable = 0, Skipped = 0 };
+
+        public IReadOnlyList<Guid>? BulkIds { get; private set; }
+
+        public List<string> BulkOperators { get; } = [];
+
         public Task<DocumentRecheckResult> RecheckAsync(Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default)
         {
             Calls.Add(documentId);
             Operators.Add(operatorIdentity);
             return Task.FromResult(Result);
+        }
+
+        public Task<DocumentBulkRecheckSummary> RecheckManyAsync(
+            IReadOnlyList<Guid> documentIds, string operatorIdentity, CancellationToken cancellationToken = default)
+        {
+            BulkIds = documentIds.ToList();
+            BulkOperators.Add(operatorIdentity);
+            return Task.FromResult(BulkSummary);
         }
     }
 

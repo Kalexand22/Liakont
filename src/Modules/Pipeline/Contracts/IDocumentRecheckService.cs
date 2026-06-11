@@ -1,6 +1,7 @@
 namespace Liakont.Modules.Pipeline.Contracts;
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -25,4 +26,16 @@ public interface IDocumentRecheckService
     /// <c>RecheckedStillBlocked</c> portant le motif réévalué — qui devient le motif courant affiché).
     /// </summary>
     Task<DocumentRecheckResult> RecheckAsync(Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Re-vérifie EN MASSE les documents <paramref name="documentIds"/> du tenant courant à la demande de
+    /// l'opérateur <paramref name="operatorIdentity"/> (FIX207 — actions « Revérifier la sélection » / « Revérifier
+    /// tout »). Boucle <see cref="RecheckAsync"/> sur les identifiants DISTINCTS (un même document n'est re-vérifié
+    /// et audité qu'une fois) et agrège l'issue dans un <see cref="DocumentBulkRecheckSummary"/>. Chaque document
+    /// effectivement re-vérifié laisse SA trace d'audit append-only attribuée à l'opérateur (FIX02), exactement
+    /// comme la re-vérification unitaire — aucune logique fiscale n'est dupliquée. Tenant-scopée (le tenant est
+    /// résolu par la requête) ; honore <paramref name="cancellationToken"/> entre documents.
+    /// </summary>
+    Task<DocumentBulkRecheckSummary> RecheckManyAsync(
+        IReadOnlyList<Guid> documentIds, string operatorIdentity, CancellationToken cancellationToken = default);
 }
