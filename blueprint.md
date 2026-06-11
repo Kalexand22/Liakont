@@ -331,7 +331,7 @@ La CI construit **les deux solutions** (plateforme .NET 10 + agent net48 x86/x64
 |---|---|---|
 | CMP : tenant mutualisé, instance dédiée ou appliance on-premise ? | ISATECH/CMP | Lot CMP, urgence de l'appliance |
 | Hébergeur des instances hébergées (France/UE) | Karl | deploy/, contrats, RGPD |
-| Auth : direction tranchée (2026-06-03, D10) — **IdP derrière une abstraction dès SOL01** + spike d'empreinte (Keycloak vs OpenIddict) ; choix final sur mesure, topologie à l'ADR OPS01 | ADR (SOL01 → OPS01) | Empreinte mémoire par instance |
+| Auth : direction tranchée (2026-06-03, D10) — **IdP derrière une abstraction dès SOL01** + spike d'empreinte (Keycloak vs OpenIddict) ; choix final sur mesure, topologie tranchée à l'ADR-0020 (OPS01c) : Keycloak par instance | ADR (SOL01 → OPS01c, ADR-0020) | Empreinte mémoire par instance |
 | Stockage du coffre : V1 tranché (D9) — FS + S3-compatible ; backend par éditeur (Amazon/MinIO/OVH/Scaleway en V1 ; Azure/GCS fast-follow) | Éditeur (par instance) / ADR lot Archive | `IArchiveStore` à capacités |
 | Régime 6 EncheresV6 = marge EU-J ou hors champ ? | Expert-comptable CMP | Paramétrage CMP — pas le produit |
 | TVA sur les débits / OperationCategory / volume B2B du CMP | Expert-comptable CMP | Paramétrage CMP |
