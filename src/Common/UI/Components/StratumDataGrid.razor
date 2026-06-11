@@ -75,6 +75,7 @@
                                    Variant="ButtonVariant.Secondary"
                                    Outline
                                    Size="ButtonSize.Small"
+                                   Disabled="@Loading"
                                    Title="@L["Grid_RefreshButton"]"
                                    OnClick="@(_ => HandleRefreshAsync())"
                                    TestId="refresh-btn" />

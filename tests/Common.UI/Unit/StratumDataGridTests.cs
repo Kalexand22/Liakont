@@ -492,6 +492,17 @@ public sealed class StratumDataGridTests : BunitContext
     }
 
     [Fact]
+    public void RefreshButtonShouldBeDisabledWhenLoading()
+    {
+        var cut = Render<StratumDataGrid<TestItem>>(p => p
+            .Add(g => g.Loading, true)
+            .Add(g => g.OnRefresh, EventCallback.Factory.Create(this, () => { })));
+
+        var btn = cut.Find("[data-testid='refresh-btn']");
+        btn.HasAttribute("disabled").Should().BeTrue();
+    }
+
+    [Fact]
     public void LoadingStateShouldHaveAriaAttributes()
     {
         var cut = Render<StratumDataGrid<TestItem>>(p => p
