@@ -167,6 +167,19 @@ public sealed class ParametrageViewTests : BunitContext
     }
 
     [Fact]
+    public void Should_Link_To_The_Fiscal_Settings_Page()
+    {
+        // Le bouton « Modifier les paramètres fiscaux » mène à la page dédiée (FIX301).
+        var cut = Render<ParametrageView>(p => p.Add(v => v.Model, BuildModel()));
+
+        cut.FindAll("[data-testid='parametrage-fiscal-link']").Should().ContainSingle();
+
+        // StratumButton(Href) navigue au clic : on vérifie la CIBLE réelle.
+        cut.Find("[data-testid='parametrage-fiscal-link']").Click();
+        cut.Services.GetRequiredService<NavigationManager>().Uri.Should().EndWith("/parametrage/fiscal");
+    }
+
+    [Fact]
     public void Should_Render_Tva_Validated_With_Validator_And_Link()
     {
         var tva = new TvaMappingSummaryDto

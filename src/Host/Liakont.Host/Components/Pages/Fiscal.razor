@@ -77,6 +77,20 @@ else
         }
     }
 
+    private async Task ReloadAfterSaveAsync()
+    {
+        try
+        {
+            _model = await Service.GetAsync();
+        }
+        catch (Exception ex)
+        {
+            // Un échec de RECHARGEMENT après un enregistrement réussi ne doit pas masquer la réussite
+            // (l'opérateur croirait l'envoi échoué — leçon WEB09). On garde le _model précédent.
+            Logger.LogError(ex, "Failed to reload the Liakont tenant fiscal settings after a successful save.");
+        }
+    }
+
     private async Task SaveAsync()
     {
         if (_model is null)
@@ -97,7 +111,7 @@ else
                 FeeImputationMethod = _model.Form.FeeImputationMethod,
                 ReportingFrequency = _model.Form.ReportingFrequency,
             });
-            await LoadAsync();
+            await ReloadAfterSaveAsync();
             _message = "Paramètres fiscaux enregistrés.";
             _isError = false;
         }
