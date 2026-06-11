@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- Noms de tests xUnit avec underscores (convention du repo, comme les autres tests agent). -->
+    <NoWarn>$(NoWarn);CA1707</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+
+  <!-- Sous test : le projet installeur (moteur de profil + validation + chargeur). -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Liakont.Agent.Installer\Liakont.Agent.Installer.csproj" />
+  </ItemGroup>
+
+</Project>
