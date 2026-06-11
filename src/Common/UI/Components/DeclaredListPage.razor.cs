@@ -218,6 +218,9 @@ public partial class DeclaredListPage<TItem> : ComponentBase
     /// current-page selection only (e.g. Documents) sets this to false so a SINGLE selection bar — the
     /// bulk-actions bar — is shown; otherwise a second, confusing bar appears whose "(0 au total)"
     /// counter never moves because the page never feeds the persistent set.
+    /// This parameter is <b>init-only</b>: the value is read once in <see cref="OnInitialized"/> to
+    /// create (or skip) the <c>_persistentBinding</c>. Changing it dynamically after the first render
+    /// has no effect.
     /// </summary>
     [Parameter]
     public bool EnablePersistentSelection { get; set; } = true;

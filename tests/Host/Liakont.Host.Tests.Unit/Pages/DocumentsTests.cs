@@ -301,6 +301,9 @@ public sealed class DocumentsTests : BunitContext
         var listPage = cut.FindComponent<DeclaredListPage<DocumentSummaryDto>>();
 
         listPage.Instance.EnablePersistentSelection.Should().BeFalse("compteur cohérent : pas de barre persistante « (0 au total) »");
+
+        var grid = cut.FindComponent<StratumDataGrid<DocumentSummaryDto>>();
+        grid.Instance.PersistentSelection.Should().BeNull("la grille ne reçoit aucun binding persistant : aucune barre persistante possible");
     }
 
     [Fact]
