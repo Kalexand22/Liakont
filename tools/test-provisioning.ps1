@@ -166,6 +166,19 @@ try {
         Assert-True ($caddy -match '503') 'code 503'
         Assert-True ($caddy -match 'Retry-After') 'en-tête Retry-After'
     }
+    Test-Case 'Copy LF : un fichier CRLF est copié en LF (round-trip + idempotence)' {
+        $src = Join-Path $tmpRoot 'crlf-src.conf'
+        $dst = Join-Path $tmpRoot 'crlf-dst.conf'
+        [System.IO.File]::WriteAllText($src, "reverse_proxy liakont:8080`r`nencode gzip`r`n")
+        Copy-DeploymentFileAsLf -Source $src -Destination $dst
+        $out = [System.IO.File]::ReadAllText($dst)
+        Assert-True (-not $out.Contains("`r")) 'aucun CRLF dans la destination'
+        Assert-Equal "reverse_proxy liakont:8080`nencode gzip`n" $out 'contenu utile préservé en LF'
+        # Idempotence : une source déjà en LF reste identique.
+        $dst2 = Join-Path $tmpRoot 'crlf-dst2.conf'
+        Copy-DeploymentFileAsLf -Source $dst -Destination $dst2
+        Assert-Equal $out ([System.IO.File]::ReadAllText($dst2)) 'idempotent sur source LF'
+    }
 
     # ── new-instance.ps1 : états vide / sale / invalide ──
     $commonArgs = @('-Editor', 'Test SARL', '-PublicHostname', 'h.test', '-KeycloakHostname', 'id.test', '-AcmeEmail', 'a@test')
