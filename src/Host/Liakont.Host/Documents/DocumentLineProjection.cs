@@ -104,9 +104,9 @@ public static class DocumentLineProjection
     /// </summary>
     private static DocumentTotalsCheck BuildTotalsCheck(PivotDocumentDto pivot)
     {
-        var linesNet = pivot.Lines.Sum(line => line.NetAmount);
-        var chargesNet = pivot.DocumentCharges.Sum(charge => charge.IsCharge ? charge.Amount : -charge.Amount);
-        var expectedNet = PivotRounding.RoundAmount(linesNet + chargesNet);
+        // Net réconcilié via la formule BR-CO-13 PARTAGÉE avec LineTotalsRule (PivotReconciliation) : aucune
+        // dérive possible entre la validation bloquante et le verdict affiché à l'opérateur.
+        var expectedNet = PivotReconciliation.ExpectedNet(pivot);
         var documentNet = PivotRounding.RoundAmount(pivot.Totals.TotalNet);
 
         // La TVA des charges/remises de niveau document n'est pas résolue à ce stade : ne réconcilier la TVA
@@ -117,8 +117,6 @@ public static class DocumentLineProjection
 
         return new DocumentTotalsCheck
         {
-            LinesNet = PivotRounding.RoundAmount(linesNet),
-            ChargesNet = PivotRounding.RoundAmount(chargesNet),
             ExpectedNet = expectedNet,
             DocumentNet = documentNet,
             NetConsistent = expectedNet == documentNet,

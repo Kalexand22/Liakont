@@ -153,6 +153,34 @@ public sealed class DocumentLineProjectionTests
         content.Lines[0].SourceRegime.Should().Be("FR-A, FR-B");
     }
 
+    [Fact]
+    public void FromTransmittedSnapshot_Renders_The_Vatex_Exemption_Code()
+    {
+        // VATEX (BT-121) = motif d'exonération : son rendu non vide doit être exercé (catégorie E + code VATEX).
+        var pivot = new PivotDocumentDto(
+            sourceDocumentKind: "invoice",
+            number: "2026-021",
+            issueDate: new DateTime(2026, 6, 1),
+            sourceReference: "src/2026-021",
+            supplier: new PivotPartyDto(name: "Vendeur SARL", siren: "123456782"),
+            totals: new PivotTotalsDto(totalNet: 500m, totalTax: 0m, totalGross: 500m),
+            operationCategory: OperationCategory.LivraisonBiens,
+            lines: new[]
+            {
+                new PivotLineDto(
+                    description: "Prestation exonérée",
+                    netAmount: 500m,
+                    sourceRegimeCodes: StdRegime,
+                    taxes: new[] { new PivotLineTaxDto(taxAmount: 0m, rate: 0m, categoryCode: VatCategory.E, vatexCode: "VATEX-EU-AE") }),
+            });
+
+        var content = DocumentLineProjection.FromTransmittedSnapshot(CanonicalJson.Serialize(pivot));
+
+        content.Lines.Should().ContainSingle();
+        content.Lines[0].Category.Should().Be("E — Exonéré (motif VATEX requis)");
+        content.Lines[0].Vatex.Should().Be("VATEX-EU-AE");
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

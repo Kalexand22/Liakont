@@ -15,13 +15,7 @@ namespace Liakont.Host.Documents;
 /// </summary>
 public sealed record DocumentTotalsCheck
 {
-    /// <summary>Somme HT des lignes (BT-131), arrondie half-up 2 décimales.</summary>
-    public required decimal LinesNet { get; init; }
-
-    /// <summary>Effet net des charges/remises de niveau document (charges +, remises −), arrondi.</summary>
-    public required decimal ChargesNet { get; init; }
-
-    /// <summary>HT attendu = arrondi(Σ lignes + charges/remises document) — la valeur comparée au total.</summary>
+    /// <summary>HT attendu = arrondi(Σ lignes + charges/remises document) — la valeur comparée au total (BR-CO-13).</summary>
     public required decimal ExpectedNet { get; init; }
 
     /// <summary>Total HT du document (BT-109), arrondi half-up 2 décimales.</summary>

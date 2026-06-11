@@ -333,8 +333,6 @@ public sealed class DocumentDetailViewTests : BunitContext
     // Contrôle de cohérence factice pour la vue (le calcul réel est testé dans DocumentLineProjectionTests).
     private static DocumentTotalsCheck Check(bool netConsistent = true, bool taxChecked = true, bool taxConsistent = true) => new()
     {
-        LinesNet = 1000m,
-        ChargesNet = 0m,
         ExpectedNet = 1000m,
         DocumentNet = netConsistent ? 1000m : 500m,
         NetConsistent = netConsistent,
