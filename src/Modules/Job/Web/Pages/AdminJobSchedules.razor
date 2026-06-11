@@ -12,6 +12,7 @@
 @inject NavigationManager Nav
 @inject IToastService ToastService
 @inject IPermissionService PermissionService
+@inject Stratum.Modules.Job.Contracts.Services.IJobTypeCatalog JobTypeCatalog
 
 <PermissionGate Permission="@JobPermissions.View">
 <DeclaredListPage TItem="ScheduleDto"
@@ -70,6 +71,13 @@
 
     protected override void OnInitialized()
     {
+        // FIX211 : libellé FR du type de job, jamais le FullName .NET stocké. Ajouté ici (et non dans
+        // l'initialiseur de champ) car il appelle une méthode d'instance résolvant le catalogue injecté.
+        _columnTemplates["JobType"] = item => __builder =>
+        {
+            __builder.AddContent(0, JobTypeLabel(item.JobType));
+        };
+
         var canManage = PermissionService.HasPermission(JobPermissions.ManageSchedules);
 
         var actions = new List<GridRowAction<ScheduleDto>>
@@ -82,6 +90,17 @@
                 Callback: item =>
                 {
                     Nav.NavigateTo($"/admin/jobs/{item.Id}/edit");
+                    return Task.CompletedTask;
+                }),
+            new(
+                Id: "executions",
+                Label: "Voir les exécutions",
+                Icon: "history",
+                IsQuickAction: true,
+                Callback: item =>
+                {
+                    // FIX211 : lien planification → ses exécutions (filtrées par type de job).
+                    Nav.NavigateTo($"/admin/jobs/executions?type={Uri.EscapeDataString(item.JobType)}");
                     return Task.CompletedTask;
                 }),
         };
@@ -141,5 +160,25 @@
         }
 
         ToastService.Show($"{items.Count} planification(s) désactivée(s).", Severity.Success);
+    }
+
+    // FIX211 : libellé FR du type de job (jamais le FullName). Repli sur le nom court pour un type historique.
+    private string JobTypeLabel(string technicalKey)
+    {
+        if (string.IsNullOrEmpty(technicalKey))
+        {
+            return "—";
+        }
+
+        var descriptor = JobTypeCatalog.Find(technicalKey);
+        if (descriptor is not null)
+        {
+            return descriptor.DisplayName;
+        }
+
+        var lastDot = technicalKey.LastIndexOf('.');
+        return lastDot >= 0 && lastDot < technicalKey.Length - 1
+            ? technicalKey[(lastDot + 1)..]
+            : technicalKey;
     }
 }

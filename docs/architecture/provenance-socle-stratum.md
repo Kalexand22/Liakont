@@ -231,6 +231,12 @@ src/Common/UI/Resources/SharedResources.resx
 src/Common/UI/Resources/SharedResources.fr.resx
 src/Modules/Job/Application/IScheduleUnitOfWork.cs
 src/Modules/Job/Infrastructure/PostgresScheduleUnitOfWork.cs
+src/Modules/Job/Infrastructure/JobHandlerRegistration.cs
+src/Modules/Job/Infrastructure/JobHandlerRegistrationExtensions.cs
+src/Modules/Job/Infrastructure/JobModuleRegistration.cs
+src/Modules/Job/Web/Pages/AdminJobScheduleForm.razor
+src/Modules/Job/Web/Pages/AdminJobSchedules.razor
+src/Modules/Job/Web/JobNavSectionProvider.cs
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -420,6 +426,49 @@ Aucune signature existante modifiée, aucun comportement du scheduler changé. C
 amont (§6). Le diagnostic lit les types système au niveau instance (table `job.schedules` de la base
 SYSTÈME, comme le scheduler lui-même) — ce n'est pas une requête métier tenant-scopée (CLAUDE.md n°9) :
 elle ne retourne que des noms de types techniques, aucune donnée de tenant.
+
+### 4.19 Admin des jobs utilisable : liste fixe des types, payload typé, helper cron, page des exécutions (FIX211)
+La recette run 2 (2026-06-11, décision opérateur E7) a relevé que l'admin des planifications de jobs était
+inexploitable : le type de job se saisissait en TEXTE LIBRE (FullName .NET attendu), le payload en JSON BRUT,
+le cron sans presets ni mention du fuseau, et il n'existait AUCUNE page listant les exécutions. FIX211 corrige
+ces points. Comme les pages d'admin des jobs sont des pages SOCLE vendored, la correction touche le socle
+(évolution autorisée par E4/E7, provenance obligatoire). Modifications **additives, rétro-compatibles** :
+
+- `src/Modules/Job/Infrastructure/JobHandlerRegistration.cs` : ajout d'un paramètre **optionnel**
+  `string? DisplayName = null` au record (libellé FR du type, surfacé par le catalogue ; défaut = comportement
+  inchangé).
+- `src/Modules/Job/Infrastructure/JobHandlerRegistrationExtensions.cs` : `AddJobHandler<TPayload, THandler>`
+  prend un paramètre **optionnel** `string? displayName = null` (transmis à la registration). Les appels
+  existants qui l'omettent gardent le comportement précédent.
+- `src/Modules/Job/Infrastructure/JobModuleRegistration.cs` : enregistrement de deux nouveaux services
+  (`IJobTypeCatalog` singleton, `IJobExecutionsQueries` scoped).
+- `src/Modules/Job/Web/Pages/AdminJobScheduleForm.razor` : le type de job devient une **liste fixe** alimentée
+  par `IJobTypeCatalog` (libellés FR, FullName jamais affiché, validation que le type existe) ; le payload
+  devient des **champs typés** générés depuis le type (masqué quand le type n'a aucun paramètre) ; un **helper
+  cron** (presets 15 min / horaire / quotidien à HH:MM) remplit l'expression ; l'aperçu passe à 3 occurrences
+  affichées en **UTC** avec mention explicite du fuseau (les crons sont interprétés en UTC).
+- `src/Modules/Job/Web/Pages/AdminJobSchedules.razor` : la colonne « Type de job » affiche le **libellé FR**
+  (jamais le FullName) ; ajout d'une action de ligne « Voir les exécutions » (lien planification → exécutions
+  filtrées par type).
+- `src/Modules/Job/Web/JobNavSectionProvider.cs` : ajout de l'entrée de menu « Exécutions »
+  (`/admin/jobs/executions`). Le filtre de visibilité Liakont `JobNavVisibilityFilter` (FIX07c) délègue à ce
+  provider, donc l'entrée reste gardée par la permission `job.view`.
+
+Fichiers **AJOUTÉS** sous les dossiers vendored (non épinglés par le baseline §4.12 — comme les ajouts SOL06
+§4.14 ; consignés ici pour la re-convergence NuGet, marqués `Liakont addition (FIX211)`) :
+- `src/Modules/Job/Contracts/Services/IJobTypeCatalog.cs`, `JobTypeDescriptor.cs`, `JobParameterDescriptor.cs`,
+  `JobParameterKind.cs` (catalogue des types : clé technique, libellé FR, paramètres typés).
+- `src/Modules/Job/Infrastructure/Services/JobTypeCatalog.cs` (implémentation : dérive les paramètres par
+  réflexion sur les propriétés / paramètres de constructeur du type de payload).
+- `src/Modules/Job/Contracts/Queries/IJobExecutionsQueries.cs` (read-model des exécutions, tenant-scopé) +
+  `src/Modules/Job/Infrastructure/Queries/PostgresJobExecutionsQueries.cs` (SELECT `job.jobs` filtré
+  `company_id = @CompanyId`, sans verrou — lecture seule).
+- `src/Modules/Job/Web/Pages/AdminJobExecutions.razor` (page des exécutions, gabarit `DeclaredListPage`) +
+  `src/Modules/Job/Web/Registries/JobExecutionColumnRegistry.cs` (colonnes).
+
+Aucune signature existante n'a changé de façon cassante ; toutes les modifications sont candidates à reverser
+en amont (§6). Tests : `JobTypeCatalogTests` (réflexion), `AdminJobScheduleFormTests` + `AdminJobExecutionsTests`
+(bUnit), `JobNavVisibilityFilterTests` étendu (entrée « Exécutions »).
 
 ## 5. ADR du socle hérités
 

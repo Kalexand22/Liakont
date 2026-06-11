@@ -29,6 +29,12 @@ public static class JobModuleRegistration
         services.AddScoped<IJobQueue, PostgresJobQueue>();
         services.AddScoped<IJobQueries, PostgresJobQueries>();
 
+        // Liakont addition (FIX211) : admin des jobs utilisable. Catalogue des types enregistrés (liste fixe +
+        // libellés FR, depuis les JobHandlerRegistration singletons) et read-model des exécutions (job.jobs,
+        // tenant-scopé). Le catalogue est singleton : il agrège les enregistrements résolus après le bootstrap.
+        services.AddSingleton<IJobTypeCatalog, JobTypeCatalog>();
+        services.AddScoped<IJobExecutionsQueries, PostgresJobExecutionsQueries>();
+
         // Job worker
         services.Configure<JobWorkerOptions>(configuration.GetSection(JobWorkerOptions.SectionName));
         services.AddSingleton<IJobHandlerResolver, JobHandlerResolver>();
