@@ -47,10 +47,13 @@ silencieux. Décision opérateur D1 : DevTenantSeeder (dev) + endpoint admin Sys
 - verify-fast PASS (plateforme .NET 10 + agent net48 x86/x64).
 - run-tests PASS — 4651 tests ; nouveaux tests EXÉCUTÉS et verts (5 endpoint admin 401/403/404/400/200,
   import avec CompanyId explicite, 4 bUnit bandeaux Dashboard/Parametrage).
-- codex-review round 1 : CLEAN (aucune constatation). Points vérifiés par le reviewer : super-admin
-  bypass du GET /settings dans le test, résolution companyId par GetCurrentCompanyId, modes d'échec
-  du TenantSeedReader mappés (404/409), fallback companyId sans fuite cross-tenant, aucun secret
-  importé, propriété required couverte à tous les sites, pas de logique métier dans les pages.
+- codex-review round 1 : CLEAN. round 2 : 3 P2 (re-review élargie) — (1) ré-import écraserait les
+  réglages fiscaux saisis via console avec les `null` du seed ; (2) `Guid? CompanyId` = dérogation de
+  scoping liable au corps ; (3) trou de test sur le path manquant. round 3 : CLEAN (fixes vérifiés).
+- Fixes P2 (commit fix round 2) : import provisioning CREATE-ONLY (endpoint 409 / dev seeder skip si
+  profil existant) ; garde anti-injection cross-tenant dans `ResolveCompanyId` (companyId explicite
+  refusé s'il contredit l'acteur de tenant présent) ; test 400 path manquant + test handler conflit +
+  assertion 409 ré-import.
 - Décision de périmètre (D #3 dead-letter) : pas de rejeu automatique inventé ; le rejeu est DOCUMENTÉ
   (re-push agent) — le cas nominal est évité en amorçant le profil avant tout push (acceptance « pas de
   dead-letter CFG02 »). Le CHECK reste transitoire sur profil absent (inchangé).
