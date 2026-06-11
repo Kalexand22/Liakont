@@ -497,6 +497,10 @@ public static class AppBootstrap
     /// </summary>
     public static async Task InitializeDataAsync(WebApplication app)
     {
+        // Signale l'activation du puits factice hors Development avant toute initialisation,
+        // pour qu'un opérateur ayant posé PaClients:Fake:Enabled=true par erreur le voie immédiatement.
+        app.WarnIfFakePaClientForcedOutsideDevelopment();
+
         app.MigrateDatabase();
 
         // Seed dev du tenant par défaut (Development uniquement, section DevTenantSeed) — AVANT la

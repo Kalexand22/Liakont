@@ -1,9 +1,11 @@
 namespace Liakont.Host.Startup;
 
 using Liakont.PaClients.Fake;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Câblage des plug-ins de Plateforme Agréée (PA) au COMPOSITION ROOT (FIX01d) — le seul endroit
@@ -18,7 +20,7 @@ using Microsoft.Extensions.Hosting;
 /// en production, où seules de vraies PA (clés chiffrées par tenant) sont câblées.
 /// </para>
 /// </summary>
-public static class PaClientBootstrap
+public static partial class PaClientBootstrap
 {
     /// <summary>
     /// Drapeau de configuration activant explicitement le plug-in factice hors Development (par exemple
@@ -52,4 +54,23 @@ public static class PaClientBootstrap
 
         return services;
     }
+
+    /// <summary>
+    /// Émet un avertissement au démarrage si le plug-in PA factice est activé via le drapeau de
+    /// configuration alors que l'environnement n'est PAS Development. En Development, aucun log
+    /// (chemin nominal attendu).
+    /// </summary>
+    public static void WarnIfFakePaClientForcedOutsideDevelopment(this WebApplication app)
+    {
+        if (!app.Environment.IsDevelopment() && app.Configuration.GetValue<bool>(EnableFakeConfigKey))
+        {
+            var logger = app.Services
+                .GetRequiredService<ILoggerFactory>()
+                .CreateLogger("Liakont.Host.Startup.PaClientBootstrap");
+            LogFakePaClientForcedOutsideDevelopment(logger);
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Plug-in PA FACTICE activé hors Development via PaClients:Fake:Enabled — aucune transmission réelle n'a lieu ; à n'utiliser qu'en démo/dev.")]
+    private static partial void LogFakePaClientForcedOutsideDevelopment(ILogger logger);
 }
