@@ -166,14 +166,40 @@ internal sealed class SuperPdpClient : IPaClient
         throw NotYetConfirmedInSandbox(nameof(GetAccountInfoAsync));
 
     /// <inheritdoc />
-    public Task<PaTaxReportSetting> GetTaxReportSettingAsync(CancellationToken cancellationToken = default) =>
-        throw NotYetConfirmedInSandbox(nameof(GetTaxReportSettingAsync));
+    public Task<PaTaxReportSetting> GetTaxReportSettingAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Lecture du réglage de transmission (« SIREN publié ? ») appelée INCONDITIONNELLEMENT par le
+        // diagnostic pré-envoi du pipeline (SendTenantJob, F04 §3.1) — HORS de toute garde de capacité ET
+        // HORS du filet SafeProcessAsync : lever ici bloquerait TOUT envoi et planterait le job (invariant
+        // PAA01 « jamais un blocage du produit »). L'endpoint Super PDP du réglage n'est PAS confirmé
+        // (F14 §3.5, O2) : on retourne un réglage VIDE/INACTIF (IsActiveOn = false) plutôt que de sonder un
+        // endpoint deviné. Le SEND dégrade alors proprement en « SIREN non publié / Transport not available »
+        // — fail-closed : on NE risque JAMAIS d'émettre depuis un réglage faussement actif (CLAUDE.md n°3) —
+        // sans planter. PAS03 livre la lecture réelle contre l'endpoint confirmé en sandbox PUIS bascule
+        // cette branche (et la capacité de récupération).
+        return Task.FromResult(new PaTaxReportSetting());
+    }
 
     /// <inheritdoc />
     public Task EnsureTaxReportSettingAsync(
         PaTaxReportSettingRequest request,
-        CancellationToken cancellationToken = default) =>
-        throw NotYetConfirmedInSandbox(nameof(EnsureTaxReportSettingAsync));
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Publication du SIREN / activation de la transmission (action opérateur « Publier le SIREN »,
+        // PaPublicationConsoleService). N'est gardée par AUCUNE capacité : par convention du contrat
+        // (Fake et B2Brouter ne lèvent jamais ici), on NE lève PAS — lever contredirait l'invariant PAA01.
+        // L'endpoint Super PDP du réglage n'est PAS confirmé (F14 §3.5, O2) : PAS02 est un NO-OP idempotent.
+        // Conséquence cohérente et SÛRE : le réglage ne devient pas actif (GetTaxReportSettingAsync reste
+        // VIDE) → le SEND reste correctement bloqué (« SIREN non publié »), le produit n'émet JAMAIS vers un
+        // SIREN non publié (CLAUDE.md n°3). PAS03 livre l'écriture idempotente réelle contre l'endpoint
+        // confirmé en sandbox.
+        return Task.CompletedTask;
+    }
 
     /// <inheritdoc />
     public Task<PaGeneratedDocument> GetGeneratedDocumentAsync(
@@ -217,11 +243,15 @@ internal sealed class SuperPdpClient : IPaClient
         Errors = [new PaError(code, message)],
     };
 
-    // Lectures dont l'endpoint Super PDP n'est PAS confirmé (tax reports, réglage, compte — F14 §3.5, O2) :
-    // la capacité SupportsTaxReportRetrieval est false (F14 §5) et le consommateur produit est gaté par
-    // elle. Lever une exception traçable est plus sûr que renvoyer une donnée fiscale fausse depuis un
-    // endpoint deviné (liste vide = « aucun tax report » serait un MENSONGE fiscal — CLAUDE.md n°3). PAS03
-    // confirme ces endpoints en sandbox PUIS bascule la capacité à true.
+    // Lectures GARDÉES PAR CAPACITÉ dont l'endpoint Super PDP n'est PAS confirmé (liste/détail tax reports,
+    // compte — F14 §3.5, O2) : la capacité SupportsTaxReportRetrieval est false (F14 §5) ET le consommateur
+    // produit n'appelle ces lectures QUE sous cette capacité (SyncTenantJob) — lever ici NE bloque donc
+    // jamais le produit. À DISTINGUER de GetTaxReportSettingAsync / EnsureTaxReportSettingAsync, qui ne sont
+    // gardées par AUCUNE capacité et sont appelées par le chemin d'envoi : celles-là dégradent sans lever
+    // (réglage vide + no-op, voir ci-dessus). Pour ces lectures-ci, lever une exception traçable est plus
+    // sûr que renvoyer une donnée fiscale fausse depuis un endpoint deviné (liste vide = « aucun tax report »
+    // serait un MENSONGE fiscal, sous-déclaration — CLAUDE.md n°3). PAS03 confirme ces endpoints en sandbox
+    // PUIS bascule la capacité à true.
     private static NotImplementedException NotYetConfirmedInSandbox(string method) =>
         new($"SuperPdp.{method} sera confirmé en sandbox et livré par PAS03 (voir orchestration/items/PAS.yaml, " +
             "F14 §3.5/§8). PAS02 ne livre que l'émission B2C et la relecture d'état (polling).");

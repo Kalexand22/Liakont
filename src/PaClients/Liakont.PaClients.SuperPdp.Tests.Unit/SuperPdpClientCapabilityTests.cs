@@ -84,7 +84,22 @@ public sealed class SuperPdpClientCapabilityTests
     }
 
     [Fact]
-    public async Task Unconfirmed_Tax_Report_Reads_Throw_A_Traceable_Exception_Instead_Of_Faking_Data()
+    public async Task Capability_Gated_Tax_Report_Reads_Throw_A_Traceable_Exception_Instead_Of_Faking_Data()
+    {
+        var handler = StubHttpMessageHandler.Returns(HttpStatusCode.OK, SuperPdpTestData.IssuedJson);
+        var client = SuperPdpTestData.CreateClient(handler);
+
+        // Lectures GARDÉES par SupportsTaxReportRetrieval = false (appelées UNIQUEMENT sous cette capacité,
+        // SyncTenantJob) : lèvent plutôt que de renvoyer une liste vide = « aucun tax report » (mensonge
+        // fiscal, sous-déclaration — CLAUDE.md n°3). PAS03 les confirme en sandbox PUIS bascule la capacité.
+        await ((Func<Task>)(() => client.ListTaxReportsAsync())).Should().ThrowAsync<NotImplementedException>();
+        await ((Func<Task>)(() => client.GetTaxReportAsync("TR-1"))).Should().ThrowAsync<NotImplementedException>();
+        await ((Func<Task>)(() => client.GetAccountInfoAsync())).Should().ThrowAsync<NotImplementedException>();
+        handler.CallCount.Should().Be(0, "aucune lecture non confirmée ne touche le réseau");
+    }
+
+    [Fact]
+    public async Task Ungated_Tax_Report_Setting_Methods_Degrade_Gracefully_Without_Throwing()
     {
         var handler = StubHttpMessageHandler.Returns(HttpStatusCode.OK, SuperPdpTestData.IssuedJson);
         var client = SuperPdpTestData.CreateClient(handler);
@@ -95,13 +110,19 @@ public sealed class SuperPdpClientCapabilityTests
             EnterpriseSize = "PME",
         };
 
-        // Lectures dont l'endpoint n'est pas confirmé en sandbox (SupportsTaxReportRetrieval = false) :
-        // lèvent plutôt que de renvoyer une liste vide ou un réglage faux (mensonge fiscal — CLAUDE.md n°3).
-        await ((Func<Task>)(() => client.ListTaxReportsAsync())).Should().ThrowAsync<NotImplementedException>();
-        await ((Func<Task>)(() => client.GetTaxReportAsync("TR-1"))).Should().ThrowAsync<NotImplementedException>();
-        await ((Func<Task>)(() => client.GetAccountInfoAsync())).Should().ThrowAsync<NotImplementedException>();
-        await ((Func<Task>)(() => client.GetTaxReportSettingAsync())).Should().ThrowAsync<NotImplementedException>();
-        await ((Func<Task>)(() => client.EnsureTaxReportSettingAsync(request))).Should().ThrowAsync<NotImplementedException>();
-        handler.CallCount.Should().Be(0, "aucune lecture non confirmée ne touche le réseau");
+        // GetTaxReportSettingAsync et EnsureTaxReportSettingAsync NE sont gardées par AUCUNE capacité et sont
+        // appelées par le chemin d'envoi : GetTaxReportSettingAsync par le diagnostic pré-envoi de
+        // SendTenantJob (HORS SafeProcessAsync), EnsureTaxReportSettingAsync par l'action « Publier le SIREN ».
+        // Elles ne doivent JAMAIS lever (invariant PAA01). Endpoint non confirmé (O2) → réglage VIDE/INACTIF
+        // + écriture no-op : le SEND dégrade proprement en « SIREN non publié » (fail-closed) sans planter, et
+        // le produit n'émet jamais vers un SIREN non publié (CLAUDE.md n°3).
+        var setting = await client.GetTaxReportSettingAsync();
+        setting.IsActiveOn(new DateOnly(2026, 6, 1)).Should().BeFalse(
+            "un réglage vide bloque l'envoi (« SIREN non publié ») sans risquer un faux envoi");
+
+        var ensure = async () => await client.EnsureTaxReportSettingAsync(request);
+        await ensure.Should().NotThrowAsync("la publication ne bloque jamais le produit par une exception (PAA01)");
+
+        handler.CallCount.Should().Be(0, "aucun endpoint réglage non confirmé n'est sondé en PAS02");
     }
 }
