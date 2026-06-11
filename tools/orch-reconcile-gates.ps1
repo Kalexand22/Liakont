@@ -14,8 +14,11 @@
 
     Safe by construction:
       - it NEVER merges anything (only GitHub / the human merges);
-      - it only promotes `blocked`/`gate_pending` -> `done`, and ONLY when a merged PR for that
-        exact segment branch exists;
+      - it only promotes `blocked`/`gate_pending` -> `done`, and ONLY when a merged GATE PR for
+        that exact segment branch exists -- title-matched (`GATE_X -- ...`, the runner's normed
+        title), because a segment branch can carry OLDER merged PRs that are NOT the gate
+        (real case: PR #15 `Feat/pa superpdp` merged 2026-06-06 for the PAS01 study flipped
+        GATE_PA_SUPERPDP to done while the actual gate PR #41 was still open);
       - it is BEST-EFFORT: a transient `gh` failure is a warning, never a session-aborting error
         (protocol.md Step 1.4 runs it before work selection -- it must not block a session);
       - it is CONCURRENCY-SAFE: if another runner reconciles a gate first, the losing `done -> done`
@@ -90,22 +93,46 @@ foreach ($gate in ($gateToBranch.Keys | Sort-Object)) {
     if ($null -eq $status) { continue }                       # absent = already done
     if ($status -ne 'blocked' -and $status -ne 'gate_pending') { continue }
 
-    # Targeted query for THIS branch (no --limit cap, no silent false-negative). Use gh's --jq to
-    # extract numbers directly: ConvertFrom-Json on a top-level "[]" yields a 1-element array in
-    # PS 5.1 (the empty array counted as one object) -> a FALSE positive that would flip a gate
-    # whose PR is NOT merged. --jq emits one number per line, or nothing.
-    $prNums = gh pr list --head $branch --state merged --base main --json number --jq '.[].number'
+    # Targeted query for THIS branch (no --limit cap, no silent false-negative). NO --jq here:
+    # a jq program with inner quotes is mangled by PS 5.1 native-arg quoting (verified live:
+    # `failed to parse jq expression`). Parse the JSON in PowerShell instead, guarding the
+    # PS 5.1 "[]" pitfall (ConvertFrom-Json on a top-level "[]" can yield a 1-element array --
+    # the empty array counted as one object): the title filter below drops any element without
+    # a real title, so an empty-array artifact can never flip a gate.
+    # Title filter: ONLY the gate PR (normed title starts with the gate id) may flip the gate.
+    # A segment branch can carry older merged PRs that are not the gate (PR #15 incident) --
+    # matching any merged PR is a false `done`. Conservative by design: a missed flip leaves the
+    # gate `gate_pending` (human-recoverable), a false flip silently unlocks downstream segments.
+    $prJson = (gh pr list --head $branch --state merged --base main --json number,title) -join ''
     if ($LASTEXITCODE -ne 0) {
         # Best-effort self-healing: gh down/auth/rate-limit must NOT abort the session.
         Write-Warning "gh unavailable (auth/network?) -- skipping gate reconciliation this tick; will retry next session."
         break
     }
-    $prNums = @($prNums | Where-Object { "$_".Trim() -ne '' })
-    if ($prNums.Count -eq 0) {
-        Write-Host ("  - {0} ({1}) : {2} -- no merged PR, leaving as-is" -f $gate, $branch, $status)
+    # Assign FIRST, wrap SECOND: in PS 5.1, @($json | ConvertFrom-Json) does NOT unroll a
+    # multi-element JSON array (one System.Object[] element -> joined titles, corrupted PR number
+    # in append-only events.jsonl). Verified live on the real [#15, #41] case.
+    # Best-effort invariant: a malformed/truncated gh payload (exit 0 but bad JSON) must not
+    # crash the session under ErrorActionPreference=Stop -- warn and retry next tick.
+    $prs = @()
+    if ("$prJson".Trim()) {
+        try { $parsed = $prJson | ConvertFrom-Json; $prs = @($parsed) }
+        catch {
+            Write-Warning "gh returned unreadable JSON -- skipping gate reconciliation this tick; will retry next session."
+            break
+        }
+    }
+    # Delimiter required after the gate id (space/dash/end): bare StartsWith would let a longer
+    # gate id sharing the prefix (GATE_X vs GATE_X_Y) flip the shorter gate. ASCII-only on
+    # purpose: the documented title format `<GATE_ID> <em-dash> <title>` is matched via the
+    # SPACE before the em-dash (a literal em-dash in this BOM-less .ps1 would be read as
+    # Windows-1252 by PS 5.1 and silently corrupt the regex branch).
+    $gatePrs = @($prs | Where-Object { $_ -and $_.title -and ("$($_.title)" -match ('^' + [regex]::Escape($gate) + '(\s|-|$)')) })
+    if ($gatePrs.Count -eq 0) {
+        Write-Host ("  - {0} ({1}) : {2} -- no merged GATE PR (title must start with '{0}'), leaving as-is" -f $gate, $branch, $status)
         continue
     }
-    $prNum = "$($prNums[0])".Trim()
+    $prNum = "$($gatePrs[0].number)".Trim()
     if ($DryRun) {
         Write-Host ("  -> [DRY-RUN] {0} : {1} -> done (PR #{2} {3} merged)" -f $gate, $status, $prNum, $branch) -ForegroundColor Cyan
         $flipped += $gate
