@@ -7,7 +7,7 @@
    variables de thème. Inclus APRÈS les feuilles de style du socle (App.razor) pour que la règle :root
    ci-dessous l'emporte sur tokens.css. Les couleurs sont VALIDÉES (hex) avant émission — une valeur de
    config malformée est ignorée, jamais injectée telle quelle dans le bloc <style>. *@
-<title>@_brand.CommercialName</title>
+<title>@_brand.EffectiveCommercialName</title>
 @if (!string.IsNullOrWhiteSpace(_brand.FaviconUrl))
 {
     <link rel="icon" href="@_brand.FaviconUrl" />

@@ -99,7 +99,7 @@ internal sealed partial class SmtpEmailTransport : IEmailTransport
     {
         var sb = new StringBuilder(body);
         sb.Append("\n\n-- \n");
-        sb.Append(string.IsNullOrWhiteSpace(branding.CommercialName) ? BrandingOptions.DefaultCommercialName : branding.CommercialName);
+        sb.Append(branding.EffectiveCommercialName);
         if (!string.IsNullOrWhiteSpace(branding.FooterText))
         {
             sb.Append('\n').Append(branding.FooterText);

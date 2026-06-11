@@ -43,6 +43,18 @@ public sealed class BrandingHeadTests : BunitContext
     }
 
     [Fact]
+    public void Empty_Commercial_Name_Falls_Back_To_Default_In_Title()
+    {
+        // Mauvaise config : un opérateur vide Branding:CommercialName (chaîne vide liée par-dessus le
+        // défaut C#). Le titre d'onglet doit replier sur « Liakont », jamais rester blanc.
+        WithBranding(new BrandingOptions { CommercialName = "   " });
+
+        var cut = Render<BrandingHead>();
+
+        cut.Find("title").TextContent.Should().Be(BrandingOptions.DefaultCommercialName);
+    }
+
+    [Fact]
     public void Favicon_Link_Is_Emitted_When_Configured()
     {
         WithBranding(new BrandingOptions { FaviconUrl = "/branding/acme.ico" });

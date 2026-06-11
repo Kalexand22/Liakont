@@ -61,6 +61,16 @@ public sealed class BrandingOptions
     public bool PoweredByLiakont { get; init; } = true;
 
     /// <summary>
+    /// Nom commercial EFFECTIF : repli sur la marque produit par défaut (« Liakont ») quand
+    /// <see cref="CommercialName"/> est vide ou blanc — un opérateur qui VIDE la clé en appsettings lie une
+    /// chaîne vide PAR-DESSUS le défaut C#. Source UNIQUE du repli pour tous les consommateurs UI et email,
+    /// de sorte que coquille, login, emails et notice d'export affichent tous la même marque (jamais un
+    /// titre/marque blanc d'un côté et « Liakont » de l'autre).
+    /// </summary>
+    public string EffectiveCommercialName =>
+        string.IsNullOrWhiteSpace(CommercialName) ? DefaultCommercialName : CommercialName;
+
+    /// <summary>
     /// Valide qu'une chaîne est une couleur hex CSS (<c>#</c> suivi de 3, 4, 6 ou 8 chiffres hexadécimaux).
     /// Garde-fou avant injection dans un bloc <c>&lt;style&gt;</c> : une valeur de config malformée est
     /// ignorée (jamais émise telle quelle, pas d'évasion de balise possible).

@@ -40,6 +40,17 @@ public sealed class ErpNavBrandingTests : BunitContext
     }
 
     [Fact]
+    public void Empty_Commercial_Name_Falls_Back_To_Default_Brand()
+    {
+        // Mauvaise config (CommercialName vidé) : la marque de la barre latérale replie sur « Liakont ».
+        WithBranding(new BrandingOptions { CommercialName = string.Empty });
+
+        var cut = Render<ErpNav>();
+
+        cut.Find(".erp-nav-brand").TextContent.Should().Be(BrandingOptions.DefaultCommercialName);
+    }
+
+    [Fact]
     public void Logo_Is_Rendered_When_Configured()
     {
         WithBranding(new BrandingOptions { CommercialName = "Acme", LogoUrl = "/branding/acme.svg" });
