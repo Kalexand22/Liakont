@@ -33,13 +33,15 @@ public sealed class GetTvaMappingEditOptionsHandler
             ["O"] = "Hors champ d'application de la TVA",
         };
 
-    // Libellés des parts, transcrits de F03 §4.1 / §2.3 (l'enum MappingPart reste la source des CODES).
+    // Libellés des parts (« Composante » côté console), transcrits de F03 §4.1 / §2.3 — l'enum MappingPart
+    // reste la source des CODES. La valeur Autre s'affiche « Hors Enchères » (vocabulaire opérateur,
+    // décision E2 / lot FIX2) : le code technique Autre est inchangé, seul son libellé d'affichage l'est.
     private static readonly IReadOnlyDictionary<string, string> PartLabels =
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
             [nameof(MappingPart.Adjudication)] = "Adjudication (le bien vendu)",
             [nameof(MappingPart.Frais)] = "Frais (frais acheteur, toujours taxables)",
-            [nameof(MappingPart.Autre)] = "Autre",
+            [nameof(MappingPart.Autre)] = "Hors Enchères",
         };
 
     // Libellés des modes de taux, transcrits des commentaires de l'enum RateMode / F03 §4.1.

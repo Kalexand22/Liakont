@@ -189,7 +189,7 @@
                 @foreach (var rule in DeadRules)
                 {
                     <li class="liakont-tva-table__consistency-entry" data-testid="table-tva-consistency-entry">
-                        <span class="liakont-tva-table__consistency-code">@rule.SourceRegimeCode (@rule.Part)</span>
+                        <span class="liakont-tva-table__consistency-code">@rule.SourceRegimeCode@ComposanteSuffix(rule.Part)</span>
                         <span class="liakont-tva-table__consistency-why">@DescribeDeadRule(rule)</span>
                     </li>
                 }
@@ -252,7 +252,7 @@
             <div class="liakont-tva-table__confirm" data-testid="table-tva-delete-confirm">
                 <p class="liakont-tva-table__confirm-text">
                     Supprimer la règle du régime
-                    <strong>@deleteRule.SourceRegimeCode (@deleteRule.Part)</strong> ? Cette modification
+                    <strong>@deleteRule.SourceRegimeCode@ComposanteSuffix(deleteRule.Part)</strong> ? Cette modification
                     repassera la table « NON VALIDÉE » et suspendra les envois jusqu'à une nouvelle
                     validation par l'expert-comptable.
                 </p>
@@ -341,10 +341,26 @@
             <ul class="liakont-tva-table__changelog">
                 @foreach (var entry in Model.ChangeLog)
                 {
+                    var diff = ChangeDiff(entry);
                     <li class="liakont-tva-table__changelog-entry" data-testid="table-tva-changelog-entry">
                         <span class="liakont-tva-table__changelog-when">@entry.OccurredAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr)</span>
                         <span class="liakont-tva-table__changelog-what">@DescribeChange(entry)</span>
                         <span class="liakont-tva-table__changelog-who">par @(string.IsNullOrWhiteSpace(entry.OperatorName) ? entry.OperatorId.ToString() : entry.OperatorName)</span>
+                        @if (diff.Count > 0)
+                        {
+                            @* Diff lisible avant → après (décision E2) : valeurs persistées par TVA05, ici
+                               restituées. Ajout = valeurs créées, suppression = valeurs supprimées,
+                               modification = avant → après, validation = validateur avant/après. *@
+                            <ul class="liakont-tva-table__changelog-diff" data-testid="table-tva-changelog-diff">
+                                @foreach (var line in diff)
+                                {
+                                    <li class="liakont-tva-table__changelog-diff-line" data-testid="table-tva-changelog-diff-line">
+                                        <span class="liakont-tva-table__changelog-diff-field">@line.Field</span>
+                                        <span class="liakont-tva-table__changelog-diff-value">@line.Value</span>
+                                    </li>
+                                }
+                            </ul>
+                        }
                     </li>
                 }
             </ul>
@@ -360,7 +376,13 @@
     /// l'édition par règle passe par les quick-actions Modifier / Supprimer).</summary>
     private const string RulesPageUrl = "/parametrage/table-tva";
 
-    private readonly TvaMappingRuleColumnRegistry _registry = new();
+    /// <summary>
+    /// Registre de colonnes de la grille. Reconstruit quand l'activation du vertical enchères change
+    /// (la colonne « Composante » n'existe qu'en vertical actif — E2). La grille est recréée en parallèle
+    /// via <see cref="RulesGridKey"/> (qui inclut l'activation) pour relire le nouveau jeu de colonnes.
+    /// </summary>
+    private TvaMappingRuleColumnRegistry _registry = new(includeComposante: false);
+    private bool _registryIncludesComposante;
     private readonly Dictionary<string, RenderFragment<MappingRuleDto>> _columnTemplates;
 
     /// <summary>Quick-actions de la grille (Modifier / Supprimer) ; <c>null</c> sans permission d'édition.</summary>
@@ -501,6 +523,12 @@
     {
         _columnTemplates = new Dictionary<string, RenderFragment<MappingRuleDto>>
         {
+            // Composante (clé technique « Part ») : valeur d'affichage opérateur (Autre → « Hors Enchères »).
+            // La colonne n'est registrée qu'en vertical enchères actif ; le template est inerte sinon.
+            ["Part"] = rule => __builder =>
+            {
+                __builder.AddContent(0, TvaComposanteVocabulary.ValueLabel(rule.Part));
+            },
             ["Category"] = rule => __builder =>
             {
                 __builder.OpenComponent<CategoryBadge>(0);
@@ -546,7 +574,10 @@
             // explicite pour les colonnes affichées / éditables (dont Label), en défense.
             sb.Append(table.MappingVersion)
               .Append('|').Append(table.UpdatedAt?.UtcTicks.ToString(CultureInfo.InvariantCulture))
-              .Append('|').Append(table.Rules.Count);
+              .Append('|').Append(table.Rules.Count)
+              // Le jeu de colonnes dépend de l'activation du vertical (colonne « Composante ») :
+              // l'inclure recrée la grille — et fait relire le registre — au basculement.
+              .Append('|').Append(Model.AuctionVerticalEnabled);
             foreach (var rule in table.Rules)
             {
                 sb.Append('|')
@@ -568,18 +599,30 @@
         Model.Consistency?.DeadRules ?? (IReadOnlyList<DeadMappingRuleDto>)Array.Empty<DeadMappingRuleDto>();
 
     /// <summary>Phrase opérateur (française) décrivant pourquoi une règle est morte.</summary>
-    private static string DescribeDeadRule(DeadMappingRuleDto rule) =>
+    private string DescribeDeadRule(DeadMappingRuleDto rule) =>
         string.Join(" ; ", rule.Reasons.Select(DescribeDeadRuleReason));
 
-    private static string DescribeDeadRuleReason(string reason) => reason switch
+    private string DescribeDeadRuleReason(string reason) => reason switch
     {
-        "PartNotConsulted" => "part non consultée par le pipeline (découpage adjudication/frais non appliqué)",
+        // Vocabulaire « Composante » en vertical enchères actif (E2) ; hors vertical, formulation
+        // neutre (la notion n'y est pas mise en avant — un opérateur générique n'a pas le découpage).
+        "PartNotConsulted" => Model.AuctionVerticalEnabled
+            ? "Composante non consultée par le pipeline (découpage Adjudication / Frais non appliqué)"
+            : "part non consultée par le pipeline (découpage adjudication/frais non appliqué)",
         "RegimeNeverObserved" => "code régime jamais observé dans la source",
         _ => reason,
     };
 
     protected override void OnParametersSet()
     {
+        // Colonne « Composante » exposée seulement en vertical enchères actif (E2) : reconstruire le
+        // registre quand l'activation change (la grille est recréée en parallèle via RulesGridKey).
+        if (_registry is null || _registryIncludesComposante != Model.AuctionVerticalEnabled)
+        {
+            _registryIncludesComposante = Model.AuctionVerticalEnabled;
+            _registry = new TvaMappingRuleColumnRegistry(_registryIncludesComposante);
+        }
+
         // Le dialogue de validation fermé (annulation OU succès) repart d'une saisie vierge.
         if (!ConfirmOpen)
         {
@@ -635,7 +678,7 @@
             ? "blocage (régime non mappé)"
             : defaultBehavior;
 
-    private static string DescribeChange(MappingChangeLogEntryDto entry)
+    private string DescribeChange(MappingChangeLogEntryDto entry)
     {
         var what = entry.ChangeType switch
         {
@@ -649,11 +692,27 @@
 
         if (!string.IsNullOrWhiteSpace(entry.SourceRegimeCode))
         {
-            what += string.IsNullOrWhiteSpace(entry.Part)
-                ? $" — régime {entry.SourceRegimeCode}"
-                : $" — régime {entry.SourceRegimeCode} ({entry.Part})";
+            what += $" — régime {entry.SourceRegimeCode}{ComposanteSuffix(entry.Part)}";
         }
 
         return what;
     }
+
+    /// <summary>
+    /// Suffixe « (Composante) » d'une règle, rendu UNIQUEMENT en vertical enchères actif (décision E2 :
+    /// aucune mention sinon), avec la valeur d'affichage opérateur (Autre → « Hors Enchères »). Vide hors
+    /// vertical ou pour une part absente. Partagé par le rapport de cohérence, la suppression et le journal.
+    /// </summary>
+    private string ComposanteSuffix(string? part) =>
+        Model.AuctionVerticalEnabled && !string.IsNullOrWhiteSpace(part)
+            ? $" ({TvaComposanteVocabulary.ValueLabel(part)})"
+            : string.Empty;
+
+    /// <summary>
+    /// Diff lisible (déjà rendu) d'une entrée du journal — vide si aucun champ restituable. Le formateur
+    /// porte SEUL la décision de rendu (« avant → après » bilatéral vs valeur unique) : la vue se contente
+    /// d'afficher <c>line.Value</c>.
+    /// </summary>
+    private IReadOnlyList<MappingChangeDiffLine> ChangeDiff(MappingChangeLogEntryDto entry) =>
+        MappingChangeLogDiffFormatter.Describe(entry, Model.AuctionVerticalEnabled);
 }
