@@ -206,6 +206,29 @@ public sealed class PaPublicationConsoleServiceTests
     }
 
     [Fact]
+    public async Task GetStateAsync_With_Future_StartDate_Is_Not_Yet_Published()
+    {
+        // Une date de début future = pas encore actif (même critère que le gating d'envoi, F05 §2) :
+        // l'état ne doit PAS être « publié » (sinon la console contredirait le refus d'envoi).
+        var client = new RecordingPaClient
+        {
+            CurrentSetting = new PaTaxReportSetting { StartDate = new DateOnly(2026, 9, 1) },
+        };
+        var service = Service(
+            new StubRegistry("Fake", client),
+            new StubSettings { Profile = ProfileWithSiren("123456782"), Accounts = [ActiveAccount("Fake")] },
+            new RecordingActivityLogger(),
+            permission: true,
+            today: new DateOnly(2026, 6, 11));
+
+        var state = await service.GetStateAsync();
+
+        state.StateAvailable.Should().BeTrue();
+        state.IsPublished.Should().BeFalse("une date future n'est pas encore active (gating d'envoi, F05 §2)");
+        state.StartDate.Should().Be(new DateOnly(2026, 9, 1));
+    }
+
+    [Fact]
     public async Task GetStateAsync_Without_Active_Account_Reports_None()
     {
         var service = Service(

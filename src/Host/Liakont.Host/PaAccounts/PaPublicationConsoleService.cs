@@ -109,7 +109,12 @@ internal sealed partial class PaPublicationConsoleService : IPaPublicationConsol
                 Environment = active.Environment,
                 Siren = siren,
                 StateAvailable = true,
-                IsPublished = setting.StartDate is not null,
+
+                // « Publié » = ACTIF MAINTENANT, au sens exact du gating d'envoi (SendTenantJob.
+                // IsTaxReportSettingActive : StartDate renseignée ET non future, F05 §2). Une date FUTURE
+                // n'est PAS « publié » (l'envoi reste refusé) : la vue l'affiche comme « programmé ».
+                IsPublished = setting.StartDate is { } startDate
+                    && startDate <= DateOnly.FromDateTime(_timeProvider.GetUtcNow().UtcDateTime),
                 StartDate = setting.StartDate,
             };
         }

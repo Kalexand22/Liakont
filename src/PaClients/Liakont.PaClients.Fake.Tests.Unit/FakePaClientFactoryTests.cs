@@ -82,11 +82,14 @@ public sealed class FakePaClientFactoryTests
     }
 
     [Fact]
-    public async Task Published_Setting_Survives_A_Second_Resolution_And_The_Send_Issues()
+    public async Task Published_Setting_Survives_A_Second_Resolution()
     {
-        // Parcours produit FIX201 : onboarding sur une résolution, envoi sur une AUTRE résolution.
-        // Sans le cache par compte, la seconde résolution rendrait une instance vierge → réglage inactif
-        // → « Transport not available » → aucun envoi pour toujours.
+        // Parcours produit FIX201 : l'onboarding (publication) et l'envoi sont DEUX résolutions distinctes
+        // du registre (SendTenantJob résout à chaque exécution). Sans le cache par compte, la seconde
+        // résolution rendrait une instance vierge → StartDate perdue. Ce test prouve la SURVIE du réglage
+        // entre résolutions ; le gating d'envoi qui lit StartDate (SendTenantJob.IsTaxReportSettingActive)
+        // est couvert par les tests pipeline (PipelineSendHarness), pas par le plug-in factice (qui émet
+        // indépendamment du réglage).
         var registry = new PaClientRegistry([new FakePaClientFactory()]);
         var account = new PaAccountDescriptor("Fake", "tenant-a");
 
@@ -105,16 +108,15 @@ public sealed class FakePaClientFactoryTests
 
         var setting = await sending.GetTaxReportSettingAsync();
         setting.StartDate.Should().Be(new DateOnly(2026, 1, 1));
-
-        var result = await sending.SendDocumentAsync(TestDocuments.Invoice("F-1"));
-        result.State.Should().Be(PaSendState.Issued);
+        setting.TypeOperation.Should().Be("LBS");
     }
 
     [Fact]
-    public async Task A_Fresh_Account_Is_Not_Published_So_The_Send_Diagnostic_Blocks()
+    public async Task A_Fresh_Account_Has_No_Published_Setting()
     {
-        // Sans onboarding (env vierge) : le réglage n'a pas de date de début → inactif → le diagnostic
-        // pré-envoi (SendTenantJob) refuse l'envoi. C'est exactement le blocage que FIX201 lève.
+        // Sans onboarding (env vierge) : le réglage n'a pas de date de début. C'est cette valeur (nulle)
+        // que lit le diagnostic pré-envoi (SendTenantJob.IsTaxReportSettingActive) pour refuser l'envoi —
+        // le gating lui-même est couvert côté pipeline.
         var registry = new PaClientRegistry([new FakePaClientFactory()]);
 
         var client = registry.Resolve(new PaAccountDescriptor("Fake", "tenant-never-published"));

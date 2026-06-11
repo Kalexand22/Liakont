@@ -74,6 +74,28 @@ public sealed class PaPublicationViewTests : BunitContext
     }
 
     [Fact]
+    public void Scheduled_state_shows_a_future_activation_date()
+    {
+        // StartDate renseignée mais non « publié » (IsPublished = false) ⇒ date future : programmé.
+        var cut = Render<PaPublicationView>(p => p
+            .Add(v => v.State, new PaPublicationState
+            {
+                HasActiveAccount = true,
+                PluginType = "Fake",
+                Environment = "Staging",
+                StateAvailable = true,
+                IsPublished = false,
+                StartDate = new DateOnly(2026, 9, 1),
+            })
+            .Add(v => v.Form, new PaPublicationFormModel()));
+
+        var scheduled = cut.Find("[data-testid='pa-publication-scheduled']");
+        scheduled.TextContent.Should().Contain("01/09/2026");
+        cut.FindAll("[data-testid='pa-publication-published']").Should().BeEmpty();
+        cut.FindAll("[data-testid='pa-publication-unpublished']").Should().BeEmpty();
+    }
+
+    [Fact]
     public void Unavailable_state_shows_a_degraded_message()
     {
         var cut = Render<PaPublicationView>(p => p

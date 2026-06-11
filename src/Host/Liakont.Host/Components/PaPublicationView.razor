@@ -46,6 +46,15 @@
                     Transmission active depuis le @start.ToString("dd/MM/yyyy", Fr).
                 </span>
             }
+            else if (State.StartDate is { } scheduled)
+            {
+                @* StartDate renseignée mais non « publié » (IsPublished applique StartDate <= aujourd'hui,
+                   comme le gating d'envoi) ⇒ date FUTURE : programmé, l'envoi reste refusé avant cette date (F05 §2). *@
+                <StatusBadge Label="Programmé" Severity="Severity.Warning" />
+                <span class="liakont-pa-publication__meta" data-testid="pa-publication-scheduled">
+                    Transmission programmée : active le @scheduled.ToString("dd/MM/yyyy", Fr) (date future — aucun envoi possible avant).
+                </span>
+            }
             else
             {
                 <StatusBadge Label="Non publié" Severity="Severity.Info" />
