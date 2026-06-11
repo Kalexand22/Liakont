@@ -131,41 +131,23 @@ internal sealed class DocumentRecheckService : IDocumentRecheckService
         {
             // Toujours bloqué : aucune transition (Blocked → Blocked interdit), mais on TRACE le geste opérateur
             // et le motif réévalué (item FIX02) — la re-vérification n'est plus invisible dans la piste (F06 §3)
-            // et le motif affiché devient le dernier évalué (plus de motif périmé après rechargement).
-            try
-            {
-                await lifecycle.RecordRecheckStillBlockedAsync(documentId, decision.BlockReason!, operatorIdentity, cancellationToken);
-            }
-            catch (InvalidOperationException)
-            {
-                // Course étroite : entre la lecture NON verrouillée (ci-dessus) et l'écriture VERROUILLÉE (FOR UPDATE)
-                // du cycle de vie, un geste opérateur concurrent (résolution manuelle, ou un recheck qui débloque) a
-                // transitionné le document hors de Blocked. On ne trace JAMAIS un faux « toujours bloqué » sur un
-                // document qui ne l'est plus, et on ne propage pas un 500 : on rend l'état courant (→ 409 « la
-                // re-vérification ne s'applique qu'à un document bloqué »). InvalidDocumentTransitionException dérive
-                // d'InvalidOperationException ; on l'attrape par sa base SANS référencer le Domain Documents (frontière).
-                return await CurrentStateResultAsync(queries, documentId, cancellationToken);
-            }
-
-            return DocumentRecheckResult.StillBlocked(decision.BlockReason!);
+            // et le motif affiché devient le dernier évalué (plus de motif périmé après rechargement). Le cycle de
+            // vie vérifie l'état SOUS le verrou : un geste concurrent qui a débloqué/résolu le document est rendu
+            // gracieusement (jamais un faux audit ni un 500), une vraie erreur de persistance remonte.
+            var stillBlocked = await lifecycle.RecordRecheckStillBlockedAsync(documentId, decision.BlockReason!, operatorIdentity, cancellationToken);
+            return stillBlocked == DocumentRecheckPersistOutcome.Persisted
+                ? DocumentRecheckResult.StillBlocked(decision.BlockReason!)
+                : await CurrentStateResultAsync(queries, documentId, cancellationToken);
         }
 
         // Prêt : snapshot de ventilation sourcée AVANT la transition (ADR-0015), puis Blocked → ReadyToSend
-        // (événement d'audit attribué à l'opérateur qui a déclenché la re-vérification — item FIX02).
+        // (événement d'audit attribué à l'opérateur qui a déclenché la re-vérification — item FIX02). Un changement
+        // d'état concurrent est rendu gracieusement (le snapshot de ventilation, idempotent, reste sans effet).
         await WriteVentilationSnapshotAsync(document, decision, cancellationToken);
-        try
-        {
-            await lifecycle.MarkReadyToSendByRecheckAsync(documentId, decision.MappingVersion!, operatorIdentity, cancellationToken);
-        }
-        catch (InvalidOperationException)
-        {
-            // Même course concurrente, côté déblocage : la machine à états refuse Blocked → ReadyToSend si l'état a
-            // changé entre la lecture non verrouillée et l'écriture verrouillée. On rend l'état courant plutôt qu'un
-            // 500 (le snapshot de ventilation, idempotent sur (document_id, mapping_version), reste sans effet).
-            return await CurrentStateResultAsync(queries, documentId, cancellationToken);
-        }
-
-        return DocumentRecheckResult.ReadyToSend();
+        var unblocked = await lifecycle.MarkReadyToSendByRecheckAsync(documentId, decision.MappingVersion!, operatorIdentity, cancellationToken);
+        return unblocked == DocumentRecheckPersistOutcome.Persisted
+            ? DocumentRecheckResult.ReadyToSend()
+            : await CurrentStateResultAsync(queries, documentId, cancellationToken);
     }
 
     /// <summary>
