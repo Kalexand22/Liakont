@@ -392,11 +392,11 @@ function Backup-InstanceDatabases {
         if (-not (Test-Path -LiteralPath $target) -or (Get-Item -LiteralPath $target).Length -eq 0) {
             throw "Sauvegarde de « $db » vide ou absente ($target). Migration ANNULÉE (anti-faux-vert)."
         }
-        # Garde anti-corruption UTF-16 (BOM 0xFF 0xFE ou 0xFE 0xFF en tête de fichier).
-        $firstBytes = [System.IO.File]::ReadAllBytes($target) | Select-Object -First 2
-        if (($firstBytes.Count -ge 2) -and (
-            ($firstBytes[0] -eq 0xFF -and $firstBytes[1] -eq 0xFE) -or
-            ($firstBytes[0] -eq 0xFE -and $firstBytes[1] -eq 0xFF))) {
+        # Garde anti-corruption UTF-16 (BOM 0xFF 0xFE ou 0xFE 0xFF en tête) — lecture des 2 premiers
+        # octets via un flux pour ne PAS charger un gros dump entier en mémoire (risque OOM = faux-rouge).
+        $fs = [System.IO.File]::OpenRead($target)
+        try { $b0 = $fs.ReadByte(); $b1 = $fs.ReadByte() } finally { $fs.Dispose() }
+        if ($b0 -ge 0 -and $b1 -ge 0 -and (($b0 -eq 0xFF -and $b1 -eq 0xFE) -or ($b0 -eq 0xFE -and $b1 -eq 0xFF))) {
             throw "Dump de « $db » corrompu (BOM UTF-16 détecté — encodage PowerShell). Migration ANNULÉE (anti-faux-vert)."
         }
     }
