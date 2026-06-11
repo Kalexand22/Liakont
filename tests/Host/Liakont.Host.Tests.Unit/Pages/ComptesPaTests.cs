@@ -154,6 +154,52 @@ public sealed class ComptesPaTests : BunitContext
         });
     }
 
+    [Fact]
+    public void NotFound_on_edit_shows_a_french_error_and_keeps_the_editor_open()
+    {
+        var account = Account();
+        var fake = new FakePaService(accounts: [account], pluginTypes: ["Fake"]) { ThrowNotFoundOnUpdate = true };
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(hasSettings: true));
+        Services.AddScoped<IPaAccountConsoleService>(_ => fake);
+
+        var cut = Render<ComptesPa>();
+
+        cut.WaitForAssertion(() => cut.FindAll($"[data-testid='comptes-pa-edit-{account.Id}']").Should().ContainSingle());
+        cut.Find($"[data-testid='comptes-pa-edit-{account.Id}']").Click();
+
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='comptes-pa-editor']").Should().ContainSingle());
+        cut.Find("[data-testid='comptes-pa-save-btn']").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.Find("[data-testid='comptes-pa-editor-error']").TextContent.Should().Contain("introuvable");
+            cut.FindAll("[data-testid='comptes-pa-editor']").Should().ContainSingle();
+        });
+    }
+
+    [Fact]
+    public void NotFound_on_deactivate_shows_a_french_error_and_keeps_the_confirmation_open()
+    {
+        var account = Account();
+        var fake = new FakePaService(accounts: [account], pluginTypes: ["Fake"]) { ThrowNotFoundOnDeactivate = true };
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(hasSettings: true));
+        Services.AddScoped<IPaAccountConsoleService>(_ => fake);
+
+        var cut = Render<ComptesPa>();
+
+        cut.WaitForAssertion(() => cut.FindAll($"[data-testid='comptes-pa-deactivate-{account.Id}']").Should().ContainSingle());
+        cut.Find($"[data-testid='comptes-pa-deactivate-{account.Id}']").Click();
+
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='comptes-pa-deactivate-confirm']").Should().ContainSingle());
+        cut.Find("[data-testid='comptes-pa-deactivate-confirm-btn']").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.Find("[data-testid='comptes-pa-deactivate-error']").TextContent.Should().Contain("introuvable");
+            cut.FindAll("[data-testid='comptes-pa-deactivate-confirm']").Should().ContainSingle();
+        });
+    }
+
     private static PaAccountDto Account() => new()
     {
         Id = Guid.NewGuid(),
@@ -180,6 +226,10 @@ public sealed class ComptesPaTests : BunitContext
         }
 
         public bool ThrowConflictOnCreate { get; init; }
+
+        public bool ThrowNotFoundOnUpdate { get; init; }
+
+        public bool ThrowNotFoundOnDeactivate { get; init; }
 
         public int CreateCalls { get; private set; }
 
@@ -215,12 +265,22 @@ public sealed class ComptesPaTests : BunitContext
 
         public Task UpdateAsync(PaAccountFormModel model, CancellationToken cancellationToken = default)
         {
+            if (ThrowNotFoundOnUpdate)
+            {
+                throw new NotFoundException("PaAccount", model.PaAccountId ?? Guid.Empty);
+            }
+
             UpdateCalls++;
             return Task.CompletedTask;
         }
 
         public Task DeactivateAsync(Guid paAccountId, CancellationToken cancellationToken = default)
         {
+            if (ThrowNotFoundOnDeactivate)
+            {
+                throw new NotFoundException("PaAccount", paAccountId);
+            }
+
             DeactivateCalls++;
             return Task.CompletedTask;
         }
