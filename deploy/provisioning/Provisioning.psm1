@@ -21,6 +21,9 @@
 #>
 
 Set-StrictMode -Version Latest
+# Les appels natifs autonomes (docker …) ne doivent pas lever sur code non-zéro —
+# la gestion explicite via $LASTEXITCODE s'en charge (pwsh 7.4+ : défaut $true).
+$PSNativeCommandUseErrorActionPreference = $false
 
 # Nom d'instance = nom de projet Docker Compose. Compose impose [a-z0-9][a-z0-9_-]* ; on borne à
 # 2-32 caractères pour des noms de volumes/conteneurs lisibles. Lettre/chiffre en tête.
@@ -365,7 +368,10 @@ function Backup-InstanceDatabases {
         $containerPath = "/tmp/$db.sql"
 
         # 1. Dump à l'intérieur du conteneur (pas de redirection PowerShell = pas de corruption UTF-16).
-        $dumpArgs = $ComposeArgs + @('exec', '-T', 'postgres', 'pg_dump', '-U', $PostgresUser, '-d', $db, '-f', $containerPath)
+        # --clean --if-exists : le dump émet DROP … IF EXISTS avant chaque CREATE → restauration
+        # idempotente sur une base non vide (rollback sur schéma partiellement migré sans erreurs).
+        $dumpArgs = $ComposeArgs + @('exec', '-T', 'postgres', 'pg_dump', '-U', $PostgresUser, '-d', $db,
+            '--clean', '--if-exists', '-f', $containerPath)
         & docker @dumpArgs 2>$null
         if ($LASTEXITCODE -ne 0) {
             throw "Échec de la sauvegarde pré-migration de la base « $db » (pg_dump). Migration ANNULÉE (aucune montée " +
@@ -466,7 +472,7 @@ function Wait-InstanceHealthy {
         if ($state -eq 'running') {
             $probeArgs = $ComposeArgs + @('exec', '-T', 'caddy', 'wget', '-S', '-q', '-O', '/dev/null', '-T', '5', 'http://liakont:8080/')
             $probe = (& docker @probeArgs 2>&1 | Out-String)
-            if ($probe -match 'not found' -or $probe -match 'applet not found' -or $LASTEXITCODE -eq 127) {
+            if ($probe -match 'applet not found' -or $probe -match 'wget:\s*not found' -or $LASTEXITCODE -eq 127) {
                 # wget absent : mode dégradé — stabilité soutenue.
                 if ($null -eq $fallbackStableSince) {
                     $fallbackStableSince = Get-Date

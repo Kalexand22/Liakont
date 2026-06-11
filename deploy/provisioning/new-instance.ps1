@@ -45,6 +45,9 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+# Les appels natifs autonomes (docker …) ne doivent pas lever sur code non-zéro —
+# la gestion explicite via $LASTEXITCODE s'en charge (pwsh 7.4+ : défaut $true).
+$PSNativeCommandUseErrorActionPreference = $false
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 Import-Module (Join-Path $scriptRoot 'Provisioning.psm1') -Force

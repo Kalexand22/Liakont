@@ -102,8 +102,12 @@ La séquence garantit qu'**une instance ne tourne jamais avec des bases à des v
 
 ### Rollback (en cas d'échec)
 
-1. Restaurer les bases depuis `instances/<nom>/backups/<horodatage>/` (un `.sql` par base —
-   `psql -U liakont -d <base> < <base>.sql` dans le conteneur `postgres`) ;
+1. Restaurer les bases depuis `instances/<nom>/backups/<horodatage>/` (un `.sql` par base).
+   Le dump est pris avec `--clean --if-exists` : la restauration est **idempotente** même si la base
+   contient déjà le nouveau schéma. Dans le conteneur `postgres` :
+   ```
+   psql -v ON_ERROR_STOP=1 -U liakont -d <base> -f <base>.sql
+   ```
 2. redéployer la **version précédente** du code ;
 3. relancer `update-instance.ps1` une fois l'instance saine : il lève la maintenance.
 

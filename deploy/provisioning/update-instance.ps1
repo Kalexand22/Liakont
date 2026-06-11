@@ -45,6 +45,9 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+# Les appels natifs autonomes (docker …) ne doivent pas lever sur code non-zéro —
+# la gestion explicite via $LASTEXITCODE s'en charge (pwsh 7.4+ : défaut $true).
+$PSNativeCommandUseErrorActionPreference = $false
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 Import-Module (Join-Path $scriptRoot 'Provisioning.psm1') -Force
@@ -178,7 +181,9 @@ try {
     Write-ErrMsg 'MONTÉE DE VERSION EN ÉCHEC — instance ARRÊTÉE (aucun état mixte en marche).'
     Write-Host  "  Cause probable : échec de migration d'une base tenant (le Host a avorté son démarrage)." -ForegroundColor Yellow
     Write-Host  "  Diagnostic     : docker compose -p $($instance.ProjectName) logs liakont" -ForegroundColor Yellow
-    Write-Host  "  ROLLBACK       : 1) restaurer les bases depuis $backupDir (psql < <base>.sql par base) ;" -ForegroundColor Yellow
+    Write-Host  "  ROLLBACK       : 1) restaurer les bases depuis $backupDir" -ForegroundColor Yellow
+    Write-Host  "                      (dump --clean --if-exists = idempotent sur schéma partiellement migré) ;" -ForegroundColor Yellow
+    Write-Host  "                      psql -v ON_ERROR_STOP=1 -U liakont -d <base> -f <base>.sql (dans le conteneur postgres) ;" -ForegroundColor Yellow
     Write-Host  "                   2) redéployer la version précédente du code ;" -ForegroundColor Yellow
     Write-Host  "                   3) update-instance.ps1 lève la maintenance une fois l'instance saine." -ForegroundColor Yellow
     Write-Host  "  La maintenance (503) reste ACTIVE : les agents restent bloqués jusqu'à résolution." -ForegroundColor Yellow
