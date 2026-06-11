@@ -318,11 +318,18 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
     /// Jamais une résurrection altérée : ce chemin n'est atteint que parce que l'empreinte est déjà connue, et la
     /// clé de staging porte cette même empreinte (re-vérifiée à la relecture par le magasin) — un contenu altéré
     /// aurait une empreinte différente, donc le chemin ACCEPTÉ (altération), pas celui-ci. Le re-push de l'agent ne
-    /// concerne que les éléments pas encore « Processed » (staged+Detected) de SON point de vue (ADR-0014) ; un
-    /// document déjà <c>Issued</c> (staging légitimement purgé, ADR-0014 §4) n'atteint ce chemin qu'en reprise
-    /// après PERTE D'ÉTAT de l'agent (re-scan/re-push) et le re-stage y reste SANS EFFET : aucun événement
-    /// <c>DocumentReceived</c> ne subsiste dans l'outbox (ni re-range ni ré-émission), et le blob transitoire est
-    /// re-purgé au cycle de purge suivant.
+    /// concerne que les éléments pas encore « Processed » (staged+Detected) de SON point de vue (ADR-0014). Le
+    /// re-stage réhydrate donc les états PRÉ-ÉMISSION dont le staging a réellement été perdu (Detected mais aussi
+    /// ReadyToSend/Blocked, qui en ont encore besoin pour le SEND/recheck — INV-STAGING-007). CAS RÉSIDUEL : un
+    /// document déjà <c>Issued</c> (staging légitimement purgé après WORM, ADR-0014 §4) n'atteint ce chemin qu'en
+    /// reprise après PERTE D'ÉTAT de l'agent (re-scan/re-push). Le re-stage y est SANS EFFET FONCTIONNEL — aucun
+    /// événement <c>DocumentReceived</c> ne subsiste dans l'outbox (ni re-range ni ré-émission ; le document reste
+    /// <c>Issued</c>) — mais il ré-écrit un blob qui ne repassera PAS par la purge du SEND
+    /// (<see cref="IStagingPurgeService"/> ne purge qu'une fois, pendant le SEND). Ce cas (rare,
+    /// idempotent, borné par document) relève de la DETTE « croissance non bornée du staging » (Staging/MODULE.md,
+    /// propriétaire PIP01), PAS d'une re-purge automatique : le borner ici exigerait la connaissance du cycle de
+    /// vie / de la présence WORM dans le chemin chaud d'intake et risquerait de re-casser la réhydratation des
+    /// états pré-émission ci-dessus.
     /// </summary>
     private async Task RetryRangingIfNotRangedAsync(
         Guid? originalDocumentId,

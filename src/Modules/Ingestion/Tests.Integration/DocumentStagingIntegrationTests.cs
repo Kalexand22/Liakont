@@ -99,6 +99,11 @@ public sealed class DocumentStagingIntegrationTests
         second.Results.Single().Status.Should().Be(DocumentPushStatus.Duplicate);
         harness.PayloadStagingStore.Count.Should().Be(1, "le re-push d'un document rangé sans staging RE-STAGE le contenu (FIX07b) — plus de zombie définitif");
         harness.PayloadStagingStore.WriteAttempts.Should().Be(2, "1re réception + re-stage au re-push (contenu re-fourni à l'identique, empreinte connue)");
+
+        // Pas de RÉ-ÉMISSION : la réhydratation n'écrit AUCUN nouvel événement DocumentReceived (le doublon ne
+        // ré-inscrit rien). Le CHECK re-tourne sur l'événement d'ORIGINE (re-livraison outbox), jamais sur un doublon.
+        (await CountReceivedAsync(harness)).Should().Be(1, "le re-push reste un doublon : aucune nouvelle inscription au registre");
+        (await CountEventsAsync(harness, IngestionEventTypes.DocumentReceived)).Should().Be(1, "réhydratation du staging = aucune ré-émission d'événement");
     }
 
     private static IngestDocumentBatchCommand Batch(IngestionHarness harness, params PivotDocumentDto[] documents) =>
