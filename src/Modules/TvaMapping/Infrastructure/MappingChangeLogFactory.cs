@@ -17,6 +17,14 @@ internal static class MappingChangeLogFactory
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
     };
 
+    public static MappingChangeLogEntry ForCreateTable(
+        MappingTable table, Guid operatorId, string? operatorName)
+        => Base(table, MappingChangeType.CreateTable, operatorId, operatorName) with
+        {
+            BeforeJson = null,
+            AfterJson = SerializeCreation(table),
+        };
+
     public static MappingChangeLogEntry ForAddRule(
         MappingTable table, MappingRule added, Guid operatorId, string? operatorName)
         => Base(table, MappingChangeType.AddRule, operatorId, operatorName) with
@@ -84,6 +92,17 @@ internal static class MappingChangeLogFactory
                 rule.Note,
                 RateMode = rule.RateMode.ToString(),
                 rule.RateValue,
+            },
+            SerializerOptions);
+
+    private static string SerializeCreation(MappingTable table)
+        => JsonSerializer.Serialize(
+            new
+            {
+                table.MappingVersion,
+                DefaultBehavior = table.DefaultBehavior.ToString(),
+                RuleCount = table.Rules.Count,
+                table.IsValidated,
             },
             SerializerOptions);
 

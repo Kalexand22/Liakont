@@ -2,9 +2,9 @@ namespace Liakont.Modules.TvaMapping.Infrastructure.Handlers.Commands;
 
 using Liakont.Modules.TvaMapping.Application;
 using Liakont.Modules.TvaMapping.Contracts.Commands;
+using Liakont.Modules.TvaMapping.Domain.Entities;
 using Liakont.Modules.TvaMapping.Domain.Services;
 using MediatR;
-using Stratum.Common.Abstractions.Exceptions;
 using Stratum.Common.Abstractions.Security;
 using Stratum.Common.Infrastructure.DataIsolation;
 
@@ -12,6 +12,9 @@ using Stratum.Common.Infrastructure.DataIsolation;
 /// Ajoute une règle à la table de mapping TVA du tenant courant (item TVA05 §1). La règle est validée
 /// structurellement (doublon, E à 0 % → VATEX, taux). La mutation efface l'état de validation
 /// (item TVA05 §2) et journalise l'opération (append-only) de façon ATOMIQUE avec l'écriture (§5).
+/// Si AUCUNE table n'est encore paramétrée, elle est CRÉÉE implicitement (item FIX01b) — table vide
+/// « NON VALIDÉE », comportement <c>block</c> — et la création est journalisée (<c>CreateTable</c>)
+/// dans la même transaction, plutôt que de rejeter l'opération (plus de <c>NotFoundException</c>).
 /// </summary>
 public sealed class AddMappingRuleHandler : IRequestHandler<AddMappingRuleCommand>
 {
@@ -47,8 +50,28 @@ public sealed class AddMappingRuleHandler : IRequestHandler<AddMappingRuleComman
 
         await using var uow = await _uowFactory.BeginAsync(cancellationToken);
 
-        var table = await uow.GetForUpdateAsync(companyId, cancellationToken)
-            ?? throw new NotFoundException(MappingEditMessages.NoTableForTenant);
+        var table = await uow.GetForUpdateAsync(companyId, cancellationToken);
+
+        if (table is null)
+        {
+            // Création implicite (item FIX01b) : la première règle d'un tenant sans table crée la table
+            // (vide, « NON VALIDÉE », block) puis y ajoute la règle. Naissance + ajout sont journalisés
+            // dans la MÊME transaction (CreateTable puis AddRule) — append-only, atomique avec l'insertion.
+            table = MappingTable.Create(
+                companyId,
+                MappingTable.InitialMappingVersion,
+                validatedBy: null,
+                validatedDate: null,
+                MappingDefaultBehavior.Block,
+                rules: []);
+            table.AddRule(rule);
+
+            var createEntry = MappingChangeLogFactory.ForCreateTable(table, actor.UserId, actor.DisplayName);
+            var addEntry = MappingChangeLogFactory.ForAddRule(table, rule, actor.UserId, actor.DisplayName);
+            await uow.InsertMappingTableAsync(table, [createEntry, addEntry], cancellationToken);
+            await uow.CommitAsync(cancellationToken);
+            return;
+        }
 
         table.AddRule(rule);
 

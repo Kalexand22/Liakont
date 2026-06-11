@@ -95,7 +95,29 @@
         }
         else
         {
-            <p data-testid="table-tva-none">Aucune table TVA paramétrée.</p>
+            <div class="liakont-tva-table__alert" role="alert" data-testid="table-tva-none">
+                <span>
+                    Aucune table TVA paramétrée — le traitement des documents portant un régime à mapper est
+                    suspendu (blocage par défaut). Créez la table pour commencer le paramétrage.
+                </span>
+            </div>
+
+            @if (CanEdit)
+            {
+                <StratumButton Text="@(CreatingTable ? "Création…" : "Créer la table")"
+                               Variant="ButtonVariant.Primary"
+                               Size="ButtonSize.Small"
+                               Disabled="@CreatingTable"
+                               OnClick="@(_ => OnCreateTable.InvokeAsync())"
+                               TestId="table-tva-create-table-btn" />
+
+                @if (!string.IsNullOrWhiteSpace(CreateError))
+                {
+                    <div class="liakont-tva-table__alert" role="alert" data-testid="table-tva-create-error">
+                        @CreateError
+                    </div>
+                }
+            }
         }
     </SectionCard>
 
@@ -276,6 +298,18 @@
     /// <summary><c>true</c> si l'opérateur peut ÉDITER la table (permission <c>liakont.settings</c>).</summary>
     [Parameter]
     public bool CanEdit { get; set; }
+
+    /// <summary><c>true</c> pendant la création de la table (bouton « Créer la table » désactivé).</summary>
+    [Parameter]
+    public bool CreatingTable { get; set; }
+
+    /// <summary>Message d'erreur de la création de table (échec de l'appel), ou <c>null</c>.</summary>
+    [Parameter]
+    public string? CreateError { get; set; }
+
+    /// <summary>Déclenché quand l'opérateur demande la création d'une table vide (état vide, item FIX01b).</summary>
+    [Parameter]
+    public EventCallback OnCreateTable { get; set; }
 
     /// <summary><c>true</c> quand le dialogue de confirmation de validation est ouvert.</summary>
     [Parameter]
@@ -460,6 +494,7 @@
             "UpdateRule" => "Règle modifiée",
             "RemoveRule" => "Règle supprimée",
             "Validate" => "Table validée",
+            "CreateTable" => "Table créée",
             _ => entry.ChangeType,
         };
 

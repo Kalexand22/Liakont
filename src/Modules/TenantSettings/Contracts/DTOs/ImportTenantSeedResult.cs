@@ -17,5 +17,11 @@ public record ImportTenantSeedResult
 
     public required bool ThresholdsImported { get; init; }
 
+    /// <summary>
+    /// <c>true</c> si une table de mapping TVA a été importée depuis le seed (item FIX01b) ; <c>false</c>
+    /// si aucun fichier de mapping n'était présent OU si une table existait déjà (import idempotent ignoré).
+    /// </summary>
+    public bool TvaMappingImported { get; init; }
+
     public required IReadOnlyList<string> Warnings { get; init; }
 }

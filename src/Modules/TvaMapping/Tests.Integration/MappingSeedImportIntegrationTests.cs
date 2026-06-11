@@ -3,11 +3,14 @@ namespace Liakont.Modules.TvaMapping.Tests.Integration;
 using FluentAssertions;
 using Liakont.Agent.Contracts.ContractTests;
 using Liakont.Agent.Contracts.Pivot;
+using Liakont.Modules.TvaMapping.Contracts.Commands;
 using Liakont.Modules.TvaMapping.Domain.Entities;
 using Liakont.Modules.TvaMapping.Domain.Mapping;
 using Liakont.Modules.TvaMapping.Domain.Services;
 using Liakont.Modules.TvaMapping.Infrastructure;
+using Liakont.Modules.TvaMapping.Infrastructure.Handlers.Commands;
 using Liakont.Modules.TvaMapping.Infrastructure.Seed;
+using Liakont.Modules.TvaMapping.Tests.Integration.Doubles;
 using Liakont.Modules.TvaMapping.Tests.Integration.Fixtures;
 using Xunit;
 
@@ -201,6 +204,33 @@ public sealed class MappingSeedImportIntegrationTests
         (await harness.Queries.GetMappingTable(companyWith)).Should().NotBeNull();
         (await harness.Queries.GetMappingTable(companyWithout)).Should().BeNull(
             "l'import dans un tenant ne crée aucune table pour un autre tenant (CLAUDE.md n°9).");
+    }
+
+    [Fact]
+    public async Task ImportMappingTableSeedCommand_Imports_NonValidated_And_Is_Idempotent()
+    {
+        // Item FIX01b : la commande d'import (câblée au point d'entrée OPS03) amorce un tenant vierge
+        // depuis le fichier de seed, conserve le marqueur « table d'exemple » (NON VALIDÉE), et reste
+        // idempotente (un second import sur un tenant déjà paramétré est ignoré — pas d'écrasement).
+        var harness = new TvaMappingHarness(_fixture);
+        var companyId = Guid.NewGuid();
+        var accessor = new TestActorContextAccessor(Guid.NewGuid(), companyId);
+        var filter = new TestCompanyFilter(accessor);
+        var handler = new ImportMappingTableSeedHandler(harness.UowFactory, filter);
+
+        var first = await handler.Handle(
+            new ImportMappingTableSeedCommand { SeedFilePath = ExampleSeedPath }, CancellationToken.None);
+        first.Should().BeTrue("un tenant vierge importe la table de seed.");
+
+        var dto = await harness.Queries.GetMappingTable(companyId);
+        dto.Should().NotBeNull();
+        dto!.MappingVersion.Should().Be("exemple-v1");
+        dto.IsValidated.Should().BeFalse("la table d'exemple reste NON VALIDÉE (garde-fou PIP01).");
+        dto.ValidatedBy.Should().Be(ExampleMarker, "le marqueur « table d'exemple » est conservé.");
+
+        var second = await handler.Handle(
+            new ImportMappingTableSeedCommand { SeedFilePath = ExampleSeedPath }, CancellationToken.None);
+        second.Should().BeFalse("une table existante n'est jamais écrasée par un ré-import (idempotent).");
     }
 
     private static async Task ImportAndPersistAsync(TvaMappingHarness harness, Guid companyId)

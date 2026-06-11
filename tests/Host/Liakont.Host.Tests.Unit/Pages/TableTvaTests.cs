@@ -53,6 +53,40 @@ public sealed class TableTvaTests : BunitContext
     }
 
     [Fact]
+    public void Creating_a_table_from_empty_state_calls_create_and_reveals_the_table()
+    {
+        var fake = FakeTableQueries.NoTable();
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(hasSettings: true));
+        Services.AddScoped<ITvaMappingTableQueries>(_ => fake);
+
+        var cut = Render<TableTva>();
+
+        // État vide : bouton « Créer la table » visible (permission settings).
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='table-tva-create-table-btn']").Should().ContainSingle());
+        cut.Find("[data-testid='table-tva-create-table-btn']").Click();
+
+        // La commande de création a été émise et le rechargement révèle la table (NON VALIDÉE), état vide levé.
+        cut.WaitForAssertion(() =>
+        {
+            fake.CreateCalls.Should().Be(1);
+            cut.FindAll("[data-testid='table-tva-not-validated']").Should().ContainSingle();
+            cut.FindAll("[data-testid='table-tva-none']").Should().BeEmpty();
+        });
+    }
+
+    [Fact]
+    public void Empty_state_create_button_is_hidden_without_settings_permission()
+    {
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(hasSettings: false));
+        Services.AddScoped<ITvaMappingTableQueries>(_ => FakeTableQueries.NoTable());
+
+        var cut = Render<TableTva>();
+
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='table-tva-none']").Should().ContainSingle());
+        cut.FindAll("[data-testid='table-tva-create-table-btn']").Should().BeEmpty();
+    }
+
+    [Fact]
     public void Without_settings_permission_the_validate_button_is_hidden()
     {
         Services.AddScoped<IPermissionService>(_ => new FakePermissionService(hasSettings: false));
@@ -252,6 +286,7 @@ public sealed class TableTvaTests : BunitContext
         private readonly bool _throwOnMutate;
         private readonly string _operator;
         private bool _validated;
+        private bool _tableExists = true;
 
         private FakeTableQueries(bool throwOnLoad, bool throwOnValidate, bool throwOnMutate, bool validated, string op)
         {
@@ -264,6 +299,8 @@ public sealed class TableTvaTests : BunitContext
 
         public int ValidateCalls { get; private set; }
 
+        public int CreateCalls { get; private set; }
+
         public int AddCalls { get; private set; }
 
         public int UpdateCalls { get; private set; }
@@ -271,6 +308,13 @@ public sealed class TableTvaTests : BunitContext
         public int RemoveCalls { get; private set; }
 
         public static FakeTableQueries NotValidated(string op = "Alice Martin") => new(false, false, false, validated: false, op);
+
+        public static FakeTableQueries NoTable(string op = "Alice Martin")
+        {
+            var fake = new FakeTableQueries(false, false, false, validated: false, op);
+            fake._tableExists = false;
+            return fake;
+        }
 
         public static FakeTableQueries Validated(string op = "Alice Martin") => new(false, false, false, validated: true, op);
 
@@ -296,6 +340,16 @@ public sealed class TableTvaTests : BunitContext
             }
 
             return Task.FromResult(BuildModel());
+        }
+
+        public Task CreateTableAsync(CancellationToken cancellationToken = default)
+        {
+            // Création d'une table vide « NON VALIDÉE » (item FIX01b) : la table existe désormais et le
+            // rechargement bascule de l'état vide vers la table.
+            CreateCalls++;
+            _tableExists = true;
+            _validated = false;
+            return Task.CompletedTask;
         }
 
         public Task ValidateAsync(CancellationToken cancellationToken = default)
@@ -347,7 +401,16 @@ public sealed class TableTvaTests : BunitContext
             return Task.CompletedTask;
         }
 
-        private TvaMappingTableViewModel BuildModel() => new()
+        private TvaMappingTableViewModel BuildModel() => _tableExists ? BuildModelWithTable() : new()
+        {
+            Table = null,
+            ChangeLog = Array.Empty<MappingChangeLogEntryDto>(),
+            CurrentOperatorName = _operator,
+            Coverage = null,
+            EditOptions = EditOptions(),
+        };
+
+        private TvaMappingTableViewModel BuildModelWithTable() => new()
         {
             Table = new MappingTableDto
             {

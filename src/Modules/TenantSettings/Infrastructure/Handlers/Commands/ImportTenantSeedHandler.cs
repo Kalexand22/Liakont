@@ -6,6 +6,7 @@ using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Liakont.Modules.TenantSettings.Domain.Entities;
 using Liakont.Modules.TenantSettings.Domain.ValueObjects;
 using Liakont.Modules.TenantSettings.Infrastructure.Seed;
+using Liakont.Modules.TvaMapping.Contracts.Commands;
 using MediatR;
 using Stratum.Common.Abstractions.Exceptions;
 using Stratum.Common.Infrastructure.DataIsolation;
@@ -17,18 +18,24 @@ using Stratum.Common.Infrastructure.DataIsolation;
 /// </summary>
 public sealed class ImportTenantSeedHandler : IRequestHandler<ImportTenantSeedCommand, ImportTenantSeedResult>
 {
+    /// <summary>Nom du fichier de seed de mapping TVA dans le dossier de seed (item FIX01b).</summary>
+    private const string MappingFileName = "mapping-tva.json";
+
     private readonly ITenantSettingsUnitOfWorkFactory _uowFactory;
     private readonly ICompanyFilter _companyFilter;
     private readonly TenantSettingsJournal _journal;
+    private readonly ISender _sender;
 
     public ImportTenantSeedHandler(
         ITenantSettingsUnitOfWorkFactory uowFactory,
         ICompanyFilter companyFilter,
-        TenantSettingsJournal journal)
+        TenantSettingsJournal journal,
+        ISender sender)
     {
         _uowFactory = uowFactory;
         _companyFilter = companyFilter;
         _journal = journal;
+        _sender = sender;
     }
 
     public async Task<ImportTenantSeedResult> Handle(ImportTenantSeedCommand request, CancellationToken cancellationToken)
@@ -72,13 +79,26 @@ public sealed class ImportTenantSeedHandler : IRequestHandler<ImportTenantSeedCo
 
         await uow.CommitAsync(cancellationToken);
 
+        // Table de mapping TVA (item FIX01b) : importée par le MÊME point d'entrée OPS03, via la commande
+        // TvaMapping (module séparé → dispatch MediatR par Contracts, CLAUDE.md n°6). Hors de la transaction
+        // TenantSettings ci-dessus (le module TvaMapping porte sa propre transaction) ; idempotent (ignoré
+        // si une table existe déjà). N'amorce que si un fichier de mapping est présent dans le dossier de seed.
+        var tvaMappingImported = false;
+        var mappingFilePath = Path.Combine(request.SeedDirectoryPath, MappingFileName);
+        if (File.Exists(mappingFilePath))
+        {
+            tvaMappingImported = await _sender.Send(
+                new ImportMappingTableSeedCommand { SeedFilePath = mappingFilePath },
+                cancellationToken);
+        }
+
         await _journal.RecordAsync(
             "TenantSeed",
             companyId,
             "imported",
             $"Import de seed depuis « {request.SeedDirectoryPath} ».",
             companyId,
-            new { profileImported, fiscalImported, scheduleImported, thresholdsImported, paImported },
+            new { profileImported, fiscalImported, scheduleImported, thresholdsImported, paImported, tvaMappingImported },
             cancellationToken);
 
         return new ImportTenantSeedResult
@@ -88,6 +108,7 @@ public sealed class ImportTenantSeedHandler : IRequestHandler<ImportTenantSeedCo
             PaAccountsImported = paImported,
             ScheduleImported = scheduleImported,
             ThresholdsImported = thresholdsImported,
+            TvaMappingImported = tvaMappingImported,
             Warnings = warnings,
         };
     }

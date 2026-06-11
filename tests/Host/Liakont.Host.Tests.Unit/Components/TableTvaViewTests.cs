@@ -291,6 +291,67 @@ public sealed class TableTvaViewTests : BunitContext
         cancelled.Should().BeTrue();
     }
 
+    [Fact]
+    public void No_table_with_permission_shows_create_table_button()
+    {
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(null))
+            .Add(v => v.CanEdit, true));
+
+        cut.FindAll("[data-testid='table-tva-none']").Should().ContainSingle();
+        cut.FindAll("[data-testid='table-tva-create-table-btn']").Should().ContainSingle();
+    }
+
+    [Fact]
+    public void No_table_without_permission_hides_create_table_button()
+    {
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(null))
+            .Add(v => v.CanEdit, false));
+
+        cut.FindAll("[data-testid='table-tva-none']").Should().ContainSingle();
+        cut.FindAll("[data-testid='table-tva-create-table-btn']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Create_table_button_invokes_callback()
+    {
+        var created = false;
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(null))
+            .Add(v => v.CanEdit, true)
+            .Add(v => v.OnCreateTable, () => { created = true; }));
+
+        cut.Find("[data-testid='table-tva-create-table-btn']").Click();
+
+        created.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Create_table_error_is_displayed_on_empty_state()
+    {
+        const string ErrorMessage = "La création de la table a échoué. Réessayez plus tard.";
+
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(null))
+            .Add(v => v.CanEdit, true)
+            .Add(v => v.CreateError, ErrorMessage));
+
+        cut.FindAll("[data-testid='table-tva-create-error']").Should().ContainSingle();
+        cut.Find("[data-testid='table-tva-create-error']").TextContent.Should().Contain(ErrorMessage);
+    }
+
+    [Fact]
+    public void CreateTable_changelog_entry_is_rendered_in_french()
+    {
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable(), WithCreateTableChangeLog()))
+            .Add(v => v.CanValidate, false));
+
+        cut.FindAll("[data-testid='table-tva-changelog-entry']").Should().ContainSingle();
+        cut.Markup.Should().Contain("Table créée");
+    }
+
     private static TvaMappingTableViewModel ModelWith(
         MappingTableDto? table,
         IReadOnlyList<MappingChangeLogEntryDto>? changeLog = null,
@@ -403,6 +464,23 @@ public sealed class TableTvaViewTests : BunitContext
             OperatorId = Guid.NewGuid(),
             OperatorName = "Alice Martin",
             OccurredAt = new DateTimeOffset(2026, 5, 20, 10, 0, 0, TimeSpan.Zero),
+        },
+    ];
+
+    private static IReadOnlyList<MappingChangeLogEntryDto> WithCreateTableChangeLog() =>
+    [
+        new MappingChangeLogEntryDto
+        {
+            Id = Guid.NewGuid(),
+            ChangeType = "CreateTable",
+            SourceRegimeCode = null,
+            Part = null,
+            MappingVersion = "1",
+            BeforeJson = null,
+            AfterJson = "{}",
+            OperatorId = Guid.NewGuid(),
+            OperatorName = "Alice Martin",
+            OccurredAt = new DateTimeOffset(2026, 6, 1, 8, 0, 0, TimeSpan.Zero),
         },
     ];
 

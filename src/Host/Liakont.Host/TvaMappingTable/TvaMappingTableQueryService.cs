@@ -78,6 +78,13 @@ internal sealed class TvaMappingTableQueryService : ITvaMappingTableQueries
         };
     }
 
+    public Task CreateTableAsync(CancellationToken cancellationToken = default)
+    {
+        // Création d'une table vide « NON VALIDÉE » (item FIX01b) : pass-through pur vers la commande
+        // TvaMapping (le handler crée la table, applique le comportement block par défaut et journalise).
+        return _sender.Send(new CreateMappingTableCommand(), cancellationToken);
+    }
+
     public Task ValidateAsync(CancellationToken cancellationToken = default)
     {
         // validatedBy = identité AUTHENTIFIÉE de l'opérateur courant (jamais une valeur de l'UI : un
