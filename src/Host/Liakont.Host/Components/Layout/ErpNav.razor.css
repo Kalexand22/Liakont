@@ -230,6 +230,13 @@
     display: none;
 }
 
+/* En mode replié, le rail est étroit et centré : on masque le groupe marque ENTIER (texte ET logo
+   d'instance, BRD01) — sinon un logo configuré déborderait/écraserait le rail selon son ratio. */
+.erp-nav.collapsed .erp-nav-brand-group,
+.erp-nav.collapsed .erp-nav-logo {
+    display: none;
+}
+
 .erp-nav.collapsed .erp-nav-header {
     padding: 0.75rem 0.5rem;
     display: flex;
