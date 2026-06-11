@@ -33,7 +33,7 @@
      @onkeydown="HandleKeyDown"
      @ref="_wrapperRef">
 
-    @if (AllowExport || AllowAdvancedFilter || AllowColumnChooser || AllowGroupChooser || ToolbarContent is not null || ToolbarEndContent is not null)
+    @if (AllowExport || AllowAdvancedFilter || AllowColumnChooser || AllowGroupChooser || OnRefresh.HasDelegate || ToolbarContent is not null || ToolbarEndContent is not null)
     {
         <div class="stratum-datagrid__toolbar" role="toolbar" aria-label="@L["Grid_ToolbarAriaLabel"]">
             <div class="stratum-datagrid__toolbar-start">
@@ -69,35 +69,28 @@
                                    OnClick="@(_ => HandleToggleGroupChooser())"
                                    TestId="group-chooser-btn" />
                 }
-                @if (AllowExport && ExportFormats.HasFlag(ExportFormat.Csv))
+                @if (OnRefresh.HasDelegate)
                 {
-                    <StratumButton Icon="download"
+                    <StratumButton Icon="refresh"
                                    Variant="ButtonVariant.Secondary"
                                    Outline
                                    Size="ButtonSize.Small"
-                                   Disabled="@(Loading || Data is null || Data.Count == 0)"
-                                   OnClick="@(_ => HandleExportAsync(ExportFormat.Csv))"
-                                   TestId="export-csv-btn" />
+                                   Title="@L["Grid_RefreshButton"]"
+                                   OnClick="@(_ => HandleRefreshAsync())"
+                                   TestId="refresh-btn" />
                 }
-                @if (AllowExport && ExportFormats.HasFlag(ExportFormat.Excel))
+                @if (AllowExport && _exportMenuItems.Count > 0)
                 {
-                    <StratumButton Icon="download"
-                                   Variant="ButtonVariant.Secondary"
-                                   Outline
-                                   Size="ButtonSize.Small"
-                                   Disabled="@(Loading || Data is null || Data.Count == 0)"
-                                   OnClick="@(_ => HandleExportAsync(ExportFormat.Excel))"
-                                   TestId="export-excel-btn" />
-                }
-                @if (AllowExport && ExportFormats.HasFlag(ExportFormat.Pdf))
-                {
-                    <StratumButton Icon="download"
-                                   Variant="ButtonVariant.Secondary"
-                                   Outline
-                                   Size="ButtonSize.Small"
-                                   Disabled="@(Loading || Data is null || Data.Count == 0)"
-                                   OnClick="@(_ => HandleExportAsync(ExportFormat.Pdf))"
-                                   TestId="export-pdf-btn" />
+                    <StratumSplitButton Text="@L["Grid_ExportButton"]"
+                                        Icon="download"
+                                        ButtonStyle="ButtonVariant.Secondary"
+                                        Outline
+                                        Size="ButtonSize.Small"
+                                        Disabled="@(Loading || Data is null || Data.Count == 0)"
+                                        Items="@_exportMenuItems"
+                                        OnClick="@(() => HandleExportAsync(_defaultExportFormat))"
+                                        OnItemClick="@HandleExportMenuItemAsync"
+                                        TestId="export-btn" />
                 }
             </div>
             <div class="stratum-datagrid__toolbar-end">
@@ -691,6 +684,36 @@
     /// </summary>
     [Parameter]
     public Func<Task<IReadOnlyList<TItem>>>? ExportDataProvider { get; set; }
+
+    /// <summary>
+    /// Optional refresh handler. When set, a refresh icon button is shown in the toolbar
+    /// (next to the export control). Pages wire this to re-run their server query while
+    /// PRESERVING the current filters, sort and pagination (the async pipeline has no
+    /// implicit reload — see FIX206). When unset, no refresh button is rendered.
+    /// </summary>
+    [Parameter]
+    public EventCallback OnRefresh { get; set; }
+
+    // Export formats offered in the single "Export" menu, in a stable order. The menu and the
+    // primary-button default both derive from ExportFormats so behaviour is unchanged vs. the
+    // former three identical icon buttons — only the presentation is consolidated (FIX206).
+    private static readonly (ExportFormat Format, string Label, string Value)[] ExportFormatOrder =
+    [
+        (ExportFormat.Csv, "CSV", "csv"),
+        (ExportFormat.Excel, "Excel", "excel"),
+        (ExportFormat.Pdf, "PDF", "pdf"),
+    ];
+
+    private List<SplitButtonItem> _exportMenuItems => ExportFormatOrder
+        .Where(f => ExportFormats.HasFlag(f.Format))
+        .Select(f => new SplitButtonItem(f.Label, Value: f.Value))
+        .ToList();
+
+    private ExportFormat _defaultExportFormat => ExportFormatOrder
+        .Where(f => ExportFormats.HasFlag(f.Format))
+        .Select(f => f.Format)
+        .DefaultIfEmpty(ExportFormat.Csv)
+        .First();
 
     // ── Grouping ──────────────────────────────────────────────────────
 
@@ -2515,6 +2538,31 @@
         else if (format == ExportFormat.Pdf)
         {
             await ExportPdfAsync();
+        }
+    }
+
+    // Map a selected export-menu item (its machine Value) back to its format and export it.
+    private async Task HandleExportMenuItemAsync(string value)
+    {
+        var format = value switch
+        {
+            "csv" => (ExportFormat?)ExportFormat.Csv,
+            "excel" => ExportFormat.Excel,
+            "pdf" => ExportFormat.Pdf,
+            _ => null,
+        };
+
+        if (format is { } f && ExportFormats.HasFlag(f))
+        {
+            await HandleExportAsync(f);
+        }
+    }
+
+    private async Task HandleRefreshAsync()
+    {
+        if (OnRefresh.HasDelegate)
+        {
+            await OnRefresh.InvokeAsync();
         }
     }
 

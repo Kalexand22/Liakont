@@ -73,6 +73,10 @@ else
     /// <summary>Optional test identifier.</summary>
     [Parameter] public string? TestId { get; set; }
 
+    /// <summary>Optional tooltip / accessible name. Maps to the <c>title</c> and
+    /// <c>aria-label</c> attributes — useful for icon-only buttons that carry no visible text.</summary>
+    [Parameter] public string? Title { get; set; }
+
     /// <summary>Additional CSS class.</summary>
     [Parameter] public string? CssClass { get; set; }
 
@@ -114,6 +118,12 @@ else
         if (!string.IsNullOrEmpty(Type) && Type != "button")
         {
             _extraAttributes["type"] = Type;
+        }
+
+        if (!string.IsNullOrEmpty(Title))
+        {
+            _extraAttributes["title"] = Title;
+            _extraAttributes["aria-label"] = Title;
         }
     }
 

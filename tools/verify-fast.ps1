@@ -110,7 +110,7 @@ if ($ok) {
             if (-not (Test-Path $lotFile)) { throw "Lot file missing: orchestration/items/$lot.yaml" }
         }
         # Every work item must be defined in its lot file (reciprocity manifest → lots)
-        $itemLotPairs = [regex]::Matches($manifest, '\{\s*id:\s*([A-Za-z0-9_]+),\s*lot:\s*([A-Z]+)')
+        $itemLotPairs = [regex]::Matches($manifest, '\{\s*id:\s*([A-Za-z0-9_]+),\s*lot:\s*([A-Z0-9_]+)')
         foreach ($m in $itemLotPairs) {
             $iid = $m.Groups[1].Value; $ilot = $m.Groups[2].Value
             $lotContent = Get-Content (Join-Path $repoRoot "orchestration\items\$ilot.yaml") -Raw
