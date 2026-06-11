@@ -1,0 +1,5 @@
+# Les scripts shell DOIVENT conserver des fins de ligne LF : un .sh en CRLF casse sur Linux/Docker
+# (« /usr/bin/env bash\r : bad interpreter »). L'appliance Liakont tourne en conteneurs Linux —
+# backup.sh / restore.sh / _backup-common.sh y sont exécutés/sourcés. eol=lf force LF au checkout
+# quel que soit core.autocrlf du poste.
+*.sh text eol=lf

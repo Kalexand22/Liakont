@@ -30,6 +30,9 @@ desktop.ini
 *.p12
 **/config.local.json
 **/*staging-key*
+# Sauvegardes de l'appliance (OPS01b) : l'archive du volume porte le trousseau Data Protection
+# (secret en clair) — jamais versionnée. Dossier par défaut de deploy/docker/backup.sh.
+deploy/docker/backups/
 
 ## Build results
 *.dll
