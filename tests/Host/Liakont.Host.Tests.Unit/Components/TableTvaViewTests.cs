@@ -137,10 +137,59 @@ public sealed class TableTvaViewTests : BunitContext
         cut.WaitForAssertion(() => RegimeCells(cut).Should().BeEquivalentTo(RegimesAfterAdd));
     }
 
+    [Fact]
+    public void Rules_grid_refreshes_when_only_label_changes_in_place()
+    {
+        // Régression FIX04a (édition en place du libellé) : MappingVersion et Rules.Count restent
+        // identiques après UpdateRule → seul Label change. La clé doit détecter ce changement et
+        // forcer la recréation de la grille. Ce test échoue avec l'ancienne clé (sans rule.Label)
+        // et passe avec la nouvelle.
+        var fixedUpdatedAt = new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero);
+
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(TableWithLabeledRule("Ancien libellé", fixedUpdatedAt)))
+            .Add(v => v.CanEdit, true));
+
+        // Re-rendu avec MÊME MappingVersion, MÊME UpdatedAt, MÊME SourceRegimeCode/Part/Category/RateMode —
+        // SEUL Label change : c'est ce que fait la page après un UpdateRule.
+        cut.Render(p => p
+            .Add(v => v.Model, ModelWith(TableWithLabeledRule("Nouveau libellé", fixedUpdatedAt)))
+            .Add(v => v.CanEdit, true));
+
+        cut.WaitForAssertion(() =>
+            cut.Find("[data-testid='grid-cell-Label']").TextContent.Trim().Should().Be("Nouveau libellé"));
+    }
+
     private static List<string> RegimeCells(IRenderedComponent<TableTvaView> cut) =>
         cut.FindAll("[data-testid='grid-cell-SourceRegimeCode']")
             .Select(cell => cell.TextContent.Trim())
             .ToList();
+
+    private static MappingTableDto TableWithLabeledRule(string label, DateTimeOffset updatedAt) => new()
+    {
+        Id = Guid.NewGuid(),
+        CompanyId = Guid.NewGuid(),
+        MappingVersion = "v1",
+        ValidatedBy = null,
+        ValidatedDate = null,
+        IsValidated = false,
+        DefaultBehavior = "Block",
+        CreatedAt = new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero),
+        UpdatedAt = updatedAt,
+        Rules =
+        [
+            new MappingRuleDto
+            {
+                SourceRegimeCode = "20",
+                Label = label,
+                Part = "Autre",
+                Category = "E",
+                Vatex = null,
+                RateMode = "ComputedFromSource",
+                RateValue = null,
+            },
+        ],
+    };
 
     [Fact]
     public void Changelog_entries_are_rendered_in_french()

@@ -416,12 +416,18 @@
             }
 
             var sb = new System.Text.StringBuilder();
-            sb.Append(table.MappingVersion).Append('|').Append(table.Rules.Count);
+            // UpdatedAt est incrémenté à CHAQUE mutation (Invalidate()) : il couvre toute édition en place,
+            // y compris un champ que la signature par règle n'énumère pas. La signature par règle reste
+            // explicite pour les colonnes affichées / éditables (dont Label), en défense.
+            sb.Append(table.MappingVersion)
+              .Append('|').Append(table.UpdatedAt?.UtcTicks.ToString(CultureInfo.InvariantCulture))
+              .Append('|').Append(table.Rules.Count);
             foreach (var rule in table.Rules)
             {
                 sb.Append('|')
                   .Append(rule.SourceRegimeCode).Append('·')
                   .Append(rule.Part).Append('·')
+                  .Append(rule.Label).Append('·')
                   .Append(rule.Category).Append('·')
                   .Append(rule.Vatex).Append('·')
                   .Append(rule.RateMode).Append('·')
