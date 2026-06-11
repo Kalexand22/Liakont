@@ -20,6 +20,13 @@ public sealed record DocumentDetailViewModel
     public required IReadOnlyList<DocumentEventDto> Events { get; init; }
 
     /// <summary>
+    /// Détail ligne à ligne du document tel que transmis (onglet Contenu, FIX205 / F10 §2.3), projeté depuis le
+    /// pivot du dernier événement d'envoi (<see cref="DocumentLineProjection.FromTransmittedSnapshot"/>). Vide
+    /// quand le document n'a pas encore été transmis (la vue affiche alors une note, jamais une ligne inventée).
+    /// </summary>
+    public IReadOnlyList<DocumentLineView> Lines { get; init; } = System.Array.Empty<DocumentLineView>();
+
+    /// <summary>
     /// Motif de blocage courant (dernier événement <c>DocumentBlocked</c>) UNIQUEMENT quand le document est
     /// actuellement <c>Blocked</c>, sinon <c>null</c> : un motif périmé sur un document débloqué/émis serait
     /// un message opérateur trompeur (CLAUDE.md n°12). L'historique complet reste dans <see cref="Events"/>.

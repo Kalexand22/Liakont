@@ -59,6 +59,13 @@ public sealed class DocumentDetailE2ETests : KeycloakBaseE2ETest
         await Page.Locator("[data-testid='document-detail-number']")
             .WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 30_000 });
 
+        // FIX205 : la section « Détail des lignes » est rendue de bout en bout dans l'onglet Contenu (le détail
+        // ligne à ligne — tableau quand le document est transmis, note sinon — n'est plus enfoui dans l'export).
+        // Le rendu du TABLEAU lui-même (libellés, régime → catégorie/VATEX, cohérence des totaux) est couvert
+        // exhaustivement et de façon déterministe par les tests bUnit + la projection canonique (round-trip réel).
+        await Page.Locator("[data-testid='document-detail-lines-card']")
+            .WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 30_000 });
+
         // Parcours des onglets Contrôles → Historique → Archive (le contenu d'un onglet n'est rendu que
         // lorsqu'il est sélectionné ; le clic dépend du circuit interactif → helper avec retry d'hydratation).
         await SelectTabAndWaitAsync("Contrôles", "document-detail-controls");

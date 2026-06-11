@@ -1,6 +1,7 @@
 @namespace Liakont.Host.Components
 @using System
 @using System.Globalization
+@using System.Linq
 @using Liakont.Host.Documents
 @using Stratum.Common.UI.Components
 @using Stratum.Common.UI.Models
@@ -69,12 +70,76 @@
                     </div>
                 }
 
-                @* Le détail ligne à ligne (libellé, TVA source → catégorie/VATEX) fait partie du pivot transmis
-                 * à la Plateforme Agréée : il n'est pas exposé en clair à l'opérateur (F10 §1, zéro JSON) mais il
-                 * est inclus dans le dossier d'export pour contrôle fiscal (onglet Archive). *@
-                <p class="liakont-doc-detail__hint" data-testid="document-detail-lines-hint">
-                    Le détail ligne à ligne est inclus dans le dossier d'export pour contrôle fiscal (onglet Archive).
-                </p>
+            </SectionCard>
+
+            @* Détail ligne à ligne (FIX205, F10 §2.3). Le « zéro JSON » de F10 §1 proscrit le DUMP technique du
+             * pivot, pas cette restitution LISIBLE : tableau en français, montants à 2 décimales, régime source →
+             * catégorie/VATEX résultante du mapping. Le pivot intègre reste dans le dossier d'export (onglet Archive). *@
+            <SectionCard Title="Détail des lignes" TestId="document-detail-lines-card">
+                @if (HasLines)
+                {
+                    <table class="liakont-doc-detail__lines" data-testid="document-detail-lines">
+                        <thead>
+                            <tr>
+                                <th scope="col">Désignation</th>
+                                <th scope="col" class="liakont-doc-detail__num">Quantité</th>
+                                <th scope="col" class="liakont-doc-detail__num">Montant HT</th>
+                                <th scope="col">Régime source</th>
+                                <th scope="col">Catégorie TVA</th>
+                                <th scope="col">VATEX</th>
+                                <th scope="col" class="liakont-doc-detail__num">Montant TVA</th>
+                                <th scope="col" class="liakont-doc-detail__num">Taux</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var line in Model.Lines)
+                            {
+                                <tr data-testid="document-detail-line">
+                                    <td>@line.Label</td>
+                                    <td class="liakont-doc-detail__num">@FormatQuantity(line.Quantity)</td>
+                                    <td class="liakont-doc-detail__num">@FormatMoney(line.NetAmount)</td>
+                                    <td>@line.SourceRegime</td>
+                                    <td>@line.Category</td>
+                                    <td>@line.Vatex</td>
+                                    <td class="liakont-doc-detail__num">@(line.TaxAmount is { } tax ? FormatMoney(tax) : "—")</td>
+                                    <td class="liakont-doc-detail__num">@FormatRate(line.Rate)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+
+                    @* Contrôle visuel de cohérence (scénario de recette S2.5) : les totaux de l'en-tête (lus de la
+                     * source) doivent égaler la somme des lignes. Tout écart est SIGNALÉ (jamais corrigé : on ne
+                     * recalcule aucun montant — CLAUDE.md n°1/2). *@
+                    @if (TotalsConsistent)
+                    {
+                        <p class="liakont-doc-detail__coherent" data-testid="document-detail-lines-coherent">
+                            Les totaux de l'en-tête concordent avec le détail des lignes.
+                        </p>
+                    }
+                    else
+                    {
+                        <div class="liakont-doc-detail__alert" role="alert" data-testid="document-detail-lines-mismatch">
+                            <span class="liakont-doc-detail__alert-title">Écart entre les totaux et le détail des lignes</span>
+                            <span>
+                                Total HT — en-tête @FormatMoney(Model.Document.TotalNet), somme des lignes @FormatMoney(LinesNetTotal) ;
+                                TVA — en-tête @FormatMoney(Model.Document.TotalTax), somme des lignes @FormatMoney(LinesTaxTotal).
+                                Vérifiez la source : totaux et lignes devraient correspondre.
+                            </span>
+                        </div>
+                    }
+                }
+                else
+                {
+                    @* Document pas encore transmis : aucun pivot mappé n'est exposé — on n'affiche AUCUNE ligne
+                     * inventée. L'en-tête et les totaux résument le document tel que lu ; le détail complet
+                     * apparaîtra ici une fois le document transmis (et reste dans le dossier d'export, onglet Archive). *@
+                    <p class="liakont-doc-detail__hint" data-testid="document-detail-lines-empty">
+                        Le détail ligne à ligne s'affichera ici une fois le document transmis à la Plateforme Agréée.
+                        En attendant, l'en-tête et les totaux ci-dessus résument le document tel que lu ; le contenu
+                        complet est inclus dans le dossier d'export pour contrôle fiscal (onglet Archive).
+                    </p>
+                }
             </SectionCard>
         </StratumTab>
 
@@ -216,6 +281,24 @@
 
     /// <summary>Montant en français, 2 décimales (cohérent avec la colonne « Montant » de la liste, WEB02).</summary>
     private static string FormatMoney(decimal value) => value.ToString("N2", Fr);
+
+    /// <summary><c>true</c> si le document transmis porte des lignes à afficher (onglet Contenu, FIX205).</summary>
+    private bool HasLines => Model.Lines.Count > 0;
+
+    /// <summary>Somme des montants HT des lignes (contrôle de cohérence S2.5) — aucun recalcul, simple addition d'affichage.</summary>
+    private decimal LinesNetTotal => Model.Lines.Sum(l => l.NetAmount);
+
+    /// <summary>Somme des montants de TVA des lignes (contrôle de cohérence S2.5).</summary>
+    private decimal LinesTaxTotal => Model.Lines.Sum(l => l.TaxAmount ?? 0m);
+
+    /// <summary>Les totaux de l'en-tête (lus de la source) concordent exactement avec la somme des lignes.</summary>
+    private bool TotalsConsistent => LinesNetTotal == Model.Document.TotalNet && LinesTaxTotal == Model.Document.TotalTax;
+
+    /// <summary>Quantité en français, décimales significatives seulement (« 1 », « 2,5 »).</summary>
+    private static string FormatQuantity(decimal value) => value.ToString("0.###", Fr);
+
+    /// <summary>Taux en pourcentage français (« 20 % »), ou « — » si inconnu / non uniforme sur la ligne.</summary>
+    private static string FormatRate(decimal? rate) => rate is { } value ? $"{value.ToString("0.##", Fr)} %" : "—";
 
     // Piste d'audit et archive : horodatage affiché en UTC EXPLICITE, pour s'aligner sur le dossier d'export
     // pour contrôle fiscal (rendu en UTC ISO-8601) — un vérificateur recoupe écran et export sans ambiguïté de

@@ -55,11 +55,24 @@ internal sealed class DocumentDetailConsoleQueryService : IDocumentDetailConsole
                 .FirstOrDefault()
             : null;
 
+        // Détail ligne à ligne (onglet Contenu, FIX205) : projeté depuis le pivot RÉELLEMENT transmis, porté par
+        // le DERNIER événement d'envoi (DocumentIssued, ou DocumentRejected — le pivot envoyé puis refusé). Seuls
+        // ces événements portent un PayloadSnapshot (DocumentIssuanceSnapshots / DocumentRejectionSnapshots) ;
+        // un document non encore transmis n'en a aucun → projection vide → la vue affiche sa note. Tri stable par
+        // horodatage puis Id (même ordre que la projection « dernier événement » ci-dessus et l'endpoint).
+        var transmittedPivotJson = events
+            .Where(e => !string.IsNullOrWhiteSpace(e.PayloadSnapshot))
+            .OrderByDescending(e => e.TimestampUtc)
+            .ThenByDescending(e => e.Id)
+            .Select(e => e.PayloadSnapshot)
+            .FirstOrDefault();
+
         return new DocumentDetailViewModel
         {
             Document = document,
             Events = events,
             BlockingReason = blockingReason,
+            Lines = DocumentLineProjection.FromTransmittedSnapshot(transmittedPivotJson),
             Archive = archive,
             IsArchived = archive is not null,
         };
