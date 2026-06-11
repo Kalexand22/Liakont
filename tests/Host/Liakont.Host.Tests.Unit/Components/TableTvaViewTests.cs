@@ -615,6 +615,21 @@ public sealed class TableTvaViewTests : BunitContext
     }
 
     [Fact]
+    public void Changelog_update_renders_a_cleared_field_as_emptied_not_as_a_current_value()
+    {
+        // Bug de rendu (revue FIX204) : passer une règle de taux fixe au mode calculé SUPPRIME le taux
+        // fixe (RateValue absent de AfterJson). Le diff doit montrer « 20 % → (vide) », jamais « 20 % »
+        // seul (qui se confondrait avec une valeur inchangée) — journal de conformité.
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(NotValidatedTable(), ClearedFieldUpdateChangeLog()))
+            .Add(v => v.CanValidate, false));
+
+        var markup = cut.Markup;
+        markup.Should().Contain("20 % → (vide)");
+        markup.Should().Contain("Taux fixe → Calculé depuis la source");
+    }
+
+    [Fact]
     public void Changelog_diff_shows_composante_only_when_vertical_on()
     {
         // Vertical ON : la composante modifiée apparaît, valeur Autre → « Hors Enchères ».
@@ -738,6 +753,23 @@ public sealed class TableTvaViewTests : BunitContext
             MappingVersion = "v1",
             BeforeJson = """{"SourceRegimeCode":"20","Part":"Adjudication","Category":"S","RateMode":"Fixed","RateValue":20}""",
             AfterJson = """{"SourceRegimeCode":"20","Part":"Autre","Category":"S","RateMode":"Fixed","RateValue":20}""",
+            OperatorId = Guid.NewGuid(),
+            OperatorName = "Alice Martin",
+            OccurredAt = new DateTimeOffset(2026, 6, 1, 9, 0, 0, TimeSpan.Zero),
+        },
+    ];
+
+    private static IReadOnlyList<MappingChangeLogEntryDto> ClearedFieldUpdateChangeLog() =>
+    [
+        new MappingChangeLogEntryDto
+        {
+            Id = Guid.NewGuid(),
+            ChangeType = "UpdateRule",
+            SourceRegimeCode = "20",
+            Part = "Autre",
+            MappingVersion = "v1",
+            BeforeJson = """{"SourceRegimeCode":"20","Category":"S","RateMode":"Fixed","RateValue":20}""",
+            AfterJson = """{"SourceRegimeCode":"20","Category":"S","RateMode":"ComputedFromSource"}""",
             OperatorId = Guid.NewGuid(),
             OperatorName = "Alice Martin",
             OccurredAt = new DateTimeOffset(2026, 6, 1, 9, 0, 0, TimeSpan.Zero),

@@ -22,7 +22,9 @@ internal static class MappingChangeLogDiffFormatter
     private static readonly IReadOnlyDictionary<string, JsonElement> Empty =
         new Dictionary<string, JsonElement>(System.StringComparer.Ordinal);
 
-    // Champs d'une règle (ordre d'affichage) ; même structure JSON que MappingChangeLogFactory.SerializeRule.
+    // Champs d'une règle (ordre d'affichage). CONTRAT : les clés JSON ci-dessous DOIVENT rester alignées
+    // sur MappingChangeLogFactory.SerializeRule (module TvaMapping) — un renommage non répercuté ferait
+    // afficher un diff vide (régression visible en recette, jamais une exception : le formateur est défensif).
     private static readonly FieldDef[] RuleFieldDefs =
     {
         new("SourceRegimeCode", "Régime source", StringValue),

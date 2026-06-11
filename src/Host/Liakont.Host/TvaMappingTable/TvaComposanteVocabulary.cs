@@ -4,8 +4,9 @@ namespace Liakont.Host.TvaMappingTable;
 /// Vocabulaire d'AFFICHAGE de la « Composante » d'une règle de mapping TVA (décision opérateur E2,
 /// lot FIX2) — il remplace le vocabulaire technique « part » / <c>TvaMappingPart</c> côté console.
 /// Le libellé de champ est « Composante » et les valeurs affichées sont « Adjudication / Frais /
-/// Hors Enchères » (la valeur technique <c>Autre</c> n'est jamais montrée telle quelle ; l'énumération
-/// du domaine reste INCHANGÉE — ceci est purement présentationnel, CLAUDE.md n°19). La notion
+/// Hors Enchères » dans les CELLULES et LIBELLÉS rendus à l'écran (l'énumération du domaine reste
+/// INCHANGÉE — ceci est purement présentationnel, CLAUDE.md n°19 ; le tri / filtre / export de la grille
+/// opèrent, eux, sur le code technique brut, comme la colonne Catégorie exporte son code). La notion
 /// n'apparaît QUE lorsque le vertical « vente aux enchères » est actif : hors vertical, l'appelant ne
 /// rend RIEN (E2 : aucune mention — ni champ, ni valeur, ni note). Source unique de ce vocabulaire pour
 /// l'éditeur, la grille, le rapport de cohérence, les messages et le journal des modifications.

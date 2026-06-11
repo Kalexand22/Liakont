@@ -34,8 +34,9 @@ internal sealed class TvaMappingRuleColumnRegistry : ColumnRegistryBase<MappingR
 
         if (_includeComposante)
         {
-            // Clé technique « Part » conservée (tri / filtre / export sur la propriété du DTO) ; libellé
-            // d'affichage « Composante » et valeur rendue (Autre → « Hors Enchères ») via le ColumnTemplate.
+            // Clé technique « Part » conservée (tri / filtre / export sur la propriété brute du DTO, qui
+            // restitue le code technique — même comportement que la colonne Catégorie) ; libellé d'affichage
+            // « Composante » et valeur rendue (Autre → « Hors Enchères ») via le ColumnTemplate à l'écran.
             Column("Part", "Composante", "RègleTVA", ColumnDataType.Text, defaultVisible: true, sortOrder: 2);
         }
 
