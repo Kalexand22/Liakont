@@ -10,6 +10,18 @@ internal sealed class KeycloakSettings
 {
     public string Authority { get; init; } = string.Empty;
 
+    /// <summary>
+    /// Optional explicit OIDC discovery (metadata) address for the primary realm.
+    /// When empty, the handler derives it from <see cref="Authority"/>
+    /// (<c>{Authority}/.well-known/openid-configuration</c>).
+    /// In the Docker appliance (F12 §6.2), this points at the IdP over the INTERNAL network
+    /// (e.g. <c>http://keycloak:8080/realms/liakont/.well-known/openid-configuration</c>) while
+    /// <see cref="Authority"/> stays the PUBLIC issuer — the back-channel (discovery, token, JWKS)
+    /// then resolves internally (no hairpin through the reverse proxy), and the public
+    /// authorization endpoint / issuer remain those advertised by Keycloak's frontend hostname.
+    /// </summary>
+    public string MetadataAddress { get; init; } = string.Empty;
+
     public string ClientId { get; init; } = "stratum";
 
     public string ClientSecret { get; init; } = string.Empty;

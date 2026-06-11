@@ -46,6 +46,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -107,6 +108,21 @@ public static class AppBootstrap
 
         // Common UI services (IToastService, IConnectionStatusService)
         builder.Services.AddCommonUI(builder.Configuration);
+
+        // Persistance du trousseau Data Protection (CFG02) — exigence appliance (F12 §6.2). En
+        // conteneur, sans persistance explicite le trousseau vit dans le système de fichiers ÉPHÉMÈRE
+        // du conteneur : il est RÉGÉNÉRÉ à chaque redéploiement et les secrets tenant chiffrés (clés
+        // API des PA) deviennent ILLISIBLES. Quand DataProtection:KeyRingPath est renseigné (volume
+        // monté), le trousseau y survit. Non renseigné (dev/test) : comportement inchangé — le module
+        // TenantSettings pose déjà ApplicationName "Liakont" sur le trousseau par défaut.
+        var dataProtectionKeyRingPath = builder.Configuration["DataProtection:KeyRingPath"];
+        if (!string.IsNullOrWhiteSpace(dataProtectionKeyRingPath))
+        {
+            Directory.CreateDirectory(dataProtectionKeyRingPath);
+            builder.Services.AddDataProtection()
+                .SetApplicationName("Liakont")
+                .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyRingPath));
+        }
 
         // Infrastructure
         builder.Services.AddStratumDatabase(builder.Configuration);
@@ -582,6 +598,17 @@ public static class AppBootstrap
     /// <summary>Configures the HTTP pipeline and maps all endpoints.</summary>
     public static void ConfigureMiddleware(WebApplication app)
     {
+        // Reverse proxy de l'appliance (Caddy, F12 §6.2/6.6) — DOIT être le tout premier middleware :
+        // honorer X-Forwarded-* pour que le SCHÉMA et l'HÔTE publics soient corrects (redirect_uri
+        // OIDC, cookies marqués Secure) et que la fenêtre anti-flood par IP (AddRateLimiter) retrouve
+        // l'IP cliente réelle au lieu de celle du proxy. Confiance STRICTEMENT bornée aux réseaux/proxys
+        // déclarés (voir ForwardedHeadersConfiguration). Désactivé par défaut → accès direct inchangé.
+        var forwardedOptions = ForwardedHeadersConfiguration.Build(app.Configuration.GetSection("ForwardedHeaders"));
+        if (forwardedOptions is not null)
+        {
+            app.UseForwardedHeaders(forwardedOptions);
+        }
+
         app.UseStratumErrorHandling();
         var contentTypeProvider = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
         contentTypeProvider.Mappings[".module"] = "application/javascript";

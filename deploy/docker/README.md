@@ -4,6 +4,11 @@ Amorçage complet de la console web depuis les artefacts committés, sans interv
 manuelle (bug-inbox « amorçage console »). Tout ce qui suit est du **dev local
 uniquement** : identifiants fictifs, secrets placeholder, aucune donnée client.
 
+> **Déploiement d'une instance complète (production / self-hosted)** : ce dossier ne couvre que le
+> Keycloak de **dev** (PostgreSQL et Host tournent sur la machine). L'**appliance Docker** complète
+> (Host + PostgreSQL + Keycloak + Caddy/TLS, secrets sans valeur par défaut) est dans
+> [`appliance/`](appliance/README.md) — item OPS01a, F12 §6.2.
+
 ## 1. Prérequis
 
 - Docker (Keycloak + sa base) ;

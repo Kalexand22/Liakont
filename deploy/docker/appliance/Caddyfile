@@ -1,0 +1,24 @@
+# Caddyfile — reverse proxy de l'appliance Liakont (OPS01a, F12 §6.2/6.6).
+#
+# Caddy obtient et renouvelle AUTOMATIQUEMENT les certificats TLS (Let's Encrypt) pour les hôtes
+# publics ci-dessous, à condition que leur DNS pointe vers cette machine et que les ports 80/443
+# soient joignables depuis Internet. Caddy ajoute par défaut X-Forwarded-For / -Proto / -Host
+# (consommés par le Host via ForwardedHeaders) — schéma/hôte publics corrects pour OIDC + cookies.
+#
+# Pour un essai LOCAL/hors-ligne (sans DNS public), voir README.md § Dépannage (option « tls internal »).
+
+{
+	email {$ACME_EMAIL}
+}
+
+# Console applicative Liakont
+{$PUBLIC_HOSTNAME} {
+	encode zstd gzip
+	reverse_proxy liakont:8080
+}
+
+# Fournisseur d'identité Keycloak (redirection de connexion, console d'admin)
+{$KEYCLOAK_HOSTNAME} {
+	encode zstd gzip
+	reverse_proxy keycloak:8080
+}
