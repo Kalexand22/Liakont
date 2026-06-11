@@ -203,7 +203,12 @@
 
             @* Gabarit DeclaredListPage : aucune grille « maison ». Édition par règle via les quick-actions
                (Modifier / Supprimer), exposées uniquement aux porteurs de liakont.settings. *@
-            <DeclaredListPage TItem="MappingRuleDto"
+            @* @key recrée la grille dès que l'ensemble des règles change : le gabarit DeclaredListPage
+               charge ses lignes une seule fois (OnInitializedAsync) et ne ré-interroge pas LoadItems
+               quand le modèle parent est rechargé après une mutation. Sans cette clé, une règle créée /
+               modifiée / supprimée resterait invisible jusqu'à une navigation (FIX04a). *@
+            <DeclaredListPage @key="RulesGridKey"
+                              TItem="MappingRuleDto"
                               Title="Table de mapping TVA"
                               TestId="table-tva-grid"
                               ShowHeader="false"
@@ -394,6 +399,38 @@
 
     private IReadOnlyList<RegimeCoverageDto> AbsentRegimes =>
         Model.Coverage?.AbsentRegimes ?? (IReadOnlyList<RegimeCoverageDto>)Array.Empty<RegimeCoverageDto>();
+
+    /// <summary>
+    /// Clé de recréation de la grille <c>DeclaredListPage</c> (<c>@key</c>). La signature change dès qu'une
+    /// règle est ajoutée, retirée ou éditée (version + contenu de chaque règle) et reste stable sinon
+    /// (ouverture / fermeture de l'éditeur) pour préserver le tri et le filtre de la grille entre deux
+    /// mutations. Voir le commentaire sur le <c>DeclaredListPage</c> (FIX04a).
+    /// </summary>
+    private string RulesGridKey
+    {
+        get
+        {
+            if (Model.Table is not { } table)
+            {
+                return "no-table";
+            }
+
+            var sb = new System.Text.StringBuilder();
+            sb.Append(table.MappingVersion).Append('|').Append(table.Rules.Count);
+            foreach (var rule in table.Rules)
+            {
+                sb.Append('|')
+                  .Append(rule.SourceRegimeCode).Append('·')
+                  .Append(rule.Part).Append('·')
+                  .Append(rule.Category).Append('·')
+                  .Append(rule.Vatex).Append('·')
+                  .Append(rule.RateMode).Append('·')
+                  .Append(rule.RateValue?.ToString(CultureInfo.InvariantCulture));
+            }
+
+            return sb.ToString();
+        }
+    }
 
     protected override void OnParametersSet()
     {

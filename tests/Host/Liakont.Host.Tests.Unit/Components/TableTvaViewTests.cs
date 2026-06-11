@@ -2,6 +2,7 @@ namespace Liakont.Host.Tests.Unit.Components;
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Bunit;
@@ -23,6 +24,8 @@ using Xunit;
 /// </summary>
 public sealed class TableTvaViewTests : BunitContext
 {
+    private static readonly string[] RegimesAfterAdd = ["20", "44"];
+
     public TableTvaViewTests()
     {
         // Radzen / grille s'appuient sur le JS interop — loose mode capte tous les appels.
@@ -111,6 +114,33 @@ public sealed class TableTvaViewTests : BunitContext
         // Catégorie affichée en badge.
         cut.FindAll("[data-testid='category-badge']").Should().NotBeEmpty();
     }
+
+    [Fact]
+    public void Rules_grid_refreshes_when_the_model_changes_without_navigation()
+    {
+        // Régression FIX04a : le gabarit DeclaredListPage charge ses lignes une seule fois
+        // (OnInitializedAsync) et ne ré-interroge pas LoadItems quand le modèle parent est rechargé.
+        // La clé de recréation (@key="RulesGridKey") doit rendre une règle ajoutée visible SANS navigation.
+        var cut = Render<TableTvaView>(p => p
+            .Add(v => v.Model, ModelWith(TableWithRules("20")))
+            .Add(v => v.CanEdit, true));
+
+        // Au départ : la grille n'affiche que le régime 20 (on cible les cellules, pas le markup entier —
+        // les id générés par la grille pourraient contenir n'importe quelle sous-chaîne).
+        RegimeCells(cut).Should().ContainSingle().Which.Should().Be("20");
+
+        // Rechargement du modèle après mutation (nouvelle règle « 44 ») — exactement ce que fait la page.
+        cut.Render(p => p
+            .Add(v => v.Model, ModelWith(TableWithRules("20", "44"))));
+
+        // La grille reflète la mutation immédiatement, sans navigation.
+        cut.WaitForAssertion(() => RegimeCells(cut).Should().BeEquivalentTo(RegimesAfterAdd));
+    }
+
+    private static List<string> RegimeCells(IRenderedComponent<TableTvaView> cut) =>
+        cut.FindAll("[data-testid='grid-cell-SourceRegimeCode']")
+            .Select(cell => cell.TextContent.Trim())
+            .ToList();
 
     [Fact]
     public void Changelog_entries_are_rendered_in_french()
@@ -328,6 +358,31 @@ public sealed class TableTvaViewTests : BunitContext
                 LastSeenAtUtc = new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero),
             },
         ],
+    };
+
+    private static MappingTableDto TableWithRules(params string[] sourceRegimeCodes) => new()
+    {
+        Id = Guid.NewGuid(),
+        CompanyId = Guid.NewGuid(),
+        MappingVersion = "v1",
+        ValidatedBy = null,
+        ValidatedDate = null,
+        IsValidated = false,
+        DefaultBehavior = "Block",
+        CreatedAt = new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero),
+        UpdatedAt = null,
+        Rules = sourceRegimeCodes
+            .Select(code => new MappingRuleDto
+            {
+                SourceRegimeCode = code,
+                Label = null,
+                Part = "Autre",
+                Category = "E",
+                Vatex = "VATEX-EU-O",
+                RateMode = "ComputedFromSource",
+                RateValue = null,
+            })
+            .ToList(),
     };
 
     private static MappingTableDto ValidatedTable() => BuildTable(
