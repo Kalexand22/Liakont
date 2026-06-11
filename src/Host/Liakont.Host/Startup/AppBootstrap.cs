@@ -8,6 +8,7 @@ using Asp.Versioning;
 using Liakont.Host.AgentApi;
 using Liakont.Host.Behaviors;
 using Liakont.Host.Components;
+using Liakont.Host.Configuration;
 using Liakont.Host.Localization;
 using Liakont.Host.MultiTenancy;
 using Liakont.Host.Navigation;
@@ -149,6 +150,12 @@ public static class AppBootstrap
         builder.Services.AddIdentityModule(builder.Configuration);
         builder.Services.AddJobModule(builder.Configuration);
         builder.Services.AddNotificationModule();
+
+        // Branding d'INSTANCE (BRD01, marque grise — blueprint.md §3.3, F12 §6.1) lié depuis la section
+        // "Branding". Valeurs par défaut = marque « Liakont » (aucune donnée client — CLAUDE.md n°7).
+        // Consommé par la coquille (BrandingHead, ErpNav), le transport SMTP ci-dessous (expéditeur + pied
+        // de page) et l'export de réversibilité (Archive lit sa propre tranche de la même section).
+        builder.Services.Configure<BrandingOptions>(builder.Configuration.GetSection(BrandingOptions.SectionName));
 
         // Transport SMTP réel (ADR-0018, SUP03) EN REMPLACEMENT du StubEmailTransport du socle (vendored, NON
         // modifié). Config d'instance liée depuis la section "Smtp" (gabarit vide dans appsettings.json ; mot de

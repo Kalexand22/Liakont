@@ -11,6 +11,7 @@
 @inject IShortcutService ShortcutService
 @inject ICommandRegistry CommandRegistry
 @inject IStringLocalizer<HostResources> L
+@inject Microsoft.Extensions.Options.IOptions<Liakont.Host.Configuration.BrandingOptions> BrandingOptions
 @implements IAsyncDisposable
 
 <nav class="erp-nav @(_isCollapsed ? "collapsed" : "")"
@@ -19,7 +20,14 @@
      @onkeydown="HandleKeyDown"
      data-testid="erp-nav">
     <div class="erp-nav-header">
-        <span class="erp-nav-brand">@L["Nav_Brand"]</span>
+        @* Marque d'instance (BRD01, marque grise) : logo optionnel + nom commercial, par défaut « Liakont ». *@
+        <div class="erp-nav-brand-group">
+            @if (!string.IsNullOrWhiteSpace(BrandingOptions.Value.LogoUrl))
+            {
+                <img class="erp-nav-logo" src="@BrandingOptions.Value.LogoUrl" alt="@BrandingOptions.Value.EffectiveCommercialName" />
+            }
+            <span class="erp-nav-brand">@BrandingOptions.Value.EffectiveCommercialName</span>
+        </div>
         <button class="erp-nav-toggle"
                 @onclick="ToggleSidebar"
                 title="@(_isCollapsed ? L["Nav_ExpandSidebar"] : L["Nav_CollapseSidebar"])"

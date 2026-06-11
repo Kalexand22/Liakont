@@ -35,6 +35,11 @@ public static class ArchiveModuleRegistration
             }
         });
 
+        // Branding d'INSTANCE de la notice de réversibilité (BRD01, marque grise) : lu depuis la section
+        // "Branding" (la même que la coquille et les emails du Host). Même binder fort que le Host
+        // (Configure<BrandingOptions>) — voir ReadReversibilityBranding.
+        services.AddSingleton(ReadReversibilityBranding(configuration));
+
         // Store par défaut (FileSystem). Un plug-in de store (S3, Azure, GCS) le remplace via Replace.
         services.TryAddScoped<IArchiveStore, FileSystemArchiveStore>();
 
@@ -44,6 +49,24 @@ public static class ArchiveModuleRegistration
         AddAnchoring(services, configuration);
 
         return services;
+    }
+
+    /// <summary>
+    /// Lit le branding d'instance (BRD01, marque grise) de la notice de réversibilité depuis la section
+    /// "Branding" — la MÊME que la coquille et les emails du Host. Utilise le binder fort
+    /// (<c>GetValue&lt;bool&gt;</c>) pour <c>PoweredByLiakont</c>, COHÉRENT avec le
+    /// <c>Configure&lt;BrandingOptions&gt;</c> du Host (pas de divergence de parsing). Nom commercial vide
+    /// ou absent → marque produit par défaut « Liakont ».
+    /// </summary>
+    internal static ReversibilityBranding ReadReversibilityBranding(IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        IConfigurationSection section = configuration.GetSection("Branding");
+        string? commercialName = section["CommercialName"];
+        return new ReversibilityBranding(
+            string.IsNullOrWhiteSpace(commercialName) ? ReversibilityBranding.DefaultCommercialName : commercialName,
+            section.GetValue("PoweredByLiakont", true));
     }
 
     /// <summary>
