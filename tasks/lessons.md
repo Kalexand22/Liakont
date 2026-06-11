@@ -167,3 +167,23 @@ pendant la nuit, zéro item traité. C'est la récidive EXACTE du piège déjà 
 - **Une gate déjà passée en `gate_pending` dont la PR est fermée ne se rouvre pas seule.**
   Si la recette échoue et qu'un lot correctif recâble la gate, repasser la gate
   `gate_pending → pending` fait partie du même geste que le seed.
+
+## 2026-06-11 (après-midi) — RÉCIDIVE du seed state.yaml : la leçon du matin n'a pas suffi
+
+**Contexte :** lot FIX2 (13 items, manifest v19, PR #36). La leçon du matin disait « seeder le
+state fait partie du livrable ». J'ai écrit dans la PR « après merge : seed du state », puis j'ai
+ATTENDU PASSIVEMENT que Karl merge et me le signale. Résultat : PR mergée à 11:39Z, 4 runners en
+stand-by sur des leases actifs, et c'est encore KARL qui a dû dire « state pas encore OK ».
+Deux fois la même erreur en une journée.
+
+**Règle durcie :**
+- **Livrer un lot d'orchestration est UNE transaction opérateur de bout en bout** : PR manifest
+  mergée + state.yaml seedé/poussé + branche de segment à jour. Tant que les trois ne sont pas
+  faits, le lot n'est PAS livré — et c'est MOI qui exécute les trois, pas l'humain qui me cadence.
+- **Jamais « j'attendrai le merge »** : si une étape attend un événement externe (merge humain),
+  SURVEILLER ACTIVEMENT (polling `gh pr view --json state` toutes les 1-2 min) et enchaîner
+  immédiatement. L'humain merge ; il ne doit JAMAIS avoir à me rappeler la suite.
+- **Heuristique de détection :** si mon message se termine par « dis-moi quand c'est fait et
+  j'enchaîne », c'est un drapeau rouge → remplacer par une surveillance active ou faire l'étape
+  avant (ordre alternatif sûr : seeder state AVANT le merge est inoffensif si les runners ignorent
+  les items absents du manifest — à vérifier UNE fois, puis normaliser l'ordre le plus robuste).
