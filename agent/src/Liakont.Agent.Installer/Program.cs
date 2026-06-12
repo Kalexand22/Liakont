@@ -101,6 +101,15 @@ internal static class Program
         // l'opérateur) > profil EMBARQUÉ (OPS08c) > profil par défaut ouvert. Un --profile explicite ou un
         // profil embarqué invalide interrompt — jamais de repli silencieux.
         string? explicitProfilePath = GetOption(args, "--profile");
+
+        // Un --profile vide ou blanc est traité comme absent : on route vers le profil embarqué/par défaut
+        // (StartupProfileResolver) plutôt que de passer une chaîne vide à IntegratorProfileLoader qui lève
+        // ArgumentException — exception non interceptée ici (ni ProfileFormatException ni IOException).
+        if (string.IsNullOrWhiteSpace(explicitProfilePath))
+        {
+            explicitProfilePath = null;
+        }
+
         IntegratorProfile profile;
         string? profileError;
         if (explicitProfilePath != null)

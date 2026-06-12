@@ -169,6 +169,30 @@ try {
         $packages = @(Get-ChildItem -LiteralPath $invalidOut -Directory -Filter 'Liakont.Agent.Installer-*' -ErrorAction SilentlyContinue)
         Assert-True ($packages.Count -eq 0) "aucun paquet attendu, obtenu $($packages.Count)."
     }
+
+    # ── Cas collision de noms : deux profils avec le même nom de fichier dans des dossiers différents ──
+    # Vérifie l'anti-faux-vert : un slug identique → même nom de paquet → le second écraserait le premier
+    # silencieusement. Le packaging DOIT échouer et ne produire AUCUN installateur.
+    $collA = Join-Path $workRoot 'colA'
+    $collB = Join-Path $workRoot 'colB'
+    New-Item -ItemType Directory -Path $collA -Force | Out-Null
+    New-Item -ItemType Directory -Path $collB -Force | Out-Null
+    Copy-Item -LiteralPath $exampleMonoSite -Destination (Join-Path $collA 'profil.json') -Force
+    Copy-Item -LiteralPath $exampleMonoSite -Destination (Join-Path $collB 'profil.json') -Force
+    $collOut = Join-Path $workRoot 'coll'
+    $collRun = Invoke-PackageInstaller -ScriptArgs @(
+        '-ProfilePath', ((Join-Path $collA 'profil.json') + ',' + (Join-Path $collB 'profil.json')),
+        '-Platform', $plat, '-Configuration', $config, '-SkipBuild', '-NoZip',
+        '-OutputDirectory', $collOut)
+
+    Test-Case 'Collision de noms de profil : packaging échoue (exit non nul)' {
+        Assert-True ($collRun.ExitCode -ne 0) "le packaging aurait dû échouer sur une collision de noms (exit $($collRun.ExitCode))."
+    }
+
+    Test-Case 'Collision de noms de profil : aucun installateur produit' {
+        $packages = @(Get-ChildItem -LiteralPath $collOut -Directory -Filter 'Liakont.Agent.Installer-*' -ErrorAction SilentlyContinue)
+        Assert-True ($packages.Count -eq 0) "aucun paquet attendu lors d'une collision, obtenu $($packages.Count)."
+    }
 }
 finally {
     if (Test-Path -LiteralPath $workRoot) { Remove-Item -LiteralPath $workRoot -Recurse -Force -ErrorAction SilentlyContinue }

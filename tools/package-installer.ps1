@@ -142,6 +142,11 @@ function Resolve-Profiles {
     if ($list.Count -eq 0) {
         throw "Aucun profil fourni (-ProfilePath et/ou -ProfilesDirectory). Un build sans aucun profil est un faux vert."
     }
+    $dupes = $list | Group-Object { [System.IO.Path]::GetFileNameWithoutExtension($_).ToLowerInvariant() } | Where-Object { $_.Count -gt 1 }
+    if ($dupes) {
+        $details = ($dupes | ForEach-Object { "  - « $($_.Name) » : " + ($_.Group -join ', ') }) -join "`n"
+        throw "Noms de profil en collision (même nom de fichier → même paquet, un installateur serait écrasé silencieusement) :`n$details"
+    }
     return $list
 }
 
