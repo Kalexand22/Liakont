@@ -131,21 +131,26 @@ internal sealed class WizardForm : Form
             AddRow(grid, "Adaptateur source", adapterBox);
         }
 
-        var odbcBox = new TextBox { Dock = DockStyle.Fill };
         ResolvedField odbcField = profileEngine.Resolve(ProfileFieldKeys.OdbcConnection);
-        ApplyState(odbcBox, odbcField);
-        if (odbcField.IsEditable)
+        TextBox? odbcBox = null;
+        if (odbcField.IsVisible)
         {
-            valueReaders[ProfileFieldKeys.OdbcConnection] = () => odbcBox.Text;
-        }
+            odbcBox = new TextBox { Dock = DockStyle.Fill };
+            ApplyState(odbcBox, odbcField);
+            if (odbcField.IsEditable)
+            {
+                valueReaders[ProfileFieldKeys.OdbcConnection] = () => odbcBox.Text;
+            }
 
-        AddRow(grid, "Connexion ODBC (DSN ou chaîne)", odbcBox);
+            AddRow(grid, "Connexion ODBC (DSN ou chaîne)", odbcBox);
+        }
 
         var result = new Label { Dock = DockStyle.Fill, AutoSize = false, Height = 60 };
         var test = new Button { Text = "Tester (lecture seule)", AutoSize = true };
         test.Click += async (sender, args) =>
         {
-            string connection = odbcBox.Text;
+            // Champ masqué → la chaîne est imposée par le profil (pas de zone de saisie à lire).
+            string connection = odbcBox != null ? odbcBox.Text : (odbcField.DefaultValue ?? string.Empty);
             test.Enabled = false;
             result.Text = "Test en cours…";
             try
@@ -173,15 +178,19 @@ internal sealed class WizardForm : Form
         var page = new TabPage("3. Serveur central");
         var grid = NewGrid();
 
-        var urlBox = new TextBox { Dock = DockStyle.Fill };
         ResolvedField urlField = profileEngine.Resolve(ProfileFieldKeys.PlatformUrl);
-        ApplyState(urlBox, urlField);
-        if (urlField.IsEditable)
+        TextBox? urlBox = null;
+        if (urlField.IsVisible)
         {
-            valueReaders[ProfileFieldKeys.PlatformUrl] = () => urlBox.Text;
-        }
+            urlBox = new TextBox { Dock = DockStyle.Fill };
+            ApplyState(urlBox, urlField);
+            if (urlField.IsEditable)
+            {
+                valueReaders[ProfileFieldKeys.PlatformUrl] = () => urlBox.Text;
+            }
 
-        AddRow(grid, "URL de la plateforme", urlBox);
+            AddRow(grid, "URL de la plateforme", urlBox);
+        }
 
         // apiKey est un secret : toujours affiché (jamais imposé par le profil, F13 §6), masqué à la saisie.
         var keyBox = new TextBox { Dock = DockStyle.Fill, UseSystemPasswordChar = true };
@@ -192,7 +201,8 @@ internal sealed class WizardForm : Form
         var test = new Button { Text = "Tester (heartbeat à blanc)", AutoSize = true };
         test.Click += async (sender, args) =>
         {
-            string url = urlBox.Text;
+            // Champ masqué → l'URL est imposée par le profil (pas de zone de saisie à lire).
+            string url = urlBox != null ? urlBox.Text : (urlField.DefaultValue ?? string.Empty);
             string key = keyBox.Text;
             test.Enabled = false;
             result.Text = "Test en cours…";

@@ -6,7 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
-using Liakont.Agent.Adapters.EncheresV6;
+using Liakont.Agent.Cli;
 using Liakont.Agent.Core;
 using Liakont.Agent.Core.Security;
 using Liakont.Agent.Installer.Configuration;
@@ -222,9 +222,8 @@ internal static class Program
         return new InstallerEngine(sourceProbe, platformProbe, catalog, deployer, protector);
     }
 
-    // Liste des adaptateurs source EMBARQUÉS dans cette version (même source de vérité que le CLI AGT05 :
-    // les plug-ins IExtractor réellement livrés) — aucun nom d'adaptateur inventé.
-    private static string[] KnownAdapters() => new[] { new EncheresV6Extractor().SourceName };
+    // Source de vérité partagée avec le CLI via EmbeddedSourceAdapters — aucun nom inventé, aucune duplication.
+    private static string[] KnownAdapters() => EmbeddedSourceAdapters.Names();
 
     private static IntegratorProfile OpenProfile() =>
         new IntegratorProfile(

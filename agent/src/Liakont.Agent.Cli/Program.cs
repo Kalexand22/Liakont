@@ -2,9 +2,7 @@ namespace Liakont.Agent.Cli;
 
 using System;
 using System.IO;
-using System.Linq;
 using System.Text;
-using Liakont.Agent.Adapters.EncheresV6;
 using Liakont.Agent.Cli.Commands;
 using Liakont.Agent.Cli.Diagnostics;
 using Liakont.Agent.Core;
@@ -59,7 +57,7 @@ internal static class Program
     {
         ISecretProtector protector = new DpapiSecretProtector();
         string configPath = AgentPaths.ConfigPath;
-        string[] knownAdapters = DiscoverKnownAdapters();
+        string[] knownAdapters = EmbeddedSourceAdapters.Names();
 
         var commands = new ICliCommand[]
         {
@@ -73,19 +71,6 @@ internal static class Program
         };
 
         return new CommandRouter(commands);
-    }
-
-    // Registre des adaptateurs source EMBARQUÉS dans cette version de l'agent : la liste des plug-ins
-    // IExtractor effectivement livrés (un de plus à chaque item ADP / FixtureExtractor d'AGT02). Sert
-    // au contrôle « adaptateur connu » de check-config — aucun nom inventé, on lit la source de vérité.
-    private static string[] DiscoverKnownAdapters()
-    {
-        var adapters = new IExtractor[]
-        {
-            new EncheresV6Extractor(),
-        };
-
-        return adapters.Select(a => a.SourceName).ToArray();
     }
 
     // Cycle de run NEUTRE tant qu'AGT02 n'a pas câblé l'extraction/le push (même seam que
