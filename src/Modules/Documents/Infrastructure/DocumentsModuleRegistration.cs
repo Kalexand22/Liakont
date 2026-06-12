@@ -42,6 +42,10 @@ public static class DocumentsModuleRegistration
         services.AddScoped<IDocumentUnitOfWorkFactory, PostgresDocumentUnitOfWorkFactory>();
         services.AddScoped<IDocumentQueries, PostgresDocumentQueries>();
 
+        // Interface SÉGRÉGÉE des compteurs par état (tableau de bord) — même implémentation, sans
+        // alourdir le contrat principal (précédent FIX212).
+        services.AddScoped<IDocumentStateCountQueries, PostgresDocumentQueries>();
+
         // Anti-doublon AVANT envoi (TRK03, F06 §4) — port consommé par le pipeline (PIP01).
         services.AddScoped<IDuplicateDocumentCheck, PostgresDuplicateDocumentCheck>();
 

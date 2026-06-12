@@ -18,31 +18,42 @@ using Stratum.Common.Abstractions.MultiTenancy;
 /// </summary>
 internal sealed class DashboardQueryService : IDashboardQueries
 {
-    private readonly IDocumentQueries _documentQueries;
+    private readonly IDocumentStateCountQueries _documentQueries;
     private readonly IAgentQueries _agentQueries;
     private readonly ITenantSettingsConsoleQueries _settingsQueries;
     private readonly ITenantContext _tenantContext;
+    private readonly TimeProvider _timeProvider;
 
     public DashboardQueryService(
-        IDocumentQueries documentQueries,
+        IDocumentStateCountQueries documentQueries,
         IAgentQueries agentQueries,
         ITenantSettingsConsoleQueries settingsQueries,
-        ITenantContext tenantContext)
+        ITenantContext tenantContext,
+        TimeProvider timeProvider)
     {
         _documentQueries = documentQueries;
         _agentQueries = agentQueries;
         _settingsQueries = settingsQueries;
         _tenantContext = tenantContext;
+        _timeProvider = timeProvider;
     }
 
     public async Task<DashboardViewModel> GetDashboardAsync(CancellationToken cancellationToken = default)
     {
-        // Compteurs par état : la liste paginée minimale ne sert qu'à récupérer CountsByState.
-        var documents = await _documentQueries
-            .GetDocumentsAsync(new DocumentListFilter { Page = 1, PageSize = 1 }, cancellationToken)
-            .ConfigureAwait(false);
+        // Trois périmètres de compteurs, aux bornes EXPLICITES portées par le modèle : le drill-down
+        // d'une tuile/barre rouvre la liste sur exactement le périmètre compté (mêmes bornes des deux
+        // côtés — sans cela, la page Documents s'ouvre sur son défaut « mois courant » et peut montrer
+        // moins de documents que le compteur cliqué).
+        var today = DateOnly.FromDateTime(_timeProvider.GetLocalNow().Date);
+        var firstOfMonth = new DateOnly(today.Year, today.Month, 1);
 
-        var stateCounts = BuildStateCounts(documents.CountsByState);
+        var currentMonth = await BuildScopeAsync(
+            "current-month", "Mois en cours", firstOfMonth, firstOfMonth.AddMonths(1).AddDays(-1), cancellationToken).ConfigureAwait(false);
+        var previousMonth = await BuildScopeAsync(
+            "previous-month", "Mois précédent", firstOfMonth.AddMonths(-1), firstOfMonth.AddDays(-1), cancellationToken).ConfigureAwait(false);
+        var currentYear = await BuildScopeAsync(
+            "current-year", "Année en cours", new DateOnly(today.Year, 1, 1), new DateOnly(today.Year, 12, 31), cancellationToken).ConfigureAwait(false);
+
         var agents = await BuildAgentsAsync(cancellationToken).ConfigureAwait(false);
 
         var overview = await _settingsQueries.GetSettingsOverview(cancellationToken).ConfigureAwait(false);
@@ -54,7 +65,9 @@ internal sealed class DashboardQueryService : IDashboardQueries
         return new DashboardViewModel
         {
             ProfileConfigured = overview.Profile is not null,
-            StateCounts = stateCounts,
+            CurrentMonth = currentMonth,
+            PreviousMonth = previousMonth,
+            CurrentYear = currentYear,
             Agents = agents,
             TvaStatus = tvaStatus,
             TvaValidatedBy = tva?.ValidatedBy,
@@ -84,6 +97,28 @@ internal sealed class DashboardQueryService : IDashboardQueries
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Compteurs par état sur [<paramref name="from"/>, <paramref name="to"/>], via la lecture
+    /// dédiée aux synthèses (seule la requête de répartition est exécutée — pas de liste ni de
+    /// total calculés pour rien).
+    /// </summary>
+    private async Task<DashboardCounterScope> BuildScopeAsync(
+        string key, string label, DateOnly from, DateOnly to, CancellationToken cancellationToken)
+    {
+        var counts = await _documentQueries
+            .GetStateCountsAsync(new DocumentListFilter { From = from, To = to }, cancellationToken)
+            .ConfigureAwait(false);
+
+        return new DashboardCounterScope
+        {
+            Key = key,
+            Label = label,
+            From = from,
+            To = to,
+            Counts = BuildStateCounts(counts),
+        };
     }
 
     private async Task<IReadOnlyList<DashboardAgentLine>> BuildAgentsAsync(CancellationToken cancellationToken)

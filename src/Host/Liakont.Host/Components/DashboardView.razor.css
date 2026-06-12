@@ -14,6 +14,21 @@
     margin-bottom: 0;
 }
 
+/* Un périmètre de compteurs (« Mois en cours », « Mois précédent ») : sous-titre discret + rangée
+   de tuiles. Les deux périmètres s'empilent dans la carte Documents. */
+.liakont-dashboard__scope + .liakont-dashboard__scope {
+    margin-top: 1rem;
+}
+
+.liakont-dashboard__scope-title {
+    margin: 0 0 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-text-secondary, #4b5563);
+}
+
 .liakont-dashboard__counters {
     display: flex;
     flex-wrap: wrap;

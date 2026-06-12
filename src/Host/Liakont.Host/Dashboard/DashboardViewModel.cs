@@ -18,8 +18,21 @@ public sealed record DashboardViewModel
     /// </summary>
     public required bool ProfileConfigured { get; init; }
 
-    /// <summary>Compteur de documents par état, dans l'ordre canonique d'affichage (0 inclus).</summary>
-    public required IReadOnlyList<DashboardStateCount> StateCounts { get; init; }
+    /// <summary>
+    /// Compteurs de documents par état sur le MOIS EN COURS (tuiles principales). Les bornes du
+    /// périmètre sont portées par le scope : le drill-down ouvre la liste sur exactement ce qui
+    /// est compté.
+    /// </summary>
+    public required DashboardCounterScope CurrentMonth { get; init; }
+
+    /// <summary>Compteurs de documents par état sur le MOIS PRÉCÉDENT (tuiles secondaires).</summary>
+    public required DashboardCounterScope PreviousMonth { get; init; }
+
+    /// <summary>
+    /// Compteurs de documents par état sur l'ANNÉE EN COURS — rendus en bas de page, en graphique
+    /// (vue d'ensemble, moins prioritaire que les deux mois affichés en tuiles).
+    /// </summary>
+    public required DashboardCounterScope CurrentYear { get; init; }
 
     /// <summary>Agents du tenant (vide si aucun agent enregistré).</summary>
     public required IReadOnlyList<DashboardAgentLine> Agents { get; init; }

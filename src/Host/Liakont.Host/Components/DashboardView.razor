@@ -19,21 +19,29 @@
     }
 
     <SectionCard Title="Documents" TestId="dashboard-documents">
-        @* Tuiles CLIQUABLES : chaque compteur ouvre la liste des documents filtrée sur son état, via le
-           filtre d'URL ?etat= déjà porté par la page Documents (issue #33) — même drill-down que les
-           pastilles du DocumentCountsBanner. Lien naturel (pas de NavigationManager : vue pure). *@
-        <div class="liakont-dashboard__counters" data-testid="dashboard-counters">
-            @foreach (var counter in Model.StateCounts)
-            {
-                <a class="liakont-dashboard__counter"
-                   href="@($"/documents?etat={Uri.EscapeDataString(counter.State)}")"
-                   aria-label="@($"{counter.Count} document(s) — {DocumentStateDisplay.For(counter.State).Label} : voir la liste")"
-                   data-testid="@($"counter-{counter.State}")">
-                    <span class="liakont-dashboard__counter-value">@counter.Count</span>
-                    <DocumentStateBadge State="@counter.State" />
-                </a>
-            }
-        </div>
+        @* Deux périmètres en tuiles CLIQUABLES (« Mois en cours », « Mois précédent ») : chaque compteur
+           ouvre la liste des documents filtrée sur son état ET sur les bornes de SON périmètre, via les
+           filtres d'URL déjà portés par la page Documents (issue #33) — même drill-down que les pastilles
+           du DocumentCountsBanner. Les bornes viennent du modèle (calculées par le service, jamais ici) :
+           la liste ouverte montre EXACTEMENT ce que le compteur annonce. Lien naturel (vue pure). *@
+        @foreach (var scope in new[] { Model.CurrentMonth, Model.PreviousMonth })
+        {
+            <div class="liakont-dashboard__scope" data-testid="@($"dashboard-scope-{scope.Key}")">
+                <h3 class="liakont-dashboard__scope-title">@scope.Label</h3>
+                <div class="liakont-dashboard__counters">
+                    @foreach (var counter in scope.Counts)
+                    {
+                        <a class="liakont-dashboard__counter"
+                           href="@scope.DocumentsUrl(counter.State)"
+                           aria-label="@($"{counter.Count} document(s) — {DocumentStateDisplay.For(counter.State).Label} ({scope.Label}) : voir la liste")"
+                           data-testid="@($"counter-{scope.Key}-{counter.State}")">
+                            <span class="liakont-dashboard__counter-value">@counter.Count</span>
+                            <DocumentStateBadge State="@counter.State" />
+                        </a>
+                    }
+                </div>
+            </div>
+        }
     </SectionCard>
 
     <SectionCard Title="Agent" TestId="dashboard-agent">
@@ -104,13 +112,58 @@
         }
     </SectionCard>
 
+    @* ── Année en cours (BAS de page, moins prioritaire que les deux mois en tuiles) : répartition par
+       état en graphique (composant Chart du design-system). Un clic sur une barre = même drill-down que
+       les tuiles, délégué à la PAGE via OnYearStateSelected (la vue reste pure : aucune navigation ici).
+       L'état brut est retrouvé par DataIndex (les points sont construits dans l'ordre de Counts). ── *@
+    <SectionCard Title="@Model.CurrentYear.Label" TestId="dashboard-year">
+        <Chart TData="DashboardChartPoint"
+               Type="ChartType.Bar"
+               Data="@BuildYearPoints()"
+               CategoryField="Etat"
+               Series="@YearSeries"
+               ShowLegend="false"
+               Height="220"
+               AriaLabel="@($"Répartition des documents par état — {Model.CurrentYear.Label}")"
+               OnPointClick="OnYearPointClickAsync"
+               TestId="dashboard-year-chart" />
+    </SectionCard>
+
 </div>
 
 @code {
+    private static readonly IReadOnlyList<ChartSeries> YearSeries =
+        [new ChartSeries { Name = "Documents", ValueField = nameof(DashboardChartPoint.Nombre) }];
+
     /// <summary>Données assemblées du tableau de bord (jamais <c>null</c> : la page en fournit toujours un).</summary>
     [Parameter, EditorRequired]
     public DashboardViewModel Model { get; set; } = null!;
 
+    /// <summary>
+    /// Déclenché au clic sur une barre du graphique « Année en cours », avec l'état BRUT cliqué.
+    /// La page navigue alors vers <see cref="DashboardCounterScope.DocumentsUrl"/> du périmètre
+    /// année (la vue reste pure : aucune navigation ici).
+    /// </summary>
+    [Parameter]
+    public EventCallback<string> OnYearStateSelected { get; set; }
+
     private static string FormatHeartbeat(DateTimeOffset? when) =>
         when is { } value ? value.ToLocalTime().ToString("dd/MM/yyyy HH:mm") : "jamais";
+
+    /// <summary>Points du graphique, dans l'ordre de <c>CurrentYear.Counts</c> (DataIndex = même index).</summary>
+    private IReadOnlyList<DashboardChartPoint> BuildYearPoints() =>
+        Model.CurrentYear.Counts
+            .Select(c => new DashboardChartPoint(DocumentStateDisplay.For(c.State).Label, c.Count))
+            .ToList();
+
+    private async Task OnYearPointClickAsync(ChartPointClickArgs args)
+    {
+        var counts = Model.CurrentYear.Counts;
+        if (args.DataIndex < 0 || args.DataIndex >= counts.Count || !OnYearStateSelected.HasDelegate)
+        {
+            return;
+        }
+
+        await OnYearStateSelected.InvokeAsync(counts[args.DataIndex].State);
+    }
 }

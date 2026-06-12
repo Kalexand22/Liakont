@@ -14,7 +14,7 @@ using Stratum.Common.Infrastructure.Database;
 /// (<see cref="IConnectionFactory"/> route vers le tenant résolu — database-per-tenant, blueprint §7).
 /// Aucune requête cross-tenant n'est possible : la connexion EST la frontière de tenant (CLAUDE.md n°9/17).
 /// </summary>
-public sealed class PostgresDocumentQueries : IDocumentQueries
+public sealed class PostgresDocumentQueries : IDocumentQueries, IDocumentStateCountQueries
 {
     private const int MaxPageSize = 200;
 
@@ -207,46 +207,11 @@ public sealed class PostgresDocumentQueries : IDocumentQueries
 
         using var conn = await _connectionFactory.OpenAsync(cancellationToken);
 
-        // Deux jeux de clauses : AVEC l'état (liste + total) et SANS l'état (compteurs du bandeau de
-        // synthèse, qui doivent montrer la répartition de TOUS les états du périmètre courant).
-        var withState = new List<string>();
-        var withoutState = new List<string>();
-        var parameters = new DynamicParameters();
-
-        if (filter.From is { } from)
-        {
-            const string clause = "issue_date >= @From";
-            withState.Add(clause);
-            withoutState.Add(clause);
-            parameters.Add("From", from);
-        }
-
-        if (filter.To is { } to)
-        {
-            const string clause = "issue_date <= @To";
-            withState.Add(clause);
-            withoutState.Add(clause);
-            parameters.Add("To", to);
-        }
-
-        if (!string.IsNullOrWhiteSpace(filter.Type))
-        {
-            const string clause = "document_type = @Type";
-            withState.Add(clause);
-            withoutState.Add(clause);
-            parameters.Add("Type", filter.Type);
-        }
-
-        if (!string.IsNullOrWhiteSpace(filter.Search))
-        {
-            // Recherche « contient », insensible à la casse ; les jokers LIKE de la saisie sont échappés
-            // (backslash = caractère d'échappement LIKE par défaut de PostgreSQL) pour rester littéraux.
-            const string clause =
-                "(document_number ILIKE @Search OR source_reference ILIKE @Search OR customer_name ILIKE @Search)";
-            withState.Add(clause);
-            withoutState.Add(clause);
-            parameters.Add("Search", "%" + EscapeLike(filter.Search) + "%");
-        }
+        // Clauses du PÉRIMÈTRE (dates/type/recherche) partagées avec GetStateCountsAsync — les
+        // compteurs montrent la répartition de TOUS les états du périmètre courant. La liste et le
+        // total ajoutent l'état par-dessus.
+        var (withoutState, parameters) = BuildScopeFilterClauses(filter);
+        var withState = new List<string>(withoutState);
 
         if (!string.IsNullOrWhiteSpace(filter.State))
         {
@@ -255,7 +220,6 @@ public sealed class PostgresDocumentQueries : IDocumentQueries
         }
 
         var whereWithState = withState.Count == 0 ? string.Empty : "WHERE " + string.Join(" AND ", withState);
-        var whereWithoutState = withoutState.Count == 0 ? string.Empty : "WHERE " + string.Join(" AND ", withoutState);
 
         var listSql = $"""
             SELECT id, document_number, document_type, issue_date, customer_name,
@@ -282,20 +246,9 @@ public sealed class PostgresDocumentQueries : IDocumentQueries
         var totalCount = await conn.ExecuteScalarAsync<long>(new CommandDefinition(
             totalSql, parameters, cancellationToken: cancellationToken));
 
-        var countsSql = $"""
-            SELECT state, count(*) AS cnt
-            FROM documents.documents
-            {whereWithoutState}
-            GROUP BY state
-            """;
-        var countRows = await conn.QueryAsync(new CommandDefinition(
-            countsSql, parameters, cancellationToken: cancellationToken));
-
-        var countsByState = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var row in countRows)
-        {
-            countsByState[(string)row.state] = (int)(long)row.cnt;
-        }
+        // Même requête de compteurs que GetStateCountsAsync : la couverture d'intégration de
+        // l'endpoint liste (compteurs du bandeau) exerce donc aussi le chemin du tableau de bord.
+        var countsByState = await QueryStateCountsAsync(conn, filter, cancellationToken);
 
         return new DocumentListResult
         {
@@ -334,6 +287,88 @@ public sealed class PostgresDocumentQueries : IDocumentQueries
                 ChainHash = (string)row.chain_hash,
                 ArchivedUtc = DocumentRowReader.ToDateTimeOffset((object)row.archived_utc),
             };
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyDictionary<string, int>> GetStateCountsAsync(
+        DocumentListFilter filter,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+
+        using var conn = await _connectionFactory.OpenAsync(cancellationToken);
+
+        return await QueryStateCountsAsync(conn, filter, cancellationToken);
+    }
+
+    /// <summary>
+    /// Clauses WHERE du PÉRIMÈTRE d'un filtre (dates d'émission, type, recherche) — SANS l'état ni
+    /// la pagination. Partagées entre la liste paginée (qui ajoute l'état) et les compteurs par état
+    /// (qui couvrent tous les états du périmètre) : un filtre ajouté ici vaut pour les deux chemins.
+    /// </summary>
+    private static (List<string> Clauses, DynamicParameters Parameters) BuildScopeFilterClauses(DocumentListFilter filter)
+    {
+        var clauses = new List<string>();
+        var parameters = new DynamicParameters();
+
+        if (filter.From is { } from)
+        {
+            clauses.Add("issue_date >= @From");
+            parameters.Add("From", from);
+        }
+
+        if (filter.To is { } to)
+        {
+            clauses.Add("issue_date <= @To");
+            parameters.Add("To", to);
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.Type))
+        {
+            clauses.Add("document_type = @Type");
+            parameters.Add("Type", filter.Type);
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+        {
+            // Recherche « contient », insensible à la casse ; les jokers LIKE de la saisie sont échappés
+            // (backslash = caractère d'échappement LIKE par défaut de PostgreSQL) pour rester littéraux.
+            clauses.Add("(document_number ILIKE @Search OR source_reference ILIKE @Search OR customer_name ILIKE @Search)");
+            parameters.Add("Search", "%" + EscapeLike(filter.Search) + "%");
+        }
+
+        return (clauses, parameters);
+    }
+
+    /// <summary>
+    /// Compteurs par état (GROUP BY) sur le périmètre du filtre — la SEULE requête des consommateurs
+    /// de synthèse (<see cref="GetStateCountsAsync"/>), réutilisée par la liste paginée pour son
+    /// bandeau de compteurs.
+    /// </summary>
+    private static async Task<Dictionary<string, int>> QueryStateCountsAsync(
+        IDbConnection conn,
+        DocumentListFilter filter,
+        CancellationToken cancellationToken)
+    {
+        var (clauses, parameters) = BuildScopeFilterClauses(filter);
+        var where = clauses.Count == 0 ? string.Empty : "WHERE " + string.Join(" AND ", clauses);
+
+        var sql = $"""
+            SELECT state, count(*) AS cnt
+            FROM documents.documents
+            {where}
+            GROUP BY state
+            """;
+        var rows = await conn.QueryAsync(new CommandDefinition(
+            sql, parameters, cancellationToken: cancellationToken));
+
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var row in rows)
+        {
+            counts[(string)row.state] = (int)(long)row.cnt;
+        }
+
+        return counts;
     }
 
     /// <summary>
