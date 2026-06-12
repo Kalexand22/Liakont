@@ -46,6 +46,7 @@ public static partial class ServiceCollectionExtensions
         services.AddHttpClient("KeycloakAdmin");
         services.AddSingleton<KeycloakAdminTokenService>();
         services.AddTransient<IKeycloakRealmProvisioner, KeycloakRealmProvisioner>();
+        services.AddTransient<IKeycloakUserProvisioner, KeycloakUserProvisioner>();
 
         return services;
     }

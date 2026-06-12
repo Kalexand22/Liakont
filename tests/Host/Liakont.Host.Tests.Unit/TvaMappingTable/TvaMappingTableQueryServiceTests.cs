@@ -331,5 +331,9 @@ public sealed class TvaMappingTableQueryServiceTests
 
         public Task<Guid?> GetCurrentCompanyId(CancellationToken ct = default) =>
             Task.FromResult<Guid?>(null);
+
+        /// <summary>Statut du tenant courant : null = pas de profil = ACTIF (defaut neutre des tests).</summary>
+        public Task<string?> GetCurrentTenantStatut(CancellationToken ct = default) =>
+            Task.FromResult<string?>(null);
     }
 }

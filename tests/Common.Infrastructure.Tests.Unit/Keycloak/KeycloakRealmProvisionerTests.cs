@@ -36,6 +36,7 @@ public sealed class KeycloakRealmProvisionerTests : IDisposable
         AdminUsername = "admin",
         AdminPassword = "P@ssw0rd!",
         StratumUserId = "00000000-0000-0000-0000-000000000001",
+        CompanyId = "11111111-1111-4111-a111-111111111111",
         RedirectUris = DefaultRedirectUris,
         WebOrigins = DefaultWebOrigins,
     };
@@ -87,6 +88,61 @@ public sealed class KeycloakRealmProvisionerTests : IDisposable
         Assert.Equal("stratum-acme", result.RealmName);
         Assert.Equal("http://localhost:8080/realms/stratum-acme", result.Authority);
         Assert.Equal("test-secret", result.ClientSecret);
+    }
+
+    [Fact]
+    public async Task ProvisionRealmAsync_Should_Emit_CompanyId_As_Hardcoded_Client_Mapper()
+    {
+        // OPS03 lot A : company_id est un mapper HARDCODÉ au niveau client (un tenant = une société),
+        // pas un mapper d'attribut utilisateur — sinon tout utilisateur sans attribut perd son scope
+        // de données (le piège de l'admin fraîchement provisionné).
+        EnqueueTokenResponse();
+        _handler.EnqueueResponse(HttpStatusCode.NotFound, string.Empty);
+        _handler.EnqueueResponse(HttpStatusCode.Created, string.Empty);
+        _handler.EnqueueResponse(HttpStatusCode.Created, string.Empty);
+        _handler.EnqueueResponseWithLocation(HttpStatusCode.Created, string.Empty, "/admin/realms/stratum-acme/users/user-123");
+        _handler.EnqueueResponse(HttpStatusCode.NoContent, string.Empty);
+        _handler.EnqueueResponse(HttpStatusCode.OK, "[]");
+        var sut = CreateSut();
+
+        await sut.ProvisionRealmAsync(CreateRequest());
+
+        // Requête 3 (index 3 : token, realm-exists, create-realm, create-client) = client OIDC.
+        var clientBody = _handler.AllRequestBodies[3];
+        Assert.NotNull(clientBody);
+        using var doc = JsonDocument.Parse(clientBody);
+        var mappers = doc.RootElement.GetProperty("protocolMappers").EnumerateArray().ToList();
+        var companyMapper = mappers.Single(m => m.GetProperty("name").GetString() == "company_id");
+        Assert.Equal("oidc-hardcoded-claim-mapper", companyMapper.GetProperty("protocolMapper").GetString());
+        Assert.Equal(
+            "11111111-1111-4111-a111-111111111111",
+            companyMapper.GetProperty("config").GetProperty("claim.value").GetString());
+    }
+
+    [Fact]
+    public async Task ProvisionRealmAsync_Should_Create_Admin_With_Forced_Password_Change()
+    {
+        // OPS03 lot A : mot de passe TEMPORAIRE réel (temporary=true) + action UPDATE_PASSWORD —
+        // l'ancien credential permanent contredisait son propre commentaire « temporary ».
+        EnqueueTokenResponse();
+        _handler.EnqueueResponse(HttpStatusCode.NotFound, string.Empty);
+        _handler.EnqueueResponse(HttpStatusCode.Created, string.Empty);
+        _handler.EnqueueResponse(HttpStatusCode.Created, string.Empty);
+        _handler.EnqueueResponseWithLocation(HttpStatusCode.Created, string.Empty, "/admin/realms/stratum-acme/users/user-123");
+        _handler.EnqueueResponse(HttpStatusCode.NoContent, string.Empty);
+        _handler.EnqueueResponse(HttpStatusCode.OK, "[]");
+        var sut = CreateSut();
+
+        await sut.ProvisionRealmAsync(CreateRequest());
+
+        // Requête 4 = création de l'admin ; requête 5 = reset-password.
+        using var userDoc = JsonDocument.Parse(_handler.AllRequestBodies[4]!);
+        var requiredActions = userDoc.RootElement.GetProperty("requiredActions").EnumerateArray()
+            .Select(a => a.GetString()).ToList();
+        Assert.Contains("UPDATE_PASSWORD", requiredActions);
+
+        using var credentialDoc = JsonDocument.Parse(_handler.AllRequestBodies[5]!);
+        Assert.True(credentialDoc.RootElement.GetProperty("temporary").GetBoolean());
     }
 
     [Fact]

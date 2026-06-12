@@ -37,6 +37,7 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
         "V009__", // rename schema_name to database_name
         "V010__", // add realm_name to tenants
         "V011__", // cross-tenant events outbox
+        "V016__", // add company_id to tenants registry
     };
 
     private readonly string _defaultConnectionString;
@@ -174,8 +175,19 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
             // Phase 2: Keycloak realm provisioning
             var clientSecret = GenerateClientSecret();
 
+            // One tenant = one company: the company scope of every realm user is fixed at
+            // provisioning time, persisted in the registry, and emitted as a hardcoded claim
+            // by the realm's OIDC client. Seed import and user provisioning reuse this value.
+            var companyId = Guid.NewGuid();
+
+            string? adminTemporaryPassword = null;
+
             if (_keycloakOptions.IsConfigured)
             {
+                // Random temporary password, surfaced ONCE through the provisioning result
+                // (never logged, never persisted) — Keycloak forces a change at first login.
+                adminTemporaryPassword = GenerateClientSecret();
+
                 var appBaseUrl = _keycloakOptions.AppBaseUrl.TrimEnd('/');
                 var keycloakRequest = new KeycloakRealmProvisionRequest
                 {
@@ -185,8 +197,9 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
                     ClientSecret = clientSecret,
                     AdminEmail = request.AdminEmail,
                     AdminUsername = adminUser.Username,
-                    AdminPassword = "Change@First1", // Temporary password — admin must change on first login
+                    AdminPassword = adminTemporaryPassword,
                     StratumUserId = adminUser.Id.ToString(),
+                    CompanyId = companyId.ToString(),
                     RedirectUris = [$"{appBaseUrl}/*", $"{appBaseUrl.Replace("://", "://*.").TrimEnd('/')}/*"],
                     WebOrigins = [appBaseUrl, appBaseUrl.Replace("://", "://*.").TrimEnd('/')],
                 };
@@ -198,6 +211,12 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
                 }
 
                 realmCreated = !kcResult.AlreadyProvisioned;
+
+                if (kcResult.AlreadyProvisioned)
+                {
+                    // Pre-existing realm: no admin user was (re)created, no password to surface.
+                    adminTemporaryPassword = null;
+                }
 
                 // Register realm for immediate JWT validation (no restart needed)
                 _realmRegistry.RegisterRealm(realmName, request.TenantId, authority);
@@ -213,10 +232,10 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
             }
 
             // Phase 3: Register tenant in system DB
-            await RegisterTenantAsync(request, databaseName, realmName, clientSecret, cancellationToken);
+            await RegisterTenantAsync(request, databaseName, realmName, clientSecret, companyId, cancellationToken);
 
             LogProvisioningCompleted(_logger, request.TenantId, databaseName);
-            return TenantProvisionResult.Created(databaseName, realmName, authority);
+            return TenantProvisionResult.Created(databaseName, realmName, authority, adminTemporaryPassword);
         }
         catch (Exception ex)
         {
@@ -653,14 +672,19 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
     }
 
     private async Task RegisterTenantAsync(
-        TenantProvisionRequest request, string databaseName, string realmName, string clientSecret, CancellationToken ct)
+        TenantProvisionRequest request,
+        string databaseName,
+        string realmName,
+        string clientSecret,
+        Guid companyId,
+        CancellationToken ct)
     {
         await using var connection = new NpgsqlConnection(_defaultConnectionString);
         await connection.OpenAsync(ct);
 
         const string sql = """
-            INSERT INTO outbox.tenants (id, display_name, admin_email, database_name, realm_name, client_secret)
-            VALUES (@TenantId, @DisplayName, @AdminEmail, @DatabaseName, @RealmName, @ClientSecret)
+            INSERT INTO outbox.tenants (id, display_name, admin_email, database_name, realm_name, client_secret, company_id)
+            VALUES (@TenantId, @DisplayName, @AdminEmail, @DatabaseName, @RealmName, @ClientSecret, @CompanyId)
             ON CONFLICT (id) DO NOTHING
             """;
 
@@ -675,6 +699,7 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
                     DatabaseName = databaseName,
                     RealmName = realmName,
                     ClientSecret = clientSecret,
+                    CompanyId = companyId,
                 },
                 cancellationToken: ct));
 

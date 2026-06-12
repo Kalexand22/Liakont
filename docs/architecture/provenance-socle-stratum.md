@@ -562,6 +562,44 @@ déjà récursivement les feuilles (`CollectSearchableItems`). Aucune autre logi
 GÉNÉRIQUE (toute app socle utilisant des node providers en bénéficie), candidate à reverser en
 amont (§6).
 
+### 4.24 Provisioning de tenant — `company_id` porté par le realm + mot de passe admin réellement temporaire (OPS03 lot A)
+
+**Fichiers** : `src/Common/Abstractions/MultiTenancy/KeycloakRealmProvisionRequest.cs`,
+`TenantProvisionResult.cs`, `TenantDto.cs`, `src/Common/Infrastructure/Keycloak/KeycloakRealmProvisioner.cs`,
+`src/Common/Infrastructure/Database/TenantProvisioningService.cs`, `TenantQueries.cs`,
+`ServiceCollectionExtensions.cs`, migration `V016__add_company_id_to_tenants.sql`.
+**Motif** : un tenant fraîchement provisionné était INUTILISABLE — le mapper `company_id` du realm
+était un mapper d'ATTRIBUT utilisateur jamais renseigné (l'admin créé ne portait que
+`stratum_user_id`) → claim absent → toutes les requêtes company-scopées échouent ; le mot de passe
+admin était CODÉ EN DUR (`Change@First1`) et posé en credential PERMANENT malgré son commentaire
+« temporary ». **Modifications** : (1) `companyId` GÉNÉRÉ au provisioning (un tenant = une société),
+persisté dans `outbox.tenants.company_id` (migration V016, system-only — préfixe ajouté à
+`SystemOnlyMigrationPrefixes`), exposé par `TenantDto`, et émis par le realm comme mapper
+`company_id` HARDCODÉ au niveau client (comme `tenant_id` — aligné sur le realm de dev) : tout
+utilisateur présent ET futur du realm porte le claim ; (2) mot de passe admin ALÉATOIRE, retourné
+UNE fois via `TenantProvisionResult.AdminTemporaryPassword` (jamais persisté/journalisé), credential
+`temporary=true` + action `UPDATE_PASSWORD`. Épinglé par
+`KeycloakRealmProvisionerTests.{Should_Emit_CompanyId_As_Hardcoded_Client_Mapper, Should_Create_Admin_With_Forced_Password_Change}`.
+
+### 4.25 `IKeycloakUserProvisioner` — provisioning d'utilisateur dans un realm EXISTANT (OPS03 lot A)
+
+**Fichiers AJOUTÉS** : `src/Common/Abstractions/MultiTenancy/IKeycloakUserProvisioner.cs` +
+`KeycloakUserSpec.cs`, `src/Common/Infrastructure/Keycloak/KeycloakUserProvisioner.cs`
+(+ enregistrement DI dans `ServiceCollectionExtensions.cs`). **Motif** : le socle ne savait créer un
+utilisateur Keycloak QUE pendant la création du realm (`CreateAdminUserAsync`, privé) ; le
+provisioning du « premier utilisateur » d'un tenant (assistant opérateur OPS03) exige un seam
+par-utilisateur réutilisant le client `"KeycloakAdmin"` + `KeycloakAdminTokenService` (internal —
+inaccessibles depuis Liakont.Host sans dupliquer l'acquisition de token). **Périmètre** : nouveau
+seam à CÔTÉ de `IKeycloakRealmProvisioner` (aucun refactoring du provisioner de realm) : recherche
+par username exact, création (id du header Location), fusion d'attributs (read-modify-write),
+reset-password temporaire, rôle realm idempotent (409 = succès), assignation de rôles, suppression
+(compensation). Un 409 à la création (username OU email déjà pris — l'email est unique par realm,
+un pré-contrôle par username ne suffit pas) lève l'exception TYPÉE `KeycloakUserConflictException`
+(Abstractions) pour un refus opérateur propre, jamais un 500. La consommation produit passe par
+l'abstraction IdP-agnostique `ITenantUserProvisioningService` du Host (couche d'auth). Tests :
+`KeycloakUserProvisionerTests`. `FakeHttpMessageHandler` (tests socle) étendu : capture des corps
+de requêtes (`AllRequestBodies`).
+
 ## 5. ADR du socle hérités
 
 Les ADR Stratum pertinents au socle sont copiés dans `docs/adr/socle/` (référence, non re-décidés).

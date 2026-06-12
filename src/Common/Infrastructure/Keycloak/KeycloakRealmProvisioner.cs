@@ -200,11 +200,16 @@ internal sealed partial class KeycloakRealmProvisioner : IKeycloakRealmProvision
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to delete Keycloak realm '{RealmName}' — manual cleanup may be required")]
     private static partial void LogRealmDeletionFailed(ILogger logger, string realmName, Exception exception);
 
-    private static List<Dictionary<string, object>> BuildProtocolMappers(string tenantId)
+    private static List<Dictionary<string, object>> BuildProtocolMappers(string tenantId, string companyId)
     {
         return
         [
-            BuildAttributeMapper("company_id", "company_id", "company_id"),
+
+            // company_id is HARDCODED at the client level (one tenant = one company): every user of
+            // the realm carries the claim without needing a per-user attribute. An attribute mapper
+            // here used to leave users without the claim unless someone remembered to set the
+            // attribute — which broke all company-scoped data access for freshly provisioned admins.
+            BuildHardcodedMapper("company_id", "company_id", companyId),
             BuildAttributeMapper("stratum_user_id", "stratum_user_id", "stratum_user_id"),
             BuildHardcodedMapper("tenant_id", "tenant_id", tenantId),
             BuildRealmRoleMapper(),
@@ -377,7 +382,7 @@ internal sealed partial class KeycloakRealmProvisioner : IKeycloakRealmProvision
             ["redirectUris"] = request.RedirectUris,
             ["webOrigins"] = request.WebOrigins,
             ["defaultClientScopes"] = new[] { "openid", "profile", "email" },
-            ["protocolMappers"] = BuildProtocolMappers(request.TenantId),
+            ["protocolMappers"] = BuildProtocolMappers(request.TenantId, request.CompanyId),
         };
 
         var client = await CreateAuthenticatedClientAsync(ct);
@@ -399,6 +404,9 @@ internal sealed partial class KeycloakRealmProvisioner : IKeycloakRealmProvision
             ["enabled"] = true,
             ["firstName"] = "Admin",
             ["lastName"] = request.DisplayName,
+
+            // The admin must change the temporary password on first login.
+            ["requiredActions"] = new[] { "UPDATE_PASSWORD" },
             ["attributes"] = new Dictionary<string, string[]>
             {
                 ["stratum_user_id"] = [request.StratumUserId],
@@ -417,7 +425,10 @@ internal sealed partial class KeycloakRealmProvisioner : IKeycloakRealmProvision
         {
             ["type"] = "password",
             ["value"] = request.AdminPassword,
-            ["temporary"] = false,
+
+            // Temporary: Keycloak forces a password change at first login (the password is
+            // generated server-side and surfaced once to the operator).
+            ["temporary"] = true,
         };
 
         var passwordUrl = $"{usersUrl}/{userId}/reset-password";

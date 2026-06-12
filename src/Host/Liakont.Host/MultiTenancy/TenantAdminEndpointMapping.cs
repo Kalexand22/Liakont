@@ -1,5 +1,6 @@
 namespace Liakont.Host.MultiTenancy;
 
+using Liakont.Host.Security.Abstractions;
 using Liakont.Modules.TenantSettings.Contracts.Commands;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
 using MediatR;
@@ -26,6 +27,7 @@ public static class TenantAdminEndpointMapping
         tenants.MapDelete("/{tenantId}", HandleDeleteAsync);
         tenants.MapPost("/{tenantId}/reprovision", HandleReprovisionAsync);
         tenants.MapPost("/{tenantId}/seed", HandleSeedAsync);
+        tenants.MapPost("/{tenantId}/users", HandleCreateUserAsync);
 
         return app;
     }
@@ -68,7 +70,11 @@ public static class TenantAdminEndpointMapping
             return Results.Ok(new { result.DatabaseName, result.RealmName, result.Authority, AlreadyProvisioned = true });
         }
 
-        return Results.Created($"/api/v1/admin/tenants/{body.TenantId}", new { result.DatabaseName, result.RealmName, result.Authority });
+        // AdminTemporaryPassword : remis UNE SEULE FOIS ici (jamais persisté, jamais journalisé) —
+        // l'admin initial du realm doit le changer à sa première connexion.
+        return Results.Created(
+            $"/api/v1/admin/tenants/{body.TenantId}",
+            new { result.DatabaseName, result.RealmName, result.Authority, result.AdminTemporaryPassword });
     }
 
     internal static async Task<IResult> HandleGetByIdAsync(
@@ -136,9 +142,9 @@ public static class TenantAdminEndpointMapping
         ITenantScopeFactory scopeFactory,
         CancellationToken ct)
     {
-        if (body.CompanyId == Guid.Empty || string.IsNullOrWhiteSpace(body.SeedDirectoryPath))
+        if (string.IsNullOrWhiteSpace(body.SeedDirectoryPath))
         {
-            return Results.BadRequest(new { ErrorMessage = "CompanyId and SeedDirectoryPath are required." });
+            return Results.BadRequest(new { ErrorMessage = "SeedDirectoryPath is required." });
         }
 
         // Le tenant doit exister (sa base est déjà provisionnée) avant qu'on y importe un paramétrage.
@@ -146,6 +152,28 @@ public static class TenantAdminEndpointMapping
         if (tenant is null)
         {
             return Results.NotFound();
+        }
+
+        // companyId : la valeur du REGISTRE (fixée au provisioning, émise par le claim du realm) est
+        // la référence. Un CompanyId explicite reste accepté (tenants antérieurs au registre porteur)
+        // mais une DIVERGENCE avec le registre est refusée — un seed scopé sur une autre société que
+        // celle du realm rendrait toutes les données du tenant invisibles à ses utilisateurs.
+        var companyId = body.CompanyId == Guid.Empty ? tenant.CompanyId : body.CompanyId;
+        if (companyId is null || companyId == Guid.Empty)
+        {
+            return Results.BadRequest(new
+            {
+                ErrorMessage = "CompanyId is required (tenant provisionné sans company_id au registre).",
+            });
+        }
+
+        if (tenant.CompanyId is { } registered && registered != companyId)
+        {
+            return Results.Conflict(new
+            {
+                ErrorMessage = "Le CompanyId fourni ne correspond pas à celui du realm provisionné — "
+                    + "le seed serait invisible aux utilisateurs du tenant. Omettez CompanyId pour utiliser celui du registre.",
+            });
         }
 
         // Scope du tenant CIBLE (la requête SystemAdmin n'est pas scopée sur lui) : la connexion est routée
@@ -163,10 +191,59 @@ public static class TenantAdminEndpointMapping
 
         var sender = scope.Services.GetRequiredService<ISender>();
         var result = await sender.Send(
-            new ImportTenantSeedCommand { SeedDirectoryPath = body.SeedDirectoryPath, CompanyId = body.CompanyId },
+            new ImportTenantSeedCommand { SeedDirectoryPath = body.SeedDirectoryPath, CompanyId = companyId },
             ct);
 
         return Results.Ok(result);
+    }
+
+    /// <summary>
+    /// Provisionne un utilisateur de TENANT (compte IdP dans le realm du tenant + rôle realm standard +
+    /// compte applicatif + invitation email) via <see cref="ITenantUserProvisioningService"/> — le point
+    /// d'entrée HTTP du flux « premier utilisateur » de l'assistant OPS03. Le mot de passe temporaire
+    /// n'apparaît dans la réponse QUE si aucune invitation email n'a pu partir (SMTP non configuré) ;
+    /// il n'est jamais journalisé ni persisté. SystemAdmin uniquement (groupe).
+    /// </summary>
+    internal static async Task<IResult> HandleCreateUserAsync(
+        string tenantId,
+        CreateTenantUserApiRequest body,
+        ITenantUserProvisioningService userProvisioning,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(body.Email)
+            || string.IsNullOrWhiteSpace(body.Username)
+            || string.IsNullOrWhiteSpace(body.DisplayName)
+            || string.IsNullOrWhiteSpace(body.Role))
+        {
+            return Results.BadRequest(new { ErrorMessage = "Email, Username, DisplayName et Role sont obligatoires." });
+        }
+
+        var result = await userProvisioning.ProvisionUserAsync(
+            new TenantUserProvisionRequest
+            {
+                TenantId = tenantId,
+                Email = body.Email,
+                Username = body.Username,
+                DisplayName = body.DisplayName,
+                Role = body.Role,
+            },
+            ct);
+
+        if (!result.Success)
+        {
+            // Le code HTTP se mappe sur la cause TYPÉE — jamais sur le message français (qui reste
+            // purement opérateur et peut être reformulé sans changer le contrat HTTP).
+            return result.FailureReason switch
+            {
+                TenantUserProvisionFailureReason.TenantNotFound => Results.NotFound(new { result.ErrorMessage }),
+                TenantUserProvisionFailureReason.Conflict => Results.Conflict(new { result.ErrorMessage }),
+                _ => Results.BadRequest(new { result.ErrorMessage }),
+            };
+        }
+
+        return Results.Created(
+            $"/admin/tenants/{tenantId}/users/{result.UserId}",
+            new { result.UserId, result.IdpUserId, result.InvitationEmailSent, result.TemporaryPassword });
     }
 
     /// <summary>API request body for creating a new tenant.</summary>
@@ -174,8 +251,15 @@ public static class TenantAdminEndpointMapping
 
     /// <summary>
     /// Corps de requête de l'import de seed d'un tenant. <paramref name="CompanyId"/> = société (companyId)
-    /// du tenant cible (claim <c>company_id</c> du realm) ; <paramref name="SeedDirectoryPath"/> = dossier
-    /// serveur du seed (format <c>config/exemples/tenant-seed/</c>). Aucune clé API n'est jamais importée.
+    /// du tenant cible (claim <c>company_id</c> du realm) — optionnel (Guid.Empty) : repli sur la valeur du
+    /// registre fixée au provisioning ; <paramref name="SeedDirectoryPath"/> = dossier serveur du seed
+    /// (format <c>config/exemples/tenant-seed/</c>). Aucune clé API n'est jamais importée.
     /// </summary>
     public sealed record SeedTenantApiRequest(Guid CompanyId, string SeedDirectoryPath);
+
+    /// <summary>
+    /// Corps de requête du provisioning d'un utilisateur de tenant. <paramref name="Role"/> = rôle realm
+    /// standard (lecture | operateur | parametrage | superviseur — matrice §3, aucun rôle inventé).
+    /// </summary>
+    public sealed record CreateTenantUserApiRequest(string Email, string Username, string DisplayName, string Role);
 }

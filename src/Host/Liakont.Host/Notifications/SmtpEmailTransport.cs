@@ -33,7 +33,7 @@ internal sealed partial class SmtpEmailTransport : IEmailTransport
 
     public async Task SendAsync(string recipient, string subject, string body, CancellationToken ct = default)
     {
-        if (!IsConfigured())
+        if (!_options.IsConfigured)
         {
             // Instance sans SMTP configuré : on NE lève PAS (sinon retry infini du job) ; l'alerte reste
             // visible au dashboard de supervision. Comportement équivalent au stub (journalise).

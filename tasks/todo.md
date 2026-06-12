@@ -1,57 +1,44 @@
-# Lot 2 élargi — densité Documents + finitions fiche détail + dashboard (feat/console-polish)
+# Provisioning de tenant — OPS03 en interactif (feat/tenant-provisioning)
 
-Périmètre calibré sur les captures opérateur + retour d'agent externe (2026-06-12).
-(Lots 1 et 3 : DONE, commités 7b50760 / 3749427 / 3a031a9.)
+Plan approuvé (2026-06-12) : C:\Users\K_ale\.claude\plans\happy-sauteeing-lovelace.md
+Décisions opérateur : package agent = clé + installeur générique ; ordre A → B → C.
+L'opérateur s'absente — dev autonome, recette visuelle à son retour, push après recette.
 
-## Investigations tranchées (pas de code)
-- [x] « Mois précédent = mêmes 3 bloqués » → PAS un bug : le seed contient 3 bloqués en mai ET 3 en juin (vérifié en base). Problème réel = lisibilité (16 zéros).
-- [x] Graphique année : la barre haute EST Bloqué (13) mais 9 catégories dont 7 à zéro → étiquettes auto-skip illisibles. Fix = masquer les zéros.
-- [x] « AVO »/« FAC » bruts : DocumentTypeDisplay mappe le contrat (invoice/credit_note), le seed local est hors vocabulaire → corriger la DONNÉE de démo (UPDATE local), pas le mapping (fallback brut sourcé + testé).
-- [x] Badge Bloqué 🛑/orange : sourcé F10 §2.2 tel quel → NE PAS changer (règle n°2). Signalé à l'opérateur.
-- [x] Heures UTC : décision sourcée (recoupement écran↔export contrôle fiscal) → conservé.
-- [x] « Ne loguer que ce qui change » dans l'audit : contenu d'événement = module Pipeline, append-only → item métier séparé, hors lot.
+## Lot A — Provisioning d'utilisateur dans un realm existant
+- [ ] Socle (provenance §4 OBLIGATOIRE par modif) : KeycloakRealmProvisionRequest.CompanyId ;
+      KeycloakRealmProvisioner (mapper company_id hardcodé + UPDATE_PASSWORD/temporary=true) ;
+      TenantProvisioningService (companyId généré+persisté, mdp admin aléatoire retourné une fois) ;
+      V016 outbox.tenants.company_id (+ SystemOnlyMigrationPrefixes) ; TenantDto/TenantQueries ;
+      seam IKeycloakUserProvisioner + impl + enregistrement DI.
+- [ ] Host : ITenantUserProvisioningService + LiakontRealmRoles + KeycloakTenantUserProvisioner
+      (compensation, invitation email queue système, mdp une fois si SMTP absent) ;
+      POST /admin/tenants/{id}/users ; HandleSeedAsync repli/garde companyId ; AppBootstrap.
+- [ ] Tests : unit provisioner Host + unit socle (payload admin, mapper) + intégration endpoint users.
+- [ ] verify-fast + run-tests + codex CLEAN + commit lot A.
 
-## A. CSS global
-- [ ] app.css : supprimer les règles `:has(> .declared-list-page)` (padding 0) → respiration cohérente sur toutes les listes (le bug « filtres collés au bord »).
+## Lot B — Application du statut Suspendu
+- [ ] GetCurrentTenantStatut (Contracts+Postgres TenantSettings).
+- [ ] ITenantSuspensionLookup (singleton, cache 30 s, fail-open documenté).
+- [ ] TenantSuspendedPushFilter sur les 3 endpoints d'écriture agent (403 FR ; heartbeat servi).
+- [ ] TenantSuspensionMiddleware (API 403 / UI signout+redirect ; SuperAdmin jamais bloqué) +
+      page anonyme /tenant-suspendu + refus au sign-in OIDC (OnTokenValidated).
+- [ ] Tests : unit lookup+middleware ; intégration push 403 + console 403 + réactivation ; bUnit page.
+- [ ] verify-fast + run-tests + codex CLEAN + commit lot B.
 
-## B. Liste Documents
-- [ ] Retirer le select État (doublon des pastilles) + OnStateChanged ; adapter 6 tests bUnit + 1 E2E (passage par les pastilles).
-- [ ] Toolbar unique : Période + Type + pastilles sur une rangée flex (wrap propre), hauteurs alignées.
-- [ ] Pastilles redessinées (retour « moche ») : compactes, zéros masqués (sauf état actif), finitions.
-- [ ] Colonne Acheteur : « — » si vide.
-- [ ] Colonne Montant : « € » + alignement droite + tabular-nums (template ; en-tête socle inchangé).
-- [ ] « Tout envoyer » désactivé si table TVA non validée (envois suspendus), Title explicatif. Fallback OUVERT si la lecture échoue (la garde réelle reste serveur — règle n°3 intacte).
+## Lot C — Écran « Clients » + assistant
+- [ ] TenantSettings : CompanyId? sur SetTenantStatusCommand + SaveTenantProfileCommand (garde) ;
+      ResolveCompanyId : override honoré si tenant SANS profil + test dédié.
+- [ ] Host Clients/ : IClientConsoleService + impl (liste composée, échec visible ; create in-process ;
+      seed/profil in-scope ; 1er user lot A ; 1er agent PIV05 clé une fois ; statut), Line/Registry/
+      WizardState/ActionStatus.
+- [ ] UI : /clients (liste + suspension) ; /clients/nouveau (stepper 4 étapes, vues pures, échecs
+      visibles + retry, AlreadyProvisioned = reprise) ; nav branche Supervision ; config
+      AgentInstaller:DownloadUrl + TenantSeeds:RootPath ; doc identity-permissions.
+- [ ] Tests : bUnit (pages+vues+service+nav) ; intégration provisioning complet+isolation+garde ;
+      E2E assistant borné (realm E2E sans company_id).
+- [ ] verify-fast + run-tests + codex CLEAN + commit lot C.
 
-## C. Fiche détail document
-- [ ] DocumentDetailView.razor.css (NOUVEAU) : en-tête en grille multi-colonnes dense, totaux, tables lignes/charges, timeline structurée (date · type · détail · auteur — fix « textes collés »), hash mono, alertes sur tokens severity.
-- [ ] FormatMoney : « 50,00 € » (espace insécable) — détail + colonne liste.
-- [ ] Fusion visuelle des deux zones d'actions (ActionBar + ResolutionActions) dans une section commune ; h2 « Actions de résolution » → micro-label.
-- [ ] Hint « Tranchez : » → « Que souhaitez-vous faire ? » ; B2C et B2B au MÊME niveau visuel (pas de primaire qui oriente une décision de conformité).
-- [ ] DocumentDetail.razor.css (NOUVEAU) : h1 réduit, feedback d'action stylé severity.
-
-## D. Dashboard
-- [ ] Masquer les compteurs à zéro par périmètre (+ message « aucun document » si périmètre vide) ; idem graphique année (clic remappé sur la liste filtrée).
-- [ ] Agent : LastSeen null et non révoqué → badge « Jamais connecté » (Warning) au lieu d'« Actif » ; meta « Dernier contact » seulement si non null.
-- [ ] Affordance des tuiles-liens (hover) — vérifier l'existant.
-
-## E. Données de démo (local uniquement)
-- [ ] UPDATE document_type : FAC→invoice, AVO→credit_note (aligne la démo sur le contrat).
-
-## Vérification
-- [x] verify-fast PASS (757 bUnit Host verts ; E2E compile)
-- [x] codex-review CLEAN au round 3 (R1 : 3 P2 → E2E pastilles + dette devise actée + recette élargie ;
-      R2 : 1 P2 nouveau → bouton « Envoyer » fiche aligné sur la suspension TVA, message partagé
-      `DocumentSendSuspension.Reason` ; R3 : no findings)
-- [ ] recette visuelle serveur + validation opérateur avant commit — INCLURE les pages liste HORS
-      lot impactées par la restauration du padding (Traitements, Agents, Alertes & supervision,
-      Réconciliation, Supervision, Encaissements), pas seulement Documents (codex P2 round 1)
-
-## Dette actée (codex P2 round 1, à porter en item backlog par l'opérateur)
-- « € » affiché en dur sur les montants console alors que le read-model n'expose pas BT-5
-  (CurrencyCode, F01-F02, défaut EUR) : pour un futur flux non-EUR, l'écran afficherait une devise
-  fausse. Suivi = exposer la devise dans le read-model Documents puis piloter le symbole par BT-5.
-
-## Bug préexistant corrigé au passage
-- `SelectedState="_selectedState"` (sans @) dans Documents.razor : paramètre string lié en chaîne
-  LITTÉRALE → la pastille active ne s'allumait jamais depuis une URL restaurée (piège CS0414 déjà
-  documenté en mémoire). Corrigé + épinglé par les tests adaptés.
+## Fin de chantier
+- [ ] Synthèse opérateur : recette à faire, suivis (jobs pipeline tenants suspendus ; realm E2E
+      company_id ; gestion continue Identity vs FIX209 ; manifest OPS03/OPS06a/GATE_TOOLKIT ;
+      dette devise BT-5). Push après recette opérateur.

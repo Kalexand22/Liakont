@@ -121,7 +121,7 @@ internal static class AgentApiEndpoints
                 },
                 ct);
             return Results.Ok(response);
-        }).RequireRateLimiting(IngestionRateLimiterPolicy);
+        }).AddEndpointFilter<TenantSuspendedPushFilter>().RequireRateLimiting(IngestionRateLimiterPolicy);
 
         // GET /api/agent/v1/documents/status — point de statut de prise en charge (ADR-0012, PIP01d).
         // Clé (sourceReference, payloadHash), lecture seule, tenant-scopé (le filtre a posé le contexte tenant).
@@ -163,7 +163,7 @@ internal static class AgentApiEndpoints
             var identity = AgentApiContext.GetIdentity(http);
             await pdfStore.SaveLinkedPdfAsync(identity.TenantId, sourceReference, http.Request.Body, ct);
             return Results.Ok();
-        }).RequireRateLimiting(IngestionRateLimiterPolicy);
+        }).AddEndpointFilter<TenantSuspendedPushFilter>().RequireRateLimiting(IngestionRateLimiterPolicy);
 
         // POST /api/agent/v1/pdf-pool — PDF NON RATTACHÉ → pool de réconciliation du tenant (F06/TRK07).
         group.MapPost("/pdf-pool", async (
@@ -175,7 +175,7 @@ internal static class AgentApiEndpoints
             var identity = AgentApiContext.GetIdentity(http);
             await pdfStore.SavePooledPdfAsync(identity.TenantId, fileName ?? "document.pdf", http.Request.Body, ct);
             return Results.Ok();
-        }).RequireRateLimiting(IngestionRateLimiterPolicy);
+        }).AddEndpointFilter<TenantSuspendedPushFilter>().RequireRateLimiting(IngestionRateLimiterPolicy);
 
         return app;
     }

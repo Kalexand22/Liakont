@@ -24,6 +24,9 @@ internal sealed class FakeHttpMessageHandler : HttpMessageHandler
 
     public List<(Uri? Uri, HttpMethod Method, string? Auth)> AllRequests { get; } = [];
 
+    /// <summary>Request bodies, one entry per call (null for body-less requests) — same index as <see cref="AllRequests"/>.</summary>
+    public List<string?> AllRequestBodies { get; } = [];
+
     public void SetupResponse(HttpStatusCode statusCode, string body)
     {
         _defaultStatusCode = statusCode;
@@ -40,7 +43,7 @@ internal sealed class FakeHttpMessageHandler : HttpMessageHandler
         _sequentialResponses.Enqueue(new QueuedResponse(statusCode, body, locationUri));
     }
 
-    protected override Task<HttpResponseMessage> SendAsync(
+    protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request, CancellationToken cancellationToken)
     {
         CallCount++;
@@ -49,6 +52,9 @@ internal sealed class FakeHttpMessageHandler : HttpMessageHandler
         LastRequestMethod = request.Method;
         LastAuthorizationHeader = request.Headers.Authorization?.ToString();
         AllRequests.Add((request.RequestUri, request.Method, LastAuthorizationHeader));
+        AllRequestBodies.Add(request.Content is null
+            ? null
+            : await request.Content.ReadAsStringAsync(cancellationToken));
 
         HttpStatusCode code;
         string body;
@@ -77,7 +83,7 @@ internal sealed class FakeHttpMessageHandler : HttpMessageHandler
             response.Headers.Location = new Uri(location, UriKind.RelativeOrAbsolute);
         }
 
-        return Task.FromResult(response);
+        return response;
     }
 
     private sealed record QueuedResponse(HttpStatusCode StatusCode, string Body, string? Location);

@@ -33,6 +33,13 @@ public sealed class KeycloakRealmProvisionRequest
     public required string StratumUserId { get; init; }
 
     /// <summary>
+    /// Company ID (Guid) emitted as a HARDCODED <c>company_id</c> claim by the realm's
+    /// OIDC client — every user of the realm carries it (one tenant = one company),
+    /// so data scoping works without per-user attributes.
+    /// </summary>
+    public required string CompanyId { get; init; }
+
+    /// <summary>
     /// Allowed redirect URIs for the OIDC client (e.g., "https://localhost:55995/*").
     /// </summary>
     public required IReadOnlyList<string> RedirectUris { get; init; }

@@ -97,6 +97,22 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     /// </summary>
     public const string TenantSeed = "tenant-seed";
 
+    /// <summary>
+    /// Tenant dédié au provisioning d'UTILISATEUR (OPS03 lot A, <c>POST /admin/tenants/{id}/users</c>) :
+    /// enregistré au registre AVEC un <c>company_id</c> et une base migrée (le compte applicatif
+    /// <c>identity.users</c> y est créé), mais SANS profil — l'endpoint doit retomber sur le company_id
+    /// du registre. Le compte IdP passe par le FAKE <see cref="KeycloakUsers"/> (jamais de Keycloak réel).
+    /// </summary>
+    public const string TenantUserProv = "tenant-userprov";
+
+    /// <summary>
+    /// Tenant dédié à l'APPLICATION DU STATUT SUSPENDU (OPS03.4 lot B) : profil seedé (statut mutable
+    /// par les tests via SQL + invalidation du cache du lookup), identité seedée (un utilisateur lecteur
+    /// exerce le refus console), un agent enregistré à la demande exerce le refus de push. Isolé : ses
+    /// suspensions ne polluent aucune autre suite.
+    /// </summary>
+    public const string TenantSusp = "tenant-susp";
+
     public const string BlockedReasonText = "Régime TVA non mappé : compléter la table TVA (document FA-A-002).";
 
     public const string OlderBlockedReasonText = "Ancien motif (corrigé puis re-bloqué).";
@@ -153,6 +169,12 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
 
     /// <summary>Société (companyId) du tenant vierge — passée à l'import de seed admin (FIX01a).</summary>
     public static readonly Guid TenantSeedCompanyId = new("eeeeeeee-0000-0000-0000-0000000000e1");
+
+    /// <summary>Société (companyId) du tenant de provisioning d'utilisateur — au REGISTRE (outbox.tenants).</summary>
+    public static readonly Guid TenantUserProvCompanyId = new("ffffffff-0000-0000-0000-0000000000f1");
+
+    /// <summary>Société (companyId) du tenant de suspension (profil seedé).</summary>
+    public static readonly Guid TenantSuspCompanyId = new("ffffffff-0000-0000-0000-0000000000f2");
 
     /// <summary>Utilisateur SystemAdmin (rôle porté par l'en-tête X-Test-Roles) — exécute /admin/tenants/*.</summary>
     public static readonly Guid SystemAdminUserId = new("88888888-8888-8888-8888-888888888888");
@@ -225,6 +247,12 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     private string _ingestionPdfRoot = string.Empty;
     private string _stagingRoot = string.Empty;
 
+    /// <summary>Fake du provisioner d'UTILISATEUR Keycloak (OPS03 lot A) — substitué dans le DI, exposé pour les assertions.</summary>
+    public FakeKeycloakUserProvisioner KeycloakUsers { get; } = new();
+
+    /// <summary>Fake du provisioner de REALM Keycloak — substitué dans le DI (jamais d'appel Keycloak réel).</summary>
+    public FakeKeycloakRealmProvisioner KeycloakRealms { get; } = new();
+
     public string BaseUrl => $"http://127.0.0.1:{_port}";
 
     /// <summary>
@@ -251,6 +279,8 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         var tenantApi04Conn = WithDatabase(systemConn, "tc_tenant_api04");
         var tenantVerdictConn = WithDatabase(systemConn, "tc_tenant_verdict");
         var tenantSeedConn = WithDatabase(systemConn, "tc_tenant_seed");
+        var tenantUserProvConn = WithDatabase(systemConn, "tc_tenant_userprov");
+        var tenantSuspConn = WithDatabase(systemConn, "tc_tenant_susp");
         _connectionsByTenant[TenantA] = tenantAConn;
         _connectionsByTenant[TenantB] = tenantBConn;
         _connectionsByTenant[TenantAction] = tenantActConn;
@@ -259,6 +289,8 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         _connectionsByTenant[TenantApi04] = tenantApi04Conn;
         _connectionsByTenant[TenantVerdict] = tenantVerdictConn;
         _connectionsByTenant[TenantSeed] = tenantSeedConn;
+        _connectionsByTenant[TenantUserProv] = tenantUserProvConn;
+        _connectionsByTenant[TenantSusp] = tenantSuspConn;
 
         var hostDir = Path.GetFullPath(Path.Combine(
             AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "Host", "Liakont.Host"));
@@ -284,6 +316,8 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantApi04}"] = tenantApi04Conn;
         builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantVerdict}"] = tenantVerdictConn;
         builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantSeed}"] = tenantSeedConn;
+        builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantUserProv}"] = tenantUserProvConn;
+        builder.Configuration[$"TenantConnections:ConnectionStrings:{TenantSusp}"] = tenantSuspConn;
 
         // Magasin de staging (PIP00) sur un répertoire de test dédié et isolé (un par run) ; nettoyé au Dispose.
         // Requis par la re-vérification (API02b) qui relit le pivot stagé du document bloqué.
@@ -306,7 +340,19 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         builder.Configuration["Keycloak:RequireHttpsMetadata"] = "false";
         builder.Configuration["Keycloak:UseKeycloak"] = "false";
 
+        // Admin Keycloak « configuré » (OPS03 lot A) : les gardes IsConfigured des services de
+        // provisioning passent, mais AUCUN appel réel ne part — les deux provisioners Keycloak
+        // (realm + utilisateur) sont SUBSTITUÉS par des fakes enregistrés ci-dessous.
+        builder.Configuration["Keycloak:AdminBaseUrl"] = "http://127.0.0.1:1";
+        builder.Configuration["Keycloak:AdminUsername"] = "test-admin";
+        builder.Configuration["Keycloak:AdminPassword"] = "test-not-a-real-secret";
+
         AppBootstrap.ConfigureServices(builder);
+
+        // Fakes Keycloak (OPS03) : substitution APRÈS ConfigureServices (le dernier enregistrement
+        // gagne). Exposés pour les assertions des tests (utilisateurs créés, rôles assignés).
+        builder.Services.AddSingleton<IKeycloakUserProvisioner>(KeycloakUsers);
+        builder.Services.AddSingleton<IKeycloakRealmProvisioner>(KeycloakRealms);
 
         // Plug-in PA factice (PAA02) : le Host n'enregistre aucune PA concrète (CLAUDE.md n°6) ; on en
         // branche un dans le harness pour que GET /settings (API01c) puisse EXPOSER des capacités PA
@@ -347,11 +393,27 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         MigrateDatabase(migrationAssemblies, tenantApi04Conn);
         MigrateDatabase(migrationAssemblies, tenantVerdictConn);
         MigrateDatabase(migrationAssemblies, tenantSeedConn);
+        MigrateDatabase(migrationAssemblies, tenantUserProvConn);
+        MigrateDatabase(migrationAssemblies, tenantSuspConn);
 
         // Tenant vierge (FIX01a) : enregistré dans le catalogue système (outbox.tenants) pour que
         // l'endpoint d'admin le RÉSOLVE (ITenantQueries.GetByIdAsync), mais SANS profil ni identité — un
         // test y importe un profil via POST /admin/tenants/{id}/seed.
         await RegisterSystemTenantAsync(systemConn, TenantSeed, "tc_tenant_seed");
+
+        // Tenant de provisioning d'utilisateur (OPS03 lot A) : registre AVEC company_id (le service doit
+        // y retomber en l'absence de profil), base migrée pour le compte applicatif identity.users.
+        await RegisterSystemTenantAsync(systemConn, TenantUserProv, "tc_tenant_userprov", TenantUserProvCompanyId);
+
+        // Tenant de suspension (OPS03.4 lot B) : registre + identité (refus console exerçable par un
+        // lecteur) + profil ACTIF (les tests mutent le statut en SQL et invalident le cache du lookup).
+        await RegisterSystemTenantAsync(systemConn, TenantSusp, "tc_tenant_susp", TenantSuspCompanyId);
+        await SeedIdentityOnlyAsync(tenantSuspConn);
+        await using (var suspConn = new NpgsqlConnection(tenantSuspConn))
+        {
+            await suspConn.OpenAsync();
+            await SeedTenantProfileAsync(suspConn, TenantSuspCompanyId, "404833048", "Tenant suspendable (test)");
+        }
 
         await SeedTenantAAsync(tenantAConn);
         await SeedTenantBAsync(tenantBConn);
@@ -616,14 +678,15 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     /// Enregistre un tenant dans le catalogue système (<c>outbox.tenants</c>, base SYSTÈME) pour qu'il
     /// soit RÉSOLU par <c>ITenantQueries</c> (l'endpoint d'admin vérifie l'existence du tenant cible).
     /// </summary>
-    private static async Task RegisterSystemTenantAsync(string systemConnectionString, string tenantId, string databaseName)
+    private static async Task RegisterSystemTenantAsync(
+        string systemConnectionString, string tenantId, string databaseName, Guid? companyId = null)
     {
         await using var conn = new NpgsqlConnection(systemConnectionString);
         await conn.OpenAsync();
         await conn.ExecuteAsync(
             """
-            INSERT INTO outbox.tenants (id, display_name, admin_email, database_name, realm_name, is_active)
-            VALUES (@Id, @DisplayName, @AdminEmail, @DatabaseName, @RealmName, TRUE)
+            INSERT INTO outbox.tenants (id, display_name, admin_email, database_name, realm_name, is_active, company_id)
+            VALUES (@Id, @DisplayName, @AdminEmail, @DatabaseName, @RealmName, TRUE, @CompanyId)
             ON CONFLICT (id) DO NOTHING
             """,
             new
@@ -633,6 +696,7 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
                 AdminEmail = "admin@tenant-seed.test",
                 DatabaseName = databaseName,
                 RealmName = "stratum-" + tenantId,
+                CompanyId = companyId,
             });
     }
 

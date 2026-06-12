@@ -457,6 +457,14 @@ public static class AppBootstrap
         builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
         builder.Services.AddScoped<IAuthorizationHandler, VolunteerAuthorizationHandler>();
 
+        // Provisioning d'utilisateur de tenant (OPS03 lot A) : abstraction produit IdP-agnostique,
+        // implémentation Keycloak dans la couche d'auth (seul endroit autorisé — décision D10).
+        builder.Services.AddScoped<Security.Abstractions.ITenantUserProvisioningService, Security.Keycloak.KeycloakTenantUserProvisioner>();
+
+        // Application du statut Suspendu (OPS03.4 lot B) : lookup singleton (cache mémoire court,
+        // fail-open documenté) consommé par le filtre de push agent, le middleware et le sign-in.
+        builder.Services.AddSingleton<MultiTenancy.ITenantSuspensionLookup, MultiTenancy.TenantSuspensionLookup>();
+
         // Navigation providers (sidebar)
         builder.Services.AddSingleton<INavSectionProvider, HostNavSectionProvider>();
 
@@ -671,6 +679,11 @@ public static class AppBootstrap
 
         app.UseAuthentication();
         app.UseStratumMultiTenancy();
+
+        // Application du statut SUSPENDU d'un tenant (OPS03.4 lot B) : APRÈS l'authentification et la
+        // résolution du tenant, AVANT l'autorisation — sessions ouvertes et API Bearer ; le refus au
+        // sign-in OIDC est porté par la couche d'auth, le refus de push agent par le filtre d'endpoint.
+        app.UseMiddleware<Liakont.Host.MultiTenancy.TenantSuspensionMiddleware>();
 
         // Localisation APRÈS l'authentification ET la résolution du tenant : la préférence Language
         // PERSISTÉE de l'utilisateur (base = source de vérité — décision opérateur 2026-06-10,

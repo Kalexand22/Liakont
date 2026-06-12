@@ -328,6 +328,24 @@ internal sealed class KeycloakIdentityProviderAuthenticator : IIdentityProviderA
                     return;
                 }
 
+                // Tenant SUSPENDU (OPS03.4 lot B) : refus au SIGN-IN, AVANT le sync utilisateur et la
+                // pose du cookie — l'utilisateur arrive sur une page explicite, pas sur une session
+                // aussitôt coupée. La DÉCISION (issuer → realm → tenant → statut, super-admin jamais
+                // bloqué) vit dans TenantSuspensionSignInGuard (testable sans OIDC) ; seul le POINT
+                // d'accrochage est Keycloak (D10). Les sessions déjà ouvertes et l'API Bearer sont
+                // couvertes par TenantSuspensionMiddleware.
+                var shouldRefuseSignIn = await TenantSuspensionSignInGuard.ShouldRefuseAsync(
+                    ctx.Principal,
+                    ctx.HttpContext.RequestServices.GetRequiredService<IRealmRegistry>(),
+                    ctx.HttpContext.RequestServices.GetRequiredService<ITenantSuspensionLookup>(),
+                    ctx.HttpContext.RequestAborted);
+                if (shouldRefuseSignIn)
+                {
+                    ctx.Response.Redirect("/tenant-suspendu");
+                    ctx.HandleResponse();
+                    return;
+                }
+
                 var syncService = ctx.HttpContext.RequestServices.GetRequiredService<Stratum.Modules.Identity.Application.IUserSyncService>();
                 var userId = await syncService.SyncFromOidcClaimsAsync(ctx.Principal, ctx.HttpContext.RequestAborted);
 

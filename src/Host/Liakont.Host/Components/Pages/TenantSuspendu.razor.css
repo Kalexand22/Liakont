@@ -1,0 +1,25 @@
+/* Page « espace suspendu » (OPS03.4 lot B) — atterrissage anonyme sous AuthLayout. */
+
+.tenant-suspendu {
+    max-width: 28rem;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+    text-align: center;
+}
+
+.tenant-suspendu__title {
+    margin: 0 0 1rem;
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.tenant-suspendu__text {
+    margin: 0 0 0.75rem;
+    color: var(--color-text-muted, #6b7280);
+}
+
+.tenant-suspendu__retry {
+    display: inline-block;
+    margin-top: 0.75rem;
+    font-weight: 600;
+}

@@ -1,0 +1,25 @@
+@page "/tenant-suspendu"
+@layout Liakont.Host.Components.Layout.AuthLayout
+@attribute [AllowAnonymous]
+@using Microsoft.AspNetCore.Authorization
+
+@* Page ANONYME d'atterrissage d'un utilisateur dont le tenant est SUSPENDU (OPS03.4 lot B) : le
+ * refus au sign-in (OnTokenValidated) et le middleware de suspension redirigent ici — jamais une
+ * 500 ni une boucle de login. Message opérateur en français avec l'action corrective (CLAUDE.md
+ * n°12). Les données du client restent intactes (la suspension est un refus d'accès, pas une
+ * purge) ; la reconnexion redevient possible dès la réactivation par l'opérateur. *@
+
+<PageTitle>Espace suspendu — Liakont</PageTitle>
+
+<div class="tenant-suspendu" data-testid="tenant-suspendu">
+    <h1 class="tenant-suspendu__title">Votre espace est suspendu</h1>
+    <p class="tenant-suspendu__text" data-testid="tenant-suspendu-message">
+        L'accès à cet espace a été suspendu par votre opérateur Liakont. Vos données restent
+        intégralement conservées : aucune information n'est supprimée pendant la suspension.
+    </p>
+    <p class="tenant-suspendu__text">
+        Pour rétablir l'accès, contactez votre opérateur Liakont. Une fois l'espace réactivé,
+        reconnectez-vous normalement.
+    </p>
+    <a class="tenant-suspendu__retry" href="/" data-testid="tenant-suspendu-retry">Se reconnecter</a>
+</div>
