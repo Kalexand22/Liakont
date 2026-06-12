@@ -3,6 +3,7 @@ namespace Liakont.Agent.Installer.Tests.Configuration;
 using System;
 using System.Collections.Generic;
 using FluentAssertions;
+using Liakont.Agent.Core;
 using Liakont.Agent.Installer.Configuration;
 using Liakont.Agent.Installer.Profiles;
 using Xunit;
@@ -65,6 +66,29 @@ public class ConfigurationResolverTests
             out IReadOnlyList<string> errors);
 
         errors.Should().ContainSingle(e => e.IndexOf("platformUrl", StringComparison.Ordinal) >= 0);
+    }
+
+    [Fact]
+    public void InstanceName_non_precise_retombe_sur_l_instance_par_defaut()
+    {
+        // Cas mono-instance standard : aucune saisie, aucun défaut de profil → « Default » (cohérent
+        // avec l'absence de --instance en ligne de commande). Sans ce repli, l'installation serait
+        // refusée (nom d'instance vide).
+        ResolvedConfiguration resolved = Resolve(
+            Profile((ProfileFieldKeys.InstanceName, FieldState.Shown, null)),
+            InstallationInput.Empty);
+
+        resolved.Get(ProfileFieldKeys.InstanceName).Should().Be(AgentInstance.DefaultName);
+    }
+
+    [Fact]
+    public void InstanceName_impose_par_le_profil_n_est_pas_ecrase_par_le_defaut()
+    {
+        ResolvedConfiguration resolved = Resolve(
+            Profile((ProfileFieldKeys.InstanceName, FieldState.Locked, "ClientA")),
+            Input((ProfileFieldKeys.InstanceName, "tentative")));
+
+        resolved.Get(ProfileFieldKeys.InstanceName).Should().Be("ClientA");
     }
 
     private static ResolvedConfiguration Resolve(IntegratorProfile profile, InstallationInput input)

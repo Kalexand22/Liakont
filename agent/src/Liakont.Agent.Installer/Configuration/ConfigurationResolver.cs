@@ -2,6 +2,7 @@ namespace Liakont.Agent.Installer.Configuration;
 
 using System;
 using System.Collections.Generic;
+using Liakont.Agent.Core;
 using Liakont.Agent.Installer.Profiles;
 
 /// <summary>
@@ -43,6 +44,16 @@ internal static class ConfigurationResolver
                 ? input.Get(field.Key) ?? field.DefaultValue
                 : field.DefaultValue;
             values[field.Key] = effective;
+        }
+
+        // instanceName non précisé (case vide au wizard, clé absente du fichier de réponses) = instance
+        // par défaut « Default » — cohérent avec AgentInstance.TryFromCommandLine (l'absence de --instance
+        // vaut Default). Évite un refus d'installation pour le cas mono-instance standard (round 2 #2). Un
+        // profil qui IMPOSE instanceName (verrouillé/masqué avec valeur) garde sa valeur : on ne comble
+        // que le vide.
+        if (values.TryGetValue(ProfileFieldKeys.InstanceName, out string? instanceName) && string.IsNullOrWhiteSpace(instanceName))
+        {
+            values[ProfileFieldKeys.InstanceName] = AgentInstance.DefaultName;
         }
 
         var errorList = new List<string>();

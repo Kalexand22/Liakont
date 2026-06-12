@@ -67,6 +67,19 @@ internal sealed class AgentProcessDeployer : IAgentDeployer
                 "Relancez l'installeur en tant qu'administrateur.");
         }
 
+        // Valider la configuration AVANT d'installer le service : ne JAMAIS enregistrer un service
+        // Windows (potentiellement auto-démarré) avec une configuration invalide. Un agent.json qui
+        // passe le round-trip de Build mais échoue check-config (cas réel en mode silencieux : adaptateur
+        // hors de la liste embarquée) doit BLOQUER l'installation, sans rien laisser derrière
+        // (round 2 #1 ; CLAUDE.md n°3 : bloquer plutôt qu'installer un agent cassé).
+        if (!RunCheckConfig(configPath, report))
+        {
+            report.Add(
+                $"[!]     Configuration invalide : le service « {instance.ServiceName} » n'a PAS été installé. " +
+                "Corrigez agent.json (détails ci-dessus) puis relancez l'installation.");
+            return new DeploymentOutcome(false, report);
+        }
+
         if (!TryRunServiceInstaller(instance, uninstall: false, out string serviceMessage))
         {
             report.Add(serviceMessage);
@@ -74,17 +87,7 @@ internal sealed class AgentProcessDeployer : IAgentDeployer
         }
 
         report.Add(serviceMessage);
-
-        bool configOk = RunCheckConfig(configPath, report);
-        if (!configOk)
-        {
-            report.Add(
-                $"[!]     Le service « {instance.ServiceName} » est INSTALLÉ mais la configuration ci-dessus " +
-                "présente un problème : corrigez agent.json puis relancez le test, ou désinstallez cette " +
-                $"instance (--uninstall {instance.Name}).");
-        }
-
-        return new DeploymentOutcome(configOk, report);
+        return new DeploymentOutcome(true, report);
     }
 
     /// <inheritdoc />
