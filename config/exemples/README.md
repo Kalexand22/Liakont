@@ -22,7 +22,11 @@ dans ce dossier (ou dans `src/`) est un **P1** en review (CLAUDE.md n°15).
   [`mapping-exemple.json`](mapping-exemple.json) (livré par TVA04, marqué « NON VALIDÉE »).
 - Profil tenant d'exemple (SIREN fictif, régime) — lot CFG.
 - Paramétrage PA d'exemple (compte fictif de la PA Fake) — lots PA.
-- Profil intégrateur d'exemple (branding + visibilité par champ, aucun secret) — lot OPS, installeur
-  agent : [`profil-integrateur-exemple.json`](profil-integrateur-exemple.json) (livré par OPS08a, F13 §5).
+- Profils intégrateur d'exemple (branding + visibilité par champ, aucun secret) — lot OPS, installeur
+  agent : [`profil-integrateur-exemple.json`](profil-integrateur-exemple.json) (mono-site, livré par
+  OPS08a) et [`profil-integrateur-hebergeur-exemple.json`](profil-integrateur-hebergeur-exemple.json)
+  (hébergeur SaaS multi-instances, livré par OPS08c). Le packaging multi-profils
+  (`tools/package-installer.ps1`, OPS08c, F13 §7) embarque CHAQUE profil dans un installateur dédié ;
+  ces deux exemples servent de profils valides au self-test `tools/test-installer-packaging.ps1`.
 
 Le squelette (SOL02) ne crée que ce README ; les exemples concrets arrivent avec leurs lots.

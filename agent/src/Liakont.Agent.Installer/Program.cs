@@ -22,7 +22,8 @@ using Liakont.Agent.Installer.Wizard;
 ///   <item><c>--silent &lt;réponses.json&gt; [--profile &lt;p&gt;]</c> : installation silencieuse (mode partagé) ;</item>
 ///   <item><c>--uninstall &lt;instance&gt;</c> : désinstallation d'UNE instance (multi-instances) ;</item>
 ///   <item><c>--list-instances</c> : liste les instances installées sur ce poste ;</item>
-///   <item><c>--validate &lt;profil.json&gt;</c> : valide un profil et affiche son plan de champs (OPS08a, réutilisé par OPS08c).</item>
+///   <item><c>--validate &lt;profil.json&gt;</c> : valide un profil et affiche son plan de champs (OPS08a, réutilisé par OPS08c) ;</item>
+///   <item><c>--show-profile</c> : affiche le profil intégrateur EMBARQUÉ dans cet exécutable (OPS08c) — diagnostic de packaging.</item>
 /// </list>
 /// Le wizard et le mode silencieux partagent le MÊME <see cref="InstallerEngine"/> (F13 §3).
 /// </summary>
@@ -51,11 +52,13 @@ internal static class Program
                 return RunUninstall(args);
             case "--list-instances":
                 return RunListInstances();
+            case "--show-profile":
+                return RunShowProfile();
             default:
                 Console.Error.WriteLine(
                     "Usage : Liakont.Agent.Installer.exe [sans argument = wizard] | " +
                     "--silent <réponses.json> [--profile <profil.json>] | --uninstall <instance> | " +
-                    "--list-instances | --validate <profil.json>");
+                    "--list-instances | --validate <profil.json> | --show-profile");
                 return 2;
         }
     }
@@ -63,7 +66,18 @@ internal static class Program
     private static int RunWizard()
     {
         InstallerEngine engine = BuildEngine();
-        IntegratorProfile profile = OpenProfile();
+
+        // Profil intégrateur EMBARQUÉ (OPS08c) s'il y en a un, sinon profil par défaut ouvert (F13 §5.3).
+        // Un profil embarqué corrompu interrompt l'installation (jamais de repli silencieux sur l'ouvert).
+        if (!StartupProfileResolver.TryResolve(EmbeddedProfile.TryReadEmbeddedJson(), out IntegratorProfile profile, out string? profileError))
+        {
+            MessageBox.Show(
+                profileError,
+                "Liakont — profil intégrateur invalide",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+            return 1;
+        }
 
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
@@ -83,7 +97,21 @@ internal static class Program
             return 2;
         }
 
-        if (!TryLoadProfile(GetOption(args, "--profile"), out IntegratorProfile profile, out string? profileError))
+        // Précédence du profil en mode silencieux : --profile explicite (déploiement de masse choisi par
+        // l'opérateur) > profil EMBARQUÉ (OPS08c) > profil par défaut ouvert. Un --profile explicite ou un
+        // profil embarqué invalide interrompt — jamais de repli silencieux.
+        string? explicitProfilePath = GetOption(args, "--profile");
+        IntegratorProfile profile;
+        string? profileError;
+        if (explicitProfilePath != null)
+        {
+            if (!TryLoadProfile(explicitProfilePath, out profile, out profileError))
+            {
+                Console.Error.WriteLine(profileError);
+                return 1;
+            }
+        }
+        else if (!StartupProfileResolver.TryResolve(EmbeddedProfile.TryReadEmbeddedJson(), out profile, out profileError))
         {
             Console.Error.WriteLine(profileError);
             return 1;
@@ -198,16 +226,50 @@ internal static class Program
         }
 
         Console.Out.WriteLine($"Profil « {profile.ProfileName} » valide. Plan des champs :");
+        PrintProfilePlan(profile, Console.Out);
+        return 0;
+    }
+
+    // Affiche le profil intégrateur EMBARQUÉ dans cet exécutable (OPS08c) — diagnostic de packaging. Un
+    // profil embarqué corrompu échoue (anti-faux-vert) ; aucun profil embarqué = profil par défaut ouvert.
+    private static int RunShowProfile()
+    {
+        string? embeddedJson = EmbeddedProfile.TryReadEmbeddedJson();
+        if (embeddedJson == null)
+        {
+            Console.Out.WriteLine(
+                "Aucun profil intégrateur n'est embarqué dans cet installeur : tous les champs sont " +
+                "affichés et éditables (profil par défaut ouvert, F13 §5.3).");
+            return 0;
+        }
+
+        if (!StartupProfileResolver.TryResolve(embeddedJson, out IntegratorProfile profile, out string? error))
+        {
+            Console.Error.WriteLine(error);
+            return 1;
+        }
+
+        Console.Out.WriteLine($"Profil intégrateur embarqué : « {profile.ProfileName} ».");
+        if (!string.IsNullOrWhiteSpace(profile.Branding.Name))
+        {
+            Console.Out.WriteLine($"Marque : {profile.Branding.Name}");
+        }
+
+        Console.Out.WriteLine("Plan des champs :");
+        PrintProfilePlan(profile, Console.Out);
+        return 0;
+    }
+
+    private static void PrintProfilePlan(IntegratorProfile profile, TextWriter writer)
+    {
         var engine = new IntegratorProfileEngine(profile);
         foreach (ResolvedField field in engine.ResolveAll())
         {
             string state = DescribeState(field.State);
             string editable = field.IsEditable ? "éditable" : "non éditable";
             string value = field.DefaultValue == null ? "(saisie au wizard)" : $"« {field.DefaultValue} »";
-            Console.Out.WriteLine($"  - {field.Key} : {state}, {editable}, défaut {value}");
+            writer.WriteLine($"  - {field.Key} : {state}, {editable}, défaut {value}");
         }
-
-        return 0;
     }
 
     // Composition root des ports de production : sondes AGT05 (réutilisées), catalogue de services Windows,
@@ -225,34 +287,25 @@ internal static class Program
     // Source de vérité partagée avec le CLI via EmbeddedSourceAdapters — aucun nom inventé, aucune duplication.
     private static string[] KnownAdapters() => EmbeddedSourceAdapters.Names();
 
-    private static IntegratorProfile OpenProfile() =>
-        new IntegratorProfile(
-            "(profil par défaut)",
-            IntegratorBranding.Empty,
-            new Dictionary<string, FieldDeclaration>(StringComparer.Ordinal));
-
-    private static bool TryLoadProfile(string? path, out IntegratorProfile profile, out string? error)
+    // Charge un profil depuis un CHEMIN explicite (--profile en mode silencieux). Le profil embarqué et le
+    // profil par défaut ouvert sont résolus par StartupProfileResolver (OPS08c) — pas ici.
+    private static bool TryLoadProfile(string path, out IntegratorProfile profile, out string? error)
     {
         error = null;
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            profile = OpenProfile();
-            return true;
-        }
 
         try
         {
-            profile = IntegratorProfileLoader.Load(path!);
+            profile = IntegratorProfileLoader.Load(path);
         }
         catch (ProfileFormatException ex)
         {
-            profile = OpenProfile();
+            profile = StartupProfileResolver.DefaultOpenProfile();
             error = ex.Message;
             return false;
         }
         catch (IOException ex)
         {
-            profile = OpenProfile();
+            profile = StartupProfileResolver.DefaultOpenProfile();
             error = $"Lecture du profil « {path} » impossible : {ex.Message}";
             return false;
         }
