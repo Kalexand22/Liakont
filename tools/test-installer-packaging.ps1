@@ -120,6 +120,37 @@ try {
         Assert-True ($shown -match 'exemple-integrateur') "profil « exemple-integrateur » non relu. Sortie : $shown"
     }
 
+    # ── Cas ZIP : chemin de production par défaut (sans -NoZip) ──
+    # Couvre : Compress-Archive, SHA-256, disposition du .zip, Remove-Item $stageDir.
+    $zipOut = Join-Path $workRoot 'zip'
+    $zipRun = Invoke-PackageInstaller -ScriptArgs @(
+        '-ProfilePath', $exampleMonoSite,
+        '-Platform', $plat, '-Configuration', $config, '-SkipBuild',
+        '-OutputDirectory', $zipOut)
+
+    Test-Case 'Chemin ZIP (défaut) : packaging réussit (exit 0)' {
+        Assert-True ($zipRun.ExitCode -eq 0) "exit $($zipRun.ExitCode). Sortie :`n$($zipRun.Output)"
+    }
+
+    Test-Case 'Chemin ZIP (défaut) : exactement un .zip produit' {
+        $zips = @(Get-ChildItem -LiteralPath $zipOut -Filter 'Liakont.Agent.Installer-*.zip' -ErrorAction SilentlyContinue)
+        Assert-True ($zips.Count -eq 1) "attendu 1 zip, obtenu $($zips.Count)."
+    }
+
+    Test-Case 'Chemin ZIP (défaut) : contenu correct — installeur relu (--show-profile) et installer.json présent' {
+        $zip = Get-ChildItem -LiteralPath $zipOut -Filter 'Liakont.Agent.Installer-*.zip' | Select-Object -First 1
+        Assert-True ($null -ne $zip) 'zip introuvable.'
+        $extractDir = Join-Path $zipOut 'extracted'
+        Expand-Archive -LiteralPath $zip.FullName -DestinationPath $extractDir -Force
+        $exe = Get-ChildItem -Path $extractDir -Recurse -Filter 'Liakont.Agent.Installer.exe' | Select-Object -First 1
+        Assert-True ($null -ne $exe) 'Liakont.Agent.Installer.exe introuvable dans le zip extrait.'
+        $shown = (& $exe.FullName --show-profile 2>&1 | Out-String)
+        Assert-True ($LASTEXITCODE -eq 0) "--show-profile a échoué (code $LASTEXITCODE) : $shown"
+        Assert-True ($shown -match 'exemple-integrateur') "profil « exemple-integrateur » non relu dans le zip. Sortie : $shown"
+        $manifestFile = Get-ChildItem -Path $extractDir -Recurse -Filter 'installer.json' | Select-Object -First 1
+        Assert-True ($null -ne $manifestFile) 'installer.json introuvable dans le zip extrait.'
+    }
+
     # ── Cas anti-faux-vert : profil INVALIDE → échec, aucun installateur ──
     $invalidProfile = Join-Path $workRoot 'profil-invalide.json'
     '{ "profil": "cassé", "champs": { "champInconnu": { "etat": "affiché" } } }' |
