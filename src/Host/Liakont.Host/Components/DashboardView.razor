@@ -45,31 +45,7 @@
     </SectionCard>
 
     <SectionCard Title="Agent" TestId="dashboard-agent">
-        @if (Model.Agents.Count == 0)
-        {
-            <p data-testid="dashboard-agent-none">Aucun agent enregistré pour ce tenant.</p>
-        }
-        else
-        {
-            <ul class="liakont-dashboard__agents">
-                @foreach (var agent in Model.Agents)
-                {
-                    <li class="liakont-dashboard__agent" data-testid="dashboard-agent-line">
-                        <span class="liakont-dashboard__agent-name">@agent.Name</span>
-                        @if (agent.IsRevoked)
-                        {
-                            <StatusBadge Label="Révoqué" Severity="Severity.Error" />
-                        }
-                        else
-                        {
-                            <StatusBadge Label="Actif" Severity="Severity.Success" />
-                        }
-                        <span class="liakont-dashboard__agent-meta">Dernier contact : @FormatHeartbeat(agent.LastSeenUtc)</span>
-                        <span class="liakont-dashboard__agent-meta">Version : @(string.IsNullOrWhiteSpace(agent.Version) ? "inconnue" : agent.Version)</span>
-                    </li>
-                }
-            </ul>
-        }
+        <AgentStatusList Agents="Model.Agents" LineTestId="dashboard-agent-line" EmptyTestId="dashboard-agent-none" />
     </SectionCard>
 
     <SectionCard Title="Table TVA" TestId="dashboard-tva">
@@ -146,9 +122,6 @@
     /// </summary>
     [Parameter]
     public EventCallback<string> OnYearStateSelected { get; set; }
-
-    private static string FormatHeartbeat(DateTimeOffset? when) =>
-        when is { } value ? value.ToLocalTime().ToString("dd/MM/yyyy HH:mm") : "jamais";
 
     /// <summary>Points du graphique, dans l'ordre de <c>CurrentYear.Counts</c> (DataIndex = même index).</summary>
     private IReadOnlyList<DashboardChartPoint> BuildYearPoints() =>

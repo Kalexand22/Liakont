@@ -2,6 +2,7 @@ namespace Liakont.Host.Dashboard;
 
 using System;
 using System.Collections.Generic;
+using Liakont.Host.Components;
 
 /// <summary>
 /// Données présentationnelles du tableau de bord d'accueil (WEB01), assemblées par la page
@@ -35,7 +36,7 @@ public sealed record DashboardViewModel
     public required DashboardCounterScope CurrentYear { get; init; }
 
     /// <summary>Agents du tenant (vide si aucun agent enregistré).</summary>
-    public required IReadOnlyList<DashboardAgentLine> Agents { get; init; }
+    public required IReadOnlyList<AgentStatusLine> Agents { get; init; }
 
     /// <summary>État de validation de la table de mapping TVA du tenant.</summary>
     public required DashboardTvaStatus TvaStatus { get; init; }

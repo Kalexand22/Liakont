@@ -1,0 +1,50 @@
+@namespace Liakont.Host.Components
+@using Stratum.Common.UI.Models
+
+@* AgentStatusList — liste de synthèse des agents d'extraction (lot polish UX/UI). Composant PUR
+ * partagé par le tableau de bord et le hub Paramétrage (même rendu, testids historiques préservés
+ * par paramètres). La GESTION du parc (enregistrement, clés) reste sur l'écran dédié /agents :
+ * ici une lecture seule, aucune logique métier. 100 % français. *@
+
+@if (Agents.Count == 0)
+{
+    <p data-testid="@EmptyTestId">Aucun agent enregistré pour ce tenant.</p>
+}
+else
+{
+    <ul class="liakont-agent-list">
+        @foreach (var agent in Agents)
+        {
+            <li class="liakont-agent-list__line" data-testid="@LineTestId">
+                <span class="liakont-agent-list__name">@agent.Name</span>
+                @if (agent.IsRevoked)
+                {
+                    <StatusBadge Label="Révoqué" Severity="Severity.Error" />
+                }
+                else
+                {
+                    <StatusBadge Label="Actif" Severity="Severity.Success" />
+                }
+                <span class="liakont-agent-list__meta">Dernier contact : @FormatHeartbeat(agent.LastSeenUtc)</span>
+                <span class="liakont-agent-list__meta">Version : @(string.IsNullOrWhiteSpace(agent.Version) ? "inconnue" : agent.Version)</span>
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    /// <summary>Agents du tenant (vide = message « aucun agent »).</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<AgentStatusLine> Agents { get; set; } = [];
+
+    /// <summary>Identifiant de test de chaque ligne (testids historiques des vues parentes).</summary>
+    [Parameter, EditorRequired]
+    public string LineTestId { get; set; } = null!;
+
+    /// <summary>Identifiant de test du message « aucun agent ».</summary>
+    [Parameter, EditorRequired]
+    public string EmptyTestId { get; set; } = null!;
+
+    private static string FormatHeartbeat(DateTimeOffset? when) =>
+        when is { } value ? value.ToLocalTime().ToString("dd/MM/yyyy HH:mm") : "jamais";
+}

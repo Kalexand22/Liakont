@@ -3,6 +3,7 @@ namespace Liakont.Host.Parametrage;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Liakont.Host.Components;
 using Liakont.Modules.Archive.Contracts;
 using Liakont.Modules.Ingestion.Contracts.Queries;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
@@ -51,7 +52,7 @@ internal sealed class ParametrageQueryService : IParametrageQueries
     public Task<ArchiveVerificationReport> VerifyArchiveIntegrityAsync(CancellationToken cancellationToken = default) =>
         _archiveVerifier.VerifyTenantVaultAsync(cancellationToken);
 
-    private async Task<IReadOnlyList<ParametrageAgentLine>> BuildAgentsAsync(CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<AgentStatusLine>> BuildAgentsAsync(CancellationToken cancellationToken)
     {
         var tenantId = _tenantContext.TenantId;
         if (string.IsNullOrEmpty(tenantId))
@@ -62,10 +63,10 @@ internal sealed class ParametrageQueryService : IParametrageQueries
         // Le registre d'agents vit en base SYSTÈME : la lecture est scopée par tenantId (jamais cross-tenant).
         var agentDtos = await _agentQueries.ListByTenantAsync(tenantId, cancellationToken).ConfigureAwait(false);
 
-        var agents = new List<ParametrageAgentLine>(agentDtos.Count);
+        var agents = new List<AgentStatusLine>(agentDtos.Count);
         foreach (var agent in agentDtos)
         {
-            agents.Add(new ParametrageAgentLine(agent.Name, agent.LastSeenAtUtc, agent.LastAgentVersion, agent.IsRevoked));
+            agents.Add(new AgentStatusLine(agent.Name, agent.LastSeenAtUtc, agent.LastAgentVersion, agent.IsRevoked));
         }
 
         return agents;

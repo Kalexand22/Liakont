@@ -428,7 +428,7 @@ public static class AppBootstrap
         // « Planifications » (/admin/jobs) inconditionnellement, mais la page socle exige la permission socle
         // job.view — jamais accordée par un rôle Liakont (RolePermissionCatalog, matrice §3 immuable) ; seul un
         // super-admin l'ouvre. Sans filtre, l'entrée menait à une page entièrement vide pour tout opérateur normal
-        // (recette GATE_CONSOLE_WEB). SCOPED car la visibilité dépend de l'utilisateur (comme LiakontNavSectionProvider).
+        // (recette GATE_CONSOLE_WEB). SCOPED car la visibilité dépend de l'utilisateur (comme LiakontNavNodeProvider).
         // Le socle vendored n'est PAS modifié ; la découverte de la ROUTE /admin/jobs (Routes.razor +
         // MapRazorComponents) reste intacte pour le super-admin.
         builder.Services.AddScoped<INavSectionProvider, Liakont.Host.Navigation.JobNavVisibilityFilter>();
@@ -439,9 +439,10 @@ public static class AppBootstrap
         // car la visibilité dépend de l'utilisateur. Le provider socle n'est pas modifié (le filtre y délègue).
         builder.Services.AddScoped<INavSectionProvider, Liakont.Host.Navigation.NotificationNavVisibilityFilter>();
 
-        // Navigation maître Liakont (WEB01) : SCOPED car la visibilité des sections dépend du tenant
-        // courant (pool PDF → Réconciliation) et du rôle de l'utilisateur (permission → Supervision).
-        builder.Services.AddScoped<INavSectionProvider, Liakont.Host.Navigation.LiakontNavSectionProvider>();
+        // Navigation maître Liakont (WEB01, hiérarchisée au lot polish UX/UI) : INavNodeProvider (arbre
+        // avec le sous-menu Paramétrage) — consommé par la sidebar ET la palette de recherche. SCOPED car
+        // la visibilité dépend du tenant courant (pool PDF → Réconciliation) et du rôle (permissions).
+        builder.Services.AddScoped<INavNodeProvider, Liakont.Host.Navigation.LiakontNavNodeProvider>();
         builder.Services.AddScoped<Liakont.Host.Navigation.ILiakontConsoleContext, Liakont.Host.Navigation.LiakontConsoleContext>();
 
         // Composition en lecture du tableau de bord d'accueil (WEB01) : isole l'assemblage hors de la page.

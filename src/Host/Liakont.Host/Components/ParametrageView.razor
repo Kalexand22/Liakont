@@ -83,32 +83,15 @@
     </SectionCard>
 
     <SectionCard Title="Agents" TestId="parametrage-agents">
-        @if (Model.Agents.Count == 0)
-        {
-            <p data-testid="parametrage-agents-none">Aucun agent enregistré pour ce tenant.</p>
-        }
-        else
-        {
-            <ul class="liakont-parametrage__agents">
-                @foreach (var agent in Model.Agents)
-                {
-                    <li class="liakont-parametrage__agent" data-testid="parametrage-agent-line">
-                        <span class="liakont-parametrage__agent-name">@agent.Name</span>
-                        @if (agent.IsRevoked)
-                        {
-                            <StatusBadge Label="Révoqué" Severity="Severity.Error" />
-                        }
-                        else
-                        {
-                            <StatusBadge Label="Actif" Severity="Severity.Success" />
-                        }
-                        <span class="liakont-parametrage__agent-meta">Dernier contact : @FormatHeartbeat(agent.LastSeenUtc)</span>
-                        <span class="liakont-parametrage__agent-meta">Version : @(string.IsNullOrWhiteSpace(agent.Version) ? "inconnue" : agent.Version)</span>
-                    </li>
-                }
-            </ul>
-            <p class="liakont-parametrage__hint">La gestion du parc (enregistrement, révocation, rotation de clé) se fait depuis l'écran Gestion des agents.</p>
-        }
+        <AgentStatusList Agents="Model.Agents" LineTestId="parametrage-agent-line" EmptyTestId="parametrage-agents-none" />
+        @* Bouton de navigation ALIGNÉ sur les autres cartes du hub (Fiscal/PA/TVA/Alertes en avaient
+           toutes une ; la carte Agents n'avait qu'un texte sans lien — lot polish UX/UI). *@
+        <StratumButton Text="Gérer les agents"
+                       Variant="ButtonVariant.Secondary"
+                       Outline
+                       Size="ButtonSize.Small"
+                       Href="@AgentsPageUrl"
+                       TestId="parametrage-agents-link" />
     </SectionCard>
 
     <SectionCard Title="Comptes plateforme agréée (PA)" TestId="parametrage-pa">
@@ -137,33 +120,10 @@
                         <span class="liakont-parametrage__pa-meta" data-testid="parametrage-pa-secret">
                             Clé API : @(pa.Account.HasApiKey ? "configurée (masquée)" : "non configurée")
                         </span>
-                        @if (pa.PluginAvailable && pa.Capabilities is { } caps)
-                        {
-                            <div class="liakont-parametrage__pa-caps" data-testid="parametrage-pa-capabilities">
-                                <span class="liakont-parametrage__pa-caps-title">Capacités déclarées (@caps.PaName) :</span>
-                                <ul class="liakont-parametrage__caps">
-                                    @foreach (var cap in BuildCapabilities(caps))
-                                    {
-                                        <li class="liakont-parametrage__cap" data-testid="parametrage-pa-capability">
-                                            <span>@cap.Label</span>
-                                            @if (cap.Supported)
-                                            {
-                                                <StatusBadge Label="Disponible" Severity="Severity.Success" />
-                                            }
-                                            else
-                                            {
-                                                <StatusBadge Label="Non disponible" Severity="Severity.Info" />
-                                            }
-                                        </li>
-                                    }
-                                </ul>
-                                @if (caps.MaxDocumentsPerRequest is { } max)
-                                {
-                                    <span class="liakont-parametrage__pa-meta">Documents par envoi (max) : @max</span>
-                                }
-                            </div>
-                        }
-                        else
+                        @* Le DÉTAIL des capacités déclarées (8 lignes par compte) vit désormais sur l'écran
+                           Comptes PA (lot polish UX/UI : le hub redevient une SYNTHÈSE — il alourdissait la
+                           page). Seul un repli reste signalé ici : plug-in absent = compte inutilisable. *@
+                        @if (!pa.PluginAvailable)
                         {
                             <p class="liakont-parametrage__pa-meta" data-testid="parametrage-pa-plugin-unavailable">
                                 Capacités indisponibles (plug-in non chargé).
@@ -379,6 +339,9 @@
     /// <summary>Route de l'écran d'édition des paramètres fiscaux du tenant (FIX301).</summary>
     private const string FiscalPageUrl = "/parametrage/fiscal";
 
+    /// <summary>Route de l'écran de gestion des agents (parc + clés API, WEB09).</summary>
+    private const string AgentsPageUrl = "/agents";
+
     /// <summary>Données assemblées de la page (jamais <c>null</c> : la page en fournit toujours un).</summary>
     [Parameter, EditorRequired]
     public ParametrageViewModel Model { get; set; } = null!;
@@ -453,9 +416,6 @@
             ? date
             : null;
 
-    private static string FormatHeartbeat(DateTimeOffset? when) =>
-        when is { } value ? value.ToLocalTime().ToString("dd/MM/yyyy HH:mm") : "jamais";
-
     private static RenderFragment RenderStringParam(string? value, string testKey) => builder =>
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -496,16 +456,4 @@
         }
     };
 
-    private static IReadOnlyList<(string Label, bool Supported)> BuildCapabilities(
-        Liakont.Modules.TenantSettings.Contracts.DTOs.PaCapabilitiesSummaryDto caps) =>
-    [
-        ("Déclaration B2C", caps.SupportsB2cReporting),
-        ("E-reporting de paiement (national)", caps.SupportsDomesticPaymentReporting),
-        ("E-reporting de paiement (international)", caps.SupportsInternationalPaymentReporting),
-        ("Facturation B2B", caps.SupportsB2bInvoicing),
-        ("Avoirs / notes de crédit", caps.SupportsCreditNotes),
-        ("Récupération des déclarations fiscales", caps.SupportsTaxReportRetrieval),
-        ("Récupération de documents", caps.SupportsDocumentRetrieval),
-        ("Rectification de déclaration", caps.SupportsReportRectification),
-    ];
 }

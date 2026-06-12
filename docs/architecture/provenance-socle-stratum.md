@@ -227,6 +227,7 @@ src/Common/UI/Services/BugCapture/BugCaptureService.cs
 src/Common/UI/Components/StratumDataGrid.razor
 src/Common/UI/Components/DeclaredListPage.razor
 src/Common/UI/Components/StratumButton.razor
+src/Common/UI/Components/GlobalShortcutHandler.razor
 src/Common/UI/Resources/SharedResources.resx
 src/Common/UI/Resources/SharedResources.fr.resx
 src/Modules/Job/Application/IScheduleUnitOfWork.cs
@@ -546,6 +547,20 @@ liste pilotant ses actions de masse sur la sélection courante peut désactiver 
 reverser en amont (§6). Côté Liakont (hors socle), `Documents.razor` pose `EnablePersistentSelection="false"`,
 retire « Revérifier tout » des actions groupées et la déclare en action GLOBALE de la barre d'outils (désactivée
 quand aucun document n'est bloqué dans le périmètre — plus jamais de bouton orphelin sur liste vide).
+
+### 4.23 `GlobalShortcutHandler` — la palette de recherche voit aussi les `INavNodeProvider` (polish UX/UI)
+
+**Fichier** : `src/Common/UI/Components/GlobalShortcutHandler.razor`. **Motif** : la palette de
+recherche (Ctrl+K, `CommandPalette`) construisait son arbre via `BuildNavTree()` à partir des SEULS
+`INavSectionProvider` (sections plates), alors que le socle expose `INavNodeProvider` pour la
+navigation hiérarchique (sous-menus) et que la sidebar (`ErpNav`, fichier Liakont) consomme déjà les
+deux via la surcharge `BuildNavTree(sections, nodes)`. Conséquence : toute entrée de navigation
+déclarée en `INavNodeProvider` (sous-menu Paramétrage du lot polish UX/UI) disparaissait de la
+recherche globale. **Modification minimale** : injection `IEnumerable<INavNodeProvider>` + appel de
+la surcharge existante `BuildNavTree(NavProviders, NavNodeProviders)` — `CommandPalette` collecte
+déjà récursivement les feuilles (`CollectSearchableItems`). Aucune autre logique modifiée. Correction
+GÉNÉRIQUE (toute app socle utilisant des node providers en bénéficie), candidate à reverser en
+amont (§6).
 
 ## 5. ADR du socle hérités
 

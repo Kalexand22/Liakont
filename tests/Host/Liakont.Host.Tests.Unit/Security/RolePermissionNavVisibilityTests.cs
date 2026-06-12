@@ -15,7 +15,7 @@ using Xunit;
 /// Preuve de bout en bout (hors navigateur) de la chaîne d'autorisation produit sur une surface
 /// permission-gated DÉJÀ existante (la nav Supervision de WEB01) : rôles realm → projection §3
 /// (<see cref="RolePermissionCatalog"/>) → claims <c>permission</c> → garde UI réelle
-/// (<see cref="ClaimsPermissionService"/>) → visibilité de la nav (<see cref="LiakontNavSectionProvider"/>).
+/// (<see cref="ClaimsPermissionService"/>) → visibilité de la nav (<see cref="LiakontNavNodeProvider"/>).
 /// Pour les 4 utilisateurs de test §4, un rôle élevé NON super-admin voit EXACTEMENT les éléments que
 /// ses rôles accordent (ADR-0017, INV-IDN01-4) — anti-faux-vert : l'élément est réellement visible pour
 /// le rôle qui le porte, et réellement masqué sinon.
@@ -40,10 +40,10 @@ public sealed class RolePermissionNavVisibilityTests
         _ = label;
         using var permissionService = BuildPermissionService(realmRoles);
 
-        var section = new LiakontNavSectionProvider(permissionService, new FakeConsoleContext())
-            .GetSection();
+        var root = new LiakontNavNodeProvider(permissionService, new FakeConsoleContext())
+            .GetNavNode();
 
-        var labels = section.Items.Select(item => item.Label).ToList();
+        var labels = root.Children.Select(item => item.Label).ToList();
 
         // Les éléments toujours présents (non gardés) restent visibles pour tout rôle.
         labels.Should().Contain(["Documents", "Encaissements", "Traitements", "Paramétrage"]);

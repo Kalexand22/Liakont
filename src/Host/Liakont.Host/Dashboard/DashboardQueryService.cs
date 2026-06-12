@@ -121,7 +121,7 @@ internal sealed class DashboardQueryService : IDashboardQueries
         };
     }
 
-    private async Task<IReadOnlyList<DashboardAgentLine>> BuildAgentsAsync(CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<AgentStatusLine>> BuildAgentsAsync(CancellationToken cancellationToken)
     {
         var tenantId = _tenantContext.TenantId;
         if (string.IsNullOrEmpty(tenantId))
@@ -132,10 +132,10 @@ internal sealed class DashboardQueryService : IDashboardQueries
         // Le registre d'agents vit en base SYSTÈME : la lecture est scopée par tenantId (jamais cross-tenant).
         var agentDtos = await _agentQueries.ListByTenantAsync(tenantId, cancellationToken).ConfigureAwait(false);
 
-        var agents = new List<DashboardAgentLine>(agentDtos.Count);
+        var agents = new List<AgentStatusLine>(agentDtos.Count);
         foreach (var agent in agentDtos)
         {
-            agents.Add(new DashboardAgentLine(agent.Name, agent.LastSeenAtUtc, agent.LastAgentVersion, agent.IsRevoked));
+            agents.Add(new AgentStatusLine(agent.Name, agent.LastSeenAtUtc, agent.LastAgentVersion, agent.IsRevoked));
         }
 
         return agents;

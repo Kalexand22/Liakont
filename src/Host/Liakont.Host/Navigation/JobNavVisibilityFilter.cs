@@ -17,7 +17,7 @@ using Stratum.Modules.Job.Web;
 /// </summary>
 /// <remarks>
 /// La section n'est exposée que lorsque l'utilisateur courant porte réellement <see cref="JobPermissions.View"/>.
-/// SCOPED car la visibilité dépend de l'utilisateur (même schéma que <see cref="LiakontNavSectionProvider"/>).
+/// SCOPED car la visibilité dépend de l'utilisateur (même schéma que <see cref="LiakontNavNodeProvider"/>).
 /// Le socle vendored n'est PAS modifié (CLAUDE.md n°11) et AUCUNE permission n'est inventée : la matrice §3
 /// reste intacte — la gestion des planifications « relève du déploiement » (ADR-0011), surface super-admin.
 /// On délègue à <see cref="JobNavSectionProvider.GetSection"/> pour ne pas dupliquer la définition socle de

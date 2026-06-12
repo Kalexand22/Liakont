@@ -51,7 +51,7 @@ public sealed class DashboardViewTests : BunitContext
         DashboardCounterScope? currentMonth = null,
         DashboardCounterScope? previousMonth = null,
         DashboardCounterScope? currentYear = null,
-        IReadOnlyList<DashboardAgentLine>? agents = null,
+        IReadOnlyList<AgentStatusLine>? agents = null,
         DashboardTvaStatus tvaStatus = DashboardTvaStatus.NotConfigured,
         string? tvaValidatedBy = null,
         DateOnly? tvaValidatedDate = null,
@@ -186,7 +186,7 @@ public sealed class DashboardViewTests : BunitContext
     {
         var model = BuildModel(agents:
         [
-            new DashboardAgentLine("Agent A", new DateTimeOffset(2026, 6, 8, 10, 0, 0, TimeSpan.Zero), "1.2.3", false),
+            new AgentStatusLine("Agent A", new DateTimeOffset(2026, 6, 8, 10, 0, 0, TimeSpan.Zero), "1.2.3", false),
         ]);
 
         var cut = Render<DashboardView>(p => p.Add(v => v.Model, model));

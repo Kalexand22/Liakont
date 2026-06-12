@@ -1,6 +1,7 @@
 namespace Liakont.Host.Parametrage;
 
 using System.Collections.Generic;
+using Liakont.Host.Components;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 
 /// <summary>
@@ -25,5 +26,5 @@ public sealed record ParametrageViewModel
     public required IReadOnlyList<PaAccountSettingsDto> PaAccounts { get; init; }
 
     /// <summary>Agents du tenant en lecture seule (vide si aucun agent enregistré).</summary>
-    public required IReadOnlyList<ParametrageAgentLine> Agents { get; init; }
+    public required IReadOnlyList<AgentStatusLine> Agents { get; init; }
 }

@@ -27,8 +27,9 @@
         else
         {
             <ul class="liakont-comptes-pa__accounts">
-                @foreach (var account in Model.Accounts)
+                @foreach (var entry in Model.Accounts)
                 {
+                    var account = entry.Account;
                     <li class="liakont-comptes-pa__account" data-testid="comptes-pa-account">
                         <div class="liakont-comptes-pa__account-head">
                             <span class="liakont-comptes-pa__account-name">@account.PluginType — @account.Environment</span>
@@ -45,6 +46,43 @@
                         <span class="liakont-comptes-pa__account-meta" data-testid="comptes-pa-secret">
                             Clé API : @(account.HasApiKey ? "configurée (masquée)" : "non configurée")
                         </span>
+
+                        @* Capacités déclarées du plug-in — DÉPLACÉES depuis le hub Paramétrage (lot polish
+                           UX/UI) : c'est ici, où l'opérateur configure le compte, que la capacité éclaire la
+                           décision. Comportement piloté par PaCapabilities (CLAUDE.md n°8), jamais inventé. *@
+                        @if (entry.PluginAvailable && entry.Capabilities is { } caps)
+                        {
+                            <div class="liakont-comptes-pa__caps" data-testid="comptes-pa-capabilities">
+                                <span class="liakont-comptes-pa__caps-title">Capacités déclarées (@caps.PaName) :</span>
+                                <ul class="liakont-comptes-pa__caps-list">
+                                    @foreach (var cap in BuildCapabilities(caps))
+                                    {
+                                        <li class="liakont-comptes-pa__cap" data-testid="comptes-pa-capability">
+                                            <span>@cap.Label</span>
+                                            @if (cap.Supported)
+                                            {
+                                                <StatusBadge Label="Disponible" Severity="Severity.Success" />
+                                            }
+                                            else
+                                            {
+                                                <StatusBadge Label="Non disponible" Severity="Severity.Info" />
+                                            }
+                                        </li>
+                                    }
+                                </ul>
+                                @if (caps.MaxDocumentsPerRequest is { } max)
+                                {
+                                    <span class="liakont-comptes-pa__account-meta">Documents par envoi (max) : @max</span>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="liakont-comptes-pa__account-meta" data-testid="comptes-pa-plugin-unavailable">
+                                Capacités indisponibles (plug-in non chargé).
+                            </p>
+                        }
+
                         <div class="liakont-comptes-pa__account-actions">
                             <StratumButton Text="Modifier / saisir la clé…"
                                            Variant="ButtonVariant.Secondary"
@@ -334,4 +372,18 @@
         var trimmed = value?.Trim();
         return string.IsNullOrEmpty(trimmed) ? null : trimmed;
     }
+
+    // Libellés FRANÇAIS des capacités déclarées (PaCapabilitiesSummaryDto) — déplacé tel quel depuis
+    // le hub Paramétrage (lot polish UX/UI). Pure présentation : aucun comportement n'en découle ici.
+    private static IReadOnlyList<(string Label, bool Supported)> BuildCapabilities(PaCapabilitiesSummaryDto caps) =>
+    [
+        ("Déclaration B2C", caps.SupportsB2cReporting),
+        ("E-reporting de paiement (national)", caps.SupportsDomesticPaymentReporting),
+        ("E-reporting de paiement (international)", caps.SupportsInternationalPaymentReporting),
+        ("Facturation B2B", caps.SupportsB2bInvoicing),
+        ("Avoirs / notes de crédit", caps.SupportsCreditNotes),
+        ("Récupération des déclarations fiscales", caps.SupportsTaxReportRetrieval),
+        ("Récupération de documents", caps.SupportsDocumentRetrieval),
+        ("Rectification de déclaration", caps.SupportsReportRectification),
+    ];
 }
