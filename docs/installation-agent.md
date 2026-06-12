@@ -70,11 +70,12 @@ il produit N paquets, chacun avec son profil **embarqué en ressource** dans l'`
 powershell -ExecutionPolicy Bypass -File tools/package-installer.ps1 `
   -ProfilesDirectory deployments/<intégrateur>/profils
 
-# Ou des profils nommés explicitement, x86 seulement
+# Ou un profil unique nommé, x86 seulement
 powershell -ExecutionPolicy Bypass -File tools/package-installer.ps1 -Platform x86 `
-  -ProfilePath config/exemples/profil-integrateur-exemple.json `
-  -ProfilePath config/exemples/profil-integrateur-hebergeur-exemple.json
+  -ProfilePath config/exemples/profil-integrateur-exemple.json
 ```
+
+Via `powershell -File`, pour **plusieurs** profils utilisez `-ProfilesDirectory` (un `-ProfilePath` multiple n'est pas supporté par `-File` ; `-ProfilePath` accepte plusieurs chemins uniquement en appel direct PowerShell : `-ProfilePath 'a.json','b.json'`).
 
 Chaque profil est **validé avant embarquement** (un profil invalide fait échouer le build — jamais de
 masquage silencieux), puis l'embarquement est **vérifié** (`--show-profile` relit le profil). Chaque

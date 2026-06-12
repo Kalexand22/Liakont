@@ -180,13 +180,18 @@ try {
     Copy-Item -LiteralPath $exampleMonoSite -Destination (Join-Path $collA 'profil.json') -Force
     Copy-Item -LiteralPath $exampleMonoSite -Destination (Join-Path $collB 'profil.json') -Force
     $collOut = Join-Path $workRoot 'coll'
-    $collRun = Invoke-PackageInstaller -ScriptArgs @(
-        '-ProfilePath', ((Join-Path $collA 'profil.json') + ',' + (Join-Path $collB 'profil.json')),
-        '-Platform', $plat, '-Configuration', $config, '-SkipBuild', '-NoZip',
-        '-OutputDirectory', $collOut)
+    $a = Join-Path $collA 'profil.json'
+    $b = Join-Path $collB 'profil.json'
+    $collCmd = "& '$packageInstaller' -ProfilePath '$a','$b' -Platform $plat -Configuration $config -SkipBuild -NoZip -OutputDirectory '$collOut'"
+    $collOutput = & $psExe -NoProfile -ExecutionPolicy Bypass -Command $collCmd 2>&1 | Out-String
+    $collExit = $LASTEXITCODE
 
     Test-Case 'Collision de noms de profil : packaging échoue (exit non nul)' {
-        Assert-True ($collRun.ExitCode -ne 0) "le packaging aurait dû échouer sur une collision de noms (exit $($collRun.ExitCode))."
+        Assert-True ($collExit -ne 0) "le packaging aurait dû échouer sur une collision de noms (exit $collExit)."
+    }
+
+    Test-Case 'Collision de noms de profil : échec pour la bonne raison (garde anti-collision exercée)' {
+        Assert-True ($collOutput -match 'collision') "le packaging a échoué mais pas sur la garde anti-collision — vérifier la sortie :`n$collOutput"
     }
 
     Test-Case 'Collision de noms de profil : aucun installateur produit' {
