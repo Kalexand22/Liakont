@@ -9,6 +9,7 @@ using Liakont.Host.AgentApi;
 using Liakont.Host.Behaviors;
 using Liakont.Host.Components;
 using Liakont.Host.Configuration;
+using Liakont.Host.FleetApi;
 using Liakont.Host.Localization;
 using Liakont.Host.MultiTenancy;
 using Liakont.Host.Navigation;
@@ -22,6 +23,8 @@ using Liakont.Modules.Archive.Infrastructure;
 using Liakont.Modules.Archive.Web;
 using Liakont.Modules.Documents.Infrastructure;
 using Liakont.Modules.Documents.Web;
+using Liakont.Modules.FleetSupervision.Application;
+using Liakont.Modules.FleetSupervision.Infrastructure;
 using Liakont.Modules.Ingestion.Application;
 using Liakont.Modules.Ingestion.Infrastructure;
 using Liakont.Modules.Ingestion.Web;
@@ -232,6 +235,20 @@ public static class AppBootstrap
         builder.Services.Configure<SupervisionNotificationOptions>(
             builder.Configuration.GetSection(SupervisionNotificationOptions.SectionName));
         builder.Services.AddJobHandler<SupervisionDigestTrigger, SupervisionDigestFanOutHandler>("Récapitulatif quotidien de supervision");
+
+        // Méta-supervision de FLOTTE (OPS04, F12 §6) : le niveau AU-DESSUS des tenants — IT Innovations
+        // supervise les INSTANCES (le module Supervision, lui, supervise les tenants d'UNE instance). Une
+        // instance peut tenir le rôle CENTRAL (reçoit les heartbeats, dashboard de flotte, notification de
+        // mise à jour) et/ou REPORTING (envoie sa télémétrie technique au central). Tout est DÉSACTIVÉ par
+        // défaut (section "FleetSupervision", gabarit vide dans appsettings.json) — opt-in par déploiement.
+        // La télémétrie est strictement technique : AUCUNE donnée métier d'éditeur (cloisonnement, OPS04).
+        // Les job handlers sont enregistrés ici (comme supervision/ancrage) ; leur PLANIFICATION (cron) est
+        // un geste opérateur via l'admin des planifications.
+        builder.Services.Configure<FleetSupervisionOptions>(
+            builder.Configuration.GetSection(FleetSupervisionOptions.SectionName));
+        builder.Services.AddFleetSupervisionModule();
+        builder.Services.AddJobHandler<InstanceHeartbeatTrigger, InstanceHeartbeatSendHandler>("Télémétrie d'instance (méta-supervision)");
+        builder.Services.AddJobHandler<FleetUpdateNotificationTrigger, FleetUpdateNotificationHandler>("Notification de mise à jour de la flotte");
 
         // Transmission (PAA01) : registre de types des plug-ins PA. Aucun plug-in n'est référencé ici
         // (le module ne connaît AUCUNE PA concrète — CLAUDE.md n°6) ; chaque plug-in PA (PAA02 Fake,
@@ -820,6 +837,10 @@ public static class AppBootstrap
         // API agent → plateforme (contrat d'ingestion, F12 §3) : groupe /api/agent/v1 distinct de
         // l'API console OIDC, authentifié par clé API (filtre) et protégé par rate limiting.
         app.MapAgentApi();
+
+        // Endpoint central de la flotte (OPS04) : POST /api/fleet/v1/heartbeat, authentifié par clé
+        // d'ingestion (en-tête X-Fleet-Key), actif seulement si le rôle central est activé (sinon 404).
+        app.MapFleetApi();
 
         app.MapRazorComponents<App>()
             .AddAdditionalAssemblies(

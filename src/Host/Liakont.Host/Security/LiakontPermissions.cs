@@ -32,4 +32,11 @@ public static class LiakontPermissions
     /// (module Supervision).
     /// </summary>
     public const string Supervision = "liakont.supervision";
+
+    /// <summary>
+    /// Méta-supervision de flotte (OPS04) : dashboard cross-INSTANCE réservé à IT Innovations
+    /// (état des instances, versions, alertes). Distincte de <see cref="Supervision"/>, qui est
+    /// cross-tenant DANS une instance ; la flotte est le niveau au-dessus (cross-instance).
+    /// </summary>
+    public const string Fleet = "liakont.fleet";
 }
