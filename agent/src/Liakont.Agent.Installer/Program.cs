@@ -1,16 +1,30 @@
 namespace Liakont.Agent.Installer;
 
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
+using System.Windows.Forms;
+using Liakont.Agent.Cli;
+using Liakont.Agent.Core;
+using Liakont.Agent.Core.Security;
+using Liakont.Agent.Installer.Configuration;
+using Liakont.Agent.Installer.Deployment;
 using Liakont.Agent.Installer.Profiles;
+using Liakont.Agent.Installer.Silent;
+using Liakont.Agent.Installer.Wizard;
 
 /// <summary>
-/// Point d'entrée du bootstrapper d'installation de l'agent (F13). OPS08a livre le projet, le moteur
-/// de profil intégrateur et la validation de schéma ; les écrans guidés (wizard WinForms) sont livrés
-/// par OPS08b, le packaging multi-profils par OPS08c. En attendant le wizard, le point d'entrée
-/// n'expose qu'un mode sans interface « --validate &lt;profil&gt; » — réutilisé par le packaging
-/// (OPS08c) et par le smoke-test de l'item — qui valide un profil et affiche son plan de champs.
+/// Point d'entrée du bootstrapper d'installation de l'agent (F13). Sans argument : ouvre le WIZARD GUI
+/// (OPS08b §4). Modes sans interface (composition root des ports de production) :
+/// <list type="bullet">
+///   <item><c>--silent &lt;réponses.json&gt; [--profile &lt;p&gt;]</c> : installation silencieuse (mode partagé) ;</item>
+///   <item><c>--uninstall &lt;instance&gt;</c> : désinstallation d'UNE instance (multi-instances) ;</item>
+///   <item><c>--list-instances</c> : liste les instances installées sur ce poste ;</item>
+///   <item><c>--validate &lt;profil.json&gt;</c> : valide un profil et affiche son plan de champs (OPS08a, réutilisé par OPS08c).</item>
+/// </list>
+/// Le wizard et le mode silencieux partagent le MÊME <see cref="InstallerEngine"/> (F13 §3).
 /// </summary>
 internal static class Program
 {
@@ -20,26 +34,130 @@ internal static class Program
     [STAThread]
     internal static int Main(string[] args)
     {
-        // N'attache la console du parent que si stdout n'est PAS déjà redirigé : préserve une
-        // redirection explicite du parent (contrat d'automatisation OPS08c « capturer stdout/stderr »),
-        // tout en rendant les messages français visibles quand « --validate » est lancé nu depuis un
-        // terminal (un exe GUI n'a alors aucun handle stdout). Sans console parente (futur wizard lancé
-        // depuis l'explorateur), AttachConsole échoue sans effet.
-        IntPtr standardOutput = GetStdHandle(StdOutputHandle);
-        if (standardOutput == IntPtr.Zero || standardOutput == new IntPtr(-1))
+        if (args.Length == 0)
         {
-            AttachConsole(AttachParentProcess);
+            return RunWizard();
         }
 
-        if (args.Length >= 1 && string.Equals(args[0], "--validate", StringComparison.OrdinalIgnoreCase))
+        EnsureConsoleForCli();
+
+        switch (args[0].ToLowerInvariant())
         {
-            return RunValidate(args);
+            case "--validate":
+                return RunValidate(args);
+            case "--silent":
+                return RunSilent(args);
+            case "--uninstall":
+                return RunUninstall(args);
+            case "--list-instances":
+                return RunListInstances();
+            default:
+                Console.Error.WriteLine(
+                    "Usage : Liakont.Agent.Installer.exe [sans argument = wizard] | " +
+                    "--silent <réponses.json> [--profile <profil.json>] | --uninstall <instance> | " +
+                    "--list-instances | --validate <profil.json>");
+                return 2;
+        }
+    }
+
+    private static int RunWizard()
+    {
+        InstallerEngine engine = BuildEngine();
+        IntegratorProfile profile = OpenProfile();
+
+        Application.EnableVisualStyles();
+        Application.SetCompatibleTextRenderingDefault(false);
+        using (var form = new WizardForm(engine, profile, KnownAdapters()))
+        {
+            Application.Run(form);
         }
 
-        Console.Error.WriteLine(
-            "Liakont.Agent.Installer : le wizard d'installation guidé sera disponible avec OPS08b. " +
-            "Usage actuel : Liakont.Agent.Installer.exe --validate <chemin-du-profil.json>");
-        return 2;
+        return 0;
+    }
+
+    private static int RunSilent(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("Usage : Liakont.Agent.Installer.exe --silent <réponses.json> [--profile <profil.json>]");
+            return 2;
+        }
+
+        if (!TryLoadProfile(GetOption(args, "--profile"), out IntegratorProfile profile, out string? profileError))
+        {
+            Console.Error.WriteLine(profileError);
+            return 1;
+        }
+
+        InstallationInput input;
+        try
+        {
+            input = AnswerFileLoader.Load(args[1]);
+        }
+        catch (AnswerFileFormatException ex)
+        {
+            Console.Error.WriteLine(ex.Message);
+            return 1;
+        }
+        catch (IOException ex)
+        {
+            Console.Error.WriteLine($"Lecture du fichier de réponses « {args[1]} » impossible : {ex.Message}");
+            return 2;
+        }
+
+        var silent = new SilentInstaller(BuildEngine());
+        return silent.Run(profile, input, Console.Out);
+    }
+
+    private static int RunUninstall(string[] args)
+    {
+        string? instanceName = GetOption(args, AgentInstance.CommandLineOption);
+        if (instanceName == null && args.Length >= 2 && !args[1].StartsWith("--", StringComparison.Ordinal))
+        {
+            instanceName = args[1];
+        }
+
+        if (string.IsNullOrWhiteSpace(instanceName))
+        {
+            Console.Error.WriteLine("Usage : Liakont.Agent.Installer.exe --uninstall <instance>");
+            return 2;
+        }
+
+        DeploymentOutcome outcome = BuildEngine().Uninstall(instanceName!);
+        foreach (string line in outcome.ReportLines)
+        {
+            Console.Out.WriteLine(line);
+        }
+
+        return outcome.Success ? 0 : 1;
+    }
+
+    private static int RunListInstances()
+    {
+        IReadOnlyList<string> instances;
+        try
+        {
+            instances = BuildEngine().ListInstalledInstances();
+        }
+        catch (InvalidOperationException ex)
+        {
+            Console.Error.WriteLine(ex.Message);
+            return 1;
+        }
+
+        if (instances.Count == 0)
+        {
+            Console.Out.WriteLine("Aucune instance de l'agent n'est installée sur ce poste.");
+            return 0;
+        }
+
+        Console.Out.WriteLine("Instances installées :");
+        foreach (string name in instances)
+        {
+            Console.Out.WriteLine("  - " + name);
+        }
+
+        return 0;
     }
 
     private static int RunValidate(string[] args)
@@ -90,6 +208,89 @@ internal static class Program
         }
 
         return 0;
+    }
+
+    // Composition root des ports de production : sondes AGT05 (réutilisées), catalogue de services Windows,
+    // déployeur de processus, chiffrement DPAPI (AGT01). Aucune logique métier (F13 §1).
+    private static InstallerEngine BuildEngine()
+    {
+        ISecretProtector protector = new DpapiSecretProtector();
+        var sourceProbe = new OdbcSourceConnectionProbe();
+        var platformProbe = new HttpPlatformConnectionProbe();
+        var catalog = new ServiceControllerInstanceCatalog();
+        var deployer = new AgentProcessDeployer(protector, KnownAdapters());
+        return new InstallerEngine(sourceProbe, platformProbe, catalog, deployer, protector);
+    }
+
+    // Source de vérité partagée avec le CLI via EmbeddedSourceAdapters — aucun nom inventé, aucune duplication.
+    private static string[] KnownAdapters() => EmbeddedSourceAdapters.Names();
+
+    private static IntegratorProfile OpenProfile() =>
+        new IntegratorProfile(
+            "(profil par défaut)",
+            IntegratorBranding.Empty,
+            new Dictionary<string, FieldDeclaration>(StringComparer.Ordinal));
+
+    private static bool TryLoadProfile(string? path, out IntegratorProfile profile, out string? error)
+    {
+        error = null;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            profile = OpenProfile();
+            return true;
+        }
+
+        try
+        {
+            profile = IntegratorProfileLoader.Load(path!);
+        }
+        catch (ProfileFormatException ex)
+        {
+            profile = OpenProfile();
+            error = ex.Message;
+            return false;
+        }
+        catch (IOException ex)
+        {
+            profile = OpenProfile();
+            error = $"Lecture du profil « {path} » impossible : {ex.Message}";
+            return false;
+        }
+
+        ProfileValidationResult validation = ProfileValidator.Validate(profile);
+        if (!validation.IsValid)
+        {
+            error = $"Profil « {profile.ProfileName} » invalide :" + Environment.NewLine +
+                string.Join(Environment.NewLine, validation.Errors.Select(e => "  - " + e));
+            return false;
+        }
+
+        return true;
+    }
+
+    private static string? GetOption(string[] args, string name)
+    {
+        for (int i = 0; i < args.Length - 1; i++)
+        {
+            if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase))
+            {
+                return args[i + 1];
+            }
+        }
+
+        return null;
+    }
+
+    // N'attache la console du parent que si stdout n'est PAS déjà redirigé : préserve une redirection
+    // explicite du parent (capture stdout/stderr) tout en rendant les messages français visibles quand un
+    // mode CLI est lancé nu depuis un terminal (un exe GUI n'a alors aucun handle stdout).
+    private static void EnsureConsoleForCli()
+    {
+        IntPtr standardOutput = GetStdHandle(StdOutputHandle);
+        if (standardOutput == IntPtr.Zero || standardOutput == new IntPtr(-1))
+        {
+            AttachConsole(AttachParentProcess);
+        }
     }
 
     private static string DescribeState(FieldState state)
