@@ -103,6 +103,22 @@ public sealed class LiakontNavSectionProviderTests
         Labels(section).Should().Contain("Supervision");
     }
 
+    [Fact]
+    public void GetSection_Should_Hide_Flotte_Without_Fleet_Permission()
+    {
+        var section = BuildProvider(permissions: [LiakontPermissions.Supervision]).GetSection();
+
+        Labels(section).Should().NotContain("Flotte");
+    }
+
+    [Fact]
+    public void GetSection_Should_Show_Flotte_With_Fleet_Permission()
+    {
+        var section = BuildProvider(permissions: [LiakontPermissions.Fleet]).GetSection();
+
+        Labels(section).Should().Contain("Flotte");
+    }
+
     private static LiakontNavSectionProvider BuildProvider(
         bool reconciliationAvailable = false,
         int reconciliationPendingCount = 0,

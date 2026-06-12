@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.FleetSupervision.Domain.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.FleetSupervision.Contracts.csproj" />
+  </ItemGroup>
+</Project>

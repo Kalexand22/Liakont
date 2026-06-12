@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Microsoft.Extensions.Options / Logging du framework partagé — nécessaires pour tester FleetQueries
+         (IOptions) et les collaborateurs (ILogger). -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="NetArchTest.Rules" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.FleetSupervision.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.FleetSupervision.Application.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.FleetSupervision.Contracts.csproj" />
+    <ProjectReference Include="../Infrastructure/Liakont.Modules.FleetSupervision.Infrastructure.csproj" />
+    <ProjectReference Include="../../../Common/Abstractions/Stratum.Common.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

@@ -66,6 +66,13 @@ internal sealed class LiakontNavSectionProvider : INavSectionProvider
             items.Add(new NavItem("Supervision", "/supervision"));
         }
 
+        // Flotte : méta-supervision cross-INSTANCE réservée à IT Innovations (OPS04). Le niveau au-dessus de
+        // la supervision (qui est cross-tenant DANS une instance) ; la page refuse l'accès sans la permission.
+        if (_permissions.HasPermission(LiakontPermissions.Fleet))
+        {
+            items.Add(new NavItem("Flotte", "/flotte"));
+        }
+
         return new NavSection(
             Title: "Liakont",
             Icon: "bi-receipt",

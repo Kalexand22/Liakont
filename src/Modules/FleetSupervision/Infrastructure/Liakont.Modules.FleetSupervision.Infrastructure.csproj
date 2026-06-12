@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- Microsoft.Extensions.* (DI, Logging, HealthChecks, Http) du framework partagé — aucun package NuGet
+         nouveau, aucun ADR (repo-standards §4). La méta-supervision ne transporte AUCUN secret métier. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.FleetSupervision.Tests.Unit" />
+    <InternalsVisibleTo Include="Liakont.Modules.FleetSupervision.Tests.Integration" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.FleetSupervision.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.FleetSupervision.Application.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.FleetSupervision.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Abstractions/Stratum.Common.Abstractions.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+    <!-- IJobHandler du module Job (le job d'envoi de télémétrie et le job de notification de version sont des
+         jobs SYSTÈME) — accès inter-module par les Contracts uniquement (module-rules §3). -->
+    <ProjectReference Include="../../Job/Contracts/Stratum.Modules.Job.Contracts.csproj" />
+    <!-- IEmailTransport du module Notification du socle (envoi de l'email « nouvelle version disponible » aux
+         instances self-hosted en retard) — Contracts UNIQUEMENT (module-rules §3). Aucun secret porté ici (le
+         mot de passe SMTP vit dans le transport SMTP, côté Host). -->
+    <ProjectReference Include="../../Notification/Contracts/Stratum.Modules.Notification.Contracts.csproj" />
+  </ItemGroup>
+</Project>
