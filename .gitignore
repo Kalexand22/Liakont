@@ -81,3 +81,7 @@ tmp/
 
 ## Packaging output
 dist/
+
+## Provisioning d'instances (OPS02) — données opérateur, jamais versionnées (seul instances.example.yaml l'est)
+deploy/provisioning/instances.yaml
+deploy/provisioning/instances/
