@@ -1,0 +1,64 @@
+# Lot EXT — Extensions du contrat pivot (segment pivot-duedate)
+# Source : limitation V1 constatée en sandbox Super PDP le 2026-06-12 (correctif 87c7bc0, PR #41) —
+# F14-Plugin-SuperPdp.md §3.2 « Limitation V1 » et §12 O11. Décision opérateur (Karl, 2026-06-12,
+# session interactive) : « L'extension du pivot mérite un item d'orchestration dédié → go ».
+#
+# Contexte : la validation EN 16931 officielle (appliquée par le converter Super PDP) exige, pour
+# toute facture à montant dû POSITIF (BT-115), la date d'échéance de paiement (BT-9) OU les
+# conditions de paiement (BT-20) — règle BR-CO-25, message constaté en sandbox. Le modèle pivot
+# (F01-F02) ne porte aujourd'hui NI l'une NI l'autre : seules les factures SOLDÉES (acompte
+# BT-113 = TTC, paiement comptant) sont émissibles via Super PDP. Une facture à échéance non soldée
+# est rejetée avec le message BR-CO-25 intact (comportement sûr mais limitant).
+
+items:
+  EXT01:
+    title: "Date d'échéance de paiement (EN 16931 BT-9) portée par le pivot de bout en bout"
+    description: |
+      Lever la limitation F14 §12 O11 : une facture à échéance NON SOLDÉE doit être émissible via
+      Super PDP (règle BR-CO-25 : BT-115 positif ⇒ BT-9 ou BT-20 présent). La date d'échéance est
+      une donnée CONTRACTUELLE de la source — elle n'est JAMAIS inventée ni défaultée (CLAUDE.md
+      n°2) : tout maillon qui ne la connaît pas la laisse null, et le converter Super PDP rejette
+      alors avec son message intact (comportement actuel, conservé).
+      1. SPEC D'ABORD : compléter F01-F02 (modèle pivot) avec le champ « date d'échéance de
+         paiement » (EN 16931 BT-9, optionnel) — la spec est la source du contrat, pas l'inverse.
+         Mettre à jour F14 §3.2/§12 (O11 levé côté contrat, la limitation ne subsiste que pour les
+         pivots sans échéance).
+      2. CONTRAT : PivotDocumentDto.paymentDueDate (DateTime? — date pure, paramètre optionnel
+         ADDITIF en fin de constructeur, aucun appelant existant cassé). CanonicalJson l'émet
+         SEULEMENT si non null : le hash canonique d'un document SANS échéance est STRICTEMENT
+         INCHANGÉ — à prouver par un test de non-régression explicite sur les vecteurs/golden
+         existants (un hash qui bouge invaliderait la réconciliation des documents déjà stagés).
+      3. PLUG-IN SUPER PDP : SuperPdpEnInvoice + SuperPdpPayloadBuilder émettent payment_due_date
+         (format yyyy-MM-dd) quand le pivot le porte ; tests unitaires (présent → émis ; absent →
+         omis, comportement BR-CO-25 documenté inchangé).
+      4. ADAPTATEUR EnchèresV6 : renseigner l'échéance depuis la base source UNIQUEMENT si le
+         schéma source V6 la documente (vérifier la spec de l'adaptateur et le mapping existant —
+         lecture seule stricte, CLAUDE.md n°5). Si la source ne la porte pas ou si la spec ne
+         tranche pas : laisser null et CONSIGNER l'écart dans la doc de l'adaptateur (pas de
+         devinette, pas de date fabriquée — le rejet BR-CO-25 reste alors le comportement
+         documenté pour les factures non soldées de cette source).
+      NB : l'envoi sandbox réel d'une facture à échéance non soldée est le critère de la GATE
+      (manuel, credentials locaux) — pas un test CI de cet item.
+    acceptance:
+      - "F01-F02 spécifie BT-9 (optionnel, jamais défaulté) et F14 acte la levée d'O11 côté contrat"
+      - "PivotDocumentDto.paymentDueDate additif ; hash canonique INCHANGÉ pour un document sans échéance (test de non-régression exécuté sur les vecteurs existants)"
+      - "SuperPdpPayloadBuilder émet payment_due_date quand le pivot le porte (tests exécutés présent/absent)"
+      - "Adaptateur EnchèresV6 : échéance mappée si la source la documente, sinon null + écart consigné (aucune date inventée)"
+      - "verify-fast passes (plateforme .NET 10 + agent net48)"
+      - "run-tests passes"
+      - "codex-review clean or only accepted P2s"
+
+  GATE_PIVOT_DUEDATE:
+    type: gate
+    executor: human
+    title: "Gate : échéance de paiement de bout en bout (BR-CO-25 levée)"
+    description: |
+      Validation humaine de la levée de la limitation F14 O11 : un envoi sandbox RÉEL d'une facture
+      À ÉCHÉANCE NON SOLDÉE (montant dû positif + paymentDueDate posée) via le plug-in Super PDP
+      aboutit (facture créée, cycle de vie sain) — la preuve concrète que BR-CO-25 est satisfaite
+      par le pivot étendu. Suite Category=Sandbox avec les variables d'environnement locales
+      (SUPERPDP_SANDBOX_CLIENT_ID/SECRET — jamais en CI), ou envoi manuel équivalent.
+    acceptance:
+      - "Tous les items EXT sont done"
+      - "Un envoi sandbox réel d'une facture à échéance NON SOLDÉE a abouti via le plug-in (manuel)"
+      - "PR du segment feat/pivot-duedate revue et mergée dans main"
