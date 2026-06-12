@@ -71,7 +71,10 @@ public sealed class HomeTests : BunitContext
         Label = label,
         From = from,
         To = to,
-        Counts = [new DashboardStateCount("Detected", 0)],
+
+        // Non nul : la vue masque les états à zéro (lot 2) — à zéro, le graphique année laisserait
+        // place au message « aucun document » et le clic ne serait plus exerçable.
+        Counts = [new DashboardStateCount("Detected", 2)],
     };
 
     private static DashboardViewModel BuildModel() => new()

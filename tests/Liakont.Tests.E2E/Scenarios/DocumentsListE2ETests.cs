@@ -45,20 +45,29 @@ public sealed class DocumentsListE2ETests : KeycloakBaseE2ETest
         await heading.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 30_000 });
         (await heading.IsVisibleAsync()).Should().BeTrue("la page Documents affiche son titre");
 
-        // Barre de filtres métier (F10 §2.1) : période + état + type. Elle s'affiche APRÈS le chargement
-        // asynchrone du périmètre sur le circuit interactif — on l'attend explicitement (anti-course).
+        // Barre de filtres métier (F10 §2.1) : période + type + pastilles d'état (le select État
+        // redondant a été retiré au lot 2 polish — l'état se filtre par les pastilles de synthèse).
+        // Elle s'affiche APRÈS le chargement asynchrone du périmètre sur le circuit interactif — on
+        // l'attend explicitement (anti-course).
         var filters = Page.Locator("[data-testid='documents-filters']");
         await filters.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 30_000 });
         (await filters.IsVisibleAsync())
-            .Should().BeTrue("la barre de filtres période/état/type s'affiche");
-        (await Page.Locator("[data-testid='documents-filter-state']").IsVisibleAsync())
-            .Should().BeTrue("le filtre État est présent");
+            .Should().BeTrue("la barre de filtres période/type s'affiche");
         (await Page.Locator("[data-testid='documents-filter-type']").IsVisibleAsync())
             .Should().BeTrue("le filtre Type est présent");
 
-        // Synthèse permanente par état (pastille « Tous » toujours présente).
-        (await Page.Locator("[data-testid='doc-counts-all']").IsVisibleAsync())
+        // Synthèse permanente par état (pastille « Tous » toujours présente). Les pastilles portent
+        // désormais TOUT le filtrage par état (lot 2) : on vérifie dans un vrai navigateur qu'elles
+        // sont actionnables — le clic passe par le circuit interactif et publie les filtres dans
+        // l'URL (issue #33), indépendamment des documents présents dans le périmètre.
+        var allChip = Page.Locator("[data-testid='doc-counts-all']");
+        (await allChip.IsVisibleAsync())
             .Should().BeTrue("la synthèse par état s'affiche au-dessus de la liste");
+        await allChip.ClickAsync();
+        await Page.WaitForURLAsync(
+            url => url.Contains("du=", System.StringComparison.Ordinal),
+            new PageWaitForURLOptions { Timeout = 30_000 });
+        Page.Url.Should().Contain("du=", "le clic sur une pastille publie les filtres du périmètre dans l'URL");
 
         // FIX206 : la barre d'outils du gabarit commun des listes (DeclaredListPage → StratumDataGrid)
         // expose une icône Rafraîchir (relance la requête en conservant filtres/pagination).

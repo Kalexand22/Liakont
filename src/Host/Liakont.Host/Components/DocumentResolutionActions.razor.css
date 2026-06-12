@@ -1,0 +1,114 @@
+/* DocumentResolutionActions (WEB03c) — habillage des actions de résolution terminale de la fiche
+   détail (lot 2 polish UX/UI : ces classes n'avaient aucune règle ; le h2 se rendait en titre géant
+   au-dessus d'un unique bouton). Layout uniquement ; couleurs sémantiques via tokens. */
+
+.liakont-doc-actions {
+    margin: 0;
+}
+
+/* Titre de section en micro-label discret : la zone vit DANS le bloc d'actions commun de la fiche
+   (fusion visuelle avec la barre d'actions) — le h2 reste pour la structure d'accessibilité. */
+.liakont-doc-actions__title {
+    margin: 0 0 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-text-muted, #6b7280);
+}
+
+.liakont-doc-actions__buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+/* Panneau de saisie ouvert (motif de traitement manuel / recherche du remplaçant). */
+.liakont-doc-actions__panel {
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--color-border, #d1d5db);
+    border-radius: var(--radius-sm, 0.25rem);
+    background: var(--color-surface, #fff);
+}
+
+.liakont-doc-actions__text {
+    margin: 0 0 0.75rem;
+    font-size: 0.875rem;
+}
+
+.liakont-doc-actions__label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+
+.liakont-doc-actions__input {
+    display: block;
+    width: 100%;
+    max-width: 36rem;
+    padding: 0.375rem 0.5rem;
+    border: 1px solid var(--color-border, #d1d5db);
+    border-radius: var(--radius-sm, 0.25rem);
+    background: var(--color-surface, #fff);
+    color: inherit;
+    font: inherit;
+    font-size: 0.875rem;
+}
+
+.liakont-doc-actions__alert {
+    margin-top: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-severity-error-border);
+    border-radius: var(--radius-sm, 0.25rem);
+    background: var(--color-severity-error-bg);
+    font-size: 0.875rem;
+}
+
+.liakont-doc-actions__panel-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+.liakont-doc-actions__empty {
+    margin: 0.75rem 0 0;
+    font-size: 0.875rem;
+    color: var(--color-text-muted, #6b7280);
+}
+
+/* Candidats au remplacement : une ligne lisible par candidat (radio + n° + acheteur + date + montant + état). */
+.liakont-doc-actions__candidates {
+    list-style: none;
+    margin: 0.75rem 0 0;
+    padding: 0;
+}
+
+.liakont-doc-actions__candidate + .liakont-doc-actions__candidate {
+    border-top: 1px solid var(--color-bg-subtle, #f3f4f6);
+}
+
+.liakont-doc-actions__candidate label {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.375rem 0;
+    cursor: pointer;
+    font-size: 0.875rem;
+}
+
+.liakont-doc-actions__candidate-number {
+    font-weight: 600;
+}
+
+.liakont-doc-actions__candidate-customer {
+    min-width: 0;
+}
+
+.liakont-doc-actions__candidate-date,
+.liakont-doc-actions__candidate-amount {
+    color: var(--color-text-muted, #6b7280);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}

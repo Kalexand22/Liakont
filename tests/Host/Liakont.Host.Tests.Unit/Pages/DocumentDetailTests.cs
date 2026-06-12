@@ -9,8 +9,10 @@ using Bunit;
 using FluentAssertions;
 using Liakont.Host.Components.Pages;
 using Liakont.Host.Documents;
+using Liakont.Host.Tests.Unit.Documents;
 using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Pipeline.Contracts;
+using Liakont.Modules.TenantSettings.Contracts.Queries;
 using Microsoft.Extensions.DependencyInjection;
 using Stratum.Common.Abstractions.Security;
 using Xunit;
@@ -32,6 +34,10 @@ public sealed class DocumentDetailTests : BunitContext
         Services.AddScoped<IDocumentControlActions>(_ => new FakeControlActions());
         Services.AddScoped<IDocumentSendActions>(_ => new FakeSendActions());
         Services.AddScoped<IDocumentResolutionConsoleService>(_ => new NoOpResolutionService());
+
+        // Suspension des envois (lot 2) : table TVA VALIDÉE par défaut — le bouton « Envoyer » reste
+        // exerçable pour les tests existants ; le test de suspension ré-enregistre « non validée ».
+        Services.AddScoped<ITenantSettingsConsoleQueries>(_ => new FakeTenantSettingsConsoleQueries());
     }
 
     [Fact]

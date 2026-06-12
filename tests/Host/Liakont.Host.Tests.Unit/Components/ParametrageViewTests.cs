@@ -260,7 +260,10 @@ public sealed class ParametrageViewTests : BunitContext
         lines[0].TextContent.Should().Contain("Actif");
         lines[0].TextContent.Should().Contain("1.2.3");
         lines[1].TextContent.Should().Contain("Révoqué");
-        lines[1].TextContent.Should().Contain("jamais");
+
+        // Sans aucun contact, la méta « Dernier contact : jamais » n'est plus affichée (lot 2 : le
+        // badge porte l'information — « Révoqué » prime sur « Jamais connecté »).
+        lines[1].TextContent.Should().NotContain("Dernier contact");
         lines[1].TextContent.Should().Contain("inconnue");
     }
 
@@ -354,7 +357,8 @@ public sealed class ParametrageViewTests : BunitContext
         var cut = Render<ParametrageView>(p => p.Add(v => v.Model, BuildModel()));
 
         cut.FindAll("[data-testid='parametrage-audit-export']").Should().BeEmpty();
-        cut.FindAll("[data-testid='parametrage-exports']").Should().BeEmpty();
+        cut.FindAll("[data-testid='parametrage-exports-audit']").Should().BeEmpty();
+        cut.FindAll("[data-testid='parametrage-exports-tenant']").Should().BeEmpty();
     }
 
     [Fact]

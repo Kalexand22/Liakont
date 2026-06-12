@@ -1,4 +1,5 @@
 @namespace Liakont.Host.Components
+@using System.Linq
 @using Liakont.Host.Dashboard
 @using Stratum.Common.UI.Models
 
@@ -26,20 +27,32 @@
            la liste ouverte montre EXACTEMENT ce que le compteur annonce. Lien naturel (vue pure). *@
         @foreach (var scope in new[] { Model.CurrentMonth, Model.PreviousMonth })
         {
+            @* Seuls les états PRÉSENTS sont affichés (retour de recette lot 2 : 16 tuiles à zéro
+               noyaient les 3 bloquées) — un périmètre vide le dit en toutes lettres. *@
+            var present = NonZero(scope.Counts);
             <div class="liakont-dashboard__scope" data-testid="@($"dashboard-scope-{scope.Key}")">
                 <h3 class="liakont-dashboard__scope-title">@scope.Label</h3>
-                <div class="liakont-dashboard__counters">
-                    @foreach (var counter in scope.Counts)
-                    {
-                        <a class="liakont-dashboard__counter"
-                           href="@scope.DocumentsUrl(counter.State)"
-                           aria-label="@($"{counter.Count} document(s) — {DocumentStateDisplay.For(counter.State).Label} ({scope.Label}) : voir la liste")"
-                           data-testid="@($"counter-{scope.Key}-{counter.State}")">
-                            <span class="liakont-dashboard__counter-value">@counter.Count</span>
-                            <DocumentStateBadge State="@counter.State" />
-                        </a>
-                    }
-                </div>
+                @if (present.Count == 0)
+                {
+                    <p class="liakont-dashboard__scope-empty" data-testid="@($"dashboard-scope-{scope.Key}-empty")">
+                        Aucun document sur cette période.
+                    </p>
+                }
+                else
+                {
+                    <div class="liakont-dashboard__counters">
+                        @foreach (var counter in present)
+                        {
+                            <a class="liakont-dashboard__counter"
+                               href="@scope.DocumentsUrl(counter.State)"
+                               aria-label="@($"{counter.Count} document(s) — {DocumentStateDisplay.For(counter.State).Label} ({scope.Label}) : voir la liste")"
+                               data-testid="@($"counter-{scope.Key}-{counter.State}")">
+                                <span class="liakont-dashboard__counter-value">@counter.Count</span>
+                                <DocumentStateBadge State="@counter.State" />
+                            </a>
+                        }
+                    </div>
+                }
             </div>
         }
     </SectionCard>
@@ -93,16 +106,23 @@
        les tuiles, délégué à la PAGE via OnYearStateSelected (la vue reste pure : aucune navigation ici).
        L'état brut est retrouvé par DataIndex (les points sont construits dans l'ordre de Counts). ── *@
     <SectionCard Title="@Model.CurrentYear.Label" TestId="dashboard-year">
-        <Chart TData="DashboardChartPoint"
-               Type="ChartType.Bar"
-               Data="@BuildYearPoints()"
-               CategoryField="Etat"
-               Series="@YearSeries"
-               ShowLegend="false"
-               Height="220"
-               AriaLabel="@($"Répartition des documents par état — {Model.CurrentYear.Label}")"
-               OnPointClick="OnYearPointClickAsync"
-               TestId="dashboard-year-chart" />
+        @if (YearCounts.Count == 0)
+        {
+            <p data-testid="dashboard-year-empty">Aucun document sur l'année en cours.</p>
+        }
+        else
+        {
+            <Chart TData="DashboardChartPoint"
+                   Type="ChartType.Bar"
+                   Data="@BuildYearPoints()"
+                   CategoryField="Etat"
+                   Series="@YearSeries"
+                   ShowLegend="false"
+                   Height="220"
+                   AriaLabel="@($"Répartition des documents par état — {Model.CurrentYear.Label}")"
+                   OnPointClick="OnYearPointClickAsync"
+                   TestId="dashboard-year-chart" />
+        }
     </SectionCard>
 
 </div>
@@ -123,15 +143,26 @@
     [Parameter]
     public EventCallback<string> OnYearStateSelected { get; set; }
 
-    /// <summary>Points du graphique, dans l'ordre de <c>CurrentYear.Counts</c> (DataIndex = même index).</summary>
+    /// <summary>États non nuls d'un périmètre, dans l'ordre canonique du modèle (les zéros sont masqués).</summary>
+    private static IReadOnlyList<DashboardStateCount> NonZero(IReadOnlyList<DashboardStateCount> counts) =>
+        counts.Where(c => c.Count > 0).ToList();
+
+    /// <summary>
+    /// États non nuls de l'année (retour de recette lot 2 : avec les 9 états canoniques dont 7 à zéro,
+    /// l'axe du graphique sautait des étiquettes — illisible). Sert AUSSI au mapping du clic :
+    /// DataIndex indexe cette liste filtrée, pas les compteurs complets.
+    /// </summary>
+    private IReadOnlyList<DashboardStateCount> YearCounts => NonZero(Model.CurrentYear.Counts);
+
+    /// <summary>Points du graphique, dans l'ordre de <see cref="YearCounts"/> (DataIndex = même index).</summary>
     private IReadOnlyList<DashboardChartPoint> BuildYearPoints() =>
-        Model.CurrentYear.Counts
+        YearCounts
             .Select(c => new DashboardChartPoint(DocumentStateDisplay.For(c.State).Label, c.Count))
             .ToList();
 
     private async Task OnYearPointClickAsync(ChartPointClickArgs args)
     {
-        var counts = Model.CurrentYear.Counts;
+        var counts = YearCounts;
         if (args.DataIndex < 0 || args.DataIndex >= counts.Count || !OnYearStateSelected.HasDelegate)
         {
             return;

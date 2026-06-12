@@ -43,7 +43,8 @@ public sealed class DocumentDetailViewTests : BunitContext
         cut.Find("[data-testid='document-detail-number']").TextContent.Should().Contain("2026-001");
         cut.Find("[data-testid='document-detail-type']").TextContent.Should().Contain("Facture");
         cut.Find("[data-testid='document-detail-customer']").TextContent.Should().Contain("DUPONT J.");
-        cut.Find("[data-testid='document-detail-total-gross']").TextContent.Should().Contain("162,80");
+        cut.Find("[data-testid='document-detail-total-gross']").TextContent.Should().Contain("162,80")
+            .And.Contain("€", "les montants affichent la devise (retour de recette lot 2)");
         cut.FindAll("[data-testid='document-detail-state']").Should().NotBeEmpty();
     }
 

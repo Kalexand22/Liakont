@@ -11,12 +11,14 @@
 @using Liakont.Host.Security
 @using Liakont.Modules.Documents.Contracts
 @using Liakont.Modules.Documents.Contracts.DTOs
+@using Liakont.Modules.TenantSettings.Contracts.Queries
 @using Microsoft.AspNetCore.WebUtilities
 @using Stratum.Common.Abstractions.Security
 @inject IDocumentConsoleQueries DocumentQueries
 @inject IDocumentSendActions SendActions
 @inject IDocumentControlActions ControlActions
 @inject IPermissionService Permissions
+@inject ITenantSettingsConsoleQueries SettingsQueries
 @inject DocumentsListFilterMemory FilterMemory
 @inject NavigationManager Nav
 @inject ILogger<Documents> Logger
@@ -33,36 +35,25 @@
 }
 else
 {
-    @* ── Barre de filtres métier (F10 §2.1). Période = filtre SERVEUR (recharge le périmètre) ;
-       État/Type = filtres CLIENT appliqués en mémoire par DeclaredListPage ; la recherche libre
+    @* ── Barre de filtres métier (F10 §2.1), sur UNE rangée (lot polish UX/UI). Période = filtre
+       SERVEUR (recharge le périmètre) ; Type = filtre CLIENT ; l'ÉTAT se filtre par les pastilles de
+       synthèse (DocumentCountsBanner) — le select redondant a été retiré. La recherche libre
        (n°, acheteur) est la recherche « / » intégrée de la grille. ── *@
-    <div class="doc-filters" data-testid="documents-filters">
-        <div class="doc-filters__group">
-            <label class="doc-filters__label" for="doc-from">Période</label>
-            <input id="doc-from" type="date" class="doc-filters__input" data-testid="documents-filter-from"
+    <div class="doc-toolbar" data-testid="documents-filters">
+        <div class="doc-toolbar__group">
+            <label class="doc-toolbar__label" for="doc-from">Période</label>
+            <input id="doc-from" type="date" class="doc-toolbar__input" data-testid="documents-filter-from"
                    value="@_from.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)"
                    @onchange="OnFromChangedAsync" />
-            <span class="doc-filters__sep">→</span>
-            <input id="doc-to" type="date" class="doc-filters__input" data-testid="documents-filter-to"
+            <span class="doc-toolbar__sep">→</span>
+            <input id="doc-to" type="date" class="doc-toolbar__input" data-testid="documents-filter-to"
                    value="@_to.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)"
                    @onchange="OnToChangedAsync" />
         </div>
 
-        <div class="doc-filters__group">
-            <label class="doc-filters__label" for="doc-state">État</label>
-            <select id="doc-state" class="doc-filters__input" data-testid="documents-filter-state"
-                    value="@(_selectedState ?? string.Empty)" @onchange="OnStateChanged">
-                <option value="">Tous</option>
-                @foreach (var state in DocumentStateDisplay.CanonicalOrder)
-                {
-                    <option value="@state">@DocumentStateDisplay.For(state).Label</option>
-                }
-            </select>
-        </div>
-
-        <div class="doc-filters__group">
-            <label class="doc-filters__label" for="doc-type">Type</label>
-            <select id="doc-type" class="doc-filters__input" data-testid="documents-filter-type"
+        <div class="doc-toolbar__group">
+            <label class="doc-toolbar__label" for="doc-type">Type</label>
+            <select id="doc-type" class="doc-toolbar__input" data-testid="documents-filter-type"
                     value="@(_selectedType ?? string.Empty)" @onchange="OnTypeChanged">
                 <option value="">Tous</option>
                 @foreach (var type in _typeOptions)
@@ -71,6 +62,16 @@ else
                 }
             </select>
         </div>
+
+        @* ── Synthèse PERMANENTE par état (F10 §2.1), fusionnée dans la rangée de filtres. Périmètre =
+           période + type (clic = filtre État). Décision assumée : le bandeau est une synthèse de
+           PÉRIMÈTRE (comme les compteurs du tableau de bord WEB01), volontairement INDÉPENDANTE de la
+           recherche libre « / » de la grille (un quick-find transitoire, propriété interne du composant). ── *@
+        @* SelectedState : préfixe @ OBLIGATOIRE (param string : sans @, Razor passe la chaîne
+           LITTÉRALE « _selectedState » et la pastille active ne s'allume jamais — piège CS0414). *@
+        <DocumentCountsBanner Counts="_counts"
+                              SelectedState="@_selectedState"
+                              OnStateSelected="OnStateSelectedFromBanner" />
     </div>
 
     @* ── Retour visuel des actions d'envoi (WEB05) : message opérateur en français (succès ou refus), avec
@@ -138,14 +139,6 @@ else
         </div>
     }
 
-    @* ── Synthèse PERMANENTE par état (F10 §2.1). Périmètre = période + type (clic = filtre État).
-       Décision assumée : le bandeau est une synthèse de PÉRIMÈTRE (comme les compteurs du tableau de
-       bord WEB01), volontairement INDÉPENDANTE de la recherche libre « / » de la grille (un quick-find
-       transitoire, propriété interne du composant). La recherche libre n'altère donc pas les compteurs. ── *@
-    <DocumentCountsBanner Counts="_counts"
-                          SelectedState="_selectedState"
-                          OnStateSelected="OnStateSelectedFromBanner" />
-
     @* ── Liste : gabarit DeclaredListPage (aucune grille « maison »). Rechargée (re-key) au changement
        de période ; re-filtrée en mémoire (CustomFilterVersion) au changement d'état/type. ── *@
     <DeclaredListPage @key="_periodEpoch"
@@ -183,7 +176,8 @@ else
                 <StratumButton Text="Tout envoyer"
                                Variant="ButtonVariant.Secondary"
                                Size="ButtonSize.Small"
-                               Disabled="@_sendInProgress"
+                               Disabled="@(_sendInProgress || _sendsSuspended)"
+                               Title="@(_sendsSuspended ? DocumentSendSuspension.Reason : null)"
                                OnClick="OpenSendAllConfirmAsync"
                                TestId="documents-send-all" />
                 <StratumButton Text="Lancer un traitement"
@@ -226,6 +220,13 @@ else
     private int _periodEpoch;
     private int _customFilterVersion;
     private int _activeCustomFilterCount;
+
+    // ── Suspension des envois (retour de recette lot 2) ── Quand la table TVA n'est pas validée, le job
+    // d'envoi refuse de toute façon (garde SERVEUR, jamais affaiblie — CLAUDE.md n°3) : ce flag ne fait que
+    // DÉSACTIVER « Tout envoyer » avec une explication (message partagé avec le bouton « Envoyer » de la
+    // fiche détail), au lieu de laisser l'opérateur découvrir le refus après confirmation. Si la lecture
+    // échoue, on retombe sur ACTIF (le serveur reste la seule garde réelle).
+    private bool _sendsSuspended;
 
     // ── Actions d'envoi (WEB05) ── Permission d'action opérateur + état de l'UI d'envoi. Sans liakont.actions :
     // _canAct=false, _bulkActions=null (pas de sélection ni de barre d'actions groupées), aucun bouton d'envoi.
@@ -291,9 +292,17 @@ else
             {
                 __builder.AddContent(0, DocumentTypeDisplay.For(item.DocumentType));
             },
+            ["CustomerName"] = item => __builder =>
+            {
+                // Acheteur non extrait par la source : tiret explicite plutôt qu'une cellule vide ambiguë.
+                __builder.AddContent(0, string.IsNullOrWhiteSpace(item.CustomerName) ? "—" : item.CustomerName);
+            },
             ["TotalGross"] = item => __builder =>
             {
-                __builder.AddContent(0, item.TotalGross.ToString("N2", Fr));
+                __builder.OpenElement(0, "span");
+                __builder.AddAttribute(1, "class", "doc-amount");
+                __builder.AddContent(2, item.TotalGross.ToString("N2", Fr) + " €");
+                __builder.CloseElement();
             },
             ["IssueDate"] = item => __builder =>
             {
@@ -339,6 +348,21 @@ else
                     Execute: RecheckSelectionAsync,
                     SuppressSuccessToast: true),
             ];
+        }
+
+        if (_canAct)
+        {
+            try
+            {
+                var overview = await SettingsQueries.GetSettingsOverview();
+                _sendsSuspended = overview.TvaMapping is not { IsValidated: true };
+            }
+            catch (Exception ex)
+            {
+                // Lecture du paramétrage indisponible : le bouton reste ACTIF (jamais de fausse suspension) —
+                // la garde réelle est côté serveur. L'échec est tracé, pas avalé.
+                Logger.LogError(ex, "Failed to read the TVA validation status for the send-all button.");
+            }
         }
 
         var today = DateOnly.FromDateTime(DateTime.Today);
@@ -405,12 +429,6 @@ else
             await ReloadPeriodAsync();
             PersistFilters();
         }
-    }
-
-    private void OnStateChanged(ChangeEventArgs e)
-    {
-        _selectedState = NormalizeSelection(e.Value as string);
-        ApplyCustomFilters();
     }
 
     private void OnTypeChanged(ChangeEventArgs e)

@@ -16,10 +16,12 @@
 
     @if (Model.Profile is null)
     {
-        <div class="liakont-parametrage__alert" role="alert" data-testid="parametrage-profile-incomplete">
-            <StatusBadge Label="PARAMÉTRAGE INCOMPLET" Severity="Severity.Error" />
-            <span>Le profil du tenant n'est pas encore créé — le traitement des documents est suspendu.
-                Importez le paramétrage du tenant (profil légal) pour reprendre le traitement.</span>
+        <div class="liakont-parametrage__banner">
+            <LiakontAlert TestId="parametrage-profile-incomplete">
+                <StatusBadge Label="PARAMÉTRAGE INCOMPLET" Severity="Severity.Error" />
+                <span>Le profil du tenant n'est pas encore créé — le traitement des documents est suspendu.
+                    Importez le paramétrage du tenant (profil légal) pour reprendre le traitement.</span>
+            </LiakontAlert>
         </div>
     }
 
@@ -238,89 +240,88 @@
         }
     </SectionCard>
 
-    @* Exports d'archive (FIX208) — expose les endpoints API03 streamés. Téléchargement réel via un
-     * <a href ... download> (et non un bouton Blazor) : l'endpoint renvoie un ZIP en pièce jointe HORS
-     * routeur Blazor ; l'auth passe par le cookie de session (permission re-vérifiée côté serveur). *@
-    @if (CanExportAudit || CanExportTenant)
+    @* Exports d'archive (FIX208) — expose les endpoints API03 streamés. DEUX cartes distinctes
+     * (demande opérateur lot 2 : une carte unique trop haute forçait le scroll) : dossier d'audit par
+     * période et réversibilité du tenant occupent chacune une case de la grille. Téléchargement réel
+     * via un <a href ... download> (et non un bouton Blazor) : l'endpoint renvoie un ZIP en pièce
+     * jointe HORS routeur Blazor ; l'auth passe par le cookie de session (permission re-vérifiée
+     * côté serveur). *@
+    @if (CanExportAudit)
     {
-        <SectionCard Title="Exports d'archive" TestId="parametrage-exports">
+        <SectionCard Title="Export : dossier d'audit par période" TestId="parametrage-exports-audit">
+            <div class="liakont-parametrage__export" data-testid="parametrage-audit-export">
+                <p>Constitue le dossier d'archive (pivots transmis, accusés de la Plateforme Agréée, preuves d'intégrité) au format ZIP — pour répondre à un contrôle fiscal sur une période donnée.</p>
+                <div class="liakont-parametrage__export-period">
+                    <label for="parametrage-audit-from">Du</label>
+                    <input id="parametrage-audit-from" type="date" data-testid="parametrage-audit-from"
+                           value="@(_auditFrom?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))"
+                           @onchange="OnAuditFromChanged" />
+                    <span class="liakont-parametrage__export-sep">→</span>
+                    <label for="parametrage-audit-to">Au</label>
+                    <input id="parametrage-audit-to" type="date" data-testid="parametrage-audit-to"
+                           value="@(_auditTo?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))"
+                           @onchange="OnAuditToChanged" />
+                </div>
+                <p class="liakont-parametrage__hint">L'export couvre les mois entiers touchés par la période choisie (granularité mensuelle du coffre d'archive).</p>
 
-            @if (CanExportAudit)
-            {
-                <div class="liakont-parametrage__export" data-testid="parametrage-audit-export">
-                    <h3 class="liakont-parametrage__export-title">Dossier d'audit par période</h3>
-                    <p>Constitue le dossier d'archive (pivots transmis, accusés de la Plateforme Agréée, preuves d'intégrité) au format ZIP — pour répondre à un contrôle fiscal sur une période donnée.</p>
-                    <div class="liakont-parametrage__export-period">
-                        <label for="parametrage-audit-from">Du</label>
-                        <input id="parametrage-audit-from" type="date" data-testid="parametrage-audit-from"
-                               value="@(_auditFrom?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))"
-                               @onchange="OnAuditFromChanged" />
-                        <span class="liakont-parametrage__export-sep">→</span>
-                        <label for="parametrage-audit-to">Au</label>
-                        <input id="parametrage-audit-to" type="date" data-testid="parametrage-audit-to"
-                               value="@(_auditTo?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))"
-                               @onchange="OnAuditToChanged" />
-                    </div>
-                    <p class="liakont-parametrage__hint">L'export couvre les mois entiers touchés par la période choisie (granularité mensuelle du coffre d'archive).</p>
+                @if (AuditRangeValid)
+                {
+                    <a class="liakont-parametrage__export-link"
+                       href="@AuditExportUrl"
+                       data-testid="parametrage-audit-export-link"
+                       download>
+                        Télécharger le dossier d'audit (ZIP)
+                    </a>
+                }
+                else
+                {
+                    <p class="liakont-parametrage__alert" role="alert" data-testid="parametrage-audit-export-invalid">
+                        @AuditRangeMessage
+                    </p>
+                }
+            </div>
+        </SectionCard>
+    }
 
-                    @if (AuditRangeValid)
-                    {
-                        <a class="liakont-parametrage__export-link"
-                           href="@AuditExportUrl"
-                           data-testid="parametrage-audit-export-link"
-                           download>
-                            Télécharger le dossier d'audit (ZIP)
-                        </a>
-                    }
-                    else
-                    {
-                        <p class="liakont-parametrage__alert" role="alert" data-testid="parametrage-audit-export-invalid">
-                            @AuditRangeMessage
+    @if (CanExportTenant)
+    {
+        <SectionCard Title="Export : réversibilité (dossier complet du tenant)" TestId="parametrage-exports-tenant">
+            <div class="liakont-parametrage__export" data-testid="parametrage-tenant-export">
+                <p>Exporte l'intégralité du dossier du tenant (coffre d'archive, suivi des documents, paramétrage et journal d'audit) au format ZIP. Opération lourde, destinée à une restitution — par exemple lors d'un changement de logiciel.</p>
+
+                @if (!_showTenantConfirm)
+                {
+                    <StratumButton Text="Exporter le dossier complet du tenant"
+                                   Variant="ButtonVariant.Secondary"
+                                   Size="ButtonSize.Small"
+                                   OnClick="@(_ => _showTenantConfirm = true)"
+                                   TestId="parametrage-tenant-export-btn" />
+                }
+                else
+                {
+                    <div class="liakont-parametrage__confirm" role="dialog" aria-label="Confirmer l'export de réversibilité"
+                         data-testid="parametrage-tenant-export-confirm-dialog">
+                        <p data-testid="parametrage-tenant-export-confirm-text">
+                            Vous allez télécharger l'intégralité du dossier du tenant. L'opération peut être longue selon le volume archivé. Confirmer ?
                         </p>
-                    }
-                </div>
-            }
-
-            @if (CanExportTenant)
-            {
-                <div class="liakont-parametrage__export" data-testid="parametrage-tenant-export">
-                    <h3 class="liakont-parametrage__export-title">Réversibilité : dossier complet du tenant</h3>
-                    <p>Exporte l'intégralité du dossier du tenant (coffre d'archive, suivi des documents, paramétrage et journal d'audit) au format ZIP. Opération lourde, destinée à une restitution — par exemple lors d'un changement de logiciel.</p>
-
-                    @if (!_showTenantConfirm)
-                    {
-                        <StratumButton Text="Exporter le dossier complet du tenant"
-                                       Variant="ButtonVariant.Secondary"
-                                       Size="ButtonSize.Small"
-                                       OnClick="@(_ => _showTenantConfirm = true)"
-                                       TestId="parametrage-tenant-export-btn" />
-                    }
-                    else
-                    {
-                        <div class="liakont-parametrage__confirm" role="dialog" aria-label="Confirmer l'export de réversibilité"
-                             data-testid="parametrage-tenant-export-confirm-dialog">
-                            <p data-testid="parametrage-tenant-export-confirm-text">
-                                Vous allez télécharger l'intégralité du dossier du tenant. L'opération peut être longue selon le volume archivé. Confirmer ?
-                            </p>
-                            <div class="liakont-parametrage__confirm-actions">
-                                <a class="liakont-parametrage__export-link"
-                                   href="@TenantExportUrl"
-                                   data-testid="parametrage-tenant-export-confirm"
-                                   @onclick="@(_ => _showTenantConfirm = false)"
-                                   download>
-                                    Confirmer et télécharger
-                                </a>
-                                <StratumButton Text="Annuler"
-                                               Variant="ButtonVariant.Secondary"
-                                               Outline
-                                               Size="ButtonSize.Small"
-                                               OnClick="@(_ => _showTenantConfirm = false)"
-                                               TestId="parametrage-tenant-export-cancel" />
-                            </div>
+                        <div class="liakont-parametrage__confirm-actions">
+                            <a class="liakont-parametrage__export-link"
+                               href="@TenantExportUrl"
+                               data-testid="parametrage-tenant-export-confirm"
+                               @onclick="@(_ => _showTenantConfirm = false)"
+                               download>
+                                Confirmer et télécharger
+                            </a>
+                            <StratumButton Text="Annuler"
+                                           Variant="ButtonVariant.Secondary"
+                                           Outline
+                                           Size="ButtonSize.Small"
+                                           OnClick="@(_ => _showTenantConfirm = false)"
+                                           TestId="parametrage-tenant-export-cancel" />
                         </div>
-                    }
-                </div>
-            }
+                    </div>
+                }
+            </div>
         </SectionCard>
     }
 

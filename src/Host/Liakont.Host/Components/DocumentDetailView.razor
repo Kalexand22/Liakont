@@ -63,10 +63,11 @@
 
                 @if (IsBlocked)
                 {
-                    <div class="liakont-doc-detail__alert" role="alert" data-testid="document-detail-blocking">
+                    @* Sévérité Warning : alignée sur le badge « Bloqué » (F10 §2.2 : orange, action requise). *@
+                    <LiakontAlert Severity="Severity.Warning" TestId="document-detail-blocking">
                         <span class="liakont-doc-detail__alert-title">Ce qui a déclenché le blocage</span>
                         <span>@BlockingMessage</span>
-                    </div>
+                    </LiakontAlert>
                 }
 
             </SectionCard>
@@ -146,7 +147,7 @@
                         }
                         else
                         {
-                            <div class="liakont-doc-detail__alert" role="alert" data-testid="document-detail-lines-mismatch">
+                            <LiakontAlert TestId="document-detail-lines-mismatch">
                                 <span class="liakont-doc-detail__alert-title">Écart entre les totaux et le détail</span>
                                 <span>
                                     @if (!totals.NetConsistent)
@@ -159,7 +160,7 @@
                                     }
                                     <text> Vérifiez le document dans le logiciel source.</text>
                                 </span>
-                            </div>
+                            </LiakontAlert>
                         }
                     }
                 }
@@ -186,17 +187,19 @@
 
                 @if (IsBlocked)
                 {
-                    <div class="liakont-doc-detail__alert" role="alert" data-testid="document-detail-controls-blocked">
+                    @* Sévérité Warning : alignée sur le badge « Bloqué » (F10 §2.2 : orange, action requise). *@
+                    <LiakontAlert Severity="Severity.Warning" TestId="document-detail-controls-blocked">
                         <span class="liakont-doc-detail__alert-title">Contrôle échoué — action requise</span>
                         <span>@BlockingMessage</span>
-                    </div>
+                    </LiakontAlert>
                 }
                 else if (IsRejected)
                 {
-                    <div class="liakont-doc-detail__alert" role="alert" data-testid="document-detail-controls-rejected">
+                    @* Sévérité Error : alignée sur le badge « Rejeté » (F10 §2.2 : rouge). *@
+                    <LiakontAlert TestId="document-detail-controls-rejected">
                         <span class="liakont-doc-detail__alert-title">Refusé par la Plateforme Agréée</span>
                         <span>Le motif de rejet figure dans l'onglet Historique. Corrigez puis renvoyez le document.</span>
-                    </div>
+                    </LiakontAlert>
                 }
                 else
                 {
@@ -319,8 +322,14 @@
     /// <summary>URL de l'export contrôle fiscal du document (endpoint Archive, API03), monté sous /api/v1.</summary>
     private string AuditExportUrl => $"/api/v1/documents/{Model.Document.Id}/audit-export";
 
-    /// <summary>Montant en français, 2 décimales (cohérent avec la colonne « Montant » de la liste, WEB02).</summary>
-    private static string FormatMoney(decimal value) => value.ToString("N2", Fr);
+    /// <summary>
+    /// Montant en français, 2 décimales, devise affichée (« 1 080,00 € », espace insécable) — cohérent
+    /// avec la colonne « Montant » de la liste (WEB02) et le récapitulatif d'envoi (qui affiche déjà
+    /// l'euro). Limite assumée : le read-model console n'expose pas BT-5 (F01-F02 : CurrencyCode,
+    /// défaut « EUR ») — V1 cible les flux domestiques en euros ; exposer la devise par document
+    /// serait un changement de read-model, hors lot d'ergonomie.
+    /// </summary>
+    private static string FormatMoney(decimal value) => value.ToString("N2", Fr) + " €";
 
     /// <summary>Contenu projeté du document (lignes, charges, contrôle de cohérence) — onglet Contenu (FIX205).</summary>
     private DocumentContentView Content => Model.Content;

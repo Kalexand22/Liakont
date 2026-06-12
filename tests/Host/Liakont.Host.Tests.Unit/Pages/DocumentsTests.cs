@@ -9,8 +9,10 @@ using Bunit;
 using FluentAssertions;
 using Liakont.Host.Components.Pages;
 using Liakont.Host.Documents;
+using Liakont.Host.Tests.Unit.Documents;
 using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Pipeline.Contracts;
+using Liakont.Modules.TenantSettings.Contracts.Queries;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Localization;
 using Stratum.Common.Abstractions.Grid;
@@ -48,6 +50,10 @@ public sealed class DocumentsTests : BunitContext
 
         // Mémoire de circuit des filtres (issue #33) : instance fraîche par test (vide par défaut).
         Services.AddScoped<DocumentsListFilterMemory>();
+
+        // Paramétrage du tenant (lot 2) : table TVA VALIDÉE par défaut — les envois restent ouverts pour
+        // tous les tests d'envoi existants. Le test de suspension ré-enregistre un faux « non validée ».
+        Services.AddScoped<ITenantSettingsConsoleQueries>(_ => new FakeTenantSettingsConsoleQueries());
     }
 
     [Fact]
@@ -60,10 +66,11 @@ public sealed class DocumentsTests : BunitContext
 
         var cut = Render<Documents>();
 
-        // Barre de filtres métier (F10 §2.1).
+        // Barre de filtres métier (F10 §2.1). Le select État a été RETIRÉ (lot 2) : l'état se
+        // filtre par les pastilles de synthèse — l'assertion d'absence épingle ce retrait.
         cut.FindAll("[data-testid='documents-filters']").Should().ContainSingle();
         cut.FindAll("[data-testid='documents-filter-from']").Should().ContainSingle();
-        cut.FindAll("[data-testid='documents-filter-state']").Should().ContainSingle();
+        cut.FindAll("[data-testid='documents-filter-state']").Should().BeEmpty();
         cut.FindAll("[data-testid='documents-filter-type']").Should().ContainSingle();
 
         // Synthèse par état : 2 factures + 1 avoir → Issued=1, Blocked=1, Detected=1, total 3.
@@ -85,6 +92,34 @@ public sealed class DocumentsTests : BunitContext
 
         cut.FindAll("[data-testid='documents-send-all']").Should().ContainSingle("l'opérateur voit « Tout envoyer »");
         cut.FindAll("[data-testid='documents-trigger-run']").Should().ContainSingle("l'opérateur voit « Lancer un traitement »");
+    }
+
+    [Fact]
+    public void Tout_Envoyer_Is_Disabled_With_An_Explanation_While_The_Tva_Table_Is_Not_Validated()
+    {
+        // Table TVA non validée : les envois sont suspendus côté serveur — le bouton le DIT au lieu de
+        // laisser l'opérateur découvrir le refus après confirmation (UX seulement, la garde reste serveur).
+        Services.AddScoped<ITenantSettingsConsoleQueries>(_ => new FakeTenantSettingsConsoleQueries { TvaValidated = false });
+
+        var cut = RenderAsOperator(new FakeSendActions(), Doc("2018", "invoice", "ReadyToSend"));
+
+        var sendAll = cut.Find("[data-testid='documents-send-all']");
+        sendAll.HasAttribute("disabled").Should().BeTrue("les envois sont suspendus tant que la table TVA n'est pas validée");
+        sendAll.GetAttribute("title").Should().Contain("table TVA", "le motif de la suspension est expliqué");
+
+        // Les autres actions (traitement, re-vérification) restent disponibles : seule l'ÉMISSION est suspendue.
+        cut.Find("[data-testid='documents-trigger-run']").HasAttribute("disabled").Should().BeFalse();
+    }
+
+    [Fact]
+    public void Tout_Envoyer_Stays_Enabled_When_The_Settings_Read_Fails()
+    {
+        // Lecture du paramétrage indisponible : JAMAIS de fausse suspension (la garde réelle est serveur).
+        Services.AddScoped<ITenantSettingsConsoleQueries>(_ => new ThrowingTenantSettingsConsoleQueries());
+
+        var cut = RenderAsOperator(new FakeSendActions(), Doc("2018", "invoice", "ReadyToSend"));
+
+        cut.Find("[data-testid='documents-send-all']").HasAttribute("disabled").Should().BeFalse();
     }
 
     [Fact]
@@ -440,7 +475,8 @@ public sealed class DocumentsTests : BunitContext
         var cut = Render<Documents>();
         cut.Markup.Should().Contain("ALICE").And.Contain("BOBBY");
 
-        cut.Find("[data-testid='documents-filter-state']").Change("Blocked");
+        // Le filtre État passe par les pastilles de synthèse (le select redondant a été retiré, lot 2).
+        cut.Find("[data-testid='doc-counts-Blocked']").Click();
 
         // Seule la ligne Bloqué reste dans la grille (le filtre client de DeclaredListPage s'applique).
         cut.Markup.Should().Contain("BOBBY");
@@ -458,9 +494,10 @@ public sealed class DocumentsTests : BunitContext
 
         cut.Find("[data-testid='documents-filter-type']").Change("Avoir");
 
-        // Les compteurs honorent le type : seul l'avoir (Bloqué) est compté.
+        // Les compteurs honorent le type : seul l'avoir (Bloqué) est compté — la pastille Issued,
+        // tombée à zéro et non filtrée, est MASQUÉE (lot 2 : les zéros n'apportent rien).
         cut.Find("[data-testid='doc-counts-Blocked']").TextContent.Should().Contain("1");
-        cut.Find("[data-testid='doc-counts-Issued']").TextContent.Should().Contain("0");
+        cut.FindAll("[data-testid='doc-counts-Issued']").Should().BeEmpty();
         cut.Find("[data-testid='doc-counts-all']").TextContent.Should().Contain("1");
 
         // Les lignes sont filtrées : seule la facture (ALICE) disparaît.
@@ -494,7 +531,7 @@ public sealed class DocumentsTests : BunitContext
             Doc("2019", "invoice", "Blocked")));
 
         var cut = Render<Documents>();
-        cut.Find("[data-testid='documents-filter-state']").Change("Blocked");
+        cut.Find("[data-testid='doc-counts-Blocked']").Click();
 
         var nav = Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
         nav.Uri.Should().Contain("etat=Blocked", "le filtre État est publié dans l'URL (lien partageable, retour navigateur)");
@@ -517,7 +554,8 @@ public sealed class DocumentsTests : BunitContext
 
         var cut = Render<Documents>();
 
-        cut.Find("[data-testid='documents-filter-state']").GetAttribute("value").Should().Be("Blocked");
+        // L'état restauré se lit sur la pastille active (le select a été retiré, lot 2).
+        cut.Find("[data-testid='doc-counts-Blocked']").GetAttribute("aria-pressed").Should().Be("true");
         cut.Markup.Should().Contain("BOBBY");
         cut.Markup.Should().NotContain("ALICE", "le filtre État restauré depuis l'URL s'applique dès le premier rendu");
 
@@ -539,8 +577,8 @@ public sealed class DocumentsTests : BunitContext
 
         var cut = Render<Documents>();
 
-        // URL retouchée à la main : la clé d'état inconnue est ignorée, jamais d'erreur.
-        cut.Find("[data-testid='documents-filter-state']").GetAttribute("value").Should().BeNullOrEmpty();
+        // URL retouchée à la main : la clé d'état inconnue est ignorée, jamais d'erreur (« Tous » actif).
+        cut.Find("[data-testid='doc-counts-all']").GetAttribute("aria-pressed").Should().Be("true");
         cut.Markup.Should().Contain("ALICE");
     }
 
@@ -558,7 +596,7 @@ public sealed class DocumentsTests : BunitContext
 
         var cut = Render<Documents>();
 
-        cut.Find("[data-testid='documents-filter-state']").GetAttribute("value").Should().Be("Blocked");
+        cut.Find("[data-testid='doc-counts-Blocked']").GetAttribute("aria-pressed").Should().Be("true");
         cut.Markup.Should().Contain("BOBBY");
         cut.Markup.Should().NotContain("ALICE", "les filtres mémorisés sont restaurés au retour de la fiche");
         cut.Find("[data-testid='documents-filter-from']").GetAttribute("value").Should().Be("2026-06-01");

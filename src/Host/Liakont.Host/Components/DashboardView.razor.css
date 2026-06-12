@@ -35,6 +35,13 @@
     gap: 1rem;
 }
 
+/* Périmètre sans aucun document (les états à zéro sont masqués) : le dire en toutes lettres. */
+.liakont-dashboard__scope-empty {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--color-text-muted, #6b7280);
+}
+
 /* Tuile compteur = LIEN vers la liste des documents filtrée sur l'état (drill-down, même geste
    que les pastilles du DocumentCountsBanner) : apparence de carte cliquable, texte non souligné. */
 .liakont-dashboard__counter {

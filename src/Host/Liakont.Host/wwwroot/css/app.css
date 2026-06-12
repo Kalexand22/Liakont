@@ -159,20 +159,6 @@ body:has(.erp-shell) {
     gap: 0.125rem;
 }
 
-/* Top-level list pages in the ERP shell: drop the erp-main.p-4 breathing
-   room entirely when a DeclaredListPage is the direct child, so the grid
-   fills edge-to-edge. Uses :has() (direct-child) instead of a negative
-   margin on the child, which would escape the scroll container and add
-   horizontal overflow. DeclaredListPage instances nested inside a
-   SectionCard or hosted under PublicLayout keep their container's padding. */
-.erp-main.p-4:has(> .declared-list-page) {
-    padding: 0 !important;
-}
-
-[data-density="compact"] .erp-main.p-4:has(> .declared-list-page) {
-    padding: 0 !important;
-}
-
 /* ── Global Search Overlay ──────────────────────────────────────────────── */
 
 .search-backdrop {
@@ -526,4 +512,14 @@ body:has(.erp-shell) {
     gap: 0.5rem;
     justify-content: flex-end;
     flex-wrap: wrap;
+}
+
+/* ── Liste Documents : cellule Montant (lot polish UX/UI) ─────────────────
+   Le span est rendu par un ColumnTemplate (RenderTreeBuilder) DANS la grille du
+   socle, hors du scope d'isolation CSS de la page — d'où ce style global Host.
+   Chiffres à chasse fixe alignés à droite, comme toute colonne monétaire. */
+.doc-amount {
+    display: block;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
 }

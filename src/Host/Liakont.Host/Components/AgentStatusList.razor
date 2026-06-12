@@ -21,11 +21,21 @@ else
                 {
                     <StatusBadge Label="Révoqué" Severity="Severity.Error" />
                 }
+                else if (agent.LastSeenUtc is null)
+                {
+                    @* Enregistré mais jamais entré en contact : « Actif » serait contradictoire avec
+                       « Dernier contact : jamais » (retour de recette lot 2) — pur état de FAIT, pas
+                       une règle d'alerte (les seuils de mutisme restent au module Supervision). *@
+                    <StatusBadge Label="Jamais connecté" Severity="Severity.Warning" />
+                }
                 else
                 {
                     <StatusBadge Label="Actif" Severity="Severity.Success" />
                 }
-                <span class="liakont-agent-list__meta">Dernier contact : @FormatHeartbeat(agent.LastSeenUtc)</span>
+                @if (agent.LastSeenUtc is not null)
+                {
+                    <span class="liakont-agent-list__meta">Dernier contact : @FormatHeartbeat(agent.LastSeenUtc)</span>
+                }
                 <span class="liakont-agent-list__meta">Version : @(string.IsNullOrWhiteSpace(agent.Version) ? "inconnue" : agent.Version)</span>
             </li>
         }
@@ -45,6 +55,7 @@ else
     [Parameter, EditorRequired]
     public string EmptyTestId { get; set; } = null!;
 
+    // Appelé seulement quand un contact a eu lieu (sans contact : badge « Jamais connecté », pas de méta).
     private static string FormatHeartbeat(DateTimeOffset? when) =>
-        when is { } value ? value.ToLocalTime().ToString("dd/MM/yyyy HH:mm") : "jamais";
+        when is { } value ? value.ToLocalTime().ToString("dd/MM/yyyy HH:mm") : string.Empty;
 }
