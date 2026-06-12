@@ -6,9 +6,10 @@ using System.Text;
 
 /// <summary>
 /// Handler HTTP de test ROUTÉ par méthode + chemin, pour les scénarios de retry / idempotence / auth de
-/// PAS02 (F14 §4.1-§4.2 ; §3.1 refresh OAuth). Trois files de réponses scriptées :
+/// PAS02 (F14 §4.1-§4.2 ; §3.1 refresh OAuth). Quatre files de réponses scriptées :
 /// <list type="bullet">
-///   <item><c>POST /v1.beta/invoices</c> → file <see cref="OnPost"/> (émission).</item>
+///   <item><c>POST /v1.beta/invoices/convert</c> → file <see cref="OnConvert"/> (conversion en16931 → CII).</item>
+///   <item><c>POST /v1.beta/invoices</c> → file <see cref="OnPost"/> (émission du XML).</item>
 ///   <item><c>GET /v1.beta/invoices</c> → file <see cref="OnListInvoices"/> (relecture d'idempotence).</item>
 ///   <item><c>GET /v1.beta/invoices/{id}</c> → file <see cref="OnGetInvoice"/> (relecture d'état).</item>
 /// </list>
@@ -18,9 +19,11 @@ using System.Text;
 /// </summary>
 internal sealed class RoutedHttpMessageHandler : HttpMessageHandler
 {
+    private readonly Queue<ResponseStep> _convert = new();
     private readonly Queue<ResponseStep> _post = new();
     private readonly Queue<ResponseStep> _list = new();
     private readonly Queue<ResponseStep> _detail = new();
+    private ResponseStep? _lastConvert;
     private ResponseStep? _lastPost;
     private ResponseStep? _lastList;
     private ResponseStep? _lastDetail;
@@ -28,8 +31,11 @@ internal sealed class RoutedHttpMessageHandler : HttpMessageHandler
     /// <summary>Toutes les requêtes reçues, dans l'ordre (méthode, URI, chemin, corps, autorisation).</summary>
     public List<RecordedRequest> Requests { get; } = [];
 
-    /// <summary>Nombre de POST reçus (tentatives d'émission).</summary>
-    public int PostCount => Requests.Count(r => r.Method == HttpMethod.Post);
+    /// <summary>Nombre de POST de conversion reçus (en16931 → CII).</summary>
+    public int ConvertCount => Requests.Count(r => r.Method == HttpMethod.Post && IsConvertPath(r.Path));
+
+    /// <summary>Nombre de POST d'ÉMISSION reçus (hors conversion) — la mesure anti-doublon (F14 §4.1).</summary>
+    public int PostCount => Requests.Count(r => r.Method == HttpMethod.Post && !IsConvertPath(r.Path));
 
     /// <summary>Nombre de GET de liste reçus (relectures d'idempotence).</summary>
     public int ListCount => Requests.Count(r => r.Method == HttpMethod.Get && IsListPath(r.Path));
@@ -37,14 +43,28 @@ internal sealed class RoutedHttpMessageHandler : HttpMessageHandler
     /// <summary>Nombre de GET de détail reçus (relectures d'état).</summary>
     public int DetailCount => Requests.Count(r => r.Method == HttpMethod.Get && !IsListPath(r.Path));
 
-    /// <summary>Programme une réponse au prochain POST (émission).</summary>
+    /// <summary>Programme une réponse à la prochaine CONVERSION (200 = le XML CII).</summary>
+    public RoutedHttpMessageHandler OnConvert(HttpStatusCode status, string body)
+    {
+        _convert.Enqueue(ResponseStep.Respond(status, body));
+        return this;
+    }
+
+    /// <summary>Programme une exception (réseau/timeout) à la prochaine conversion.</summary>
+    public RoutedHttpMessageHandler OnConvertThrows(Exception toThrow)
+    {
+        _convert.Enqueue(ResponseStep.Throw(toThrow));
+        return this;
+    }
+
+    /// <summary>Programme une réponse au prochain POST d'émission.</summary>
     public RoutedHttpMessageHandler OnPost(HttpStatusCode status, string body)
     {
         _post.Enqueue(ResponseStep.Respond(status, body));
         return this;
     }
 
-    /// <summary>Programme une exception (réseau/timeout) au prochain POST.</summary>
+    /// <summary>Programme une exception (réseau/timeout) au prochain POST d'émission.</summary>
     public RoutedHttpMessageHandler OnPostThrows(Exception toThrow)
     {
         _post.Enqueue(ResponseStep.Throw(toThrow));
@@ -107,6 +127,9 @@ internal sealed class RoutedHttpMessageHandler : HttpMessageHandler
     private static bool IsListPath(string path) =>
         path.EndsWith("/invoices", StringComparison.Ordinal);
 
+    private static bool IsConvertPath(string path) =>
+        path.EndsWith("/invoices/convert", StringComparison.Ordinal);
+
     private static ResponseStep Dequeue(Queue<ResponseStep> queue, ref ResponseStep? last, string label)
     {
         if (queue.Count > 0)
@@ -122,7 +145,9 @@ internal sealed class RoutedHttpMessageHandler : HttpMessageHandler
     {
         if (method == HttpMethod.Post)
         {
-            return Dequeue(_post, ref _lastPost, "POST");
+            return IsConvertPath(path)
+                ? Dequeue(_convert, ref _lastConvert, "POST conversion")
+                : Dequeue(_post, ref _lastPost, "POST émission");
         }
 
         return IsListPath(path)

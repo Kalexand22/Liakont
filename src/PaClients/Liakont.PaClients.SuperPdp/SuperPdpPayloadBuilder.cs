@@ -6,91 +6,191 @@ using Liakont.PaClients.SuperPdp.Wire;
 
 /// <summary>
 /// Transforme le document PIVOT enrichi (EN 16931, mapping TVA déjà appliqué par la plateforme —
-/// cf. <see cref="Modules.Transmission.Contracts.IPaClient"/>) vers le payload propriétaire Super PDP
-/// (F14 §3.2). Le plug-in NE CALCULE RIEN et N'INVENTE AUCUNE règle fiscale (CLAUDE.md n°1/2) : il
-/// recopie les montants (en <see cref="decimal"/>) et propage la catégorie UNCL5305 / le taux / le code
-/// VATEX déjà portés par le pivot. La construction du payload PA-spécifique vit DANS le plug-in
-/// (F14 §7 ; ajouter-un-plugin-pa §1).
+/// cf. <see cref="Modules.Transmission.Contracts.IPaClient"/>) vers le JSON <c>en16931</c> de Super PDP
+/// (schéma <c>en_invoice</c>, ✅ confirmé OpenAPI + sandbox 2026-06-12 — F14 §3.2). Le plug-in N'INVENTE
+/// AUCUNE règle fiscale (CLAUDE.md n°1/2) : il RECOPIE les montants (en <see cref="decimal"/>), propage
+/// la catégorie UNCL5305 / le taux / le code VATEX portés par le pivot, et REGROUPE arithmétiquement les
+/// ventilations de ligne (BG-30) en ventilation de document (BG-23) — sommes exactes, aucun taux ni
+/// arrondi inventé. La validation EN 16931 officielle (règles <c>BR-*</c>) est appliquée par le converter
+/// Super PDP : toute incohérence de la source est REJETÉE avec son message, jamais envoyée fausse
+/// (CLAUDE.md n°3).
 /// <para>
-/// PÉRIMÈTRE V1 (PAS02) : émission de facture B2C uniquement. Les AVOIRS ne sont pas émis (capacité
-/// <see cref="Modules.Transmission.Contracts.PaCapabilities.SupportsCreditNotes"/> = <c>false</c>, F14 §5) :
-/// un avoir est intercepté par la garde de capacité du client AVANT d'atteindre ce builder (résultat
-/// typé, jamais d'exception). Le modèle d'avoir Super PDP (lien avoir→facture) est confirmé en sandbox
-/// (PAS03, O7) avant d'activer la capacité — on n'invente pas un format d'avoir (CLAUDE.md n°2).
+/// PÉRIMÈTRE V1 (PAS02) : émission de facture à destinataire IDENTIFIÉ (SIREN — gardes posées par
+/// <see cref="SuperPdpClient"/> AVANT ce builder). Les AVOIRS ne sont pas émis (capacité
+/// <see cref="Modules.Transmission.Contracts.PaCapabilities.SupportsCreditNotes"/> = <c>false</c>, F14 §5).
+/// Les éléments que V1 ne mappe PAS (charges/remises de document BG-20/21) BLOQUENT avec un message
+/// explicite plutôt que de fausser les totaux (CLAUDE.md n°3).
 /// </para>
 /// </summary>
 internal static class SuperPdpPayloadBuilder
 {
-    // 🟠 Type de document B2C : CIBLE de conception (F14 §3.2, à confirmer OpenAPI sandbox PAS03 — O2).
-    // Le modèle EN 16931 « facture simplifiée émise » est commun aux PA B2C (cf. B2Brouter F07-F08) ;
-    // la valeur exacte attendue par Super PDP est figée en sandbox avant tout envoi réel (PAS03/gate).
-    private const string SimplifiedInvoiceType = "IssuedSimplifiedInvoice";
-
     /// <summary>
-    /// Construit l'enveloppe d'émission Super PDP pour un document pivot (facture B2C). La décision
-    /// « facture vs avoir » n'est PAS prise ici : elle est portée par le pivot (présence de références
-    /// d'origine — la classification vit dans Validation, ADR-0004 D3-3) et un avoir est déjà écarté en
-    /// amont par la garde de capacité du client.
+    /// Construit le document <c>en_invoice</c> pour un pivot (facture à destinataire identifié). La
+    /// décision « facture vs avoir » n'est PAS prise ici : un avoir est déjà écarté en amont par la garde
+    /// de capacité du client, et les gardes d'adressage (SIREN vendeur/acheteur) sont posées par le client.
     /// </summary>
     /// <param name="document">Le document pivot enrichi à transmettre.</param>
-    /// <param name="sendAfterImport">Vrai = créer ET envoyer ; faux = créé sans envoi (F14 §3.2).</param>
-    public static SuperPdpInvoiceRequest Build(PivotDocumentDto document, bool sendAfterImport)
+    public static SuperPdpEnInvoice Build(PivotDocumentDto document)
     {
         ArgumentNullException.ThrowIfNull(document);
-
-        var invoice = new SuperPdpInvoice
+        if (document.Customer is null)
         {
-            Type = SimplifiedInvoiceType,
-            Number = document.Number,
-            Date = FormatDate(document.IssueDate),
-            Currency = document.CurrencyCode,
-            SendAfterImport = sendAfterImport,
-            InvoiceLines = document.Lines.Select(MapLine).ToList(),
-        };
+            // Défense en profondeur : la garde opérateur (résultat typé) vit dans SuperPdpClient.
+            throw new InvalidOperationException(
+                "Document sans destinataire : l'émission Super PDP exige un acheteur identifié (F14 §3.2) — " +
+                "garde du client contournée.");
+        }
 
-        return new SuperPdpInvoiceRequest { Invoice = invoice };
+        if (document.DocumentCharges.Count > 0)
+        {
+            // BG-20/21 non mappés en V1 : les omettre fausserait les totaux (BR-CO-13) — bloquer plutôt
+            // qu'envoyer faux (CLAUDE.md n°3).
+            throw new InvalidOperationException(
+                "Charges/remises de niveau document (EN 16931 BG-20/BG-21) non prises en charge par " +
+                "l'émission Super PDP V1 — document à transmettre par un autre canal ou lot à faire évoluer.");
+        }
+
+        return new SuperPdpEnInvoice
+        {
+            Number = document.Number,
+            IssueDate = FormatDate(document.IssueDate),
+            TypeCode = SuperPdpDefaults.CommercialInvoiceTypeCode,
+            CurrencyCode = document.CurrencyCode,
+            ProcessControl = new SuperPdpEnProcessControl
+            {
+                SpecificationIdentifier = SuperPdpDefaults.SpecificationIdentifier,
+            },
+            Seller = MapParty(document.Supplier),
+            Buyer = MapParty(document.Customer),
+            Totals = MapTotals(document),
+            VatBreakDown = BuildVatBreakDown(document.Lines),
+            Lines = document.Lines.Select(MapLine).ToList(),
+        };
     }
 
-    private static SuperPdpInvoiceLine MapLine(PivotLineDto line) => new()
+    // Recopie une partie pivot (BG-4 vendeur / BG-7 acheteur). Le SIREN porte l'identification légale
+    // (BT-30, scheme 0002) ET l'adressage d'annuaire (BT-34/BT-49, scheme 0002 — ✅ validé sandbox,
+    // F14 §3.2). Aucun identifiant inventé : un champ absent du pivot est omis, la validation EN 16931
+    // du converter et les contrôles d'envoi de la PA tranchent (messages conservés intacts).
+    private static SuperPdpEnParty MapParty(PivotPartyDto party)
     {
-        Description = line.Description,
+        var siren = string.IsNullOrWhiteSpace(party.Siren) ? null : party.Siren;
+        var identifier = siren is null
+            ? null
+            : new SuperPdpEnIdentifier { Value = siren, Scheme = SuperPdpDefaults.SirenScheme };
+        return new SuperPdpEnParty
+        {
+            Name = party.Name,
+            LegalRegistrationIdentifier = identifier,
+            VatIdentifier = string.IsNullOrWhiteSpace(party.VatNumber) ? null : party.VatNumber,
+            ElectronicAddress = identifier,
+            PostalAddress = MapAddress(party.Address),
+        };
+    }
 
-        // NetAmount est le TOTAL HT de la ligne (EN 16931 BT-131), pas un prix unitaire. On l'émet en
-        // quantité 1 pour que le total ligne = NetAmount, sans dépendre de la sémantique unit/total du
-        // champ « price » (confirmée sandbox PAS03) — évite tout double comptage de la base TVA quand la
-        // quantité source ≠ 1 (la quantité réelle n'est pas matérielle pour l'agrégat B2C).
-        Quantity = 1m,
-        Price = line.NetAmount,
-        Tax = MapTax(line.Taxes),
+    private static SuperPdpEnPostalAddress? MapAddress(PivotAddressDto? address) =>
+        address is null
+            ? null
+            : new SuperPdpEnPostalAddress
+            {
+                AddressLine1 = address.Line1,
+                AddressLine2 = address.Line2,
+                PostCode = address.PostalCode,
+                City = address.City,
+                CountryCode = address.CountryCode,
+            };
+
+    // Totaux BG-22 RECOPIÉS du pivot (calculés par la source — F01-F02 §3.7). Sans charges/remises de
+    // document (garde ci-dessus), la somme des lignes (BT-106) est ÉGALE au total HT (BT-109) par
+    // construction de la source. L'acompte du pivot est émis en BT-113 et le montant dû (BT-115)
+    // applique l'identité normative BR-CO-16 (BT-115 = BT-112 − BT-113) — une identité de la norme
+    // EN 16931, pas une règle inventée ; soustraction exacte en decimal (CLAUDE.md n°1). NB : un montant
+    // dû POSITIF exige BT-9/BT-20 (BR-CO-25) que le pivot ne porte pas encore — le converter rejette
+    // alors avec son message, conservé intact (F14 §3.2, limitation V1).
+    private static SuperPdpEnTotals MapTotals(PivotDocumentDto document) => new()
+    {
+        SumInvoiceLinesAmount = document.Totals.TotalNet,
+        TotalWithoutVat = document.Totals.TotalNet,
+        TotalVatAmount = new SuperPdpEnAmount
+        {
+            Value = document.Totals.TotalTax,
+            CurrencyCode = document.CurrencyCode,
+        },
+        TotalWithVat = document.Totals.TotalGross,
+        PaidAmount = document.PrepaidAmount,
+        AmountDueForPayment = document.Totals.TotalGross - (document.PrepaidAmount ?? 0m),
     };
 
-    // EN 16931 BG-30 : UNE catégorie de TVA par ligne. Le moteur de mapping plateforme (F03) scinde déjà
-    // en une ventilation/ligne. Aucune ventilation = ligne sans taxe explicite (Tax null). Plusieurs
-    // ventilations = contrat plateforme (BG-30) violé : on BLOQUE plutôt que de droper silencieusement une
-    // taxe (sous-déclaration de TVA — CLAUDE.md n°3) ; la plateforme doit scinder la ligne avant l'envoi.
-    private static SuperPdpTax? MapTax(IReadOnlyList<PivotLineTaxDto> taxes)
+    // BG-23 : REGROUPEMENT des ventilations de ligne (BG-30) par (catégorie, taux, VATEX) avec sommes
+    // exactes en decimal — base = montants nets des lignes du groupe, TVA = somme des TVA de ligne.
+    // Aucune catégorie, aucun taux, aucun arrondi inventés : tout vient du pivot (mapping plateforme F03).
+    private static List<SuperPdpEnVatBreakDown> BuildVatBreakDown(IReadOnlyList<PivotLineDto> lines) =>
+        lines
+            .Select(line => (Line: line, Tax: SingleTax(line)))
+            .GroupBy(x => (x.Tax.CategoryCode!.Value, x.Tax.Rate, x.Tax.VatexCode))
+            .Select(group => new SuperPdpEnVatBreakDown
+            {
+                VatCategoryTaxableAmount = group.Sum(x => x.Line.NetAmount),
+                VatCategoryTaxAmount = group.Sum(x => x.Tax.TaxAmount),
+                VatCategoryCode = group.Key.Value.ToString(),
+                VatCategoryRate = group.Key.Rate,
+                VatExemptionReasonCode = group.Key.VatexCode,
+            })
+            .ToList();
+
+    private static SuperPdpEnLine MapLine(PivotLineDto line, int index)
     {
-        if (taxes.Count == 0)
-        {
-            return null;
-        }
+        var tax = SingleTax(line);
 
-        if (taxes.Count > 1)
+        // NetAmount est le TOTAL HT de la ligne (EN 16931 BT-131), pas un prix unitaire. On l'émet en
+        // quantité 1 (unité neutre C62) pour que quantité × prix = total ligne, sans dépendre de la
+        // sémantique quantité/prix de la source — évite tout double comptage de la base TVA quand la
+        // quantité source ≠ 1 (les lignes pivot des adaptateurs V1 sont des agrégats : adjudication/frais).
+        return new SuperPdpEnLine
         {
-            throw new InvalidOperationException(
-                "Ligne avec plusieurs ventilations de TVA (EN 16931 BG-30 : une catégorie par ligne) — " +
-                "le mapping plateforme doit scinder la ligne avant l'envoi à la PA.");
-        }
-
-        var tax = taxes[0];
-        return new SuperPdpTax
-        {
-            Category = tax.CategoryCode?.ToString(),
-            Percent = tax.Rate,
-            Vatex = tax.VatexCode,
+            Identifier = (index + 1).ToString(CultureInfo.InvariantCulture),
+            InvoicedQuantity = 1m,
+            InvoicedQuantityCode = SuperPdpDefaults.DefaultQuantityUnitCode,
+            NetAmount = line.NetAmount,
+            PriceDetails = new SuperPdpEnLinePriceDetails { ItemNetPrice = line.NetAmount },
+            VatInformation = new SuperPdpEnLineVatInformation
+            {
+                InvoicedItemVatCategoryCode = tax.CategoryCode!.Value.ToString(),
+                InvoicedItemVatRate = tax.Rate,
+            },
+            ItemInformation = new SuperPdpEnLineItemInformation { Name = line.Description },
         };
     }
 
-    private static string FormatDate(System.DateTime date) =>
+    // EN 16931 BG-30 : UNE catégorie de TVA par ligne, AVEC catégorie posée. Le moteur de mapping
+    // plateforme (F03) scinde déjà en une ventilation/ligne et pose la catégorie. Aucune ventilation ou
+    // catégorie absente = contrat plateforme violé : le schéma en_invoice EXIGE vat_information par ligne
+    // (F14 §3.2) — on BLOQUE avec un message explicite plutôt que d'inventer une catégorie ou de droper
+    // une taxe (sous-déclaration de TVA — CLAUDE.md n°2/3). Plusieurs ventilations = la plateforme doit
+    // scinder la ligne avant l'envoi.
+    private static PivotLineTaxDto SingleTax(PivotLineDto line)
+    {
+        if (line.Taxes.Count != 1)
+        {
+            throw new InvalidOperationException(
+                line.Taxes.Count == 0
+                    ? "Ligne sans ventilation de TVA : le schéma en_invoice de Super PDP exige la catégorie " +
+                      "de TVA par ligne (EN 16931 BG-30) — le mapping plateforme doit ventiler la ligne avant l'envoi."
+                    : "Ligne avec plusieurs ventilations de TVA (EN 16931 BG-30 : une catégorie par ligne) — " +
+                      "le mapping plateforme doit scinder la ligne avant l'envoi à la PA.");
+        }
+
+        var tax = line.Taxes[0];
+        if (tax.CategoryCode is null)
+        {
+            throw new InvalidOperationException(
+                "Ventilation de TVA sans catégorie UNCL5305 : le mapping plateforme (F03) doit poser la " +
+                "catégorie avant l'envoi à la PA — aucune catégorie n'est inventée ici (CLAUDE.md n°2).");
+        }
+
+        return tax;
+    }
+
+    private static string FormatDate(DateTime date) =>
         date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 }

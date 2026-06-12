@@ -15,10 +15,12 @@ using Liakont.PaClients.SuperPdp.Wire;
 /// n°6). Le type est <c>internal</c> : il ne fuit pas hors de l'assembly (acceptance PAS02) — la fabrique
 /// le rend derrière l'abstraction <see cref="IPaClient"/>.
 /// <para>
-/// PÉRIMÈTRE PAS02 = l'ÉMISSION B2C (<see cref="SendDocumentAsync"/> : auth OAuth bearer, transformation
-/// pivot → JSON, POST) AVEC la gestion des 3 familles d'erreurs (F14 §4.1 : transitoire / rejet métier
-/// 4xx / erreur silencieuse 200 + <c>errors[]</c>) et la relecture d'idempotence anti-doublon ; plus la
-/// relecture d'état (<see cref="GetDocumentStatusAsync"/> : polling, F14 §3.4). Les capacités déclarées
+/// PÉRIMÈTRE = l'ÉMISSION de facture à destinataire IDENTIFIÉ (<see cref="SendDocumentAsync"/> : auth
+/// OAuth bearer, pivot → JSON <c>en16931</c> → conversion CII par Super PDP → POST XML — ✅ contrat
+/// confirmé sandbox 2026-06-12, F14 §3.2) AVEC la gestion des 3 familles d'erreurs (F14 §4.1 :
+/// transitoire / rejet métier 4xx / ASYNCHRONIE des 200 classée par les <c>events[]</c>) et la relecture
+/// d'idempotence anti-doublon (<c>external_id</c>) ; plus la relecture d'état
+/// (<see cref="GetDocumentStatusAsync"/> : polling, F14 §3.4). Les capacités déclarées
 /// (<see cref="SuperPdpCapabilities"/>) reflètent CE périmètre : SEUL le B2C est vérifié (F14 §5) ; toute
 /// capacité non déclarée dégrade en résultat TYPÉ (jamais d'exception, jamais de blocage produit —
 /// invariant PAA01). Les tax reports / réglage / facture générée sont confirmés en sandbox et livrés par
@@ -71,27 +73,92 @@ internal sealed class SuperPdpClient : IPaClient
                 PaCapabilityNotSupportedResult.Create(Capabilities.PaName, PaCapability.CreditNotes));
         }
 
-        // Construction + sérialisation du payload AVANT toute tentative HTTP : un document mal formé
-        // (ligne multi-ventilation) lève ici, AVANT le premier appel PA — jamais tronqué en silence
-        // (CLAUDE.md n°3), jamais envoyé partiellement.
-        var payload = SuperPdpPayloadBuilder.Build(document, sendAfterImport);
-        var json = JsonSerializer.Serialize(payload, SuperPdpJson.Options);
-        var url = SendUrl();
+        // Super PDP n'expose PAS de « création sans envoi » : POST /v1.beta/invoices crée ET met en file
+        // d'envoi (✅ confirmé OpenAPI — F14 §3.2). Émettre quand l'appelant demandait une simple création
+        // serait une émission fiscale NON VOULUE : résultat typé, jamais d'envoi (CLAUDE.md n°3). Aucun
+        // appelant produit n'utilise sendAfterImport=false (défaut du contrat = true).
+        if (!sendAfterImport)
+        {
+            const string noDraftMessage =
+                "Super PDP ne propose pas de création sans envoi (F14 §3.2) — demander l'envoi " +
+                "(sendAfterImport=true) ou utiliser une autre PA pour préparer un brouillon.";
+            return PaSendResult.Rejected([new PaError("SPDP_NO_DRAFT", noDraftMessage)]);
+        }
 
-        var outcome = await TryPostAsync(url, json, cancellationToken).ConfigureAwait(false);
+        // L'émission Super PDP exige un destinataire IDENTIFIÉ et ADRESSABLE dans l'annuaire (contrôle
+        // serveur « missing buyer electronic address », ✅ constaté sandbox — F14 §3.2) : l'adressage V1
+        // passe par le SIREN (scheme 0002). Sans SIREN acheteur, l'envoi est IMPOSSIBLE par ce canal
+        // (le B2C anonyme relève de l'e-reporting, hors V1) : rejet local typé AVANT tout appel, message
+        // opérateur actionnable (CLAUDE.md n°12) — jamais un envoi voué à l'échec.
+        if (string.IsNullOrWhiteSpace(document.Customer?.Siren))
+        {
+            const string buyerMessage =
+                "Super PDP exige un destinataire identifié par SIREN pour émettre une facture " +
+                "(adressage annuaire — F14 §3.2). Renseigner le SIREN du destinataire, ou transmettre " +
+                "ce document par e-reporting (non couvert par le plug-in Super PDP V1).";
+            return PaSendResult.Rejected([new PaError("SPDP_BUYER_NOT_ADDRESSABLE", buyerMessage)]);
+        }
+
+        // Même contrôle côté vendeur : la PA vérifie que le vendeur correspond à l'entreprise du compte
+        // (✅ constaté sandbox : « L'entreprise (X) liée à cette session ne correspond pas au vendeur (Y) »).
+        // Sans SIREN vendeur, ni l'identification (BT-30) ni l'adressage (BT-34) ne sont constructibles.
+        if (string.IsNullOrWhiteSpace(document.Supplier.Siren))
+        {
+            const string sellerMessage =
+                "Le SIREN du vendeur est absent du document : l'émission Super PDP exige " +
+                "l'identification légale du vendeur (EN 16931 BT-30, scheme 0002 — F14 §3.2). " +
+                "Vérifier le profil fiscal du tenant et les données du document.";
+            return PaSendResult.Rejected([new PaError("SPDP_SELLER_SIREN_MISSING", sellerMessage)]);
+        }
+
+        // Construction + sérialisation du payload AVANT toute tentative HTTP : un document mal formé
+        // (ligne sans ventilation ou multi-ventilation, charges document non mappées) lève ici, AVANT le
+        // premier appel PA — jamais tronqué en silence (CLAUDE.md n°3), jamais envoyé partiellement.
+        var payload = SuperPdpPayloadBuilder.Build(document);
+        var json = JsonSerializer.Serialize(payload, SuperPdpJson.Options);
+
+        // Étape 1/2 — conversion en16931 → CII par Super PDP (F14 §3.2). La conversion ne CRÉE rien côté
+        // PA : un échec transitoire est re-tentable au prochain run SANS relecture d'idempotence ; un 4xx
+        // porte les messages des règles EN 16931 (BR-*), conservés intacts.
+        var converted = await TryConvertAsync(json, cancellationToken).ConfigureAwait(false);
+        if (converted.Failure is not null)
+        {
+            return converted.Failure;
+        }
+
+        // Étape 2/2 — envoi du XML CII (création côté PA). L'external_id porte le numéro de document
+        // (clé d'idempotence, F14 §4.1).
+        var externalId = ExternalIdFor(document.Number);
+        var outcome = await TryPostInvoiceAsync(converted.Xml!, externalId, cancellationToken).ConfigureAwait(false);
         if (!outcome.IsTransient)
         {
-            // Terminal : émis (issued/new/sending), rejet métier (4xx, 200 + errors[]) ou auth (401/403,
-            // déjà retentée une fois avec jeton rafraîchi). Aucun de ces cas ne se re-tente (F14 §4.1).
+            // Rejet 4xx SANS identifiant : peut être le REFUS ANTI-DOUBLON du serveur — Super PDP refuse de
+            // recréer une facture au même numéro (« La facture est déjà existante (id N) », ✅ constaté
+            // sandbox 2026-06-12 — F14 §4.1). Avant de figer un rejet, on tente le raccrochage par
+            // external_id : trouvée → on rattache son état RÉEL (un document créé classé « rejeté » serait
+            // un faux état fiscal) ; sinon le rejet est rendu tel quel, message intact. Un rejet AVEC
+            // identifiant (échec asynchrone events[]) est déjà tranché sur la facture existante.
+            if (outcome.Result.State == PaSendState.RejectedByPa && outcome.Result.PaDocumentId is null)
+            {
+                var dedup = await TryReconnectByExternalIdAsync(externalId, cancellationToken).ConfigureAwait(false);
+                if (dedup.Found)
+                {
+                    return dedup.Result!;
+                }
+            }
+
+            // Terminal : téléversée (Sending — l'envoi est asynchrone), rejet métier (4xx) ou auth
+            // (401/403, déjà retentée une fois avec jeton rafraîchi). Aucun ne se re-tente (F14 §4.1).
             return outcome.Result;
         }
 
         // Erreur TRANSITOIRE (réseau / 5xx / timeout) : on NE ré-émet PAS à l'aveugle. On fait UNE relecture
-        // d'idempotence : si la facture existe déjà (numéro), on raccroche son état ; sinon on dégrade en
-        // TechnicalError, RE-TENTABLE AU PROCHAIN RUN. La forme exacte de la liste est confirmée en sandbox
-        // (PAS03) : une liste illisible/incomplète reste NON CONCLUANTE (jamais « facture absente » → jamais
-        // de doublon — CLAUDE.md n°3).
-        var reconnect = await TryReconnectByNumberAsync(document.Number, cancellationToken).ConfigureAwait(false);
+        // d'idempotence : si la facture existe déjà (external_id), on raccroche son état ; sinon on dégrade
+        // en TechnicalError, RE-TENTABLE AU PROCHAIN RUN — un éventuel re-POST d'une facture pourtant créée
+        // est alors REFUSÉ par l'anti-doublon serveur (même numéro) et raccroché par le bloc ci-dessus :
+        // jamais de double émission (CLAUDE.md n°3). Une liste illisible/incomplète reste NON CONCLUANTE
+        // (jamais « facture absente »).
+        var reconnect = await TryReconnectByExternalIdAsync(externalId, cancellationToken).ConfigureAwait(false);
         return reconnect.Found ? reconnect.Result! : outcome.Result;
     }
 
@@ -228,9 +295,41 @@ internal sealed class SuperPdpClient : IPaClient
 
     // ── Helpers privés STATIQUES (avant les helpers d'instance — ordre StyleCop) ──
 
-    // URL d'émission / de liste : /v1.beta/invoices (relatif à la base du compte, F14 §3.2). Pas
+    // URL de conversion en16931 → CII : /v1.beta/invoices/convert?from=en16931&to=cii (F14 §3.2). Pas
     // d'identifiant de compte dans l'URL : le compte est porté par le jeton OAuth (client credentials).
-    private static string SendUrl() => $"{SuperPdpDefaults.ApiVersionPrefix}/{SuperPdpDefaults.InvoicesPath}";
+    private static string ConvertUrl() =>
+        $"{SuperPdpDefaults.ApiVersionPrefix}/{SuperPdpDefaults.ConvertPath}" +
+        $"?from={SuperPdpDefaults.ConvertFromFormat}&to={SuperPdpDefaults.ConvertToFormat}";
+
+    // URL d'émission : /v1.beta/invoices?external_id=… (clé d'idempotence — F14 §4.1).
+    private static string SendUrl(string externalId) =>
+        $"{SuperPdpDefaults.ApiVersionPrefix}/{SuperPdpDefaults.InvoicesPath}" +
+        $"?external_id={Uri.EscapeDataString(externalId)}";
+
+    // URL de liste (relecture d'idempotence, F14 §4.1) : nos émissions les plus RÉCENTES d'abord
+    // (direction=out, order=desc), fenêtre MAXIMALE (limit=1000, le max OpenAPI — la liste n'a pas de
+    // filtre external_id), events inclus (expand[]=events : sans lui la liste ne porte pas les événements
+    // et le raccrochage classerait « en cours » au lieu de l'état réel). La facture cherchée vient d'être
+    // créée (timeout ou refus anti-doublon immédiat) : la fenêtre des 1000 plus récentes la couvre ;
+    // au-delà, « absente » reste NON CONCLUANT (pagination par curseur — jamais de ré-émission).
+    private static string ListUrl() =>
+        $"{SuperPdpDefaults.ApiVersionPrefix}/{SuperPdpDefaults.InvoicesPath}" +
+        $"?direction=out&order=desc&limit=1000&{Uri.EscapeDataString("expand[]")}=events";
+
+    // Clé d'idempotence portée par ?external_id= : le numéro de document (BT-1) tel quel tant qu'il tient
+    // dans la limite de l'API (36 caractères — ✅ OpenAPI). Au-delà, une empreinte SHA-256 hex tronquée,
+    // DÉTERMINISTE (même numéro → même clé, la relecture d'idempotence reste fiable) — jamais une
+    // troncature brute qui créerait des collisions entre numéros longs partageant un préfixe.
+    private static string ExternalIdFor(string number)
+    {
+        if (number.Length <= SuperPdpDefaults.ExternalIdMaxLength)
+        {
+            return number;
+        }
+
+        var hash = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(number));
+        return Convert.ToHexStringLower(hash)[..SuperPdpDefaults.ExternalIdMaxLength];
+    }
 
     // URL de relecture d'état : /v1.beta/invoices/{id} (F14 §3.4).
     private static string StatusUrl(string paDocumentId) =>
@@ -286,18 +385,49 @@ internal sealed class SuperPdpClient : IPaClient
         return await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
     }
 
-    // Exécute UNE tentative de POST (auth incluse) et classe le résultat. Distingue le TRANSITOIRE (5xx,
-    // réseau, timeout → re-tentable, F14 §4.1) du terminal (émis / rejet métier / auth) pour piloter la
-    // boucle d'idempotence. Une erreur d'obtention du jeton OAuth (réseau/non-2xx) lève une
-    // HttpRequestException → classée transitoire ici (re-tentable au prochain run).
-    private async Task<PostOutcome> TryPostAsync(string url, string json, CancellationToken cancellationToken)
+    // Étape 1/2 de l'émission : conversion en16931 → CII (F14 §3.2). La conversion ne crée RIEN côté PA :
+    // un échec transitoire (réseau / 5xx / timeout) dégrade directement en TechnicalError re-tentable au
+    // prochain run, SANS relecture d'idempotence. Un 200 rend le XML CII prêt à émettre ; tout autre code
+    // est classé par le mapper (messages BR-* intacts). Une erreur d'obtention du jeton OAuth lève une
+    // HttpRequestException → classée transitoire ici.
+    private async Task<ConvertOutcome> TryConvertAsync(string json, CancellationToken cancellationToken)
     {
         try
         {
             using var response = await SendWithAuthAsync(
-                () => new HttpRequestMessage(HttpMethod.Post, url)
+                () => new HttpRequestMessage(HttpMethod.Post, ConvertUrl())
                 {
                     Content = new StringContent(json, Encoding.UTF8, "application/json"),
+                },
+                cancellationToken).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            return response.IsSuccessStatusCode
+                ? ConvertOutcome.Success(body)
+                : ConvertOutcome.Failed(SuperPdpResponseMapper.MapConvertFailure(response.StatusCode, body));
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return ConvertOutcome.Failed(PaSendResult.Technical(
+                [new PaError("SPDP_TIMEOUT", "Délai d'attente dépassé lors de la conversion Super PDP (re-tentable).")]));
+        }
+        catch (HttpRequestException ex)
+        {
+            return ConvertOutcome.Failed(PaSendResult.Technical(
+                [new PaError("SPDP_NETWORK", $"Erreur réseau Super PDP à la conversion (re-tentable) : {ex.Message}")]));
+        }
+    }
+
+    // Étape 2/2 de l'émission : POST du XML CII (auth incluse). Distingue le TRANSITOIRE (5xx, réseau,
+    // timeout → re-tentable, F14 §4.1) du terminal (téléversée / rejet métier / auth) pour piloter la
+    // boucle d'idempotence.
+    private async Task<PostOutcome> TryPostInvoiceAsync(string xml, string externalId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await SendWithAuthAsync(
+                () => new HttpRequestMessage(HttpMethod.Post, SendUrl(externalId))
+                {
+                    Content = new StringContent(xml, Encoding.UTF8, "application/xml"),
                 },
                 cancellationToken).ConfigureAwait(false);
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -322,23 +452,18 @@ internal sealed class SuperPdpClient : IPaClient
 
     // Relecture d'idempotence (F14 §4.1) : relit la liste des factures du compte pour RACCROCHER une
     // facture qui aurait DÉJÀ été créée par la tentative qui a échoué (cas du timeout : « émis ou pas ? »).
-    //   Found    → facture présente dans la liste lue → on raccroche son état réel ;
-    //   NotFound → tout le reste (non-200, forme illisible, échec réseau, OU numéro absent d'une page
+    //   Found    → facture portant NOTRE external_id présente dans la page lue → on raccroche son état ;
+    //   NotFound → tout le reste (non-200, forme illisible, échec réseau, OU external_id absent d'une page
     //              potentiellement INCOMPLÈTE) → on NE raccroche PAS et on NE ré-émet PAS.
-    // « Numéro absent » n'est PAS « facture absente » tant que la forme de la liste n'est pas confirmée en
-    // sandbox (PAS03) : ré-émettre sur cette base risquerait un doublon fiscal (CLAUDE.md n°3).
-    private async Task<ReconnectOutcome> TryReconnectByNumberAsync(string number, CancellationToken cancellationToken)
+    // « Absent de la page » n'est PAS « facture absente » (pagination par curseur — F14 §3.2) : ré-émettre
+    // sur cette base risquerait un doublon fiscal (CLAUDE.md n°3) ; le résultat reste TechnicalError
+    // re-tentable et la relecture re-tentera au prochain run.
+    private async Task<ReconnectOutcome> TryReconnectByExternalIdAsync(string externalId, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(number))
-        {
-            return ReconnectOutcome.NotFound;
-        }
-
-        var url = SendUrl();
         try
         {
             using var response = await SendWithAuthAsync(
-                () => new HttpRequestMessage(HttpMethod.Get, url),
+                () => new HttpRequestMessage(HttpMethod.Get, ListUrl()),
                 cancellationToken).ConfigureAwait(false);
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
@@ -348,7 +473,7 @@ internal sealed class SuperPdpClient : IPaClient
                 return ReconnectOutcome.NotFound;
             }
 
-            var match = invoices.FirstOrDefault(i => string.Equals(i.Number, number, StringComparison.Ordinal));
+            var match = invoices.FirstOrDefault(i => string.Equals(i.ExternalId, externalId, StringComparison.Ordinal));
             return match is null
                 ? ReconnectOutcome.NotFound
                 : ReconnectOutcome.AsFound(SuperPdpResponseMapper.MapReconnected(match, body));
@@ -394,6 +519,13 @@ internal sealed class SuperPdpClient : IPaClient
     }
 
     // ── Types imbriqués (après toutes les méthodes — ordre StyleCop) ──
+    private readonly record struct ConvertOutcome(string? Xml, PaSendResult? Failure)
+    {
+        public static ConvertOutcome Success(string xml) => new(xml, Failure: null);
+
+        public static ConvertOutcome Failed(PaSendResult failure) => new(Xml: null, failure);
+    }
+
     private readonly record struct PostOutcome(PaSendResult Result, bool IsTransient);
 
     private readonly record struct StatusOutcome(PaDocumentStatus Status, bool IsTransient);

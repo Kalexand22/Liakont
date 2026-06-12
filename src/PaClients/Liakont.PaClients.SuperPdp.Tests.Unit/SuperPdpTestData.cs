@@ -8,40 +8,68 @@ using Liakont.Modules.Transmission.Contracts;
 /// fournisseur de jeton de test, pour les tests de PAS02. Montants en <see cref="decimal"/> (CLAUDE.md
 /// n°1), valeurs FICTIVES (aucune donnée client — CLAUDE.md n°7). Le mapping TVA (catégorie/taux/VATEX)
 /// est posé tel que la PLATEFORME (F03) l'enrichirait dans le pivot — le plug-in le recopie sans rien
-/// inventer.
+/// inventer. Les corps de réponse reproduisent le contrat RÉEL (✅ OpenAPI + sandbox 2026-06-12, F14
+/// §3.2/§3.4) : ressource <c>invoice</c> avec <c>events[]</c>, liste <c>{"data":[…]}</c>, erreur
+/// <c>{"http_status_code","message"}</c>.
 /// </summary>
 internal static class SuperPdpTestData
 {
-    /// <summary>Réponse Super PDP d'une émission acceptée (HTTP 200 + état issued).</summary>
-    public const string IssuedJson = """{"id":"INV-1001","state":"issued","tax_report_ids":["TR-1"]}""";
-
-    /// <summary>Liste de factures VIDE (forme tableau nu) — relecture d'idempotence : numéro absent.</summary>
-    public const string EmptyInvoiceListJson = "[]";
+    /// <summary>XML CII rendu par la conversion (le client le fait suivre sans le parser — F14 §3.2).</summary>
+    public const string CiiXml =
+        """<?xml version="1.0" encoding="UTF-8"?><CrossIndustryInvoice xmlns="urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100"/>""";
 
     /// <summary>
-    /// Liste de factures (forme tableau nu) contenant UNE facture pour le numéro donné — relecture
-    /// d'idempotence : numéro déjà créé côté PA (raccrochage).
+    /// Réponse d'une émission ABOUTIE : la ressource invoice avec le cycle observé en sandbox jusqu'à
+    /// <c>fr:201</c> « Émise par la plateforme » → <see cref="PaSendState.Issued"/> (F14 §4.1).
     /// </summary>
-    /// <param name="number">Numéro de document recherché.</param>
-    /// <param name="id">Identifiant attribué par la PA.</param>
-    /// <param name="state">État Super PDP (issued / sending / new / error).</param>
-    public static string InvoiceListJsonWith(string number, string id = "INV-RECONNECT", string state = "issued") =>
-        $$"""[{"id":"{{id}}","number":"{{number}}","state":"{{state}}","tax_report_ids":["TR-9"]}]""";
+    public const string IssuedJson =
+        """{"id":1001,"company_id":12085,"direction":"out","external_id":"CT-1","events":[{"status_code":"api:uploaded","status_text":"Téléversée"},{"status_code":"fr:200","status_text":"Déposée (validée)"},{"status_code":"fr:201","status_text":"Émise par la plateforme"}]}""";
 
-    /// <summary>Même liste mais sous la forme ENVELOPPÉE <c>{ "invoices": [...] }</c> (variante tolérée).</summary>
-    /// <param name="number">Numéro de document recherché.</param>
-    /// <param name="id">Identifiant attribué par la PA.</param>
-    /// <param name="state">État Super PDP.</param>
-    public static string WrappedInvoiceListJsonWith(string number, string id = "INV-WRAPPED", string state = "issued") =>
-        $$"""{"invoices":[{"id":"{{id}}","number":"{{number}}","state":"{{state}}"}]}""";
+    /// <summary>
+    /// Réponse SYNCHRONE typique du POST réel : seulement <c>api:uploaded</c> (téléversée, envoi
+    /// asynchrone en file) → <see cref="PaSendState.Sending"/>, JAMAIS « émise » (F14 §4.1).
+    /// </summary>
+    public const string UploadedJson =
+        """{"id":1002,"company_id":12085,"direction":"out","external_id":"CT-UP","events":[{"status_code":"api:uploaded","status_text":"Téléversée"}]}""";
 
-    /// <summary>Facture B2C simple à 20 % (une ligne, catégorie S).</summary>
+    /// <summary>Liste de factures VIDE (forme réelle <c>{"data":[…]}</c>) — relecture d'idempotence : clé absente.</summary>
+    public const string EmptyInvoiceListJson = """{"data":[],"count":0,"has_before":false,"has_after":false}""";
+
+    /// <summary>
+    /// Liste de factures (forme réelle <c>{"data":[…]}</c>) contenant UNE facture pour l'<c>external_id</c>
+    /// donné — relecture d'idempotence : la facture a déjà été créée côté PA (raccrochage, F14 §4.1).
+    /// </summary>
+    /// <param name="externalId">Clé d'idempotence recherchée (le numéro de document).</param>
+    /// <param name="id">Identifiant numérique attribué par la PA.</param>
+    /// <param name="statusCode">Code du dernier événement (ex. <c>fr:201</c> émise / <c>api:uploaded</c> en cours).</param>
+    public static string InvoiceListJsonWith(string externalId, long id = 2001, string statusCode = "fr:201") =>
+        $$"""{"data":[{"id":{{id}},"direction":"out","external_id":"{{externalId}}","events":[{"status_code":"{{statusCode}}","status_text":"Statut simulé"}]}],"count":1,"has_before":false,"has_after":false}""";
+
+    /// <summary>Corps d'erreur Super PDP (✅ format réel confirmé sandbox — F14 §4.1).</summary>
+    /// <param name="httpStatusCode">Code HTTP répété dans le corps.</param>
+    /// <param name="message">Message Super PDP (conservé intact par le mapper).</param>
+    public static string ErrorJson(int httpStatusCode, string message) =>
+        $$"""{"http_status_code":{{httpStatusCode}},"message":"{{message}}"}""";
+
+    /// <summary>Facture simple à 20 % (une ligne, catégorie S), destinataire IDENTIFIÉ (SIREN fictif).</summary>
     public static PivotDocumentDto Invoice20(string number = "F-2026-001") => new(
         sourceDocumentKind: "FACTURE",
         number: number,
         issueDate: new DateTime(2026, 1, 15),
         sourceReference: $"SRC-{number}",
-        supplier: new PivotPartyDto("SVV Démo", siren: "123456789"),
+        supplier: new PivotPartyDto("SVV Démo", siren: "123456789", vatNumber: "FR32123456789"),
+        totals: new PivotTotalsDto(100m, 20m, 120m),
+        operationCategory: OperationCategory.LivraisonBiens,
+        customer: new PivotPartyDto("Client Démo", siren: "987654321"),
+        lines: [new PivotLineDto("Prestation", 100m, taxes: [new PivotLineTaxDto(20m, 20m, VatCategory.S)])]);
+
+    /// <summary>Même facture mais SANS destinataire : exerce la garde locale d'adressage (F14 §3.2).</summary>
+    public static PivotDocumentDto Invoice20WithoutCustomer(string number = "F-2026-009") => new(
+        sourceDocumentKind: "FACTURE",
+        number: number,
+        issueDate: new DateTime(2026, 1, 15),
+        sourceReference: $"SRC-{number}",
+        supplier: new PivotPartyDto("SVV Démo", siren: "123456789", vatNumber: "FR32123456789"),
         totals: new PivotTotalsDto(100m, 20m, 120m),
         operationCategory: OperationCategory.LivraisonBiens,
         lines: [new PivotLineDto("Prestation", 100m, taxes: [new PivotLineTaxDto(20m, 20m, VatCategory.S)])]);
@@ -55,9 +83,10 @@ internal static class SuperPdpTestData
         number: number,
         issueDate: new DateTime(2026, 3, 10),
         sourceReference: $"SRC-{number}",
-        supplier: new PivotPartyDto("SVV Démo", siren: "123456789"),
+        supplier: new PivotPartyDto("SVV Démo", siren: "123456789", vatNumber: "FR32123456789"),
         totals: new PivotTotalsDto(1200m, 40m, 1240m),
         operationCategory: OperationCategory.Mixte,
+        customer: new PivotPartyDto("Client Démo", siren: "987654321"),
         lines:
         [
             new PivotLineDto(
@@ -80,9 +109,10 @@ internal static class SuperPdpTestData
         number: number,
         issueDate: new DateTime(2026, 2, 1),
         sourceReference: $"SRC-{number}",
-        supplier: new PivotPartyDto("SVV Démo", siren: "123456789"),
+        supplier: new PivotPartyDto("SVV Démo", siren: "123456789", vatNumber: "FR32123456789"),
         totals: new PivotTotalsDto(50m, 10m, 60m),
         operationCategory: OperationCategory.LivraisonBiens,
+        customer: new PivotPartyDto("Client Démo", siren: "987654321"),
         lines: [new PivotLineDto("Remboursement", 50m, taxes: [new PivotLineTaxDto(10m, 20m, VatCategory.S)])],
         creditNoteRefs: [new PivotDocumentRefDto("F-ORIGINE", new DateTime(2026, 1, 10))]);
 

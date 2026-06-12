@@ -54,10 +54,12 @@ public sealed class SuperPdpClientFactoryTests
     [Fact]
     public async Task Create_Wires_The_OAuth_Token_Exchange_Then_Sends_With_The_Bearer()
     {
-        // /oauth2/token → jeton ; /v1.beta/invoices → émission. Le client doit obtenir le jeton PUIS
-        // poster la facture avec « Authorization: Bearer <token> ».
+        // /oauth2/token → jeton ; /v1.beta/invoices/convert → XML CII ; /v1.beta/invoices → émission
+        // (F14 §3.2). Le client doit obtenir le jeton PUIS dérouler conversion + émission avec
+        // « Authorization: Bearer <token> ».
         var handler = new PathRoutingHttpMessageHandler()
             .On("/oauth2/token", HttpStatusCode.OK, """{"access_token":"AT-XYZ","token_type":"bearer","expires_in":1799}""")
+            .On("/v1.beta/invoices/convert", HttpStatusCode.OK, SuperPdpTestData.CiiXml)
             .On("/v1.beta/invoices", HttpStatusCode.OK, SuperPdpTestData.IssuedJson);
         var factory = new SuperPdpClientFactory(new FakeHttpClientFactory(handler), new StubAccountResolver(Config));
         var client = factory.Create(new PaAccountDescriptor("SuperPdp", "tenant-a"));
