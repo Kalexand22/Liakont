@@ -26,13 +26,13 @@
 }
 else if (_loadFailed)
 {
-    <div role="alert" data-testid="reconciliation-error">
+    <LiakontAlert TestId="reconciliation-error">
         Impossible de charger la file de réconciliation pour le moment. Réessayez plus tard.
-    </div>
+    </LiakontAlert>
 }
 else if (_model is null)
 {
-    <p data-testid="reconciliation-loading">Chargement…</p>
+    <LiakontLoading TestId="reconciliation-loading" />
 }
 else
 {

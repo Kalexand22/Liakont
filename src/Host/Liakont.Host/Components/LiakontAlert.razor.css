@@ -1,0 +1,43 @@
+/* LiakontAlert — bandeau d'alerte des pages console. Couleurs exclusivement via les tokens
+   sémantiques --color-severity-* (light + dark). Marge basse par défaut (bandeau au-dessus d'un
+   contenu) ; un conteneur qui espace déjà ses enfants (flex gap du dashboard) l'annule en ::deep. */
+
+.liakont-alert {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0.85rem;
+    margin: 0 0 1rem;
+    border: 1px solid;
+    border-radius: var(--radius-sm);
+}
+
+.liakont-alert:last-child {
+    margin-bottom: 0;
+}
+
+.liakont-alert--error {
+    background: var(--color-severity-error-bg);
+    border-color: var(--color-severity-error-border);
+}
+
+.liakont-alert--warning {
+    background: var(--color-severity-warning-bg);
+    border-color: var(--color-severity-warning-border);
+}
+
+.liakont-alert--info {
+    background: var(--color-severity-info-bg);
+    border-color: var(--color-severity-info-border);
+}
+
+.liakont-alert--success {
+    background: var(--color-severity-success-bg);
+    border-color: var(--color-severity-success-border);
+}
+
+.liakont-alert--neutral {
+    background: var(--color-severity-neutral-bg);
+    border-color: var(--color-severity-neutral-border);
+}

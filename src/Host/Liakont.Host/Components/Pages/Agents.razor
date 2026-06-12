@@ -25,16 +25,16 @@
 {
     @* La gestion du parc (secrets) est réservée au paramétrage : page non accessible en lecture seule
        (le lien de navigation est lui aussi masqué sans liakont.settings — WEB01). *@
-    <div role="alert" data-testid="agents-denied">
+    <LiakontAlert Severity="Severity.Warning" TestId="agents-denied">
         Accès refusé : la gestion des agents requiert l'autorisation de paramétrage (liakont.settings).
         Rapprochez-vous de l'administrateur de votre organisation.
-    </div>
+    </LiakontAlert>
 }
 else if (_loadFailed)
 {
-    <div role="alert" data-testid="agents-error">
+    <LiakontAlert TestId="agents-error">
         Impossible de charger le parc d'agents pour le moment. Réessayez plus tard.
-    </div>
+    </LiakontAlert>
 }
 else
 {

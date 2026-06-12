@@ -11,21 +11,27 @@
 
     @if (!Model.ProfileConfigured)
     {
-        <div class="liakont-dashboard__alert" role="alert" data-testid="dashboard-profile-incomplete">
+        <LiakontAlert TestId="dashboard-profile-incomplete">
             <StatusBadge Label="PARAMÉTRAGE INCOMPLET" Severity="Severity.Error" />
             <span>Le profil du tenant n'est pas encore créé — le traitement des documents est suspendu.
                 Importez le paramétrage du tenant (profil légal) pour reprendre le traitement.</span>
-        </div>
+        </LiakontAlert>
     }
 
     <SectionCard Title="Documents" TestId="dashboard-documents">
+        @* Tuiles CLIQUABLES : chaque compteur ouvre la liste des documents filtrée sur son état, via le
+           filtre d'URL ?etat= déjà porté par la page Documents (issue #33) — même drill-down que les
+           pastilles du DocumentCountsBanner. Lien naturel (pas de NavigationManager : vue pure). *@
         <div class="liakont-dashboard__counters" data-testid="dashboard-counters">
             @foreach (var counter in Model.StateCounts)
             {
-                <div class="liakont-dashboard__counter" data-testid="@($"counter-{counter.State}")">
+                <a class="liakont-dashboard__counter"
+                   href="@($"/documents?etat={Uri.EscapeDataString(counter.State)}")"
+                   aria-label="@($"{counter.Count} document(s) — {DocumentStateDisplay.For(counter.State).Label} : voir la liste")"
+                   data-testid="@($"counter-{counter.State}")">
                     <span class="liakont-dashboard__counter-value">@counter.Count</span>
                     <DocumentStateBadge State="@counter.State" />
-                </div>
+                </a>
             }
         </div>
     </SectionCard>
@@ -71,10 +77,10 @@
                 </p>
                 break;
             case DashboardTvaStatus.NotValidated:
-                <div class="liakont-dashboard__alert" role="alert" data-testid="dashboard-tva-alert">
+                <LiakontAlert TestId="dashboard-tva-alert">
                     <StatusBadge Label="NON VALIDÉE" Severity="Severity.Error" />
                     <span>Les envois sont suspendus jusqu'à validation par l'expert-comptable.</span>
-                </div>
+                </LiakontAlert>
                 break;
             default:
                 <p data-testid="dashboard-tva-none">Aucune table TVA paramétrée.</p>
@@ -85,10 +91,12 @@
     <SectionCard Title="Échéance déclarative" TestId="dashboard-deadline">
         @if (string.IsNullOrWhiteSpace(Model.ReportingFrequency))
         {
-            <div class="liakont-dashboard__alert" role="alert" data-testid="dashboard-frequency-missing">
-                Fréquence déclarative non renseignée (décision de votre expert-comptable) —
-                <a href="/parametrage/fiscal" data-testid="dashboard-frequency-missing-link">renseignez-la dans le paramétrage fiscal</a>.
-            </div>
+            <LiakontAlert Severity="Severity.Warning" TestId="dashboard-frequency-missing">
+                <span>
+                    Fréquence déclarative non renseignée (décision de votre expert-comptable) —
+                    <a href="/parametrage/fiscal" data-testid="dashboard-frequency-missing-link">renseignez-la dans le paramétrage fiscal</a>.
+                </span>
+            </LiakontAlert>
         }
         else
         {

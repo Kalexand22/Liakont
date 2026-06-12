@@ -5,6 +5,7 @@
 @using Liakont.Host.Components
 @using Liakont.Host.Security
 @using Stratum.Common.Abstractions.Security
+@using Stratum.Common.UI.Models
 @inject IFiscalConsoleService Service
 @inject IPermissionService Permissions
 @inject ILogger<Fiscal> Logger
@@ -17,20 +18,20 @@
 {
     @* Paramétrage du tenant : réservé à liakont.settings. Sans la permission, aucune donnée n'est chargée et
        seul le message d'accès refusé est rendu (la garde serveur reste l'unique contrôle du chemin console). *@
-    <div role="alert" data-testid="fiscal-denied">
+    <LiakontAlert Severity="Severity.Warning" TestId="fiscal-denied">
         Accès refusé : le paramétrage fiscal du tenant requiert l'autorisation de paramétrage (liakont.settings).
         Rapprochez-vous de l'administrateur de votre organisation.
-    </div>
+    </LiakontAlert>
 }
 else if (_loadFailed)
 {
-    <div role="alert" data-testid="fiscal-error">
+    <LiakontAlert TestId="fiscal-error">
         Impossible de charger le paramétrage fiscal du tenant pour le moment. Réessayez plus tard.
-    </div>
+    </LiakontAlert>
 }
 else if (_model is null)
 {
-    <p data-testid="fiscal-loading">Chargement…</p>
+    <LiakontLoading TestId="fiscal-loading" />
 }
 else
 {

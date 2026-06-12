@@ -17,13 +17,13 @@
 
 @if (_loadFailed)
 {
-    <div role="alert" data-testid="table-tva-error">
+    <LiakontAlert TestId="table-tva-error">
         Impossible de charger la table TVA pour le moment. Réessayez plus tard.
-    </div>
+    </LiakontAlert>
 }
 else if (_model is null)
 {
-    <p data-testid="table-tva-loading">Chargement…</p>
+    <LiakontLoading TestId="table-tva-loading" />
 }
 else
 {

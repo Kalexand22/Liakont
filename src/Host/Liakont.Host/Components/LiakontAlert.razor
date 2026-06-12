@@ -1,0 +1,44 @@
+@namespace Liakont.Host.Components
+@using Stratum.Common.UI.Models
+
+@* LiakontAlert — bandeau d'alerte partagé des pages console (lot polish UX/UI). Donne un rendu
+ * VISIBLE (fond + bordure par sévérité, tokens --color-severity-* du design-system, compatibles
+ * thème sombre) aux messages opérateur qui s'affichaient en texte nu : erreurs de chargement,
+ * accès refusés, avertissements de paramétrage. Pur composant présentational : aucun service,
+ * aucune logique métier — le message (en français, CLAUDE.md n°12) vient du parent. *@
+
+<div class="liakont-alert liakont-alert--@SeverityModifier"
+     role="@Role"
+     data-testid="@TestId">
+    @ChildContent
+</div>
+
+@code {
+    /// <summary>Sévérité visuelle du bandeau (défaut : <see cref="Severity.Error"/>).</summary>
+    [Parameter]
+    public Severity Severity { get; set; } = Severity.Error;
+
+    /// <summary>
+    /// Rôle ARIA du bandeau. Défaut « alert » (annonce immédiate) — passer « status » pour un
+    /// message non urgent (information, confirmation) afin de ne pas interrompre le lecteur d'écran.
+    /// </summary>
+    [Parameter]
+    public string Role { get; set; } = "alert";
+
+    /// <summary>Identifiant de test posé sur le bandeau (les pages conservent leurs testids historiques).</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+
+    /// <summary>Contenu du message (texte, badge, lien d'action corrective…).</summary>
+    [Parameter, EditorRequired]
+    public RenderFragment ChildContent { get; set; } = null!;
+
+    private string SeverityModifier => Severity switch
+    {
+        Severity.Success => "success",
+        Severity.Warning => "warning",
+        Severity.Info => "info",
+        Severity.Neutral => "neutral",
+        _ => "error",
+    };
+}

@@ -37,19 +37,19 @@
 
     @if (_loadFailed)
     {
-        <div class="liakont-doc-detail-page__alert" role="alert" data-testid="document-detail-error">
+        <LiakontAlert TestId="document-detail-error">
             Impossible de charger ce document pour le moment. Réessayez plus tard.
-        </div>
+        </LiakontAlert>
     }
     else if (_notFound)
     {
-        <div class="liakont-doc-detail-page__alert" role="alert" data-testid="document-detail-notfound">
+        <LiakontAlert Severity="Severity.Warning" TestId="document-detail-notfound">
             Ce document est introuvable. Il a peut-être été remplacé, ou il n'appartient pas à ce tenant.
-        </div>
+        </LiakontAlert>
     }
     else if (_model is null)
     {
-        <p data-testid="document-detail-loading">Chargement…</p>
+        <LiakontLoading TestId="document-detail-loading" />
     }
     else
     {

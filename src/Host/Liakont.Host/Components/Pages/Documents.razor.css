@@ -41,14 +41,17 @@
     border: 1px solid var(--color-border, #d1d5db);
 }
 
+/* Tokens sémantiques --color-severity-* : suivent le thème (light/dark) — les anciennes variables
+   (--color-success, --color-danger-surface…) n'existaient pas dans tokens.css, donc les bandeaux
+   restaient figés sur les replis clairs en thème sombre. */
 .doc-send-feedback--ok {
-    border-color: var(--color-success, #16a34a);
-    background: var(--color-success-surface, #f0fdf4);
+    border-color: var(--color-severity-success-border);
+    background: var(--color-severity-success-bg);
 }
 
 .doc-send-feedback--error {
-    border-color: var(--color-danger, #dc2626);
-    background: var(--color-danger-surface, #fef2f2);
+    border-color: var(--color-severity-error-border);
+    background: var(--color-severity-error-bg);
 }
 
 /* Confirmation du « Tout envoyer » (WEB05) — récapitulatif + boutons. */
@@ -57,7 +60,8 @@
     padding: 0.85rem 1rem;
     border: 1px solid var(--color-border, #d1d5db);
     border-radius: var(--radius-sm, 0.25rem);
-    background: var(--color-surface-alt, #f9fafb);
+    /* --color-surface-alt n'existe pas dans tokens.css : --color-bg-subtle est le token réel. */
+    background: var(--color-bg-subtle, #f9fafb);
 }
 
 .doc-send-confirm__text {

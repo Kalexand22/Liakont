@@ -11,13 +11,13 @@
 
 @if (_loadFailed)
 {
-    <div role="alert" data-testid="dashboard-error">
+    <LiakontAlert TestId="dashboard-error">
         Impossible de charger le tableau de bord pour le moment. Réessayez plus tard.
-    </div>
+    </LiakontAlert>
 }
 else if (_model is null)
 {
-    <p data-testid="dashboard-loading">Chargement…</p>
+    <LiakontLoading TestId="dashboard-loading" />
 }
 else
 {

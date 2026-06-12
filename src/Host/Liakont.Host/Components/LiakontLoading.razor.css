@@ -1,0 +1,13 @@
+/* LiakontLoading — état de chargement des pages console. Layout uniquement : les couleurs du
+   spinner viennent du design-system (CircularProgress). */
+
+.liakont-loading {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--color-text-muted);
+}
+
+.liakont-loading__spinner {
+    display: inline-flex;
+}

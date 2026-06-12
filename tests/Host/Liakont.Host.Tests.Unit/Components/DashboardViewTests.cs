@@ -52,6 +52,26 @@ public sealed class DashboardViewTests : BunitContext
     }
 
     [Fact]
+    public void Should_Link_Each_Counter_To_The_Filtered_Documents_List()
+    {
+        // Drill-down : la tuile ouvre /documents filtrée sur son état via le paramètre d'URL
+        // « etat » (restauré par la page Documents — issue #33), même geste que les pastilles
+        // du DocumentCountsBanner.
+        var model = BuildModel(counts:
+        [
+            new DashboardStateCount("Issued", 7),
+            new DashboardStateCount("Blocked", 1),
+        ]);
+
+        var cut = Render<DashboardView>(p => p.Add(v => v.Model, model));
+
+        var issued = cut.Find("[data-testid='counter-Issued']");
+        issued.TagName.Should().Be("A");
+        issued.GetAttribute("href").Should().Be("/documents?etat=Issued");
+        cut.Find("[data-testid='counter-Blocked']").GetAttribute("href").Should().Be("/documents?etat=Blocked");
+    }
+
+    [Fact]
     public void Should_Show_Empty_Agent_Message_When_No_Agent()
     {
         var cut = Render<DashboardView>(p => p.Add(v => v.Model, BuildModel(agents: [])));
