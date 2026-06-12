@@ -97,3 +97,10 @@ jobs:
       - name: Self-test packaging agent
         shell: pwsh
         run: ./tools/test-agent-packaging.ps1
+
+      # Self-test du packaging multi-profils de l'installeur (OPS08c) : embarquement du profil en
+      # ressource + round-trip --show-profile + échec sur profil invalide, sur les binaires construits
+      # ci-dessus (réutilise OPS05 -SkipBuild). Garde permanente du « générique par intégrateur ».
+      - name: Self-test packaging installeur (multi-profils)
+        shell: pwsh
+        run: ./tools/test-installer-packaging.ps1

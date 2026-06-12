@@ -176,6 +176,25 @@ if (Test-Path $agentSln) {
     }
 }
 
+# ── Self-test du packaging multi-profils de l'installeur (OPS08c) ────────────────
+# Garde PERMANENTE du packaging par profil intégrateur (tools/package-installer.ps1) : embarquement du
+# profil en ressource + round-trip --show-profile + échec sur profil invalide, sur les binaires que les
+# suites agent viennent de construire. Réutilise OPS05 (-SkipBuild). Sauté en bootstrap (agent absent).
+if (Test-Path $agentSln) {
+    Write-Host ""
+    Write-Host "=== [installer packaging self-test] ===" -ForegroundColor Cyan
+    $psExe = if ($PSVersionTable.PSEdition -eq 'Core') { 'pwsh' } else { 'powershell' }
+    & $psExe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot 'tools\test-installer-packaging.ps1')
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "FAIL: [installer packaging self-test] échec — voir la sortie ci-dessus." -ForegroundColor Red
+        "[installer packaging self-test] FAILED (exit $LASTEXITCODE)." | Add-Content $logFile
+        $overallExit = 1
+    }
+    else {
+        "[installer packaging self-test] PASS." | Add-Content $logFile
+    }
+}
+
 # ── Self-test du provisioning d'instances (OPS02) ────────────────
 # Garde PERMANENTE de la logique de provisioning (deploy/provisioning/Provisioning.psm1 + scripts
 # new-instance/update-instance sur les états vide/sale/échec). PowerShell pur, sans Docker (les

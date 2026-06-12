@@ -57,6 +57,38 @@ La clé API est embarquée **chiffrée** (jamais en clair). Le script affiche un
 unique** : communiquez-le à l'intégrateur **par un canal séparé** du package (voir
 [ADR-0019](adr/ADR-0019-format-paquet-installeur-agent.md)).
 
+### Installateur GUI par profil intégrateur (OPS08c, F13 §7)
+
+Pour produire un **installateur à écrans guidés** habillé et restreint **par intégrateur**
+(« générique par intégrateur »), utilisez `tools/package-installer.ps1`. À partir du **même binaire**
+d'installeur et de N **profils intégrateur** (branding + visibilité par champ — *jamais* de secret ni
+de donnée client, voir [`config/exemples/profil-integrateur-exemple.json`](../config/exemples/profil-integrateur-exemple.json)),
+il produit N paquets, chacun avec son profil **embarqué en ressource** dans l'`.exe` :
+
+```powershell
+# Un installateur par profil du dossier (x86 et x64)
+powershell -ExecutionPolicy Bypass -File tools/package-installer.ps1 `
+  -ProfilesDirectory deployments/<intégrateur>/profils
+
+# Ou un profil unique nommé, x86 seulement
+powershell -ExecutionPolicy Bypass -File tools/package-installer.ps1 -Platform x86 `
+  -ProfilePath config/exemples/profil-integrateur-exemple.json
+```
+
+Via `powershell -File`, pour **plusieurs** profils utilisez `-ProfilesDirectory` (un `-ProfilePath` multiple n'est pas supporté par `-File` ; `-ProfilePath` accepte plusieurs chemins uniquement en appel direct PowerShell : `-ProfilePath 'a.json','b.json'`).
+
+Chaque profil est **validé avant embarquement** (un profil invalide fait échouer le build — jamais de
+masquage silencieux), puis l'embarquement est **vérifié** (`--show-profile` relit le profil). Chaque
+paquet réutilise la charge utile OPS05 (service + CLI + updater + natifs) et place
+`Liakont.Agent.Installer.exe` dans `bin\` à côté du service : l'intégrateur lance
+`bin\Liakont.Agent.Installer.exe`, le wizard n'affiche que les champs autorisés par le profil, la
+config tenant (clé API, ODBC) est **saisie au wizard puis chiffrée DPAPI**. Sortie dans
+`artifacts/agent-installers/`.
+
+> Diagnostic : `Liakont.Agent.Installer.exe --show-profile` affiche le profil embarqué (ou indique le
+> profil par défaut ouvert si l'installeur n'en embarque aucun) ; `--validate <profil.json>` valide un
+> profil sans rien installer.
+
 ## 4. Installer (côté poste cible)
 
 Extraire le `.zip`, ouvrir une console **administrateur** dans le dossier extrait :

@@ -1,0 +1,23 @@
+{
+  "_commentaire": "DEUXIÈME modèle FICTIF de profil intégrateur (OPS08c, F13 §5/§7) — démontre que le packaging multi-profils produit N installateurs distincts à partir du même binaire. Profil « hébergeur SaaS » (cas AZMUT, OPS05 pt 5 / OPS08b) : N bases clientes sur une même machine = N instances de l'agent, une par base. À la différence du profil mono-site (profil-integrateur-exemple.json, qui MASQUE instanceName sur « Default »), ce profil AFFICHE instanceName pour enchaîner les installations. AUCUN secret, AUCUNE donnée client (CLAUDE.md n°7, F13 §5.5).",
+
+  "profil": "exemple-hebergeur-saas",
+
+  "branding": {
+    "nom": "Exemple Hébergeur SaaS",
+    "logo": "logo.png",
+    "couleurPrincipale": "#1769aa"
+  },
+
+  "champs": {
+    "instanceName": { "etat": "affiché" },
+    "adapter": { "etat": "affiché" },
+    "platformUrl": { "etat": "verrouillé", "valeur": "https://liakont.exemple-hebergeur.fr" },
+    "apiKey": { "etat": "affiché" },
+    "odbcConnection": { "etat": "affiché" },
+    "odbcAdvanced": { "etat": "masqué", "valeur": "false" },
+    "schedule": { "etat": "affiché", "valeur": "02:00,12:00,18:00" },
+    "logging": { "etat": "masqué", "valeur": "info/180j" },
+    "autoUpdate": { "etat": "verrouillé", "valeur": true }
+  }
+}
