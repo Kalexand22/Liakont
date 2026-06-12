@@ -153,11 +153,13 @@ doit savoir **lire** une alerte et l'**acquitter**, pas configurer le moteur.
 - **Deux gravités** : 🔴 **Critique** / 🟠 **Avertissement** (catalogue complet et seuils :
   [F12 §5.2](../conception/F12-Architecture-Plateforme-Agent.md), routage et premier traitement :
   [matrice §3](matrice-escalade.md)).
-- **Toutes les règles du catalogue ne sont pas encore évaluées.** Au moment de la rédaction,
-  **3 règles sont actives** (`agent.mute`, `documents.blocked`, `documents.pa_rejected`) ; les
-  autres sont **déclarées au catalogue mais pas encore évaluées** ([guide éditeur §8](../guide-editeur.md),
-  [matrice §3](matrice-escalade.md)). Le N1 **ne présume pas** une alerte automatique pour les règles
-  inactives et **surveille activement** les documents bloqués/rejetés à l'approche d'une échéance.
+- **Toutes les règles du catalogue ne sont pas encore évaluées.** L'**état d'implémentation à
+  jour** (quelles règles sont effectivement évaluées) est centralisé dans
+  [matrice §3](matrice-escalade.md) — **et l'état réel affiché par la console fait foi**, pas un
+  compte mémorisé. Le N1 **ne présume pas** d'alerte automatique pour une règle non encore évaluée
+  (il **surveille activement** les documents bloqués/rejetés, surtout à l'approche d'une échéance) ;
+  inversement, il **traite toute alerte que la console affiche**, sans la négliger au motif qu'il
+  « croyait » la règle inactive.
 - **Acquitter ≠ résoudre.** L'acquittement note la **prise en charge** (et fait partir le chrono du
   SLA) ; l'alerte reste active tant que sa **cause** n'a pas disparu ([matrice §3](matrice-escalade.md)).
 
@@ -232,7 +234,7 @@ version de l'agent + dernier heartbeat, version de l'instance, identifiant(s) de
 | Cycle de vie, statuts, onglet « Contrôles » | [guide opérateur §3/§4/§6](../guide-operateur.md) |
 | Rejets PA, erreurs techniques, file de push | [guide opérateur §8](../guide-operateur.md), [FAQ §C](faq-editeur.md) |
 | Agent muet, service Windows, redémarrage, seuil 24 h | [guide éditeur §8](../guide-editeur.md), [F12 §5.2](../conception/F12-Architecture-Plateforme-Agent.md) |
-| Catalogue d'alertes, gravités, état d'implémentation (3 actives) | [F12 §5.2](../conception/F12-Architecture-Plateforme-Agent.md), [matrice §3](matrice-escalade.md), [guide éditeur §8](../guide-editeur.md) |
+| Catalogue d'alertes, gravités ; état d'implémentation (centralisé) | [F12 §5.2](../conception/F12-Architecture-Plateforme-Agent.md), [matrice §3](matrice-escalade.md), [guide éditeur §8](../guide-editeur.md) |
 | Niveaux N1/N2/N3, escalade, informations minimales du ticket | [matrice §1/§2/§5](matrice-escalade.md), [FAQ §G](faq-editeur.md) |
 | Aucune règle fiscale inventée ; question fiscale → expert-comptable ; pas de secret en clair | CLAUDE.md règles n°2 et n°10 |
 

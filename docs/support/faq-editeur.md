@@ -102,9 +102,10 @@ politique d'auto-update.
 
 **Q. Une échéance approche et des documents ne sont **pas transmis**.** ✅ Traitez en priorité :
 **débloquez** (sections B/C) et laissez le pipeline transmettre. Le produit prévoit une alerte
-🔴 **« Échéance déclarative proche »** (J-3 par défaut, F12 §5.2) — **note** : cette règle est au
-catalogue mais **pas encore active** dans le produit (voir [matrice §3](matrice-escalade.md)), ne
-vous reposez pas dessus, surveillez activement les documents bloqués à l'approche d'une échéance.
+🔴 **« Échéance déclarative proche »** (J-3 par défaut, F12 §5.2) — **note** : son évaluation
+automatique fait partie des règles **non encore activées** au catalogue (état d'implémentation à
+jour : [matrice §3](matrice-escalade.md), qui fait foi) ; ne vous reposez pas sur une alerte
+automatique, **surveillez activement** les documents bloqués à l'approche d'une échéance.
 En cas de **blocage technique sous échéance**, ↗️ N2 sans attendre.
 
 **Q. Le produit gère-t-il la **réception** des factures fournisseurs ?** ✅ **Non en V1.** La

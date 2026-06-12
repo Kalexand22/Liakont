@@ -79,6 +79,11 @@ gravité** (§4). Le catalogue et les gravités sont repris **à l'identique** d
 > pas encore évaluées** (voir [guide éditeur](../guide-editeur.md) §8). La matrice couvre le
 > catalogue complet ; le support N1 ne doit pas encore présumer une alerte automatique pour les
 > 4 règles inactives.
+>
+> Cette note est l'**unique référence d'état d'implémentation** du produit : la [FAQ](faq-editeur.md)
+> et la [formation N1](formation-n1-editeur.md) y renvoient au lieu de répéter ce compte.
+> **L'état réel fait foi : la console affiche les alertes effectivement levées** ; ce compte est
+> daté et purement indicatif, à revérifier dès qu'une règle est activée.
 
 > **Acquitter ≠ résoudre.** Une alerte reste active tant que sa cause n'a pas disparu ; au plus
 > une alerte active par (tenant, règle). L'acquittement note la **prise en charge** (départ du
