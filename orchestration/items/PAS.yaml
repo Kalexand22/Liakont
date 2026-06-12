@@ -9,6 +9,14 @@
 # ⚠️ PRÉREQUIS HUMAIN (DR17-A4) : ouvrir une sandbox Super PDP (~1-2 jours).
 # Sans sandbox, PAS02/PAS03 doivent être marqués `blocked` avec ce motif — jamais
 # d'implémentation devinée à partir de la seule doc publique.
+#
+# ✅ SANDBOX OUVERTE le 2026-06-11 (geste opérateur, Karl) : auth = OAuth2 client_credentials.
+# Les credentials sont posés sur le poste des runners en variables d'environnement User
+# SUPERPDP_SANDBOX_CLIENT_ID / SUPERPDP_SANDBOX_CLIENT_SECRET (valeurs JAMAIS versionnées ni
+# loggées — CLAUDE.md n°10). Token-endpoint CONFIRMÉ par un test réel le 2026-06-11 :
+# POST https://api.superpdp.tech/oauth2/token (grant_type=client_credentials) → 200, token_type
+# bearer, expires_in 1799 — lève le « à confirmer sandbox » de F14 (§3 tableau / question O1)
+# pour le token-endpoint et la base URL sandbox.
 
 items:
   PAS01:
@@ -66,7 +74,8 @@ items:
       1. Hériter la suite de tests de contrat (PAA03) dans tests/Liakont.PaClients.SuperPdp.Tests/
          et la faire passer en vert (handler mocké).
       2. Suite sandbox séparée (Category=Sandbox, JAMAIS en CI) : envoi d'une facture fixture
-         sur la sandbox réelle. Config locale via variable d'env SUPERPDP_SANDBOX_KEY.
+         sur la sandbox réelle. Config locale via variables d'env SUPERPDP_SANDBOX_CLIENT_ID /
+         SUPERPDP_SANDBOX_CLIENT_SECRET (OAuth2 client_credentials — voir l'en-tête du lot).
       3. Mettre à jour F13 avec les réponses du support (flux paiement, archivage).
     acceptance:
       - "Suite de contrat PAA03 héritée et verte"

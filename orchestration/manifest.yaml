@@ -91,7 +91,15 @@ meta:
   #   « grande passe ergonomie » écran par écran est portée par la GATE humaine CONSOLE_POLISH
   #   (re-recette), pas par un item de dev — elle re-validera aussi les livrables FIX2 jamais vus
   #   à l'écran au run 3 (FIX205/206/208/211, témoin de vie, re-stage).
-  version: 20
+  # version 21 = lot EXT dans un NOUVEAU segment pivot-duedate (feat/pivot-duedate, base main,
+  #   dépend de GATE_PA_SUPERPDP : le builder Super PDP modifié par le correctif 87c7bc0 arrive sur
+  #   main par le merge de la PR #41). EXT01 : date d'échéance de paiement (EN 16931 BT-9) portée
+  #   par le pivot de bout en bout — lève la limitation F14 §12 O11 (BR-CO-25 constatée en sandbox
+  #   le 2026-06-12 : un montant dû positif exige BT-9/BT-20, que le pivot ne porte pas ; seules
+  #   les factures soldées sont émissibles via Super PDP). Spec d'abord (F01-F02), contrat additif
+  #   (hash canonique inchangé pour les documents sans échéance), adaptateur sans invention.
+  #   Décision opérateur (Karl, 2026-06-12) inscrite en tête d'items/EXT.yaml.
+  version: 21
   host: multi_agent_v1
 
 segments:
@@ -170,6 +178,13 @@ segments:
     lots: [OPS, BRD, DOC]
     gate: GATE_TOOLKIT
     depends_on_gate: [GATE_CONSOLE_WEB, GATE_PA_B2BROUTER, GATE_ADAPTER_ENCHERESV6]
+
+  pivot-duedate:
+    branch: feat/pivot-duedate
+    base: main
+    lots: [EXT]
+    gate: GATE_PIVOT_DUEDATE
+    depends_on_gate: GATE_PA_SUPERPDP
 
   deploiement-cmp:
     branch: feat/deploiement-cmp
@@ -391,6 +406,12 @@ items:
   - { id: DOC02, lot: DOC, blueprint: docs-spec-item, priority: 7110, depends_on: [DOC01] }
   - { id: DOC03, lot: DOC, blueprint: docs-spec-item, priority: 7120, depends_on: [] }
   - { id: GATE_TOOLKIT, type: gate, executor: human, priority: 7400, depends_on: [OPS01c, OPS03, OPS04, OPS06b, OPS06c, OPS07, OPS08c, BRD01, DOC01, DOC02, DOC03] }
+
+  # ── EXT ──
+  # EXT01 dépend de la GATE (segment depends_on_gate: GATE_PA_SUPERPDP) : le code Super PDP qu'il
+  # étend (SuperPdpEnInvoice/PayloadBuilder, correctif 87c7bc0) n'est sur main qu'au merge de la #41.
+  - { id: EXT01, lot: EXT, priority: 7500, depends_on: [] }
+  - { id: GATE_PIVOT_DUEDATE, type: gate, executor: human, priority: 7550, depends_on: [EXT01] }
 
   # ── CMP ──
   - { id: CMP01, lot: CMP, blueprint: docs-spec-item, priority: 8000, depends_on: [] }
