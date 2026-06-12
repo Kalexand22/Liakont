@@ -17,16 +17,24 @@ using Microsoft.Extensions.Options;
 /// </summary>
 internal static class FleetApiEndpoints
 {
+    /// <summary>
+    /// Politique de rate limiting de l'endpoint de heartbeat de flotte — anti-flood par IP (défense en
+    /// profondeur, comme l'API agent). Le vrai rempart reste la clé d'ingestion ; la fenêtre borne le
+    /// brute-force de la clé et l'inondation d'upserts. Dimensionnée généreusement (le heartbeat est rare).
+    /// </summary>
+    public const string RateLimiterPolicy = "fleet-api";
+
     public static IEndpointRouteBuilder MapFleetApi(this IEndpointRouteBuilder app)
     {
         app.MapPost(FleetApiHeaders.HeartbeatPath, HandleHeartbeatAsync)
             .AllowAnonymous()
-            .DisableAntiforgery();
+            .DisableAntiforgery()
+            .RequireRateLimiting(RateLimiterPolicy);
 
         return app;
     }
 
-    private static async Task<IResult> HandleHeartbeatAsync(
+    internal static async Task<IResult> HandleHeartbeatAsync(
         HttpContext http,
         IFleetHeartbeatIngestor ingestor,
         IOptions<FleetSupervisionOptions> options,

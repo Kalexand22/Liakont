@@ -327,6 +327,21 @@ public static class AppBootstrap
                         Window = TimeSpan.FromMinutes(1),
                         QueueLimit = 0,
                     }));
+
+            // Heartbeat de flotte (OPS04) : anti-flood par IP de l'endpoint d'ingestion central. Le heartbeat
+            // est rare (un par instance toutes les quelques minutes) ; la fenêtre est dimensionnée largement
+            // pour ne jamais rejeter une instance légitime, tout en bornant le brute-force de la clé + les
+            // écritures. Même réserve « derrière proxy » que les policies agent (sans ForwardedHeaders, la
+            // fenêtre dégrade en throttle global).
+            options.AddPolicy(FleetApiEndpoints.RateLimiterPolicy, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 120,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                    }));
         });
 
         // Liaison JSON du contrat agent (F12 §3) : le contrat émet ses énumérations par leur NOM

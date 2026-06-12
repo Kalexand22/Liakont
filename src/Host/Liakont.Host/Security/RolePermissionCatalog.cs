@@ -31,6 +31,8 @@ internal static class RolePermissionCatalog
     //   operateur   → read + actions
     //   parametrage → read + actions + settings
     //   superviseur → read + actions + settings + supervision
+    //   exploitant  → fleet  (rôle IT Innovations HORS matrice éditeur §3 — méta-supervision de flotte,
+    //                          OPS04 ; n'accorde AUCUNE permission éditeur, seulement le dashboard de flotte)
     private static readonly Dictionary<string, string[]> RoleToPermissions =
         new(StringComparer.OrdinalIgnoreCase)
         {
@@ -44,6 +46,7 @@ internal static class RolePermissionCatalog
                 LiakontPermissions.Settings,
                 LiakontPermissions.Supervision,
             ],
+            ["exploitant"] = [LiakontPermissions.Fleet],
         };
 
     // Types de claim portant les rôles realm. Sous OIDC le RoleClaimType est "roles" (mapper realm
