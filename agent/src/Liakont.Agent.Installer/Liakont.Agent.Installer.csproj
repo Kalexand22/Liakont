@@ -44,8 +44,11 @@
   <!-- Bootstrapper GUI WinForms (écrans livrés par OPS08b) : assemblies du framework net48 (signés
        Microsoft). La frontière agent/plateforme (blueprint.md §6) est gardée par AgentBoundaryTests sur
        les assemblies BIBLIOTHÈQUE (Contracts/Core/Adapters) ; les exe racines de composition (cet
-       installeur, comme le CLI/le service/l'updater) n'y sont pas scannés — l'installeur ne référence
-       que Liakont.Agent.Core, frontière respectée par construction. -->
+       installeur, comme le CLI/le service/l'updater) n'y sont pas scannés — l'installeur référence
+       Liakont.Agent.Core (validation nom/chiffrement/agent.json), Liakont.Agent.Cli (réutilisation des
+       sondes AGT05 : OdbcProbe, HttpPlatformProbe, CheckConfigCommand) et
+       Liakont.Agent.Adapters.EncheresV6 (adaptateurs source connus, pour la liste du wizard) — tout au
+       sein de la frontière Liakont.Agent.*, respectée par construction. -->
   <ItemGroup>
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Drawing" />

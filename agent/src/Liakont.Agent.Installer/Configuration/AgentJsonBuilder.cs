@@ -1,6 +1,7 @@
 namespace Liakont.Agent.Installer.Configuration;
 
 using System;
+using System.Collections.Generic;
 using Liakont.Agent.Core.Configuration;
 using Liakont.Agent.Core.Security;
 using Liakont.Agent.Installer.Profiles;
@@ -18,6 +19,24 @@ using Newtonsoft.Json.Linq;
 /// </summary>
 internal static class AgentJsonBuilder
 {
+    /// <summary>
+    /// Clés de champ profilables que <see cref="Build"/> écrit RÉELLEMENT dans agent.json (source de
+    /// vérité anti-faux-vert). Les clés du registre absentes d'ici (logging, autoUpdate, odbcAdvanced)
+    /// ne sont PAS encore portées par le schéma agent.json du cœur agent (F12 / AgentConfigLoader) :
+    /// le wizard ne doit donc pas les présenter comme saisissables, sinon la saisie serait silencieusement
+    /// perdue. instanceName n'y figure pas non plus : il cible l'installation (service/chemins), pas le
+    /// contenu de agent.json.
+    /// </summary>
+    internal static readonly IReadOnlyCollection<string> MappedFieldKeys = new[]
+    {
+        ProfileFieldKeys.PlatformUrl,
+        ProfileFieldKeys.ApiKey,
+        ProfileFieldKeys.Adapter,
+        ProfileFieldKeys.OdbcConnection,
+        ProfileFieldKeys.PdfPoolPath,
+        ProfileFieldKeys.Schedule,
+    };
+
     /// <summary>
     /// Sérialise <paramref name="config"/> en <c>agent.json</c>, secrets chiffrés par
     /// <paramref name="protector"/>. Lève <see cref="AgentConfigException"/> si le résultat ne satisfait

@@ -3,6 +3,7 @@ namespace Liakont.Agent.Installer.Wizard;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Liakont.Agent.Installer.Configuration;
 using Liakont.Agent.Installer.Profiles;
@@ -18,6 +19,17 @@ using Liakont.Agent.Installer.Profiles;
 /// </summary>
 internal sealed class WizardForm : Form
 {
+    // Champs « options » que le wizard collecte : STRICTEMENT ceux que AgentJsonBuilder écrit dans
+    // agent.json (anti-faux-vert — un champ saisi mais jamais écrit serait un faux-vert UI). Les autres
+    // champs du registre (logging, autoUpdate, odbcAdvanced) ne sont pas encore portés par le schéma
+    // agent.json du cœur agent ; les offrir à la saisie les perdrait silencieusement. Gardé en phase
+    // avec AgentJsonBuilder.MappedFieldKeys par WizardFieldMappingTests.
+    internal static readonly (string Key, string Label)[] OptionFields =
+    {
+        (ProfileFieldKeys.Schedule, "Planification (HH:mm, séparées par des virgules)"),
+        (ProfileFieldKeys.PdfPoolPath, "Dossier du pool de PDF"),
+    };
+
     private readonly InstallerEngine _engine;
     private readonly IntegratorProfile _profile;
     private readonly IReadOnlyList<string> _knownAdapters;
@@ -131,10 +143,20 @@ internal sealed class WizardForm : Form
 
         var result = new Label { Dock = DockStyle.Fill, AutoSize = false, Height = 60 };
         var test = new Button { Text = "Tester (lecture seule)", AutoSize = true };
-        test.Click += (sender, args) =>
+        test.Click += async (sender, args) =>
         {
-            SourceTestResult outcome = engine.TestSource(odbcBox.Text);
-            result.Text = outcome.Message;
+            string connection = odbcBox.Text;
+            test.Enabled = false;
+            result.Text = "Test en cours…";
+            try
+            {
+                SourceTestResult outcome = await Task.Run(() => engine.TestSource(connection));
+                result.Text = outcome.Message;
+            }
+            finally
+            {
+                test.Enabled = true;
+            }
         };
         AddRow(grid, string.Empty, test);
         AddRow(grid, "Diagnostic", result);
@@ -168,10 +190,21 @@ internal sealed class WizardForm : Form
 
         var result = new Label { Dock = DockStyle.Fill, AutoSize = false, Height = 60 };
         var test = new Button { Text = "Tester (heartbeat à blanc)", AutoSize = true };
-        test.Click += (sender, args) =>
+        test.Click += async (sender, args) =>
         {
-            PlatformTestResult outcome = engine.TestPlatform(urlBox.Text, keyBox.Text);
-            result.Text = outcome.Message;
+            string url = urlBox.Text;
+            string key = keyBox.Text;
+            test.Enabled = false;
+            result.Text = "Test en cours…";
+            try
+            {
+                PlatformTestResult outcome = await Task.Run(() => engine.TestPlatform(url, key));
+                result.Text = outcome.Message;
+            }
+            finally
+            {
+                test.Enabled = true;
+            }
         };
         AddRow(grid, string.Empty, test);
         AddRow(grid, "Diagnostic", result);
@@ -187,11 +220,10 @@ internal sealed class WizardForm : Form
         var page = new TabPage("4. Options");
         var grid = NewGrid();
 
-        AddOptionalTextField(grid, profileEngine, valueReaders, ProfileFieldKeys.Schedule, "Planification (HH:mm, séparées par des virgules)");
-        AddOptionalTextField(grid, profileEngine, valueReaders, ProfileFieldKeys.PdfPoolPath, "Dossier du pool de PDF");
-        AddOptionalTextField(grid, profileEngine, valueReaders, ProfileFieldKeys.OdbcAdvanced, "Paramètres ODBC avancés");
-        AddOptionalTextField(grid, profileEngine, valueReaders, ProfileFieldKeys.Logging, "Journalisation (niveau/rétention)");
-        AddOptionalTextField(grid, profileEngine, valueReaders, ProfileFieldKeys.AutoUpdate, "Mise à jour automatique (true/false)");
+        foreach ((string Key, string Label) option in OptionFields)
+        {
+            AddOptionalTextField(grid, profileEngine, valueReaders, option.Key, option.Label);
+        }
 
         page.Controls.Add(grid);
         return page;
@@ -207,7 +239,7 @@ internal sealed class WizardForm : Form
         var layout = new Panel { Dock = DockStyle.Fill };
 
         var install = new Button { Text = "Installer l'agent", Dock = DockStyle.Top, Height = 36 };
-        install.Click += (sender, args) =>
+        install.Click += async (sender, args) =>
         {
             var values = new Dictionary<string, string?>(StringComparer.Ordinal);
             foreach (KeyValuePair<string, Func<string?>> reader in valueReaders)
@@ -215,9 +247,18 @@ internal sealed class WizardForm : Form
                 values[reader.Key] = reader.Value();
             }
 
-            InstallationResult result = engine.Install(profile, new InstallationInput(values));
-            string header = result.Success ? "Installation réussie :" : "Installation NON aboutie :";
-            report.Text = header + Environment.NewLine + string.Join(Environment.NewLine, result.Messages);
+            install.Enabled = false;
+            report.Text = "Installation en cours…";
+            try
+            {
+                InstallationResult result = await Task.Run(() => engine.Install(profile, new InstallationInput(values)));
+                string header = result.Success ? "Installation réussie :" : "Installation NON aboutie :";
+                report.Text = header + Environment.NewLine + string.Join(Environment.NewLine, result.Messages);
+            }
+            finally
+            {
+                install.Enabled = true;
+            }
         };
 
         layout.Controls.Add(report);

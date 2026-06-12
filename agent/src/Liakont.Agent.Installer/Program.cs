@@ -134,7 +134,17 @@ internal static class Program
 
     private static int RunListInstances()
     {
-        IReadOnlyList<string> instances = BuildEngine().ListInstalledInstances();
+        IReadOnlyList<string> instances;
+        try
+        {
+            instances = BuildEngine().ListInstalledInstances();
+        }
+        catch (InvalidOperationException ex)
+        {
+            Console.Error.WriteLine(ex.Message);
+            return 1;
+        }
+
         if (instances.Count == 0)
         {
             Console.Out.WriteLine("Aucune instance de l'agent n'est installée sur ce poste.");

@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Threading.Tasks;
 using Liakont.Agent.Cli.Commands;
 using Liakont.Agent.Core;
 using Liakont.Agent.Core.Security;
@@ -75,6 +76,14 @@ internal sealed class AgentProcessDeployer : IAgentDeployer
         report.Add(serviceMessage);
 
         bool configOk = RunCheckConfig(configPath, report);
+        if (!configOk)
+        {
+            report.Add(
+                $"[!]     Le service « {instance.ServiceName} » est INSTALLÉ mais la configuration ci-dessus " +
+                "présente un problème : corrigez agent.json puis relancez le test, ou désinstallez cette " +
+                $"instance (--uninstall {instance.Name}).");
+        }
+
         return new DeploymentOutcome(configOk, report);
     }
 
@@ -130,8 +139,10 @@ internal sealed class AgentProcessDeployer : IAgentDeployer
                     return false;
                 }
 
-                string standardOutput = process.StandardOutput.ReadToEnd();
-                string standardError = process.StandardError.ReadToEnd();
+                Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
+                Task<string> errorTask = process.StandardError.ReadToEndAsync();
+                string standardOutput = outputTask.GetAwaiter().GetResult();
+                string standardError = errorTask.GetAwaiter().GetResult();
                 process.WaitForExit();
 
                 if (process.ExitCode == 0)

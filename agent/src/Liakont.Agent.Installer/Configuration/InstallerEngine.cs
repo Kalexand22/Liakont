@@ -131,7 +131,20 @@ internal sealed class InstallerEngine
 
     private bool IsAlreadyInstalled(AgentInstance instance, out string? error)
     {
-        foreach (string existing in _instanceCatalog.ListInstalledInstanceNames())
+        IReadOnlyList<string> existingInstances;
+        try
+        {
+            existingInstances = _instanceCatalog.ListInstalledInstanceNames();
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Énumération impossible (droits insuffisants) : on ne peut pas prouver l'unicité du nom
+            // -> bloquer avec le message français déjà porté par le port (CLAUDE.md n°3 & n°12).
+            error = ex.Message;
+            return true;
+        }
+
+        foreach (string existing in existingInstances)
         {
             if (string.Equals(existing, instance.Name, StringComparison.OrdinalIgnoreCase))
             {
