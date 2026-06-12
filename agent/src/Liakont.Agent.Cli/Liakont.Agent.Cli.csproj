@@ -7,9 +7,14 @@
     <RuntimeIdentifiers>win-x86;win-x64</RuntimeIdentifiers>
   </PropertyGroup>
 
-  <!-- Les types du CLI restent internal ; le projet de test y accède (commandes mockées, AGT05). -->
+  <!-- Les types du CLI restent internal ; le projet de test y accède (commandes mockées, AGT05).
+       L'installeur (OPS08b, F13 §3 : « couche de présentation au-dessus de Liakont.Agent.Core et des
+       commandes d'AGT05 ») réutilise EN IN-PROCESS les sondes de diagnostic (OdbcProbe/HttpPlatformProbe,
+       écrans « Tester ») et CheckConfigCommand (check-config final du wizard) — aucune logique dupliquée
+       (CLAUDE.md n°6). Réutilisation, jamais re-fabrication. -->
   <ItemGroup>
     <InternalsVisibleTo Include="Liakont.Agent.Cli.Tests" />
+    <InternalsVisibleTo Include="Liakont.Agent.Installer" />
   </ItemGroup>
 
   <!-- Le CLI est le composition root du diagnostic : il câble le cœur (file locale, config, DPAPI,

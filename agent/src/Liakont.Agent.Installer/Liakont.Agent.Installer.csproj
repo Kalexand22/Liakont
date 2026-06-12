@@ -16,10 +16,23 @@
 
   <!-- Réutilise le cœur agent — AUCUNE logique dupliquée (F13 §3, CLAUDE.md n°6) : la validation du
        nom d'instance s'appuie sur Liakont.Agent.Core.AgentInstance, le chiffrement DPAPI sur
-       SecretProtector (AGT01). Frontière respectée : l'installeur ne référence que Liakont.Agent.*
-       (blueprint.md §6). -->
+       SecretProtector (AGT01), l'écriture/validation de agent.json sur AgentConfigLoader. L'installeur
+       réutilise aussi les commandes d'AGT05 (OPS08b, F13 §3) : sondes de diagnostic OdbcProbe /
+       HttpPlatformProbe (boutons « Tester » du wizard) et CheckConfigCommand (check-config final),
+       d'où la référence au CLI. La liste des adaptateurs embarqués (choix de l'adaptateur de l'écran
+       source) est dérivée des plug-ins réels (EncheresV6Extractor.SourceName), jamais d'un nom inventé.
+       Frontière respectée : l'installeur ne référence que Liakont.Agent.* (blueprint.md §6 ; le test
+       AgentProjectReferenceTests l'impose). -->
   <ItemGroup>
     <ProjectReference Include="..\Liakont.Agent.Core\Liakont.Agent.Core.csproj" />
+    <ProjectReference Include="..\Liakont.Agent.Cli\Liakont.Agent.Cli.csproj" />
+    <ProjectReference Include="..\Liakont.Agent.Adapters.EncheresV6\Liakont.Agent.Adapters.EncheresV6.csproj" />
+  </ItemGroup>
+
+  <!-- Détection des instances déjà installées (multi-instances, OPS05 pt 5) : énumération des services
+       Windows « LiakontAgent$* » via System.ServiceProcess (assembly du framework net48). -->
+  <ItemGroup>
+    <Reference Include="System.ServiceProcess" />
   </ItemGroup>
 
   <!-- Profil intégrateur déclaratif sérialisé en JSON (Newtonsoft.Json, déjà au catalogue central

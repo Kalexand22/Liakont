@@ -1,0 +1,102 @@
+namespace Liakont.Agent.Installer.Configuration;
+
+using System;
+using Liakont.Agent.Core.Configuration;
+using Liakont.Agent.Core.Security;
+using Liakont.Agent.Installer.Profiles;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+
+/// <summary>
+/// Construit le contenu de <c>agent.json</c> à partir d'une <see cref="ResolvedConfiguration"/>, en
+/// CHIFFRANT DPAPI les secrets (clé API et chaîne ODBC) via <see cref="ISecretProtector"/> avant écriture
+/// (F13 §6, CLAUDE.md n°10 : jamais de secret en clair dans un fichier). Le schéma de sortie n'est PAS
+/// redéfini ici : le JSON produit est re-validé par <see cref="AgentConfigLoader.Parse"/> (cœur agent) —
+/// garde anti-dérive qui fait remonter immédiatement tout écart de schéma (platformUrl non HTTPS, heure
+/// de planification mal formée…) sous forme d'<see cref="AgentConfigException"/>, plutôt que d'écrire un
+/// agent.json que l'agent refuserait au démarrage.
+/// </summary>
+internal static class AgentJsonBuilder
+{
+    /// <summary>
+    /// Sérialise <paramref name="config"/> en <c>agent.json</c>, secrets chiffrés par
+    /// <paramref name="protector"/>. Lève <see cref="AgentConfigException"/> si le résultat ne satisfait
+    /// pas le schéma du cœur agent.
+    /// </summary>
+    public static string Build(ResolvedConfiguration config, ISecretProtector protector)
+    {
+        if (config == null)
+        {
+            throw new ArgumentNullException(nameof(config));
+        }
+
+        if (protector == null)
+        {
+            throw new ArgumentNullException(nameof(protector));
+        }
+
+        string apiKeyClear = config.Get(ProfileFieldKeys.ApiKey) ?? string.Empty;
+        string? odbcClear = config.Get(ProfileFieldKeys.OdbcConnection);
+        string? pdfPool = config.Get(ProfileFieldKeys.PdfPoolPath);
+        string? scheduleRaw = config.Get(ProfileFieldKeys.Schedule);
+
+        var extraction = new JObject
+        {
+            ["adapter"] = config.Get(ProfileFieldKeys.Adapter) ?? string.Empty,
+        };
+
+        // Un secret VIDE n'est jamais « chiffré » (cela produirait une valeur non vide qui passerait à
+        // tort la validation « présent ») : on laisse le champ absent/vide, et le round-trip le rejette.
+        if (!string.IsNullOrWhiteSpace(odbcClear))
+        {
+            extraction["odbcConnectionString"] = protector.Protect(odbcClear!.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(pdfPool))
+        {
+            extraction["pdfPoolPath"] = pdfPool!.Trim();
+        }
+
+        extraction["schedule"] = BuildScheduleArray(scheduleRaw);
+        extraction["catchUpOnStart"] = false;
+
+        var root = new JObject
+        {
+            ["platformUrl"] = config.Get(ProfileFieldKeys.PlatformUrl) ?? string.Empty,
+            ["apiKey"] = string.IsNullOrWhiteSpace(apiKeyClear) ? string.Empty : protector.Protect(apiKeyClear.Trim()),
+            ["heartbeatMinutes"] = AgentConfigLoader.DefaultHeartbeatMinutes,
+            ["extraction"] = extraction,
+        };
+
+        string json = root.ToString(Formatting.Indented);
+
+        // Garde anti-dérive : re-valider par le chargeur du cœur agent (lève AgentConfigException si le
+        // schéma n'est pas respecté). On ignore volontairement la AgentConfig retournée (seule la
+        // validation nous intéresse ici).
+        _ = AgentConfigLoader.Parse(json, "agent.json");
+        return json;
+    }
+
+    // Le champ « schedule » du profil/saisie est une liste d'heures HH:mm séparées par des virgules
+    // (ex. « 03:00,13:00 ») ; agent.json attend un tableau. La validité de chaque heure (HH:mm sur 24 h)
+    // est contrôlée par AgentConfigLoader au round-trip — on ne la redéfinit pas ici.
+    private static JArray BuildScheduleArray(string? scheduleRaw)
+    {
+        var array = new JArray();
+        if (string.IsNullOrWhiteSpace(scheduleRaw))
+        {
+            return array;
+        }
+
+        foreach (string part in scheduleRaw!.Split(','))
+        {
+            string trimmed = part.Trim();
+            if (trimmed.Length > 0)
+            {
+                array.Add(trimmed);
+            }
+        }
+
+        return array;
+    }
+}

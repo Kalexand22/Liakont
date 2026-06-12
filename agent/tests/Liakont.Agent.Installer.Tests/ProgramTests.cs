@@ -13,6 +13,9 @@ using Xunit;
 /// </summary>
 public class ProgramTests
 {
+    // CA1861 : tableau de constantes hissé en champ static readonly (réutilisé, jamais muté).
+    private static readonly string[] UnknownOption = { "--option-inconnue" };
+
     [Fact]
     public void Returns_0_for_a_valid_profile()
     {
@@ -58,9 +61,12 @@ public class ProgramTests
     }
 
     [Fact]
-    public void Returns_2_when_no_arguments()
+    public void Returns_2_for_an_unknown_option()
     {
-        Program.Main(Array.Empty<string>()).Should().Be(2);
+        // Sans argument, le bootstrapper ouvre désormais le wizard GUI (OPS08b §4) ; le contrat
+        // « usage → 2 » est porté par la branche d'option inconnue. On l'asserte ici SANS lancer la
+        // GUI (Application.Run bloquerait le runner de tests).
+        Program.Main(UnknownOption).Should().Be(2);
     }
 
     [Fact]
