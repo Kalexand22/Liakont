@@ -111,4 +111,34 @@ public sealed class CheckTvaMappingTests
 
         act.Should().Throw<InvalidOperationException>();
     }
+
+    [Fact]
+    public void Evaluate_Preserves_PaymentDueDate_After_Enrichment()
+    {
+        var dueDate = new DateTime(2026, 2, 15);
+        var pivot = CheckTestData.SingleLinePivot(regimeCode: "NORMAL", net: 120.00m, tax: 24.00m, rate: 20m);
+
+        // Rebuild the pivot with a PaymentDueDate set (last optional ctor arg).
+        pivot = new PivotDocumentDto(
+            sourceDocumentKind: pivot.SourceDocumentKind,
+            number: pivot.Number,
+            issueDate: pivot.IssueDate,
+            sourceReference: pivot.SourceReference,
+            supplier: pivot.Supplier,
+            totals: pivot.Totals,
+            operationCategory: pivot.OperationCategory,
+            currencyCode: pivot.CurrencyCode,
+            customer: pivot.Customer,
+            lines: pivot.Lines,
+            paymentDueDate: dueDate);
+
+        var plan = CheckTvaMapping.BuildPlan(pivot);
+        var mapping = CheckTestData.MappedResult(version: "cmp-v1");
+
+        var evaluation = CheckTvaMapping.Evaluate(pivot, plan, mapping);
+
+        evaluation.IsBlocked.Should().BeFalse();
+        evaluation.EnrichedDocument.Should().NotBeNull();
+        evaluation.EnrichedDocument!.PaymentDueDate.Should().Be(dueDate);
+    }
 }
