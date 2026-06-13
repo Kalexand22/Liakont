@@ -48,4 +48,15 @@ Toute config realm s'applique aux **DEUX** fichiers, jamais un seul :
   seulement. `realm-liakont.json` (prod appliance) utilise DÉJÀ le mapper d'attribut company_id (pas de bug
   D1) et est géré séparément (users réels provisionnés) → HORS périmètre explicite (anti scope-creep).
 
-## Review (à remplir)
+## Review
+- verify-fast : PASS (plateforme net10 + agent net48 x86/x64 + analyzers + unit-tests).
+- run-tests : PASS (5547 tests, 3 suites, 0 échec ; self-test provisioning 27 OK).
+- codex-review R1 (vs feat/tenant-provisioning) : 0 P1, 3 P2.
+  - P2#1 (otpPolicyCodeReusable=false → E2E flaky par réutilisation du code dans la même fenêtre 30 s) :
+    CORRIGÉ — `otpPolicyCodeReusable: true` dans le realm E2E SEULEMENT (DEV reste false, durci).
+  - P2#2 (secret TOTP dupliqué realm↔E2EUserOtpSecrets sans test de concordance = faux-vert) :
+    CORRIGÉ — `E2EUserOtpSecretsConsistencyTests` (run-tests) asserte la concordance par user.
+  - P2#3 (clé HMAC = ASCII brut du secret Keycloak, non prouvable sans Keycloak) : ACCEPTÉ —
+    le reviewer demande explicitement « pas de correctif code ; tracer comme critère de GATE ».
+    **Critère de GATE_REALM_UNIQUE : valider l'hypothèse ASCII-brut au 1er login E2E réel (1 login suffit).**
+- codex-review R2 : à confirmer clean.

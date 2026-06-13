@@ -17,7 +17,7 @@
   "otpPolicyDigits": 6,
   "otpPolicyLookAheadWindow": 1,
   "otpPolicyPeriod": 30,
-  "otpPolicyCodeReusable": false,
+  "otpPolicyCodeReusable": true,
   "roles": {
     "realm": [
       { "name": "lecture", "description": "Consultation (liakont.read)" },
