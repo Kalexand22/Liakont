@@ -1,46 +1,39 @@
-# Provisioning de tenant — OPS03 en interactif (feat/tenant-provisioning)
+# Provisioning de tenant — OPS03 en interactif (feat/tenant-provisioning) — CHANTIER CODÉ
 
-Plan approuvé (2026-06-12) : C:\Users\K_ale\.claude\plans\happy-sauteeing-lovelace.md
+Plan approuvé : C:\Users\K_ale\.claude\plans\happy-sauteeing-lovelace.md
 Décisions opérateur : package agent = clé + installeur générique ; ordre A → B → C.
-L'opérateur s'absente — dev autonome, recette visuelle à son retour, push après recette.
 
-## Lots A+B — DONE (commit local sur feat/tenant-provisioning, codex CLEAN R3, run-tests 5236 verts)
+## État : les 3 lots sont DONE (commits locaux, non poussés — recette opérateur d'abord)
+- Lot A+B (commit 1) : provisioning d'utilisateur de tenant (IKeycloakUserProvisioner socle +
+  ITenantUserProvisioningService Host + POST /admin/tenants/{id}/users ; company_id généré au
+  provisioning, persisté au registre, mapper realm HARDCODÉ ; mdp admin aléatoire remis une fois)
+  + application du statut Suspendu (refus push agent 403 FR sans perte, heartbeat servi ; refus
+  sign-in + middleware sessions/API ; super-admin jamais bloqué ; page /tenant-suspendu).
+- Lot C (commit 2) : écran /clients (liste composée, suspension/réactivation avec confirmation)
+  + assistant /clients/nouveau (profil → seed optionnel → création idempotente avec reprise →
+  premier utilisateur sautable → premier agent clé-une-fois + installeur générique → récap) ;
+  nav Supervision en sous-menu {Vue d'ensemble, Clients} ; garde companyId create-only partagée.
+- Vérifications par lot : verify-fast PASS, run-tests PASS (5164-5236), codex CLEAN (R3 lots A+B,
+  R5 lot C). Provenance socle §4.24/4.25 + baseline régénérée.
 
-## Lot A — Provisioning d'utilisateur dans un realm existant
-- [ ] Socle (provenance §4 OBLIGATOIRE par modif) : KeycloakRealmProvisionRequest.CompanyId ;
-      KeycloakRealmProvisioner (mapper company_id hardcodé + UPDATE_PASSWORD/temporary=true) ;
-      TenantProvisioningService (companyId généré+persisté, mdp admin aléatoire retourné une fois) ;
-      V016 outbox.tenants.company_id (+ SystemOnlyMigrationPrefixes) ; TenantDto/TenantQueries ;
-      seam IKeycloakUserProvisioner + impl + enregistrement DI.
-- [ ] Host : ITenantUserProvisioningService + LiakontRealmRoles + KeycloakTenantUserProvisioner
-      (compensation, invitation email queue système, mdp une fois si SMTP absent) ;
-      POST /admin/tenants/{id}/users ; HandleSeedAsync repli/garde companyId ; AppBootstrap.
-- [ ] Tests : unit provisioner Host + unit socle (payload admin, mapper) + intégration endpoint users.
-- [ ] verify-fast + run-tests + codex CLEAN + commit lot A.
+## Reste à faire (opérateur)
+- [ ] RECETTE VISUELLE : serveur sur http://localhost:55996 (compte superviseur requis pour voir
+      Supervision → Clients ; le realm dev projette sysadmin → vérifier ses rôles realm).
+      Parcours : liste Clients, assistant complet (créer un tenant de test RÉEL — attention :
+      Keycloak admin local doit être configuré pour le realm, sinon création base+registre seule),
+      suspension/réactivation + effet sur push agent.
+- [ ] PUSH de feat/tenant-provisioning après recette (2 commits locaux).
+- [ ] MANIFEST (geste opérateur) : OPS03 traité hors orchestration → marquer done (ou re-trancher) ;
+      OPS06a et GATE_TOOLKIT dépendent d'OPS03.
 
-## Lot B — Application du statut Suspendu
-- [ ] GetCurrentTenantStatut (Contracts+Postgres TenantSettings).
-- [ ] ITenantSuspensionLookup (singleton, cache 30 s, fail-open documenté).
-- [ ] TenantSuspendedPushFilter sur les 3 endpoints d'écriture agent (403 FR ; heartbeat servi).
-- [ ] TenantSuspensionMiddleware (API 403 / UI signout+redirect ; SuperAdmin jamais bloqué) +
-      page anonyme /tenant-suspendu + refus au sign-in OIDC (OnTokenValidated).
-- [ ] Tests : unit lookup+middleware ; intégration push 403 + console 403 + réactivation ; bUnit page.
-- [ ] verify-fast + run-tests + codex CLEAN + commit lot B.
-
-## Lot C — Écran « Clients » + assistant
-- [ ] TenantSettings : CompanyId? sur SetTenantStatusCommand + SaveTenantProfileCommand (garde) ;
-      ResolveCompanyId : override honoré si tenant SANS profil + test dédié.
-- [ ] Host Clients/ : IClientConsoleService + impl (liste composée, échec visible ; create in-process ;
-      seed/profil in-scope ; 1er user lot A ; 1er agent PIV05 clé une fois ; statut), Line/Registry/
-      WizardState/ActionStatus.
-- [ ] UI : /clients (liste + suspension) ; /clients/nouveau (stepper 4 étapes, vues pures, échecs
-      visibles + retry, AlreadyProvisioned = reprise) ; nav branche Supervision ; config
-      AgentInstaller:DownloadUrl + TenantSeeds:RootPath ; doc identity-permissions.
-- [ ] Tests : bUnit (pages+vues+service+nav) ; intégration provisioning complet+isolation+garde ;
-      E2E assistant borné (realm E2E sans company_id).
-- [ ] verify-fast + run-tests + codex CLEAN + commit lot C.
-
-## Fin de chantier
-- [ ] Synthèse opérateur : recette à faire, suivis (jobs pipeline tenants suspendus ; realm E2E
-      company_id ; gestion continue Identity vs FIX209 ; manifest OPS03/OPS06a/GATE_TOOLKIT ;
-      dette devise BT-5). Push après recette opérateur.
+## Suivis signalés (hors périmètre, à trancher/planifier par l'opérateur)
+- Jobs pipeline (SEND/CHECK fan-out) traitent encore les tenants SUSPENDUS — incohérence à acter
+  (un tenant suspendu ne devrait probablement plus émettre ; item dédié).
+- Realm E2E sans company_id (mapper hardcodé à poser dans keycloak-e2e-realm.json) — débloquerait
+  les E2E de pages de données ; item dédié.
+- Gestion continue utilisateurs/rôles : spec OPS03 §3 (« écrans Identity du socle en nav »)
+  CONTREDIT la décision FIX209/E5 (sections socle retirées, pages non opérantes sous OIDC).
+  Tranché ici : non référencés ; le provisioning du lot A couvre la création — le reste à décider.
+- E2E assistant borné (création réelle infaisable dans la factory E2E : pas de SystemAdmin système
+  ni Keycloak admin) — couvert par l'intégration ; à étendre si la factory évolue.
+- Dette console-polish toujours ouverte : « € » en dur sans BT-5 dans le read-model.
