@@ -99,7 +99,12 @@ meta:
   #   les factures soldées sont émissibles via Super PDP). Spec d'abord (F01-F02), contrat additif
   #   (hash canonique inchangé pour les documents sans échéance), adaptateur sans invention.
   #   Décision opérateur (Karl, 2026-06-12) inscrite en tête d'items/EXT.yaml.
-  version: 21
+  # version 22 = nouveau segment realm-unique + lot RLM (ADR-0021) : pivot vers un realm Keycloak
+  #   UNIQUE partagé, isolation des tenants par claim company_id (recette OPS03 — un user de tenant
+  #   provisionné ne pouvait pas se connecter). 5 items RLM01→05 + GATE_REALM_UNIQUE (humaine).
+  #   Segment sur feat/tenant-provisioning (RLM bâtit sur le lot A OPS03, pas encore sur main) ;
+  #   depends_on_gate GATE_CONSOLE_WEB. RLM05 (brokering SSO) = fast-follow HORS gate (creds opérateur).
+  version: 22
   host: multi_agent_v1
 
 segments:
@@ -192,6 +197,13 @@ segments:
     lots: [CMP]
     gate: GATE_PROD_CMP
     depends_on_gate: [GATE_TOOLKIT, GATE_ADAPTER_ENCHERESV6, GATE_PA_B2BROUTER]
+
+  realm-unique:
+    branch: feat/tenant-provisioning
+    base: main
+    lots: [RLM]
+    gate: GATE_REALM_UNIQUE
+    depends_on_gate: GATE_CONSOLE_WEB
 
 items:
   # ── SOL ──
@@ -423,3 +435,11 @@ items:
   - { id: GATE_DEMO_ISATECH, type: gate, executor: human, priority: 8500, depends_on: [CMP03] }
   - { id: CMP04, lot: CMP, blueprint: docs-spec-item, priority: 8600, depends_on: [GATE_DEMO_ISATECH] }
   - { id: GATE_PROD_CMP, type: gate, executor: human, priority: 8900, depends_on: [CMP04] }
+
+  # ── RLM ──
+  - { id: RLM01, lot: RLM, priority: 9000, depends_on: [] }
+  - { id: RLM02, lot: RLM, priority: 9010, depends_on: [RLM01] }
+  - { id: RLM03, lot: RLM, priority: 9020, depends_on: [RLM02] }
+  - { id: RLM04, lot: RLM, priority: 9030, depends_on: [RLM03] }
+  - { id: GATE_REALM_UNIQUE, type: gate, executor: human, priority: 9090, depends_on: [RLM04] }
+  - { id: RLM05, lot: RLM, priority: 9100, depends_on: [RLM01, RLM03] }
