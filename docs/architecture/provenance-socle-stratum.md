@@ -245,6 +245,7 @@ src/Common/Infrastructure/Database/TenantProvisioningService.cs
 src/Common/Infrastructure/Keycloak/KeycloakRealmProvisioner.cs
 src/Common/Abstractions/MultiTenancy/KeycloakRealmProvisionRequest.cs
 src/Common/Abstractions/MultiTenancy/TenantProvisionResult.cs
+src/Common/Infrastructure/Database/ServiceCollectionExtensions.cs
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -583,14 +584,22 @@ persisté dans `outbox.tenants.company_id` (migration V016, system-only — pré
 utilisateur présent ET futur du realm porte le claim ; (2) mot de passe admin ALÉATOIRE, retourné
 UNE fois via `TenantProvisionResult.AdminTemporaryPassword` (jamais persisté/journalisé), credential
 `temporary=true` + action `UPDATE_PASSWORD`. **Le point (2) est SUPERSEDED par §4.26** (l'admin de
-realm n'est plus créé du tout) ; le point (1) `company_id` reste valide. Épinglé par
-`KeycloakRealmProvisionerTests.Should_Emit_CompanyId_As_Hardcoded_Client_Mapper`.
+realm n'est plus créé du tout) ; le point (1) `company_id` reste valide POUR LE PROFIL DÉDIÉ
+mono-tenant (cf. recadrage RLM04 ci-dessous). Épinglé par
+`KeycloakRealmProvisionerTests.ProvisionRealmAsync_DedicatedProfile_Should_Emit_CompanyId_As_Hardcoded_Client_Mapper`.
 
 **Mise à jour [ADR-0021](../adr/ADR-0021-realm-keycloak-unique-isolation-par-claim.md) (2026-06-13)** :
 le modèle realm-par-tenant qui rendait le point (1) valide (un client = un tenant → mapper
 `company_id` HARDCODÉ au niveau client) est **superseçu** — Liakont passe à un **realm unique
 partagé**, où le mapper hardcodé client devient impossible (tous les jetons porteraient la même
 valeur = isolation nulle) et `company_id` redevient un mapper d'**attribut par-utilisateur**.
+
+**Recadrage RLM04 (2026-06-13, cf. §4.28)** : le vrai `KeycloakRealmProvisioner` (donc le mapper
+`company_id` HARDCODÉ du point (1)) n'est plus câblé que dans le **profil dédié mono-tenant** ; le
+profil SaaS partagé (défaut) utilise `NoOpKeycloakRealmProvisioner` et ne crée aucun realm. Le test
+épinglé a été **renommé** (`…ProvisionRealmAsync_DedicatedProfile_Should_Emit_CompanyId_As_Hardcoded_Client_Mapper`)
+et porte désormais le commentaire « JAMAIS pour le partagé » : il certifie le mapper hardcodé comme
+comportement attendu du **dédié uniquement**, jamais du partagé (où ce serait une faute d'isolation).
 
 ### 4.25 `IKeycloakUserProvisioner` — provisioning d'utilisateur dans un realm EXISTANT (OPS03 lot A)
 
@@ -665,6 +674,44 @@ Code Liakont **hors** socle (pas de consignation requise, mais cité pour le con
 `src/Host/Liakont.Host/MultiTenancy/CompanyClaimTenantResolver.cs` (résolveur autoritaire, lit le claim
 via `ClaimsPrincipal`, jamais via un type Keycloak — gardé par NetArchTest) + son enregistrement EN TÊTE
 de la chaîne dans `MultiTenantServiceCollectionExtensions`.
+
+### 4.28 Sortie du provisioner de realm du chemin de création SaaS partagé (RLM04, ADR-0021 §1/§5)
+
+**Motif** : en realm Keycloak unique partagé (ADR-0021), le provisioning d'un tenant ne doit plus
+créer NI realm NI client par tenant (INV-0021-1) ; la capacité socle realm-par-tenant reste
+disponible pour le **déploiement dédié mono-tenant**. Le seam est porté en DI (option « no-op
+enregistrée en DI » de l'ADR), pas par une suppression de code.
+
+**Fichier `Stratum.*` AJOUTÉ** (non épinglé par le baseline §4.12 — comme §4.14/§4.25/§4.27 ;
+consigné pour la re-convergence NuGet, marqué `// Liakont addition (RLM04)`) :
+- `src/Common/Infrastructure/Keycloak/NoOpKeycloakRealmProvisioner.cs` — implémentation no-op
+  d'`IKeycloakRealmProvisioner` : `ProvisionRealmAsync` renvoie `Idempotent` SANS aucun appel HTTP
+  (aucun `POST /admin/realms`, preuve STRUCTURELLE : pas de dépendance `IHttpClientFactory`) ;
+  `DeleteRealmAsync`/`AddTenantRedirectUriAsync` sont des no-op.
+
+**Fichiers `Stratum.*` MODIFIÉS** (épinglés → bloc `SOCLE-CONSIGNED-DRIFT`) :
+- `src/Common/Infrastructure/Database/ServiceCollectionExtensions.cs` (NOUVELLE dérive) : le
+  provisioner de realm enregistré dépend du profil — `NoOpKeycloakRealmProvisioner` par DÉFAUT
+  (SaaS partagé), le vrai `KeycloakRealmProvisioner` seulement si
+  `Keycloak:DedicatedRealmPerTenant=true` (dédié mono-tenant). Le flag est lu directement depuis
+  `IConfiguration` (aucun ajout de propriété à un type d'options épinglé, pour minimiser la surface
+  de dérive socle).
+- `src/Common/Infrastructure/Database/TenantProvisioningService.cs` (déjà en dérive §4.24/§4.26) :
+  dans `ProvisionAsync`, l'enregistrement du realm (`IRealmRegistry.RegisterRealm`) et l'ajout du
+  redirect par sous-domaine (`AddTenantRedirectUriAsync`) sont désormais sous `if (realmCreated)`
+  (`realmCreated = !kcResult.AlreadyProvisioned`). Le no-op renvoyant `AlreadyProvisioned=true`, ces
+  deux gestes vestigiaux ne s'exécutent plus en profil partagé ; ils restent actifs dans le dédié
+  (realm réellement créé). Le redirect statique `default.localhost` (realm-export.json, FIX07a) n'est
+  pas touché — le nettoyage cible les redirects par tenant provisionné.
+
+**Code Liakont hors socle (pas de consignation requise, cité pour contexte)** :
+`src/Host/Liakont.Host/Startup/AppBootstrap.cs` (`SeedRealmRegistryFromDatabaseAsync`) ne seede plus
+le registre de realms par-tenant depuis la base en profil partagé (les `realm_name` par-tenant y sont
+vestigiaux) — uniquement en dédié ; le realm partagé reste enregistré via `Keycloak:RealmTenantMap`.
+Tests : `NoOpKeycloakRealmProvisionerTests`, `RealmProvisionerRegistrationTests` (le seam : le partagé
+résout le no-op, le dédié le vrai), `KeycloakRealmProvisionerTests` (recadré au profil dédié, §4.24),
+et l'E2E de clôture `TenantLoginSharedRealmE2ETests` (un utilisateur de tenant se connecte dans le
+realm partagé).
 
 ## 5. ADR du socle hérités
 

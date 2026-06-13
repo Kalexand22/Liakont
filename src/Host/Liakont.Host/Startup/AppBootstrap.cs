@@ -957,14 +957,27 @@ public static class AppBootstrap
     /// </summary>
     private static async Task SeedRealmRegistryFromDatabaseAsync(WebApplication app)
     {
-        var realmRegistry = app.Services.GetRequiredService<IRealmRegistry>();
-        var tenantQueries = app.Services.GetRequiredService<ITenantQueries>();
         var kc = app.Configuration.GetSection("Keycloak").Get<KeycloakSettings>();
 
         if (kc is null || !kc.IsConfigured)
         {
             return;
         }
+
+        // RLM04 (ADR-0021 §1/§5) : en profil SaaS PARTAGÉ (défaut), il n'existe qu'UN realm partagé —
+        // déjà enregistré au câblage de l'auth via Keycloak:RealmTenantMap (KeycloakIdentityProvider-
+        // Authenticator). Les realm_name par-tenant d'outbox.tenants sont alors VESTIGIAUX (placeholders
+        // UNIQUE pour des realms qui n'existent plus) : les enregistrer comme émetteurs JWT pointerait
+        // vers des autorités inexistantes (échecs JWKS). On ne seede le registre depuis la base que dans
+        // le profil DÉDIÉ mono-tenant (Keycloak:DedicatedRealmPerTenant=true), où chaque tenant a son
+        // realm réel.
+        if (!app.Configuration.GetValue<bool>("Keycloak:DedicatedRealmPerTenant"))
+        {
+            return;
+        }
+
+        var realmRegistry = app.Services.GetRequiredService<IRealmRegistry>();
+        var tenantQueries = app.Services.GetRequiredService<ITenantQueries>();
 
         var baseUrl = kc.Authority[..kc.Authority.LastIndexOf("/realms/", StringComparison.Ordinal)];
         var tenants = await tenantQueries.ListAsync();

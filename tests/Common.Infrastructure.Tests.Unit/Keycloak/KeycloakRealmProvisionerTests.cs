@@ -8,6 +8,16 @@ using Stratum.Common.Abstractions.MultiTenancy;
 using Stratum.Common.Infrastructure.Keycloak;
 using Xunit;
 
+/// <summary>
+/// Exerce le vrai <see cref="KeycloakRealmProvisioner"/>, qui — depuis RLM04 (ADR-0021 §1) — n'est
+/// câblé QUE dans le profil <b>dédié mono-tenant</b> (<c>Keycloak:DedicatedRealmPerTenant=true</c>).
+/// Le profil SaaS <b>partagé</b> (défaut) utilise <see cref="NoOpKeycloakRealmProvisioner"/> et ne crée
+/// NI realm NI client par tenant (cf. <see cref="NoOpKeycloakRealmProvisionerTests"/> et
+/// <see cref="Database.RealmProvisionerRegistrationTests"/>). Le mapper <c>company_id</c> HARDCODÉ au
+/// niveau client (un realm = une société) n'est donc valable que pour le dédié — JAMAIS pour le partagé,
+/// où <c>company_id</c> est un mapper d'ATTRIBUT par-utilisateur (sinon tous les jetons porteraient la
+/// même valeur = isolation nulle). Voir provenance §4.24/§4.28.
+/// </summary>
 public sealed class KeycloakRealmProvisionerTests : IDisposable
 {
     private static readonly string[] DefaultRedirectUris = ["https://localhost:55995/*"];
@@ -79,11 +89,14 @@ public sealed class KeycloakRealmProvisionerTests : IDisposable
     }
 
     [Fact]
-    public async Task ProvisionRealmAsync_Should_Emit_CompanyId_As_Hardcoded_Client_Mapper()
+    public async Task ProvisionRealmAsync_DedicatedProfile_Should_Emit_CompanyId_As_Hardcoded_Client_Mapper()
     {
-        // OPS03 lot A : company_id est un mapper HARDCODÉ au niveau client (un tenant = une société),
-        // pas un mapper d'attribut utilisateur — sinon tout utilisateur sans attribut perd son scope
-        // de données (le piège de l'admin fraîchement provisionné).
+        // Profil DÉDIÉ mono-tenant UNIQUEMENT (RLM04, ADR-0021 §1) — JAMAIS pour le profil partagé
+        // (qui passe par le no-op et ne crée aucun realm). Dans le dédié, un realm = une société :
+        // company_id est un mapper HARDCODÉ au niveau client (pas un mapper d'attribut utilisateur)
+        // — sinon tout utilisateur sans attribut perd son scope de données (le piège de l'admin
+        // fraîchement provisionné). En realm PARTAGÉ ce mapper serait une faute (tous les jetons
+        // porteraient la même valeur) : c'est le mapper d'attribut par-utilisateur qui s'applique.
         EnqueueTokenResponse();
         _handler.EnqueueResponse(HttpStatusCode.NotFound, string.Empty);
         _handler.EnqueueResponse(HttpStatusCode.Created, string.Empty);

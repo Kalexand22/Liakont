@@ -205,16 +205,25 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
 
                 realmCreated = !kcResult.AlreadyProvisioned;
 
-                // Register realm for immediate JWT validation (no restart needed)
-                _realmRegistry.RegisterRealm(realmName, request.TenantId, authority);
-
-                // Add subdomain redirect URI to the primary realm so browser login works
-                if (!string.IsNullOrEmpty(_keycloakOptions.PrimaryRealmName))
+                // Shared SaaS realm seam (Liakont RLM04, ADR-0021 §1/§5) : en profil PARTAGÉ le
+                // provisioner est le no-op → AlreadyProvisioned=true → realmCreated=false → ni
+                // enregistrement de realm par tenant ni redirect par sous-domaine (code devenu
+                // vestigial en realm unique, gardé par le seam). Le redirect statique default.localhost
+                // (realm-export.json) n'est pas touché (FIX07a). Le profil DÉDIÉ mono-tenant crée un
+                // realm → realmCreated=true → la mécanique d'origine s'applique.
+                if (realmCreated)
                 {
-                    await _keycloakProvisioner.AddTenantRedirectUriAsync(
-                        _keycloakOptions.PrimaryRealmName,
-                        request.TenantId,
-                        cancellationToken);
+                    // Register realm for immediate JWT validation (no restart needed)
+                    _realmRegistry.RegisterRealm(realmName, request.TenantId, authority);
+
+                    // Add subdomain redirect URI to the primary realm so browser login works
+                    if (!string.IsNullOrEmpty(_keycloakOptions.PrimaryRealmName))
+                    {
+                        await _keycloakProvisioner.AddTenantRedirectUriAsync(
+                            _keycloakOptions.PrimaryRealmName,
+                            request.TenantId,
+                            cancellationToken);
+                    }
                 }
             }
 
