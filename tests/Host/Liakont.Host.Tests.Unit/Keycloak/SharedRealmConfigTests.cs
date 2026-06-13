@@ -47,7 +47,14 @@ public sealed class SharedRealmConfigTests
             .Should().Be(
                 "oidc-usermodel-attribute-mapper",
                 "en realm partagé un mapper hardcodé donnerait la MÊME valeur à tous les jetons (isolation nulle)");
-        mapper.GetProperty("config").GetProperty("user.attribute").GetString().Should().Be("company_id");
+
+        var config = mapper.GetProperty("config");
+        config.GetProperty("user.attribute").GetString().Should().Be("company_id");
+
+        // Le claim DOIT être émis dans les jetons : un mapper d'attribut avec id/access.token.claim=false
+        // casserait silencieusement l'isolation (claim absent) en laissant le type correct (anti-faux-vert).
+        config.GetProperty("id.token.claim").GetString().Should().Be("true");
+        config.GetProperty("access.token.claim").GetString().Should().Be("true");
 
         // Aucun mapper hardcodé résiduel pour company_id (D1 — racine du faux-vert).
         AllProtocolMappers(realm.RootElement)

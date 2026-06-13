@@ -59,4 +59,10 @@ Toute config realm s'applique aux **DEUX** fichiers, jamais un seul :
   - P2#3 (clé HMAC = ASCII brut du secret Keycloak, non prouvable sans Keycloak) : ACCEPTÉ —
     le reviewer demande explicitement « pas de correctif code ; tracer comme critère de GATE ».
     **Critère de GATE_REALM_UNIQUE : valider l'hypothèse ASCII-brut au 1er login E2E réel (1 login suffit).**
-- codex-review R2 : à confirmer clean.
+- codex-review R2 : 0 P1, 1 P2 actionnable + 1 P2 différé.
+  - P2 (test-hole SharedRealmConfigTests : prouvait le type du mapper mais pas l'émission du claim) :
+    CORRIGÉ — assertions `id.token.claim=="true"` et `access.token.claim=="true"` ajoutées.
+  - P2 différé (realm prod realm-liakont.json sans otpPolicy/userProfile) : ACCEPTÉ — hors périmètre RLM01
+    (DÉC-5, prod gérée séparément, mapper d'attribut déjà correct ; aucune régression). **Suivi : item RLM
+    aval doit poser 2FA + user-profile immuable sur le realm prod** (sinon INV-0021-7 only en dev/E2E).
+- codex-review R3 : à confirmer clean.
