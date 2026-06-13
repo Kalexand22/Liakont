@@ -10,9 +10,11 @@ using Liakont.Modules.Transmission.Contracts;
 using MediatR;
 
 /// <summary>
-/// Implémentation de <see cref="IPaAccountConsoleService"/> pour la page FIX01c. LECTURE via la query
-/// TenantSettings (<see cref="GetPaAccountsQuery"/>, tenant résolu par le handler) + les types de plug-ins
-/// enregistrés (<see cref="IPaClientRegistry.RegisteredTypes"/>) ; MUTATIONS via les commandes TenantSettings
+/// Implémentation de <see cref="IPaAccountConsoleService"/> pour la page FIX01c. LECTURE via la vue
+/// d'ensemble TenantSettings (<see cref="ITenantSettingsConsoleQueries.GetSettingsOverview"/> :
+/// comptes AVEC capacités résolues — réutilise la composition gardée du module, garde IsRegistered +
+/// dégradation si le plug-in échoue, jamais dupliquée ici) + les types de plug-ins enregistrés
+/// (<see cref="IPaClientRegistry.RegisteredTypes"/>) ; MUTATIONS via les commandes TenantSettings
 /// (ajout / mise à jour / désactivation) — aucune logique métier ni règle fiscale ici (chiffrement de la clé,
 /// journal append-only et unicité (plug-in, environnement) : du ressort des handlers, CLAUDE.md n°2/4/10/19).
 /// Pass-through pur : les exceptions métier attendues (conflit, introuvable) remontent telles quelles à la
@@ -23,17 +25,23 @@ internal sealed class PaAccountConsoleService : IPaAccountConsoleService
 {
     private readonly ISender _sender;
     private readonly IPaClientRegistry _registry;
+    private readonly ITenantSettingsConsoleQueries _settingsQueries;
 
-    public PaAccountConsoleService(ISender sender, IPaClientRegistry registry)
+    public PaAccountConsoleService(ISender sender, IPaClientRegistry registry, ITenantSettingsConsoleQueries settingsQueries)
     {
         _sender = sender;
         _registry = registry;
+        _settingsQueries = settingsQueries;
     }
 
     public async Task<PaAccountConsoleModel> GetModelAsync(CancellationToken cancellationToken = default)
     {
-        // Comptes du tenant courant (le handler résout la société — jamais une lecture cross-tenant, CLAUDE.md n°9).
-        var accounts = await _sender.Send(new GetPaAccountsQuery(), cancellationToken).ConfigureAwait(false);
+        // Comptes du tenant courant avec capacités (le service du module résout la société — jamais une
+        // lecture cross-tenant, CLAUDE.md n°9). Le surplus de la vue d'ensemble (profil, fiscal, TVA) est
+        // négligeable pour une page de paramétrage et évite de dupliquer la composition des capacités
+        // (piège API01c : Resolve() construit un client vivant — garde + dégradation côté module).
+        var overview = await _settingsQueries.GetSettingsOverview(cancellationToken).ConfigureAwait(false);
+        var accounts = overview.PaAccounts;
 
         // Types proposés à la création = registre des plug-ins enregistrés (CLAUDE.md n°16 : jamais une liste
         // de PA concrets en dur). Triés (insensible à la casse) pour un affichage déterministe.

@@ -25,9 +25,9 @@
 
 @if (_loadFailed)
 {
-    <div role="alert" data-testid="supervision-detail-error">
+    <LiakontAlert TestId="supervision-detail-error">
         Impossible de charger la supervision de ce tenant pour le moment. Réessayez plus tard.
-    </div>
+    </LiakontAlert>
 }
 else if (_detail is null)
 {
@@ -42,9 +42,9 @@ else
 
     @if (_ackFailed)
     {
-        <div role="alert" data-testid="supervision-detail-ack-error">
+        <LiakontAlert TestId="supervision-detail-ack-error">
             L'acquittement de l'alerte n'a pas pu être enregistré. Réessayez ; si le problème persiste, vérifiez que l'alerte est toujours active.
-        </div>
+        </LiakontAlert>
     }
 
     @* ── Compteurs de documents (périmètre du tenant) ── *@

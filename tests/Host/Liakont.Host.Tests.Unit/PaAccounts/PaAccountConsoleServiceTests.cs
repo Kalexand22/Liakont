@@ -23,23 +23,27 @@ using Xunit;
 public sealed class PaAccountConsoleServiceTests
 {
     [Fact]
-    public async Task GetModelAsync_Returns_Accounts_And_Registered_Types_Sorted()
+    public async Task GetModelAsync_Returns_Overview_Accounts_With_Capabilities_And_Registered_Types_Sorted()
     {
-        var account = SomeAccount();
-        var sender = new RecordingSender { AccountsToReturn = [account] };
-        var service = new PaAccountConsoleService(sender, new FakePaClientRegistry("Zeta", "alpha", "B2Brouter"));
+        // La lecture passe par la vue d'ensemble TenantSettings (comptes AVEC capacités résolues —
+        // lot polish UX/UI : le détail des capacités s'affiche sur la page Comptes PA), pas par une
+        // query dédiée : aucune requête MediatR n'est envoyée au chargement.
+        var entry = SomeAccountSettings();
+        var sender = new RecordingSender();
+        var service = new PaAccountConsoleService(
+            sender, new FakePaClientRegistry("Zeta", "alpha", "B2Brouter"), new FakeSettingsQueries(entry));
 
         var model = await service.GetModelAsync();
 
-        model.Accounts.Should().ContainSingle().Which.Should().BeSameAs(account);
+        model.Accounts.Should().ContainSingle().Which.Should().BeSameAs(entry);
         model.RegisteredPluginTypes.Should().Equal("alpha", "B2Brouter", "Zeta");
-        sender.Sent.Should().ContainSingle().Which.Should().BeOfType<GetPaAccountsQuery>();
+        sender.Sent.Should().BeEmpty();
     }
 
     [Fact]
     public async Task GetModelAsync_With_Empty_Registry_Returns_No_Plugin_Types()
     {
-        var service = new PaAccountConsoleService(new RecordingSender(), new FakePaClientRegistry());
+        var service = new PaAccountConsoleService(new RecordingSender(), new FakePaClientRegistry(), new FakeSettingsQueries());
 
         var model = await service.GetModelAsync();
 
@@ -50,7 +54,7 @@ public sealed class PaAccountConsoleServiceTests
     public async Task CreateAsync_Sends_Add_Command_With_Entered_Fields_And_Key()
     {
         var sender = new RecordingSender { CreatedId = Guid.NewGuid() };
-        var service = new PaAccountConsoleService(sender, new FakePaClientRegistry("Fake"));
+        var service = new PaAccountConsoleService(sender, new FakePaClientRegistry("Fake"), new FakeSettingsQueries());
 
         var id = await service.CreateAsync(new PaAccountFormModel
         {
@@ -72,7 +76,7 @@ public sealed class PaAccountConsoleServiceTests
     public async Task CreateAsync_With_Blank_Key_Sends_Null_Key()
     {
         var sender = new RecordingSender();
-        var service = new PaAccountConsoleService(sender, new FakePaClientRegistry("Fake"));
+        var service = new PaAccountConsoleService(sender, new FakePaClientRegistry("Fake"), new FakeSettingsQueries());
 
         await service.CreateAsync(new PaAccountFormModel { PluginType = "Fake", Environment = "Staging", ApiKey = "   " });
 
@@ -84,7 +88,7 @@ public sealed class PaAccountConsoleServiceTests
     {
         var id = Guid.NewGuid();
         var sender = new RecordingSender();
-        var service = new PaAccountConsoleService(sender, new FakePaClientRegistry("Fake"));
+        var service = new PaAccountConsoleService(sender, new FakePaClientRegistry("Fake"), new FakeSettingsQueries());
 
         await service.UpdateAsync(new PaAccountFormModel
         {
@@ -105,7 +109,7 @@ public sealed class PaAccountConsoleServiceTests
     public async Task UpdateAsync_With_Blank_Key_Leaves_Key_Unchanged()
     {
         var sender = new RecordingSender();
-        var service = new PaAccountConsoleService(sender, new FakePaClientRegistry("Fake"));
+        var service = new PaAccountConsoleService(sender, new FakePaClientRegistry("Fake"), new FakeSettingsQueries());
 
         await service.UpdateAsync(new PaAccountFormModel
         {
@@ -120,7 +124,7 @@ public sealed class PaAccountConsoleServiceTests
     [Fact]
     public async Task UpdateAsync_Without_Id_Throws()
     {
-        var service = new PaAccountConsoleService(new RecordingSender(), new FakePaClientRegistry("Fake"));
+        var service = new PaAccountConsoleService(new RecordingSender(), new FakePaClientRegistry("Fake"), new FakeSettingsQueries());
 
         var act = () => service.UpdateAsync(new PaAccountFormModel { Environment = "Staging" });
 
@@ -132,7 +136,7 @@ public sealed class PaAccountConsoleServiceTests
     {
         var id = Guid.NewGuid();
         var sender = new RecordingSender();
-        var service = new PaAccountConsoleService(sender, new FakePaClientRegistry("Fake"));
+        var service = new PaAccountConsoleService(sender, new FakePaClientRegistry("Fake"), new FakeSettingsQueries());
 
         await service.DeactivateAsync(id);
 
@@ -140,23 +144,42 @@ public sealed class PaAccountConsoleServiceTests
             .Which.PaAccountId.Should().Be(id);
     }
 
-    private static PaAccountDto SomeAccount() => new()
+    private static PaAccountSettingsDto SomeAccountSettings() => new()
     {
-        Id = Guid.NewGuid(),
-        CompanyId = Guid.NewGuid(),
-        PluginType = "Fake",
-        Environment = "Staging",
-        AccountIdentifiers = "{}",
-        HasApiKey = false,
-        IsActive = true,
-        CreatedAt = new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero),
+        Account = new PaAccountDto
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = Guid.NewGuid(),
+            PluginType = "Fake",
+            Environment = "Staging",
+            AccountIdentifiers = "{}",
+            HasApiKey = false,
+            IsActive = true,
+            CreatedAt = new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero),
+        },
+        PluginAvailable = false,
+        Capabilities = null,
     };
+
+    private sealed class FakeSettingsQueries : ITenantSettingsConsoleQueries
+    {
+        private readonly IReadOnlyList<PaAccountSettingsDto> _accounts;
+
+        public FakeSettingsQueries(params PaAccountSettingsDto[] accounts) => _accounts = accounts;
+
+        public Task<TenantSettingsOverviewDto> GetSettingsOverview(CancellationToken ct = default) =>
+            Task.FromResult(new TenantSettingsOverviewDto
+            {
+                Profile = null,
+                FiscalSettings = null,
+                TvaMapping = null,
+                PaAccounts = _accounts,
+            });
+    }
 
     private sealed class RecordingSender : ISender
     {
         public List<object> Sent { get; } = [];
-
-        public IReadOnlyList<PaAccountDto> AccountsToReturn { get; set; } = Array.Empty<PaAccountDto>();
 
         public Guid CreatedId { get; set; } = Guid.NewGuid();
 
@@ -172,7 +195,6 @@ public sealed class PaAccountConsoleServiceTests
             Sent.Add(request);
             object response = request switch
             {
-                GetPaAccountsQuery => AccountsToReturn,
                 AddPaAccountCommand => CreatedId,
                 _ => throw new NotSupportedException(request.GetType().Name),
             };

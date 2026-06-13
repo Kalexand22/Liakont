@@ -1,0 +1,39 @@
+/* Page détail document (WEB03a) — habillage de la tête de fiche (lot 2 polish UX/UI : le h1 se
+   rendait en titre géant et le retour d'action n'avait aucune règle). Layout uniquement ; couleurs
+   sémantiques via tokens. */
+
+.liakont-doc-detail-page__head {
+    margin-bottom: 0.75rem;
+}
+
+.liakont-doc-detail-page__title {
+    margin: 0 0 0.75rem;
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+/* Zone d'actions UNIQUE en tête de fiche : barre d'actions, retour d'action et résolution terminale
+   rapprochés dans un même flux (le wrapper ne porte ni fond ni cadre — vide, il ne laisse qu'une marge). */
+.liakont-doc-detail-page__actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+}
+
+/* Retour de la dernière action (succès ou refus) — mêmes tokens que les bandeaux d'envoi de la liste. */
+.liakont-doc-detail__action-feedback {
+    padding: 0.6rem 0.85rem;
+    border: 1px solid var(--color-border, #d1d5db);
+    border-radius: var(--radius-sm, 0.25rem);
+}
+
+.liakont-doc-detail__action-feedback--ok {
+    border-color: var(--color-severity-success-border);
+    background: var(--color-severity-success-bg);
+}
+
+.liakont-doc-detail__action-feedback--error {
+    border-color: var(--color-severity-error-border);
+    background: var(--color-severity-error-bg);
+}

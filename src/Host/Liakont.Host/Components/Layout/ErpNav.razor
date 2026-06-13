@@ -64,12 +64,20 @@
         _nodes = NavProviders.BuildNavTree(NavNodeProviders);
         _currentPath = GetRelativePath();
         ComputeActiveHref();
-        // Start with all root sections expanded (standard sidebar UX).
-        // Users can manually collapse sections they don't need.
+        // Start with root sections AND their level-1 sub-menus expanded (standard sidebar UX :
+        // chaque entrée de paramétrage est visible d'emblée — sous-menu Paramétrage du lot polish
+        // UX/UI). Users can manually collapse sections they don't need.
         for (var i = 0; i < _nodes.Count; i++)
         {
-            if (_nodes[i].HasChildren)
-                _expanded.Add(i.ToString());
+            if (!_nodes[i].HasChildren)
+                continue;
+            var rootKey = i.ToString();
+            _expanded.Add(rootKey);
+            for (var j = 0; j < _nodes[i].Children.Count; j++)
+            {
+                if (_nodes[i].Children[j].HasChildren)
+                    _expanded.Add(MakeKey(rootKey, j));
+            }
         }
         ExpandActiveParents();
         Nav.LocationChanged += OnLocationChanged;

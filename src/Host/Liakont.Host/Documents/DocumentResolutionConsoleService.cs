@@ -56,7 +56,7 @@ internal sealed class DocumentResolutionConsoleService : IDocumentResolutionCons
         var actor = _actorContext.Current;
         var operatorId = ActorId(actor);
 
-        var outcome = await _lifecycle.ResolveManuallyAsync(documentId, reason, operatorId, cancellationToken).ConfigureAwait(false);
+        var outcome = await _lifecycle.ResolveManuallyAsync(documentId, reason, operatorId, ActorName(actor), cancellationToken).ConfigureAwait(false);
         if (outcome is not DocumentResolutionOutcome.Succeeded)
         {
             return Map(outcome);
@@ -93,7 +93,7 @@ internal sealed class DocumentResolutionConsoleService : IDocumentResolutionCons
         var actor = _actorContext.Current;
         var operatorId = ActorId(actor);
 
-        var outcome = await _lifecycle.SupersedeAsync(documentId, replacementDocumentId, operatorId, cancellationToken).ConfigureAwait(false);
+        var outcome = await _lifecycle.SupersedeAsync(documentId, replacementDocumentId, operatorId, ActorName(actor), cancellationToken).ConfigureAwait(false);
         if (outcome is not DocumentResolutionOutcome.Succeeded)
         {
             return Map(outcome);
@@ -157,6 +157,10 @@ internal sealed class DocumentResolutionConsoleService : IDocumentResolutionCons
     /// <summary>Identité d'audit de l'opérateur (GUID utilisateur ; « system » si non authentifié) — parité avec l'endpoint API02c.</summary>
     private static string ActorId(IActorContext actor) =>
         actor.IsAuthenticated ? actor.UserId.ToString() : "system";
+
+    /// <summary>Nom d'affichage de l'opérateur capturé pour la piste d'audit (item FIX305 ; <c>null</c> = repli sur le GUID) — parité avec l'endpoint API02c.</summary>
+    private static string? ActorName(IActorContext actor) =>
+        actor.IsAuthenticated ? (actor.DisplayName ?? actor.Email) : null;
 
     /// <summary>Reporte le résultat du port (refus attendu) sur le statut console — <c>Succeeded</c> est traité par l'appelant avant l'audit.</summary>
     private static DocumentResolutionConsoleStatus Map(DocumentResolutionOutcome outcome) => outcome switch

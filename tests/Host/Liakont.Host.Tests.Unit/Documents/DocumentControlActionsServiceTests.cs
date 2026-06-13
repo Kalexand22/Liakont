@@ -45,7 +45,7 @@ public sealed class DocumentControlActionsServiceTests
         result.Message.Should().Contain("F-2026-001").And.Contain("B2C");
 
         lifecycle.ConfirmedB2c.Should().ContainSingle()
-            .Which.Should().Be((docId, OperatorId.ToString()), "le port reçoit l'identité de l'opérateur (audit obligatoire)");
+            .Which.Should().Be((docId, OperatorId.ToString(), "Opérateur"), "le port reçoit l'identité (GUID) ET le nom d'affichage de l'opérateur capturé pour l'audit (FIX305)");
         lifecycle.ManualResolutions.Should().BeEmpty();
         audit.Entries.Should().ContainSingle().Which.ActivityType.Should().Be("documents.verdict_confirm_b2c");
     }
@@ -69,7 +69,9 @@ public sealed class DocumentControlActionsServiceTests
         result.Message.Should().Contain("F-2026-002").And.Contain("B2B");
 
         lifecycle.ManualResolutions.Should().ContainSingle()
-            .Which.OperatorIdentity.Should().Be(OperatorId.ToString());
+            .Which.Should().Match<(Guid DocumentId, string Reason, string OperatorIdentity, string? OperatorName)>(
+                r => r.OperatorIdentity == OperatorId.ToString() && r.OperatorName == "Opérateur",
+                "le traitement manuel reçoit l'identité (GUID) ET le nom d'affichage capturé (FIX305)");
         lifecycle.ConfirmedB2c.Should().BeEmpty();
         audit.Entries.Should().ContainSingle().Which.ActivityType.Should().Be("documents.verdict_handle_manually");
     }
@@ -172,6 +174,8 @@ public sealed class DocumentControlActionsServiceTests
 
         recheck.Operators.Should().ContainSingle()
             .Which.Should().Be(OperatorId.ToString(), "l'identité de l'opérateur est threadée jusqu'au service de re-vérification (audit FIX02)");
+        recheck.OperatorNames.Should().ContainSingle()
+            .Which.Should().Be("Opérateur", "le nom d'affichage de l'opérateur est aussi threadé pour la piste d'audit (FIX305)");
     }
 
     [Fact]
@@ -263,6 +267,8 @@ public sealed class DocumentControlActionsServiceTests
         recheck.BulkIds.Should().BeEquivalentTo(ids, "la liste est déléguée telle quelle au cœur de re-vérification");
         recheck.BulkOperators.Should().ContainSingle()
             .Which.Should().Be(OperatorId.ToString(), "l'identité de l'opérateur voyage jusqu'au cœur (audit FIX02)");
+        recheck.BulkOperatorNames.Should().ContainSingle()
+            .Which.Should().Be("Opérateur", "le nom d'affichage de l'opérateur voyage aussi jusqu'au cœur (FIX305)");
         audit.Entries.Should().ContainSingle("le geste groupé est journalisé une seule fois")
             .Which.ActivityType.Should().Be("documents.rechecked_bulk");
     }
@@ -344,18 +350,24 @@ public sealed class DocumentControlActionsServiceTests
 
         public List<string> BulkOperators { get; } = [];
 
-        public Task<DocumentRecheckResult> RecheckAsync(Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default)
+        public List<string?> OperatorNames { get; } = [];
+
+        public List<string?> BulkOperatorNames { get; } = [];
+
+        public Task<DocumentRecheckResult> RecheckAsync(Guid documentId, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default)
         {
             Calls.Add(documentId);
             Operators.Add(operatorIdentity);
+            OperatorNames.Add(operatorName);
             return Task.FromResult(Result);
         }
 
         public Task<DocumentBulkRecheckSummary> RecheckManyAsync(
-            IReadOnlyList<Guid> documentIds, string operatorIdentity, CancellationToken cancellationToken = default)
+            IReadOnlyList<Guid> documentIds, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default)
         {
             BulkIds = documentIds.ToList();
             BulkOperators.Add(operatorIdentity);
+            BulkOperatorNames.Add(operatorName);
             return Task.FromResult(BulkSummary);
         }
     }
@@ -364,19 +376,19 @@ public sealed class DocumentControlActionsServiceTests
     {
         public DocumentResolutionOutcome ManualOutcome { get; set; } = DocumentResolutionOutcome.Succeeded;
 
-        public List<(Guid DocumentId, string OperatorIdentity)> ConfirmedB2c { get; } = [];
+        public List<(Guid DocumentId, string OperatorIdentity, string? OperatorName)> ConfirmedB2c { get; } = [];
 
-        public List<(Guid DocumentId, string Reason, string OperatorIdentity)> ManualResolutions { get; } = [];
+        public List<(Guid DocumentId, string Reason, string OperatorIdentity, string? OperatorName)> ManualResolutions { get; } = [];
 
-        public Task ConfirmBuyerAsIndividualAsync(Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default)
+        public Task ConfirmBuyerAsIndividualAsync(Guid documentId, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default)
         {
-            ConfirmedB2c.Add((documentId, operatorIdentity));
+            ConfirmedB2c.Add((documentId, operatorIdentity, operatorName));
             return Task.CompletedTask;
         }
 
-        public Task<DocumentResolutionOutcome> ResolveManuallyAsync(Guid documentId, string reason, string operatorIdentity, CancellationToken cancellationToken = default)
+        public Task<DocumentResolutionOutcome> ResolveManuallyAsync(Guid documentId, string reason, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default)
         {
-            ManualResolutions.Add((documentId, reason, operatorIdentity));
+            ManualResolutions.Add((documentId, reason, operatorIdentity, operatorName));
             return Task.FromResult(ManualOutcome);
         }
 
@@ -385,9 +397,9 @@ public sealed class DocumentControlActionsServiceTests
 
         public Task MarkReadyToSendAsync(Guid documentId, string mappingVersion, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
-        public Task<DocumentRecheckPersistOutcome> MarkReadyToSendByRecheckAsync(Guid documentId, string mappingVersion, string operatorIdentity, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<DocumentRecheckPersistOutcome> MarkReadyToSendByRecheckAsync(Guid documentId, string mappingVersion, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
-        public Task<DocumentRecheckPersistOutcome> RecordRecheckStillBlockedAsync(Guid documentId, string reevaluatedReason, string operatorIdentity, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<DocumentRecheckPersistOutcome> RecordRecheckStillBlockedAsync(Guid documentId, string reevaluatedReason, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         public Task BeginSendingAsync(Guid documentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
@@ -397,7 +409,7 @@ public sealed class DocumentControlActionsServiceTests
 
         public Task MarkTechnicalErrorAsync(Guid documentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
-        public Task<DocumentResolutionOutcome> SupersedeAsync(Guid documentId, Guid replacementDocumentId, string operatorIdentity, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<DocumentResolutionOutcome> SupersedeAsync(Guid documentId, Guid replacementDocumentId, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class FakeDocumentQueries : IDocumentQueries

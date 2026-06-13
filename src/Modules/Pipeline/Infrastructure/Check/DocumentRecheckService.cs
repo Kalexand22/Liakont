@@ -62,7 +62,7 @@ internal sealed class DocumentRecheckService : IDocumentRecheckService
     }
 
     /// <inheritdoc />
-    public async Task<DocumentRecheckResult> RecheckAsync(Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default)
+    public async Task<DocumentRecheckResult> RecheckAsync(Guid documentId, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(operatorIdentity))
         {
@@ -136,7 +136,7 @@ internal sealed class DocumentRecheckService : IDocumentRecheckService
             // et le motif affiché devient le dernier évalué (plus de motif périmé après rechargement). Le cycle de
             // vie vérifie l'état SOUS le verrou : un geste concurrent qui a débloqué/résolu le document est rendu
             // gracieusement (jamais un faux audit ni un 500), une vraie erreur de persistance remonte.
-            var stillBlocked = await lifecycle.RecordRecheckStillBlockedAsync(documentId, decision.BlockReason!, operatorIdentity, cancellationToken);
+            var stillBlocked = await lifecycle.RecordRecheckStillBlockedAsync(documentId, decision.BlockReason!, operatorIdentity, operatorName, cancellationToken);
             return stillBlocked == DocumentRecheckPersistOutcome.Persisted
                 ? DocumentRecheckResult.StillBlocked(decision.BlockReason!)
                 : await CurrentStateResultAsync(queries, documentId, cancellationToken);
@@ -146,7 +146,7 @@ internal sealed class DocumentRecheckService : IDocumentRecheckService
         // (événement d'audit attribué à l'opérateur qui a déclenché la re-vérification — item FIX02). Un changement
         // d'état concurrent est rendu gracieusement (le snapshot de ventilation, idempotent, reste sans effet).
         await WriteVentilationSnapshotAsync(document, decision, cancellationToken);
-        var unblocked = await lifecycle.MarkReadyToSendByRecheckAsync(documentId, decision.MappingVersion!, operatorIdentity, cancellationToken);
+        var unblocked = await lifecycle.MarkReadyToSendByRecheckAsync(documentId, decision.MappingVersion!, operatorIdentity, operatorName, cancellationToken);
         return unblocked == DocumentRecheckPersistOutcome.Persisted
             ? DocumentRecheckResult.ReadyToSend()
             : await CurrentStateResultAsync(queries, documentId, cancellationToken);
@@ -154,7 +154,7 @@ internal sealed class DocumentRecheckService : IDocumentRecheckService
 
     /// <inheritdoc />
     public async Task<DocumentBulkRecheckSummary> RecheckManyAsync(
-        IReadOnlyList<Guid> documentIds, string operatorIdentity, CancellationToken cancellationToken = default)
+        IReadOnlyList<Guid> documentIds, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(documentIds);
 
@@ -166,7 +166,7 @@ internal sealed class DocumentRecheckService : IDocumentRecheckService
         {
             cancellationToken.ThrowIfCancellationRequested();
             total++;
-            var result = await RecheckAsync(documentId, operatorIdentity, cancellationToken);
+            var result = await RecheckAsync(documentId, operatorIdentity, operatorName, cancellationToken);
             switch (result.Outcome)
             {
                 case DocumentRecheckOutcome.ReadyToSend:

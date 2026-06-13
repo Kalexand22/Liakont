@@ -1,0 +1,24 @@
+@namespace Liakont.Host.Components
+@using Stratum.Common.UI.Components
+
+@* LiakontLoading — état de chargement partagé des pages console (lot polish UX/UI). Remplace les
+ * « Chargement… » en texte nu par un spinner du design-system (CircularProgress indéterminé) + le
+ * libellé. Le spinner est masqué aux lecteurs d'écran (aria-hidden sur son enveloppe) : le wrapper
+ * role="status" annonce déjà le libellé — pas de double annonce « progressbar ». *@
+
+<div class="liakont-loading" role="status" data-testid="@TestId">
+    <span class="liakont-loading__spinner" aria-hidden="true">
+        <CircularProgress Indeterminate Size="20" Thickness="3" />
+    </span>
+    <span>@Label</span>
+</div>
+
+@code {
+    /// <summary>Libellé affiché et annoncé (défaut : « Chargement… »).</summary>
+    [Parameter]
+    public string Label { get; set; } = "Chargement…";
+
+    /// <summary>Identifiant de test posé sur le conteneur (les pages conservent leurs testids historiques).</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+}

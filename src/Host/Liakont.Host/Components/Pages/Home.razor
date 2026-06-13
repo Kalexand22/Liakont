@@ -3,6 +3,7 @@
 @attribute [Authorize]
 @using Liakont.Host.Dashboard
 @inject IDashboardQueries DashboardQueries
+@inject NavigationManager Nav
 @inject ILogger<Home> Logger
 
 <PageTitle>Tableau de bord — Liakont</PageTitle>
@@ -11,22 +12,32 @@
 
 @if (_loadFailed)
 {
-    <div role="alert" data-testid="dashboard-error">
+    <LiakontAlert TestId="dashboard-error">
         Impossible de charger le tableau de bord pour le moment. Réessayez plus tard.
-    </div>
+    </LiakontAlert>
 }
 else if (_model is null)
 {
-    <p data-testid="dashboard-loading">Chargement…</p>
+    <LiakontLoading TestId="dashboard-loading" />
 }
 else
 {
-    <DashboardView Model="_model" />
+    <DashboardView Model="_model" OnYearStateSelected="OnYearStateSelected" />
 }
 
 @code {
     private DashboardViewModel? _model;
     private bool _loadFailed;
+
+    // Drill-down du graphique « Année en cours » : la vue (pure) remonte l'état cliqué, la page
+    // navigue vers la liste filtrée sur le périmètre année (mêmes bornes que le compteur).
+    private void OnYearStateSelected(string state)
+    {
+        if (_model is { } model)
+        {
+            Nav.NavigateTo(model.CurrentYear.DocumentsUrl(state));
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {

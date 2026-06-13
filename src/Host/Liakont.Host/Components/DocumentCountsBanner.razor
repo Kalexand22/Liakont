@@ -5,8 +5,10 @@
 @* DocumentCountsBanner — synthèse permanente par état au-dessus de la liste Documents (F10 §2.1).
  * Pur composant présentational : reçoit les compteurs déjà calculés (aucune requête, aucune règle
  * métier) et expose un clic par état pour piloter le filtre État de la page. « Tous » réinitialise le
- * filtre. Les états sont affichés dans l'ordre canonique, chacun même à zéro, via DocumentStateDisplay
- * (vocabulaire FR + badge du design-system). 100 % français. *@
+ * filtre. Les états sont affichés dans l'ordre canonique via DocumentStateDisplay (vocabulaire FR +
+ * badge du design-system) ; les états À ZÉRO sont masqués (lot polish UX/UI : « 0 Rejeté » n'apporte
+ * rien et noie les états présents) — SAUF l'état actuellement filtré, qui reste visible même à zéro
+ * pour rester désélectionnable (drill-down d'URL vers un périmètre vide). 100 % français. *@
 
 <div class="doc-counts" role="group" aria-label="Synthèse par état" data-testid="doc-counts">
     <button type="button"
@@ -22,14 +24,17 @@
     {
         var count = Counts is not null && Counts.TryGetValue(state, out var n) ? n : 0;
         var active = string.Equals(SelectedState, state, System.StringComparison.Ordinal);
-        <button type="button"
-                class="doc-counts__chip @(active ? "doc-counts__chip--active" : null)"
-                data-testid="@($"doc-counts-{state}")"
-                aria-pressed="@(active ? "true" : "false")"
-                @onclick="@(() => SelectAsync(state))">
-            <span class="doc-counts__value">@count</span>
-            <DocumentStateBadge State="@state" />
-        </button>
+        @if (count > 0 || active)
+        {
+            <button type="button"
+                    class="doc-counts__chip @(active ? "doc-counts__chip--active" : null)"
+                    data-testid="@($"doc-counts-{state}")"
+                    aria-pressed="@(active ? "true" : "false")"
+                    @onclick="@(() => SelectAsync(state))">
+                <span class="doc-counts__value">@count</span>
+                <DocumentStateBadge State="@state" />
+            </button>
+        }
     }
 </div>
 

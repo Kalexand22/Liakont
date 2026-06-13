@@ -1,0 +1,12 @@
+/* DocumentActionBar (FIX04b) — habillage de la zone d'actions permanente de la fiche détail
+   (lot 2 polish UX/UI : ces classes n'avaient aucune règle). Layout uniquement. */
+
+.liakont-doc-detail__action-region {
+    margin: 0;
+}
+
+.liakont-doc-detail__actions-hint {
+    margin: 0 0 0.5rem;
+    font-size: 0.875rem;
+    color: var(--color-text-muted, #6b7280);
+}

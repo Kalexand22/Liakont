@@ -30,5 +30,7 @@
   <ItemGroup>
     <None Include="../../../../config/exemples/mapping-exemple.json" Link="config/exemples/mapping-exemple.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../../../config/exemples/tenant-seed/mapping-tva.json" Link="config/exemples/tenant-seed/mapping-tva.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../../../config/exemples/tenant-seed/encheres/mapping-tva.json" Link="config/exemples/tenant-seed/encheres/mapping-tva.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../../../tools/dev-seed-demo-docs.ps1" Link="tools/dev-seed-demo-docs.ps1" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -99,6 +99,22 @@ public sealed class DocumentActionBarTests : BunitContext
     }
 
     [Fact]
+    public void Should_Disable_Send_With_The_Suspension_Reason_When_Sends_Are_Suspended()
+    {
+        // Table TVA non validée : même affordance que le « Tout envoyer » de la liste (lot 2) —
+        // bouton désactivé + motif visible (hint) ; la garde réelle reste serveur.
+        var cut = Render<DocumentActionBar>(p => p
+            .Add(b => b.Model, Model(Doc("2026-016", "ReadyToSend")))
+            .Add(b => b.CanAct, true)
+            .Add(b => b.SendsSuspended, true));
+
+        var send = cut.Find("[data-testid='document-detail-send']");
+        send.HasAttribute("disabled").Should().BeTrue("les envois sont suspendus tant que la table TVA n'est pas validée");
+        cut.Find("[data-testid='document-detail-send-hint']").TextContent
+            .Should().Contain("suspendus").And.Contain("table TVA");
+    }
+
+    [Fact]
     public void Should_Hide_Send_When_Not_CanAct_Even_If_ReadyToSend()
     {
         var cut = Render<DocumentActionBar>(p => p

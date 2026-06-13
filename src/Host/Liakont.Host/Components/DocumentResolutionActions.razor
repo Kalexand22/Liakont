@@ -124,7 +124,7 @@
                                     <span class="liakont-doc-actions__candidate-number">N° @candidate.DocumentNumber</span>
                                     <span class="liakont-doc-actions__candidate-customer">@(string.IsNullOrWhiteSpace(candidate.CustomerName) ? "acheteur non renseigné" : candidate.CustomerName)</span>
                                     <span class="liakont-doc-actions__candidate-date">@candidate.IssueDate.ToString("dd/MM/yyyy", Fr)</span>
-                                    <span class="liakont-doc-actions__candidate-amount">@candidate.TotalGross.ToString("N2", Fr)</span>
+                                    <span class="liakont-doc-actions__candidate-amount">@(candidate.TotalGross.ToString("N2", Fr) + " €")</span>
                                     <span class="liakont-doc-actions__candidate-state"><DocumentStateBadge State="@candidate.State" TestId="@($"document-supersede-candidate-state-{candidate.Id}")" /></span>
                                 </label>
                             </li>

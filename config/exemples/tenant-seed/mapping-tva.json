@@ -1,45 +1,71 @@
-// Table de mapping TVA d'EXEMPLE du dossier de seed tenant (item FIX01b — importée par le point
-// d'entrée OPS03 d'import de seed, en plus de tenant-profile.json et pa-accounts.json).
+// Table de mapping TVA d'EXEMPLE PAR DÉFAUT du dossier de seed tenant (item FIX01b — importée par le
+// point d'entrée OPS03 d'import de seed, en plus de tenant-profile.json et pa-accounts.json).
 //
-// Données STRICTEMENT FICTIVES (codes régimes inventés) : AUCUNE donnée d'un client réel. La table
-// réelle d'un déploiement vit dans deployments/<client>/ (lot CMP), JAMAIS dans le code
-// (blueprint.md §2, CLAUDE.md n°7/15). Format complet : config/exemples/mapping-exemple.json.
+// COHÉRENTE avec le seed de documents de démo (tools/dev-seed-demo-docs.ps1, item FIX304) : ce dernier
+// pousse des documents dont les régimes source sont 20 / 10 / 5.5 / 0 (sourceTaxRegimes du batch). La
+// table couvre exactement ces régimes, en part « Autre » (le pipeline générique mappe TOUJOURS en part
+// Autre — voir CheckTvaMapping.LinePart / ConsultedMappingParts). Résultat sur un environnement neuf :
+// AUCUNE règle morte au contrôle de cohérence (FIX03) et AUCUN « régime absent de la table » au CHECK
+// des documents de démo. Le découpage enchères (adjudication / frais, régime de la marge) est une
+// VARIANTE séparée : config/exemples/tenant-seed/encheres/mapping-tva.json (nécessite le vertical
+// enchères — décision FIX304/F4).
+//
+// AUCUNE catégorie TVA inventée (CLAUDE.md n°2) : chaque règle se trace vers une source existante.
+//   20 → S   (taux normal)        F03 §2.1 « taux préchargés FR : 20→S »
+//   10 → AA  (taux intermédiaire) F03 §2.1 « 10/5,5→AA »
+//   5.5 → AA (taux réduit)        F03 §2.1 « 10/5,5→AA »
+//   0  → Z   (taux zéro assujetti, sans VATEX) F03 §2.1 (Z) + règle TAUX-ZERO de
+//            config/exemples/mapping-exemple.json. Cas À VALIDER (voir la note de la règle 0).
+//
+// Données STRICTEMENT FICTIVES : AUCUNE donnée d'un client réel. La table réelle d'un déploiement vit
+// dans deployments/<client>/ (lot CMP), JAMAIS dans le code (blueprint.md §2, CLAUDE.md n°7/15). Format
+// complet (toutes catégories UNCL5305, découpage adjudication/frais, flags) : config/exemples/mapping-exemple.json.
 //
 // MARQUEUR « table d'exemple » : validatedBy porte le marqueur explicite et validatedDate reste absent
-// → la table est « NON VALIDÉE » (IsValidated = false). Le garde-fou d'envoi en production (PIP01)
-// refuse tout envoi réel tant que l'expert-comptable n'a pas validé la table dans la console. L'import
-// est IDEMPOTENT : il n'amorce qu'un tenant vierge, sans jamais écraser une table déjà paramétrée.
+// → la table est « NON VALIDÉE » (IsValidated = false). Le garde-fou d'envoi en production (PIP01) refuse
+// tout envoi réel tant que l'expert-comptable n'a pas validé la table dans la console. L'import est
+// IDEMPOTENT : il n'amorce qu'un tenant vierge, sans jamais écraser une table déjà paramétrée.
 {
-  "mappingVersion": "tenant-seed-exemple-v1",
+  "mappingVersion": "tenant-seed-exemple-v2",
   "validatedBy": "Table d'exemple (seed tenant) — usage démo/tests uniquement",
   "validatedDate": null,
   "defaultBehavior": "Block",
   "rules": [
     {
-      "sourceRegimeCode": "NORMAL",
-      "label": "Taux normal (assujetti) — adjudication",
-      "part": "Adjudication",
+      "sourceRegimeCode": "20",
+      "label": "Taux normal (20 %) — assujetti",
+      "part": "Autre",
       "category": "S",
       "rateMode": "Fixed",
-      "rateValue": 20
+      "rateValue": 20,
+      "note": "Taux normal FR 20 % → catégorie S (F03 §2.1 : « taux préchargés FR : 20→S »)."
     },
     {
-      "sourceRegimeCode": "MARGE",
-      "label": "Régime de la marge — objets de collection (art. 297 A CGI)",
-      "part": "Adjudication",
-      "category": "E",
-      "vatex": "VATEX-EU-J",
+      "sourceRegimeCode": "10",
+      "label": "Taux intermédiaire (10 %)",
+      "part": "Autre",
+      "category": "AA",
+      "rateMode": "Fixed",
+      "rateValue": 10,
+      "note": "Taux intermédiaire FR 10 % → catégorie AA (F03 §2.1 : « 10/5,5→AA »)."
+    },
+    {
+      "sourceRegimeCode": "5.5",
+      "label": "Taux réduit (5,5 %)",
+      "part": "Autre",
+      "category": "AA",
+      "rateMode": "Fixed",
+      "rateValue": 5.5,
+      "note": "Taux réduit FR 5,5 % → catégorie AA (F03 §2.1 : « 10/5,5→AA »)."
+    },
+    {
+      "sourceRegimeCode": "0",
+      "label": "Régime à 0 % — taux zéro assujetti (table d'exemple)",
+      "part": "Autre",
+      "category": "Z",
       "rateMode": "Fixed",
       "rateValue": 0,
-      "note": "Adjudication exonérée : la TVA porte sur la marge, jamais distincte (F03 §2.3)."
-    },
-    {
-      "sourceRegimeCode": "NORMAL",
-      "label": "Frais acheteur — taux calculé depuis la source",
-      "part": "Frais",
-      "category": "S",
-      "rateMode": "ComputedFromSource",
-      "note": "Frais toujours taxables ; taux = montant_tva_frais / montant_frais_ht (F03 §4.1)."
+      "note": "À VALIDER : régime source à 0 %. Mappé par défaut en « taux zéro assujetti » (Z, sans VATEX — F03 §2.1 ; cf. règle TAUX-ZERO de config/exemples/mapping-exemple.json), choix sûr qui n'invente aucun motif d'exonération. Si ce régime correspond à une EXONÉRATION réelle (ex. soins médicaux art. 261 CGI), l'expert-comptable doit saisir la catégorie E + le code VATEX correspondant dans la console (F03 §2.2 / §3 / §6 décision #1). La table reste NON VALIDÉE : aucune catégorie n'est devinée."
     }
   ]
 }

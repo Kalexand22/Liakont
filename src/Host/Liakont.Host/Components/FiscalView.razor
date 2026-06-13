@@ -1,0 +1,115 @@
+@namespace Liakont.Host.Components
+@using Liakont.Host.Fiscal
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* FiscalView — rendu PUR de l'écran « Paramétrage › Fiscal » (FIX301, F12-A §3). Reçoit son modèle et l'état
+ * d'enregistrement en paramètres (aucune injection métier, aucune logique) pour être testable en bUnit sans
+ * auth ni base. Édite les 4 champs du contrat ; les listes déroulantes n'offrent QUE les valeurs admises
+ * (listes fermées, source = énumérations du contrat), plus « non renseigné » (décision en attente). Aucune
+ * valeur par défaut. Gabarit Stratum (SectionCard, FormField, StratumButton). 100 % français. *@
+
+<div class="liakont-fiscal" data-testid="fiscal">
+
+    <SectionCard Title="Paramètres fiscaux du tenant" TestId="fiscal-editor">
+        <p class="liakont-fiscal__intro">
+            Ces paramètres relèvent d'une <strong>décision à valider avec votre expert-comptable</strong>. Tant
+            qu'un paramètre reste « non renseigné », les transmissions qui en dépendent (e-reporting des
+            encaissements) restent <strong>suspendues</strong> — aucune valeur n'est appliquée par défaut.
+        </p>
+
+        <div class="liakont-fiscal__form" data-testid="fiscal-form">
+            <FormField Label="TVA sur les débits" FieldId="fiscal-vat-on-debits"
+                       HelpText="Option fiscale du tenant (F09). « Non renseigné » suspend l'e-reporting de paiement.">
+                <select id="fiscal-vat-on-debits"
+                        class="form-select"
+                        @bind="Model.Form.VatOnDebits"
+                        disabled="@Busy"
+                        data-testid="fiscal-vat-on-debits">
+                    <option value="">Non renseigné (décision en attente)</option>
+                    <option value="true">Oui</option>
+                    <option value="false">Non</option>
+                </select>
+            </FormField>
+
+            <FormField Label="Catégorie d'opération" FieldId="fiscal-operation-category"
+                       HelpText="Nature de l'opération du flux (liste fermée — F12-A §3.2).">
+                <select id="fiscal-operation-category"
+                        class="form-select"
+                        @bind="Model.Form.OperationCategory"
+                        disabled="@Busy"
+                        data-testid="fiscal-operation-category">
+                    <option value="">Non renseigné (décision en attente)</option>
+                    @foreach (var option in Model.OperationCategoryOptions)
+                    {
+                        <option value="@option.Value">@option.Label</option>
+                    }
+                </select>
+            </FormField>
+
+            <FormField Label="Méthode d'imputation des frais" FieldId="fiscal-fee-imputation"
+                       HelpText="Imputation de la part frais pour l'e-reporting de paiement (liste fermée — F09 §5.2).">
+                <select id="fiscal-fee-imputation"
+                        class="form-select"
+                        @bind="Model.Form.FeeImputationMethod"
+                        disabled="@Busy"
+                        data-testid="fiscal-fee-imputation">
+                    <option value="">Non renseigné (décision en attente)</option>
+                    @foreach (var option in Model.FeeImputationMethodOptions)
+                    {
+                        <option value="@option.Value">@option.Label</option>
+                    }
+                </select>
+            </FormField>
+
+            <FormField Label="Fréquence déclarative" FieldId="fiscal-reporting-frequency"
+                       HelpText="Chaîne libre transmise telle quelle (énumération non figée — F12-A §3.3). Saisissez la valeur indiquée par votre expert-comptable ; laissez vide si la décision est en attente.">
+                <input id="fiscal-reporting-frequency"
+                       class="form-control"
+                       type="text"
+                       @bind="Model.Form.ReportingFrequency"
+                       disabled="@Busy"
+                       data-testid="fiscal-reporting-frequency" />
+            </FormField>
+
+            @if (!string.IsNullOrWhiteSpace(Message))
+            {
+                <div class="liakont-fiscal__feedback"
+                     role="@(IsError ? "alert" : "status")"
+                     data-testid="fiscal-feedback">
+                    @Message
+                </div>
+            }
+
+            <StratumButton Text="@(Busy ? "Enregistrement…" : "Enregistrer les paramètres fiscaux")"
+                           Variant="ButtonVariant.Primary"
+                           Size="ButtonSize.Small"
+                           Disabled="@Busy"
+                           OnClick="@(_ => OnSave.InvokeAsync())"
+                           TestId="fiscal-save-btn" />
+        </div>
+    </SectionCard>
+
+</div>
+
+@code {
+    /// <summary>Données assemblées de l'écran (jamais <c>null</c> : la page en fournit toujours un).</summary>
+    [Parameter, EditorRequired]
+    public FiscalViewModel Model { get; set; } = null!;
+
+    /// <summary><c>true</c> pendant l'enregistrement (champs et bouton désactivés).</summary>
+    [Parameter]
+    public bool Busy { get; set; }
+
+    /// <summary>Message de retour de l'enregistrement, ou <c>null</c>.</summary>
+    [Parameter]
+    public string? Message { get; set; }
+
+    /// <summary><c>true</c> si <see cref="Message"/> est une erreur (rendu en alerte).</summary>
+    [Parameter]
+    public bool IsError { get; set; }
+
+    /// <summary>Déclenché à l'enregistrement des paramètres fiscaux.</summary>
+    [Parameter]
+    public EventCallback OnSave { get; set; }
+}

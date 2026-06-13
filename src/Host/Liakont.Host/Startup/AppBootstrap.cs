@@ -413,13 +413,22 @@ public static class AppBootstrap
         // providers Stratum.Modules.Identity.Web.{Identity,Security}NavSectionProvider et leurs routes restent
         // intacts (autres produits Stratum, accès super-admin). La section « Notifications » du socle est, elle,
         // RÉDUITE à « Templates » et gardée par permission via NotificationNavVisibilityFilter (plus bas, SCOPED).
-        builder.Services.AddSingleton<INavSectionProvider, Stratum.Modules.Audit.Web.AuditNavSectionProvider>();
+
+        // Section « Audit » du socle (Journal d'audit + Politiques) filtrée par permission côté Liakont (FIX303,
+        // décision opérateur F3, recette GATE_CONSOLE_WEB run 3) : le provider socle déclare les deux entrées
+        // inconditionnellement, mais les pages /admin/audit et /admin/audit/policies exigent la permission socle
+        // audit.trail.view — jamais accordée par un rôle Liakont (RolePermissionCatalog, matrice §3 immuable) ;
+        // seul un super-admin les ouvre. Sans filtre, la section menait à des pages entièrement vides pour tout
+        // opérateur normal (même cause que FIX209). SCOPED car la visibilité dépend de l'utilisateur. Le socle
+        // vendored n'est PAS modifié (le filtre y délègue) ; la découverte de la ROUTE /admin/audit reste intacte
+        // (Routes.razor + discovery d'assembly plus bas) pour le super-admin.
+        builder.Services.AddScoped<INavSectionProvider, Liakont.Host.Navigation.AuditNavVisibilityFilter>();
 
         // Section « Jobs » du socle filtrée par permission côté Liakont (FIX07c) : le provider socle déclare
         // « Planifications » (/admin/jobs) inconditionnellement, mais la page socle exige la permission socle
         // job.view — jamais accordée par un rôle Liakont (RolePermissionCatalog, matrice §3 immuable) ; seul un
         // super-admin l'ouvre. Sans filtre, l'entrée menait à une page entièrement vide pour tout opérateur normal
-        // (recette GATE_CONSOLE_WEB). SCOPED car la visibilité dépend de l'utilisateur (comme LiakontNavSectionProvider).
+        // (recette GATE_CONSOLE_WEB). SCOPED car la visibilité dépend de l'utilisateur (comme LiakontNavNodeProvider).
         // Le socle vendored n'est PAS modifié ; la découverte de la ROUTE /admin/jobs (Routes.razor +
         // MapRazorComponents) reste intacte pour le super-admin.
         builder.Services.AddScoped<INavSectionProvider, Liakont.Host.Navigation.JobNavVisibilityFilter>();
@@ -430,9 +439,10 @@ public static class AppBootstrap
         // car la visibilité dépend de l'utilisateur. Le provider socle n'est pas modifié (le filtre y délègue).
         builder.Services.AddScoped<INavSectionProvider, Liakont.Host.Navigation.NotificationNavVisibilityFilter>();
 
-        // Navigation maître Liakont (WEB01) : SCOPED car la visibilité des sections dépend du tenant
-        // courant (pool PDF → Réconciliation) et du rôle de l'utilisateur (permission → Supervision).
-        builder.Services.AddScoped<INavSectionProvider, Liakont.Host.Navigation.LiakontNavSectionProvider>();
+        // Navigation maître Liakont (WEB01, hiérarchisée au lot polish UX/UI) : INavNodeProvider (arbre
+        // avec le sous-menu Paramétrage) — consommé par la sidebar ET la palette de recherche. SCOPED car
+        // la visibilité dépend du tenant courant (pool PDF → Réconciliation) et du rôle (permissions).
+        builder.Services.AddScoped<INavNodeProvider, Liakont.Host.Navigation.LiakontNavNodeProvider>();
         builder.Services.AddScoped<Liakont.Host.Navigation.ILiakontConsoleContext, Liakont.Host.Navigation.LiakontConsoleContext>();
 
         // Composition en lecture du tableau de bord d'accueil (WEB01) : isole l'assemblage hors de la page.
@@ -503,6 +513,12 @@ public static class AppBootstrap
         // actives/gelées + seuils effectifs + e-mail opérateur, via le Contract Supervision) et mutations
         // (seuils, contact) déléguées aux commandes TenantSettings (garde liakont.settings côté page).
         builder.Services.AddScoped<Liakont.Host.Alertes.IAlertesConsoleService, Liakont.Host.Alertes.AlertesConsoleService>();
+
+        // Composition de l'écran « Paramétrage › Fiscal » (FIX301) : lecture du paramétrage fiscal du tenant
+        // (GetFiscalSettingsQuery) et modification (SetFiscalSettingsCommand, qui valide/parse/journalise),
+        // déléguées en in-process (garde liakont.settings côté page). Rend l'e-reporting des encaissements
+        // activable sans SQL : sans cet écran, le paramètre restait non renseignable (suspension perpétuelle).
+        builder.Services.AddScoped<Liakont.Host.Fiscal.IFiscalConsoleService, Liakont.Host.Fiscal.FiscalConsoleService>();
 
         // Témoin de vie du dead-man's-switch (FIX210, F12 §5.1) : lit les exécutions du job SYSTÈME
         // d'évaluation (base système) via un scope SANS tenant ambiant. Horloge partagée (TimeProvider) pour

@@ -1,4 +1,5 @@
 @namespace Liakont.Host.Components
+@using System.Linq
 @using Liakont.Host.Dashboard
 @using Stratum.Common.UI.Models
 
@@ -11,51 +12,53 @@
 
     @if (!Model.ProfileConfigured)
     {
-        <div class="liakont-dashboard__alert" role="alert" data-testid="dashboard-profile-incomplete">
+        <LiakontAlert TestId="dashboard-profile-incomplete">
             <StatusBadge Label="PARAMÉTRAGE INCOMPLET" Severity="Severity.Error" />
             <span>Le profil du tenant n'est pas encore créé — le traitement des documents est suspendu.
                 Importez le paramétrage du tenant (profil légal) pour reprendre le traitement.</span>
-        </div>
+        </LiakontAlert>
     }
 
     <SectionCard Title="Documents" TestId="dashboard-documents">
-        <div class="liakont-dashboard__counters" data-testid="dashboard-counters">
-            @foreach (var counter in Model.StateCounts)
-            {
-                <div class="liakont-dashboard__counter" data-testid="@($"counter-{counter.State}")">
-                    <span class="liakont-dashboard__counter-value">@counter.Count</span>
-                    <DocumentStateBadge State="@counter.State" />
-                </div>
-            }
-        </div>
+        @* Deux périmètres en tuiles CLIQUABLES (« Mois en cours », « Mois précédent ») : chaque compteur
+           ouvre la liste des documents filtrée sur son état ET sur les bornes de SON périmètre, via les
+           filtres d'URL déjà portés par la page Documents (issue #33) — même drill-down que les pastilles
+           du DocumentCountsBanner. Les bornes viennent du modèle (calculées par le service, jamais ici) :
+           la liste ouverte montre EXACTEMENT ce que le compteur annonce. Lien naturel (vue pure). *@
+        @foreach (var scope in new[] { Model.CurrentMonth, Model.PreviousMonth })
+        {
+            @* Seuls les états PRÉSENTS sont affichés (retour de recette lot 2 : 16 tuiles à zéro
+               noyaient les 3 bloquées) — un périmètre vide le dit en toutes lettres. *@
+            var present = NonZero(scope.Counts);
+            <div class="liakont-dashboard__scope" data-testid="@($"dashboard-scope-{scope.Key}")">
+                <h3 class="liakont-dashboard__scope-title">@scope.Label</h3>
+                @if (present.Count == 0)
+                {
+                    <p class="liakont-dashboard__scope-empty" data-testid="@($"dashboard-scope-{scope.Key}-empty")">
+                        Aucun document sur cette période.
+                    </p>
+                }
+                else
+                {
+                    <div class="liakont-dashboard__counters">
+                        @foreach (var counter in present)
+                        {
+                            <a class="liakont-dashboard__counter"
+                               href="@scope.DocumentsUrl(counter.State)"
+                               aria-label="@($"{counter.Count} document(s) — {DocumentStateDisplay.For(counter.State).Label} ({scope.Label}) : voir la liste")"
+                               data-testid="@($"counter-{scope.Key}-{counter.State}")">
+                                <span class="liakont-dashboard__counter-value">@counter.Count</span>
+                                <DocumentStateBadge State="@counter.State" />
+                            </a>
+                        }
+                    </div>
+                }
+            </div>
+        }
     </SectionCard>
 
     <SectionCard Title="Agent" TestId="dashboard-agent">
-        @if (Model.Agents.Count == 0)
-        {
-            <p data-testid="dashboard-agent-none">Aucun agent enregistré pour ce tenant.</p>
-        }
-        else
-        {
-            <ul class="liakont-dashboard__agents">
-                @foreach (var agent in Model.Agents)
-                {
-                    <li class="liakont-dashboard__agent" data-testid="dashboard-agent-line">
-                        <span class="liakont-dashboard__agent-name">@agent.Name</span>
-                        @if (agent.IsRevoked)
-                        {
-                            <StatusBadge Label="Révoqué" Severity="Severity.Error" />
-                        }
-                        else
-                        {
-                            <StatusBadge Label="Actif" Severity="Severity.Success" />
-                        }
-                        <span class="liakont-dashboard__agent-meta">Dernier contact : @FormatHeartbeat(agent.LastSeenUtc)</span>
-                        <span class="liakont-dashboard__agent-meta">Version : @(string.IsNullOrWhiteSpace(agent.Version) ? "inconnue" : agent.Version)</span>
-                    </li>
-                }
-            </ul>
-        }
+        <AgentStatusList Agents="Model.Agents" LineTestId="dashboard-agent-line" EmptyTestId="dashboard-agent-none" />
     </SectionCard>
 
     <SectionCard Title="Table TVA" TestId="dashboard-tva">
@@ -71,10 +74,10 @@
                 </p>
                 break;
             case DashboardTvaStatus.NotValidated:
-                <div class="liakont-dashboard__alert" role="alert" data-testid="dashboard-tva-alert">
+                <LiakontAlert TestId="dashboard-tva-alert">
                     <StatusBadge Label="NON VALIDÉE" Severity="Severity.Error" />
                     <span>Les envois sont suspendus jusqu'à validation par l'expert-comptable.</span>
-                </div>
+                </LiakontAlert>
                 break;
             default:
                 <p data-testid="dashboard-tva-none">Aucune table TVA paramétrée.</p>
@@ -85,9 +88,12 @@
     <SectionCard Title="Échéance déclarative" TestId="dashboard-deadline">
         @if (string.IsNullOrWhiteSpace(Model.ReportingFrequency))
         {
-            <div class="liakont-dashboard__alert" role="alert" data-testid="dashboard-frequency-missing">
-                Fréquence déclarative non renseignée — consultez votre expert-comptable.
-            </div>
+            <LiakontAlert Severity="Severity.Warning" TestId="dashboard-frequency-missing">
+                <span>
+                    Fréquence déclarative non renseignée (décision de votre expert-comptable) —
+                    <a href="/parametrage/fiscal" data-testid="dashboard-frequency-missing-link">renseignez-la dans le paramétrage fiscal</a>.
+                </span>
+            </LiakontAlert>
         }
         else
         {
@@ -95,13 +101,73 @@
         }
     </SectionCard>
 
+    @* ── Année en cours (BAS de page, moins prioritaire que les deux mois en tuiles) : répartition par
+       état en graphique (composant Chart du design-system). Un clic sur une barre = même drill-down que
+       les tuiles, délégué à la PAGE via OnYearStateSelected (la vue reste pure : aucune navigation ici).
+       L'état brut est retrouvé par DataIndex (les points sont construits dans l'ordre de Counts). ── *@
+    <SectionCard Title="@Model.CurrentYear.Label" TestId="dashboard-year">
+        @if (YearCounts.Count == 0)
+        {
+            <p data-testid="dashboard-year-empty">Aucun document sur l'année en cours.</p>
+        }
+        else
+        {
+            <Chart TData="DashboardChartPoint"
+                   Type="ChartType.Bar"
+                   Data="@BuildYearPoints()"
+                   CategoryField="Etat"
+                   Series="@YearSeries"
+                   ShowLegend="false"
+                   Height="220"
+                   AriaLabel="@($"Répartition des documents par état — {Model.CurrentYear.Label}")"
+                   OnPointClick="OnYearPointClickAsync"
+                   TestId="dashboard-year-chart" />
+        }
+    </SectionCard>
+
 </div>
 
 @code {
+    private static readonly IReadOnlyList<ChartSeries> YearSeries =
+        [new ChartSeries { Name = "Documents", ValueField = nameof(DashboardChartPoint.Nombre) }];
+
     /// <summary>Données assemblées du tableau de bord (jamais <c>null</c> : la page en fournit toujours un).</summary>
     [Parameter, EditorRequired]
     public DashboardViewModel Model { get; set; } = null!;
 
-    private static string FormatHeartbeat(DateTimeOffset? when) =>
-        when is { } value ? value.ToLocalTime().ToString("dd/MM/yyyy HH:mm") : "jamais";
+    /// <summary>
+    /// Déclenché au clic sur une barre du graphique « Année en cours », avec l'état BRUT cliqué.
+    /// La page navigue alors vers <see cref="DashboardCounterScope.DocumentsUrl"/> du périmètre
+    /// année (la vue reste pure : aucune navigation ici).
+    /// </summary>
+    [Parameter]
+    public EventCallback<string> OnYearStateSelected { get; set; }
+
+    /// <summary>États non nuls d'un périmètre, dans l'ordre canonique du modèle (les zéros sont masqués).</summary>
+    private static IReadOnlyList<DashboardStateCount> NonZero(IReadOnlyList<DashboardStateCount> counts) =>
+        counts.Where(c => c.Count > 0).ToList();
+
+    /// <summary>
+    /// États non nuls de l'année (retour de recette lot 2 : avec les 9 états canoniques dont 7 à zéro,
+    /// l'axe du graphique sautait des étiquettes — illisible). Sert AUSSI au mapping du clic :
+    /// DataIndex indexe cette liste filtrée, pas les compteurs complets.
+    /// </summary>
+    private IReadOnlyList<DashboardStateCount> YearCounts => NonZero(Model.CurrentYear.Counts);
+
+    /// <summary>Points du graphique, dans l'ordre de <see cref="YearCounts"/> (DataIndex = même index).</summary>
+    private IReadOnlyList<DashboardChartPoint> BuildYearPoints() =>
+        YearCounts
+            .Select(c => new DashboardChartPoint(DocumentStateDisplay.For(c.State).Label, c.Count))
+            .ToList();
+
+    private async Task OnYearPointClickAsync(ChartPointClickArgs args)
+    {
+        var counts = YearCounts;
+        if (args.DataIndex < 0 || args.DataIndex >= counts.Count || !OnYearStateSelected.HasDelegate)
+        {
+            return;
+        }
+
+        await OnYearStateSelected.InvokeAsync(counts[args.DataIndex].State);
+    }
 }

@@ -29,13 +29,13 @@
 
 @if (_loadFailed)
 {
-    <div role="alert" data-testid="encaissements-error">
+    <LiakontAlert TestId="encaissements-error">
         Impossible de charger les encaissements pour le moment. Réessayez plus tard.
-    </div>
+    </LiakontAlert>
 }
 else if (_model is null)
 {
-    <p data-testid="encaissements-loading">Chargement…</p>
+    <LiakontLoading TestId="encaissements-loading" />
 }
 else
 {

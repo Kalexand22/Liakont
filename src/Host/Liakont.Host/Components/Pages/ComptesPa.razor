@@ -7,6 +7,7 @@
 @using Liakont.Modules.TenantSettings.Contracts.DTOs
 @using Stratum.Common.Abstractions.Exceptions
 @using Stratum.Common.Abstractions.Security
+@using Stratum.Common.UI.Models
 @inject IPaAccountConsoleService Service
 @inject IPaPublicationConsoleService PublicationService
 @inject IPermissionService Permissions
@@ -21,20 +22,20 @@
     @* Écran de gestion de secrets (clé API PA) : réservé au paramétrage. Sans la permission, aucune donnée
        n'est chargée et seul le message d'accès refusé est rendu (le lien depuis /parametrage mène ici, mais
        la garde serveur reste l'unique contrôle du chemin console). *@
-    <div role="alert" data-testid="comptes-pa-denied">
+    <LiakontAlert Severity="Severity.Warning" TestId="comptes-pa-denied">
         Accès refusé : la gestion des comptes plateforme agréée requiert l'autorisation de paramétrage
         (liakont.settings). Rapprochez-vous de l'administrateur de votre organisation.
-    </div>
+    </LiakontAlert>
 }
 else if (_loadFailed)
 {
-    <div role="alert" data-testid="comptes-pa-error">
+    <LiakontAlert TestId="comptes-pa-error">
         Impossible de charger les comptes plateforme agréée pour le moment. Réessayez plus tard.
-    </div>
+    </LiakontAlert>
 }
 else if (_model is null)
 {
-    <p data-testid="comptes-pa-loading">Chargement…</p>
+    <LiakontLoading TestId="comptes-pa-loading" />
 }
 else
 {

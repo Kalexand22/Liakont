@@ -6,6 +6,7 @@
 @using Liakont.Host.Security
 @using Stratum.Common.Abstractions.Exceptions
 @using Stratum.Common.Abstractions.Security
+@using Stratum.Common.UI.Models
 @inject IAlertesConsoleService Service
 @inject IPermissionService Permissions
 @inject ILogger<Alertes> Logger
@@ -18,20 +19,20 @@
 {
     @* Paramétrage du tenant : réservé à liakont.settings. Sans la permission, aucune donnée n'est chargée et
        seul le message d'accès refusé est rendu (la garde serveur reste l'unique contrôle du chemin console). *@
-    <div role="alert" data-testid="alertes-denied">
+    <LiakontAlert Severity="Severity.Warning" TestId="alertes-denied">
         Accès refusé : le paramétrage des alertes requiert l'autorisation de paramétrage (liakont.settings).
         Rapprochez-vous de l'administrateur de votre organisation.
-    </div>
+    </LiakontAlert>
 }
 else if (_loadFailed)
 {
-    <div role="alert" data-testid="alertes-error">
+    <LiakontAlert TestId="alertes-error">
         Impossible de charger le paramétrage des alertes pour le moment. Réessayez plus tard.
-    </div>
+    </LiakontAlert>
 }
 else if (_model is null)
 {
-    <p data-testid="alertes-loading">Chargement…</p>
+    <LiakontLoading TestId="alertes-loading" />
 }
 else
 {
