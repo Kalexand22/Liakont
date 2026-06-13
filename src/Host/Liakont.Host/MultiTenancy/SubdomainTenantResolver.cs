@@ -8,8 +8,12 @@ using Stratum.Common.Abstractions.MultiTenancy;
 /// Expected format: <c>{tenant}.stratum.app</c> or <c>{tenant}.localhost</c>.
 /// Returns <c>null</c> if the host has fewer than 3 segments (no subdomain)
 /// or if the subdomain is "www".
+/// <para>
+/// Voie CLIENT-FOURNIE (<see cref="IClientSuppliedTenantResolver"/>) : non autoritaire en realm unique
+/// (ADR-0021 §2c) ; un sous-domaine qui contredit le jeton est rejeté par le cross-check (RLM03).
+/// </para>
 /// </summary>
-internal sealed class SubdomainTenantResolver : ITenantResolver
+internal sealed class SubdomainTenantResolver : IClientSuppliedTenantResolver
 {
     private readonly IHttpContextAccessor _httpContextAccessor;
 

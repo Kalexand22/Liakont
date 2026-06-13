@@ -46,6 +46,12 @@ public static class MultiTenantServiceCollectionExtensions
         services.AddScoped<ITenantResolver, OidcIssuerTenantResolver>();
         services.AddScoped<ITenantResolver, JwtClaimTenantResolver>();
 
+        // Voies CLIENT-FOURNIES exposées AUSSI sous IClientSuppliedTenantResolver pour le cross-check RLM03 :
+        // INV-0021-4 confronte ces indices au tenant du jeton et rejette toute contradiction (403). Instances
+        // distinctes de la chaîne, mais SANS état (pures lectures de HttpContext) — sans incidence.
+        services.AddScoped<IClientSuppliedTenantResolver, SubdomainTenantResolver>();
+        services.AddScoped<IClientSuppliedTenantResolver, HeaderTenantResolver>();
+
         // Composite resolver (evaluates chain in order)
         services.AddScoped<CompositeTenantResolver>();
 

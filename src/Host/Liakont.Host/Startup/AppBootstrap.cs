@@ -689,6 +689,14 @@ public static class AppBootstrap
         // sign-in OIDC est porté par la couche d'auth, le refus de push agent par le filtre d'endpoint.
         app.UseMiddleware<Liakont.Host.MultiTenancy.TenantSuspensionMiddleware>();
 
+        // Cross-check d'isolation par claim company_id (ADR-0021 §2b, item RLM03, INV-0021-4) : middleware
+        // GLOBAL *fail-closed* — pour TOUTE requête authentifiée d'un utilisateur de tenant, exige un claim
+        // company_id résolvant (outbox.tenants) au tenant servi ; absence, divergence ou indice client
+        // contredisant le jeton ⇒ 403. Super-admin exempté, chemin agent (X-Agent-Key) hors périmètre.
+        // APRÈS auth + résolution du tenant, AVANT l'autorisation — la défense en profondeur qui remplace la
+        // frontière cryptographique par-realm (le contrôle PRIMAIRE reste le scoping métier, CLAUDE.md n°9).
+        app.UseMiddleware<Liakont.Host.MultiTenancy.TenantCompanyCrossCheckMiddleware>();
+
         // Localisation APRÈS l'authentification ET la résolution du tenant : la préférence Language
         // PERSISTÉE de l'utilisateur (base = source de vérité — décision opérateur 2026-06-10,
         // bug-inbox console-web) prime sur le cookie. Le provider lit les claims du principal
