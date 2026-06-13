@@ -176,6 +176,15 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     /// <summary>Société (companyId) du tenant de suspension (profil seedé).</summary>
     public static readonly Guid TenantSuspCompanyId = new("ffffffff-0000-0000-0000-0000000000f2");
 
+    /// <summary>Société (companyId) du tenant d'ACTION — pas de profil, mais résolvable par le registre (RLM03).</summary>
+    public static readonly Guid TenantActionCompanyId = new("0c000000-0000-0000-0000-0000000000c2");
+
+    /// <summary>Société (companyId) du tenant d'archive SAIN — résolvable par le registre (RLM03).</summary>
+    public static readonly Guid TenantArchiveCompanyId = new("0a000000-0000-0000-0000-0000000000a2");
+
+    /// <summary>Société (companyId) du tenant d'archive ALTÉRÉE — résolvable par le registre (RLM03).</summary>
+    public static readonly Guid TenantArchiveTamperedCompanyId = new("0a000000-0000-0000-0000-0000000000a3");
+
     /// <summary>Utilisateur SystemAdmin (rôle porté par l'en-tête X-Test-Roles) — exécute /admin/tenants/*.</summary>
     public static readonly Guid SystemAdminUserId = new("88888888-8888-8888-8888-888888888888");
 
@@ -212,6 +221,27 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
 
     /// <summary>Société (companyId) du profil seedé dans le tenant B (sert l'isolation du paramétrage).</summary>
     public static readonly Guid TenantBCompanyId = new("bbbbbbbb-0000-0000-0000-0000000000b1");
+
+    /// <summary>
+    /// Société (company_id) de CHAQUE tenant du harness — source UNIQUE pour (1) l'enregistrement au
+    /// registre système <c>outbox.tenants</c> et (2) le défaut de <c>company_id</c> de <see cref="CreateClient"/>.
+    /// En realm unique (ADR-0021), TOUT utilisateur de tenant porte un <c>company_id</c> résolvant à SON
+    /// tenant ; sans cela le cross-check global RLM03 (INV-0021-4) renverrait 403. Ce map aligne donc le
+    /// harness sur la réalité de production. Valeurs DISTINCTES (contrainte UNIQUE V017).
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, Guid> TenantCompanyIds = new Dictionary<string, Guid>(StringComparer.Ordinal)
+    {
+        [TenantA] = TenantACompanyId,
+        [TenantB] = TenantBCompanyId,
+        [TenantAction] = TenantActionCompanyId,
+        [TenantArchive] = TenantArchiveCompanyId,
+        [TenantArchiveTampered] = TenantArchiveTamperedCompanyId,
+        [TenantApi04] = TenantApi04CompanyId,
+        [TenantVerdict] = TenantVerdictCompanyId,
+        [TenantSeed] = TenantSeedCompanyId,
+        [TenantUserProv] = TenantUserProvCompanyId,
+        [TenantSusp] = TenantSuspCompanyId,
+    };
 
     /// <summary>Capacités déclarées par le plug-in factice enregistré dans le harness (assertions /settings).</summary>
     public static readonly PaCapabilities FakeCapabilities = new()
@@ -405,19 +435,20 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         MigrateDatabase(migrationAssemblies, tenantUserProvConn);
         MigrateDatabase(migrationAssemblies, tenantSuspConn);
 
-        // Tenant vierge (FIX01a) : enregistré dans le catalogue système (outbox.tenants) pour que
-        // l'endpoint d'admin le RÉSOLVE (ITenantQueries.GetByIdAsync), mais SANS profil ni identité — un
-        // test y importe un profil via POST /admin/tenants/{id}/seed. Le company_id du registre est NOT NULL
-        // depuis V017 (RLM02) : on pose la constante dédiée (orthogonale à l'absence de profil).
-        await RegisterSystemTenantAsync(systemConn, TenantSeed, "tc_tenant_seed", TenantSeedCompanyId);
+        // Enregistre TOUS les tenants du harness au registre système (outbox.tenants) AVEC leur company_id
+        // (RLM03/ADR-0021 §2c) : en realm unique, la résolution autoritaire est company_id → outbox.tenants
+        // → tenant, et le cross-check GLOBAL exige que le company_id du jeton résolve au tenant servi. Avant
+        // RLM03, seuls TenantSeed/UserProv/Susp y figuraient (résolus par les endpoints d'admin) ; les autres
+        // étaient résolus par l'en-tête X-Tenant-Id seul. Source UNIQUE : TenantCompanyIds. Le nom de base
+        // provient de la chaîne de connexion configurée (database-per-tenant réel). Idempotent (ON CONFLICT).
+        foreach (var (tenantId, companyId) in TenantCompanyIds)
+        {
+            var databaseName = new NpgsqlConnectionStringBuilder(_connectionsByTenant[tenantId]).Database!;
+            await RegisterSystemTenantAsync(systemConn, tenantId, databaseName, companyId);
+        }
 
-        // Tenant de provisioning d'utilisateur (OPS03 lot A) : registre AVEC company_id (le service doit
-        // y retomber en l'absence de profil), base migrée pour le compte applicatif identity.users.
-        await RegisterSystemTenantAsync(systemConn, TenantUserProv, "tc_tenant_userprov", TenantUserProvCompanyId);
-
-        // Tenant de suspension (OPS03.4 lot B) : registre + identité (refus console exerçable par un
-        // lecteur) + profil ACTIF (les tests mutent le statut en SQL et invalident le cache du lookup).
-        await RegisterSystemTenantAsync(systemConn, TenantSusp, "tc_tenant_susp", TenantSuspCompanyId);
+        // Tenant de suspension (OPS03.4 lot B) : en plus du registre ci-dessus, identité (refus console
+        // exerçable par un lecteur) + profil ACTIF (les tests mutent le statut en SQL et invalident le cache).
         await SeedIdentityOnlyAsync(tenantSuspConn);
         await using (var suspConn = new NpgsqlConnection(tenantSuspConn))
         {
@@ -476,8 +507,22 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
             client.DefaultRequestHeaders.Add(TestAuthHandler.UserHeader, user.ToString());
         }
 
-        // company_id : porté par le jeton en production (Keycloak) ; fourni ici pour les endpoints scopés
-        // société (table TVA, API04). Omis = aucun claim company_id (comportement historique inchangé).
+        // company_id : porté par le jeton en production (Keycloak). En realm unique (ADR-0021), TOUT
+        // utilisateur de tenant en porte un résolvant à SON tenant — le cross-check global RLM03 (INV-0021-4)
+        // 403e sinon. À défaut d'une valeur explicite, on injecte donc le company_id du tenant ciblé pour un
+        // utilisateur NON super-admin, alignant le harness sur la production. Cas EXCLUS du défaut :
+        //  - requête anonyme (userId == null) ;
+        //  - super-admin (roles renseignés) : exempté du cross-check et SANS company_id en production (§2b) ;
+        //  - tenant inconnu du map (ex. test de provisioning d'un id non enregistré).
+        // Un company_id explicite (endpoints scopés société, ou test de contradiction jeton≠tenant) prime.
+        if (companyId is null
+            && userId is not null
+            && string.IsNullOrWhiteSpace(roles)
+            && TenantCompanyIds.TryGetValue(tenantId, out var mappedCompanyId))
+        {
+            companyId = mappedCompanyId;
+        }
+
         if (companyId is { } company)
         {
             client.DefaultRequestHeaders.Add(TestAuthHandler.CompanyHeader, company.ToString());

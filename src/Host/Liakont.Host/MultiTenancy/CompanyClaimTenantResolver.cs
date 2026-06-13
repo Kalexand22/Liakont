@@ -39,7 +39,7 @@ internal sealed partial class CompanyClaimTenantResolver : ITenantResolver
 {
     internal const string CompanyIdClaimType = "company_id";
 
-    private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(30);
 
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ICompanyTenantLookup _companyTenantLookup;
@@ -95,7 +95,7 @@ internal sealed partial class CompanyClaimTenantResolver : ITenantResolver
         return tenantId;
     }
 
-    private static string CacheKey(Guid companyId) => $"company-tenant:{companyId}";
+    internal static string CacheKey(Guid companyId) => $"company-tenant:{companyId}";
 
     [LoggerMessage(
         Level = LogLevel.Error,

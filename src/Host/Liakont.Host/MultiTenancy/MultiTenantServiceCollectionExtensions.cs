@@ -46,6 +46,13 @@ public static class MultiTenantServiceCollectionExtensions
         services.AddScoped<ITenantResolver, OidcIssuerTenantResolver>();
         services.AddScoped<ITenantResolver, JwtClaimTenantResolver>();
 
+        // Voie CLIENT-FOURNIE exposée sous IClientSuppliedTenantResolver pour le cross-check RLM03
+        // (INV-0021-4) : SEUL l'en-tête X-Tenant-Id est un canal que le client POSITIONNE DÉLIBÉRÉMENT ;
+        // le sous-domaine est exclu en SaaS mutualisé (mono-host, ADR-0021 §Conséquences) — il est
+        // incident et NON sous contrôle délibéré du client. Instance distincte de la chaîne, mais SANS état
+        // (pure lecture de HttpContext) — sans incidence.
+        services.AddScoped<IClientSuppliedTenantResolver, HeaderTenantResolver>();
+
         // Composite resolver (evaluates chain in order)
         services.AddScoped<CompositeTenantResolver>();
 
