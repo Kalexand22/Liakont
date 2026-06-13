@@ -1,0 +1,200 @@
+# Lot RLM — Realm Keycloak unique partagé : isolation des tenants par claim company_id
+# Specs : docs/adr/ADR-0021-realm-keycloak-unique-isolation-par-claim.md (décision, Accepté 2026-06-13).
+#         Invariants INV-0021-1→10 (chacun nomme sa preuve). Voir aussi ADR-0017 (projection rôle→permission),
+#         provenance-socle-stratum.md §4.24/§4.26 (état hérité superseçu).
+# Architecture : UN seul realm `liakont` (dev : liakont-dev). Isolation par claim company_id
+#   (attribut PAR-UTILISATEUR, immuable) + cross-check applicatif fail-closed ; le contrôle PRIMAIRE
+#   reste le scoping tenant des requêtes métier (CLAUDE.md n°9). Auth derrière l'abstraction IdP D10.
+#
+# ── PRINCIPE « DEUX REALMS » (anti faux-vert majeur) ──
+#   TOUTE config de realm s'applique aux DEUX fichiers, jamais un seul :
+#     - deploy/docker/keycloak/realm-export.json        (dev)
+#     - tests/Liakont.Tests.E2E/Fixtures/keycloak-e2e-realm.json  (E2E = le VRAI chemin de login testé)
+#   Le realm E2E a déjà le mapper d'ATTRIBUT company_id + registrationAllowed=false, MAIS ses 4 users
+#   seedés (lecture/operateur/parametrage/superviseur) n'ont AUCUN attribut company_id → sous le
+#   cross-check (RLM03), claim absent ⇒ 403 partout (et on désactiverait le test = faux-vert) OU
+#   backfill mono-valeur = isolation nulle. RLM01 DOIT couvrir les deux realms.
+#
+# ── PREUVE PAR LE VRAI MAPPER, JAMAIS PAR CLAIM SYNTHÉTIQUE ──
+#   TestAuthHandler injecte un company_id synthétique (en-tête X-Test-Company) : il prouve la LOGIQUE
+#   applicative, jamais le vrai mapper d'attribut. INV-0021-2b (« deux users → deux company_id
+#   différents ») n'est exerçable que via le VRAI realm avec un 2e tenant seedé (company_id distinct),
+#   pas via X-Test-Company. Sans 2e tenant seedé (dev ET E2E), RLM ne prouve l'isolation que sur un
+#   faux jeton — interdit.
+#
+# ── RÉALITÉ DE CODE (base du chantier, à acter au câblage) ──
+#   RLM se construit sur le lot A OPS03 (KeycloakTenantUserProvisioner, qui pose l'attribut company_id
+#   par-utilisateur). Ce code n'est PAS sur main — il vit en commits locaux sur feat/tenant-provisioning
+#   (0e4c10a et amont). La base de branche du chantier RLM doit en tenir compte (décision de câblage,
+#   plus tard).
+#
+# ⚠️ Séquencement STRICT (anti faux-vert, ADR §Séquencement de construction) :
+#   RLM01 → RLM02 → RLM03 → RLM04 ; RLM05 après RLM01+RLM03. NE PAS déclarer « fait » tant que
+#   RLM01→RLM03 ne sont pas livrés ET prouvés par test — sinon le 1er test multi-tenant passe au VERT
+#   en masquant l'absence d'isolation (jetons portant la même valeur). Le mapper company_id hardcodé au
+#   niveau client DOIT disparaître AVANT toute assertion d'isolation.
+# RLM04 MODIFIE le socle Stratum vendored : consigner dans provenance-socle-stratum.md (§4.x +
+#   bloc SOCLE-CONSIGNED-DRIFT, règle 11/20), garde socle-provenance-check.ps1 verte.
+# Messages opérateur en français. Aucune règle/permission inventée. Aucun secret versionné (n°10/18).
+
+items:
+  RLM01:
+    title: "Realm partagé (DEV + E2E) : company_id en mapper d'attribut immuable, 2e tenant seedé (company_id distinct), 2FA, email obligatoire/unique, registrationAllowed=false, backfill des comptes seedés"
+    description: |
+      Configurer le realm partagé comme socle d'isolation par claim, sur les DEUX realms (dev +
+      E2E), en supprimant la racine du faux-vert (mapper company_id hardcodé client) ET en rendant
+      l'isolation PROUVABLE via le vrai mapper (2e tenant seedé). Première étape OBLIGATOIRE.
+      1. **company_id = mapper d'ATTRIBUT** (oidc-usermodel-attribute-mapper) sur les DEUX realms.
+         Le realm E2E l'a déjà ; le dev (realm-export.json) porte encore un mapper hardcodé client
+         (ADR §2a / provenance §4.24) → le RETIRER (en realm partagé il donnerait la MÊME valeur à
+         tous les jetons = isolation NULLE).
+      2. **Immuabilité côté IdP** : `company_id` déclaré dans le User Profile en lecture seule /
+         édition admin-only, self-service de profil désactivé (INV-0021-3), sur les deux realms.
+      3. **Backfill PAR-UTILISATEUR** de l'attribut company_id sur les comptes DÉJÀ seedés des DEUX
+         realms (dev : 5 rôles ; E2E : lecture/operateur/parametrage/superviseur), avec le company_id
+         du tenant `default`. Le `sysadmin`/super-admin reste SANS company_id (exempté, ADR §2b).
+      4. **2e tenant seedé DE BOUT EN BOUT** : entrée **registre `outbox.tenants`** (AVEC le company_id
+         DISTINCT) + **realm** (dev & E2E), avec au moins un utilisateur → résoluble par RLM02
+         (company_id → outbox.tenants → tenant) et exerçant le cross-check RLM03, pas un user Keycloak
+         orphelin. Rend INV-0021-2b exerçable via le VRAI mapper d'attribut (jeton émis portant le bon
+         company_id), PAS via le claim synthétique X-Test-Company. (Frontière : l'entrée registre passe
+         en UNIQUE/NOT NULL en RLM02.)
+      5. **2FA forcé** sur le login mot de passe, sur les DEUX realms (browser flow + CONFIGURE_TOTP +
+         otpPolicy) — l'E2E est le vrai chemin de login testé.
+      6. **Email obligatoire et unique** (loginWithEmailAllowed=true, duplicateEmailsAllowed=false,
+         email requis) sur les deux realms.
+      7. **registrationAllowed=false** sur les DEUX realms (INV-0021-10) : en realm unique, une page
+         d'inscription ouverte = comptes orphelins de company_id. (Déjà vrai côté E2E ; à garantir +
+         asserter côté dev realm-export.)
+      8. Le lot A (KeycloakTenantUserProvisioner, attribut par-utilisateur) devient la source PRIMAIRE.
+      9. **Chemin MOT DE PASSE (INV-0021-6, moitié manquante)** : comme RLM01 change la SOURCE du claim
+         (hardcodé → attribut), prouver que le login mot de passe émet bien `company_id` ET les claims
+         `permission` (ADR-0017) — pas seulement le chemin brokered (RLM05). Anti-régression silencieuse.
+    acceptance:
+      - "Mapper d'ATTRIBUT company_id sur les DEUX realms ; le mapper hardcodé client est RETIRÉ du dev realm-export.json"
+      - "company_id immuable / non éditable (User Profile read-only) : un appel Account API tentant de le modifier est refusé (INV-0021-3)"
+      - "Backfill par-utilisateur sur les comptes seedés des DEUX realms (company_id du tenant default) ; sysadmin reste sans company_id"
+      - "2e tenant seedé DE BOUT EN BOUT (registre outbox.tenants + realm dev & E2E) avec un company_id DISTINCT : preuve INV-0021-2b via le VRAI mapper (deux users réels → deux company_id différents dans le jeton émis), JAMAIS via X-Test-Company ; résoluble par RLM02 + exerce RLM03"
+      - "Énumération négative (INV-0021-2a) : test prouvant qu'AUCUN utilisateur de tenant ne porte un company_id vide/null (super-admin exclu) — preuve anti-§4.24 nommée par l'invariant"
+      - "2FA imposé sur le login mot de passe des DEUX realms (preuve via E2E de login)"
+      - "Email obligatoire + unique sur les deux realms (INV-0021-8)"
+      - "registrationAllowed=false asserté sur les DEUX realms (INV-0021-10)"
+      - "Chemin MOT DE PASSE : test prouvant que le jeton porte company_id ET les claims permission (INV-0021-6, moitié mot de passe — non-régression du changement de source de claim)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RLM02:
+    title: "Résolution du tenant pilotée par le jeton : company_id UNIQUE + NOT NULL après backfill default + 3 sources réconciliées + résolveur autoritaire"
+    description: |
+      Rendre la résolution du tenant courant autoritaire depuis le jeton (ADR §2c), pré-requis du
+      cross-check (RLM03). En realm unique, `realm → tenant` ne distingue plus rien.
+      1. **Migration** : contrainte **UNIQUE** sur `outbox.tenants.company_id` (V016 : uuid nullable
+         non-UNIQUE ; unicité seulement probabiliste via Guid.NewGuid). ⚠️ Postgres tolère PLUSIEURS
+         NULL sous UNIQUE → viser **NOT NULL** après le backfill du `default`, sinon un tenant resté
+         NULL casse SILENCIEUSEMENT la résolution.
+      2. **Backfill** du tenant `default` (company_id = NULL en base) — sinon le résolveur plante pour lui.
+      3. **Cohérence des 3 sources** : la valeur company_id du `default` doit COÏNCIDER entre (a) le
+         mapper du realm-export (00000000-…-001), (b) DevTenantSeed.CompanyId, (c) le registre
+         outbox.tenants — sinon le résolveur ne résout pas le default. Test de cohérence NOMMÉ.
+      4. **Résolveur** `company_id(jeton) → outbox.tenants.company_id → tenant`, rendu AUTORITAIRE ;
+         les voies client-fournies (sous-domaine, header X-Tenant-Id — CompositeTenantResolver.cs:7)
+         ne sont plus la source autoritaire. (Le rejet sur contradiction est porté par RLM03.)
+      5. company_id lu via l'abstraction d'acteur (IActorContext), jamais via un type Keycloak (NetArchTest).
+    acceptance:
+      - "Migration : UNIQUE sur outbox.tenants.company_id ; company_id NOT NULL après backfill (un tenant NULL est interdit, sinon résolution silencieusement cassée)"
+      - "Tenant default backfillé ; test de COHÉRENCE des 3 sources (realm-export mapper ↔ DevTenantSeed.CompanyId ↔ registre) — elles coïncident"
+      - "Résolveur company_id(jeton)→tenant autoritaire ; le default est résolu correctement"
+      - "Un doublon de company_id au registre est rejeté (UNIQUE, preuve INV-0021-2c)"
+      - "company_id lu via IActorContext, jamais via un type Keycloak (NetArchTest vert, INV-0021-9)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RLM03:
+    title: "Cross-check GLOBAL fail-closed (middleware, pas filtre d'endpoint) — couverture prouvée sur route arbitraire, exemption super-admin, agent hors périmètre, 403 sur contradiction"
+    description: |
+      Middleware GLOBAL *fail-closed* matérialisant l'isolation par claim (ADR §2b, INV-0021-4) — la
+      défense en profondeur qui remplace la frontière de realm. Pré-requis bloquant.
+      1. **Enregistrement GLOBAL** dans le pipeline (après UseAuthentication / UseStratumMultiTenancy,
+         comme TenantSuspensionMiddleware) — PAS un filtre d'endpoint ni un [Authorize(policy)], sinon
+         une route oubliée fail-OPEN et les tests « par route » restent verts (faux-vert). C'est le
+         cœur du fail-closed exigé par l'ADR.
+      2. Pour toute requête authentifiée d'un **utilisateur de tenant** (principal OIDC/cookie),
+         exiger company_id présent ET = company_id du tenant résolu (RLM02) ; absence ou divergence ⇒
+         **403 / déconnexion**, jamais « servir quand même ». Comparaison sur **company_id** (filtre),
+         pas tenant_id (routage).
+      3. **Exemption super-admin** (SuperAdminRoles.IsSuperAdmin, même court-circuit que
+         TenantSuspensionMiddleware.cs:37) : cross-tenant légitime sans company_id.
+      4. **Chemin agent HORS périmètre** : X-Agent-Key / AgentApiAuthenticationFilter (« une clé = un
+         agent = un tenant ») résout son tenant depuis la clé, sans claim company_id.
+      5. **Belt-and-suspenders** : un indice de tenant client-fourni (sous-domaine, header) qui
+         CONTREDIT le jeton ⇒ 403 (jamais servi silencieusement comme tenant du jeton).
+    acceptance:
+      - "COUVERTURE GLOBALE prouvée : test « ROUTE ARBITRAIRE non décorée + jeton tenant A + Host/Header tenant B ⇒ 403 » (pas seulement des routes choisies)"
+      - "Assertion STRUCTURELLE : le cross-check est enregistré comme middleware GLOBAL dans le pipeline (après auth/multitenancy), pas en filtre d'endpoint / [Authorize]"
+      - "Test POSITIF « sans aucun indice client → tenant résolu DEPUIS le jeton » (distingue « header ignoré » de « header autoritaire » — 403 pour la bonne raison)"
+      - "Super-admin sans company_id ⇒ accès /supervision + /clients (exemption)"
+      - "Requête agent (X-Agent-Key) sans company_id ⇒ servie (hors périmètre)"
+      - "Utilisateur de tenant sans claim company_id ⇒ 403 (fail-closed) ; contrôle primaire (scoping métier n°9) inchangé"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RLM04:
+    title: "Sortie du provisioner realm (seam prouvé, pas fake muet) + retrait/recadrage du mapper hardcodé socle + provenance + nettoyage vestigial sans casser le redirect dev"
+    description: |
+      Faire que le provisioning ne crée PLUS de realm/client par tenant (INV-0021-1), en PROUVANT le
+      seam (pas en s'appuyant sur un fake muet). MODIFIE le socle vendored → provenance OBLIGATOIRE.
+      1. Sortir l'appel realm-par-tenant du chemin de création (TenantProvisioningService.ProvisionAsync) :
+         **no-op enregistrée en DI** pour le profil SaaS partagé (le dédié mono-tenant garde
+         l'implémentation Keycloak), ou retrait du bloc inline.
+      2. **PROUVER LE SEAM, pas « 0 appel contre un fake muet »** : le harnais substitue
+         FakeKeycloakRealmProvisioner (zéro HTTP) → un test « 0 POST /admin/realms » passerait au vert
+         juste parce que le provisioner est faké. Exiger un **espion qui ÉCHOUE si ProvisionRealmAsync
+         est invoqué en profil partagé**, OU une assertion que la **DI résout bien la no-op** en profil
+         partagé. C'est le seam qu'on prouve, pas l'absence d'HTTP.
+      3. **Mapper hardcodé socle survivant** : KeycloakRealmProvisioner.BuildHardcodedMapper("company_id")
+         (≈ ligne 210) et SURTOUT le test KeycloakRealmProvisionerTests
+         (Should_Emit_CompanyId_As_Hardcoded_Client_Mapper) qui ASSERTE oidc-hardcoded-claim-mapper
+         comme comportement ATTENDU — le harnais reste vert en certifiant le comportement BANNI pour le
+         partagé. Recadrer : restreindre ce test au **profil dédié mono-tenant** (+ commentaire « jamais
+         pour le partagé ») OU ajouter une garde « le profil partagé n'émet JAMAIS ce mapper ». Mettre à
+         jour provenance §4.24.
+      4. **Nettoyage vestigial** : AddTenantRedirectUriAsync (redirects par sous-domaine), RegisterRealm
+         au provisioning, boucles AdditionalRealms/RealmTenantMap, seed runtime du RealmRegistry par
+         tenant. ⚠️ FIX07a : NE PAS casser le redirect `default.localhost` du bring-up dev — cibler les
+         redirects par TENANT PROVISIONNÉ, pas les statiques du realm primaire/partagé.
+      5. **Consigner** la modification socle dans provenance-socle-stratum.md (§4.x + chemin exact dans
+         SOCLE-CONSIGNED-DRIFT) ; garde socle-provenance-check.ps1 verte.
+    acceptance:
+      - "SEAM prouvé : espion qui ÉCHOUE si ProvisionRealmAsync est invoqué en profil partagé (OU assertion DI résout la no-op) — PAS « 0 HTTP contre un fake muet »"
+      - "Provisioning d'un tenant : utilisateur créé dans le realm partagé avec son company_id ; aucun realm/client dédié"
+      - "E2E de CLÔTURE (ADR §6) : un utilisateur de tenant (le 2e tenant seedé) se connecte EFFECTIVEMENT de bout en bout dans le realm partagé — clôt la panne d'origine « un user de tenant ne peut pas se connecter » (exerce RLM01→RLM03 ensemble)"
+      - "Mapper hardcodé socle recadré au profil dédié mono-tenant (test reframé + commentaire) OU garde « partagé n'émet jamais ce mapper » ; provenance §4.24 mise à jour"
+      - "Nettoyage vestigial SANS casser le redirect default.localhost du bring-up dev (FIX07a) — cible les redirects par tenant provisionné"
+      - "Modification socle consignée (provenance + bloc SOCLE-CONSIGNED-DRIFT) ; socle-provenance-check.ps1 exit 0"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RLM05:
+    title: "Brokering multi-SSO lié par email vérifié (config realm prouvée statiquement + recette réelle en gate), sans auto-création ; claims permission + company_id sur le chemin brokered"
+    description: |
+      Exposer le login SSO à côté de l'email/mot de passe (ADR §4), en préservant l'isolation et en
+      SÉPARANT la preuve de config (sans credentials) de la recette réelle (gate).
+      1. Identity brokering Keycloak : providers **Google** et **Microsoft/Entra** (extensible).
+      2. **first-broker-login lié par email VÉRIFIÉ** : liaison à un compte Liakont DÉJÀ provisionné,
+         matché par email, SEULEMENT si email externe vérifié (email_verified=true ; **trustEmail=false**
+         sur le provider + étape « Verify existing account by email »). JAMAIS d'auto-création (compte
+         orphelin de company_id).
+      3. **Preuve de config STATIQUE (sans credentials)** : asserter sur le realm JSON que `trustEmail=false`
+         et que l'étape « Verify existing account by email » est câblée — la VRAIE garde anti-takeover est
+         dans la config realm, pas seulement dans la logique applicative (un E2E à IdP mocké ne prouve que
+         l'appli). La recette SSO RÉELLE (Google/Microsoft, credentials opérateur) est portée par la GATE.
+      4. Le chemin brokered déclenche la MÊME projection rôle→permission (ADR-0017) ET émet company_id
+         (INV-0021-6) — pas de chemin de login sans claims d'autz/isolation.
+      5. Secrets providers = config par environnement / secret manager ; JAMAIS versionnés (en
+         particulier jamais dans realm-export.json) ni journalisés (CLAUDE.md n°10/18).
+      NOTE : sans credentials providers, livrer la mécanique + la preuve de config statique + tests à IdP
+      mocké, et marquer la recette SSO RÉELLE en gate.
+    acceptance:
+      - "Preuve de config STATIQUE sur le realm JSON : trustEmail=false + étape « Verify existing account by email » câblée (exécutable SANS credentials)"
+      - "Logique (IdP mocké) : « broker email inconnu ⇒ PAS d'auto-création » et « broker email non vérifié ⇒ liaison refusée » (INV-0021-5)"
+      - "Login brokered : claims permission (ADR-0017) ET company_id émis comme sur le login mot de passe (INV-0021-6)"
+      - "Aucun secret provider versionné ni dans realm-export.json (n°10/18)"
+      - "Recette SSO réelle Google/Microsoft portée par la gate (credentials opérateur)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
