@@ -24,6 +24,7 @@
 | [F12](F12-Architecture-Plateforme-Agent.md) | **Architecture plateforme & agent** : contrat d'ingestion, supervision, configuration, déploiement (absorbe l'ancien « F12 Configuration/déploiement ») + annexe [F12-A](F12-A-Parametrage-Tenant.md) (paramétrage détaillé par tenant) | — (interne, pivot 2026-06-03) | 🟨 à revoir | N/A — conception (blueprint v2) |
 | [F13](F13-Installateur-Agent-Profils-Integrateur.md) | **Installateur agent + profils intégrateur** : bootstrapper GUI, paramétrage guidé connexion BDD source / serveur central, packaging d'un `.exe` par intégrateur | — (interne, 2026-06-03) | 🟨 à revoir | N/A — conception (blueprint v2 + ADR-0005) |
 | [F14](F14-Plugin-SuperPdp.md) | **Plug-in PA Super PDP** (`IPaClient`) : étude API + mapping endpoint↔contrat + capacités provisoires + questions support (PA de l'Offre Éco, marque grise) | DR17, DR9 | 🟨 étude (PAS01) | Intégrabilité API vérifiée DR17 (2026-06-02) ; endpoints exacts à confirmer sandbox (DR17-A4). ⚠️ numéroté F14 car F13 déjà pris |
+| [F15](F15-Autofacturation-Mandat.md) | **Autofacturation sous mandat (type 389)** : module `Mandats` (émission capacité A), allocation BT-1 hybride, numérotation par mandant, criée mono-Seller ; capacité B (réception) esquissée | — (sourcing primaire 2026-06-13) | 🟨 note d'orientation | ✅ texte primaire vérifié (CGI 289 I-2, BOFiP numérotation/mandat/halles, specs DGFiP V3.2 : 389 = socle) ; points ❓ NON TRANCHÉ marqués |
 
 ## Actions transverses sorties des recherches (à traiter)
 
