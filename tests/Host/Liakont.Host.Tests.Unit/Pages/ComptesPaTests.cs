@@ -309,7 +309,11 @@ public sealed class ComptesPaTests : BunitContext
                 throw new InvalidOperationException("Échec simulé du chargement des comptes PA.");
             }
 
-            return Task.FromResult(new PaAccountConsoleModel { Accounts = _accounts, RegisteredPluginTypes = _pluginTypes });
+            return Task.FromResult(new PaAccountConsoleModel
+            {
+                Accounts = _accounts.Select(a => new PaAccountSettingsDto { Account = a, PluginAvailable = false, Capabilities = null }).ToList(),
+                RegisteredPluginTypes = _pluginTypes,
+            });
         }
 
         public Task<Guid> CreateAsync(PaAccountFormModel model, CancellationToken cancellationToken = default)

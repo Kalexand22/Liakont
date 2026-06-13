@@ -8,6 +8,7 @@
 @inject NavigationManager Nav
 @inject IStringLocalizer<SharedResources> L
 @inject IEnumerable<INavSectionProvider> NavProviders
+@inject IEnumerable<INavNodeProvider> NavNodeProviders
 @implements IAsyncDisposable
 
 @*
@@ -52,7 +53,7 @@
 
     protected override void OnInitialized()
     {
-        _navNodes = NavProviders.BuildNavTree();
+        _navNodes = NavProviders.BuildNavTree(NavNodeProviders);
         RegisterDefaultCommands();
         ShortcutService.PushScope(_globalScopeId, ShortcutScopeType.Global, GlobalBindings);
         ShortcutService.ScopeChanged += OnScopeChanged;

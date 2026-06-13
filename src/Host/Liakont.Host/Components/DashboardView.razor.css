@@ -1,10 +1,32 @@
 /* Mise en page du tableau de bord d'accueil (WEB01). Layout uniquement : les couleurs proviennent
-   des composants du design-system (SectionCard, StatusBadge). */
+   des composants du design-system (SectionCard, StatusBadge, LiakontAlert). */
 
 .liakont-dashboard {
     display: flex;
     flex-direction: column;
     gap: 1rem;
+}
+
+/* Le flex column ci-dessus espace déjà ses enfants : la marge basse par défaut du bandeau
+   d'alerte (LiakontAlert) doublerait l'écart — annulée ici (::deep : le bandeau est rendu
+   par le composant enfant, hors du scope CSS de cette vue). */
+.liakont-dashboard ::deep .liakont-alert {
+    margin-bottom: 0;
+}
+
+/* Un périmètre de compteurs (« Mois en cours », « Mois précédent ») : sous-titre discret + rangée
+   de tuiles. Les deux périmètres s'empilent dans la carte Documents. */
+.liakont-dashboard__scope + .liakont-dashboard__scope {
+    margin-top: 1rem;
+}
+
+.liakont-dashboard__scope-title {
+    margin: 0 0 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-text-secondary, #4b5563);
 }
 
 .liakont-dashboard__counters {
@@ -13,12 +35,38 @@
     gap: 1rem;
 }
 
+/* Périmètre sans aucun document (les états à zéro sont masqués) : le dire en toutes lettres. */
+.liakont-dashboard__scope-empty {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--color-text-muted, #6b7280);
+}
+
+/* Tuile compteur = LIEN vers la liste des documents filtrée sur l'état (drill-down, même geste
+   que les pastilles du DocumentCountsBanner) : apparence de carte cliquable, texte non souligné. */
 .liakont-dashboard__counter {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: 0.25rem;
     min-width: 8rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-border, #d1d5db);
+    border-radius: var(--radius-sm, 0.25rem);
+    background: var(--color-surface, #fff);
+    color: inherit;
+    text-decoration: none;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.liakont-dashboard__counter:hover {
+    border-color: var(--color-primary, #2563eb);
+    background: var(--color-primary-50, #eff6ff);
+}
+
+.liakont-dashboard__counter:focus-visible {
+    outline: 2px solid var(--color-primary, #2563eb);
+    outline-offset: 2px;
 }
 
 .liakont-dashboard__counter-value {
@@ -27,35 +75,7 @@
     line-height: 1;
 }
 
-.liakont-dashboard__agents {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-}
-
-.liakont-dashboard__agent {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.75rem;
-}
-
-.liakont-dashboard__agent-name {
-    font-weight: 600;
-}
-
-.liakont-dashboard__agent-meta,
 .liakont-dashboard__tva-meta {
     color: var(--color-text-muted, #6b7280);
     font-size: 0.875rem;
-}
-
-.liakont-dashboard__alert {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
 }

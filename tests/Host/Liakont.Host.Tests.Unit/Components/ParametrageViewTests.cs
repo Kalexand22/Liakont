@@ -112,27 +112,43 @@ public sealed class ParametrageViewTests : BunitContext
     }
 
     [Fact]
-    public void Should_Render_Pa_Capabilities_With_Badges()
+    public void Should_Not_Render_Capability_Details_On_The_Hub()
     {
+        // Le DÉTAIL des capacités a déménagé sur l'écran Comptes PA (lot polish UX/UI) : le hub
+        // reste une synthèse — plus aucune liste de capacités ici, même avec un plug-in chargé.
         var caps = BuildCapabilities(b2c: true, domesticPayment: false);
         var model = BuildModel(paAccounts: [new PaAccountSettingsDto { Account = BuildPaAccount(), PluginAvailable = true, Capabilities = caps }]);
 
         var cut = Render<ParametrageView>(p => p.Add(v => v.Model, model));
 
-        cut.FindAll("[data-testid='parametrage-pa-capabilities']").Should().ContainSingle();
-        cut.FindAll("[data-testid='parametrage-pa-capability']").Should().HaveCount(8);
-        cut.Find("[data-testid='parametrage-pa-capabilities']").TextContent.Should().Contain("Déclaration B2C");
+        cut.FindAll("[data-testid='parametrage-pa-capabilities']").Should().BeEmpty();
+        cut.FindAll("[data-testid='parametrage-pa-capability']").Should().BeEmpty();
     }
 
     [Fact]
     public void Should_Show_Plugin_Unavailable_When_No_Capabilities()
     {
+        // Seul le REPLI reste signalé sur le hub : un plug-in absent rend le compte inutilisable.
         var model = BuildModel(paAccounts: [new PaAccountSettingsDto { Account = BuildPaAccount(), PluginAvailable = false, Capabilities = null }]);
 
         var cut = Render<ParametrageView>(p => p.Add(v => v.Model, model));
 
         cut.FindAll("[data-testid='parametrage-pa-plugin-unavailable']").Should().ContainSingle();
         cut.FindAll("[data-testid='parametrage-pa-capabilities']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Should_Link_To_The_Agents_Management_Page()
+    {
+        // La carte Agents offre le même geste de navigation que les autres cartes du hub (elle
+        // n'avait qu'un texte sans lien — lot polish UX/UI).
+        var cut = Render<ParametrageView>(p => p.Add(v => v.Model, BuildModel()));
+
+        cut.FindAll("[data-testid='parametrage-agents-link']").Should().ContainSingle();
+
+        // StratumButton(Href) navigue au clic : on vérifie la CIBLE réelle.
+        cut.Find("[data-testid='parametrage-agents-link']").Click();
+        cut.Services.GetRequiredService<NavigationManager>().Uri.Should().EndWith("/agents");
     }
 
     [Fact]
@@ -164,6 +180,19 @@ public sealed class ParametrageViewTests : BunitContext
         // StratumButton(Href) navigue au clic : on vérifie la CIBLE réelle.
         cut.Find("[data-testid='parametrage-alertes-link']").Click();
         cut.Services.GetRequiredService<NavigationManager>().Uri.Should().EndWith("/parametrage/alertes");
+    }
+
+    [Fact]
+    public void Should_Link_To_The_Fiscal_Settings_Page()
+    {
+        // Le bouton « Modifier les paramètres fiscaux » mène à la page dédiée (FIX301).
+        var cut = Render<ParametrageView>(p => p.Add(v => v.Model, BuildModel()));
+
+        cut.FindAll("[data-testid='parametrage-fiscal-link']").Should().ContainSingle();
+
+        // StratumButton(Href) navigue au clic : on vérifie la CIBLE réelle.
+        cut.Find("[data-testid='parametrage-fiscal-link']").Click();
+        cut.Services.GetRequiredService<NavigationManager>().Uri.Should().EndWith("/parametrage/fiscal");
     }
 
     [Fact]
@@ -217,7 +246,7 @@ public sealed class ParametrageViewTests : BunitContext
     [Fact]
     public void Should_List_Agents_With_State_Heartbeat_Version()
     {
-        var agents = new List<ParametrageAgentLine>
+        var agents = new List<AgentStatusLine>
         {
             new("Agent A", new DateTimeOffset(2026, 6, 8, 10, 0, 0, TimeSpan.Zero), "1.2.3", false),
             new("Agent B", null, null, true),
@@ -231,7 +260,10 @@ public sealed class ParametrageViewTests : BunitContext
         lines[0].TextContent.Should().Contain("Actif");
         lines[0].TextContent.Should().Contain("1.2.3");
         lines[1].TextContent.Should().Contain("Révoqué");
-        lines[1].TextContent.Should().Contain("jamais");
+
+        // Sans aucun contact, la méta « Dernier contact : jamais » n'est plus affichée (lot 2 : le
+        // badge porte l'information — « Révoqué » prime sur « Jamais connecté »).
+        lines[1].TextContent.Should().NotContain("Dernier contact");
         lines[1].TextContent.Should().Contain("inconnue");
     }
 
@@ -325,7 +357,8 @@ public sealed class ParametrageViewTests : BunitContext
         var cut = Render<ParametrageView>(p => p.Add(v => v.Model, BuildModel()));
 
         cut.FindAll("[data-testid='parametrage-audit-export']").Should().BeEmpty();
-        cut.FindAll("[data-testid='parametrage-exports']").Should().BeEmpty();
+        cut.FindAll("[data-testid='parametrage-exports-audit']").Should().BeEmpty();
+        cut.FindAll("[data-testid='parametrage-exports-tenant']").Should().BeEmpty();
     }
 
     [Fact]
@@ -432,7 +465,7 @@ public sealed class ParametrageViewTests : BunitContext
         FiscalSettingsDto? fiscal = null,
         TvaMappingSummaryDto? tva = null,
         IReadOnlyList<PaAccountSettingsDto>? paAccounts = null,
-        IReadOnlyList<ParametrageAgentLine>? agents = null) => new()
+        IReadOnlyList<AgentStatusLine>? agents = null) => new()
         {
             Profile = profile,
             FiscalSettings = fiscal,

@@ -21,10 +21,10 @@
 
     @if (!State.HasActiveAccount)
     {
-        <p role="alert" data-testid="pa-publication-no-account">
+        <LiakontAlert Severity="Severity.Warning" TestId="pa-publication-no-account">
             Aucun compte Plateforme Agréée actif pour ce tenant. Configurez et activez un compte ci-dessus
             avant de publier le SIREN.
-        </p>
+        </LiakontAlert>
     }
     else
     {

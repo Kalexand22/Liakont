@@ -37,6 +37,22 @@ public sealed class LoginTests : BunitContext
     }
 
     [Fact]
+    public void Should_Localize_Input_Placeholders_Like_Their_Labels()
+    {
+        // Anti-régression : les placeholders étaient codés en dur en anglais (« Username » /
+        // « Password ») alors que les labels passaient par les ressources. Les deux doivent
+        // venir de la MÊME ressource localisée (Login_Username / Login_Password).
+        ConfigureKeycloak(active: false);
+
+        var cut = Render<Login>(ps => ps.AddCascadingValue<HttpContext>(AnonymousHttpContext()));
+
+        cut.Find("[data-testid='login-username']").GetAttribute("placeholder")
+            .Should().Be(cut.Find("label[for='login-username']").TextContent.Trim());
+        cut.Find("[data-testid='login-password']").GetAttribute("placeholder")
+            .Should().Be(cut.Find("label[for='login-password']").TextContent.Trim());
+    }
+
+    [Fact]
     public void Should_Redirect_To_Oidc_Login_When_Keycloak_Active()
     {
         ConfigureKeycloak(active: true);

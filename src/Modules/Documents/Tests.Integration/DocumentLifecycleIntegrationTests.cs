@@ -3,6 +3,7 @@ namespace Liakont.Modules.Documents.Tests.Integration;
 using System;
 using System.Threading.Tasks;
 using FluentAssertions;
+using Liakont.Modules.Documents.Contracts.Lifecycle;
 using Liakont.Modules.Documents.Domain.Entities;
 using Liakont.Modules.Documents.Infrastructure.Lifecycle;
 using Xunit;
@@ -65,6 +66,32 @@ public sealed class DocumentLifecycleIntegrationTests
         var sending = await harness.Queries.GetByIdAsync(id);
         sending!.State.Should().Be(nameof(DocumentState.Sending));
         sending.MappingVersion.Should().Be("2026.1");
+    }
+
+    [Fact]
+    public async Task Operator_Event_Round_Trips_The_Operator_Name_Through_Postgres()
+    {
+        // FIX305 : prouve le ROUND-TRIP réel de operator_name (INSERT @OperatorName → SELECT operator_name) sur
+        // PostgreSQL — pas un Fake. Sans cet assert, un oubli de la colonne dans l'INSERT OU le SELECT (ou une typo
+        // de paramètre) renverrait null en silence (faux-vert) pour le champ même que l'item rend lisible. On trace
+        // une re-vérification toujours bloquée (action opérateur) : le GUID atterrit en operator_identity, le nom
+        // d'affichage capturé en operator_name.
+        var harness = new DocumentsHarness(_fixture);
+        var id = await SeedDetectedAsync(harness);
+        var lifecycle = new DocumentLifecycle(harness.UowFactory, harness.Queries);
+        await lifecycle.BlockAsync(id, "Acheteur professionnel non confirmé.");
+
+        var operatorId = Guid.NewGuid().ToString();
+        var outcome = await lifecycle.RecordRecheckStillBlockedAsync(
+            id, "Acheteur professionnel non confirmé (réévalué).", operatorId, operatorName: "Marie Comptable");
+
+        outcome.Should().Be(DocumentRecheckPersistOutcome.Persisted);
+
+        var events = await harness.Queries.GetEventsAsync(id);
+        var recheck = events[^1];
+        recheck.EventType.Should().Be(nameof(DocumentEventType.DocumentRecheckedStillBlocked));
+        recheck.OperatorIdentity.Should().Be(operatorId, "le GUID reste l'identité d'audit stable (détail technique).");
+        recheck.OperatorName.Should().Be("Marie Comptable", "le nom d'affichage est relu non-null depuis Postgres (FIX305).");
     }
 
     [Fact]

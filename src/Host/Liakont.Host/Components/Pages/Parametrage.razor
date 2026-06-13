@@ -15,13 +15,13 @@
 
 @if (_loadFailed)
 {
-    <div role="alert" data-testid="parametrage-error">
+    <LiakontAlert TestId="parametrage-error">
         Impossible de charger le paramétrage du tenant pour le moment. Réessayez plus tard.
-    </div>
+    </LiakontAlert>
 }
 else if (_model is null)
 {
-    <p data-testid="parametrage-loading">Chargement…</p>
+    <LiakontLoading TestId="parametrage-loading" />
 }
 else
 {

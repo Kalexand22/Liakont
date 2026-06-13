@@ -7,6 +7,21 @@ html, body {
     color: var(--color-text-primary);
 }
 
+/* FIX306 — rend EXPLICITE la propriété « le shell possède le défilement » : .erp-shell = 100vh avec
+   overflow caché, .erp-main défile en interne, donc le DOCUMENT ne doit pas défiler. Sans ce verrou la
+   propriété ne tenait que par accident (html/body en height: 100%) et restait fragile (overshoot 100vh
+   vs viewport visible, barre de défilement résiduelle) — symptôme run 3 : « scroll au-delà du bas de
+   page » + barre latérale (height: 100vh) emportée hors du viewport (« menu tronqué en haut »). Le
+   verrou supprime toute barre de défilement du document (100vh == viewport visible exact) ; le contenu
+   reste atteignable via le défilement de .erp-main.
+   SCOPÉ via :has(.erp-shell) aux SEULES pages shell : les pages AuthLayout (/login, /logout) n'ont pas
+   de conteneur de défilement propre et conservent le défilement du document en repli (sinon un contenu
+   plus haut que le viewport deviendrait inatteignable). */
+html:has(.erp-shell),
+body:has(.erp-shell) {
+    overflow: hidden;
+}
+
 /* Titre de page pour lecteurs d'écran uniquement : l'onglet du TabBar porte déjà le nom
    de la page à l'écran (issue #31 — en-tête redondant), on garde le h1 pour l'accessibilité. */
 .visually-hidden {
@@ -142,20 +157,6 @@ html, body {
 
 [data-density="compact"] .erp-header {
     gap: 0.125rem;
-}
-
-/* Top-level list pages in the ERP shell: drop the erp-main.p-4 breathing
-   room entirely when a DeclaredListPage is the direct child, so the grid
-   fills edge-to-edge. Uses :has() (direct-child) instead of a negative
-   margin on the child, which would escape the scroll container and add
-   horizontal overflow. DeclaredListPage instances nested inside a
-   SectionCard or hosted under PublicLayout keep their container's padding. */
-.erp-main.p-4:has(> .declared-list-page) {
-    padding: 0 !important;
-}
-
-[data-density="compact"] .erp-main.p-4:has(> .declared-list-page) {
-    padding: 0 !important;
 }
 
 /* ── Global Search Overlay ──────────────────────────────────────────────── */
@@ -511,4 +512,14 @@ html, body {
     gap: 0.5rem;
     justify-content: flex-end;
     flex-wrap: wrap;
+}
+
+/* ── Liste Documents : cellule Montant (lot polish UX/UI) ─────────────────
+   Le span est rendu par un ColumnTemplate (RenderTreeBuilder) DANS la grille du
+   socle, hors du scope d'isolation CSS de la page — d'où ce style global Host.
+   Chiffres à chasse fixe alignés à droite, comme toute colonne monétaire. */
+.doc-amount {
+    display: block;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
 }

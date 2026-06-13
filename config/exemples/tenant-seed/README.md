@@ -14,11 +14,18 @@ Un **vrai** déploiement vit dans [`deployments/<client>/`](../../../deployments
 - `pa-accounts.json` — un compte de la PA fictive `Fake`. La clé API est un **placeholder**
   (`${...}`) : l'import **n'écrit jamais** de secret en clair ; la clé réelle se saisit ensuite
   depuis la console (chiffrée en base — F12-A §8.2, CLAUDE.md n°10).
-- `mapping-tva.json` — table de mapping TVA **fictive** et **NON VALIDÉE** (marqueur `validatedBy`,
-  `validatedDate: null`). Importée par le même point d'entrée OPS03 (item FIX01b), **idempotente**
-  (jamais d'écrasement d'une table déjà paramétrée). Reste « NON VALIDÉE » : le garde-fou d'envoi
-  (PIP01) suspend les envois réels tant que l'expert-comptable ne l'a pas validée dans la console.
-  Format complet : [`../mapping-exemple.json`](../mapping-exemple.json).
+- `mapping-tva.json` — table de mapping TVA **fictive**, **NON VALIDÉE** (marqueur `validatedBy`,
+  `validatedDate: null`) et **générique** : elle couvre exactement les régimes des documents de démo
+  (`tools/dev-seed-demo-docs.ps1` : 20 / 10 / 5.5 / 0) en part `Autre`, donc **0 règle morte** au
+  contrôle de cohérence (FIX03) et **0 « régime absent »** au CHECK sur un environnement neuf (item
+  FIX304). Chaque règle se trace vers F03 §2.1 (`20→S`, `10/5,5→AA`, `0→Z`) — aucune catégorie inventée.
+  Importée par le même point d'entrée OPS03 (item FIX01b), **idempotente** (jamais d'écrasement d'une
+  table déjà paramétrée). Reste « NON VALIDÉE » : le garde-fou d'envoi (PIP01) suspend les envois réels
+  tant que l'expert-comptable ne l'a pas validée dans la console. Format complet (toutes catégories
+  UNCL5305, flags) : [`../mapping-exemple.json`](../mapping-exemple.json).
+- `encheres/` — **variante** de la table de mapping pour le **vertical enchères** (découpage
+  adjudication / frais, régime de la marge). À n'utiliser **que** le vertical activé, sinon ses règles
+  `Adjudication` / `Frais` sont mortes (FIX03). Détail : [`encheres/README.md`](encheres/README.md).
 
 ## Note sur `reportingFrequency`
 

@@ -180,7 +180,7 @@ public static class DocumentActionsEndpointMapping
             var actor = actorAccessor.Current;
             var operatorId = ActorId(actor);
 
-            var outcome = await lifecycle.ResolveManuallyAsync(id, request.Reason, operatorId, ct);
+            var outcome = await lifecycle.ResolveManuallyAsync(id, request.Reason, operatorId, ActorName(actor), ct);
             if (outcome is not DocumentResolutionOutcome.Succeeded)
             {
                 return ResolutionProblem(outcome, id);
@@ -229,7 +229,7 @@ public static class DocumentActionsEndpointMapping
             var actor = actorAccessor.Current;
             var operatorId = ActorId(actor);
 
-            var outcome = await lifecycle.SupersedeAsync(id, request.ReplacementDocumentId, operatorId, ct);
+            var outcome = await lifecycle.SupersedeAsync(id, request.ReplacementDocumentId, operatorId, ActorName(actor), ct);
             if (outcome is not DocumentResolutionOutcome.Succeeded)
             {
                 return ResolutionProblem(outcome, id);
@@ -290,7 +290,7 @@ public static class DocumentActionsEndpointMapping
             if (string.Equals(verdict, VerdictConfirmB2c, StringComparison.Ordinal))
             {
                 // Enregistre la décision B2C (persistée + journalisée) SANS changer l'état (la re-vérification débloque).
-                await lifecycle.ConfirmBuyerAsIndividualAsync(id, operatorId, ct);
+                await lifecycle.ConfirmBuyerAsIndividualAsync(id, operatorId, ActorName(actor), ct);
                 await activityLogger.LogActivityAsync(
                     DocumentEntityType,
                     id.ToString(),
@@ -308,7 +308,7 @@ public static class DocumentActionsEndpointMapping
             // handle_manually : Blocked → ManuallyHandled (terminal), via la résolution terminale PARTAGÉE (API02c,
             // ResolveManuallyAsync) — une seule mécanique de traitement manuel, motif dérivé du garde-fou (B2B hors
             // passerelle). Le résultat (pas d'exception) mappe proprement un refus concurrent en 4xx (jamais 500).
-            var manualOutcome = await lifecycle.ResolveManuallyAsync(id, ManualB2bReason, operatorId, ct);
+            var manualOutcome = await lifecycle.ResolveManuallyAsync(id, ManualB2bReason, operatorId, ActorName(actor), ct);
             if (manualOutcome is not DocumentResolutionOutcome.Succeeded)
             {
                 return ResolutionProblem(manualOutcome, id);
@@ -343,7 +343,7 @@ public static class DocumentActionsEndpointMapping
         {
             var actor = actorAccessor.Current;
             var operatorId = ActorId(actor);
-            var result = await recheckService.RecheckAsync(id, operatorId, ct);
+            var result = await recheckService.RecheckAsync(id, operatorId, ActorName(actor), ct);
 
             switch (result.Outcome)
             {
@@ -446,6 +446,15 @@ public static class DocumentActionsEndpointMapping
     /// <summary>Identité d'audit de l'opérateur (GUID utilisateur ; « system » si non authentifié, théorique ici).</summary>
     private static string ActorId(IActorContext actor) =>
         actor.IsAuthenticated ? actor.UserId.ToString() : "system";
+
+    /// <summary>
+    /// Nom d'affichage de l'opérateur CAPTURÉ AU MOMENT de l'action, persisté avec l'événement d'audit (item
+    /// FIX305) pour que la piste reste lisible (« par Marie Comptable » et non un GUID brut), même si le compte
+    /// est renommé/supprimé plus tard. Le GUID reste l'identité d'audit stable (<see cref="ActorId"/>) ; ce nom
+    /// est un complément (peut être <c>null</c> — la restitution retombe alors sur le GUID en détail technique).
+    /// </summary>
+    private static string? ActorName(IActorContext actor) =>
+        actor.IsAuthenticated ? (actor.DisplayName ?? actor.Email) : null;
 
     /// <summary>
     /// Mappe le refus d'une résolution terminale (API02c) en réponse HTTP, avec un message opérateur en français

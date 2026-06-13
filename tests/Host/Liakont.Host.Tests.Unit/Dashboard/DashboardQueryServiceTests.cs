@@ -18,6 +18,9 @@ using Xunit;
 
 public sealed class DashboardQueryServiceTests
 {
+    // Horloge FIXE des tests : 12 juin 2026 → mois en cours = juin, mois précédent = mai, année = 2026.
+    private static readonly DateTimeOffset TestNow = new(2026, 6, 12, 10, 0, 0, TimeSpan.Zero);
+
     [Fact]
     public async Task GetDashboardAsync_Should_Order_Counts_Canonically_And_Default_To_Zero()
     {
@@ -26,10 +29,10 @@ public sealed class DashboardQueryServiceTests
         var model = await service.GetDashboardAsync();
 
         // L'ordre canonique commence par "Detected" et contient les états clés à 0 par défaut.
-        model.StateCounts[0].State.Should().Be("Detected");
-        model.StateCounts.Single(c => c.State == "Detected").Count.Should().Be(0);
-        model.StateCounts.Single(c => c.State == "Issued").Count.Should().Be(7);
-        model.StateCounts.Select(c => c.State).Should().Contain(["Detected", "Blocked", "Issued", "RejectedByPa"]);
+        model.CurrentMonth.Counts[0].State.Should().Be("Detected");
+        model.CurrentMonth.Counts.Single(c => c.State == "Detected").Count.Should().Be(0);
+        model.CurrentMonth.Counts.Single(c => c.State == "Issued").Count.Should().Be(7);
+        model.CurrentMonth.Counts.Select(c => c.State).Should().Contain(["Detected", "Blocked", "Issued", "RejectedByPa"]);
     }
 
     [Fact]
@@ -39,7 +42,66 @@ public sealed class DashboardQueryServiceTests
 
         var model = await service.GetDashboardAsync();
 
-        model.StateCounts.Single(c => c.State == "SomeFutureState").Count.Should().Be(4);
+        model.CurrentMonth.Counts.Single(c => c.State == "SomeFutureState").Count.Should().Be(4);
+    }
+
+    [Fact]
+    public async Task GetDashboardAsync_Should_Compute_The_Three_Scope_Windows_From_The_Clock()
+    {
+        // Les bornes portées par le modèle pilotent les liens de drill-down : elles doivent
+        // correspondre exactement aux fenêtres comptées (12 juin 2026 → juin / mai / 2026).
+        var service = BuildService();
+
+        var model = await service.GetDashboardAsync();
+
+        model.CurrentMonth.Key.Should().Be("current-month");
+        model.CurrentMonth.From.Should().Be(new DateOnly(2026, 6, 1));
+        model.CurrentMonth.To.Should().Be(new DateOnly(2026, 6, 30));
+        model.PreviousMonth.Key.Should().Be("previous-month");
+        model.PreviousMonth.From.Should().Be(new DateOnly(2026, 5, 1));
+        model.PreviousMonth.To.Should().Be(new DateOnly(2026, 5, 31));
+        model.CurrentYear.Key.Should().Be("current-year");
+        model.CurrentYear.From.Should().Be(new DateOnly(2026, 1, 1));
+        model.CurrentYear.To.Should().Be(new DateOnly(2026, 12, 31));
+    }
+
+    [Fact]
+    public async Task GetDashboardAsync_Should_Query_Counts_With_Each_Scope_Bounds()
+    {
+        // Anti-faux-vert : les compteurs de chaque périmètre doivent être CALCULÉS sur ses bornes
+        // (filtre From/To passé au module), pas réutilisés d'une requête globale.
+        var documentQueries = new FakeDocumentQueries(new Dictionary<string, int>());
+        var service = BuildService(documentQueries: documentQueries);
+
+        await service.GetDashboardAsync();
+
+        documentQueries.ReceivedFilters.Should().HaveCount(3);
+        documentQueries.ReceivedFilters[0].From.Should().Be(new DateOnly(2026, 6, 1));
+        documentQueries.ReceivedFilters[0].To.Should().Be(new DateOnly(2026, 6, 30));
+        documentQueries.ReceivedFilters[1].From.Should().Be(new DateOnly(2026, 5, 1));
+        documentQueries.ReceivedFilters[1].To.Should().Be(new DateOnly(2026, 5, 31));
+        documentQueries.ReceivedFilters[2].From.Should().Be(new DateOnly(2026, 1, 1));
+        documentQueries.ReceivedFilters[2].To.Should().Be(new DateOnly(2026, 12, 31));
+    }
+
+    [Fact]
+    public async Task GetDashboardAsync_Should_Report_Distinct_Counts_Per_Scope()
+    {
+        var documentQueries = new FakeDocumentQueries(
+            new Dictionary<string, int>(),
+            countsByWindow: new Dictionary<(DateOnly From, DateOnly To), IReadOnlyDictionary<string, int>>
+            {
+                [(new DateOnly(2026, 6, 1), new DateOnly(2026, 6, 30))] = new Dictionary<string, int> { ["Issued"] = 4 },
+                [(new DateOnly(2026, 5, 1), new DateOnly(2026, 5, 31))] = new Dictionary<string, int> { ["Issued"] = 9 },
+                [(new DateOnly(2026, 1, 1), new DateOnly(2026, 12, 31))] = new Dictionary<string, int> { ["Issued"] = 13 },
+            });
+        var service = BuildService(documentQueries: documentQueries);
+
+        var model = await service.GetDashboardAsync();
+
+        model.CurrentMonth.Counts.Single(c => c.State == "Issued").Count.Should().Be(4);
+        model.PreviousMonth.Counts.Single(c => c.State == "Issued").Count.Should().Be(9);
+        model.CurrentYear.Counts.Single(c => c.State == "Issued").Count.Should().Be(13);
     }
 
     [Fact]
@@ -143,7 +205,8 @@ public sealed class DashboardQueryServiceTests
         IReadOnlyList<AgentSummaryDto>? agents = null,
         TvaMappingSummaryDto? tva = null,
         FiscalSettingsDto? fiscal = null,
-        string? tenantId = "tenant-a")
+        string? tenantId = "tenant-a",
+        FakeDocumentQueries? documentQueries = null)
     {
         var overview = new TenantSettingsOverviewDto
         {
@@ -154,43 +217,53 @@ public sealed class DashboardQueryServiceTests
         };
 
         return new DashboardQueryService(
-            new FakeDocumentQueries(counts ?? new Dictionary<string, int>()),
+            documentQueries ?? new FakeDocumentQueries(counts ?? new Dictionary<string, int>()),
             new FakeAgentQueries(agents ?? []),
             new FakeSettingsQueries(overview),
-            new FakeTenantContext(tenantId));
+            new FakeTenantContext(tenantId),
+            new FixedTimeProvider(TestNow));
     }
 
-    private sealed class FakeDocumentQueries : IDocumentQueries
+    /// <summary>Horloge figée (fuseau UTC) : les fenêtres calculées par le service sont déterministes.</summary>
+    private sealed class FixedTimeProvider : TimeProvider
+    {
+        private readonly DateTimeOffset _now;
+
+        public FixedTimeProvider(DateTimeOffset now) => _now = now;
+
+        public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
+
+        public override DateTimeOffset GetUtcNow() => _now;
+    }
+
+    private sealed class FakeDocumentQueries : IDocumentStateCountQueries
     {
         private readonly IReadOnlyDictionary<string, int> _counts;
+        private readonly IReadOnlyDictionary<(DateOnly From, DateOnly To), IReadOnlyDictionary<string, int>>? _countsByWindow;
 
-        public FakeDocumentQueries(IReadOnlyDictionary<string, int> counts) => _counts = counts;
+        public FakeDocumentQueries(
+            IReadOnlyDictionary<string, int> counts,
+            IReadOnlyDictionary<(DateOnly From, DateOnly To), IReadOnlyDictionary<string, int>>? countsByWindow = null)
+        {
+            _counts = counts;
+            _countsByWindow = countsByWindow;
+        }
 
-        public Task<DocumentListResult> GetDocumentsAsync(DocumentListFilter filter, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new DocumentListResult
-            {
-                Items = [],
-                Page = filter.Page,
-                PageSize = filter.PageSize,
-                TotalCount = 0,
-                CountsByState = _counts,
-            });
+        public List<DocumentListFilter> ReceivedFilters { get; } = [];
 
-        public Task<DocumentDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<IReadOnlyDictionary<string, int>> GetStateCountsAsync(DocumentListFilter filter, CancellationToken cancellationToken = default)
+        {
+            ReceivedFilters.Add(filter);
 
-        public Task<DocumentDto?> GetByNumberAsync(string documentNumber, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+            var counts = _countsByWindow is not null
+                && filter.From is { } from
+                && filter.To is { } to
+                && _countsByWindow.TryGetValue((from, to), out var windowCounts)
+                ? windowCounts
+                : _counts;
 
-        public Task<IReadOnlyList<DocumentSummaryDto>> GetByStateAsync(string state, int page, int pageSize, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-
-        public Task<IReadOnlyList<DocumentEventDto>> GetEventsAsync(Guid documentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-
-        public Task<ArchiveReferenceDto?> GetArchiveReferenceAsync(Guid documentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-
-        public Task<IReadOnlyList<DocumentSummaryDto>> GetPotentiallySentDocumentsAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
-
-        public Task<DocumentStatusDto?> FindStatusBySourceReferenceAndPayloadHashAsync(string sourceReference, string payloadHash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-
-        public Task<DocumentSummaryDto?> GetOldestDocumentInStateAsync(string state, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+            return Task.FromResult(counts);
+        }
     }
 
     private sealed class FakeAgentQueries : IAgentQueries

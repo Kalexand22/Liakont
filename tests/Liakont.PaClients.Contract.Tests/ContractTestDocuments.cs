@@ -10,16 +10,23 @@ using Liakont.Agent.Contracts.Pivot;
 /// </summary>
 internal static class ContractTestDocuments
 {
-    /// <summary>Facture de vente simple identifiée par son numéro (BT-1).</summary>
+    /// <summary>
+    /// Facture de vente simple identifiée par son numéro (BT-1), avec un destinataire IDENTIFIÉ (SIREN
+    /// fictif) et une ligne ventilée : certaines PA réelles (Super PDP, F14 §3.2) exigent un acheteur
+    /// adressable et une catégorie de TVA par ligne — le document de contrat « valide » doit donc les
+    /// porter pour exercer le chemin nominal de TOUT plug-in.
+    /// </summary>
     /// <param name="number">Numéro du document.</param>
     public static PivotDocumentDto Invoice(string number) => new(
         sourceDocumentKind: "FACTURE",
         number: number,
         issueDate: new DateTime(2026, 1, 15),
         sourceReference: $"SRC-{number}",
-        supplier: new PivotPartyDto("SVV Démo", siren: "123456789"),
+        supplier: new PivotPartyDto("SVV Démo", siren: "123456789", vatNumber: "FR32123456789"),
         totals: new PivotTotalsDto(100m, 20m, 120m),
-        operationCategory: OperationCategory.LivraisonBiens);
+        operationCategory: OperationCategory.LivraisonBiens,
+        customer: new PivotPartyDto("Client Démo", siren: "987654321"),
+        lines: [new PivotLineDto("Prestation", 100m, taxes: [new PivotLineTaxDto(20m, 20m, VatCategory.S)])]);
 
     /// <summary>Avoir rattaché à une facture d'origine (porte une <see cref="PivotDocumentRefDto"/>).</summary>
     /// <param name="number">Numéro de l'avoir.</param>
@@ -28,8 +35,9 @@ internal static class ContractTestDocuments
         number: number,
         issueDate: new DateTime(2026, 2, 1),
         sourceReference: $"SRC-{number}",
-        supplier: new PivotPartyDto("SVV Démo", siren: "123456789"),
+        supplier: new PivotPartyDto("SVV Démo", siren: "123456789", vatNumber: "FR32123456789"),
         totals: new PivotTotalsDto(-50m, -10m, -60m),
         operationCategory: OperationCategory.LivraisonBiens,
+        customer: new PivotPartyDto("Client Démo", siren: "987654321"),
         creditNoteRefs: [new PivotDocumentRefDto("F-ORIGINE", new DateTime(2026, 1, 10))]);
 }

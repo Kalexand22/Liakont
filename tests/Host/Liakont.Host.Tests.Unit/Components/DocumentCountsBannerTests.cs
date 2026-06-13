@@ -15,20 +15,38 @@ public sealed class DocumentCountsBannerTests : BunitContext
     }
 
     [Fact]
-    public void Should_Render_A_Chip_Per_Canonical_State_Even_At_Zero()
+    public void Should_Render_Only_The_Present_States_And_Hide_The_Zeros()
     {
         var cut = Render<DocumentCountsBanner>(p => p
-            .Add(b => b.Counts, new Dictionary<string, int> { ["Issued"] = 7 }));
+            .Add(b => b.Counts, new Dictionary<string, int> { ["Issued"] = 7, ["Blocked"] = 3 }));
 
-        // Tous les états canoniques sont présents (même à zéro) + la pastille « Tous ».
+        // Lot 2 : seuls les états PRÉSENTS sont affichés (« 0 Rejeté » noyait l'information) + « Tous ».
         cut.FindAll("[data-testid='doc-counts-all']").Should().ContainSingle();
+        cut.Find("[data-testid='doc-counts-Issued']").TextContent.Should().Contain("7");
+        cut.Find("[data-testid='doc-counts-Blocked']").TextContent.Should().Contain("3");
         foreach (var state in DocumentStateDisplay.CanonicalOrder)
         {
-            cut.FindAll($"[data-testid='doc-counts-{state}']").Should().ContainSingle();
-        }
+            if (state is "Issued" or "Blocked")
+            {
+                continue;
+            }
 
-        cut.Find("[data-testid='doc-counts-Issued']").TextContent.Should().Contain("7");
-        cut.Find("[data-testid='doc-counts-Blocked']").TextContent.Should().Contain("0");
+            cut.FindAll($"[data-testid='doc-counts-{state}']").Should().BeEmpty($"l'état {state} est à zéro");
+        }
+    }
+
+    [Fact]
+    public void The_Selected_State_Chip_Should_Stay_Visible_Even_At_Zero()
+    {
+        // Drill-down d'URL vers un périmètre vide (ex. /documents?etat=Issued sur un mois sans émission) :
+        // la pastille de l'état FILTRÉ reste visible (à zéro, active) pour rester désélectionnable.
+        var cut = Render<DocumentCountsBanner>(p => p
+            .Add(b => b.Counts, new Dictionary<string, int> { ["Blocked"] = 3 })
+            .Add(b => b.SelectedState, "Issued"));
+
+        var chip = cut.Find("[data-testid='doc-counts-Issued']");
+        chip.TextContent.Should().Contain("0");
+        chip.GetAttribute("aria-pressed").Should().Be("true");
     }
 
     [Fact]

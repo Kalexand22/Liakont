@@ -21,21 +21,29 @@
         @if (ShowVerdict)
         {
             <p class="liakont-doc-detail__actions-hint" data-testid="document-detail-verdict-hint">
-                L'acheteur semble être un professionnel (garde-fou B2B/B2C). Tranchez :
+                L'acheteur semble être un professionnel (garde-fou B2B/B2C). Que souhaitez-vous faire ?
             </p>
         }
         @if (IsReadyToSend)
         {
+            @* Envois suspendus (table TVA non validée) : le motif remplace le hint d'envoi — même
+               affordance que le « Tout envoyer » de la liste (la garde réelle reste serveur). *@
             <p class="liakont-doc-detail__actions-hint" data-testid="document-detail-send-hint">
-                L'envoi déclenche le traitement d'envoi du tenant : tous les documents prêts à l'envoi sont émis (celui-ci inclus).
+                @(SendsSuspended
+                    ? DocumentSendSuspension.Reason
+                    : "L'envoi déclenche le traitement d'envoi du tenant : tous les documents prêts à l'envoi sont émis (celui-ci inclus).")
             </p>
         }
 
         <ActionBar Sticky="false" TestId="document-detail-action-bar">
+            @* Les DEUX verdicts au même niveau visuel (retour de recette lot 2) : un bouton primaire
+               orienterait l'opérateur sur une décision de CONFORMITÉ que lui seul peut trancher
+               (B2C = la facture part en e-reporting ; B2B = traitement manuel hors passerelle). *@
             @if (ShowVerdict)
             {
                 <StratumButton Text="Confirmer particulier (B2C)"
-                               Variant="ButtonVariant.Primary"
+                               Variant="ButtonVariant.Secondary"
+                               Outline
                                Disabled="ActionInProgress"
                                OnClick="@(_ => OnConfirmB2c.InvokeAsync())"
                                TestId="document-detail-verdict-b2c" />
@@ -60,7 +68,8 @@
             {
                 <StratumButton Text="Envoyer"
                                Variant="ButtonVariant.Primary"
-                               Disabled="ActionInProgress"
+                               Disabled="@(ActionInProgress || SendsSuspended)"
+                               Title="@(SendsSuspended ? DocumentSendSuspension.Reason : null)"
                                OnClick="@(_ => OnSend.InvokeAsync())"
                                TestId="document-detail-send" />
             }
@@ -91,6 +100,14 @@
     /// <summary>Une action est en cours : désactive les boutons pour éviter un double déclenchement.</summary>
     [Parameter]
     public bool ActionInProgress { get; set; }
+
+    /// <summary>
+    /// Les envois du tenant sont suspendus (table TVA non validée) : « Envoyer » est désactivé avec le
+    /// motif (<see cref="DocumentSendSuspension.Reason"/>) — même affordance que le « Tout envoyer » de
+    /// la liste. Purement UX : la garde réelle reste serveur (CLAUDE.md n°3). Calculé par la page.
+    /// </summary>
+    [Parameter]
+    public bool SendsSuspended { get; set; }
 
     /// <summary>Verdict « confirmer particulier (B2C) » demandé par l'opérateur.</summary>
     [Parameter]

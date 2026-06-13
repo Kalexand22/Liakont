@@ -1,35 +1,40 @@
 /* Page Documents (WEB02) — mise en page de la barre de filtres et des actions d'envoi.
    Layout uniquement : couleurs/contrôles viennent du design-system (DeclaredListPage, StratumButton). */
 
-.doc-filters {
+/* Rangée UNIQUE de filtres (lot polish UX/UI) : période + type + pastilles de synthèse, alignés sur
+   une même ligne de base, repli propre sur les écrans étroits. */
+.doc-toolbar {
     display: flex;
     flex-wrap: wrap;
-    align-items: flex-end;
-    gap: 1.5rem;
-    margin-bottom: 1rem;
+    align-items: center;
+    gap: 0.625rem 1.25rem;
+    margin-bottom: 0.75rem;
 }
 
-.doc-filters__group {
+.doc-toolbar__group {
     display: flex;
     align-items: center;
     gap: 0.5rem;
 }
 
-.doc-filters__label {
+.doc-toolbar__label {
     font-weight: 600;
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
+    color: var(--color-text-muted, #6b7280);
 }
 
-.doc-filters__input {
-    padding: 0.35rem 0.5rem;
+.doc-toolbar__input {
+    height: 2rem;
+    padding: 0 0.5rem;
     border: 1px solid var(--color-border, #d1d5db);
     border-radius: var(--radius-sm, 0.25rem);
     background: var(--color-surface, #fff);
     color: inherit;
     font: inherit;
+    font-size: 0.875rem;
 }
 
-.doc-filters__sep {
+.doc-toolbar__sep {
     color: var(--color-text-muted, #6b7280);
 }
 
@@ -41,14 +46,17 @@
     border: 1px solid var(--color-border, #d1d5db);
 }
 
+/* Tokens sémantiques --color-severity-* : suivent le thème (light/dark) — les anciennes variables
+   (--color-success, --color-danger-surface…) n'existaient pas dans tokens.css, donc les bandeaux
+   restaient figés sur les replis clairs en thème sombre. */
 .doc-send-feedback--ok {
-    border-color: var(--color-success, #16a34a);
-    background: var(--color-success-surface, #f0fdf4);
+    border-color: var(--color-severity-success-border);
+    background: var(--color-severity-success-bg);
 }
 
 .doc-send-feedback--error {
-    border-color: var(--color-danger, #dc2626);
-    background: var(--color-danger-surface, #fef2f2);
+    border-color: var(--color-severity-error-border);
+    background: var(--color-severity-error-bg);
 }
 
 /* Confirmation du « Tout envoyer » (WEB05) — récapitulatif + boutons. */
@@ -57,7 +65,8 @@
     padding: 0.85rem 1rem;
     border: 1px solid var(--color-border, #d1d5db);
     border-radius: var(--radius-sm, 0.25rem);
-    background: var(--color-surface-alt, #f9fafb);
+    /* --color-surface-alt n'existe pas dans tokens.css : --color-bg-subtle est le token réel. */
+    background: var(--color-bg-subtle, #f9fafb);
 }
 
 .doc-send-confirm__text {

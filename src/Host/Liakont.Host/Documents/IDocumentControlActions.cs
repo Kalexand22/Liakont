@@ -45,8 +45,9 @@ internal interface IDocumentControlActions
     Task<DocumentControlActionResult> RecheckAsync(Guid documentId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Re-vérifie EN MASSE les documents <paramref name="documentIds"/> du tenant courant (FIX207 — actions
-    /// « Revérifier la sélection » / « Revérifier tout » de la barre de sélection). Porte la même garde de
+    /// Re-vérifie EN MASSE les documents <paramref name="documentIds"/> du tenant courant (FIX207/FIX302 — action
+    /// « Revérifier la sélection » de la barre de sélection et action globale « Revérifier tout » de la barre d'outils).
+    /// Porte la même garde de
     /// permission (<c>liakont.actions</c>, défense en profondeur) et délègue la boucle + la décision de blocage au
     /// cœur <see cref="Liakont.Modules.Pipeline.Contracts.IDocumentRecheckService.RecheckManyAsync"/> (source
     /// unique, trace d'audit FIX02 par document). Renvoie un RÉSULTAT avec un message opérateur en français portant

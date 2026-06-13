@@ -51,6 +51,37 @@ public sealed class ComptesPaViewTests : BunitContext
     }
 
     [Fact]
+    public void Renders_capability_details_when_the_plugin_is_loaded()
+    {
+        // Le DÉTAIL des capacités vit ICI depuis le lot polish UX/UI (déplacé du hub Paramétrage) :
+        // c'est là où l'opérateur configure le compte que la capacité éclaire la décision.
+        var caps = Capabilities(b2c: true, domesticPayment: false);
+        var model = new PaAccountConsoleModel
+        {
+            Accounts = [new PaAccountSettingsDto { Account = Account(), PluginAvailable = true, Capabilities = caps }],
+            RegisteredPluginTypes = ["Fake"],
+        };
+
+        var cut = Render<ComptesPaView>(p => p.Add(v => v.Model, model));
+
+        cut.FindAll("[data-testid='comptes-pa-capabilities']").Should().ContainSingle();
+        cut.FindAll("[data-testid='comptes-pa-capability']").Should().HaveCount(8);
+        var details = cut.Find("[data-testid='comptes-pa-capabilities']");
+        details.TextContent.Should().Contain("Déclaration B2C");
+        details.TextContent.Should().Contain("Disponible");
+        details.TextContent.Should().Contain("Non disponible");
+    }
+
+    [Fact]
+    public void Shows_plugin_unavailable_when_capabilities_are_missing()
+    {
+        var cut = Render<ComptesPaView>(p => p.Add(v => v.Model, Model([Account()], ["Fake"])));
+
+        cut.FindAll("[data-testid='comptes-pa-plugin-unavailable']").Should().ContainSingle();
+        cut.FindAll("[data-testid='comptes-pa-capabilities']").Should().BeEmpty();
+    }
+
+    [Fact]
     public void Create_editor_proposes_plugin_types_from_the_registry_as_a_closed_select()
     {
         var cut = Render<ComptesPaView>(p => p
@@ -144,7 +175,13 @@ public sealed class ComptesPaViewTests : BunitContext
     }
 
     private static PaAccountConsoleModel Model(IReadOnlyList<PaAccountDto> accounts, IReadOnlyList<string> pluginTypes) =>
-        new() { Accounts = accounts, RegisteredPluginTypes = pluginTypes };
+        new()
+        {
+            // Capacités résolues par défaut absentes (plug-in non chargé) : les tests dédiés aux
+            // capacités construisent leur propre PaAccountSettingsDto.
+            Accounts = accounts.Select(a => new PaAccountSettingsDto { Account = a, PluginAvailable = false, Capabilities = null }).ToList(),
+            RegisteredPluginTypes = pluginTypes,
+        };
 
     private static PaAccountDto Account(bool hasApiKey = false) => new()
     {
@@ -156,5 +193,19 @@ public sealed class ComptesPaViewTests : BunitContext
         HasApiKey = hasApiKey,
         IsActive = true,
         CreatedAt = new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero),
+    };
+
+    private static PaCapabilitiesSummaryDto Capabilities(bool b2c = true, bool domesticPayment = true) => new()
+    {
+        PaName = "B2Brouter",
+        SupportsB2cReporting = b2c,
+        SupportsDomesticPaymentReporting = domesticPayment,
+        SupportsInternationalPaymentReporting = false,
+        SupportsB2bInvoicing = true,
+        SupportsCreditNotes = true,
+        SupportsTaxReportRetrieval = false,
+        SupportsDocumentRetrieval = false,
+        SupportsReportRectification = true,
+        MaxDocumentsPerRequest = 100,
     };
 }

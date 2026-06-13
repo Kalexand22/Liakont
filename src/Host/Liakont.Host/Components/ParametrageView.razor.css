@@ -1,0 +1,190 @@
+/* ParametrageView (WEB04b) — premier habillage du hub Paramétrage (lot 2 polish UX/UI : ces classes
+   n'avaient AUCUNE règle — 8 cartes en pile verticale, un champ par rangée, vue d'ensemble noyée
+   dans le scroll). Grille de cartes 2 colonnes + définitions denses, même pattern que la fiche
+   détail document. Layout uniquement ; couleurs sémantiques via les tokens du design-system. */
+
+/* ── Vue d'ensemble : les cartes se rangent en colonnes (1 colonne sur écran étroit) ─────────── */
+
+.liakont-parametrage {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(26rem, 1fr));
+    gap: 1rem;
+    align-items: start;
+}
+
+/* Le bandeau « paramétrage incomplet » s'étend sur toute la largeur de la grille. */
+.liakont-parametrage__banner {
+    grid-column: 1 / -1;
+}
+
+.liakont-parametrage__banner ::deep .liakont-alert {
+    margin-bottom: 0;
+}
+
+/* ── Définitions denses (Profil, Paramètres fiscaux, Table TVA) ──────────────────────────────── */
+
+.liakont-parametrage__defs {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+    gap: 0.75rem 1.5rem;
+    margin: 0 0 0.75rem;
+}
+
+.liakont-parametrage__row {
+    min-width: 0;
+}
+
+.liakont-parametrage__row dt {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--color-text-muted, #6b7280);
+    margin: 0 0 0.125rem;
+}
+
+.liakont-parametrage__row dd {
+    margin: 0;
+    font-size: 0.9375rem;
+    overflow-wrap: break-word;
+}
+
+/* « Décision en attente… » (paramètre fiscal non renseigné) et autres signalements INLINE : texte
+   d'avertissement discret — le bandeau plein reste réservé aux alertes de page. ::deep OBLIGATOIRE :
+   ces spans sont rendus par RenderFragment dans @code (RenderTreeBuilder) et ne portent PAS
+   l'attribut de scope du CSS isolé (même piège que .doc-amount de la liste Documents). */
+.liakont-parametrage ::deep span.liakont-parametrage__alert {
+    color: var(--color-severity-warning-fg, #92400e);
+    font-size: 0.875rem;
+}
+
+/* Signalements en bloc (export invalide, rupture d'intégrité) : bandeau sur tokens severity. */
+p.liakont-parametrage__alert,
+div.liakont-parametrage__alert {
+    margin: 0.5rem 0 0;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-severity-error-border);
+    border-radius: var(--radius-sm, 0.25rem);
+    background: var(--color-severity-error-bg);
+    font-size: 0.875rem;
+}
+
+.liakont-parametrage__hint {
+    margin: 0 0 0.75rem;
+    font-size: 0.8125rem;
+    color: var(--color-text-muted, #6b7280);
+}
+
+.liakont-parametrage__tva-meta {
+    margin-left: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--color-text-muted, #6b7280);
+}
+
+/* ── Comptes PA : une ligne lisible par compte ───────────────────────────────────────────────── */
+
+.liakont-parametrage__pa {
+    list-style: none;
+    margin: 0 0 0.75rem;
+    padding: 0;
+}
+
+.liakont-parametrage__pa-account {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.5rem 0;
+}
+
+.liakont-parametrage__pa-account + .liakont-parametrage__pa-account {
+    border-top: 1px solid var(--color-bg-subtle, #f3f4f6);
+}
+
+.liakont-parametrage__pa-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.liakont-parametrage__pa-name {
+    font-weight: 600;
+}
+
+.liakont-parametrage__pa-meta {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--color-text-muted, #6b7280);
+}
+
+/* ── Intégrité de l'archive ──────────────────────────────────────────────────────────────────── */
+
+.liakont-parametrage__integrite-report {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    margin-top: 0.75rem;
+}
+
+.liakont-parametrage__integrite-summary {
+    margin: 0;
+    font-size: 0.875rem;
+}
+
+/* ── Exports d'archive (deux cartes distinctes : audit par période, réversibilité) ───────────── */
+
+.liakont-parametrage__export p {
+    margin: 0 0 0.625rem;
+    font-size: 0.875rem;
+}
+
+.liakont-parametrage__export-period {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.liakont-parametrage__export-period label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--color-text-muted, #6b7280);
+}
+
+.liakont-parametrage__export-period input {
+    height: 2rem;
+    padding: 0 0.5rem;
+    border: 1px solid var(--color-border, #d1d5db);
+    border-radius: var(--radius-sm, 0.25rem);
+    background: var(--color-surface, #fff);
+    color: inherit;
+    font: inherit;
+    font-size: 0.875rem;
+}
+
+.liakont-parametrage__export-sep {
+    color: var(--color-text-muted, #6b7280);
+}
+
+.liakont-parametrage__export-link {
+    display: inline-block;
+    font-weight: 600;
+}
+
+.liakont-parametrage__confirm {
+    margin-top: 0.5rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--color-border, #d1d5db);
+    border-radius: var(--radius-sm, 0.25rem);
+    background: var(--color-bg-subtle, #f9fafb);
+}
+
+.liakont-parametrage__confirm-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+}

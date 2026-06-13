@@ -8,8 +8,10 @@ using Bunit;
 using FluentAssertions;
 using Liakont.Host.Components.Pages;
 using Liakont.Host.Documents;
+using Liakont.Host.Tests.Unit.Documents;
 using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Pipeline.Contracts;
+using Liakont.Modules.TenantSettings.Contracts.Queries;
 using Microsoft.Extensions.DependencyInjection;
 using Stratum.Common.Abstractions.Security;
 using Xunit;
@@ -36,6 +38,10 @@ public sealed class DocumentDetailResolutionWiringTests : BunitContext
         // et re-vérification ne s'affichent que sur Blocked, l'envoi que sur ReadyToSend).
         Services.AddScoped<IDocumentControlActions>(_ => new NoOpControlActions());
         Services.AddScoped<IDocumentSendActions>(_ => new NoOpSendActions());
+
+        // Suspension des envois (lot 2) : la page lit le paramétrage du tenant pour l'affordance du
+        // bouton « Envoyer » — fake « table TVA validée » (sans incidence sur la région de résolution).
+        Services.AddScoped<ITenantSettingsConsoleQueries>(_ => new FakeTenantSettingsConsoleQueries());
     }
 
     [Fact]

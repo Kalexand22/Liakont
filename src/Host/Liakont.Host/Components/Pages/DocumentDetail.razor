@@ -4,12 +4,14 @@
 @using Liakont.Host.Components
 @using Liakont.Host.Documents
 @using Liakont.Host.Security
+@using Liakont.Modules.TenantSettings.Contracts.Queries
 @using Stratum.Common.Abstractions.Security
 @using Stratum.Common.UI.Models
 @inject IDocumentDetailConsoleQueries DetailQueries
 @inject IDocumentControlActions ControlActions
 @inject IDocumentSendActions SendActions
 @inject IPermissionService Permissions
+@inject ITenantSettingsConsoleQueries SettingsQueries
 @inject ILogger<DocumentDetail> Logger
 
 @* Page détail document (WEB03a + actions WEB03b/c, F10 §2.3). Page MINCE : elle charge le détail assemblé via
@@ -37,50 +39,52 @@
 
     @if (_loadFailed)
     {
-        <div class="liakont-doc-detail-page__alert" role="alert" data-testid="document-detail-error">
+        <LiakontAlert TestId="document-detail-error">
             Impossible de charger ce document pour le moment. Réessayez plus tard.
-        </div>
+        </LiakontAlert>
     }
     else if (_notFound)
     {
-        <div class="liakont-doc-detail-page__alert" role="alert" data-testid="document-detail-notfound">
+        <LiakontAlert Severity="Severity.Warning" TestId="document-detail-notfound">
             Ce document est introuvable. Il a peut-être été remplacé, ou il n'appartient pas à ce tenant.
-        </div>
+        </LiakontAlert>
     }
     else if (_model is null)
     {
-        <p data-testid="document-detail-loading">Chargement…</p>
+        <LiakontLoading TestId="document-detail-loading" />
     }
     else
     {
-        <h1 data-testid="document-detail-title">Document @_model.Document.DocumentNumber</h1>
+        <h1 class="liakont-doc-detail-page__title" data-testid="document-detail-title">Document @_model.Document.DocumentNumber</h1>
 
-        @* Barre d'actions PERMANENTE en tête de fiche (FIX04b) : verdict garde-fou B2B/B2C, re-vérification et
-         * envoi — selon l'état du document et la permission liakont.actions. Plus aucune action enfouie dans un
-         * onglet ; le message de retour de la dernière action est affiché juste en dessous, toujours visible. *@
-        <DocumentActionBar Model="_model"
-                           CanAct="_canAct"
-                           ActionInProgress="_actionInProgress"
-                           OnConfirmB2c="@(() => SubmitVerdictAsync(ConsoleVerdict.ConfirmIndividualB2c))"
-                           OnHandleManually="@(() => SubmitVerdictAsync(ConsoleVerdict.HandleManuallyB2b))"
-                           OnRecheck="RecheckAsync"
-                           OnSend="SendDocumentAsync" />
+        @* ZONE D'ACTIONS UNIQUE en tête de fiche (FIX04b + retour de recette lot 2 : plus deux blocs
+         * concurrents) : barre d'actions directes (verdict garde-fou B2B/B2C, re-vérification, envoi),
+         * retour de la dernière action, puis actions de résolution terminale (panneaux de saisie WEB03c) —
+         * rapprochés dans un même flux visuel, selon l'état du document et la permission liakont.actions. *@
+        <div class="liakont-doc-detail-page__actions">
+            <DocumentActionBar Model="_model"
+                               CanAct="_canAct"
+                               ActionInProgress="_actionInProgress"
+                               SendsSuspended="_sendsSuspended"
+                               OnConfirmB2c="@(() => SubmitVerdictAsync(ConsoleVerdict.ConfirmIndividualB2c))"
+                               OnHandleManually="@(() => SubmitVerdictAsync(ConsoleVerdict.HandleManuallyB2b))"
+                               OnRecheck="RecheckAsync"
+                               OnSend="SendDocumentAsync" />
 
-        @if (!string.IsNullOrWhiteSpace(_actionFeedback))
-        {
-            <div class="liakont-doc-detail__action-feedback @(_actionFailed ? "liakont-doc-detail__action-feedback--error" : "liakont-doc-detail__action-feedback--ok")"
-                 role="status"
-                 data-testid="document-detail-action-feedback">
-                @_actionFeedback
-            </div>
-        }
+            @if (!string.IsNullOrWhiteSpace(_actionFeedback))
+            {
+                <div class="liakont-doc-detail__action-feedback @(_actionFailed ? "liakont-doc-detail__action-feedback--error" : "liakont-doc-detail__action-feedback--ok")"
+                     role="status"
+                     data-testid="document-detail-action-feedback">
+                    @_actionFeedback
+                </div>
+            }
 
-        @* Actions de RÉSOLUTION TERMINALE (traiter manuellement hors passerelle, lier au remplaçant) : panneaux
-         * de saisie multi-étapes, eux aussi en tête de fiche — jamais enfouis dans un onglet (WEB03c). *@
-        <DocumentResolutionActions DocumentId="_model.Document.Id"
-                                   DocumentNumber="@_model.Document.DocumentNumber"
-                                   State="@_model.Document.State"
-                                   OnResolved="ReloadAsync" />
+            <DocumentResolutionActions DocumentId="_model.Document.Id"
+                                       DocumentNumber="@_model.Document.DocumentNumber"
+                                       State="@_model.Document.State"
+                                       OnResolved="ReloadAsync" />
+        </div>
 
         <DocumentDetailView Model="_model" />
     }
@@ -100,12 +104,29 @@
     private bool _actionInProgress;
     private string? _actionFeedback;
     private bool _actionFailed;
+    private bool _sendsSuspended;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         // Permission d'action opérateur : les boutons garde-fou / re-vérification ne sont proposés qu'aux
         // porteurs de liakont.actions (l'application réelle reste serveur — service in-process tenant-scopé).
         _canAct = Permissions.HasPermission(LiakontPermissions.Actions);
+
+        // Suspension des envois (table TVA non validée) : même affordance que le « Tout envoyer » de la
+        // liste — purement UX (la garde reste serveur, CLAUDE.md n°3). Lecture en échec → bouton ACTIF
+        // (jamais de fausse suspension), l'échec est tracé.
+        if (_canAct)
+        {
+            try
+            {
+                var overview = await SettingsQueries.GetSettingsOverview();
+                _sendsSuspended = overview.TvaMapping is not { IsValidated: true };
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to read the TVA validation status for the document send button.");
+            }
+        }
     }
 
     protected override async Task OnParametersSetAsync()

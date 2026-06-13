@@ -43,7 +43,7 @@ internal sealed class DocumentLifecycle : IDocumentLifecycle
         TransitionAsync(documentId, (document, at) => document.MarkReadyToSendWithMapping(at, mappingVersion), cancellationToken);
 
     public async Task<DocumentRecheckPersistOutcome> MarkReadyToSendByRecheckAsync(
-        Guid documentId, string mappingVersion, string operatorIdentity, CancellationToken cancellationToken = default)
+        Guid documentId, string mappingVersion, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default)
     {
         await using IDocumentUnitOfWork unitOfWork = await _unitOfWorkFactory.BeginAsync(cancellationToken);
 
@@ -63,7 +63,7 @@ internal sealed class DocumentLifecycle : IDocumentLifecycle
         }
 
         DocumentEvent documentEvent = document.MarkReadyToSendWithMapping(
-            _timeProvider.GetUtcNow(), mappingVersion, detail: "Débloqué par re-vérification de l'opérateur.", operatorIdentity: operatorIdentity);
+            _timeProvider.GetUtcNow(), mappingVersion, detail: "Débloqué par re-vérification de l'opérateur.", operatorIdentity: operatorIdentity, operatorName: operatorName);
         await unitOfWork.UpsertDocumentAsync(document, cancellationToken);
         await unitOfWork.AppendEventAsync(documentEvent, cancellationToken);
         await unitOfWork.CommitAsync(cancellationToken);
@@ -71,7 +71,7 @@ internal sealed class DocumentLifecycle : IDocumentLifecycle
     }
 
     public async Task<DocumentRecheckPersistOutcome> RecordRecheckStillBlockedAsync(
-        Guid documentId, string reevaluatedReason, string operatorIdentity, CancellationToken cancellationToken = default)
+        Guid documentId, string reevaluatedReason, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default)
     {
         await using IDocumentUnitOfWork unitOfWork = await _unitOfWorkFactory.BeginAsync(cancellationToken);
 
@@ -88,7 +88,7 @@ internal sealed class DocumentLifecycle : IDocumentLifecycle
             return DocumentRecheckPersistOutcome.StateChanged;
         }
 
-        DocumentEvent documentEvent = document.RecordRecheckStillBlocked(reevaluatedReason, operatorIdentity, _timeProvider.GetUtcNow());
+        DocumentEvent documentEvent = document.RecordRecheckStillBlocked(reevaluatedReason, operatorIdentity, _timeProvider.GetUtcNow(), operatorName);
         await unitOfWork.UpsertDocumentAsync(document, cancellationToken);
         await unitOfWork.AppendEventAsync(documentEvent, cancellationToken);
         await unitOfWork.CommitAsync(cancellationToken);
@@ -117,7 +117,7 @@ internal sealed class DocumentLifecycle : IDocumentLifecycle
         TransitionAsync(documentId, (document, at) => document.MarkTechnicalError(at), cancellationToken);
 
     public async Task<DocumentResolutionOutcome> ResolveManuallyAsync(
-        Guid documentId, string reason, string operatorIdentity, CancellationToken cancellationToken = default)
+        Guid documentId, string reason, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default)
     {
         await using IDocumentUnitOfWork unitOfWork = await _unitOfWorkFactory.BeginAsync(cancellationToken);
 
@@ -135,7 +135,7 @@ internal sealed class DocumentLifecycle : IDocumentLifecycle
             return DocumentResolutionOutcome.InvalidState;
         }
 
-        DocumentEvent documentEvent = document.MarkManuallyHandled(reason, operatorIdentity, _timeProvider.GetUtcNow());
+        DocumentEvent documentEvent = document.MarkManuallyHandled(reason, operatorIdentity, _timeProvider.GetUtcNow(), operatorName);
         await unitOfWork.UpsertDocumentAsync(document, cancellationToken);
         await unitOfWork.AppendEventAsync(documentEvent, cancellationToken);
         await unitOfWork.CommitAsync(cancellationToken);
@@ -143,7 +143,7 @@ internal sealed class DocumentLifecycle : IDocumentLifecycle
     }
 
     public async Task<DocumentResolutionOutcome> SupersedeAsync(
-        Guid documentId, Guid replacementDocumentId, string operatorIdentity, CancellationToken cancellationToken = default)
+        Guid documentId, Guid replacementDocumentId, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default)
     {
         await using IDocumentUnitOfWork unitOfWork = await _unitOfWorkFactory.BeginAsync(cancellationToken);
 
@@ -169,15 +169,15 @@ internal sealed class DocumentLifecycle : IDocumentLifecycle
             return DocumentResolutionOutcome.ReplacementNotFound;
         }
 
-        DocumentEvent documentEvent = document.Supersede(replacement.DocumentNumber, operatorIdentity, _timeProvider.GetUtcNow());
+        DocumentEvent documentEvent = document.Supersede(replacement.DocumentNumber, operatorIdentity, _timeProvider.GetUtcNow(), operatorName);
         await unitOfWork.UpsertDocumentAsync(document, cancellationToken);
         await unitOfWork.AppendEventAsync(documentEvent, cancellationToken);
         await unitOfWork.CommitAsync(cancellationToken);
         return DocumentResolutionOutcome.Succeeded;
     }
 
-    public Task ConfirmBuyerAsIndividualAsync(Guid documentId, string operatorIdentity, CancellationToken cancellationToken = default) =>
-        TransitionAsync(documentId, (document, at) => document.ConfirmBuyerAsIndividual(operatorIdentity, at), cancellationToken);
+    public Task ConfirmBuyerAsIndividualAsync(Guid documentId, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default) =>
+        TransitionAsync(documentId, (document, at) => document.ConfirmBuyerAsIndividual(operatorIdentity, at, operatorName), cancellationToken);
 
     private async Task TransitionAsync(
         Guid documentId,

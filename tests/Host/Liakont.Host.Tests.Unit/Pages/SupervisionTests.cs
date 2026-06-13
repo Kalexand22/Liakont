@@ -18,7 +18,7 @@ using Xunit;
 /// Tests bUnit de la vue d'ensemble de supervision (SUP02, page <c>/supervision</c>) : rendu des lignes
 /// par tenant (alertes, état agents, compteurs), badge de gravité FR, signalement d'un tenant injoignable
 /// (jamais masqué), et bandeau d'erreur si l'agrégation échoue. La garde de permission (un non-superviseur
-/// ne voit pas la page) est vérifiée côté nav (LiakontNavSectionProviderTests) et E2E (SupervisionE2ETests).
+/// ne voit pas la page) est vérifiée côté nav (LiakontNavNodeProviderTests) et E2E (SupervisionE2ETests).
 /// </summary>
 public sealed class SupervisionTests : BunitContext
 {

@@ -70,6 +70,10 @@ orchestration/state/*.yaml
 .run-e2e.log
 .codex-review.log
 
+## Données runtime du Host en dev local (staging-store FIX07b : payloads de documents,
+## jamais versionnés — règle n°7 « aucune donnée client dans le code »)
+**/App_Data/
+
 ## Orchestration transient files
 .orch-commit-msg
 

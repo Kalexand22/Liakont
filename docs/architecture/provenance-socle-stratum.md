@@ -227,6 +227,7 @@ src/Common/UI/Services/BugCapture/BugCaptureService.cs
 src/Common/UI/Components/StratumDataGrid.razor
 src/Common/UI/Components/DeclaredListPage.razor
 src/Common/UI/Components/StratumButton.razor
+src/Common/UI/Components/GlobalShortcutHandler.razor
 src/Common/UI/Resources/SharedResources.resx
 src/Common/UI/Resources/SharedResources.fr.resx
 src/Modules/Job/Application/IScheduleUnitOfWork.cs
@@ -522,6 +523,44 @@ Aucune signature existante modifiée, aucun comportement du worker/scheduler cha
 en SQL (pas de scan plafonné). La lecture cible la base SYSTÈME (jobs système, comme le scheduler) — ce n'est
 pas une requête métier tenant-scopée (CLAUDE.md n°9) : elle ne retourne qu'un horodatage d'achèvement, aucune
 donnée de tenant. Candidate à reverser en amont (§6).
+
+### 4.22 `DeclaredListPage` — option `EnablePersistentSelection` pour désactiver la barre de sélection persistante (FIX302)
+La recette run 3 (2026-06-11, décision opérateur F2) a relevé que la page Documents affiche, à la sélection,
+DEUX barres concurrentes : la barre d'actions groupées (`declared-list__bulk-bar`, qui héberge « Envoyer la
+sélection » / « Revérifier la sélection ») ET la barre de sélection **persistante** Stratum (GUX03,
+`StratumPersistentSelectionBar`, overlay « N sélectionné(s) (M au total) » avec Ajouter / Retirer / Voir / Vider).
+La page ne consomme PAS la sélection persistante (ses actions groupées opèrent sur la sélection de la page
+courante), donc le compteur de la 2ᵉ barre reste figé à « (0 au total) » — l'opérateur le lit comme incohérent
+(« 4 sélectionnés (0 au total) ») et, regardant cette barre, ne trouve pas « Revérifier la sélection » (qui est
+dans l'AUTRE barre). Le binding persistant était créé **inconditionnellement** dans `OnInitialized` pour toute
+`DeclaredListPage`. Une modification **additive, rétro-compatible** (marquée `FIX302`) :
+
+- `src/Common/UI/Components/DeclaredListPage.razor.cs` : ajout d'un paramètre **optionnel**
+  `bool EnablePersistentSelection = true` (défaut = comportement INCHANGÉ pour toutes les listes existantes). Quand
+  il vaut `false`, `_persistentBinding` reste `null` dans `OnInitialized` → le `StratumDataGrid` reçoit
+  `PersistentSelection = null` → aucune barre de sélection persistante rendue. La sélection elle-même reste active
+  (`AllowSelection` retombe sur la présence de `BulkActions`), donc la barre d'actions groupées fonctionne toujours.
+
+Aucune autre logique modifiée ; aucun fichier `Stratum.*` supplémentaire touché. Le fichier figure déjà dans le bloc
+`SOCLE-CONSIGNED-DRIFT` (§4.15) — la garde de provenance reste verte. Capacité GÉNÉRIQUE du design-system (toute
+liste pilotant ses actions de masse sur la sélection courante peut désactiver la barre persistante), candidate à
+reverser en amont (§6). Côté Liakont (hors socle), `Documents.razor` pose `EnablePersistentSelection="false"`,
+retire « Revérifier tout » des actions groupées et la déclare en action GLOBALE de la barre d'outils (désactivée
+quand aucun document n'est bloqué dans le périmètre — plus jamais de bouton orphelin sur liste vide).
+
+### 4.23 `GlobalShortcutHandler` — la palette de recherche voit aussi les `INavNodeProvider` (polish UX/UI)
+
+**Fichier** : `src/Common/UI/Components/GlobalShortcutHandler.razor`. **Motif** : la palette de
+recherche (Ctrl+K, `CommandPalette`) construisait son arbre via `BuildNavTree()` à partir des SEULS
+`INavSectionProvider` (sections plates), alors que le socle expose `INavNodeProvider` pour la
+navigation hiérarchique (sous-menus) et que la sidebar (`ErpNav`, fichier Liakont) consomme déjà les
+deux via la surcharge `BuildNavTree(sections, nodes)`. Conséquence : toute entrée de navigation
+déclarée en `INavNodeProvider` (sous-menu Paramétrage du lot polish UX/UI) disparaissait de la
+recherche globale. **Modification minimale** : injection `IEnumerable<INavNodeProvider>` + appel de
+la surcharge existante `BuildNavTree(NavProviders, NavNodeProviders)` — `CommandPalette` collecte
+déjà récursivement les feuilles (`CollectSearchableItems`). Aucune autre logique modifiée. Correction
+GÉNÉRIQUE (toute app socle utilisant des node providers en bénéficie), candidate à reverser en
+amont (§6).
 
 ## 5. ADR du socle hérités
 
