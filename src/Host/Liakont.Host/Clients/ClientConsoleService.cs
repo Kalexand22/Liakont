@@ -172,8 +172,7 @@ internal sealed partial class ClientConsoleService : IClientConsoleService
 
         return new ClientCreationResult(
             ClientActionStatus.Succeeded,
-            AlreadyProvisioned: result.AlreadyProvisioned,
-            AdminTemporaryPassword: result.AdminTemporaryPassword);
+            AlreadyProvisioned: result.AlreadyProvisioned);
     }
 
     public async Task<ClientSeedResult> ImportSeedAsync(

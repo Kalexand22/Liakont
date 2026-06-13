@@ -51,17 +51,6 @@
                     </li>
                 </ul>
 
-                @if (_adminTemporaryPassword is not null)
-                {
-                    <div class="client-wizard-step__secret" data-testid="client-wizard-creation-admin-password">
-                        <p class="client-wizard-step__secret-warning" role="alert">
-                            Mot de passe temporaire du compte d'administration initial du realm — affiché UNE
-                            SEULE FOIS (changement forcé à la première connexion).
-                        </p>
-                        <code data-testid="client-wizard-creation-admin-password-value">@_adminTemporaryPassword</code>
-                    </div>
-                }
-
                 @if (_creationError is not null)
                 {
                     <div class="client-wizard-step__error" role="alert" data-testid="client-wizard-creation-error">@_creationError</div>
@@ -157,7 +146,6 @@
     private bool _tenantCreated;
     private bool _tenantAlreadyProvisioned;
     private bool _profilApplied;
-    private string? _adminTemporaryPassword;
     private string? _creationError;
 
     private bool _userBusy;
@@ -251,7 +239,6 @@
 
                 _tenantCreated = true;
                 _tenantAlreadyProvisioned = creation.AlreadyProvisioned;
-                _adminTemporaryPassword = creation.AdminTemporaryPassword;
             }
 
             if (!_profilApplied)

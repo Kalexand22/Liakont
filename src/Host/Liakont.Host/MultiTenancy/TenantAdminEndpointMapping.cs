@@ -70,11 +70,9 @@ public static class TenantAdminEndpointMapping
             return Results.Ok(new { result.DatabaseName, result.RealmName, result.Authority, AlreadyProvisioned = true });
         }
 
-        // AdminTemporaryPassword : remis UNE SEULE FOIS ici (jamais persisté, jamais journalisé) —
-        // l'admin initial du realm doit le changer à sa première connexion.
         return Results.Created(
             $"/api/v1/admin/tenants/{body.TenantId}",
-            new { result.DatabaseName, result.RealmName, result.Authority, result.AdminTemporaryPassword });
+            new { result.DatabaseName, result.RealmName, result.Authority });
     }
 
     internal static async Task<IResult> HandleGetByIdAsync(

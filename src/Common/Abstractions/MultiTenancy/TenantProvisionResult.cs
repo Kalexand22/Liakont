@@ -39,22 +39,14 @@ public sealed class TenantProvisionResult
     /// </summary>
     public string? ErrorMessage { get; private init; }
 
-    /// <summary>
-    /// Temporary password generated for the initial realm admin user, set ONLY when the
-    /// IdP realm was created by this call. Surfaced once to the operator — never logged,
-    /// never persisted (Keycloak forces a change at first login).
-    /// </summary>
-    public string? AdminTemporaryPassword { get; private init; }
-
     public static TenantProvisionResult Created(
-        string databaseName, string realmName, string authority, string? adminTemporaryPassword = null) =>
+        string databaseName, string realmName, string authority) =>
         new()
         {
             Success = true,
             DatabaseName = databaseName,
             RealmName = realmName,
             Authority = authority,
-            AdminTemporaryPassword = adminTemporaryPassword,
         };
 
     public static TenantProvisionResult Idempotent(string databaseName, string realmName, string authority) =>

@@ -42,11 +42,10 @@ public sealed class ClientProvisioningConsoleIntegrationTests
             var service = scope.ServiceProvider.GetRequiredService<IClientConsoleService>();
 
             // 1. Création : base créée + migrée, registre porteur d'un company_id, realm (fake) provisionné.
+            // Le realm naît SANS utilisateur — le premier utilisateur vient de l'assistant (lot A), pas du socle.
             var creation = await service.CreateTenantAsync(tenantId, "Client Console SARL", "contact@console.test");
             creation.Status.Should().Be(ClientActionStatus.Succeeded);
             creation.AlreadyProvisioned.Should().BeFalse();
-            creation.AdminTemporaryPassword.Should().NotBeNullOrWhiteSpace(
-                "le mot de passe admin du realm est aléatoire et remis UNE fois (plus jamais Change@First1)");
 
             var registered = await GetRegistryRowAsync(tenantId);
             registered.CompanyId.Should().NotBeNull("le company_id est fixé au provisioning et persisté au registre");

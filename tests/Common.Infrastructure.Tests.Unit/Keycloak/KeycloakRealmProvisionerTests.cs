@@ -32,10 +32,6 @@ public sealed class KeycloakRealmProvisionerTests : IDisposable
         DisplayName = "Acme Corp",
         RealmName = realmName,
         ClientSecret = "test-secret",
-        AdminEmail = "admin@acme.com",
-        AdminUsername = "admin",
-        AdminPassword = "P@ssw0rd!",
-        StratumUserId = "00000000-0000-0000-0000-000000000001",
         CompanyId = "11111111-1111-4111-a111-111111111111",
         RedirectUris = DefaultRedirectUris,
         WebOrigins = DefaultWebOrigins,
@@ -61,24 +57,15 @@ public sealed class KeycloakRealmProvisionerTests : IDisposable
     }
 
     [Fact]
-    public async Task ProvisionRealmAsync_Should_CreateRealmClientAndUser_When_RealmDoesNotExist()
+    public async Task ProvisionRealmAsync_Should_CreateRealmAndClient_WithNoUser_When_RealmDoesNotExist()
     {
+        // Le realm naît avec realm + client OIDC et AUCUN utilisateur (le premier utilisateur du
+        // tenant est provisionné séparément par l'assistant opérateur, OPS03 lot A) : seules 4 requêtes
+        // sortent (token, GET realm-exists, POST realm, POST client) — jamais de création d'utilisateur.
         EnqueueTokenResponse();
         _handler.EnqueueResponse(HttpStatusCode.NotFound, string.Empty);
         _handler.EnqueueResponse(HttpStatusCode.Created, string.Empty);
         _handler.EnqueueResponse(HttpStatusCode.Created, string.Empty);
-        _handler.EnqueueResponseWithLocation(
-            HttpStatusCode.Created,
-            string.Empty,
-            "/admin/realms/stratum-acme/users/user-123");
-        _handler.EnqueueResponse(HttpStatusCode.NoContent, string.Empty);
-        _handler.EnqueueResponse(HttpStatusCode.OK, JsonSerializer.Serialize(new[]
-        {
-            new { id = "role-1", name = "stratum-user" },
-            new { id = "role-2", name = "stratum-admin" },
-            new { id = "role-3", name = "SystemAdmin" },
-        }));
-        _handler.EnqueueResponse(HttpStatusCode.NoContent, string.Empty);
         var sut = CreateSut();
 
         var result = await sut.ProvisionRealmAsync(CreateRequest());
@@ -88,6 +75,7 @@ public sealed class KeycloakRealmProvisionerTests : IDisposable
         Assert.Equal("stratum-acme", result.RealmName);
         Assert.Equal("http://localhost:8080/realms/stratum-acme", result.Authority);
         Assert.Equal("test-secret", result.ClientSecret);
+        Assert.Equal(4, _handler.CallCount);
     }
 
     [Fact]
@@ -100,9 +88,6 @@ public sealed class KeycloakRealmProvisionerTests : IDisposable
         _handler.EnqueueResponse(HttpStatusCode.NotFound, string.Empty);
         _handler.EnqueueResponse(HttpStatusCode.Created, string.Empty);
         _handler.EnqueueResponse(HttpStatusCode.Created, string.Empty);
-        _handler.EnqueueResponseWithLocation(HttpStatusCode.Created, string.Empty, "/admin/realms/stratum-acme/users/user-123");
-        _handler.EnqueueResponse(HttpStatusCode.NoContent, string.Empty);
-        _handler.EnqueueResponse(HttpStatusCode.OK, "[]");
         var sut = CreateSut();
 
         await sut.ProvisionRealmAsync(CreateRequest());
@@ -117,32 +102,6 @@ public sealed class KeycloakRealmProvisionerTests : IDisposable
         Assert.Equal(
             "11111111-1111-4111-a111-111111111111",
             companyMapper.GetProperty("config").GetProperty("claim.value").GetString());
-    }
-
-    [Fact]
-    public async Task ProvisionRealmAsync_Should_Create_Admin_With_Forced_Password_Change()
-    {
-        // OPS03 lot A : mot de passe TEMPORAIRE réel (temporary=true) + action UPDATE_PASSWORD —
-        // l'ancien credential permanent contredisait son propre commentaire « temporary ».
-        EnqueueTokenResponse();
-        _handler.EnqueueResponse(HttpStatusCode.NotFound, string.Empty);
-        _handler.EnqueueResponse(HttpStatusCode.Created, string.Empty);
-        _handler.EnqueueResponse(HttpStatusCode.Created, string.Empty);
-        _handler.EnqueueResponseWithLocation(HttpStatusCode.Created, string.Empty, "/admin/realms/stratum-acme/users/user-123");
-        _handler.EnqueueResponse(HttpStatusCode.NoContent, string.Empty);
-        _handler.EnqueueResponse(HttpStatusCode.OK, "[]");
-        var sut = CreateSut();
-
-        await sut.ProvisionRealmAsync(CreateRequest());
-
-        // Requête 4 = création de l'admin ; requête 5 = reset-password.
-        using var userDoc = JsonDocument.Parse(_handler.AllRequestBodies[4]!);
-        var requiredActions = userDoc.RootElement.GetProperty("requiredActions").EnumerateArray()
-            .Select(a => a.GetString()).ToList();
-        Assert.Contains("UPDATE_PASSWORD", requiredActions);
-
-        using var credentialDoc = JsonDocument.Parse(_handler.AllRequestBodies[5]!);
-        Assert.True(credentialDoc.RootElement.GetProperty("temporary").GetBoolean());
     }
 
     [Fact]

@@ -241,6 +241,10 @@ src/Modules/Job/Web/JobNavSectionProvider.cs
 src/Modules/Job/Infrastructure/JobHandlerResolver.cs
 src/Modules/Job/Contracts/Queries/IJobQueries.cs
 src/Modules/Job/Infrastructure/Queries/PostgresJobQueries.cs
+src/Common/Infrastructure/Database/TenantProvisioningService.cs
+src/Common/Infrastructure/Keycloak/KeycloakRealmProvisioner.cs
+src/Common/Abstractions/MultiTenancy/KeycloakRealmProvisionRequest.cs
+src/Common/Abstractions/MultiTenancy/TenantProvisionResult.cs
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -578,8 +582,9 @@ persisté dans `outbox.tenants.company_id` (migration V016, system-only — pré
 `company_id` HARDCODÉ au niveau client (comme `tenant_id` — aligné sur le realm de dev) : tout
 utilisateur présent ET futur du realm porte le claim ; (2) mot de passe admin ALÉATOIRE, retourné
 UNE fois via `TenantProvisionResult.AdminTemporaryPassword` (jamais persisté/journalisé), credential
-`temporary=true` + action `UPDATE_PASSWORD`. Épinglé par
-`KeycloakRealmProvisionerTests.{Should_Emit_CompanyId_As_Hardcoded_Client_Mapper, Should_Create_Admin_With_Forced_Password_Change}`.
+`temporary=true` + action `UPDATE_PASSWORD`. **Le point (2) est SUPERSEDED par §4.26** (l'admin de
+realm n'est plus créé du tout) ; le point (1) `company_id` reste valide. Épinglé par
+`KeycloakRealmProvisionerTests.Should_Emit_CompanyId_As_Hardcoded_Client_Mapper`.
 
 ### 4.25 `IKeycloakUserProvisioner` — provisioning d'utilisateur dans un realm EXISTANT (OPS03 lot A)
 
@@ -599,6 +604,33 @@ un pré-contrôle par username ne suffit pas) lève l'exception TYPÉE `Keycloak
 l'abstraction IdP-agnostique `ITenantUserProvisioningService` du Host (couche d'auth). Tests :
 `KeycloakUserProvisionerTests`. `FakeHttpMessageHandler` (tests socle) étendu : capture des corps
 de requêtes (`AllRequestBodies`).
+
+### 4.26 Provisioning de tenant — le realm ne crée PLUS d'admin répliqué (recette OPS03, 13/06/2026)
+
+**Fichiers** : `src/Common/Infrastructure/Database/TenantProvisioningService.cs`,
+`src/Common/Infrastructure/Keycloak/KeycloakRealmProvisioner.cs`,
+`src/Common/Abstractions/MultiTenancy/KeycloakRealmProvisionRequest.cs`, `TenantProvisionResult.cs`.
+**Motif** (révélé en recette manuelle OPS03) : le flux hérité du socle répliquait le super-admin de
+l'INSTANCE dans CHAQUE tenant — `SeedTenantAdminAsync` copiait l'utilisateur `identity` portant le
+rôle `SystemAdmin` dans la base du nouveau tenant, et `KeycloakRealmProvisioner.CreateAdminUserAsync`
+créait un compte « sysadmin » (rôles `Admin`+`SystemAdmin`) dans le realm du tenant. C'est le modèle
+cookie-auth natif de Stratum, INADAPTÉ à Liakont : le super-admin est un acteur CROSS-TENANT du realm
+PRIMAIRE (il supervise via `ITenantScopeFactory`, jamais via un compte par tenant), et le premier
+utilisateur d'un tenant vient de l'assistant opérateur (OPS03 lot A, `IKeycloakUserProvisioner`). En
+exécution réelle, le seed dev crée le `sysadmin` avec le rôle `Admin` (pas `SystemAdmin`) → la requête
+de `SeedTenantAdminAsync` ne trouvait personne → tout provisioning échouait (un faux-vert masqué en
+test par un seed `SystemAdmin` de fixture). **Modifications** : (1) `ProvisionAsync` n'appelle plus
+`SeedTenantAdminAsync` (méthode + `AdminRow` supprimés) ; le realm naît SANS utilisateur. (2)
+`KeycloakRealmProvisioner` ne crée plus d'admin (`CreateAdminUserAsync`, `AssignRealmRolesAsync`,
+`ExtractIdFromLocationHeader`, `KeycloakRole` supprimés) — il crée realm + client OIDC + mappers (le
+mapper `company_id` HARDCODÉ de §4.24 reste, donc tout futur utilisateur porte son claim). (3)
+`KeycloakRealmProvisionRequest` perd `AdminEmail/AdminUsername/AdminPassword/StratumUserId` ;
+`TenantProvisionResult` perd `AdminTemporaryPassword` (plus d'admin de realm → plus de secret à
+remettre ; le seul secret affiché par l'assistant est le mot de passe temporaire du PREMIER
+utilisateur, lot A). Tests : `KeycloakRealmProvisionerTests` (le realm ne crée plus d'utilisateur —
+4 requêtes, test « admin password » retiré), `ClientProvisioningConsoleIntegrationTests` (plus
+d'assertion `AdminTemporaryPassword`), fixture `ConsoleApiFactory` (seed `SystemAdmin` retiré — le
+contrat du socle ne l'exige plus).
 
 ## 5. ADR du socle hérités
 
