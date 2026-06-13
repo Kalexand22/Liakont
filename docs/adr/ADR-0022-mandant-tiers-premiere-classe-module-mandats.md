@@ -7,6 +7,10 @@
   code. Aucun invariant n'est garanti tant qu'il n'est pas livré **et** prouvé par test. Cet ADR tranche une
   **frontière de structure** ; il ne tranche **aucun point fiscal** — ceux-ci restent **NON TRANCHÉS dans F15**
   (décision expert-comptable / re-sourçage).
+- **Numérotation** : ADR-**0022** (et non 0021) — sur cette branche / `main`, ADR-0021 est absent (il vit sur
+  `feat/tenant-provisioning` = ADR realm Keycloak, branche non ancêtre, ramené à part en PR #45). 0022 = prochain
+  numéro libre toutes branches actives confondues, pour éviter une collision au merge (le repo a déjà subi
+  0019→0021 et 0010→0011).
 - **Contexte décisionnel** : `docs/conception/F15-Autofacturation-Mandat.md` (note d'orientation autofacturation 389,
   §1 sourcé, §2 module `Mandats`, §6 NON TRANCHÉ) ; `blueprint.md` §2 (généricité), §7 (multi-tenancy — *« 1 tenant =
   1 client final = 1 SIREN »*, *« pas de hiérarchie de tenants »*) ; `CLAUDE.md` n°6 (frontières inter-modules par
@@ -83,13 +87,17 @@ Cet ADR **ne déplace ni n'écrit aucun code**. Les décisions suivantes feront 
 
 ## Invariants
 
-- **INV-MANDATS-1** — Tout `Mandant`/`Mandat`/séquence/acceptation est **tenant-scopé** (`WHERE company_id =
-  @CompanyId` via `ICompanyFilter.GetRequiredCompanyId` dans chaque handler) ; **aucune** requête cross-tenant ; un
-  mandant n'est **jamais** un sous-tenant.
+- **INV-MANDATS-1** — Tout `Mandant`/`Mandat`/séquence/acceptation **et les deux journaux (`mandat_change_log`,
+  `self_billed_acceptance_log`)** est **tenant-scopé** (`WHERE company_id = @CompanyId` via
+  `ICompanyFilter.GetRequiredCompanyId` dans chaque handler ; `company_id` **NOT NULL** sur les journaux, comme
+  `mapping_change_log`) ; **aucune** requête cross-tenant — **y compris l'export d'audit par mandant** ; un mandant
+  n'est **jamais** un sous-tenant.
 - **INV-MANDATS-2** — Le module `Mandats` n'est accédé par les autres modules **que par ses `Contracts`**
   (NetArchTest) ; **aucune** logique Mandat dans l'agent.
 - **INV-MANDATS-3** — Registre et cycle de vie journalisés **append-only en transaction** (mutation + entrée de
-  journal atomiques) ; immuabilité par **trigger base** ; **aucun** chemin update/delete sur le journal.
+  journal atomiques) ; immuabilité par **trigger base** ; **aucun** chemin update/delete sur le journal. Pour
+  `SelfBilledAcceptance` (état mutable écrasé à chaque transition), **toute transition d'état écrit une entrée
+  `self_billed_acceptance_log` dans la MÊME transaction** (test « pas de transition sans ligne de journal »).
 - **INV-MANDATS-4** — `AssujettissementStatus` null **OU** `ContestationDelay` null **OU** mandat non validé/révoqué
   ⇒ autofacturation 389 **SUSPENDUE** ; **aucun** défaut inventé.
 - **INV-MANDATS-5** — **Aucune** donnée client réelle dans le code ni les fixtures committées ; exemples fictifs
@@ -101,8 +109,10 @@ Cet ADR **ne déplace ni n'écrit aucun code**. Les décisions suivantes feront 
 `CLAUDE.md` n°9) ; l'auditabilité **par mandant** est native (le mandat persiste, ses mutations sont append-only) ; on
 réutilise **intégralement** des patterns existants (gabarit `TvaMapping` pour le journal append-only en transaction,
 `FeeImputationMethod` pour le suspendu-par-défaut, `TenantJobRunner` SOL06 pour les jobs) — **aucun code `Stratum.*`
-vendored modifié**, aucune abstraction inventée. Modéliser le mandant en entité de référence (et non en `PivotParty`
-jetable) préserve la preuve du mandat.
+vendored modifié** et **aucun mécanisme transverse nouveau** (journal append-only, scoping `ICompanyFilter`, jobs
+réutilisés tels quels). Le **seul** ajout structurel est le module `Mandats` lui-même — l'alternative de réutiliser
+`Party` étant écartée sur un fait de vendoring (cf. Alternatives rejetées). Modéliser le mandant en entité de
+référence (et non en `PivotParty` jetable) préserve la preuve du mandat.
 
 **À la charge du(des) lot(s) d'implémentation** : créer le module (`Contracts`/`Domain`/`Application`/`Infrastructure`/
 `Web` + `MODULE.md`/`INVARIANTS.md`), les migrations DbUp (schéma `mandats` + journaux à double trigger append-only),
@@ -126,6 +136,14 @@ volumétrie** (dizaines de milliers de mandants par tenant — `F01-F02` R8) dè
 - **Mandant = `PivotParty` enrichi jetable**, reconstruit document après document : duplication, **perte de
   l'auditabilité du mandat** (clause/acceptation/révocation doivent persister et se tracer), et anti-doublon /
   numérotation **par mandant** impossibles sans entité de référence stable. **Rejetée.**
+- **Réutiliser le module `Party` de Stratum** (rôle `MANDANT` + `ExternalId`) — structurellement le candidat le plus
+  proche (`PartyDto` LegalName/TaxId/PartyType, `AssignRoleCommand`, `ImportPartiesCommand` pour l'import en volume,
+  `IExternalIdQueries.GetByExternalId` pour le mapping clé-source → entité). **Écartée sur un fait de vendoring**, pas
+  par principe : `Party` n'est vendoré qu'en **`Contracts` UNIQUEMENT** (`provenance-socle-stratum.md` D1) ;
+  `Party.Infrastructure` n'est **pas** vendoré et `PartyId` est **toujours null** côté Liakont (shim `NullPartyQueries`,
+  provenance §4.10). Porter le cycle de vie du mandat sur `Party` exigerait de **réactiver l'ERP `Party` de Stratum**
+  (dépendance socle non vendorée) — ce que la baseline socle évite délibérément. Un module `Mandats` Liakont dédié est
+  la voie propre. **Rejetée (ce constat renforce la décision §1).**
 
 ## Références
 

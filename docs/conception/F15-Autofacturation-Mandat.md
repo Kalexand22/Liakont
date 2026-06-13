@@ -201,8 +201,9 @@ raison de la produire (preuve : Kerport_Fact numérote **globalement**, `F001724
 ### 3.2 Décision — l'hybride (à acter en ADR)
 
 On **dédouble** ce que `Number` confond :
-1. **Clé d'idempotence** = un **identifiant interne de la source** (toujours présent, stable dès l'extraction) ;
-   le `payload_hash` s'ancre dessus et **n'inclut pas** le BT-1 fiscal.
+1. **Clé d'idempotence** = un **identifiant interne de la source**, **déjà présent dans le pivot et déjà hashé** :
+   `SourceReference` (écrit inconditionnellement par `CanonicalJson`, à côté de `Number`). Le `payload_hash` reste
+   **inchangé** — aucun format canonique conditionnel au flux.
 2. **BT-1 fiscal 389** = **alloué par le module `Mandats`** (séquence par mandant), via un **`get-or-create` sur la
    clé source** : alloué une fois et mémorisé ; toute ré-extraction **relit le même numéro**, jamais ré-alloué.
 
@@ -225,8 +226,21 @@ point ouvert listé en §6.10).
 interne. Le BT-1 fiscal est toujours alloué plateforme. La garde d'ingestion n'est **pas levée** mais **remplacée**
 pour le cas 389 : elle exige un **identifiant source interne NON NUL** à la place du `Number` — jamais d'acceptation
 d'un document 389 sans clé d'idempotence (ce n'est donc **pas un affaiblissement de validation**, mais une
-substitution d'invariant, à graver en ADR). Le retrait du BT-1 du hash canonique, **pour le seul cas 389**, est à
-acter dans **ADR-0007** (golden files des deux côtés du contrat agent).
+substitution d'invariant, à graver en ADR).
+
+**Voie propre (corrige une fausse piste) :** ne **PAS** retirer `Number` du hash canonique pour le seul cas 389 — ce
+serait un **format conditionnel au flux** qui casse la reproductibilité octet-par-octet et amenderait la règle
+additive d'**ADR-0007** (`Number` est en position 2, **non optionnel** — `CanonicalJson.cs:45`). À la place : en 389,
+`Number` **reste toujours rempli** (par l'identifiant source interne, déjà porté par `SourceReference`), et le
+**BT-1 fiscal alloué par mandant est une valeur SÉPARÉE, hors du payload hashé** (assignée à l'émission, côté
+plateforme). Aucun branchement de format ; ADR-0007 préservé.
+
+**Garde-fous à graver dans l'ADR fille BT-1/acceptation (avant tout code) :** (i) la re-clé F06 bascule
+**atomiquement** vers `(mandant_id, document_number)` côté SQL (index d'unicité + tests « deux 389 même numéro /
+mandants ≠ → Send ; même mandant / ré-extraction → Blocked ») — **ne pas** seulement « neutraliser le SIREN » (sinon
+fenêtre sur un 389 en attente ré-extrait) ; (ii) « chronologique » **et** « continue » (§1.4) sont **deux invariants
+distincts** (ordre cohérent vs sans trou — l'ordre n'est pas garanti sous allocation concurrente d'un même mandant) ;
+(iii) bascule `TacitlyAccepted` **uniquement si `EstEcrit = true` ET `ContestationDelay` non null** (invariant testé).
 
 ---
 
@@ -245,8 +259,11 @@ Chaque lot (`TBL_TRANSACTIONS`) est facturé une fois côté navire (`tra_ves_fa
 ### 4.2 Conséquence produit
 
 La criée **produit déjà** un **décompte mono-Seller par producteur** (par vacation) : on l'émet en **389 standard**
-(Seller = armement, émetteur matériel = halle, exonération 261-2-4° sans TVA — §1.6). **Pas d'éclatement, pas de
-blocage multi-vendeurs nécessaire côté émission** — c'est la **seule résolution affirmée ici**. Le multi-vendeurs
+(Seller = armement, émetteur matériel = halle). **Pas d'éclatement, pas de blocage multi-vendeurs nécessaire côté
+émission** — c'est la **seule résolution affirmée ici** : on n'affirme que la **structure** mono-Seller (confirmée
+terrain). Le **statut TVA** se lit **au lot** (`tra_vat_code`) — l'exonération 261-2-4° ne vaut que pour les produits
+« frais ou conservés frais » (§1.6) et le **routage exonéré/taxé lot par lot reste NON TRANCHÉ (§6.6)** (un lot
+transformé/cuit n'est pas exonéré). Le multi-vendeurs
 vit **côté acheteur** (bordereau du mareyeur) = jambe **réception (capacité B)**, dont **le statut fiscal reste
 ouvert (§6.2)** ; **aucun « document fiscal multi-vendeurs » à modéliser côté émission**. La scission du flux inverse
 « taxe de criée » (service halle→pêcheur taxé 20 % précompté sur le même relevé exonéré) reste à modéliser — côté
