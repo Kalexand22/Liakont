@@ -586,6 +586,12 @@ UNE fois via `TenantProvisionResult.AdminTemporaryPassword` (jamais persisté/jo
 realm n'est plus créé du tout) ; le point (1) `company_id` reste valide. Épinglé par
 `KeycloakRealmProvisionerTests.Should_Emit_CompanyId_As_Hardcoded_Client_Mapper`.
 
+**Mise à jour [ADR-0019](../adr/ADR-0019-realm-keycloak-unique-isolation-par-claim.md) (2026-06-13)** :
+le modèle realm-par-tenant qui rendait le point (1) valide (un client = un tenant → mapper
+`company_id` HARDCODÉ au niveau client) est **superseçu** — Liakont passe à un **realm unique
+partagé**, où le mapper hardcodé client devient impossible (tous les jetons porteraient la même
+valeur = isolation nulle) et `company_id` redevient un mapper d'**attribut par-utilisateur**.
+
 ### 4.25 `IKeycloakUserProvisioner` — provisioning d'utilisateur dans un realm EXISTANT (OPS03 lot A)
 
 **Fichiers AJOUTÉS** : `src/Common/Abstractions/MultiTenancy/IKeycloakUserProvisioner.cs` +
@@ -631,6 +637,10 @@ utilisateur, lot A). Tests : `KeycloakRealmProvisionerTests` (le realm ne crée 
 4 requêtes, test « admin password » retiré), `ClientProvisioningConsoleIntegrationTests` (plus
 d'assertion `AdminTemporaryPassword`), fixture `ConsoleApiFactory` (seed `SystemAdmin` retiré — le
 contrat du socle ne l'exige plus).
+
+Suite actée par [ADR-0019](../adr/ADR-0019-realm-keycloak-unique-isolation-par-claim.md) (realm
+unique partagé) : le provisioning ne créera plus de realm du tout (`KeycloakRealmProvisioner` sort du
+chemin de création SaaS partagé).
 
 ## 5. ADR du socle hérités
 

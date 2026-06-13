@@ -1,6 +1,6 @@
 # ADR-0019 — Realm Keycloak unique partagé : isolation des tenants par claim `company_id`
 
-- **Statut** : Proposé (2026-06-13).
+- **Statut** : **Accepté** (2026-06-13).
 - **Date** : 2026-06-13
 - **Nature** : cet ADR **précède** le chantier d'implémentation (multi-lots, non démarré). Les sections
   **Décision** et **Invariants** sont **normatives** : elles décrivent la **cible** à atteindre, pas
