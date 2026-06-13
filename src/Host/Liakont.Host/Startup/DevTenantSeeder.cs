@@ -62,9 +62,12 @@ internal static partial class DevTenantSeeder
             .GetRequiredService<ILoggerFactory>()
             .CreateLogger("Liakont.Host.Startup.DevTenantSeeder");
 
-        // realm_name et database_name sont NOT NULL dans outbox.tenants : une configuration partielle
-        // est une erreur d'amorçage à signaler, pas à insérer à moitié.
-        if (string.IsNullOrWhiteSpace(options.RealmName) || string.IsNullOrWhiteSpace(options.DatabaseName))
+        // realm_name et database_name sont NOT NULL dans outbox.tenants ; company_id l'est devenu en
+        // RLM02 (V017) car il pilote la résolution autoritaire du tenant (ADR-0021 §2c) — une
+        // configuration partielle est une erreur d'amorçage à signaler, pas à insérer à moitié.
+        if (string.IsNullOrWhiteSpace(options.RealmName)
+            || string.IsNullOrWhiteSpace(options.DatabaseName)
+            || options.CompanyId == Guid.Empty)
         {
             LogDevTenantSeedIncomplete(logger, options.TenantId);
             return;
@@ -76,9 +79,12 @@ internal static partial class DevTenantSeeder
 
         // ON CONFLICT sans cible : ignore AUSSI un conflit d'unicité sur realm_name/database_name
         // (tenant déjà rattaché autrement) — le seed de dev ne doit jamais empêcher le démarrage.
+        // company_id explicite (RLM02) : DOIT coïncider avec le claim company_id du realm de dev
+        // (deploy/docker/keycloak/realm-export.json) et le backfill V017 — cohérence des 3 sources
+        // gardée par DefaultCompanyIdCoherenceTests. Sans lui, un boot à froid violerait le NOT NULL.
         const string sql = """
-            INSERT INTO outbox.tenants (id, display_name, admin_email, database_name, realm_name, client_secret)
-            VALUES (@id, @displayName, @adminEmail, @databaseName, @realmName, @clientSecret)
+            INSERT INTO outbox.tenants (id, display_name, admin_email, database_name, realm_name, client_secret, company_id)
+            VALUES (@id, @displayName, @adminEmail, @databaseName, @realmName, @clientSecret, @companyId)
             ON CONFLICT DO NOTHING
             """;
 
@@ -89,6 +95,7 @@ internal static partial class DevTenantSeeder
         command.Parameters.AddWithValue("databaseName", options.DatabaseName);
         command.Parameters.AddWithValue("realmName", options.RealmName);
         command.Parameters.AddWithValue("clientSecret", (object?)options.ClientSecret ?? DBNull.Value);
+        command.Parameters.AddWithValue("companyId", options.CompanyId);
 
         var inserted = await command.ExecuteNonQueryAsync();
         if (inserted > 0)
