@@ -47,7 +47,8 @@ public static class PivotCanonicalJsonReader
         payee: TryObject(element, "Payee", out JsonElement payee) ? ReadParty(payee) : null,
         isSelfBilled: Bool(element, "IsSelfBilled"),
         prepaidAmount: DecimalOrNull(element, "PrepaidAmount"),
-        sourceData: StrOrNull(element, "SourceData"));
+        sourceData: StrOrNull(element, "SourceData"),
+        paymentDueDate: DateOrNull(element, "PaymentDueDate"));
 
     private static PivotPartyDto ReadParty(JsonElement element) => new(
         name: Str(element, "Name"),
@@ -128,6 +129,13 @@ public static class PivotCanonicalJsonReader
 
     private static DateTime Date(JsonElement element, string name) =>
         DateTime.ParseExact(Str(element, name), "yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    // Date optionnelle (EN 16931 BT-9) : absente du JSON → null (le writer omet un optionnel null) ;
+    // miroir exact du writer, l'échéance ne fait jamais partie du round-trip d'un document qui ne la porte pas.
+    private static DateTime? DateOrNull(JsonElement element, string name) =>
+        element.TryGetProperty(name, out JsonElement value)
+            ? DateTime.ParseExact(value.GetString()!, "yyyy-MM-dd", CultureInfo.InvariantCulture)
+            : null;
 
     // Échelle décimale PRÉSERVÉE : on parse le TEXTE BRUT du jeton (« 10.00 » → 10.00m), jamais
     // GetDecimal() — pour que la re-sérialisation reproduise l'échelle source octet par octet (ADR-0007).

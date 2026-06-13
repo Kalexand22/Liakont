@@ -26,9 +26,23 @@ public sealed class PivotContractGoldenTests
     // Empreinte SHA-256 (hex minuscule) figée du JSON canonique de l'avoir golden.
     private const string GoldenAvoirSha256 = "254e8ef94fe74d017c3c172af7c04ce89118d6efd128512bc9604529e347075c";
 
-    /// <summary>Construit le document golden « avoir complet » (données FICTIVES uniquement).</summary>
+    /// <summary>Construit le document golden « avoir complet » (données FICTIVES uniquement, SANS échéance).</summary>
     /// <returns>Le document pivot de référence.</returns>
-    public static PivotDocumentDto BuildAvoirComplet()
+    public static PivotDocumentDto BuildAvoirComplet() => BuildAvoir(paymentDueDate: null);
+
+    /// <summary>Le même document golden, mais portant une date d'échéance de paiement (EN 16931 BT-9).</summary>
+    /// <param name="paymentDueDate">La date d'échéance à porter.</param>
+    /// <returns>Le document pivot de référence enrichi de BT-9.</returns>
+    public static PivotDocumentDto BuildAvoirCompletAvecEcheance(DateTime paymentDueDate) =>
+        BuildAvoir(paymentDueDate);
+
+    /// <summary>
+    /// Construit l'avoir golden avec une échéance de paiement (BT-9) optionnelle — base partagée des deux
+    /// fabriques publiques (SANS échéance pour l'ancre golden, AVEC pour la non-régression EXT01).
+    /// </summary>
+    /// <param name="paymentDueDate">L'échéance à porter, ou <c>null</c> pour le golden de référence figé.</param>
+    /// <returns>Le document pivot golden.</returns>
+    public static PivotDocumentDto BuildAvoir(DateTime? paymentDueDate)
     {
         var supplier = new PivotPartyDto(
             name: "Galerie Fictïve SARL",
@@ -82,7 +96,8 @@ public sealed class PivotContractGoldenTests
             documentCharges: charges,
             isSelfBilled: true,
             prepaidAmount: 300m,
-            sourceData: "{\"raw\":true,\"path\":\"C:\\x\"}");
+            sourceData: "{\"raw\":true,\"path\":\"C:\\x\"}",
+            paymentDueDate: paymentDueDate);
     }
 
     [Fact]
@@ -119,6 +134,39 @@ public sealed class PivotContractGoldenTests
 
         CanonicalJson.Serialize(document).Should().Be(CanonicalJson.Serialize(document));
         PayloadHasher.ComputeHash(document).Should().Be(PayloadHasher.ComputeHash(document));
+    }
+
+    [Fact]
+    public void PaymentDueDate_when_absent_keeps_the_canonical_json_and_hash_byte_identical()
+    {
+        // Non-régression EXT01 : un document SANS échéance (BT-9) doit produire le JSON canonique et le
+        // hash STRICTEMENT inchangés (champ optionnel omis, ADR-0007) — sinon la réconciliation des
+        // documents déjà stagés serait invalidée. L'ancre golden est figée sur l'avoir sans échéance.
+        var sansEcheance = BuildAvoirComplet();
+
+        string json = CanonicalJson.Serialize(sansEcheance);
+
+        json.Should().NotContain("PaymentDueDate", "un optionnel null n'est jamais émis (le hash doit rester figé)");
+        PayloadHasher.ComputeHash(sansEcheance).Should().Be(
+            GoldenAvoirSha256, "l'ajout de BT-9 ne doit RIEN changer pour un document qui ne le porte pas");
+    }
+
+    [Fact]
+    public void PaymentDueDate_when_present_is_emitted_last_and_changes_the_hash()
+    {
+        var avecEcheance = BuildAvoirCompletAvecEcheance(new DateTime(2026, 3, 15));
+
+        string json = CanonicalJson.Serialize(avecEcheance);
+
+        // BT-9 est émise en FIN d'objet (champ additif, ADR-0007), au format yyyy-MM-dd.
+        json.Should().EndWith("\"PaymentDueDate\":\"2026-03-15\"}", "BT-9 est le dernier membre du contrat");
+
+        // Round-trip sans perte ET le hash DIFFÈRE du golden (preuve que le champ est réellement sérialisé).
+        var rebuilt = PivotCanonicalReader.ReadDocument(json);
+        rebuilt.PaymentDueDate.Should().Be(new DateTime(2026, 3, 15));
+        CanonicalJson.Serialize(rebuilt).Should().Be(json, "round-trip sans perte avec l'échéance portée");
+        PayloadHasher.ComputeHash(avecEcheance).Should().NotBe(
+            GoldenAvoirSha256, "porter BT-9 change le contenu, donc l'empreinte");
     }
 
     [Fact]

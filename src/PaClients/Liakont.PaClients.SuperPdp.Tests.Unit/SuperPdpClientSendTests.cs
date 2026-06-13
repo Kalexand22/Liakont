@@ -96,6 +96,39 @@ public sealed class SuperPdpClientSendTests
     }
 
     [Fact]
+    public async Task Send_With_PaymentDueDate_Emits_payment_due_date()
+    {
+        var handler = new RoutedHttpMessageHandler()
+            .OnConvert(HttpStatusCode.OK, SuperPdpTestData.CiiXml)
+            .OnPost(HttpStatusCode.OK, SuperPdpTestData.IssuedJson);
+        var client = SuperPdpTestData.CreateClient(handler);
+
+        await client.SendDocumentAsync(SuperPdpTestData.Invoice20WithDueDate("F-ECHEANCE", new DateTime(2026, 2, 15)));
+
+        // EXT01 : une facture à échéance NON SOLDÉE porte BT-9 → le builder émet payment_due_date
+        // (yyyy-MM-dd), ce qui satisfait BR-CO-25 sur un montant dû positif (F14 §3.2/O11).
+        var invoice = ConvertBody(handler);
+        invoice.GetProperty("payment_due_date").GetString().Should().Be("2026-02-15");
+    }
+
+    [Fact]
+    public async Task Send_Without_PaymentDueDate_Omits_payment_due_date()
+    {
+        var handler = new RoutedHttpMessageHandler()
+            .OnConvert(HttpStatusCode.OK, SuperPdpTestData.CiiXml)
+            .OnPost(HttpStatusCode.OK, SuperPdpTestData.IssuedJson);
+        var client = SuperPdpTestData.CreateClient(handler);
+
+        await client.SendDocumentAsync(SuperPdpTestData.Invoice20());
+
+        // Sans échéance dans le pivot, le champ est OMIS (WhenWritingNull) : le comportement BR-CO-25 du
+        // converter (rejet d'un montant dû positif) reste INCHANGÉ — aucune échéance fabriquée (CLAUDE.md n°2).
+        var invoice = ConvertBody(handler);
+        invoice.TryGetProperty("payment_due_date", out _).Should().BeFalse(
+            "un pivot sans échéance n'émet aucun payment_due_date (comportement BR-CO-25 conservé)");
+    }
+
+    [Fact]
     public async Task Send_Without_SendAfterImport_Is_Rejected_Locally_Without_Any_Call()
     {
         var handler = new RoutedHttpMessageHandler();

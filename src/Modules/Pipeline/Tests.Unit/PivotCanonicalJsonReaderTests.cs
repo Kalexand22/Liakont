@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using FluentAssertions;
+using Liakont.Agent.Contracts.Pivot;
 using Liakont.Agent.Contracts.Serialization;
 using Liakont.Modules.Pipeline.Infrastructure.Serialization;
 using Xunit;
@@ -63,6 +64,31 @@ public sealed class PivotCanonicalJsonReaderTests
         // 120.00m et 120m sont égaux en VALEUR : seule la re-sérialisation prouve la préservation d'échelle.
         CanonicalJson.Serialize(rebuilt).Should().Contain(
             "\"TotalNet\":120.00", "l'échelle décimale source (« 120.00 ») doit être préservée, jamais « 120 »");
+    }
+
+    [Fact]
+    public void Payment_Due_Date_Survives_The_Round_Trip_For_The_Pa_Send()
+    {
+        // EXT01 — bout en bout : l'échéance (BT-9) écrite par l'agent dans le staging doit être RELUE par
+        // le pipeline (ce lecteur) avant l'envoi à la PA. Sans cette lecture, le champ serait écrit puis
+        // PERDU à la relecture → la facture non soldée resterait rejetée par BR-CO-25 malgré l'échéance.
+        var pivot = new PivotDocumentDto(
+            sourceDocumentKind: "FACTURE",
+            number: "F-ECHEANCE",
+            issueDate: new DateTime(2026, 1, 15),
+            sourceReference: "SRC-F-ECHEANCE",
+            supplier: new PivotPartyDto("SVV Démo", siren: "123456789"),
+            totals: new PivotTotalsDto(100m, 20m, 120m),
+            operationCategory: OperationCategory.LivraisonBiens,
+            customer: new PivotPartyDto("Client Démo", siren: "987654321"),
+            lines: new[] { new PivotLineDto("Prestation", 100m, taxes: new[] { new PivotLineTaxDto(20m, 20m, VatCategory.S) }) },
+            paymentDueDate: new DateTime(2026, 2, 15));
+        var json = CanonicalJson.Serialize(pivot);
+
+        var rebuilt = PivotCanonicalJsonReader.Read(json);
+
+        rebuilt.PaymentDueDate.Should().Be(new DateTime(2026, 2, 15), "BT-9 doit traverser le staging intacte");
+        CanonicalJson.Serialize(rebuilt).Should().Be(json, "round-trip stable octet par octet avec BT-9 (ADR-0007)");
     }
 
     [Fact]
