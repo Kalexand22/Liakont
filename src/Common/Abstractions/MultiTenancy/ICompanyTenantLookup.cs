@@ -1,3 +1,4 @@
+// Liakont addition (RLM02): authoritative company_id → tenant resolution — not part of the original Stratum vendoring.
 namespace Stratum.Common.Abstractions.MultiTenancy;
 
 /// <summary>

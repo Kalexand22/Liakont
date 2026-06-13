@@ -1,3 +1,4 @@
+// Liakont addition (RLM02): authoritative company_id → tenant lookup — not part of the original Stratum vendoring.
 namespace Stratum.Common.Infrastructure.Database;
 
 using Dapper;

@@ -1,3 +1,4 @@
+-- Liakont addition (RLM02): not part of the original Stratum vendoring (cf. provenance §4.27).
 -- RLM02 (ADR-0021 §2c) : rendre `outbox.tenants.company_id` STRUCTURELLEMENT fiable pour la
 -- résolution du tenant pilotée par le jeton. V016 l'a ajouté nullable et non-UNIQUE (unicité
 -- seulement probabiliste via Guid.NewGuid) ; ici on backfille le tenant historique `default`
