@@ -71,7 +71,8 @@ public static class PivotCanonicalReader
             payee: ObjectOrNull(map, "Payee") is { } payee ? BuildParty(payee) : null,
             isSelfBilled: Boolean(map, "IsSelfBilled"),
             prepaidAmount: DecimalOrNull(map, "PrepaidAmount"),
-            sourceData: TextOrNull(map, "SourceData"));
+            sourceData: TextOrNull(map, "SourceData"),
+            paymentDueDate: DateOrNull(map, "PaymentDueDate"));
     }
 
     private static PivotPartyDto BuildParty(IDictionary<string, object?> map)
@@ -188,6 +189,11 @@ public static class PivotCanonicalReader
 
     private static DateTime Date(IDictionary<string, object?> map, string key) =>
         DateTime.ParseExact((string)map[key]!, "yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    private static DateTime? DateOrNull(IDictionary<string, object?> map, string key) =>
+        map.TryGetValue(key, out var value)
+            ? DateTime.ParseExact((string)value!, "yyyy-MM-dd", CultureInfo.InvariantCulture)
+            : null;
 
     private static IDictionary<string, object?> Object(IDictionary<string, object?> map, string key) =>
         (IDictionary<string, object?>)map[key]!;

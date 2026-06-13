@@ -18,6 +18,14 @@ internal sealed record SuperPdpEnInvoice
     /// <summary>Date d'émission au format <c>yyyy-MM-dd</c> (EN 16931 BT-2).</summary>
     public required string IssueDate { get; init; }
 
+    /// <summary>
+    /// Date d'échéance de paiement au format <c>yyyy-MM-dd</c> (EN 16931 BT-9) — OPTIONNELLE. Émise
+    /// (<c>payment_due_date</c>) seulement quand le pivot la porte ; <c>null</c> ⇒ OMISE en écriture
+    /// (<see cref="SuperPdpJson"/> <c>WhenWritingNull</c>), le converter rejette alors un montant dû
+    /// positif par BR-CO-25 — message intact, jamais fabriquée (F14 §3.2/O11, EXT01).
+    /// </summary>
+    public string? PaymentDueDate { get; init; }
+
     /// <summary>Type de document UNTDID 1001 (EN 16931 BT-3) — <c>380</c> facture commerciale, en NOMBRE JSON.</summary>
     public required int TypeCode { get; init; }
 

@@ -118,7 +118,8 @@ v1.24.0.beta) **et par des envois sandbox réels** (factures `72187`, `72208` cr
      `type_code` 380 [UNTDID 1001, **NOMBRE JSON** — une chaîne est rejetée « cannot unmarshal JSON
      string into Go model.InvoiceTypeCode »], `currency_code`, `process_control.specification_identifier`
      `urn:cen.eu:en16931:2017` [BT-24], `seller`, `buyer`, `totals` [acompte BT-113 émis, BT-115 par
-     l'identité BR-CO-16], `vat_break_down`, `lines`) ;
+     l'identité BR-CO-16], `payment_due_date` [BT-9, **optionnel** — émis seulement quand le pivot le
+     porte, EXT01], `vat_break_down`, `lines`) ;
   2. `POST /v1.beta/invoices/convert?from=en16931&to=cii` (`application/json`) → XML CII — le
      converter applique les **règles de validation EN 16931 officielles** (`BR-*`, ex. BR-S-02 :
      catégorie S ⇒ n° TVA vendeur obligatoire) et répond `400 {"message":"[BR-…]…"}` sinon ;
@@ -141,13 +142,16 @@ v1.24.0.beta) **et par des envois sandbox réels** (factures `72187`, `72208` cr
   `GET /v1.beta/invoices` et matche `external_id` (la liste n'a PAS de filtre par numéro).
 - **Pré-validation** : `POST /v1.beta/validation_reports` existe pour valider sans envoyer (évite la
   plupart des `api:invalid`) — amélioration future, non requise V1.
-- **Limitation V1 — factures à échéance non soldées (BR-CO-25, constatée sandbox 2026-06-12)** : quand
-  le montant dû (BT-115) est **positif**, EN 16931 exige la date d'échéance (BT-9) ou les conditions de
-  paiement (BT-20) — que le PIVOT ne porte pas encore. Le converter rejette alors avec le message
-  `[BR-CO-25]…`, conservé intact pour l'opérateur (on ne FABRIQUE jamais une échéance — CLAUDE.md n°2).
-  Les factures SOLDÉES (acompte BT-113 = TTC, le cas dominant du paiement comptant aux enchères)
-  passent. Levée : étendre `PivotDocumentDto` avec `paymentDueDate` (BT-9, additif) + `CanonicalJson` +
-  adaptateurs — item d'orchestration dédié (§12 O11).
+- **Échéance non soldée (BR-CO-25) — ✅ levée côté contrat (EXT01, 2026-06-13)** : quand le montant dû
+  (BT-115) est **positif**, EN 16931 exige la date d'échéance (BT-9) ou les conditions de paiement
+  (BT-20). Le pivot porte désormais `PaymentDueDate` (BT-9, additif — F01-F02 §3.1) : le builder l'émet
+  en `payment_due_date` (`yyyy-MM-dd`) quand elle est présente, ce qui satisfait BR-CO-25 et rend
+  émissible une facture à échéance non soldée. **La limitation ne subsiste que pour un pivot SANS
+  échéance** : `PaymentDueDate` reste `null` (jamais FABRIQUÉE — CLAUDE.md n°2), le converter rejette
+  alors avec le message `[BR-CO-25]…` conservé intact. Les factures SOLDÉES (acompte BT-113 = TTC, cas
+  dominant du paiement comptant aux enchères) passent comme avant. L'adaptateur EncheresV6 ne porte pas
+  encore d'échéance (source sans colonne dédiée — écart consigné F01-F02 §4.3). La preuve d'envoi
+  sandbox réel d'une facture à échéance non soldée est portée par `GATE_PIVOT_DUEDATE`.
 - **Avoirs** : inchangé — DR17 liste « avoirs » seulement **« au panel des capacités à vérifier »**
   → capacité `SupportsCreditNotes` **`false`** (§5), passée à `true` uniquement une fois le modèle
   d'avoir (lien avoir→facture amendée, `type_code` 381 + `preceding_invoice_references`) exercé en
@@ -434,7 +438,7 @@ les réponses du §10. **Sans sandbox ouverte** :
 | O8 | Montage marque grise (comptes/KYC/SIREN) | support (§10 q.7) |
 | O9 | Rectification (Flux RE) → `SupportsReportRectification` | sandbox (§10 q.8) |
 | O10 | ✅ **LEVÉ** (2026-06-12) : **polling V1** (`GET /v1.beta/invoices/{id}` confirmé — §3.4) ; webhooks = amélioration future | sandbox (PAS02, §3.4) |
-| O11 | **NOUVEAU (2026-06-12)** : le pivot ne porte pas la date d'échéance (BT-9) → les factures à montant dû positif sont rejetées par BR-CO-25 (message intact — §3.2, limitation V1) ; étendre `PivotDocumentDto`/`CanonicalJson`/adaptateurs | item d'orchestration dédié |
+| O11 | ✅ **LEVÉ côté contrat (2026-06-13, EXT01)** : le pivot porte `PaymentDueDate` (BT-9, additif — F01-F02 §3.1) émise en `payment_due_date` ; une facture à échéance non soldée devient émissible. Subsiste pour un pivot SANS échéance (BR-CO-25 conservé, jamais fabriquée) et pour l'adaptateur EncheresV6 (source sans colonne — écart consigné F01-F02 §4.3). Envoi sandbox réel = `GATE_PIVOT_DUEDATE` | EXT01 + gate |
 
 > Tant qu'un point Oₙ n'est pas levé, la capacité correspondante reste **`false`** et le code ne
 > contient **aucune valeur Super-PDP devinée**. PAS02 figera ces points en sandbox ; PAS03 mettra ce

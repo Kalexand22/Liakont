@@ -99,6 +99,14 @@ public static class CanonicalJson
             writer.WriteString(document.SourceData);
         }
 
+        // EN 16931 BT-9 (PIP/EXT01) : champ ADDITIF en FIN (ADR-0007), émis SEULEMENT s'il est porté —
+        // un document sans échéance produit le JSON canonique INCHANGÉ (hash identique octet par octet).
+        if (document.PaymentDueDate.HasValue)
+        {
+            writer.WritePropertyName("PaymentDueDate");
+            writer.WriteDate(document.PaymentDueDate.Value);
+        }
+
         writer.EndObject();
     }
 

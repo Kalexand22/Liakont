@@ -301,7 +301,8 @@ public sealed class CanonicalJsonRulesTests
             payee: payee,
             isSelfBilled: true,
             prepaidAmount: 100.00m,
-            sourceData: "{\"raw\":\"doc\"}");
+            sourceData: "{\"raw\":\"doc\"}",
+            paymentDueDate: new DateTime(2026, 3, 31));
     }
 
     private static PivotDocumentDto Build(
