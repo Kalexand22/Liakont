@@ -9,11 +9,14 @@ using Stratum.Common.Abstractions.MultiTenancy;
 /// Returns <c>null</c> if the host has fewer than 3 segments (no subdomain)
 /// or if the subdomain is "www".
 /// <para>
-/// Voie CLIENT-FOURNIE (<see cref="IClientSuppliedTenantResolver"/>) : non autoritaire en realm unique
-/// (ADR-0021 §2c) ; un sous-domaine qui contredit le jeton est rejeté par le cross-check (RLM03).
+/// En SaaS mutualisé (mono-host, sans DNS par tenant — ADR-0021 §Conséquences), le sous-domaine est
+/// INCIDENT (ex. « app » dans <c>app.liakont.fr</c>) et N'EST PAS un signal de cross-check : il reste
+/// une voie de repli pour les déploiements dédiés, mais n'est PAS exposé comme
+/// <see cref="IClientSuppliedTenantResolver"/> (réservé aux canaux que le client POSITIONNE
+/// DÉLIBÉRÉMENT, comme l'en-tête <c>X-Tenant-Id</c>).
 /// </para>
 /// </summary>
-internal sealed class SubdomainTenantResolver : IClientSuppliedTenantResolver
+internal sealed class SubdomainTenantResolver : ITenantResolver
 {
     private readonly IHttpContextAccessor _httpContextAccessor;
 

@@ -3,9 +3,9 @@ namespace Liakont.Host.MultiTenancy;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Liakont.Agent.Contracts.Transport;
 using Liakont.Host.Security;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Memory;
 using Stratum.Common.Abstractions.MultiTenancy;
 using Stratum.Common.Abstractions.Security;
 
@@ -20,16 +20,17 @@ using Stratum.Common.Abstractions.Security;
 /// (1) la présence du claim <c>company_id</c> ; (2) que ce <c>company_id</c> résolve, via le registre
 /// autoritaire <see cref="ICompanyTenantLookup"/> (<c>company_id → outbox.tenants → tenant</c>, ADR-0021
 /// §2c), au tenant <b>servi</b> (<see cref="ITenantContext.TenantId"/>) ; (3) qu'aucun indice de tenant
-/// <b>client-fourni</b> (<see cref="IClientSuppliedTenantResolver"/> : sous-domaine, en-tête
-/// <c>X-Tenant-Id</c>) ne <b>contredise</b> le jeton. Absence de claim, divergence ou contradiction ⇒
-/// <b>403</b>, jamais « servir quand même ».
+/// <b>client-fourni délibéré</b> (<see cref="IClientSuppliedTenantResolver"/> : en-tête <c>X-Tenant-Id</c>
+/// — le sous-domaine est exclu en SaaS mutualisé mono-host) ne <b>contredise</b> le jeton. Absence de
+/// claim, divergence ou contradiction ⇒ <b>403</b>, jamais « servir quand même ».
 /// </para>
 /// <para>
 /// Hors périmètre : requêtes <b>anonymes</b> (login, page de suspension, fichiers statiques) ; le
 /// <b>super-admin d'instance</b> (cross-tenant légitime, sans <c>company_id</c> — même court-circuit que
-/// <see cref="TenantSuspensionMiddleware"/>) ; le <b>chemin agent</b> (<c>X-Agent-Key</c>,
-/// <c>AgentApiAuthenticationFilter</c> — « une clé = un agent = un tenant ») qui résout son tenant depuis la
-/// clé API scopée, sans claim <c>company_id</c>. Inséré APRÈS <c>UseAuthentication</c> +
+/// <see cref="TenantSuspensionMiddleware"/>) ; le <b>chemin agent</b> qui n'est PAS authentifié
+/// cookie/OIDC à ce stade (sa clé <c>X-Agent-Key</c> est validée par <c>AgentApiAuthenticationFilter</c>
+/// POSTÉRIEUR) — la garde <c>IsAuthenticated</c> l'écarte sans nécessiter d'exemption par en-tête. Inséré
+/// APRÈS <c>UseAuthentication</c> +
 /// <c>UseStratumMultiTenancy</c> (principal authentifié, tenant résolu) et AVANT <c>UseAuthorization</c>.
 /// Le contrôle PRIMAIRE d'isolation reste le scoping métier des requêtes (CLAUDE.md n°9), inchangé.
 /// </para>
@@ -61,14 +62,15 @@ internal sealed class TenantCompanyCrossCheckMiddleware
         ITenantContext tenantContext,
         IActorContextAccessor actorContextAccessor,
         ICompanyTenantLookup companyTenantLookup,
+        IMemoryCache cache,
         IEnumerable<IClientSuppliedTenantResolver> clientSuppliedResolvers)
     {
-        // Hors périmètre : requête anonyme (le principal OIDC/cookie n'est pas établi) OU chemin agent
-        // (X-Agent-Key). L'agent n'est pas authentifié cookie/OIDC à ce stade — sa clé est validée par un
-        // filtre d'endpoint POSTÉRIEUR — mais on l'écarte AUSSI explicitement par l'en-tête pour rester
-        // correct si un cookie venait un jour à cohabiter avec X-Agent-Key (§2b).
-        if (context.User.Identity?.IsAuthenticated != true
-            || context.Request.Headers.ContainsKey(AgentApiHeaders.AgentKey))
+        // Hors périmètre : requête anonyme (le principal OIDC/cookie n'est pas établi). Le chemin agent
+        // n'est PAS authentifié cookie/OIDC à ce stade — sa clé X-Agent-Key est validée par un filtre
+        // d'endpoint POSTÉRIEUR — la garde IsAuthenticated l'écarte donc naturellement. NE PAS exempter sur
+        // la présence d'un en-tête non validé : un principal authentifié pourrait sinon s'auto-exempter en
+        // ajoutant X-Agent-Key (bypass du cross-check).
+        if (context.User.Identity?.IsAuthenticated != true)
         {
             await _next(context);
             return;
@@ -94,7 +96,29 @@ internal sealed class TenantCompanyCrossCheckMiddleware
         // Voie AUTORITAIRE (§2c) : le tenant DÉRIVE du jeton (company_id → outbox.tenants → tenant). On le
         // re-dérive ICI indépendamment du tenant « servi » — sinon un indice client-fourni qui aurait piloté
         // la résolution (résolveur jeton en échec, registre indisponible) serait accepté en silence.
-        var tokenTenantId = companyTenantLookup.FindTenantId(companyId.Value);
+        // Réutilise le cache 30 s de CompanyClaimTenantResolver (même clé) : pas de round-trip base système
+        // redondant sur le chemin chaud. Fail-CLOSED (403) sur une erreur transitoire du registre : jamais
+        // une rafale de 500 ne doit passer en lieu et place d'un refus sécurisé.
+        var cacheKey = CompanyClaimTenantResolver.CacheKey(companyId.Value);
+        if (!cache.TryGetValue(cacheKey, out string? tokenTenantId))
+        {
+            try
+            {
+                tokenTenantId = companyTenantLookup.FindTenantId(companyId.Value);
+            }
+            catch (Exception)
+            {
+                // Aléa transitoire du registre système : fail-CLOSED (403), jamais une 500 en rafale.
+                tokenTenantId = null;
+            }
+
+            // Ne cacher que les résultats POSITIFS (cohérent avec CompanyClaimTenantResolver).
+            if (tokenTenantId is not null)
+            {
+                cache.Set(cacheKey, tokenTenantId, CompanyClaimTenantResolver.CacheTtl);
+            }
+        }
+
         if (string.IsNullOrEmpty(tokenTenantId))
         {
             await DenyAsync(context, UnknownCompanyMessage);
@@ -108,8 +132,9 @@ internal sealed class TenantCompanyCrossCheckMiddleware
             return;
         }
 
-        // Belt-and-suspenders (§2c) : un indice de tenant CLIENT-FOURNI (sous-domaine, en-tête X-Tenant-Id)
-        // qui CONTREDIT le jeton ⇒ 403 — jamais servi silencieusement comme tenant du jeton. Garde une
+        // Belt-and-suspenders (§2c) : un indice de tenant CLIENT-FOURNI DÉLIBÉRÉ (en-tête X-Tenant-Id ; le
+        // sous-domaine est exclu en mono-host) qui CONTREDIT le jeton ⇒ 403 — jamais servi silencieusement
+        // comme tenant du jeton. Garde une
         // réintroduction future d'un en-tête « de confiance » de fuir en silence (c'est ce 403-sur-
         // contradiction qu'assert le test d'INV-0021-4).
         foreach (var resolver in clientSuppliedResolvers)

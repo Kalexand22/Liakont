@@ -8,6 +8,8 @@ using FluentAssertions;
 using Liakont.Agent.Contracts.Transport;
 using Liakont.Host.MultiTenancy;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Options;
 using Stratum.Common.Abstractions.MultiTenancy;
 using Stratum.Common.Abstractions.Security;
 using Xunit;
@@ -40,14 +42,16 @@ public sealed class TenantCompanyCrossCheckMiddlewareTests
     }
 
     [Fact]
-    public async Task An_agent_request_with_X_Agent_Key_is_out_of_scope_even_if_authenticated()
+    public async Task An_authenticated_user_cannot_self_exempt_with_an_X_Agent_Key_header()
     {
+        // L'exemption par en-tête X-Agent-Key est SUPPRIMÉE : un principal cookie/OIDC authentifié qui
+        // porte ce header ne doit PAS contourner le cross-check. Sans company_id ⇒ fail-closed 403.
         var context = BuildContext(authenticated: true, agentKey: "agent-secret");
 
-        // Même sans company_id : le chemin agent résout son tenant depuis la clé API scopée (hors périmètre).
         await InvokeAsync(context, servedTenant: TenantA, actorCompanyId: null);
 
-        _nextCalled.Should().BeTrue();
+        _nextCalled.Should().BeFalse("un utilisateur authentifié sans company_id est rejeté même avec X-Agent-Key");
+        context.Response.StatusCode.Should().Be(StatusCodes.Status403Forbidden);
     }
 
     [Fact]
@@ -192,11 +196,13 @@ public sealed class TenantCompanyCrossCheckMiddlewareTests
             hints.Add(new FakeClientResolver(hint));
         }
 
+        using var cache = new MemoryCache(Options.Create(new MemoryCacheOptions()));
         await middleware.InvokeAsync(
             context,
             new FakeTenantContext(servedTenant),
             new FakeActorContextAccessor(actorCompanyId),
             new FakeCompanyTenantLookup(lookup ?? new Dictionary<Guid, string>()),
+            cache,
             hints);
     }
 

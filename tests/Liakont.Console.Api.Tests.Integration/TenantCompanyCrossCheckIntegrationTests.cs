@@ -109,4 +109,26 @@ public sealed class TenantCompanyCrossCheckIntegrationTests
 
         response.StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
     }
+
+    [Fact]
+    public async Task A_real_host_subdomain_does_not_cause_a_false_rejection()
+    {
+        // Garde ADR-0021 §Conséquences (topologie mono-host SaaS mutualisé) : le sous-domaine incident
+        // « app » (dans app.localhost) N'EST PAS un signal de cross-check et NE DOIT PAS déclencher un faux-403.
+        // Le résolveur de sous-domaine reste dans la chaîne de résolution (déploiements dédiés) mais n'est
+        // PAS exposé comme IClientSuppliedTenantResolver — il ne participe donc jamais au cross-check.
+        using var client = new HttpClient { BaseAddress = new Uri(_factory.BaseUrl) };
+        client.DefaultRequestHeaders.Add("X-Tenant-Id", ConsoleApiFactory.TenantA);
+        client.DefaultRequestHeaders.Add(TestAuthHandler.UserHeader, ConsoleApiFactory.ReaderUserId.ToString());
+        client.DefaultRequestHeaders.Add(TestAuthHandler.CompanyHeader, ConsoleApiFactory.TenantACompanyId.ToString());
+
+        // Sous-domaine « app » : ni un tenant valide ni une valeur cohérente avec TenantA.
+        // En SaaS mutualisé, il doit être ignoré par le cross-check.
+        client.DefaultRequestHeaders.Host = "app.localhost";
+
+        var response = await client.GetAsync(DocumentsPath);
+
+        // Le sous-domaine incident ne doit pas provoquer un 403 (faux-rejet mono-host).
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
 }
