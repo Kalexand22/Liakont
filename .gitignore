@@ -4,6 +4,9 @@ obj/
 publish/
 packages/
 
+## Packaging agent (OPS05) — sortie de tools/package-agent.ps1, jamais versionnée
+artifacts/
+
 ## IDE
 .vs/
 .idea/
@@ -27,6 +30,9 @@ desktop.ini
 *.p12
 **/config.local.json
 **/*staging-key*
+# Sauvegardes de l'appliance (OPS01b) : l'archive du volume porte le trousseau Data Protection
+# (secret en clair) — jamais versionnée. Dossier par défaut de deploy/docker/backup.sh.
+deploy/docker/backups/
 
 ## Build results
 *.dll
@@ -79,3 +85,7 @@ tmp/
 
 ## Packaging output
 dist/
+
+## Provisioning d'instances (OPS02) — données opérateur, jamais versionnées (seul instances.example.yaml l'est)
+deploy/provisioning/instances.yaml
+deploy/provisioning/instances/

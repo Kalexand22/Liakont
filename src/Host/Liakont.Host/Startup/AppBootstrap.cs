@@ -8,6 +8,8 @@ using Asp.Versioning;
 using Liakont.Host.AgentApi;
 using Liakont.Host.Behaviors;
 using Liakont.Host.Components;
+using Liakont.Host.Configuration;
+using Liakont.Host.FleetApi;
 using Liakont.Host.Localization;
 using Liakont.Host.MultiTenancy;
 using Liakont.Host.Navigation;
@@ -21,6 +23,8 @@ using Liakont.Modules.Archive.Infrastructure;
 using Liakont.Modules.Archive.Web;
 using Liakont.Modules.Documents.Infrastructure;
 using Liakont.Modules.Documents.Web;
+using Liakont.Modules.FleetSupervision.Application;
+using Liakont.Modules.FleetSupervision.Infrastructure;
 using Liakont.Modules.Ingestion.Application;
 using Liakont.Modules.Ingestion.Infrastructure;
 using Liakont.Modules.Ingestion.Web;
@@ -46,6 +50,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -108,6 +113,21 @@ public static class AppBootstrap
         // Common UI services (IToastService, IConnectionStatusService)
         builder.Services.AddCommonUI(builder.Configuration);
 
+        // Persistance du trousseau Data Protection (CFG02) — exigence appliance (F12 §6.2). En
+        // conteneur, sans persistance explicite le trousseau vit dans le système de fichiers ÉPHÉMÈRE
+        // du conteneur : il est RÉGÉNÉRÉ à chaque redéploiement et les secrets tenant chiffrés (clés
+        // API des PA) deviennent ILLISIBLES. Quand DataProtection:KeyRingPath est renseigné (volume
+        // monté), le trousseau y survit. Non renseigné (dev/test) : comportement inchangé — le module
+        // TenantSettings pose déjà ApplicationName "Liakont" sur le trousseau par défaut.
+        var dataProtectionKeyRingPath = builder.Configuration["DataProtection:KeyRingPath"];
+        if (!string.IsNullOrWhiteSpace(dataProtectionKeyRingPath))
+        {
+            Directory.CreateDirectory(dataProtectionKeyRingPath);
+            builder.Services.AddDataProtection()
+                .SetApplicationName("Liakont")
+                .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyRingPath));
+        }
+
         // Infrastructure
         builder.Services.AddStratumDatabase(builder.Configuration);
         builder.Services.AddStratumEvents();
@@ -133,6 +153,12 @@ public static class AppBootstrap
         builder.Services.AddIdentityModule(builder.Configuration);
         builder.Services.AddJobModule(builder.Configuration);
         builder.Services.AddNotificationModule();
+
+        // Branding d'INSTANCE (BRD01, marque grise — blueprint.md §3.3, F12 §6.1) lié depuis la section
+        // "Branding". Valeurs par défaut = marque « Liakont » (aucune donnée client — CLAUDE.md n°7).
+        // Consommé par la coquille (BrandingHead, ErpNav), le transport SMTP ci-dessous (expéditeur + pied
+        // de page) et l'export de réversibilité (Archive lit sa propre tranche de la même section).
+        builder.Services.Configure<BrandingOptions>(builder.Configuration.GetSection(BrandingOptions.SectionName));
 
         // Transport SMTP réel (ADR-0018, SUP03) EN REMPLACEMENT du StubEmailTransport du socle (vendored, NON
         // modifié). Config d'instance liée depuis la section "Smtp" (gabarit vide dans appsettings.json ; mot de
@@ -210,6 +236,20 @@ public static class AppBootstrap
             builder.Configuration.GetSection(SupervisionNotificationOptions.SectionName));
         builder.Services.AddJobHandler<SupervisionDigestTrigger, SupervisionDigestFanOutHandler>("Récapitulatif quotidien de supervision");
 
+        // Méta-supervision de FLOTTE (OPS04, F12 §6) : le niveau AU-DESSUS des tenants — IT Innovations
+        // supervise les INSTANCES (le module Supervision, lui, supervise les tenants d'UNE instance). Une
+        // instance peut tenir le rôle CENTRAL (reçoit les heartbeats, dashboard de flotte, notification de
+        // mise à jour) et/ou REPORTING (envoie sa télémétrie technique au central). Tout est DÉSACTIVÉ par
+        // défaut (section "FleetSupervision", gabarit vide dans appsettings.json) — opt-in par déploiement.
+        // La télémétrie est strictement technique : AUCUNE donnée métier d'éditeur (cloisonnement, OPS04).
+        // Les job handlers sont enregistrés ici (comme supervision/ancrage) ; leur PLANIFICATION (cron) est
+        // un geste opérateur via l'admin des planifications.
+        builder.Services.Configure<FleetSupervisionOptions>(
+            builder.Configuration.GetSection(FleetSupervisionOptions.SectionName));
+        builder.Services.AddFleetSupervisionModule();
+        builder.Services.AddJobHandler<InstanceHeartbeatTrigger, InstanceHeartbeatSendHandler>("Télémétrie d'instance (méta-supervision)");
+        builder.Services.AddJobHandler<FleetUpdateNotificationTrigger, FleetUpdateNotificationHandler>("Notification de mise à jour de la flotte");
+
         // Transmission (PAA01) : registre de types des plug-ins PA. Aucun plug-in n'est référencé ici
         // (le module ne connaît AUCUNE PA concrète — CLAUDE.md n°6) ; chaque plug-in PA (PAA02 Fake,
         // PAB B2Brouter, PAS Super PDP) ajoutera sa propre IPaClientFactory en singleton et le registre
@@ -284,6 +324,21 @@ public static class AppBootstrap
                     factory: _ => new FixedWindowRateLimiterOptions
                     {
                         PermitLimit = 1200,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                    }));
+
+            // Heartbeat de flotte (OPS04) : anti-flood par IP de l'endpoint d'ingestion central. Le heartbeat
+            // est rare (un par instance toutes les quelques minutes) ; la fenêtre est dimensionnée largement
+            // pour ne jamais rejeter une instance légitime, tout en bornant le brute-force de la clé + les
+            // écritures. Même réserve « derrière proxy » que les policies agent (sans ForwardedHeaders, la
+            // fenêtre dégrade en throttle global).
+            options.AddPolicy(FleetApiEndpoints.RateLimiterPolicy, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 120,
                         Window = TimeSpan.FromMinutes(1),
                         QueueLimit = 0,
                     }));
@@ -598,6 +653,17 @@ public static class AppBootstrap
     /// <summary>Configures the HTTP pipeline and maps all endpoints.</summary>
     public static void ConfigureMiddleware(WebApplication app)
     {
+        // Reverse proxy de l'appliance (Caddy, F12 §6.2/6.6) — DOIT être le tout premier middleware :
+        // honorer X-Forwarded-* pour que le SCHÉMA et l'HÔTE publics soient corrects (redirect_uri
+        // OIDC, cookies marqués Secure) et que la fenêtre anti-flood par IP (AddRateLimiter) retrouve
+        // l'IP cliente réelle au lieu de celle du proxy. Confiance STRICTEMENT bornée aux réseaux/proxys
+        // déclarés (voir ForwardedHeadersConfiguration). Désactivé par défaut → accès direct inchangé.
+        var forwardedOptions = ForwardedHeadersConfiguration.Build(app.Configuration.GetSection("ForwardedHeaders"));
+        if (forwardedOptions is not null)
+        {
+            app.UseForwardedHeaders(forwardedOptions);
+        }
+
         app.UseStratumErrorHandling();
         var contentTypeProvider = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
         contentTypeProvider.Mappings[".module"] = "application/javascript";
@@ -802,6 +868,10 @@ public static class AppBootstrap
         // API agent → plateforme (contrat d'ingestion, F12 §3) : groupe /api/agent/v1 distinct de
         // l'API console OIDC, authentifié par clé API (filtre) et protégé par rate limiting.
         app.MapAgentApi();
+
+        // Endpoint central de la flotte (OPS04) : POST /api/fleet/v1/heartbeat, authentifié par clé
+        // d'ingestion (en-tête X-Fleet-Key), actif seulement si le rôle central est activé (sinon 404).
+        app.MapFleetApi();
 
         app.MapRazorComponents<App>()
             .AddAdditionalAssemblies(

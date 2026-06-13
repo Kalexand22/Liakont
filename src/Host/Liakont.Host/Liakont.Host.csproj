@@ -49,6 +49,11 @@
     <ProjectReference Include="..\..\Modules\Reconciliation\Web\Liakont.Modules.Reconciliation.Web.csproj" />
     <ProjectReference Include="..\..\Modules\Supervision\Infrastructure\Liakont.Modules.Supervision.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Supervision\Contracts\Liakont.Modules.Supervision.Contracts.csproj" />
+    <!-- Méta-supervision de flotte (OPS04) : endpoint central, dashboard, jobs (Application pour les options,
+         Infrastructure pour le store/jobs/collecteur, Contracts pour le transport et les lectures). -->
+    <ProjectReference Include="..\..\Modules\FleetSupervision\Application\Liakont.Modules.FleetSupervision.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\FleetSupervision\Infrastructure\Liakont.Modules.FleetSupervision.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\FleetSupervision\Contracts\Liakont.Modules.FleetSupervision.Contracts.csproj" />
     <ProjectReference Include="..\..\Modules\Transmission\Infrastructure\Liakont.Modules.Transmission.Infrastructure.csproj" />
     <!-- Plug-in PA factice (PAA02) câblé au COMPOSITION ROOT uniquement (FIX01d). Seul le Host
          référence un plug-in PA concret (CLAUDE.md n°6/14) ; il n'est activé qu'en Development ou via

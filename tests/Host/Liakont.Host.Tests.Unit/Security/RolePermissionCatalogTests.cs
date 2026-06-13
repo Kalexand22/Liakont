@@ -110,6 +110,26 @@ public sealed class RolePermissionCatalogTests
             [LiakontPermissions.Read, LiakontPermissions.Actions, LiakontPermissions.Settings]);
     }
 
+    [Fact]
+    public void Exploitant_Role_Grants_Only_Fleet_Permission()
+    {
+        // Rôle IT Innovations (OPS04) : la permission liakont.fleet est RÉELLEMENT accordée par un rôle
+        // (sinon le dashboard /flotte ne serait ouvert qu'aux super-admins, contredisant la doc §2/§3).
+        var permissions = RolePermissionCatalog.PermissionsForRoles(["exploitant"]);
+
+        permissions.Should().BeEquivalentTo([LiakontPermissions.Fleet]);
+    }
+
+    [Fact]
+    public void Editor_Roles_Do_Not_Grant_Fleet_Permission()
+    {
+        // Cloisonnement : un rôle éditeur (même cumulé jusqu'au superviseur) ne reçoit JAMAIS liakont.fleet.
+        var permissions = RolePermissionCatalog.PermissionsForRoles(
+            ["lecture", "operateur", "parametrage", "superviseur"]);
+
+        permissions.Should().NotContain(LiakontPermissions.Fleet);
+    }
+
     private static List<string> PermissionValues(ClaimsIdentity identity) =>
         identity.FindAll(RolePermissionCatalog.PermissionClaimType).Select(c => c.Value).ToList();
 }

@@ -41,40 +41,6 @@ public sealed class TenantReversibilityExportService : ITenantReversibilityExpor
     /// <summary>Taille de page (lot) du balayage des documents (tracking) — borne la mémoire par fichier.</summary>
     private const int TrackingPageSize = 200;
 
-    private static readonly string ReversibilityNotice =
-        $$"""
-        NOTICE DE RÉVERSIBILITÉ — DOSSIER COMPLET DU TENANT (LIAKONT)
-        ============================================================
-
-        Ce dossier est l'export de RÉVERSIBILITÉ du tenant (F12 §6.3) : la matière que vous emportez
-        si vous quittez la plateforme. Il réunit, pour votre seul tenant :
-
-        CONTENU DU DOSSIER
-        ------------------
-        - archive/...                 : le coffre d'archive WORM entier (paquets, preuves d'ancrage,
-                                        rapport d'intégrité archive/rapport-integrite.json, notice de
-                                        vérification fiscale). C'est l'enregistrement AUTORITAIRE, complet
-                                        et immuable.
-        - tracking/documents-NNNN.json : les documents du tenant par lots et, pour chacun, sa piste d'audit
-                                        append-only (DocumentEvents). tracking/index.json récapitule.
-        - parametrage/profil.json     : profil du tenant (raison sociale, SIREN…).
-        - parametrage/fiscal.json     : paramétrage fiscal.
-        - parametrage/comptes-pa.json : comptes Plateforme Agréée — les clés API ne sont JAMAIS exportées
-                                        (seul l'indicateur « clé saisie » figure).
-        - parametrage/table-tva.json  : table de mapping TVA + état de validation.
-        - parametrage/planification.json, parametrage/seuils-alerte.json : planification et seuils.
-        - journal/audit.json          : journal d'audit opérateur.
-
-        LIMITES ASSUMÉES
-        ----------------
-        1. Le journal d'audit opérateur (journal/audit.json) contient au plus les {{AuditJournalCap}} entrées
-           les plus récentes (limite de l'interface de lecture).
-        2. La section tracking/ est un INSTANTANÉ « meilleur effort » de l'état vivant des documents :
-           pris pendant une ingestion concurrente, un document peut être omis du tracking. L'enregistrement
-           AUTORITAIRE, complet et immuable reste le coffre WORM (archive/) et la piste d'audit fiscale
-           qu'il scelle. Pour un tracking garanti complet, exporter pendant une fenêtre sans ingestion.
-        """;
-
     private static readonly JsonSerializerOptions ExportJsonOptions = new()
     {
         WriteIndented = true,
@@ -87,6 +53,7 @@ public sealed class TenantReversibilityExportService : ITenantReversibilityExpor
     private readonly ITvaMappingQueries _tvaQueries;
     private readonly IAuditQueries _auditQueries;
     private readonly ITenantContext _tenantContext;
+    private readonly ReversibilityBranding _branding;
 
     public TenantReversibilityExportService(
         IFiscalControlExportService fiscalExport,
@@ -94,7 +61,8 @@ public sealed class TenantReversibilityExportService : ITenantReversibilityExpor
         ITenantSettingsQueries settingsQueries,
         ITvaMappingQueries tvaQueries,
         IAuditQueries auditQueries,
-        ITenantContext tenantContext)
+        ITenantContext tenantContext,
+        ReversibilityBranding? branding = null)
     {
         _fiscalExport = fiscalExport;
         _documentQueries = documentQueries;
@@ -102,6 +70,9 @@ public sealed class TenantReversibilityExportService : ITenantReversibilityExpor
         _tvaQueries = tvaQueries;
         _auditQueries = auditQueries;
         _tenantContext = tenantContext;
+
+        // Repli sur la marque par défaut « Liakont » hors composition root (tests, usage direct).
+        _branding = branding ?? ReversibilityBranding.Default;
     }
 
     public async Task<TenantReversibilityExport> BuildAsync(CancellationToken cancellationToken = default)
@@ -116,7 +87,7 @@ public sealed class TenantReversibilityExportService : ITenantReversibilityExpor
             .OrderBy(f => f.Path, StringComparer.Ordinal)
             .ToList();
 
-        return new TenantReversibilityExport(ordered, ReversibilityNotice);
+        return new TenantReversibilityExport(ordered, BuildReversibilityNotice(_branding));
     }
 
     public async IAsyncEnumerable<FiscalExportFile> StreamAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -145,8 +116,58 @@ public sealed class TenantReversibilityExportService : ITenantReversibilityExpor
         // 4. Journal d'audit opérateur (plafonné, signalé dans la notice).
         yield return await BuildAuditJournalFileAsync(cancellationToken);
 
-        // 5. Notice de réversibilité.
-        yield return new FiscalExportFile("notice-reversibilite.txt", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(ReversibilityNotice));
+        // 5. Notice de réversibilité (brandée au niveau instance — BRD01).
+        yield return new FiscalExportFile("notice-reversibilite.txt", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(BuildReversibilityNotice(_branding)));
+    }
+
+    /// <summary>
+    /// Compose la notice de réversibilité, BRANDÉE au niveau instance (BRD01, marque grise) : le titre porte
+    /// le nom commercial de l'éditeur et, si activée, une mention technique discrète « propulsé par Liakont »
+    /// est ajoutée en pied. Plein texte (le fichier exporté est <c>notice-reversibilite.txt</c>) : aucun
+    /// risque d'injection (la marque vient d'un paramètre d'instance, pas d'une saisie).
+    /// </summary>
+    private static string BuildReversibilityNotice(ReversibilityBranding branding)
+    {
+        string notice =
+            $$"""
+            NOTICE DE RÉVERSIBILITÉ — DOSSIER COMPLET DU TENANT ({{branding.CommercialName}})
+            ============================================================
+
+            Ce dossier est l'export de RÉVERSIBILITÉ du tenant (F12 §6.3) : la matière que vous emportez
+            si vous quittez la plateforme. Il réunit, pour votre seul tenant :
+
+            CONTENU DU DOSSIER
+            ------------------
+            - archive/...                 : le coffre d'archive WORM entier (paquets, preuves d'ancrage,
+                                            rapport d'intégrité archive/rapport-integrite.json, notice de
+                                            vérification fiscale). C'est l'enregistrement AUTORITAIRE, complet
+                                            et immuable.
+            - tracking/documents-NNNN.json : les documents du tenant par lots et, pour chacun, sa piste d'audit
+                                            append-only (DocumentEvents). tracking/index.json récapitule.
+            - parametrage/profil.json     : profil du tenant (raison sociale, SIREN…).
+            - parametrage/fiscal.json     : paramétrage fiscal.
+            - parametrage/comptes-pa.json : comptes Plateforme Agréée — les clés API ne sont JAMAIS exportées
+                                            (seul l'indicateur « clé saisie » figure).
+            - parametrage/table-tva.json  : table de mapping TVA + état de validation.
+            - parametrage/planification.json, parametrage/seuils-alerte.json : planification et seuils.
+            - journal/audit.json          : journal d'audit opérateur.
+
+            LIMITES ASSUMÉES
+            ----------------
+            1. Le journal d'audit opérateur (journal/audit.json) contient au plus les {{AuditJournalCap}} entrées
+               les plus récentes (limite de l'interface de lecture).
+            2. La section tracking/ est un INSTANTANÉ « meilleur effort » de l'état vivant des documents :
+               pris pendant une ingestion concurrente, un document peut être omis du tracking. L'enregistrement
+               AUTORITAIRE, complet et immuable reste le coffre WORM (archive/) et la piste d'audit fiscale
+               qu'il scelle. Pour un tracking garanti complet, exporter pendant une fenêtre sans ingestion.
+            """;
+
+        if (branding.PoweredByLiakont)
+        {
+            notice += "\n\nPlateforme propulsée par Liakont.";
+        }
+
+        return notice;
     }
 
     private static FiscalExportFile JsonFile(string path, object? payload) =>

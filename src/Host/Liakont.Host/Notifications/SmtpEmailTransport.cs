@@ -1,5 +1,7 @@
 namespace Liakont.Host.Notifications;
 
+using System.Text;
+using Liakont.Host.Configuration;
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using Microsoft.Extensions.Logging;
@@ -17,12 +19,15 @@ using Stratum.Modules.Notification.Contracts;
 internal sealed partial class SmtpEmailTransport : IEmailTransport
 {
     private readonly SmtpOptions _options;
+    private readonly BrandingOptions _branding;
     private readonly ILogger<SmtpEmailTransport> _logger;
 
-    public SmtpEmailTransport(IOptions<SmtpOptions> options, ILogger<SmtpEmailTransport> logger)
+    public SmtpEmailTransport(IOptions<SmtpOptions> options, IOptions<BrandingOptions> branding, ILogger<SmtpEmailTransport> logger)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(branding);
         _options = options.Value;
+        _branding = branding.Value;
         _logger = logger;
     }
 
@@ -36,7 +41,7 @@ internal sealed partial class SmtpEmailTransport : IEmailTransport
             return;
         }
 
-        var message = BuildMessage(_options, recipient, subject, body);
+        var message = BuildMessage(_options, _branding, recipient, subject, body);
 
         using var client = new SmtpClient();
         var socketOptions = _options.UseStartTls ? SecureSocketOptions.StartTls : SecureSocketOptions.SslOnConnect;
@@ -55,19 +60,57 @@ internal sealed partial class SmtpEmailTransport : IEmailTransport
 
     /// <summary>
     /// Compose le message MIME. Le sujet et le corps sont en UTF-8 (français accentué — CLAUDE.md n°12).
-    /// Statique et interne pour être testable sans connexion réseau (From / To / Subject / Body).
+    /// L'EXPÉDITEUR (nom + adresse) et le PIED DE PAGE relèvent du branding d'instance (BRD01, marque
+    /// grise) : <see cref="BrandingOptions.EmailFromName"/>/<see cref="BrandingOptions.EmailFromAddress"/>
+    /// l'emportent sur la config SMTP quand ils sont renseignés (l'adresse SMTP reste le repli — le
+    /// serveur d'envoi contraint les expéditeurs autorisés). Statique et interne pour être testable sans
+    /// connexion réseau (From / To / Subject / Body).
     /// </summary>
-    internal static MimeMessage BuildMessage(SmtpOptions options, string recipient, string subject, string body)
+    internal static MimeMessage BuildMessage(SmtpOptions options, BrandingOptions branding, string recipient, string subject, string body)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(branding);
         ArgumentException.ThrowIfNullOrWhiteSpace(recipient);
 
+        string fromName = !string.IsNullOrWhiteSpace(branding.EmailFromName) ? branding.EmailFromName : options.FromName;
+        string fromAddress = EffectiveFromAddress(options, branding);
+
         var message = new MimeMessage();
-        message.From.Add(new MailboxAddress(options.FromName, options.FromAddress));
+        message.From.Add(new MailboxAddress(fromName, fromAddress));
         message.To.Add(MailboxAddress.Parse(recipient));
         message.Subject = subject;
-        message.Body = new TextPart("plain") { Text = body };
+        message.Body = new TextPart("plain") { Text = AppendBrandingFooter(body, branding) };
         return message;
+    }
+
+    /// <summary>
+    /// Adresse d'expéditeur effective : branding d'instance prioritaire, repli sur la config SMTP.
+    /// Sert AUSSI à la garde <see cref="IsConfigured"/> (un transport actif sans adresse reste no-op).
+    /// </summary>
+    internal static string EffectiveFromAddress(SmtpOptions options, BrandingOptions branding) =>
+        !string.IsNullOrWhiteSpace(branding.EmailFromAddress) ? branding.EmailFromAddress : options.FromAddress;
+
+    /// <summary>
+    /// Ajoute le pied de page brandé (marque grise BRD01) : nom commercial, mention de pied facultative et,
+    /// si activée, la mention technique discrète « propulsé par Liakont ». Plein texte (le transport est en
+    /// text/plain) — séparé du corps par le séparateur de signature standard « -- ».
+    /// </summary>
+    internal static string AppendBrandingFooter(string body, BrandingOptions branding)
+    {
+        var sb = new StringBuilder(body);
+        sb.Append("\n\n-- \n");
+        sb.Append(branding.EffectiveCommercialName);
+        if (!string.IsNullOrWhiteSpace(branding.FooterText))
+        {
+            sb.Append('\n').Append(branding.FooterText);
+        }
+
+        if (branding.PoweredByLiakont)
+        {
+            sb.Append("\nPropulsé par Liakont.");
+        }
+
+        return sb.ToString();
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Email envoyé à {Recipient} (sujet : {Subject}).")]
@@ -79,5 +122,5 @@ internal sealed partial class SmtpEmailTransport : IEmailTransport
     private bool IsConfigured() =>
         _options.Enabled
         && !string.IsNullOrWhiteSpace(_options.Host)
-        && !string.IsNullOrWhiteSpace(_options.FromAddress);
+        && !string.IsNullOrWhiteSpace(EffectiveFromAddress(_options, _branding));
 }

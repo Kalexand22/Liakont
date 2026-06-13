@@ -1,0 +1,161 @@
+@page "/flotte"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = LiakontPermissions.Fleet)]
+@using System.Globalization
+@using Microsoft.Extensions.Logging
+@using Liakont.Host.Security
+@using Liakont.Modules.FleetSupervision.Contracts
+@using Liakont.Modules.FleetSupervision.Contracts.DTOs
+@inject IFleetQueries FleetQueries
+@inject ILogger<Flotte> Logger
+
+<PageTitle>Flotte — Liakont</PageTitle>
+
+<h1>Flotte des instances</h1>
+
+@* Méta-supervision de flotte (OPS04) : état des instances supervisées par IT Innovations — versions, santé,
+   alertes (instance muette / sauvegarde en échec / version obsolète). Lecture seule, aucune donnée métier. *@
+<p data-testid="flotte-intro">
+    Supervision des instances de la plateforme (niveau IT Innovations). Aucune donnée métier des éditeurs
+    n'est transportée : seules des métriques techniques (version, santé, nombre de tenants, disque, sauvegarde).
+</p>
+
+@if (_loadFailed)
+{
+    <div role="alert" data-testid="flotte-error">
+        Impossible de charger l'état de la flotte pour le moment. Réessayez plus tard.
+    </div>
+}
+else if (_overview is null)
+{
+    <p data-testid="flotte-loading">Chargement…</p>
+}
+else
+{
+    <section data-testid="flotte-alerts" aria-label="Alertes de la flotte">
+        <h2>Alertes (@_overview.Alerts.Count)</h2>
+        @if (_overview.Alerts.Count == 0)
+        {
+            <p data-testid="flotte-alerts-empty">Aucune alerte sur la flotte.</p>
+        }
+        else
+        {
+            <ul>
+                @foreach (FleetAlertDto alert in _overview.Alerts)
+                {
+                    <li data-testid="flotte-alert-row" data-kind="@alert.Kind">
+                        <span class="flotte-alert__severity">@SeverityLabel(alert.Severity)</span>
+                        — <strong>@alert.DisplayName</strong> : @alert.Message
+                    </li>
+                }
+            </ul>
+        }
+    </section>
+
+    <section aria-label="Instances de la flotte">
+        <h2>Instances (@_overview.Instances.Count)</h2>
+        @if (_overview.Instances.Count == 0)
+        {
+            <p data-testid="flotte-empty">Aucune instance n'a encore envoyé de heartbeat.</p>
+        }
+        else
+        {
+            <table data-testid="flotte-instances" class="table">
+                <thead>
+                    <tr>
+                        <th>Instance</th>
+                        <th>Hébergement</th>
+                        <th>Version</th>
+                        <th>Host</th>
+                        <th>PostgreSQL</th>
+                        <th>Keycloak</th>
+                        <th>Tenants</th>
+                        <th>Disque libre</th>
+                        <th>Dernière sauvegarde</th>
+                        <th>Dernier signe de vie</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (FleetInstanceDto instance in _overview.Instances)
+                    {
+                        <tr data-testid="flotte-instance-row" data-instance-id="@instance.InstanceId">
+                            <td>@instance.DisplayName</td>
+                            <td>@HostingLabel(instance.HostingMode)</td>
+                            <td>@(string.IsNullOrWhiteSpace(instance.Version) ? "—" : instance.Version)</td>
+                            <td>@HealthLabel(instance.HostHealth)</td>
+                            <td>@HealthLabel(instance.DatabaseHealth)</td>
+                            <td>@HealthLabel(instance.KeycloakHealth)</td>
+                            <td>@instance.TenantCount</td>
+                            <td>@FormatBytes(instance.DiskFreeBytes)</td>
+                            <td>@FormatDate(instance.LastSuccessfulBackupUtc)</td>
+                            <td>@FormatDate(instance.LastSeenUtc)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </section>
+}
+
+@code {
+    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+
+    private FleetOverviewDto? _overview;
+    private bool _loadFailed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _overview = await FleetQueries.GetOverviewAsync();
+        }
+        catch (Exception ex)
+        {
+            // L'échec de lecture reste VISIBLE (bandeau) plutôt qu'une liste trompeuse (anti faux-vert).
+            _loadFailed = true;
+            Logger.LogError(ex, "Échec du chargement de l'état de la flotte.");
+        }
+    }
+
+    private static string HealthLabel(InstanceHealthStatus status) => status switch
+    {
+        InstanceHealthStatus.Healthy => "Sain",
+        InstanceHealthStatus.Degraded => "Dégradé",
+        InstanceHealthStatus.Unhealthy => "En échec",
+        _ => "Inconnu",
+    };
+
+    private static string HostingLabel(InstanceHostingMode mode) => mode switch
+    {
+        InstanceHostingMode.SelfHosted => "Self-hosted",
+        _ => "Opérée",
+    };
+
+    private static string SeverityLabel(FleetAlertSeverity severity) => severity switch
+    {
+        FleetAlertSeverity.Critical => "Critique",
+        _ => "Avertissement",
+    };
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes <= 0)
+        {
+            return "—";
+        }
+
+        string[] units = ["o", "Ko", "Mo", "Go", "To"];
+        double value = bytes;
+        int unit = 0;
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
+
+        return string.Format(Fr, "{0:0.#} {1}", value, units[unit]);
+    }
+
+    private static string FormatDate(DateTimeOffset? value) =>
+        value is null ? "—" : value.Value.ToString("dd/MM/yyyy HH:mm", Fr) + " UTC";
+}

@@ -57,8 +57,9 @@ elle peut représenter l'essentiel de la RAM disponible.
    (par instance ou mutualisé) pour les déploiements où l'empreinte est acceptable ; OpenIddict
    in-process envisagé pour les petites appliances self-hosted. Le **seam D10 rend ce choix
    réversible** sans toucher au code métier — il peut être finalisé en début de segment plateforme.
-3. **La topologie de l'IdP retenu** (par instance vs mutualisé) est tranchée à l'**ADR OPS01**
-   (appliance / provisioning), pas ici.
+3. **La topologie de l'IdP retenu** (par instance vs mutualisé) est tranchée à l'**ADR-0020**
+   (OPS01c), pas ici. → Tranché (2026-06-11) : **Keycloak par instance**, empreinte re-mesurée sur
+   la stack appliance (OPS01a), conteneur à plafonner.
 
 ## Conséquences
 
@@ -66,7 +67,7 @@ elle peut représenter l'essentiel de la RAM disponible.
   par la frontière D10 (`IIdentityProviderAuthenticator`).
 - Brancher OpenIddict = ajouter une implémentation de `IIdentityProviderAuthenticator` + son
   provisioning, sans modification des modules métier.
-- À ré-mesurer en charge (sessions, multi-realms) avant la décision OPS01.
+- À ré-mesurer en charge (sessions, multi-realms) avant la décision OPS01 — décision prise : ADR-0020.
 
 ## Références
 

@@ -93,7 +93,7 @@ internal sealed class KeycloakIdentityProviderAuthenticator : IIdentityProviderA
         // Primary realm OIDC handler
         authBuilder.AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, options =>
         {
-            ConfigureOidcOptions(options, kc.Authority, kc.ClientId, kc.ClientSecret, kc.RequireHttpsMetadata, kc.PostLogoutRedirectUri);
+            ConfigureOidcOptions(options, kc.Authority, kc.ClientId, kc.ClientSecret, kc.RequireHttpsMetadata, kc.PostLogoutRedirectUri, kc.MetadataAddress);
         });
 
         // Additional realm OIDC handlers (named "oidc-{realmName}")
@@ -259,9 +259,20 @@ internal sealed class KeycloakIdentityProviderAuthenticator : IIdentityProviderA
         string clientId,
         string clientSecret,
         bool requireHttpsMetadata,
-        string postLogoutRedirectUri = "/login")
+        string postLogoutRedirectUri = "/login",
+        string metadataAddress = "")
     {
         options.Authority = authority;
+
+        // Adresse de découverte EXPLICITE (appliance Docker derrière un reverse proxy, F12 §6.2) :
+        // permet de pointer le back-channel sur l'IdP en réseau INTERNE pendant que l'Authority
+        // publique (issuer + endpoint d'autorisation) reste celle exposée par Keycloak. Vide = la
+        // découverte est dérivée de l'Authority (comportement par défaut, dev/test inchangés).
+        if (!string.IsNullOrWhiteSpace(metadataAddress))
+        {
+            options.MetadataAddress = metadataAddress;
+        }
+
         options.ClientId = clientId;
         options.ClientSecret = clientSecret;
         options.RequireHttpsMetadata = requireHttpsMetadata;

@@ -55,6 +55,13 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
             children.Add(new NavNode { Label = "Supervision", Href = "/supervision" });
         }
 
+        // Flotte : méta-supervision cross-INSTANCE réservée à IT Innovations (OPS04). Le niveau AU-DESSUS de
+        // la supervision (qui est cross-tenant DANS une instance) ; la page /flotte refuse l'accès sans la permission.
+        if (_permissions.HasPermission(LiakontPermissions.Fleet))
+        {
+            children.Add(new NavNode { Label = "Flotte", Href = "/flotte" });
+        }
+
         return new NavNode
         {
             Label = "Liakont",

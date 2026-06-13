@@ -187,7 +187,6 @@
   <data name="PublicMyRequests_CancelReason" xml:space="preserve"><value>Annulé par le demandeur</value></data>
   <data name="PublicMyRequests_CancelSuccess" xml:space="preserve"><value>Demande annulée.</value></data>
   <!-- Login page -->
-  <data name="Login_Title" xml:space="preserve"><value>Stratum ERP</value></data>
   <data name="Login_Submit" xml:space="preserve"><value>Connexion</value></data>
   <data name="Login_RedirectingToProvider" xml:space="preserve"><value>Redirection vers votre fournisseur d'identité…</value></data>
   <data name="Login_Username" xml:space="preserve"><value>Nom d'utilisateur</value></data>
@@ -195,7 +194,6 @@
   <!-- Breadcrumb aria -->
   <data name="Breadcrumb_AriaLabel" xml:space="preserve"><value>Fil d'Ariane</value></data>
   <!-- Sidebar navigation -->
-  <data name="Nav_Brand" xml:space="preserve"><value>Stratum ERP</value></data>
   <data name="Nav_AriaLabel" xml:space="preserve"><value>Navigation principale</value></data>
   <data name="Nav_TreeAriaLabel" xml:space="preserve"><value>Menu</value></data>
   <data name="Nav_ExpandSidebar" xml:space="preserve"><value>Déplier la barre latérale (Ctrl+B)</value></data>

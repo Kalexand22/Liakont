@@ -1,0 +1,16 @@
+# Minimise le contexte de build de l'appliance (deploy/docker/appliance/Dockerfile).
+# Le build du Host (.NET 10) ne requiert que global.json, Directory.*.props et src/.
+# Stratégie liste blanche : tout ignorer, puis ne ré-inclure que le nécessaire.
+*
+!global.json
+!Directory.Build.props
+!Directory.Packages.props
+!.editorconfig
+!src/
+
+# Ré-exclure les artefacts de build présents dans src/ (volumineux, inutiles, potentiellement périmés).
+**/bin/
+**/obj/
+**/TestResults/
+**/.vs/
+**/.idea/

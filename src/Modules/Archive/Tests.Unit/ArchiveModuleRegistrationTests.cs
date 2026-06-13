@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using FluentAssertions;
+using Liakont.Modules.Archive.Application;
 using Liakont.Modules.Archive.Domain;
 using Liakont.Modules.Archive.Infrastructure;
 using Microsoft.Extensions.Configuration;
@@ -37,6 +38,34 @@ public sealed class ArchiveModuleRegistrationTests
         Action act = () => services.AddArchiveModule(configuration);
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*Bogus*");
+    }
+
+    [Theory]
+    [InlineData(null, null, "Liakont", true)]
+    [InlineData("", null, "Liakont", true)]
+    [InlineData("Acme Conformité", "false", "Acme Conformité", false)]
+    [InlineData("Acme Conformité", "true", "Acme Conformité", true)]
+    public void ReadReversibilityBranding_MapsSection(string? name, string? powered, string expectedName, bool expectedPowered)
+    {
+        // Branding d'instance (BRD01) lu depuis la section "Branding" : nom commercial → défaut « Liakont »,
+        // PoweredByLiakont via binder fort (cohérent avec le Host). Couvre le chemin de parsing d'Archive.
+        var settings = new Dictionary<string, string?>();
+        if (name is not null)
+        {
+            settings["Branding:CommercialName"] = name;
+        }
+
+        if (powered is not null)
+        {
+            settings["Branding:PoweredByLiakont"] = powered;
+        }
+
+        IConfiguration configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
+
+        ReversibilityBranding branding = ArchiveModuleRegistration.ReadReversibilityBranding(configuration);
+
+        branding.CommercialName.Should().Be(expectedName);
+        branding.PoweredByLiakont.Should().Be(expectedPowered);
     }
 
     private static ServiceDescriptor AnchorDescriptor(string? method)

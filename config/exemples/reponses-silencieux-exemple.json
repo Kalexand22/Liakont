@@ -1,0 +1,12 @@
+{
+  "_commentaire": "MODÈLE FICTIF de fichier de réponses pour l'installation SILENCIEUSE de l'agent (OPS08b, F13 §3). Il porte les valeurs TENANT saisies au wizard (chaîne ODBC, clé API, URL plateforme, planning, nom d'instance) sous la clé « valeurs », indexées par les mêmes clés que le profil intégrateur. Utilisé pour les déploiements en masse : « Liakont.Agent.Installer.exe --silent <ce-fichier> [--profile <profil.json>] ». Les clés inconnues sont REJETÉES (anti-faux-vert). ATTENTION : un fichier de réponses RÉEL contient des secrets en clair (clé API, identifiants ODBC) — il ne doit JAMAIS être versionné ni journalisé (CLAUDE.md n°10) ; à l'installation, les secrets sont chiffrés DPAPI dans agent.json. Ce fichier-ci ne contient que des valeurs FICTIVES (aucune donnée client réelle, CLAUDE.md n°7).",
+
+  "valeurs": {
+    "instanceName": "ClientExemple",
+    "adapter": "EncheresV6",
+    "platformUrl": "https://liakont.exemple-integrateur.fr",
+    "apiKey": "pk_FICTIF_a_remplacer_par_la_cle_du_tenant",
+    "odbcConnection": "DSN=ExempleSource",
+    "schedule": "03:00,13:00"
+  }
+}

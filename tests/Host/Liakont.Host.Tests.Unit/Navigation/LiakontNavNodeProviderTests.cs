@@ -142,6 +142,23 @@ public sealed class LiakontNavNodeProviderTests
         Labels(root).Should().Contain("Supervision");
     }
 
+    [Fact]
+    public void GetNavNode_Should_Hide_Flotte_Without_Fleet_Permission()
+    {
+        // La méta-supervision de flotte (OPS04) ne s'ouvre pas avec la seule permission de supervision tenant.
+        var root = BuildProvider(permissions: [LiakontPermissions.Supervision]).GetNavNode();
+
+        Labels(root).Should().NotContain("Flotte");
+    }
+
+    [Fact]
+    public void GetNavNode_Should_Show_Flotte_With_Fleet_Permission()
+    {
+        var root = BuildProvider(permissions: [LiakontPermissions.Fleet]).GetNavNode();
+
+        Labels(root).Should().Contain("Flotte");
+    }
+
     private static LiakontNavNodeProvider BuildProvider(
         bool reconciliationAvailable = false,
         int reconciliationPendingCount = 0,

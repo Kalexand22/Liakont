@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Bootstrapper GUI WinForms (F13 §3) : sous-système Windows, pas de console parasite.
+         Les écrans guidés sont livrés par OPS08b ; OPS08a livre le projet + le moteur de profil. -->
+    <OutputType>WinExe</OutputType>
+    <!-- net48 exe : le SDK infère un RuntimeIdentifier pour un build x64. On déclare les deux
+         RID pour qu'UN seul restore couvre x86 ET x64 (comme le service et le CLI). -->
+    <RuntimeIdentifiers>win-x86;win-x64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <!-- Les types de l'installeur restent internal ; le projet de test y accède (moteur de profil mocké). -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Agent.Installer.Tests" />
+  </ItemGroup>
+
+  <!-- Réutilise le cœur agent — AUCUNE logique dupliquée (F13 §3, CLAUDE.md n°6) : la validation du
+       nom d'instance s'appuie sur Liakont.Agent.Core.AgentInstance, le chiffrement DPAPI sur
+       SecretProtector (AGT01), l'écriture/validation de agent.json sur AgentConfigLoader. L'installeur
+       réutilise aussi les commandes d'AGT05 (OPS08b, F13 §3) : sondes de diagnostic OdbcProbe /
+       HttpPlatformProbe (boutons « Tester » du wizard) et CheckConfigCommand (check-config final),
+       d'où la référence au CLI. La liste des adaptateurs embarqués (choix de l'adaptateur de l'écran
+       source) est dérivée des plug-ins réels (EncheresV6Extractor.SourceName), jamais d'un nom inventé.
+       Frontière respectée : l'installeur ne référence que Liakont.Agent.* (blueprint.md §6 ; le test
+       AgentProjectReferenceTests l'impose). -->
+  <ItemGroup>
+    <ProjectReference Include="..\Liakont.Agent.Core\Liakont.Agent.Core.csproj" />
+    <ProjectReference Include="..\Liakont.Agent.Cli\Liakont.Agent.Cli.csproj" />
+    <ProjectReference Include="..\Liakont.Agent.Adapters.EncheresV6\Liakont.Agent.Adapters.EncheresV6.csproj" />
+  </ItemGroup>
+
+  <!-- Détection des instances déjà installées (multi-instances, OPS05 pt 5) : énumération des services
+       Windows « LiakontAgent$* » via System.ServiceProcess (assembly du framework net48). -->
+  <ItemGroup>
+    <Reference Include="System.ServiceProcess" />
+  </ItemGroup>
+
+  <!-- Profil intégrateur déclaratif sérialisé en JSON (Newtonsoft.Json, déjà au catalogue central
+       de l'agent — pas d'ADR pour un nouveau paquet). -->
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" />
+  </ItemGroup>
+
+  <!-- Bootstrapper GUI WinForms (écrans livrés par OPS08b) : assemblies du framework net48 (signés
+       Microsoft). La frontière agent/plateforme (blueprint.md §6) est gardée par AgentBoundaryTests sur
+       les assemblies BIBLIOTHÈQUE (Contracts/Core/Adapters) ; les exe racines de composition (cet
+       installeur, comme le CLI/le service/l'updater) n'y sont pas scannés — l'installeur référence
+       Liakont.Agent.Core (validation nom/chiffrement/agent.json), Liakont.Agent.Cli (réutilisation des
+       sondes AGT05 : OdbcProbe, HttpPlatformProbe, CheckConfigCommand) et
+       Liakont.Agent.Adapters.EncheresV6 (adaptateurs source connus, pour la liste du wizard) — tout au
+       sein de la frontière Liakont.Agent.*, respectée par construction. -->
+  <ItemGroup>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+  </ItemGroup>
+
+</Project>
