@@ -1,6 +1,8 @@
 namespace Liakont.Tests.E2E;
 
+using System;
 using Liakont.Tests.E2E.Pages;
+using Liakont.Tests.E2E.Support;
 using Microsoft.Playwright;
 using Xunit;
 using Xunit.Abstractions;
@@ -87,6 +89,14 @@ public abstract class KeycloakBaseE2ETest : IAsyncLifetime
 
         // Remplit les identifiants et soumet.
         await kcPage.LoginAsync(username, password);
+
+        // 2FA imposé (RLM01) : après le mot de passe, Keycloak présente le formulaire OTP (les
+        // utilisateurs du realm E2E ont un secret TOTP pré-enrôlé dans keycloak-e2e-realm.json). On
+        // calcule le code courant à partir de ce secret et on le soumet. La preuve de l'accord
+        // C# ↔ Keycloak relève de la recette à la GATE ; ici on automatise le second facteur.
+        await kcPage.WaitForOtpAsync();
+        var otpCode = TotpGenerator.Generate(E2EUserOtpSecrets.ForUser(username), DateTimeOffset.UtcNow);
+        await kcPage.SubmitOtpAsync(otpCode);
 
         // Attend la fin de la chaîne de callback OIDC :
         // Keycloak → /signin-oidc → UserSyncService → sign-in cookie → redirection vers l'accueil.
