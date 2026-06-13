@@ -1,4 +1,4 @@
-# ADR-0019 — Realm Keycloak unique partagé : isolation des tenants par claim `company_id`
+# ADR-0021 — Realm Keycloak unique partagé : isolation des tenants par claim `company_id`
 
 - **Statut** : **Accepté** (2026-06-13).
 - **Date** : 2026-06-13
@@ -114,7 +114,7 @@ L'isolation tenant côté identité reposera sur :
   (sous-domaine, header `X-Tenant-Id`) **ne sont plus autoritaires**. Posture explicite : un indice de
   tenant client-fourni qui **contredit** le jeton ⇒ **403** (jamais servi silencieusement comme tenant
   du jeton) — ainsi une réintroduction future d'un header « de confiance » ne peut pas fuir en
-  silence ; c'est ce *403-sur-contradiction* qu'assert le test d'INV-0019-4. Deux préconditions
+  silence ; c'est ce *403-sur-contradiction* qu'assert le test d'INV-0021-4. Deux préconditions
   **structurelles** à graver :
   - `outbox.tenants.company_id` doit être **UNIQUE** — le résolveur est faux si deux tenants
     partagent la valeur ; aujourd'hui c'est un `Guid.NewGuid` (unicité **probabiliste**, pas
@@ -179,20 +179,20 @@ garantit l'unicité d'identité dans le realm partagé.
 > Ces invariants sont la **cible** à satisfaire ; chacun nomme sa **preuve** attendue. Indexation sur
 > le numéro d'ADR (et non sur un item d'orchestration) car cet ADR précède un chantier multi-lots.
 
-- **INV-0019-1** — Un seul realm Keycloak héberge tous les tenants ; le provisioning de tenant ne
+- **INV-0021-1** — Un seul realm Keycloak héberge tous les tenants ; le provisioning de tenant ne
   crée ni realm ni client par tenant. *Preuve* : garde/test prouvant qu'aucun `POST /admin/realms`
   n'est émis dans le chemin de création SaaS partagé.
-- **INV-0019-2** — Tout utilisateur **de tenant** (provisionné **ou déjà seedé** dans `liakont-dev`)
+- **INV-0021-2** — Tout utilisateur **de tenant** (provisionné **ou déjà seedé** dans `liakont-dev`)
   porte un `company_id` **non vide** et **distinct entre tenants** ; l'unicité est **structurelle**
   (contrainte **UNIQUE** sur `outbox.tenants.company_id`), pas seulement probabiliste (`Guid.NewGuid`).
-  Le super-admin d'instance en est **exclu** (sans `company_id`, cf. INV-0019-4). *Preuve* : test
+  Le super-admin d'instance en est **exclu** (sans `company_id`, cf. INV-0021-4). *Preuve* : test
   prouvant (a) aucun utilisateur de tenant sans `company_id` (anti mode de panne §4.24), (b) deux
   utilisateurs de tenants différents portent des `company_id` différents (anti mapper hardcodé),
   (c) la contrainte UNIQUE rejette un doublon.
-- **INV-0019-3** — Le `company_id` est **immuable et non éditable par l'utilisateur** (User Profile
+- **INV-0021-3** — Le `company_id` est **immuable et non éditable par l'utilisateur** (User Profile
   read-only / admin-only, self-service de profil désactivé). *Preuve* : test qu'un appel Account API
   tentant de modifier `company_id` est refusé.
-- **INV-0019-4** — **Cross-check fail-closed** (principal **OIDC/cookie** ; le chemin **agent**
+- **INV-0021-4** — **Cross-check fail-closed** (principal **OIDC/cookie** ; le chemin **agent**
   `X-Agent-Key` est **hors périmètre**, cf. §2b) : une requête d'un **utilisateur de tenant** sans
   claim `company_id`, ou dont le `company_id` ≠ `company_id` du tenant résolu, est **rejetée** (403).
   Le tenant résolu **dérive du jeton** (§2c) ; un indice de tenant **client-fourni** (sous-domaine /
@@ -202,22 +202,22 @@ garantit l'unicité d'identité dans le realm partagé.
   « jeton tenant A + Host/Header tenant B ⇒ 403 », « super-admin sans `company_id` ⇒ accès
   `/supervision` + `/clients` » **et** « requête agent (`X-Agent-Key`) sans `company_id` ⇒ servie ». Le
   contrôle primaire (scoping métier, `CLAUDE.md` n°9) est inchangé.
-- **INV-0019-5** — Le brokering SSO ne relie qu'à un compte **pré-provisionné** (match email avec
+- **INV-0021-5** — Le brokering SSO ne relie qu'à un compte **pré-provisionné** (match email avec
   **`email_verified=true`** de l'IdP externe) ; **jamais d'auto-création** ; un compte sans
   `company_id` n'accède à aucune donnée de tenant. *Preuve* : E2E « broker email inconnu ⇒ pas
   d'auto-création » et « broker email non vérifié ⇒ liaison refusée ».
-- **INV-0019-6** — **Tout** chemin de login (mot de passe **et** brokered) déclenche la projection
+- **INV-0021-6** — **Tout** chemin de login (mot de passe **et** brokered) déclenche la projection
   rôle→permission (ADR-0017) et émet `company_id` ; un login sans claim `permission` ou sans
   `company_id` est un défaut **bloquant**. *Preuve* : test des claims présents sur les deux chemins.
-- **INV-0019-7** — 2FA **imposé** sur le login mot de passe. *Preuve* : test qu'un login sans 2FA
+- **INV-0021-7** — 2FA **imposé** sur le login mot de passe. *Preuve* : test qu'un login sans 2FA
   enrôlé force l'enrôlement.
-- **INV-0019-8** — Email **obligatoire et unique** (`loginWithEmailAllowed=true`,
+- **INV-0021-8** — Email **obligatoire et unique** (`loginWithEmailAllowed=true`,
   `duplicateEmailsAllowed=false`). *Preuve* : config realm vérifiée + test de provisioning.
-- **INV-0019-9** — La couche d'auth reste **derrière l'abstraction IdP** (`CLAUDE.md` n°6) ; le
+- **INV-0021-9** — La couche d'auth reste **derrière l'abstraction IdP** (`CLAUDE.md` n°6) ; le
   middleware de cross-check lit `company_id` via l'abstraction d'acteur (`IActorContext`), **jamais**
   via un type Keycloak (NetArchTest) ; aucun secret provider versionné ni journalisé (n°10/18) ;
   aucune validation Blocking affaiblie ; aucun E2E désactivé pour passer au vert.
-- **INV-0019-10** — Pas d'auto-inscription publique : les comptes restent **provisionnés par
+- **INV-0021-10** — Pas d'auto-inscription publique : les comptes restent **provisionnés par
   l'opérateur** (assistant OPS03) ; email/mot de passe et SSO sont deux **méthodes de connexion** de
   ces comptes.
 
@@ -261,7 +261,7 @@ invalide** pour B — un contrôle *fail-closed structurel*, indépendant de tou
 realm unique, un jeton du tenant A est **cryptographiquement valide partout** ; ce qui distingue A de
 B devient la **valeur d'un claim** + la **discipline du cross-check**. On passe donc d'un *fail-closed
 structurel* à un contrôle **dépendant de la couverture du cross-check** — d'où son exigence
-*fail-closed global* (INV-0019-4) comme **pré-requis bloquant**, et la neutralisation des voies de
+*fail-closed global* (INV-0021-4) comme **pré-requis bloquant**, et la neutralisation des voies de
 résolution client-contrôlées. Le contrôle **primaire** (scoping des requêtes, n°9) est **inchangé**.
 Le realm **master** reste « god mode » dans les **deux** modèles (pas de régression sur la
 compromission opérateur-plateforme) ; en revanche le realm unique **élargit le blast radius** d'une

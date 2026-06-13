@@ -4,9 +4,9 @@
 
 **Status:** Accepted
 
-> **Note Liakont ([ADR-0019](../ADR-0019-realm-keycloak-unique-isolation-par-claim.md), 2026-06-13)** :
+> **Note Liakont ([ADR-0021](../ADR-0021-realm-keycloak-unique-isolation-par-claim.md), 2026-06-13)** :
 > le mapping realm↔tenant laissé ouvert ici (« 1:1 vs shared realm with attributes — a deployment
-> decision, not a code decision ») est tranché pour Liakont par ADR-0019 : **realm unique partagé
+> decision, not a code decision ») est tranché pour Liakont par ADR-0021 : **realm unique partagé
 > `liakont`**, isolation des tenants par claim `company_id` (et non par realm).
 
 ---
