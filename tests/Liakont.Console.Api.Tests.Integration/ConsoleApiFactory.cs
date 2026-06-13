@@ -407,8 +407,9 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
 
         // Tenant vierge (FIX01a) : enregistré dans le catalogue système (outbox.tenants) pour que
         // l'endpoint d'admin le RÉSOLVE (ITenantQueries.GetByIdAsync), mais SANS profil ni identité — un
-        // test y importe un profil via POST /admin/tenants/{id}/seed.
-        await RegisterSystemTenantAsync(systemConn, TenantSeed, "tc_tenant_seed");
+        // test y importe un profil via POST /admin/tenants/{id}/seed. Le company_id du registre est NOT NULL
+        // depuis V017 (RLM02) : on pose la constante dédiée (orthogonale à l'absence de profil).
+        await RegisterSystemTenantAsync(systemConn, TenantSeed, "tc_tenant_seed", TenantSeedCompanyId);
 
         // Tenant de provisioning d'utilisateur (OPS03 lot A) : registre AVEC company_id (le service doit
         // y retomber en l'absence de profil), base migrée pour le compte applicatif identity.users.

@@ -5,12 +5,14 @@ using Microsoft.AspNetCore.Components.Server.Circuits;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Stratum.Common.Abstractions.MultiTenancy;
+using Stratum.Common.Infrastructure.Database;
 
 public static class MultiTenantServiceCollectionExtensions
 {
     /// <summary>
     /// Registers multi-tenant services: tenant context, resolver chain, and composite resolver.
-    /// Resolution order: subdomain > X-Tenant-Id header > tenant_id JWT claim.
+    /// Resolution order: company_id claim (authoritative, ADR-0021 §2c) > subdomain > X-Tenant-Id header
+    /// > OIDC issuer > tenant_id JWT claim.
     /// </summary>
     public static IServiceCollection AddStratumMultiTenancy(
         this IServiceCollection services,
@@ -27,7 +29,18 @@ public static class MultiTenantServiceCollectionExtensions
         services.AddScoped<MutableTenantContext>();
         services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<MutableTenantContext>());
 
-        // Resolver chain — order matters: first registered = highest priority
+        // Authoritative token→tenant lookup (ADR-0021 §2c) : company_id(jeton) → outbox.tenants → tenant.
+        // Sans état (chaîne de connexion système figée) → Singleton.
+        services.AddSingleton<ICompanyTenantLookup, CompanyTenantLookup>();
+
+        // Cache du résolveur company_id→tenant (mapping quasi immuable). AddMemoryCache est idempotent
+        // (TryAdd) — sûr même si déjà enregistré ailleurs (TenantSuspensionLookup).
+        services.AddMemoryCache();
+
+        // Resolver chain — order matters: first registered = highest priority.
+        // CompanyClaimTenantResolver EN PREMIER : voie jeton autoritaire en realm unique (ADR-0021 §2c) ;
+        // les voies client-fournies (sous-domaine, header) ne sont plus la source autoritaire.
+        services.AddScoped<ITenantResolver, CompanyClaimTenantResolver>();
         services.AddScoped<ITenantResolver, SubdomainTenantResolver>();
         services.AddScoped<ITenantResolver, HeaderTenantResolver>();
         services.AddScoped<ITenantResolver, OidcIssuerTenantResolver>();
