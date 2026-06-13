@@ -94,10 +94,12 @@ Avant tout envoi d'un document :
 
 > Le numéro de document (`document_number`) est la clé fonctionnelle ; le `payload_hash` est le garde-fou contre les ré-extractions involontaires.
 >
-> **⚠️ Cas autofacturation (BT-3 = 389) — à amender avant tout code (cf. [F15](F15-Autofacturation-Mandat.md) §3.2 / §6.10) :**
+> **⚠️ Cas autofacturation (BT-3 = 389) — renvoi documentaire, à amender avant tout code (cf. [F15](F15-Autofacturation-Mandat.md) §3.2 / §3.3 / §6.10) :**
 > en flux 389 le « supplier » fiscal est le **mandant**, pas l'émetteur matériel. La clé fonctionnelle devra alors
-> devenir `(tenant, mandant_id, document_number)` (champ `MandatId` additif dans `DuplicateCheckRequest`, prédicat
-> neutralisant la clé SIREN sur un 389). **Non figé** tant que ce § n'est pas amendé par un ADR dédié.
+> **basculer atomiquement** vers `(tenant, mandant_id, document_number)` (champ `MandatId` additif dans
+> `DuplicateCheckRequest`) — **jamais** une simple « neutralisation du SIREN », qui ouvrirait une fenêtre de doublon
+> sur un 389 en attente ré-extrait (F15 §3.3). **Cette note ne modifie pas la règle ci-dessus** : la clé
+> `(supplier_siren, document_number)` du §4 **reste figée** tant que ce § n'est pas amendé par un ADR dédié.
 
 ## 5. Reprise sur incident
 
