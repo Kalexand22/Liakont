@@ -4,7 +4,10 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <!-- Test-project naming convention uses underscores (Method_Should_X) — see repo-standards.md §2 / testing-strategy.md §3. -->
-    <NoWarn>$(NoWarn);CA1707;SA1202</NoWarn>
+    <!-- CA5350 : HMACSHA1 est imposé par RFC 6238 (TOTP) et par l'otpPolicyAlgorithm du realm Keycloak ;
+         TotpGenerator l'utilise pour VÉRIFIER un second facteur de TEST (2FA E2E, RLM01), jamais pour de
+         la confidentialité. Suppression scopée au projet de test. -->
+    <NoWarn>$(NoWarn);CA1707;SA1202;CA5350</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

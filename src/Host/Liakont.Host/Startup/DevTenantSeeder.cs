@@ -99,6 +99,11 @@ internal static partial class DevTenantSeeder
         {
             LogDevTenantAlreadyPresent(logger, options.TenantId);
         }
+
+        // RLM01 : tenants de recette additionnels, amorcés AVEC leur company_id DISTINCT (le default garde
+        // company_id NULL — backfillé en RLM02). Rend l'isolation par claim prouvable de bout en bout
+        // (deux utilisateurs réels → deux company_id). Réutilise la même connexion ; idempotent.
+        await SeedAdditionalDevTenantsAsync(connection, options.AdditionalTenants, logger);
     }
 
     /// <summary>
@@ -317,6 +322,54 @@ internal static partial class DevTenantSeeder
         return mappingSeedFileExists ? DevSeedAction.BackfillMappingTable : DevSeedAction.Skip;
     }
 
+    /// <summary>
+    /// Amorce les tenants de recette additionnels dans <c>outbox.tenants</c> AVEC leur <c>company_id</c>.
+    /// Une entrée incomplète (champ NOT NULL/UNIQUE manquant ou company_id vide) est signalée et ignorée —
+    /// jamais d'insert à moitié. Idempotent (<c>ON CONFLICT DO NOTHING</c>).
+    /// </summary>
+    private static async Task SeedAdditionalDevTenantsAsync(
+        NpgsqlConnection connection,
+        IReadOnlyList<DevAdditionalTenantOptions> additionalTenants,
+        ILogger logger)
+    {
+        const string sql = """
+            INSERT INTO outbox.tenants (id, display_name, admin_email, database_name, realm_name, client_secret, company_id)
+            VALUES (@id, @displayName, @adminEmail, @databaseName, @realmName, @clientSecret, @companyId)
+            ON CONFLICT DO NOTHING
+            """;
+
+        foreach (var tenant in additionalTenants)
+        {
+            if (string.IsNullOrWhiteSpace(tenant.TenantId)
+                || string.IsNullOrWhiteSpace(tenant.RealmName)
+                || string.IsNullOrWhiteSpace(tenant.DatabaseName)
+                || tenant.CompanyId == Guid.Empty)
+            {
+                LogAdditionalTenantSeedIncomplete(logger, tenant.TenantId);
+                continue;
+            }
+
+            await using var command = new NpgsqlCommand(sql, connection);
+            command.Parameters.AddWithValue("id", tenant.TenantId);
+            command.Parameters.AddWithValue("displayName", tenant.DisplayName);
+            command.Parameters.AddWithValue("adminEmail", tenant.AdminEmail);
+            command.Parameters.AddWithValue("databaseName", tenant.DatabaseName);
+            command.Parameters.AddWithValue("realmName", tenant.RealmName);
+            command.Parameters.AddWithValue("clientSecret", (object?)tenant.ClientSecret ?? DBNull.Value);
+            command.Parameters.AddWithValue("companyId", tenant.CompanyId);
+
+            var insertedAdditional = await command.ExecuteNonQueryAsync();
+            if (insertedAdditional > 0)
+            {
+                LogAdditionalTenantSeeded(logger, tenant.TenantId, tenant.CompanyId);
+            }
+            else
+            {
+                LogDevTenantAlreadyPresent(logger, tenant.TenantId);
+            }
+        }
+    }
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "Seed du tenant de dev « {TenantId} » ignoré : RealmName et DatabaseName sont requis (section DevTenantSeed).")]
     private static partial void LogDevTenantSeedIncomplete(ILogger logger, string tenantId);
 
@@ -361,4 +414,10 @@ internal static partial class DevTenantSeeder
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Tenant de dev « {TenantId} » déjà présent — seed ignoré.")]
     private static partial void LogDevTenantAlreadyPresent(ILogger logger, string tenantId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Tenant de recette additionnel « {TenantId} » ignoré : TenantId, RealmName, DatabaseName et un CompanyId non vide sont requis (section DevTenantSeed:AdditionalTenants).")]
+    private static partial void LogAdditionalTenantSeedIncomplete(ILogger logger, string tenantId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Tenant de recette additionnel « {TenantId} » amorcé dans outbox.tenants (company_id {CompanyId}).")]
+    private static partial void LogAdditionalTenantSeeded(ILogger logger, string tenantId, Guid companyId);
 }

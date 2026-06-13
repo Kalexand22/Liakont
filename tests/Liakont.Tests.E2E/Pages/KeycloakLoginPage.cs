@@ -21,6 +21,9 @@ public sealed class KeycloakLoginPage
 
     public ILocator SubmitButton => _page.Locator("#kc-login");
 
+    /// <summary>Champ de saisie du code TOTP (formulaire OTP du thème Keycloak 26, second facteur).</summary>
+    public ILocator OtpInput => _page.Locator("#otp");
+
     public ILocator ErrorAlert => _page.Locator(".alert-error, #input-error, .kc-feedback-text");
 
     /// <summary>Attend que le formulaire de login Keycloak soit complètement chargé.</summary>
@@ -34,6 +37,19 @@ public sealed class KeycloakLoginPage
     {
         await UsernameInput.FillAsync(username);
         await PasswordInput.FillAsync(password);
+        await SubmitButton.ClickAsync();
+    }
+
+    /// <summary>Attend l'affichage du formulaire OTP (second facteur) après la soumission du mot de passe.</summary>
+    public async Task WaitForOtpAsync(float timeout = 30_000)
+    {
+        await OtpInput.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = timeout });
+    }
+
+    /// <summary>Saisit le code TOTP et soumet le formulaire OTP.</summary>
+    public async Task SubmitOtpAsync(string code)
+    {
+        await OtpInput.FillAsync(code);
         await SubmitButton.ClickAsync();
     }
 
