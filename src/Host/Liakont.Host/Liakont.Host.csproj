@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Liakont.Host.Tests.Unit" />
+    <InternalsVisibleTo Include="Liakont.Console.Api.Tests.Integration" />
   </ItemGroup>
 
   <ItemGroup>

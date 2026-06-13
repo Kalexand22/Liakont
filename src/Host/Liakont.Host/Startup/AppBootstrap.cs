@@ -465,6 +465,10 @@ public static class AppBootstrap
         // fail-open documenté) consommé par le filtre de push agent, le middleware et le sign-in.
         builder.Services.AddSingleton<MultiTenancy.ITenantSuspensionLookup, MultiTenancy.TenantSuspensionLookup>();
 
+        // Écran « Clients » (OPS03 lot C) : service console d'administration d'instance — liste des
+        // tenants (registre système + profils par scope), assistant de création, suspension.
+        builder.Services.AddScoped<Clients.IClientConsoleService, Clients.ClientConsoleService>();
+
         // Navigation providers (sidebar)
         builder.Services.AddSingleton<INavSectionProvider, HostNavSectionProvider>();
 

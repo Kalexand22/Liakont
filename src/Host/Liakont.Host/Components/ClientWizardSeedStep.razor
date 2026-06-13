@@ -1,0 +1,103 @@
+@namespace Liakont.Host.Components
+@using System.Collections.Generic
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* Étape 2 de l'assistant « Nouveau client » (OPS03) : import de seed OPTIONNEL, exclusif avec la
+ * saisie manuelle de l'étape 1 (si un seed est choisi, SON profil fait foi). Vue PURE : la liste
+ * des dossiers vient du serveur (racine configurée — jamais de chemin libre). 100 % français. *@
+
+<div class="client-wizard-step" data-testid="client-wizard-seed">
+    <p class="client-wizard-step__hint">
+        Un dossier de seed (<code>deployments/&lt;client&gt;/</code>) importe d'un coup le paramétrage
+        préparé du client : profil, paramètres fiscaux, table TVA, comptes PA (sans aucune clé API).
+        Sans seed, le profil saisi à l'étape précédente est créé tel quel.
+    </p>
+
+    <label class="client-wizard-step__choice">
+        <input type="radio" name="client-wizard-seed-mode" checked="@(!_useSeed)"
+               @onchange="@(() => _useSeed = false)" data-testid="client-wizard-seed-none" />
+        <span>Sans seed — créer le profil saisi à l'étape 1</span>
+    </label>
+    <label class="client-wizard-step__choice">
+        <input type="radio" name="client-wizard-seed-mode" checked="@_useSeed"
+               @onchange="@(() => _useSeed = true)" data-testid="client-wizard-seed-use"
+               disabled="@(SeedDirectories.Count == 0)" />
+        <span>Importer un seed @(SeedDirectories.Count == 0 ? "(aucun dossier disponible sur le serveur)" : string.Empty)</span>
+    </label>
+
+    @if (_useSeed)
+    {
+        <label class="client-wizard-step__field client-wizard-step__field--inline">
+            <span>Dossier de seed</span>
+            <select value="@_seedDirectory" @onchange="@(e => _seedDirectory = e.Value as string ?? string.Empty)"
+                    data-testid="client-wizard-seed-directory">
+                @foreach (var dir in SeedDirectories)
+                {
+                    <option value="@dir">@dir</option>
+                }
+            </select>
+        </label>
+    }
+
+    @if (_validationError is not null)
+    {
+        <div class="client-wizard-step__error" role="alert" data-testid="client-wizard-seed-error">@_validationError</div>
+    }
+
+    <div class="client-wizard-step__actions">
+        <StratumButton Text="Retour"
+                       Variant="ButtonVariant.Secondary"
+                       Outline
+                       Size="ButtonSize.Small"
+                       OnClick="@(_ => OnBack.InvokeAsync())"
+                       TestId="client-wizard-seed-back" />
+        <StratumButton Text="Créer le client"
+                       Variant="ButtonVariant.Primary"
+                       Size="ButtonSize.Small"
+                       OnClick="ContinueAsync"
+                       TestId="client-wizard-seed-continue" />
+    </div>
+</div>
+
+@code {
+    private bool _useSeed;
+    private string _seedDirectory = string.Empty;
+    private string? _validationError;
+
+    /// <summary>Dossiers de seed disponibles sous la racine serveur configurée.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<string> SeedDirectories { get; set; } = [];
+
+    /// <summary>Soumission : (<c>null</c> = sans seed, sinon le NOM du dossier choisi).</summary>
+    [Parameter]
+    public EventCallback<string?> OnContinue { get; set; }
+
+    /// <summary>Retour à l'étape précédente.</summary>
+    [Parameter]
+    public EventCallback OnBack { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        if (_useSeed && string.IsNullOrEmpty(_seedDirectory) && SeedDirectories.Count > 0)
+        {
+            _seedDirectory = SeedDirectories[0];
+        }
+    }
+
+    private async Task ContinueAsync()
+    {
+        if (_useSeed && string.IsNullOrEmpty(_seedDirectory))
+        {
+            _seedDirectory = SeedDirectories.Count > 0 ? SeedDirectories[0] : string.Empty;
+            if (string.IsNullOrEmpty(_seedDirectory))
+            {
+                _validationError = "Aucun dossier de seed disponible : choisissez « Sans seed ».";
+                return;
+            }
+        }
+
+        _validationError = null;
+        await OnContinue.InvokeAsync(_useSeed ? _seedDirectory : null);
+    }
+}

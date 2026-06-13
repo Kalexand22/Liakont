@@ -247,6 +247,11 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     private string _ingestionPdfRoot = string.Empty;
     private string _stagingRoot = string.Empty;
 
+    private string _tenantSeedsRoot = string.Empty;
+
+    /// <summary>Racine des dossiers de seed (TenantSeeds:RootPath) du harness — répertoire temporaire isolé.</summary>
+    public string TenantSeedsRootPath => _tenantSeedsRoot;
+
     /// <summary>Fake du provisioner d'UTILISATEUR Keycloak (OPS03 lot A) — substitué dans le DI, exposé pour les assertions.</summary>
     public FakeKeycloakUserProvisioner KeycloakUsers { get; } = new();
 
@@ -340,6 +345,10 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         builder.Configuration["Keycloak:RequireHttpsMetadata"] = "false";
         builder.Configuration["Keycloak:UseKeycloak"] = "false";
 
+        // Racine des dossiers de seed de l'écran Clients (OPS03 lot C) — répertoire de test isolé.
+        _tenantSeedsRoot = Path.Combine(Path.GetTempPath(), "liakont-console-seeds", Guid.NewGuid().ToString("N"));
+        builder.Configuration["TenantSeeds:RootPath"] = _tenantSeedsRoot;
+
         // Admin Keycloak « configuré » (OPS03 lot A) : les gardes IsConfigured des services de
         // provisioning passent, mais AUCUN appel réel ne part — les deux provisioners Keycloak
         // (realm + utilisateur) sont SUBSTITUÉS par des fakes enregistrés ci-dessous.
@@ -404,6 +413,11 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         // Tenant de provisioning d'utilisateur (OPS03 lot A) : registre AVEC company_id (le service doit
         // y retomber en l'absence de profil), base migrée pour le compte applicatif identity.users.
         await RegisterSystemTenantAsync(systemConn, TenantUserProv, "tc_tenant_userprov", TenantUserProvCompanyId);
+
+        // Utilisateur SystemAdmin dans la base SYSTÈME : exigé par TenantProvisioningService
+        // (SeedTenantAdminAsync copie ses identifiants dans chaque nouveau tenant — OPS03 lot C,
+        // le test de création complète du service console passe par le VRAI ProvisionAsync).
+        await SeedSystemAdminAsync(systemConn);
 
         // Tenant de suspension (OPS03.4 lot B) : registre + identité (refus console exerçable par un
         // lecteur) + profil ACTIF (les tests mutent le statut en SQL et invalident le cache du lookup).
@@ -672,6 +686,41 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         await using var conn = new NpgsqlConnection(connectionString);
         await conn.OpenAsync();
         await SeedIdentityAsync(conn);
+    }
+
+    /// <summary>
+    /// Seed un utilisateur SystemAdmin (rôle système) dans la base SYSTÈME — la copie d'admin du
+    /// provisioning de tenant (<c>SeedTenantAdminAsync</c>) l'exige pour créer un tenant.
+    /// </summary>
+    private static async Task SeedSystemAdminAsync(string systemConnectionString)
+    {
+        await using var conn = new NpgsqlConnection(systemConnectionString);
+        await conn.OpenAsync();
+
+        var roleId = new Guid("99999999-9999-9999-9999-999999999991");
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO identity.roles (id, name, description, is_system)
+            VALUES (@RoleId, 'SystemAdmin', 'Administrateur système (tests)', true)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            new { RoleId = roleId });
+
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO identity.users (id, username, email, display_name, password_hash, is_active)
+            VALUES (@Id, 'system.admin', 'sysadmin@test.local', 'System Admin', 'x', true)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            new { Id = SystemAdminUserId });
+
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO identity.user_roles (user_id, role_id)
+            VALUES (@UserId, @RoleId)
+            ON CONFLICT DO NOTHING
+            """,
+            new { UserId = SystemAdminUserId, RoleId = roleId });
     }
 
     /// <summary>

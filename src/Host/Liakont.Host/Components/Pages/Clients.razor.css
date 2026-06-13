@@ -1,0 +1,49 @@
+/* Écran « Clients » (OPS03) — retour d'action + dialogue de statut. Layout uniquement. */
+
+.clients-feedback {
+    margin-bottom: 1rem;
+    padding: 0.6rem 0.85rem;
+    border: 1px solid var(--color-border, #d1d5db);
+    border-radius: var(--radius-sm, 0.25rem);
+}
+
+.clients-feedback--ok {
+    border-color: var(--color-severity-success-border);
+    background: var(--color-severity-success-bg);
+}
+
+.clients-feedback--error {
+    border-color: var(--color-severity-error-border);
+    background: var(--color-severity-error-bg);
+}
+
+/* Dialogue de confirmation (composant enfant pur) — encadré sous la liste. */
+.clients-feedback + ::deep .client-status-dialog {
+    margin-top: 1rem;
+}
+
+::deep .client-status-dialog {
+    margin-top: 1rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--color-border, #d1d5db);
+    border-radius: var(--radius-sm, 0.25rem);
+    background: var(--color-bg-subtle, #f9fafb);
+}
+
+::deep .client-status-dialog__text {
+    margin: 0 0 0.75rem;
+}
+
+::deep .client-status-dialog__error {
+    margin: 0 0 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-severity-error-border);
+    border-radius: var(--radius-sm, 0.25rem);
+    background: var(--color-severity-error-bg);
+    font-size: 0.875rem;
+}
+
+::deep .client-status-dialog__actions {
+    display: flex;
+    gap: 0.5rem;
+}

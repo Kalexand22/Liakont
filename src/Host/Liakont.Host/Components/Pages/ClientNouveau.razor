@@ -1,0 +1,360 @@
+@page "/clients/nouveau"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = LiakontPermissions.Supervision)]
+@using Liakont.Host.Clients
+@using Liakont.Host.Security
+@using Liakont.Host.Security.Abstractions
+@using Liakont.Modules.Ingestion.Contracts.DTOs
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.Extensions.Configuration
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@inject IClientConsoleService Clients
+@inject IConfiguration Configuration
+
+@* Assistant « Nouveau client » (OPS03) : profil → seed optionnel → CRÉATION (sous-opérations
+ * affichées une à une, chacun de leurs échecs est VISIBLE et réessayable — jamais de rollback
+ * silencieux : la création de tenant est idempotente, une reprise re-passe) → premier utilisateur
+ * (sautable) → premier agent (clé une fois + installeur générique, sautable) → récapitulatif.
+ * Page DÉDIÉE (pas un dialogue : opérations irréversibles, clé à usage unique). La garde de page
+ * (liakont.supervision) est l'unique contrôle du chemin in-process (parité WEB09). 100 % français. *@
+
+<PageTitle>Nouveau client — Liakont</PageTitle>
+
+<div class="client-nouveau" data-testid="client-nouveau">
+    <h1 class="client-nouveau__title" data-testid="client-nouveau-title">Nouveau client</h1>
+
+    <StratumWorkflowStepper Definition="@StepperDefinition" TestId="client-nouveau-stepper" AriaLabel="Étapes de création du client" />
+
+    @switch (_step)
+    {
+        case WizardStep.Profil:
+            <ClientWizardProfilStep Initial="_profil" OnContinue="OnProfilContinue" />
+            break;
+
+        case WizardStep.Seed:
+            <ClientWizardSeedStep SeedDirectories="_seedDirectories" OnContinue="OnSeedContinueAsync" OnBack="@(() => _step = WizardStep.Profil)" />
+            break;
+
+        case WizardStep.Creation:
+            <div class="client-wizard-step" data-testid="client-wizard-creation">
+                <ul class="client-nouveau__ops">
+                    <li data-testid="client-wizard-creation-tenant">
+                        Création du client (base, realm, registre) : @OpLabel(_tenantCreated)
+                        @if (_tenantAlreadyProvisioned)
+                        {
+                            <text> (déjà provisionné — reprise)</text>
+                        }
+                    </li>
+                    <li data-testid="client-wizard-creation-profil">
+                        @(_seedDirectory is null ? "Création du profil saisi" : $"Import du seed « {_seedDirectory} »") : @OpLabel(_profilApplied)
+                    </li>
+                </ul>
+
+                @if (_adminTemporaryPassword is not null)
+                {
+                    <div class="client-wizard-step__secret" data-testid="client-wizard-creation-admin-password">
+                        <p class="client-wizard-step__secret-warning" role="alert">
+                            Mot de passe temporaire du compte d'administration initial du realm — affiché UNE
+                            SEULE FOIS (changement forcé à la première connexion).
+                        </p>
+                        <code data-testid="client-wizard-creation-admin-password-value">@_adminTemporaryPassword</code>
+                    </div>
+                }
+
+                @if (_creationError is not null)
+                {
+                    <div class="client-wizard-step__error" role="alert" data-testid="client-wizard-creation-error">@_creationError</div>
+                }
+
+                <div class="client-wizard-step__actions">
+                    @if (_creationError is not null)
+                    {
+                        <StratumButton Text="@(_creationBusy ? "Reprise en cours…" : "Réessayer")"
+                                       Variant="ButtonVariant.Primary"
+                                       Size="ButtonSize.Small"
+                                       Disabled="@_creationBusy"
+                                       OnClick="ExecuteCreationAsync"
+                                       TestId="client-wizard-creation-retry" />
+                    }
+                    else if (_tenantCreated && _profilApplied)
+                    {
+                        <StratumButton Text="Continuer"
+                                       Variant="ButtonVariant.Primary"
+                                       Size="ButtonSize.Small"
+                                       OnClick="@(_ => _step = WizardStep.Utilisateur)"
+                                       TestId="client-wizard-creation-continue" />
+                    }
+                </div>
+            </div>
+            break;
+
+        case WizardStep.Utilisateur:
+            <ClientWizardUtilisateurStep Roles="LiakontRealmRoles.Descriptions"
+                                         InitialEmail="@_profil?.Email"
+                                         Busy="_userBusy"
+                                         Error="@_userError"
+                                         Result="_userResult"
+                                         OnProvision="ProvisionUserAsync"
+                                         OnSkip="@(() => { _userSkipped = true; _step = WizardStep.Agent; })"
+                                         OnContinue="@(() => _step = WizardStep.Agent)" />
+            break;
+
+        case WizardStep.Agent:
+            <ClientWizardAgentStep IssuedKey="_issuedAgentKey"
+                                   InstallerUrl="@_installerUrl"
+                                   Busy="_agentBusy"
+                                   Error="@_agentError"
+                                   OnRegister="RegisterAgentAsync"
+                                   OnSkip="@(() => { _agentSkipped = true; _step = WizardStep.Recap; })"
+                                   OnContinue="@(() => _step = WizardStep.Recap)" />
+            break;
+
+        default:
+            <div class="client-wizard-step" data-testid="client-wizard-recap">
+                <p data-testid="client-wizard-recap-text">
+                    Client <strong>@_profil?.RaisonSociale</strong> (@_profil?.TenantId) créé.
+                    @(_seedDirectory is null ? "Profil créé depuis la saisie." : $"Paramétrage importé du seed « {_seedDirectory} ».")
+                    @(_userSkipped ? "Premier utilisateur : étape SAUTÉE (à faire plus tard)." : _userResult is { Success: true } ? "Premier utilisateur créé." : string.Empty)
+                    @(_agentSkipped ? "Premier agent : étape SAUTÉE (écran Agents du client)." : _issuedAgentKey is not null ? $"Premier agent enregistré (préfixe de clé {_issuedAgentKey.KeyPrefix})." : string.Empty)
+                </p>
+                <p class="client-wizard-step__hint">
+                    Gestion continue : utilisateurs et rôles supplémentaires via le provisioning
+                    d'utilisateur ; parc d'agents via l'écran Agents du client ; suspension/réactivation
+                    depuis la liste des clients.
+                </p>
+                <div class="client-wizard-step__actions">
+                    <StratumButton Text="Retour à la liste des clients"
+                                   Variant="ButtonVariant.Primary"
+                                   Size="ButtonSize.Small"
+                                   Href="/clients"
+                                   TestId="client-wizard-recap-done" />
+                </div>
+            </div>
+            break;
+    }
+</div>
+
+@code {
+    private enum WizardStep
+    {
+        Profil,
+        Seed,
+        Creation,
+        Utilisateur,
+        Agent,
+        Recap,
+    }
+
+    private WizardStep _step = WizardStep.Profil;
+
+    private ClientWizardProfilData? _profil;
+    private IReadOnlyList<string> _seedDirectories = [];
+    private string? _seedDirectory;
+    private string? _installerUrl;
+
+    private bool _creationBusy;
+    private bool _tenantCreated;
+    private bool _tenantAlreadyProvisioned;
+    private bool _profilApplied;
+    private string? _adminTemporaryPassword;
+    private string? _creationError;
+
+    private bool _userBusy;
+    private bool _userSkipped;
+    private string? _userError;
+    private TenantUserProvisionResult? _userResult;
+
+    private bool _agentBusy;
+    private bool _agentSkipped;
+    private string? _agentError;
+    private AgentKeyIssuedDto? _issuedAgentKey;
+
+    private WorkflowDefinition StepperDefinition => new()
+    {
+        Steps =
+        [
+            new WorkflowStep { Id = "profil", Label = "Profil" },
+            new WorkflowStep { Id = "seed", Label = "Seed" },
+            new WorkflowStep { Id = "creation", Label = "Création" },
+            new WorkflowStep { Id = "utilisateur", Label = "Utilisateur" },
+            new WorkflowStep { Id = "agent", Label = "Agent" },
+            new WorkflowStep { Id = "recap", Label = "Récapitulatif" },
+        ],
+        Edges =
+        [
+            new WorkflowEdge { FromId = "profil", ToId = "seed" },
+            new WorkflowEdge { FromId = "seed", ToId = "creation" },
+            new WorkflowEdge { FromId = "creation", ToId = "utilisateur" },
+            new WorkflowEdge { FromId = "utilisateur", ToId = "agent" },
+            new WorkflowEdge { FromId = "agent", ToId = "recap" },
+        ],
+        CurrentStepId = _step switch
+        {
+            WizardStep.Profil => "profil",
+            WizardStep.Seed => "seed",
+            WizardStep.Creation => "creation",
+            WizardStep.Utilisateur => "utilisateur",
+            WizardStep.Agent => "agent",
+            _ => "recap",
+        },
+    };
+
+    protected override void OnInitialized()
+    {
+        _seedDirectories = Clients.ListSeedDirectories();
+        _installerUrl = Configuration["AgentInstaller:DownloadUrl"];
+    }
+
+    private static string OpLabel(bool done) => done ? "fait" : "en attente";
+
+    private void OnProfilContinue(ClientWizardProfilData profil)
+    {
+        _profil = profil;
+        _step = WizardStep.Seed;
+    }
+
+    private async Task OnSeedContinueAsync(string? seedDirectory)
+    {
+        _seedDirectory = seedDirectory;
+        _step = WizardStep.Creation;
+        await ExecuteCreationAsync();
+    }
+
+    /// <summary>
+    /// Exécute (ou REPREND) la création : tenant puis profil/seed. Chaque sous-opération déjà
+    /// réussie n'est pas rejouée ; un échec est AFFICHÉ avec son action corrective et réessayable.
+    /// Aucun rollback silencieux : un tenant créé reste créé (la liste montre « Profil non créé »
+    /// si l'assistant est abandonné ici — reprise possible avec le même identifiant, idempotent).
+    /// </summary>
+    private async Task ExecuteCreationAsync()
+    {
+        if (_profil is not { } profil || _creationBusy)
+        {
+            return;
+        }
+
+        _creationBusy = true;
+        _creationError = null;
+        StateHasChanged();
+
+        try
+        {
+            if (!_tenantCreated)
+            {
+                var creation = await Clients.CreateTenantAsync(profil.TenantId, profil.RaisonSociale, profil.Email);
+                if (creation.Status != ClientActionStatus.Succeeded)
+                {
+                    _creationError = creation.Message ?? "La création du client a échoué. Réessayez.";
+                    return;
+                }
+
+                _tenantCreated = true;
+                _tenantAlreadyProvisioned = creation.AlreadyProvisioned;
+                _adminTemporaryPassword = creation.AdminTemporaryPassword;
+            }
+
+            if (!_profilApplied)
+            {
+                if (_seedDirectory is { } seedDir)
+                {
+                    var seed = await Clients.ImportSeedAsync(profil.TenantId, seedDir);
+                    if (seed.Status != ClientActionStatus.Succeeded)
+                    {
+                        _creationError = seed.Message ?? "L'import du seed a échoué. Réessayez cette étape.";
+                        return;
+                    }
+                }
+                else
+                {
+                    var saved = await Clients.SaveProfileAsync(profil.TenantId, new ClientProfileInput
+                    {
+                        Siren = profil.Siren,
+                        RaisonSociale = profil.RaisonSociale,
+                        Street = profil.Street,
+                        PostalCode = profil.PostalCode,
+                        City = profil.City,
+                        Country = profil.Country,
+                        ContactEmailAlerte = profil.Email,
+                    });
+                    if (saved.Status != ClientActionStatus.Succeeded)
+                    {
+                        _creationError = saved.Message ?? "L'enregistrement du profil a échoué. Réessayez cette étape.";
+                        return;
+                    }
+                }
+
+                _profilApplied = true;
+            }
+        }
+        finally
+        {
+            _creationBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ProvisionUserAsync((string Email, string Username, string DisplayName, string Role) input)
+    {
+        if (_profil is not { } profil || _userBusy)
+        {
+            return;
+        }
+
+        _userBusy = true;
+        _userError = null;
+        try
+        {
+            var result = await Clients.ProvisionFirstUserAsync(new TenantUserProvisionRequest
+            {
+                TenantId = profil.TenantId,
+                Email = input.Email,
+                Username = input.Username,
+                DisplayName = input.DisplayName,
+                Role = input.Role,
+            });
+
+            if (result.Success)
+            {
+                _userResult = result;
+            }
+            else
+            {
+                _userError = result.ErrorMessage ?? "La création de l'utilisateur a échoué. Réessayez.";
+            }
+        }
+        finally
+        {
+            _userBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RegisterAgentAsync(string agentName)
+    {
+        if (_profil is not { } profil || _agentBusy)
+        {
+            return;
+        }
+
+        _agentBusy = true;
+        _agentError = null;
+        try
+        {
+            var result = await Clients.RegisterFirstAgentAsync(profil.TenantId, agentName);
+            if (result.Status == ClientActionStatus.Succeeded)
+            {
+                _issuedAgentKey = result.IssuedKey;
+            }
+            else
+            {
+                _agentError = result.Message ?? "L'enregistrement de l'agent a échoué. Réessayez.";
+            }
+        }
+        finally
+        {
+            _agentBusy = false;
+            StateHasChanged();
+        }
+    }
+}

@@ -8,6 +8,14 @@ using Stratum.Common.Abstractions.Messaging;
 /// </summary>
 public record SaveTenantProfileCommand : ICommand<Guid>
 {
+    /// <summary>
+    /// Société du tenant CIBLE, pour le chemin console de PROVISIONING (OPS03, assistant « Nouveau
+    /// client » : aucun profil n'existe encore et l'acteur — l'opérateur — porte le company_id de SON
+    /// tenant, jamais celui du tenant cible). Même sémantique de garde que
+    /// <see cref="ImportTenantSeedCommand.CompanyId"/>. <c>null</c> = société du contexte courant.
+    /// </summary>
+    public Guid? CompanyId { get; init; }
+
     public required string Siren { get; init; }
 
     public required string RaisonSociale { get; init; }

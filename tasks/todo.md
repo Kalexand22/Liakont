@@ -4,6 +4,8 @@ Plan approuvé (2026-06-12) : C:\Users\K_ale\.claude\plans\happy-sauteeing-lovel
 Décisions opérateur : package agent = clé + installeur générique ; ordre A → B → C.
 L'opérateur s'absente — dev autonome, recette visuelle à son retour, push après recette.
 
+## Lots A+B — DONE (commit local sur feat/tenant-provisioning, codex CLEAN R3, run-tests 5236 verts)
+
 ## Lot A — Provisioning d'utilisateur dans un realm existant
 - [ ] Socle (provenance §4 OBLIGATOIRE par modif) : KeycloakRealmProvisionRequest.CompanyId ;
       KeycloakRealmProvisioner (mapper company_id hardcodé + UPDATE_PASSWORD/temporary=true) ;

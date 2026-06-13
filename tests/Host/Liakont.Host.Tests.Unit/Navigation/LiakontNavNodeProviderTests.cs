@@ -159,6 +159,26 @@ public sealed class LiakontNavNodeProviderTests
         Labels(root).Should().Contain("Flotte");
     }
 
+    [Fact]
+    public void Supervision_Should_Be_A_Branch_With_Overview_And_Clients()
+    {
+        // OPS03 lot C : Supervision devient un sous-menu — « Vue d'ensemble » (ExactMatch :
+        // /supervision/{tenantId} existe) et « Clients » (administration d'instance).
+        var root = BuildProvider(permissions: [LiakontPermissions.Supervision]).GetNavNode();
+
+        var supervision = root.Children.Single(n => n.Label == "Supervision");
+        supervision.Children.Should().HaveCount(2);
+
+        var overview = supervision.Children[0];
+        overview.Label.Should().Be("Vue d'ensemble");
+        overview.Href.Should().Be("/supervision");
+        overview.ExactMatch.Should().BeTrue();
+
+        var clients = supervision.Children[1];
+        clients.Label.Should().Be("Clients");
+        clients.Href.Should().Be("/clients");
+    }
+
     private static LiakontNavNodeProvider BuildProvider(
         bool reconciliationAvailable = false,
         int reconciliationPendingCount = 0,
