@@ -198,3 +198,19 @@ items:
       - "Recette SSO réelle Google/Microsoft portée par la gate (credentials opérateur)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
+
+  GATE_REALM_UNIQUE:
+    type: gate
+    executor: human
+    title: "Gate (humaine) : realm unique partagé — login tenant, 2FA, isolation cross-check prouvés EN RÉEL"
+    description: |
+      Recette humaine du chantier realm unique (ADR-0021), sur ce que les tests ne couvrent pas seuls.
+      Vérifie EN RÉEL : un utilisateur de tenant (le 2e tenant seedé) se connecte de bout en bout dans
+      le realm partagé (clôt la panne d'origine « un user de tenant ne peut pas se connecter ») ;
+      enrôlement 2FA effectif ; le cross-check bloque un accès cross-tenant (jeton A ⇏ tenant B) ; le
+      provisioning d'un tenant ne crée plus de realm dédié. RLM05 (brokering SSO) est HORS de cette
+      gate (recette SSO réelle Google/Microsoft = credentials opérateur, séparée).
+    acceptance:
+      - "RLM01→RLM04 done et prouvés (séquencement anti faux-vert respecté)"
+      - "Recette réelle : user de tenant connecté de bout en bout dans le realm partagé ; 2FA enrôlé ; cross-check bloque un accès cross-tenant ; provisioning sans realm dédié"
+      - "PR ouverte, CI verte (verify + tests), merge humain"
