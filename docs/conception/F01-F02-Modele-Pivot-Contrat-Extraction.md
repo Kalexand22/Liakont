@@ -71,6 +71,7 @@
 | `Totals` | PivotTotals | BG-22 | ✅ | Totaux de contrôle — comparés à la somme des lignes par F4 |
 | `CreditNoteRef` | PivotDocumentRef? | BT-25 | si avoir | N° + date du document d'origine |
 | `OperationCategory` | enum | mention FR | ✅ | `LivraisonDeBiens` / `PrestationDeServices` / `Mixte` — mention obligatoire réforme, conditionne l'e-reporting de paiement |
+| `PaymentDueDate` | DateTime? | BT-9 | optionnel | **[Ajouté 2026-06-13, EXT01]** Date d'échéance de paiement. Donnée CONTRACTUELLE de la source, **jamais défaultée ni inventée** (CLAUDE.md n°2) : un maillon qui ne la connaît pas laisse `null`. Présente ⇒ lève BR-CO-25 (facture à montant dû positif) ; absente ⇒ champ **omis** du JSON canonique (hash strictement inchangé, ADR-0007). Champ additif en fin de contrat. Voir F14 §3.2/O11 |
 | `SourceData` | dictionnaire | — | optionnel | Données brutes utiles à la traçabilité (régimes source, montants originaux non arrondis) |
 
 ### 3.2 `PivotParty` — un tiers
@@ -185,6 +186,7 @@ public interface IExtractor
 | `ExtractPayments` | lignes `type_ligne='3'` (`montant_ligne`, `date_reglement`, mode) |
 | `ListSourceTaxRegimes` | `SELECT * FROM Regime_tva` → code, libellé, `assujetti_tva`, `vente_ht`, `RegimeMarge`, taux |
 | `Supplier.Siren` | **PAS dans la base** (texte libre) → vient de la config, l'adaptateur le reçoit dans son constructeur |
+| `PaymentDueDate` (BT-9) | **[Écart consigné 2026-06-13, EXT01]** **PAS de colonne d'échéance de paiement** au niveau document dans EncheresV6 (`entete_ba`/`lignes_ba` — `date_reglement` est la date d'un encaissement type 3, pas une échéance). L'adaptateur laisse `null` (jamais de date fabriquée — CLAUDE.md n°2). Conséquence : une facture EncheresV6 **non soldée** (montant dû positif) reste rejetée par BR-CO-25 (F14 §3.2/O11). Le jour où la source exposera l'échéance, mapper la colonne dans `EncheresV6RowMapper` (lecture seule stricte) |
 | `Customer.IsCompanyHint` | `entete_ba.societe` non vide |
 | `SourceTotalGross` | `entete_ba.total_bordereau` |
 | Montants | arrondi 2 déc. (flottants Pervasive sales) ; original conservé dans `SourceData` |

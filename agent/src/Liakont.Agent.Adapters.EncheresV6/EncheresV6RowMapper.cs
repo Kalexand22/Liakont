@@ -106,6 +106,12 @@ internal static class EncheresV6RowMapper
 
         PivotDocumentRefDto[] creditNoteRefs = MapCreditNoteRefs(bordereau, kind, creditNoteOrigin);
 
+        // EN 16931 BT-9 (EXT01) : le schéma EncheresV6 ne documente AUCUNE colonne d'échéance de paiement
+        // au niveau document (entete_ba / lignes_ba — F01-F02 §4.3 ; date_reglement est la date
+        // d'ENCAISSEMENT d'un règlement type 3, PAS une échéance). Écart CONSIGNÉ (F01-F02 §4.3) :
+        // paymentDueDate reste null, jamais de date fabriquée (CLAUDE.md n°2). Conséquence : une facture
+        // EncheresV6 à montant dû positif (non soldée) reste rejetée par BR-CO-25 — comportement documenté ;
+        // le jour où la source exposera l'échéance, mapper la colonne ICI (lecture seule stricte, CLAUDE.md n°5).
         return new PivotDocumentDto(
             sourceDocumentKind: kind,
             number: number,
@@ -128,7 +134,8 @@ internal static class EncheresV6RowMapper
             payee: null,
             isSelfBilled: false,
             prepaidAmount: null,
-            sourceData: BuildDocumentSourceData(bordereau));
+            sourceData: BuildDocumentSourceData(bordereau),
+            paymentDueDate: null);
     }
 
     /// <summary>

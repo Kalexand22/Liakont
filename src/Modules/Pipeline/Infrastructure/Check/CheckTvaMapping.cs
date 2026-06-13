@@ -208,7 +208,8 @@ internal static class CheckTvaMapping
             payee: pivot.Payee,
             isSelfBilled: pivot.IsSelfBilled,
             prepaidAmount: pivot.PrepaidAmount,
-            sourceData: pivot.SourceData);
+            sourceData: pivot.SourceData,
+            paymentDueDate: pivot.PaymentDueDate);
     }
 
     private static string LinePrefix(int index, PivotLineDto line) =>

@@ -63,6 +63,25 @@ internal static class SuperPdpTestData
         customer: new PivotPartyDto("Client Démo", siren: "987654321"),
         lines: [new PivotLineDto("Prestation", 100m, taxes: [new PivotLineTaxDto(20m, 20m, VatCategory.S)])]);
 
+    /// <summary>
+    /// Facture à ÉCHÉANCE NON SOLDÉE : montant dû POSITIF (aucun acompte) + date d'échéance de paiement
+    /// (EN 16931 BT-9, EXT01). Sert à vérifier l'émission de <c>payment_due_date</c> — le cas que BR-CO-25
+    /// exigeait et que le pivot ne portait pas avant EXT01 (F14 §3.2/O11).
+    /// </summary>
+    /// <param name="number">Numéro du document (clé d'idempotence).</param>
+    /// <param name="dueDate">Date d'échéance de paiement (BT-9).</param>
+    public static PivotDocumentDto Invoice20WithDueDate(string number, DateTime dueDate) => new(
+        sourceDocumentKind: "FACTURE",
+        number: number,
+        issueDate: new DateTime(2026, 1, 15),
+        sourceReference: $"SRC-{number}",
+        supplier: new PivotPartyDto("SVV Démo", siren: "123456789", vatNumber: "FR32123456789"),
+        totals: new PivotTotalsDto(100m, 20m, 120m),
+        operationCategory: OperationCategory.LivraisonBiens,
+        customer: new PivotPartyDto("Client Démo", siren: "987654321"),
+        lines: [new PivotLineDto("Prestation", 100m, taxes: [new PivotLineTaxDto(20m, 20m, VatCategory.S)])],
+        paymentDueDate: dueDate);
+
     /// <summary>Même facture mais SANS destinataire : exerce la garde locale d'adressage (F14 §3.2).</summary>
     public static PivotDocumentDto Invoice20WithoutCustomer(string number = "F-2026-009") => new(
         sourceDocumentKind: "FACTURE",

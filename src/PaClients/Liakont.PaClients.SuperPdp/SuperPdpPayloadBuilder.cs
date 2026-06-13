@@ -54,6 +54,11 @@ internal static class SuperPdpPayloadBuilder
         {
             Number = document.Number,
             IssueDate = FormatDate(document.IssueDate),
+
+            // EN 16931 BT-9 (EXT01) : RECOPIÉE du pivot quand elle est portée, sinon OMISE (null) — une
+            // échéance n'est JAMAIS fabriquée (CLAUDE.md n°2). Sa présence lève BR-CO-25 pour un montant
+            // dû positif ; son absence conserve le rejet du converter, message intact (F14 §3.2/O11).
+            PaymentDueDate = document.PaymentDueDate.HasValue ? FormatDate(document.PaymentDueDate.Value) : null,
             TypeCode = SuperPdpDefaults.CommercialInvoiceTypeCode,
             CurrencyCode = document.CurrencyCode,
             ProcessControl = new SuperPdpEnProcessControl
@@ -105,8 +110,9 @@ internal static class SuperPdpPayloadBuilder
     // construction de la source. L'acompte du pivot est émis en BT-113 et le montant dû (BT-115)
     // applique l'identité normative BR-CO-16 (BT-115 = BT-112 − BT-113) — une identité de la norme
     // EN 16931, pas une règle inventée ; soustraction exacte en decimal (CLAUDE.md n°1). NB : un montant
-    // dû POSITIF exige BT-9/BT-20 (BR-CO-25) que le pivot ne porte pas encore — le converter rejette
-    // alors avec son message, conservé intact (F14 §3.2, limitation V1).
+    // dû POSITIF exige BT-9/BT-20 (BR-CO-25). Depuis EXT01, le pivot peut porter BT-9 (PaymentDueDate,
+    // émise ci-dessus dans Build) : présente ⇒ BR-CO-25 satisfaite ; absente ⇒ le converter rejette avec
+    // son message, conservé intact (F14 §3.2/O11 — aucune échéance fabriquée).
     private static SuperPdpEnTotals MapTotals(PivotDocumentDto document) => new()
     {
         SumInvoiceLinesAmount = document.Totals.TotalNet,

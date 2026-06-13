@@ -40,11 +40,30 @@ public sealed class SuperPdpSandboxTests
         var (client, http, tokenProvider) = CreateSandboxClient();
         var document = await BuildPivotFromSandboxCompaniesAsync(http, tokenProvider);
 
+        await SendAndAssertAcceptedAsync(client, document);
+    }
+
+    [Fact]
+    public async Task Sends_An_Unpaid_Pivot_With_Due_Date_For_Real_And_It_Is_Accepted()
+    {
+        // EXT01 / GATE_PIVOT_DUEDATE : la preuve d'envoi RÉEL qui lève BR-CO-25 — une facture à montant
+        // dû POSITIF (NON soldée) PORTANT une date d'échéance (BT-9). Sans BT-9, le converter la rejetterait
+        // par BR-CO-25 ; avec, elle doit être acceptée et suivre un cycle de vie sain (F14 §3.2/O11).
+        var (client, http, tokenProvider) = CreateSandboxClient();
+        var document = await BuildPivotFromSandboxCompaniesAsync(
+            http, tokenProvider, paymentDueDate: DateTime.UtcNow.Date.AddDays(30));
+
+        await SendAndAssertAcceptedAsync(client, document);
+    }
+
+    // Envoi RÉEL + relecture du cycle de vie, avec les assertions de SUCCÈS EXIGÉ (critère de gate, F14 §8) :
+    // la facture est créée (identifiant attribué), part en file (Sending) ou est déjà émise (Issued si fr:201
+    // a été ultra-rapide), et le cycle relu (polling réel, F14 §3.4) ne porte aucun événement d'échec. Un
+    // rejet — local ou PA — est un ÉCHEC de la suite.
+    private static async Task SendAndAssertAcceptedAsync(SuperPdpClient client, PivotDocumentDto document)
+    {
         var sent = await client.SendDocumentAsync(document);
 
-        // SUCCÈS EXIGÉ : la facture est créée côté Super PDP (identifiant attribué) et l'envoi part en
-        // file (Sending) ou est déjà émis (Issued si le cycle fr:201 a été ultra-rapide). Un rejet — local
-        // ou PA — est un ÉCHEC de la suite : c'est le critère de la gate (F14 §8).
         sent.RawResponse.Should().NotBeNullOrEmpty();
         sent.Errors.Should().BeEmpty(
             "un envoi sandbox réussi ne porte aucune erreur (critère de gate — message Super PDP : {0})",
@@ -54,8 +73,6 @@ public sealed class SuperPdpSandboxTests
             "la facture doit être créée et en cours d'envoi (asynchrone) ou émise — jamais rejetée");
         sent.PaDocumentId.Should().NotBeNullOrWhiteSpace("la création aboutie porte l'identifiant attribué par la PA");
 
-        // Relecture du cycle de vie par le polling réel (F14 §3.4) : l'état relu doit rester sain
-        // (en cours ou émis — un event d'échec apparaîtrait en RejectedByPa).
         var status = await client.GetDocumentStatusAsync(sent.PaDocumentId!);
         status.PaDocumentId.Should().Be(sent.PaDocumentId);
         status.RawResponse.Should().NotBeNullOrEmpty();
@@ -95,7 +112,7 @@ public sealed class SuperPdpSandboxTests
     // (GET /v1.beta/invoices/generate_test_invoice?format=en16931 — « the buyer will be randomly picked
     // among the other sandbox companies »). Rien n'est codé en dur : les companies sandbox peuvent changer.
     private static async Task<PivotDocumentDto> BuildPivotFromSandboxCompaniesAsync(
-        HttpClient http, SuperPdpTokenProvider tokenProvider)
+        HttpClient http, SuperPdpTokenProvider tokenProvider, DateTime? paymentDueDate = null)
     {
         var token = await tokenProvider.GetAccessTokenAsync(forceRefresh: false, CancellationToken.None);
 
@@ -114,10 +131,11 @@ public sealed class SuperPdpSandboxTests
         var buyerName = buyer.GetProperty("name").GetString();
         var buyerSiren = buyer.GetProperty("legal_registration_identifier").GetProperty("value").GetString();
 
-        // Numéro unique par exécution (clé d'idempotence external_id — F14 §4.1, anti-doublon). La
-        // facture est SOLDÉE (acompte BT-113 = TTC → montant dû BT-115 = 0) : le cas métier dominant aux
-        // enchères (paiement comptant), et le pivot ne porte pas encore la date d'échéance (BT-9) exigée
-        // par BR-CO-25 quand le montant dû est positif (limitation V1 documentée — F14 §3.2/§12).
+        // Numéro unique par exécution (clé d'idempotence external_id — F14 §4.1, anti-doublon). Deux cas :
+        //  - SANS échéance (paymentDueDate null) → facture SOLDÉE (acompte BT-113 = TTC → montant dû
+        //    BT-115 = 0), cas métier dominant aux enchères (paiement comptant) ;
+        //  - AVEC échéance (BT-9 portée — EXT01) → facture NON SOLDÉE (aucun acompte, montant dû positif) :
+        //    la date d'échéance satisfait BR-CO-25 (F14 §3.2/O11), critère de GATE_PIVOT_DUEDATE.
         var number = "LIAKONT-SBX-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
         return new PivotDocumentDto(
             sourceDocumentKind: "FACTURE",
@@ -136,7 +154,8 @@ public sealed class SuperPdpSandboxTests
                 siren: buyerSiren,
                 address: new PivotAddressDto(countryCode: "FR")),
             lines: [new PivotLineDto("Prestation de test Liakont", 100m, taxes: [new PivotLineTaxDto(20m, 20m, VatCategory.S)])],
-            prepaidAmount: 120m);
+            prepaidAmount: paymentDueDate is null ? 120m : null,
+            paymentDueDate: paymentDueDate);
     }
 
     private static async Task<string> GetAsync(HttpClient http, string bearer, string url)

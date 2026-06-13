@@ -42,6 +42,12 @@ public sealed class PivotDocumentDto
     /// <param name="isSelfBilled">Indicateur BRUT d'auto-facturation porté par la source (ADR-0004 D3-6).</param>
     /// <param name="prepaidAmount">Montant déjà payé / acompte (EN 16931 BT-113), pour le chaînage acompte→solde.</param>
     /// <param name="sourceData">Données source brutes utiles à la traçabilité (JSON), montants originaux non arrondis.</param>
+    /// <param name="paymentDueDate">
+    /// Date d'échéance de paiement (EN 16931 BT-9), donnée CONTRACTUELLE de la source — JAMAIS inventée ni
+    /// défaultée (CLAUDE.md n°2) : un maillon qui ne la connaît pas la laisse <c>null</c>. Paramètre ADDITIF
+    /// en fin de constructeur (ADR-0007) : un appelant existant reste valide, et le hash canonique d'un
+    /// document sans échéance est INCHANGÉ (champ optionnel omis — F01-F02 §3.1, F14 §3.2/O11).
+    /// </param>
     public PivotDocumentDto(
         string sourceDocumentKind,
         string number,
@@ -60,7 +66,8 @@ public sealed class PivotDocumentDto
         PivotPartyDto? payee = null,
         bool isSelfBilled = false,
         decimal? prepaidAmount = null,
-        string? sourceData = null)
+        string? sourceData = null,
+        DateTime? paymentDueDate = null)
     {
         SourceDocumentKind = sourceDocumentKind;
         Number = number;
@@ -80,6 +87,7 @@ public sealed class PivotDocumentDto
         IsSelfBilled = isSelfBilled;
         PrepaidAmount = prepaidAmount;
         SourceData = sourceData;
+        PaymentDueDate = paymentDueDate;
     }
 
     /// <summary>Type de document de la source, BRUT (ADR-0004 D3-3).</summary>
@@ -135,4 +143,11 @@ public sealed class PivotDocumentDto
 
     /// <summary>Données source brutes utiles à la traçabilité (JSON).</summary>
     public string? SourceData { get; }
+
+    /// <summary>
+    /// Date d'échéance de paiement (EN 16931 BT-9), <c>null</c> si la source ne la porte pas — jamais
+    /// défaultée (CLAUDE.md n°2). Levée la limitation BR-CO-25 pour les factures à montant dû positif
+    /// (F14 §3.2/O11) : émise vers la PA seulement quand elle est présente.
+    /// </summary>
+    public DateTime? PaymentDueDate { get; }
 }
