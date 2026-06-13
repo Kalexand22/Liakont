@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Dapper;
 using DbUp;
+using DbUp.Engine;
 using FluentAssertions;
 using Npgsql;
 using Stratum.Common.Infrastructure.Database;
@@ -13,10 +14,10 @@ using Testcontainers.PostgreSql;
 using Xunit;
 
 /// <summary>
-/// Prouve le BACKFILL de la migration V017 (ADR-0021 §2c / RLM02) sur le chemin de MISE À NIVEAU :
-/// un tenant <c>default</c> hérité avec <c>company_id = NULL</c> (état post-V016) est backfillé vers le
-/// company_id canonique de dev quand V017 s'applique. <see cref="DatabaseFixture"/> migre tout d'un coup
-/// (et ne seede aucun <c>default</c>), donc ce cas exige une migration en DEUX PASSES sur une base fraîche.
+/// Prouve le BACKFILL et la garde fail-closed de la migration V017 (ADR-0021 §2c / RLM02) sur le chemin
+/// de MISE À NIVEAU. <see cref="DatabaseFixture"/> migre tout d'un coup (et ne seede aucun <c>default</c>),
+/// donc ces cas exigent une migration en DEUX PASSES sur une base fraîche. xUnit instancie la classe (et
+/// donc le conteneur) une fois par méthode de test : chaque test part d'une base vierge.
 /// </summary>
 public sealed class V017BackfillTests : IAsyncLifetime
 {
@@ -37,7 +38,7 @@ public sealed class V017BackfillTests : IAsyncLifetime
         EnsureOutboxSchema(connectionString);
 
         // Passe 1 : migrer jusqu'à V016 inclus → outbox.tenants existe, company_id nullable.
-        RunMigrations(connectionString, version => version <= 16);
+        RunMigrations(connectionString, version => version <= 16).Successful.Should().BeTrue();
 
         await using (var connection = new NpgsqlConnection(connectionString))
         {
@@ -56,7 +57,7 @@ public sealed class V017BackfillTests : IAsyncLifetime
         }
 
         // Passe 2 : appliquer V017 → backfill + NOT NULL + UNIQUE.
-        RunMigrations(connectionString, version => version == 17);
+        RunMigrations(connectionString, version => version == 17).Successful.Should().BeTrue();
 
         await using (var connection = new NpgsqlConnection(connectionString))
         {
@@ -70,7 +71,36 @@ public sealed class V017BackfillTests : IAsyncLifetime
         }
     }
 
-    private static void RunMigrations(string connectionString, Func<int, bool> versionFilter)
+    [Fact]
+    public async Task V017_Fails_With_Explicit_Message_When_A_Non_Default_Tenant_Has_Null_CompanyId()
+    {
+        var connectionString = _container.GetConnectionString();
+        EnsureOutboxSchema(connectionString);
+        RunMigrations(connectionString, version => version <= 16).Successful.Should().BeTrue();
+
+        await using (var connection = new NpgsqlConnection(connectionString))
+        {
+            await connection.OpenAsync();
+
+            // Tenant orphelin (NULL) AUTRE que `default` : V017 ne doit PAS inventer sa société — il
+            // échoue avec un message opérateur explicite qui le nomme (CLAUDE.md n°12), pas une
+            // not_null_violation brute.
+            await connection.ExecuteAsync(
+                """
+                INSERT INTO outbox.tenants (id, display_name, admin_email, database_name, realm_name)
+                VALUES ('legacy-orphan', 'Legacy', 'a@b.test', 'db_legacy', 'realm_legacy')
+                """);
+        }
+
+        var result = RunMigrations(connectionString, version => version == 17);
+
+        result.Successful.Should().BeFalse("un tenant sans company_id (hors default) bloque la mise à niveau");
+        result.Error.Should().NotBeNull();
+        result.Error!.Message.Should().Contain(
+            "legacy-orphan", "le message nomme le tenant fautif pour guider l'opérateur");
+    }
+
+    private static DatabaseUpgradeResult RunMigrations(string connectionString, Func<int, bool> versionFilter)
     {
         var assembly = typeof(MigrationRunner).Assembly;
         var upgrader = DeployChanges.To
@@ -84,8 +114,7 @@ public sealed class V017BackfillTests : IAsyncLifetime
             .LogToNowhere()
             .Build();
 
-        var result = upgrader.PerformUpgrade();
-        result.Successful.Should().BeTrue(result.Error?.ToString());
+        return upgrader.PerformUpgrade();
     }
 
     private static bool MatchesVersion(string scriptName, Func<int, bool> versionFilter)

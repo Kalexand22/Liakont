@@ -33,6 +33,10 @@ public static class MultiTenantServiceCollectionExtensions
         // Sans état (chaîne de connexion système figée) → Singleton.
         services.AddSingleton<ICompanyTenantLookup, CompanyTenantLookup>();
 
+        // Cache du résolveur company_id→tenant (mapping quasi immuable). AddMemoryCache est idempotent
+        // (TryAdd) — sûr même si déjà enregistré ailleurs (TenantSuspensionLookup).
+        services.AddMemoryCache();
+
         // Resolver chain — order matters: first registered = highest priority.
         // CompanyClaimTenantResolver EN PREMIER : voie jeton autoritaire en realm unique (ADR-0021 §2c) ;
         // les voies client-fournies (sous-domaine, header) ne sont plus la source autoritaire.
