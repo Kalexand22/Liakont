@@ -713,8 +713,20 @@ le registre de realms par-tenant depuis la base en profil partagé (les `realm_n
 vestigiaux) — uniquement en dédié ; le realm partagé reste enregistré via `Keycloak:RealmTenantMap`.
 Tests : `NoOpKeycloakRealmProvisionerTests`, `RealmProvisionerRegistrationTests` (le seam : le partagé
 résout le no-op, le dédié le vrai), `KeycloakRealmProvisionerTests` (recadré au profil dédié, §4.24),
-et l'E2E de clôture `TenantLoginSharedRealmE2ETests` (un utilisateur de tenant se connecte dans le
-realm partagé).
+`TenantProvisioningRealmSeamIntegrationTests` (consommation du seam par `ProvisionAsync`, Testcontainers,
+les deux directions de la garde), et l'E2E de clôture `TenantLoginSharedRealmE2ETests` (un utilisateur
+de tenant **seedé** se connecte dans le realm partagé).
+
+**Dette ouverte assumée (onboarding d'un NOUVEL utilisateur en realm partagé)** : RLM04 sort le
+provisioner de *realm* du chemin SaaS partagé, mais ne touche PAS le provisioner d'*utilisateur*
+(`src/Host/Liakont.Host/Security/Keycloak/KeycloakTenantUserProvisioner.cs`, OPS03 lot A). Celui-ci
+crée encore le compte dans `tenant.RealmName` (= `stratum-{tenantId}`, vestigial en partagé) → l'onboarding
+d'un nouvel utilisateur via l'assistant opérateur cible un realm inexistant (404 Keycloak) dans le profil
+partagé par défaut. L'E2E de clôture couvre un utilisateur **pré-seedé** (RLM01), pas un utilisateur
+**fraîchement provisionné**. Correctif = item de suivi (faire cibler le realm PARTAGÉ — `PrimaryRealmName` —
+en profil partagé, l'attribut `company_id` par-utilisateur étant déjà posé de façon cohérente avec
+`outbox.tenants.company_id` ; + recréation des comptes de recette dans le realm partagé, ADR-0021 §État
+actuel vs cible). Hors périmètre du seam de *realm* RLM04.
 
 ## 5. ADR du socle hérités
 

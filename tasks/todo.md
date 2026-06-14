@@ -42,7 +42,9 @@ Segment realm-unique (feat/tenant-provisioning), ADR-0021 §1/§5. Sous-branche 
 ### E — Provenance + vérif
 - [x] E1. provenance §4.28 + bloc SOCLE-CONSIGNED-DRIFT (+ ServiceCollectionExtensions.cs)
 - [x] E2. verify-fast PASS (socle-provenance-check vert)
-- [x] E3. run-tests PASS (5587 tests ; E2E exclu = gate-validé)
+- [x] E3. run-tests PASS (5589 tests) ; E2E login EXÉCUTÉ localement (run-e2e -Filter Login : 2/2 PASS — LoginShell + TenantLoginSharedRealm)
 - [ ] E4. codex-review CLEAN / P2 accepté
+      - R1 : 2 P2 (régression realmCreated ; consommation non testée) → corrigés (garde sur Authority ; test d'intégration Testcontainers)
+      - R2 : 0 P1, 2 P2 → P2#1 (E2E non exécuté) RÉSOLU (E2E exécuté 2/2) ; P2#2 (provisioning utilisateur en realm partagé, hors périmètre seam) = dette consignée §4.28 + tâche de suivi
 
 ## Review (rempli en fin de session)
