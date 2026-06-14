@@ -205,13 +205,15 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
 
                 realmCreated = !kcResult.AlreadyProvisioned;
 
-                // Shared SaaS realm seam (Liakont RLM04, ADR-0021 §1/§5) : en profil PARTAGÉ le
-                // provisioner est le no-op → AlreadyProvisioned=true → realmCreated=false → ni
-                // enregistrement de realm par tenant ni redirect par sous-domaine (code devenu
-                // vestigial en realm unique, gardé par le seam). Le redirect statique default.localhost
-                // (realm-export.json) n'est pas touché (FIX07a). Le profil DÉDIÉ mono-tenant crée un
-                // realm → realmCreated=true → la mécanique d'origine s'applique.
-                if (realmCreated)
+                // Shared SaaS realm seam (Liakont RLM04, ADR-0021 §1/§5) : le no-op du profil PARTAGÉ
+                // ne provisionne aucun realm et renvoie une AUTORITÉ VIDE → ni enregistrement de realm
+                // par tenant ni redirect par sous-domaine (code devenu vestigial en realm unique). Le
+                // vrai provisioner (profil DÉDIÉ) renvoie l'autorité du realm — qu'il vienne d'être créé
+                // (Created) OU qu'il préexiste (Idempotent, chemin de REPRISE) — et la mécanique d'origine
+                // s'applique INCONDITIONNELLEMENT pour lui (ré-enregistrement idempotent du realm pour la
+                // validation JWT, comme avant RLM04 — sinon une reprise laisserait le realm non enregistré).
+                // Le redirect statique default.localhost (realm-export.json) n'est pas touché (FIX07a).
+                if (!string.IsNullOrEmpty(kcResult.Authority))
                 {
                     // Register realm for immediate JWT validation (no restart needed)
                     _realmRegistry.RegisterRealm(realmName, request.TenantId, authority);

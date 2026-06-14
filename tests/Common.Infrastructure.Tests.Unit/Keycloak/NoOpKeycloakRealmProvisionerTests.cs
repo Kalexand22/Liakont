@@ -33,9 +33,11 @@ public sealed class NoOpKeycloakRealmProvisionerTests
 
         Assert.True(result.Success);
 
-        // AlreadyProvisioned=true ⇒ realmCreated=false dans TenantProvisioningService.ProvisionAsync ⇒
-        // aucun enregistrement de realm ni redirect par tenant (nettoyage vestigial gardé par le seam).
+        // Prémisse de la garde de TenantProvisioningService.ProvisionAsync : aucun realm provisionné ⇒
+        // AUTORITÉ VIDE ⇒ `if (!string.IsNullOrEmpty(kcResult.Authority))` est faux ⇒ aucun enregistrement
+        // de realm ni redirect par tenant (nettoyage vestigial gardé par le seam, jamais un fake muet).
         Assert.True(result.AlreadyProvisioned);
+        Assert.True(string.IsNullOrEmpty(result.Authority));
     }
 
     [Fact]

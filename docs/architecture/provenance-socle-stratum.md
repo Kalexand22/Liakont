@@ -698,11 +698,14 @@ consigné pour la re-convergence NuGet, marqué `// Liakont addition (RLM04)`) :
   de dérive socle).
 - `src/Common/Infrastructure/Database/TenantProvisioningService.cs` (déjà en dérive §4.24/§4.26) :
   dans `ProvisionAsync`, l'enregistrement du realm (`IRealmRegistry.RegisterRealm`) et l'ajout du
-  redirect par sous-domaine (`AddTenantRedirectUriAsync`) sont désormais sous `if (realmCreated)`
-  (`realmCreated = !kcResult.AlreadyProvisioned`). Le no-op renvoyant `AlreadyProvisioned=true`, ces
-  deux gestes vestigiaux ne s'exécutent plus en profil partagé ; ils restent actifs dans le dédié
-  (realm réellement créé). Le redirect statique `default.localhost` (realm-export.json, FIX07a) n'est
-  pas touché — le nettoyage cible les redirects par tenant provisionné.
+  redirect par sous-domaine (`AddTenantRedirectUriAsync`) sont désormais gardés par
+  `if (!string.IsNullOrEmpty(kcResult.Authority))`. Le no-op renvoie une **autorité vide** → ces deux
+  gestes vestigiaux ne s'exécutent plus en profil partagé. Le vrai provisioner (profil dédié) renvoie
+  l'autorité du realm — qu'il vienne d'être créé (`Created`) OU qu'il préexiste (`Idempotent`, chemin
+  de **reprise**) — donc la mécanique d'origine reste **inconditionnelle** pour lui (ré-enregistrement
+  idempotent du realm pour la validation JWT, sans régression du chemin de reprise). Le redirect
+  statique `default.localhost` (realm-export.json, FIX07a) n'est pas touché — le nettoyage cible les
+  redirects par tenant provisionné.
 
 **Code Liakont hors socle (pas de consignation requise, cité pour contexte)** :
 `src/Host/Liakont.Host/Startup/AppBootstrap.cs` (`SeedRealmRegistryFromDatabaseAsync`) ne seede plus
