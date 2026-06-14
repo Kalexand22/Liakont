@@ -104,7 +104,12 @@ meta:
   #   provisionné ne pouvait pas se connecter). 5 items RLM01→05 + GATE_REALM_UNIQUE (humaine).
   #   Segment sur feat/tenant-provisioning (RLM bâtit sur le lot A OPS03, pas encore sur main) ;
   #   depends_on_gate GATE_CONSOLE_WEB. RLM05 (brokering SSO) = fast-follow HORS gate (creds opérateur).
-  version: 22
+  # version 23 = lot RLF (Realm-unique Follow-ups) : findings consignés à la recette de
+  #   GATE_REALM_UNIQUE (2026-06-15), hors périmètre du correctif de gate (F1/F2/F6 livrés, PR #46).
+  #   6 items RLF01→06 (seed dev tenant2, faux-vert migration socle, gating nav opérateur, super-admin
+  #   cross-tenant [design], 2FA realm-level, câblage prod appliance). Backlog « à faire », non rattaché
+  #   à un segment/gate (à planifier). Détails : tasks/recette-gate-realm-unique.md + items/RLF.yaml.
+  version: 23
   host: multi_agent_v1
 
 segments:
@@ -443,3 +448,16 @@ items:
   - { id: RLM04, lot: RLM, priority: 9030, depends_on: [RLM03] }
   - { id: GATE_REALM_UNIQUE, type: gate, executor: human, priority: 9090, depends_on: [RLM04] }
   - { id: RLM05, lot: RLM, priority: 9100, depends_on: [RLM01, RLM03] }
+
+  # ── RLF (Realm-unique Follow-ups) — findings recette GATE_REALM_UNIQUE, backlog à planifier ──
+  # INERTE (non routable) tant que non planifié : non rattaché à un segment/gate ET absent de state.yaml.
+  # ⚠️ À LA PLANIFICATION, dans CET ORDRE : (1) rattacher RLF aux `lots:` d'un segment — existant ou
+  #   neuf, comme FIX3→console-polish — pour lui donner une branche cible ; (2) SEULEMENT ENSUITE seeder
+  #   les items dans $ORCH_REPO/state.yaml. Seeder le state sans segment = runner incapable de résoudre
+  #   la branche (protocol.md Step 3). NE PAS seeder state.yaml tant que RLF n'est pas dans un segment.
+  - { id: RLF01, lot: RLF, priority: 9200, depends_on: [] }
+  - { id: RLF02, lot: RLF, priority: 9210, depends_on: [] }
+  - { id: RLF03, lot: RLF, blueprint: blazor-page-item, priority: 9220, depends_on: [] }
+  - { id: RLF04, lot: RLF, blueprint: docs-spec-item, priority: 9230, depends_on: [] }
+  - { id: RLF05, lot: RLF, priority: 9240, depends_on: [] }
+  - { id: RLF06, lot: RLF, blueprint: tooling-item, priority: 9250, depends_on: [] }

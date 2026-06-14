@@ -1,0 +1,106 @@
+# Lot RLF — Realm-unique Follow-ups : findings consignés à la recette de GATE_REALM_UNIQUE (2026-06-15),
+# hors périmètre du correctif de gate (F1/F2/F6 livrés sur feat/tenant-provisioning, PR #46).
+# Source détaillée (symptôme, cause racine, direction de fix) : tasks/recette-gate-realm-unique.md.
+# Backlog « à faire », non rattaché à un segment/gate — à planifier ultérieurement.
+# Règles non négociables inchangées (CLAUDE.md) : montants decimal, aucune règle fiscale inventée,
+# DocumentEvent append-only, scoping tenant, secrets jamais versionnés, socle vendored → provenance.
+
+items:
+  RLF01:
+    title: "Seed dev du 2e tenant : aligner database_name sur le nom dérivé (stratum_<id>) — base joignable"
+    description: |
+      Finding F3. Le 2e tenant de DEV (`tenant2`) est inscrit avec `database_name=liakont_tenant2`,
+      mais le runtime (`TenantAwareNpgsqlConnectionFactory`) dérive `{DatabasePrefix=stratum_}{id}` =
+      `stratum_tenant2` (jamais créée). Résultat : login `tenant2` OK (tenant résolu par company_id),
+      mais toute requête base plante (`3D000 database "stratum_tenant2" does not exist` — dashboard,
+      suspension, langue). C'est une incohérence du SEED DE DEV (`appsettings.Development.json`
+      `DevTenantSeed.AdditionalTenants[].DatabaseName`), pas du chemin de provisioning produit (qui,
+      lui, est cohérent — `ProvisionAsync` crée `stratum_<id>`).
+      Fix : aligner `DatabaseName` du seed dev sur le nom dérivé (ou retirer le champ et laisser la
+      dérivation faire foi), et créer/migrer la base du 2e tenant au démarrage de dev.
+    acceptance:
+      - "Le 2e tenant de dev a une base migrée JOIGNABLE : login + tableau de bord sans erreur 3D000"
+      - "Cohérence database_name (registre) ↔ nom dérivé runtime (test ou assertion)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RLF02:
+    title: "Faux-vert MigrateExistingTenantsAsync : une base de tenant injoignable ne doit pas compter comme « migrée »"
+    description: |
+      Finding F4. Au démarrage, `MigrateExistingTenantsAsync` (socle Stratum vendored) journalise
+      « X/X tenant(s) updated » alors qu'une base de tenant n'existe pas : l'échec d'ouverture
+      (`NpgsqlException`) est « skippé » silencieusement sans baisser le compteur ni alerter
+      visiblement. Faux-vert (règle review #8) : un tenant cassé est masqué par un log vert.
+      Fix : une base de tenant absente/injoignable doit être SIGNALÉE (warning explicite + ne pas la
+      compter comme migrée, voire échouer selon la politique), jamais un compteur trompeur.
+      ⚠️ Socle vendored (`src/Common/Infrastructure/Database/TenantProvisioningService.cs`) →
+      consigner dans `docs/architecture/provenance-socle-stratum.md` (règle 11/20).
+    acceptance:
+      - "Une base de tenant injoignable n'est PAS comptée « migrée » : compteur honnête + alerte tracée"
+      - "Test prouvant le comportement (un tenant sans base → non compté / signalé)"
+      - "Modification socle consignée (provenance + bloc SOCLE-CONSIGNED-DRIFT) ; socle-provenance-check exit 0"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RLF03:
+    title: "Gater les entrées de navigation opérateur par permission (matrice §3) + policy sur les pages"
+    description: |
+      Finding F5a. `LiakontNavNodeProvider` ajoute Documents / Encaissements / Traitements /
+      Paramétrage SANS aucune garde de permission (contrairement à Supervision/Flotte, gardées) →
+      un utilisateur `lecture` (lecture seule) voit « Traitements » (besoin `liakont.actions`) et
+      « Paramétrage » (besoin `liakont.settings`) qu'il ne peut pas utiliser. Les pages ne portent
+      que `[Authorize]` (aucune policy) → ouvrables par tout authentifié.
+      Fix : gater chaque entrée par sa permission §3 (comme Supervision/Flotte) ET poser la policy
+      correspondante sur les pages. Le super-admin garde l'accès large via le court-circuit
+      `HasPermission` (statut explicite cross-tenant). Aucune logique métier dans les pages.
+    acceptance:
+      - "Chaque entrée opérateur gardée par sa permission §3 ; un `lecture` ne voit plus Traitements/Paramétrage"
+      - "Pages Documents/Encaissements/Traitements/Paramétrage gardées par `[Authorize(Policy = ...)]`"
+      - "Tests (bUnit nav + garde de page) couvrant la visibilité par rôle"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RLF04:
+    title: "Décision design : super-admin agissant cross-tenant sur les documents (sélecteur de tenant + audit)"
+    description: |
+      Finding F5b (design, pas un simple fix). Aujourd'hui le super-admin d'instance n'a PAS de
+      contexte tenant (le tenant courant vient du claim `company_id`, qu'il n'a pas) → cliquer
+      « Documents » est un cul-de-sac. Deux directions possibles, à TRANCHER :
+        (1) masquer les entrées tenant-scopées au super-admin (il n'a pas de tenant) ; ou
+        (2) ouvrir l'action cross-tenant via un SÉLECTEUR de tenant explicite + s'appuyer sur l'audit
+            existant — `DocumentEvent` (append-only) capture déjà `OperatorIdentity`/`OperatorName`,
+            les actions manuelles l'EXIGENT → action super-admin tracée nominativement.
+      Livrable : décision écrite (ADR ou note d'architecture), aucune règle inventée. Si (2), spec du
+      sélecteur + garantie d'audit avant tout code.
+    acceptance:
+      - "Décision tranchée et tracée dans docs/ (ADR ou note) : (1) masquer, ou (2) sélecteur + audit"
+      - "Si (2) : spec du sélecteur de tenant + preuve que l'action super-admin est auditée (DocumentEvent)"
+      - "Aucune règle/permission inventée ; cohérent avec ADR-0021 (super-admin cross-tenant)"
+  RLF05:
+    title: "2FA realm-level : CONFIGURE_TOTP en action par défaut (dev + E2E) + preuve de config statique"
+    description: |
+      Finding F6-A (durcissement de F6). F6 force le 2FA au CHEMIN DE PROVISIONING (le provisioner
+      ajoute `CONFIGURE_TOTP` aux RequiredActions). Durcissement realm-level : faire de
+      `CONFIGURE_TOTP` une action PAR DÉFAUT du realm sur les DEUX realms (dev `realm-export.json` +
+      E2E `keycloak-e2e-realm.json`, principe « deux realms »), pour que TOUT chemin de création
+      (console admin Keycloak, brokering RLM05, scripts) impose le 2FA — pas seulement le provisioner.
+      + preuve de config STATIQUE (assertion sur le realm JSON, sans credentials).
+    acceptance:
+      - "CONFIGURE_TOTP est action PAR DÉFAUT du realm sur les DEUX realms (dev + E2E)"
+      - "Preuve de config statique : test asserte la config sur le(s) realm(s) JSON (sans credentials)"
+      - "Un utilisateur créé HORS provisioner (ex. console admin) enrôle aussi le 2FA"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RLF06:
+    title: "Appliance prod : câbler Host→Keycloak Admin (creds) + PrimaryRealmName pour le provisioning d'utilisateur"
+    description: |
+      Finding F7 (découvert au correctif CI de F2). Le compose appliance
+      (`deploy/docker/appliance/docker-compose.yml`, service `liakont`) ne pose NI les credentials
+      d'admin Keycloak du Host (`Keycloak__AdminBaseUrl`/`AdminUsername`/`AdminPassword`) NI
+      `Keycloak__PrimaryRealmName`. Conséquence : en prod, le provisioning d'UTILISATEUR de tenant est
+      non fonctionnel (`IsConfigured=false` → « IdP non configuré » ; et realm partagé non configuré).
+      Gap PRÉ-EXISTANT (avant F2, le provisioning prod était déjà cassé). Fix déploiement :
+        - `Keycloak__PrimaryRealmName: liakont` (realm partagé prod) ;
+        - creds admin Keycloak du Host via env/secret manager — JAMAIS versionnés (CLAUDE.md n°10/18).
+    acceptance:
+      - "L'appliance câble PrimaryRealmName=liakont + les creds admin Keycloak du Host (via env/secret)"
+      - "Provisioning d'utilisateur de tenant fonctionnel en prod (chemin réel testé en recette)"
+      - "Aucun secret versionné ni journalisé (n°10/18)"
+      - "verify-fast passes"
