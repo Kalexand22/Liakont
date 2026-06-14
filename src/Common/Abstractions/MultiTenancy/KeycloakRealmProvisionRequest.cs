@@ -17,20 +17,12 @@ public sealed class KeycloakRealmProvisionRequest
     /// <summary>OIDC client secret for the "stratum" client in this realm.</summary>
     public required string ClientSecret { get; init; }
 
-    /// <summary>Admin user email for the initial realm user.</summary>
-    public required string AdminEmail { get; init; }
-
-    /// <summary>Admin username for the initial realm user.</summary>
-    public required string AdminUsername { get; init; }
-
-    /// <summary>Temporary password for the admin user.</summary>
-    public required string AdminPassword { get; init; }
-
     /// <summary>
-    /// Stratum user ID (Guid) to set as the <c>stratum_user_id</c> attribute
-    /// on the Keycloak admin user, linking it to the seeded DB user.
+    /// Company ID (Guid) emitted as a HARDCODED <c>company_id</c> claim by the realm's
+    /// OIDC client — every user of the realm carries it (one tenant = one company),
+    /// so data scoping works without per-user attributes.
     /// </summary>
-    public required string StratumUserId { get; init; }
+    public required string CompanyId { get; init; }
 
     /// <summary>
     /// Allowed redirect URIs for the OIDC client (e.g., "https://localhost:55995/*").

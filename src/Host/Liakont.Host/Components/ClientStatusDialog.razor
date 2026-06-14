@@ -1,0 +1,73 @@
+@namespace Liakont.Host.Components
+@using Liakont.Host.Clients
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* ClientStatusDialog — confirmation de suspension/réactivation d'un client (OPS03.4). Vue PURE
+ * (aucune injection — testable en bUnit) : la page orchestre l'appel réel. Le texte dit les
+ * CONSÉQUENCES RÉELLES (lot B) : push agent refusé sans perte, connexions refusées, données
+ * intactes, reprise automatique à la réactivation. 100 % français. *@
+
+<div class="client-status-dialog" role="dialog"
+     aria-label="@(Suspendre ? "Confirmer la suspension" : "Confirmer la réactivation")"
+     data-testid="client-status-dialog">
+    <p class="client-status-dialog__text" data-testid="client-status-dialog-text">
+        @if (Suspendre)
+        {
+            <text>Vous allez SUSPENDRE le client « @Line.DisplayName ». Ses agents ne pourront plus envoyer
+                de documents (sans perte : les documents restent dans leur file locale) et ses utilisateurs ne
+                pourront plus se connecter. <strong>Ses données restent intégralement conservées.</strong>
+                La réactivation rétablit tout automatiquement.</text>
+        }
+        else
+        {
+            <text>Vous allez RÉACTIVER le client « @Line.DisplayName » : ses agents reprennent leurs envois
+                automatiquement et ses utilisateurs peuvent se reconnecter.</text>
+        }
+    </p>
+
+    @if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <div class="client-status-dialog__error" role="alert" data-testid="client-status-dialog-error">@Error</div>
+    }
+
+    <div class="client-status-dialog__actions">
+        <StratumButton Text="@(Busy ? "En cours…" : Suspendre ? "Confirmer la suspension" : "Confirmer la réactivation")"
+                       Variant="ButtonVariant.Primary"
+                       Size="ButtonSize.Small"
+                       Disabled="@Busy"
+                       OnClick="@(_ => OnConfirm.InvokeAsync())"
+                       TestId="client-status-dialog-confirm" />
+        <StratumButton Text="Annuler"
+                       Variant="ButtonVariant.Secondary"
+                       Outline
+                       Size="ButtonSize.Small"
+                       Disabled="@Busy"
+                       OnClick="@(_ => OnCancel.InvokeAsync())"
+                       TestId="client-status-dialog-cancel" />
+    </div>
+</div>
+
+@code {
+    /// <summary>Client concerné.</summary>
+    [Parameter, EditorRequired]
+    public ClientConsoleLine Line { get; set; } = null!;
+
+    /// <summary>Action en cours (boutons désactivés).</summary>
+    [Parameter]
+    public bool Busy { get; set; }
+
+    /// <summary>Message d'échec de la dernière tentative, ou <c>null</c>.</summary>
+    [Parameter]
+    public string? Error { get; set; }
+
+    /// <summary>Confirmation demandée.</summary>
+    [Parameter]
+    public EventCallback OnConfirm { get; set; }
+
+    /// <summary>Annulation demandée.</summary>
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    private bool Suspendre => Line.Statut == ClientStatut.Actif;
+}

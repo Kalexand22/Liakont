@@ -339,6 +339,10 @@ public sealed class AgentManagementConsoleServiceTests
 
         public Task<Guid?> GetCurrentCompanyId(CancellationToken ct = default) => Task.FromResult(_companyId);
 
+        /// <summary>Statut du tenant courant : null = pas de profil = ACTIF (defaut neutre des tests).</summary>
+        public Task<string?> GetCurrentTenantStatut(CancellationToken ct = default) =>
+            Task.FromResult<string?>(null);
+
         public Task<bool> GetAuctionVerticalEnabled(Guid companyId, CancellationToken ct = default) => Task.FromResult(false);
 
         public Task<AlertThresholdsDto?> GetAlertThresholds(Guid companyId, CancellationToken ct = default) =>

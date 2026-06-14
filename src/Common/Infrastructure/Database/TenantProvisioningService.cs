@@ -37,6 +37,7 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
         "V009__", // rename schema_name to database_name
         "V010__", // add realm_name to tenants
         "V011__", // cross-tenant events outbox
+        "V016__", // add company_id to tenants registry
     };
 
     private readonly string _defaultConnectionString;
@@ -169,10 +170,18 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
             databaseCreated = true;
 
             await RunTenantMigrationsAsync(databaseName, cancellationToken);
-            var adminUser = await SeedTenantAdminAsync(request, databaseName, cancellationToken);
+
+            // No tenant admin is seeded here: the realm starts with NO user. The tenant's first
+            // user is provisioned by the operator wizard (OPS03 lot A); the instance super-admin
+            // is a cross-tenant actor of the PRIMARY realm and never lives inside a tenant realm.
 
             // Phase 2: Keycloak realm provisioning
             var clientSecret = GenerateClientSecret();
+
+            // One tenant = one company: the company scope of every realm user is fixed at
+            // provisioning time, persisted in the registry, and emitted as a hardcoded claim
+            // by the realm's OIDC client. Seed import and user provisioning reuse this value.
+            var companyId = Guid.NewGuid();
 
             if (_keycloakOptions.IsConfigured)
             {
@@ -183,10 +192,7 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
                     DisplayName = request.DisplayName,
                     RealmName = realmName,
                     ClientSecret = clientSecret,
-                    AdminEmail = request.AdminEmail,
-                    AdminUsername = adminUser.Username,
-                    AdminPassword = "Change@First1", // Temporary password — admin must change on first login
-                    StratumUserId = adminUser.Id.ToString(),
+                    CompanyId = companyId.ToString(),
                     RedirectUris = [$"{appBaseUrl}/*", $"{appBaseUrl.Replace("://", "://*.").TrimEnd('/')}/*"],
                     WebOrigins = [appBaseUrl, appBaseUrl.Replace("://", "://*.").TrimEnd('/')],
                 };
@@ -199,21 +205,32 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
 
                 realmCreated = !kcResult.AlreadyProvisioned;
 
-                // Register realm for immediate JWT validation (no restart needed)
-                _realmRegistry.RegisterRealm(realmName, request.TenantId, authority);
-
-                // Add subdomain redirect URI to the primary realm so browser login works
-                if (!string.IsNullOrEmpty(_keycloakOptions.PrimaryRealmName))
+                // Shared SaaS realm seam (Liakont RLM04, ADR-0021 §1/§5) : le no-op du profil PARTAGÉ
+                // ne provisionne aucun realm et renvoie une AUTORITÉ VIDE → ni enregistrement de realm
+                // par tenant ni redirect par sous-domaine (code devenu vestigial en realm unique). Le
+                // vrai provisioner (profil DÉDIÉ) renvoie l'autorité du realm — qu'il vienne d'être créé
+                // (Created) OU qu'il préexiste (Idempotent, chemin de REPRISE) — et la mécanique d'origine
+                // s'applique INCONDITIONNELLEMENT pour lui (ré-enregistrement idempotent du realm pour la
+                // validation JWT, comme avant RLM04 — sinon une reprise laisserait le realm non enregistré).
+                // Le redirect statique default.localhost (realm-export.json) n'est pas touché (FIX07a).
+                if (!string.IsNullOrEmpty(kcResult.Authority))
                 {
-                    await _keycloakProvisioner.AddTenantRedirectUriAsync(
-                        _keycloakOptions.PrimaryRealmName,
-                        request.TenantId,
-                        cancellationToken);
+                    // Register realm for immediate JWT validation (no restart needed)
+                    _realmRegistry.RegisterRealm(realmName, request.TenantId, authority);
+
+                    // Add subdomain redirect URI to the primary realm so browser login works
+                    if (!string.IsNullOrEmpty(_keycloakOptions.PrimaryRealmName))
+                    {
+                        await _keycloakProvisioner.AddTenantRedirectUriAsync(
+                            _keycloakOptions.PrimaryRealmName,
+                            request.TenantId,
+                            cancellationToken);
+                    }
                 }
             }
 
             // Phase 3: Register tenant in system DB
-            await RegisterTenantAsync(request, databaseName, realmName, clientSecret, cancellationToken);
+            await RegisterTenantAsync(request, databaseName, realmName, clientSecret, companyId, cancellationToken);
 
             LogProvisioningCompleted(_logger, request.TenantId, databaseName);
             return TenantProvisionResult.Created(databaseName, realmName, authority);
@@ -374,9 +391,6 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Tenant '{TenantId}' registered in tenants table")]
     private static partial void LogTenantRegistered(ILogger logger, string tenantId);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Admin user '{Username}' seeded in tenant '{TenantId}'")]
-    private static partial void LogTenantAdminSeeded(ILogger logger, string tenantId, string username);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Provisioning completed for tenant '{TenantId}' (database '{DatabaseName}')")]
     private static partial void LogProvisioningCompleted(ILogger logger, string tenantId, string databaseName);
@@ -595,72 +609,20 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
             .Build();
     }
 
-    /// <summary>
-    /// Seeds an initial admin user in the tenant database by copying the system
-    /// admin's credentials. This allows immediate login on the tenant.
-    /// Returns the admin row so it can be used for Keycloak user provisioning.
-    /// </summary>
-    private async Task<AdminRow> SeedTenantAdminAsync(
-        TenantProvisionRequest request, string databaseName, CancellationToken ct)
-    {
-        // Read admin credentials from system DB — pick the first user that has the SystemAdmin role.
-        await using var systemConn = new NpgsqlConnection(_defaultConnectionString);
-        await systemConn.OpenAsync(ct);
-
-        const string adminSql = """
-            SELECT u.id, u.username, u.email,
-                   u.display_name AS displayname,
-                   u.password_hash AS passwordhash,
-                   u.is_active AS isactive
-            FROM identity.users u
-            INNER JOIN identity.user_roles ur ON ur.user_id = u.id
-            INNER JOIN identity.roles r ON r.id = ur.role_id
-            WHERE r.name = 'SystemAdmin' AND u.is_active = true
-            ORDER BY u.username
-            LIMIT 1
-            """;
-
-        var admin = await systemConn.QuerySingleOrDefaultAsync<AdminRow>(
-            new CommandDefinition(adminSql, cancellationToken: ct));
-
-        if (admin is null)
-        {
-            throw new InvalidOperationException(
-                "No active SystemAdmin user found in the system database. "
-                + "Cannot seed tenant admin — the tenant would be inaccessible.");
-        }
-
-        // Insert into tenant DB.
-        var tenantConnectionString = new NpgsqlConnectionStringBuilder(_defaultConnectionString)
-        {
-            Database = databaseName,
-        }.ToString();
-
-        await using var tenantConn = new NpgsqlConnection(tenantConnectionString);
-        await tenantConn.OpenAsync(ct);
-
-        const string insertSql = """
-            INSERT INTO identity.users (id, username, email, display_name, password_hash, is_active)
-            VALUES (@Id, @Username, @Email, @DisplayName, @PasswordHash, @IsActive)
-            ON CONFLICT (id) DO NOTHING
-            """;
-
-        await tenantConn.ExecuteAsync(
-            new CommandDefinition(insertSql, admin, cancellationToken: ct));
-
-        LogTenantAdminSeeded(_logger, request.TenantId, admin.Username);
-        return admin;
-    }
-
     private async Task RegisterTenantAsync(
-        TenantProvisionRequest request, string databaseName, string realmName, string clientSecret, CancellationToken ct)
+        TenantProvisionRequest request,
+        string databaseName,
+        string realmName,
+        string clientSecret,
+        Guid companyId,
+        CancellationToken ct)
     {
         await using var connection = new NpgsqlConnection(_defaultConnectionString);
         await connection.OpenAsync(ct);
 
         const string sql = """
-            INSERT INTO outbox.tenants (id, display_name, admin_email, database_name, realm_name, client_secret)
-            VALUES (@TenantId, @DisplayName, @AdminEmail, @DatabaseName, @RealmName, @ClientSecret)
+            INSERT INTO outbox.tenants (id, display_name, admin_email, database_name, realm_name, client_secret, company_id)
+            VALUES (@TenantId, @DisplayName, @AdminEmail, @DatabaseName, @RealmName, @ClientSecret, @CompanyId)
             ON CONFLICT (id) DO NOTHING
             """;
 
@@ -675,6 +637,7 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
                     DatabaseName = databaseName,
                     RealmName = realmName,
                     ClientSecret = clientSecret,
+                    CompanyId = companyId,
                 },
                 cancellationToken: ct));
 
@@ -712,21 +675,6 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
             // Rollback is best-effort. Log and move on.
             LogRollbackFailed(_logger, tenantId, ex);
         }
-    }
-
-    private sealed class AdminRow
-    {
-        public Guid Id { get; init; }
-
-        public string Username { get; init; } = default!;
-
-        public string Email { get; init; } = default!;
-
-        public string DisplayName { get; init; } = default!;
-
-        public string PasswordHash { get; init; } = default!;
-
-        public bool IsActive { get; init; }
     }
 
     /// <summary>Lightweight Dapper target for listing tenant IDs and database names.</summary>

@@ -1,0 +1,123 @@
+@namespace Liakont.Host.Components
+@using Liakont.Modules.Ingestion.Contracts.DTOs
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* Étape « Premier agent » de l'assistant « Nouveau client » (OPS03, décision opérateur : clé +
+ * installeur GÉNÉRIQUE — pas de package serveur). Vue PURE. Après l'enregistrement (PIV05), la clé
+ * API est affichée UNE SEULE FOIS (pattern AgentRegisterDialog WEB09) avec le lien vers l'installeur
+ * générique (le wizard d'installation au poste fait la pré-configuration — OPS08b). La gestion
+ * ULTÉRIEURE du parc (2e agent, révocation, rotation) reste l'écran Agents du client. 100 % français. *@
+
+<div class="client-wizard-step" data-testid="client-wizard-agent">
+    @if (IssuedKey is { } issued)
+    {
+        <div class="client-wizard-step__done" data-testid="client-wizard-agent-done">
+            <p class="client-wizard-step__secret-warning" role="alert" data-testid="client-wizard-agent-key-warning">
+                Clé API de l'agent — affichée UNE SEULE FOIS. Copiez-la maintenant : elle sera demandée
+                par l'assistant d'installation de l'agent sur le poste du client.
+            </p>
+            <div class="client-wizard-step__secret">
+                <code data-testid="client-wizard-agent-key">@issued.FullKey</code>
+            </div>
+            <p class="client-wizard-step__hint" data-testid="client-wizard-agent-installer">
+                @if (string.IsNullOrWhiteSpace(InstallerUrl))
+                {
+                    <text>Installation : utilisez l'installeur Liakont Agent (voir la documentation d'installation
+                        remise par votre intégrateur) — l'assistant d'installation demande l'adresse de la
+                        plateforme et cette clé API.</text>
+                }
+                else
+                {
+                    <text>Installation : téléchargez l'<a href="@InstallerUrl" data-testid="client-wizard-agent-installer-link">installeur
+                        Liakont Agent</a> — l'assistant d'installation demande l'adresse de la plateforme et cette clé API.</text>
+                }
+            </p>
+        </div>
+
+        <div class="client-wizard-step__actions">
+            <StratumButton Text="J'ai copié la clé — terminer"
+                           Variant="ButtonVariant.Primary"
+                           Size="ButtonSize.Small"
+                           OnClick="@(_ => OnContinue.InvokeAsync())"
+                           TestId="client-wizard-agent-continue" />
+        </div>
+    }
+    else
+    {
+        <p class="client-wizard-step__hint">
+            Premier agent d'extraction du client (le logiciel installé chez lui qui pousse ses documents).
+            L'enregistrement émet une clé API <strong>affichée une seule fois</strong>.
+        </p>
+
+        <label class="client-wizard-step__field client-wizard-step__field--inline">
+            <span>Nom de l'agent *</span>
+            <input type="text" value="@_agentName" @oninput="@(e => _agentName = e.Value as string ?? string.Empty)"
+                   placeholder="ex. poste-comptabilité" data-testid="client-wizard-agent-name" />
+        </label>
+
+        @if (!string.IsNullOrWhiteSpace(Error))
+        {
+            <div class="client-wizard-step__error" role="alert" data-testid="client-wizard-agent-error">@Error</div>
+        }
+
+        <div class="client-wizard-step__actions">
+            <StratumButton Text="Retour"
+                           Variant="ButtonVariant.Secondary"
+                           Outline
+                           Size="ButtonSize.Small"
+                           Disabled="@Busy"
+                           OnClick="@(_ => OnBack.InvokeAsync())"
+                           TestId="client-wizard-agent-back" />
+            <StratumButton Text="@(Busy ? "Enregistrement…" : "Enregistrer l'agent")"
+                           Variant="ButtonVariant.Primary"
+                           Size="ButtonSize.Small"
+                           Disabled="@(Busy || string.IsNullOrWhiteSpace(_agentName))"
+                           OnClick="@(_ => OnRegister.InvokeAsync(_agentName.Trim()))"
+                           TestId="client-wizard-agent-register" />
+            <StratumButton Text="Passer cette étape"
+                           Variant="ButtonVariant.Secondary"
+                           Outline
+                           Size="ButtonSize.Small"
+                           Disabled="@Busy"
+                           OnClick="@(_ => OnSkip.InvokeAsync())"
+                           TestId="client-wizard-agent-skip" />
+        </div>
+    }
+</div>
+
+@code {
+    private string _agentName = string.Empty;
+
+    /// <summary>Clé émise (succès) — déclenche le panneau « une seule fois ».</summary>
+    [Parameter]
+    public AgentKeyIssuedDto? IssuedKey { get; set; }
+
+    /// <summary>URL de l'installeur générique (configuration AgentInstaller:DownloadUrl), ou vide (repli texte).</summary>
+    [Parameter]
+    public string? InstallerUrl { get; set; }
+
+    /// <summary>Enregistrement en cours.</summary>
+    [Parameter]
+    public bool Busy { get; set; }
+
+    /// <summary>Message d'échec de la dernière tentative (réessayable), ou <c>null</c>.</summary>
+    [Parameter]
+    public string? Error { get; set; }
+
+    /// <summary>Demande d'enregistrement (nom de l'agent).</summary>
+    [Parameter]
+    public EventCallback<string> OnRegister { get; set; }
+
+    /// <summary>Étape sautée explicitement.</summary>
+    [Parameter]
+    public EventCallback OnSkip { get; set; }
+
+    /// <summary>Étape terminée (la clé a été copiée).</summary>
+    [Parameter]
+    public EventCallback OnContinue { get; set; }
+
+    /// <summary>Retour à l'étape précédente (Utilisateur).</summary>
+    [Parameter]
+    public EventCallback OnBack { get; set; }
+}

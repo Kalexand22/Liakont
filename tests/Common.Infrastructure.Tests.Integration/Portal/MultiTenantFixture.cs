@@ -157,8 +157,8 @@ public sealed class MultiTenantFixture : IAsyncLifetime
         await conn.OpenAsync();
         await conn.ExecuteAsync(
             """
-            INSERT INTO outbox.tenants (id, display_name, admin_email, database_name, realm_name, is_active)
-            VALUES (@Id, @DisplayName, @Email, @DbName, @Realm, true)
+            INSERT INTO outbox.tenants (id, display_name, admin_email, database_name, realm_name, is_active, company_id)
+            VALUES (@Id, @DisplayName, @Email, @DbName, @Realm, true, @CompanyId)
             ON CONFLICT (id) DO NOTHING
             """,
             new
@@ -168,6 +168,11 @@ public sealed class MultiTenantFixture : IAsyncLifetime
                 Email = $"admin@{tenantId}.test",
                 DbName = $"stratum_{tenantId.Replace('-', '_')}",
                 Realm = tenantId,
+
+                // company_id est NOT NULL + UNIQUE depuis V017 : une valeur distincte par tenant suffit
+                // ici (ces tests portail valident la mécanique cross-tenant au niveau infra, hors chaîne
+                // de résolution du Host).
+                CompanyId = Guid.NewGuid(),
             });
     }
 

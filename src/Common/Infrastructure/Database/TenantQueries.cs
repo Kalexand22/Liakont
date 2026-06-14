@@ -14,7 +14,8 @@ public sealed class TenantQueries : ITenantQueries
     private const string SelectSql = """
         SELECT id, display_name AS displayname, admin_email AS adminemail,
                database_name AS databasename, realm_name AS realmname,
-               is_active AS isactive, provisioned_at AS provisionedat
+               is_active AS isactive, provisioned_at AS provisionedat,
+               company_id AS companyid
         FROM outbox.tenants
         """;
 
@@ -60,6 +61,7 @@ public sealed class TenantQueries : ITenantQueries
         RealmName = row.RealmName,
         IsActive = row.IsActive,
         ProvisionedAt = row.ProvisionedAt,
+        CompanyId = row.CompanyId,
     };
 
     /// <summary>
@@ -81,5 +83,7 @@ public sealed class TenantQueries : ITenantQueries
         public bool IsActive { get; init; }
 
         public DateTimeOffset ProvisionedAt { get; init; }
+
+        public Guid? CompanyId { get; init; }
     }
 }

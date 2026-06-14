@@ -26,7 +26,12 @@ public sealed class SetTenantStatusHandler : IRequestHandler<SetTenantStatusComm
 
     public async Task Handle(SetTenantStatusCommand request, CancellationToken cancellationToken)
     {
-        var companyId = _companyFilter.GetRequiredCompanyId();
+        // Société : explicite (chemin console d'administration d'instance, OPS03 — l'acteur opérateur
+        // porte le company_id de SON tenant) ou contexte courant. Pas de garde create-only ici : la
+        // commande ne fait qu'UPDATE le profil de cette société dans la base du tenant CIBLE
+        // (database-per-tenant) — un companyId qui n'y correspond à rien donne NotFound, jamais une
+        // écriture cross-tenant.
+        var companyId = request.CompanyId ?? _companyFilter.GetRequiredCompanyId();
         var target = TenantSettingsParsing.ParseStatus(request.Statut);
 
         Guid profileId;

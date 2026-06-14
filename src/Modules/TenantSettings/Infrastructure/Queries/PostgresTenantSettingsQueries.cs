@@ -163,6 +163,17 @@ public sealed class PostgresTenantSettingsQueries : ITenantSettingsQueries
         return await conn.ExecuteScalarAsync<Guid?>(new CommandDefinition(sql, cancellationToken: ct));
     }
 
+    public async Task<string?> GetCurrentTenantStatut(CancellationToken ct = default)
+    {
+        // Même patron que GetCurrentCompanyId (au plus une ligne de profil par base — database-per-tenant).
+        // null = aucun profil → le tenant est réputé ACTIF par l'appelant (jamais de suspension implicite).
+        const string sql = "SELECT statut FROM tenantsettings.tenant_profiles LIMIT 1";
+
+        using var conn = await _connectionFactory.OpenAsync(ct);
+        var statut = await conn.ExecuteScalarAsync<int?>(new CommandDefinition(sql, cancellationToken: ct));
+        return statut is { } value ? ((TenantStatus)value).ToString() : null;
+    }
+
     public async Task<AlertThresholdsDto?> GetAlertThresholds(Guid companyId, CancellationToken ct = default)
     {
         const string sql = """

@@ -1,5 +1,6 @@
 namespace Liakont.Modules.TenantSettings.Tests.Integration;
 
+using Dapper;
 using FluentAssertions;
 using Liakont.Modules.TenantSettings.Contracts.Commands;
 using Liakont.Modules.TenantSettings.Infrastructure.Handlers.Commands;
@@ -47,7 +48,7 @@ public sealed class SeedImportIntegrationTests
             await File.WriteAllTextAsync(Path.Combine(dir, "pa-accounts.json"), PaAccountsJson);
 
             var harness = new TenantSettingsHarness(_fixture, Guid.NewGuid(), Guid.NewGuid());
-            var handler = new ImportTenantSeedHandler(harness.UowFactory, harness.CompanyFilter, harness.ActorAccessor, harness.Journal, harness.Sender);
+            var handler = new ImportTenantSeedHandler(harness.UowFactory, harness.CompanyFilter, harness.ActorAccessor, harness.Queries, harness.Journal, harness.Sender);
 
             var result = await handler.Handle(new ImportTenantSeedCommand { SeedDirectoryPath = dir }, CancellationToken.None);
 
@@ -92,7 +93,7 @@ public sealed class SeedImportIntegrationTests
             await File.WriteAllTextAsync(Path.Combine(dir, "pa-accounts.json"), PaAccountsJson);
 
             var harness = new TenantSettingsHarness(_fixture, Guid.NewGuid(), Guid.NewGuid());
-            var handler = new ImportTenantSeedHandler(harness.UowFactory, harness.CompanyFilter, harness.ActorAccessor, harness.Journal, harness.Sender);
+            var handler = new ImportTenantSeedHandler(harness.UowFactory, harness.CompanyFilter, harness.ActorAccessor, harness.Queries, harness.Journal, harness.Sender);
             var command = new ImportTenantSeedCommand { SeedDirectoryPath = dir };
 
             await handler.Handle(command, CancellationToken.None);
@@ -132,7 +133,7 @@ public sealed class SeedImportIntegrationTests
             await File.WriteAllTextAsync(mappingPath, mappingJson);
 
             var harness = new TenantSettingsHarness(_fixture, Guid.NewGuid(), Guid.NewGuid());
-            var handler = new ImportTenantSeedHandler(harness.UowFactory, harness.CompanyFilter, harness.ActorAccessor, harness.Journal, harness.Sender);
+            var handler = new ImportTenantSeedHandler(harness.UowFactory, harness.CompanyFilter, harness.ActorAccessor, harness.Queries, harness.Journal, harness.Sender);
 
             var result = await handler.Handle(new ImportTenantSeedCommand { SeedDirectoryPath = dir }, CancellationToken.None);
 
@@ -163,7 +164,7 @@ public sealed class SeedImportIntegrationTests
 
             var companyId = Guid.NewGuid();
             var harness = new TenantSettingsHarness(_fixture, companyId, Guid.NewGuid());
-            var handler = new ImportTenantSeedHandler(harness.UowFactory, new ThrowingCompanyFilter(), harness.ActorAccessor, harness.Journal, harness.Sender);
+            var handler = new ImportTenantSeedHandler(harness.UowFactory, new ThrowingCompanyFilter(), harness.ActorAccessor, harness.Queries, harness.Journal, harness.Sender);
 
             var result = await handler.Handle(
                 new ImportTenantSeedCommand { SeedDirectoryPath = dir, CompanyId = companyId },
@@ -206,7 +207,7 @@ public sealed class SeedImportIntegrationTests
 
             var companyId = Guid.NewGuid();
             var harness = new TenantSettingsHarness(_fixture, companyId, Guid.NewGuid());
-            var handler = new ImportTenantSeedHandler(harness.UowFactory, new ThrowingCompanyFilter(), harness.ActorAccessor, harness.Journal, harness.Sender);
+            var handler = new ImportTenantSeedHandler(harness.UowFactory, new ThrowingCompanyFilter(), harness.ActorAccessor, harness.Queries, harness.Journal, harness.Sender);
 
             var result = await handler.Handle(
                 new ImportTenantSeedCommand { SeedDirectoryPath = dir, CompanyId = companyId },
@@ -225,10 +226,13 @@ public sealed class SeedImportIntegrationTests
     }
 
     [Fact]
-    public async Task Import_With_CompanyId_Conflicting_With_Actor_Is_Rejected()
+    public async Task Import_With_CompanyId_Conflicting_With_Actor_Is_Rejected_When_The_Tenant_Is_Already_Configured()
     {
         // Garde anti-injection (P2) : un companyId explicite qui CONTREDIT la société d'un acteur de
-        // tenant présent (chemin opérateur) est refusé — empêche un profil orphelin / une confusion de scope.
+        // tenant présent est refusé dès que le tenant est DÉJÀ paramétré (un profil existe). La
+        // précondition « profil existant » est AMORCÉE explicitement — la base de la collection est
+        // partagée, le refus ne doit JAMAIS dépendre des résidus d'un autre test (l'état create-only
+        // SANS profil est, lui, le chemin honoré — couvert par TenantSettingsCompanyOverrideGuardTests).
         var dir = CreateSeedDir();
         try
         {
@@ -236,7 +240,9 @@ public sealed class SeedImportIntegrationTests
 
             var actorCompanyId = Guid.NewGuid();
             var harness = new TenantSettingsHarness(_fixture, actorCompanyId, Guid.NewGuid());
-            var handler = new ImportTenantSeedHandler(harness.UowFactory, harness.CompanyFilter, harness.ActorAccessor, harness.Journal, harness.Sender);
+            await InsertExistingProfileAsync(harness, Guid.NewGuid());
+
+            var handler = new ImportTenantSeedHandler(harness.UowFactory, harness.CompanyFilter, harness.ActorAccessor, harness.Queries, harness.Journal, harness.Sender);
 
             var act = async () => await handler.Handle(
                 new ImportTenantSeedCommand { SeedDirectoryPath = dir, CompanyId = Guid.NewGuid() },
@@ -248,6 +254,19 @@ public sealed class SeedImportIntegrationTests
         {
             Directory.Delete(dir, recursive: true);
         }
+    }
+
+    /// <summary>Amorce un profil EXISTANT (précondition du refus de la garde — tenant déjà paramétré).</summary>
+    private static async Task InsertExistingProfileAsync(TenantSettingsHarness harness, Guid companyId)
+    {
+        using var conn = await harness.ConnectionFactory.OpenAsync();
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO tenantsettings.tenant_profiles
+                (company_id, siren, raison_sociale, address_street, address_postal_code, address_city, address_country)
+            VALUES (@CompanyId, '999999990', 'Tenant déjà paramétré', '1 rue Occupée', '35000', 'Rennes', 'FR')
+            """,
+            new { CompanyId = companyId });
     }
 
     private static string CreateSeedDir()

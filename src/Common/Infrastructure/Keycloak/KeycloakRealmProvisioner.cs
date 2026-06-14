@@ -12,7 +12,9 @@ using Stratum.Common.Abstractions.Security;
 
 /// <summary>
 /// Provisions Keycloak realms via the Admin REST API.
-/// Creates realm, client (with protocol mappers), admin user in sequence.
+/// Creates realm and client (with protocol mappers) in sequence — NO realm user is created.
+/// The tenant's first user is provisioned separately by the operator wizard (OPS03 lot A,
+/// <see cref="IKeycloakUserProvisioner"/>); the instance super-admin lives in the primary realm.
 /// Rollback deletes the entire realm (Keycloak cascades all child resources).
 /// </summary>
 internal sealed partial class KeycloakRealmProvisioner : IKeycloakRealmProvisioner
@@ -60,7 +62,6 @@ internal sealed partial class KeycloakRealmProvisioner : IKeycloakRealmProvision
         {
             await CreateRealmAsync(request, cancellationToken);
             await CreateClientAsync(request, cancellationToken);
-            await CreateAdminUserAsync(request, cancellationToken);
 
             LogProvisioningCompleted(_logger, request.RealmName);
             return KeycloakProvisionResult.Created(request.RealmName, authority, request.ClientSecret);
@@ -179,9 +180,6 @@ internal sealed partial class KeycloakRealmProvisioner : IKeycloakRealmProvision
     [LoggerMessage(Level = LogLevel.Debug, Message = "OIDC client 'stratum' created in realm '{RealmName}'")]
     private static partial void LogClientCreated(ILogger logger, string realmName);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Admin user '{Username}' created in realm '{RealmName}'")]
-    private static partial void LogAdminUserCreated(ILogger logger, string realmName, string username);
-
     [LoggerMessage(Level = LogLevel.Information, Message = "Keycloak realm '{RealmName}' provisioning completed")]
     private static partial void LogProvisioningCompleted(ILogger logger, string realmName);
 
@@ -200,11 +198,16 @@ internal sealed partial class KeycloakRealmProvisioner : IKeycloakRealmProvision
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to delete Keycloak realm '{RealmName}' — manual cleanup may be required")]
     private static partial void LogRealmDeletionFailed(ILogger logger, string realmName, Exception exception);
 
-    private static List<Dictionary<string, object>> BuildProtocolMappers(string tenantId)
+    private static List<Dictionary<string, object>> BuildProtocolMappers(string tenantId, string companyId)
     {
         return
         [
-            BuildAttributeMapper("company_id", "company_id", "company_id"),
+
+            // company_id is HARDCODED at the client level (one tenant = one company): every user of
+            // the realm carries the claim without needing a per-user attribute. An attribute mapper
+            // here used to leave users without the claim unless someone remembered to set the
+            // attribute — which broke all company-scoped data access for freshly provisioned admins.
+            BuildHardcodedMapper("company_id", "company_id", companyId),
             BuildAttributeMapper("stratum_user_id", "stratum_user_id", "stratum_user_id"),
             BuildHardcodedMapper("tenant_id", "tenant_id", tenantId),
             BuildRealmRoleMapper(),
@@ -283,15 +286,6 @@ internal sealed partial class KeycloakRealmProvisioner : IKeycloakRealmProvision
                 ["userinfo.token.claim"] = "true",
             },
         };
-    }
-
-    private static string ExtractIdFromLocationHeader(HttpResponseMessage response)
-    {
-        var location = response.Headers.Location?.ToString()
-            ?? throw new InvalidOperationException("Keycloak did not return a Location header after resource creation.");
-
-        // Location format: .../users/{id}
-        return location.Split('/').Last();
     }
 
     private static async Task EnsureSuccessAsync(HttpResponseMessage response, string operation, CancellationToken ct)
@@ -377,7 +371,7 @@ internal sealed partial class KeycloakRealmProvisioner : IKeycloakRealmProvision
             ["redirectUris"] = request.RedirectUris,
             ["webOrigins"] = request.WebOrigins,
             ["defaultClientScopes"] = new[] { "openid", "profile", "email" },
-            ["protocolMappers"] = BuildProtocolMappers(request.TenantId),
+            ["protocolMappers"] = BuildProtocolMappers(request.TenantId, request.CompanyId),
         };
 
         var client = await CreateAuthenticatedClientAsync(ct);
@@ -389,84 +383,11 @@ internal sealed partial class KeycloakRealmProvisioner : IKeycloakRealmProvision
         LogClientCreated(_logger, request.RealmName);
     }
 
-    private async Task CreateAdminUserAsync(KeycloakRealmProvisionRequest request, CancellationToken ct)
-    {
-        var user = new Dictionary<string, object>
-        {
-            ["username"] = request.AdminUsername,
-            ["email"] = request.AdminEmail,
-            ["emailVerified"] = true,
-            ["enabled"] = true,
-            ["firstName"] = "Admin",
-            ["lastName"] = request.DisplayName,
-            ["attributes"] = new Dictionary<string, string[]>
-            {
-                ["stratum_user_id"] = [request.StratumUserId],
-            },
-        };
-
-        var httpClient = await CreateAuthenticatedClientAsync(ct);
-        var usersUrl = $"{_options.AdminBaseUrl.TrimEnd('/')}/admin/realms/{request.RealmName}/users";
-
-        var createResponse = await httpClient.PostAsJsonAsync(usersUrl, user, JsonOptions, ct);
-        await EnsureSuccessAsync(createResponse, "Create admin user", ct);
-
-        var userId = ExtractIdFromLocationHeader(createResponse);
-
-        var credential = new Dictionary<string, object>
-        {
-            ["type"] = "password",
-            ["value"] = request.AdminPassword,
-            ["temporary"] = false,
-        };
-
-        var passwordUrl = $"{usersUrl}/{userId}/reset-password";
-        var passwordResponse = await httpClient.PutAsJsonAsync(passwordUrl, credential, JsonOptions, ct);
-        await EnsureSuccessAsync(passwordResponse, "Set admin password", ct);
-
-        await AssignRealmRolesAsync(httpClient, request.RealmName, userId, [StratumRoles.User, StratumRoles.Admin, StratumRoles.SystemAdmin], ct);
-
-        LogAdminUserCreated(_logger, request.RealmName, request.AdminUsername);
-    }
-
-    private async Task AssignRealmRolesAsync(
-        HttpClient httpClient, string realmName, string userId, string[] roleNames, CancellationToken ct)
-    {
-        var rolesUrl = $"{_options.AdminBaseUrl.TrimEnd('/')}/admin/realms/{realmName}/roles";
-        var rolesResponse = await httpClient.GetAsync(rolesUrl, ct);
-        await EnsureSuccessAsync(rolesResponse, "Get realm roles", ct);
-
-        var allRoles = await rolesResponse.Content.ReadFromJsonAsync<List<KeycloakRole>>(JsonOptions, ct)
-            ?? [];
-
-        var rolesToAssign = allRoles
-            .Where(r => roleNames.Contains(r.Name, StringComparer.OrdinalIgnoreCase))
-            .ToList();
-
-        if (rolesToAssign.Count == 0)
-        {
-            return;
-        }
-
-        var assignUrl = $"{_options.AdminBaseUrl.TrimEnd('/')}/admin/realms/{realmName}/users/{userId}/role-mappings/realm";
-        var assignResponse = await httpClient.PostAsJsonAsync(assignUrl, rolesToAssign, JsonOptions, ct);
-        await EnsureSuccessAsync(assignResponse, "Assign realm roles", ct);
-    }
-
     private async Task<HttpClient> CreateAuthenticatedClientAsync(CancellationToken ct)
     {
         var token = await _tokenService.GetTokenAsync(ct);
         var client = _httpClientFactory.CreateClient("KeycloakAdmin");
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client;
-    }
-
-    private sealed class KeycloakRole
-    {
-        [JsonPropertyName("id")]
-        public string Id { get; init; } = default!;
-
-        [JsonPropertyName("name")]
-        public string Name { get; init; } = default!;
     }
 }

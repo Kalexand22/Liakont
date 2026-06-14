@@ -35,7 +35,7 @@ public sealed class TenantProfileIntegrationTests
     public async Task Save_Then_Get_RoundTrips()
     {
         var harness = new TenantSettingsHarness(_fixture, Guid.NewGuid(), Guid.NewGuid());
-        var handler = new SaveTenantProfileHandler(harness.UowFactory, harness.CompanyFilter, harness.Journal);
+        var handler = new SaveTenantProfileHandler(harness.UowFactory, harness.CompanyFilter, harness.ActorAccessor, harness.Queries, harness.Journal);
 
         var id = await handler.Handle(ValidCommand(), CancellationToken.None);
 
@@ -54,7 +54,7 @@ public sealed class TenantProfileIntegrationTests
     public async Task Save_Twice_Updates_Same_Profile()
     {
         var harness = new TenantSettingsHarness(_fixture, Guid.NewGuid(), Guid.NewGuid());
-        var handler = new SaveTenantProfileHandler(harness.UowFactory, harness.CompanyFilter, harness.Journal);
+        var handler = new SaveTenantProfileHandler(harness.UowFactory, harness.CompanyFilter, harness.ActorAccessor, harness.Queries, harness.Journal);
 
         var firstId = await handler.Handle(ValidCommand("Première raison"), CancellationToken.None);
         var secondId = await handler.Handle(ValidCommand("Raison mise à jour"), CancellationToken.None);
@@ -69,7 +69,7 @@ public sealed class TenantProfileIntegrationTests
     public async Task Save_With_Changed_Siren_On_Existing_Throws()
     {
         var harness = new TenantSettingsHarness(_fixture, Guid.NewGuid(), Guid.NewGuid());
-        var handler = new SaveTenantProfileHandler(harness.UowFactory, harness.CompanyFilter, harness.Journal);
+        var handler = new SaveTenantProfileHandler(harness.UowFactory, harness.CompanyFilter, harness.ActorAccessor, harness.Queries, harness.Journal);
         await handler.Handle(ValidCommand(), CancellationToken.None);
 
         var changed = ValidCommand() with { Siren = "000000000" };
@@ -83,8 +83,8 @@ public sealed class TenantProfileIntegrationTests
     {
         var tenantA = new TenantSettingsHarness(_fixture, Guid.NewGuid(), Guid.NewGuid());
         var tenantB = new TenantSettingsHarness(_fixture, Guid.NewGuid(), Guid.NewGuid());
-        var handlerA = new SaveTenantProfileHandler(tenantA.UowFactory, tenantA.CompanyFilter, tenantA.Journal);
-        var handlerB = new SaveTenantProfileHandler(tenantB.UowFactory, tenantB.CompanyFilter, tenantB.Journal);
+        var handlerA = new SaveTenantProfileHandler(tenantA.UowFactory, tenantA.CompanyFilter, tenantA.ActorAccessor, tenantA.Queries, tenantA.Journal);
+        var handlerB = new SaveTenantProfileHandler(tenantB.UowFactory, tenantB.CompanyFilter, tenantB.ActorAccessor, tenantB.Queries, tenantB.Journal);
 
         await handlerA.Handle(ValidCommand("Tenant A"), CancellationToken.None);
         await handlerB.Handle(ValidCommand("Tenant B"), CancellationToken.None);

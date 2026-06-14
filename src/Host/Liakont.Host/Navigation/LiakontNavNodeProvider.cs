@@ -49,10 +49,21 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
 
         children.Add(BuildParametrageNode());
 
-        // Supervision : réservée au superviseur (vues cross-tenant en lecture seule, module Supervision).
+        // Supervision : réservée au superviseur — SOUS-MENU (même pattern que Paramétrage) :
+        // « Vue d'ensemble » (santé cross-tenant, lecture seule) et « Clients » (administration
+        // d'instance OPS03 : création/suspension de tenants). ExactMatch sur la vue d'ensemble :
+        // /supervision/{tenantId} existe (la surbrillance plus-long-préfixe ferait double emploi).
         if (_permissions.HasPermission(LiakontPermissions.Supervision))
         {
-            children.Add(new NavNode { Label = "Supervision", Href = "/supervision" });
+            children.Add(new NavNode
+            {
+                Label = "Supervision",
+                Children =
+                [
+                    new NavNode { Label = "Vue d'ensemble", Href = "/supervision", ExactMatch = true },
+                    new NavNode { Label = "Clients", Href = "/clients" },
+                ],
+            });
         }
 
         // Flotte : méta-supervision cross-INSTANCE réservée à IT Innovations (OPS04). Le niveau AU-DESSUS de

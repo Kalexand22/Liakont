@@ -90,15 +90,20 @@ public sealed class TenantSeedAdminEndpointTests
     }
 
     [Fact]
-    public async Task SeedTenant_With_Missing_CompanyId_Returns_400()
+    public async Task SeedTenant_With_CompanyId_Diverging_From_Registry_Returns_409()
     {
+        // Depuis RLM02 (migration V017), tout tenant du registre porte un company_id NON NULL : omettre
+        // le company_id (Guid.Empty) retombe désormais sur celui du registre — il n'y a plus de cas
+        // « company_id manquant → 400 » pour un tenant enregistré. La garde qui demeure sur le company_id
+        // est la DIVERGENCE : un company_id explicite qui ne correspond pas à celui du realm provisionné
+        // rendrait le seed invisible aux utilisateurs du tenant → refus (409).
         using var client = _factory.CreateClient(ConsoleApiFactory.TenantSeed, ConsoleApiFactory.SystemAdminUserId, roles: SystemAdminRole);
 
         var response = await client.PostAsJsonAsync(
             SeedPath(ConsoleApiFactory.TenantSeed),
-            new { companyId = Guid.Empty, seedDirectoryPath = "/tmp/x" });
+            new { companyId = Guid.NewGuid(), seedDirectoryPath = "/tmp/x" });
 
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
     [Fact]

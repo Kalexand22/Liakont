@@ -1,0 +1,211 @@
+@page "/clients"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = LiakontPermissions.Supervision)]
+@using System.Globalization
+@using Liakont.Host.Clients
+@using Liakont.Host.Security
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.Extensions.Logging
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@inject IClientConsoleService ClientService
+@inject ILogger<Clients> Logger
+
+@* Écran « Clients » (OPS03) : liste des tenants de l'instance — réservé à l'OPÉRATEUR d'instance
+ * (permission liakont.supervision, comme la vue Supervision ; la spec OPS03 le dit explicitement).
+ * Cette garde de page est l'UNIQUE contrôle du chemin in-process (parité WEB09 : les actions
+ * dispatchent en in-process, jamais de HTTP en boucle locale). Création via l'assistant
+ * /clients/nouveau ; suspension/réactivation en action de ligne avec confirmation (données
+ * INTACTES — refus aux frontières seulement, lot B). 100 % français. *@
+
+<PageTitle>Clients — Liakont</PageTitle>
+
+<h1 class="visually-hidden">Clients</h1>
+
+@if (_loadFailed)
+{
+    <LiakontAlert TestId="clients-error">
+        Impossible de charger la liste des clients pour le moment. Réessayez plus tard.
+    </LiakontAlert>
+}
+else
+{
+    @if (_actionFeedback is not null)
+    {
+        <div class="clients-feedback @(_actionFailed ? "clients-feedback--error" : "clients-feedback--ok")"
+             role="@(_actionFailed ? "alert" : "status")"
+             data-testid="clients-action-feedback">
+            @_actionFeedback
+        </div>
+    }
+
+    <DeclaredListPage @key="_epoch"
+                      TItem="ClientConsoleLine"
+                      Title="Clients"
+                      TestId="clients"
+                      LoadItems="LoadItemsAsync"
+                      DetailUrl="@(c => Nav.Uri)"
+                      ColumnRegistry="_registry"
+                      ColumnTemplates="_columnTemplates"
+                      GridKey="Liakont.Clients"
+                      RowActions="_rowActions"
+                      AriaLabel="Liste des clients de l'instance"
+                      DefaultSortColumn="ProvisionedAt"
+                      DefaultSortDirection="SortDirection.Descending"
+                      SearchPlaceholder="Rechercher un client… (raccourci : /)"
+                      CreateUrl="/clients/nouveau"
+                      CreateLabel="+ Nouveau client">
+        <EmptyContent>
+            <p data-testid="clients-empty">Aucun client sur cette instance — créez le premier via « Nouveau client ».</p>
+        </EmptyContent>
+    </DeclaredListPage>
+
+    @if (_statusDialogLine is { } line)
+    {
+        <ClientStatusDialog Line="line"
+                            Busy="_statusBusy"
+                            Error="@_statusError"
+                            OnConfirm="ConfirmStatusChangeAsync"
+                            OnCancel="CloseStatusDialog" />
+    }
+}
+
+@code {
+    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+
+    private readonly ClientColumnRegistry _registry = new();
+    private readonly IReadOnlyList<GridRowAction<ClientConsoleLine>> _rowActions;
+    private readonly Dictionary<string, RenderFragment<ClientConsoleLine>> _columnTemplates;
+
+    private IReadOnlyList<ClientConsoleLine> _lines = [];
+    private bool _loadFailed;
+    private int _epoch;
+
+    private ClientConsoleLine? _statusDialogLine;
+    private bool _statusBusy;
+    private string? _statusError;
+    private string? _actionFeedback;
+    private bool _actionFailed;
+
+    [Inject]
+    private NavigationManager Nav { get; set; } = null!;
+
+    public Clients()
+    {
+        _rowActions =
+        [
+            new GridRowAction<ClientConsoleLine>(
+                Id: "toggle-status",
+                Label: "Suspendre / Réactiver",
+                Icon: "pause_circle",
+                IsQuickAction: true,
+                Callback: line =>
+                {
+                    OpenStatusDialog(line);
+                    return Task.CompletedTask;
+                }),
+        ];
+
+        _columnTemplates = new Dictionary<string, RenderFragment<ClientConsoleLine>>
+        {
+            ["Statut"] = line => __builder =>
+            {
+                __builder.OpenComponent<ClientStatutBadge>(0);
+                __builder.AddAttribute(1, "Statut", line.Statut);
+                __builder.AddAttribute(2, "ReadFailed", line.ReadFailed);
+                __builder.CloseComponent();
+            },
+            ["Siren"] = line => __builder =>
+            {
+                __builder.AddContent(0, string.IsNullOrWhiteSpace(line.Siren) ? "—" : line.Siren);
+            },
+            ["ProvisionedAt"] = line => __builder =>
+            {
+                __builder.AddContent(0, line.ProvisionedAt.ToLocalTime().ToString("dd/MM/yyyy", Fr));
+            },
+        };
+    }
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private Task<IReadOnlyList<ClientConsoleLine>> LoadItemsAsync() => Task.FromResult(_lines);
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _lines = await ClientService.ListAsync();
+            _loadFailed = false;
+            _epoch++;
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE (bandeau) et tracé — jamais avalé en silence.
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the clients list.");
+        }
+    }
+
+    private void OpenStatusDialog(ClientConsoleLine line)
+    {
+        _actionFeedback = null;
+        _statusError = null;
+
+        // Un tenant désactivé (fin de vie) ou sans profil n'est pas suspendable depuis la liste.
+        if (line.Statut is ClientStatut.Desactive or ClientStatut.ProfilNonCree)
+        {
+            _actionFailed = true;
+            _actionFeedback = line.Statut == ClientStatut.Desactive
+                ? $"Le client « {line.DisplayName} » est désactivé : son statut ne peut plus changer."
+                : $"Le client « {line.DisplayName} » n'a pas encore de profil : terminez d'abord sa création (assistant « Nouveau client »).";
+            StateHasChanged();
+            return;
+        }
+
+        _statusDialogLine = line;
+        StateHasChanged();
+    }
+
+    private void CloseStatusDialog()
+    {
+        _statusDialogLine = null;
+        _statusBusy = false;
+        _statusError = null;
+    }
+
+    private async Task ConfirmStatusChangeAsync()
+    {
+        if (_statusDialogLine is not { } line || _statusBusy)
+        {
+            return;
+        }
+
+        _statusBusy = true;
+        _statusError = null;
+        var suspendre = line.Statut == ClientStatut.Actif;
+        try
+        {
+            var result = await ClientService.SetStatusAsync(line.TenantId, suspendre);
+            if (result.Status == ClientActionStatus.Succeeded)
+            {
+                _actionFailed = false;
+                _actionFeedback = suspendre
+                    ? $"Client « {line.DisplayName} » suspendu : ses agents et ses utilisateurs sont refusés ; ses données restent intactes."
+                    : $"Client « {line.DisplayName} » réactivé : ses agents reprennent automatiquement.";
+                CloseStatusDialog();
+                await ReloadAsync();
+            }
+            else
+            {
+                _statusError = result.Message ?? "Le changement de statut a échoué. Réessayez plus tard.";
+            }
+        }
+        finally
+        {
+            _statusBusy = false;
+        }
+
+        StateHasChanged();
+    }
+}

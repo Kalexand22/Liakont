@@ -1,0 +1,38 @@
+@namespace Liakont.Host.Components
+@using Liakont.Host.Clients
+@using Stratum.Common.UI.Models
+
+@* ClientStatutBadge — badge du statut métier d'un client (écran Clients, OPS03), sur le StatusBadge
+ * du design-system (aucune pastille « maison »). « Données indisponibles » accompagne le badge quand
+ * la lecture du profil a échoué (la ligne reste visible, l'échec est signalé — jamais silencieux). *@
+
+@switch (Statut)
+{
+    case ClientStatut.Actif:
+        <StatusBadge Label="Actif" Severity="Severity.Success" TestId="client-statut-actif" />
+        break;
+    case ClientStatut.Suspendu:
+        <StatusBadge Label="Suspendu" Severity="Severity.Warning" TestId="client-statut-suspendu" />
+        break;
+    case ClientStatut.Desactive:
+        <StatusBadge Label="Désactivé" Severity="Severity.Neutral" TestId="client-statut-desactive" />
+        break;
+    default:
+        <StatusBadge Label="Profil non créé" Severity="Severity.Info" TestId="client-statut-profil-non-cree" />
+        break;
+}
+
+@if (ReadFailed)
+{
+    <span class="client-statut-read-failed" data-testid="client-statut-read-failed">données indisponibles</span>
+}
+
+@code {
+    /// <summary>Statut métier affiché.</summary>
+    [Parameter, EditorRequired]
+    public ClientStatut Statut { get; set; }
+
+    /// <summary>La lecture du profil a échoué (signalé à côté du badge).</summary>
+    [Parameter]
+    public bool ReadFailed { get; set; }
+}

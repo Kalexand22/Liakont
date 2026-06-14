@@ -34,4 +34,13 @@ public interface ITenantSettingsQueries
     /// d'un autre module en SQL brut (frontière, CLAUDE.md n°14).
     /// </summary>
     Task<Guid?> GetCurrentCompanyId(CancellationToken ct = default);
+
+    /// <summary>
+    /// Statut du tenant COURANT (« Actif » / « Suspendu »), résolu SANS <c>companyId</c> (même patron
+    /// que <see cref="GetCurrentCompanyId"/> — au plus une ligne de profil par base). <c>null</c> =
+    /// aucun profil : le tenant est réputé ACTIF (jamais de suspension implicite — un tenant jamais
+    /// seedé continue d'accepter ses agents). Sert l'application du statut (OPS03 lot B : refus de
+    /// push agent et de connexion d'un tenant suspendu).
+    /// </summary>
+    Task<string?> GetCurrentTenantStatut(CancellationToken ct = default);
 }

@@ -39,8 +39,15 @@ public sealed class TenantProvisionResult
     /// </summary>
     public string? ErrorMessage { get; private init; }
 
-    public static TenantProvisionResult Created(string databaseName, string realmName, string authority) =>
-        new() { Success = true, DatabaseName = databaseName, RealmName = realmName, Authority = authority };
+    public static TenantProvisionResult Created(
+        string databaseName, string realmName, string authority) =>
+        new()
+        {
+            Success = true,
+            DatabaseName = databaseName,
+            RealmName = realmName,
+            Authority = authority,
+        };
 
     public static TenantProvisionResult Idempotent(string databaseName, string realmName, string authority) =>
         new() { Success = true, AlreadyProvisioned = true, DatabaseName = databaseName, RealmName = realmName, Authority = authority };

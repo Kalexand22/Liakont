@@ -87,7 +87,7 @@ public sealed class SetAlertContactEmailIntegrationTests
 
     private static async Task SeedProfileAsync(TenantSettingsHarness harness, string? contactEmail)
     {
-        var save = new SaveTenantProfileHandler(harness.UowFactory, harness.CompanyFilter, harness.Journal);
+        var save = new SaveTenantProfileHandler(harness.UowFactory, harness.CompanyFilter, harness.ActorAccessor, harness.Queries, harness.Journal);
         await save.Handle(
             new SaveTenantProfileCommand
             {

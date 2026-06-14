@@ -1,0 +1,155 @@
+@namespace Liakont.Host.Components
+@using System.Text.RegularExpressions
+@using Liakont.Host.Clients
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* Étape 1 de l'assistant « Nouveau client » (OPS03) : identité + profil. Vue PURE (aucune injection).
+ * Validations de FORME seulement (slug du tenant = regex du provisioning ; SIREN = 9 chiffres) — la
+ * validation MÉTIER (clé de Luhn, adresse) reste au domaine TenantSettings, dont le message français
+ * est restitué tel quel par la page (jamais de règle dupliquée hors module). 100 % français. *@
+
+<div class="client-wizard-step" data-testid="client-wizard-profil">
+    <p class="client-wizard-step__hint">
+        Identité du client. L'identifiant technique (minuscules, chiffres, tirets) nomme sa base et son
+        realm — il ne pourra plus changer. Si vous importez un seed à l'étape suivante, le profil du
+        seed fait foi (la saisie SIREN/adresse ci-dessous sert le chemin sans seed).
+    </p>
+
+    <div class="client-wizard-step__grid">
+        <label class="client-wizard-step__field">
+            <span>Identifiant technique *</span>
+            <input type="text" value="@_tenantId" @oninput="@(e => _tenantId = e.Value as string ?? string.Empty)"
+                   placeholder="ex. acme" disabled="@TenantIdLocked" data-testid="client-wizard-tenant-id" />
+            @if (TenantIdLocked)
+            {
+                <span class="client-wizard-step__hint" data-testid="client-wizard-tenant-id-locked">Verrouillé : le client est déjà créé (l'identifiant nomme sa base et son realm).</span>
+            }
+        </label>
+        <label class="client-wizard-step__field">
+            <span>Raison sociale *</span>
+            <input type="text" value="@_raisonSociale" @oninput="@(e => _raisonSociale = e.Value as string ?? string.Empty)"
+                   data-testid="client-wizard-raison-sociale" />
+        </label>
+        <label class="client-wizard-step__field">
+            <span>Email de contact *</span>
+            <input type="email" value="@_email" @oninput="@(e => _email = e.Value as string ?? string.Empty)"
+                   data-testid="client-wizard-email" />
+        </label>
+        <label class="client-wizard-step__field">
+            <span>SIREN *</span>
+            <input type="text" value="@_siren" @oninput="@(e => _siren = e.Value as string ?? string.Empty)"
+                   placeholder="9 chiffres" data-testid="client-wizard-siren" />
+        </label>
+        <label class="client-wizard-step__field">
+            <span>Adresse *</span>
+            <input type="text" value="@_street" @oninput="@(e => _street = e.Value as string ?? string.Empty)"
+                   data-testid="client-wizard-street" />
+        </label>
+        <label class="client-wizard-step__field">
+            <span>Code postal *</span>
+            <input type="text" value="@_postalCode" @oninput="@(e => _postalCode = e.Value as string ?? string.Empty)"
+                   data-testid="client-wizard-postal-code" />
+        </label>
+        <label class="client-wizard-step__field">
+            <span>Ville *</span>
+            <input type="text" value="@_city" @oninput="@(e => _city = e.Value as string ?? string.Empty)"
+                   data-testid="client-wizard-city" />
+        </label>
+        <label class="client-wizard-step__field">
+            <span>Pays *</span>
+            <input type="text" value="@_country" @oninput="@(e => _country = e.Value as string ?? string.Empty)"
+                   data-testid="client-wizard-country" />
+        </label>
+    </div>
+
+    @if (_validationError is not null)
+    {
+        <div class="client-wizard-step__error" role="alert" data-testid="client-wizard-profil-error">@_validationError</div>
+    }
+
+    <div class="client-wizard-step__actions">
+        <StratumButton Text="Continuer"
+                       Variant="ButtonVariant.Primary"
+                       Size="ButtonSize.Small"
+                       OnClick="ContinueAsync"
+                       TestId="client-wizard-profil-continue" />
+    </div>
+</div>
+
+@code {
+    private string _tenantId = string.Empty;
+    private string _raisonSociale = string.Empty;
+    private string _email = string.Empty;
+    private string _siren = string.Empty;
+    private string _street = string.Empty;
+    private string _postalCode = string.Empty;
+    private string _city = string.Empty;
+    private string _country = "FR";
+    private string? _validationError;
+
+    /// <summary>Saisie initiale (retour en arrière dans l'assistant — les champs sont restaurés).</summary>
+    [Parameter]
+    public ClientWizardProfilData? Initial { get; set; }
+
+    /// <summary>Verrouille l'identifiant technique (le tenant est déjà créé — reprise idempotente sur le
+    /// même client ; changer l'identifiant créerait un autre tenant).</summary>
+    [Parameter]
+    public bool TenantIdLocked { get; set; }
+
+    /// <summary>Soumission de l'étape (la saisie a passé les contrôles de FORME).</summary>
+    [Parameter]
+    public EventCallback<ClientWizardProfilData> OnContinue { get; set; }
+
+    protected override void OnInitialized()
+    {
+        if (Initial is { } initial)
+        {
+            _tenantId = initial.TenantId;
+            _raisonSociale = initial.RaisonSociale;
+            _email = initial.Email;
+            _siren = initial.Siren;
+            _street = initial.Street;
+            _postalCode = initial.PostalCode;
+            _city = initial.City;
+            _country = initial.Country;
+        }
+    }
+
+    private async Task ContinueAsync()
+    {
+        // Contrôles de FORME (le métier — Luhn, adresse — reste au domaine TenantSettings).
+        if (!Regex.IsMatch(_tenantId.Trim(), "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"))
+        {
+            _validationError = "L'identifiant technique doit faire 1 à 63 caractères : minuscules, chiffres et tirets (jamais en début/fin).";
+            return;
+        }
+
+        if (!Regex.IsMatch(_siren.Trim(), "^\\d{9}$"))
+        {
+            _validationError = "Le SIREN doit comporter exactement 9 chiffres.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_raisonSociale) || string.IsNullOrWhiteSpace(_email)
+            || string.IsNullOrWhiteSpace(_street) || string.IsNullOrWhiteSpace(_postalCode)
+            || string.IsNullOrWhiteSpace(_city) || string.IsNullOrWhiteSpace(_country))
+        {
+            _validationError = "Tous les champs marqués * sont obligatoires.";
+            return;
+        }
+
+        _validationError = null;
+        await OnContinue.InvokeAsync(new ClientWizardProfilData
+        {
+            TenantId = _tenantId.Trim(),
+            RaisonSociale = _raisonSociale.Trim(),
+            Email = _email.Trim(),
+            Siren = _siren.Trim(),
+            Street = _street.Trim(),
+            PostalCode = _postalCode.Trim(),
+            City = _city.Trim(),
+            Country = _country.Trim(),
+        });
+    }
+}

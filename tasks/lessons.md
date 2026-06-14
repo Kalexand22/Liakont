@@ -215,3 +215,25 @@ silencieusement réparé sur SA branche (feat/console-polish) — le défaut res
 - **Après remise en pending d'un item bloqué pour cause externe, surveiller les sessions parties
   AVANT le fix** : elles tomberont sur le même RED (OPS05, BRD01 dans ce cas) et devront être
   repassées pending de la même façon.
+
+---
+
+## 2026-06-15 — Lancer les tests d'INTÉGRATION avant de pousser (verify-fast ne suffit pas)
+
+**Symptôme :** correctif F2 (recette GATE_REALM_UNIQUE : provisioning d'utilisateur → realm partagé)
+committé+poussé après `verify-fast` vert (build + tests UNITAIRES). La CI a cassé sur un test
+d'INTÉGRATION (`TenantUserAdminEndpointTests`, CreateUser → 400 au lieu de 201) que `verify-fast` ne
+lance pas : le harness `ConsoleApiFactory` ne configurait pas `Keycloak:PrimaryRealmName`, donc la
+garde « realm partagé configuré » 400ait. Karl : « PR #46 KO ».
+
+**Règles pour l'avenir :**
+- **Changement touchant un chemin couvert par l'INTÉGRATION** (endpoints, provisioning, DI, résolution
+  de tenant, auth) ⇒ lancer `tools/run-tests.ps1` (ou au minimum le projet `*.Tests.Integration`
+  concerné, Testcontainers) AVANT de pousser. `verify-fast` (unit) ne couvre PAS les harnais
+  d'intégration in-process (`ConsoleApiFactory`, `KeycloakE2EWebFactory`).
+- **Un réglage requis doit exister PARTOUT où le chemin s'exécute** : `appsettings.Development.json`
+  ✅ mais AUSSI les harnais de test ET la config de déploiement (appliance). Une garde qui faute
+  proprement (400 + message FR) est bien, mais le réglage doit être posé là où le code tourne, sinon
+  CI rouge / prod cassé. (Ici `Keycloak:PrimaryRealmName` n'était QUE dans appsettings.Development.)
+- **Rappel (en mémoire, violé ce jour) :** en interactif sur la branche d'intégration, `commit` =
+  `commit + push` immédiat, sans redemander (memory commits-interactifs-directs-feat-branch).
