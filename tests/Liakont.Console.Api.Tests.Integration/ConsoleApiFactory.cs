@@ -386,6 +386,12 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
         builder.Configuration["Keycloak:AdminUsername"] = "test-admin";
         builder.Configuration["Keycloak:AdminPassword"] = "test-not-a-real-secret";
 
+        // Realm PARTAGÉ (ADR-0021) : en realm unique, le provisioning d'UTILISATEUR cible PrimaryRealmName
+        // (profil partagé = défaut). Le provisioner Keycloak est faké, mais la garde « realm partagé
+        // configuré » s'applique en amont — sans cette valeur, CreateUser renvoie 400. Cohérent avec
+        // l'autorité OIDC ci-dessus (.../realms/test).
+        builder.Configuration["Keycloak:PrimaryRealmName"] = "test";
+
         AppBootstrap.ConfigureServices(builder);
 
         // Fakes Keycloak (OPS03) : substitution APRÈS ConfigureServices (le dernier enregistrement
