@@ -18,4 +18,10 @@ public sealed class TenantDto
     public required bool IsActive { get; init; }
 
     public required DateTimeOffset ProvisionedAt { get; init; }
+
+    /// <summary>
+    /// Company scope of the tenant (one tenant = one company), fixed at provisioning time.
+    /// <c>null</c> for tenants provisioned before the registry carried it (dev/seeded tenants).
+    /// </summary>
+    public Guid? CompanyId { get; init; }
 }

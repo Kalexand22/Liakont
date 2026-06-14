@@ -1,0 +1,126 @@
+/* Assistant « Nouveau client » (OPS03). Les classes des étapes (client-wizard-step__*) sont rendues
+   par les composants d'étape ENFANTS → ::deep depuis la racine scopée de la page. Layout uniquement. */
+
+.client-nouveau {
+    max-width: 56rem;
+}
+
+.client-nouveau__title {
+    margin: 0 0 1rem;
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.client-nouveau__ops {
+    list-style: none;
+    margin: 0 0 0.75rem;
+    padding: 0;
+    font-size: 0.9375rem;
+}
+
+.client-nouveau__ops li {
+    padding: 0.25rem 0;
+}
+
+.client-nouveau ::deep .client-wizard-step {
+    margin-top: 1rem;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--color-border, #d1d5db);
+    border-radius: var(--radius-sm, 0.25rem);
+    background: var(--color-surface, #fff);
+}
+
+.client-nouveau ::deep .client-wizard-step__hint {
+    margin: 0 0 0.75rem;
+    font-size: 0.875rem;
+    color: var(--color-text-muted, #6b7280);
+}
+
+.client-nouveau ::deep .client-wizard-step__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+    gap: 0.75rem 1.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.client-nouveau ::deep .client-wizard-step__field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.875rem;
+}
+
+.client-nouveau ::deep .client-wizard-step__field > span {
+    font-weight: 600;
+    font-size: 0.8125rem;
+}
+
+.client-nouveau ::deep .client-wizard-step__field input,
+.client-nouveau ::deep .client-wizard-step__field select {
+    height: 2rem;
+    padding: 0 0.5rem;
+    border: 1px solid var(--color-border, #d1d5db);
+    border-radius: var(--radius-sm, 0.25rem);
+    background: var(--color-surface, #fff);
+    color: inherit;
+    font: inherit;
+    font-size: 0.875rem;
+}
+
+.client-nouveau ::deep .client-wizard-step__field--inline {
+    max-width: 24rem;
+}
+
+.client-nouveau ::deep .client-wizard-step__choice {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+    font-size: 0.9375rem;
+    cursor: pointer;
+}
+
+.client-nouveau ::deep .client-wizard-step__error {
+    margin: 0.75rem 0 0;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-severity-error-border);
+    border-radius: var(--radius-sm, 0.25rem);
+    background: var(--color-severity-error-bg);
+    font-size: 0.875rem;
+}
+
+.client-nouveau ::deep .client-wizard-step__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.client-nouveau ::deep .client-wizard-step__done p {
+    margin: 0 0 0.75rem;
+}
+
+/* Secret affiché UNE fois (mot de passe temporaire, clé API) — pattern AgentRegisterDialog. */
+.client-nouveau ::deep .client-wizard-step__secret {
+    margin: 0.75rem 0;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border, #d1d5db);
+    border-radius: var(--radius-sm, 0.25rem);
+    background: var(--color-bg-subtle, #f9fafb);
+    overflow-x: auto;
+}
+
+.client-nouveau ::deep .client-wizard-step__secret code {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.9375rem;
+    word-break: break-all;
+}
+
+.client-nouveau ::deep .client-wizard-step__secret-warning {
+    margin: 0 0 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-severity-warning-border);
+    border-radius: var(--radius-sm, 0.25rem);
+    background: var(--color-severity-warning-bg);
+    font-size: 0.875rem;
+}

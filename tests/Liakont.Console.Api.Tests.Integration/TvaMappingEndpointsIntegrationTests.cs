@@ -62,13 +62,17 @@ public sealed class TvaMappingEndpointsIntegrationTests
     }
 
     [Fact]
-    public async Task GetTvaMapping_Is_Company_Scoped()
+    public async Task GetTvaMapping_With_A_Company_Foreign_To_The_Tenant_Is_Rejected()
     {
-        // Société sans table dans la base du tenant : la lecture est scopée par company_id (CLAUDE.md n°9).
+        // Post-RLM03 (realm unique, 1 tenant = 1 société) : un company_id qui ne résout PAS au tenant servi
+        // (ici une société inconnue du registre) est rejeté par le cross-check GLOBAL (ADR-0021 §2b) — le
+        // scoping par société est désormais gardé À LA FRONTIÈRE, et non plus seulement au data-layer
+        // (CLAUDE.md n°9, défense en profondeur). La lecture vide « société légitime sans table TVA » reste
+        // couverte par GetTvaMapping_Tenant_Isolation_Empty_Table_In_Other_Tenant (société enregistrée).
         using var client = _factory.CreateClient(
             ConsoleApiFactory.TenantApi04, ConsoleApiFactory.ReaderUserId, Guid.NewGuid());
-        var view = await GetViewAsync(client);
-        view.Table.Should().BeNull();
+        var response = await client.GetAsync(BasePath);
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
     [Fact]

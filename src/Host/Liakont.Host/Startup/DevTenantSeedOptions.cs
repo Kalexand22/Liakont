@@ -43,4 +43,10 @@ internal sealed class DevTenantSeedOptions
     /// dev désactivée.
     /// </summary>
     public DevTenantTaxReportSettingOptions? TaxReportSetting { get; init; }
+
+    /// <summary>
+    /// Tenants de recette additionnels amorcés AVEC leur <c>company_id</c> (RLM01) : un 2e tenant au
+    /// company_id DISTINCT rend l'isolation par claim prouvable de bout en bout. Liste vide par défaut.
+    /// </summary>
+    public IReadOnlyList<DevAdditionalTenantOptions> AdditionalTenants { get; init; } = [];
 }

@@ -200,6 +200,10 @@ public sealed class TenantSettingsConsoleQueriesTests
 
         public Task<Guid?> GetCurrentCompanyId(CancellationToken ct = default) => Task.FromResult(CompanyId);
 
+        /// <summary>Statut du tenant courant : null = pas de profil = ACTIF (defaut neutre des tests).</summary>
+        public Task<string?> GetCurrentTenantStatut(CancellationToken ct = default) =>
+            Task.FromResult<string?>(null);
+
         public Task<bool> GetAuctionVerticalEnabled(Guid companyId, CancellationToken ct = default) => Task.FromResult(false);
     }
 

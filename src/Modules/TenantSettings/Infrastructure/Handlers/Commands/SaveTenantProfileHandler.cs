@@ -2,10 +2,12 @@ namespace Liakont.Modules.TenantSettings.Infrastructure.Handlers.Commands;
 
 using Liakont.Modules.TenantSettings.Application;
 using Liakont.Modules.TenantSettings.Contracts.Commands;
+using Liakont.Modules.TenantSettings.Contracts.Queries;
 using Liakont.Modules.TenantSettings.Domain.Entities;
 using Liakont.Modules.TenantSettings.Domain.ValueObjects;
 using MediatR;
 using Stratum.Common.Abstractions.Exceptions;
+using Stratum.Common.Abstractions.Security;
 using Stratum.Common.Infrastructure.DataIsolation;
 
 /// <summary>Crée ou met à jour le profil du tenant courant (F12-A §2). Le SIREN est immuable une fois posé.</summary>
@@ -13,21 +15,29 @@ public sealed class SaveTenantProfileHandler : IRequestHandler<SaveTenantProfile
 {
     private readonly ITenantSettingsUnitOfWorkFactory _uowFactory;
     private readonly ICompanyFilter _companyFilter;
+    private readonly IActorContextAccessor _actorContextAccessor;
+    private readonly ITenantSettingsQueries _settingsQueries;
     private readonly TenantSettingsJournal _journal;
 
     public SaveTenantProfileHandler(
         ITenantSettingsUnitOfWorkFactory uowFactory,
         ICompanyFilter companyFilter,
+        IActorContextAccessor actorContextAccessor,
+        ITenantSettingsQueries settingsQueries,
         TenantSettingsJournal journal)
     {
         _uowFactory = uowFactory;
         _companyFilter = companyFilter;
+        _actorContextAccessor = actorContextAccessor;
+        _settingsQueries = settingsQueries;
         _journal = journal;
     }
 
     public async Task<Guid> Handle(SaveTenantProfileCommand request, CancellationToken cancellationToken)
     {
-        var companyId = _companyFilter.GetRequiredCompanyId();
+        // Société : explicite (provisioning console OPS03, garde create-only) ou contexte courant.
+        var companyId = await TenantSettingsCompanyOverrideGuard.ResolveAsync(
+            request.CompanyId, _companyFilter, _actorContextAccessor, _settingsQueries, cancellationToken);
         var address = TenantAddress.Create(request.Street, request.PostalCode, request.City, request.Country);
 
         Guid profileId;

@@ -8,6 +8,9 @@ using DotNet.Testcontainers.Containers;
 using Liakont.Host.Startup;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
+using Stratum.Common.Abstractions.MultiTenancy;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -31,6 +34,16 @@ using Xunit;
 public sealed class KeycloakE2EWebFactory : IAsyncLifetime, IAsyncDisposable
 {
     private const string RealmName = "liakont-dev";
+
+    // company_id des utilisateurs du realm E2E (keycloak-e2e-realm.json) : default partage -001 avec
+    // lecture/operateur/parametrage/superviseur ; tenant2 porte -002 (RLM01). Ces valeurs doivent
+    // COÏNCIDER avec l'attribut company_id du realm fixture et le backfill V017 (cohérence des sources).
+    private const string DefaultTenantId = "default";
+    private const string DefaultCompanyId = "00000000-0000-4000-a000-000000000001";
+    private const string Tenant2Id = "tenant2";
+    private const string Tenant2CompanyId = "00000000-0000-4000-a000-000000000002";
+    private const string Tenant2Database = "liakont_e2e_tenant2";
+    private const string Tenant2RealmName = "liakont-dev-recette2";
 
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
         .WithImage("postgres:16-alpine")
@@ -119,6 +132,16 @@ public sealed class KeycloakE2EWebFactory : IAsyncLifetime, IAsyncDisposable
         builder.Configuration["Database:ConnectionString"] = connectionString;
         builder.Configuration["TenantConnections:ConnectionStrings:default"] = connectionString;
 
+        // RLM04 — E2E de clôture : le 2e tenant (tenant2, company_id -002) a sa PROPRE base (db/realm/
+        // company_id UNIQUE imposé par V008/V010/V017), créée et migrée après l'init (SeedE2ETenantsAsync).
+        // Son override de connexion est posé ICI (avant Build, sinon IOptions est figé) pour que la
+        // résolution de tenant ouvre bien sa base lors du login de clôture.
+        var tenant2ConnectionString = new NpgsqlConnectionStringBuilder(connectionString)
+        {
+            Database = Tenant2Database,
+        }.ToString();
+        builder.Configuration[$"TenantConnections:ConnectionStrings:{Tenant2Id}"] = tenant2ConnectionString;
+
         // Keycloak OIDC — realm liakont-dev, client liakont (clés réelles du Host Liakont).
         builder.Configuration["Keycloak:Authority"] = KeycloakAuthority;
         builder.Configuration["Keycloak:ClientId"] = "liakont";
@@ -137,6 +160,13 @@ public sealed class KeycloakE2EWebFactory : IAsyncLifetime, IAsyncDisposable
         _app = builder.Build();
 
         await AppBootstrap.InitializeDataAsync(_app);
+
+        // RLM04 — En env Test, DevTenantSeeder ne tourne pas (Development-only) : outbox.tenants serait
+        // VIDE et le cross-check RLM03 (ADR-0021 §2b) 403erait TOUT utilisateur de tenant (la résolution
+        // company_id→tenant échouerait). On seede ici default (-001) et tenant2 (-002) de bout en bout,
+        // ce qui DÉBLOQUE le login OIDC d'un utilisateur de tenant dans le realm partagé (E2E de clôture).
+        await SeedE2ETenantsAsync(_app, connectionString);
+
         AppBootstrap.ConfigureMiddleware(_app);
 
         await _app.StartAsync();
@@ -191,5 +221,96 @@ public sealed class KeycloakE2EWebFactory : IAsyncLifetime, IAsyncDisposable
         int port = ((IPEndPoint)listener.LocalEndpoint).Port;
         listener.Stop();
         return port;
+    }
+
+    /// <summary>
+    /// Seede le registre <c>outbox.tenants</c> (base SYSTÈME) pour l'isolation par claim en E2E :
+    /// <list type="bullet">
+    ///   <item><c>default</c> (company_id -001) → partage la base système (comme en dev) ; débloque le
+    ///         login des utilisateurs lecture/operateur/parametrage/superviseur.</item>
+    ///   <item><c>tenant2</c> (company_id -002) → 2e tenant de bout en bout : base dédiée créée puis
+    ///         migrée, pour exercer l'isolation réelle (deux company_id distincts, deux bases).</item>
+    /// </list>
+    /// Idempotent (<c>ON CONFLICT DO NOTHING</c>). Appelé APRÈS la migration du système (la table
+    /// <c>outbox.tenants</c> existe) et AVANT le démarrage de l'application.
+    /// </summary>
+    private static async Task SeedE2ETenantsAsync(WebApplication app, string systemConnectionString)
+    {
+        var systemDatabase = new NpgsqlConnectionStringBuilder(systemConnectionString).Database!;
+
+        await using (var connection = new NpgsqlConnection(systemConnectionString))
+        {
+            await connection.OpenAsync();
+
+            // 1. Tenant `default` : sa base EST la base système (cf. remarque de classe).
+            await InsertTenantAsync(
+                connection,
+                DefaultTenantId,
+                "Tenant E2E par defaut",
+                "dev@liakont.local",
+                systemDatabase,
+                RealmName,
+                DefaultCompanyId);
+
+            // 2. Tenant `tenant2` : base propre (UNIQUE), créée puis migrée par MigrateExistingTenantsAsync.
+            await CreateDatabaseIfMissingAsync(connection, Tenant2Database);
+            await InsertTenantAsync(
+                connection,
+                Tenant2Id,
+                "Tenant E2E 2 (isolation)",
+                "admin@tenant2.local",
+                Tenant2Database,
+                Tenant2RealmName,
+                Tenant2CompanyId);
+        }
+
+        // Migre les bases des tenants actifs : `default` (= base système, déjà migrée → no-op idempotent)
+        // et `tenant2` (base fraîche → tous les schémas de module). Échoue bruyamment si une migration rate.
+        var provisioner = app.Services.GetRequiredService<ITenantProvisioningService>();
+        await provisioner.MigrateExistingTenantsAsync();
+    }
+
+    private static async Task InsertTenantAsync(
+        NpgsqlConnection connection,
+        string id,
+        string displayName,
+        string adminEmail,
+        string databaseName,
+        string realmName,
+        string companyId)
+    {
+        const string sql = """
+            INSERT INTO outbox.tenants (id, display_name, admin_email, database_name, realm_name, client_secret, company_id)
+            VALUES (@id, @displayName, @adminEmail, @databaseName, @realmName, @clientSecret, @companyId)
+            ON CONFLICT DO NOTHING
+            """;
+
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("displayName", displayName);
+        command.Parameters.AddWithValue("adminEmail", adminEmail);
+        command.Parameters.AddWithValue("databaseName", databaseName);
+        command.Parameters.AddWithValue("realmName", realmName);
+        command.Parameters.AddWithValue("clientSecret", "e2e-fixture-secret");
+        command.Parameters.AddWithValue("companyId", Guid.Parse(companyId));
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task CreateDatabaseIfMissingAsync(NpgsqlConnection connection, string databaseName)
+    {
+        await using (var check = new NpgsqlCommand("SELECT 1 FROM pg_database WHERE datname = @name", connection))
+        {
+            check.Parameters.AddWithValue("name", databaseName);
+            if (await check.ExecuteScalarAsync() is not null)
+            {
+                return;
+            }
+        }
+
+        // CREATE DATABASE n'accepte ni paramètre lié ni transaction : le nom est une constante de test
+        // (jamais une entrée externe), échappé par des guillemets doubles.
+        var quoted = "\"" + databaseName.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
+        await using var create = new NpgsqlCommand($"CREATE DATABASE {quoted}", connection);
+        await create.ExecuteNonQueryAsync();
     }
 }

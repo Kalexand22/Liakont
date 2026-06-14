@@ -241,6 +241,11 @@ src/Modules/Job/Web/JobNavSectionProvider.cs
 src/Modules/Job/Infrastructure/JobHandlerResolver.cs
 src/Modules/Job/Contracts/Queries/IJobQueries.cs
 src/Modules/Job/Infrastructure/Queries/PostgresJobQueries.cs
+src/Common/Infrastructure/Database/TenantProvisioningService.cs
+src/Common/Infrastructure/Keycloak/KeycloakRealmProvisioner.cs
+src/Common/Abstractions/MultiTenancy/KeycloakRealmProvisionRequest.cs
+src/Common/Abstractions/MultiTenancy/TenantProvisionResult.cs
+src/Common/Infrastructure/Database/ServiceCollectionExtensions.cs
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -561,6 +566,167 @@ la surcharge existante `BuildNavTree(NavProviders, NavNodeProviders)` — `Comma
 déjà récursivement les feuilles (`CollectSearchableItems`). Aucune autre logique modifiée. Correction
 GÉNÉRIQUE (toute app socle utilisant des node providers en bénéficie), candidate à reverser en
 amont (§6).
+
+### 4.24 Provisioning de tenant — `company_id` porté par le realm + mot de passe admin réellement temporaire (OPS03 lot A)
+
+**Fichiers** : `src/Common/Abstractions/MultiTenancy/KeycloakRealmProvisionRequest.cs`,
+`TenantProvisionResult.cs`, `TenantDto.cs`, `src/Common/Infrastructure/Keycloak/KeycloakRealmProvisioner.cs`,
+`src/Common/Infrastructure/Database/TenantProvisioningService.cs`, `TenantQueries.cs`,
+`ServiceCollectionExtensions.cs`, migration `V016__add_company_id_to_tenants.sql`.
+**Motif** : un tenant fraîchement provisionné était INUTILISABLE — le mapper `company_id` du realm
+était un mapper d'ATTRIBUT utilisateur jamais renseigné (l'admin créé ne portait que
+`stratum_user_id`) → claim absent → toutes les requêtes company-scopées échouent ; le mot de passe
+admin était CODÉ EN DUR (`Change@First1`) et posé en credential PERMANENT malgré son commentaire
+« temporary ». **Modifications** : (1) `companyId` GÉNÉRÉ au provisioning (un tenant = une société),
+persisté dans `outbox.tenants.company_id` (migration V016, system-only — préfixe ajouté à
+`SystemOnlyMigrationPrefixes`), exposé par `TenantDto`, et émis par le realm comme mapper
+`company_id` HARDCODÉ au niveau client (comme `tenant_id` — aligné sur le realm de dev) : tout
+utilisateur présent ET futur du realm porte le claim ; (2) mot de passe admin ALÉATOIRE, retourné
+UNE fois via `TenantProvisionResult.AdminTemporaryPassword` (jamais persisté/journalisé), credential
+`temporary=true` + action `UPDATE_PASSWORD`. **Le point (2) est SUPERSEDED par §4.26** (l'admin de
+realm n'est plus créé du tout) ; le point (1) `company_id` reste valide POUR LE PROFIL DÉDIÉ
+mono-tenant (cf. recadrage RLM04 ci-dessous). Épinglé par
+`KeycloakRealmProvisionerTests.ProvisionRealmAsync_DedicatedProfile_Should_Emit_CompanyId_As_Hardcoded_Client_Mapper`.
+
+**Mise à jour [ADR-0021](../adr/ADR-0021-realm-keycloak-unique-isolation-par-claim.md) (2026-06-13)** :
+le modèle realm-par-tenant qui rendait le point (1) valide (un client = un tenant → mapper
+`company_id` HARDCODÉ au niveau client) est **superseçu** — Liakont passe à un **realm unique
+partagé**, où le mapper hardcodé client devient impossible (tous les jetons porteraient la même
+valeur = isolation nulle) et `company_id` redevient un mapper d'**attribut par-utilisateur**.
+
+**Recadrage RLM04 (2026-06-13, cf. §4.28)** : le vrai `KeycloakRealmProvisioner` (donc le mapper
+`company_id` HARDCODÉ du point (1)) n'est plus câblé que dans le **profil dédié mono-tenant** ; le
+profil SaaS partagé (défaut) utilise `NoOpKeycloakRealmProvisioner` et ne crée aucun realm. Le test
+épinglé a été **renommé** (`…ProvisionRealmAsync_DedicatedProfile_Should_Emit_CompanyId_As_Hardcoded_Client_Mapper`)
+et porte désormais le commentaire « JAMAIS pour le partagé » : il certifie le mapper hardcodé comme
+comportement attendu du **dédié uniquement**, jamais du partagé (où ce serait une faute d'isolation).
+
+### 4.25 `IKeycloakUserProvisioner` — provisioning d'utilisateur dans un realm EXISTANT (OPS03 lot A)
+
+**Fichiers AJOUTÉS** : `src/Common/Abstractions/MultiTenancy/IKeycloakUserProvisioner.cs` +
+`KeycloakUserSpec.cs`, `src/Common/Infrastructure/Keycloak/KeycloakUserProvisioner.cs`
+(+ enregistrement DI dans `ServiceCollectionExtensions.cs`). **Motif** : le socle ne savait créer un
+utilisateur Keycloak QUE pendant la création du realm (`CreateAdminUserAsync`, privé) ; le
+provisioning du « premier utilisateur » d'un tenant (assistant opérateur OPS03) exige un seam
+par-utilisateur réutilisant le client `"KeycloakAdmin"` + `KeycloakAdminTokenService` (internal —
+inaccessibles depuis Liakont.Host sans dupliquer l'acquisition de token). **Périmètre** : nouveau
+seam à CÔTÉ de `IKeycloakRealmProvisioner` (aucun refactoring du provisioner de realm) : recherche
+par username exact, création (id du header Location), fusion d'attributs (read-modify-write),
+reset-password temporaire, rôle realm idempotent (409 = succès), assignation de rôles, suppression
+(compensation). Un 409 à la création (username OU email déjà pris — l'email est unique par realm,
+un pré-contrôle par username ne suffit pas) lève l'exception TYPÉE `KeycloakUserConflictException`
+(Abstractions) pour un refus opérateur propre, jamais un 500. La consommation produit passe par
+l'abstraction IdP-agnostique `ITenantUserProvisioningService` du Host (couche d'auth). Tests :
+`KeycloakUserProvisionerTests`. `FakeHttpMessageHandler` (tests socle) étendu : capture des corps
+de requêtes (`AllRequestBodies`).
+
+### 4.26 Provisioning de tenant — le realm ne crée PLUS d'admin répliqué (recette OPS03, 13/06/2026)
+
+**Fichiers** : `src/Common/Infrastructure/Database/TenantProvisioningService.cs`,
+`src/Common/Infrastructure/Keycloak/KeycloakRealmProvisioner.cs`,
+`src/Common/Abstractions/MultiTenancy/KeycloakRealmProvisionRequest.cs`, `TenantProvisionResult.cs`.
+**Motif** (révélé en recette manuelle OPS03) : le flux hérité du socle répliquait le super-admin de
+l'INSTANCE dans CHAQUE tenant — `SeedTenantAdminAsync` copiait l'utilisateur `identity` portant le
+rôle `SystemAdmin` dans la base du nouveau tenant, et `KeycloakRealmProvisioner.CreateAdminUserAsync`
+créait un compte « sysadmin » (rôles `Admin`+`SystemAdmin`) dans le realm du tenant. C'est le modèle
+cookie-auth natif de Stratum, INADAPTÉ à Liakont : le super-admin est un acteur CROSS-TENANT du realm
+PRIMAIRE (il supervise via `ITenantScopeFactory`, jamais via un compte par tenant), et le premier
+utilisateur d'un tenant vient de l'assistant opérateur (OPS03 lot A, `IKeycloakUserProvisioner`). En
+exécution réelle, le seed dev crée le `sysadmin` avec le rôle `Admin` (pas `SystemAdmin`) → la requête
+de `SeedTenantAdminAsync` ne trouvait personne → tout provisioning échouait (un faux-vert masqué en
+test par un seed `SystemAdmin` de fixture). **Modifications** : (1) `ProvisionAsync` n'appelle plus
+`SeedTenantAdminAsync` (méthode + `AdminRow` supprimés) ; le realm naît SANS utilisateur. (2)
+`KeycloakRealmProvisioner` ne crée plus d'admin (`CreateAdminUserAsync`, `AssignRealmRolesAsync`,
+`ExtractIdFromLocationHeader`, `KeycloakRole` supprimés) — il crée realm + client OIDC + mappers (le
+mapper `company_id` HARDCODÉ de §4.24 reste, donc tout futur utilisateur porte son claim). (3)
+`KeycloakRealmProvisionRequest` perd `AdminEmail/AdminUsername/AdminPassword/StratumUserId` ;
+`TenantProvisionResult` perd `AdminTemporaryPassword` (plus d'admin de realm → plus de secret à
+remettre ; le seul secret affiché par l'assistant est le mot de passe temporaire du PREMIER
+utilisateur, lot A). Tests : `KeycloakRealmProvisionerTests` (le realm ne crée plus d'utilisateur —
+4 requêtes, test « admin password » retiré), `ClientProvisioningConsoleIntegrationTests` (plus
+d'assertion `AdminTemporaryPassword`), fixture `ConsoleApiFactory` (seed `SystemAdmin` retiré — le
+contrat du socle ne l'exige plus).
+
+Suite actée par [ADR-0021](../adr/ADR-0021-realm-keycloak-unique-isolation-par-claim.md) (realm
+unique partagé) : le provisioning ne créera plus de realm du tout (`KeycloakRealmProvisioner` sort du
+chemin de création SaaS partagé).
+
+### 4.27 Résolution autoritaire du tenant par `company_id` (RLM02, ADR-0021 §2c) — fichiers AJOUTÉS aux projets Common vendored
+
+RLM02 ajoute la voie de résolution `company_id(jeton) → outbox.tenants.company_id → tenant` **sous les
+dossiers vendored `src/Common`**, à côté de la couche de requêtes registre existante (`TenantQueries`).
+Ce sont des **fichiers AJOUTÉS**, pas des modifications de fichiers `Stratum.*` existants : le baseline
+de provenance (§4.12) n'épingle que les fichiers vendorés existants, donc ces ajouts **ne dérivent pas**
+et ne figurent PAS dans le bloc `SOCLE-CONSIGNED-DRIFT`. Ils sont consignés ici pour la re-convergence
+NuGet et marqués `// Liakont addition (RLM02)` (`.cs`) / `-- Liakont addition (RLM02)` (`.sql`) en tête
+de fichier. **Aucun fichier `Stratum.*` existant n'a été modifié par RLM02** — la contrainte de migration
+est portée par une migration auto-gardée (`IF EXISTS (outbox.tenants)`) plutôt que par un ajout à
+`TenantProvisioningService.SystemOnlyMigrationPrefixes` (fichier épinglé), pour éviter toute dérive socle.
+
+Fichiers ajoutés (namespaces cohérents avec l'assembly hôte ; code **Liakont**, pas Stratum amont) :
+- `src/Common/Abstractions/MultiTenancy/ICompanyTenantLookup.cs` (projet `Stratum.Common.Abstractions`)
+- `src/Common/Infrastructure/Database/CompanyTenantLookup.cs` (projet `Stratum.Common.Infrastructure`,
+  requête synchrone Dapper indexée par la contrainte UNIQUE de V017)
+- `src/Common/Infrastructure/Migrations/V017__enforce_company_id_on_tenants.sql` (backfill du tenant
+  `default` + `company_id` NOT NULL + UNIQUE ; system-only par auto-garde)
+
+Code Liakont **hors** socle (pas de consignation requise, mais cité pour le contexte) :
+`src/Host/Liakont.Host/MultiTenancy/CompanyClaimTenantResolver.cs` (résolveur autoritaire, lit le claim
+via `ClaimsPrincipal`, jamais via un type Keycloak — gardé par NetArchTest) + son enregistrement EN TÊTE
+de la chaîne dans `MultiTenantServiceCollectionExtensions`.
+
+### 4.28 Sortie du provisioner de realm du chemin de création SaaS partagé (RLM04, ADR-0021 §1/§5)
+
+**Motif** : en realm Keycloak unique partagé (ADR-0021), le provisioning d'un tenant ne doit plus
+créer NI realm NI client par tenant (INV-0021-1) ; la capacité socle realm-par-tenant reste
+disponible pour le **déploiement dédié mono-tenant**. Le seam est porté en DI (option « no-op
+enregistrée en DI » de l'ADR), pas par une suppression de code.
+
+**Fichier `Stratum.*` AJOUTÉ** (non épinglé par le baseline §4.12 — comme §4.14/§4.25/§4.27 ;
+consigné pour la re-convergence NuGet, marqué `// Liakont addition (RLM04)`) :
+- `src/Common/Infrastructure/Keycloak/NoOpKeycloakRealmProvisioner.cs` — implémentation no-op
+  d'`IKeycloakRealmProvisioner` : `ProvisionRealmAsync` renvoie `Idempotent` SANS aucun appel HTTP
+  (aucun `POST /admin/realms`, preuve STRUCTURELLE : pas de dépendance `IHttpClientFactory`) ;
+  `DeleteRealmAsync`/`AddTenantRedirectUriAsync` sont des no-op.
+
+**Fichiers `Stratum.*` MODIFIÉS** (épinglés → bloc `SOCLE-CONSIGNED-DRIFT`) :
+- `src/Common/Infrastructure/Database/ServiceCollectionExtensions.cs` (NOUVELLE dérive) : le
+  provisioner de realm enregistré dépend du profil — `NoOpKeycloakRealmProvisioner` par DÉFAUT
+  (SaaS partagé), le vrai `KeycloakRealmProvisioner` seulement si
+  `Keycloak:DedicatedRealmPerTenant=true` (dédié mono-tenant). Le flag est lu directement depuis
+  `IConfiguration` (aucun ajout de propriété à un type d'options épinglé, pour minimiser la surface
+  de dérive socle).
+- `src/Common/Infrastructure/Database/TenantProvisioningService.cs` (déjà en dérive §4.24/§4.26) :
+  dans `ProvisionAsync`, l'enregistrement du realm (`IRealmRegistry.RegisterRealm`) et l'ajout du
+  redirect par sous-domaine (`AddTenantRedirectUriAsync`) sont désormais gardés par
+  `if (!string.IsNullOrEmpty(kcResult.Authority))`. Le no-op renvoie une **autorité vide** → ces deux
+  gestes vestigiaux ne s'exécutent plus en profil partagé. Le vrai provisioner (profil dédié) renvoie
+  l'autorité du realm — qu'il vienne d'être créé (`Created`) OU qu'il préexiste (`Idempotent`, chemin
+  de **reprise**) — donc la mécanique d'origine reste **inconditionnelle** pour lui (ré-enregistrement
+  idempotent du realm pour la validation JWT, sans régression du chemin de reprise). Le redirect
+  statique `default.localhost` (realm-export.json, FIX07a) n'est pas touché — le nettoyage cible les
+  redirects par tenant provisionné.
+
+**Code Liakont hors socle (pas de consignation requise, cité pour contexte)** :
+`src/Host/Liakont.Host/Startup/AppBootstrap.cs` (`SeedRealmRegistryFromDatabaseAsync`) ne seede plus
+le registre de realms par-tenant depuis la base en profil partagé (les `realm_name` par-tenant y sont
+vestigiaux) — uniquement en dédié ; le realm partagé reste enregistré via `Keycloak:RealmTenantMap`.
+Tests : `NoOpKeycloakRealmProvisionerTests`, `RealmProvisionerRegistrationTests` (le seam : le partagé
+résout le no-op, le dédié le vrai), `KeycloakRealmProvisionerTests` (recadré au profil dédié, §4.24),
+`TenantProvisioningRealmSeamIntegrationTests` (consommation du seam par `ProvisionAsync`, Testcontainers,
+les deux directions de la garde), et l'E2E de clôture `TenantLoginSharedRealmE2ETests` (un utilisateur
+de tenant **seedé** se connecte dans le realm partagé).
+
+**Dette ouverte assumée (onboarding d'un NOUVEL utilisateur en realm partagé)** : RLM04 sort le
+provisioner de *realm* du chemin SaaS partagé, mais ne touche PAS le provisioner d'*utilisateur*
+(`src/Host/Liakont.Host/Security/Keycloak/KeycloakTenantUserProvisioner.cs`, OPS03 lot A). Celui-ci
+crée encore le compte dans `tenant.RealmName` (= `stratum-{tenantId}`, vestigial en partagé) → l'onboarding
+d'un nouvel utilisateur via l'assistant opérateur cible un realm inexistant (404 Keycloak) dans le profil
+partagé par défaut. L'E2E de clôture couvre un utilisateur **pré-seedé** (RLM01), pas un utilisateur
+**fraîchement provisionné**. Correctif = item de suivi (faire cibler le realm PARTAGÉ — `PrimaryRealmName` —
+en profil partagé, l'attribut `company_id` par-utilisateur étant déjà posé de façon cohérente avec
+`outbox.tenants.company_id` ; + recréation des comptes de recette dans le realm partagé, ADR-0021 §État
+actuel vs cible). Hors périmètre du seam de *realm* RLM04.
 
 ## 5. ADR du socle hérités
 

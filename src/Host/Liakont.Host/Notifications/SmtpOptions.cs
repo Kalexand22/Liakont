@@ -33,4 +33,14 @@ internal sealed class SmtpOptions
 
     /// <summary>Nom affiché de l'expéditeur.</summary>
     public string FromName { get; init; } = "Liakont";
+
+    /// <summary>
+    /// Le transport SMTP est réellement configuré (activé + hôte + expéditeur). Critère PARTAGÉ entre
+    /// le transport (no-op sinon) et le provisioning d'utilisateur (mot de passe temporaire remis une
+    /// seule fois à l'opérateur quand aucune invitation email ne peut partir).
+    /// </summary>
+    public bool IsConfigured =>
+        Enabled
+        && !string.IsNullOrWhiteSpace(Host)
+        && !string.IsNullOrWhiteSpace(FromAddress);
 }

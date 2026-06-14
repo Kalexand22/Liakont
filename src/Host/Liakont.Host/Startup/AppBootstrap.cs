@@ -457,6 +457,18 @@ public static class AppBootstrap
         builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
         builder.Services.AddScoped<IAuthorizationHandler, VolunteerAuthorizationHandler>();
 
+        // Provisioning d'utilisateur de tenant (OPS03 lot A) : abstraction produit IdP-agnostique,
+        // implémentation Keycloak dans la couche d'auth (seul endroit autorisé — décision D10).
+        builder.Services.AddScoped<Security.Abstractions.ITenantUserProvisioningService, Security.Keycloak.KeycloakTenantUserProvisioner>();
+
+        // Application du statut Suspendu (OPS03.4 lot B) : lookup singleton (cache mémoire court,
+        // fail-open documenté) consommé par le filtre de push agent, le middleware et le sign-in.
+        builder.Services.AddSingleton<MultiTenancy.ITenantSuspensionLookup, MultiTenancy.TenantSuspensionLookup>();
+
+        // Écran « Clients » (OPS03 lot C) : service console d'administration d'instance — liste des
+        // tenants (registre système + profils par scope), assistant de création, suspension.
+        builder.Services.AddScoped<Clients.IClientConsoleService, Clients.ClientConsoleService>();
+
         // Navigation providers (sidebar)
         builder.Services.AddSingleton<INavSectionProvider, HostNavSectionProvider>();
 
@@ -671,6 +683,19 @@ public static class AppBootstrap
 
         app.UseAuthentication();
         app.UseStratumMultiTenancy();
+
+        // Application du statut SUSPENDU d'un tenant (OPS03.4 lot B) : APRÈS l'authentification et la
+        // résolution du tenant, AVANT l'autorisation — sessions ouvertes et API Bearer ; le refus au
+        // sign-in OIDC est porté par la couche d'auth, le refus de push agent par le filtre d'endpoint.
+        app.UseMiddleware<Liakont.Host.MultiTenancy.TenantSuspensionMiddleware>();
+
+        // Cross-check d'isolation par claim company_id (ADR-0021 §2b, item RLM03, INV-0021-4) : middleware
+        // GLOBAL *fail-closed* — pour TOUTE requête authentifiée d'un utilisateur de tenant, exige un claim
+        // company_id résolvant (outbox.tenants) au tenant servi ; absence, divergence ou indice client
+        // contredisant le jeton ⇒ 403. Super-admin exempté, chemin agent (X-Agent-Key) hors périmètre.
+        // APRÈS auth + résolution du tenant, AVANT l'autorisation — la défense en profondeur qui remplace la
+        // frontière cryptographique par-realm (le contrôle PRIMAIRE reste le scoping métier, CLAUDE.md n°9).
+        app.UseMiddleware<Liakont.Host.MultiTenancy.TenantCompanyCrossCheckMiddleware>();
 
         // Localisation APRÈS l'authentification ET la résolution du tenant : la préférence Language
         // PERSISTÉE de l'utilisateur (base = source de vérité — décision opérateur 2026-06-10,
@@ -932,14 +957,27 @@ public static class AppBootstrap
     /// </summary>
     private static async Task SeedRealmRegistryFromDatabaseAsync(WebApplication app)
     {
-        var realmRegistry = app.Services.GetRequiredService<IRealmRegistry>();
-        var tenantQueries = app.Services.GetRequiredService<ITenantQueries>();
         var kc = app.Configuration.GetSection("Keycloak").Get<KeycloakSettings>();
 
         if (kc is null || !kc.IsConfigured)
         {
             return;
         }
+
+        // RLM04 (ADR-0021 §1/§5) : en profil SaaS PARTAGÉ (défaut), il n'existe qu'UN realm partagé —
+        // déjà enregistré au câblage de l'auth via Keycloak:RealmTenantMap (KeycloakIdentityProvider-
+        // Authenticator). Les realm_name par-tenant d'outbox.tenants sont alors VESTIGIAUX (placeholders
+        // UNIQUE pour des realms qui n'existent plus) : les enregistrer comme émetteurs JWT pointerait
+        // vers des autorités inexistantes (échecs JWKS). On ne seede le registre depuis la base que dans
+        // le profil DÉDIÉ mono-tenant (Keycloak:DedicatedRealmPerTenant=true), où chaque tenant a son
+        // realm réel.
+        if (!app.Configuration.GetValue<bool>("Keycloak:DedicatedRealmPerTenant"))
+        {
+            return;
+        }
+
+        var realmRegistry = app.Services.GetRequiredService<IRealmRegistry>();
+        var tenantQueries = app.Services.GetRequiredService<ITenantQueries>();
 
         var baseUrl = kc.Authority[..kc.Authority.LastIndexOf("/realms/", StringComparison.Ordinal)];
         var tenants = await tenantQueries.ListAsync();

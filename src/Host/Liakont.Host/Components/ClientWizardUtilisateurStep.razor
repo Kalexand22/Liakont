@@ -1,0 +1,156 @@
+@namespace Liakont.Host.Components
+@using System.Collections.Generic
+@using Liakont.Host.Security.Abstractions
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* Étape « Premier utilisateur » de l'assistant « Nouveau client » (OPS03) : compte IdP + compte
+ * applicatif + invitation (lot A). Vue PURE : les rôles proposés viennent de la page (matrice §3 —
+ * aucun rôle inventé). Sans SMTP (ou envoi en échec), le mot de passe temporaire est affiché UNE
+ * SEULE FOIS (pattern clé API WEB09). L'étape est SAUTABLE explicitement (le récapitulatif le dit) :
+ * jamais un faux vert. 100 % français. *@
+
+<div class="client-wizard-step" data-testid="client-wizard-utilisateur">
+    @if (Result is { Success: true } done)
+    {
+        <div class="client-wizard-step__done" data-testid="client-wizard-utilisateur-done">
+            <p>
+                Utilisateur <strong>@_username</strong> créé (rôle « @_role »).
+                @(done.InvitationEmailSent ? "Une invitation lui a été envoyée par email." : string.Empty)
+            </p>
+
+            @if (!string.IsNullOrEmpty(done.TemporaryPassword))
+            {
+                <div class="client-wizard-step__secret" data-testid="client-wizard-utilisateur-password">
+                    <p class="client-wizard-step__secret-warning" role="alert">
+                        Aucun email n'a pu partir (SMTP non configuré ou envoi en échec) : transmettez ce mot de
+                        passe temporaire à l'utilisateur — il est affiché UNE SEULE FOIS et devra être changé à
+                        la première connexion.
+                    </p>
+                    <code data-testid="client-wizard-utilisateur-password-value">@done.TemporaryPassword</code>
+                </div>
+            }
+        </div>
+
+        <div class="client-wizard-step__actions">
+            <StratumButton Text="Continuer"
+                           Variant="ButtonVariant.Primary"
+                           Size="ButtonSize.Small"
+                           OnClick="@(_ => OnContinue.InvokeAsync())"
+                           TestId="client-wizard-utilisateur-continue" />
+        </div>
+    }
+    else
+    {
+        <p class="client-wizard-step__hint">
+            Premier utilisateur du client : compte de connexion (changement de mot de passe forcé à la
+            première connexion) + rôle standard. Les utilisateurs suivants se créent de la même façon,
+            plus tard.
+        </p>
+
+        <div class="client-wizard-step__grid">
+            <label class="client-wizard-step__field">
+                <span>Email *</span>
+                <input type="email" value="@_email" @oninput="@(e => _email = e.Value as string ?? string.Empty)"
+                       data-testid="client-wizard-utilisateur-email" />
+            </label>
+            <label class="client-wizard-step__field">
+                <span>Nom d'utilisateur *</span>
+                <input type="text" value="@_username" @oninput="@(e => _username = e.Value as string ?? string.Empty)"
+                       data-testid="client-wizard-utilisateur-username" />
+            </label>
+            <label class="client-wizard-step__field">
+                <span>Nom affiché *</span>
+                <input type="text" value="@_displayName" @oninput="@(e => _displayName = e.Value as string ?? string.Empty)"
+                       data-testid="client-wizard-utilisateur-display-name" />
+            </label>
+            <label class="client-wizard-step__field">
+                <span>Rôle *</span>
+                <select value="@_role" @onchange="@(e => _role = e.Value as string ?? string.Empty)"
+                        data-testid="client-wizard-utilisateur-role">
+                    @foreach (var (role, description) in Roles)
+                    {
+                        <option value="@role">@role — @description</option>
+                    }
+                </select>
+            </label>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(Error))
+        {
+            <div class="client-wizard-step__error" role="alert" data-testid="client-wizard-utilisateur-error">@Error</div>
+        }
+
+        <div class="client-wizard-step__actions">
+            <StratumButton Text="@(Busy ? "Création en cours…" : "Créer l'utilisateur")"
+                           Variant="ButtonVariant.Primary"
+                           Size="ButtonSize.Small"
+                           Disabled="@(Busy || !FormComplete)"
+                           OnClick="ProvisionAsync"
+                           TestId="client-wizard-utilisateur-create" />
+            <StratumButton Text="Passer cette étape"
+                           Variant="ButtonVariant.Secondary"
+                           Outline
+                           Size="ButtonSize.Small"
+                           Disabled="@Busy"
+                           OnClick="@(_ => OnSkip.InvokeAsync())"
+                           TestId="client-wizard-utilisateur-skip" />
+        </div>
+    }
+</div>
+
+@code {
+    private string _email = string.Empty;
+    private string _username = string.Empty;
+    private string _displayName = string.Empty;
+    private string _role = "parametrage";
+
+    /// <summary>Rôles standard proposables (nom → description), fournis par la page (matrice §3).</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyDictionary<string, string> Roles { get; set; } = new Dictionary<string, string>();
+
+    /// <summary>Email pré-rempli (contact du client saisi à l'étape 1).</summary>
+    [Parameter]
+    public string? InitialEmail { get; set; }
+
+    /// <summary>Création en cours (boutons désactivés).</summary>
+    [Parameter]
+    public bool Busy { get; set; }
+
+    /// <summary>Message d'échec de la dernière tentative (réessayable), ou <c>null</c>.</summary>
+    [Parameter]
+    public string? Error { get; set; }
+
+    /// <summary>Résultat du provisioning (succès → panneau « créé » + éventuel mot de passe une fois).</summary>
+    [Parameter]
+    public TenantUserProvisionResult? Result { get; set; }
+
+    /// <summary>Demande de création (email, username, nom affiché, rôle).</summary>
+    [Parameter]
+    public EventCallback<(string Email, string Username, string DisplayName, string Role)> OnProvision { get; set; }
+
+    /// <summary>Étape sautée explicitement.</summary>
+    [Parameter]
+    public EventCallback OnSkip { get; set; }
+
+    /// <summary>Étape terminée (après succès).</summary>
+    [Parameter]
+    public EventCallback OnContinue { get; set; }
+
+    private bool FormComplete =>
+        !string.IsNullOrWhiteSpace(_email)
+        && !string.IsNullOrWhiteSpace(_username)
+        && !string.IsNullOrWhiteSpace(_displayName)
+        && !string.IsNullOrWhiteSpace(_role);
+
+    protected override void OnInitialized()
+    {
+        if (!string.IsNullOrWhiteSpace(InitialEmail))
+        {
+            _email = InitialEmail;
+        }
+    }
+
+    private Task ProvisionAsync() =>
+        OnProvision.InvokeAsync((_email.Trim(), _username.Trim(), _displayName.Trim(), _role));
+}

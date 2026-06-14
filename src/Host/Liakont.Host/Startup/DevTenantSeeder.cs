@@ -62,9 +62,12 @@ internal static partial class DevTenantSeeder
             .GetRequiredService<ILoggerFactory>()
             .CreateLogger("Liakont.Host.Startup.DevTenantSeeder");
 
-        // realm_name et database_name sont NOT NULL dans outbox.tenants : une configuration partielle
-        // est une erreur d'amorçage à signaler, pas à insérer à moitié.
-        if (string.IsNullOrWhiteSpace(options.RealmName) || string.IsNullOrWhiteSpace(options.DatabaseName))
+        // realm_name et database_name sont NOT NULL dans outbox.tenants ; company_id l'est devenu en
+        // RLM02 (V017) car il pilote la résolution autoritaire du tenant (ADR-0021 §2c) — une
+        // configuration partielle est une erreur d'amorçage à signaler, pas à insérer à moitié.
+        if (string.IsNullOrWhiteSpace(options.RealmName)
+            || string.IsNullOrWhiteSpace(options.DatabaseName)
+            || options.CompanyId == Guid.Empty)
         {
             LogDevTenantSeedIncomplete(logger, options.TenantId);
             return;
@@ -76,9 +79,12 @@ internal static partial class DevTenantSeeder
 
         // ON CONFLICT sans cible : ignore AUSSI un conflit d'unicité sur realm_name/database_name
         // (tenant déjà rattaché autrement) — le seed de dev ne doit jamais empêcher le démarrage.
+        // company_id explicite (RLM02) : DOIT coïncider avec le claim company_id du realm de dev
+        // (deploy/docker/keycloak/realm-export.json) et le backfill V017 — cohérence des 3 sources
+        // gardée par DefaultCompanyIdCoherenceTests. Sans lui, un boot à froid violerait le NOT NULL.
         const string sql = """
-            INSERT INTO outbox.tenants (id, display_name, admin_email, database_name, realm_name, client_secret)
-            VALUES (@id, @displayName, @adminEmail, @databaseName, @realmName, @clientSecret)
+            INSERT INTO outbox.tenants (id, display_name, admin_email, database_name, realm_name, client_secret, company_id)
+            VALUES (@id, @displayName, @adminEmail, @databaseName, @realmName, @clientSecret, @companyId)
             ON CONFLICT DO NOTHING
             """;
 
@@ -89,6 +95,7 @@ internal static partial class DevTenantSeeder
         command.Parameters.AddWithValue("databaseName", options.DatabaseName);
         command.Parameters.AddWithValue("realmName", options.RealmName);
         command.Parameters.AddWithValue("clientSecret", (object?)options.ClientSecret ?? DBNull.Value);
+        command.Parameters.AddWithValue("companyId", options.CompanyId);
 
         var inserted = await command.ExecuteNonQueryAsync();
         if (inserted > 0)
@@ -99,6 +106,11 @@ internal static partial class DevTenantSeeder
         {
             LogDevTenantAlreadyPresent(logger, options.TenantId);
         }
+
+        // RLM01 : tenants de recette additionnels, amorcés AVEC leur company_id DISTINCT (le default garde
+        // company_id NULL — backfillé en RLM02). Rend l'isolation par claim prouvable de bout en bout
+        // (deux utilisateurs réels → deux company_id). Réutilise la même connexion ; idempotent.
+        await SeedAdditionalDevTenantsAsync(connection, options.AdditionalTenants, logger);
     }
 
     /// <summary>
@@ -317,6 +329,54 @@ internal static partial class DevTenantSeeder
         return mappingSeedFileExists ? DevSeedAction.BackfillMappingTable : DevSeedAction.Skip;
     }
 
+    /// <summary>
+    /// Amorce les tenants de recette additionnels dans <c>outbox.tenants</c> AVEC leur <c>company_id</c>.
+    /// Une entrée incomplète (champ NOT NULL/UNIQUE manquant ou company_id vide) est signalée et ignorée —
+    /// jamais d'insert à moitié. Idempotent (<c>ON CONFLICT DO NOTHING</c>).
+    /// </summary>
+    private static async Task SeedAdditionalDevTenantsAsync(
+        NpgsqlConnection connection,
+        IReadOnlyList<DevAdditionalTenantOptions> additionalTenants,
+        ILogger logger)
+    {
+        const string sql = """
+            INSERT INTO outbox.tenants (id, display_name, admin_email, database_name, realm_name, client_secret, company_id)
+            VALUES (@id, @displayName, @adminEmail, @databaseName, @realmName, @clientSecret, @companyId)
+            ON CONFLICT DO NOTHING
+            """;
+
+        foreach (var tenant in additionalTenants)
+        {
+            if (string.IsNullOrWhiteSpace(tenant.TenantId)
+                || string.IsNullOrWhiteSpace(tenant.RealmName)
+                || string.IsNullOrWhiteSpace(tenant.DatabaseName)
+                || tenant.CompanyId == Guid.Empty)
+            {
+                LogAdditionalTenantSeedIncomplete(logger, tenant.TenantId);
+                continue;
+            }
+
+            await using var command = new NpgsqlCommand(sql, connection);
+            command.Parameters.AddWithValue("id", tenant.TenantId);
+            command.Parameters.AddWithValue("displayName", tenant.DisplayName);
+            command.Parameters.AddWithValue("adminEmail", tenant.AdminEmail);
+            command.Parameters.AddWithValue("databaseName", tenant.DatabaseName);
+            command.Parameters.AddWithValue("realmName", tenant.RealmName);
+            command.Parameters.AddWithValue("clientSecret", (object?)tenant.ClientSecret ?? DBNull.Value);
+            command.Parameters.AddWithValue("companyId", tenant.CompanyId);
+
+            var insertedAdditional = await command.ExecuteNonQueryAsync();
+            if (insertedAdditional > 0)
+            {
+                LogAdditionalTenantSeeded(logger, tenant.TenantId, tenant.CompanyId);
+            }
+            else
+            {
+                LogDevTenantAlreadyPresent(logger, tenant.TenantId);
+            }
+        }
+    }
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "Seed du tenant de dev « {TenantId} » ignoré : RealmName et DatabaseName sont requis (section DevTenantSeed).")]
     private static partial void LogDevTenantSeedIncomplete(ILogger logger, string tenantId);
 
@@ -361,4 +421,10 @@ internal static partial class DevTenantSeeder
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Tenant de dev « {TenantId} » déjà présent — seed ignoré.")]
     private static partial void LogDevTenantAlreadyPresent(ILogger logger, string tenantId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Tenant de recette additionnel « {TenantId} » ignoré : TenantId, RealmName, DatabaseName et un CompanyId non vide sont requis (section DevTenantSeed:AdditionalTenants).")]
+    private static partial void LogAdditionalTenantSeedIncomplete(ILogger logger, string tenantId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Tenant de recette additionnel « {TenantId} » amorcé dans outbox.tenants (company_id {CompanyId}).")]
+    private static partial void LogAdditionalTenantSeeded(ILogger logger, string tenantId, Guid companyId);
 }

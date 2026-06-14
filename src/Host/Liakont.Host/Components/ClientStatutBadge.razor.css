@@ -1,0 +1,7 @@
+/* Badge de statut client (écran Clients, OPS03). */
+
+.client-statut-read-failed {
+    margin-left: 0.5rem;
+    font-size: 0.8125rem;
+    color: var(--color-severity-warning-fg, #92400e);
+}
