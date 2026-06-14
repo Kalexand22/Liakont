@@ -77,6 +77,21 @@
     [Parameter]
     public EventCallback OnBack { get; set; }
 
+    /// <summary>Sélection restaurée au retour arrière : nom du dossier de seed choisi précédemment, ou
+    /// <c>null</c>/vide (chemin sans seed). Sans elle, un retour depuis Création perdrait le choix « seed »
+    /// et un ré-avancement écraserait le profil importé par la saisie manuelle de l'étape 1.</summary>
+    [Parameter]
+    public string? InitialSeedDirectory { get; set; }
+
+    protected override void OnInitialized()
+    {
+        if (!string.IsNullOrEmpty(InitialSeedDirectory))
+        {
+            _useSeed = true;
+            _seedDirectory = InitialSeedDirectory;
+        }
+    }
+
     protected override void OnParametersSet()
     {
         if (_useSeed && string.IsNullOrEmpty(_seedDirectory) && SeedDirectories.Count > 0)

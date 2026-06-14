@@ -20,7 +20,11 @@
         <label class="client-wizard-step__field">
             <span>Identifiant technique *</span>
             <input type="text" value="@_tenantId" @oninput="@(e => _tenantId = e.Value as string ?? string.Empty)"
-                   placeholder="ex. acme" data-testid="client-wizard-tenant-id" />
+                   placeholder="ex. acme" disabled="@TenantIdLocked" data-testid="client-wizard-tenant-id" />
+            @if (TenantIdLocked)
+            {
+                <span class="client-wizard-step__hint" data-testid="client-wizard-tenant-id-locked">Verrouillé : le client est déjà créé (l'identifiant nomme sa base et son realm).</span>
+            }
         </label>
         <label class="client-wizard-step__field">
             <span>Raison sociale *</span>
@@ -87,6 +91,11 @@
     /// <summary>Saisie initiale (retour en arrière dans l'assistant — les champs sont restaurés).</summary>
     [Parameter]
     public ClientWizardProfilData? Initial { get; set; }
+
+    /// <summary>Verrouille l'identifiant technique (le tenant est déjà créé — reprise idempotente sur le
+    /// même client ; changer l'identifiant créerait un autre tenant).</summary>
+    [Parameter]
+    public bool TenantIdLocked { get; set; }
 
     /// <summary>Soumission de l'étape (la saisie a passé les contrôles de FORME).</summary>
     [Parameter]

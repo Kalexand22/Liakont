@@ -29,11 +29,11 @@
     @switch (_step)
     {
         case WizardStep.Profil:
-            <ClientWizardProfilStep Initial="_profil" OnContinue="OnProfilContinue" />
+            <ClientWizardProfilStep Initial="_profil" OnContinue="OnProfilContinue" TenantIdLocked="_tenantCreated" />
             break;
 
         case WizardStep.Seed:
-            <ClientWizardSeedStep SeedDirectories="_seedDirectories" OnContinue="OnSeedContinueAsync" OnBack="@(() => _step = WizardStep.Profil)" />
+            <ClientWizardSeedStep SeedDirectories="_seedDirectories" InitialSeedDirectory="@_seedDirectory" OnContinue="OnSeedContinueAsync" OnBack="@(() => { _profilApplied = false; _step = WizardStep.Profil; })" />
             break;
 
         case WizardStep.Creation:
@@ -57,6 +57,13 @@
                 }
 
                 <div class="client-wizard-step__actions">
+                    <StratumButton Text="Retour"
+                                   Variant="ButtonVariant.Secondary"
+                                   Outline
+                                   Size="ButtonSize.Small"
+                                   Disabled="@_creationBusy"
+                                   OnClick="@(_ => { _profilApplied = false; _step = WizardStep.Seed; })"
+                                   TestId="client-wizard-creation-back" />
                     @if (_creationError is not null)
                     {
                         <StratumButton Text="@(_creationBusy ? "Reprise en cours…" : "Réessayer")"
@@ -86,6 +93,7 @@
                                          Result="_userResult"
                                          OnProvision="ProvisionUserAsync"
                                          OnSkip="@(() => { _userSkipped = true; _step = WizardStep.Agent; })"
+                                         OnBack="@(() => _step = WizardStep.Creation)"
                                          OnContinue="@(() => _step = WizardStep.Agent)" />
             break;
 
@@ -96,6 +104,7 @@
                                    Error="@_agentError"
                                    OnRegister="RegisterAgentAsync"
                                    OnSkip="@(() => { _agentSkipped = true; _step = WizardStep.Recap; })"
+                                   OnBack="@(() => _step = WizardStep.Utilisateur)"
                                    OnContinue="@(() => _step = WizardStep.Recap)" />
             break;
 
@@ -304,6 +313,7 @@
             if (result.Success)
             {
                 _userResult = result;
+                _userSkipped = false; // créé après un saut puis retour : le récap ne doit plus dire « SAUTÉE »
             }
             else
             {
@@ -332,6 +342,7 @@
             if (result.Status == ClientActionStatus.Succeeded)
             {
                 _issuedAgentKey = result.IssuedKey;
+                _agentSkipped = false; // enregistré après un saut puis retour : récap honnête (symétrie utilisateur)
             }
             else
             {

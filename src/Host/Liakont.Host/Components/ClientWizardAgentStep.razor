@@ -62,6 +62,13 @@
         }
 
         <div class="client-wizard-step__actions">
+            <StratumButton Text="Retour"
+                           Variant="ButtonVariant.Secondary"
+                           Outline
+                           Size="ButtonSize.Small"
+                           Disabled="@Busy"
+                           OnClick="@(_ => OnBack.InvokeAsync())"
+                           TestId="client-wizard-agent-back" />
             <StratumButton Text="@(Busy ? "Enregistrement…" : "Enregistrer l'agent")"
                            Variant="ButtonVariant.Primary"
                            Size="ButtonSize.Small"
@@ -109,4 +116,8 @@
     /// <summary>Étape terminée (la clé a été copiée).</summary>
     [Parameter]
     public EventCallback OnContinue { get; set; }
+
+    /// <summary>Retour à l'étape précédente (Utilisateur).</summary>
+    [Parameter]
+    public EventCallback OnBack { get; set; }
 }

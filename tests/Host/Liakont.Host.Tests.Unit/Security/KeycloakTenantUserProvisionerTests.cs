@@ -12,6 +12,7 @@ using Liakont.Host.Security.Abstractions;
 using Liakont.Host.Security.Keycloak;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
 using MediatR;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -33,6 +34,7 @@ using Xunit;
 /// </summary>
 public sealed class KeycloakTenantUserProvisionerTests
 {
+    private const string SharedRealm = "liakont-dev";
     private static readonly Guid RegistryCompanyId = Guid.Parse("11111111-1111-4111-a111-111111111111");
     private static readonly Guid ProfileCompanyId = Guid.Parse("22222222-2222-4222-a222-222222222222");
 
@@ -264,11 +266,56 @@ public sealed class KeycloakTenantUserProvisionerTests
         }
     }
 
-    private KeycloakTenantUserProvisioner CreateSut(bool smtpConfigured = false)
+    [Fact]
+    public async Task In_Shared_Profile_The_User_Is_Created_In_The_Shared_Realm()
+    {
+        // Profil PARTAGÉ (défaut, ADR-0021 §1) : l'utilisateur va dans le realm partagé (PrimaryRealmName),
+        // JAMAIS dans tenant.RealmName (= « stratum-acme », realm jamais provisionné → 404). Anti-régression
+        // du bloqueur GATE_REALM_UNIQUE — le fake ignorait le realm, d'où le faux-vert d'origine.
+        var result = await CreateSut().ProvisionUserAsync(Request());
+
+        result.Success.Should().BeTrue();
+        _keycloak.RealmsTouched.Should().NotBeEmpty();
+        _keycloak.RealmsTouched.Should().OnlyContain(r => r == SharedRealm);
+        _keycloak.RealmsTouched.Should().NotContain("stratum-acme", "le realm-par-tenant n'existe pas en profil partagé");
+    }
+
+    [Fact]
+    public async Task In_Dedicated_Profile_The_User_Is_Created_In_The_Tenant_Realm()
+    {
+        // Déploiement DÉDIÉ mono-tenant (Keycloak:DedicatedRealmPerTenant=true) : le realm du tenant fait foi.
+        var result = await CreateSut(dedicatedRealm: true).ProvisionUserAsync(Request());
+
+        result.Success.Should().BeTrue();
+        _keycloak.RealmsTouched.Should().NotBeEmpty();
+        _keycloak.RealmsTouched.Should().OnlyContain(r => r == "stratum-acme");
+    }
+
+    [Fact]
+    public async Task The_Provisioned_User_Is_Forced_To_Enroll_2FA_At_First_Login()
+    {
+        // RLM01 / gate ② : le 2FA est imposé au login mot de passe. Le user provisionné DOIT porter
+        // CONFIGURE_TOTP — sinon (flow OTP Keycloak par défaut, CONDITIONNEL) il se connecterait sans
+        // 2FA (finding F6 : le 2FA ne tenait qu'au CONFIGURE_TOTP seedé des comptes de démo).
+        await CreateSut().ProvisionUserAsync(Request());
+
+        var spec = _keycloak.CreatedUsers.Should().ContainSingle().Subject.Spec;
+        spec.RequiredActions.Should().Contain("CONFIGURE_TOTP", "2FA forcé à la première connexion (RLM01)");
+        spec.RequiredActions.Should().Contain("UPDATE_PASSWORD", "le mot de passe temporaire doit être changé");
+    }
+
+    private KeycloakTenantUserProvisioner CreateSut(bool smtpConfigured = false, bool dedicatedRealm = false)
     {
         var smtp = smtpConfigured
             ? new SmtpOptions { Enabled = true, Host = "smtp.exemple.test", FromAddress = "noreply@exemple.test" }
             : new SmtpOptions();
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                [$"{KeycloakAdminOptions.SectionName}:DedicatedRealmPerTenant"] = dedicatedRealm ? "true" : "false",
+            })
+            .Build();
 
         return new KeycloakTenantUserProvisioner(
             new FakeTenantQueries(() => _tenant),
@@ -282,7 +329,9 @@ public sealed class KeycloakTenantUserProvisionerTests
                 AdminBaseUrl = "http://localhost:8080",
                 AdminPassword = "x",
                 AppBaseUrl = "https://console.exemple.test",
+                PrimaryRealmName = SharedRealm,
             }),
+            configuration,
             NullLogger<KeycloakTenantUserProvisioner>.Instance);
     }
 
@@ -306,11 +355,18 @@ public sealed class KeycloakTenantUserProvisionerTests
 
         public IReadOnlyDictionary<string, string>? LastAttributes { get; private set; }
 
-        public Task<string?> FindUserIdByUsernameAsync(string realmName, string username, CancellationToken cancellationToken = default) =>
-            Task.FromResult(string.Equals(username, ExistingUsername, StringComparison.OrdinalIgnoreCase) ? "kc-existing" : null);
+        /// <summary>Realm passé à CHAQUE appel IdP — permet d'asserter le realm cible (anti-faux-vert F2).</summary>
+        public List<string> RealmsTouched { get; } = [];
+
+        public Task<string?> FindUserIdByUsernameAsync(string realmName, string username, CancellationToken cancellationToken = default)
+        {
+            RealmsTouched.Add(realmName);
+            return Task.FromResult(string.Equals(username, ExistingUsername, StringComparison.OrdinalIgnoreCase) ? "kc-existing" : null);
+        }
 
         public Task<string> CreateUserAsync(string realmName, KeycloakUserSpec spec, CancellationToken cancellationToken = default)
         {
+            RealmsTouched.Add(realmName);
             if (ThrowConflictOnCreate)
             {
                 throw new KeycloakUserConflictException("email already exists");
@@ -323,12 +379,14 @@ public sealed class KeycloakTenantUserProvisionerTests
 
         public Task SetUserAttributesAsync(string realmName, string userId, IReadOnlyDictionary<string, string> attributes, CancellationToken cancellationToken = default)
         {
+            RealmsTouched.Add(realmName);
             LastAttributes = attributes;
             return Task.CompletedTask;
         }
 
         public Task ResetPasswordAsync(string realmName, string userId, string password, bool temporary, CancellationToken cancellationToken = default)
         {
+            RealmsTouched.Add(realmName);
             LastResetPassword = password;
             LastResetTemporary = temporary;
             return Task.CompletedTask;
@@ -336,18 +394,21 @@ public sealed class KeycloakTenantUserProvisionerTests
 
         public Task EnsureRealmRoleAsync(string realmName, string roleName, string description, CancellationToken cancellationToken = default)
         {
+            RealmsTouched.Add(realmName);
             EnsuredRoles.Add(roleName);
             return Task.CompletedTask;
         }
 
         public Task AssignRealmRolesAsync(string realmName, string userId, IReadOnlyList<string> roleNames, CancellationToken cancellationToken = default)
         {
+            RealmsTouched.Add(realmName);
             AssignedRoles.AddRange(roleNames);
             return Task.CompletedTask;
         }
 
         public Task DeleteUserAsync(string realmName, string userId, CancellationToken cancellationToken = default)
         {
+            RealmsTouched.Add(realmName);
             DeletedUserIds.Add(userId);
             return Task.CompletedTask;
         }

@@ -114,6 +114,150 @@ public sealed class ClientNouveauTests : BunitContext
     }
 
     [Fact]
+    public void The_Operator_Can_Go_Back_Through_The_Steps_And_The_Tenant_Id_Is_Locked_After_Creation()
+    {
+        var cut = Render<ClientNouveau>();
+
+        FillProfil(cut);
+        cut.Find("[data-testid='client-wizard-profil-continue']").Click();   // Profil → Seed
+        cut.Find("[data-testid='client-wizard-seed-continue']").Click();     // Seed → Création (tenant créé)
+
+        // Navigation arrière : Création → Seed → Profil.
+        cut.Find("[data-testid='client-wizard-creation-back']").Click();
+        cut.Find("[data-testid='client-wizard-seed']");                       // de retour sur l'étape Seed
+        cut.Find("[data-testid='client-wizard-seed-back']").Click();
+
+        // Profil : saisie restaurée et identifiant technique VERROUILLÉ (le tenant est déjà créé).
+        cut.Find("[data-testid='client-wizard-siren']").GetAttribute("value").Should().Be("123456782");
+        cut.Find("[data-testid='client-wizard-tenant-id']").HasAttribute("disabled").Should().BeTrue();
+        cut.Find("[data-testid='client-wizard-tenant-id-locked']");           // mention de verrouillage présente
+    }
+
+    [Fact]
+    public void A_Domain_Profile_Failure_Is_Corrected_By_Going_Back_Without_Recreating_The_Tenant()
+    {
+        // SIREN valide en FORME (9 chiffres) mais rejeté par le DOMAINE (clé de Luhn, INV-TENANTSETTINGS-001) :
+        // le cul-de-sac d'origine est corrigé — on peut revenir corriger et ré-avancer.
+        _service.ProfileResult = new ClientActionResult(
+            ClientActionStatus.ValidationFailed, "INV-TENANTSETTINGS-001 : le SIREN doit satisfaire la clé de Luhn.");
+
+        var cut = Render<ClientNouveau>();
+        FillProfil(cut, siren: "123456789");
+        cut.Find("[data-testid='client-wizard-profil-continue']").Click();
+        cut.Find("[data-testid='client-wizard-seed-continue']").Click();
+
+        // Tenant créé, profil refusé → message du domaine affiché.
+        cut.Find("[data-testid='client-wizard-creation-error']").TextContent.Should().Contain("Luhn");
+        _service.CreateCalls.Should().ContainSingle();
+
+        // Retour jusqu'au profil pour corriger le SIREN.
+        cut.Find("[data-testid='client-wizard-creation-back']").Click();
+        cut.Find("[data-testid='client-wizard-seed-back']").Click();
+
+        _service.ProfileResult = new ClientActionResult(ClientActionStatus.Succeeded);
+        cut.Find("[data-testid='client-wizard-siren']").Input("123456782");
+        cut.Find("[data-testid='client-wizard-profil-continue']").Click();
+        cut.Find("[data-testid='client-wizard-seed-continue']").Click();
+
+        // Profil ré-enregistré, SANS recréer le tenant (id verrouillé → reprise idempotente).
+        cut.FindAll("[data-testid='client-wizard-creation-error']").Should().BeEmpty();
+        cut.Find("[data-testid='client-wizard-creation-continue']");
+        _service.CreateCalls.Should().ContainSingle("le tenant n'est créé qu'une fois");
+        _service.ProfileCalls.Should().HaveCount(2, "le profil est ré-enregistré après correction");
+    }
+
+    [Fact]
+    public void An_Edit_After_A_Successful_Creation_Is_Re_Applied_On_Re_Advance_Not_Silently_Lost()
+    {
+        var cut = Render<ClientNouveau>();
+        FillProfil(cut);
+        cut.Find("[data-testid='client-wizard-profil-continue']").Click();
+        cut.Find("[data-testid='client-wizard-seed-continue']").Click();
+        cut.Find("[data-testid='client-wizard-creation-continue']");          // création RÉUSSIE (profil appliqué)
+        _service.ProfileCalls.Should().ContainSingle();
+
+        // Retour corriger le SIREN APRÈS une création réussie, puis ré-avancer.
+        cut.Find("[data-testid='client-wizard-creation-back']").Click();
+        cut.Find("[data-testid='client-wizard-seed-back']").Click();
+        cut.Find("[data-testid='client-wizard-siren']").Input("732829320");
+        cut.Find("[data-testid='client-wizard-profil-continue']").Click();
+        cut.Find("[data-testid='client-wizard-seed-continue']").Click();
+
+        // L'édition est RÉ-appliquée (pas silencieusement perdue) ; le tenant n'est pas recréé.
+        _service.ProfileCalls.Should().HaveCount(2);
+        _service.ProfileCalls[^1].Siren.Should().Be("732829320");
+        _service.CreateCalls.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void The_Utilisateur_And_Agent_Steps_Can_Navigate_Back_To_The_Previous_Step()
+    {
+        var cut = Render<ClientNouveau>();
+        FillProfil(cut);
+        cut.Find("[data-testid='client-wizard-profil-continue']").Click();
+        cut.Find("[data-testid='client-wizard-seed-continue']").Click();
+        cut.Find("[data-testid='client-wizard-creation-continue']").Click();   // → Utilisateur
+
+        // Utilisateur → (Retour) → Création
+        cut.Find("[data-testid='client-wizard-utilisateur-back']").Click();
+        cut.Find("[data-testid='client-wizard-creation']");
+        cut.Find("[data-testid='client-wizard-creation-continue']").Click();   // → Utilisateur
+
+        // Utilisateur (sauté) → Agent → (Retour) → Utilisateur
+        cut.Find("[data-testid='client-wizard-utilisateur-skip']").Click();
+        cut.Find("[data-testid='client-wizard-agent-back']").Click();
+        cut.Find("[data-testid='client-wizard-utilisateur']");
+    }
+
+    [Fact]
+    public void Going_Back_From_Creation_On_The_Seed_Path_Re_Imports_The_Seed_Not_The_Manual_Profile()
+    {
+        // Régression possible du retour-arrière : si la sélection « seed » n'est pas restaurée, un
+        // ré-avancement écraserait le profil IMPORTÉ par la saisie manuelle (SaveProfileAsync).
+        _service.SeedDirectories = ["client-demo"];
+
+        var cut = Render<ClientNouveau>();
+        FillProfil(cut);
+        cut.Find("[data-testid='client-wizard-profil-continue']").Click();   // → Seed
+        cut.Find("[data-testid='client-wizard-seed-use']").Change(true);     // « Importer un seed »
+        cut.Find("[data-testid='client-wizard-seed-continue']").Click();     // → Création (seed importé)
+        _service.SeedCalls.Should().ContainSingle();
+        _service.ProfileCalls.Should().BeEmpty("le profil vient du seed, jamais de la saisie manuelle");
+
+        // Retour Création → Seed : le choix « seed » doit être restauré.
+        cut.Find("[data-testid='client-wizard-creation-back']").Click();
+        cut.Find("[data-testid='client-wizard-seed-continue']").Click();     // ré-avance SANS re-cocher
+
+        // Le seed est RÉ-importé, jamais remplacé par la saisie manuelle.
+        _service.SeedCalls.Should().HaveCount(2);
+        _service.ProfileCalls.Should().BeEmpty("la saisie manuelle ne doit jamais écraser le profil du seed");
+    }
+
+    [Fact]
+    public void Creating_The_User_After_Skipping_Then_Going_Back_Makes_The_Recap_Honest()
+    {
+        var cut = Render<ClientNouveau>();
+        FillProfil(cut);
+        cut.Find("[data-testid='client-wizard-profil-continue']").Click();
+        cut.Find("[data-testid='client-wizard-seed-continue']").Click();
+        cut.Find("[data-testid='client-wizard-creation-continue']").Click();    // → Utilisateur
+
+        // Sauter l'utilisateur (→ Agent), revenir (→ Utilisateur), puis le créer CETTE fois.
+        cut.Find("[data-testid='client-wizard-utilisateur-skip']").Click();
+        cut.Find("[data-testid='client-wizard-agent-back']").Click();
+        cut.Find("[data-testid='client-wizard-utilisateur-username']").Input("jdupont");
+        cut.Find("[data-testid='client-wizard-utilisateur-display-name']").Input("Jeanne Dupont");
+        cut.Find("[data-testid='client-wizard-utilisateur-create']").Click();
+        cut.Find("[data-testid='client-wizard-utilisateur-continue']").Click(); // → Agent
+        cut.Find("[data-testid='client-wizard-agent-skip']").Click();           // → Recap
+
+        // Le récap est HONNÊTE : l'utilisateur est CRÉÉ, plus « SAUTÉE ».
+        var recap = cut.Find("[data-testid='client-wizard-recap-text']").TextContent;
+        recap.Should().Contain("Premier utilisateur créé");
+        recap.Should().NotContain("Premier utilisateur : étape SAUTÉE", "le compte EST créé — le récap ne doit pas mentir");
+    }
+
+    [Fact]
     public void The_User_Temporary_Password_Is_Shown_Once_When_No_Invitation_Could_Be_Sent()
     {
         _service.UserResult = new TenantUserProvisionResult
@@ -158,6 +302,8 @@ public sealed class ClientNouveauTests : BunitContext
 
         public TenantUserProvisionResult UserResult { get; set; } = new() { Success = true, UserId = Guid.NewGuid() };
 
+        public ClientActionResult ProfileResult { get; set; } = new(ClientActionStatus.Succeeded);
+
         public List<string> CreateCalls { get; } = [];
 
         public List<string> SeedCalls { get; } = [];
@@ -184,7 +330,7 @@ public sealed class ClientNouveauTests : BunitContext
         public Task<ClientActionResult> SaveProfileAsync(string tenantId, ClientProfileInput profile, CancellationToken cancellationToken = default)
         {
             ProfileCalls.Add(profile);
-            return Task.FromResult(new ClientActionResult(ClientActionStatus.Succeeded));
+            return Task.FromResult(ProfileResult);
         }
 
         public Task<TenantUserProvisionResult> ProvisionFirstUserAsync(TenantUserProvisionRequest request, CancellationToken cancellationToken = default) =>

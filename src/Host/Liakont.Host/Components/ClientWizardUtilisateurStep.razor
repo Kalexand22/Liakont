@@ -82,6 +82,13 @@
         }
 
         <div class="client-wizard-step__actions">
+            <StratumButton Text="Retour"
+                           Variant="ButtonVariant.Secondary"
+                           Outline
+                           Size="ButtonSize.Small"
+                           Disabled="@Busy"
+                           OnClick="@(_ => OnBack.InvokeAsync())"
+                           TestId="client-wizard-utilisateur-back" />
             <StratumButton Text="@(Busy ? "Création en cours…" : "Créer l'utilisateur")"
                            Variant="ButtonVariant.Primary"
                            Size="ButtonSize.Small"
@@ -136,6 +143,10 @@
     /// <summary>Étape terminée (après succès).</summary>
     [Parameter]
     public EventCallback OnContinue { get; set; }
+
+    /// <summary>Retour à l'étape précédente (Création).</summary>
+    [Parameter]
+    public EventCallback OnBack { get; set; }
 
     private bool FormComplete =>
         !string.IsNullOrWhiteSpace(_email)

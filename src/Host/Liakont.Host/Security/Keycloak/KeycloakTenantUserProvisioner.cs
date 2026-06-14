@@ -10,6 +10,7 @@ using Liakont.Host.Security.Abstractions;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
 using MediatR;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -41,6 +42,7 @@ internal sealed partial class KeycloakTenantUserProvisioner : ITenantUserProvisi
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly SmtpOptions _smtpOptions;
     private readonly KeycloakAdminOptions _keycloakOptions;
+    private readonly bool _dedicatedRealmPerTenant;
     private readonly ILogger<KeycloakTenantUserProvisioner> _logger;
 
     public KeycloakTenantUserProvisioner(
@@ -51,6 +53,7 @@ internal sealed partial class KeycloakTenantUserProvisioner : ITenantUserProvisi
         IHttpContextAccessor httpContextAccessor,
         IOptions<SmtpOptions> smtpOptions,
         IOptions<KeycloakAdminOptions> keycloakOptions,
+        IConfiguration configuration,
         ILogger<KeycloakTenantUserProvisioner> logger)
     {
         _tenantQueries = tenantQueries;
@@ -60,6 +63,12 @@ internal sealed partial class KeycloakTenantUserProvisioner : ITenantUserProvisi
         _httpContextAccessor = httpContextAccessor;
         _smtpOptions = smtpOptions.Value;
         _keycloakOptions = keycloakOptions.Value;
+
+        // Même drapeau que la sélection DI du provisioner de realm (NoOp vs Keycloak,
+        // ServiceCollectionExtensions) : en profil partagé (false, défaut) l'utilisateur va dans le
+        // realm partagé ; en dédié (true) dans le realm du tenant. Voir la résolution du realm cible
+        // dans ProvisionUserAsync (ADR-0021 §1).
+        _dedicatedRealmPerTenant = configuration.GetValue<bool>($"{KeycloakAdminOptions.SectionName}:DedicatedRealmPerTenant");
         _logger = logger;
     }
 
@@ -104,10 +113,18 @@ internal sealed partial class KeycloakTenantUserProvisioner : ITenantUserProvisi
                 $"Tenant « {request.TenantId} » désactivé — aucun utilisateur ne peut y être créé.");
         }
 
-        if (string.IsNullOrWhiteSpace(tenant.RealmName))
+        // Realm cible : en profil SaaS PARTAGÉ (défaut, ADR-0021 §1) tous les utilisateurs vivent dans
+        // le realm partagé (Keycloak:PrimaryRealmName) — le realm-par-tenant n'est plus créé (RLM04,
+        // no-op DI). Ne JAMAIS cibler tenant.RealmName en partagé : ce serait « stratum-{id} », jamais
+        // provisionné → 404 (bug recette GATE_REALM_UNIQUE). Le déploiement DÉDIÉ mono-tenant
+        // (Keycloak:DedicatedRealmPerTenant=true) garde le realm propre du tenant.
+        var realm = _dedicatedRealmPerTenant ? tenant.RealmName : _keycloakOptions.PrimaryRealmName;
+        if (string.IsNullOrWhiteSpace(realm))
         {
             return TenantUserProvisionResult.Failed(
-                $"Tenant « {request.TenantId} » sans realm d'identité — re-provisionnez le client avec Keycloak configuré.");
+                _dedicatedRealmPerTenant
+                    ? $"Tenant « {request.TenantId} » sans realm d'identité — re-provisionnez le client avec Keycloak configuré."
+                    : "Realm partagé non configuré (Keycloak:PrimaryRealmName manquant) — impossible de créer l'utilisateur.");
         }
 
         var companyId = await ResolveCompanyIdAsync(request.TenantId, tenant, cancellationToken);
@@ -118,10 +135,12 @@ internal sealed partial class KeycloakTenantUserProvisioner : ITenantUserProvisi
                 + "importez d'abord son seed de paramétrage (POST /admin/tenants/{id}/seed) ou re-provisionnez-le.");
         }
 
-        if (await _keycloak.FindUserIdByUsernameAsync(tenant.RealmName, request.Username, cancellationToken) is not null)
+        if (await _keycloak.FindUserIdByUsernameAsync(realm, request.Username, cancellationToken) is not null)
         {
             return TenantUserProvisionResult.Failed(
-                $"L'utilisateur « {request.Username} » existe déjà dans le realm du tenant « {request.TenantId} ».",
+                _dedicatedRealmPerTenant
+                    ? $"L'utilisateur « {request.Username} » existe déjà dans le realm du tenant « {request.TenantId} »."
+                    : $"Le nom d'utilisateur « {request.Username} » existe déjà sur la plateforme — choisissez-en un autre.",
                 TenantUserProvisionFailureReason.Conflict);
         }
 
@@ -133,35 +152,45 @@ internal sealed partial class KeycloakTenantUserProvisioner : ITenantUserProvisi
         try
         {
             kcUserId = await _keycloak.CreateUserAsync(
-                tenant.RealmName,
+                realm,
                 new KeycloakUserSpec
                 {
                     Username = request.Username,
                     Email = request.Email,
                     LastName = request.DisplayName,
                     EmailVerified = true,
-                    RequiredActions = ["UPDATE_PASSWORD"],
+
+                    // 2FA imposé au login mot de passe (RLM01 / gate ②, INV-0021) : CONFIGURE_TOTP force
+                    // l'enrôlement TOTP à la 1re connexion. Sans lui, le flow OTP Keycloak par défaut est
+                    // CONDITIONNEL (sauté si l'utilisateur n'a pas d'OTP) → un user provisionné se
+                    // connecterait sans 2FA (le 2FA des comptes de démo ne tient qu'à leur CONFIGURE_TOTP
+                    // seedé). Durcissement realm-level (action par défaut, deux realms) = suivi séparé.
+                    RequiredActions = ["UPDATE_PASSWORD", "CONFIGURE_TOTP"],
                 },
                 cancellationToken);
         }
         catch (KeycloakUserConflictException)
         {
             // L'email est unique par realm : un conflit peut survenir malgré le pré-contrôle du
-            // username — refus opérateur propre, jamais un 500.
+            // username — refus opérateur propre, jamais un 500. En realm PARTAGÉ l'unicité est à
+            // l'échelle de la plateforme (ADR-0021) : ne pas rattacher le conflit au tenant courant
+            // (un autre tenant peut détenir ce username/email) — message exact (règle 12).
             return TenantUserProvisionResult.Failed(
-                $"Un compte avec ce nom d'utilisateur ou cet email existe déjà dans le realm du tenant « {request.TenantId} ».",
+                _dedicatedRealmPerTenant
+                    ? $"Un compte avec ce nom d'utilisateur ou cet email existe déjà dans le realm du tenant « {request.TenantId} »."
+                    : "Ce nom d'utilisateur ou cet email existe déjà sur la plateforme — choisissez-en un autre.",
                 TenantUserProvisionFailureReason.Conflict);
         }
 
         try
         {
-            await _keycloak.ResetPasswordAsync(tenant.RealmName, kcUserId, temporaryPassword, temporary: true, cancellationToken);
+            await _keycloak.ResetPasswordAsync(realm, kcUserId, temporaryPassword, temporary: true, cancellationToken);
 
             // Les realms provisionnés par le socle ne portent que les rôles Stratum : le rôle
             // standard Liakont est créé à la volée, idempotent (couvre aussi les realms anciens).
             await _keycloak.EnsureRealmRoleAsync(
-                tenant.RealmName, request.Role, LiakontRealmRoles.Descriptions[request.Role], cancellationToken);
-            await _keycloak.AssignRealmRolesAsync(tenant.RealmName, kcUserId, [request.Role], cancellationToken);
+                realm, request.Role, LiakontRealmRoles.Descriptions[request.Role], cancellationToken);
+            await _keycloak.AssignRealmRolesAsync(realm, kcUserId, [request.Role], cancellationToken);
 
             // Compte applicatif dans la base du TENANT (scope cible) : ExternalId = sub Keycloak,
             // pour que le sync au premier login retrouve CE compte (jamais de doublon). Un compte
@@ -218,7 +247,7 @@ internal sealed partial class KeycloakTenantUserProvisioner : ITenantUserProvisi
             // posé AUSSI en attribut pour les realms antérieurs (mapper attribut) — sans divergence
             // possible, la valeur vient de la même source.
             await _keycloak.SetUserAttributesAsync(
-                tenant.RealmName,
+                realm,
                 kcUserId,
                 new Dictionary<string, string>
                 {
@@ -247,7 +276,7 @@ internal sealed partial class KeycloakTenantUserProvisioner : ITenantUserProvisi
         {
             // Compensation : ne jamais laisser un compte IdP orphelin (sans compte applicatif ni
             // attributs de scope) — l'appelant pourra rejouer la création de zéro.
-            await _keycloak.DeleteUserAsync(tenant.RealmName, kcUserId, CancellationToken.None);
+            await _keycloak.DeleteUserAsync(realm, kcUserId, CancellationToken.None);
             throw;
         }
     }
