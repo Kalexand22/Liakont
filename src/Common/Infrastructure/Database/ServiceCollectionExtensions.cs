@@ -45,7 +45,20 @@ public static partial class ServiceCollectionExtensions
             configuration.GetSection(KeycloakAdminOptions.SectionName));
         services.AddHttpClient("KeycloakAdmin");
         services.AddSingleton<KeycloakAdminTokenService>();
-        services.AddTransient<IKeycloakRealmProvisioner, KeycloakRealmProvisioner>();
+
+        // Realm provisioning seam (Liakont RLM04, ADR-0021 §1) : par défaut, profil SaaS PARTAGÉ →
+        // NoOpKeycloakRealmProvisioner (aucun realm/client par tenant ; isolation par claim company_id
+        // + cross-check). Le déploiement DÉDIÉ mono-tenant garde la vraie implémentation Keycloak via
+        // Keycloak:DedicatedRealmPerTenant=true. Voir provenance §4.28.
+        if (configuration.GetValue<bool>($"{KeycloakAdminOptions.SectionName}:DedicatedRealmPerTenant"))
+        {
+            services.AddTransient<IKeycloakRealmProvisioner, KeycloakRealmProvisioner>();
+        }
+        else
+        {
+            services.AddTransient<IKeycloakRealmProvisioner, NoOpKeycloakRealmProvisioner>();
+        }
+
         services.AddTransient<IKeycloakUserProvisioner, KeycloakUserProvisioner>();
 
         return services;
