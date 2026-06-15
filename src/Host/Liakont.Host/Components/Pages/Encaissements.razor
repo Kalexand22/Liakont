@@ -1,6 +1,7 @@
 @page "/encaissements"
 @rendermode InteractiveServer
-@attribute [Authorize]
+@attribute [Authorize(Policy = LiakontPermissions.Read)]
+@using Liakont.Host.Security
 @using System.Globalization
 @using Microsoft.Extensions.Logging
 @using Stratum.Common.Abstractions.Grid

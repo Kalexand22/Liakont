@@ -22,19 +22,23 @@ using Xunit;
 /// </summary>
 public sealed class RolePermissionNavVisibilityTests
 {
+    // Tuple : label, realmRoles, expectSettings (sous-menu Paramétrage), expectSupervision.
+    // Documents/Encaissements/Traitements (read) et le HUB Paramétrage (read) sont visibles pour TOUS les
+    // rôles §4 (tous portent lecture) : seuls le sous-menu de paramétrage (settings) et Supervision varient.
     public static IEnumerable<object[]> Section4Users() =>
     [
-        ["lecture", new[] { "lecture" }, false],
-        ["operateur", new[] { "lecture", "operateur" }, false],
-        ["parametrage", new[] { "lecture", "operateur", "parametrage" }, false],
-        ["superviseur", new[] { "lecture", "operateur", "parametrage", "superviseur" }, true],
+        ["lecture", new[] { "lecture" }, false, false],
+        ["operateur", new[] { "lecture", "operateur" }, false, false],
+        ["parametrage", new[] { "lecture", "operateur", "parametrage" }, true, false],
+        ["superviseur", new[] { "lecture", "operateur", "parametrage", "superviseur" }, true, true],
     ];
 
     [Theory]
     [MemberData(nameof(Section4Users))]
-    public void Supervision_Nav_Visible_Exactly_When_Role_Grants_Supervision(
+    public void Operator_Nav_Visible_Exactly_When_Role_Grants_The_Permission(
         string label,
         string[] realmRoles,
+        bool expectSettingsVisible,
         bool expectSupervisionVisible)
     {
         _ = label;
@@ -45,8 +49,18 @@ public sealed class RolePermissionNavVisibilityTests
 
         var labels = root.Children.Select(item => item.Label).ToList();
 
-        // Les éléments toujours présents (non gardés) restent visibles pour tout rôle.
-        labels.Should().Contain(["Documents", "Encaissements", "Traitements", "Paramétrage"]);
+        // Documents / Encaissements / Traitements : surfaces de consultation (liakont.read) — visibles pour tout
+        // rôle §4 (tous portent lecture). Le journal des traitements est read (matrice §3 « journaux » + guide §17
+        // + endpoint GET /runs ; seul POST /runs/trigger exige liakont.actions).
+        labels.Should().Contain(["Documents", "Encaissements", "Traitements"]);
+
+        // Paramétrage : le HUB est visible à tout porteur de liakont.read (les 4 rôles §4 portent lecture) —
+        // il sert l'export d'audit par période (FIX208, capacité liakont.read ; le masquer régresserait cette
+        // capacité). Le SOUS-MENU de paramétrage (table TVA, comptes PA, …) n'apparaît qu'au porteur de
+        // liakont.settings (parametrage/superviseur). Cf. RLF03 / finding F5a, contraint par FIX208.
+        labels.Should().Contain("Paramétrage");
+        root.Children.Single(c => c.Label == "Paramétrage").HasChildren
+            .Should().Be(expectSettingsVisible, "le sous-menu de paramétrage est réservé au porteur de liakont.settings");
 
         // Supervision : visible UNIQUEMENT pour le rôle superviseur (liakont.supervision).
         if (expectSupervisionVisible)
@@ -64,9 +78,11 @@ public sealed class RolePermissionNavVisibilityTests
     public void Claims_Permission_Service_Reflects_Section3_For_Each_Role(
         string label,
         string[] realmRoles,
+        bool expectSettingsVisible,
         bool expectSupervisionVisible)
     {
         _ = label;
+        _ = expectSettingsVisible;
         _ = expectSupervisionVisible;
         using var permissionService = BuildPermissionService(realmRoles);
 

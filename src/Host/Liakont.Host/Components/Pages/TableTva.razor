@@ -1,6 +1,6 @@
 @page "/parametrage/table-tva"
 @rendermode InteractiveServer
-@attribute [Authorize]
+@attribute [Authorize(Policy = LiakontPermissions.Settings)]
 @using Liakont.Host.Components
 @using Liakont.Host.Security
 @using Liakont.Host.TvaMappingTable

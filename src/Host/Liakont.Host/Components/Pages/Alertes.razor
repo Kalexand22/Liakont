@@ -1,6 +1,6 @@
 @page "/parametrage/alertes"
 @rendermode InteractiveServer
-@attribute [Authorize]
+@attribute [Authorize(Policy = LiakontPermissions.Settings)]
 @using Liakont.Host.Alertes
 @using Liakont.Host.Components
 @using Liakont.Host.Security

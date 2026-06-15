@@ -17,10 +17,67 @@ public sealed class LiakontNavNodeProviderTests
     [Fact]
     public void GetNavNode_Should_Expose_The_Liakont_Tree_With_Core_Items()
     {
-        var root = BuildProvider().GetNavNode();
+        // Un porteur des trois permissions éditeur (≈ rôle superviseur) voit les 4 entrées cœur.
+        var root = BuildProvider(permissions:
+            [LiakontPermissions.Read, LiakontPermissions.Actions, LiakontPermissions.Settings]).GetNavNode();
 
         root.Label.Should().Be("Liakont");
         Labels(root).Should().Contain(["Documents", "Encaissements", "Traitements", "Paramétrage"]);
+    }
+
+    [Fact]
+    public void GetNavNode_Should_Hide_Documents_And_Encaissements_Without_Read_Permission()
+    {
+        // Documents / Encaissements (consultation) sont gardés par liakont.read (finding F5a / RLF03) :
+        // un principal sans cette permission (ex. exploitant de flotte) ne les voit pas.
+        var root = BuildProvider(permissions: []).GetNavNode();
+
+        Labels(root).Should().NotContain("Documents");
+        Labels(root).Should().NotContain("Encaissements");
+    }
+
+    [Fact]
+    public void GetNavNode_Should_Show_Documents_And_Encaissements_With_Read_Permission()
+    {
+        var root = BuildProvider(permissions: [LiakontPermissions.Read]).GetNavNode();
+
+        Labels(root).Should().Contain("Documents").And.Contain("Encaissements");
+    }
+
+    [Fact]
+    public void GetNavNode_Should_Hide_Traitements_Without_Read_Permission()
+    {
+        // Le journal des traitements est une surface de CONSULTATION (liakont.read — matrice §3 « journaux »,
+        // guide opérateur §17, endpoint GET /runs) : un principal sans read (ex. exploitant de flotte) ne le voit pas.
+        var root = BuildProvider(permissions: []).GetNavNode();
+
+        Labels(root).Should().NotContain("Traitements");
+    }
+
+    [Fact]
+    public void GetNavNode_Should_Show_Traitements_With_Read_Permission()
+    {
+        // Un lecteur (liakont.read) consulte le journal des traitements (lecture seule — seul POST /runs/trigger
+        // exige liakont.actions).
+        var root = BuildProvider(permissions: [LiakontPermissions.Read]).GetNavNode();
+
+        Labels(root).Should().Contain("Traitements");
+    }
+
+    [Fact]
+    public void GetNavNode_For_A_Reader_Should_Show_All_Consultation_Entries_And_The_Settings_Hub_As_A_Leaf()
+    {
+        // Preuve d'acceptance RLF03 (rôle `lecture`, matrice §3 : liakont.read seul) : il consulte
+        // Documents/Encaissements/Traitements (toutes des surfaces read) et garde l'accès au HUB Paramétrage
+        // (export d'audit par période, FIX208 — capacité liakont.read ; la masquer régresserait cette capacité
+        // d'audit). Le hub est un simple lien — le SOUS-MENU de paramétrage reste réservé à liakont.settings.
+        var root = BuildProvider(permissions: [LiakontPermissions.Read]).GetNavNode();
+
+        Labels(root).Should().Contain(["Documents", "Encaissements", "Traitements"]);
+
+        var parametrage = Node(root, "Paramétrage");
+        parametrage.HasChildren.Should().BeFalse("sans liakont.settings, Paramétrage est un simple lien vers le hub");
+        parametrage.Href.Should().Be("/parametrage");
     }
 
     [Fact]
@@ -95,15 +152,13 @@ public sealed class LiakontNavNodeProviderTests
     }
 
     [Fact]
-    public void GetNavNode_Should_Collapse_Parametrage_To_A_Leaf_Without_Settings_Permission()
+    public void GetNavNode_Should_Hide_Parametrage_Without_Read_Permission()
     {
         var root = BuildProvider(permissions: []).GetNavNode();
 
-        // Sans liakont.settings : pas de sous-menu (les pages cibles refuseraient l'accès), mais le
-        // hub /parametrage reste consultable en lecture.
-        var parametrage = Node(root, "Paramétrage");
-        parametrage.HasChildren.Should().BeFalse();
-        parametrage.Href.Should().Be("/parametrage");
+        // Sans liakont.read NI liakont.settings (ex. exploitant de flotte), le hub Paramétrage est masqué :
+        // le trou « page de paramétrage ouvrable par tout authentifié » (finding F5a / RLF03) est fermé.
+        Labels(root).Should().NotContain("Paramétrage");
     }
 
     [Fact]
@@ -121,7 +176,9 @@ public sealed class LiakontNavNodeProviderTests
     [Fact]
     public void GetNavNode_Should_Hide_Extraction_Agents_Without_Settings_Permission()
     {
-        var root = BuildProvider(permissions: []).GetNavNode();
+        // Un porteur de liakont.read sans liakont.settings obtient le hub en simple lien — donc aucune
+        // entrée « Agents d'extraction » (réservée au sous-menu des porteurs de liakont.settings).
+        var root = BuildProvider(permissions: [LiakontPermissions.Read]).GetNavNode();
 
         AllLabels(root).Should().NotContain("Agents d'extraction");
     }
