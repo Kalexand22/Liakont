@@ -258,3 +258,20 @@ le gel de PIP03b est un choix produit « ne pas inventer », pas un mur techniqu
 - **Rester dans le scope demandé.** Dans une analyse d'écart, les points secondaires hors périmètre —
   surtout formulés en registre risque — se lisent comme du remplissage. Lié à
   [[calibrer-severite-review-sur-stade-build]] et [[liakont-en-dev-ne-pas-survendre-maturite]].
+
+## 2026-06-15 (3) — `git add -A` dans $ORCH_REPO a emporté du collatéral (dump + leases stales)
+
+**Symptôme :** seed du lot FX dans `$ORCH_REPO/state.yaml` (slots null, transaction post-merge PR #49).
+J'ai lancé `git add -A` → le commit a emporté, EN PLUS de `state.yaml`, un `.state-dump.txt` (dump
+diagnostic stale, en-tête « v8 », non gitignoré) et la suppression de `leases/slot-1..3.yaml` (leases d'une
+session du 2026-06-11, déjà supprimées dans le working tree). Le seed lui-même était correct, mais j'ai
+versionné des changements qui n'étaient pas les miens.
+
+**Règles pour l'avenir :**
+- **Dans `$ORCH_REPO`, stager EXPLICITEMENT le(s) fichier(s) visé(s)** (`git add state.yaml`), JAMAIS
+  `git add -A` : le working tree de l'orch repo porte souvent des artefacts non commités d'autres sessions
+  (leases stales, dumps). `git add -A` les emporte silencieusement.
+- **Avant tout commit, lire `git status --short`** et ne stager que ce qui correspond à l'intention
+  (Surgical Changes ; cf. [[commits-interactifs-directs-feat-branch]]).
+- Correctif appliqué : `.state-dump.txt` untracké + gitignoré ; les leases slot-1..3 (stales, slots null)
+  laissées supprimées (cleanup correct, non nuisible).
