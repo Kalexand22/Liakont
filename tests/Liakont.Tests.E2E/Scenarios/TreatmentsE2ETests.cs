@@ -7,11 +7,10 @@ using Xunit;
 using Xunit.Abstractions;
 
 /// <summary>
-/// Test E2E de la page Traitements (WEB04a, journal F10 §2.6) : un utilisateur de rôle <c>operateur</c>
-/// (porteur de <c>liakont.actions</c>, requis pour les traitements — finding F5a / RLF03 ; un lecteur ne
-/// voit plus l'entrée) se connecte, ouvre le journal des traitements depuis la navigation maître et le voit
-/// s'afficher. Le tenant E2E est vierge (aucune exécution de pipeline n'est seedée) : le journal rend donc
-/// son état vide explicite. Le formatage des colonnes, des badges et des compteurs sur données présentes
+/// Test E2E de la page Traitements (WEB04a, journal F10 §2.6) : un utilisateur de rôle <c>lecture</c>
+/// se connecte, ouvre le journal des traitements depuis la navigation maître et le voit s'afficher.
+/// Le tenant E2E est vierge (aucune exécution de pipeline n'est seedée) : le journal rend donc son
+/// état vide explicite. Le formatage des colonnes, des badges et des compteurs sur données présentes
 /// est couvert par les tests bUnit (TreatmentsTests / PipelineRunRowTests / PipelineRunColumnRegistryTests).
 /// </summary>
 [Trait("Category", "E2E")]
@@ -26,9 +25,9 @@ public sealed class TreatmentsE2ETests : KeycloakBaseE2ETest
     }
 
     [Fact]
-    public async Task Operateur_user_opens_treatments_journal_from_navigation()
+    public async Task Lecture_user_opens_treatments_journal_from_navigation()
     {
-        await LoginViaKeycloakAsync("operateur");
+        await LoginViaKeycloakAsync();
 
         var shell = GetShellPage();
         await shell.WaitForShellAsync();

@@ -9,12 +9,10 @@ using Xunit.Abstractions;
 /// <summary>
 /// Test E2E du parcours d'accueil et de la navigation maître Liakont (WEB01) : un utilisateur de rôle
 /// <c>lecture</c> se connecte (flux OIDC Keycloak), atterrit sur le tableau de bord et voit la section de
-/// navigation Liakont. Un lecteur (liakont.read) voit les entrées de CONSULTATION (Documents, Encaissements)
-/// et garde l'accès au HUB Paramétrage (export d'audit par période, FIX208 — capacité liakont.read), mais
-/// PLUS l'entrée opérateur Traitements (liakont.actions, finding F5a / RLF03), comme Réconciliation/Supervision
-/// (conditionnelles). La navigation et le titre rendent indépendamment des données du tenant ; le RENDU
-/// détaillé des widgets du tableau de bord (compteurs, état TVA, bandeau cadence) est couvert par les tests
-/// bUnit (DashboardView / DashboardQueryService).
+/// navigation Liakont. Les sections conditionnelles (Réconciliation, Supervision) sont masquées pour ce
+/// profil sur un tenant sans pool de PDF. La navigation et le titre rendent indépendamment des données du
+/// tenant ; le RENDU détaillé des widgets du tableau de bord (compteurs, état TVA, bandeau cadence) est
+/// couvert par les tests bUnit (DashboardView / DashboardQueryService).
 /// </summary>
 [Trait("Category", "E2E")]
 public sealed class DashboardE2ETests : KeycloakBaseE2ETest
@@ -41,17 +39,12 @@ public sealed class DashboardE2ETests : KeycloakBaseE2ETest
         await heading.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 30_000 });
         (await heading.IsVisibleAsync()).Should().BeTrue("la page d'accueil affiche le tableau de bord");
 
-        // Navigation maître Liakont : un lecteur (liakont.read) voit les entrées de CONSULTATION et garde
-        // l'accès au HUB Paramétrage (export d'audit par période, FIX208 — capacité liakont.read).
-        foreach (var link in new[] { "documents", "encaissements", "parametrage" })
+        // Navigation maître Liakont : les sections inconditionnelles sont présentes.
+        foreach (var link in new[] { "documents", "encaissements", "traitements", "parametrage" })
         {
             (await Page.Locator($"[data-testid='nav-link-{link}']").IsVisibleAsync())
-                .Should().BeTrue($"la section « {link} » figure dans la navigation Liakont pour un lecteur");
+                .Should().BeTrue($"la section « {link} » figure dans la navigation Liakont");
         }
-
-        // Entrée opérateur gardée (finding F5a / RLF03) : un lecteur ne voit plus Traitements (liakont.actions).
-        (await Page.Locator("[data-testid='nav-link-traitements']").CountAsync())
-            .Should().Be(0, "les traitements exigent liakont.actions (non porté par lecture)");
 
         // Sections conditionnelles masquées : lecteur (pas de supervision) sur un tenant sans pool PDF.
         (await Page.Locator("[data-testid='nav-link-supervision']").CountAsync())

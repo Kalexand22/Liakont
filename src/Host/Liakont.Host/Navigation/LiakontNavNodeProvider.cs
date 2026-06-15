@@ -28,18 +28,16 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
     {
         var children = new List<NavNode>();
 
-        // Documents / Encaissements : consultation (liakont.read). Gardées par permission (finding F5a / RLF03)
-        // comme Supervision/Flotte : un utilisateur sans liakont.read (ex. exploitant de flotte) ne les voit pas,
-        // et les pages cibles portent la même policy en défense en profondeur. Le super-admin court-circuite.
+        // Documents / Encaissements / Traitements : surfaces de CONSULTATION (liakont.read). La matrice §3
+        // (identity-permissions-liakont.md : read = « documents, transmissions, journaux ») et le guide opérateur
+        // §17 (lecture consulte « les traitements », journal en lecture seule) classent le journal des traitements
+        // en lecture ; l'endpoint backing le confirme (GET /runs → liakont.read ; seul POST /runs/trigger, l'action,
+        // = liakont.actions). Gardées par liakont.read (finding F5a / RLF03) : un principal sans read (ex. exploitant
+        // de flotte) ne les voit pas, et les pages portent la même policy. Le super-admin court-circuite.
         if (_permissions.HasPermission(LiakontPermissions.Read))
         {
             children.Add(new() { Label = "Documents", Href = "/documents" });
             children.Add(new() { Label = "Encaissements", Href = "/encaissements" });
-        }
-
-        // Traitements : actions opérateur (liakont.actions) — un simple lecteur ne le voit plus (finding F5a).
-        if (_permissions.HasPermission(LiakontPermissions.Actions))
-        {
             children.Add(new() { Label = "Traitements", Href = "/traitements" });
         }
 

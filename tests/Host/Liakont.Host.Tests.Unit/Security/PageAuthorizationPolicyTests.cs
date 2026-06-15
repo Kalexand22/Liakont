@@ -25,7 +25,7 @@ public sealed class PageAuthorizationPolicyTests
     [InlineData(typeof(Documents), LiakontPermissions.Read)]
     [InlineData(typeof(DocumentDetail), LiakontPermissions.Read)]
     [InlineData(typeof(Encaissements), LiakontPermissions.Read)]
-    [InlineData(typeof(Treatments), LiakontPermissions.Actions)]
+    [InlineData(typeof(Treatments), LiakontPermissions.Read)]
     [InlineData(typeof(Parametrage), LiakontPermissions.Read)]
     [InlineData(typeof(Fiscal), LiakontPermissions.Settings)]
     [InlineData(typeof(TableTva), LiakontPermissions.Settings)]

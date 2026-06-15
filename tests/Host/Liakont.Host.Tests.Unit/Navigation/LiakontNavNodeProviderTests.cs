@@ -45,34 +45,35 @@ public sealed class LiakontNavNodeProviderTests
     }
 
     [Fact]
-    public void GetNavNode_Should_Hide_Traitements_Without_Actions_Permission()
+    public void GetNavNode_Should_Hide_Traitements_Without_Read_Permission()
     {
-        // Un simple lecteur (liakont.read seul) ne voit plus « Traitements » (besoin liakont.actions).
-        var root = BuildProvider(permissions: [LiakontPermissions.Read]).GetNavNode();
+        // Le journal des traitements est une surface de CONSULTATION (liakont.read — matrice §3 « journaux »,
+        // guide opérateur §17, endpoint GET /runs) : un principal sans read (ex. exploitant de flotte) ne le voit pas.
+        var root = BuildProvider(permissions: []).GetNavNode();
 
         Labels(root).Should().NotContain("Traitements");
     }
 
     [Fact]
-    public void GetNavNode_Should_Show_Traitements_With_Actions_Permission()
+    public void GetNavNode_Should_Show_Traitements_With_Read_Permission()
     {
-        var root = BuildProvider(permissions: [LiakontPermissions.Actions]).GetNavNode();
+        // Un lecteur (liakont.read) consulte le journal des traitements (lecture seule — seul POST /runs/trigger
+        // exige liakont.actions).
+        var root = BuildProvider(permissions: [LiakontPermissions.Read]).GetNavNode();
 
         Labels(root).Should().Contain("Traitements");
     }
 
     [Fact]
-    public void GetNavNode_For_A_Reader_Should_Show_Consultation_And_Settings_Hub_But_Hide_Operator_Entries()
+    public void GetNavNode_For_A_Reader_Should_Show_All_Consultation_Entries_And_The_Settings_Hub_As_A_Leaf()
     {
         // Preuve d'acceptance RLF03 (rôle `lecture`, matrice §3 : liakont.read seul) : il consulte
-        // Documents/Encaissements et garde l'accès au HUB Paramétrage (export d'audit par période, FIX208 —
-        // capacité liakont.read ; la masquer régresserait cette capacité d'audit), mais ne voit plus
-        // Traitements (liakont.actions). Le hub est un simple lien — le SOUS-MENU de paramétrage reste réservé
-        // à liakont.settings.
+        // Documents/Encaissements/Traitements (toutes des surfaces read) et garde l'accès au HUB Paramétrage
+        // (export d'audit par période, FIX208 — capacité liakont.read ; la masquer régresserait cette capacité
+        // d'audit). Le hub est un simple lien — le SOUS-MENU de paramétrage reste réservé à liakont.settings.
         var root = BuildProvider(permissions: [LiakontPermissions.Read]).GetNavNode();
 
-        Labels(root).Should().Contain("Documents").And.Contain("Encaissements");
-        Labels(root).Should().NotContain("Traitements");
+        Labels(root).Should().Contain(["Documents", "Encaissements", "Traitements"]);
 
         var parametrage = Node(root, "Paramétrage");
         parametrage.HasChildren.Should().BeFalse("sans liakont.settings, Paramétrage est un simple lien vers le hub");
