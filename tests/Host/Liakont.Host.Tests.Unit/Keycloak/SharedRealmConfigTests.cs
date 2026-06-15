@@ -343,6 +343,63 @@ public sealed class SharedRealmConfigTests
             .Should().ContainSingle("le 2FA (OTP conditionnel) ne doit pas être cassé par l'ajout des flows");
     }
 
+    [Theory]
+    [MemberData(nameof(BrokeringRealmFiles))]
+    public void Browser_Flow_Wiring_Is_Correct_Password_Then_Conditional_Otp(string realmPath)
+    {
+        using var realm = LoadRealm(realmPath);
+        var root = realm.RootElement;
+
+        // "browser" → sous-flow "forms" en ALTERNATIVE
+        var browserExecutions = FlowExecutions(root, "browser");
+        var formsSubflow = browserExecutions
+            .Where(e => e.TryGetProperty("authenticatorFlow", out var af) && af.GetBoolean()
+                        && e.TryGetProperty("flowAlias", out var fa) && fa.GetString() == "forms")
+            .ToList();
+        formsSubflow.Should().ContainSingle(
+            "le browser flow doit référencer le sous-flow « forms » (chemin mot de passe + 2FA)");
+        Requirement(formsSubflow[0])
+            .Should().Be("ALTERNATIVE", "le sous-flow « forms » doit être ALTERNATIVE dans le browser flow");
+
+        // "forms" → auth-username-password-form en REQUIRED + sous-flow "Browser - Conditional OTP" en CONDITIONAL
+        var formsExecutions = FlowExecutions(root, "forms");
+
+        var passwordExec = formsExecutions
+            .Where(e => e.TryGetProperty("authenticator", out var a) && a.GetString() == "auth-username-password-form")
+            .ToList();
+        passwordExec.Should().ContainSingle("le flow « forms » doit câbler auth-username-password-form");
+        Requirement(passwordExec[0])
+            .Should().Be("REQUIRED", "auth-username-password-form doit être REQUIRED dans « forms »");
+
+        var conditionalOtpSubflow = formsExecutions
+            .Where(e => e.TryGetProperty("authenticatorFlow", out var af) && af.GetBoolean()
+                        && e.TryGetProperty("flowAlias", out var fa) && fa.GetString() == "Browser - Conditional OTP")
+            .ToList();
+        conditionalOtpSubflow.Should().ContainSingle(
+            "le flow « forms » doit référencer le sous-flow « Browser - Conditional OTP »");
+        Requirement(conditionalOtpSubflow[0])
+            .Should().Be("CONDITIONAL", "le sous-flow « Browser - Conditional OTP » doit être CONDITIONAL dans « forms »");
+
+        // "Browser - Conditional OTP" → conditional-user-configured en REQUIRED + auth-otp-form en REQUIRED
+        var conditionalOtpExecutions = FlowExecutions(root, "Browser - Conditional OTP");
+
+        var condUserConfigured = conditionalOtpExecutions
+            .Where(e => e.TryGetProperty("authenticator", out var a) && a.GetString() == "conditional-user-configured")
+            .ToList();
+        condUserConfigured.Should().ContainSingle(
+            "le flow « Browser - Conditional OTP » doit câbler conditional-user-configured");
+        Requirement(condUserConfigured[0])
+            .Should().Be("REQUIRED", "conditional-user-configured doit être REQUIRED dans « Browser - Conditional OTP »");
+
+        var otpFormExec = conditionalOtpExecutions
+            .Where(e => e.TryGetProperty("authenticator", out var a) && a.GetString() == "auth-otp-form")
+            .ToList();
+        otpFormExec.Should().ContainSingle(
+            "le flow « Browser - Conditional OTP » doit câbler auth-otp-form");
+        Requirement(otpFormExec[0])
+            .Should().Be("REQUIRED", "auth-otp-form doit être REQUIRED dans « Browser - Conditional OTP »");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
     private static JsonDocument LoadRealm(string repoRelativePath)
     {
@@ -381,6 +438,14 @@ public sealed class SharedRealmConfigTests
         realmRoot.TryGetProperty("authenticationFlows", out var flows)
             ? flows.EnumerateArray().SelectMany(f => f.GetProperty("authenticationExecutions").EnumerateArray())
             : Enumerable.Empty<JsonElement>();
+
+    private static List<JsonElement> FlowExecutions(JsonElement realmRoot, string flowAlias) =>
+        realmRoot.TryGetProperty("authenticationFlows", out var flows)
+            ? flows.EnumerateArray()
+                .Where(f => f.TryGetProperty("alias", out var a) && a.GetString() == flowAlias)
+                .SelectMany(f => f.GetProperty("authenticationExecutions").EnumerateArray())
+                .ToList()
+            : [];
 
     private static List<JsonElement> ExecutionsByAuthenticator(JsonElement realmRoot, string authenticator) =>
         AllAuthenticationExecutions(realmRoot)
