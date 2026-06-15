@@ -10,7 +10,7 @@
 # Branche : feat/signature (segment `signature`, base main).
 # depends_on_gate : [GATE_AUTOFACTURATION, GATE_FACTURX, GATE_CONSOLE_WEB] — voir note de séquencement.
 #
-# ⚠️ SÉQUENCEMENT (DÉCISION D'ARCHI — owner Karl). F17 §4 pose que SelfBilledAcceptance (lot MND, MND02)
+# ⚠️ SÉQUENCEMENT (DÉCISION D'ARCHI — ✅ DÉCIDÉ Karl 2026-06-15 : option (A)). F17 §4 pose que SelfBilledAcceptance (lot MND, MND02)
 #   est IMPLÉMENTÉ VIA le module générique DocumentApproval (projection restreinte). Deux voies :
 #   - (A) RETENUE ICI : SIG après MND ; on bâtit DocumentApproval (SIG04) puis on REFACTORE
 #     SelfBilledAcceptance pour qu'il y délègue (SIG05). Moins de couplage entre lots déjà routés.
@@ -152,8 +152,11 @@ items:
       5. RÈGLE DE GATE (port générique) : ouvre ssi état ∈ {Validated, TacitlyValidated} ET niveau de preuve
          ≥ exigence tenant (par slot) ET (self-billing, Validated EXPRESSE) forme validée EC ; NON appliquée
          à TacitlyValidated (gardes INV-ACCEPT-3). Réconciliation webhook tardive idempotente (event_id).
-      6. PÉRIMÈTRE NON TRANCHÉ : la VALEUR du niveau eIDAS par purpose et la « forme validée EC » sont du
-         paramétrage/décision EC (GATE_SIGNATURE_DECISIONS) — l'item code le MÉCANISME, pas la valeur.
+      6. DÉFAUTS DÉFENDABLES (stade build, AUCUNE gate de décision) : le niveau eIDAS par purpose et la
+         modalité d'« acceptation expresse » sont du PARAMÉTRAGE TENANT (défaut : Recorded pour l'acceptation ;
+         acceptation explicite tracée pour la forme) ; l'item code le MÉCANISME + le défaut, le client affine
+         avec SON EC au déploiement — jamais une valeur fiscale inventée. Idem CreditNoteAcceptance : défaut =
+         le 261 suit la même discipline d'acceptation que le 389 (conservateur), affinable tenant.
     acceptance:
       - "Agrégat DocumentValidation clé (company_id, document_id, purpose, attempt) ; machine fermée 7 états distincts (Rejected≠Contested), sous-graphe self-billing 4 états (garde de purpose testée, cartésien)"
       - "Ré-essai : index unique partiel company_id-scopé sur non-terminaux ; gate lit la plus récente ; garde anti-race (test de concurrence) ; self-billing exclu"
@@ -213,9 +216,9 @@ items:
     description: |
       Implémenter le plug-in Yousign (à distance) selon ADR-0029 et F17 §5. NE référence QUE
       Signature.Contracts + Common (NetArchTest) ; aucun type HTTP ne traverse ISignatureProvider.
-      ⚠️ DÉPEND de GATE_SIGNATURE_DECISIONS : les niveaux eIDAS réellement offerts par l'offre Yousign
-      souscrite, le coût/activation AES/QES + vérif identité, les rate limits prod, la politique de retry
-      webhook (F17 §10 #6, owner tech/Karl) doivent être tranchés — sinon DÉCLARER au plus juste / BLOQUER.
+      DÉFAUT DÉFENDABLE (AUCUNE gate de décision) : on DÉCLARE les capacités au niveau réellement vérifié
+      en SANDBOX ; les niveaux/coût/limites/retry réels de l'offre souscrite = activation au déploiement,
+      jamais supposés. Une capacité non vérifiée n'est pas déclarée (NotSupported), jamais inventée.
       1. Provider : API v3 (sandbox/prod via Environment), niveaux DÉCLARÉS en capacité (jamais supposés) ;
          cycle draft → upload multipart → signers/fields → (AES/QES) pré-vérif identité → activate → webhook.
       2. Webhook (corrections P1 F17 §5) : routage par HANDLE DE TENANT OPAQUE dans l'URL (catalogue système
@@ -241,10 +244,11 @@ items:
   SIG08:
     title: "Client soft Wacom (sur place) : capteur desktop hors agent/ + proxy OnSiteCapture tenant-scopé + binding hash + déposant≠signataire (ADR-0030)"
     description: |
-      Implémenter la signature SUR PLACE selon ADR-0030 et F17 §6. ⚠️ DÉPEND de GATE_SIGNATURE_DECISIONS :
-      l'atteignabilité AES (art. 26 c — #5 tech), le DataProtectionScope, la qualification RGPD (#7 DPO)
-      doivent être tranchés. ✅ Identité du signataire (#8) TRANCHÉE : le MANDANT signe en personne, cas
-      VENTE AUX ENCHÈRES (pas criée) → SignerIdentity = identification en personne par la SVV au guichet.
+      Implémenter la signature SUR PLACE selon ADR-0030 et F17 §6. DÉFAUTS DÉFENDABLES (AUCUNE gate de
+      décision) : niveau = SES (AES seulement après audit tech du procédé art. 26 c) ; posture RGPD sobre
+      (pas de gabarit) ; DataProtectionScope tranché en ADR-0030 — la qualification RGPD fine relève du DPO
+      du CLIENT au déploiement. ✅ Identité du signataire (#8) : le MANDANT signe en personne, cas VENTE AUX
+      ENCHÈRES (pas criée) → SignerIdentity = identification en personne par la SVV au guichet.
       1. Client desktop-companion en racine SÉPARÉE clients/OnSiteSignature (sa propre .sln, JAMAIS sous
          agent/ ; motif = isolation SDK Wacom natif + frontière physique). Pur CAPTEUR : aucune logique
          métier ; test de pureté (ne référence ni Agent.Contracts ni un module). DPAPI LOCALE au client
@@ -302,30 +306,10 @@ items:
       - "Réutilise le gabarit console (pas de grille maison)"
       - "verify-fast passes ; codex-review clean or only accepted P2s"
 
-  # Gate intra-segment HUMAINE (checkpoint SANS PR — modèle GATE_DEMO_ISATECH) : résolution des points
-  # NON TRANCHÉ de F17 §10 (EC/juridique/DPO/Karl) qui conditionnent les items de dev signature.
-  # Les items SIG07 (Yousign) et SIG08 (Wacom) en dépendent (porté par le manifest). L'opérateur la
-  # passe à `done` via orch-state.ps1 quand les décisions sont prises (ne PAS deviner — CLAUDE.md n°2).
-  GATE_SIGNATURE_DECISIONS:
-    type: gate
-    executor: human
-    title: "Gate (checkpoint humain, sans PR) : points NON TRANCHÉ signature résolus (F17 §10)"
-    description: |
-      Checkpoint humain : les décisions NON TRANCHÉES de F17 §10 sont prises et inscrites (paramétrage tenant
-      ou docs internes), AVANT de coder SIG07/SIG08. Ne rien inventer (CLAUDE.md n°2) :
-      DÉJÀ TRANCHÉS par Karl (2026-06-15), ne plus reposer :
-      - (#2) ✅ CHOIX TENANT : signature élec OU mandat papier scanné importé ; ISignatureProvider optionnel dans le parcours mandat.
-      - (#8) ✅ Le MANDANT signe en personne, cas VENTE AUX ENCHÈRES (pas criée) ; SignerIdentity = identification en personne par la SVV.
-      RESTE à router (PAS pour Karl ; le produit reste bloqué-safe d'ici la réponse) :
-      - niveau eIDAS par besoin (défaut produit posé : Recorded pour l'acceptation, configurable pour le mandat) — EC confirme (#1) ;
-      - équivalence « accusé de réception = acceptation expresse » — EC (#4) ;
-      - atteignabilité AES Wacom (art. 26 c) + détenteur des données de création/cert FSS — investigation tech (+ EC probatoire) (#5) ;
-      - niveaux/offre/limites/retry Yousign réels — investigation tech (volet coût/offre informatif pour Karl) (#6) ;
-      - qualification RGPD biométrie + rétention + AIPD + consentement B2B — DPO/juridique (#7) ;
-      - le 261 ré-entre-t-il dans un cycle d'acceptation (purpose CreditNoteAcceptance) — EC (#9).
-    acceptance:
-      - "Chaque point F17 §10 a une décision tracée (paramétrage tenant ou docs internes), ou est explicitement reporté (l'item de dev qui en dépend reste alors bloqué — pas de devinette)"
-      - "Aucune règle fiscale/juridique inventée pour débloquer (CLAUDE.md n°2)"
+  # NB (Karl, 2026-06-15) : PAS de gate de décision. Stade build = on prend des DÉFAUTS DÉFENDABLES
+  # (sourcés, paramétrables tenant) ; le client final tranche fiscal/RGPD avec SON EC/DPO au déploiement.
+  # Liakont ne sollicite/paie aucun EC à l'instant T. Le lot s'auto-propulse jusqu'à GATE_SIGNATURE (recette).
+  # On ne bloque QUE là où aucun défaut défendable n'existe ET où un mauvais défaut transmettrait du faux.
 
   # Gate de segment HUMAINE : recette de bout en bout de la signature/validation.
   # depends_on (SIG05, SIG06, SIG07, SIG08, SIG09, SIG10) porté par le manifest.
@@ -344,5 +328,5 @@ items:
       - "Tous les items SIG (SIG01..SIG10) sont done"
       - "Recette de bout en bout : Recorded + Yousign (à distance) + Wacom (sur place) exercés selon le niveau tenant ; preuve en WORM ; gate ouvre selon la Règle §4 et reste fermé sinon"
       - "Robustesse webhook (rejeu/crash) et anti-usurpation (déposant≠signataire) vérifiés à la recette"
-      - "Points NON TRANCHÉ : aucune règle inventée ; ce qui reste ouvert est tracé et son item de dev reste bloqué"
+      - "Défauts défendables pris (sourcés, paramétrables tenant) ; aucune règle fiscale/RGPD inventée ; les affinages (eIDAS/forme d'acceptation/RGPD) relèvent du client avec son EC/DPO au déploiement, pas d'un blocage en build"
       - "PR du segment feat/signature revue et mergée dans main"
