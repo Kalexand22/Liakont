@@ -109,6 +109,18 @@ services:
       Keycloak__RequireHttpsMetadata: "false"
       Keycloak__RealmTenantMap__liakont: default
       Keycloak__AppBaseUrl: ${PUBLIC_BASE_URL}
+      # Provisioning d'UTILISATEUR de tenant (RLM/RLF06, finding F7) : le Host appelle l'API Admin de
+      # Keycloak (KeycloakAdminTokenService → realm master, grant password admin-cli) pour créer les
+      # comptes dans le realm partagé. Sans ces réglages : IsConfigured=false → « IdP non configuré »,
+      # et PrimaryRealmName manquant → « realm partagé non configuré » (provisioning mort en prod).
+      Keycloak__PrimaryRealmName: liakont
+      # AdminBaseUrl = serveur Keycloak (PAS l'URL de realm) : le service y ajoute /realms/master/... .
+      # Réseau INTERNE de l'appliance (pas d'aller-retour par Caddy), comme Keycloak__MetadataAddress.
+      Keycloak__AdminBaseUrl: "http://keycloak:8080"
+      # Réutilise le compte d'amorçage admin Keycloak (realm master) déjà requis par le service keycloak —
+      # AUCUN secret versionné (valeurs dans .env, jamais committées : CLAUDE.md n°10/18).
+      Keycloak__AdminUsername: ${KC_BOOTSTRAP_ADMIN_USERNAME}
+      Keycloak__AdminPassword: ${KC_BOOTSTRAP_ADMIN_PASSWORD}
       # Reverse proxy : honorer X-Forwarded-* émis par Caddy, confiance bornée au réseau interne.
       ForwardedHeaders__Enabled: "true"
       ForwardedHeaders__KnownNetworks__0: "172.28.0.0/16"
