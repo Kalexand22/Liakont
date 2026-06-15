@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+    <!-- Gardes de frontière du module FacturX (confinement QuestPDF + indépendance PA) — FX02. -->
+    <PackageReference Include="NetArchTest.Rules" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Contracts/Liakont.Modules.FacturX.Contracts.csproj" />
+    <ProjectReference Include="../Domain/Liakont.Modules.FacturX.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.FacturX.Application.csproj" />
+    <ProjectReference Include="../Infrastructure/Liakont.Modules.FacturX.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,15 @@
+# Invariants — module FacturX
+
+> Source : ADR-0023 (génération Factur-X PDF/A-3 + CII). Les invariants INV-FX-3/5/6 portent sur le
+> code de génération livré par FX03/FX04 (sérialiseur CII, scellement PDF/A-3, validation) ; FX02 livre
+> l'ossature du module et verrouille les invariants de **frontière** INV-FX-1 et INV-FX-4.
+
+| ID | Rule | Enforcement |
+|---|---|---|
+| INV-FX-1 | QuestPDF n'est référencée, pour la génération Factur-X, que par `FacturX.Infrastructure` (port `IFacturXBuilder` en Application). Elle ne fuit jamais vers Contracts/Domain/Application. | `FacturXBoundaryTests` : réflexion (`QuestPdf_IsNotReferencedAboveInfrastructure` + contre-épreuve `QuestPdf_IsReferencedByInfrastructure`) + scan déclaratif des `.csproj` (`ModuleCsprojs_ConfineQuestPdf_AndForbidCrossModuleReferences` : `QuestPDF` déclarée par le SEUL `FacturX.Infrastructure`). |
+| INV-FX-4 | La génération ne référence aucun plug-in PA et n'appelle jamais le `convert` d'une PA. FacturX ne dépend pas non plus de `Transmission.Contracts` ni d'un module métier, et ne consulte aucune `PaCapabilities` : la décision de générer est prise par le pipeline appelant (FX07), jamais par FacturX ; la sortie est déterministe du pivot seul. | `FacturXBoundaryTests` : `FacturX_DoesNotReferenceAnyConcretePaPlugin` (pas de `Liakont.PaClients.*`), `FacturX_DoesNotDependOnTransmissionNorPaCapabilities` (pas de `Liakont.Modules.Transmission.*`), `FacturX_DoesNotReachIntoAnotherBusinessModule` (aucun autre `Liakont.Modules.*`) + scan déclaratif `.csproj` (seule réf inter-projet autorisée : `Liakont.Agent.Contracts`). |
+| INV-FX-2 | Le sérialiseur n'invente aucune valeur fiscale **qualitative** (catégorie/taux/VATEX) et n'applique aucun défaut ; les agrégats EN 16931 non portés par le pivot sont dérivés par agrégation arithmétique déterministe (`decimal`). Les constantes de PROFIL (BT-24, BT-5, XMP) sont autorisées. | **FX03** (sérialiseur CII). FX02 : `FacturXProfile` ne porte que des constantes de profil non fiscales (URI XMP, `fx:ConformanceLevel`, `/AFRelationship`, nom de pièce jointe), recopiées verbatim d'ADR-0023 §3 — aucune catégorie/taux/VATEX. |
+| INV-FX-3 | `/AFRelationship = Alternative` ; URI d'extension XMP `urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0#` ; `fx:ConformanceLevel = EN 16931`. | **FX04** (scellement PDF/A-3). FX02 : valeurs centralisées dans `FacturXProfile` (Domain), prêtes pour le scellement. |
+| INV-FX-5 | Un Factur-X qui échoue veraPDF + Mustang en CI ne peut pas être considéré émissible. | **FX04** (validation conteneur, tier intégration). Hors périmètre FX02. |
+| INV-FX-6 | Montants en `decimal` ; formatage XML invariant culture. | **FX03** (sérialiseur CII). FX02 : `FacturXDocument` ne porte aucun montant (octets + nom de fichier). |
+| INV-FX-7 | BG-23 et BR-CO-17 (non validés en amont) sont produits par le sérialiseur et réconciliés avec les totaux portés (BR-CO-14/15) ; un écart non réconciliable → blocage tracé. | **FX03** (sérialiseur CII). Hors périmètre FX02. |
