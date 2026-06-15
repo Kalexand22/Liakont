@@ -61,7 +61,7 @@ items:
       - "null (AssujettissementStatus / ContestationDelay) ou mandat non validé/révoqué ⇒ 389 suspendu, aucun défaut inventé (test)"
       - "Frontière NetArchTest : Mandats accédé par Contracts seulement ; tenant-scoping prouvé sur ≥ 2 bases tenant"
       - "Aucune donnée client réelle (code + fixtures) ; exemples fictifs uniquement (config/exemples/)"
-      - "Tests d'intégration PostgreSQL (Testcontainers)"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts (Testcontainers PostgreSQL), pas seulement écrits : append-only UPDATE/DELETE/TRUNCATE rejetés + tenant-scoping ≥ 2 bases"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -93,7 +93,7 @@ items:
       - "Chaque transition écrit une ligne self_billed_acceptance_log dans la MÊME transaction (test « pas de transition sans ligne de journal »)"
       - "self_billed_acceptance_log append-only : UPDATE/DELETE/TRUNCATE rejetés (trigger base), company_id NOT NULL, tenant-scopé (≥ 2 bases)"
       - "Aucune logique d'avoir 261 introduite (NON TRANCHÉ F15 §6.5)"
-      - "Tests d'intégration PostgreSQL"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts (Testcontainers), pas seulement écrits : journal en MÊME transaction + append-only + tenant-scoping ≥ 2 bases"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -141,7 +141,7 @@ items:
       - "Mandat tacite ou délai null ⇒ tacite impossible, seule l'acceptation expresse débloque (test)"
       - "Job via TenantJobRunner (SOL06), aucun timer/boucle maison ; isolation par tenant (l'échec d'un tenant n'affecte pas les autres)"
       - "Chaque bascule écrit une ligne self_billed_acceptance_log (réutilise MND02)"
-      - "Tests d'intégration (job + scoping cross-tenant ≥ 2 bases)"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts, pas seulement écrits : bascule conditionnée + isolation/scoping cross-tenant ≥ 2 bases"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -174,7 +174,7 @@ items:
       - "Allocation au plus tard (avant envoi, après acceptation) ; verrou de séquence par mandant, jamais cross-tenant"
       - "payload_hash identique au cas non-389 : round-trip canonique inchangé, aucune branche de format (INV-BT1-1, ADR-0007 préservé)"
       - "BT-1 fiscal = valeur séparée hors payload hashé, assignée à l'émission"
-      - "Tests : idempotence, bigint, verrou par mandant, round-trip canonique inchangé"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts, pas seulement écrits : idempotence (double get-or-create → un seul numéro), verrou par mandant, round-trip canonique inchangé (bigint vérifié)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
@@ -203,13 +203,46 @@ items:
       - "Anti-doublon 389 (INV-BT1-5) : deux 389 même numéro / mandants différents → Send ; même mandant + ré-extraction → Blocked (tests cartésiens)"
       - "Garde d'ingestion 389 substituée : 389 sans clé source NON NUL → rejet (substitution d'invariant, pas affaiblissement — INV-BT1-3)"
       - "Migration F06 : index historique conservé pour les non-389"
-      - "Tests d'intégration anti-doublon (389 et non-389)"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts, pas seulement écrits : anti-doublon 389 (cartésien mandants/ré-extraction) ET non-389 (non-régression)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  MND07:
+    title: "Projection BT-3 = 389 (vendeur fiscal = mandant, émission par le tenant mandataire) dans le payload PA sortant — pilotée par IsSelfBilled/PaCapabilities (F15 §1.2 + ADR-0022/0024/0025)"
+    description: |
+      Maillon qui rend l'émission 389 RÉELLE de bout en bout. Le pivot porte DÉJÀ IsSelfBilled/Invoicer
+      (ADR-0004), mais AUCUN sérialiseur sortant ne projette aujourd'hui le type 389 ni la structure
+      mandant/mandataire vers la PA — sans cet item, GATE_AUTOFACTURATION (« part vers la PA ») n'est
+      pas exerçable (trou de couverture relevé à la revue du lot).
+      1. Dans la couche de mapping pivot → payload PA sortant (GÉNÉRIQUE, lue par tout sérialiseur PA) :
+         quand IsSelfBilled, projeter le type de document BT-3 = 389 (code sourcé F15 §1.2, socle DGFiP
+         V3.2) ; le vendeur fiscal = le MANDANT (BT-30 = SIREN du mandant, cf. ADR-0025 §7 ; n° TVA
+         mandant = BT-31, F15 §2.2), l'émission étant faite par le tenant mandataire AU NOM ET POUR LE
+         COMPTE du mandant (art. 289 I-2, ADR-0022). Le BT-1 du payload = le BT-1 fiscal alloué (MND05).
+      2. Piloté par CAPACITÉ déclarée du plug-in / IsSelfBilled, JAMAIS `if (pa is …)` ni flag produit
+         (CLAUDE.md n°8). Une PA dont la capacité ne couvre pas l'émission 389 → document BLOQUÉ avec
+         message opérateur FR (jamais émis en type erroné ni dégradé silencieusement en facture standard
+         — bloquer plutôt qu'envoyer faux, CLAUDE.md n°3).
+      3. NE RIEN INVENTER : le code 389 se trace en F15 §1.2 ; le mapping EN 16931 précis des parties
+         (Seller / Buyer / émetteur self-billed) se SOURCE dans F15 / EN 16931 — si un champ n'a pas de
+         source, BLOQUER l'item (CLAUDE.md n°2). Le routage fiscal du CONTENU (exonération criée 261-2-4°,
+         taxe de criée…) reste HORS périmètre (NON TRANCHÉ F15 §6).
+      4. Articulation segment `facturx` : si une PA émet via CII (sérialiseur FX03), cette projection
+         ALIMENTE le sérialiseur depuis le pivot (le pivot porte le 389) — pas de duplication ; la
+         projection restant au niveau pivot → sortant, AUCUNE dépendance inter-lots dure MND ↔ FX n'est
+         introduite (le sérialiseur lit le pivot quel qu'il soit).
+    acceptance:
+      - "Un document self-billed produit un payload PA de type BT-3 = 389 (F15 §1.2), vendeur fiscal = mandant (BT-30 = SIREN mandant, ADR-0025 §7), BT-1 = numéro fiscal alloué (MND05)"
+      - "Projection pilotée par capacité déclarée / IsSelfBilled, jamais if (pa is …) ni flag produit (NetArchTest + test de capacité)"
+      - "PA sans capacité d'émission 389 → document BLOQUÉ (message FR), jamais émis en type erroné ni dégradé en facture standard"
+      - "Aucun code fiscal inventé : 389 tracé F15 §1.2 ; mapping des parties sourcé F15/EN 16931 (sinon item bloqué)"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts, pas seulement écrits : émission 389 bout-en-bout vers une PA factice (type + parties + BT-1 alloué)"
       - "verify-fast passes"
       - "codex-review clean or only accepted P2s"
 
   # Gate du segment autofacturation — définie ici pour satisfaire la réciprocité manifest→lot de
   # verify-fast (manifest-sanity : toute gate du manifest doit exister dans un fichier de lot).
-  # depends_on (MND03, MND04, MND05, MND06) est porté par le manifest. Recette HUMAINE (executor: human) :
+  # depends_on (MND03, MND04, MND05, MND06, MND07) est porté par le manifest. Recette HUMAINE (executor: human) :
   # la capacité A (émission 389) ne peut être validée « done » que par une recette réelle de bout en bout.
   GATE_AUTOFACTURATION:
     type: gate
@@ -226,8 +259,8 @@ items:
       aucune donnée client dans le code. La capacité B (réception, ADR-0026) reste HORS périmètre
       (phase 2, F-spec dédiée).
     acceptance:
-      - "Tous les items MND (MND01..MND06) sont done"
-      - "Recette de bout en bout sur instance de dev : ingestion → blocage acceptation → acceptation (expresse + tacite) → allocation BT-1 par mandant → envoi"
+      - "Tous les items MND (MND01..MND07) sont done"
+      - "Recette de bout en bout sur instance de dev : ingestion → blocage acceptation → acceptation (expresse + tacite) → allocation BT-1 par mandant → projection du type 389 + parties (MND07) → envoi vers la PA"
       - "Anti-doublon 389 exercé (même mandant ré-extrait → Blocked ; mandants différents même numéro → Send)"
       - "Journaux append-only et suspension par null vérifiés à l'écran/à la recette"
       - "PR du segment feat/autofacturation revue et mergée dans main"
