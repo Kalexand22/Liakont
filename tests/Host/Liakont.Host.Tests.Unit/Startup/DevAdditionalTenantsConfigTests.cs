@@ -6,6 +6,7 @@ using System.Linq;
 using FluentAssertions;
 using Liakont.Host.Startup;
 using Microsoft.Extensions.Configuration;
+using Stratum.Common.Infrastructure.Database;
 using Xunit;
 
 /// <summary>
@@ -38,6 +39,41 @@ public sealed class DevAdditionalTenantsConfigTests
         second.CompanyId.Should().NotBe(options.CompanyId, "l'isolation exige deux company_id DIFFÉRENTS");
     }
 
+    [Fact]
+    public void Second_Tenant_DatabaseName_Matches_The_Runtime_Derived_Name()
+    {
+        var options = BindDevTenantSeed();
+        var second = options.AdditionalTenants.Should().ContainSingle().Subject;
+
+        // Sans override TenantConnections (cas de tenant2 en dev), le runtime DÉRIVE le nom de base
+        // {DatabasePrefix}{tenantId avec '-'→'_'} (TenantAwareNpgsqlConnectionFactory), tandis que la
+        // migration au démarrage lit database_name du registre. Les deux DOIVENT coïncider, sinon la base
+        // dérivée n'existe jamais → 3D000 sur toute requête tenant (finding F3/RLF01).
+        var tenantConnOptions = BindTenantConnectionOptions();
+        tenantConnOptions.ConnectionStrings.Should().NotContainKey(
+            second.TenantId,
+            "la cohérence dérivée n'a de sens que sans override de chaîne de connexion pour ce tenant");
+        var derived = tenantConnOptions.DatabasePrefix + second.TenantId.Replace('-', '_');
+        second.DatabaseName.Should().Be(
+            derived,
+            "database_name du registre doit coïncider avec le nom dérivé au runtime (cohérence RLF01)");
+    }
+
+    [Theory]
+    [InlineData("stratum_tenant2", true)]
+    [InlineData("liakont", true)]
+    [InlineData("stratum_a_b_2", true)]
+    [InlineData("stratum_tenant-2", false)] // tiret interdit (l'id dérivé remplace déjà '-' par '_')
+    [InlineData("Stratum_Tenant2", false)] // majuscules
+    [InlineData("2tenant", false)] // ne commence pas par une lettre
+    [InlineData("\"; DROP DATABASE liakont; --", false)] // tentative d'injection
+    [InlineData("stratum_tenant2\n", false)] // saut de ligne final (ancre \z, pas $)
+    [InlineData("", false)]
+    public void IsSafeDatabaseIdentifier_Accepts_Only_Strictly_Safe_Names(string name, bool expected)
+    {
+        DevTenantSeeder.IsSafeDatabaseIdentifier(name).Should().Be(expected);
+    }
+
     private static DevTenantSeedOptions BindDevTenantSeed()
     {
         var path = Path.Combine(FindHostProjectDir(), "appsettings.Development.json");
@@ -47,6 +83,14 @@ public sealed class DevAdditionalTenantsConfigTests
         var options = config.GetSection("DevTenantSeed").Get<DevTenantSeedOptions>();
         options.Should().NotBeNull();
         return options!;
+    }
+
+    private static TenantConnectionOptions BindTenantConnectionOptions()
+    {
+        var path = Path.Combine(FindHostProjectDir(), "appsettings.Development.json");
+        var config = new ConfigurationBuilder().AddJsonFile(path, optional: true).Build();
+        return config.GetSection(TenantConnectionOptions.SectionName).Get<TenantConnectionOptions>()
+            ?? new TenantConnectionOptions();
     }
 
     private static string FindHostProjectDir()
