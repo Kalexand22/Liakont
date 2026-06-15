@@ -1,7 +1,9 @@
 # Lot RLF — Realm-unique Follow-ups : findings consignés à la recette de GATE_REALM_UNIQUE (2026-06-15),
 # hors périmètre du correctif de gate (F1/F2/F6 livrés sur feat/tenant-provisioning, PR #46).
 # Source détaillée (symptôme, cause racine, direction de fix) : tasks/recette-gate-realm-unique.md.
-# Backlog « à faire », non rattaché à un segment/gate — à planifier ultérieurement.
+# PLANIFIÉ (manifest v24) : segment `realm-followup` (branche feat/realm-followup) + gate humaine
+# `GATE_REALM_FOLLOWUP`. APRÈS merge de la PR du segment, seeder `pending` RLF01→RLF06 + GATE_REALM_FOLLOWUP
+# dans $ORCH_REPO/state.yaml (gate comprise, sinon « done » par défaut), et basculer GATE_REALM_UNIQUE → done.
 # Règles non négociables inchangées (CLAUDE.md) : montants decimal, aucune règle fiscale inventée,
 # DocumentEvent append-only, scoping tenant, secrets jamais versionnés, socle vendored → provenance.
 
@@ -104,3 +106,20 @@ items:
       - "Provisioning d'utilisateur de tenant fonctionnel en prod (chemin réel testé en recette)"
       - "Aucun secret versionné ni journalisé (n°10/18)"
       - "verify-fast passes"
+
+  GATE_REALM_FOLLOWUP:
+    type: gate
+    executor: human
+    title: "Gate (humaine) : recette des correctifs de suivi realm-unique (lot RLF)"
+    description: |
+      Recette humaine du lot RLF (suites consignées à la recette de GATE_REALM_UNIQUE). Vérifie que les
+      6 correctifs sont livrés ET prouvés en réel :
+        - RLF01 : 2e tenant de dev a une base joignable (login + tableau de bord sans erreur 3D000) ;
+        - RLF02 : une base de tenant injoignable n'est plus comptée « migrée » (faux-vert levé, provenance) ;
+        - RLF03 : nav opérateur gardée par permission — un `lecture` ne voit plus Traitements/Paramétrage ;
+        - RLF04 : décision design super-admin cross-tenant tracée (ADR/note) ;
+        - RLF05 : 2FA realm-level — un user créé hors provisioner enrôle aussi le 2FA (config statique prouvée) ;
+        - RLF06 : provisioning d'utilisateur fonctionnel en prod (appliance), sans secret versionné.
+    acceptance:
+      - "RLF01→RLF06 done et prouvés (tests + recette des points UI/realm/prod concernés)"
+      - "PR ouverte, CI verte (verify + tests), merge humain"

@@ -109,7 +109,13 @@ meta:
   #   6 items RLF01→06 (seed dev tenant2, faux-vert migration socle, gating nav opérateur, super-admin
   #   cross-tenant [design], 2FA realm-level, câblage prod appliance). Backlog « à faire », non rattaché
   #   à un segment/gate (à planifier). Détails : tasks/recette-gate-realm-unique.md + items/RLF.yaml.
-  version: 23
+  # version 24 = PLANIFICATION du lot RLF : nouveau segment `realm-followup` (branche feat/realm-followup
+  #   sur main), gate humaine GATE_REALM_FOLLOWUP (recette des 6 correctifs RLF), depends_on_gate
+  #   GATE_REALM_UNIQUE. ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS merge de cette PR (segment sur main
+  #   d'abord) : RLF01→RLF06 ET GATE_REALM_FOLLOWUP en `pending` (une gate non seedée = traitée « done »
+  #   → recette jamais ouverte), PLUS GATE_REALM_UNIQUE → `done` (orch-reconcile ne le fait pas : titre de
+  #   PR #46 hors contrat). Transaction FIX3-style.
+  version: 24
   host: multi_agent_v1
 
 segments:
@@ -209,6 +215,13 @@ segments:
     lots: [RLM]
     gate: GATE_REALM_UNIQUE
     depends_on_gate: GATE_CONSOLE_WEB
+
+  realm-followup:
+    branch: feat/realm-followup
+    base: main
+    lots: [RLF]
+    gate: GATE_REALM_FOLLOWUP
+    depends_on_gate: GATE_REALM_UNIQUE
 
 items:
   # ── SOL ──
@@ -449,15 +462,14 @@ items:
   - { id: GATE_REALM_UNIQUE, type: gate, executor: human, priority: 9090, depends_on: [RLM04] }
   - { id: RLM05, lot: RLM, priority: 9100, depends_on: [RLM01, RLM03] }
 
-  # ── RLF (Realm-unique Follow-ups) — findings recette GATE_REALM_UNIQUE, backlog à planifier ──
-  # INERTE (non routable) tant que non planifié : non rattaché à un segment/gate ET absent de state.yaml.
-  # ⚠️ À LA PLANIFICATION, dans CET ORDRE : (1) rattacher RLF aux `lots:` d'un segment — existant ou
-  #   neuf, comme FIX3→console-polish — pour lui donner une branche cible ; (2) SEULEMENT ENSUITE seeder
-  #   les items dans $ORCH_REPO/state.yaml. Seeder le state sans segment = runner incapable de résoudre
-  #   la branche (protocol.md Step 3). NE PAS seeder state.yaml tant que RLF n'est pas dans un segment.
+  # ── RLF (Realm-unique Follow-ups) — findings recette GATE_REALM_UNIQUE ──
+  # PLANIFIÉ (v24) : segment `realm-followup` (branche feat/realm-followup) + gate humaine
+  # GATE_REALM_FOLLOWUP. ⚠️ PAS ENCORE seedé : APRÈS merge, seeder `pending` RLF01→RLF06 + GATE_REALM_FOLLOWUP,
+  # et basculer GATE_REALM_UNIQUE → done. Détails : items/RLF.yaml + recette-gate-realm-unique.md.
   - { id: RLF01, lot: RLF, priority: 9200, depends_on: [] }
   - { id: RLF02, lot: RLF, priority: 9210, depends_on: [] }
   - { id: RLF03, lot: RLF, blueprint: blazor-page-item, priority: 9220, depends_on: [] }
   - { id: RLF04, lot: RLF, blueprint: docs-spec-item, priority: 9230, depends_on: [] }
   - { id: RLF05, lot: RLF, priority: 9240, depends_on: [] }
   - { id: RLF06, lot: RLF, blueprint: tooling-item, priority: 9250, depends_on: [] }
+  - { id: GATE_REALM_FOLLOWUP, type: gate, executor: human, priority: 9290, depends_on: [RLF01, RLF02, RLF03, RLF04, RLF05, RLF06] }
