@@ -50,6 +50,9 @@ public sealed class DevAdditionalTenantsConfigTests
         // migration au démarrage lit database_name du registre. Les deux DOIVENT coïncider, sinon la base
         // dérivée n'existe jamais → 3D000 sur toute requête tenant (finding F3/RLF01).
         var tenantConnOptions = BindTenantConnectionOptions();
+        tenantConnOptions.ConnectionStrings.Should().NotContainKey(
+            second.TenantId,
+            "la cohérence dérivée n'a de sens que sans override de chaîne de connexion pour ce tenant");
         var derived = tenantConnOptions.DatabasePrefix + second.TenantId.Replace('-', '_');
         second.DatabaseName.Should().Be(
             derived,
