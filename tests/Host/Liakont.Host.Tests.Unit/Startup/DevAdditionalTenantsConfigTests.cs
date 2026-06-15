@@ -67,6 +67,7 @@ public sealed class DevAdditionalTenantsConfigTests
     [InlineData("Stratum_Tenant2", false)] // majuscules
     [InlineData("2tenant", false)] // ne commence pas par une lettre
     [InlineData("\"; DROP DATABASE liakont; --", false)] // tentative d'injection
+    [InlineData("stratum_tenant2\n", false)] // saut de ligne final (ancre \z, pas $)
     [InlineData("", false)]
     public void IsSafeDatabaseIdentifier_Accepts_Only_Strictly_Safe_Names(string name, bool expected)
     {

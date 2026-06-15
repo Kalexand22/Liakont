@@ -443,7 +443,9 @@ internal static partial class DevTenantSeeder
         }
     }
 
-    [GeneratedRegex("^[a-z][a-z0-9_]*$", RegexOptions.CultureInvariant)]
+    // \z (et non $) : en .NET, $ matche aussi AVANT un saut de ligne final — « stratum_tenant2\n »
+    // passerait la liste blanche. \z ancre la VRAIE fin de chaîne, fermant complètement le filtre.
+    [GeneratedRegex(@"^[a-z][a-z0-9_]*\z", RegexOptions.CultureInvariant)]
     private static partial Regex DatabaseIdentifierRegex();
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Seed du tenant de dev « {TenantId} » ignoré : RealmName et DatabaseName sont requis (section DevTenantSeed).")]
