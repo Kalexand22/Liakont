@@ -83,23 +83,32 @@ RunLog
 
 ## 4. Anti-doublons (règle opérationnelle)
 
+La **clé fonctionnelle** anti-doublon dépend du flux *(amendé le 2026-06-15 par [ADR-0025](../adr/ADR-0025-allocation-bt1-hybride-recle-f06.md) pour intégrer l'autofacturation 389 ; cf. [F15](F15-Autofacturation-Mandat.md) §3.2/§3.3)* :
+
+- **Cas général (non-389)** : clé = **`(supplier_siren, document_number)`** — **inchangée**.
+- **Autofacturation (BT-3 = 389)** : clé = **`(tenant, mandant_id, document_number)`** — en 389 le « supplier »
+  fiscal est le **mandant**, pas l'émetteur matériel. Le champ **`MandatId`** (additif, **nullable** dans
+  `DuplicateCheckRequest` ; `null` ⇒ cas général) sélectionne la clé. La bascule est **atomique côté SQL** (index
+  d'unicité), **jamais** une neutralisation applicative du SIREN (qui ouvrirait une fenêtre de doublon sur un 389
+  en attente ré-extrait). Cette clé est **cohérente** avec le contrôle d'unicité bloquant de la plateforme
+  `(BT-1, BT-2, BT-30 = SIREN du mandant)` (Annexe 7 V1.9, G1.42/G1.45).
+
 ```
 Avant tout envoi d'un document :
-1. Chercher dans Document par (supplier_siren, document_number)
-2. Si trouvé en état Issued → NE PAS renvoyer (doublon). Log.
-3. Si trouvé en état RejectedByPa → renvoi autorisé sous nouveau numéro (cf. F5), ancien passé Superseded
-4. Si payload_hash identique à un Issued → doublon strict, bloqué
-5. Sinon → envoi
+1. Déterminer la clé fonctionnelle : (tenant, mandant_id, document_number) si le document est sous mandat
+   (389, MandatId présent), sinon (supplier_siren, document_number)
+2. Chercher dans Document par cette clé
+3. Si trouvé en état Issued → NE PAS renvoyer (doublon). Log.
+4. Si trouvé en état RejectedByPa → renvoi autorisé sous nouveau numéro (cf. F5), ancien passé Superseded
+5. Si payload_hash identique à un Issued → doublon strict, bloqué
+6. Sinon → envoi
 ```
 
-> Le numéro de document (`document_number`) est la clé fonctionnelle ; le `payload_hash` est le garde-fou contre les ré-extractions involontaires.
->
-> **⚠️ Cas autofacturation (BT-3 = 389) — renvoi documentaire, à amender avant tout code (cf. [F15](F15-Autofacturation-Mandat.md) §3.2 / §3.3 / §6.10) :**
-> en flux 389 le « supplier » fiscal est le **mandant**, pas l'émetteur matériel. La clé fonctionnelle devra alors
-> **basculer atomiquement** vers `(tenant, mandant_id, document_number)` (champ `MandatId` additif dans
-> `DuplicateCheckRequest`) — **jamais** une simple « neutralisation du SIREN », qui ouvrirait une fenêtre de doublon
-> sur un 389 en attente ré-extrait (F15 §3.3). **Cette note ne modifie pas la règle ci-dessus** : la clé
-> `(supplier_siren, document_number)` du §4 **reste figée** tant que ce § n'est pas amendé par un ADR dédié.
+> Le `document_number` (en 389 : **BT-1 fiscal alloué par mandant**, ADR-0025) est la clé fonctionnelle ; le
+> `payload_hash` est le garde-fou contre les ré-extractions involontaires. En 389, l'**idempotence interne** est
+> portée par `SourceReference` (clé source stable), **pas** par le BT-1 fiscal (ADR-0025 §1) ; le `payload_hash`
+> reste **inchangé** (ADR-0007 préservé). La clé `(supplier_siren, document_number)` **reste pleinement valide
+> pour les non-389** (aucune régression).
 
 ## 5. Reprise sur incident
 
