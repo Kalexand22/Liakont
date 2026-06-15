@@ -328,6 +328,11 @@ public sealed class SharedRealmConfigTests
             .Should().BeTrue("le client doit émettre les rôles realm pour TOUT login (brokered inclus) — base de la projection permission, INV-0021-6");
     }
 
+    // Les flows non-brokering ci-dessous (browser, reset credentials, direct grant…) REPRODUISENT les flows
+    // par défaut de Keycloak 26 : fournir authenticationFlows dans un export les remplace entièrement. Toute
+    // modification d'un de ces flows dans un fichier de realm versionné casse un invariant de sécurité ou UX
+    // sans qu'aucun test verify/run-tests ne l'attrape — ces tests sont la seule garde. Ils DOIVENT rester
+    // synchronisés avec les flows par défaut Keycloak 26 si le socle est mis à jour.
     [Theory]
     [MemberData(nameof(BrokeringRealmFiles))]
     public void Browser_Flow_Preserves_Password_And_Conditional_Otp(string realmPath)
@@ -398,6 +403,71 @@ public sealed class SharedRealmConfigTests
             "le flow « Browser - Conditional OTP » doit câbler auth-otp-form");
         Requirement(otpFormExec[0])
             .Should().Be("REQUIRED", "auth-otp-form doit être REQUIRED dans « Browser - Conditional OTP »");
+    }
+
+    [Theory]
+    [MemberData(nameof(BrokeringRealmFiles))]
+    public void Reset_Credentials_Flow_Backbone_Is_Intact(string realmPath)
+    {
+        using var realm = LoadRealm(realmPath);
+        var root = realm.RootElement;
+
+        // Colonne vertébrale du flow « reset credentials » (défaut Keycloak 26 reproduit) :
+        // choose-user → email de réinitialisation → nouveau mot de passe, tous REQUIRED.
+        var chooseUser = ExecutionsByAuthenticator(root, "reset-credentials-choose-user");
+        chooseUser.Should().ContainSingle("reset-credentials-choose-user doit être câblé dans « reset credentials »");
+        Requirement(chooseUser[0]).Should().Be("REQUIRED", "reset-credentials-choose-user doit être REQUIRED");
+
+        var credEmail = ExecutionsByAuthenticator(root, "reset-credential-email");
+        credEmail.Should().ContainSingle("reset-credential-email doit être câblé dans « reset credentials »");
+        Requirement(credEmail[0]).Should().Be("REQUIRED", "reset-credential-email doit être REQUIRED");
+
+        var resetPassword = ExecutionsByAuthenticator(root, "reset-password");
+        resetPassword.Should().ContainSingle("reset-password doit être câblé dans « reset credentials »");
+        Requirement(resetPassword[0]).Should().Be("REQUIRED", "reset-password doit être REQUIRED");
+
+        // reset-otp existe dans le sous-flow conditionnel « Reset - Conditional OTP ».
+        ExecutionsByAuthenticator(root, "reset-otp")
+            .Should().ContainSingle("reset-otp doit être câblé dans le sous-flow conditionnel (Reset - Conditional OTP)");
+    }
+
+    [Theory]
+    [MemberData(nameof(BrokeringRealmFiles))]
+    public void Direct_Grant_Flow_Backbone_Is_Intact(string realmPath)
+    {
+        using var realm = LoadRealm(realmPath);
+        var root = realm.RootElement;
+
+        // Colonne vertébrale du flow « direct grant » (défaut Keycloak 26 reproduit) :
+        // validate-username → validate-password, tous REQUIRED ; OTP conditionnel présent.
+        var validateUsername = ExecutionsByAuthenticator(root, "direct-grant-validate-username");
+        validateUsername.Should().ContainSingle("direct-grant-validate-username doit être câblé dans « direct grant »");
+        Requirement(validateUsername[0]).Should().Be("REQUIRED", "direct-grant-validate-username doit être REQUIRED");
+
+        var validatePassword = ExecutionsByAuthenticator(root, "direct-grant-validate-password");
+        validatePassword.Should().ContainSingle("direct-grant-validate-password doit être câblé dans « direct grant »");
+        Requirement(validatePassword[0]).Should().Be("REQUIRED", "direct-grant-validate-password doit être REQUIRED");
+
+        // direct-grant-validate-otp existe dans le sous-flow conditionnel « Direct Grant - Conditional OTP ».
+        ExecutionsByAuthenticator(root, "direct-grant-validate-otp")
+            .Should().ContainSingle("direct-grant-validate-otp doit être câblé dans le sous-flow conditionnel");
+    }
+
+    [Theory]
+    [MemberData(nameof(BrokeringRealmFiles))]
+    public void Identity_Providers_Are_Dormant_By_Default(string realmPath)
+    {
+        using var realm = LoadRealm(realmPath);
+
+        // L'activation SSO est portée par la recette opérateur HORS dépôt (credentials réels substitués
+        // via les placeholders ${...}). Un provider activé dans un realm versionné avec un secret placeholder
+        // serait un faux-vert : il enverrait des redirections OAuth vers un IdP sans client_secret valide.
+        foreach (var provider in IdentityProviders(realm.RootElement))
+        {
+            var alias = provider.GetProperty("alias").GetString();
+            provider.GetProperty("enabled").GetBoolean()
+                .Should().BeFalse($"le provider « {alias} » doit être désactivé dans le realm versionné (activation portée par la recette opérateur)");
+        }
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
