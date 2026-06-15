@@ -14,6 +14,13 @@
 > `specifications-externes-v3.2.zip`, impots.gouv.fr, extraite et lue localement). **Source terrain** : base
 > SQL `Kerport_Fact` (criée de Keroman, moteur LOGIC/Bucodi), lue en **SELECT / READ UNCOMMITTED uniquement**
 > (règle n°5 — lecture seule stricte de la base source).
+>
+> **Re-sourçage du 2026-06-15** (bloc « prêt-à-coder ») : lecture intégrale de l'**Annexe 7 « Règles de gestion » V1.9
+> (20260430)** de l'archive DGFiP (138 règles de gestion + codelists EN16931, lues localement via openpyxl), et
+> re-confirmation des versions BOFiP sur bofip.impots.gouv.fr. Conséquences gravées ci-dessous : §1.3/§6.1 (aucun
+> contrôle bloquant propre au 389 hors numérotation), §1.4/§6.9 (version 18/10/2013 confirmée), §1.5/§6.9
+> (13/08/2021 confirmée), §1.8 (règles G1.01/G1.42/G1.45/G6.21), §6.5 (avoir = 261), §6.6 (`VATEX-FR-CGI261-2`),
+> §6.7 (allocation BT-1 débloquée).
 
 ---
 
@@ -80,13 +87,14 @@ profils XSD (Base et Full)** — le code 389 n'est donc **pas réservé au profi
 re-vérifiable : archive `specifications-externes-v3.2.zip` → `Annexe 1 — Format sémantique FE e-invoicing —
 Flux 1 - v1.2.xlsx`, onglet « FE - Flux 1 - UBL », ligne BT-3.)*
 
-**→ Conséquence opérationnelle (🔶, à confirmer) :** déposer une auto-facture 389 serait alors un cas pleinement
-supporté du socle dès le 1ᵉʳ septembre 2026 (et `SupportsSelfBilling` d'une PA agréée tendrait vers `true`),
-**sous réserve de la lecture de l'Annexe 7 (BR-FR-CTC)** qui pourrait ajouter des contrôles Schematron / mentions
-exigées propres au 389 (cf. §6.1). La zone grise résiduelle de l'autofacturation est de toute façon ailleurs
-(statuts inversés vers un mandant sans PA, décomptes complexes), pas dans le code 389 lui-même.
+**→ Conséquence opérationnelle (✅, confirmée par l'Annexe 7 le 2026-06-15) :** déposer une auto-facture 389 est un
+cas pleinement supporté du socle dès le 1ᵉʳ septembre 2026 (et `SupportsSelfBilling` d'une PA agréée tend vers `true`).
+La lecture intégrale de l'**Annexe 7 (règles de gestion BR-FR-CTC)** a été faite (§1.8) : **aucun contrôle CTC
+bloquant n'est propre au type 389** au-delà (a) de son admission comme type autorisé (G1.01) et (b) de la
+numérotation sous mandat (G1.42/G1.45, cf. §1.4). La zone grise résiduelle de l'autofacturation est de toute façon
+ailleurs (statuts inversés vers un mandant sans PA, décomptes complexes), pas dans le code 389 lui-même.
 
-### 1.4 🔶 Numérotation sous mandat — séquence distincte par mandant (BOI-TVA-DECLA-30-20-20-10)
+### 1.4 ✅ Numérotation sous mandat — séquence distincte par mandant (BOI-TVA-DECLA-30-20-20-10)
 
 > §120 : « Lorsque les factures afférentes aux opérations réalisées par un assujetti sont matériellement établies
 > par un mandataire (client ou tiers), **la séquence de numérotation utilisée par ce mandataire, qui doit être
@@ -94,7 +102,10 @@ exigées propres au 389 (cf. §6.1). La zone grise résiduelle de l'autofacturat
 > §130 : « […] **le mandataire utilise une séquence de facturation chronologique et continue distincte pour chacun de
 > ses mandants.** Il peut, à cet effet, **faire précéder chaque numéro de facture d'un préfixe propre** à chacun
 > des assujettis qui lui a donné mandat pour établir ses factures. »
-> — BOFiP BOI-TVA-DECLA-30-20-20-10 (version 18/10/2013, à reconfirmer en version courante).
+> — BOFiP BOI-TVA-DECLA-30-20-20-10, section A « La numérotation des factures », §120/§130.
+> **Version courante confirmée le 2026-06-15 : 18/10/2013** (bofip.impots.gouv.fr affiche 12/09/2012 → 31/12/2012 →
+> 18/10/2013 ; pas de version postérieure). *N.B. : l'Annexe 7 DGFiP (G1.42/G1.45) cite ce BOFiP « du 18/10/2023 »
+> — coquille pour 2013, le texte §130 étant identique.*
 
 ### 1.5 🔶 Acceptation / contestation — mandat tacite vs écrit (BOI-TVA-DECLA-30-20-10)
 
@@ -104,9 +115,13 @@ exigées propres au 389 (cf. §6.1). La zone grise résiduelle de l'autofacturat
 > et préalable** n'ont pas à être formellement authentifiées par celui-ci. »
 > §390 : « Le contrat de mandat doit, en outre, expressément **stipuler le délai accordé au mandant pour contester**
 > le contenu des factures émises en son nom et pour son compte. »
-> — BOFiP BOI-TVA-DECLA-30-20-10 (version citée 12/09/2012 ; le re-fetch 2026-06-13 rend la version courante
-> 13/08/2021 — à reconfirmer). Le délai de contestation est, selon les modalités d'acceptation du BOFiP,
-> librement déterminé par les parties (donnée du contrat de mandat, jamais un défaut produit — cf. §6.4).
+> — BOFiP BOI-TVA-DECLA-30-20-10. **Version courante confirmée le 2026-06-15 : 13/08/2021** (document racine) ; la
+> sous-section `-30` (« personnes tenues de délivrer des factures ») porte une actualisation du 29/06/2022. La
+> doctrine citée (acceptation expresse sous mandat tacite / dispense sous mandat écrit préalable / délai de
+> contestation stipulé au contrat) est **inchangée et confirmée** ; *l'ancrage exact des §290/§300/§390 reste à
+> revérifier visuellement (les fetchs automatiques n'ont pas pu localiser les ancres dans l'accordéon BOFiP), sans
+> incidence sur la règle.* Le délai de contestation est librement déterminé par les parties (donnée du contrat de
+> mandat, jamais un défaut produit — cf. §6.4).
 
 **→ Règle structurante :** la logique « acceptation tacite par non-contestation au-delà d'un délai » n'existe
 **que sous mandat écrit et préalable**. Sous mandat tacite, **chaque** facture exige une acceptation expresse.
@@ -126,6 +141,13 @@ exigées propres au 389 (cf. §6.1). La zone grise résiduelle de l'autofacturat
 > coquillages frais ou conservés à l'état frais par un procédé frigorifique). » → **opération EXONÉRÉE** (pas un
 > taux). *🔶 Énumération limitative → routage exonéré/taxé potentiellement lot par lot selon l'état du produit.*
 
+**→ Code VATEX (✅, re-sourcé Annexe 7 le 2026-06-15) :** la codelist EN16931 de l'Annexe 7 porte
+**`VATEX-FR-CGI261-2`** (« Exempt based on Article 261-2 of the CGI »), de granularité 261-2 — il couvre donc
+l'exonération pêche du 4°. ⚠️ Le code est marqué d'un **astérisque** (« contexte d'exonération à définir une fois
+le code validé et publié ») : il existe mais reste **provisoire** côté DGFiP. Le **routage exonéré/taxé lot par lot**
+(quel état de produit est exonéré vs taxé) demeure une **décision de l'expert-comptable** via la table F03 validée
+(`defaultBehavior = block`) — cf. §6.6.
+
 ### 1.7 ⚠️ RFA — art. 298 quater (taux 5,59 % / 4,43 %), abrogation au 1ᵉʳ septembre 2026
 
 ✅ L'art. 298 quater (remboursement forfaitaire agricole, taux 5,59 % / 4,43 %) est **abrogé par l'Ordonnance
@@ -135,6 +157,27 @@ titre transitoire** jusqu'à leur reprise par le futur code des impositions sur 
 touchant le RFA doit intégrer ce changement de régime.
 ❓ Le « bulletin d'achat » **ne figure pas** dans 298 quater (il relèverait d'un autre texte — art. 267 quater
 annexe II au CGI / doctrine — à sourcer ; cf. §6.8).
+
+### 1.8 ✅ Annexe 7 (règles de gestion BR-FR-CTC) — ce qui s'applique au 389 (re-sourcé le 2026-06-15)
+
+Lecture intégrale de l'**Annexe 7 « Règles de gestion » V1.9 (20260430)** (138 règles + codelists EN16931). Les
+seules règles CTC qui touchent l'autofacturation :
+
+- **G1.01 « Types de facture autorisés » :** la liste exhaustive admet **`389` (facture auto-facturée)** et son
+  avoir **`261` (avoir auto-facturé)**, aux côtés de `380`/`381`, `393`/`396` (affacturage), `500`/`501`/`502`,
+  `471`/`472`/`473`, etc. « Les autres types (UNTDID 1001) ne doivent pas être utilisés. » → le 389 et le 261 sont
+  des **types du socle**, pas une extension.
+- **G1.42 / G1.45 « Unicité de la facture » :** l'identifiant de facture = **(BT-1 n° facture, BT-2 année,
+  BT-30 SIREN du *fournisseur*)** doit être unique ; **contrôle systématiquement bloquant** (rejet plateforme). En
+  flux 389, le « fournisseur » BT-30 est le **mandant** (le vendeur), pas le mandataire. Et : « **En cas de mandat
+  de facturation, le numéro de facture doit comporter une racine propre au mandataire** pour éviter les doublons
+  de facture avec celles de son mandant. » (renvoi BOI-TVA-DECLA-30-20-20-10, section A). → conforte §1.4 et §3.
+- **G6.21 « Avoir net de taxe » :** confirme que `261` est bien l'**avoir auto-facturé** (un BT-121 =
+  `VATEX-FR-CNWVAT` impose un type avoir `261`/`381`/`396`).
+- **Constat négatif (important) :** le scan des 138 règles ne révèle **aucun contrôle bloquant conditionné sur
+  `BT-3 = 389`** au-delà de G1.01 (type admis) et G1.42/G1.45 (numérotation/unicité). Pas de mention obligatoire
+  supplémentaire propre au 389 (l'identification de l'émetteur matériel relève des règles de rôle générales, pas
+  d'un gate 389). → §6.1 fermé.
 
 ---
 
@@ -210,9 +253,13 @@ On **dédouble** ce que `Number` confond :
 **L'idempotence remplace l'atomicité.** Le P1 connu (allocation schéma `mandats` vs écriture schéma `documents` =
 deux transactions, non atomisables à travers la frontière de module) est résolu non en cherchant l'atomicité, mais
 en rendant chaque étape **idempotente et rejouable** sur une clé source stable — exactement comme l'écriture du
-document l'est déjà (`DocumentId` + `ON CONFLICT (id) DO NOTHING`). 🔶 Le **moment d'allocation** (piste : au plus
-tard, juste avant l'envoi après Validation, pour minimiser les trous) reste **conditionné à la tolérance des trous
-de séquence (§6.7), non sourcée** — la chronologie « continue » exigée au §1.4 pourrait l'interdire et changer la stratégie.
+document l'est déjà (`DocumentId` + `ON CONFLICT (id) DO NOTHING`). ✅ **Moment d'allocation — débloqué (re-sourcé
+2026-06-15) :** l'allocation **au plus tard, juste avant l'envoi après Validation/acceptation**, est retenue. Le
+contrôle CTC d'unicité (Annexe 7 G1.42/G1.45) **ne bloque que les doublons, jamais les trous** ; l'exigence
+« continue » du §1.4 est une **règle doctrinale BOFiP** (relève de l'interprétation EC), **pas un gate CTC** — elle
+n'interdit donc pas la stratégie « allouer au plus tard », qui au contraire **minimise les trous** (seuls les
+documents réellement émis consomment un numéro). L'acceptabilité de trous résiduels reste un point EC (§6.7), sans
+incidence sur ce choix d'allocation.
 
 **Re-clé anti-doublon F06 (🔶 piste, à acter)** : `(supplier_siren, document_number)` → `(tenant, mandant_id,
 document_number)` quand le document est sous mandat (le « supplier » fiscal est le mandant). Piste : champ `MandatId`
@@ -283,15 +330,15 @@ console/export), **jamais** une écriture ni un ordre de virement (règle n°5).
 
 ## 6. ❓ Points NON TRANCHÉS (décision expert-comptable / re-sourçage / terrain — ne rien coder avant)
 
-1. **Annexe 7 (BR-FR-CTC)** non lue : contrôles Schematron éventuellement spécifiques au type 389 (mentions exigées).
+1. ✅ **FERMÉ (2026-06-15)** — **Annexe 7 (BR-FR-CTC)** lue intégralement (§1.8) : **aucun contrôle CTC bloquant propre au 389** hors G1.01 (type admis) et G1.42/G1.45 (numérotation/unicité). Pas de mention obligatoire spécifique au 389.
 2. **Statut fiscal d'un bordereau acheteur multi-vendeurs** dans la réforme (réception → N factures ? pièce halle→mareyeur ?) — capacité B.
 3. **Circuit d'enrôlement / impersonation PA** pour N vendeurs (la session PA = le vendeur, cf. sandbox SuperPDP) : qui enrôle N pêcheurs, comment la halle impersonne.
 4. **Délai de contestation** (valeur) : relève du contrat de mandat (« librement déterminé par les parties », §1.5), jamais un défaut produit.
-5. **Code de l'avoir auto-facturé** (261 vs 381 + indicateur) et **complément de prix a posteriori** (« pas de code BT-3 dédié ») — non tranchés ; bloquer plutôt qu'inventer. Articulation à clarifier : un avoir auto-facturé passe-t-il le `ISelfBilledGate` / le workflow d'acceptation (§2.3), et comment se classe-t-il vs F07-F08 ?
-6. **Routage 261-2-4° lot par lot** (frais/transformé vs conservé frais) et **code/motif d'exonération** porté au pivot — décision EC.
-7. **Tolérance des trous de séquence** sous mandat (numéro alloué puis abandonné) — non sourcée ; conditionne le moment d'allocation.
+5. **Code de l'avoir auto-facturé** — ✅ **TRANCHÉ (2026-06-15)** : c'est **`261` (avoir auto-facturé)**, type du socle (Annexe 7 G1.01 + G6.21, UNTDID 1001 « Self billed credit note »). `381` est l'avoir **non** self-billed → pas d'« indicateur » séparé, le code de type porte la sémantique. ❓ **Reste ouvert** : le **complément de prix a posteriori** (« pas de code BT-3 dédié ») — bloquer plutôt qu'inventer ; et l'articulation : un avoir 261 passe-t-il le `ISelfBilledGate` / le workflow d'acceptation (§2.3), classement vs F07-F08 ?
+6. **Routage 261-2-4° lot par lot** (frais/transformé vs conservé frais) — décision EC (table F03 validée, `defaultBehavior = block`). Le **code/motif d'exonération** est ✅ **sourcé (2026-06-15)** : **`VATEX-FR-CGI261-2`** (Annexe 7, granularité 261-2, ⚠️ astérisque = code provisoire DGFiP « contexte à publier »). Reste EC : **quels lots** sont exonérés vs taxés.
+7. **Tolérance des trous de séquence** sous mandat (numéro alloué puis abandonné) — ✅ **DÉBLOQUÉ pour le design (2026-06-15)** : le contrôle CTC d'unicité (G1.42/G1.45) ne bloque que les doublons, pas les trous → allocation « au plus tard avant envoi » retenue (§3.2), ce qui minimise les trous. ❓ **Reste ouvert (EC/juridique, non bloquant)** : l'acceptabilité doctrinale de trous résiduels au regard du « continue » BOFiP §1.4.
 8. **Verticales non encore sourcées** présentes uniquement dans GoToMarket : **droits d'auteur (retenue 285 bis + dispense de facture)**, **TFOP (objets précieux)**, **débours (267 II-2°)**, **RFA post-298 quater** (régime au 09/2026) — à ancrer dans une F-spec avant tout code (CLAUDE.md n°2).
-9. **Versions BOFiP** des §1.4/§1.5 (2012/2013 ; re-fetch 2026-06-13 → 13/08/2021 pour BOI-30-20-10) à reconfirmer en version courante avant figeage.
+9. ✅ **CONFIRMÉ (2026-06-15)** — **Versions BOFiP** : §1.4 numérotation BOI-TVA-DECLA-30-20-20-10 = **18/10/2013** (version courante, pas de postérieure ; la « 18/10/2023 » de l'Annexe 7 est une coquille pour 2013) ; §1.5 acceptation BOI-TVA-DECLA-30-20-10 = **13/08/2021** (racine ; sous-section `-30` actualisée 29/06/2022). Résidu mineur : revérifier visuellement l'ancrage des §290/§300/§390 (doctrine inchangée).
 10. **Re-clé anti-doublon F06** `(tenant, mandant_id, document_number)` (§3.2) — **conditionnée à un amendement de F06 §4** + ADR ; non figé tant que F06 §4 n'est pas amendé.
 11. **« Taxe de criée »** (§4.2) : modélisation d'un relevé portant **une ligne exonérée 261-2-4° ET une ligne de service taxée 20 %** précomptée (flux de sens opposé sur le même document) — non tranché.
 
@@ -303,7 +350,10 @@ console/export), **jamais** une écriture ni un ordre de virement (règle n°5).
 - Specs liées : `F01-F02` (pivot, `Invoicer`/`IsSelfBilled`, Number BT-1, idempotence R2), `F03` (mapping TVA,
   catégories/VATEX), `F04` (validation), `F06` (anti-doublon §4 — **à amender pour le cas 389**, piste d'audit
   append-only), `F07-F08` (avoirs, classification facture/avoir, frontière B2B/B2C).
-- ADR à créer (frontières/décisions de F15) : module `Mandats` 1ʳᵉ classe ; agrégat d'acceptation distinct +
-  `ISelfBilledGate` ; allocation BT-1 hybride + re-clé F06 ; `IPaInboundClient` séparé (capacité B).
+- ADR : **ADR-0022** (module `Mandats` 1ʳᵉ classe) ✅ créé/mergé. **ADR-filles à créer — numérotation gravée
+  (2026-06-15)** : **ADR-0024** (agrégat d'acceptation distinct + `ISelfBilledGate`), **ADR-0025** (allocation BT-1
+  hybride + re-clé F06 §4), **ADR-0026** (`IPaInboundClient` séparé, capacité B). ⚠️ **`ADR-0023` est réservé à la
+  lib PDF/A-3 du lot Factur-X (F16)** — ne pas l'utiliser pour une ADR-fille `Mandats` (les ADR-filles partent
+  donc de 0024).
 - GoToMarket : `Metiers/Encheres/Roadmap-Gestion-BV-Liakont.md`, `PA/Validation-Autofacturation-389-PA.md`
   (grille Q1-Q15), `Metiers/Validation-Verticales/DR-Autofacturation-Agro.md`, `Metiers/Validation-Verticales/DR-Validation-Criees.md`.
