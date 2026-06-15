@@ -124,8 +124,8 @@ services:
       # `liakont-provisioner`, grant client_credentials, rôle realm-management:manage-users sur le SEUL
       # realm `liakont`). Compromis assumé tant que KeycloakAdminTokenService (ROPC master, socle partagé
       # avec le provisioning de realm) reste le mécanisme commun — le changer est un item à part entière.
-      Keycloak__AdminUsername: ${KC_BOOTSTRAP_ADMIN_USERNAME}
-      Keycloak__AdminPassword: ${KC_BOOTSTRAP_ADMIN_PASSWORD}
+      Keycloak__AdminUsername: ${KC_BOOTSTRAP_ADMIN_USERNAME:?renseignez KC_BOOTSTRAP_ADMIN_USERNAME dans .env}
+      Keycloak__AdminPassword: ${KC_BOOTSTRAP_ADMIN_PASSWORD:?renseignez KC_BOOTSTRAP_ADMIN_PASSWORD dans .env}
       # Reverse proxy : honorer X-Forwarded-* émis par Caddy, confiance bornée au réseau interne.
       ForwardedHeaders__Enabled: "true"
       ForwardedHeaders__KnownNetworks__0: "172.28.0.0/16"

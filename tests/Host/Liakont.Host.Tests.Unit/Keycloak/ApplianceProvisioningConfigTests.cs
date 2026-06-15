@@ -37,32 +37,44 @@ public sealed class ApplianceProvisioningConfigTests
             "le provisioning en profil partagé cible Keycloak:PrimaryRealmName (KeycloakTenantUserProvisioner)");
 
         // Les trois clés de KeycloakAdminOptions.IsConfigured.
-        block.Should().MatchRegex(
-            @"Keycloak__AdminBaseUrl:\s*\S+",
-            "le Host doit connaître le serveur Keycloak pour l'API Admin (IsConfigured)");
-        block.Should().Contain(
-            "Keycloak__AdminUsername: ${KC_BOOTSTRAP_ADMIN_USERNAME}",
-            "le Host réutilise le compte d'amorçage admin du realm master (déjà requis par le service keycloak)");
-        block.Should().Contain(
-            "Keycloak__AdminPassword: ${KC_BOOTSTRAP_ADMIN_PASSWORD}",
-            "le Host réutilise le mot de passe d'amorçage admin du realm master");
+        // AdminBaseUrl = RACINE serveur, JAMAIS une URL de realm : le service y ajoute /realms/master/...
+        // (KeycloakAdminTokenService) — un suffixe /realms/... donnerait .../realms/<x>/realms/master/...
+        // → 404, provisioning mort. Une régression vers une URL de realm DOIT virer au rouge (invariant
+        // central que le commentaire du compose martèle).
+        var adminBaseUrlLine = ServiceLine(block, "Keycloak__AdminBaseUrl:");
+        adminBaseUrlLine.Should().NotContain(
+            "/realms",
+            "AdminBaseUrl doit être la racine du serveur Keycloak, pas une URL de realm");
+        adminBaseUrlLine.Should().MatchRegex(
+            @"Keycloak__AdminBaseUrl:\s*""?https?://[^/""\s]+(:\d+)?/?""?\s*$",
+            "AdminBaseUrl doit être une racine http(s)://hôte[:port] sans segment de chemin");
+
+        // Username + password : références d'environnement (forme obligatoire ${VAR:?…} OU simple ${VAR}),
+        // jamais un littéral. Réutilisent le compte d'amorçage admin déjà requis par le service keycloak.
+        ServiceLine(block, "Keycloak__AdminUsername:").Should().MatchRegex(
+            @"Keycloak__AdminUsername:\s*\$\{KC_BOOTSTRAP_ADMIN_USERNAME(:\?[^}]*)?\}",
+            "le Host réutilise le compte d'amorçage admin (variable d'env KC_BOOTSTRAP_ADMIN_USERNAME, jamais un littéral)");
+        ServiceLine(block, "Keycloak__AdminPassword:").Should().MatchRegex(
+            @"Keycloak__AdminPassword:\s*\$\{KC_BOOTSTRAP_ADMIN_PASSWORD(:\?[^}]*)?\}",
+            "le Host réutilise le mot de passe d'amorçage admin (variable d'env KC_BOOTSTRAP_ADMIN_PASSWORD, jamais un littéral)");
     }
 
     [Fact]
     public void Appliance_Admin_Password_Is_An_Env_Reference_Never_A_Literal()
     {
-        var block = LiakontServiceBlock();
-
-        var passwordLine = block.Split('\n')
-            .FirstOrDefault(l => l.Contains("Keycloak__AdminPassword:", StringComparison.Ordinal));
-
-        passwordLine.Should().NotBeNull("le service liakont doit câbler le mot de passe admin Keycloak");
-
         // CLAUDE.md n°10/18 : le secret vient d'une variable d'environnement (.env, non versionné),
         // jamais d'une valeur en clair committée dans le compose.
-        passwordLine!.Should().MatchRegex(
+        ServiceLine(LiakontServiceBlock(), "Keycloak__AdminPassword:").Should().MatchRegex(
             @"Keycloak__AdminPassword:\s*\$\{[^}]+\}",
             "le mot de passe admin doit être une référence d'environnement (syntaxe dollar-accolade), jamais un littéral en clair");
+    }
+
+    /// <summary>Ligne (unique) du bloc de service portant la clé donnée ; échoue si la clé n'est pas câblée.</summary>
+    private static string ServiceLine(string block, string key)
+    {
+        var line = block.Split('\n').FirstOrDefault(l => l.Contains(key, StringComparison.Ordinal));
+        line.Should().NotBeNull($"le service liakont doit câbler {key}");
+        return line!;
     }
 
     /// <summary>
