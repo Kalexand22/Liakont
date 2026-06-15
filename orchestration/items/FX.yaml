@@ -1,0 +1,115 @@
+# Lot FX — Génération Factur-X (PDF/A-3 + CII) côté plateforme + PA générique (niveau « Essentiel »).
+# Décision produit interactive (Karl, 2026-06-15). Spec : docs/conception/F16-FacturX-Generation.md (FX01, DONE).
+# Décision d'archi : docs/adr/ADR-0023-generation-facturx-pdfa3-cii.md (FX00 = spike + ADR, DONE).
+# PLANIFIÉ (manifest v25) : segment `facturx` (branche feat/facturx) + gate humaine GATE_FACTURX.
+# APRÈS merge de la PR du segment, seeder `pending` FX02→FX07 + FXG + GATE_FACTURX dans
+# $ORCH_REPO/state.yaml (gate comprise, sinon « done » par défaut → recette jamais ouverte).
+# Aucune session active requise (slots null) — transaction RLF-style.
+# Règles non négociables (CLAUDE.md) : montants decimal ; AUCUNE règle fiscale inventée (frontière
+# recopie/dérivation BG-23 + BR-CO-17, F16 §3 / ADR INV-FX-2/7) ; DocumentEvent append-only (la trace de
+# support est un store SÉPARÉ purgeable) ; secrets PA chiffrés par tenant ; indépendance PA (génération
+# sans plug-in concret) ; le plug-in ne référence que Transmission.Contracts.
+
+items:
+  FX02:
+    title: "Module plateforme FacturX + port IFacturXBuilder"
+    description: |
+      Créer le module `Liakont.Modules.FacturX` (Contracts/Domain/Application/Infrastructure) + le port
+      `IFacturXBuilder` (couche Application). Aucune référence à un plug-in PA. La lib PDF (QuestPDF, déjà
+      au repo, ADR-0023 §1) est confinée à `FacturX.Infrastructure`. Bump QuestPDF 2024.12.3 → ≥ 2025.7.4
+      (Directory.Packages.props centralisé) — correctif Mustang (ADR-0023 §1). Tests de frontière livrés
+      par le module (modèle TransmissionBoundaryTests) : FacturX ne dépend pas de Transmission.Contracts ni
+      d'un module métier et ne consulte aucune PaCapabilities (ADR-0023 INV-FX-1/4/7).
+    acceptance:
+      - "Module FacturX créé (4 couches) + port IFacturXBuilder ; QuestPDF confinée à Infrastructure"
+      - "QuestPDF bumpée ≥ 2025.7.4 (Directory.Packages.props)"
+      - "BoundaryTests : FacturX ne référence aucun plug-in PA ni Transmission.Contracts, ne lit aucune PaCapabilities"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+  FX03:
+    title: "Sérialiseur EN 16931 → CII XML (maison) : recopie qualitative + dérivation BG-23/BR-CO-17"
+    description: |
+      Sérialiseur PUR (FacturX.Domain/Application) pivot → CrossIndustryInvoice (profil EN 16931 COMFORT),
+      jamais via le convert d'une PA (blueprint §6). RECOPIE stricte des valeurs qualitatives portées par le
+      pivot au niveau ligne (catégorie BT-151, taux BT-152, VATEX) + BT-5 devise (défaut EUR F01-F02) ;
+      BT-24 = constante de profil. DÉRIVATION arithmétique déterministe des agrégats non portés : BT-106
+      (Σ BT-131), BG-23 BT-116 (Σ nets/groupe par catégorie,taux,VATEX), BT-117 = arrondi(BT-116×BT-119/100)
+      (BR-CO-17), BT-115 = BT-112 − BT-113 (BR-CO-16). RÉCONCILIATION avec les totaux portés (BR-CO-14 :
+      Σ BT-117 = BT-110 ; BR-CO-15 : BT-109+BT-110 = BT-112) ; tout écart non réconciliable → BLOCAGE (jamais
+      un CII non conforme, aucun rattrapage). Montants decimal, arrondi PivotRounding half-up. F16 §3 ; ADR §2 + INV-FX-2/7.
+    acceptance:
+      - "pivot → CII EN 16931 COMFORT, code maison, jamais le convert d'une PA"
+      - "Agrégats BG-23/BT-106/BT-115 dérivés par arithmétique normative (decimal) ; aucune valeur fiscale qualitative inventée"
+      - "BR-CO-17 produit + réconciliation BR-CO-14/15 ; écart non réconciliable → blocage tracé"
+      - "Golden files XML + validation XSD CII + Schematron CEN/TC 434 (BR-CO-15 fatale)"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+  FX04:
+    title: "Scellement PDF/A-3 (QuestPDF) + couche visuelle + validation veraPDF/Mustang"
+    description: |
+      Rendu visuel PDF depuis le pivot (réutiliser ArchiveReadableDocument, F16 §5) puis scellement PDF/A-3
+      via QuestPDF (PDFA_3B + AddAttachment relation `Alternative` + ExtendMetadata XMP `fx:`, URI
+      urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0#, fx:ConformanceLevel=EN 16931 ; fx:Version = version
+      majeure Factur-X figée au moment de coder, ADR-0023 §3). Embarque le factur-x.xml (FX03). Validation :
+      assertions structurelles en CI rapide + veraPDF + Mustangproject (conteneur Docker) au tier intégration,
+      BLOQUANT (ADR-0023 §4, INV-FX-5). Test de cohérence visuel↔XML.
+    acceptance:
+      - "Factur-X PDF/A-3 généré : factur-x.xml embarqué (AFRelationship=Alternative) + XMP fx: correct"
+      - "Validation veraPDF + Mustangproject en conteneur (tier intégration) — bloquante, pas de faux vert"
+      - "Test de cohérence visuel↔XML (mêmes montants) ; lib confinée à FacturX.Infrastructure"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+  FXG:
+    title: "Plug-in PA générique : transmet le Factur-X par email / dépôt de fichier (niveau Essentiel)"
+    description: |
+      Plug-in `Liakont.PaClients.Generique` (IPaClient) — ne référence que Transmission.Contracts (+ Common),
+      JAMAIS Notification/FacturX/MailKit ni un autre plug-in. Déclare
+      `PaCapabilities.SupportsFacturXTransmission = true` (Super PDP/B2Brouter = false) ; PAS de récupération
+      de statut ni de cycle de vie (= Essentiel). Canaux via une nouvelle abstraction `IDocumentDeliveryChannel`
+      définie dans Transmission.Contracts, implémentée au Host : email (l'impl. Host délègue au transport SMTP
+      MailKit de l'ADR-0018 ; destinataire = boîte PA du tenant) + dépôt de fichier (V1 = dossier/montage par
+      tenant ; SFTP = fast-follow + ADR). Secrets (SMTP/SFTP) chiffrés par tenant, jamais en clair (n°10/18).
+      Tests de frontière livrés (modèle SuperPdpBoundaryTests). Détail F16 §6.
+    acceptance:
+      - "Plug-in Generique implémente IPaClient ; BoundaryTests : ne référence que Transmission.Contracts (ni MailKit ni Notification ni FacturX)"
+      - "SupportsFacturXTransmission déclarée ; IDocumentDeliveryChannel dans Transmission.Contracts (impl. au Host)"
+      - "Canal email (délègue MailKit ADR-0018) + dépôt fichier ; secrets chiffrés par tenant, jamais versionnés"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+  FX06:
+    title: "Journalisation de l'envoi PA (F06 append-only) + trace de support du Factur-X transmis"
+    description: |
+      Étendre la piste d'audit F06 (document_events, APPEND-ONLY) : compte/plug-in PA (colonne explicite),
+      horodatages requête/réponse, hash de l'artefact transmis, réponse PA, clé d'idempotence recherchable.
+      AUCUN chemin update/delete (n°4). Trace de SUPPORT (store SÉPARÉ, rétention courte ~90j configurable,
+      purge planifiée AUTORISÉE car NON-audit) : copie du Factur-X transmis, distincte de la piste d'audit WORM
+      et de l'archive probante (Pilotage). Détail F16 §7.
+    acceptance:
+      - "document_events porte compte/plug-in PA + hash artefact + horodatages + réponse ; aucun update/delete"
+      - "Trace de support (store dédié, rétention configurable) séparée du WORM ; la purge ne touche jamais document_events"
+      - "Tests : append-only préservé (purge support n'altère pas l'audit)"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+  FX07:
+    title: "Intégration pipeline : génération Factur-X à l'émission, pilotée par capacité"
+    description: |
+      Câbler la génération dans SendTenantJob.FinalizeIssuedAsync derrière IFacturXBuilder, déclenchée par la
+      capacité `SupportsFacturXTransmission` de la PA active (JAMAIS `if (pa is Generique)`, n°8). Le pipeline
+      construit le Factur-X et passe l'artefact DÉJÀ construit au plug-in (le plug-in ne génère jamais). Les PA
+      existantes (capacité false) suivent leur chemin INCHANGÉ. Détail F16 §6.1/§7.
+    acceptance:
+      - "Génération à l'émission pilotée par SupportsFacturXTransmission ; aucun if (pa is X)"
+      - "Le plug-in reçoit l'artefact déjà construit ; Super PDP/B2Brouter inchangés (chemin Pilotage)"
+      - "Test bout-en-bout : facture B2C → Factur-X généré → transmis (canal générique) → journalisé + trace support"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  GATE_FACTURX:
+    type: gate
+    executor: human
+    title: "Gate (humaine) : recette de la génération Factur-X + PA générique (lot FX)"
+    description: |
+      Recette humaine du lot FX. Vérifie EN RÉEL :
+        - un Factur-X PDF/A-3 conforme est généré (veraPDF + Mustangproject verts) avec factur-x.xml embarqué ;
+        - le sérialiseur CII maison recopie les valeurs qualitatives et dérive BG-23/BR-CO-17 sans rien inventer,
+          et bloque tout document non réconciliable ;
+        - la PA générique transmet le Factur-X par email / dépôt de fichier (secrets chiffrés) ;
+        - l'envoi est journalisé (F06 append-only + trace de support séparée) ;
+        - les PA existantes (Super PDP, B2Brouter) restent inchangées.
+    acceptance:
+      - "FX02→FX07 + FXG done et prouvés (tests + recette du Factur-X réel : veraPDF/Mustang verts)"
+      - "PR ouverte, CI verte (verify + tests), merge humain"

@@ -115,7 +115,12 @@ meta:
   #   d'abord) : RLF01→RLF06 ET GATE_REALM_FOLLOWUP en `pending` (une gate non seedée = traitée « done »
   #   → recette jamais ouverte), PLUS GATE_REALM_UNIQUE → `done` (orch-reconcile ne le fait pas : titre de
   #   PR #46 hors contrat). Transaction FIX3-style.
-  version: 24
+  # version 25 = nouveau segment `facturx` + lot FX (spec F16, ADR-0023) : génération Factur-X (PDF/A-3 +
+  #   CII) côté plateforme + PA générique (email/dépôt fichier) = niveau « Essentiel ». FX02→FX07 + FXG,
+  #   gate humaine GATE_FACTURX, depends_on_gate [GATE_PIPELINE, GATE_CONSOLE_WEB, GATE_PIVOT_DUEDATE].
+  #   ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS merge (FX02..FX07, FXG, GATE_FACTURX en `pending` ;
+  #   FX02 éligible). Transaction RLF-style (slots null).
+  version: 25
   host: multi_agent_v1
 
 segments:
@@ -222,6 +227,13 @@ segments:
     lots: [RLF]
     gate: GATE_REALM_FOLLOWUP
     depends_on_gate: GATE_REALM_UNIQUE
+
+  facturx:
+    branch: feat/facturx
+    base: main
+    lots: [FX]
+    gate: GATE_FACTURX
+    depends_on_gate: [GATE_PIPELINE, GATE_CONSOLE_WEB, GATE_PIVOT_DUEDATE]
 
 items:
   # ── SOL ──
@@ -473,3 +485,12 @@ items:
   - { id: RLF05, lot: RLF, priority: 9240, depends_on: [] }
   - { id: RLF06, lot: RLF, blueprint: tooling-item, priority: 9250, depends_on: [] }
   - { id: GATE_REALM_FOLLOWUP, type: gate, executor: human, priority: 9290, depends_on: [RLF01, RLF02, RLF03, RLF04, RLF05, RLF06] }
+
+  # ── FX (segment facturx — génération Factur-X + PA générique, manifest v25) ──
+  - { id: FX02, lot: FX, priority: 9300, depends_on: [] }
+  - { id: FX03, lot: FX, priority: 9310, depends_on: [FX02] }
+  - { id: FX04, lot: FX, priority: 9320, depends_on: [FX03] }
+  - { id: FXG, lot: FX, priority: 9330, depends_on: [FX04] }
+  - { id: FX06, lot: FX, priority: 9340, depends_on: [FX04] }
+  - { id: FX07, lot: FX, priority: 9350, depends_on: [FXG, FX06] }
+  - { id: GATE_FACTURX, type: gate, executor: human, priority: 9390, depends_on: [FX07] }

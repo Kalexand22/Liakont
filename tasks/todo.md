@@ -1,72 +1,69 @@
-# RLM04 — Sortie du provisioner realm (seam prouvé) + recadrage mapper hardcodé + provenance + nettoyage vestigial
+# Lot FACTURX — Génération Factur-X + PA générique (niveau Essentiel)
 
-Segment realm-unique (feat/tenant-provisioning), ADR-0021 §1/§5. Sous-branche feat/tenant-provisioning-RLM04.
+Demande Karl (2026-06-15, session interactive). Le Factur-X devient le document que Liakont
+**génère** et **transmet** au niveau de service « Essentiel », via une **nouvelle PA générique**.
 
-## Décisions d'architecture (tranchées)
-- **Seam = no-op DI** (ADR §1, option « no-op enregistrée en DI ») : `NoOpKeycloakRealmProvisioner`
-  enregistré par défaut (profil SaaS partagé) ; le vrai `KeycloakRealmProvisioner` n'est résolu que
-  si `Keycloak:DedicatedRealmPerTenant=true` (profil dédié mono-tenant — garde la capacité socle).
-- **Nettoyage vestigial = gate sur `realmCreated`** : dans `ProvisionAsync`, `RegisterRealm` +
-  `AddTenantRedirectUriAsync` ne s'exécutent QUE si un realm a réellement été créé
-  (`!AlreadyProvisioned`). Le no-op renvoie `Idempotent` → `realmCreated=false` → ni registre ni
-  redirect par tenant en partagé. Le redirect statique `default.localhost` (realm-export.json) n'est
-  PAS touché (FIX07a respecté).
-- **Mapper hardcodé** : pas de changement de prod (le vrai provisioner reste correct POUR LE DÉDIÉ) ;
-  on RECADRE le test `Should_Emit_CompanyId_As_Hardcoded_Client_Mapper` au profil dédié (+ commentaire
-  « jamais pour le partagé ») et on met à jour provenance §4.24.
-- **E2E de clôture** : le cross-check RLM03 a rendu le login `lecture` (tenant `default`) LATENT-cassé
-  en E2E (outbox.tenants vide → 403). Le harness E2E seede `default` (-001) ET `tenant2` (-002) dans
-  outbox.tenants ; `tenant2` reçoit sa propre base migrée (db/realm/company_id UNIQUE imposé par V008/
-  V010/V017). Nouveau test : un utilisateur de `tenant2` se connecte de bout en bout dans le realm
-  partagé et atteint le shell (exerce RLM01→RLM03).
+## Décisions tranchées (Karl, 2026-06-15)
+- **Factur-X généré côté Liakont**, profil **EN 16931 / COMFORT** (EXTENDED-CTC-FR en suivi).
+- **On ne touche à RIEN de l'existant.** Les plug-ins API (Super PDP, B2Brouter) = cœur du **Pilotage**, inchangés.
+- **On ajoute une « PA générique »** : transmet le Factur-X par **email** ou **dépôt de fichier** (mécanisme du niveau **Essentiel**).
+- **Exutoire = trace de support** : copie du Factur-X transmis gardée ~quelques mois puis purgeable.
+  **SÉPARÉE de la piste d'audit WORM** : `document_events` (F06) reste append-only, aucune purge.
+- **Conformité PDF/A-3** : assertions structurelles en CI rapide + **veraPDF** (conteneur) au tier intégration.
 
-## Plan (checkable)
+## Constat de départ (vérifié)
+- Liakont ne génère ni CII ni PDF/A-3 ; la conversion EN 16931→CII est déléguée au `convert` de Super PDP (PA-spécifique).
+- Blueprint §6 : la génération ne dépend d'aucun plug-in PA → **sérialiseur CII maison** obligatoire ; un plug-in PA ne référence que `Transmission.Contracts`.
+- Journalisation F06 déjà solide (payload + réponse PA + horodatage + ID PA, append-only). Manque : compte/plug-in PA explicite, granularité par envoi, et l'artefact réellement transmis.
 
-### A — Seam (no realm provisionné en partagé)
-- [x] A1. `NoOpKeycloakRealmProvisioner.cs` (NOUVEAU)
-- [x] A2. `ServiceCollectionExtensions.cs` : no-op par défaut ; vrai si `DedicatedRealmPerTenant`
-- [x] A3. `TenantProvisioningService.ProvisionAsync` : `RegisterRealm`+`AddTenantRedirectUri` sous `if (realmCreated)`
-- [x] A4. Tests unitaires : DI résout no-op/vrai ; no-op = 0 HTTP + AlreadyProvisioned
+## Plan (items proposés — lot FACTURX)
 
-### B — Recadrage mapper hardcodé
-- [x] B1. `KeycloakRealmProvisionerTests` : test hardcodé renommé `…DedicatedProfile…` + commentaire
-- [x] B2. provenance §4.24 : note recadrage RLM04
+### FX00 — Spike + ADR-0023 (génération Factur-X)  [SPIKE FAIT — ADR rédigé 2026-06-15]
+- [x] Spike libs (recherche web 2026-06-15) : QuestPDF (déjà au repo) fait PDF/A-3b + AddAttachment + XMP nativement → pas de nouveau package de scellement.
+- [x] Décisions : scellement = QuestPDF ; CII = sérialiseur maison ; validation = veraPDF + Mustangproject (Docker, tier intégration), bloquant.
+- [x] `docs/adr/ADR-0023-generation-facturx-pdfa3-cii.md` rédigé (PROPOSÉ — à valider/merger par Karl).
+- [ ] Bump QuestPDF 2024.12.3 → ≥ 2025.7.4 (correctif Mustang/veraPDF) via `Directory.Packages.props`.
+- [ ] Garde-fou : appliance sur base glibc (aspnet:10.0 Debian — vérifié) ; jamais Alpine/musl (natif QuestPDF).
 
-### C — E2E de clôture
-- [x] C1. `KeycloakE2EWebFactory` : seed outbox.tenants (default -001) + tenant2 (db propre, -002) + TenantConnections:tenant2
-- [x] C2. `Scenarios/TenantLoginSharedRealmE2ETests` : tenant2 se connecte → shell
+### FX01 — Spec F16 + artefacts de validation FR
+- [ ] `docs/conception/F16-FacturX-Generation.md` + index.
+- [ ] Récupérer Schematron CEN/TC 434 + artefacts FNFE-MPE dans `docs/references/`.
 
-### D — Nettoyage vestigial (Host, hors socle)
-- [x] D1. `AppBootstrap.SeedRealmRegistryFromDatabaseAsync` : boucle par-tenant seulement si `DedicatedRealmPerTenant`
+### FX02 — Module plateforme FacturX
+- [ ] `src/Modules/FacturX/` (Contracts/Domain/Application/Infrastructure) + port `IFacturXBuilder`.
+- [ ] NetArchTest : aucune référence plug-in PA ; lib PDF confinée à `Infrastructure`.
 
-### E — Provenance + vérif
-- [x] E1. provenance §4.28 + bloc SOCLE-CONSIGNED-DRIFT (+ ServiceCollectionExtensions.cs)
-- [x] E2. verify-fast PASS (socle-provenance-check vert)
-- [x] E3. run-tests PASS (5589 tests) ; E2E login EXÉCUTÉ localement (run-e2e -Filter Login : 2/2 PASS — LoginShell + TenantLoginSharedRealm)
-- [x] E4. codex-review CLEAN (round 3) / 0 P2 ouvert
-      - R1 : 2 P2 (régression realmCreated ; consommation non testée) → corrigés (garde sur Authority ; test d'intégration Testcontainers)
-      - R2 : 0 P1, 2 P2 → P2#1 (E2E non exécuté) RÉSOLU (E2E exécuté 2/2) ; P2#2 (provisioning utilisateur en realm partagé, hors périmètre seam) = dette consignée §4.28 + tâche de suivi
-      - R3 : CLEAN — No findings
+### FX03 — Sérialiseur EN 16931 → CII XML (maison)
+- [ ] Domain pur : pivot → CrossIndustryInvoice (EN 16931), `decimal`, recopie stricte catégorie/taux/VATEX,
+      **blocage** si champ obligatoire absent (ne rien inventer).
+- [ ] Tests : golden files XML + validation XSD CII + Schematron CEN/TC 434.
+
+### FX04 — Gabarit PDF + scellement PDF/A-3
+- [ ] Rendu visuel depuis le pivot (réutiliser `ArchiveReadableDocument`).
+- [ ] Sceller via **QuestPDF** : PDFA_3B + `AddAttachment` relation **`Alternative`** (spec EN 16931) + `ExtendMetadata` (XMP `fx:`) — isolé derrière `IFacturXBuilder`.
+- [ ] Tests : assertions structurelles en CI + veraPDF (conteneur) au tier intégration (pas de faux vert).
+
+### FXG — Plug-in « PA générique » (Factur-X par email / dépôt de fichier)  [NOUVEAU — remplace l'ancien FX05]
+- [ ] `src/PaClients/Liakont.PaClients.Generique/` (nom à confirmer) ; ne référence que `Transmission.Contracts`.
+- [ ] Transport **email** (SMTP) et **dépôt de fichier** (dossier/SFTP) ; paramétrage par tenant.
+- [ ] **Secrets chiffrés** (mot de passe SMTP, identifiants SFTP) — jamais en clair (règle #10/#18).
+- [ ] `PaCapabilities` : transmet Factur-X, canaux email/fichier, **pas** de récupération de statut ni de cycle de vie.
+- [ ] Le pipeline construit le Factur-X (via `IFacturXBuilder`) et le passe au plug-in **piloté par capacité** (jamais `if (pa is X)`).
+- [ ] **Existant inchangé** : Super PDP / B2Brouter ne sont pas modifiés.
+
+### FX06 — Journalisation envoi + trace de support
+- [ ] Métadonnées d'envoi dans F06 **append-only** : compte/plug-in PA (colonne explicite), horodatages requête/réponse,
+      hash de l'artefact transmis, réponse PA, clé d'idempotence recherchable. Aucun chemin update/delete.
+- [ ] **Trace de support** (store dédié, rétention ~quelques mois, purge planifiée OK car NON-audit) : copie du Factur-X transmis.
+      Bien distinguer de l'archive probante (Pilotage) et de la piste d'audit WORM.
+
+### FX07 — Intégration pipeline + gate
+- [ ] Génération du Factur-X à l'émission quand la PA active le requiert (capacité), derrière `IFacturXBuilder`.
+- [ ] Gate FACTURX : recette bout-en-bout (facture B2C → Factur-X → email/dépôt → journalisé + trace support → conformité veraPDF).
+
+## Points mineurs à confirmer
+- Store de support : filesystem ? Durée de rétention exacte (proposition : 90 jours, configurable) ?
+- Nom du plug-in générique (`Generique` / `FacturXMail` / autre).
 
 ## Review
-
-RLM04 livré. Seam de sortie du provisioner de realm du chemin SaaS partagé :
-- **NoOpKeycloakRealmProvisioner** (nouveau) enregistré par défaut en DI ; le vrai `KeycloakRealmProvisioner`
-  seulement si `Keycloak:DedicatedRealmPerTenant=true` (profil dédié mono-tenant).
-- **ProvisionAsync** : `RegisterRealm` + `AddTenantRedirectUriAsync` gardés par l'autorité renvoyée par
-  le provisioner (`!string.IsNullOrEmpty(kcResult.Authority)`) — partagé (autorité vide) → court-circuit ;
-  dédié (Created ET Idempotent/reprise) → mécanique d'origine. Redirect statique default.localhost intact.
-- **Mapper hardcodé** recadré au profil dédié (test renommé + commentaire + provenance §4.24).
-- **AppBootstrap.SeedRealmRegistryFromDatabaseAsync** : boucle par-tenant seulement en dédié (realm_name
-  par-tenant vestigiaux en partagé ; le realm partagé reste enregistré via RealmTenantMap).
-- **E2E de clôture** : harness seede outbox.tenants (default -001 + tenant2 -002, base migrée) — corrige une
-  casse latente du cross-check RLM03 en env Test ; `TenantLoginSharedRealmE2ETests` (tenant2 → realm partagé
-  → shell). **Exécuté localement : run-e2e -Filter Login = 2/2 PASS.**
-- **Tests** : seam unitaire (no-op + DI) + consommation (Testcontainers, 2 directions). verify-fast PASS,
-  run-tests 5589 PASS.
-- **Provenance** : §4.24 mise à jour + §4.28 ajoutée + `ServiceCollectionExtensions.cs` au bloc
-  SOCLE-CONSIGNED-DRIFT. socle-provenance-check vert.
-
-**Dette consignée (§4.28) + tâche de suivi** : le provisioner d'UTILISATEUR (OPS03 lot A,
-`KeycloakTenantUserProvisioner`) cible encore `stratum-{tenantId}` (404 en realm partagé) — onboarding d'un
-NOUVEL utilisateur via l'assistant à traiter hors périmètre du seam de realm. RLM04 débloque la GATE_REALM_UNIQUE.
+_(à compléter en fin de lot)_
