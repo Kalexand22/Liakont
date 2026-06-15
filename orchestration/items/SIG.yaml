@@ -1,0 +1,332 @@
+# Lot SIG — Signature électronique & workflow de validation de document réutilisable
+# Spec : docs/conception/F17-Signature-Validation-Document.md (note de conception, revue Karl intégrée + vérifiée)
+# ADR-filles à GRAVER par ce lot (filles d'ADR-0022, sœurs d'ADR-0024/0025/0026) :
+#   - ADR-0027 : abstraction ISignatureProvider à capacités (Yousign/Wacom = plug-ins)
+#   - ADR-0028 : module générique DocumentApproval (machine fermée + purposes)
+#   - ADR-0029 : plug-in Yousign (à distance, server-side)
+#   - ADR-0030 : client soft Wacom (sur place)
+#   + amendements : F15 §1.9 (signature NON requise) ; ADR-0024 (journal → document_approval_log,
+#     répercuté sur §6 Décision + charge d'implémentation + INV-ACCEPT-5).
+# Branche : feat/signature (segment `signature`, base main).
+# depends_on_gate : [GATE_AUTOFACTURATION, GATE_FACTURX, GATE_CONSOLE_WEB] — voir note de séquencement.
+#
+# ⚠️ SÉQUENCEMENT (DÉCISION D'ARCHI — ✅ DÉCIDÉ Karl 2026-06-15 : option (A)). F17 §4 pose que SelfBilledAcceptance (lot MND, MND02)
+#   est IMPLÉMENTÉ VIA le module générique DocumentApproval (projection restreinte). Deux voies :
+#   - (A) RETENUE ICI : SIG après MND ; on bâtit DocumentApproval (SIG04) puis on REFACTORE
+#     SelfBilledAcceptance pour qu'il y délègue (SIG05). Moins de couplage entre lots déjà routés.
+#   - (B) ALTERNATIVE : bâtir DocumentApproval AVANT que MND02 ne fige son agrégat, MND l'utilise d'emblée
+#     (évite le refactor, mais réordonne deux lots/segments). Si Karl choisit (B) : supprimer SIG05,
+#     déplacer DocumentApproval (SIG04) avant MND02, recâbler MND02.depends_on += SIG04.
+#
+# RÈGLES NON NÉGOCIABLES (rappel — toutes déjà gravées/à graver dans les ADR ; F17 les source) :
+#   - Aucune règle fiscale/juridique inventée (CLAUDE.md n°2) : la signature N'EST PAS requise pour
+#     l'acceptation d'un 389 (F17 §1.1, sourcé CGI 289 I-2/eIDAS). AUCUN niveau eIDAS imposé : c'est un
+#     PARAMÉTRAGE TENANT. Tout point NON TRANCHÉ (les 9 de F17 §10) BLOQUE l'item, il ne devine pas.
+#   - Bloquer plutôt qu'émettre faux (n°3) : la signature ne durcit JAMAIS le gate « au nom de la loi » ;
+#     le gate self-billing reste actif (un 389 non accepté reste Blocked, même « signé »). On NE durcit
+#     PAS et on N'affaiblit PAS au nom d'une obligation inexistante.
+#   - Frontières (n°6, chaque violation = P1) : abstraction à capacités, jamais if (provider is X) ;
+#     plug-in → Signature.Contracts + Common seulement ; client soft HORS agent/ (pur capteur, aucune
+#     logique métier) ; WORM via Archive.Contracts (jamais Archive.Domain) ; socle Stratum non modifié.
+#   - Secrets chiffrés par tenant (n°10) ; aucune donnée client dans le code (n°7) ; tout tenant-scopé (n°9).
+#   - Journaux append-only immuables par trigger base (n°4) : document_approval_log, UPDATE/DELETE/TRUNCATE rejetés.
+
+items:
+  SIG01:
+    title: "Graver ADR-0027 (abstraction ISignatureProvider à capacités) + ADR-0028 (module générique DocumentApproval)"
+    description: |
+      Graver les deux ADR STRUCTURELS du lot, à partir de F17 (§2, §3, §4). AUCUN code — conception.
+      Marquer NON TRANCHÉ comme NON TRANCHÉ (ne rien inventer, CLAUDE.md n°2).
+      ADR-0027 (F17 §2) : interface ISignatureProvider (RequestSignatureAsync, GetSignatureStatusAsync,
+        DownloadProofAsync, HandleWebhookAsync) + record SignatureProviderCapabilities calqué sur
+        PaCapabilities/PaCapabilityNotSupportedResult : Mode ([Flags] None=0/Remote=1/OnSite=2),
+        CompletionTransport ([Flags] None=0/Synchronous=1/Webhook=2/Polling=4, ORTHOGONAL à Mode),
+        SupportedLevels ([Flags] sur SignatureLevel None=0/Recorded=1/SES=2/AES=4/QES=8 — ensemble
+        explicite, jamais un max ordonné), SupportsSignerIdentityVerification, SupportsDocumentHashBinding,
+        SupportsBiometricCapture, SupportsBiometricTemplateMatching (OPT-IN false par défaut).
+        Résultat typé NotSupported (jamais exception). ISignatureProviderFactory + sélecteur AppBootstrap
+        (modèle IdP) ; ValidateConfiguration() NE bloque le démarrage QUE pour un provider configuré
+        malformé (signature OPTIONNELLE — absence de provider jamais une erreur). Aucun if (provider is X).
+      ADR-0028 (F17 §3/§4) : module Liakont.Modules.DocumentApproval (nom non collisionnant avec le module
+        Validation existant). Agrégat DocumentValidation, clé (company_id, document_id, validation_purpose,
+        attempt). Machine FERMÉE à 7 états DISTINCTS (PendingValidation, ValidationInProgress [optionnel,
+        purposes async], Validated, TacitlyValidated, Rejected, Contested, Expired) — Rejected et Contested
+        sont DEUX états séparés (pas un renommage), aucun purpose n'utilise les deux. Sous-graphe autorisé
+        explicite PAR purpose (self-billing = 4 états = machine ADR-0024). Arêtes directes Pending→terminal
+        (chemin Recorded/synchrone). Agrégation N-parties par SLOTS identifiés idempotents (jamais un
+        compteur) + niveau de preuve PAR slot + règle de terminaison négative. Ré-essai par nouvel attempt
+        (gate = tentative la plus récente ; index unique partiel (company_id, document_id, purpose) sur les
+        non-terminaux ; garde anti-race à la création d'attempt ; self-billing EXCLU du ré-essai, Contested
+        définitif). Journal append-only document_approval_log en transaction + double trigger. RÈGLE DE GATE
+        (F17 §4) : ouvre ssi état ∈ {Validated, TacitlyValidated} (NÉCESSAIRE, non suffisant) ET niveau de
+        preuve ≥ exigence tenant (par slot ; Recorded nu ne franchit pas AES/QES) ET (self-billing,
+        transition Validated EXPRESSE seulement) forme validée EC ; condition de forme NON appliquée à
+        TacitlyValidated. Chaîne NetArchTest (5 purposes) + arête WORM → Archive.Contracts.
+    acceptance:
+      - "docs/adr/ADR-0027-*.md gravé : ISignatureProvider + SignatureProviderCapabilities (Mode/CompletionTransport/SupportedLevels en flags, valeurs distinctes None=0) + NotSupported typé + factory/sélecteur + ValidateConfiguration optionnelle ; aucun if (provider is X)"
+      - "docs/adr/ADR-0028-*.md gravé : module DocumentApproval, machine fermée 7 états distincts (Rejected≠Contested), sous-graphe par purpose, slots idempotents + niveau par slot + terminaison négative, attempt + index partiel + garde anti-race, journal append-only, RÈGLE DE GATE (état nécessaire + niveau tenant + forme EC), chaîne NetArchTest 5 purposes + arête WORM"
+      - "Tout point NON TRANCHÉ (F17 §10) est marqué NON TRANCHÉ avec owner, jamais inventé"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  SIG02:
+    title: "Graver ADR-0029 (plug-in Yousign) + ADR-0030 (client soft Wacom) + amendements F15 §1.9 / ADR-0024 (journal)"
+    description: |
+      Graver les deux ADR de plug-in + les amendements, à partir de F17 (§5, §6, §8, §9). AUCUN code.
+      ADR-0029 (F17 §5) : plug-in Yousign server-side (API v3). Webhook : routage par HANDLE DE TENANT
+        OPAQUE (catalogue système ICompanyTenantLookup, hors requête métier) → ouverture scope tenant →
+        chargement compte+secret depuis la base du tenant → vérification HMAC (interne, helper namespace
+        Liakont.* non-vendored, FixedTimeEquals sur le raw body — JAMAIS réutiliser WebhookSignature.Compute
+        qui vit en Stratum.Modules.Notification.Domain). File durable signature_webhook_inbox persistée
+        AVANT 2xx (<1s) + drain asynchrone par job → rapatriement WORM via Archive.Contracts (jamais le
+        plug-in, jamais Archive.Domain). Idempotence (company_id, provider_type, event_id). Secrets par
+        tenant chiffrés (patron PaAccount/DataProtectionSecretProtector). URL de base dérivée d'une ALLOWLIST
+        par Environment (anti-SSRF), jamais un champ tenant libre. Niveaux SES/AES/QES DÉCLARÉS en capacité.
+      ADR-0030 (F17 §6) : client soft Wacom desktop-companion en racine clients/OnSiteSignature (jamais sous
+        agent/ ; motif = isolation SDK Wacom natif + frontière physique, PAS « AgentProjectReferenceTests
+        l'interdit » qui est faux). Pur capteur (aucune logique métier) → proxy OnSiteCapture tenant-scopé.
+        Identité : DÉPOSANT (principal authentifié) ≠ SIGNATAIRE (mécanisme de liaison vérifié séparé, jamais
+        le déposant, jamais le payload). Primitive de HASH DE BINDING PROPRE à ADR-0030 (octets exacts de
+        l'artefact Factur-X scellé transmis, SHA-256, même flux client+plateforme — PAS ADR-0023 qui ne
+        définit aucun hash). SupportedLevels = {SES} au départ, AES seulement après audit documenté (art. 26
+        a/b/c/d). DataProtectionScope tranché (LocalMachine vs CurrentUser poste partagé), DPAPI locale au
+        client. RGPD biométrie : SupportsBiometricTemplateMatching=false par défaut, conclusion « hors art. 9 »
+        strictement conditionnelle DPO.
+      Amendements : F15 nouveau §1.9 (signature NON requise pour l'acceptation, bonne pratique probatoire) +
+        F15 §1.5/§6/§7 (ne pas rétrograder la version BOFiP ; questions ouvertes signature). ADR-0024 :
+        journal du purpose self-billing = document_approval_log (mêmes garanties), à RÉPERCUTER sur TOUTES
+        les mentions de self_billed_acceptance_log (§6 Décision + charge d'implémentation + INV-ACCEPT-5).
+    acceptance:
+      - "docs/adr/ADR-0029-*.md gravé : Yousign server-side, webhook (handle opaque → scope → secret → HMAC FixedTimeEquals raw body, helper Liakont.* non-vendored), inbox durable avant 2xx + drain async, idempotence (company_id,provider_type,event_id), WORM via Archive.Contracts, secrets par tenant, URL allowlist anti-SSRF, niveaux déclarés"
+      - "docs/adr/ADR-0030-*.md gravé : client hors agent/ (motif Wacom natif), pur capteur + proxy tenant-scopé, déposant≠signataire, hash de binding propre à ADR-0030 (octets exacts/SHA-256/même flux, pas ADR-0023), SupportedLevels={SES} avant audit, DataProtectionScope tranché + DPAPI locale, RGPD conditionnel DPO"
+      - "F15 §1.9 ajouté (signature non requise) ; ADR-0024 amendé sur TOUTES les mentions du journal (§6 + charge + INV-ACCEPT-5)"
+      - "Tout point NON TRANCHÉ marqué (owner), jamais inventé"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  SIG03:
+    title: "Module Signature : Contracts (ISignatureProvider + capacités + NotSupported + factory) + sélecteur AppBootstrap (ADR-0027)"
+    description: |
+      Créer src/Modules/Signature/ (pattern Stratum : Contracts/Domain/Application/Infrastructure/Web +
+      MODULE.md/INVARIANTS.md) selon ADR-0027. Abstraction SEULE + un provider Fake (tests/parité), AUCUN
+      provider concret ici (Yousign = SIG07, Wacom = SIG08).
+      1. Contracts : ISignatureProvider, SignatureProviderCapabilities (Mode/CompletionTransport/
+         SupportedLevels en [Flags] valeurs distinctes None=0 ; Supports(level)/Supports(mode) centralisés),
+         SignatureRequestResult.NotSupported(SignatureCapabilityNotSupportedResult) message opérateur FR,
+         ISignatureProviderFactory { ProviderType ; Create(SignatureProviderAccount) }.
+      2. Sélecteur au composition root (AppBootstrap, modèle IIdentityProviderAuthenticator) : registre
+         indexé par type. ValidateConfiguration() bloque le démarrage UNIQUEMENT pour un provider configuré
+         malformé ; l'absence de tout provider n'est JAMAIS une erreur (capacité indisponible, défaut
+         Recorded fonctionne). Test : un tenant Recorded démarre sans provider.
+      3. Frontière (NetArchTest, CLAUDE.md n°6) : un plug-in ne référencera que Signature.Contracts + Common ;
+         aucun type HTTP ne traverse l'interface. FakeSignatureProvider pour exercer NotSupported/capacités.
+      4. SignatureProviderAccount (entité, secrets résolus en SIG07) : CompanyId, ProviderType, Environment,
+         AccountIdentifiers (non secrets), EncryptedApiKey?, EncryptedWebhookSecret? — URL de base PAS un
+         champ libre (allowlist, anti-SSRF, SIG07).
+    acceptance:
+      - "Module Liakont.Modules.Signature créé (Contracts/Domain/Application/Infrastructure/Web + MODULE.md/INVARIANTS.md)"
+      - "Capacités en [Flags] valeurs distinctes (None=0) ; test HasFlag correct (SignatureMode.Remote=1 etc.)"
+      - "Capacité absente → NotSupported typé (jamais exception) ; FakeSignatureProvider le prouve"
+      - "Sélecteur AppBootstrap ; ValidateConfiguration ne bloque pas si aucun provider (test : tenant Recorded démarre sans provider)"
+      - "Aucun if (provider is X) ; frontière NetArchTest (plug-in → Signature.Contracts + Common seulement)"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  SIG04:
+    title: "Module DocumentApproval : agrégat + machine fermée 7 états + sous-graphe par purpose + slots + attempt + journal append-only (ADR-0028)"
+    description: |
+      Créer src/Modules/DocumentApproval/ selon ADR-0028 et F17 §3/§4. CŒUR réutilisable du lot.
+      1. Agrégat DocumentValidation clé (company_id, document_id, validation_purpose, attempt). Machine
+         FERMÉE 7 états distincts (Rejected≠Contested) ; sous-graphe autorisé explicite par ValidationPurpose
+         (garde de purpose testée ; self-billing = {PendingValidation, Validated, TacitlyValidated,
+         Contested}). Arêtes directes Pending→terminal. Test produit cartésien ; aucun retour depuis terminal.
+      2. attempt : index unique partiel (company_id, document_id, validation_purpose) sur les états NON
+         terminaux (au plus une tentative active) ; le gate lit la tentative la plus récente ; garde
+         anti-race (création N+1 conditionnée, MÊME transaction, à N = échec terminal) + test de concurrence.
+         self-billing EXCLU du ré-essai (Contested définitif → avoir 261 + nouveau document, jamais rouvert).
+      3. Agrégation N-parties : ApprovalSlot { SignerId/TierId, State, ProofId? } idempotent par SignerId ;
+         complétude = tous les slots distincts remplis (jamais un compteur) ; niveau de preuve PAR slot ;
+         règle de terminaison négative (slot refusé → Rejected ou timeout, à acter dans l'ADR/ici).
+      4. Journal document_approval_log : CHAQUE transition écrit une ligne dans la MÊME transaction (UoW
+         gabarit TvaMapping) ; immuable par double trigger base (UPDATE/DELETE/TRUNCATE rejetés) ;
+         company_id NOT NULL ; tenant-scopé. « Pas de transition sans ligne de journal ».
+      5. RÈGLE DE GATE (port générique) : ouvre ssi état ∈ {Validated, TacitlyValidated} ET niveau de preuve
+         ≥ exigence tenant (par slot) ET (self-billing, Validated EXPRESSE) forme validée EC ; NON appliquée
+         à TacitlyValidated (gardes INV-ACCEPT-3). Réconciliation webhook tardive idempotente (event_id).
+      6. DÉFAUTS DÉFENDABLES (stade build, AUCUNE gate de décision) : le niveau eIDAS par purpose et la
+         modalité d'« acceptation expresse » sont du PARAMÉTRAGE TENANT (défaut : Recorded pour l'acceptation ;
+         acceptation explicite tracée pour la forme) ; l'item code le MÉCANISME + le défaut, le client affine
+         avec SON EC au déploiement — jamais une valeur fiscale inventée. Idem CreditNoteAcceptance : défaut =
+         le 261 suit la même discipline d'acceptation que le 389 (conservateur), affinable tenant.
+    acceptance:
+      - "Agrégat DocumentValidation clé (company_id, document_id, purpose, attempt) ; machine fermée 7 états distincts (Rejected≠Contested), sous-graphe self-billing 4 états (garde de purpose testée, cartésien)"
+      - "Ré-essai : index unique partiel company_id-scopé sur non-terminaux ; gate lit la plus récente ; garde anti-race (test de concurrence) ; self-billing exclu"
+      - "Agrégation N-parties par slots idempotents par SignerId ; niveau PAR slot ; terminaison négative (test : doublon/slot sous-niveau n'ouvre pas le gate)"
+      - "document_approval_log append-only (double trigger, UPDATE/DELETE/TRUNCATE rejetés), company_id NOT NULL, transition+journal MÊME transaction (test)"
+      - "Règle de gate : Recorded nu ne franchit pas AES/QES ; forme EC NON exigée sur TacitlyValidated (test)"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts (Testcontainers) : append-only + transaction + tenant-scoping ≥ 2 bases + cartésien machine"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  SIG05:
+    title: "Refactor SelfBilledAcceptance (MND) → projeté via DocumentApproval (garde de purpose) + journal = document_approval_log (option A)"
+    description: |
+      Faire de SelfBilledAcceptance (lot MND, MND02) une PROJECTION restreinte du module DocumentApproval,
+      selon ADR-0028 + amendement ADR-0024 (F17 §4). NE PAS changer le comportement fiscal observable :
+      la machine self-billing RESTE {PendingAcceptance/Validated≡Accepted, TacitlyAccepted, Contested}, 4
+      états, sans ValidationInProgress/Expired/Rejected (garde de purpose). INV-ACCEPT-1..4 et 6 inchangés.
+      1. Mandats implémente ISelfBilledGate en déléguant à DocumentApproval PAR ses Contracts (frontière
+         NetArchTest). Le port ISelfBilledGate (Mandats.Contracts) et le branchement pipeline (MND03)
+         restent la frontière ; le pipeline reste inchangé.
+      2. INV-ACCEPT-5 amendé : le journal devient document_approval_log (mêmes garanties append-only +
+         double trigger + tenant-scopé). Migration : reprise/abandon de self_billed_acceptance_log selon
+         l'état de MND au moment du refactor (si MND02 a livré la table, migration de bascule ; sinon, MND02
+         écrit directement document_approval_log). Pas de double journalisation.
+      3. Re-prouver le test cartésien INV-ACCEPT-4 SUR le purpose self-billing (4 états, aucun retour arrière).
+      ⚠️ Si Karl choisit l'option (B), CET ITEM DISPARAÎT (MND utilise DocumentApproval d'emblée).
+    acceptance:
+      - "SelfBilledAcceptance projeté via DocumentApproval (garde de purpose) ; machine self-billing inchangée (4 états, INV-ACCEPT-1..4/6 re-prouvés)"
+      - "ISelfBilledGate (Mandats.Contracts) délègue à DocumentApproval.Contracts (NetArchTest) ; pipeline inchangé"
+      - "Journal = document_approval_log (INV-ACCEPT-5 amendé) ; pas de double journalisation ; migration sans perte d'historique"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts : machine self-billing + journal + tenant-scoping ≥ 2 bases ; non-régression MND"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  SIG06:
+    title: "Câblage de la Règle de gate §4 + ports par purpose (ISelfBilledGate réutilisé, IMandateSignatureGate, ICreditNoteAcceptanceGate, IMultiPartySignatureGate)"
+    description: |
+      Câbler l'ouverture effective des gates selon la Règle de gate (F17 §4) et exposer les ports par purpose.
+      1. Règle de gate appliquée de bout en bout : état NÉCESSAIRE (∈ {Validated, TacitlyValidated}) ET
+         niveau de preuve ≥ exigence tenant (PAR slot pour le multi-parties) ET (self-billing, Validated
+         expresse) forme validée EC. Test : un tenant exigeant AES n'est PAS ouvert par un Recorded nu ;
+         self-billing reste Blocked tant que l'EC n'a pas validé la forme (Recorded→Validated non normatif).
+      2. Ports par purpose dans les Contracts du module exposeur : ISelfBilledGate (Mandats, réutilisé),
+         IMandateSignatureGate (signature du mandat), ICreditNoteAcceptanceGate (avoir 261 — ❓ #9 EC :
+         si le purpose n'existe pas, BLOQUER), IMultiPartySignatureGate. Chaîne NetArchTest sur les 5 purposes
+         (consommateur → *.Contracts, jamais Domain ; jamais une règle anti-module globale).
+      3. Le niveau eIDAS exigé par purpose est un PARAMÉTRAGE TENANT (jamais un défaut produit ni une
+         obligation codée) ; gate jamais durci/affaibli au nom d'une obligation inexistante.
+    acceptance:
+      - "Règle de gate câblée : Recorded nu ne franchit pas une exigence AES/QES (par slot) ; self-billing Blocked tant que forme non validée EC (tests)"
+      - "Ports par purpose exposés (ISelfBilledGate réutilisé + IMandateSignatureGate + ICreditNoteAcceptanceGate + IMultiPartySignatureGate) ; chaîne NetArchTest 5 purposes verte"
+      - "Niveau eIDAS = paramétrage tenant ; gate jamais durci/affaibli au nom d'une obligation inexistante (test : tenant Recorded jamais bloqué du seul fait de l'absence de provider)"
+      - "Purpose CreditNoteAcceptance bloqué si ❓ #9 (F15 §6.5) non tranché par l'EC"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts : gate ouvert/fermé selon état × niveau × forme, sur ≥ 2 bases"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  SIG07:
+    title: "Plug-in Yousign (à distance) : provider server-side + webhook durable/routé + secrets par tenant + WORM (ADR-0029)"
+    description: |
+      Implémenter le plug-in Yousign (à distance) selon ADR-0029 et F17 §5. NE référence QUE
+      Signature.Contracts + Common (NetArchTest) ; aucun type HTTP ne traverse ISignatureProvider.
+      DÉFAUT DÉFENDABLE (AUCUNE gate de décision) : on DÉCLARE les capacités au niveau réellement vérifié
+      en SANDBOX ; les niveaux/coût/limites/retry réels de l'offre souscrite = activation au déploiement,
+      jamais supposés. Une capacité non vérifiée n'est pas déclarée (NotSupported), jamais inventée.
+      1. Provider : API v3 (sandbox/prod via Environment), niveaux DÉCLARÉS en capacité (jamais supposés) ;
+         cycle draft → upload multipart → signers/fields → (AES/QES) pré-vérif identité → activate → webhook.
+      2. Webhook (corrections P1 F17 §5) : routage par HANDLE DE TENANT OPAQUE dans l'URL (catalogue système
+         ICompanyTenantLookup, contrainte UNIQUE, hors requête métier) → scope tenant → secret HMAC du tenant
+         → vérification HMAC INTERNE (helper Liakont.*.Crypto non-vendored, FixedTimeEquals sur raw body ;
+         JAMAIS WebhookSignature.Compute de Stratum.Modules.Notification.Domain). File durable
+         signature_webhook_inbox persistée AVANT 2xx (<1s) ; drain ASYNCHRONE par job (TenantJobRunner) →
+         rapatriement preuve+documents WORM via Archive.Contracts (IArchiveService — jamais Archive.Domain,
+         jamais le plug-in). Idempotence (company_id, provider_type, event_id) ; backoff+jitter sur 429.
+      3. Secrets par tenant chiffrés (patron PaAccount/DataProtectionSecretProtector, purpose versionné) ;
+         Authorization Bearer + HMAC construits en mémoire, jamais journalisés. URL de base dérivée d'une
+         ALLOWLIST par Environment (anti-SSRF) — jamais un champ tenant libre. Aucune donnée client en code.
+      4. Capacité absente (ex. QES hors offre) → NotSupported, jamais exception ni blocage produit.
+    acceptance:
+      - "Provider Yousign : niveaux déclarés en capacité (jamais supposés) ; QES hors offre → NotSupported"
+      - "Webhook : routage handle opaque (catalogue système) → scope → secret du tenant → HMAC interne FixedTimeEquals raw body ; signature falsifiée rejetée avant traitement (test) ; jamais WebhookSignature.Compute vendored"
+      - "Inbox durable persistée AVANT 2xx ; drain async idempotent (company_id,provider_type,event_id) ; crash après 2xx ne perd pas l'événement (test)"
+      - "Rapatriement WORM via Archive.Contracts (jamais Archive.Domain ni le plug-in) ; frontière NetArchTest verte"
+      - "Secrets par tenant chiffrés, jamais en clair/journalisés ; URL allowlist anti-SSRF (test : URL arbitraire refusée)"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts : webhook routé+vérifié+durable, tenant-scoping ≥ 2 bases"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  SIG08:
+    title: "Client soft Wacom (sur place) : capteur desktop hors agent/ + proxy OnSiteCapture tenant-scopé + binding hash + déposant≠signataire (ADR-0030)"
+    description: |
+      Implémenter la signature SUR PLACE selon ADR-0030 et F17 §6. DÉFAUTS DÉFENDABLES (AUCUNE gate de
+      décision) : niveau = SES (AES seulement après audit tech du procédé art. 26 c) ; posture RGPD sobre
+      (pas de gabarit) ; DataProtectionScope tranché en ADR-0030 — la qualification RGPD fine relève du DPO
+      du CLIENT au déploiement. ✅ Identité du signataire (#8) : le MANDANT signe en personne, cas VENTE AUX
+      ENCHÈRES (pas criée) → SignerIdentity = identification en personne par la SVV au guichet.
+      1. Client desktop-companion en racine SÉPARÉE clients/OnSiteSignature (sa propre .sln, JAMAIS sous
+         agent/ ; motif = isolation SDK Wacom natif + frontière physique). Pur CAPTEUR : aucune logique
+         métier ; test de pureté (ne référence ni Agent.Contracts ni un module). DPAPI LOCALE au client
+         (DataProtectionScope tranché) pour ses secrets — jamais le ISecretProtector de l'agent.
+      2. Capture → POST objet immuable { FSS chiffré + image PNG + hash de binding + identité opérateur
+         DÉCLARÉE (indicative) } vers le proxy OnSiteCapture (HTTPS, auth derrière l'abstraction IdP,
+         tenant-scopé). Le proxy re-vérifie document_id↔company_id (NotFound sinon). Aucun accès base.
+      3. Hash de BINDING (primitive ADR-0030) : la plateforme calcule le hash des OCTETS EXACTS de l'artefact
+         Factur-X scellé (SHA-256, sans re-canonicalisation côté client) ; le client signe ce hash ; la
+         plateforme re-hashe et vérifie (re-hash = hash signé) ; preuve en WORM + DocumentEvent append-only.
+      4. Identité : DÉPOSANT = principal authentifié (UploaderPrincipal, jamais le payload) ; SIGNATAIRE
+         (SignerIdentity) = mécanisme de liaison VÉRIFIÉ séparé (jamais dérivé du déposant ni du payload).
+         Tant que non défini, niveau reste SES. Test d'usurpation : SignerIdentity jamais dérivée du déposant.
+      5. RGPD sobre : SupportsBiometricTemplateMatching=false ; aucun gabarit/feature-vector dérivé du FSS
+         quand le flag est false (capture ≠ matching). SupportedLevels = {SES} ; AES seulement après audit.
+    acceptance:
+      - "Client en racine clients/OnSiteSignature (jamais sous agent/) ; test de pureté (ni Agent.Contracts ni module) ; DPAPI locale (DataProtectionScope gravé)"
+      - "Proxy OnSiteCapture tenant-scopé : re-vérif document_id↔company_id (NotFound sinon) ; test cross-tenant"
+      - "Hash de binding = octets exacts de l'artefact scellé (SHA-256, même flux client/plateforme) ; re-hash = hash signé vérifié (test) ; preuve WORM + DocumentEvent append-only"
+      - "Déposant (principal authentifié) ≠ signataire (liaison vérifiée séparée) ; test d'usurpation (SignerIdentity jamais dérivée du déposant ni du payload)"
+      - "RGPD : aucun gabarit dérivé du FSS quand SupportsBiometricTemplateMatching=false (test) ; SupportedLevels={SES} tant que l'AES non auditée"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts : proxy tenant-scopé + binding, ≥ 2 bases"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  SIG09:
+    title: "verify-fast : ajouter la 3ᵉ solution clients/OnSiteSignature (garde bootstrap) + inspection déclarative <PackageReference> agent"
+    description: |
+      Fermer deux faux-verts (F17 §6.1, correction factuelle).
+      1. tools/verify-fast.ps1 ne build aujourd'hui que src/Liakont.sln + agent/Liakont.Agent.sln. Une 3ᵉ
+         racine clients/OnSiteSignature/*.sln non ajoutée serait NI buildée NI testée → le test de pureté
+         du client (SIG08) serait écrit-mais-jamais-lancé. Ajouter la build+tests de cette solution, avec
+         GARDE BOOTSTRAP (sur le modèle Test-SolItemPending : skip tant que SIG08 pending ; ÉCHEC si la
+         .sln attendue disparaît une fois SIG08 done — jamais un skip silencieux).
+      2. AgentBoundaryTests EXISTE déjà (IL, GetReferencedAssemblies, liste blanche fermée) mais un
+         <PackageReference> purement DÉCLARATIF non exercé lui échappe. Ajouter une inspection déclarative
+         des <PackageReference> des .csproj sous agent/ (interdire le SDK Wacom et toute lib non déclarée).
+    acceptance:
+      - "verify-fast build+teste clients/OnSiteSignature ; garde bootstrap (skip si SIG08 pending, ÉCHEC si .sln supprimée une fois done) — self-test du faux-vert"
+      - "Inspection déclarative des <PackageReference> agent/ : un PackageReference non déclaré (ex. SDK Wacom) sous agent/ échoue le test"
+      - "verify-fast passes (sur les 3 solutions) ; codex-review clean or only accepted P2s"
+
+  SIG10:
+    title: "UI console signature : déclencher une demande, suivre le statut, consulter la preuve (bUnit/Playwright, logique aux handlers MediatR)"
+    description: |
+      Pages console (Host + Liakont.Modules.*) selon F17 §0 (item 7, UI dans le périmètre) et CLAUDE.md
+      review n°19. AUCUNE logique métier dans les pages (déléguée aux handlers MediatR / Contracts).
+      1. Page(s) : déclencher une demande de signature (purpose + provider + niveau requis du tenant),
+         suivre le statut (PendingValidation/ValidationInProgress/Validated/.../Rejected/Contested/Expired),
+         consulter la preuve (lien WORM en lecture). Gabarit console existant (DeclaredListPage / patterns
+         Host), jamais une grille maison.
+      2. Tests bUnit ET/OU Playwright (P1 review n°19) ; les pages socle vendored non modifiées sont exemptées.
+    acceptance:
+      - "Pages signature (déclencher/statut/preuve) ; aucune logique métier en page (déléguée handlers MediatR)"
+      - "Tests bUnit et/ou Playwright présents ET EXÉCUTÉS verts (P1 review n°19)"
+      - "Réutilise le gabarit console (pas de grille maison)"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  # NB (Karl, 2026-06-15) : PAS de gate de décision. Stade build = on prend des DÉFAUTS DÉFENDABLES
+  # (sourcés, paramétrables tenant) ; le client final tranche fiscal/RGPD avec SON EC/DPO au déploiement.
+  # Liakont ne sollicite/paie aucun EC à l'instant T. Le lot s'auto-propulse jusqu'à GATE_SIGNATURE (recette).
+  # On ne bloque QUE là où aucun défaut défendable n'existe ET où un mauvais défaut transmettrait du faux.
+
+  # Gate de segment HUMAINE : recette de bout en bout de la signature/validation.
+  # depends_on (SIG05, SIG06, SIG07, SIG08, SIG09, SIG10) porté par le manifest.
+  GATE_SIGNATURE:
+    type: gate
+    executor: human
+    title: "Gate : workflow de validation/signature de document — recette de bout en bout"
+    description: |
+      Recette humaine sur instance de dev : un document (auto-facture 389 et/ou mandat) suit un purpose de
+      validation ; selon le niveau requis du tenant, l'acceptation passe par Recorded (enregistrée),
+      Yousign (à distance) ou Wacom (sur place) ; la preuve est rapatriée en WORM ; le gate n'ouvre que
+      selon la Règle §4 (état + niveau ≥ exigence + forme EC pour self-billing) ; un webhook rejoué/un crash
+      ne corrompt rien (inbox durable, idempotence) ; le client sur place distingue déposant et signataire ;
+      aucun secret en clair, aucune URL libre, frontières NetArchTest vertes, tenant-scoping prouvé.
+    acceptance:
+      - "Tous les items SIG (SIG01..SIG10) sont done"
+      - "Recette de bout en bout : Recorded + Yousign (à distance) + Wacom (sur place) exercés selon le niveau tenant ; preuve en WORM ; gate ouvre selon la Règle §4 et reste fermé sinon"
+      - "Robustesse webhook (rejeu/crash) et anti-usurpation (déposant≠signataire) vérifiés à la recette"
+      - "Défauts défendables pris (sourcés, paramétrables tenant) ; aucune règle fiscale/RGPD inventée ; les affinages (eIDAS/forme d'acceptation/RGPD) relèvent du client avec son EC/DPO au déploiement, pas d'un blocage en build"
+      - "PR du segment feat/signature revue et mergée dans main"
