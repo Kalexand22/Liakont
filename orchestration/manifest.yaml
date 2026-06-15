@@ -115,7 +115,17 @@ meta:
   #   d'abord) : RLF01→RLF06 ET GATE_REALM_FOLLOWUP en `pending` (une gate non seedée = traitée « done »
   #   → recette jamais ouverte), PLUS GATE_REALM_UNIQUE → `done` (orch-reconcile ne le fait pas : titre de
   #   PR #46 hors contrat). Transaction FIX3-style.
-  version: 24
+  # version 25 = nouveau segment `autofacturation` + lot MND (Mandats) : capacité A (émission 389,
+  #   art. 289 I-2 CGI). Planifie les ADR-filles d'ADR-0022 : ADR-0024 (acceptation/ISelfBilledGate) +
+  #   ADR-0025 (BT-1 hybride par mandant + re-clé anti-doublon F06 §4). 6 items MND01→MND06 +
+  #   GATE_AUTOFACTURATION (humaine). Segment sur feat/autofacturation (base main), depends_on_gate
+  #   GATE_PIPELINE (le port ISelfBilledGate est interrogé par le pipeline avant envoi ; la re-clé F06
+  #   touche DuplicateCheckRequest du module Documents — tous deux sur main au merge de GATE_PIPELINE).
+  #   Capacité B (réception, ADR-0026) = ESQUISSE phase 2 (F-spec + lot ultérieurs) — NON planifiée ici.
+  #   Détails : items/MND.yaml + F15 §2/§3. ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS merge de cette
+  #   PR (segment sur main d'abord) : MND01→MND06 ET GATE_AUTOFACTURATION en `pending` (une gate non
+  #   seedée = traitée « done » → recette jamais ouverte).
+  version: 25
   host: multi_agent_v1
 
 segments:
@@ -222,6 +232,13 @@ segments:
     lots: [RLF]
     gate: GATE_REALM_FOLLOWUP
     depends_on_gate: GATE_REALM_UNIQUE
+
+  autofacturation:
+    branch: feat/autofacturation
+    base: main
+    lots: [MND]
+    gate: GATE_AUTOFACTURATION
+    depends_on_gate: GATE_PIPELINE
 
 items:
   # ── SOL ──
@@ -473,3 +490,15 @@ items:
   - { id: RLF05, lot: RLF, priority: 9240, depends_on: [] }
   - { id: RLF06, lot: RLF, blueprint: tooling-item, priority: 9250, depends_on: [] }
   - { id: GATE_REALM_FOLLOWUP, type: gate, executor: human, priority: 9290, depends_on: [RLF01, RLF02, RLF03, RLF04, RLF05, RLF06] }
+
+  # ── MND (Mandats) — segment `autofacturation`, capacité A (émission 389), filles d'ADR-0022 ──
+  # PLANIFIÉ (v25) : segment `autofacturation` (branche feat/autofacturation) + gate humaine
+  # GATE_AUTOFACTURATION. ⚠️ PAS ENCORE seedé : APRÈS merge, seeder `pending` MND01→MND06 +
+  # GATE_AUTOFACTURATION. ADR-0026 (capacité B) = phase 2, NON planifiée ici. Détails : items/MND.yaml.
+  - { id: MND01, lot: MND, priority: 9300, depends_on: [] }
+  - { id: MND02, lot: MND, priority: 9310, depends_on: [MND01] }
+  - { id: MND03, lot: MND, priority: 9320, depends_on: [MND02] }
+  - { id: MND04, lot: MND, priority: 9330, depends_on: [MND02] }
+  - { id: MND05, lot: MND, priority: 9340, depends_on: [MND01] }
+  - { id: MND06, lot: MND, priority: 9350, depends_on: [MND05] }
+  - { id: GATE_AUTOFACTURATION, type: gate, executor: human, priority: 9390, depends_on: [MND03, MND04, MND05, MND06] }
