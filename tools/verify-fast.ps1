@@ -147,6 +147,19 @@ if ($ok) {
     }
 }
 
+# ── Step 2a-bis: ci-test wrapper self-test (always run) ──────────
+# Guards the Testcontainers anti-flake retry in tools/ci-test.ps1: a retry that could mask a real
+# test failure would be a false green. The self-test proves it never does (a deterministic failure
+# re-fails in the fresh process). Pure PowerShell, no dotnet — cheap and always run.
+if ($ok) {
+    $ok = Run-Step 'ci-test: retry self-test' {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot 'tools\test-ci-retry.ps1')
+        if ($LASTEXITCODE -ne 0) {
+            throw "ci-test retry self-test failed (exit $LASTEXITCODE) — see tools/test-ci-retry.ps1"
+        }
+    }
+}
+
 # ── Step 2b: socle provenance guard (when the vendored tree exists) ──
 # Any silent modification of a vendored Stratum.* file that is not consigned in
 # docs/architecture/provenance-socle-stratum.md is a P1 (CLAUDE.md rule 11). The check pins
