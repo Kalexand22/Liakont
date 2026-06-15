@@ -127,27 +127,38 @@ jamais un autre plug-in, **jamais MailKit** (blueprint §6 ; NetArchTest + `…B
 plug-in, modèle `SuperPdpBoundaryTests`).
 
 - **`PaCapabilities`** : déclare **`SupportsFacturXTransmission = true`** (les PA existantes Super PDP /
-  B2Brouter le déclarent `false`). Elle **ne** récupère **pas** de statut et n'a **pas** de cycle de vie —
-  c'est précisément ce qui en fait une PA de niveau **Essentiel**, pas Pilotage.
+  B2Brouter le déclarent `false`). **À ajouter au record `PaCapabilities` ET à l'enum miroir `PaCapability`**
+  (capacité typée/journalisable, comme les 8 valeurs existantes). Elle **ne** récupère **pas** de statut et
+  n'a **pas** de cycle de vie — c'est précisément ce qui en fait une PA de niveau **Essentiel**, pas Pilotage.
 
 ### 6.1 Flux positif (qui génère, qui transmet)
 
-C'est le **pipeline** (module Transmission / `SendTenantJob`) qui, **quand la PA active déclare
-`SupportsFacturXTransmission`** (jamais `if (pa is Generique)`, CLAUDE.md n°8), résout `IFacturXBuilder`,
-**génère le Factur-X**, puis appelle `IPaClient.SendDocumentAsync` du plug-in en lui passant l'**artefact
-déjà construit** (octets). Le plug-in **ne** référence **jamais** `IFacturXBuilder` ni `FacturX.*` ; il ne
-fait que **transporter** des octets. Les PA existantes (capacité `false`) suivent leur chemin actuel
-**inchangé** (elles construisent leur propre payload).
+C'est le **pipeline** (module Transmission / `SendTenantJob`) qui, **à l'étape `Sending` (`SendReadyAsync`,
+JUSTE AVANT l'appel de transmission au plug-in — surtout PAS dans `FinalizeIssuedAsync`, qui ne s'exécute
+qu'en AVAL, après le retour `Issued`)**, et **quand la PA active déclare `SupportsFacturXTransmission`**
+(jamais `if (pa is Generique)`, CLAUDE.md n°8), résout `IFacturXBuilder` et **génère le Factur-X**, puis le
+transmet au plug-in. Le plug-in **ne** référence **jamais** `IFacturXBuilder` ni `FacturX.*` ; il ne fait
+que **transporter** l'artefact. Les PA existantes (capacité `false`) suivent leur chemin **inchangé** (elles
+construisent leur propre payload).
+
+**Contrat de passage de l'artefact (extension de `Transmission.Contracts`).** La signature actuelle
+`SendDocumentAsync(PivotDocumentDto, …)` ne porte **pas** d'octets pré-construits. Il faut étendre le
+contrat `IPaClient` (p. ex. un `PaSendContext` optionnel portant le Factur-X déjà scellé) : les PA
+existantes l'**ignorent** (elles construisent leur payload), la PA générique l'**exige** (artefact absent →
+**blocage**, jamais une régénération dans le plug-in qui violerait l'indépendance). Décision scopée à FX07.
 
 ### 6.2 Canaux de livraison (abstraction définie dans `Transmission.Contracts`)
 
 Le plug-in transmet via une **nouvelle abstraction définie dans `Transmission.Contracts`**, p. ex.
 `IDocumentDeliveryChannel` (livrer : cible/destinataire, octets, nom de fichier). Elle est **implémentée au
 Host** (composition root) ; le plug-in n'en voit que le contrat. Implémentations :
-- **email** : l'implémentation Host **délègue au transport SMTP de l'[ADR-0018](../adr/ADR-0018-transport-smtp-mailkit.md)**
-  (MailKit derrière `Stratum.Modules.Notification.Contracts.IEmailTransport`). **Le plug-in ne référence ni
-  MailKit ni `Notification`** — uniquement `IDocumentDeliveryChannel` de `Transmission.Contracts`.
-  Destinataire = **boîte PA du tenant**.
+- **email** : l'implémentation Host **compose un message MIME AVEC pièce jointe** (MimeKit/MailKit,
+  **Host-only**, cf. [ADR-0018](../adr/ADR-0018-transport-smtp-mailkit.md)) — le Factur-X est une **pièce
+  jointe**, or `IEmailTransport` du socle (`SendAsync(destinataire, sujet, corps)`) ne porte **qu'un corps
+  texte**. On **ne réutilise donc PAS `IEmailTransport`** et on **ne modifie PAS le socle vendored** (n°11/20) :
+  l'impl. de `IDocumentDeliveryChannel` réutilise la **config/connexion SMTP** d'ADR-0018 mais compose son
+  propre MIME (attachment-capable). **Le plug-in ne référence ni MailKit ni `Notification`** — uniquement
+  `IDocumentDeliveryChannel` de `Transmission.Contracts`. Destinataire = **boîte PA du tenant**.
 - **dépôt de fichier** : V1 = écriture dans un dossier / point de montage configuré par tenant. **SFTP =
   fast-follow** (package SSH.NET → ADR dédié, §10).
 
@@ -156,9 +167,12 @@ journalisés (CLAUDE.md n°10/18).
 
 ## 7. Intégration pipeline & journalisation
 
-- **Génération** à l'émission (`SendTenantJob.FinalizeIssuedAsync`) derrière `IFacturXBuilder`, déclenchée
-  par la capacité **`SupportsFacturXTransmission`** de la PA active (cf. §6.1) ; le plug-in reçoit
-  l'artefact **déjà construit**, il ne le génère jamais.
+- **Génération à l'étape `Sending`** (`SendReadyAsync`, **juste avant** l'appel de transmission), derrière
+  `IFacturXBuilder`, déclenchée par la capacité **`SupportsFacturXTransmission`** de la PA active (cf. §6.1).
+  ⚠️ **PAS dans `FinalizeIssuedAsync`** : cette méthode s'exécute en aval (après le retour `Issued`) et ne
+  fait que l'archive WORM + `MarkIssued` + purge ; y générer le Factur-X le produirait **après** la
+  transmission (artefact jamais transmis / faux-vert). `FinalizeIssuedAsync` ne porte que la **journalisation
+  FX06**. Le plug-in reçoit l'artefact **déjà construit** (contrat étendu, §6.1), il ne le génère jamais.
 - **Journalisation de l'envoi (FX06)** — sur F06 `document_events` **append-only** : ajouter le **compte /
   plug-in PA** (colonne explicite — aujourd'hui non tracé), les **horodatages** requête/réponse, le **hash**
   de l'artefact transmis, la **réponse PA**, et la clé d'idempotence recherchable. **Aucun chemin
