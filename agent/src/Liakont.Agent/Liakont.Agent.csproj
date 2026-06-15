@@ -17,6 +17,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Liakont.Agent.Core\Liakont.Agent.Core.csproj" />
+    <!-- Réutilise la composition du cycle de run (AGT02, ADR-0023) hébergée par le CLI (composition
+         root partagé), comme l'installeur réutilise les sondes du CLI (OPS08b) — aucune duplication. -->
+    <ProjectReference Include="..\Liakont.Agent.Cli\Liakont.Agent.Cli.csproj" />
   </ItemGroup>
 
 </Project>

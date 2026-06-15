@@ -3,10 +3,15 @@ namespace Liakont.Agent.Cli;
 using System;
 using System.IO;
 using System.Text;
+using System.Threading;
 using Liakont.Agent.Cli.Commands;
 using Liakont.Agent.Cli.Diagnostics;
+using Liakont.Agent.Cli.Hosting;
 using Liakont.Agent.Core;
+using Liakont.Agent.Core.Configuration;
+using Liakont.Agent.Core.Logging;
 using Liakont.Agent.Core.Security;
+using Liakont.Agent.Core.Time;
 
 /// <summary>
 /// CLI de diagnostic et de mise en service de l'agent (F12 §2.1, AGT05) : check-config, test-odbc,
@@ -65,7 +70,7 @@ internal static class Program
             new TestOdbcCommand(configPath, protector, OdbcProbe.Probe),
             new TestApiCommand(configPath, protector, HttpPlatformProbe.Probe),
             new EncryptCommand(protector, Console.In),
-            new RunCommand(NeutralRunCycle, instance.RunMutexName, RunLockAcquireTimeout),
+            new RunCommand(RealRunCycle, instance.RunMutexName, RunLockAcquireTimeout),
             new ShowQueueCommand(() => LocalQueueSnapshotReader.Read(AgentPaths.DatabasePath)),
             new VersionCommand(),
         };
@@ -73,12 +78,30 @@ internal static class Program
         return new CommandRouter(commands);
     }
 
-    // Cycle de run NEUTRE tant qu'AGT02 n'a pas câblé l'extraction/le push (même seam que
-    // AgentHost.Create côté service). La commande `run` porte ici la sérialisation par verrou partagé
-    // et le rapport ; le contenu réel du cycle sera injecté avec AGT02.
-    private static bool NeutralRunCycle(TextWriter output)
+    // Cycle de run RÉEL (AGT02, ADR-0023) : compose extraction → push depuis agent.json et l'exécute une
+    // fois (même composition que le service via AgentRunComposition). La commande `run` porte la
+    // sérialisation par verrou partagé avec le service et le rapport ; une config invalide bloque (n°3).
+    private static bool RealRunCycle(TextWriter output)
     {
-        output.WriteLine("Extraction non encore câblée dans cette version (fournie par AGT02) — aucun document traité.");
+        var log = new FileAgentLog(AgentPaths.LogDirectory, new SystemClock());
+        ComposedRunCycle composed;
+        try
+        {
+            composed = AgentRunComposition.Build(log);
+        }
+        catch (AgentConfigException ex)
+        {
+            output.WriteLine(CliFormat.Fail("Configuration de l'agent invalide : " + ex.Message));
+            return false;
+        }
+
+        using (composed)
+        {
+            output.WriteLine("Extraction de la source puis push vers la plateforme…");
+            composed.Cycle.Run(CancellationToken.None);
+        }
+
+        output.WriteLine("Run terminé. Vérifiez l'état avec « show-queue » et la console de la plateforme.");
         return true;
     }
 

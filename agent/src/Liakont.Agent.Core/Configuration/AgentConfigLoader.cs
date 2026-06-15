@@ -2,6 +2,7 @@ namespace Liakont.Agent.Core.Configuration;
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json;
@@ -100,7 +101,34 @@ public static class AgentConfigLoader
             dto.PlatformUrl!.Trim(),
             dto.ApiKey!.Trim(),
             extraction!,
-            heartbeatMinutes);
+            heartbeatMinutes,
+            BuildAdapterConfig(dto.AdapterConfig));
+    }
+
+    // Transporte la section adapterConfig (ADR-0023) SANS connaître les champs d'un adaptateur : un
+    // dictionnaire nom d'adaptateur → (clé → valeur), toutes les clés insensibles à la casse. La
+    // validation (champs requis, valeurs autorisées) est déléguée à la fabrique de chaque adaptateur.
+    private static Dictionary<string, AdapterConfigSection> BuildAdapterConfig(
+        Dictionary<string, Dictionary<string, string>>? raw)
+    {
+        var result = new Dictionary<string, AdapterConfigSection>(StringComparer.OrdinalIgnoreCase);
+        if (raw is null)
+        {
+            return result;
+        }
+
+        foreach (KeyValuePair<string, Dictionary<string, string>> entry in raw)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Key) || entry.Value is null)
+            {
+                continue;
+            }
+
+            var values = new Dictionary<string, string>(entry.Value, StringComparer.OrdinalIgnoreCase);
+            result[entry.Key] = new AdapterConfigSection(entry.Key, values);
+        }
+
+        return result;
     }
 
     private static ExtractionConfig? ValidateExtraction(ExtractionJson? extraction, List<string> errors)
@@ -132,6 +160,25 @@ public static class AgentConfigLoader
             }
         }
 
+        DateTime? extractFromUtc = null;
+        if (!string.IsNullOrWhiteSpace(extraction.ExtractFromUtc))
+        {
+            if (DateTime.TryParse(
+                    extraction.ExtractFromUtc,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
+                    out DateTime parsed))
+            {
+                extractFromUtc = parsed;
+            }
+            else
+            {
+                errors.Add(
+                    $"Le champ « extraction.extractFromUtc » (« {extraction.ExtractFromUtc} ») n'est pas une date/heure "
+                    + "ISO 8601 valide (ex. 2026-01-01T00:00:00Z).");
+            }
+        }
+
         if (string.IsNullOrWhiteSpace(extraction.Adapter))
         {
             return null;
@@ -143,7 +190,8 @@ public static class AgentConfigLoader
             string.IsNullOrWhiteSpace(extraction.PdfPoolPath) ? null : extraction.PdfPoolPath!.Trim(),
             schedule,
             extraction.CatchUpOnStart ?? false,
-            string.IsNullOrWhiteSpace(extraction.FixturesPath) ? null : extraction.FixturesPath!.Trim());
+            string.IsNullOrWhiteSpace(extraction.FixturesPath) ? null : extraction.FixturesPath!.Trim(),
+            extractFromUtc);
     }
 
     // HTTPS sortant uniquement (F12 §2.6) : la clé API (header X-Agent-Key) et les payloads fiscaux
@@ -174,6 +222,11 @@ public static class AgentConfigLoader
 
         [JsonProperty("heartbeatMinutes")]
         public int? HeartbeatMinutes { get; set; }
+
+        // Section adapterConfig (ADR-0023) : nom d'adaptateur → (clé → valeur, chaînes). Transportée
+        // telle quelle ; les champs propres à un adaptateur sont validés par sa fabrique, pas ici.
+        [JsonProperty("adapterConfig")]
+        public Dictionary<string, Dictionary<string, string>>? AdapterConfig { get; set; }
     }
 
     private sealed class ExtractionJson
@@ -195,5 +248,8 @@ public static class AgentConfigLoader
 
         [JsonProperty("catchUpOnStart")]
         public bool? CatchUpOnStart { get; set; }
+
+        [JsonProperty("extractFromUtc")]
+        public string? ExtractFromUtc { get; set; }
     }
 }

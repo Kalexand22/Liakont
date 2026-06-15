@@ -193,4 +193,74 @@ public class AgentConfigLoaderTests
         act.Should().Throw<AgentConfigException>()
             .Which.Errors.Count.Should().BeGreaterThan(1);
     }
+
+    [Fact]
+    public void Adapter_config_section_is_parsed_and_keys_are_case_insensitive()
+    {
+        const string json = @"{
+  ""platformUrl"": ""https://x.fr"",
+  ""apiKey"": ""k"",
+  ""extraction"": { ""adapter"": ""DemoErpA"" },
+  ""adapterConfig"": {
+    ""DemoErpA"": { ""emitterSiren"": ""123456782"", ""operationCategory"": ""LivraisonBiens"" }
+  }
+}";
+
+        AgentConfig config = AgentConfigLoader.Parse(json, "agent.json");
+
+        AdapterConfigSection section = config.GetAdapterConfig("DemoErpA");
+        section.GetRequired("emitterSiren").Should().Be("123456782");
+        section.GetOptional("OPERATIONCATEGORY").Should().Be("LivraisonBiens");
+        section.GetOptional("inconnu").Should().BeNull();
+    }
+
+    [Fact]
+    public void Adapter_config_section_is_resolved_by_name_case_insensitively()
+    {
+        const string json = @"{ ""platformUrl"": ""https://x.fr"", ""apiKey"": ""k"", ""extraction"": { ""adapter"": ""DemoErpB"" }, ""adapterConfig"": { ""DemoErpB"": { ""emitterSiren"": ""123456782"" } } }";
+
+        AgentConfig config = AgentConfigLoader.Parse(json, "agent.json");
+
+        config.GetAdapterConfig("demoerpb").GetRequired("emitterSiren").Should().Be("123456782");
+    }
+
+    [Fact]
+    public void Missing_adapter_config_section_yields_an_empty_section()
+    {
+        // ValidJson ne porte aucun bloc adapterConfig : la section doit être vide, pas nulle.
+        AgentConfig config = AgentConfigLoader.Parse(ValidJson, "agent.json");
+
+        config.GetAdapterConfig("EncheresV6").GetOptional("emitterSiren").Should().BeNull();
+    }
+
+    [Fact]
+    public void Required_adapter_config_value_throws_french_message_when_absent()
+    {
+        AgentConfig config = AgentConfigLoader.Parse(ValidJson, "agent.json");
+
+        Action act = () => config.GetAdapterConfig("EncheresV6").GetRequired("emitterSiren");
+
+        act.Should().Throw<AgentConfigException>()
+            .Which.Message.Should().Contain("adapterConfig.EncheresV6.emitterSiren");
+    }
+
+    [Fact]
+    public void Extract_from_utc_is_parsed_when_present()
+    {
+        const string json = @"{ ""platformUrl"": ""https://x.fr"", ""apiKey"": ""k"", ""extraction"": { ""adapter"": ""DemoErpA"", ""extractFromUtc"": ""2026-01-01T00:00:00Z"" } }";
+
+        AgentConfig config = AgentConfigLoader.Parse(json, "agent.json");
+
+        config.Extraction.ExtractFromUtc.Should().Be(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+    }
+
+    [Fact]
+    public void Invalid_extract_from_utc_is_reported()
+    {
+        const string json = @"{ ""platformUrl"": ""https://x.fr"", ""apiKey"": ""k"", ""extraction"": { ""adapter"": ""DemoErpA"", ""extractFromUtc"": ""pas-une-date"" } }";
+
+        Action act = () => AgentConfigLoader.Parse(json, "agent.json");
+
+        act.Should().Throw<AgentConfigException>().Which.Errors.Should().Contain(e => e.Contains("extractFromUtc"));
+    }
 }

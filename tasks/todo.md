@@ -1,73 +1,102 @@
-# Lot FACTURX — Génération Factur-X + PA générique (niveau Essentiel)
+# TODO — Démo extraction réelle bout-en-bout : 2 bases SQL + 2 adaptateurs + AGT02 + install multi-services
 
-Demande Karl (2026-06-15, session interactive). Le Factur-X devient le document que Liakont
-**génère** et **transmet** au niveau de service « Essentiel », via une **nouvelle PA générique**.
-Routé via l'orchestration : segment `facturx`, manifest v25, PR #49. Spec F16 + ADR-0023 (Accepté).
+> Objectif (interactif, human-driven) : prouver l'extraction réelle d'un agent installé.
+> Deux bases SQL Server de schémas différents → deux adaptateurs ODBC → le service agent
+> extrait et pousse les factures vers la plateforme locale, qui les fait remonter en console.
+> Qualité produit (branche dédiée, tests, ADR, codex-review). Fait avancer **AGT02**.
+> Branche : `feat/agt02-demo-extraction` (depuis origin/main). ADR : ADR-0023.
 
-## Décisions tranchées (Karl, 2026-06-15)
-- **Factur-X généré côté Liakont**, profil **EN 16931 / COMFORT** (EXTENDED-CTC-FR en suivi).
-- **On ne touche à RIEN de l'existant.** Les plug-ins API (Super PDP, B2Brouter) = cœur du **Pilotage**, inchangés.
-- **On ajoute une « PA générique »** : transmet le Factur-X par **email** (pièce jointe MIME) ou **dépôt de fichier** (niveau **Essentiel**).
-- **Exutoire = trace de support** : copie du Factur-X transmis gardée ~quelques mois puis purgeable, **tenant-scopée** (n°9).
-  **SÉPARÉE de la piste d'audit WORM** : `document_events` (F06) reste append-only, aucune purge.
-- **Conformité PDF/A-3** : assertions structurelles en CI rapide + **veraPDF + Mustangproject** (conteneur) au tier intégration ; + test **visuel↔XML**.
-- **CII = sérialiseur maison** ; scellement = **QuestPDF** (déjà au repo, pas de nouveau package).
+## Décisions de conception (voir ADR-0023)
 
-## Constat de départ (vérifié)
-- Liakont ne génère ni CII ni PDF/A-3 ; la conversion EN 16931→CII est déléguée au `convert` de Super PDP (PA-spécifique).
-- Blueprint §6 : la génération ne dépend d'aucun plug-in PA → **sérialiseur CII maison** obligatoire ; un plug-in PA ne référence que `Transmission.Contracts`.
-- Journalisation F06 déjà solide (payload + réponse PA + horodatage + ID PA, append-only). Manque : compte/plug-in PA explicite, granularité par envoi, et l'artefact réellement transmis.
-- ⚠️ **Ancrage** : `SendTenantJob.FinalizeIssuedAsync` s'exécute APRÈS la transmission (aval : archive/MarkIssued/purge). La génération doit se faire à l'étape **Sending** (`SendReadyAsync`, avant `SendDocumentAsync`).
+- D1 tenant unique `default` (SIREN 123456782, mapping {20,10,5.5,0}→{S,AA,AA,Z}, PA Fake Staging).
+- D2 canal `adapterConfig.<nom>` dans agent.json (loader générique, fabrique valide sa section).
+- D3 câblage AgentRunCycle au composition root du service (remplace le cycle vide).
+- D4 DemoErpA (decimal, normalisé, FAC/AVO) + DemoErpB (float legacy, dénormalisé, I/C).
+- D5 emitterSiren/operationCategory en adapterConfig (≠ source).
+- D6 données fictives sous deployments/demo-local/ (règle n°7).
+- D7 cas connus : simple(20) · multi-mixte(20+10+5.5) · taux 0 · avoir → facture · 1 régime NON mappé → Blocked.
+- D8 numéros auto re-jouables ; SourceReference namespacé par adaptateur.
+- D9 adaptateurs démo embarqués, marqués démo.
+- D10 login SQL dédié lecture seule (db_datareader), ODBC Driver 17, UID/PWD chiffré DPAPI.
 
-## Plan (items — lot FACTURX)
+## Phases
 
-### FX00 — Spike + ADR-0023 (génération Factur-X)  [FAIT — ADR Accepté 2026-06-15]
-- [x] Spike libs : QuestPDF (déjà au repo) fait PDF/A-3b + AddAttachment + XMP nativement → pas de nouveau package de scellement.
-- [x] Décisions : scellement = QuestPDF ; CII = sérialiseur maison ; validation = veraPDF + Mustangproject (Docker, tier intégration), bloquant.
-- [x] `docs/adr/ADR-0023-generation-facturx-pdfa3-cii.md` (Accepté). (Bump QuestPDF → FX02 ; garde-fou Alpine/musl → ADR §5.)
+### Phase 0 — Cadrage
+- [x] Branche `feat/agt02-demo-extraction` depuis origin/main
+- [x] ADR-0023 (câblage run cycle + canal adapterConfig)
 
-### FX01 — Spec F16 + artefacts de validation FR  [F16 FAIT]
-- [x] `docs/conception/F16-FacturX-Generation.md` + entrée d'index.
-- [ ] Récupérer Schematron CEN/TC 434 + artefacts FNFE-MPE (BR-FR-*) dans `docs/references/` (action A4 de l'index).
+### Phase 1 — Infra SQL de démo (aucun code produit) — DONE
+- [x] deployments/demo-local/01-create-databases.sql (2 bases + login ro)
+- [x] 02-schema-erpA.sql / 03-schema-erpB.sql
+- [x] 04-seed-erpA.sql / 05-seed-erpB.sql (re-jouables, numéros auto, cas connus)
+- [x] seed-demo.ps1 (wrapper sqlcmd) + README.md
+- [x] Gate : test-odbc connecte les 2 bases (ErpA 6 fact/8 lignes, ErpB 6 inv/8 items ; écriture refusée)
 
-### FX02 — Module plateforme FacturX
-- [ ] `src/Modules/FacturX/` (Contracts/Domain/Application/Infrastructure) + port `IFacturXBuilder`.
-- [ ] Bump QuestPDF 2024.12.3 → ≥ 2025.7.4 (Directory.Packages.props) + MAJ du commentaire QuestPDF.
-- [ ] NetArchTest : QuestPDF référencée **uniquement** par `FacturX.Infrastructure` (INV-FX-1).
-- [ ] BoundaryTests : FacturX ne référence aucun plug-in PA ni `Transmission.Contracts`, ne lit aucune `PaCapabilities` (INV-FX-4).
+### Phase 2 — Canal adapterConfig (Core) — DONE
+- [x] AgentConfigLoader + DTO : parse adapterConfig (générique) + AdapterConfigSection + AgentConfig.GetAdapterConfig
+- [x] Tests unitaires Core (19/19, dont 4 adapterConfig)
+- [x] Gate : verify-fast vert (plateforme + agent x86/x64) — fix CA1859 (type retour concret)
 
-### FX03 — Sérialiseur EN 16931 → CII XML (maison)
-- [ ] Domain pur : pivot → CrossIndustryInvoice (EN 16931), `decimal` ; recopie qualitative (catégorie/taux/VATEX + BT-5 devise ; BT-146 PU absent → blocage) ; dérivation BG-23/BT-106/BT-115 + BR-CO-17 ; réconciliation BR-CO-14/15 ; **blocage** si non réconciliable (ne rien inventer).
-- [ ] Golden files couvrant la **matrice V1** : mono-taux, multi-taux, exonéré (VATEX), autoliquidation, criée mono-Seller.
-- [ ] Validation XSD CII + Schematron CEN/TC 434 sur chaque golden file.
+### Phase 3 — Deux adaptateurs ODBC (IExtractor) — DONE
+- [x] Helpers Core réutilisables : SourceAmounts (float→decimal), OdbcCellReader, SourceQuery, SourceQueryGuard, OdbcSourceConnectionFactory, SourceEmitterConfig
+- [x] Liakont.Agent.Adapters.DemoErpA (decimal, normalisé) + Liakont.Agent.Adapters.DemoErpB (float, dénormalisé)
+- [x] Tests unitaires mappers (5+4) + SourceAmounts/SourceEmitterConfig/SourceQueryGuard ; frontière étendue (AgentBoundaryTests)
+- [x] Intégration ODBC : convention agent = tests unitaires only (pas de vraie base en CI) → validation LIVE en Phase 6
+- [x] Gate : x86+x64 clean, Core 253/253, mappers verts
 
-### FX04 — Gabarit PDF + scellement PDF/A-3
-- [ ] Rendu visuel depuis le pivot (réutiliser `ArchiveReadableDocument`).
-- [ ] Sceller via **QuestPDF** : PDFA_3B + `AddAttachment` relation **`Alternative`** (choix d'interopérabilité, ADR-0023 §3) + `ExtendMetadata` (XMP `fx:`) — isolé derrière `IFacturXBuilder`.
-- [ ] Tests : assertions structurelles en CI + **veraPDF + Mustangproject** (conteneur) au tier intégration + **test de cohérence visuel↔XML** (pas de faux vert).
+### Phase 4 — Câblage du cycle de run (AGT02) — DONE
+- [x] EmbeddedSourceAdapters étendu (noms + CreateConfigured DemoErpA/B) + extractFromUtc (config+AgentRunCycle)
+- [x] AgentRunComposition (Cli/Hosting) partagé service ⇄ CLI run ; AgentHost compose le vrai cycle (repli neutre si config invalide)
+- [x] RunCommand câblé sur la composition réelle ; service référence le CLI
+- [x] Tests : extractFromUtc (cycle + config) + tous existants ; Gate verify-fast VERT (plateforme + agent x86/x64)
 
-### FXG — Plug-in « PA générique » (Factur-X par email / dépôt de fichier)
-- [ ] `src/PaClients/Liakont.PaClients.Generique/` (nom à confirmer) ; ne référence que `Transmission.Contracts` (ni MailKit ni Notification ni FacturX).
-- [ ] `SupportsFacturXTransmission` ajoutée au **record `PaCapabilities` ET à l'enum miroir `PaCapability`**.
-- [ ] Abstraction `IDocumentDeliveryChannel` (Transmission.Contracts), implémentée au Host :
-  - email = **MIME avec pièce jointe** (MimeKit/MailKit Host-only ; `IEmailTransport` socle non réutilisé/non modifié, n°11/20) ; destinataire = boîte PA du tenant ;
-  - dépôt de fichier (dossier/montage par tenant ; SFTP = fast-follow + ADR SSH.NET).
-- [ ] Reçoit le Factur-X **pré-construit** (contrat IPaClient étendu, FX07) ; ne régénère jamais.
-- [ ] **Secrets chiffrés** par tenant (SMTP/SFTP) — jamais en clair (n°10/18). **Existant inchangé**.
+### Phase 5 — Agents + install des 2 services — DONE
+- [x] 2 clés API émises (POST /api/v1/agents via token parametrage ; directAccessGrants Keycloak activé puis RÉVERTÉ ; pièges : reset mdp + purge requiredActions TOTP + purge brute-force)
+- [x] agent.json des 2 instances (C:\ProgramData\Liakont\<instance>\) : secrets DPAPI + adapterConfig + extractFromUtc
+- [x] check-config + test-odbc + test-api (clé réelle ACCEPTÉE) OK
+- [x] Script install-services.ps1 prêt (vrais services Windows — session non élevée → clé en main ; extraction prouvée via CLI run = MÊME composition)
 
-### FX06 — Journalisation envoi + trace de support
-- [ ] F06 `document_events` **append-only** : compte/plug-in PA, horodatages, hash de l'artefact, réponse, clé d'idempotence — **ADD COLUMN nullable (nouvelle migration, modèle V009), AUCUN backfill UPDATE** (piège trigger append-only). Aucun update/delete.
-- [ ] **Trace de support** (store dédié, rétention ~90j configurable, purge OK car NON-audit) : copie du Factur-X transmis, **tenant-scopée (n°9)**, protégée au repos. Distincte du WORM et de l'archive probante (Pilotage).
+### Phase 6 — Vérif bout-en-bout + review
+- [x] CLI run ×2 : 6 docs/instance extraits+poussés ; réconciliation 2-temps (6 acquittés) ; idempotence (re-run 0)
+- [x] Plateforme : 12 documents, 8 ReadyToSend + 4 Blocked (avoirs + régime 13) — cas connus confirmés
+- [x] Correctif bug ODBC 22008 (DateTime infra-seconde → troncature seconde) + test
+- [x] codex-review : round 3 CLEAN (rounds 1+2 = 9 P2 corrigés, 0 P1 sur 3 rounds)
+- [x] Section Review (ci-dessous)
 
-### FX07 — Intégration pipeline + gate
-- [ ] Génération à l'étape **Sending** (`SendReadyAsync`, avant `SendDocumentAsync`), pilotée par capacité ; **PAS** dans `FinalizeIssuedAsync`.
-- [ ] **Étendre le contrat `IPaClient`** (Transmission.Contracts) pour porter l'artefact pré-construit (p. ex. `PaSendContext`) : existants l'ignorent, générique l'exige (absent → blocage).
-- [ ] Gate FACTURX : recette bout-en-bout (B2C → Factur-X → email/dépôt → journalisé + trace support → veraPDF/Mustang + visuel↔XML + matrice).
-
-## Points mineurs à confirmer
-- Store de support : filesystem ? Durée de rétention exacte (proposition : 90 jours, configurable) ?
-- Nom du plug-in générique (`Generique` / `FacturXMail` / autre).
-- Forme exacte de l'extension du contrat `IPaClient` (paramètre optionnel vs `PaSendContext`).
+## Vigilance
+- Pas de categoryCode/vatexCode côté agent (P1). decimal partout (P1). Lecture seule stricte (P1).
+- Plateforme cible = Host clone voisin Liakont4 (localhost:55996) — ne pas perturber.
+- Service en LocalSystem : login SQL dédié évite la dépendance d'identité.
 
 ## Review
-_(à compléter en fin de lot)_
+
+### codex round 1 — 0 P1, 5 P2 (tous corrigés)
+- **P2-1** (crash-loop SCM) : `AgentRunComposition.Build` traduit les échecs de déchiffrement DPAPI
+  (`Cryptographic/FormatException`, agent.json d'une autre machine) en `AgentConfigException` → le
+  service/CLI bascule en cycle neutre journalisé au lieu de planter.
+- **P2-2** (stall sur 1 doc malformé) : `DemoErp*Extractor.TryMapDocument` met en QUARANTAINE (journalisé)
+  un document à `SourceSchemaException` et poursuit la fenêtre (le filigrane avance). Journal cascadé
+  extracteur ← fabrique ← `CreateConfigured` ← `Build`. Testé.
+- **P2-3** (verrou de run non partagé) : `AgentHost` fait acquérir au cycle du service le MÊME
+  `InterProcessRunLock` (mutex par instance) que la commande CLI `run` ; verrou détenu → cycle sauté.
+- **P2-4** (regroupement streaming non testé) : `DemoErpAExtractorTests` éprouve `ExtractDocuments` avec
+  un `IDataReader` factice (multi-lignes, facture sans ligne, avoir+origine, quarantaine).
+- **P2-5** (faux-vert `sc start`) : `install-services.ps1` vérifie `$LASTEXITCODE` de `install`/`sc start`
+  + attend l'état `Running`.
+- Écarté par le reviewer (pas un P1) : les `float` de DemoErpB sont le reflet brut d'une base legacy,
+  convertis decimal half-up à la frontière (`SourceAmounts`/`PivotRounding`) — aucun calcul flottant.
+
+### codex round 2 — 0 P1, 4 P2 (tous corrigés)
+- **AgentHost** : capture désormais TOUT échec de composition (pas que `AgentConfigException` — file SQLite
+  corrompue, URL invalide…) → cycle neutre journalisé (anti crash-loop). + fuite httpClient colmatée dans `Build`.
+- **DemoErpBExtractorTests** ajouté (miroir de A) ; fakes ADO extraits dans `agent/tests/_shared/FakeAdoStack.cs`
+  (lié dans les 2 projets, non dupliqué).
+- **Schémas démo** : contrainte UNIQUE sur `numero`/`InvoiceNo` (l'auto-jointure d'origine suppose l'unicité).
+- **install-services.ps1** : `Write-Error`→`Write-Warning` (sous `ErrorActionPreference=Stop`, Write-Error
+  était terminant → avortait tout) + code 1056 (service déjà lancé) toléré.
+
+### État final
+- verify-fast vert (plateforme + agent x86/x64, tous tests). Re-validation live : 24 documents avec binaires corrigés.
+- Bout-en-bout prouvé : depuis 2 bases SQL / 2 adaptateurs → 16 ReadyToSend + 8 Blocked (cas connus).
+- **Reste à l'humain** : revue + merge (le commit/merge n'est pas fait par l'agent). Vrais services
+  Windows : `deployments/demo-local/install-services.ps1` (console élevée).

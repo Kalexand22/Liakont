@@ -1,0 +1,5 @@
+# Secrets locaux générés au runtime — JAMAIS versionnés (CLAUDE.md n°10).
+# Contient le mot de passe du login SQL lecture seule + les chaînes ODBC de démo.
+.secrets.local.json
+# Clés API d'agent (one-time) émises par la plateforme pour la démo locale.
+.agent-keys.local.json
