@@ -1,0 +1,266 @@
+# Lot MND — Module `Mandats` & autofacturation sous mandat (capacité A : émission 389)
+# Spec : docs/conception/F15-Autofacturation-Mandat.md (§2 module Mandats, §3 BT-1 hybride, §4 criée)
+# ADR : ADR-0022 (module Mandats, mandant tiers de première classe) + ses 3 ADR-filles :
+#   - ADR-0024 (workflow d'acceptation, agrégat SelfBilledAcceptance + port ISelfBilledGate)
+#   - ADR-0025 (allocation BT-1 hybride par mandant + re-clé anti-doublon F06 §4)
+#   - ADR-0026 (capacité B réception/IPaInboundClient) = ESQUISSE phase 2, **HORS de ce lot**
+# Branche : feat/autofacturation (segment `autofacturation`, base main). depends_on_gate GATE_PIPELINE
+#   (le port ISelfBilledGate est interrogé par le pipeline avant envoi ; la re-clé F06 touche
+#   DuplicateCheckRequest du module Documents — tous deux sur main au merge de GATE_PIPELINE).
+# Modules : nouveau `Liakont.Modules.Mandats` (schéma `mandats`, base DU tenant, database-per-tenant) ;
+#   touche `Documents`/`Pipeline` uniquement par leurs Contracts (frontière NetArchTest, CLAUDE.md n°6).
+#
+# RÈGLES NON NÉGOCIABLES (rappel) — toutes déjà gravées dans les ADR :
+#   - Montants/séquences : NextValue en bigint, JAMAIS float (CLAUDE.md n°1) ; le mandat ne porte aucun montant.
+#   - Aucune règle fiscale inventée (CLAUDE.md n°2) : tout vient de F15/ADR. Les points F15 §6 NON TRANCHÉS
+#     (valeur du délai §6.4, articulation de l'avoir 261 §6.5, statut d'assujettissement) restent paramétrage
+#     tenant / décision EC — un item qui les rencontre BLOQUE, il ne devine pas.
+#   - Bloquer plutôt qu'émettre faux (n°3) : null = suspendu, jamais un défaut ; garde 389 SUBSTITUÉE, pas affaiblie.
+#   - Journaux append-only immuables par trigger base (n°4) : mandat_change_log + self_billed_acceptance_log,
+#     UPDATE/DELETE/TRUNCATE rejetés, message FR citant CLAUDE.md n°4.
+#   - Tout tenant-scopé (n°9) : ICompanyFilter.GetRequiredCompanyId, company_id NOT NULL sur les journaux ;
+#     un mandant n'est JAMAIS un sous-tenant ni lu en cross-tenant (ADR-0022 §2, INV-MANDATS-1).
+#   - Aucune donnée client dans le code (n°7) : mandants/préfixes/n° TVA réels = paramétrage tenant ou
+#     deployments/<client>/ ; seuls exemples FICTIFS dans config/exemples/.
+#   - L'agent n'a AUCUNE logique Mandat (INV-MANDATS-2).
+
+items:
+  MND01:
+    title: "Module Mandats : schéma `mandats` + agrégats Mandant/Mandat + journal `mandat_change_log` append-only (gabarit TvaMapping)"
+    description: |
+      Créer src/Modules/Mandats/ (pattern Stratum : Contracts/Domain/Application/Infrastructure/Web +
+      MODULE.md/INVARIANTS.md) selon ADR-0022 et F15 §2.1/§2.2/§2.4. C'est la FONDATION du lot —
+      aucune décision fiscale, structure seulement.
+      1. Schéma PostgreSQL `mandats` (migrations DbUp, base DU tenant), modèle de F15 §2.2 :
+         - Mandant : clé (company_id, reference) ; RaisonSociale, SellerVatNumber (BT-31, nullable),
+           Siren, NumberingPrefix (paramétrage). Tiers récurrent tenant-scopé (forte volumétrie :
+           dizaines de milliers par tenant — ADR-0022 « À la charge », F01-F02 R8 : dimensionner
+           le registre et l'import dès la conception).
+         - Mandat : clé (company_id, mandant_id, reference) ; ClauseText, EstEcrit (écrit/tacite, §1.5),
+           AssujettissementStatus? (null = suspendu), ContestationDelay? (null = tacite impossible),
+           ValidatedBy/ValidatedDate, RevokedDate. Calqué sur MappingTable (gabarit TvaMapping FORT).
+      2. Gabarit TvaMapping (ADR-0022 §3) : validation humaine explicite (ValidatedBy/Date),
+         Invalidate() à CHAQUE mutation (→ autofacturation 389 suspendue jusqu'à revalidation),
+         mutation + entrée `mandat_change_log` écrites dans la MÊME transaction.
+      3. `mandat_change_log` APPEND-ONLY immuable par double trigger base (BEFORE UPDATE OR DELETE,
+         BEFORE TRUNCATE rejetés ; gabarit mapping_change_log), message FR citant CLAUDE.md n°4.
+         company_id NOT NULL. AUCUN chemin update/delete côté repository ni base (INV-MANDATS-3).
+      4. Suspendu-par-défaut (gabarit FeeImputationMethod, ADR-0022 §4 / INV-MANDATS-4) :
+         AssujettissementStatus null OU ContestationDelay null OU mandat non validé/révoqué
+         ⇒ 389 SUSPENDU. JAMAIS un défaut inventé.
+      5. Frontière : Mandats exposé aux autres modules UNIQUEMENT par ses Contracts (NetArchTest,
+         CLAUDE.md n°6) ; tenant-scoping strict par ICompanyFilter.GetRequiredCompanyId dans chaque
+         handler. Aucune logique Mandat dans l'agent (INV-MANDATS-2).
+      6. Aucune donnée client dans le code (n°7 / INV-MANDATS-5) : seuls exemples fictifs dans
+         config/exemples/ ; mandants/préfixes/n° TVA réels = paramétrage tenant ou deployments/<client>/.
+    acceptance:
+      - "Module Liakont.Modules.Mandats créé (Contracts/Domain/Application/Infrastructure/Web + MODULE.md/INVARIANTS.md)"
+      - "Schéma `mandats` (DbUp, base tenant) : Mandant + Mandat aux clés et champs de F15 §2.2 ; NextValue absent ici (MandatSequence = MND05)"
+      - "mandat_change_log append-only : UPDATE/DELETE/TRUNCATE rejetés côté repository ET base (double trigger), vérifié par test d'intégration"
+      - "Mutation + entrée de journal dans la MÊME transaction (gabarit TvaMapping) ; Invalidate() à chaque mutation (test)"
+      - "null (AssujettissementStatus / ContestationDelay) ou mandat non validé/révoqué ⇒ 389 suspendu, aucun défaut inventé (test)"
+      - "Frontière NetArchTest : Mandats accédé par Contracts seulement ; tenant-scoping prouvé sur ≥ 2 bases tenant"
+      - "Aucune donnée client réelle (code + fixtures) ; exemples fictifs uniquement (config/exemples/)"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts (Testcontainers PostgreSQL), pas seulement écrits : append-only UPDATE/DELETE/TRUNCATE rejetés + tenant-scoping ≥ 2 bases"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  MND02:
+    title: "SelfBilledAcceptance : agrégat distinct + machine fermée + journal `self_billed_acceptance_log` append-only en transaction (ADR-0024 §1/§2/§6)"
+    description: |
+      Implémenter l'agrégat d'acceptation dans src/Modules/Mandats/ selon ADR-0024 et F15 §2.2/§2.3.
+      L'acceptation est ORTHOGONALE à l'émission : on N'ÉTEND PAS DocumentState (cela est traité en MND03).
+      1. SelfBilledAcceptance : clé (company_id, document_id) ; State, AllocatedNumber, PendingSince,
+         DeadlineUtc? (F15 §2.2). État MUTABLE (écrasé à chaque transition) — la traçabilité vient du journal.
+      2. Machine d'état FERMÉE (ADR-0024 §2, INV-ACCEPT-4) :
+         PendingAcceptance → { Accepted, TacitlyAccepted, Contested }.
+         - PendingAcceptance : état initial à la création d'un document self-billed.
+         - Accepted : acceptation EXPRESSE (opérateur/mandant).
+         - TacitlyAccepted : bascule automatique par job (MND04), uniquement sous mandat écrit.
+         - Contested : contestation dans le délai → correction par avoir + nouvelle facture (jamais un
+           retour arrière d'état). AUCUNE transition hors de ce graphe (test produit cartésien) ;
+           aucun retour depuis un état terminal.
+      3. Journal `self_billed_acceptance_log` APPEND-ONLY (INV-ACCEPT-5 / INV-MANDATS-3) : CHAQUE
+         transition d'état écrit une ligne de journal dans la MÊME transaction que la mutation
+         (UoW sur le moule PostgresTvaMappingUnitOfWork/TransactionScope). Immuable par trigger base
+         (UPDATE/DELETE/TRUNCATE rejetés), company_id NOT NULL. « Pas de transition sans ligne de journal ».
+      4. PÉRIMÈTRE FISCAL : l'avoir de correction d'un Contested (BT-3 = 261) et sa ré-entrée dans le
+         cycle d'acceptation sont NON TRANCHÉS (F15 §6.5) — NE PAS les implémenter ici (ADR-0024 §5,
+         ADR-0025 « Limite »). Le 261 n'est pas dans ce lot.
+    acceptance:
+      - "SelfBilledAcceptance clé (company_id, document_id) avec State/AllocatedNumber/PendingSince/DeadlineUtc?"
+      - "Machine fermée PendingAcceptance → {Accepted, TacitlyAccepted, Contested} ; transition hors graphe rejetée (test produit cartésien) ; aucun retour depuis un terminal"
+      - "Chaque transition écrit une ligne self_billed_acceptance_log dans la MÊME transaction (test « pas de transition sans ligne de journal »)"
+      - "self_billed_acceptance_log append-only : UPDATE/DELETE/TRUNCATE rejetés (trigger base), company_id NOT NULL, tenant-scopé (≥ 2 bases)"
+      - "Aucune logique d'avoir 261 introduite (NON TRANCHÉ F15 §6.5)"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts (Testcontainers), pas seulement écrits : journal en MÊME transaction + append-only + tenant-scoping ≥ 2 bases"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  MND03:
+    title: "Port `ISelfBilledGate` + branchement pipeline avant envoi (réutilise DocumentState.Blocked via un motif, aucun nouvel état) (ADR-0024 §3)"
+    description: |
+      Coupler l'acceptation à l'émission par INVERSION DE DÉPENDANCE, selon ADR-0024 §3 et F15 §2.3.
+      1. Exposer ISelfBilledGate dans les Contracts du module Mandats. Le pipeline l'interroge AVANT
+         la transition vers l'envoi : si le document est self-billed et que son SelfBilledAcceptance
+         n'est PAS dans { Accepted, TacitlyAccepted }, l'émission est BLOQUÉE (INV-ACCEPT-2).
+      2. Le document est MAINTENU dans l'état `Blocked` EXISTANT de DocumentState (module Documents) —
+         nouveau MOTIF de blocage, AUCUN nouvel état ajouté à la machine d'émission (INV-ACCEPT-1).
+         Ne PAS étendre DocumentState (alternative explicitement rejetée par ADR-0024).
+      3. Frontière (CLAUDE.md n°6 / INV-MANDATS-2) : Documents/Pipeline ne dépendent QUE de
+         l'abstraction ISelfBilledGate, JAMAIS du module Mandats concret (NetArchTest). Le pipeline
+         doit pouvoir être testé avec un gate factice.
+      4. Le branchement se fait sur le point d'entrée Contracts du pipeline existant (le pipeline
+         arrive sur main par GATE_PIPELINE, base du segment).
+    acceptance:
+      - "ISelfBilledGate exposé par Mandats.Contracts ; le pipeline l'interroge avant l'envoi d'un document self-billed"
+      - "Document non accepté ({Accepted, TacitlyAccepted}) ⇒ maintenu Blocked (motif), jamais Sent (test : 389 PendingAcceptance/Contested → Blocked)"
+      - "Aucun nouvel état ajouté à DocumentState (vérifié)"
+      - "Frontière NetArchTest : Documents/Pipeline ne référencent que l'abstraction, jamais Mandats concret ; pipeline testable avec un gate factice"
+      - "Tests : gate ouvert/fermé selon l'état d'acceptation"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  MND04:
+    title: "`SelfBilledAcceptanceTenantJob` : bascule tacite via TenantJobRunner (SOL06), conditionnée au mandat écrit (ADR-0024 §4)"
+    description: |
+      Implémenter la bascule tacite PendingAcceptance → TacitlyAccepted, selon ADR-0024 §4 /
+      F15 §2.3/§3.3(iii), par un JOB MULTI-TENANT réutilisant TenantJobRunner (ADR-0006/0016, SOL06) —
+      JAMAIS une boucle maison ni un timer ad hoc (alternative rejetée par ADR-0024).
+      1. Le job ne bascule un document QUE si : Mandat.EstEcrit = true ET Mandat.ContestationDelay
+         non null ET now ≥ DeadlineUtc (= PendingSince + ContestationDelay) (INV-ACCEPT-3).
+      2. Si EstEcrit = false (mandat tacite) OU ContestationDelay null : bascule tacite IMPOSSIBLE —
+         seule une acceptation EXPRESSE débloque (sinon le document reste Blocked). Traduction directe
+         de F15 §1.5 / BOFiP §290 (acceptation expresse exigée sous mandat tacite — ne pas affaiblir,
+         CLAUDE.md n°2/3).
+      3. Structure (gabarit DailyAnchoring/Reconciliation de SOL06) : Trigger + FanOutHandler +
+         enregistrement Host. Isolation par tenant : l'échec d'un tenant n'affecte pas les autres
+         (INV-ACCEPT-6). Chaque bascule écrit sa ligne self_billed_acceptance_log (via MND02).
+    acceptance:
+      - "Bascule TacitlyAccepted UNIQUEMENT si EstEcrit=true ET ContestationDelay non null ET now ≥ DeadlineUtc (test produit cartésien tacite/écrit × délai null/non-null)"
+      - "Mandat tacite ou délai null ⇒ tacite impossible, seule l'acceptation expresse débloque (test)"
+      - "Job via TenantJobRunner (SOL06), aucun timer/boucle maison ; isolation par tenant (l'échec d'un tenant n'affecte pas les autres)"
+      - "Chaque bascule écrit une ligne self_billed_acceptance_log (réutilise MND02)"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts, pas seulement écrits : bascule conditionnée + isolation/scoping cross-tenant ≥ 2 bases"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  MND05:
+    title: "`MandatSequence` + allocateur get-or-create idempotent (verrou par mandant) + assignation du BT-1 fiscal hors payload hashé à l'émission (ADR-0025 §1/§2/§5)"
+    description: |
+      Implémenter la numérotation fiscale par mandant, selon ADR-0025 et F15 §3. C'EST L'HYBRIDE :
+      la clé d'idempotence interne (numéro source) ≠ le BT-1 fiscal (alloué par mandant).
+      1. MandatSequence : clé (company_id, mandant_id) ; Prefix, NextValue en BIGINT (JAMAIS float,
+         CLAUDE.md n°1 ; le mandat ne porte aucun montant). Racine/préfixe propre au mandataire
+         (Annexe 7 G1.42/G1.45 + BOFiP §130) = paramétrage tenant (valeur jamais en code).
+      2. Allocateur GET-OR-CREATE sur la clé source (SourceReference, déjà au pivot et déjà hashé) :
+         alloué une fois et mémorisé ; toute ré-extraction RELIT le même numéro, jamais ré-alloué
+         (INV-BT1-2). L'IDEMPOTENCE REMPLACE L'ATOMICITÉ (ADR-0025 §2) : allocation (schéma mandats)
+         et écriture document (schéma documents) = deux transactions non atomisables à travers la
+         frontière de module ; un crash entre les deux est rattrapé par relecture get-or-create,
+         sans double allocation.
+      3. Moment d'allocation : AU PLUS TARD, juste avant l'envoi, après Validation/acceptation
+         (ADR-0025 §5 / F15 §3.2 — minimise les trous : seuls les documents réellement émis consomment
+         un numéro). Verrou de séquence PAR MANDANT (jamais cross-tenant, n°9).
+      4. ADR-0007 PRÉSERVÉ (ADR-0025 §3 / INV-BT1-1) : NE PAS retirer Number du payload canonique pour
+         le 389 (pas de format conditionnel au flux). En 389, Number reste rempli par l'identifiant
+         source (SourceReference) ; le BT-1 fiscal alloué est une valeur SÉPARÉE, HORS du payload hashé,
+         assignée à l'émission. payload_hash IDENTIQUE au cas non-389 (round-trip canonique inchangé).
+      5. « Chronologique » ET « continue » (§1.4) = DEUX invariants distincts (ordre cohérent vs sans
+         trou) ; l'ordre n'est pas garanti sous allocation concurrente d'un même mandant (d'où le verrou).
+    acceptance:
+      - "MandatSequence clé (company_id, mandant_id), NextValue en bigint (jamais float) ; préfixe = paramétrage tenant, aucune valeur réelle en code"
+      - "Allocation idempotente : double appel get-or-create sur la même clé source → un seul numéro consommé (INV-BT1-2)"
+      - "Allocation au plus tard (avant envoi, après acceptation) ; verrou de séquence par mandant, jamais cross-tenant"
+      - "payload_hash identique au cas non-389 : round-trip canonique inchangé, aucune branche de format (INV-BT1-1, ADR-0007 préservé)"
+      - "BT-1 fiscal = valeur séparée hors payload hashé, assignée à l'émission"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts, pas seulement écrits : idempotence (double get-or-create → un seul numéro), verrou par mandant, round-trip canonique inchangé (bigint vérifié)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  MND06:
+    title: "Re-clé anti-doublon F06 §4 en 389 : champ `MandatId` additif + index d'unicité SQL `(tenant, mandant_id, document_number)` + garde d'ingestion 389 substituée (ADR-0025 §4/§6/§7)"
+    description: |
+      Basculer l'anti-doublon F06 §4 pour le cas 389, selon ADR-0025 (F06 §4 déjà amendé) et F15 §3.3.
+      La clé non-389 reste FIGÉE ; aucune régression sur les non-389.
+      1. Champ MandatId ADDITIF (nullable) dans DuplicateCheckRequest (Documents.Contracts,
+         Deduplication) : null = non-389 → clé historique (supplier_siren, document_number) INCHANGÉE.
+      2. En 389, la clé bascule vers (tenant, mandant_id, document_number) — le « supplier » fiscal
+         est le mandant. Le `document_number` de cette clé est le BT-1 FISCAL ALLOUÉ par mandant (MND05),
+         PAS le numéro source (F06 §4 amendé) : le pipeline peuple DuplicateCheckRequest.DocumentNumber
+         avec le BT-1 alloué. Cohérent avec le contrôle CTC plateforme (BT-1, BT-2, BT-30 = SIREN mandant,
+         Annexe 7 G1.42/G1.45) — ADR-0025 §7.
+      3. Bascule ATOMIQUE côté base par INDEX D'UNICITÉ SQL sur la clé 389 (INV-BT1-6) — JAMAIS une
+         simple « neutralisation du SIREN » applicative (qui ouvrirait une fenêtre de doublon sur un
+         389 en attente ré-extrait — alternative rejetée par ADR-0025). Migration F06 : l'index
+         historique reste pour les non-389.
+      4. Garde d'ingestion 389 SUBSTITUÉE, pas affaiblie (ADR-0025 §4 / F15 §3.3 / INV-BT1-3,
+         CLAUDE.md n°3) : en 389, exiger un identifiant source interne NON NUL à la place du Number ;
+         un 389 sans clé d'idempotence → REJET, jamais « laisser passer ».
+    acceptance:
+      - "MandatId additif nullable dans DuplicateCheckRequest ; null (non-389) ⇒ clé (supplier_siren, document_number) inchangée (aucune régression non-389, test)"
+      - "En 389, clé (tenant, mandant_id, document_number) où document_number = BT-1 fiscal alloué (MND05), portée par un index d'unicité SQL atomique (jamais neutralisation applicative du SIREN)"
+      - "Anti-doublon 389 (INV-BT1-5) : deux 389 même numéro / mandants différents → Send ; même mandant + ré-extraction → Blocked (tests cartésiens)"
+      - "Garde d'ingestion 389 substituée : 389 sans clé source NON NUL → rejet (substitution d'invariant, pas affaiblissement — INV-BT1-3)"
+      - "Migration F06 : index historique conservé pour les non-389"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts, pas seulement écrits : anti-doublon 389 (cartésien mandants/ré-extraction) ET non-389 (non-régression)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  MND07:
+    title: "Projection BT-3 = 389 (vendeur fiscal = mandant, émission par le tenant mandataire) dans le payload PA sortant — pilotée par IsSelfBilled/PaCapabilities (F15 §1.2 + ADR-0022/0024/0025)"
+    description: |
+      Maillon qui rend l'émission 389 RÉELLE de bout en bout. Le pivot porte DÉJÀ IsSelfBilled/Invoicer
+      (ADR-0004), mais AUCUN sérialiseur sortant ne projette aujourd'hui le type 389 ni la structure
+      mandant/mandataire vers la PA — sans cet item, GATE_AUTOFACTURATION (« part vers la PA ») n'est
+      pas exerçable (trou de couverture relevé à la revue du lot).
+      1. Dans la couche de mapping pivot → payload PA sortant (GÉNÉRIQUE, lue par tout sérialiseur PA) :
+         quand IsSelfBilled, projeter le type de document BT-3 = 389 (code sourcé F15 §1.2, socle DGFiP
+         V3.2) ; le vendeur fiscal = le MANDANT (BT-30 = SIREN du mandant, cf. ADR-0025 §7 ; n° TVA
+         mandant = BT-31, F15 §2.2), l'émission étant faite par le tenant mandataire AU NOM ET POUR LE
+         COMPTE du mandant (art. 289 I-2, ADR-0022). Le BT-1 du payload = le BT-1 fiscal alloué (MND05).
+      2. Piloté par CAPACITÉ déclarée du plug-in / IsSelfBilled, JAMAIS `if (pa is …)` ni flag produit
+         (CLAUDE.md n°8). Une PA dont la capacité ne couvre pas l'émission 389 → document BLOQUÉ avec
+         message opérateur FR (jamais émis en type erroné ni dégradé silencieusement en facture standard
+         — bloquer plutôt qu'envoyer faux, CLAUDE.md n°3).
+      3. NE RIEN INVENTER : le code 389 se trace en F15 §1.2 ; le mapping EN 16931 précis des parties
+         (Seller / Buyer / émetteur self-billed) se SOURCE dans F15 / EN 16931 — si un champ n'a pas de
+         source, BLOQUER l'item (CLAUDE.md n°2). Le routage fiscal du CONTENU (exonération criée 261-2-4°,
+         taxe de criée…) reste HORS périmètre (NON TRANCHÉ F15 §6).
+      4. Articulation segment `facturx` : si une PA émet via CII (sérialiseur FX03), cette projection
+         ALIMENTE le sérialiseur depuis le pivot (le pivot porte le 389) — pas de duplication ; la
+         projection restant au niveau pivot → sortant, AUCUNE dépendance inter-lots dure MND ↔ FX n'est
+         introduite (le sérialiseur lit le pivot quel qu'il soit).
+    acceptance:
+      - "Un document self-billed produit un payload PA de type BT-3 = 389 (F15 §1.2), vendeur fiscal = mandant (BT-30 = SIREN mandant, ADR-0025 §7), BT-1 = numéro fiscal alloué (MND05)"
+      - "Projection pilotée par capacité déclarée / IsSelfBilled, jamais if (pa is …) ni flag produit (NetArchTest + test de capacité)"
+      - "PA sans capacité d'émission 389 → document BLOQUÉ (message FR), jamais émis en type erroné ni dégradé en facture standard"
+      - "Aucun code fiscal inventé : 389 tracé F15 §1.2 ; mapping des parties sourcé F15/EN 16931 (sinon item bloqué)"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts, pas seulement écrits : émission 389 bout-en-bout vers une PA factice (type + parties + BT-1 alloué)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  # Gate du segment autofacturation — définie ici pour satisfaire la réciprocité manifest→lot de
+  # verify-fast (manifest-sanity : toute gate du manifest doit exister dans un fichier de lot).
+  # depends_on (MND03, MND04, MND05, MND06, MND07) est porté par le manifest. Recette HUMAINE (executor: human) :
+  # la capacité A (émission 389) ne peut être validée « done » que par une recette réelle de bout en bout.
+  GATE_AUTOFACTURATION:
+    type: gate
+    executor: human
+    title: "Gate : capacité A (émission 389 sous mandat) — recette de bout en bout"
+    description: |
+      Recette humaine de la capacité A (autofacturation 389, art. 289 I-2 CGI) sur instance de dev :
+      un document self-billed sous mandat est ingéré, bloqué tant que l'acceptation n'est pas posée
+      (gate ISelfBilledGate), accepté (expressément ou tacitement par le job sous mandat écrit + délai),
+      se voit allouer son BT-1 fiscal par mandant à l'émission (numéro source ≠ BT-1, idempotent), et
+      part vers la PA ; un même 389 ré-extrait est anti-doublonné par la clé (mandant_id, document_number) ;
+      les journaux mandat_change_log et self_billed_acceptance_log sont append-only et auditables.
+      Vérifie aussi : null = 389 suspendu (jamais de défaut), frontières NetArchTest, tenant-scoping,
+      aucune donnée client dans le code. La capacité B (réception, ADR-0026) reste HORS périmètre
+      (phase 2, F-spec dédiée).
+    acceptance:
+      - "Tous les items MND (MND01..MND07) sont done"
+      - "Recette de bout en bout sur instance de dev : ingestion → blocage acceptation → acceptation (expresse + tacite) → allocation BT-1 par mandant → projection du type 389 + parties (MND07) → envoi vers la PA"
+      - "Anti-doublon 389 exercé (même mandant ré-extrait → Blocked ; mandants différents même numéro → Send)"
+      - "Journaux append-only et suspension par null vérifiés à l'écran/à la recette"
+      - "PR du segment feat/autofacturation revue et mergée dans main"
