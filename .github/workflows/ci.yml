@@ -51,6 +51,13 @@ jobs:
         shell: pwsh
         run: ./tools/socle-provenance-check.ps1
 
+      # Self-test du wrapper ci-test.ps1 : prouve que le retry anti-flake Testcontainers ne peut
+      # JAMAIS rendre vert un échec déterministe (logique pure, sans dotnet). Garde permanente avant
+      # de s'appuyer sur le wrapper ci-dessous (un test écrit-mais-jamais-exécuté serait un faux-vert).
+      - name: Self-test du wrapper de tests CI (retry anti-flake Testcontainers)
+        shell: pwsh
+        run: ./tools/test-ci-retry.ps1
+
       # Unit + intégration. Les tests d'intégration utilisent Testcontainers, qui pilote le
       # Docker natif du runner ubuntu (pas besoin d'un service: postgres). Staging/Sandbox
       # (API réelles PA) et E2E (Playwright) sont exclus — voir l'en-tête. Le wrapper ci-test.ps1
