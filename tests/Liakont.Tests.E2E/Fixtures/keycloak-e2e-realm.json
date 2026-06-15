@@ -218,6 +218,7 @@
       "attributes": {
         "company_id": ["00000000-0000-4000-a000-000000000001"]
       },
+      "requiredActions": [],
       "credentials": [
         { "type": "password", "value": "Test@1234", "temporary": false },
         {
@@ -239,6 +240,7 @@
       "attributes": {
         "company_id": ["00000000-0000-4000-a000-000000000001"]
       },
+      "requiredActions": [],
       "credentials": [
         { "type": "password", "value": "Test@1234", "temporary": false },
         {
@@ -260,6 +262,7 @@
       "attributes": {
         "company_id": ["00000000-0000-4000-a000-000000000001"]
       },
+      "requiredActions": [],
       "credentials": [
         { "type": "password", "value": "Test@1234", "temporary": false },
         {
@@ -281,6 +284,7 @@
       "attributes": {
         "company_id": ["00000000-0000-4000-a000-000000000001"]
       },
+      "requiredActions": [],
       "credentials": [
         { "type": "password", "value": "Test@1234", "temporary": false },
         {
@@ -302,6 +306,7 @@
       "attributes": {
         "company_id": ["00000000-0000-4000-a000-000000000002"]
       },
+      "requiredActions": [],
       "credentials": [
         { "type": "password", "value": "Test@1234", "temporary": false },
         {
