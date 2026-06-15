@@ -728,6 +728,51 @@ en profil partagé, l'attribut `company_id` par-utilisateur étant déjà posé 
 `outbox.tenants.company_id` ; + recréation des comptes de recette dans le realm partagé, ADR-0021 §État
 actuel vs cible). Hors périmètre du seam de *realm* RLM04.
 
+### 4.29 Migration incrémentale au démarrage — base de tenant injoignable non comptée « migrée » + alerte agrégée (RLF02)
+
+**Motif** : finding F4 de la recette `GATE_REALM_UNIQUE` — au démarrage,
+`TenantProvisioningService.MigrateExistingTenantsAsync` journalisait « X/X tenant(s) updated » **alors
+qu'une base de tenant n'existe pas**. Diagnostic root-cause à la correction : la cause n'est pas (que)
+l'agrégation des logs, c'est un **bug de mapping Dapper latent**. La requête de listing
+`SELECT id, database_name FROM outbox.tenants` n'**aliasait pas** `database_name`, or Dapper ne strippe
+PAS les underscores par défaut (`MatchNamesWithUnderscores` n'est jamais activé dans le code — toutes
+les **autres** requêtes du fichier aliasent : `… AS databasename`, `… AS isactive`, `… AS realmname`).
+Résultat : `TenantRecord.DatabaseName` restait **vide** → `RunTenantMigrationsAsync("")` se connectait à
+la base **par défaut/système** (qui existe et est déjà migrée) → **faux succès compté « migré »** → le
+tenant dont la VRAIE base manque (`stratum_tenant2`) n'était jamais touché ni détecté, et la ligne verte
+« X/X updated » le masquait (faux-vert, règle review #8). Le chemin « base injoignable → skip » n'était
+donc même pas atteint en pratique.
+
+**Fichier `Stratum.*` MODIFIÉ** (épinglé → déjà listé au bloc `SOCLE-CONSIGNED-DRIFT` depuis
+§4.24/§4.26/§4.28, aucune nouvelle entrée requise) — dans `MigrateExistingTenantsAsync` :
+- **(root cause)** la requête de listing alias désormais `database_name AS databasename` (même
+  convention que `GetTenantForReprovisionAsync`/`GetTenantForDeactivationAsync` du même fichier) : la
+  migration cible enfin la VRAIE base de chaque tenant → une base manquante lève bien `NpgsqlException`
+  (`3D000`) au lieu d'une connexion silencieuse à la base par défaut.
+- les tenants injoignables sont collectés (liste `skipped`) et **ne sont pas comptés migrés**
+  (`migrated` ne s'incrémente qu'au succès) ; après la boucle, si au moins un tenant est injoignable,
+  une **alerte agrégée explicite** est tracée au niveau Warning (`LogTenantsInaccessible`, nouveau
+  `LoggerMessage`) en les **nommant**. La ligne de complétion devient honnête et ventilée —
+  `LogTenantMigrationCompleted` passe de `({Migrated}/{Total})` à
+  `({Migrated} migrated, {Skipped} inaccessible, {Failed} failed of {Total})`.
+
+**Politique de disponibilité préservée (inchangée)** : une base injoignable **n'interrompt pas** le
+démarrage (les autres tenants restent sains) ; seul un échec de migration SQL DbUp
+(`InvalidOperationException`, collecté dans `failures`) lève l'`AggregateException` finale. RLF02 ne
+modifie QUE la **visibilité** (compteur honnête + alerte), pas la politique de levée.
+
+**Style des messages** : les logs de cette méthode socle sont en anglais (convention vendored
+existante : `Skipping migration … inaccessible`, `Migration failed …`, `… migration completed`) ; les
+deux messages touchés/ajoutés suivent cette langue pour rester cohérents avec le bloc environnant
+(la règle CLAUDE.md n°12 « messages opérateur en français » vise les messages produit Liakont, pas
+ces logs d'infrastructure du socle hérité).
+
+**Test** : `tests/Common.Infrastructure.Tests.Integration/MigrateExistingTenantsInaccessibilityTests.cs`
+(Testcontainers PostgreSQL, conteneur dédié, logger capturant) — un tenant actif sans base prouve
+(1) qu'il n'est pas compté migré, (2) qu'une alerte Warning le nomme, (3) que le démarrage n'est pas
+interrompu ; un second cas (tenant sain + tenant cassé) prouve le compteur mixte honnête (1 migré /
+1 injoignable) et la non-régression du chemin de succès.
+
 ## 5. ADR du socle hérités
 
 Les ADR Stratum pertinents au socle sont copiés dans `docs/adr/socle/` (référence, non re-décidés).
