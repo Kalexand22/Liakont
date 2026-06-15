@@ -72,8 +72,10 @@ public sealed class AgentManagementE2ETests : KeycloakBaseE2ETest
         (await Page.Locator("[data-testid='nav-link-agents']").CountAsync())
             .Should().Be(0, "le lien Agents est masqué sans liakont.settings (lecture seule)");
 
-        // La navigation est bien rendue par ailleurs : le lien Paramétrage (inconditionnel) est présent.
-        (await Page.Locator("[data-testid='nav-link-parametrage']").CountAsync())
-            .Should().BeGreaterThan(0, "la navigation Liakont est rendue (lien Paramétrage inconditionnel)");
+        // La navigation est bien rendue par ailleurs : le lien Documents (consultation, liakont.read) est présent.
+        // NB : le HUB Paramétrage reste visible au lecteur (capacité liakont.read, export d'audit FIX208), mais
+        // SANS son sous-menu — donc sans l'entrée « Agents d'extraction » (réservée à liakont.settings, RLF03).
+        (await Page.Locator("[data-testid='nav-link-documents']").CountAsync())
+            .Should().BeGreaterThan(0, "la navigation Liakont est rendue (lien Documents de consultation)");
     }
 }

@@ -1,6 +1,6 @@
 @page "/documents"
 @rendermode InteractiveServer
-@attribute [Authorize]
+@attribute [Authorize(Policy = LiakontPermissions.Read)]
 @using System.Globalization
 @using System.Linq
 @using Microsoft.Extensions.Logging

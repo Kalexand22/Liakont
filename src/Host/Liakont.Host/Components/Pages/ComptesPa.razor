@@ -1,6 +1,6 @@
 @page "/parametrage/comptes-pa"
 @rendermode InteractiveServer
-@attribute [Authorize]
+@attribute [Authorize(Policy = LiakontPermissions.Settings)]
 @using Liakont.Host.Components
 @using Liakont.Host.PaAccounts
 @using Liakont.Host.Security

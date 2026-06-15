@@ -1,6 +1,7 @@
 @page "/traitements"
 @rendermode InteractiveServer
-@attribute [Authorize]
+@attribute [Authorize(Policy = LiakontPermissions.Actions)]
+@using Liakont.Host.Security
 @using System.Globalization
 @using Liakont.Host.Pipeline
 @using Liakont.Modules.Pipeline.Contracts.Queries
