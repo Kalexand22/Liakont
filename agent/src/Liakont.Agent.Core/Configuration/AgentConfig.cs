@@ -1,5 +1,8 @@
 namespace Liakont.Agent.Core.Configuration;
 
+using System;
+using System.Collections.Generic;
+
 /// <summary>
 /// Configuration typée de l'agent (F12 §2.4), chargée et validée depuis <c>agent.json</c> par
 /// <see cref="AgentConfigLoader"/>. Les secrets (clé API, chaîne ODBC) restent sous leur forme
@@ -8,12 +11,20 @@ namespace Liakont.Agent.Core.Configuration;
 /// </summary>
 public sealed class AgentConfig
 {
-    public AgentConfig(string platformUrl, string apiKeyProtected, ExtractionConfig extraction, int heartbeatMinutes)
+    private readonly IReadOnlyDictionary<string, AdapterConfigSection> _adapterConfig;
+
+    public AgentConfig(
+        string platformUrl,
+        string apiKeyProtected,
+        ExtractionConfig extraction,
+        int heartbeatMinutes,
+        IReadOnlyDictionary<string, AdapterConfigSection>? adapterConfig = null)
     {
         PlatformUrl = platformUrl;
         ApiKeyProtected = apiKeyProtected;
         Extraction = extraction;
         HeartbeatMinutes = heartbeatMinutes;
+        _adapterConfig = adapterConfig ?? new Dictionary<string, AdapterConfigSection>(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>URL HTTPS de la plateforme (ex. <c>https://liakont.editeur-x.fr</c>).</summary>
@@ -27,4 +38,22 @@ public sealed class AgentConfig
 
     /// <summary>Période du heartbeat en minutes (défaut 15 si absent du fichier).</summary>
     public int HeartbeatMinutes { get; }
+
+    /// <summary>
+    /// Configuration spécifique de l'adaptateur <paramref name="adapterName"/> (section
+    /// <c>adapterConfig.&lt;nom&gt;</c>, ADR-0023). Retourne une section VIDE si rien n'est fourni —
+    /// c'est la fabrique de l'adaptateur qui décide quels paramètres sont obligatoires (le chargeur
+    /// reste générique : il ne connaît aucun champ propre à un adaptateur).
+    /// </summary>
+    public AdapterConfigSection GetAdapterConfig(string adapterName)
+    {
+        if (adapterName is null)
+        {
+            throw new ArgumentNullException(nameof(adapterName));
+        }
+
+        return _adapterConfig.TryGetValue(adapterName, out AdapterConfigSection? section)
+            ? section
+            : AdapterConfigSection.Empty(adapterName);
+    }
 }

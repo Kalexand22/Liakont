@@ -237,3 +237,41 @@ garde « realm partagé configuré » 400ait. Karl : « PR #46 KO ».
   CI rouge / prod cassé. (Ici `Keycloak:PrimaryRealmName` n'était QUE dans appsettings.Development.)
 - **Rappel (en mémoire, violé ce jour) :** en interactif sur la branche d'intégration, `commit` =
   `commit + push` immédiat, sans redemander (memory commits-interactifs-directs-feat-branch).
+
+## 2026-06-15 (suite) — Analyse d'écart : ne pas re-soulever un point hors scope déjà couvert par un mécanisme
+
+**Symptôme :** demande d'analyse d'écart pour le niveau « Essentiel ». J'ai (1) ressorti à plusieurs
+reprises la capacité PA « Encaissée » de B2Brouter comme un blocage/manque, et (2) qualifié la cadence
+d'e-reporting de « blocage code ». Karl, deux fois : « on peut arrêter de me casser les couilles avec
+ce point ? c'est totalement secondaire et hors scope, le code prévoit des capacités PA activables » et
+« la cadence, en quoi ça nous bloque dans le code ? » (vérification : rien dans le code n'attend la
+cadence — `reportingFrequency` est une chaîne opaque nullable, lue seulement en booléen de présence ;
+le gel de PIP03b est un choix produit « ne pas inventer », pas un mur technique).
+
+**Règles pour l'avenir :**
+- **Un point déjà couvert par un mécanisme existant n'est PAS un manque.** Une limite d'un PA passe par
+  `PaCapabilities` (activable/désactivable) — la citer comme gap est du bruit. Avant de lister un manque,
+  se demander « le produit a-t-il déjà le levier pour ça ? ». Si oui, ne pas le lister.
+- **Distinguer « manque de code » de « décision produit/sourcing ».** Une valeur fiscale non sourcée
+  (cadence) n'est PAS un blocage de code si le code la prend en paramètre. Ne jamais relayer un flag
+  d'orchestration « blocked » comme impossibilité technique sans avoir lu le code.
+- **Rester dans le scope demandé.** Dans une analyse d'écart, les points secondaires hors périmètre —
+  surtout formulés en registre risque — se lisent comme du remplissage. Lié à
+  [[calibrer-severite-review-sur-stade-build]] et [[liakont-en-dev-ne-pas-survendre-maturite]].
+
+## 2026-06-15 (3) — `git add -A` dans $ORCH_REPO a emporté du collatéral (dump + leases stales)
+
+**Symptôme :** seed du lot FX dans `$ORCH_REPO/state.yaml` (slots null, transaction post-merge PR #49).
+J'ai lancé `git add -A` → le commit a emporté, EN PLUS de `state.yaml`, un `.state-dump.txt` (dump
+diagnostic stale, en-tête « v8 », non gitignoré) et la suppression de `leases/slot-1..3.yaml` (leases d'une
+session du 2026-06-11, déjà supprimées dans le working tree). Le seed lui-même était correct, mais j'ai
+versionné des changements qui n'étaient pas les miens.
+
+**Règles pour l'avenir :**
+- **Dans `$ORCH_REPO`, stager EXPLICITEMENT le(s) fichier(s) visé(s)** (`git add state.yaml`), JAMAIS
+  `git add -A` : le working tree de l'orch repo porte souvent des artefacts non commités d'autres sessions
+  (leases stales, dumps). `git add -A` les emporte silencieusement.
+- **Avant tout commit, lire `git status --short`** et ne stager que ce qui correspond à l'intention
+  (Surgical Changes ; cf. [[commits-interactifs-directs-feat-branch]]).
+- Correctif appliqué : `.state-dump.txt` untracké + gitignoré ; les leases slot-1..3 (stales, slots null)
+  laissées supprimées (cleanup correct, non nuisible).

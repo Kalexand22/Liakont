@@ -15,6 +15,9 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Liakont.Agent.Cli.Tests" />
     <InternalsVisibleTo Include="Liakont.Agent.Installer" />
+    <!-- Le service Windows réutilise la composition du cycle de run (AGT02, ADR-0023) — aucune
+         duplication : le composition root vit dans le CLI (idem réutilisation installeur OPS08b). -->
+    <InternalsVisibleTo Include="Liakont.Agent" />
   </ItemGroup>
 
   <!-- Le CLI est le composition root du diagnostic : il câble le cœur (file locale, config, DPAPI,
@@ -23,6 +26,8 @@
   <ItemGroup>
     <ProjectReference Include="..\Liakont.Agent.Core\Liakont.Agent.Core.csproj" />
     <ProjectReference Include="..\Liakont.Agent.Adapters.EncheresV6\Liakont.Agent.Adapters.EncheresV6.csproj" />
+    <ProjectReference Include="..\Liakont.Agent.Adapters.DemoErpA\Liakont.Agent.Adapters.DemoErpA.csproj" />
+    <ProjectReference Include="..\Liakont.Agent.Adapters.DemoErpB\Liakont.Agent.Adapters.DemoErpB.csproj" />
     <ProjectReference Include="..\..\..\src\Contracts\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj" />
   </ItemGroup>
 

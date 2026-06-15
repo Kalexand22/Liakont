@@ -1,72 +1,102 @@
-# RLM04 — Sortie du provisioner realm (seam prouvé) + recadrage mapper hardcodé + provenance + nettoyage vestigial
+# TODO — Démo extraction réelle bout-en-bout : 2 bases SQL + 2 adaptateurs + AGT02 + install multi-services
 
-Segment realm-unique (feat/tenant-provisioning), ADR-0021 §1/§5. Sous-branche feat/tenant-provisioning-RLM04.
+> Objectif (interactif, human-driven) : prouver l'extraction réelle d'un agent installé.
+> Deux bases SQL Server de schémas différents → deux adaptateurs ODBC → le service agent
+> extrait et pousse les factures vers la plateforme locale, qui les fait remonter en console.
+> Qualité produit (branche dédiée, tests, ADR, codex-review). Fait avancer **AGT02**.
+> Branche : `feat/agt02-demo-extraction` (depuis origin/main). ADR : ADR-0023.
 
-## Décisions d'architecture (tranchées)
-- **Seam = no-op DI** (ADR §1, option « no-op enregistrée en DI ») : `NoOpKeycloakRealmProvisioner`
-  enregistré par défaut (profil SaaS partagé) ; le vrai `KeycloakRealmProvisioner` n'est résolu que
-  si `Keycloak:DedicatedRealmPerTenant=true` (profil dédié mono-tenant — garde la capacité socle).
-- **Nettoyage vestigial = gate sur `realmCreated`** : dans `ProvisionAsync`, `RegisterRealm` +
-  `AddTenantRedirectUriAsync` ne s'exécutent QUE si un realm a réellement été créé
-  (`!AlreadyProvisioned`). Le no-op renvoie `Idempotent` → `realmCreated=false` → ni registre ni
-  redirect par tenant en partagé. Le redirect statique `default.localhost` (realm-export.json) n'est
-  PAS touché (FIX07a respecté).
-- **Mapper hardcodé** : pas de changement de prod (le vrai provisioner reste correct POUR LE DÉDIÉ) ;
-  on RECADRE le test `Should_Emit_CompanyId_As_Hardcoded_Client_Mapper` au profil dédié (+ commentaire
-  « jamais pour le partagé ») et on met à jour provenance §4.24.
-- **E2E de clôture** : le cross-check RLM03 a rendu le login `lecture` (tenant `default`) LATENT-cassé
-  en E2E (outbox.tenants vide → 403). Le harness E2E seede `default` (-001) ET `tenant2` (-002) dans
-  outbox.tenants ; `tenant2` reçoit sa propre base migrée (db/realm/company_id UNIQUE imposé par V008/
-  V010/V017). Nouveau test : un utilisateur de `tenant2` se connecte de bout en bout dans le realm
-  partagé et atteint le shell (exerce RLM01→RLM03).
+## Décisions de conception (voir ADR-0023)
 
-## Plan (checkable)
+- D1 tenant unique `default` (SIREN 123456782, mapping {20,10,5.5,0}→{S,AA,AA,Z}, PA Fake Staging).
+- D2 canal `adapterConfig.<nom>` dans agent.json (loader générique, fabrique valide sa section).
+- D3 câblage AgentRunCycle au composition root du service (remplace le cycle vide).
+- D4 DemoErpA (decimal, normalisé, FAC/AVO) + DemoErpB (float legacy, dénormalisé, I/C).
+- D5 emitterSiren/operationCategory en adapterConfig (≠ source).
+- D6 données fictives sous deployments/demo-local/ (règle n°7).
+- D7 cas connus : simple(20) · multi-mixte(20+10+5.5) · taux 0 · avoir → facture · 1 régime NON mappé → Blocked.
+- D8 numéros auto re-jouables ; SourceReference namespacé par adaptateur.
+- D9 adaptateurs démo embarqués, marqués démo.
+- D10 login SQL dédié lecture seule (db_datareader), ODBC Driver 17, UID/PWD chiffré DPAPI.
 
-### A — Seam (no realm provisionné en partagé)
-- [x] A1. `NoOpKeycloakRealmProvisioner.cs` (NOUVEAU)
-- [x] A2. `ServiceCollectionExtensions.cs` : no-op par défaut ; vrai si `DedicatedRealmPerTenant`
-- [x] A3. `TenantProvisioningService.ProvisionAsync` : `RegisterRealm`+`AddTenantRedirectUri` sous `if (realmCreated)`
-- [x] A4. Tests unitaires : DI résout no-op/vrai ; no-op = 0 HTTP + AlreadyProvisioned
+## Phases
 
-### B — Recadrage mapper hardcodé
-- [x] B1. `KeycloakRealmProvisionerTests` : test hardcodé renommé `…DedicatedProfile…` + commentaire
-- [x] B2. provenance §4.24 : note recadrage RLM04
+### Phase 0 — Cadrage
+- [x] Branche `feat/agt02-demo-extraction` depuis origin/main
+- [x] ADR-0023 (câblage run cycle + canal adapterConfig)
 
-### C — E2E de clôture
-- [x] C1. `KeycloakE2EWebFactory` : seed outbox.tenants (default -001) + tenant2 (db propre, -002) + TenantConnections:tenant2
-- [x] C2. `Scenarios/TenantLoginSharedRealmE2ETests` : tenant2 se connecte → shell
+### Phase 1 — Infra SQL de démo (aucun code produit) — DONE
+- [x] deployments/demo-local/01-create-databases.sql (2 bases + login ro)
+- [x] 02-schema-erpA.sql / 03-schema-erpB.sql
+- [x] 04-seed-erpA.sql / 05-seed-erpB.sql (re-jouables, numéros auto, cas connus)
+- [x] seed-demo.ps1 (wrapper sqlcmd) + README.md
+- [x] Gate : test-odbc connecte les 2 bases (ErpA 6 fact/8 lignes, ErpB 6 inv/8 items ; écriture refusée)
 
-### D — Nettoyage vestigial (Host, hors socle)
-- [x] D1. `AppBootstrap.SeedRealmRegistryFromDatabaseAsync` : boucle par-tenant seulement si `DedicatedRealmPerTenant`
+### Phase 2 — Canal adapterConfig (Core) — DONE
+- [x] AgentConfigLoader + DTO : parse adapterConfig (générique) + AdapterConfigSection + AgentConfig.GetAdapterConfig
+- [x] Tests unitaires Core (19/19, dont 4 adapterConfig)
+- [x] Gate : verify-fast vert (plateforme + agent x86/x64) — fix CA1859 (type retour concret)
 
-### E — Provenance + vérif
-- [x] E1. provenance §4.28 + bloc SOCLE-CONSIGNED-DRIFT (+ ServiceCollectionExtensions.cs)
-- [x] E2. verify-fast PASS (socle-provenance-check vert)
-- [x] E3. run-tests PASS (5589 tests) ; E2E login EXÉCUTÉ localement (run-e2e -Filter Login : 2/2 PASS — LoginShell + TenantLoginSharedRealm)
-- [x] E4. codex-review CLEAN (round 3) / 0 P2 ouvert
-      - R1 : 2 P2 (régression realmCreated ; consommation non testée) → corrigés (garde sur Authority ; test d'intégration Testcontainers)
-      - R2 : 0 P1, 2 P2 → P2#1 (E2E non exécuté) RÉSOLU (E2E exécuté 2/2) ; P2#2 (provisioning utilisateur en realm partagé, hors périmètre seam) = dette consignée §4.28 + tâche de suivi
-      - R3 : CLEAN — No findings
+### Phase 3 — Deux adaptateurs ODBC (IExtractor) — DONE
+- [x] Helpers Core réutilisables : SourceAmounts (float→decimal), OdbcCellReader, SourceQuery, SourceQueryGuard, OdbcSourceConnectionFactory, SourceEmitterConfig
+- [x] Liakont.Agent.Adapters.DemoErpA (decimal, normalisé) + Liakont.Agent.Adapters.DemoErpB (float, dénormalisé)
+- [x] Tests unitaires mappers (5+4) + SourceAmounts/SourceEmitterConfig/SourceQueryGuard ; frontière étendue (AgentBoundaryTests)
+- [x] Intégration ODBC : convention agent = tests unitaires only (pas de vraie base en CI) → validation LIVE en Phase 6
+- [x] Gate : x86+x64 clean, Core 253/253, mappers verts
+
+### Phase 4 — Câblage du cycle de run (AGT02) — DONE
+- [x] EmbeddedSourceAdapters étendu (noms + CreateConfigured DemoErpA/B) + extractFromUtc (config+AgentRunCycle)
+- [x] AgentRunComposition (Cli/Hosting) partagé service ⇄ CLI run ; AgentHost compose le vrai cycle (repli neutre si config invalide)
+- [x] RunCommand câblé sur la composition réelle ; service référence le CLI
+- [x] Tests : extractFromUtc (cycle + config) + tous existants ; Gate verify-fast VERT (plateforme + agent x86/x64)
+
+### Phase 5 — Agents + install des 2 services — DONE
+- [x] 2 clés API émises (POST /api/v1/agents via token parametrage ; directAccessGrants Keycloak activé puis RÉVERTÉ ; pièges : reset mdp + purge requiredActions TOTP + purge brute-force)
+- [x] agent.json des 2 instances (C:\ProgramData\Liakont\<instance>\) : secrets DPAPI + adapterConfig + extractFromUtc
+- [x] check-config + test-odbc + test-api (clé réelle ACCEPTÉE) OK
+- [x] Script install-services.ps1 prêt (vrais services Windows — session non élevée → clé en main ; extraction prouvée via CLI run = MÊME composition)
+
+### Phase 6 — Vérif bout-en-bout + review
+- [x] CLI run ×2 : 6 docs/instance extraits+poussés ; réconciliation 2-temps (6 acquittés) ; idempotence (re-run 0)
+- [x] Plateforme : 12 documents, 8 ReadyToSend + 4 Blocked (avoirs + régime 13) — cas connus confirmés
+- [x] Correctif bug ODBC 22008 (DateTime infra-seconde → troncature seconde) + test
+- [x] codex-review : round 3 CLEAN (rounds 1+2 = 9 P2 corrigés, 0 P1 sur 3 rounds)
+- [x] Section Review (ci-dessous)
+
+## Vigilance
+- Pas de categoryCode/vatexCode côté agent (P1). decimal partout (P1). Lecture seule stricte (P1).
+- Plateforme cible = Host clone voisin Liakont4 (localhost:55996) — ne pas perturber.
+- Service en LocalSystem : login SQL dédié évite la dépendance d'identité.
 
 ## Review
 
-RLM04 livré. Seam de sortie du provisioner de realm du chemin SaaS partagé :
-- **NoOpKeycloakRealmProvisioner** (nouveau) enregistré par défaut en DI ; le vrai `KeycloakRealmProvisioner`
-  seulement si `Keycloak:DedicatedRealmPerTenant=true` (profil dédié mono-tenant).
-- **ProvisionAsync** : `RegisterRealm` + `AddTenantRedirectUriAsync` gardés par l'autorité renvoyée par
-  le provisioner (`!string.IsNullOrEmpty(kcResult.Authority)`) — partagé (autorité vide) → court-circuit ;
-  dédié (Created ET Idempotent/reprise) → mécanique d'origine. Redirect statique default.localhost intact.
-- **Mapper hardcodé** recadré au profil dédié (test renommé + commentaire + provenance §4.24).
-- **AppBootstrap.SeedRealmRegistryFromDatabaseAsync** : boucle par-tenant seulement en dédié (realm_name
-  par-tenant vestigiaux en partagé ; le realm partagé reste enregistré via RealmTenantMap).
-- **E2E de clôture** : harness seede outbox.tenants (default -001 + tenant2 -002, base migrée) — corrige une
-  casse latente du cross-check RLM03 en env Test ; `TenantLoginSharedRealmE2ETests` (tenant2 → realm partagé
-  → shell). **Exécuté localement : run-e2e -Filter Login = 2/2 PASS.**
-- **Tests** : seam unitaire (no-op + DI) + consommation (Testcontainers, 2 directions). verify-fast PASS,
-  run-tests 5589 PASS.
-- **Provenance** : §4.24 mise à jour + §4.28 ajoutée + `ServiceCollectionExtensions.cs` au bloc
-  SOCLE-CONSIGNED-DRIFT. socle-provenance-check vert.
+### codex round 1 — 0 P1, 5 P2 (tous corrigés)
+- **P2-1** (crash-loop SCM) : `AgentRunComposition.Build` traduit les échecs de déchiffrement DPAPI
+  (`Cryptographic/FormatException`, agent.json d'une autre machine) en `AgentConfigException` → le
+  service/CLI bascule en cycle neutre journalisé au lieu de planter.
+- **P2-2** (stall sur 1 doc malformé) : `DemoErp*Extractor.TryMapDocument` met en QUARANTAINE (journalisé)
+  un document à `SourceSchemaException` et poursuit la fenêtre (le filigrane avance). Journal cascadé
+  extracteur ← fabrique ← `CreateConfigured` ← `Build`. Testé.
+- **P2-3** (verrou de run non partagé) : `AgentHost` fait acquérir au cycle du service le MÊME
+  `InterProcessRunLock` (mutex par instance) que la commande CLI `run` ; verrou détenu → cycle sauté.
+- **P2-4** (regroupement streaming non testé) : `DemoErpAExtractorTests` éprouve `ExtractDocuments` avec
+  un `IDataReader` factice (multi-lignes, facture sans ligne, avoir+origine, quarantaine).
+- **P2-5** (faux-vert `sc start`) : `install-services.ps1` vérifie `$LASTEXITCODE` de `install`/`sc start`
+  + attend l'état `Running`.
+- Écarté par le reviewer (pas un P1) : les `float` de DemoErpB sont le reflet brut d'une base legacy,
+  convertis decimal half-up à la frontière (`SourceAmounts`/`PivotRounding`) — aucun calcul flottant.
 
-**Dette consignée (§4.28) + tâche de suivi** : le provisioner d'UTILISATEUR (OPS03 lot A,
-`KeycloakTenantUserProvisioner`) cible encore `stratum-{tenantId}` (404 en realm partagé) — onboarding d'un
-NOUVEL utilisateur via l'assistant à traiter hors périmètre du seam de realm. RLM04 débloque la GATE_REALM_UNIQUE.
+### codex round 2 — 0 P1, 4 P2 (tous corrigés)
+- **AgentHost** : capture désormais TOUT échec de composition (pas que `AgentConfigException` — file SQLite
+  corrompue, URL invalide…) → cycle neutre journalisé (anti crash-loop). + fuite httpClient colmatée dans `Build`.
+- **DemoErpBExtractorTests** ajouté (miroir de A) ; fakes ADO extraits dans `agent/tests/_shared/FakeAdoStack.cs`
+  (lié dans les 2 projets, non dupliqué).
+- **Schémas démo** : contrainte UNIQUE sur `numero`/`InvoiceNo` (l'auto-jointure d'origine suppose l'unicité).
+- **install-services.ps1** : `Write-Error`→`Write-Warning` (sous `ErrorActionPreference=Stop`, Write-Error
+  était terminant → avortait tout) + code 1056 (service déjà lancé) toléré.
+
+### État final
+- verify-fast vert (plateforme + agent x86/x64, tous tests). Re-validation live : 24 documents avec binaires corrigés.
+- Bout-en-bout prouvé : depuis 2 bases SQL / 2 adaptateurs → 16 ReadyToSend + 8 Blocked (cas connus).
+- **Reste à l'humain** : revue + merge (le commit/merge n'est pas fait par l'agent). Vrais services
+  Windows : `deployments/demo-local/install-services.ps1` (console élevée).

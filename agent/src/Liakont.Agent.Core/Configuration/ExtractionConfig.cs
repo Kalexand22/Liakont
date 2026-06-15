@@ -1,5 +1,6 @@
 namespace Liakont.Agent.Core.Configuration;
 
+using System;
 using System.Collections.Generic;
 
 /// <summary>
@@ -15,7 +16,8 @@ public sealed class ExtractionConfig
         string? pdfPoolPath,
         IReadOnlyList<string> schedule,
         bool catchUpOnStart,
-        string? fixturesPath = null)
+        string? fixturesPath = null,
+        DateTime? extractFromUtc = null)
     {
         Adapter = adapter;
         OdbcConnectionStringProtected = odbcConnectionStringProtected;
@@ -23,6 +25,7 @@ public sealed class ExtractionConfig
         Schedule = schedule;
         CatchUpOnStart = catchUpOnStart;
         FixturesPath = fixturesPath;
+        ExtractFromUtc = extractFromUtc;
     }
 
     /// <summary>Identifiant de l'adaptateur source (ex. « EncheresV6 », « Fixture »).</summary>
@@ -46,4 +49,10 @@ public sealed class ExtractionConfig
     /// le chargeur ne fait que le transporter.
     /// </summary>
     public string? FixturesPath { get; }
+
+    /// <summary>
+    /// Borne basse INITIALE d'extraction (UTC), optionnelle (ADR-0023) : date déclarée « extraire depuis »
+    /// utilisée au premier run tant qu'aucun filigrane n'existe. Absente = aucun rattrapage présumé.
+    /// </summary>
+    public DateTime? ExtractFromUtc { get; }
 }

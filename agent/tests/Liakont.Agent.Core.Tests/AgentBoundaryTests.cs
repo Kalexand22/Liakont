@@ -52,6 +52,8 @@ public class AgentBoundaryTests
             typeof(AgentContractVersion).Assembly,
             typeof(IExtractor).Assembly,
             typeof(EncheresV6Extractor).Assembly,
+            typeof(Liakont.Agent.Adapters.DemoErpA.DemoErpAExtractor).Assembly,
+            typeof(Liakont.Agent.Adapters.DemoErpB.DemoErpBExtractor).Assembly,
         };
 
         var leaks = agentAssemblies

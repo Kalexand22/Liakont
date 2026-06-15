@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Le projet de test éprouve le mapper et la config internes. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Agent.Adapters.DemoErpA.Tests" />
+  </ItemGroup>
+
+  <!-- Règle de frontière (blueprint.md §6) : un adaptateur source ne référence QUE
+       Liakont.Agent.Core (et, transitivement, Liakont.Agent.Contracts), jamais un autre adaptateur
+       ni la plateforme. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Liakont.Agent.Core\Liakont.Agent.Core.csproj" />
+  </ItemGroup>
+
+  <!-- Traçabilité SourceData (montants bruts) sérialisée en JSON (Newtonsoft, net48 — catalogue
+       central). Toléré par la liste blanche de AgentBoundaryTests. -->
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" />
+  </ItemGroup>
+
+  <!-- ADO.NET (System.Data : IDbConnection / IDataReader / IDbCommand) pour l'extraction ODBC en
+       lecture seule. Assembly du framework net48 signé Microsoft : accepté par AgentBoundaryTests par
+       jeton de clé publique (aucune dépendance tierce, aucune frontière plateforme ouverte). -->
+  <ItemGroup>
+    <Reference Include="System.Data" />
+  </ItemGroup>
+
+</Project>

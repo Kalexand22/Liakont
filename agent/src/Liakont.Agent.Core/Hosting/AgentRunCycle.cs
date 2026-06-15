@@ -35,6 +35,7 @@ public sealed class AgentRunCycle
     private readonly IAgentLog _log;
     private readonly AgentRunJournal? _journal;
     private readonly IAutoUpdateService? _autoUpdate;
+    private readonly DateTime? _extractFromUtc;
 
     /// <summary>Crée un cycle d'agent.</summary>
     /// <param name="extractor">Extracteur source configuré.</param>
@@ -52,6 +53,12 @@ public sealed class AgentRunCycle
     /// pour déclencher la mise à jour hors run. Optionnel : sans service câblé, le 426 reste journalisé
     /// par le drainage, sans plus.
     /// </param>
+    /// <param name="extractFromUtc">
+    /// Borne basse INITIALE d'extraction (UTC) utilisée au PREMIER run, tant qu'aucun filigrane n'existe
+    /// (ADR-0023) : c'est la date déclarée par l'intégrateur « extraire depuis » (jamais inventée —
+    /// CLAUDE.md n°2). Sans filigrane ni borne, la fenêtre reste vide (aucun rattrapage présumé). Une fois
+    /// un run effectué, le filigrane prime ; AGT03 pourra surcharger cette borne depuis la plateforme.
+    /// </param>
     public AgentRunCycle(
         IExtractor extractor,
         ExtractionCycle extractionCycle,
@@ -60,7 +67,8 @@ public sealed class AgentRunCycle
         IClock clock,
         IAgentLog log,
         AgentRunJournal? journal = null,
-        IAutoUpdateService? autoUpdate = null)
+        IAutoUpdateService? autoUpdate = null,
+        DateTime? extractFromUtc = null)
     {
         _extractor = extractor ?? throw new ArgumentNullException(nameof(extractor));
         _extractionCycle = extractionCycle ?? throw new ArgumentNullException(nameof(extractionCycle));
@@ -70,6 +78,7 @@ public sealed class AgentRunCycle
         _log = log ?? throw new ArgumentNullException(nameof(log));
         _journal = journal;
         _autoUpdate = autoUpdate;
+        _extractFromUtc = extractFromUtc;
     }
 
     /// <summary>Exécute un cycle complet : extraction (best-effort) puis drainage.</summary>
@@ -85,10 +94,10 @@ public sealed class AgentRunCycle
         // (cf. IExtractor.ExtractDocuments) pour qu'un document anté-daté saisi après l'avancée du
         // filigrane reste extractible. L'anti-re-push par (source_reference, payload_hash) rend toute
         // ré-extraction (et toute fenêtre de recouvrement décidée par AGT03) idempotente.
-        DateTime from = watermark ?? now;
+        DateTime from = watermark ?? _extractFromUtc ?? now;
         if (from > now)
         {
-            from = now; // horloge reculée : jamais de fenêtre négative.
+            from = now; // horloge reculée (ou borne initiale future) : jamais de fenêtre négative.
         }
 
         // Issue du run remontée au heartbeat (F12 §2.5 « résultat du dernier run, dernières erreurs »).

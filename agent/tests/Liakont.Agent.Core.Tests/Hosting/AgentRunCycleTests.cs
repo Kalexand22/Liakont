@@ -197,16 +197,60 @@ public class AgentRunCycleTests
         }
     }
 
+    [Fact]
+    public void Run_uses_extract_from_utc_as_the_initial_window_when_no_watermark()
+    {
+        using (var db = new TempDatabase())
+        using (var queue = new LocalQueue(db.Path, new MutableClock(Now)))
+        {
+            // Aucun filigrane : la borne déclarée extractFromUtc sert de borne basse au premier run (ADR-0023).
+            var extractor = new FixtureExtractor(
+                "Fixture",
+                documents: new[] { PivotTestData.Document("REF-1", new DateTime(2026, 6, 3, 0, 0, 0, DateTimeKind.Utc)) });
+            var client = new FakePlatformClient
+            {
+                OnPushDocuments = (docs, regimes) => new PushBatchOutcome(
+                    PlatformResponseKind.Ok,
+                    new[] { new DocumentPushResultDto("REF-1", DocumentPushStatus.Accepted) }),
+            };
+            AgentRunCycle cycle = CreateCycle(extractor, queue, client, extractFromUtc: new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc));
+
+            cycle.Run(CancellationToken.None);
+
+            client.PushedBatches.Should().ContainSingle();
+        }
+    }
+
+    [Fact]
+    public void Run_extracts_nothing_when_no_watermark_and_no_initial_bound()
+    {
+        using (var db = new TempDatabase())
+        using (var queue = new LocalQueue(db.Path, new MutableClock(Now)))
+        {
+            // Sans filigrane NI borne déclarée, la fenêtre est vide : aucun rattrapage présumé (CLAUDE.md n°2).
+            var extractor = new FixtureExtractor(
+                "Fixture",
+                documents: new[] { PivotTestData.Document("REF-1", new DateTime(2026, 6, 3, 0, 0, 0, DateTimeKind.Utc)) });
+            var client = new FakePlatformClient();
+            AgentRunCycle cycle = CreateCycle(extractor, queue, client);
+
+            cycle.Run(CancellationToken.None);
+
+            client.PushedBatches.Should().BeEmpty();
+        }
+    }
+
     private static AgentRunCycle CreateCycle(
         Liakont.Agent.Core.IExtractor extractor,
         LocalQueue queue,
         FakePlatformClient client,
         CapturingAgentLog? log = null,
-        AgentRunJournal? journal = null)
+        AgentRunJournal? journal = null,
+        DateTime? extractFromUtc = null)
     {
         CapturingAgentLog effectiveLog = log ?? new CapturingAgentLog();
         var extractionCycle = new ExtractionCycle(queue, effectiveLog);
         var drainer = new QueueDrainer(queue, client, effectiveLog, new ExponentialBackoff(), _ => { });
-        return new AgentRunCycle(extractor, extractionCycle, drainer, queue, new MutableClock(Now), effectiveLog, journal);
+        return new AgentRunCycle(extractor, extractionCycle, drainer, queue, new MutableClock(Now), effectiveLog, journal, autoUpdate: null, extractFromUtc: extractFromUtc);
     }
 }

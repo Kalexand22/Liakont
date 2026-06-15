@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- Noms de tests xUnit avec underscores (convention du repo). -->
+    <NoWarn>$(NoWarn);CA1707</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Liakont.Agent.Adapters.DemoErpA\Liakont.Agent.Adapters.DemoErpA.csproj" />
+    <ProjectReference Include="..\..\..\src\Contracts\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj" />
+  </ItemGroup>
+
+  <!-- Pile ADO factice partagée (IDataReader en mémoire) pour les tests d'extracteur — liée, non dupliquée. -->
+  <ItemGroup>
+    <Compile Include="..\_shared\FakeAdoStack.cs" Link="TestSupport\FakeAdoStack.cs" />
+  </ItemGroup>
+
+</Project>

@@ -22,6 +22,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Liakont.Agent.Core\Liakont.Agent.Core.csproj" />
     <ProjectReference Include="..\..\src\Liakont.Agent.Adapters.EncheresV6\Liakont.Agent.Adapters.EncheresV6.csproj" />
+    <ProjectReference Include="..\..\src\Liakont.Agent.Adapters.DemoErpA\Liakont.Agent.Adapters.DemoErpA.csproj" />
+    <ProjectReference Include="..\..\src\Liakont.Agent.Adapters.DemoErpB\Liakont.Agent.Adapters.DemoErpB.csproj" />
     <ProjectReference Include="..\..\..\src\Contracts\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj" />
   </ItemGroup>
 
