@@ -119,6 +119,11 @@ services:
       Keycloak__AdminBaseUrl: "http://keycloak:8080"
       # Réutilise le compte d'amorçage admin Keycloak (realm master) déjà requis par le service keycloak —
       # AUCUN secret versionné (valeurs dans .env, jamais committées : CLAUDE.md n°10/18).
+      # DETTE DE DURCISSEMENT (suivi dédié, hors périmètre RLF06) : ce sont les creds du realm `master`
+      # (superutilisateur global de l'IdP). Cible souhaitée : un service account scopé (client
+      # `liakont-provisioner`, grant client_credentials, rôle realm-management:manage-users sur le SEUL
+      # realm `liakont`). Compromis assumé tant que KeycloakAdminTokenService (ROPC master, socle partagé
+      # avec le provisioning de realm) reste le mécanisme commun — le changer est un item à part entière.
       Keycloak__AdminUsername: ${KC_BOOTSTRAP_ADMIN_USERNAME}
       Keycloak__AdminPassword: ${KC_BOOTSTRAP_ADMIN_PASSWORD}
       # Reverse proxy : honorer X-Forwarded-* émis par Caddy, confiance bornée au réseau interne.
