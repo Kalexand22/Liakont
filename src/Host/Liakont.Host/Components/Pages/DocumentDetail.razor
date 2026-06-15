@@ -1,6 +1,6 @@
 @page "/documents/{Id:guid}"
 @rendermode InteractiveServer
-@attribute [Authorize]
+@attribute [Authorize(Policy = LiakontPermissions.Read)]
 @using Liakont.Host.Components
 @using Liakont.Host.Documents
 @using Liakont.Host.Security
