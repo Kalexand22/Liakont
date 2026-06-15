@@ -37,7 +37,7 @@ Routé via l'orchestration : segment `facturx`, manifest v25, PR #49. Spec F16 +
 - [ ] BoundaryTests : FacturX ne référence aucun plug-in PA ni `Transmission.Contracts`, ne lit aucune `PaCapabilities` (INV-FX-4).
 
 ### FX03 — Sérialiseur EN 16931 → CII XML (maison)
-- [ ] Domain pur : pivot → CrossIndustryInvoice (EN 16931), `decimal` ; recopie qualitative (catégorie/taux/VATEX + BT-5 devise) ; dérivation BG-23/BT-106/BT-115 + BR-CO-17 ; réconciliation BR-CO-14/15 ; **blocage** si non réconciliable (ne rien inventer).
+- [ ] Domain pur : pivot → CrossIndustryInvoice (EN 16931), `decimal` ; recopie qualitative (catégorie/taux/VATEX + BT-5 devise ; BT-146 PU absent → blocage) ; dérivation BG-23/BT-106/BT-115 + BR-CO-17 ; réconciliation BR-CO-14/15 ; **blocage** si non réconciliable (ne rien inventer).
 - [ ] Golden files couvrant la **matrice V1** : mono-taux, multi-taux, exonéré (VATEX), autoliquidation, criée mono-Seller.
 - [ ] Validation XSD CII + Schematron CEN/TC 434 sur chaque golden file.
 
@@ -56,7 +56,7 @@ Routé via l'orchestration : segment `facturx`, manifest v25, PR #49. Spec F16 +
 - [ ] **Secrets chiffrés** par tenant (SMTP/SFTP) — jamais en clair (n°10/18). **Existant inchangé**.
 
 ### FX06 — Journalisation envoi + trace de support
-- [ ] F06 `document_events` **append-only** : compte/plug-in PA, horodatages, hash de l'artefact, réponse, clé d'idempotence — **ADD COLUMN nullable (migration V009), AUCUN backfill UPDATE** (piège trigger append-only). Aucun update/delete.
+- [ ] F06 `document_events` **append-only** : compte/plug-in PA, horodatages, hash de l'artefact, réponse, clé d'idempotence — **ADD COLUMN nullable (nouvelle migration, modèle V009), AUCUN backfill UPDATE** (piège trigger append-only). Aucun update/delete.
 - [ ] **Trace de support** (store dédié, rétention ~90j configurable, purge OK car NON-audit) : copie du Factur-X transmis, **tenant-scopée (n°9)**, protégée au repos. Distincte du WORM et de l'archive probante (Pilotage).
 
 ### FX07 — Intégration pipeline + gate

@@ -71,6 +71,9 @@ fait déjà `SuperPdpPayloadBuilder.BuildVatBreakDown` (l.130-145).
 | BT-24 (identifiant de spécification) | **CONSTANTE de profil** | URN du profil (non fiscal) |
 | BT-5 (code devise) | **RECOPIÉ** | `PivotDocumentDto.CurrencyCode` (défaut EUR sourcé F01-F02) — jamais codé en dur |
 
+> **BT-146 (PU ligne)** est obligatoire (BR-26). Absent du pivot (`UnitPriceNet` null) → **blocage** : jamais
+> dérivé de `BT-131/BT-129` (identité non sûre — ignore la quantité de base BT-149 et les remises de ligne).
+
 ### 3.2 Le critère « déterministe ≠ inventé »
 
 - **INVENTÉ = interdit (CLAUDE.md n°2)** : choisir/fabriquer une **valeur qualitative** (catégorie, taux,
