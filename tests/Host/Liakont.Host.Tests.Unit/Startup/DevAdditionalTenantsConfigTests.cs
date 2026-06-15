@@ -49,7 +49,8 @@ public sealed class DevAdditionalTenantsConfigTests
         // {DatabasePrefix}{tenantId avec '-'→'_'} (TenantAwareNpgsqlConnectionFactory), tandis que la
         // migration au démarrage lit database_name du registre. Les deux DOIVENT coïncider, sinon la base
         // dérivée n'existe jamais → 3D000 sur toute requête tenant (finding F3/RLF01).
-        var derived = new TenantConnectionOptions().DatabasePrefix + second.TenantId.Replace('-', '_');
+        var tenantConnOptions = BindTenantConnectionOptions();
+        var derived = tenantConnOptions.DatabasePrefix + second.TenantId.Replace('-', '_');
         second.DatabaseName.Should().Be(
             derived,
             "database_name du registre doit coïncider avec le nom dérivé au runtime (cohérence RLF01)");
@@ -78,6 +79,14 @@ public sealed class DevAdditionalTenantsConfigTests
         var options = config.GetSection("DevTenantSeed").Get<DevTenantSeedOptions>();
         options.Should().NotBeNull();
         return options!;
+    }
+
+    private static TenantConnectionOptions BindTenantConnectionOptions()
+    {
+        var path = Path.Combine(FindHostProjectDir(), "appsettings.Development.json");
+        var config = new ConfigurationBuilder().AddJsonFile(path, optional: true).Build();
+        return config.GetSection(TenantConnectionOptions.SectionName).Get<TenantConnectionOptions>()
+            ?? new TenantConnectionOptions();
     }
 
     private static string FindHostProjectDir()

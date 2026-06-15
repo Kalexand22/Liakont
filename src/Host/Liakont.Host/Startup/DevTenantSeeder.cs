@@ -435,7 +435,7 @@ internal static partial class DevTenantSeeder
             await createCommand.ExecuteNonQueryAsync();
             LogAdditionalTenantDatabaseCreated(logger, databaseName, tenantId);
         }
-        catch (NpgsqlException ex)
+        catch (Exception ex)
         {
             // NON FATAL : l'amorçage de dev ne doit jamais empêcher le démarrage (la base restera
             // injoignable, mais l'opérateur le voit dans les logs au lieu d'un crash de boot).
