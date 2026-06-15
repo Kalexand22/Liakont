@@ -140,7 +140,17 @@ meta:
   #   depends_on_gate GATE_PIPELINE confirmé SUFFISANT : son ancêtre transitif GATE_CORE_FOUNDATION amène
   #   sur main DocumentState.Blocked (TRK02), DuplicateCheckRequest (TRK03) et SourceReference/hash
   #   canonique ADR-0007 (PIV) — pas de gate supplémentaire requise.
-  version: 26
+  # version 27 = nouveau segment `signature` + lot SIG (spec F17, ADR-filles 0027-0030) : abstraction
+  #   ISignatureProvider à capacités + module générique réutilisable DocumentApproval + plug-in Yousign
+  #   (à distance) + client soft Wacom (sur place) + intégration ISelfBilledGate. Bande 95xx. 10 items
+  #   SIG01→SIG10 + GATE_SIGNATURE_DECISIONS (checkpoint humain intra-segment : NON TRANCHÉ F17 §10, SANS
+  #   PR — modèle GATE_DEMO_ISATECH ; SIG07/SIG08 en dépendent) + GATE_SIGNATURE (humaine). depends_on_gate
+  #   [GATE_AUTOFACTURATION, GATE_FACTURX, GATE_CONSOLE_WEB] : intégration self-billing (MND), binding hash
+  #   sur l'artefact Factur-X (FX), UI console (WEB). ⚠️ SÉQUENCEMENT option (A) RETENUE (refactor
+  #   SelfBilledAcceptance via DocumentApproval = SIG05) vs (B) (DocumentApproval avant MND) — décision
+  #   Karl, voir tête d'items/SIG.yaml. ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS merge de cette PR
+  #   (SIG01..SIG10 + GATE_SIGNATURE_DECISIONS + GATE_SIGNATURE en `pending` ; SIG01 éligible).
+  version: 27
   host: multi_agent_v1
 
 segments:
@@ -261,6 +271,13 @@ segments:
     lots: [MND]
     gate: GATE_AUTOFACTURATION
     depends_on_gate: GATE_PIPELINE
+
+  signature:
+    branch: feat/signature
+    base: main
+    lots: [SIG]
+    gate: GATE_SIGNATURE
+    depends_on_gate: [GATE_AUTOFACTURATION, GATE_FACTURX, GATE_CONSOLE_WEB]
 
 items:
   # ── SOL ──
@@ -535,3 +552,22 @@ items:
   - { id: MND06, lot: MND, priority: 9450, depends_on: [MND05] }
   - { id: MND07, lot: MND, priority: 9460, depends_on: [MND05] }
   - { id: GATE_AUTOFACTURATION, type: gate, executor: human, priority: 9490, depends_on: [MND03, MND04, MND05, MND06, MND07] }
+
+  # ── SIG (Signature & validation de document) — segment `signature`, ADR-filles 0027-0030, spec F17 ──
+  # PLANIFIÉ (v27) : segment `signature` (branche feat/signature) + GATE_SIGNATURE (humaine) +
+  # GATE_SIGNATURE_DECISIONS (checkpoint humain SANS PR : NON TRANCHÉ F17 §10 ; SIG07/SIG08 en dépendent,
+  # modèle CMP04→GATE_DEMO_ISATECH). Bande 95xx. ⚠️ Séquencement option (A) (SIG05 refactor) — si Karl
+  # choisit (B), supprimer SIG05 et recâbler MND02 += SIG04. ⚠️ PAS ENCORE seedé : APRÈS merge, seeder
+  # `pending` SIG01→SIG10 + GATE_SIGNATURE_DECISIONS + GATE_SIGNATURE. Détails : items/SIG.yaml + F17.
+  - { id: SIG01, lot: SIG, blueprint: docs-spec-item, priority: 9500, depends_on: [] }
+  - { id: SIG02, lot: SIG, blueprint: docs-spec-item, priority: 9510, depends_on: [SIG01] }
+  - { id: GATE_SIGNATURE_DECISIONS, type: gate, executor: human, priority: 9515, depends_on: [SIG02] }
+  - { id: SIG03, lot: SIG, priority: 9520, depends_on: [SIG01] }
+  - { id: SIG04, lot: SIG, priority: 9530, depends_on: [SIG01] }
+  - { id: SIG05, lot: SIG, priority: 9540, depends_on: [SIG04] }
+  - { id: SIG06, lot: SIG, priority: 9550, depends_on: [SIG04, SIG05] }
+  - { id: SIG07, lot: SIG, priority: 9560, depends_on: [SIG03, SIG04, GATE_SIGNATURE_DECISIONS] }
+  - { id: SIG08, lot: SIG, priority: 9570, depends_on: [SIG03, SIG04, GATE_SIGNATURE_DECISIONS] }
+  - { id: SIG09, lot: SIG, blueprint: tooling-item, priority: 9580, depends_on: [SIG08] }
+  - { id: SIG10, lot: SIG, blueprint: blazor-page-item, priority: 9590, depends_on: [SIG03, SIG04] }
+  - { id: GATE_SIGNATURE, type: gate, executor: human, priority: 9690, depends_on: [SIG05, SIG06, SIG07, SIG08, SIG09, SIG10] }
