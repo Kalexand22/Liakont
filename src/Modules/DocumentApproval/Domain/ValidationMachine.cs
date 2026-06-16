@@ -36,9 +36,6 @@ internal static class ValidationMachine
             },
         };
 
-    /// <summary>Tous les états du graphe (initiaux + terminaux) — base des tests cartésiens.</summary>
-    public static IReadOnlyCollection<ValidationState> AllStates { get; } = Enum.GetValues<ValidationState>();
-
     /// <summary>Un état est terminal ssi il n'a AUCUNE arête sortante (Validated/TacitlyValidated/Rejected/Contested/Expired).</summary>
     public static bool IsTerminal(ValidationState state) => !Edges.ContainsKey(state);
 

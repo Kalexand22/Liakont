@@ -10,6 +10,7 @@ using Liakont.Modules.DocumentApproval.Domain.Entities;
 using Liakont.Modules.DocumentApproval.Infrastructure;
 using Liakont.Modules.DocumentApproval.Tests.Integration.Fixtures;
 using Liakont.Modules.Signature.Contracts;
+using Npgsql;
 using Stratum.Common.Abstractions.Exceptions;
 using Xunit;
 
@@ -31,24 +32,45 @@ public sealed class DocumentValidationRetryIntegrationTests
     }
 
     [Fact]
-    public async Task A_Second_Non_Terminal_Attempt_Is_Rejected_By_The_Partial_Unique_Index()
+    public async Task The_Partial_Unique_Index_Rejects_A_Second_Non_Terminal_Attempt_At_The_Database_Level()
     {
         var harness = new DocumentApprovalHarness(_fixture.CreateConnectionFactory());
         var company = Guid.NewGuid();
         var document = Guid.NewGuid();
         await InsertPendingAsync(harness, company, document, attempt: 1);
 
-        var second = DocumentValidation.Create(company, document, Purpose, deadlineUtc: null, attempt: 2);
+        // Filet de sécurité de DERNIER recours (INV-APPROVAL-5) : même un INSERT brut qui contourne la garde
+        // applicative (InsertAsync interdit attempt>1, CreateNextAttempt exige un échec terminal) ne peut pas
+        // créer une 2ᵉ tentative NON terminale — l'index unique partiel le rejette en base.
+        using var conn = await harness.ConnectionFactory.OpenAsync();
+        var act = async () => await conn.ExecuteAsync(
+            """
+            INSERT INTO documentapproval.document_validations
+                (company_id, document_id, validation_purpose, attempt, state, proof_level,
+                 express_acceptance_recorded, created_at)
+            VALUES (@c, @d, @p, 2, 0, 0, false, now())
+            """,
+            new { c = company, d = document, p = (int)Purpose });
+
+        (await act.Should().ThrowAsync<PostgresException>())
+            .Which.SqlState.Should().Be(PostgresErrorCodes.UniqueViolation,
+                "deux tentatives non terminales (states 0/1) violent l'index unique partiel");
+    }
+
+    [Fact]
+    public async Task InsertAsync_Only_Creates_The_Initial_Attempt()
+    {
+        // Anti-réouverture du gate (INV-APPROVAL-5) : InsertAsync ne crée que la tentative 1 ; une tentative
+        // N+1 (qui pourrait masquer un succès terminal) ne peut passer que par CreateNextAttemptAsync.
+        var harness = new DocumentApprovalHarness(_fixture.CreateConnectionFactory());
+        var second = DocumentValidation.Create(Guid.NewGuid(), Guid.NewGuid(), Purpose, deadlineUtc: null, attempt: 2);
+
         await using var uow = await harness.UowFactory.BeginAsync();
         var entry = DocumentApprovalLogFactory.ForCreation(second, operatorId: null, "test");
-        var act = async () =>
-        {
-            await uow.InsertAsync(second, entry);
-            await uow.CommitAsync();
-        };
+        var act = async () => await uow.InsertAsync(second, entry);
 
-        await act.Should().ThrowAsync<ConflictException>(
-            "au plus UNE tentative non terminale (index unique partiel, INV-APPROVAL-5)");
+        await act.Should().ThrowAsync<InvalidOperationException>(
+            "une tentative N+1 se crée via CreateNextAttemptAsync, jamais par InsertAsync");
     }
 
     [Fact]

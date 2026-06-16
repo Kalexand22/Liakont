@@ -97,6 +97,19 @@ internal sealed class PostgresDocumentValidationUnitOfWork : IDocumentValidation
         ArgumentNullException.ThrowIfNull(validation);
         ArgumentNullException.ThrowIfNull(logEntry);
 
+        // InsertAsync ne crée QUE la tentative initiale. Une tentative N+1 doit passer par
+        // CreateNextAttemptAsync (garde anti-race INV-APPROVAL-5 : l'attempt N doit être un échec terminal,
+        // vérifié sous verrou). Sans ce garde, un appelant pourrait insérer une tentative non terminale alors
+        // qu'une tentative ANTÉRIEURE est un SUCCÈS terminal (Validated/TacitlyValidated) — l'index unique
+        // partiel ne filtre que les non-terminaux et ne l'attraperait pas → réouverture du gate d'un document
+        // déjà validé (régression de correction fiscale).
+        if (validation.Attempt != 1)
+        {
+            throw new InvalidOperationException(
+                "InsertAsync ne crée que la tentative initiale (attempt = 1) ; une tentative ultérieure se crée " +
+                "via CreateNextAttemptAsync (garde anti-race INV-APPROVAL-5, anti-réouverture du gate).");
+        }
+
         await InsertCoreAsync(validation, logEntry, ct);
     }
 

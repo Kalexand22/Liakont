@@ -26,7 +26,7 @@ internal sealed class PostgresDocumentApprovalQueries : IDocumentApprovalQueries
                operator_id, operator_name, occurred_at
         FROM documentapproval.document_approval_log
         WHERE company_id = @CompanyId AND document_id = @DocumentId AND validation_purpose = @Purpose
-        ORDER BY occurred_at DESC, id DESC
+        ORDER BY occurred_at DESC, seq DESC
         """;
 
     private readonly IConnectionFactory _connectionFactory;

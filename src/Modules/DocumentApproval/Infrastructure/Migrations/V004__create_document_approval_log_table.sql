@@ -12,6 +12,10 @@
 -- détruirait la piste — interdit pour un journal append-only).
 CREATE TABLE IF NOT EXISTS documentapproval.document_approval_log (
     id                 uuid        NOT NULL DEFAULT gen_random_uuid(),
+    -- seq : ordre d'insertion MONOTONE, départage de façon DÉTERMINISTE deux entrées au même occurred_at
+    -- (now() renvoie le timestamp de transaction — identique pour plusieurs lignes d'une même transaction).
+    -- L'id (uuid aléatoire) ne donnerait pas un ordre stable pour la lecture d'audit.
+    seq                bigint      GENERATED ALWAYS AS IDENTITY,
     company_id         uuid        NOT NULL,
     document_id        uuid        NOT NULL,
     validation_purpose int         NOT NULL,
