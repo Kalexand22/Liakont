@@ -18,11 +18,17 @@ using Stratum.Common.Infrastructure.Database;
 /// </summary>
 public sealed class PostgresDuplicateDocumentCheck : IDuplicateDocumentCheck
 {
+    // Clé HISTORIQUE (non-389). `mandant_id IS NULL` rend les deux clés STRICTEMENT DISJOINTES : un 389 est
+    // persisté avec supplier_siren = SIREN du mandant (BT-30) et document_number = BT-1 fiscal — sans ce filtre, un
+    // mandant qui est aussi fournisseur ordinaire (même SIREN) dont un BT-1 coïncide avec un numéro source ferait
+    // remonter sa ligne 389 comme antécédent d'un non-389 → blocage parasite. La branche 389 (mandant_id = @MandantId)
+    // exclut déjà naturellement les NULL ; on rend l'exclusion SYMÉTRIQUE côté non-389.
     private const string PriorsBySupplierAndNumberSql = """
         SELECT id, state
         FROM documents.documents
         WHERE supplier_siren = @SupplierSiren
           AND document_number = @DocumentNumber
+          AND mandant_id IS NULL
           AND id <> @CandidateId
         ORDER BY last_update_utc DESC
         """;

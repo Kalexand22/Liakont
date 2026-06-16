@@ -145,18 +145,21 @@ public sealed class SelfBilled389AntiDuplicateIntegrationTests
     }
 
     [Fact]
-    public async Task A_389_Issued_Does_Not_Block_A_Non_389_Of_The_Same_Number()
+    public async Task A_389_Issued_Does_Not_Block_A_Non_389_Of_The_Same_Siren_And_Number()
     {
         var harness = new DocumentsHarness(_fixture);
         var number = Unique("BT1");
 
-        // Antécédent 389 (mandant_id renseigné) émis sous ce numéro : il ne doit pas bloquer un document NON-389
-        // de même (supplier_siren, document_number) — la clé historique ignore mandant_id (aucune régression).
+        // Cas réaliste : un mandant qui est AUSSI fournisseur ordinaire — MÊME SIREN (BT-30) — dont un BT-1 fiscal
+        // coïncide avec un numéro source. L'antécédent 389 (mandant_id renseigné) ne doit PAS bloquer un non-389
+        // de même (supplier_siren, document_number) : les deux clés sont DISJOINTES (la clé historique exclut les
+        // lignes 389 via `mandant_id IS NULL`). On réutilise le MÊME SIREN pour prouver la disjonction (pas une
+        // simple différence de SIREN).
+        var sharedSiren = Unique("siren");
         await SeedAsync(harness, DocumentTestData.Reconstituted(
-            DocumentState.Issued, documentNumber: number, payloadHash: Unique("h"), mandantId: Guid.NewGuid()));
+            DocumentState.Issued, documentNumber: number, supplierSiren: sharedSiren, payloadHash: Unique("h"), mandantId: Guid.NewGuid()));
 
-        var siren = Unique("siren");
-        var result = await CheckNon389Async(harness, siren, number, Unique("h"));
+        var result = await CheckNon389Async(harness, sharedSiren, number, Unique("h"));
 
         result.Decision.Should().Be(DuplicateCheckDecision.Send);
     }
