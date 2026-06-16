@@ -44,6 +44,7 @@ public sealed record PaCapabilityNotSupportedResult
         PaCapability.TaxReportRetrieval => "la récupération des tax reports",
         PaCapability.DocumentRetrieval => "le téléchargement de la facture générée",
         PaCapability.ReportRectification => "la rectification de déclaration (flux RE)",
+        PaCapability.FacturXTransmission => "la transmission d'un Factur-X pré-construit",
         _ => capability.ToString(),
     };
 }

@@ -14,6 +14,7 @@ using Liakont.Host.Localization;
 using Liakont.Host.MultiTenancy;
 using Liakont.Host.Navigation;
 using Liakont.Host.Notifications;
+using Liakont.Host.PaDelivery;
 using Liakont.Host.Security;
 using Liakont.Host.Security.Abstractions;
 using Liakont.Host.Security.Keycloak;
@@ -262,6 +263,13 @@ public static class AppBootstrap
         // réelle (bug-inbox « Fake jamais câblé » : sans lui le registre ci-dessus ne résout rien) ;
         // en production il reste absent. Le registre le découvre et le résout par PaType (CLAUDE.md n°8).
         builder.Services.AddConfiguredPaClients(builder.Environment, builder.Configuration);
+
+        // Plug-in PA GÉNÉRIQUE (FXG, F16 §6) + ses canaux de livraison Host (email avec pièce jointe,
+        // dépôt de fichier). PA RÉELLE de niveau « Essentiel » (transmet un Factur-X pré-construit), donc
+        // enregistrée inconditionnellement ; le registre ne la résout que pour un compte de type « Generique »
+        // (CLAUDE.md n°8). Les canaux/résolveur sont des impls Host-only de contrats Transmission.Contracts —
+        // le plug-in ne référence ni MailKit ni le module Notification.
+        builder.Services.AddGeneriquePaDelivery();
 
         // Pipeline (PIP01a — fondations) : lecteur canonique du contenu stagé + journal d'exécutions
         // (pipeline.run_logs) + points d'entrée Contracts consommés par CHECK/SEND/SYNC. AUCUN comportement
