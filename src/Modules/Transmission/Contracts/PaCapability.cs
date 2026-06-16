@@ -30,4 +30,7 @@ public enum PaCapability
 
     /// <summary>Rectification de déclaration — flux RE.</summary>
     ReportRectification = 8,
+
+    /// <summary>Transmission d'un Factur-X pré-construit (niveau « Essentiel » — F16 §6).</summary>
+    FacturXTransmission = 9,
 }

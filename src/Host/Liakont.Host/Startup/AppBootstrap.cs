@@ -274,6 +274,14 @@ public static class AppBootstrap
         // en production il reste absent. Le registre le découvre et le résout par PaType (CLAUDE.md n°8).
         builder.Services.AddConfiguredPaClients(builder.Environment, builder.Configuration);
 
+        // NB (FXG, F16 §6) : le plug-in PA GÉNÉRIQUE et ses canaux de livraison Host sont LIVRÉS
+        // (Liakont.Host.PaDelivery + Liakont.PaClients.Generique) mais PAS encore câblés ici. Le câblage
+        // (builder.Services.AddGeneriquePaDelivery()) est porté par FX07, EN MÊME TEMPS que l'extension du
+        // contrat IPaClient (PaSendContext) et la génération du Factur-X à l'étape Sending : sans ce flux,
+        // SendDocumentAsync ne peut pas transmettre (aucun artefact porté) — l'enregistrer dès maintenant
+        // mettrait un compte « Generique » actif en boucle de retry technique. On câble donc le plug-in au
+        // moment où le pipeline sait le nourrir (FX07).
+
         // Pipeline (PIP01a — fondations) : lecteur canonique du contenu stagé + journal d'exécutions
         // (pipeline.run_logs) + points d'entrée Contracts consommés par CHECK/SEND/SYNC. AUCUN comportement
         // de pipeline ici (PIP01b-d) ; le pipeline ne référence aucune PA concrète (CLAUDE.md n°6).

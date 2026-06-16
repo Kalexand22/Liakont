@@ -62,6 +62,10 @@
          référence un plug-in PA concret (CLAUDE.md n°6/14) ; il n'est activé qu'en Development ou via
          PaClients:Fake:Enabled (voir PaClientBootstrap), jamais par défaut en production. -->
     <ProjectReference Include="..\..\PaClients\Liakont.PaClients.Fake\Liakont.PaClients.Fake.csproj" />
+    <!-- Plug-in PA GÉNÉRIQUE (FXG, F16 §6) : PA réelle de niveau « Essentiel » (transmet un Factur-X
+         pré-construit par email/dépôt de fichier). Câblé au COMPOSITION ROOT (CLAUDE.md n°6/14) ;
+         résolu par PaType « Generique » uniquement. Les canaux de livraison Host (MimeKit) vivent au Host. -->
+    <ProjectReference Include="..\..\PaClients\Liakont.PaClients.Generique\Liakont.PaClients.Generique.csproj" />
     <ProjectReference Include="..\..\Modules\Validation\Infrastructure\Liakont.Modules.Validation.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Pipeline\Infrastructure\Liakont.Modules.Pipeline.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Pipeline\Web\Liakont.Modules.Pipeline.Web.csproj" />

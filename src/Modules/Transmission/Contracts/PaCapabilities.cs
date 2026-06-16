@@ -36,6 +36,15 @@ public sealed record PaCapabilities
     /// <summary>Rectification de déclaration — flux RE (PIP04).</summary>
     public bool SupportsReportRectification { get; init; }
 
+    /// <summary>
+    /// Transmission d'un Factur-X DÉJÀ SCELLÉ produit par la plateforme (niveau « Essentiel », F16 §6) :
+    /// la PA ne fait que TRANSPORTER l'artefact (email / dépôt de fichier), elle ne le construit pas et
+    /// n'a ni statut ni cycle de vie. C'est cette capacité — déclarée par la seule PA générique — qui
+    /// pilote la génération du Factur-X à l'étape d'envoi (jamais un <c>if (pa is Generique)</c>,
+    /// CLAUDE.md n°8). Les PA de niveau « Pilotage » (Super PDP, B2Brouter) la déclarent <c>false</c>.
+    /// </summary>
+    public bool SupportsFacturXTransmission { get; init; }
+
     /// <summary>Nombre maximal de documents par requête, ou <c>null</c> si la PA ne déclare pas de limite.</summary>
     public int? MaxDocumentsPerRequest { get; init; }
 
