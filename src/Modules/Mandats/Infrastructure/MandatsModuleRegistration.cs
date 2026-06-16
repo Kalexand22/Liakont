@@ -4,7 +4,9 @@ using Liakont.Modules.Mandats.Application;
 using Liakont.Modules.Mandats.Contracts;
 using Liakont.Modules.Mandats.Contracts.Queries;
 using Liakont.Modules.Mandats.Infrastructure.Queries;
+using Liakont.Modules.Mandats.Infrastructure.TacitAcceptance;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Stratum.Common.Infrastructure.Database;
 
 /// <summary>
@@ -28,6 +30,13 @@ public static class MandatsModuleRegistration
 
         // Garde d'émission interrogée par le pipeline avant l'envoi (MND03, ADR-0024 §3 / INV-ACCEPT-2).
         services.AddScoped<ISelfBilledGate, SelfBilledGate>();
+
+        // Bascule tacite des acceptations 389 (MND04, ADR-0024 §4) : lecteur des candidats dus + service de
+        // bascule, résolus par le TenantJob (SOL06) dans le scope du tenant. Horloge injectable (défaut
+        // système) pour la condition « now ≥ DeadlineUtc » — testable, jamais DateTimeOffset.UtcNow en dur.
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddScoped<ITacitAcceptanceCandidateReader, PostgresTacitAcceptanceCandidateReader>();
+        services.AddScoped<ITacitAcceptanceService, TacitAcceptanceService>();
 
         return services;
     }

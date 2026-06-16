@@ -16,5 +16,9 @@
     <ProjectReference Include="../Application/Liakont.Modules.Mandats.Application.csproj" />
     <ProjectReference Include="../Contracts/Liakont.Modules.Mandats.Contracts.csproj" />
     <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+    <!-- Seam du job SYSTÈME multi-tenant (MND04, gabarit DailyAnchoring/SOL06) : IJobHandler vit dans le
+         module socle vendored Stratum.Modules.Job (mécanique de planification), pas dans Common. Réf au
+         Contracts seul (comme Archive/Supervision pour leurs FanOutHandler) — JAMAIS un module métier. -->
+    <ProjectReference Include="../../Job/Contracts/Stratum.Modules.Job.Contracts.csproj" />
   </ItemGroup>
 </Project>
