@@ -193,6 +193,31 @@ public sealed class SelfBilled389AntiDuplicateIntegrationTests
     }
 
     [Fact]
+    public async Task Unique_Index_Tolerates_A_New_Issued_389_Beside_A_Rejected_One_Of_The_Same_Key()
+    {
+        var harness = new DocumentsHarness(_fixture);
+        var number = Unique("BT1");
+        var mandant = Guid.NewGuid();
+
+        // PRÉSERVATION DU REMPLACEMENT F06 §4.3 (propriété revendiquée de l'index PARTIEL sur `Issued`) : un 389
+        // rejeté par la PA peut coexister avec son renvoi ÉMIS sous la MÊME clé (mandant_id, document_number = BT-1) —
+        // l'index ne contraint QUE les lignes `Issued`, donc un `RejectedByPa`/`Superseded` n'occupe pas la clé.
+        await SeedAsync(harness, DocumentTestData.Reconstituted(
+            DocumentState.RejectedByPa, documentNumber: number, payloadHash: Unique("h"), mandantId: mandant));
+
+        var act = async () =>
+        {
+            await using var uow = await harness.UowFactory.BeginAsync();
+            await uow.UpsertDocumentAsync(DocumentTestData.Reconstituted(
+                DocumentState.Issued, documentNumber: number, payloadHash: Unique("h"), mandantId: mandant));
+            await uow.CommitAsync();
+        };
+
+        await act.Should().NotThrowAsync(
+            "l'index partiel sur Issued tolère un rejeté + son remplaçant émis de même clé (F06 §4.3).");
+    }
+
+    [Fact]
     public async Task Unique_Index_Does_Not_Constrain_Non_389_Documents_Of_The_Same_Number()
     {
         var harness = new DocumentsHarness(_fixture);
