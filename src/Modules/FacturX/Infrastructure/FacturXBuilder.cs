@@ -24,6 +24,12 @@ public sealed class FacturXBuilder : IFacturXBuilder
 {
     private const string MimeTypeXml = "text/xml";
 
+    // Relation /AFRelationship du factur-x.xml : pilotée par la constante de profil unique
+    // FacturXProfile.AttachmentRelationship (INV-FX-3, « Alternative ») — pas de valeur dupliquée. Une
+    // valeur de profil invalide ferait échouer l'initialisation (jamais un /AFRelationship silencieusement faux).
+    private static readonly DocumentOperation.DocumentAttachmentRelationship AttachmentRelationship =
+        Enum.Parse<DocumentOperation.DocumentAttachmentRelationship>(FacturXProfile.AttachmentRelationship);
+
     private readonly ICrossIndustryInvoiceSerializer _serializer;
 
     /// <summary>Crée le builder avec le sérialiseur CII (FX03).</summary>
@@ -79,7 +85,7 @@ public sealed class FacturXBuilder : IFacturXBuilder
                     AttachmentName = FacturXProfile.AttachmentFileName,
                     MimeType = MimeTypeXml,
                     Description = "Factur-X CII (EN 16931)",
-                    Relationship = DocumentOperation.DocumentAttachmentRelationship.Alternative,
+                    Relationship = AttachmentRelationship,
                 })
                 .ExtendMetadata(FacturXXmpMetadata.Build())
                 .Save(sealedPath);

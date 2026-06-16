@@ -112,9 +112,32 @@ public sealed class FacturXBuilderTests
         normalized.Should().Contain(Money(ciiTax, pivot.CurrencyCode), "le total TVA du PDF == BT-110 du CII");
         normalized.Should().Contain(Money(ciiGross, pivot.CurrencyCode), "le total TTC du PDF == BT-112 du CII");
 
+        // Parité PAR GROUPE (BG-23) : chaque ventilation TVA document du CII (base BT-116 + TVA BT-117)
+        // doit apparaître à l'identique dans le tableau de ventilation du PDF lisible (pas seulement les
+        // totaux) — la dérivation visuelle est alignée sur BR-CO-17 du sérialiseur.
+        foreach (XElement tradeTax in BreakdownTradeTaxes(cii))
+        {
+            decimal basis = ElementDecimal(tradeTax, "BasisAmount");
+            decimal calculated = ElementDecimal(tradeTax, "CalculatedAmount");
+            normalized.Should().Contain(Money(basis, pivot.CurrencyCode), "la base BG-23 du PDF == BT-116 du CII");
+            normalized.Should().Contain(Money(calculated, pivot.CurrencyCode), "la TVA BG-23 du PDF == BT-117 du CII");
+        }
+
         // Cohérence interne : BT-109 + BT-110 == BT-112 (les totaux du CII sont eux-mêmes cohérents).
         (ciiNet + ciiTax).Should().Be(ciiGross);
     }
+
+    // Ventilations TVA AU NIVEAU DOCUMENT (BG-23) : les ApplicableTradeTax portant CalculatedAmount
+    // (les ApplicableTradeTax de ligne n'en ont pas) — chacune porte BT-116 (base) et BT-117 (TVA).
+    private static IEnumerable<XElement> BreakdownTradeTaxes(XDocument cii) =>
+        cii.Descendants()
+            .Where(e => e.Name.LocalName == "ApplicableTradeTax"
+                        && e.Elements().Any(c => c.Name.LocalName == "CalculatedAmount"));
+
+    private static decimal ElementDecimal(XElement parent, string localName) =>
+        decimal.Parse(
+            parent.Elements().First(e => e.Name.LocalName == localName).Value,
+            CultureInfo.InvariantCulture);
 
     [Fact]
     public async Task BuildAsync_PropagatesSerializerBlock_WhenDocumentNotConformant()

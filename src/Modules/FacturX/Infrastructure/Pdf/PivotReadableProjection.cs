@@ -58,42 +58,44 @@ internal static class PivotReadableProjection
             DuePayable: due);
     }
 
-    // Ventilation de TVA affichée : groupage par (catégorie, taux, VATEX) — clé identique au sérialiseur
-    // CII (BG-23). Base = Σ nets du groupe ; TVA = Σ des montants de TVA PORTÉS par le pivot (per-ligne),
-    // recopiés (jamais re-dérivés ici : c'est le sérialiseur qui réconcilie BR-CO-14). Ordre d'apparition.
+    // Ventilation de TVA affichée : groupage par (catégorie, taux, VATEX) ET dérivation arithmétique
+    // IDENTIQUES au sérialiseur CII (BG-23, BR-CO-17 — CrossIndustryInvoiceSerializer.DeriveVatBreakdown) :
+    // base = arrondi(Σ nets du groupe), TVA = arrondi(base × taux / 100). Le PDF lisible porte donc, par
+    // groupe, EXACTEMENT les mêmes montants que le XML CII embarqué (cohérence visuel↔XML, ADR-0023 §5) —
+    // jamais une somme de TVA per-ligne qui pourrait diverger de BT-117 par effet d'arrondi.
     private static List<FacturXReadableVatLine> BuildVatBreakdown(PivotDocumentDto pivot)
     {
-        var groups = new List<FacturXReadableVatLine>();
+        var labels = new List<string>();
+        var bases = new List<decimal>();
+        var rates = new List<decimal?>();
         var index = new Dictionary<(VatCategory?, decimal?, string?), int>();
 
         foreach (var line in pivot.Lines)
         {
             var tax = PrimaryTax(line);
             var key = (tax?.CategoryCode, tax?.Rate, tax?.VatexCode);
-            var taxAmount = tax?.TaxAmount ?? 0m;
             if (index.TryGetValue(key, out var position))
             {
-                var existing = groups[position];
-                groups[position] = existing with
-                {
-                    TaxableBase = existing.TaxableBase + line.NetAmount,
-                    TaxAmount = existing.TaxAmount + taxAmount,
-                };
+                bases[position] += line.NetAmount;
             }
             else
             {
-                index[key] = groups.Count;
-                groups.Add(new FacturXReadableVatLine(VatLabel(tax), line.NetAmount, taxAmount));
+                index[key] = labels.Count;
+                labels.Add(VatLabel(tax));
+                bases.Add(line.NetAmount);
+                rates.Add(tax?.Rate);
             }
         }
 
-        return groups
-            .Select(g => g with
-            {
-                TaxableBase = PivotRounding.RoundAmount(g.TaxableBase),
-                TaxAmount = PivotRounding.RoundAmount(g.TaxAmount),
-            })
-            .ToList();
+        var groups = new List<FacturXReadableVatLine>(labels.Count);
+        for (var i = 0; i < labels.Count; i++)
+        {
+            var basis = PivotRounding.RoundAmount(bases[i]);
+            var tax = PivotRounding.RoundAmount(basis * (rates[i] ?? 0m) / 100m);
+            groups.Add(new FacturXReadableVatLine(labels[i], basis, tax));
+        }
+
+        return groups;
     }
 
     // Taux primaire d'une ligne (nominal : une ventilation par ligne, BG-30). Le sérialiseur CII bloque

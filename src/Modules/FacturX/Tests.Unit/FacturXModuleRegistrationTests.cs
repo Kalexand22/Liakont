@@ -1,6 +1,8 @@
 namespace Liakont.Modules.FacturX.Tests.Unit;
 
 using FluentAssertions;
+using Liakont.Modules.FacturX.Application;
+using Liakont.Modules.FacturX.Application.Cii;
 using Liakont.Modules.FacturX.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using QuestPDF.Infrastructure;
@@ -44,5 +46,16 @@ public sealed class FacturXModuleRegistrationTests
         };
 
         act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void AddFacturXModule_ResolvesFacturXBuilder_WithItsSerializerDependency()
+    {
+        // Garde le câblage DI complet du builder (FX04) : si l'enregistrement du sérialiseur CII était
+        // retiré/réordonné, la résolution de IFacturXBuilder casserait au runtime — ici elle est exercée.
+        using var provider = new ServiceCollection().AddFacturXModule().BuildServiceProvider();
+
+        provider.GetRequiredService<IFacturXBuilder>().Should().BeOfType<FacturXBuilder>();
+        provider.GetRequiredService<ICrossIndustryInvoiceSerializer>().Should().BeOfType<CrossIndustryInvoiceSerializer>();
     }
 }
