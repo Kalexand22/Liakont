@@ -12,7 +12,8 @@ Outillage de **création** et de **mise à jour** d'instances Liakont, par-dessu
 | `new-instance.ps1` | Crée une instance (répertoire dédié, secrets uniques, realm, .env) — modes `hosted` / `self-hosted` |
 | `update-instance.ps1` | Montée de version **multi-bases** sûre (maintenance 503 → sauvegarde → migration → santé/rollback) |
 | `migrate-instance.ps1` | **Migration d'instance** (réversibilité OPS06b) : EXPORT d'un bundle complet (toutes bases + volume) sur la source, APPLY (restauration + santé + bascule DNS) sur la cible |
-| `Provisioning.psm1` | Fonctions partagées (validation de nom, secrets, registre, enveloppes Docker) |
+| `decommission-tenant.ps1` | **Fin de vie d'un tenant** (résiliation/RGPD — OPS06c, décision D7) : désactivation logique, puis suppression encadrée (export vérifié + double confirmation + audit d'instance) |
+| `Provisioning.psm1` | Fonctions partagées (validation de nom, secrets, registre, enveloppes Docker, audit de fin de vie) |
 | `maintenance.Caddyfile` | Caddyfile de maintenance (503 + Retry-After sur `/api/agent/*`) posé pendant une migration |
 | `instances.example.yaml` | **Exemple FICTIF** du format du registre (le registre réel n'est pas versionné) |
 
@@ -150,11 +151,60 @@ basculer le DNS**.
 
 Ajouter `-DryRun` à l'une ou l'autre phase affiche la séquence **sans rien écrire**.
 
-> Fin de vie d'un tenant (résiliation/RGPD avec conservation fiscale) : voir `OPS06c`, pas cet outil.
+> Migration d'une **instance entière** (cet outil) ≠ fin de vie d'**un tenant** au sein d'une instance
+> (résiliation/RGPD avec conservation fiscale) : pour cette dernière, voir le § 5 (`decommission-tenant.ps1`).
 
 ---
 
-## 5. Registre des instances
+## 5. Fin de vie d'un tenant (résiliation/RGPD — OPS06c, décision D7)
+
+La **résiliation d'un client** doit concilier le droit à l'effacement (RGPD) avec le **coffre WORM** et la
+**conservation fiscale 10 ans**. La décision **D7** (2026-06-03) fixe une séquence **stricte** : pas de
+suppression sans **preuve** que le client a récupéré une **archive intègre**. `decommission-tenant.ps1`
+la réalise en deux actions.
+
+### Désactivation (par défaut)
+
+```powershell
+./decommission-tenant.ps1 -InstanceName acme-prod -Tenant acme
+```
+
+Marque le tenant **inactif** dans le catalogue système (`outbox.tenants.is_active = false`) et, au mieux,
+suspend le service live (`tenant_profiles.statut = 1` « Suspendu », statut OPS03). **Plus de push, plus de
+connexion ; les données restent intactes.** État réversible — et **légitime en permanence** : un tenant
+résilié qui ne demande pas l'effacement reste désactivé indéfiniment (D7, point 6).
+
+### Suppression (`-Delete`) — séquence D7 complète
+
+```powershell
+./decommission-tenant.ps1 -InstanceName acme-prod -Tenant acme -Delete `
+    -VerifiedExportPath ./exports/acme-reversibilite.zip `
+    -Operator ops@itinnov.example -Recipient dpo@acme.example `
+    -Yes -ConfirmTenantName acme
+```
+
+1. **Désactivation** (ci-dessus) ;
+2. **Export complet VÉRIFIÉ** — l'export de réversibilité (produit par OPS06a) est **re-contrôlé** par
+   `tools/verifier-integrite-archive.ps1` (TRK06/TRK05). La suppression est **REFUSÉE** si l'export est
+   **ALTÉRÉ** (`VERDICT=TAMPERED`), **PARTIEL** (`VERDICT=INCOMPLETE` — il faut l'export de réversibilité
+   **COMPLET**, pas un export de contrôle fiscal), absent ou illisible ;
+3. **Transfert de responsabilité documenté** — la notice rappelle que la conservation fiscale (10 ans)
+   passe au **client destinataire** avec l'export ;
+4. **Double confirmation** + **saisie exacte du nom du tenant** (`-Yes` + `-ConfirmTenantName`, ou en
+   interactif les invites « OUI » puis re-saisie du nom) ;
+5. **Audit d'instance écrit AVANT la suppression** — fichier **hôte**
+   `instances/<instance>/tenant-decommission-audit.jsonl` (append-only, gitignoré), consignant **qui,
+   quand, le tenant, la référence de l'export vérifié et le destinataire**. Il **SURVIT** à la suppression
+   de la base du tenant : c'est la preuve de fin de conservation chez l'opérateur ;
+6. **Suppression** de la base du tenant + retrait du catalogue système.
+
+> **Bloquer plutôt qu'envoyer faux** (CLAUDE.md n°3) : tant que toutes les gardes ne sont pas vertes,
+> **aucune action destructrice** n'est entreprise (l'export n'est que **lu**). Ajouter `-DryRun` affiche
+> la séquence — après les gardes — **sans rien supprimer**.
+
+---
+
+## 6. Registre des instances
 
 `instances.yaml` (non versionné) liste les instances **opérées par IT Innovations** : `name`,
 `editor`, `url`, `hosting`, `version`, `project`, `created_at`, `updated_at`. **Aucun secret** n'y
@@ -164,17 +214,23 @@ n'y apparaissent que si l'éditeur a souscrit la méta-supervision (OPS04). Voir
 
 ---
 
-## 6. Vérification
+## 7. Vérification
 
 La logique des scripts (validation, secrets, registre, états vide/sale/échec, codes de sortie de
-`migrate-instance.ps1`) est couverte par le self-test `tools/test-provisioning.ps1` (câblé dans
-`tools/run-tests.ps1`, PowerShell pur, sans Docker).
+`migrate-instance.ps1`, **gardes de fin de vie de `decommission-tenant.ps1`** : refus sur export
+absent/altéré/partiel, confirmation, audit d'instance append-only) est couverte par le self-test
+`tools/test-provisioning.ps1` (câblé dans `tools/run-tests.ps1`, PowerShell pur, sans Docker — la
+vérification d'intégrité y appelle le **vrai** `verifier-integrite-archive.ps1`).
 
-Le **round-trip réel** avec Docker est porté par deux auto-tests (recette humaine `GATE_TOOLKIT`,
+Le **round-trip réel** avec Docker est porté par trois auto-tests (recette humaine `GATE_TOOLKIT`,
 comme l'appliance OPS01a) :
 
 - `deploy/docker/test-backup-restore.sh` — sauvegarde/restauration (OPS01b) ;
 - `deploy/provisioning/test-migrate-instance.sh` — **migration de bout en bout** (OPS06b) : EXPORT +
   APPLY sur une stack réduite (source + cible), avec un tenant **suspendu** (preuve qu'il migre quand
   même) et vérification que toutes les bases + le coffre WORM + les clés Data Protection ont survécu,
-  santé verte sur la cible.
+  santé verte sur la cible ;
+- `deploy/provisioning/test-decommission-tenant.sh` — **fin de vie d'un tenant de bout en bout** (OPS06c) :
+  désactivation, **refus** de suppression sur export altéré, puis suppression sur export vert avec
+  vérification que la base tenant est supprimée, le tenant retiré du catalogue, et que l'**audit
+  d'instance survit** à la suppression de la base.
