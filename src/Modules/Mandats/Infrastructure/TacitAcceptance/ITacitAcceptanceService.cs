@@ -9,9 +9,10 @@ internal interface ITacitAcceptanceService
 {
     /// <summary>
     /// Bascule en <c>TacitlyAccepted</c> les acceptations en attente dont l'échéance est échue
-    /// (<c>now ≥ DeadlineUtc</c>, <c>DeadlineUtc</c> non null ≡ mandat écrit ET délai non null). Chaque
-    /// bascule écrit sa ligne <c>self_billed_acceptance_log</c> (transition système, sans opérateur) dans la
-    /// MÊME transaction (INV-ACCEPT-5). L'éligibilité est re-vérifiée sous verrou (anti-TOCTOU).
+    /// (<c>now ≥ DeadlineUtc</c>, <c>DeadlineUtc</c> non null ≡ mandat écrit ET délai non null). Depuis SIG05,
+    /// l'acceptation est projetée via le module générique DocumentApproval ; chaque bascule écrit une transition
+    /// SYSTÈME (operator_id null) atomiquement dans <c>documentapproval.document_approval_log</c> (INV-ACCEPT-5
+    /// amendé). L'éligibilité est re-vérifiée sous verrou (anti-TOCTOU).
     /// </summary>
     Task<TacitAcceptanceRunResult> ProcessDueAsync(CancellationToken ct = default);
 }

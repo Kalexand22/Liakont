@@ -2,18 +2,21 @@ namespace Liakont.Modules.Mandats.Tests.Integration;
 
 using Dapper;
 using FluentAssertions;
+using Liakont.Modules.DocumentApproval.Contracts;
 using Liakont.Modules.Mandats.Domain.Entities;
-using Liakont.Modules.Mandats.Infrastructure;
 using Liakont.Modules.Mandats.Tests.Integration.Fixtures;
 using Npgsql;
 using Stratum.Common.Abstractions.Exceptions;
 using Xunit;
 
 /// <summary>
-/// Workflow d'acceptation des auto-factures 389 (ADR-0024, F15 §2.3) sur PostgreSQL réel (Testcontainers) :
-/// round-trip de l'état (INV-ACCEPT-4), journalisation atomique « pas de transition sans ligne de journal »
-/// dans la même transaction (INV-ACCEPT-5), journal append-only (UPDATE/DELETE/TRUNCATE rejetés par trigger
-/// base), atomicité (transaction abandonnée ⇒ rien), isolation tenant sur ≥ 2 sociétés (INV-MANDATS-1).
+/// Workflow d'acceptation des auto-factures 389 (ADR-0024, F15 §2.3) sur PostgreSQL réel (Testcontainers).
+/// SIG05 — l'acceptation est PROJETÉE via le module générique DocumentApproval (purpose SelfBilledAcceptance) :
+/// round-trip de l'état projeté (INV-ACCEPT-4), journal append-only DÉSORMAIS dans
+/// <c>documentapproval.document_approval_log</c> (INV-ACCEPT-5 amendé ; UPDATE/DELETE/TRUNCATE rejetés par
+/// trigger base), unicité de la tentative active (ConflictException), isolation tenant sur ≥ 2 sociétés
+/// (INV-MANDATS-1). La companion fiscale (<c>mandats.self_billed_acceptances</c>) ne porte plus que
+/// allocated_number/pending_since.
 /// </summary>
 [Collection("MandatsIntegration")]
 public sealed class SelfBilledAcceptanceIntegrationTests
@@ -29,12 +32,12 @@ public sealed class SelfBilledAcceptanceIntegrationTests
     }
 
     [Fact]
-    public async Task Insert_And_Get_RoundTrips_Pending_With_Deadline()
+    public async Task Open_And_Get_RoundTrips_Pending_With_Deadline()
     {
         var harness = new MandatsHarness(_fixture);
         var companyId = Guid.NewGuid();
         var documentId = Guid.NewGuid();
-        await InsertPendingAsync(harness, companyId, documentId, Deadline);
+        await OpenPendingAsync(harness, companyId, documentId, Deadline);
 
         var dto = await harness.AcceptanceQueries.GetAcceptance(companyId, documentId);
         dto.Should().NotBeNull();
@@ -46,35 +49,35 @@ public sealed class SelfBilledAcceptanceIntegrationTests
     }
 
     [Fact]
-    public async Task Insert_Writes_Genesis_Log_Line()
+    public async Task Open_Writes_Genesis_Log_Line()
     {
         var harness = new MandatsHarness(_fixture);
         var companyId = Guid.NewGuid();
         var documentId = Guid.NewGuid();
-        await InsertPendingAsync(harness, companyId, documentId, Deadline);
+        await OpenPendingAsync(harness, companyId, documentId, Deadline);
 
         var log = await harness.AcceptanceQueries.GetAcceptanceLog(companyId, documentId);
-        log.Should().HaveCount(1, "la création écrit une ligne de genèse (INV-ACCEPT-5).");
+        log.Should().HaveCount(1, "la création écrit une ligne de genèse (INV-ACCEPT-5, document_approval_log).");
         log[0].FromState.Should().BeNull("la genèse n'a pas d'état « avant ».");
         log[0].ToState.Should().Be(nameof(SelfBilledAcceptanceState.PendingAcceptance));
     }
 
     [Fact]
-    public async Task Express_Acceptance_Persists_State_And_Logs_Transition_In_Same_Transaction()
+    public async Task Express_Acceptance_Persists_State_And_Logs_Transition()
     {
         var harness = new MandatsHarness(_fixture);
         var companyId = Guid.NewGuid();
         var documentId = Guid.NewGuid();
         var operatorId = Guid.NewGuid();
-        await InsertPendingAsync(harness, companyId, documentId, Deadline);
+        await OpenPendingAsync(harness, companyId, documentId, Deadline);
 
-        await TransitionAsync(harness, companyId, documentId, a => a.AcceptExpressly(), operatorId, "Opérateur de test");
+        await harness.Commands.AcceptExpresslyAsync(companyId, documentId, operatorId, "Opérateur de test");
 
         var dto = await harness.AcceptanceQueries.GetAcceptance(companyId, documentId);
         dto!.State.Should().Be(nameof(SelfBilledAcceptanceState.Accepted));
         dto.IsAccepted.Should().BeTrue("Accepted ouvre le gate.");
 
-        // Genèse + transition : « pas de transition sans ligne de journal » (INV-ACCEPT-5).
+        // Genèse + transition : « pas de transition sans ligne de journal » (INV-ACCEPT-5), dans document_approval_log.
         var log = await harness.AcceptanceQueries.GetAcceptanceLog(companyId, documentId);
         log.Should().HaveCount(2);
         log[0].FromState.Should().Be(nameof(SelfBilledAcceptanceState.PendingAcceptance));
@@ -88,9 +91,12 @@ public sealed class SelfBilledAcceptanceIntegrationTests
         var harness = new MandatsHarness(_fixture);
         var companyId = Guid.NewGuid();
         var documentId = Guid.NewGuid();
-        await InsertPendingAsync(harness, companyId, documentId, Deadline);
+        await OpenPendingAsync(harness, companyId, documentId, Deadline);
 
-        await TransitionAsync(harness, companyId, documentId, a => a.AcceptTacitly(), operatorId: null, "Bascule tacite (job)");
+        // Échéance échue (now = Deadline) → bascule tacite, transition SYSTÈME (operator_id null).
+        var transitioned = await harness.Workflow.RecordTacitValidationIfDueAsync(
+            companyId, documentId, ValidationPurpose.SelfBilledAcceptance, Deadline, "Bascule tacite (job)");
+        transitioned.Should().BeTrue("l'échéance est échue (now ≥ deadline).");
 
         var dto = await harness.AcceptanceQueries.GetAcceptance(companyId, documentId);
         dto!.State.Should().Be(nameof(SelfBilledAcceptanceState.TacitlyAccepted));
@@ -102,14 +108,31 @@ public sealed class SelfBilledAcceptanceIntegrationTests
     }
 
     [Fact]
+    public async Task Tacit_Acceptance_NotDue_Before_Deadline_Does_Nothing()
+    {
+        var harness = new MandatsHarness(_fixture);
+        var companyId = Guid.NewGuid();
+        var documentId = Guid.NewGuid();
+        await OpenPendingAsync(harness, companyId, documentId, Deadline);
+
+        // Échéance NON échue (now < deadline) → pas de bascule (re-vérification sous verrou).
+        var transitioned = await harness.Workflow.RecordTacitValidationIfDueAsync(
+            companyId, documentId, ValidationPurpose.SelfBilledAcceptance, PendingSince, "Bascule tacite (job)");
+
+        transitioned.Should().BeFalse("une échéance future ne bascule pas.");
+        (await harness.AcceptanceQueries.GetAcceptance(companyId, documentId))!.State
+            .Should().Be(nameof(SelfBilledAcceptanceState.PendingAcceptance));
+    }
+
+    [Fact]
     public async Task Contest_Closes_Gate_And_Logs()
     {
         var harness = new MandatsHarness(_fixture);
         var companyId = Guid.NewGuid();
         var documentId = Guid.NewGuid();
-        await InsertPendingAsync(harness, companyId, documentId, Deadline);
+        await OpenPendingAsync(harness, companyId, documentId, Deadline);
 
-        await TransitionAsync(harness, companyId, documentId, a => a.Contest(), Guid.NewGuid(), "Opérateur de test");
+        await harness.Commands.ContestAsync(companyId, documentId, Guid.NewGuid(), "Opérateur de test");
 
         var dto = await harness.AcceptanceQueries.GetAcceptance(companyId, documentId);
         dto!.State.Should().Be(nameof(SelfBilledAcceptanceState.Contested));
@@ -117,15 +140,16 @@ public sealed class SelfBilledAcceptanceIntegrationTests
     }
 
     [Fact]
-    public async Task Duplicate_Insert_For_Same_Document_Throws_Conflict()
+    public async Task Duplicate_Open_For_Same_Document_Throws_Conflict()
     {
         var harness = new MandatsHarness(_fixture);
         var companyId = Guid.NewGuid();
         var documentId = Guid.NewGuid();
-        await InsertPendingAsync(harness, companyId, documentId, Deadline);
+        await OpenPendingAsync(harness, companyId, documentId, Deadline);
 
-        var act = async () => await InsertPendingAsync(harness, companyId, documentId, Deadline);
-        await act.Should().ThrowAsync<ConflictException>();
+        var act = async () => await OpenPendingAsync(harness, companyId, documentId, Deadline);
+        await act.Should().ThrowAsync<ConflictException>(
+            "une tentative non terminale existe déjà pour ce document/purpose (index unique partiel — INV-APPROVAL-5).");
     }
 
     [Fact]
@@ -134,15 +158,15 @@ public sealed class SelfBilledAcceptanceIntegrationTests
         var harness = new MandatsHarness(_fixture);
         var companyId = Guid.NewGuid();
         var documentId = Guid.NewGuid();
-        await InsertPendingAsync(harness, companyId, documentId, Deadline);
+        await OpenPendingAsync(harness, companyId, documentId, Deadline);
 
         using var conn = await harness.ConnectionFactory.OpenAsync();
 
         var update = async () => await conn.ExecuteAsync(
-            "UPDATE mandats.self_billed_acceptance_log SET operator_name = 'falsifié' WHERE company_id = @c",
+            "UPDATE documentapproval.document_approval_log SET operator_name = 'falsifié' WHERE company_id = @c",
             new { c = companyId });
         var delete = async () => await conn.ExecuteAsync(
-            "DELETE FROM mandats.self_billed_acceptance_log WHERE company_id = @c",
+            "DELETE FROM documentapproval.document_approval_log WHERE company_id = @c",
             new { c = companyId });
 
         (await update.Should().ThrowAsync<PostgresException>())
@@ -158,39 +182,13 @@ public sealed class SelfBilledAcceptanceIntegrationTests
         var harness = new MandatsHarness(_fixture);
         var companyId = Guid.NewGuid();
         var documentId = Guid.NewGuid();
-        await InsertPendingAsync(harness, companyId, documentId, Deadline);
+        await OpenPendingAsync(harness, companyId, documentId, Deadline);
 
         using var conn = await harness.ConnectionFactory.OpenAsync();
-        var truncate = async () => await conn.ExecuteAsync("TRUNCATE mandats.self_billed_acceptance_log");
+        var truncate = async () => await conn.ExecuteAsync("TRUNCATE documentapproval.document_approval_log");
 
         await truncate.Should().ThrowAsync<PostgresException>();
         (await LogCountAsync(harness, companyId)).Should().Be(1, "le TRUNCATE a été rejeté.");
-    }
-
-    [Fact]
-    public async Task Transition_And_Log_Are_Atomic_Abandoned_Transaction_Persists_Nothing()
-    {
-        var harness = new MandatsHarness(_fixture);
-        var companyId = Guid.NewGuid();
-        var documentId = Guid.NewGuid();
-        await InsertPendingAsync(harness, companyId, documentId, Deadline);
-
-        var logBefore = await LogCountAsync(harness, companyId);
-
-        await using (var uow = await harness.AcceptanceUowFactory.BeginAsync())
-        {
-            var loaded = await uow.GetForUpdateAsync(companyId, documentId);
-            var fromState = loaded!.State;
-            loaded.AcceptExpressly();
-            var entry = SelfBilledAcceptanceLogFactory.ForTransition(loaded, fromState, Guid.NewGuid(), "Opérateur de test");
-            await uow.SaveTransitionAsync(loaded, entry);
-
-            // Pas de CommitAsync : la sortie du bloc déclenche le rollback (TransactionScope.DisposeAsync).
-        }
-
-        var dto = await harness.AcceptanceQueries.GetAcceptance(companyId, documentId);
-        dto!.State.Should().Be(nameof(SelfBilledAcceptanceState.PendingAcceptance), "la transition non validée a été annulée.");
-        (await LogCountAsync(harness, companyId)).Should().Be(logBefore, "l'entrée de journal a été annulée avec la transition.");
     }
 
     [Fact]
@@ -201,10 +199,10 @@ public sealed class SelfBilledAcceptanceIntegrationTests
         var companyB = Guid.NewGuid();
         var documentA = Guid.NewGuid();
         var documentB = Guid.NewGuid();
-        await InsertPendingAsync(harness, companyA, documentA, Deadline);
-        await InsertPendingAsync(harness, companyB, documentB, Deadline);
+        await OpenPendingAsync(harness, companyA, documentA, Deadline);
+        await OpenPendingAsync(harness, companyB, documentB, Deadline);
 
-        await TransitionAsync(harness, companyA, documentA, a => a.AcceptExpressly(), Guid.NewGuid(), "Opérateur A");
+        await harness.Commands.AcceptExpresslyAsync(companyA, documentA, Guid.NewGuid(), "Opérateur A");
 
         (await harness.AcceptanceQueries.GetAcceptance(companyA, documentA))!.State
             .Should().Be(nameof(SelfBilledAcceptanceState.Accepted));
@@ -219,12 +217,12 @@ public sealed class SelfBilledAcceptanceIntegrationTests
     }
 
     [Fact]
-    public async Task Insert_And_Get_RoundTrips_Null_Deadline()
+    public async Task Open_And_Get_RoundTrips_Null_Deadline()
     {
         var harness = new MandatsHarness(_fixture);
         var companyId = Guid.NewGuid();
         var documentId = Guid.NewGuid();
-        await InsertPendingAsync(harness, companyId, documentId, deadline: null);
+        await OpenPendingAsync(harness, companyId, documentId, deadline: null);
 
         var dto = await harness.AcceptanceQueries.GetAcceptance(companyId, documentId);
         dto.Should().NotBeNull();
@@ -233,34 +231,16 @@ public sealed class SelfBilledAcceptanceIntegrationTests
             "une échéance NULL (timestamptz) doit faire un round-trip exact : sans délai renseigné, la bascule tacite est impossible (F15 §2.3 / INV-ACCEPT-3).");
     }
 
-    private static async Task InsertPendingAsync(
+    private static Task OpenPendingAsync(
         MandatsHarness harness, Guid companyId, Guid documentId, DateTimeOffset? deadline)
-    {
-        var acceptance = SelfBilledAcceptance.Create(companyId, documentId, PendingSince, deadline);
-        await using var uow = await harness.AcceptanceUowFactory.BeginAsync();
-        var entry = SelfBilledAcceptanceLogFactory.ForCreation(acceptance, operatorId: null, "Ingestion (test)");
-        await uow.InsertAsync(acceptance, entry);
-        await uow.CommitAsync();
-    }
-
-    private static async Task TransitionAsync(
-        MandatsHarness harness, Guid companyId, Guid documentId, Action<SelfBilledAcceptance> transition,
-        Guid? operatorId, string? operatorName)
-    {
-        await using var uow = await harness.AcceptanceUowFactory.BeginAsync();
-        var loaded = await uow.GetForUpdateAsync(companyId, documentId);
-        var fromState = loaded!.State;
-        transition(loaded);
-        var entry = SelfBilledAcceptanceLogFactory.ForTransition(loaded, fromState, operatorId, operatorName);
-        await uow.SaveTransitionAsync(loaded, entry);
-        await uow.CommitAsync();
-    }
+        => harness.Commands.OpenPendingAsync(
+            companyId, documentId, PendingSince, deadline, operatorId: null, "Ingestion (test)");
 
     private static async Task<int> LogCountAsync(MandatsHarness harness, Guid companyId)
     {
         using var conn = await harness.ConnectionFactory.OpenAsync();
         return await conn.ExecuteScalarAsync<int>(
-            "SELECT count(*)::int FROM mandats.self_billed_acceptance_log WHERE company_id = @c",
+            "SELECT count(*)::int FROM documentapproval.document_approval_log WHERE company_id = @c AND validation_purpose = 0",
             new { c = companyId });
     }
 }

@@ -29,6 +29,20 @@ internal sealed class PostgresDocumentApprovalQueries : IDocumentApprovalQueries
         ORDER BY occurred_at DESC, seq DESC
         """;
 
+    // Candidats à la bascule tacite : état PendingValidation (0, NON terminal — l'index unique partiel
+    // ux_document_validations_active_attempt garantit au plus UNE ligne non terminale par (company, doc,
+    // purpose), donc la ligne Pending EST la tentative active), échéance non null et échue. Le service
+    // re-vérifie sous verrou (anti-TOCTOU). 0 = ValidationState.PendingValidation (V002, ordre figé).
+    private const string TacitDueSql = """
+        SELECT company_id, document_id
+        FROM documentapproval.document_validations
+        WHERE validation_purpose = @Purpose
+          AND state = 0
+          AND deadline_utc IS NOT NULL
+          AND deadline_utc <= @NowUtc
+        ORDER BY deadline_utc
+        """;
+
     private readonly IConnectionFactory _connectionFactory;
 
     public PostgresDocumentApprovalQueries(IConnectionFactory connectionFactory)
@@ -88,6 +102,30 @@ internal sealed class PostgresDocumentApprovalQueries : IDocumentApprovalQueries
         }
 
         return entries;
+    }
+
+    public async Task<IReadOnlyList<TacitDueDocumentDto>> ListTacitDueDocumentsAsync(
+        ValidationPurpose purpose, DateTimeOffset nowUtc, CancellationToken ct = default)
+    {
+        using var connection = await _connectionFactory.OpenAsync(ct);
+
+        var rows = await connection.QueryAsync(
+            new CommandDefinition(
+                TacitDueSql,
+                new { Purpose = (int)purpose, NowUtc = nowUtc },
+                cancellationToken: ct));
+
+        var result = new List<TacitDueDocumentDto>();
+        foreach (var row in rows)
+        {
+            result.Add(new TacitDueDocumentDto
+            {
+                CompanyId = (Guid)row.company_id,
+                DocumentId = (Guid)row.document_id,
+            });
+        }
+
+        return result;
     }
 
     private static DocumentValidationDto MapValidation(DocumentValidation v)

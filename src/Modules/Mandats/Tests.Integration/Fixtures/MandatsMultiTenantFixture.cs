@@ -3,6 +3,7 @@ namespace Liakont.Modules.Mandats.Tests.Integration.Fixtures;
 using System.Reflection;
 using Dapper;
 using DbUp;
+using Liakont.Modules.DocumentApproval.Infrastructure;
 using Liakont.Modules.Mandats.Infrastructure;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -81,8 +82,12 @@ public sealed class MandatsMultiTenantFixture : IAsyncLifetime
 
     private static void RunModuleMigrations(string connectionString)
     {
+        // DocumentApproval AVANT Mandats (SIG05) : la bascule Mandats écrit dans le schéma documentapproval.
         var upgrader = DeployChanges.To
             .PostgresqlDatabase(connectionString)
+            .WithScriptsEmbeddedInAssembly(
+                Assembly.GetAssembly(typeof(DocumentApprovalModuleRegistration))!,
+                s => s.Contains(".Migrations.", StringComparison.Ordinal))
             .WithScriptsEmbeddedInAssembly(
                 Assembly.GetAssembly(typeof(MandatsModuleRegistration))!,
                 s => s.Contains(".Migrations.", StringComparison.Ordinal))

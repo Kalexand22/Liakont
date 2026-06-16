@@ -1,9 +1,14 @@
 namespace Liakont.Modules.Mandats.Tests.Unit;
 
+using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
+using Liakont.Modules.DocumentApproval.Contracts;
+using Liakont.Modules.DocumentApproval.Contracts.DTOs;
+using Liakont.Modules.DocumentApproval.Contracts.Queries;
 using Liakont.Modules.Mandats.Application;
 using Liakont.Modules.Mandats.Contracts;
 using Liakont.Modules.Mandats.Contracts.Queries;
@@ -29,6 +34,12 @@ public sealed class MandatsModuleRegistrationTests
         var services = new ServiceCollection();
         services.AddScoped<IConnectionFactory, FakeConnectionFactory>();
 
+        // SIG05 : l'acceptation 389 est projetée via DocumentApproval ; les services Mandats dépendent du port
+        // de commande + des requêtes DocumentApproval. Au runtime, le Host enregistre DocumentApproval ; ici on
+        // fournit des doubles minimaux de ses CONTRACTS (frontière respectée) pour vérifier le câblage Mandats.
+        services.AddScoped<IDocumentApprovalWorkflow, FakeDocumentApprovalWorkflow>();
+        services.AddScoped<IDocumentApprovalQueries, FakeDocumentApprovalQueries>();
+
         services.AddMandatsModule();
 
         using ServiceProvider provider = services.BuildServiceProvider(
@@ -39,7 +50,7 @@ public sealed class MandatsModuleRegistrationTests
         sp.GetRequiredService<IMandatsQueries>().Should().NotBeNull("IMandatsQueries doit être résolu après AddMandatsModule");
         sp.GetRequiredService<IMandatsUnitOfWorkFactory>().Should().NotBeNull("IMandatsUnitOfWorkFactory doit être résolu après AddMandatsModule");
         sp.GetRequiredService<ISelfBilledAcceptanceQueries>().Should().NotBeNull("ISelfBilledAcceptanceQueries (MND02) doit être résolu après AddMandatsModule");
-        sp.GetRequiredService<ISelfBilledAcceptanceUnitOfWorkFactory>().Should().NotBeNull("ISelfBilledAcceptanceUnitOfWorkFactory (MND02) doit être résolu après AddMandatsModule");
+        sp.GetRequiredService<ISelfBilledAcceptanceCommands>().Should().NotBeNull("ISelfBilledAcceptanceCommands (SIG05) doit être résolu après AddMandatsModule");
         sp.GetRequiredService<ISelfBilledGate>().Should().NotBeNull("ISelfBilledGate (MND03) doit être résolu après AddMandatsModule");
         sp.GetRequiredService<ITacitAcceptanceService>().Should().NotBeNull("ITacitAcceptanceService (MND04) doit être résolu après AddMandatsModule — sinon le job de bascule tacite ne tourne pas");
 
@@ -53,5 +64,25 @@ public sealed class MandatsModuleRegistrationTests
     {
         public Task<IDbConnection> OpenAsync(CancellationToken cancellationToken = default) =>
             throw new System.NotSupportedException("Le smoke-test ne résout que le graphe DI, il n'ouvre pas de connexion.");
+    }
+
+    private sealed class FakeDocumentApprovalWorkflow : IDocumentApprovalWorkflow
+    {
+        public Task RequestValidationAsync(Guid companyId, Guid documentId, ValidationPurpose purpose, DateTimeOffset? deadlineUtc, Guid? operatorId, string? operatorName, CancellationToken ct = default) => Task.CompletedTask;
+
+        public Task RecordRecordedValidationAsync(Guid companyId, Guid documentId, ValidationPurpose purpose, Guid? operatorId, string? operatorName, CancellationToken ct = default) => Task.CompletedTask;
+
+        public Task ContestAsync(Guid companyId, Guid documentId, ValidationPurpose purpose, Guid? operatorId, string? operatorName, CancellationToken ct = default) => Task.CompletedTask;
+
+        public Task<bool> RecordTacitValidationIfDueAsync(Guid companyId, Guid documentId, ValidationPurpose purpose, DateTimeOffset nowUtc, string? operatorName, CancellationToken ct = default) => Task.FromResult(false);
+    }
+
+    private sealed class FakeDocumentApprovalQueries : IDocumentApprovalQueries
+    {
+        public Task<DocumentValidationDto?> GetLatestAttempt(Guid companyId, Guid documentId, ValidationPurpose purpose, CancellationToken ct = default) => Task.FromResult<DocumentValidationDto?>(null);
+
+        public Task<IReadOnlyList<DocumentApprovalLogEntryDto>> GetApprovalLog(Guid companyId, Guid documentId, ValidationPurpose purpose, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<DocumentApprovalLogEntryDto>>([]);
+
+        public Task<IReadOnlyList<TacitDueDocumentDto>> ListTacitDueDocumentsAsync(ValidationPurpose purpose, DateTimeOffset nowUtc, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<TacitDueDocumentDto>>([]);
     }
 }

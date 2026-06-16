@@ -1,38 +1,37 @@
 namespace Liakont.Modules.Mandats.Infrastructure.TacitAcceptance;
 
-using Liakont.Modules.Mandats.Application;
-using Liakont.Modules.Mandats.Domain.Entities;
+using Liakont.Modules.DocumentApproval.Contracts;
+using Liakont.Modules.DocumentApproval.Contracts.DTOs;
+using Liakont.Modules.DocumentApproval.Contracts.Queries;
 
 /// <summary>
-/// Implémente la bascule tacite <c>PendingAcceptance → TacitlyAccepted</c> (MND04, ADR-0024 §4 / F15 §2.3),
-/// pour le tenant courant. La condition fiscale « mandat écrit ET délai de contestation non null » est
-/// <b>déjà encodée</b> dans <see cref="SelfBilledAcceptance.DeadlineUtc"/> (calculée à la création par
-/// l'appelant qui lit le mandat — F15 §2.3 / INV-ACCEPT-3) : <c>DeadlineUtc != null</c> ⟺ bascule tacite
-/// possible. Le job n'ajoute que la condition temporelle <c>now ≥ DeadlineUtc</c>. Sous mandat tacite ou
-/// délai null, <c>DeadlineUtc</c> est null : aucun candidat, seule l'acceptation EXPRESSE débloque
-/// (BOFiP §290, CLAUDE.md n°2/3 — jamais affaibli).
-/// <para>
-/// Robustesse : on SNAPSHOT les clés dues (lecteur), puis on traite chaque clé dans SA propre unité de
-/// travail en rechargeant l'agrégat sous verrou (<c>FOR UPDATE</c>) et en RE-VÉRIFIANT l'éligibilité —
-/// l'état a pu changer entre l'énumération et le verrou (acceptation expresse / contestation concurrente).
-/// </para>
+/// Implémente la bascule tacite <c>PendingAcceptance → TacitlyAccepted</c> (MND04, ADR-0024 §4 / F15 §2.3) pour
+/// le tenant courant. Depuis SIG05, l'acceptation est PROJETÉE via DocumentApproval (purpose
+/// <see cref="ValidationPurpose.SelfBilledAcceptance"/>) : le service énumère les candidats dus via
+/// <see cref="IDocumentApprovalQueries.ListTacitDueDocumentsAsync"/> puis bascule chacun via
+/// <see cref="IDocumentApprovalWorkflow.RecordTacitValidationIfDueAsync"/> (verrou + re-vérification d'éligibilité
+/// SOUS VERROU, anti-TOCTOU). La condition fiscale « mandat écrit ET délai non null » est ENCODÉE dans
+/// <c>DeadlineUtc</c> (calculée à la création, F15 §2.3 / INV-ACCEPT-3) : <c>DeadlineUtc != null</c> ⟺ bascule
+/// tacite possible. Sous mandat tacite ou délai null, aucune échéance, donc jamais candidat — seule l'acceptation
+/// EXPRESSE débloque (BOFiP §290, CLAUDE.md n°2/3, jamais affaibli). La machine + le journal append-only
+/// (<c>document_approval_log</c>) sont ceux de DocumentApproval (INV-ACCEPT-5 amendé).
 /// </summary>
 internal sealed class TacitAcceptanceService : ITacitAcceptanceService
 {
     /// <summary>Origine système tracée au journal (operator_id null = bascule par job, pas un opérateur humain).</summary>
     internal const string TacitOperatorName = "Bascule tacite (job)";
 
-    private readonly ITacitAcceptanceCandidateReader _candidateReader;
-    private readonly ISelfBilledAcceptanceUnitOfWorkFactory _unitOfWorkFactory;
+    private readonly IDocumentApprovalQueries _approvalQueries;
+    private readonly IDocumentApprovalWorkflow _workflow;
     private readonly TimeProvider _timeProvider;
 
     public TacitAcceptanceService(
-        ITacitAcceptanceCandidateReader candidateReader,
-        ISelfBilledAcceptanceUnitOfWorkFactory unitOfWorkFactory,
+        IDocumentApprovalQueries approvalQueries,
+        IDocumentApprovalWorkflow workflow,
         TimeProvider timeProvider)
     {
-        _candidateReader = candidateReader;
-        _unitOfWorkFactory = unitOfWorkFactory;
+        _approvalQueries = approvalQueries;
+        _workflow = workflow;
         _timeProvider = timeProvider;
     }
 
@@ -42,45 +41,31 @@ internal sealed class TacitAcceptanceService : ITacitAcceptanceService
 
         // Snapshot des clés dues AVANT traitement (l'état traité se vide au fil des bascules : énumérer puis
         // re-paginer un état qui change est un faux-vert connu — voir lessons pipeline tenant-job).
-        IReadOnlyList<TacitAcceptanceCandidate> candidates = await _candidateReader.ListDueAsync(now, ct);
+        IReadOnlyList<TacitDueDocumentDto> candidates =
+            await _approvalQueries.ListTacitDueDocumentsAsync(ValidationPurpose.SelfBilledAcceptance, now, ct);
 
         var tacitlyAccepted = 0;
-        foreach (TacitAcceptanceCandidate candidate in candidates)
+        foreach (TacitDueDocumentDto candidate in candidates)
         {
             ct.ThrowIfCancellationRequested();
 
-            await using ISelfBilledAcceptanceUnitOfWork uow = await _unitOfWorkFactory.BeginAsync(ct);
-            SelfBilledAcceptance? acceptance = await uow.GetForUpdateAsync(candidate.CompanyId, candidate.DocumentId, ct);
+            // Bascule SI ÉLIGIBLE : verrou + re-vérification SOUS VERROU (Pending & échéance échue), transition +
+            // journal système dans la MÊME transaction (DocumentApproval). Plus éligible (acceptation expresse /
+            // contestation concurrente entre l'énumération et le verrou) ⇒ no-op sans effet.
+            var transitioned = await _workflow.RecordTacitValidationIfDueAsync(
+                candidate.CompanyId,
+                candidate.DocumentId,
+                ValidationPurpose.SelfBilledAcceptance,
+                now,
+                TacitOperatorName,
+                ct);
 
-            if (acceptance is null || !IsDueForTacitAcceptance(acceptance, now))
+            if (transitioned)
             {
-                // Plus éligible sous verrou (acceptation expresse / contestation entre-temps, ou échéance non
-                // échue) : on ne bascule pas. La sortie du bloc abandonne la transaction → aucun effet.
-                continue;
+                tacitlyAccepted++;
             }
-
-            acceptance.AcceptTacitly();
-            SelfBilledAcceptanceLogEntry entry = SelfBilledAcceptanceLogFactory.ForTransition(
-                acceptance,
-                fromState: SelfBilledAcceptanceState.PendingAcceptance,
-                operatorId: null,
-                operatorName: TacitOperatorName);
-
-            await uow.SaveTransitionAsync(acceptance, entry, ct);
-            await uow.CommitAsync(ct);
-            tacitlyAccepted++;
         }
 
         return new TacitAcceptanceRunResult(candidates.Count, tacitlyAccepted);
     }
-
-    /// <summary>
-    /// Condition de bascule tacite (ADR-0024 §4 / INV-ACCEPT-3), re-vérifiée sous verrou : en attente,
-    /// échéance renseignée (≡ mandat écrit ET délai non null) et échue. Mandat tacite ou délai null ⇒
-    /// <c>DeadlineUtc</c> null ⇒ jamais éligible (seule l'acceptation expresse débloque).
-    /// </summary>
-    private static bool IsDueForTacitAcceptance(SelfBilledAcceptance acceptance, DateTimeOffset now)
-        => acceptance.State == SelfBilledAcceptanceState.PendingAcceptance
-            && acceptance.DeadlineUtc is { } deadline
-            && deadline <= now;
 }

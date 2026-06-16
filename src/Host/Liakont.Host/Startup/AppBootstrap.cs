@@ -185,9 +185,23 @@ public static class AppBootstrap
         builder.Services.AddIngestionModule();
         builder.Services.AddTvaMappingModule();
 
+        // DocumentApproval (SIG04, ADR-0028) : workflow de validation de document GÉNÉRIQUE (cœur réutilisable
+        // du lot signature) — agrégat à machine fermée par purpose, slots N-parties, journal append-only,
+        // règle de gate. Le Host enregistre la persistance (migrations du schéma documentapproval + UoW +
+        // requêtes + port de commande générique). Aucun port par purpose ni job ici (SIG06/SIG07) ; aucune
+        // logique fiscale (CLAUDE.md n°2). ⚠️ ENREGISTRÉ AVANT Mandats : depuis SIG05, la migration de bascule
+        // du module Mandats (self-billing → documentapproval) ÉCRIT dans le schéma documentapproval ; ses tables
+        // (V001-V004) doivent donc exister AVANT. La garantie tient des DEUX côtés : (1) par le NOM de script,
+        // « ...DocumentApproval...Migrations.V004 » trie avant « ...Mandats...Migrations.V010 » (ordre lexical
+        // des ressources embarquées) ; (2) cet enregistrement de DocumentApproval AVANT Mandats (défense en
+        // profondeur, et c'est l'ordre des fixtures de test). La migration V010 est exercée sur données réelles
+        // par SelfBilledAcceptanceMigrationV010Tests.
+        builder.Services.AddDocumentApprovalModule();
+
         // Mandats (F15 §2, ADR-0022) : registre des mandants + cycle de vie des mandats (autofacturation
-        // 389). MND01 (fondation) n'enregistre que la persistance (migrations DbUp du schéma mandats +
-        // journal append-only, UoW, requêtes) ; les handlers et le port ISelfBilledGate arrivent avec MND02+.
+        // 389) + acceptation 389 PROJETÉE via DocumentApproval (SIG05 : machine + journal document_approval_log
+        // délégués au module générique ; le module garde le port ISelfBilledGate, l'allocation BT-1 et la
+        // companion fiscale allocated_number). Les handlers de bascule tacite arrivent par MND04.
         builder.Services.AddMandatsModule();
 
         // Validation (F04) : expose IValidationService à la frontière Contracts (consommé par le pipeline,
@@ -318,12 +332,6 @@ public static class AppBootstrap
         // construit vide sans erreur (défaut Recorded) ; les fournisseurs CONFIGURÉS mais non câblés sont
         // détectés au démarrage (ValidateSignatureProviderConfiguration, dans InitializeDataAsync).
         builder.Services.AddSignatureModule();
-
-        // DocumentApproval (SIG04, ADR-0028) : workflow de validation de document GÉNÉRIQUE (cœur réutilisable
-        // du lot signature) — agrégat à machine fermée par purpose, slots N-parties, journal append-only,
-        // règle de gate. Le Host enregistre la persistance (migrations du schéma documentapproval + UoW +
-        // requêtes). Aucun port par purpose ni job ici (SIG06/SIG07) ; aucune logique fiscale (CLAUDE.md n°2).
-        builder.Services.AddDocumentApprovalModule();
 
         // Pipeline (PIP01a — fondations) : lecteur canonique du contenu stagé + journal d'exécutions
         // (pipeline.run_logs) + points d'entrée Contracts consommés par CHECK/SEND/SYNC. AUCUN comportement
