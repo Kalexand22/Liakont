@@ -106,6 +106,58 @@ public sealed class MandantPersistenceIntegrationTests
         log[0].AfterValue.Should().NotBeNull();
     }
 
+    [Fact]
+    public async Task UpdateDetails_Updates_Registry_And_Logs_UpdateMandant()
+    {
+        var harness = new MandatsHarness(_fixture);
+        var companyId = Guid.NewGuid();
+        await InsertMandantAsync(harness, Mandant.Create(companyId, "MANDANT-EXEMPLE-1", "Ferme Exemple", null, "000000000", "EXM-"), Guid.NewGuid());
+
+        await using (var uow = await harness.UowFactory.BeginAsync())
+        {
+            // Deux instances : « before » reste l'état d'origine, « loaded » porte la mutation (journal
+            // UpdateMandant). Le second FOR UPDATE sur la même ligne déjà verrouillée est ré-entrant.
+            var before = await uow.GetMandantForUpdateAsync(companyId, "MANDANT-EXEMPLE-1");
+            var loaded = await uow.GetMandantForUpdateAsync(companyId, "MANDANT-EXEMPLE-1");
+            loaded!.UpdateDetails("Ferme Exemple 2", "FR00 111111111", "111111111", "EX2-");
+            var entry = MandatChangeLogFactory.ForUpdateMandant(before!, loaded, Guid.NewGuid(), "Opérateur de test");
+            await uow.SaveMandantMutationAsync(loaded, entry);
+            await uow.CommitAsync();
+        }
+
+        var dto = await harness.Queries.GetMandant(companyId, "MANDANT-EXEMPLE-1");
+        dto!.RaisonSociale.Should().Be("Ferme Exemple 2");
+        dto.SellerVatNumber.Should().Be("FR00 111111111");
+        dto.Siren.Should().Be("111111111");
+        dto.NumberingPrefix.Should().Be("EX2-");
+        dto.Reference.Should().Be("MANDANT-EXEMPLE-1", "la clé métier n'est jamais changée par une mutation.");
+
+        // CreateMandant + UpdateMandant (journal lu en ordre décroissant) — la mutation est journalisée
+        // dans la même transaction que l'écriture (atomicité, INV-MANDATS-3).
+        var log = await harness.Queries.GetChangeLog(companyId);
+        log.Should().HaveCount(2);
+        log[0].ChangeType.Should().Be(nameof(MandatChangeType.UpdateMandant));
+        log[0].MandatId.Should().BeNull("une mutation de mandant ne porte pas sur un mandat.");
+        log[0].Reference.Should().Be("MANDANT-EXEMPLE-1");
+        log[0].BeforeValue.Should().NotBeNull();
+        log[0].AfterValue.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Update_On_Absent_Mandant_Throws()
+    {
+        var harness = new MandatsHarness(_fixture);
+        var companyId = Guid.NewGuid();
+        var other = Mandant.Create(companyId, "MANDANT-ABSENT", "Ferme", null, "000000000", "EXM-");
+        other.UpdateDetails("Ferme 2", null, "111111111", "EX2-");
+
+        await using var uow = await harness.UowFactory.BeginAsync();
+        var entry = MandatChangeLogFactory.ForUpdateMandant(other, other, Guid.NewGuid(), "Opérateur de test");
+        var act = () => uow.SaveMandantMutationAsync(other, entry);
+
+        await act.Should().ThrowAsync<InvalidOperationException>("muter un mandant inexistant pour ce tenant est une erreur, jamais un no-op.");
+    }
+
     private static async Task InsertMandantAsync(MandatsHarness harness, Mandant mandant, Guid operatorId)
     {
         await using var uow = await harness.UowFactory.BeginAsync();
