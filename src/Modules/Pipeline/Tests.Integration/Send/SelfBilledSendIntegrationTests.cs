@@ -116,4 +116,28 @@ public sealed class SelfBilledSendIntegrationTests : IClassFixture<PipelineSendH
         _harness.PaClient.SentDocuments.Should().NotContain(d => d.SourceNumber == pivot.Number, "jamais transmis sans acceptation (INV-ACCEPT-2)");
         _harness.PaClient.IssuedDocumentNumbers.Should().NotContain(allocatedBt1);
     }
+
+    [Fact]
+    public async Task SelfBilled_When_Capable_Pa_Refuses_The_389_Is_Rejected_Never_Looping_In_TechnicalError()
+    {
+        // Filet anti-boucle (MND07, revue round 2) : une PA INCOHÉRENTE déclare SupportsSelfBilling=true mais
+        // son sérialiseur refuse le 389 (résultat typé). Le SEND émet (capacité déclarée) → le pipeline doit
+        // traiter le refus comme un REJET DÉFINITIF, jamais retomber en TechnicalError re-tentable (boucle).
+        var caps = new FakePaClientOptions().Capabilities; // SupportsSelfBilling = true
+        await _harness.UsePublishedFakeAsync(new FakePaClientOptions { Capabilities = caps, RefuseSelfBillingProjection = true });
+        _harness.ForceWormAbsent = false;
+
+        var documentId = Guid.NewGuid();
+        var allocatedBt1 = "ARM-A-" + documentId.ToString("N")[..6];
+        var pivot = CheckIntegrationFixtures.BuildSelfBilledPivot(
+            "selfbilled-refused-" + documentId.ToString("N"), MandantSiren, MandantVatNumber);
+        await _harness.SeedDetectedAndStageAsync(documentId, pivot);
+        await _harness.MarkReadyToSendAsync(documentId);
+        _harness.SeedSelfBilledAcceptance(documentId, allocatedBt1);
+
+        await _harness.RunSendAsync();
+
+        (await _harness.GetDocumentStateAsync(documentId)).Should()
+            .Be("RejectedByPa", "une PA incohérente (déclare 389 mais le refuse) → rejet définitif, jamais TechnicalError en boucle");
+    }
 }

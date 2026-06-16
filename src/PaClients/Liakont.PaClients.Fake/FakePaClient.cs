@@ -69,6 +69,13 @@ public sealed class FakePaClient : IPaClient
             return Task.FromResult(NotSupported(PaCapability.CreditNotes));
         }
 
+        // Double INCOHÉRENT (test MND07) : capacité 389 déclarée mais sérialiseur la refuse → résultat typé.
+        // Prouve que le pipeline ne dégrade jamais en 380 ET ne boucle pas (rejet définitif côté SEND).
+        if (_options.RefuseSelfBillingProjection && projection?.DocumentTypeCode == PaDocumentTypeCode.SelfBilledInvoice)
+        {
+            return Task.FromResult(NotSupported(PaCapability.SelfBilling));
+        }
+
         var paDocumentId = $"FAKE-{fiscalNumber}";
 
         // send_after_import = false → créé sans envoi (état New, non facturable — F05 §2).
