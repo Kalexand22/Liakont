@@ -481,10 +481,23 @@ public sealed partial class SendTenantJob : ITenantJob
                 LogTechnicalError(logger, document.Id);
                 return SendOutcome.Failed;
 
+            case PaSendState.CapabilityNotSupported:
+                // Une PA qui DÉCLARE une capacité (ex. SupportsSelfBilling) mais dont le sérialiseur la REFUSE
+                // (incohérence capacité⇔implémentation du plug-in) : refus DÉFINITIF, jamais une boucle de retry
+                // (TechnicalError se re-tenterait indéfiniment, ré-émission → refus → boucle). Traité comme un
+                // rejet (staging CONSERVÉ pour diagnostic/correction), avec un log dédié — jamais émis faux ni
+                // dégradé en facture standard (CLAUDE.md n°3/8). Cas normalement écarté AVANT l'envoi (la garde
+                // de capacité maintient le document) ; ce filet couvre une PA incohérente.
+                await lifecycle.MarkRejectedByPaAsync(
+                    document.Id,
+                    new DocumentRejectionSnapshots { PayloadSnapshot = canonicalJson, PaResponseSnapshot = SendPaSnapshot.FromSendResult(result) },
+                    cancellationToken);
+                LogCapabilityRefusedAtSend(logger, document.Id, result.CapabilityNotSupported?.Capability.ToString() ?? "(inconnue)");
+                return SendOutcome.Failed;
+
             default:
-                // New / CapabilityNotSupported inattendus pour un envoi de document (les avoirs sans capacité
-                // sont écartés AVANT l'envoi) : on retombe sur une erreur technique re-tentable plutôt que
-                // d'inventer une issue ou de laisser le document figé en Sending.
+                // New inattendu pour un envoi de document : on retombe sur une erreur technique re-tentable
+                // plutôt que d'inventer une issue ou de laisser le document figé en Sending.
                 await lifecycle.MarkTechnicalErrorAsync(document.Id, cancellationToken);
                 LogUnexpectedSendState(logger, document.Id, result.State.ToString());
                 return SendOutcome.Failed;
@@ -773,6 +786,10 @@ public sealed partial class SendTenantJob : ITenantJob
     [LoggerMessage(EventId = 7215, Level = LogLevel.Warning,
         Message = "SEND : auto-facture sous mandat (389) {DocumentId} non envoyée — BT-1 fiscal par mandant non encore alloué (MND05) ; maintenue (jamais émise avec le numéro source en place du BT-1 fiscal).")]
     private static partial void LogSelfBilledNumberNotAllocated(ILogger logger, Guid documentId);
+
+    [LoggerMessage(EventId = 7216, Level = LogLevel.Error,
+        Message = "SEND : document {DocumentId} refusé par le plug-in PA pour capacité « {Capability} » alors qu'elle est déclarée (incohérence capacité⇔implémentation) — traité comme rejet définitif, jamais re-tenté en boucle.")]
+    private static partial void LogCapabilityRefusedAtSend(ILogger logger, Guid documentId, string capability);
 
     /// <summary>Issue de la résolution self-billed (MND07) : émettre (avec/sans projection) ou maintenir (hold).</summary>
     private readonly struct SelfBilledSend
