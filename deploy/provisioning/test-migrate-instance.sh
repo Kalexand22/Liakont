@@ -81,7 +81,11 @@ services:
       POSTGRES_DB: keycloak
   liakont:
     image: busybox:1.36
-    command: httpd -f -p 8080 -h /app/App_Data
+    # Écrit dans le volume DÈS le démarrage (comme le VRAI Host qui crée le trousseau Data Protection
+    # au bootstrap) : si APPLY démarrait le Host AVANT restore.sh, le volume serait non vide → la garde
+    # anti-écrasement WORM de restore.sh refuserait la restitution → ce test ÉCHOUERAIT (garde de
+    # non-régression du P1 : APPLY ne démarre que postgres+keycloak-db avant la restauration).
+    command: sh -c "mkdir -p /app/App_Data/dataprotection-keys && printf bootkey > /app/App_Data/dataprotection-keys/host-boot.xml && exec httpd -f -p 8080 -h /app/App_Data"
     volumes:
       - liakont-app-data:/app/App_Data
   caddy:
@@ -161,7 +165,15 @@ fi
 
 # ── APPLY : restaurer dans une CIBLE vierge + contrôle de santé ──
 log "APPLY (migrate-instance.ps1 → cible ${TGT_PROJECT})"
-run_ps -ApplyBundle "$(to_pspath "${BUNDLE}")" -TargetInstanceName "${TGT_NAME}" -InstancesRoot "${INSTANCES_ROOT_PS}" -HealthTimeoutSeconds 120
+run_ps -ApplyBundle "$(to_pspath "${BUNDLE}")" -TargetInstanceName "${TGT_NAME}" -InstancesRoot "${INSTANCES_ROOT_PS}" \
+  -RegistryPath "$(to_pspath "${WORK}/instances.yaml")" -HealthTimeoutSeconds 120
+
+# ── La cible doit être inscrite au registre (cohérence avec new-instance/update-instance) ──
+if [ -f "${WORK}/instances.yaml" ] && grep -q "${TGT_NAME}" "${WORK}/instances.yaml"; then
+  log "OK : cible inscrite au registre"
+else
+  fail "cible non inscrite au registre (${WORK}/instances.yaml)"
+fi
 
 TGT_DIR="${INSTANCES_ROOT}/${TGT_NAME}"
 TGT_COMPOSE="${TGT_DIR}/docker-compose.yml"

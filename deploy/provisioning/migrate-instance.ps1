@@ -29,6 +29,11 @@
     jusqu'à la bascule DNS confirmée. En cas d'échec côté cible, la source est intacte (rollback = ne
     pas basculer le DNS).
 
+    CIBLE NOMINALE : l'appliance tourne sous Linux / pwsh 7 (zip64), bash natif. Le script fonctionne
+    aussi sous Windows (Git Bash), mais Compress-Archive / Expand-Archive de Windows PowerShell 5.1
+    PLAFONNENT à 2 Go (pas de zip64) : sur un GROS coffre d'archives (rétention 10 ans), utilisez
+    pwsh 7 (ou la cible Linux). Voir deploy/provisioning/README.md.
+
     AUCUNE donnée client dans le code : le bundle (secrets + données fiscales) est un ARTEFACT OPÉRATEUR
     écrit sous `instances/` (gitignoré) ; il n'embarque aucun SIREN/hôte/secret en dur. Messages
     opérateur en français (CLAUDE.md n°12).
@@ -72,6 +77,7 @@ param(
     [Parameter(Mandatory = $true, ParameterSetName = 'Apply')][string]$ApplyBundle,
     [Parameter(ParameterSetName = 'Apply')][string]$TargetInstanceName,
     [Parameter(ParameterSetName = 'Apply')][string]$RepoRoot,
+    [Parameter(ParameterSetName = 'Apply')][string]$RegistryPath,
     [Parameter(ParameterSetName = 'Apply')][int]$HealthTimeoutSeconds = 300,
 
     [string]$InstancesRoot,
@@ -262,6 +268,14 @@ function Invoke-Export {
         if (-not (Test-Path -LiteralPath (Join-Path $bundleBackup 'SHA256SUMS'))) {
             throw "Manifeste d'intégrité (SHA256SUMS) absent de la sauvegarde — bundle refusé (anti-faux-vert)."
         }
+        # « Bloquer plutôt qu'envoyer faux » : backup.sh saute la base Keycloak avec un simple
+        # avertissement si keycloak-db n'est pas « running » à l'instant du dump. Une instance migrée
+        # SANS Keycloak = cible sans utilisateurs/realm (connexion impossible). On refuse le bundle.
+        if (-not (Test-Path -LiteralPath (Join-Path $bundleBackup 'db-keycloak.dump'))) {
+            throw "Dump Keycloak (db-keycloak.dump) absent de la sauvegarde — le service keycloak-db " +
+                  "était-il démarré ? Migration ANNULÉE : une cible sans Keycloak est inutilisable " +
+                  "(aucun utilisateur/realm). Redémarrez keycloak-db puis relancez l'export."
+        }
         $dbDumps = @(Get-ChildItem -LiteralPath $bundleBackup -Filter 'db-*.dump' | ForEach-Object { $_.Name })
         Write-Ok "Sauvegarde : $($dbDumps.Count) base(s) + volume applicatif, intégrité SHA-256 incluse."
 
@@ -311,13 +325,20 @@ function Invoke-Export {
         if (-not (Test-Path -LiteralPath $BundleDir)) { New-Item -ItemType Directory -Path $BundleDir -Force | Out-Null }
         $bundlePath = Join-Path $BundleDir "$($instance.Name)-migration-$stamp.zip"
         if (Test-Path -LiteralPath $bundlePath) { Remove-Item -LiteralPath $bundlePath -Force }
-        Compress-Archive -Path (Join-Path $bundleRoot '*') -DestinationPath $bundlePath
+        # NoCompression : le contenu est DÉJÀ compressé (volume-app-data.tar.gz + dumps pg « -Fc ») —
+        # le re-déflater gaspille du CPU sans rien gagner. Le .zip n'est qu'un conteneur de transfert.
+        # ⚠️ Sur un GROS coffre (rétention 10 ans), Compress-Archive échoue > 2 Go sous Windows
+        # PowerShell 5.1 (pas de zip64) : la cible nominale est l'appliance Linux / pwsh 7 (zip64 OK) —
+        # voir l'avertissement en tête de fichier et le README.
+        Compress-Archive -Path (Join-Path $bundleRoot '*') -DestinationPath $bundlePath -CompressionLevel NoCompression
         Write-Ok "Bundle produit : $bundlePath"
 
         Write-Step '4/4 Étapes suivantes'
         Write-Host '    Le bundle contient des SECRETS et des DONNÉES FISCALES — transférez-le par un canal sûr,'
         Write-Host '    et supprimez-le après application. La SOURCE reste en service (export non destructif).'
         Write-Host "    Sur la cible :  ./migrate-instance.ps1 -ApplyBundle <bundle>.zip"
+        Write-Host '    SANS PERTE : gelez les écritures de la source (maintenance 503) avant l''export, ou prévoyez'
+        Write-Host '    un re-export final juste avant la bascule (voir MIGRATE-README.md § Bascule DNS).'
         Write-Host '    La bascule DNS ne se fait qu''APRÈS un contrôle de santé vert sur la cible (voir MIGRATE-README.md).'
         Write-Host ''
         Write-Ok "Export de migration de « $($instance.Name) » terminé."
@@ -369,14 +390,29 @@ La phase APPLY :
 
 La SOURCE reste en service tant que le DNS n'est pas basculé — **rollback = ne pas basculer**.
 
-1. AVANT la migration : abaissez le TTL DNS de ``$ph`` et ``$kh`` (ex. 300 s) pour un basculement rapide.
-2. Appliquez le bundle sur la cible et attendez le **contrôle de santé vert**.
-3. Vérifiez la cible directement (``/etc/hosts`` temporaire ou en interne) : console + connexion Keycloak.
-4. Basculez les enregistrements DNS ``$ph`` et ``$kh`` vers l'adresse de la **cible**.
-5. Vérifiez la propagation, puis confirmez le **contrôle fiscal** : le vérifieur du coffre (TRK06)
-   doit être VERT sur la cible (preuve que les archives sont récupérables après migration).
-6. Conservez la SOURCE en lecture seule quelques jours, puis mettez-la hors service (OPS06c pour une
-   fin de vie de tenant ; pour une instance entière, après confirmation du cutover).
+1. **TTL** — AVANT la migration, abaissez le TTL DNS de ``$ph`` et ``$kh`` (ex. 300 s) pour un
+   basculement rapide.
+2. **GEL des écritures sur la source (sans perte de document)** — l'export est un INSTANTANÉ figé :
+   tout document reçu/transmis sur la source APRÈS le dump et AVANT le cutover ne serait PAS dans le
+   bundle. Avant d'exporter, **gelez les écritures** de la source (mode maintenance : les push agents
+   reçoivent un 503 et **bufferisent** localement, puis re-poussent vers la cible après cutover —
+   aucune perte, F12 §3.3). À défaut, planifiez un **re-export final** juste avant la bascule.
+   (Le mécanisme 503 est celui d'``update-instance.ps1`` : ``maintenance.Caddyfile`` + ``caddy reload``.)
+3. **Export** sur la source (``migrate-instance.ps1 -InstanceName …``), puis **apply** sur la cible
+   (``-ApplyBundle …``) et attendez le **contrôle de santé vert**.
+4. **Certificats (ACME) avant cutover** — Caddy sur la cible tente d'obtenir les certificats TLS de
+   ``$ph`` / ``$kh`` dès son démarrage. Tant que le DNS ne pointe pas encore vers la cible, ces
+   tentatives **échouent** et consomment le quota Let's Encrypt « validations échouées ». Pour
+   l'éviter : **pré-pointez le DNS vers la cible** avant l'apply (l'ACME réussit, le cutover n'est
+   plus qu'une confirmation), ou limitez le nombre d'essais de migration sur un même domaine.
+5. **Vérification directe** de la cible (``/etc/hosts`` temporaire ou en interne) : console +
+   connexion Keycloak.
+6. **Bascule DNS** : pointez ``$ph`` et ``$kh`` vers l'adresse de la **cible**.
+7. **Contrôle fiscal** : vérifiez la propagation, puis confirmez que le vérifieur du coffre (TRK06)
+   est **VERT** sur la cible (preuve que les archives sont récupérables après migration).
+8. **Décommissionnement** : conservez la SOURCE en lecture seule quelques jours, puis mettez-la hors
+   service et **retirez son entrée du registre** (OPS06c pour une fin de vie de tenant ; pour une
+   instance entière, après confirmation du cutover).
 "@
     return ($content -replace "`r`n", "`n")
 }
@@ -386,6 +422,7 @@ La SOURCE reste en service tant que le DNS n'est pas basculé — **rollback = n
 # ════════════════════════════════════════════════════════════════════════════════
 function Invoke-Apply {
     if (-not $RepoRoot) { $RepoRoot = $repoRootDefault }
+    if (-not $RegistryPath) { $RegistryPath = Join-Path $scriptRoot 'instances.yaml' }
 
     Write-Step "Migration (APPLY) depuis le bundle « $ApplyBundle »"
 
@@ -429,10 +466,10 @@ function Invoke-Apply {
         if ($DryRun) {
             Write-WarnMsg 'DryRun : aucune action. Séquence qui SERAIT exécutée :'
             Write-Host "    1. Matérialiser la cible $instanceDir depuis le bundle (config + secrets préservés) ;"
-            Write-Host '    2. docker compose up -d (postgres + keycloak + caddy + Host) ;'
+            Write-Host '    2. Démarrer SEULEMENT les bases (postgres + keycloak-db) — PAS le Host (volume vierge) ;'
             Write-Host '    3. restore.sh : vérifier l''intégrité (SHA-256) puis restaurer toutes les bases + le volume ;'
-            Write-Host "    4. Contrôle de santé (démarrage stable du Host, délai $HealthTimeoutSeconds s) ;"
-            Write-Host '    5. Procédure de bascule DNS affichée (cutover après santé verte).'
+            Write-Host "    4. Démarrer le reste de la pile (Host + Keycloak + Caddy) + contrôle de santé (délai $HealthTimeoutSeconds s) ;"
+            Write-Host '    5. Inscrire la cible au registre + procédure de bascule DNS (cutover après santé verte).'
             Write-Ok 'DryRun terminé.'
             return 0
         }
@@ -464,14 +501,18 @@ function Invoke-Apply {
         $composeArgs = @('compose', '-p', $target.ProjectName, '--project-directory', $instanceDir,
             '-f', $composeOut)
 
-        # ── 3. Démarrage de la pile (postgres prêt avant restauration) ──
-        Write-Step '2/5 Démarrage de la pile cible (docker compose up -d)'
-        & docker @composeArgs up -d
-        if ($LASTEXITCODE -ne 0) { throw "Le démarrage de la pile cible a échoué (docker compose up). Voir les logs." }
+        # ── 3. Démarrer SEULEMENT les bases (PRA §4) — surtout PAS le Host ──
+        # Le Host écrit dans le volume DÈS son bootstrap (Directory.CreateDirectory du trousseau
+        # Data Protection, AppBootstrap.cs) : le démarrer avant la restauration rendrait le volume
+        # NON VIDE → restore.sh refuserait la restitution du coffre WORM (garde anti-écrasement). On
+        # démarre donc uniquement postgres + keycloak-db (cibles des pg_restore), volume vierge.
+        Write-Step '2/5 Démarrage des bases cible (postgres + keycloak-db ; Host NON démarré)'
+        & docker @composeArgs up -d postgres keycloak-db
+        if ($LASTEXITCODE -ne 0) { throw "Le démarrage des bases cible a échoué (docker compose up). Voir les logs." }
         if (-not (Wait-PostgresReady -ComposeArgs $composeArgs -Service 'postgres' -User 'liakont')) {
             throw "Le service postgres de la cible n'est pas prêt (pg_isready) — restauration impossible."
         }
-        Write-Ok 'Pile cible démarrée, postgres prêt.'
+        Write-Ok 'Bases cible démarrées (Host non démarré → volume vierge pour la restitution du coffre).'
 
         # ── 4. Restauration (intégrité vérifiée AVANT, via restore.sh — mécanique OPS01b) ──
         Write-Step '3/5 Restauration (restore.sh : vérification SHA-256 + bases + volume)'
@@ -483,13 +524,13 @@ function Invoke-Apply {
         }
         Write-Ok 'Bases + volume restaurés (intégrité SHA-256 vérifiée).'
 
-        # ── 5. Contrôle de santé post-migration ──
-        Write-Step "4/5 Contrôle de santé (démarrage stable du Host, délai $HealthTimeoutSeconds s)"
-        # restore.sh a pu arrêter/redémarrer le Host (restitution du volume) : on le (re)démarre puis on sonde.
-        # Pas de redirection « *> $null » : sous $ErrorActionPreference='Stop' en Windows PowerShell 5.1,
-        # rediriger le flux d'erreur d'une commande NATIVE l'emballe en NativeCommandError TERMINANTE
-        # (ici la progression « Container … Running » de docker). On laisse donc la sortie s'afficher.
-        & docker @composeArgs up -d liakont
+        # ── 5. Démarrer le RESTE de la pile (Host + Keycloak + Caddy) APRÈS restauration, puis sonder ──
+        # Le volume est désormais restauré : le Host bootstrappe sur le trousseau Data Protection et le
+        # coffre WORM restitués. Pas de redirection « *> $null » : sous $ErrorActionPreference='Stop' en
+        # Windows PowerShell 5.1, rediriger le flux d'erreur d'une commande NATIVE l'emballe en
+        # NativeCommandError TERMINANTE (ici la progression « Container … Running » de docker).
+        Write-Step "4/5 Démarrage du Host + contrôle de santé (démarrage stable, délai $HealthTimeoutSeconds s)"
+        & docker @composeArgs up -d
         # Wait-InstanceHealthy est CONÇU pour RENVOYER un statut (jamais lever) : sa sonde wget renvoie un
         # code non nul sur un 404 ET émet sur stderr, ce qui, sous Windows PowerShell 5.1 +
         # $ErrorActionPreference='Stop' + « 2>&1 », serait emballé en erreur TERMINANTE (sur pwsh 7.4+,
@@ -507,6 +548,21 @@ function Invoke-Apply {
             return 1
         }
         Write-Ok "Host cible prêt : $($health.Detail)"
+
+        # ── Registre : inscrire la cible (cohérence avec new-instance/update-instance ; base OPS04) ──
+        # created_at OMIS volontairement : Set-InstanceRegistryEntry préserve l'existant (re-migration)
+        # et l'origine de l'instance précède cette machine. version/updated_at marquent la migration.
+        $targetPublicHost = if ($manifest.PSObject.Properties.Name -contains 'public_hostname' -and $manifest.public_hostname) { [string]$manifest.public_hostname } else { '' }
+        $nowIso = [System.DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+        Set-InstanceRegistryEntry -Path $RegistryPath -Entry @{
+            name       = $target.Name
+            project    = $target.ProjectName
+            url        = if ($targetPublicHost) { "https://$targetPublicHost" } else { '' }
+            hosting    = [string]$manifest.target_mode
+            version    = "migrated-$nowIso"
+            updated_at = $nowIso
+        }
+        Write-Ok "Cible inscrite au registre ($RegistryPath). L'entrée SOURCE est à retirer au décommissionnement."
 
         # ── 6. Bascule DNS documentée ──
         Write-Step '5/5 Bascule DNS (cutover)'
