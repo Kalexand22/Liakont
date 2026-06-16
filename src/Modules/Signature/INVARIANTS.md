@@ -1,0 +1,17 @@
+# Invariants — module Signature
+
+> Source : ADR-0027 (abstraction de signature enfichable à capacités) ; F17 §2. SIG03 livre l'ossature du
+> module et verrouille les invariants de l'abstraction INV-SIGPROV-1..8. Les plug-ins concrets (SIG07/SIG08)
+> et le câblage de gate (SIG06) ajouteront leurs propres invariants (le module générique de validation de
+> document `DocumentApproval` a les siens — ADR-0028, SIG04).
+
+| ID | Rule | Enforcement |
+|---|---|---|
+| INV-SIGPROV-1 | Le comportement d'un `ISignatureProvider` est piloté **exclusivement** par `Capabilities` ; aucun `if (provider is …)` dans le produit ni dans un plug-in. | `SignatureProviderCapabilitiesTests` (comportement obtenu en faisant varier la seule capacité — niveau/mode/transport) ; `FakeSignatureProvider` ne branche que sur `Capabilities`. |
+| INV-SIGPROV-2 | `SignatureMode` et `SignatureLevel` ont des valeurs `[Flags]` distinctes en puissances de deux avec `None = 0` (sinon `HasFlag` toujours vrai). | `SignatureProviderCapabilitiesTests.SignatureMode_FlagsHaveDistinctPowerOfTwoValues_HasFlagIsCorrect` (un fournisseur `OnSite` ne supporte pas `Remote`). |
+| INV-SIGPROV-3 | `CompletionTransport` est un `[Flags]` combinable **orthogonal** à `Mode` : `Webhook \| Polling` coexistent ; `HandleWebhookAsync` n'est pertinent **que** si le flag `Webhook` est positionné, sinon `NotSupported`. | `SignatureProviderCapabilitiesTests` (`CompletionTransport_IsCombinable_AndOrthogonalToMode`, `HandleWebhookAsync_WhenWebhookFlagAbsent_ReturnsTypedGap_NoException`). |
+| INV-SIGPROV-4 | `SupportedLevels` est un **ensemble explicite** (pas un maximum ordonné) : on ne demande jamais un niveau absent de l'ensemble. `Recorded` est toujours implicitement disponible. | `SignatureProviderCapabilitiesTests` (`SupportedLevels_IsAMembershipSet_NotAnOrderedMaximum`, `Recorded_IsAlwaysAvailable_EvenWithNoDeclaredLevels`). |
+| INV-SIGPROV-5 | Une capacité ou un niveau absent renvoie un **résultat typé `NotSupported`** (message opérateur FR), jamais une exception ni un blocage produit. | `SignatureProviderCapabilitiesTests` (`RequestSignatureAsync_UnsupportedLevel_…`, `CapabilityNotSupportedResult_OperatorMessage_IsFrench_AndJournalisable`). |
+| INV-SIGPROV-6 | La signature est **OPTIONNELLE** : la validation au démarrage ne bloque QUE pour un fournisseur **configuré mais non câblé** ; l'absence de tout fournisseur n'est jamais une erreur (un tenant `Recorded` démarre sans plug-in). | `SignatureProviderStartupValidatorTests` (`Validate_NoProviderConfigured_DoesNotThrow_…`, `Validate_ConfiguredProviderNotWired_Throws_…`) ; `SignatureProviderRegistryTests.AddSignatureModule_WithNoFactories_BuildsEmptyRegistry_NoException`. |
+| INV-SIGPROV-7 | `SupportsBiometricTemplateMatching` vaut `false` par défaut (bascule RGPD art. 9 ; la capture brute n'est pas gouvernée par ce flag — détail ADR-0030). | Valeur par défaut du `record SignatureProviderCapabilities` (booléen non initialisé = `false`). |
+| INV-SIGPROV-8 | **Frontière P1** : aucun type HTTP ne traverse l'abstraction ; un plug-in ne référence que `Signature.Contracts` + Common ; le module ne référence aucun plug-in concret ni un autre module métier. | `SignatureBoundaryTests` : NetArchTest `Abstraction_HasNoHttpType` ; réflexion `Contracts/Infrastructure_DoesNotReferenceAnyConcreteSignaturePlugin`, `Contracts_DoesNotReachIntoAnotherBusinessModule` ; scan déclaratif `.csproj` `ModuleCsprojs_OnlyReferenceTheSignatureModuleItself`. |

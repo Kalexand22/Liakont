@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Couche Web (console / endpoints) du module Signature. SIG03 (abstraction) ne livre AUCUN écran : le
+       point de montage est posé pour que l'item console SIG10 (déclencher une demande, suivre le statut,
+       consulter la preuve) y ajoute ses pages/routes sans toucher la composition root. Aucune logique
+       métier dans cette couche (déléguée aux handlers MediatR, module-rules §1 ; CLAUDE.md review n°19). -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Contracts/Liakont.Modules.Signature.Contracts.csproj" />
+  </ItemGroup>
+</Project>

@@ -39,6 +39,8 @@ using Liakont.Modules.Pipeline.Infrastructure.Send;
 using Liakont.Modules.Pipeline.Web;
 using Liakont.Modules.Reconciliation.Infrastructure;
 using Liakont.Modules.Reconciliation.Web;
+using Liakont.Modules.Signature.Contracts;
+using Liakont.Modules.Signature.Infrastructure;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.Staging.Infrastructure;
 using Liakont.Modules.Supervision.Application;
@@ -307,6 +309,14 @@ public static class AppBootstrap
         // devient ainsi transmissible de bout en bout (génération → transmission → journal + trace support).
         builder.Services.AddSingleton<IFacturXArtifactBuilder, FacturXArtifactBuilder>();
         builder.Services.AddGeneriquePaDelivery();
+
+        // Signature (SIG03, ADR-0027) : registre de types des fournisseurs de signature. Aucun plug-in
+        // n'est référencé ici (le module ne connaît AUCUN fournisseur concret — CLAUDE.md n°6) ; chaque
+        // plug-in (Yousign = SIG07, Wacom = SIG08) ajoutera sa propre ISignatureProviderFactory en singleton
+        // au composition root et le registre la découvrira. La signature est OPTIONNELLE : le registre se
+        // construit vide sans erreur (défaut Recorded) ; les fournisseurs CONFIGURÉS mais non câblés sont
+        // détectés au démarrage (ValidateSignatureProviderConfiguration, dans InitializeDataAsync).
+        builder.Services.AddSignatureModule();
 
         // Pipeline (PIP01a — fondations) : lecteur canonique du contenu stagé + journal d'exécutions
         // (pipeline.run_logs) + points d'entrée Contracts consommés par CHECK/SEND/SYNC. AUCUN comportement
@@ -668,6 +678,13 @@ public static class AppBootstrap
     /// </summary>
     public static async Task InitializeDataAsync(WebApplication app)
     {
+        // Validation au démarrage des fournisseurs de signature CONFIGURÉS (SIG03, ADR-0027 §4). Sur le
+        // modèle de la validation de l'abstraction IdP, mais — différence essentielle — la signature est
+        // OPTIONNELLE : ne bloque QUE pour un fournisseur déclaré dans Signature:EnabledProviders mais non
+        // câblé ; l'absence de tout fournisseur n'est jamais une erreur (un tenant Recorded démarre sans
+        // plug-in — INV-SIGPROV-6).
+        ValidateSignatureProviderConfiguration(app.Configuration, app.Services);
+
         // Signale l'activation du puits factice hors Development avant toute initialisation,
         // pour qu'un opérateur ayant posé PaClients:Fake:Enabled=true par erreur le voie immédiatement.
         app.WarnIfFakePaClientForcedOutsideDevelopment();
@@ -950,6 +967,27 @@ public static class AppBootstrap
                 typeof(Stratum.Modules.Audit.Web.AuditNavSectionProvider).Assembly,
                 typeof(Stratum.Modules.Job.Web.JobNavSectionProvider).Assembly)
             .AddInteractiveServerRenderMode();
+    }
+
+    /// <summary>
+    /// Valide au démarrage les fournisseurs de signature CONFIGURÉS (SIG03, ADR-0027 §4). Lit
+    /// <c>Signature:EnabledProviders</c> (liste de types de plug-ins activés, vide par défaut) et délègue à
+    /// <see cref="SignatureProviderStartupValidator"/> : bloque le démarrage UNIQUEMENT pour un fournisseur
+    /// configuré mais non câblé ; l'absence de tout fournisseur n'est jamais une erreur (signature
+    /// optionnelle — INV-SIGPROV-6). La logique pure est testée par <c>SignatureProviderStartupValidatorTests</c>.
+    /// </summary>
+    /// <param name="configuration">Configuration de l'application (lit <c>Signature:EnabledProviders</c>).</param>
+    /// <param name="services">Fournisseur de services (résout <see cref="ISignatureProviderRegistry"/>).</param>
+    internal static void ValidateSignatureProviderConfiguration(
+        Microsoft.Extensions.Configuration.IConfiguration configuration,
+        IServiceProvider services)
+    {
+        var enabledProviders = configuration
+            .GetSection("Signature:EnabledProviders")
+            .Get<string[]>() ?? [];
+
+        var registry = services.GetRequiredService<ISignatureProviderRegistry>();
+        SignatureProviderStartupValidator.Validate(enabledProviders, registry);
     }
 
     /// <summary>

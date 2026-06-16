@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Surface publique du module Signature (ADR-0027). BCL-only : l'abstraction ISignatureProvider est
+       pilotée par capacités ; AUCUN type HTTP ne la traverse (INV-SIGPROV-8) et le payload propre au
+       fournisseur vit dans le plug-in (SIG07/SIG08). AUCUNE référence à un plug-in concret, à un autre
+       module métier, ni au socle vendored (CLAUDE.md n°6/14/16). -->
+</Project>

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+    <!-- Garde de frontière de l'abstraction de signature (aucun type HTTP, aucun plug-in concret) — ADR-0027. -->
+    <PackageReference Include="NetArchTest.Rules" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- ServiceCollection pour tester AddSignatureModule (même patron que Transmission.Tests.Unit). -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Contracts/Liakont.Modules.Signature.Contracts.csproj" />
+    <ProjectReference Include="../Infrastructure/Liakont.Modules.Signature.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>
