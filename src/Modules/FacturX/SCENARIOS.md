@@ -43,8 +43,8 @@
   BT-151, taux BT-152, PU BT-146, qté BT-129, net BT-131, SIREN scheme 0002, TVA scheme VA, devise BT-5),
   dérivation BG-23 (une vs deux ventilations), BT-115 = BT-112 − BT-113 (acompte), et BLOCAGE
   (`FacturXGenerationException`) sur : BT-146 absent, ligne sans/avec plusieurs ventilations TVA (BG-30),
-  catégorie absente (BT-151), charges document (BG-20/21 non V1), et écarts non réconciliables
-  BR-CO-10/13, BR-CO-14, BR-CO-15.
+  catégorie absente (BT-151), acheteur absent (BR-07/BT-44), pays vendeur/acheteur absent (BT-40/BT-55),
+  charges document (BG-20/21 non V1), et écarts non réconciliables BR-CO-10/13, BR-CO-14, BR-CO-15.
 - `CrossIndustryInvoiceMatrixTests` — sur la matrice (mono-taux, multi-taux, exonéré VATEX,
   autoliquidation, criée mono-Seller) : structure EN 16931 complète (`CiiStructuralValidator`),
   identités arithmétiques `CiiBusinessRuleChecker` (BR-CO-10/13/14/15/16/17), et stabilité vis-à-vis des

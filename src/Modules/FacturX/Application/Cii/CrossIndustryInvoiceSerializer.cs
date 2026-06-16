@@ -49,6 +49,8 @@ public sealed class CrossIndustryInvoiceSerializer : ICrossIndustryInvoiceSerial
             throw new FacturXGenerationException(pivot.Number, message);
         }
 
+        GuardMandatoryParties(pivot);
+
         var breakdown = DeriveVatBreakdown(pivot);
         ReconcileTotals(pivot, breakdown);
 
@@ -86,6 +88,7 @@ public sealed class CrossIndustryInvoiceSerializer : ICrossIndustryInvoiceSerial
         }
 
         WriteAgreement(writer, pivot);
+        WriteDelivery(writer);
         WriteSettlement(writer, pivot, breakdown);
         writer.WriteEndElement(); // SupplyChainTradeTransaction
 
@@ -227,6 +230,15 @@ public sealed class CrossIndustryInvoiceSerializer : ICrossIndustryInvoiceSerial
         writer.WriteEndElement(); // PostalTradeAddress
     }
 
+    // ram:ApplicableHeaderTradeDelivery — obligatoire dans le xsd:sequence de la transaction (et exigé
+    // par EN 16931 / Mustang COMFORT, fût-il vide). Le pivot ne porte pas de date de livraison (BT-72,
+    // optionnelle) : on émet l'élément vide — jamais une date fabriquée.
+    private static void WriteDelivery(XmlWriter writer)
+    {
+        writer.WriteStartElement(RamPrefix, "ApplicableHeaderTradeDelivery", CiiProfile.RamNamespace);
+        writer.WriteEndElement();
+    }
+
     // ram:ApplicableHeaderTradeSettlement — devise (BT-5), ventilation BG-23, totaux BG-22.
     private static void WriteSettlement(
         XmlWriter writer, PivotDocumentDto pivot, IReadOnlyList<VatBreakdownLine> breakdown)
@@ -333,6 +345,39 @@ public sealed class CrossIndustryInvoiceSerializer : ICrossIndustryInvoiceSerial
                 $"Document n° {pivot.Number} : le total TTC ({FormatAmount(grandTotal)}) ne correspond pas au " +
                 $"total hors taxes plus la TVA ({FormatAmount(PivotRounding.RoundAmount(taxBasis + taxTotal))}) " +
                 "(EN 16931 BR-CO-15). Vérifiez le document dans le logiciel source.";
+            throw new FacturXGenerationException(pivot.Number, message);
+        }
+    }
+
+    // BT obligatoires des parties EN 16931 que le sérialiseur RECOPIE : bloquer plutôt qu'émettre un
+    // Factur-X tronqué (CLAUDE.md n°3 ; même fail-closed que BT-146/BT-151). BR-07 = nom de l'acheteur
+    // (BT-44, donc un acheteur identifié) ; BR-09 = pays du vendeur (BT-40) ; BR-11 = pays de l'acheteur
+    // (BT-55). Le nom du vendeur (BT-27) et le nom de l'acheteur (BT-44) sont non-null par construction du
+    // pivot dès que la partie est présente.
+    private static void GuardMandatoryParties(PivotDocumentDto pivot)
+    {
+        if (pivot.Customer is null)
+        {
+            var message =
+                $"Document n° {pivot.Number} : destinataire (acheteur) absent. EN 16931 (BR-07) exige le nom " +
+                "de l'acheteur (BT-44) pour un Factur-X conforme — renseignez le client dans le logiciel " +
+                "source ou transmettez ce document par un autre canal.";
+            throw new FacturXGenerationException(pivot.Number, message);
+        }
+
+        if (string.IsNullOrWhiteSpace(pivot.Supplier.Address?.CountryCode))
+        {
+            var message =
+                $"Document n° {pivot.Number} : pays du vendeur absent (EN 16931 BT-40, BR-09). Complétez le " +
+                "code pays de l'adresse du vendeur dans le paramétrage du tenant ou le logiciel source.";
+            throw new FacturXGenerationException(pivot.Number, message);
+        }
+
+        if (string.IsNullOrWhiteSpace(pivot.Customer.Address?.CountryCode))
+        {
+            var message =
+                $"Document n° {pivot.Number} : pays de l'acheteur absent (EN 16931 BT-55, BR-11). Complétez " +
+                "le code pays de l'adresse du client dans le logiciel source.";
             throw new FacturXGenerationException(pivot.Number, message);
         }
     }

@@ -75,8 +75,18 @@ internal static class CiiStructuralValidator
                 .Elements(Ram + "LineTotalAmount").Any(), $"BT-131 (ligne {id} : total ligne)");
         }
 
-        Require(issues, root.Descendants(Ram + "SellerTradeParty").Elements(Ram + "Name").Any(),
-            "BT-27 (SellerTradeParty/Name)");
+        // ApplicableHeaderTradeDelivery est obligatoire dans le xsd:sequence de la transaction (et exigé
+        // par EN 16931 / Mustang COMFORT), même vide.
+        Require(issues, root.Descendants(Ram + "ApplicableHeaderTradeDelivery").Any(),
+            "BG-13 (ApplicableHeaderTradeDelivery)");
+
+        var seller = root.Descendants(Ram + "SellerTradeParty").FirstOrDefault();
+        Require(issues, seller?.Element(Ram + "Name") is not null, "BT-27 (SellerTradeParty/Name)");
+        Require(issues, PartyCountry(seller) is not null, "BT-40 (SellerTradeParty pays)");
+
+        var buyer = root.Descendants(Ram + "BuyerTradeParty").FirstOrDefault();
+        Require(issues, buyer?.Element(Ram + "Name") is not null, "BT-44 (BuyerTradeParty/Name)");
+        Require(issues, PartyCountry(buyer) is not null, "BT-55 (BuyerTradeParty pays)");
 
         var settlement = root.Descendants(Ram + "ApplicableHeaderTradeSettlement").FirstOrDefault();
         Require(issues, settlement?.Element(Ram + "InvoiceCurrencyCode") is not null, "BT-5 (InvoiceCurrencyCode)");
@@ -103,6 +113,9 @@ internal static class CiiStructuralValidator
 
     private static bool Has(XElement? parent, string name) =>
         parent?.Element(Ram + name) is not null;
+
+    private static XElement? PartyCountry(XElement? party) =>
+        party?.Element(Ram + "PostalTradeAddress")?.Element(Ram + "CountryID");
 
     private static void Require(List<string> issues, bool present, string label)
     {

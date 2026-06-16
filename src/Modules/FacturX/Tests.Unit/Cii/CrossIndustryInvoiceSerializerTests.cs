@@ -170,6 +170,35 @@ public sealed class CrossIndustryInvoiceSerializerTests
     }
 
     [Fact]
+    public void Serialize_WithoutCustomer_Blocks()
+    {
+        var line = Line(100m, 100m, 20m, 20m, VatCategory.S);
+        var pivot = new PivotDocumentDto(
+            "INVOICE", "FAC-X", new DateTime(2026, 1, 15), "SRC", Supplier(),
+            new PivotTotalsDto(100m, 20m, 120m), OperationCategory.LivraisonBiens,
+            customer: null, lines: new[] { line });
+
+        var act = () => _serializer.Serialize(pivot);
+
+        act.Should().Throw<FacturXGenerationException>().WithMessage("*BR-07*");
+    }
+
+    [Fact]
+    public void Serialize_SupplierWithoutCountry_Blocks()
+    {
+        var supplierNoCountry = new PivotPartyDto("Vendeur SARL", siren: "552100554", isCompanyHint: true);
+        var line = Line(100m, 100m, 20m, 20m, VatCategory.S);
+        var pivot = new PivotDocumentDto(
+            "INVOICE", "FAC-X", new DateTime(2026, 1, 15), "SRC", supplierNoCountry,
+            new PivotTotalsDto(100m, 20m, 120m), OperationCategory.LivraisonBiens,
+            customer: Customer(), lines: new[] { line });
+
+        var act = () => _serializer.Serialize(pivot);
+
+        act.Should().Throw<FacturXGenerationException>().WithMessage("*BT-40*");
+    }
+
+    [Fact]
     public void Serialize_NonReconcilableVatTotal_Blocks()
     {
         // BT-110 (25) ≠ Σ BT-117 dérivé (round(100×20/100)=20) → BR-CO-14.
