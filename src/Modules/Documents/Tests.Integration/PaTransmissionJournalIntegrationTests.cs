@@ -4,6 +4,7 @@ using System;
 using Dapper;
 using FluentAssertions;
 using Liakont.Modules.Documents.Domain.Entities;
+using Liakont.Modules.Documents.Infrastructure.Queries;
 using Npgsql;
 using Xunit;
 
@@ -88,7 +89,47 @@ public sealed class PaTransmissionJournalIntegrationTests
         unchanged.Should().Be("idem-key-001", "l'UPDATE a été rejeté, la valeur d'origine est intacte");
     }
 
-    private static DocumentEvent NewJournalEvent(Guid documentId) =>
+    [Fact]
+    public async Task Find_By_Idempotency_Key_Returns_The_Journaled_Send()
+    {
+        var harness = new DocumentsHarness(_fixture);
+        var documentId = await SeedDocumentAsync(harness);
+
+        // Clé UNIQUE : la base d'intégration est partagée par la collection (d'autres tests journalisent aussi),
+        // donc une clé littérale partagée rendrait la recherche non déterministe (assert par clé propre, pas
+        // sur une valeur globale — même discipline que les tests à fixture partagée).
+        var idempotencyKey = $"idem-{Guid.NewGuid():N}";
+        var journal = NewJournalEvent(documentId, idempotencyKey);
+        await using (var uow = await harness.UowFactory.BeginAsync())
+        {
+            await uow.AppendEventAsync(journal);
+            await uow.CommitAsync();
+        }
+
+        var queries = new PostgresDocumentQueries(harness.ConnectionFactory);
+        var found = await queries.FindByIdempotencyKeyAsync(idempotencyKey);
+
+        found.Should().NotBeNull("la clé d'idempotence est recherchable (F16 §7), via l'index partiel");
+        found!.DocumentId.Should().Be(documentId);
+        found.EventId.Should().Be(journal.Id);
+        found.IdempotencyKey.Should().Be(idempotencyKey);
+        found.PaAccount.Should().Be("compte-pa-demo");
+        found.PaPluginId.Should().Be("generique");
+        found.TransmittedArtifactHash.Should().Be("sha256-de-l-artefact");
+        found.PaRequestUtc.Should().Be(RequestUtc);
+        found.PaResponseUtc.Should().Be(ResponseUtc);
+    }
+
+    [Fact]
+    public async Task Find_By_Unknown_Idempotency_Key_Returns_Null()
+    {
+        var harness = new DocumentsHarness(_fixture);
+        var queries = new PostgresDocumentQueries(harness.ConnectionFactory);
+
+        (await queries.FindByIdempotencyKeyAsync($"absente-{Guid.NewGuid():N}")).Should().BeNull();
+    }
+
+    private static DocumentEvent NewJournalEvent(Guid documentId, string idempotencyKey = "idem-key-001") =>
         DocumentEvent.PaTransmissionJournaled(
             documentId,
             occurredAtUtc: ResponseUtc,
@@ -97,7 +138,7 @@ public sealed class PaTransmissionJournalIntegrationTests
             paRequestUtc: RequestUtc,
             paResponseUtc: ResponseUtc,
             transmittedArtifactHash: "sha256-de-l-artefact",
-            idempotencyKey: "idem-key-001",
+            idempotencyKey: idempotencyKey,
             paResponseSnapshot: "{\"status\":\"accepted\"}",
             detail: "Factur-X transmis via la PA générique (FX06).");
 

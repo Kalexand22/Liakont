@@ -46,6 +46,10 @@ public static class DocumentsModuleRegistration
         // alourdir le contrat principal (précédent FIX212).
         services.AddScoped<IDocumentStateCountQueries, PostgresDocumentQueries>();
 
+        // Interface SÉGRÉGÉE de recherche d'un envoi PA journalisé par clé d'idempotence (FX06, F16 §7) —
+        // même implémentation ; consommée par le pipeline (FX07, anti double-journalisation) et le support.
+        services.AddScoped<IPaTransmissionJournalQueries, PostgresDocumentQueries>();
+
         // Anti-doublon AVANT envoi (TRK03, F06 §4) — port consommé par le pipeline (PIP01).
         services.AddScoped<IDuplicateDocumentCheck, PostgresDuplicateDocumentCheck>();
 
