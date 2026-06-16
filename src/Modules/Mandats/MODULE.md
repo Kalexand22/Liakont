@@ -31,7 +31,10 @@ validation humaine, révocation).
 - le **branchement pipeline** : `DocumentCheckEvaluator` (source UNIQUE de la décision de blocage : CHECK +
   recheck + réconciliation des avoirs) interroge le gate pour un pivot `IsSelfBilled` et **maintient `Blocked`**
   (nouveau motif, **aucun** nouvel état `DocumentState`) un document dont l'acceptation n'est pas acquise ;
-  un recheck post-acceptation rouvre le gate (Blocked → ReadyToSend).
+  un recheck post-acceptation rouvre le gate (Blocked → ReadyToSend). Couverture : CHECK initial testé par
+  `DocumentReceivedConsumerTests.SelfBilled_*` ; recheck testé par `DocumentRecheckServiceTests.SelfBilled_*`
+  (gate ouvert → ReadyToSend, gate fermé → stays Blocked) ; la réconciliation des avoirs partage la même
+  source de décision mais n'est pas couverte séparément par un test unitaire du cas self-billed.
 - Hors MND03 : la création de l'enregistrement `SelfBilledAcceptance` à la détection d'un document self-billed
   n'est câblée par aucun item du lot à ce stade (le gate « interroge » = lecture seule, fail-closed) — à
   rattacher au flux de bout en bout avant la recette `GATE_AUTOFACTURATION`.
