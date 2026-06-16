@@ -45,12 +45,20 @@ internal sealed class PostgresSelfBilledAcceptanceQueries : ISelfBilledAcceptanc
         var companion = await SelfBilledAcceptanceCompanionReader.LoadAsync(
             connection, companyId, documentId, transaction: null, ct);
 
+        if (companion is null)
+        {
+            throw new InvalidOperationException(
+                $"Incohérence : une validation self-billing existe pour le document {documentId} " +
+                "mais sa companion fiscale (mandats.self_billed_acceptances) est absente — " +
+                "action opérateur requise (le BT-1/pending_since ne peuvent être lus).");
+        }
+
         return new SelfBilledAcceptanceDto
         {
             DocumentId = documentId,
             State = state.ToString(),
-            AllocatedNumber = companion?.AllocatedNumber,
-            PendingSince = companion?.PendingSince ?? validation.DeadlineUtc ?? default,
+            AllocatedNumber = companion.Value.AllocatedNumber,
+            PendingSince = companion.Value.PendingSince,
             DeadlineUtc = validation.DeadlineUtc,
             IsAccepted = SelfBilledAcceptanceStateMap.IsAccepted(state),
         };

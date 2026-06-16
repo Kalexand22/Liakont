@@ -59,8 +59,18 @@ internal sealed class SelfBilledAcceptanceCommands : ISelfBilledAcceptanceComman
         }
 
         // Companion fiscale D'ABORD (idempotente) : garantit que la ligne existe pour l'allocateur MND05 et pour
-        // la lecture de pending_since AVANT que l'état ne devienne visible. La garde d'unicité réelle est portée
-        // par la genèse DocumentApproval (ConflictException si une tentative non terminale existe déjà).
+        // la lecture de pending_since AVANT que l'état ne devienne visible.
+        //
+        // NON-ATOMICITÉ INTER-STORES ASSUMÉE (choix délibéré, fail-closed) :
+        // (a) Les deux écritures (INSERT companion Mandats + RequestValidationAsync DocumentApproval) ne sont
+        //     PAS atomiques entre elles — elles opèrent sur des connexions/transactions séparées.
+        // (b) L'INSERT companion utilise ON CONFLICT DO NOTHING : un retry ou une ré-invocation est idempotent
+        //     (la garde d'unicité réelle reste la genèse DocumentApproval via ConflictException).
+        // (c) Un crash ENTRE les deux laisse une companion orpheline (allocated_number null, aucune validation).
+        //     C'est BÉNIN : la porte ISelfBilledGate lit DocumentApproval ; sans validation, l'émission reste
+        //     bloquée (fail-closed, CLAUDE.md n°3). La companion orpheline est inerte.
+        // (d) L'atomicité genèse + journal (INV-ACCEPT-5/6) est préservée À L'INTÉRIEUR de la transaction
+        //     unique de DocumentApproval (RequestValidationAsync).
         using (var connection = await _connectionFactory.OpenAsync(ct))
         {
             await connection.ExecuteAsync(

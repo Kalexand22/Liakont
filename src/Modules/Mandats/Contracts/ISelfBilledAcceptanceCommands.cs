@@ -19,6 +19,8 @@ public interface ISelfBilledAcceptanceCommands
     /// n'a pas accepté. <paramref name="deadlineUtc"/> = échéance de bascule tacite (<c>null</c> = bascule tacite
     /// impossible : mandat tacite ou délai non renseigné). <paramref name="pendingSince"/> = instant d'entrée en
     /// attente. Lève une <c>ConflictException</c> si une acceptation non terminale existe déjà pour le document.
+    /// La non-atomicité inter-stores (companion Mandats + validation DocumentApproval) est un choix assumé,
+    /// fail-closed : une companion orpheline sans validation bloque l'émission (voir implémentation).
     /// </summary>
     Task OpenPendingAsync(
         Guid companyId,
