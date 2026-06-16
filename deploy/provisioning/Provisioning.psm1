@@ -529,10 +529,71 @@ function Wait-InstanceHealthy {
         Detail = "Délai dépassé ($TimeoutSeconds s) sans signal de disponibilité du Host (dernier état « $lastState »)." }
 }
 
+# ── Audit de fin de vie de tenant (niveau INSTANCE, append-only — OPS06c, décision D7) ────────
+# La suppression d'un tenant (séquence D7) est journalisée de façon IRRÉVERSIBLE au niveau de
+# l'INSTANCE (hors base tenant — qui, quand, référence de l'export vérifié) ; cet enregistrement SURVIT
+# à la suppression de la base du tenant (c'est un fichier HÔTE, pas une table de la base supprimée). Le
+# journal est APPEND-ONLY : ces fonctions n'ÉCRIVENT qu'en ajout (jamais de réécriture ni de suppression
+# de ligne) — invariant de piste d'audit (CLAUDE.md n°4). Aucune donnée client dans le code : le fichier
+# vit sous instances/ (gitignoré) ; il consigne des DONNÉES OPÉRATEUR.
+
+function Add-TenantDecommissionAuditEntry {
+    <#
+    .SYNOPSIS
+        Ajoute (APPEND-ONLY) une entrée au journal d'audit de fin de vie de tenant de l'instance.
+    .DESCRIPTION
+        Sérialise l'entrée en UNE ligne JSON (JSONL) et l'AJOUTE en fin de fichier (jamais de
+        réécriture). Crée le fichier (et son dossier) au premier appel. UTF-8 sans BOM, fin de ligne LF
+        (le journal peut être lu côté Linux). L'absence de tout chemin d'update/delete est VOULUE : la
+        piste d'audit est immuable (CLAUDE.md n°4).
+    .PARAMETER Path
+        Chemin du journal JSONL de l'instance (ex. instances/<nom>/tenant-decommission-audit.jsonl).
+    .PARAMETER Entry
+        Table de hachage (de préférence ordonnée) décrivant l'événement de suppression.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][System.Collections.IDictionary]$Entry
+    )
+
+    # ConvertTo-Json -Compress => une seule ligne ; on neutralise toute fin de ligne résiduelle d'une
+    # valeur pour garantir l'invariant « une entrée = une ligne » (un JSONL multi-lignes serait illisible).
+    $json = ($Entry | ConvertTo-Json -Compress -Depth 6) -replace "`r", '' -replace "`n", ' '
+
+    $dir = Split-Path -Parent $Path
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    # AppendAllText : ajout pur (crée si absent), UTF-8 SANS BOM (un BOM en tête casserait le parsing de
+    # la 1re ligne JSON). LF explicite.
+    [System.IO.File]::AppendAllText($Path, $json + "`n", (New-Object System.Text.UTF8Encoding($false)))
+}
+
+function Read-TenantDecommissionAuditEntries {
+    <#
+    .SYNOPSIS
+        Lit (lecture seule) le journal d'audit de fin de vie de tenant. Fichier absent → tableau vide.
+    .OUTPUTS
+        Tableau de PSCustomObject (une entrée par ligne JSON).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) { return @() }
+
+    $entries = New-Object System.Collections.Generic.List[object]
+    foreach ($line in [System.IO.File]::ReadAllLines($Path)) {
+        $trimmed = ([string]$line).Trim()
+        if ($trimmed.Length -eq 0) { continue }
+        $entries.Add(($trimmed | ConvertFrom-Json))
+    }
+    return $entries.ToArray()
+}
+
 Export-ModuleMember -Function `
     Write-Step, Write-Ok, Write-WarnMsg, Write-ErrMsg, `
     Resolve-InstanceName, New-StrongSecret, New-InstanceEnvContent, `
     Read-InstanceRegistry, Write-InstanceRegistry, Set-InstanceRegistryEntry, `
     Protect-YamlScalar, Unprotect-YamlScalar, `
     Test-DockerAvailable, Get-InstanceDatabases, Backup-InstanceDatabases, Wait-InstanceHealthy, `
-    Copy-DeploymentFileAsLf
+    Copy-DeploymentFileAsLf, `
+    Add-TenantDecommissionAuditEntry, Read-TenantDecommissionAuditEntries
