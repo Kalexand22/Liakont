@@ -1,102 +1,62 @@
-# TODO — Démo extraction réelle bout-en-bout : 2 bases SQL + 2 adaptateurs + AGT02 + install multi-services
+# SIG04 — Module `Liakont.Modules.DocumentApproval` (ADR-0028, F17 §3/§4)
 
-> Objectif (interactif, human-driven) : prouver l'extraction réelle d'un agent installé.
-> Deux bases SQL Server de schémas différents → deux adaptateurs ODBC → le service agent
-> extrait et pousse les factures vers la plateforme locale, qui les fait remonter en console.
-> Qualité produit (branche dédiée, tests, ADR, codex-review). Fait avancer **AGT02**.
-> Branche : `feat/agt02-demo-extraction` (depuis origin/main). ADR : ADR-0023.
+Cœur réutilisable du lot SIG. Module générique de workflow de validation de document.
+SIG04 NE touche PAS Mandats (refactor = SIG05) ni les ports par purpose (= SIG06) ni les
+jobs TenantJobRunner/WORM (= SIG06/SIG07). Périmètre = le module générique + sa persistance + ses tests.
 
-## Décisions de conception (voir ADR-0023)
+## Plan
 
-- D1 tenant unique `default` (SIREN 123456782, mapping {20,10,5.5,0}→{S,AA,AA,Z}, PA Fake Staging).
-- D2 canal `adapterConfig.<nom>` dans agent.json (loader générique, fabrique valide sa section).
-- D3 câblage AgentRunCycle au composition root du service (remplace le cycle vide).
-- D4 DemoErpA (decimal, normalisé, FAC/AVO) + DemoErpB (float legacy, dénormalisé, I/C).
-- D5 emitterSiren/operationCategory en adapterConfig (≠ source).
-- D6 données fictives sous deployments/demo-local/ (règle n°7).
-- D7 cas connus : simple(20) · multi-mixte(20+10+5.5) · taux 0 · avoir → facture · 1 régime NON mappé → Blocked.
-- D8 numéros auto re-jouables ; SourceReference namespacé par adaptateur.
-- D9 adaptateurs démo embarqués, marqués démo.
-- D10 login SQL dédié lecture seule (db_datareader), ODBC Driver 17, UID/PWD chiffré DPAPI.
+### Squelette du module (pattern Stratum, calqué Mandats/Signature)
+- [ ] src/Modules/DocumentApproval/{Contracts,Domain,Application,Infrastructure,Web,Tests.Unit,Tests.Integration}
+- [ ] MODULE.md + INVARIANTS.md (INV-APPROVAL-1..8)
+- [ ] Inscription des 8 projets dans src/Liakont.sln + AddDocumentApprovalModule() au Host (AppBootstrap)
 
-## Phases
+### Domain
+- [ ] `ValidationState` enum (7 états distincts, persisté int figé) — Rejected≠Contested
+- [ ] `ApprovalSlotState` enum (Pending/Approved/Rejected)
+- [ ] `ApprovalSlot` (SignerId, State, ProofLevel, ProofId?) idempotent par SignerId
+- [ ] `ValidationMachine` : graphe d'arêtes universel §3 + garde de transition
+- [ ] `ValidationPurposePolicy` : sous-graphe autorisé PAR purpose (self-billing = 4 états), AllowsRetry, RequiresExpressAcceptanceForm
+- [ ] `DocumentValidation` agrégat clé (company,document,purpose,attempt) + transitions + slots
+- [ ] `SignatureLevelAssurance` : rang d'assurance (Recorded<SES<AES<QES) + Satisfies (≥)
+- [ ] `ApprovalGate` : règle de gate §5 (3 conditions, par slot, cond.3 hors tacite)
 
-### Phase 0 — Cadrage
-- [x] Branche `feat/agt02-demo-extraction` depuis origin/main
-- [x] ADR-0023 (câblage run cycle + canal adapterConfig)
+### Contracts (surface publique minimale)
+- [ ] `ValidationPurpose` enum (6 purposes, clé de couplage — public)
+- [ ] `DocumentValidationDto`, `DocumentApprovalLogEntryDto`, `ApprovalSlotDto`
+- [ ] `IDocumentApprovalQueries` (lecture tenant-scopée : dernière tentative + journal)
 
-### Phase 1 — Infra SQL de démo (aucun code produit) — DONE
-- [x] deployments/demo-local/01-create-databases.sql (2 bases + login ro)
-- [x] 02-schema-erpA.sql / 03-schema-erpB.sql
-- [x] 04-seed-erpA.sql / 05-seed-erpB.sql (re-jouables, numéros auto, cas connus)
-- [x] seed-demo.ps1 (wrapper sqlcmd) + README.md
-- [x] Gate : test-odbc connecte les 2 bases (ErpA 6 fact/8 lignes, ErpB 6 inv/8 items ; écriture refusée)
+### Application
+- [ ] `IDocumentValidationUnitOfWork` (+ factory) : Insert/GetForUpdate/SaveTransition/CreateNextAttempt — transition + journal MÊME transaction
+- [ ] `DocumentApprovalLogEntry` (entrée de journal)
 
-### Phase 2 — Canal adapterConfig (Core) — DONE
-- [x] AgentConfigLoader + DTO : parse adapterConfig (générique) + AdapterConfigSection + AgentConfig.GetAdapterConfig
-- [x] Tests unitaires Core (19/19, dont 4 adapterConfig)
-- [x] Gate : verify-fast vert (plateforme + agent x86/x64) — fix CA1859 (type retour concret)
+### Infrastructure
+- [ ] Migrations V001 schéma `documentapproval`, V002 document_validations (+ index unique partiel non-terminaux), V003 document_validation_slots, V004 document_approval_log (+ DOUBLE trigger append-only)
+- [ ] `PostgresDocumentValidationUnitOfWork` (+ factory), `DocumentApprovalLogFactory`, `DocumentValidationMaterializer`, `RowReader`
+- [ ] `PostgresDocumentApprovalQueries`
+- [ ] `DocumentApprovalModuleRegistration` (AddDocumentApprovalModule : migrations DbUp + UoW + queries)
 
-### Phase 3 — Deux adaptateurs ODBC (IExtractor) — DONE
-- [x] Helpers Core réutilisables : SourceAmounts (float→decimal), OdbcCellReader, SourceQuery, SourceQueryGuard, OdbcSourceConnectionFactory, SourceEmitterConfig
-- [x] Liakont.Agent.Adapters.DemoErpA (decimal, normalisé) + Liakont.Agent.Adapters.DemoErpB (float, dénormalisé)
-- [x] Tests unitaires mappers (5+4) + SourceAmounts/SourceEmitterConfig/SourceQueryGuard ; frontière étendue (AgentBoundaryTests)
-- [x] Intégration ODBC : convention agent = tests unitaires only (pas de vraie base en CI) → validation LIVE en Phase 6
-- [x] Gate : x86+x64 clean, Core 253/253, mappers verts
+### Tests.Unit
+- [ ] Machine fermée : produit cartésien (toute transition hors graphe rejetée), aucun retour terminal
+- [ ] Garde de purpose : self-billing 4 états (ValidationInProgress/Expired/Rejected rejetés)
+- [ ] Slots : idempotence SignerId, complétude = tous distincts, slot refusé → terminal immédiat, niveau par slot
+- [ ] Règle de gate : Recorded nu ne franchit pas AES/QES ; tacit ne satisfait que Recorded ; forme EC hors tacit
+- [ ] Frontière NetArchTest : Signature.Contracts AUTORISÉ, Signature.Domain/.PlugIns + autres modules INTERDITS ; scan csproj
 
-### Phase 4 — Câblage du cycle de run (AGT02) — DONE
-- [x] EmbeddedSourceAdapters étendu (noms + CreateConfigured DemoErpA/B) + extractFromUtc (config+AgentRunCycle)
-- [x] AgentRunComposition (Cli/Hosting) partagé service ⇄ CLI run ; AgentHost compose le vrai cycle (repli neutre si config invalide)
-- [x] RunCommand câblé sur la composition réelle ; service référence le CLI
-- [x] Tests : extractFromUtc (cycle + config) + tous existants ; Gate verify-fast VERT (plateforme + agent x86/x64)
+### Tests.Integration (Testcontainers, ≥2 bases)
+- [ ] Round-trip état + journal de genèse ; transition + journal MÊME transaction
+- [ ] Journal append-only : UPDATE/DELETE/TRUNCATE rejetés
+- [ ] Atomicité : transaction abandonnée ⇒ rien
+- [ ] Tenant-scoping ≥2 bases
+- [ ] Ré-essai : index unique partiel (1 seule non-terminale) + garde anti-race (test de concurrence) + self-billing exclu
+- [ ] Slots N-parties persistés + complétude + slot refusé
 
-### Phase 5 — Agents + install des 2 services — DONE
-- [x] 2 clés API émises (POST /api/v1/agents via token parametrage ; directAccessGrants Keycloak activé puis RÉVERTÉ ; pièges : reset mdp + purge requiredActions TOTP + purge brute-force)
-- [x] agent.json des 2 instances (C:\ProgramData\Liakont\<instance>\) : secrets DPAPI + adapterConfig + extractFromUtc
-- [x] check-config + test-odbc + test-api (clé réelle ACCEPTÉE) OK
-- [x] Script install-services.ps1 prêt (vrais services Windows — session non élevée → clé en main ; extraction prouvée via CLI run = MÊME composition)
+### Vérification
+- [ ] verify-fast (net10 + agent net48)
+- [ ] run-tests (intégration)
+- [ ] codex-review boucle propre
 
-### Phase 6 — Vérif bout-en-bout + review
-- [x] CLI run ×2 : 6 docs/instance extraits+poussés ; réconciliation 2-temps (6 acquittés) ; idempotence (re-run 0)
-- [x] Plateforme : 12 documents, 8 ReadyToSend + 4 Blocked (avoirs + régime 13) — cas connus confirmés
-- [x] Correctif bug ODBC 22008 (DateTime infra-seconde → troncature seconde) + test
-- [x] codex-review : round 3 CLEAN (rounds 1+2 = 9 P2 corrigés, 0 P1 sur 3 rounds)
-- [x] Section Review (ci-dessous)
-
-## Vigilance
-- Pas de categoryCode/vatexCode côté agent (P1). decimal partout (P1). Lecture seule stricte (P1).
-- Plateforme cible = Host clone voisin Liakont4 (localhost:55996) — ne pas perturber.
-- Service en LocalSystem : login SQL dédié évite la dépendance d'identité.
-
-## Review
-
-### codex round 1 — 0 P1, 5 P2 (tous corrigés)
-- **P2-1** (crash-loop SCM) : `AgentRunComposition.Build` traduit les échecs de déchiffrement DPAPI
-  (`Cryptographic/FormatException`, agent.json d'une autre machine) en `AgentConfigException` → le
-  service/CLI bascule en cycle neutre journalisé au lieu de planter.
-- **P2-2** (stall sur 1 doc malformé) : `DemoErp*Extractor.TryMapDocument` met en QUARANTAINE (journalisé)
-  un document à `SourceSchemaException` et poursuit la fenêtre (le filigrane avance). Journal cascadé
-  extracteur ← fabrique ← `CreateConfigured` ← `Build`. Testé.
-- **P2-3** (verrou de run non partagé) : `AgentHost` fait acquérir au cycle du service le MÊME
-  `InterProcessRunLock` (mutex par instance) que la commande CLI `run` ; verrou détenu → cycle sauté.
-- **P2-4** (regroupement streaming non testé) : `DemoErpAExtractorTests` éprouve `ExtractDocuments` avec
-  un `IDataReader` factice (multi-lignes, facture sans ligne, avoir+origine, quarantaine).
-- **P2-5** (faux-vert `sc start`) : `install-services.ps1` vérifie `$LASTEXITCODE` de `install`/`sc start`
-  + attend l'état `Running`.
-- Écarté par le reviewer (pas un P1) : les `float` de DemoErpB sont le reflet brut d'une base legacy,
-  convertis decimal half-up à la frontière (`SourceAmounts`/`PivotRounding`) — aucun calcul flottant.
-
-### codex round 2 — 0 P1, 4 P2 (tous corrigés)
-- **AgentHost** : capture désormais TOUT échec de composition (pas que `AgentConfigException` — file SQLite
-  corrompue, URL invalide…) → cycle neutre journalisé (anti crash-loop). + fuite httpClient colmatée dans `Build`.
-- **DemoErpBExtractorTests** ajouté (miroir de A) ; fakes ADO extraits dans `agent/tests/_shared/FakeAdoStack.cs`
-  (lié dans les 2 projets, non dupliqué).
-- **Schémas démo** : contrainte UNIQUE sur `numero`/`InvoiceNo` (l'auto-jointure d'origine suppose l'unicité).
-- **install-services.ps1** : `Write-Error`→`Write-Warning` (sous `ErrorActionPreference=Stop`, Write-Error
-  était terminant → avortait tout) + code 1056 (service déjà lancé) toléré.
-
-### État final
-- verify-fast vert (plateforme + agent x86/x64, tous tests). Re-validation live : 24 documents avec binaires corrigés.
-- Bout-en-bout prouvé : depuis 2 bases SQL / 2 adaptateurs → 16 ReadyToSend + 8 Blocked (cas connus).
-- **Reste à l'humain** : revue + merge (le commit/merge n'est pas fait par l'agent). Vrais services
-  Windows : `deployments/demo-local/install-services.ps1` (console élevée).
+## Notes / décisions
+- CreditNoteAcceptance : défaut défendable #9 (ADR-0028) = même discipline que 389 (4 états, pas de ré-essai).
+- Gate rule = mécanisme Domain pur (pas de port par purpose ici — SIG06). Niveau requis tenant = paramètre (câblé SIG06).
+- DocumentApproval → Signature.Contracts (SignatureLevel) autorisé (ADR §9) ; jamais Signature.Domain/.PlugIns.

@@ -22,6 +22,7 @@ using Liakont.Host.Services;
 using Liakont.Host.Staging;
 using Liakont.Modules.Archive.Infrastructure;
 using Liakont.Modules.Archive.Web;
+using Liakont.Modules.DocumentApproval.Infrastructure;
 using Liakont.Modules.Documents.Infrastructure;
 using Liakont.Modules.Documents.Web;
 using Liakont.Modules.FacturX.Infrastructure;
@@ -317,6 +318,12 @@ public static class AppBootstrap
         // construit vide sans erreur (défaut Recorded) ; les fournisseurs CONFIGURÉS mais non câblés sont
         // détectés au démarrage (ValidateSignatureProviderConfiguration, dans InitializeDataAsync).
         builder.Services.AddSignatureModule();
+
+        // DocumentApproval (SIG04, ADR-0028) : workflow de validation de document GÉNÉRIQUE (cœur réutilisable
+        // du lot signature) — agrégat à machine fermée par purpose, slots N-parties, journal append-only,
+        // règle de gate. Le Host enregistre la persistance (migrations du schéma documentapproval + UoW +
+        // requêtes). Aucun port par purpose ni job ici (SIG06/SIG07) ; aucune logique fiscale (CLAUDE.md n°2).
+        builder.Services.AddDocumentApprovalModule();
 
         // Pipeline (PIP01a — fondations) : lecteur canonique du contenu stagé + journal d'exécutions
         // (pipeline.run_logs) + points d'entrée Contracts consommés par CHECK/SEND/SYNC. AUCUN comportement

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Domain du module DocumentApproval (ADR-0028, F17 §3/§4) : agrégat DocumentValidation, machine FERMÉE
+       par purpose, slots N-parties, règle de gate. Référence Signature.Contracts UNIQUEMENT pour le niveau de
+       preuve (SignatureLevel) — arête AUTORISÉE (ADR-0028 §9 : DocumentApproval → Signature.Contracts) ;
+       jamais Signature.Domain/.Infrastructure ni un plug-in (frontière, CLAUDE.md n°6/14). Pur BCL sinon :
+       aucun montant (pas de decimal/float), aucune règle fiscale inventée (CLAUDE.md n°1/2). -->
+  <ItemGroup>
+    <!-- ValidationPurpose (clé de couplage publique) vit dans les Contracts du module : la machine et le
+         sous-graphe par purpose s'en servent. Référence INTERNE au module (pas un cycle : Contracts ne
+         référence pas Domain). -->
+    <ProjectReference Include="../Contracts/Liakont.Modules.DocumentApproval.Contracts.csproj" />
+    <ProjectReference Include="../../Signature/Contracts/Liakont.Modules.Signature.Contracts.csproj" />
+  </ItemGroup>
+</Project>

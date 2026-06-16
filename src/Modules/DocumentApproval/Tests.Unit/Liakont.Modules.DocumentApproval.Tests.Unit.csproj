@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="NetArchTest.Rules" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Domain + Contracts pour les tests d'agrégat/machine/gate/DTO ; Infrastructure pour les gardes de
+         frontière (réflexion sur l'assembly référencée). Toutes des références INTERNES au module. -->
+    <ProjectReference Include="../Domain/Liakont.Modules.DocumentApproval.Domain.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.DocumentApproval.Contracts.csproj" />
+    <ProjectReference Include="../Infrastructure/Liakont.Modules.DocumentApproval.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

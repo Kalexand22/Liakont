@@ -81,6 +81,11 @@
          plug-in concret référencé ici (Yousign = SIG07, Wacom = SIG08, câblés au composition root plus tard,
          CLAUDE.md n°6/14). La couche Web (console SIG10) sera référencée quand ses écrans arriveront. -->
     <ProjectReference Include="..\..\Modules\Signature\Infrastructure\Liakont.Modules.Signature.Infrastructure.csproj" />
+    <!-- Module DocumentApproval (SIG04, ADR-0028) : workflow de validation de document générique (cœur du lot
+         signature). Le Host enregistre la persistance (migrations du schéma documentapproval + journal
+         append-only, UoW, requêtes). Les ports par purpose (ISelfBilledGate réutilisé, …) et le câblage
+         pipeline arrivent avec SIG06 ; le refactor de SelfBilledAcceptance (Mandats) avec SIG05. -->
+    <ProjectReference Include="..\..\Modules\DocumentApproval\Infrastructure\Liakont.Modules.DocumentApproval.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Validation\Infrastructure\Liakont.Modules.Validation.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Pipeline\Infrastructure\Liakont.Modules.Pipeline.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Pipeline\Web\Liakont.Modules.Pipeline.Web.csproj" />
