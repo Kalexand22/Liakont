@@ -74,11 +74,11 @@ internal sealed class SuperPdpClient : IPaClient
                 PaCapabilityNotSupportedResult.Create(Capabilities.PaName, PaCapability.CreditNotes));
         }
 
-        // Autofacturation 389 demandée alors que la capacité n'est pas déclarée → résultat typé, jamais
-        // une émission dégradée en facture standard 380 (MND07, CLAUDE.md n°3/8). V1 Super PDP ne déclare
-        // PAS SupportsSelfBilling : le pipeline ne route donc pas un 389 ici, mais on garde la frontière en
-        // profondeur (le builder fige TypeCode=380 et n'interprète pas la projection).
-        if (projection is { DocumentTypeCode: PaDocumentTypeCode.SelfBilledInvoice } && !Capabilities.SupportsSelfBilling)
+        // Le builder de ce plug-in ne projette pas le 389 (il fige TypeCode=380 et lit document.Number) : refuser
+        // TOUTE projection 389 par un résultat typé, quelle que soit la capacité déclarée — jamais une émission
+        // dégradée en facture standard 380 avec le numéro source en place du BT-1 fiscal (MND07, CLAUDE.md n°3/8).
+        // Coupler la garde à l'implémentation : activer la capacité 389 exigera d'implémenter la projection ici.
+        if (projection is { DocumentTypeCode: PaDocumentTypeCode.SelfBilledInvoice })
         {
             return PaSendResult.NotSupported(
                 PaCapabilityNotSupportedResult.Create(Capabilities.PaName, PaCapability.SelfBilling));

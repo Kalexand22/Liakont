@@ -206,6 +206,7 @@ public sealed class ComptesPaViewTests : BunitContext
         SupportsTaxReportRetrieval = false,
         SupportsDocumentRetrieval = false,
         SupportsReportRectification = true,
+        SupportsSelfBilling = false,
         MaxDocumentsPerRequest = 100,
     };
 }

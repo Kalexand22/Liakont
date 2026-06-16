@@ -221,10 +221,11 @@ internal static class DocumentCheckEvaluator
             var client = registry.Resolve(new PaAccountDescriptor(active.PluginType, tenantId));
             return client.Capabilities.SupportsSelfBilling ? null : client.Capabilities.PaName;
         }
-        catch (InvalidOperationException)
+        catch (Exception)
         {
-            // Résolution impossible (compte mal configuré, clé indisponible…) : on n'invente pas un verdict de
-            // capacité — la garde d'envoi (fail-closed) tranchera. Jamais une émission dégradée pour autant.
+            // Résolution impossible (compte mal configuré, clé PA non saisie…) : on n'invente pas un verdict de
+            // capacité — la garde d'envoi (fail-closed) tranchera. Jamais une émission dégradée pour autant (le
+            // précédent TenantSettingsConsoleQueries capture aussi Exception pour ce cas — INV-TENANTSETTINGS-007).
             return null;
         }
     }

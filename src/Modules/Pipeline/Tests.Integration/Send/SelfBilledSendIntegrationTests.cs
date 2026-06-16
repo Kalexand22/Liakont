@@ -95,4 +95,25 @@ public sealed class SelfBilledSendIntegrationTests : IClassFixture<PipelineSendH
         _harness.PaClient.SentDocuments.Should().NotContain(d => d.SourceNumber == pivot.Number, "jamais émis avec le numéro source en place du BT-1 fiscal (INV-BT1-1)");
         _harness.PaClient.IssuedDocumentNumbers.Should().NotContain(pivot.Number);
     }
+
+    [Fact]
+    public async Task SelfBilled_Not_Accepted_At_Send_Is_Held_Never_Emitted()
+    {
+        await _harness.UsePublishedFakeAsync();
+        _harness.ForceWormAbsent = false;
+
+        var documentId = Guid.NewGuid();
+        var allocatedBt1 = "ARM-A-" + documentId.ToString("N")[..6];
+        var pivot = CheckIntegrationFixtures.BuildSelfBilledPivot(
+            "selfbilled-notaccepted-" + documentId.ToString("N"), MandantSiren, MandantVatNumber);
+        await _harness.SeedDetectedAndStageAsync(documentId, pivot);
+        await _harness.MarkReadyToSendAsync(documentId);
+        _harness.SeedSelfBilledAcceptance(documentId, allocatedBt1, isAccepted: false, state: "Contested");
+
+        await _harness.RunSendAsync();
+
+        (await _harness.GetDocumentStateAsync(documentId)).Should().Be("ReadyToSend", "acceptation non acquise ⇒ maintenu (fail-closed)");
+        _harness.PaClient.SentDocuments.Should().NotContain(d => d.SourceNumber == pivot.Number, "jamais transmis sans acceptation (INV-ACCEPT-2)");
+        _harness.PaClient.IssuedDocumentNumbers.Should().NotContain(allocatedBt1);
+    }
 }
