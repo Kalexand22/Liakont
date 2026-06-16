@@ -434,7 +434,7 @@ public sealed class PaPublicationConsoleServiceTests
         public Task<PaTaxReportSetting> GetTaxReportSettingAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(CurrentSetting);
 
-        public Task<PaSendResult> SendDocumentAsync(Liakont.Agent.Contracts.Pivot.PivotDocumentDto document, bool sendAfterImport = true, CancellationToken cancellationToken = default) =>
+        public Task<PaSendResult> SendDocumentAsync(Liakont.Agent.Contracts.Pivot.PivotDocumentDto document, bool sendAfterImport = true, PaSendContext? context = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
         public Task<PaSendResult> SendPaymentReportAsync(PaymentReportPeriod period, CancellationToken cancellationToken = default) =>

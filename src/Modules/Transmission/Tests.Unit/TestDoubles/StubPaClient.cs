@@ -28,6 +28,7 @@ internal sealed class StubPaClient : IPaClient
     public Task<PaSendResult> SendDocumentAsync(
         PivotDocumentDto document,
         bool sendAfterImport = true,
+        PaSendContext? context = null,
         CancellationToken cancellationToken = default)
     {
         _calls.Add(nameof(SendDocumentAsync));

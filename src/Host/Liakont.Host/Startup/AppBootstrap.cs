@@ -14,6 +14,7 @@ using Liakont.Host.Localization;
 using Liakont.Host.MultiTenancy;
 using Liakont.Host.Navigation;
 using Liakont.Host.Notifications;
+using Liakont.Host.PaDelivery;
 using Liakont.Host.Security;
 using Liakont.Host.Security.Abstractions;
 using Liakont.Host.Security.Keycloak;
@@ -23,6 +24,7 @@ using Liakont.Modules.Archive.Infrastructure;
 using Liakont.Modules.Archive.Web;
 using Liakont.Modules.Documents.Infrastructure;
 using Liakont.Modules.Documents.Web;
+using Liakont.Modules.FacturX.Infrastructure;
 using Liakont.Modules.FleetSupervision.Application;
 using Liakont.Modules.FleetSupervision.Infrastructure;
 using Liakont.Modules.Ingestion.Application;
@@ -42,6 +44,7 @@ using Liakont.Modules.Supervision.Infrastructure;
 using Liakont.Modules.SupportTrace.Infrastructure;
 using Liakont.Modules.TenantSettings.Infrastructure;
 using Liakont.Modules.TenantSettings.Web;
+using Liakont.Modules.Transmission.Contracts;
 using Liakont.Modules.Transmission.Infrastructure;
 using Liakont.Modules.TvaMapping.Infrastructure;
 using Liakont.Modules.TvaMapping.Web;
@@ -274,13 +277,20 @@ public static class AppBootstrap
         // en production il reste absent. Le registre le découvre et le résout par PaType (CLAUDE.md n°8).
         builder.Services.AddConfiguredPaClients(builder.Environment, builder.Configuration);
 
-        // NB (FXG, F16 §6) : le plug-in PA GÉNÉRIQUE et ses canaux de livraison Host sont LIVRÉS
-        // (Liakont.Host.PaDelivery + Liakont.PaClients.Generique) mais PAS encore câblés ici. Le câblage
-        // (builder.Services.AddGeneriquePaDelivery()) est porté par FX07, EN MÊME TEMPS que l'extension du
-        // contrat IPaClient (PaSendContext) et la génération du Factur-X à l'étape Sending : sans ce flux,
-        // SendDocumentAsync ne peut pas transmettre (aucun artefact porté) — l'enregistrer dès maintenant
-        // mettrait un compte « Generique » actif en boucle de retry technique. On câble donc le plug-in au
-        // moment où le pipeline sait le nourrir (FX07).
+        // Génération Factur-X (FX02-FX04) : enregistre le port IFacturXBuilder (sérialiseur CII maison +
+        // scellement PDF/A-3 QuestPDF confiné à FacturX.Infrastructure, INV-FX-1). La décision de générer
+        // reste au pipeline appelant (FacturX ne consulte aucune PaCapabilities — ADR-0023 INV-FX-4).
+        builder.Services.AddFacturXModule();
+
+        // FX07 (F16 §6.1) : le plug-in PA GÉNÉRIQUE (Essentiel) et ses canaux de livraison Host sont câblés
+        // ICI, EN MÊME TEMPS que la génération à l'étape Sending — au moment où le pipeline sait nourrir le
+        // plug-in (extension du contrat IPaClient via PaSendContext + génération du Factur-X). Le pont
+        // IFacturXArtifactBuilder → IFacturXBuilder (composition root) laisse le pipeline générer « derrière
+        // IFacturXBuilder » SANS franchir la frontière Contracts-only (module-rules §3) : seul le Host
+        // référence à la fois Transmission.Contracts et le module FacturX. Un compte « Generique » actif
+        // devient ainsi transmissible de bout en bout (génération → transmission → journal + trace support).
+        builder.Services.AddSingleton<IFacturXArtifactBuilder, FacturXArtifactBuilder>();
+        builder.Services.AddGeneriquePaDelivery();
 
         // Pipeline (PIP01a — fondations) : lecteur canonique du contenu stagé + journal d'exécutions
         // (pipeline.run_logs) + points d'entrée Contracts consommés par CHECK/SEND/SYNC. AUCUN comportement

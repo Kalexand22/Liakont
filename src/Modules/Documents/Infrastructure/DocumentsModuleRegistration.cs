@@ -47,8 +47,13 @@ public static class DocumentsModuleRegistration
         services.AddScoped<IDocumentStateCountQueries, PostgresDocumentQueries>();
 
         // Interface SÉGRÉGÉE de recherche d'un envoi PA journalisé par clé d'idempotence (FX06, F16 §7) —
-        // même implémentation ; consommée par le pipeline (FX07, anti double-journalisation) et le support.
+        // même implémentation ; consommée par le pipeline (FX07, garde anti double-envoi sur reprise — la PA générique « Essentiel » ne déduplique pas) et le support.
         services.AddScoped<IPaTransmissionJournalQueries, PostgresDocumentQueries>();
+
+        // Écriture (append-only) du journal d'envoi PA (FX07, F16 §7) : seule surface autorisée pour que le
+        // pipeline consigne la transmission d'un Factur-X (frontière Contracts-only). Ségrégée du port de
+        // transitions IDocumentLifecycle (symétrique au read IPaTransmissionJournalQueries).
+        services.AddScoped<IPaTransmissionJournal, PaTransmissionJournal>();
 
         // Anti-doublon AVANT envoi (TRK03, F06 §4) — port consommé par le pipeline (PIP01).
         services.AddScoped<IDuplicateDocumentCheck, PostgresDuplicateDocumentCheck>();
