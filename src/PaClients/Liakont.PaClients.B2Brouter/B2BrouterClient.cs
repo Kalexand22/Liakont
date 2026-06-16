@@ -55,6 +55,7 @@ internal sealed class B2BrouterClient : IPaClient
     public async Task<PaSendResult> SendDocumentAsync(
         PivotDocumentDto document,
         bool sendAfterImport = true,
+        PaOutboundProjection? projection = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -67,6 +68,16 @@ internal sealed class B2BrouterClient : IPaClient
         {
             return PaSendResult.NotSupported(
                 PaCapabilityNotSupportedResult.Create(Capabilities.PaName, PaCapability.CreditNotes));
+        }
+
+        // Autofacturation 389 demandée alors que la capacité n'est pas déclarée → résultat typé, jamais
+        // une émission dégradée en facture standard 380 (MND07, CLAUDE.md n°3/8). Le pipeline ne route un
+        // 389 que vers une PA déclarant SupportsSelfBilling ; garde en profondeur (le builder ne lit pas
+        // la projection).
+        if (projection is { DocumentTypeCode: PaDocumentTypeCode.SelfBilledInvoice } && !Capabilities.SupportsSelfBilling)
+        {
+            return PaSendResult.NotSupported(
+                PaCapabilityNotSupportedResult.Create(Capabilities.PaName, PaCapability.SelfBilling));
         }
 
         // Construction + sérialisation du payload AVANT toute tentative HTTP : un document mal formé

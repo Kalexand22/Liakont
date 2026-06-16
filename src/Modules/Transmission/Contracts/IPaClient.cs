@@ -21,13 +21,23 @@ public interface IPaClient
     /// Transmet un document (facture B2C ou avoir) à la PA. Reçoit le pivot ENRICHI (EN 16931 — le
     /// mapping TVA est déjà appliqué par la plateforme) ; le plug-in le transforme vers le format de
     /// la PA. <paramref name="sendAfterImport"/> faux = créé sans envoi (état <c>new</c>, F05 §2).
+    /// <para>
+    /// <paramref name="projection"/> (MND07) convoie les champs sortants qui ne se dérivent pas tels
+    /// quels du pivot — aujourd'hui l'autofacturation sous mandat (type BT-3 = 389 + BT-1 fiscal alloué).
+    /// <c>null</c> = document standard (le plug-in projette son type par défaut 380 et le BT-1 = <c>Number</c>
+    /// du pivot). Quand elle est présente, le plug-in DOIT projeter <see cref="PaOutboundProjection.DocumentTypeCode"/>
+    /// et <see cref="PaOutboundProjection.FiscalNumber"/> ; un 389 n'est passé qu'à une PA dont la capacité
+    /// <see cref="PaCapabilities.SupportsSelfBilling"/> est déclarée (garde posée par le pipeline, CLAUDE.md n°8).
+    /// </para>
     /// </summary>
     /// <param name="document">Le document pivot enrichi à transmettre (EN 16931, F01-F02 §3.1).</param>
     /// <param name="sendAfterImport">Vrai = créer ET envoyer ; faux = créer sans envoyer.</param>
+    /// <param name="projection">Projection sortante (type/BT-1) pour les cas non standard, ou <c>null</c>.</param>
     /// <param name="cancellationToken">Jeton d'annulation.</param>
     Task<PaSendResult> SendDocumentAsync(
         PivotDocumentDto document,
         bool sendAfterImport = true,
+        PaOutboundProjection? projection = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

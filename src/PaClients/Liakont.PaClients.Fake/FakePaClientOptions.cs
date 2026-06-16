@@ -31,6 +31,7 @@ public sealed record FakePaClientOptions
         SupportsTaxReportRetrieval = true,
         SupportsDocumentRetrieval = true,
         SupportsReportRectification = true,
+        SupportsSelfBilling = true,
         MaxDocumentsPerRequest = null,
     };
 

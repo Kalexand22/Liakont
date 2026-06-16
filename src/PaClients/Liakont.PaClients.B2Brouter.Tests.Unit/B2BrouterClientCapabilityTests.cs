@@ -31,6 +31,22 @@ public sealed class B2BrouterClientCapabilityTests
         caps.SupportsDomesticPaymentReporting.Should().BeFalse("flux 10.4 absent de B2Brouter (F09)");
         caps.SupportsInternationalPaymentReporting.Should().BeFalse("flux 10.2 absent de B2Brouter (F09)");
         caps.SupportsB2bInvoicing.Should().BeFalse("phase 2");
+        caps.SupportsSelfBilling.Should().BeFalse("émission 389 non confirmée en staging — déclaration honnête (MND07 / F15 §1.8)");
+    }
+
+    [Fact]
+    public async Task SelfBilled389_Without_Capability_Degrades_To_Typed_Result_And_Does_Not_Call_The_Pa()
+    {
+        var handler = StubHttpMessageHandler.Returns(HttpStatusCode.OK, B2BrouterTestData.IssuedJson);
+        var client = B2BrouterTestData.CreateClient(handler); // V1 : SupportsSelfBilling = false
+
+        var result = await client.SendDocumentAsync(
+            B2BrouterTestData.Invoice20("F-389"),
+            projection: PaOutboundProjection.ForSelfBilled("ARM-A-1"));
+
+        result.State.Should().Be(PaSendState.CapabilityNotSupported);
+        result.CapabilityNotSupported!.Capability.Should().Be(PaCapability.SelfBilling);
+        handler.CallCount.Should().Be(0, "un 389 non supporté ne part jamais sur le réseau, jamais dégradé en facture 380");
     }
 
     [Theory]

@@ -59,6 +59,7 @@ internal sealed class SuperPdpClient : IPaClient
     public async Task<PaSendResult> SendDocumentAsync(
         PivotDocumentDto document,
         bool sendAfterImport = true,
+        PaOutboundProjection? projection = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -71,6 +72,16 @@ internal sealed class SuperPdpClient : IPaClient
         {
             return PaSendResult.NotSupported(
                 PaCapabilityNotSupportedResult.Create(Capabilities.PaName, PaCapability.CreditNotes));
+        }
+
+        // Autofacturation 389 demandée alors que la capacité n'est pas déclarée → résultat typé, jamais
+        // une émission dégradée en facture standard 380 (MND07, CLAUDE.md n°3/8). V1 Super PDP ne déclare
+        // PAS SupportsSelfBilling : le pipeline ne route donc pas un 389 ici, mais on garde la frontière en
+        // profondeur (le builder fige TypeCode=380 et n'interprète pas la projection).
+        if (projection is { DocumentTypeCode: PaDocumentTypeCode.SelfBilledInvoice } && !Capabilities.SupportsSelfBilling)
+        {
+            return PaSendResult.NotSupported(
+                PaCapabilityNotSupportedResult.Create(Capabilities.PaName, PaCapability.SelfBilling));
         }
 
         // Super PDP n'expose PAS de « création sans envoi » : POST /v1.beta/invoices crée ET met en file

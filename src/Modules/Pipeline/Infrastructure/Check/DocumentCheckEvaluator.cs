@@ -10,9 +10,11 @@ using Liakont.Agent.Contracts.Pivot;
 using Liakont.Modules.Mandats.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
+using Liakont.Modules.Transmission.Contracts;
 using Liakont.Modules.TvaMapping.Contracts.Services;
 using Liakont.Modules.Validation.Contracts;
 using Microsoft.Extensions.DependencyInjection;
+using Stratum.Common.Abstractions.MultiTenancy;
 
 /// <summary>
 /// Cœur de décision du CHECK (PIP01b), SANS I/O de staging : à partir d'un pivot DÉJÀ relu (et son hash
@@ -138,6 +140,17 @@ internal static class DocumentCheckEvaluator
         // et partagée par CHECK + recheck + réconciliation des avoirs : un recheck post-acceptation rouvre le gate.
         if (pivot.IsSelfBilled)
         {
+            // GARDE DE CAPACITÉ 389 (MND07, F15 §1.2 / ADR-0022, INV-MANDATS / CLAUDE.md n°8) : une auto-facture
+            // sous mandat n'est émissible que si la PA active déclare la capacité d'émission 389. Sinon → bloquée
+            // (jamais dégradée en facture standard 380, « bloquer plutôt qu'émettre faux » — CLAUDE.md n°3).
+            // Piloté par la CAPACITÉ déclarée du plug-in, jamais un if (pa is …). Le filet d'envoi (SendTenantJob)
+            // garantit en dernier ressort qu'aucun 389 ne part vers une PA incapable, même sur un changement de PA.
+            var incapablePaName = await ResolveSelfBillingIncapablePaAsync(services, tenantSettings, companyId, cancellationToken);
+            if (incapablePaName is not null)
+            {
+                return CheckDecision.Blocked(WithDocumentNumber(documentNumber, SelfBilledCapabilityReason(incapablePaName)));
+            }
+
             var verdict = await services.GetRequiredService<ISelfBilledGate>()
                 .EvaluateEmissionAsync(companyId, documentId, cancellationToken);
             if (!verdict.IsEmissionAllowed)
@@ -172,6 +185,60 @@ internal static class DocumentCheckEvaluator
             "délai de contestation) — document maintenu bloqué, jamais transmis sans acceptation. Action " +
             "opérateur : faites acter l'acceptation de cette auto-facture, puis relancez la vérification.";
     }
+
+    /// <summary>
+    /// Nom de la PA active qui NE déclare PAS la capacité d'émission 389 (MND07), ou <c>null</c> si la capacité
+    /// est confirmée présente, si aucune PA active n'est résolue, ou si la capacité ne peut être confirmée ici
+    /// (résolution déférée — le filet d'envoi reste fail-closed). Le comportement est piloté par la capacité
+    /// déclarée du plug-in, JAMAIS par un <c>if (pa is …)</c> (CLAUDE.md n°8/16). La résolution est défensive
+    /// (services optionnels) : on bloque UNIQUEMENT sur une incapacité CONFIRMÉE — jamais un faux blocage par
+    /// indisponibilité technique (le <see cref="Send.SendTenantJob"/> garde l'émission en dernier ressort).
+    /// </summary>
+    private static async Task<string?> ResolveSelfBillingIncapablePaAsync(
+        IServiceProvider services,
+        ITenantSettingsQueries tenantSettings,
+        Guid companyId,
+        CancellationToken cancellationToken)
+    {
+        var accounts = await tenantSettings.GetPaAccounts(companyId, cancellationToken);
+        var active = accounts.FirstOrDefault(account => account.IsActive);
+        if (active is null)
+        {
+            // Pas de PA active à ce stade : on ne bloque pas sur la capacité (la garde d'envoi s'appliquera
+            // quand une PA sera active — pas d'invention d'un blocage prématuré).
+            return null;
+        }
+
+        var tenantId = services.GetService<ITenantContext>()?.TenantId;
+        var registry = services.GetService<IPaClientRegistry>();
+        if (string.IsNullOrWhiteSpace(tenantId) || registry is null || !registry.IsRegistered(active.PluginType))
+        {
+            return null;
+        }
+
+        try
+        {
+            var client = registry.Resolve(new PaAccountDescriptor(active.PluginType, tenantId));
+            return client.Capabilities.SupportsSelfBilling ? null : client.Capabilities.PaName;
+        }
+        catch (InvalidOperationException)
+        {
+            // Résolution impossible (compte mal configuré, clé indisponible…) : on n'invente pas un verdict de
+            // capacité — la garde d'envoi (fail-closed) tranchera. Jamais une émission dégradée pour autant.
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Motif de blocage d'une auto-facture sous mandat (389) dont la PA active ne déclare pas la capacité
+    /// d'émission 389 (MND07). N'INVENTE aucune règle fiscale : le type 389 est sourcé (F15 §1.2) et le pilotage
+    /// par capacité déclarée est la règle produit (CLAUDE.md n°8). Action corrective opérateur (CLAUDE.md n°12).
+    /// </summary>
+    private static string SelfBilledCapabilityReason(string paName) =>
+        $"auto-facture sous mandat (art. 289 I-2 CGI, type 389) : la Plateforme Agréée active « {paName} » ne " +
+        "déclare pas la capacité d'émission des auto-factures (389). L'émission est suspendue — le document " +
+        "n'est jamais transmis dégradé en facture standard (« bloquer plutôt qu'émettre faux »). Action " +
+        "opérateur : activez une Plateforme Agréée prenant en charge l'autofacturation 389 pour ce tenant.";
 
     /// <summary>
     /// Vrai si le tenant a au moins un compte Plateforme Agréée ACTIF en environnement « Production ». Le

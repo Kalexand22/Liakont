@@ -10,6 +10,8 @@ using Liakont.Modules.Archive.Contracts;
 using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Documents.Contracts.Lifecycle;
 using Liakont.Modules.Documents.Contracts.Queries;
+using Liakont.Modules.Mandats.Contracts.DTOs;
+using Liakont.Modules.Mandats.Contracts.Queries;
 using Liakont.Modules.Pipeline.Application;
 using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Domain;
@@ -153,18 +155,18 @@ public sealed partial class SendTenantJob : ITenantJob
         var sending = await services.GetRequiredService<IDocumentQueries>().GetPotentiallySentDocumentsAsync(cancellationToken);
         foreach (var summary in sending)
         {
-            tally.Add(await SafeProcessAsync(() => RecoverSendingAsync(services, paClient, tenantId, summary.Id, logger, cancellationToken), summary.Id, logger, cancellationToken));
+            tally.Add(await SafeProcessAsync(() => RecoverSendingAsync(services, paClient, tenantId, companyId.Value, summary.Id, logger, cancellationToken), summary.Id, logger, cancellationToken));
         }
 
         // 2) Retry des TechnicalError (anti-doublon vérifié AVANT tout renvoi).
         await ForEachByStateAsync(
             services,
             TechnicalErrorStateName,
-            async id => tally.Add(await SafeProcessAsync(() => RetryTechnicalErrorAsync(services, paClient, tenantId, id, logger, cancellationToken), id, logger, cancellationToken)),
+            async id => tally.Add(await SafeProcessAsync(() => RetryTechnicalErrorAsync(services, paClient, tenantId, companyId.Value, id, logger, cancellationToken), id, logger, cancellationToken)),
             cancellationToken);
 
         // 3) Envoi des ReadyToSend (les FACTURES d'origine des avoirs sont émises ICI, avant la réconciliation).
-        await SendReadyToSendPassAsync(services, paClient, tenantId, tally, logger, cancellationToken);
+        await SendReadyToSendPassAsync(services, paClient, tenantId, companyId.Value, tally, logger, cancellationToken);
 
         // 4) RÉORDONNANCEMENT DES AVOIRS (PIP02, F07 §B.5) : un avoir resté Blocked parce que sa facture d'origine
         //    n'était pas (encore) émise est ré-évalué dès lors que l'origine est désormais émise (Blocked →
@@ -176,7 +178,7 @@ public sealed partial class SendTenantJob : ITenantJob
         //    les ReadyToSend : sinon les différés / ignorés de l'étape 3 seraient recomptés dans la trace SEND).
         foreach (var documentId in unblockedCreditNotes)
         {
-            tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, tenantId, documentId, logger, cancellationToken), documentId, logger, cancellationToken));
+            tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, tenantId, companyId.Value, documentId, logger, cancellationToken), documentId, logger, cancellationToken));
         }
 
         var detail = unblockedCreditNotes.Count > 0
@@ -191,13 +193,14 @@ public sealed partial class SendTenantJob : ITenantJob
         IServiceProvider services,
         IPaClient paClient,
         string tenantId,
+        Guid companyId,
         SendTally tally,
         ILogger logger,
         CancellationToken cancellationToken) =>
         ForEachByStateAsync(
             services,
             ReadyToSendStateName,
-            async id => tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, tenantId, id, logger, cancellationToken), id, logger, cancellationToken)),
+            async id => tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, tenantId, companyId, id, logger, cancellationToken), id, logger, cancellationToken)),
             cancellationToken);
 
     /// <summary>Premier compte Plateforme Agréée ACTIF du tenant (l'envoi passe par lui), ou <c>null</c>.</summary>
@@ -223,6 +226,7 @@ public sealed partial class SendTenantJob : ITenantJob
         IServiceProvider services,
         IPaClient paClient,
         string tenantId,
+        Guid companyId,
         Guid documentId,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -263,9 +267,17 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Succeeded;
         }
 
+        // Garde autofacturation 389 (MND07) : un self-billed n'est projeté/émis que vers une PA capable et
+        // avec son BT-1 fiscal alloué (MND05) ; sinon maintenu en l'état (jamais émis faux).
+        var selfBilled = await ResolveSelfBilledSendAsync(services, paClient, companyId, document.Id, staged.Pivot!, logger, cancellationToken);
+        if (selfBilled.Hold)
+        {
+            return SendOutcome.Skipped;
+        }
+
         // Pas de référence connue / la PA ne connaît pas le document : on renvoie (déjà Sending). La PA
         // déduplique par numéro (F05) : un document déjà émis revient Issued SANS nouvelle émission.
-        var result = await paClient.SendDocumentAsync(staged.Pivot!, sendAfterImport: true, cancellationToken);
+        var result = await paClient.SendDocumentAsync(staged.Pivot!, sendAfterImport: true, selfBilled.Projection, cancellationToken);
         return await HandleSendResultAsync(services, tenantId, document, staged.Pivot!, staged.Json!, result, logger, cancellationToken);
     }
 
@@ -274,6 +286,7 @@ public sealed partial class SendTenantJob : ITenantJob
         IServiceProvider services,
         IPaClient paClient,
         string tenantId,
+        Guid companyId,
         Guid documentId,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -317,6 +330,15 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Skipped;
         }
 
+        // Garde autofacturation 389 (MND07) AVANT toute reprise/transition : un self-billed sans capacité PA
+        // ou sans BT-1 fiscal alloué reste en TechnicalError (jamais re-promu ni émis faux), comme l'avoir
+        // sans capacité — pas de double comptage ni de boucle.
+        var selfBilled = await ResolveSelfBilledSendAsync(services, paClient, companyId, document.Id, staged.Pivot!, logger, cancellationToken);
+        if (selfBilled.Hold)
+        {
+            return SendOutcome.Skipped;
+        }
+
         var lifecycle = services.GetRequiredService<IDocumentLifecycle>();
 
         // Reprise : TechnicalError → ReadyToSend (version de mapping déjà posée au CHECK, on la reconsigne).
@@ -329,7 +351,7 @@ public sealed partial class SendTenantJob : ITenantJob
         }
 
         await lifecycle.BeginSendingAsync(documentId, cancellationToken);
-        var result = await paClient.SendDocumentAsync(staged.Pivot!, sendAfterImport: true, cancellationToken);
+        var result = await paClient.SendDocumentAsync(staged.Pivot!, sendAfterImport: true, selfBilled.Projection, cancellationToken);
         return await HandleSendResultAsync(services, tenantId, document, staged.Pivot!, staged.Json!, result, logger, cancellationToken);
     }
 
@@ -338,6 +360,7 @@ public sealed partial class SendTenantJob : ITenantJob
         IServiceProvider services,
         IPaClient paClient,
         string tenantId,
+        Guid companyId,
         Guid documentId,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -373,8 +396,16 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Skipped;
         }
 
+        // Garde autofacturation 389 (MND07) : self-billed sans capacité PA ou sans BT-1 fiscal alloué (MND05)
+        // → maintenu ReadyToSend (jamais émis faux ni dégradé en facture standard — CLAUDE.md n°3/8).
+        var selfBilled = await ResolveSelfBilledSendAsync(services, paClient, companyId, document.Id, staged.Pivot!, logger, cancellationToken);
+        if (selfBilled.Hold)
+        {
+            return SendOutcome.Skipped;
+        }
+
         await services.GetRequiredService<IDocumentLifecycle>().BeginSendingAsync(documentId, cancellationToken);
-        var result = await paClient.SendDocumentAsync(staged.Pivot!, sendAfterImport: true, cancellationToken);
+        var result = await paClient.SendDocumentAsync(staged.Pivot!, sendAfterImport: true, selfBilled.Projection, cancellationToken);
         return await HandleSendResultAsync(services, tenantId, document, staged.Pivot!, staged.Json!, result, logger, cancellationToken);
     }
 
@@ -538,6 +569,53 @@ public sealed partial class SendTenantJob : ITenantJob
     private static bool IsUnsendableCreditNote(PivotDocumentDto pivot, IPaClient paClient) =>
         pivot.CreditNoteRefs.Count > 0 && !paClient.Capabilities.SupportsCreditNotes;
 
+    /// <summary>
+    /// Résout l'envoi d'un document self-billed (autofacturation 389, MND07) : lit l'acceptation (MND02/03)
+    /// pour récupérer le BT-1 fiscal alloué (MND05) et confirme la capacité PA. Renvoie un HOLD (document
+    /// maintenu, jamais émis faux — CLAUDE.md n°3/8) quand la PA active ne déclare pas
+    /// <c>SupportsSelfBilling</c>, que l'acceptation n'est pas acquise, ou que le BT-1 fiscal n'est pas
+    /// encore alloué. Un document NON self-billed renvoie une projection nulle (le plug-in conserve son
+    /// comportement standard, type 380, BT-1 = <c>Number</c> du pivot). La garde PRIMAIRE est au CHECK
+    /// (<see cref="Check.DocumentCheckEvaluator"/>) ; ce filet couvre un changement de PA/d'acceptation
+    /// survenu APRÈS le passage ReadyToSend.
+    /// </summary>
+    private static async Task<SelfBilledSend> ResolveSelfBilledSendAsync(
+        IServiceProvider services,
+        IPaClient paClient,
+        Guid companyId,
+        Guid documentId,
+        PivotDocumentDto pivot,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        if (!pivot.IsSelfBilled)
+        {
+            return SelfBilledSend.Standard;
+        }
+
+        if (!paClient.Capabilities.SupportsSelfBilling)
+        {
+            LogSelfBilledCapabilityMissing(logger, documentId, paClient.Capabilities.PaName);
+            return SelfBilledSend.Held;
+        }
+
+        var acceptance = await services.GetRequiredService<ISelfBilledAcceptanceQueries>()
+            .GetAcceptance(companyId, documentId, cancellationToken);
+        if (acceptance is null || !acceptance.IsAccepted)
+        {
+            LogSelfBilledNotAccepted(logger, documentId);
+            return SelfBilledSend.Held;
+        }
+
+        if (string.IsNullOrWhiteSpace(acceptance.AllocatedNumber))
+        {
+            LogSelfBilledNumberNotAllocated(logger, documentId);
+            return SelfBilledSend.Held;
+        }
+
+        return SelfBilledSend.Emit(PaOutboundProjection.ForSelfBilled(acceptance.AllocatedNumber));
+    }
+
     private static async Task<SendOutcome> SafeProcessAsync(
         Func<Task<SendOutcome>> process,
         Guid documentId,
@@ -683,4 +761,41 @@ public sealed partial class SendTenantJob : ITenantJob
     [LoggerMessage(EventId = 7212, Level = LogLevel.Error,
         Message = "SEND : échec inattendu sur le document {DocumentId} — document ignoré ce cycle, traitement du tenant poursuivi.")]
     private static partial void LogDocumentSendFailed(ILogger logger, Guid documentId, Exception exception);
+
+    [LoggerMessage(EventId = 7213, Level = LogLevel.Warning,
+        Message = "SEND : auto-facture sous mandat (389) {DocumentId} non envoyée — la Plateforme Agréée « {PaName} » ne déclare pas la capacité d'émission 389 (maintenue ; ne sera jamais émise en facture standard).")]
+    private static partial void LogSelfBilledCapabilityMissing(ILogger logger, Guid documentId, string paName);
+
+    [LoggerMessage(EventId = 7214, Level = LogLevel.Warning,
+        Message = "SEND : auto-facture sous mandat (389) {DocumentId} non envoyée — acceptation par le mandant non acquise (art. 289 I-2 CGI) ; maintenue jusqu'à acceptation.")]
+    private static partial void LogSelfBilledNotAccepted(ILogger logger, Guid documentId);
+
+    [LoggerMessage(EventId = 7215, Level = LogLevel.Warning,
+        Message = "SEND : auto-facture sous mandat (389) {DocumentId} non envoyée — BT-1 fiscal par mandant non encore alloué (MND05) ; maintenue (jamais émise avec le numéro source en place du BT-1 fiscal).")]
+    private static partial void LogSelfBilledNumberNotAllocated(ILogger logger, Guid documentId);
+
+    /// <summary>Issue de la résolution self-billed (MND07) : émettre (avec/sans projection) ou maintenir (hold).</summary>
+    private readonly struct SelfBilledSend
+    {
+        private SelfBilledSend(bool hold, PaOutboundProjection? projection)
+        {
+            Hold = hold;
+            Projection = projection;
+        }
+
+        /// <summary>Document standard : aucune projection (le plug-in projette son type par défaut 380).</summary>
+        public static SelfBilledSend Standard => new(hold: false, projection: null);
+
+        /// <summary>Document maintenu : capacité absente, acceptation non acquise ou BT-1 fiscal non alloué.</summary>
+        public static SelfBilledSend Held => new(hold: true, projection: null);
+
+        /// <summary>Le document est maintenu (jamais émis ce cycle).</summary>
+        public bool Hold { get; }
+
+        /// <summary>Projection sortante à passer au plug-in (389 + BT-1 fiscal), ou <c>null</c> (document standard).</summary>
+        public PaOutboundProjection? Projection { get; }
+
+        /// <summary>Émettre avec la projection 389 (type + BT-1 fiscal alloué).</summary>
+        public static SelfBilledSend Emit(PaOutboundProjection projection) => new(hold: false, projection: projection);
+    }
 }

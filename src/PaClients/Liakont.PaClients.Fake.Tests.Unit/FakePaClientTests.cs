@@ -174,6 +174,55 @@ public sealed class FakePaClientTests
     }
 
     [Fact]
+    public async Task SendDocument_SelfBilled_With_Projection_Emits_389_With_Allocated_Bt1_And_Mandant_Seller()
+    {
+        var client = new FakePaClient();
+        var projection = PaOutboundProjection.ForSelfBilled("ARM-A-42");
+
+        var result = await client.SendDocumentAsync(TestDocuments.SelfBilled("SRC-1"), projection: projection);
+
+        result.State.Should().Be(PaSendState.Issued);
+        result.PaDocumentId.Should().Be("FAKE-ARM-A-42", "le BT-1 émis est le numéro fiscal alloué, pas le numéro source");
+
+        var sent = client.SentDocuments.Should().ContainSingle().Subject;
+        sent.DocumentTypeCode.Should().Be("389", "autofacturation sous mandat (F15 §1.2)");
+        sent.FiscalNumber.Should().Be("ARM-A-42", "BT-1 = numéro fiscal alloué (MND05)");
+        sent.SourceNumber.Should().Be("SRC-1", "le numéro source du pivot reste la clé d'idempotence interne");
+        sent.IsSelfBilled.Should().BeTrue();
+        sent.SellerSiren.Should().Be("404833048", "le vendeur fiscal projeté = le mandant (BT-30, ADR-0025 §7)");
+        sent.SellerVatNumber.Should().Be("FR40404833048", "BT-31 du mandant (F15 §2.2)");
+        client.IssuedDocumentNumbers.Should().ContainSingle().Which.Should().Be("ARM-A-42");
+    }
+
+    [Fact]
+    public async Task SendDocument_Without_Projection_Emits_Commercial_380_With_Source_Number()
+    {
+        var client = new FakePaClient();
+
+        await client.SendDocumentAsync(TestDocuments.Invoice("F-1"));
+
+        var sent = client.SentDocuments.Should().ContainSingle().Subject;
+        sent.DocumentTypeCode.Should().Be("380", "un document standard reste une facture commerciale");
+        sent.FiscalNumber.Should().Be("F-1");
+        sent.IsSelfBilled.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task SelfBilled_Idempotence_Is_Keyed_On_The_Allocated_Bt1()
+    {
+        var client = new FakePaClient();
+        var projection = PaOutboundProjection.ForSelfBilled("ARM-A-7");
+        var doc = TestDocuments.SelfBilled("SRC-9");
+
+        var first = await client.SendDocumentAsync(doc, projection: projection);
+        var second = await client.SendDocumentAsync(doc, projection: projection);
+
+        second.PaDocumentId.Should().Be(first.PaDocumentId, "le même BT-1 fiscal retourne le résultat d'origine");
+        client.IssuedDocumentNumbers.Should().ContainSingle().Which.Should().Be("ARM-A-7");
+        client.SentDocuments.Should().ContainSingle("le 2e appel est dédoublonné sur le BT-1 fiscal, jamais ré-émis");
+    }
+
+    [Fact]
     public async Task GetDocumentStatus_Reflects_Whether_The_Document_Was_Issued()
     {
         var client = new FakePaClient();
