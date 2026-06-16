@@ -192,6 +192,20 @@ journalisés (CLAUDE.md n°10/18).
 - Tier intégration (`run-tests`, Testcontainers) : **veraPDF + Mustangproject** (Docker) — **bloquant**.
 - Un Factur-X qui échoue ces validations n'est **pas émissible** (ADR-0023 §4, INV-FX-5).
 
+> **Note d'amendement (2026-06-16, FX03).** Les **XSD CII présents au dépôt**
+> (`docs/references/dgfip-v3.2/.../F1_BASE_CII_D22B`, `F1_FULL_CII_D22B`) sont des **profils DGFiP
+> RESTREINTS** : la plupart des Business Terms EN 16931 y sont **commentés** dans le XSD — dont
+> BT-106 (`LineTotalAmount`), BT-112 (`GrandTotalAmount`), BT-115 (`DuePayableAmount`), pourtant
+> obligatoires EN 16931. Valider un CII EN 16931 (COMFORT) contre eux produit un **faux négatif**
+> (rejet d'un document conforme). Le **XSD CII EN 16931 complet** et le **Schematron CEN/TC 434** sont
+> donc des **artefacts externes non vendorés** (même bucket que les artefacts FNFE-MPE — §10 action
+> A4, NON TRANCHÉ) ; le Schematron exige en plus un **processeur XSLT 2.0** (Saxon → ADR dédié, aucun
+> package sans ADR). En conséquence, **FX03** assure au tier rapide : (1) bonne formation + **complétude
+> structurelle EN 16931** (BT/BG obligatoires) et (2) **identités arithmétiques BR-CO** (BR-CO-10/13/14/
+> 15/16/17, dont BR-CO-15 fatale) sur les golden files. La **conformité XSD/Schematron EN 16931 réelle**
+> reste portée par **Mustangproject** (qui rejoue le Schematron EN 16931) **au tier intégration de FX04**
+> + la **recette GATE_FACTURX**.
+
 ## 9. Frontières & règles (récapitulatif)
 
 | Règle | Application |
