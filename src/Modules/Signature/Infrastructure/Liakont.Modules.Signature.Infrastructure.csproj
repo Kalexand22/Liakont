@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- Microsoft.Extensions.* (DI) du framework partagé — aucun package NuGet nouveau, aucun ADR
+         (repo-standards §4). Le registre n'a aucune dépendance base/réseau : pure composition. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.Signature.Tests.Unit" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Contracts/Liakont.Modules.Signature.Contracts.csproj" />
+  </ItemGroup>
+</Project>

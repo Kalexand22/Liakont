@@ -39,6 +39,8 @@ using Liakont.Modules.Pipeline.Infrastructure.Send;
 using Liakont.Modules.Pipeline.Web;
 using Liakont.Modules.Reconciliation.Infrastructure;
 using Liakont.Modules.Reconciliation.Web;
+using Liakont.Modules.Signature.Contracts;
+using Liakont.Modules.Signature.Infrastructure;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.Staging.Infrastructure;
 using Liakont.Modules.Supervision.Application;
@@ -307,6 +309,14 @@ public static class AppBootstrap
         // devient ainsi transmissible de bout en bout (génération → transmission → journal + trace support).
         builder.Services.AddSingleton<IFacturXArtifactBuilder, FacturXArtifactBuilder>();
         builder.Services.AddGeneriquePaDelivery();
+
+        // Signature (SIG03, ADR-0027) : registre de types des fournisseurs de signature. Aucun plug-in
+        // n'est référencé ici (le module ne connaît AUCUN fournisseur concret — CLAUDE.md n°6) ; chaque
+        // plug-in (Yousign = SIG07, Wacom = SIG08) ajoutera sa propre ISignatureProviderFactory en singleton
+        // au composition root et le registre la découvrira. La signature est OPTIONNELLE : le registre se
+        // construit vide sans erreur (défaut Recorded) ; les fournisseurs CONFIGURÉS mais non câblés sont
+        // détectés au démarrage (ValidateSignatureProviderConfiguration, dans InitializeDataAsync).
+        builder.Services.AddSignatureModule();
 
         // Pipeline (PIP01a — fondations) : lecteur canonique du contenu stagé + journal d'exécutions
         // (pipeline.run_logs) + points d'entrée Contracts consommés par CHECK/SEND/SYNC. AUCUN comportement
@@ -705,6 +715,13 @@ public static class AppBootstrap
         // Diagnostic (dev ET prod, FIX203b) : avertit si un job SYSTÈME attendu n'a aucune planification
         // active. En prod la planification est un geste OPS (README) ; ce warning évite la panne silencieuse.
         await app.WarnIfSystemJobsUnscheduledAsync();
+
+        // Validation au démarrage des fournisseurs de signature CONFIGURÉS (SIG03, ADR-0027 §4). Sur le
+        // modèle de la validation de l'abstraction IdP, mais — différence essentielle — la signature est
+        // OPTIONNELLE : ne bloque QUE pour un fournisseur déclaré dans Signature:EnabledProviders mais non
+        // câblé ; l'absence de tout fournisseur n'est jamais une erreur (un tenant Recorded démarre sans
+        // plug-in — INV-SIGPROV-6).
+        ValidateSignatureProviderConfiguration(app);
     }
 
     /// <summary>Configures the HTTP pipeline and maps all endpoints.</summary>
@@ -993,6 +1010,23 @@ public static class AppBootstrap
             $"Fournisseur d'identité « {providerName} » inconnu. Implémentations disponibles : "
             + $"{string.Join(", ", providers.Keys)}. Branchez une implémentation "
             + "d'IIdentityProviderAuthenticator pour ce fournisseur (décision D10).");
+    }
+
+    /// <summary>
+    /// Valide au démarrage les fournisseurs de signature CONFIGURÉS (SIG03, ADR-0027 §4). Lit
+    /// <c>Signature:EnabledProviders</c> (liste de types de plug-ins activés, vide par défaut) et délègue à
+    /// <see cref="SignatureProviderStartupValidator"/> : bloque le démarrage UNIQUEMENT pour un fournisseur
+    /// configuré mais non câblé ; l'absence de tout fournisseur n'est jamais une erreur (signature
+    /// optionnelle — INV-SIGPROV-6). La logique pure est testée par <c>SignatureProviderStartupValidatorTests</c>.
+    /// </summary>
+    private static void ValidateSignatureProviderConfiguration(WebApplication app)
+    {
+        var enabledProviders = app.Configuration
+            .GetSection("Signature:EnabledProviders")
+            .Get<string[]>() ?? [];
+
+        var registry = app.Services.GetRequiredService<ISignatureProviderRegistry>();
+        SignatureProviderStartupValidator.Validate(enabledProviders, registry);
     }
 
     /// <summary>
