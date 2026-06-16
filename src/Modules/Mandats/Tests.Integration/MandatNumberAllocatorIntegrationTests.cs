@@ -111,6 +111,32 @@ public sealed class MandatNumberAllocatorIntegrationTests
     }
 
     [Fact]
+    public async Task Sequence_Prefix_Is_Frozen_When_Mandant_Prefix_Changes_After_Creation()
+    {
+        var harness = new MandatsHarness(_fixture);
+        var companyId = Guid.NewGuid();
+        var doc1 = Guid.NewGuid();
+        var doc2 = Guid.NewGuid();
+        var mandant = await SeedMandantAsync(harness, companyId, "MANDANT-A", "ARM-A-");
+        await SeedPendingAcceptanceAsync(harness, companyId, doc1);
+        await SeedPendingAcceptanceAsync(harness, companyId, doc2);
+
+        var first = await harness.NumberAllocator.AllocateAsync(companyId, mandant.Id, doc1, "SRC-1");
+        first.Should().Be("ARM-A-1");
+
+        using (var conn = await harness.ConnectionFactory.OpenAsync())
+        {
+            await conn.ExecuteAsync(
+                "UPDATE mandats.mandants SET numbering_prefix = 'ARM-B-' WHERE company_id = @c AND id = @m",
+                new { c = companyId, m = mandant.Id });
+        }
+
+        var second = await harness.NumberAllocator.AllocateAsync(companyId, mandant.Id, doc2, "SRC-2");
+        second.Should().Be("ARM-A-2",
+            "la séquence garde son préfixe figé à la création (continuité fiscale), même si mandants.numbering_prefix change ensuite (ADR-0025 §5).");
+    }
+
+    [Fact]
     public async Task Concurrent_Allocations_Same_Mandant_Are_Serialized_Without_Duplicate()
     {
         var harness = new MandatsHarness(_fixture);
