@@ -120,7 +120,7 @@ run_ps -InstanceName "${NAME}" -Tenant t1 -InstancesRoot "${INSTANCES_ROOT_PS}"
 # ── 2) SUPPRESSION refusée sur export ALTÉRÉ ──
 log "2) Suppression sur export ALTÉRÉ (doit être REFUSÉE)"
 if run_ps -InstanceName "${NAME}" -Tenant t1 -Delete -VerifiedExportPath "$(to_pspath "${WORK}/export-bad")" \
-     -Operator ops@itinnov.test -Yes -ConfirmTenantName t1 >/dev/null 2>&1; then
+     -InstancesRoot "${INSTANCES_ROOT_PS}" -Operator ops@itinnov.test -Yes -ConfirmTenantName t1 >/dev/null 2>&1; then
   fail "suppression ACCEPTÉE sur export altéré (faux vert)"
 else
   log "OK : suppression refusée sur export altéré"
