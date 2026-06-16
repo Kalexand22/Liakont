@@ -321,8 +321,8 @@ function Invoke-Decommission {
 
     if (-not $Delete) {
         Write-Host ''
-        Write-Ok "Désactivation terminée. Cet état est LÉGITIME et PERMANENT tant que le client ne demande pas " +
-                 "l'effacement. Pour la suppression complète (séquence D7), relancez avec -Delete et l'export vérifié."
+        Write-Ok ("Désactivation terminée. Cet état est LÉGITIME et PERMANENT tant que le client ne demande pas " +
+                  "l'effacement. Pour la suppression complète (séquence D7), relancez avec -Delete et l'export vérifié.")
         return 0
     }
 
@@ -359,14 +359,14 @@ function Invoke-Decommission {
     # $tenantDb est validé contre $script:DbNamePattern (alphanumérique + « _ ») → interpolation sûre dans
     # l'identifiant (DROP DATABASE n'accepte ni paramètre lié ni transaction).
     [void](Invoke-PsqlCommand -ComposeArgs $composeArgs -Database $SystemDatabase -User $PostgresUser `
-        -Sql "DROP DATABASE IF EXISTS ""$tenantDb""")
+        -Sql "DROP DATABASE IF EXISTS ""$tenantDb"" WITH (FORCE)")
     [void](Invoke-PsqlCommand -ComposeArgs $composeArgs -Database $SystemDatabase -User $PostgresUser `
         -Sql "DELETE FROM outbox.tenants WHERE id = '$tenantIdLit'")
     Write-Ok "Base « $tenantDb » supprimée et tenant retiré du catalogue. La trace d'audit d'instance subsiste."
 
     Write-Host ''
-    Write-Ok "Fin de vie du tenant « $tenantId » terminée (séquence D7). Conservez l'audit d'instance ($AuditPath) " +
-             "comme preuve de fin de conservation."
+    Write-Ok ("Fin de vie du tenant « $tenantId » terminée (séquence D7). Conservez l'audit d'instance ($AuditPath) " +
+              "comme preuve de fin de conservation.")
     return 0
 }
 
