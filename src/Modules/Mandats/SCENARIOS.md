@@ -1,4 +1,4 @@
-# Scénarios de test — module Mandats (MND01, MND02)
+# Scénarios de test — module Mandats (MND01, MND02, MND05)
 
 Référence les invariants de `INVARIANTS.md`. Niveaux : **Unit** (domaine pur, sans base) et
 **Integration** (Testcontainers PostgreSQL réel).
@@ -53,3 +53,32 @@ Référence les invariants de `INVARIANTS.md`. Niveaux : **Unit** (domaine pur, 
   rejetés par trigger base ; l'entrée reste intacte.
 - **Atomicité** : une transaction abandonnée (pas de commit) ne laisse RIEN (ni transition, ni ligne de journal).
 - **Isolation tenant** (INV-MANDATS-1) : une transition sur la société A ne touche ni l'état ni le journal de B (≥ 2 sociétés).
+
+## Unit (MND05) — `MandatSequenceTests`
+
+- **Start** démarre à 1 avec le préfixe déclaré ; rejette un préfixe / tenant / mandant absent (aucun défaut inventé, INV-MANDATS-5).
+- **Allocate** rend `préfixe + valeur` et avance `NextValue` d'exactement 1 (continuité §1.4, INV-BT1-4).
+- **Format** = concaténation `InvariantCulture`, sans séparateur de milliers ni zéro de remplissage inventé.
+- **bigint** (INV-BT1-4) : une séquence reconstituée au-delà d'`Int32.MaxValue` alloue sans débordement (jamais float/int32).
+
+## Integration (MND05) — `MandatNumberAllocatorIntegrationTests`
+
+- **Première allocation** : `préfixe + 1` retourné ET assigné à `self_billed_acceptances.allocated_number` (HORS payload
+  hashé, INV-BT1-1) ; la séquence (`bigint`) avance à 2.
+- **Idempotence sur la clé source** (INV-BT1-2) : un double appel (même document) relit le même numéro ; un seul numéro
+  consommé ; une seule ligne d'allocation.
+- **Ré-extraction** (INV-BT1-2) : un document DIFFÉRENT de même `source_reference` relit le même BT-1 (assigné aussi à sa
+  propre acceptation) ; la séquence n'avance pas.
+- **Indépendance par mandant** (INV-BT1-4) : deux mandants ont chacun leur séquence (départ à 1) et leur préfixe.
+- **Verrou par mandant** (INV-BT1-4) : deux allocations CONCURRENTES d'un même mandant sont sérialisées → deux numéros
+  consécutifs DISTINCTS, jamais un doublon ; la séquence avance sans trou.
+- **Isolation tenant** (INV-BT1-4) : l'allocation de la société A n'est jamais visible sous la société B.
+- **Immuabilité du registre** : `UPDATE`/`DELETE`/`TRUNCATE` sur `mandat_number_allocations` rejetés par trigger base
+  (`PostgresException` « immuable ») ; le numéro alloué reste intact.
+- **Fail-closed** (CLAUDE.md n°3) : `source_reference` vide ⇒ `ArgumentException` (INV-BT1-3 partiel) ; mandant inconnu
+  ⇒ `InvalidOperationException` ; acceptation absente ⇒ `InvalidOperationException` ET rien consommé (transaction annulée).
+
+## Unit (MND05) — `CanonicalJsonRulesTests` (Agent.Contracts)
+
+- **INV-BT1-1** : en 389, le canonique garde `Number` = identifiant source, sans aucun numéro fiscal alloué ; le booléen
+  `IsSelfBilled` est le SEUL différenciateur 389/standard (aucune branche de format, ADR-0007 préservé).

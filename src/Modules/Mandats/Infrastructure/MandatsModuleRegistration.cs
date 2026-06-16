@@ -31,6 +31,10 @@ public static class MandatsModuleRegistration
         // Garde d'émission interrogée par le pipeline avant l'envoi (MND03, ADR-0024 §3 / INV-ACCEPT-2).
         services.AddScoped<ISelfBilledGate, SelfBilledGate>();
 
+        // Allocateur du BT-1 fiscal 389 (MND05, ADR-0025) : get-or-create idempotent sur la clé source, verrou
+        // par mandant ; interrogé par le pipeline au plus tard avant l'envoi, après acceptation.
+        services.AddScoped<ISelfBilledNumberAllocator, PostgresSelfBilledNumberAllocator>();
+
         // Bascule tacite des acceptations 389 (MND04, ADR-0024 §4) : lecteur des candidats dus + service de
         // bascule, résolus par le TenantJob (SOL06) dans le scope du tenant. Horloge injectable (défaut
         // système) pour la condition « now ≥ DeadlineUtc » — testable, jamais DateTimeOffset.UtcNow en dur.

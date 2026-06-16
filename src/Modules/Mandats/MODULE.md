@@ -44,8 +44,21 @@ validation humaine, révocation).
   n'est câblée par aucun item du lot à ce stade (le gate « interroge » = lecture seule, fail-closed) — à
   rattacher au flux de bout en bout avant la recette `GATE_AUTOFACTURATION`.
 
+**Périmètre de l'item MND05 (allocation hybride du BT-1 fiscal — ADR-0025, F15 §3)** :
+- la **séquence par mandant** `MandatSequence` (clé `(company_id, mandant_id)`, `Prefix` figé seedé depuis le
+  mandant, `NextValue` en **`bigint`** — jamais float) et son **allocateur** `ISelfBilledNumberAllocator` ;
+- l'allocation **GET-OR-CREATE idempotente sur la clé source** (`source_reference`, table mémoire
+  `mandat_number_allocations` immuable) : une ré-extraction relit le même BT-1, jamais ré-alloué (INV-BT1-2) ;
+- le **verrou de séquence par mandant** (`FOR UPDATE`) : allocations concurrentes d'un même mandant sérialisées,
+  sans doublon ni trou (INV-BT1-4), au plus tard avant l'envoi, après acceptation ;
+- l'**assignation** du BT-1 fiscal sur l'acceptation (`self_billed_acceptances.allocated_number`), **HORS du
+  payload hashé** — `CanonicalJson` n'est pas modifié, `Number` reste l'identifiant source (INV-BT1-1, ADR-0007 préservé) ;
+- fail-closed : source vide, mandant inconnu ou acceptation absente ⇒ rejet (CLAUDE.md n°3).
+- Hors MND05 : la re-clé anti-doublon F06 + index d'unicité 389 (**MND06**) ; la projection BT-3=389 vers la PA
+  (**MND07**) ; la résolution du mandant à partir du document (portée par l'appelant pipeline, MND07).
+
 **Hors périmètre de MND01/MND02 (items suivants du lot, F15/ADR-filles)** :
-- `MandatSequence` + numérotation BT-1 par mandant → **MND05** (ADR-0025) ;
+- `MandatSequence` + numérotation BT-1 par mandant → **MND05** (ADR-0025, livré ci-dessus) ;
 - port `ISelfBilledGate` + branchement pipeline → **MND03** ; bascule tacite (`TenantJobRunner`) → **MND04** ;
 - re-clé anti-doublon F06 → **MND06** ; projection BT-3=389 vers la PA → **MND07** ;
 - les écrans console (registre, édition) — le squelette `Web/MandatsEndpointMapping.cs` est posé, sans route.
@@ -61,11 +74,13 @@ restent **NON TRANCHÉS** (F15 §6) — un item qui les rencontre **bloque**, il
   - `mandat_change_log` : journal **append-only** (registre + cycle de vie), immuable par double trigger.
   - `self_billed_acceptances` (MND02) : état d'acceptation par document (clé `(company_id, document_id)`, état mutable).
   - `self_billed_acceptance_log` (MND02) : journal **append-only** des transitions d'acceptation, immuable par double trigger.
+  - `mandat_sequences` (MND05) : séquence de numérotation BT-1 par mandant (clé `(company_id, mandant_id)`, `next_value` bigint, **mutable** sous verrou `FOR UPDATE`).
+  - `mandat_number_allocations` (MND05) : mémoire d'idempotence `source_reference → BT-1 fiscal`, **immuable** par double trigger (un numéro alloué ne change jamais).
 - **Lit / écrit** : uniquement son propre schéma, toujours scopé par `company_id` (CLAUDE.md n°9, INV-MANDATS-1).
 - **Interdits** (module-rules §2) : montant sur le mandat, règle fiscale inventée, donnée client embarquée,
   lecture cross-tenant, mandant traité en sous-tenant, chemin d'update/delete sur le journal.
 - **Surface publique** : `Contracts/` uniquement (`IMandatsQueries`, `ISelfBilledAcceptanceQueries`,
-  `ISelfBilledGate` (MND03, verdict `SelfBilledGateDecision`), DTOs
+  `ISelfBilledGate` (MND03, verdict `SelfBilledGateDecision`), `ISelfBilledNumberAllocator` (MND05), DTOs
   `MandantDto`/`MandatDto`/`MandatChangeLogEntryDto`/`SelfBilledAcceptanceDto`/`SelfBilledAcceptanceLogEntryDto`).
   Les abstractions d'unité de travail d'écriture (`IMandatsUnitOfWork`, `ISelfBilledAcceptanceUnitOfWork`)
   vivent dans `Application` ; les implémentations Postgres sont **internes** au module.
