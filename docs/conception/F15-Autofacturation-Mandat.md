@@ -179,6 +179,41 @@ seules règles CTC qui touchent l'autofacturation :
   supplémentaire propre au 389 (l'identification de l'émetteur matériel relève des règles de rôle générales, pas
   d'un gate 389). → §6.1 fermé.
 
+### 1.9 ✅ La signature électronique n'est PAS requise pour l'acceptation d'une auto-facture (amendement 2026-06-16, F17 §1.1)
+
+> **Amendement du 2026-06-16 (lot SIG, item SIG02 ; source : `docs/conception/F17-Signature-Validation-Document.md`
+> §1.1, sourcé CGI art. 289 I-2 / eIDAS / BOFiP BOI-TVA-DECLA-30-20-10).**
+
+**Constat légal explicite (✅).** **Aucun texte primaire n'impose une signature électronique** (a fortiori au sens
+eIDAS) comme **forme** de l'« acceptation formelle et expresse » de l'auto-facture sous mandat : **CGI art. 289 I-2**
+« sous réserve de son acceptation par l'assujetti » **ne prescrit aucune forme**. La signature (Yousign à distance,
+Wacom sur place) est donc une **bonne pratique probatoire OPTIONNELLE, jamais une obligation**.
+
+**Conséquences produit (non négociables — CLAUDE.md n°2/3) :**
+
+- **Interdit** de coder la signature en **gate Blocking « parce que la loi l'exige »** (règle inventée — n°2 — et
+  durcissement d'une validation — n°3). Le gate self-billing (`ISelfBilledGate`, ADR-0024) **n'est ni durci ni
+  affaibli** au nom d'une obligation inexistante.
+- **Défaut défendable (Karl, 2026-06-15) :** une **acceptation enregistrée EXPLICITE** (geste opérateur/mandant
+  tracé append-only) — ou la modalité que le tenant configure (jusqu'à l'accusé de réception horodaté) — constitue
+  l'« acceptation formelle et expresse » qui **ouvre le gate**. La **modalité est un paramétrage tenant**, confirmé
+  par le client avec **son** expert-comptable au déploiement (Liakont ne sollicite aucun EC en build).
+- **Plancher (CLAUDE.md n°3) :** jamais de 389 émis **sans** une acceptation tracée (l'absence laisse le document
+  `Blocked`).
+- Quand un tenant **active** la signature, elle est le **moyen** d'atteindre `Accepted` (renforcement probatoire),
+  jamais un gate imposé ; le **niveau eIDAS exigé par besoin est un paramétrage tenant** (jamais un défaut produit) —
+  voir §6 (questions ouvertes) et ADR-0027 §7 / ADR-0028 §5 (Règle de gate qui vérifie le niveau attaché).
+
+Détail technique : abstraction `ISignatureProvider` à capacités (**ADR-0027**), workflow générique `DocumentApproval`
+(**ADR-0028**), plug-in Yousign (**ADR-0029**), client soft Wacom (**ADR-0030**), spec `F17`.
+
+> **Note sur §1.5 (ne pas rétrograder) :** la version BOFiP **reste 13/08/2021** (cf. §1.5, §6.9) — **non
+> rétrogradée**. ❓ **NON TRANCHÉ (owner juridique/EC, non bloquant) :** revérifier **visuellement, sur la version
+> 13/08/2021**, l'ancre exacte des §290/§300/§390 et le libellé sur trois questions ouvertes (formulées neutrement,
+> sans présumer du libellé) — les parties déterminent-elles librement les modalités d'acceptation ? l'accusé de
+> réception électronique est-il admis comme modalité ? l'acceptation tacite est-elle admise et à quelles conditions ?
+> La conclusion produit ci-dessus ne dépend **pas** du numéro de §.
+
 ---
 
 ## 2. Le module `Mandats` (capacité A)
@@ -341,6 +376,7 @@ console/export), **jamais** une écriture ni un ordre de virement (règle n°5).
 9. ✅ **CONFIRMÉ (2026-06-15)** — **Versions BOFiP** : §1.4 numérotation BOI-TVA-DECLA-30-20-20-10 = **18/10/2013** (version courante, pas de postérieure ; la « 18/10/2023 » de l'Annexe 7 est une coquille pour 2013) ; §1.5 acceptation BOI-TVA-DECLA-30-20-10 = **13/08/2021** (racine ; sous-section `-30` actualisée 29/06/2022). Résidu mineur : revérifier visuellement l'ancrage des §290/§300/§390 (doctrine inchangée).
 10. **Re-clé anti-doublon F06** `(tenant, mandant_id, document_number)` (§3.2) — **conditionnée à un amendement de F06 §4** + ADR ; non figé tant que F06 §4 n'est pas amendé.
 11. **« Taxe de criée »** (§4.2) : modélisation d'un relevé portant **une ligne exonérée 261-2-4° ET une ligne de service taxée 20 %** précomptée (flux de sens opposé sur le même document) — non tranché.
+12. **Signature électronique (ajouté 2026-06-16, F17 §10 — défauts défendables paramétrables tenant, JAMAIS des gates).** La signature **n'est pas requise** (§1.9). Restent des **défauts paramétrables** (le client tranche au déploiement, aucun ne bloque le dev) : (a) **niveau eIDAS par besoin** — `Recorded` pour l'acceptation (signature non requise) ; niveau du mandat **configurable** (AES recommandée) — owner tenant + EC ; (b) **identité du signataire sur place** — ✅ **DÉCIDÉ (Karl) : le mandant signe en personne**, liaison = identification par la SVV (ADR-0030 §5) ; (c) **RGPD biométrie Wacom** — sobre, **pas de gabarit** (`SupportsBiometricTemplateMatching=false`), qualification fine (art. 9/AIPD/rétention vs WORM/consentement B2B) — owner DPO du client (ADR-0030 §8) ; (d) **niveaux/offre/limites Yousign** — capacités **déclarées au niveau réellement vérifié en sandbox**, activation au déploiement (ADR-0029) ; (e) **AES Wacom (art. 26 c, pad partagé)** — `SES` jusqu'à **audit technique** documenté (ADR-0030 §6). Détail : F17 §7/§10, ADR-0027 à ADR-0030.
 
 ---
 
@@ -354,6 +390,9 @@ console/export), **jamais** une écriture ni un ordre de virement (règle n°5).
   (2026-06-15)** : **ADR-0024** (agrégat d'acceptation distinct + `ISelfBilledGate`), **ADR-0025** (allocation BT-1
   hybride + re-clé F06 §4), **ADR-0026** (`IPaInboundClient` séparé, capacité B). ⚠️ **`ADR-0023` est réservé à la
   lib PDF/A-3 du lot Factur-X (F16)** — ne pas l'utiliser pour une ADR-fille `Mandats` (les ADR-filles partent
-  donc de 0024).
+  donc de 0024). **Lot signature (F17, 2026-06-16) :** **ADR-0027** (abstraction `ISignatureProvider`), **ADR-0028**
+  (workflow générique `DocumentApproval` — `SelfBilledAcceptance` en est une **projection restreinte** ; amende
+  INV-ACCEPT-5 d'ADR-0024 : journal `self_billed_acceptance_log` → `document_approval_log`), **ADR-0029** (plug-in
+  Yousign), **ADR-0030** (client soft Wacom). Voir §1.9 et `docs/conception/F17-Signature-Validation-Document.md`.
 - GoToMarket : `Metiers/Encheres/Roadmap-Gestion-BV-Liakont.md`, `PA/Validation-Autofacturation-389-PA.md`
   (grille Q1-Q15), `Metiers/Validation-Verticales/DR-Autofacturation-Agro.md`, `Metiers/Validation-Verticales/DR-Validation-Criees.md`.
