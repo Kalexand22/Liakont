@@ -122,6 +122,7 @@ internal sealed class DocumentRecheckService : IDocumentRecheckService
         var decision = await DocumentCheckEvaluator.EvaluateAsync(
             _services,
             companyId.Value,
+            documentId,
             document.DocumentNumber,
             pivot,
             buyerConfirmedB2C: document.BuyerConfirmedAsIndividual,

@@ -31,7 +31,26 @@ internal static class CheckTestData
         return BuildPivot(new[] { line }, net, tax);
     }
 
-    public static PivotDocumentDto BuildPivot(IReadOnlyList<PivotLineDto> lines, decimal totalNet, decimal totalTax)
+    /// <summary>
+    /// Pivot self-billed (autofacturation sous mandat, <c>IsSelfBilled = true</c>) — déclenche la garde
+    /// d'émission MND03 : le contenu est par ailleurs valide (mono-ligne nominale), seul l'état d'acceptation
+    /// décide de l'émissibilité.
+    /// </summary>
+    public static PivotDocumentDto SelfBilledSingleLinePivot(string regimeCode = "NORMAL", decimal net = 120.00m, decimal tax = 24.00m, decimal rate = 20m)
+    {
+        var line = new PivotLineDto(
+            description: "Adjudication lot 7",
+            netAmount: net,
+            quantity: 1m,
+            unitPriceNet: net,
+            sourceRegimeCodes: new[] { regimeCode },
+            taxes: new[] { new PivotLineTaxDto(tax, rate) },
+            sourceLineRef: "ligne#1");
+
+        return BuildPivot(new[] { line }, net, tax, isSelfBilled: true);
+    }
+
+    public static PivotDocumentDto BuildPivot(IReadOnlyList<PivotLineDto> lines, decimal totalNet, decimal totalTax, bool isSelfBilled = false)
     {
         return new PivotDocumentDto(
             sourceDocumentKind: "F",
@@ -42,7 +61,8 @@ internal static class CheckTestData
             totals: new PivotTotalsDto(totalNet, totalTax, totalNet + totalTax),
             operationCategory: OperationCategory.LivraisonBiens,
             customer: new PivotPartyDto("Client SARL", isCompanyHint: true),
-            lines: lines);
+            lines: lines,
+            isSelfBilled: isSelfBilled);
     }
 
     public static DocumentTvaMappingResult MappedResult(string version = "cmp-v1", bool isValidated = true)

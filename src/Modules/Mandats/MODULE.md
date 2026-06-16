@@ -25,6 +25,17 @@ validation humaine, révocation).
 - Hors MND02 : la **garde** d'émission (port `ISelfBilledGate` → MND03), la **bascule tacite** par job
   (MND04), l'**allocation** du BT-1 fiscal (MND05), et l'**avoir 261** d'un `Contested` (NON TRANCHÉ F15 §6.5).
 
+**Périmètre de l'item MND03 (garde d'émission — ADR-0024 §3, F15 §2.3, INV-ACCEPT-2)** :
+- le **port `ISelfBilledGate`** (Contracts) + son implémentation `SelfBilledGate` (lit `IsAccepted` via
+  `ISelfBilledAcceptanceQueries`, **fail-closed** si aucune acceptation) — par **inversion de dépendance** ;
+- le **branchement pipeline** : `DocumentCheckEvaluator` (source UNIQUE de la décision de blocage : CHECK +
+  recheck + réconciliation des avoirs) interroge le gate pour un pivot `IsSelfBilled` et **maintient `Blocked`**
+  (nouveau motif, **aucun** nouvel état `DocumentState`) un document dont l'acceptation n'est pas acquise ;
+  un recheck post-acceptation rouvre le gate (Blocked → ReadyToSend).
+- Hors MND03 : la création de l'enregistrement `SelfBilledAcceptance` à la détection d'un document self-billed
+  n'est câblée par aucun item du lot à ce stade (le gate « interroge » = lecture seule, fail-closed) — à
+  rattacher au flux de bout en bout avant la recette `GATE_AUTOFACTURATION`.
+
 **Hors périmètre de MND01/MND02 (items suivants du lot, F15/ADR-filles)** :
 - `MandatSequence` + numérotation BT-1 par mandant → **MND05** (ADR-0025) ;
 - port `ISelfBilledGate` + branchement pipeline → **MND03** ; bascule tacite (`TenantJobRunner`) → **MND04** ;
@@ -45,7 +56,8 @@ restent **NON TRANCHÉS** (F15 §6) — un item qui les rencontre **bloque**, il
 - **Lit / écrit** : uniquement son propre schéma, toujours scopé par `company_id` (CLAUDE.md n°9, INV-MANDATS-1).
 - **Interdits** (module-rules §2) : montant sur le mandat, règle fiscale inventée, donnée client embarquée,
   lecture cross-tenant, mandant traité en sous-tenant, chemin d'update/delete sur le journal.
-- **Surface publique** : `Contracts/` uniquement (`IMandatsQueries`, `ISelfBilledAcceptanceQueries`, DTOs
+- **Surface publique** : `Contracts/` uniquement (`IMandatsQueries`, `ISelfBilledAcceptanceQueries`,
+  `ISelfBilledGate` (MND03, verdict `SelfBilledGateDecision`), DTOs
   `MandantDto`/`MandatDto`/`MandatChangeLogEntryDto`/`SelfBilledAcceptanceDto`/`SelfBilledAcceptanceLogEntryDto`).
   Les abstractions d'unité de travail d'écriture (`IMandatsUnitOfWork`, `ISelfBilledAcceptanceUnitOfWork`)
   vivent dans `Application` ; les implémentations Postgres sont **internes** au module.

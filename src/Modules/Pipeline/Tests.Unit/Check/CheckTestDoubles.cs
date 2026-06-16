@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Documents.Contracts.Lifecycle;
 using Liakont.Modules.Documents.Contracts.Queries;
+using Liakont.Modules.Mandats.Contracts;
 using Liakont.Modules.Pipeline.Application;
 using Liakont.Modules.Pipeline.Domain;
 using Liakont.Modules.Staging.Contracts;
@@ -279,6 +280,40 @@ internal static class CheckTestDoubles
 
         public Task<AlertThresholdsDto?> GetAlertThresholds(Guid companyId, CancellationToken ct = default) =>
             throw new NotSupportedException();
+    }
+
+    /// <summary>
+    /// Garde d'émission self-billed factice (MND03) : le pipeline n'interroge que l'abstraction
+    /// <see cref="ISelfBilledGate"/>, jamais le module Mandats concret. Renvoie un verdict configuré et
+    /// enregistre le dernier appel (pour prouver qu'un document NON self-billed ne consulte JAMAIS le gate).
+    /// </summary>
+    internal sealed class FakeSelfBilledGate : ISelfBilledGate
+    {
+        private readonly SelfBilledGateDecision _decision;
+
+        private FakeSelfBilledGate(SelfBilledGateDecision decision) => _decision = decision;
+
+        public bool WasCalled { get; private set; }
+
+        public Guid? LastCompanyId { get; private set; }
+
+        public Guid? LastDocumentId { get; private set; }
+
+        /// <summary>Gate ouvert : émission autorisée (acceptation acquise).</summary>
+        public static FakeSelfBilledGate Allowing() =>
+            new(new SelfBilledGateDecision { IsEmissionAllowed = true, AcceptanceState = "Accepted" });
+
+        /// <summary>Gate fermé : émission refusée pour l'état d'acceptation donné (défaut : en attente).</summary>
+        public static FakeSelfBilledGate Blocking(string? acceptanceState = "PendingAcceptance") =>
+            new(new SelfBilledGateDecision { IsEmissionAllowed = false, AcceptanceState = acceptanceState });
+
+        public Task<SelfBilledGateDecision> EvaluateEmissionAsync(Guid companyId, Guid documentId, CancellationToken ct = default)
+        {
+            WasCalled = true;
+            LastCompanyId = companyId;
+            LastDocumentId = documentId;
+            return Task.FromResult(_decision);
+        }
     }
 
     internal sealed class FakeRunLogStore : IPipelineRunLogStore
