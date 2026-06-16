@@ -47,10 +47,12 @@ internal sealed class PostgresSelfBilledAcceptanceQueries : ISelfBilledAcceptanc
 
         if (companion is null)
         {
-            throw new InvalidOperationException(
-                $"Incohérence : une validation self-billing existe pour le document {documentId} " +
-                "mais sa companion fiscale (mandats.self_billed_acceptances) est absente — " +
-                "action opérateur requise (le BT-1/pending_since ne peuvent être lus).");
+            // Incohérence INATTEIGNABLE par construction (OpenPendingAsync écrit la companion AVANT la validation,
+            // et V010 la conserve). Si elle survenait, on DÉGRADE FAIL-CLOSED : retourner null = « aucune
+            // acceptation » → le gate (ISelfBilledGate) bloque l'émission (CLAUDE.md n°3), au lieu de lever une
+            // exception bruyante sur le chemin CHECK/SEND du pipeline. On NE fabrique JAMAIS pending_since/BT-1
+            // à partir de l'échéance (correction review round 1 : ne pas inventer de donnée fiscale).
+            return null;
         }
 
         return new SelfBilledAcceptanceDto

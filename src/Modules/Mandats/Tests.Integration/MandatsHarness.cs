@@ -29,6 +29,10 @@ internal sealed class MandatsHarness
     public MandatsHarness(IConnectionFactory connectionFactory)
     {
         ConnectionFactory = connectionFactory;
+
+        // Le ServiceProvider n'est volontairement PAS conservé/disposé : fuite ASSUMÉE, limitée au test
+        // (processus court-lived, un provider par instanciation de harnais). Les services résolus ouvrent
+        // chacun leur propre connexion par opération, donc leur durée de vie ne dépend pas du provider.
         var provider = BuildProvider(connectionFactory);
 
         UowFactory = provider.GetRequiredService<IMandatsUnitOfWorkFactory>();

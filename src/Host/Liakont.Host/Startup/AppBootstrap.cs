@@ -189,10 +189,13 @@ public static class AppBootstrap
         // du lot signature) — agrégat à machine fermée par purpose, slots N-parties, journal append-only,
         // règle de gate. Le Host enregistre la persistance (migrations du schéma documentapproval + UoW +
         // requêtes + port de commande générique). Aucun port par purpose ni job ici (SIG06/SIG07) ; aucune
-        // logique fiscale (CLAUDE.md n°2). ⚠️ ENREGISTRÉ AVANT Mandats : DbUp applique les scripts dans l'ordre
-        // des providers (= ordre d'enregistrement). Depuis SIG05, la migration de bascule du module Mandats
-        // (self-billing → documentapproval) ÉCRIT dans le schéma documentapproval ; ses tables doivent donc
-        // exister AVANT — d'où l'ordre DocumentApproval puis Mandats.
+        // logique fiscale (CLAUDE.md n°2). ⚠️ ENREGISTRÉ AVANT Mandats : depuis SIG05, la migration de bascule
+        // du module Mandats (self-billing → documentapproval) ÉCRIT dans le schéma documentapproval ; ses tables
+        // (V001-V004) doivent donc exister AVANT. La garantie tient des DEUX côtés : (1) par le NOM de script,
+        // « ...DocumentApproval...Migrations.V004 » trie avant « ...Mandats...Migrations.V010 » (ordre lexical
+        // des ressources embarquées) ; (2) cet enregistrement de DocumentApproval AVANT Mandats (défense en
+        // profondeur, et c'est l'ordre des fixtures de test). La migration V010 est exercée sur données réelles
+        // par SelfBilledAcceptanceMigrationV010Tests.
         builder.Services.AddDocumentApprovalModule();
 
         // Mandats (F15 §2, ADR-0022) : registre des mandants + cycle de vie des mandats (autofacturation

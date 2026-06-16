@@ -51,9 +51,9 @@ public sealed class MandatsDatabaseFixture : IAsyncLifetime
     private void RunModuleMigrations()
     {
         // DocumentApproval AVANT Mandats : la migration de bascule Mandats (SIG05) écrit dans le schéma
-        // documentapproval — ses tables (V001-V004) doivent exister d'abord. DbUp applique les providers dans
-        // l'ordre de déclaration ci-dessous (puis par nom dans chaque provider), comme en production
-        // (AppBootstrap enregistre DocumentApproval avant Mandats).
+        // documentapproval — ses tables (V001-V004) doivent exister d'abord. DocumentApproval est déclaré en
+        // premier ici, et « ...DocumentApproval...V004 » trie de toute façon avant « ...Mandats...V010 » par nom
+        // de ressource embarquée — la même garantie qu'en production (cf. AppBootstrap).
         var upgrader = DeployChanges.To
             .PostgresqlDatabase(ConnectionString)
             .WithScriptsEmbeddedInAssembly(
