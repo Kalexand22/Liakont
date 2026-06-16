@@ -24,8 +24,10 @@ public static class MandatsModuleRegistration
         services.AddScoped<IMandatsUnitOfWorkFactory, PostgresMandatsUnitOfWorkFactory>();
         services.AddScoped<IMandatsQueries, PostgresMandatsQueries>();
 
-        // Acceptation des auto-factures sous mandat (MND02, ADR-0024).
-        services.AddScoped<ISelfBilledAcceptanceUnitOfWorkFactory, PostgresSelfBilledAcceptanceUnitOfWorkFactory>();
+        // Acceptation des auto-factures sous mandat (MND02, ADR-0024) PROJETÉE via DocumentApproval (SIG05) :
+        // le cycle de vie (commandes) délègue l'état + le journal append-only à DocumentApproval ; les lectures
+        // composent l'état projeté (DocumentApproval) et la companion fiscale (BT-1 / pending_since).
+        services.AddScoped<ISelfBilledAcceptanceCommands, SelfBilledAcceptanceCommands>();
         services.AddScoped<ISelfBilledAcceptanceQueries, PostgresSelfBilledAcceptanceQueries>();
 
         // Garde d'émission interrogée par le pipeline avant l'envoi (MND03, ADR-0024 §3 / INV-ACCEPT-2).
@@ -35,11 +37,11 @@ public static class MandatsModuleRegistration
         // par mandant ; interrogé par le pipeline au plus tard avant l'envoi, après acceptation.
         services.AddScoped<ISelfBilledNumberAllocator, PostgresSelfBilledNumberAllocator>();
 
-        // Bascule tacite des acceptations 389 (MND04, ADR-0024 §4) : lecteur des candidats dus + service de
-        // bascule, résolus par le TenantJob (SOL06) dans le scope du tenant. Horloge injectable (défaut
-        // système) pour la condition « now ≥ DeadlineUtc » — testable, jamais DateTimeOffset.UtcNow en dur.
+        // Bascule tacite des acceptations 389 (MND04, ADR-0024 §4) : service de bascule résolu par le TenantJob
+        // (SOL06) dans le scope du tenant. Depuis SIG05, candidats dus et transition sont lus/pilotés via
+        // DocumentApproval (purpose SelfBilledAcceptance). Horloge injectable (défaut système) pour la condition
+        // « now ≥ DeadlineUtc » — testable, jamais DateTimeOffset.UtcNow en dur.
         services.TryAddSingleton(TimeProvider.System);
-        services.AddScoped<ITacitAcceptanceCandidateReader, PostgresTacitAcceptanceCandidateReader>();
         services.AddScoped<ITacitAcceptanceService, TacitAcceptanceService>();
 
         return services;

@@ -1,6 +1,7 @@
 namespace Liakont.Modules.DocumentApproval.Infrastructure;
 
 using Liakont.Modules.DocumentApproval.Application;
+using Liakont.Modules.DocumentApproval.Contracts;
 using Liakont.Modules.DocumentApproval.Contracts.Queries;
 using Liakont.Modules.DocumentApproval.Infrastructure.Queries;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,6 +24,10 @@ public static class DocumentApprovalModuleRegistration
 
         services.AddScoped<IDocumentValidationUnitOfWorkFactory, PostgresDocumentValidationUnitOfWorkFactory>();
         services.AddScoped<IDocumentApprovalQueries, PostgresDocumentApprovalQueries>();
+
+        // Port de commande générique (SIG05) : pilote le cycle de vie d'une validation pour un module exposeur
+        // (Mandats, etc.) via la frontière Contracts (jamais l'UoW Application directement).
+        services.AddScoped<IDocumentApprovalWorkflow, DocumentApprovalWorkflow>();
 
         return services;
     }

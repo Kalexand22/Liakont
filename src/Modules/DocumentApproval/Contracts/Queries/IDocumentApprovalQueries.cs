@@ -23,4 +23,14 @@ public interface IDocumentApprovalQueries
     /// </summary>
     Task<IReadOnlyList<DocumentApprovalLogEntryDto>> GetApprovalLog(
         Guid companyId, Guid documentId, ValidationPurpose purpose, CancellationToken ct = default);
+
+    /// <summary>
+    /// Liste les documents d'un <paramref name="purpose"/> dont la tentative la plus récente est candidate à la
+    /// bascule TACITE à <paramref name="nowUtc"/> : état <c>PendingValidation</c>, <c>deadline_utc</c> non null
+    /// et échue. Lecture read-only (hors transaction), base du tenant courant (database-per-tenant — la lecture
+    /// porte intrinsèquement sur ce tenant). Ne retourne QUE les clés : le service recharge l'agrégat sous verrou
+    /// (<c>FOR UPDATE</c>) et re-vérifie l'éligibilité avant de transiter (anti-TOCTOU).
+    /// </summary>
+    Task<IReadOnlyList<TacitDueDocumentDto>> ListTacitDueDocumentsAsync(
+        ValidationPurpose purpose, DateTimeOffset nowUtc, CancellationToken ct = default);
 }

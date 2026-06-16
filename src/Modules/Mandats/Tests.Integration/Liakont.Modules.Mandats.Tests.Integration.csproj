@@ -14,5 +14,10 @@
          Testcontainers.PostgreSql et les helpers de migration du socle. -->
     <ProjectReference Include="../Infrastructure/Liakont.Modules.Mandats.Infrastructure.csproj" />
     <ProjectReference Include="../../../Common/Testing/Stratum.Common.Testing.csproj" />
+    <!-- SIG05 : l'acceptation 389 est projetée via DocumentApproval. Les tests d'intégration sèment des
+         validations + appliquent les migrations DocumentApproval (schéma documentapproval) et résolvent le
+         port de commande/les requêtes générique(s). Référence de TEST uniquement (composition de scénarios) —
+         la frontière de PRODUCTION reste Contracts-only (MandatsBoundaryTests). -->
+    <ProjectReference Include="../../DocumentApproval/Infrastructure/Liakont.Modules.DocumentApproval.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

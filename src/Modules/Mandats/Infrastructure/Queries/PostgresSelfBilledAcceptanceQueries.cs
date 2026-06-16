@@ -1,75 +1,81 @@
 namespace Liakont.Modules.Mandats.Infrastructure.Queries;
 
-using Dapper;
+using Liakont.Modules.DocumentApproval.Contracts;
+using Liakont.Modules.DocumentApproval.Contracts.DTOs;
+using Liakont.Modules.DocumentApproval.Contracts.Queries;
 using Liakont.Modules.Mandats.Contracts.DTOs;
 using Liakont.Modules.Mandats.Contracts.Queries;
-using Liakont.Modules.Mandats.Domain.Entities;
+using Liakont.Modules.Mandats.Infrastructure;
 using Stratum.Common.Infrastructure.Database;
 
 /// <summary>
-/// Requêtes de lecture (seules) de l'acceptation des auto-factures sous mandat sur PostgreSQL. Toutes scopées
-/// par <c>company_id</c> (CLAUDE.md n°9/17, INV-MANDATS-1) — aucune lecture cross-tenant. L'état est exposé
-/// via l'agrégat de domaine (re-construit par <see cref="SelfBilledAcceptanceMaterializer"/>) pour exposer
-/// <see cref="SelfBilledAcceptance.IsAccepted"/> sans dupliquer la règle.
+/// Lectures (seules) de l'acceptation des auto-factures sous mandat (SIG05). PROJECTION restreinte du module
+/// générique DocumentApproval : l'ÉTAT et le JOURNAL sont lus via <see cref="IDocumentApprovalQueries"/>
+/// (purpose <see cref="ValidationPurpose.SelfBilledAcceptance"/>) et projetés dans le vocabulaire fiscal
+/// (<see cref="SelfBilledAcceptanceStateMap"/>) ; la companion fiscale du module Mandats (BT-1 alloué /
+/// pending_since) est lue séparément. Toujours scopé par <c>company_id</c> (CLAUDE.md n°9/17, INV-MANDATS-1) —
+/// aucune lecture cross-tenant. La règle « gate ouvert » (<c>IsAccepted</c>) n'est pas dupliquée : elle dérive
+/// de l'état projeté (Accepted/TacitlyAccepted), seule source restant la machine DocumentApproval.
 /// </summary>
 internal sealed class PostgresSelfBilledAcceptanceQueries : ISelfBilledAcceptanceQueries
 {
-    private const string SelectLogSql = """
-        SELECT document_id, from_state, to_state, operator_id, operator_name, occurred_at
-        FROM mandats.self_billed_acceptance_log
-        WHERE company_id = @CompanyId AND document_id = @DocumentId
-        ORDER BY occurred_at DESC
-        """;
-
+    private readonly IDocumentApprovalQueries _approvalQueries;
     private readonly IConnectionFactory _connectionFactory;
 
-    public PostgresSelfBilledAcceptanceQueries(IConnectionFactory connectionFactory)
+    public PostgresSelfBilledAcceptanceQueries(
+        IDocumentApprovalQueries approvalQueries, IConnectionFactory connectionFactory)
     {
+        _approvalQueries = approvalQueries;
         _connectionFactory = connectionFactory;
     }
 
-    public async Task<SelfBilledAcceptanceDto?> GetAcceptance(Guid companyId, Guid documentId, CancellationToken ct = default)
+    public async Task<SelfBilledAcceptanceDto?> GetAcceptance(
+        Guid companyId, Guid documentId, CancellationToken ct = default)
     {
+        var validation = await _approvalQueries.GetLatestAttempt(
+            companyId, documentId, ValidationPurpose.SelfBilledAcceptance, ct);
+        if (validation is null)
+        {
+            return null;
+        }
+
+        var state = SelfBilledAcceptanceStateMap.FromValidationStateName(validation.State);
+
         using var connection = await _connectionFactory.OpenAsync(ct);
-        var acceptance = await SelfBilledAcceptanceMaterializer.LoadAsync(connection, companyId, documentId, null, ct);
-        return acceptance is null ? null : Map(acceptance);
+        var companion = await SelfBilledAcceptanceCompanionReader.LoadAsync(
+            connection, companyId, documentId, transaction: null, ct);
+
+        return new SelfBilledAcceptanceDto
+        {
+            DocumentId = documentId,
+            State = state.ToString(),
+            AllocatedNumber = companion?.AllocatedNumber,
+            PendingSince = companion?.PendingSince ?? validation.DeadlineUtc ?? default,
+            DeadlineUtc = validation.DeadlineUtc,
+            IsAccepted = SelfBilledAcceptanceStateMap.IsAccepted(state),
+        };
     }
 
     public async Task<IReadOnlyList<SelfBilledAcceptanceLogEntryDto>> GetAcceptanceLog(
         Guid companyId, Guid documentId, CancellationToken ct = default)
     {
-        using var connection = await _connectionFactory.OpenAsync(ct);
-        var rows = await connection.QueryAsync(
-            new CommandDefinition(SelectLogSql, new { CompanyId = companyId, DocumentId = documentId }, cancellationToken: ct));
+        var log = await _approvalQueries.GetApprovalLog(
+            companyId, documentId, ValidationPurpose.SelfBilledAcceptance, ct);
 
-        var result = new List<SelfBilledAcceptanceLogEntryDto>();
-        foreach (var row in rows)
+        var result = new List<SelfBilledAcceptanceLogEntryDto>(log.Count);
+        foreach (DocumentApprovalLogEntryDto entry in log)
         {
             result.Add(new SelfBilledAcceptanceLogEntryDto
             {
-                DocumentId = (Guid)row.document_id,
-                FromState = StateName((int?)row.from_state),
-                ToState = ((SelfBilledAcceptanceState)(int)row.to_state).ToString(),
-                OperatorId = (Guid?)row.operator_id,
-                OperatorName = (string?)row.operator_name,
-                OccurredAt = MandatsRowReader.ToDateTimeOffset((object)row.occurred_at),
+                DocumentId = entry.DocumentId,
+                FromState = SelfBilledAcceptanceStateMap.NameOrNull(entry.FromState),
+                ToState = SelfBilledAcceptanceStateMap.FromValidationStateName(entry.ToState).ToString(),
+                OperatorId = entry.OperatorId,
+                OperatorName = entry.OperatorName,
+                OccurredAt = entry.OccurredAt,
             });
         }
 
         return result;
     }
-
-    private static string? StateName(int? state)
-        => state is null ? null : ((SelfBilledAcceptanceState)state.Value).ToString();
-
-    private static SelfBilledAcceptanceDto Map(SelfBilledAcceptance acceptance)
-        => new()
-        {
-            DocumentId = acceptance.DocumentId,
-            State = acceptance.State.ToString(),
-            AllocatedNumber = acceptance.AllocatedNumber,
-            PendingSince = acceptance.PendingSince,
-            DeadlineUtc = acceptance.DeadlineUtc,
-            IsAccepted = acceptance.IsAccepted,
-        };
 }
