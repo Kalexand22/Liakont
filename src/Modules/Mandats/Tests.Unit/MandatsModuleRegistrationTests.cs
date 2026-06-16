@@ -36,6 +36,8 @@ public sealed class MandatsModuleRegistrationTests
 
         sp.GetRequiredService<IMandatsQueries>().Should().NotBeNull("IMandatsQueries doit être résolu après AddMandatsModule");
         sp.GetRequiredService<IMandatsUnitOfWorkFactory>().Should().NotBeNull("IMandatsUnitOfWorkFactory doit être résolu après AddMandatsModule");
+        sp.GetRequiredService<ISelfBilledAcceptanceQueries>().Should().NotBeNull("ISelfBilledAcceptanceQueries (MND02) doit être résolu après AddMandatsModule");
+        sp.GetRequiredService<ISelfBilledAcceptanceUnitOfWorkFactory>().Should().NotBeNull("ISelfBilledAcceptanceUnitOfWorkFactory (MND02) doit être résolu après AddMandatsModule");
 
         var migrationOptions = sp.GetRequiredService<IOptions<MigrationAssembliesOptions>>().Value;
         migrationOptions.Assemblies.Should().Contain(

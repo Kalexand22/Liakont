@@ -8,8 +8,8 @@ using Stratum.Common.Infrastructure.Database;
 
 /// <summary>
 /// Enregistrement DI du module Mandats (registre des mandants + cycle de vie des mandats — F15 §2,
-/// ADR-0022) : migrations DbUp (schéma <c>mandats</c> + journal append-only), fabrique d'unités de travail
-/// et requêtes de lecture. MND01 (fondation) n'enregistre aucun handler MediatR — ils arrivent avec MND02+.
+/// ADR-0022 ; workflow d'acceptation des auto-factures 389 — F15 §2.3, ADR-0024, MND02) : migrations DbUp
+/// (schéma <c>mandats</c> + journaux append-only), fabriques d'unités de travail et requêtes de lecture.
 /// </summary>
 public static class MandatsModuleRegistration
 {
@@ -20,6 +20,10 @@ public static class MandatsModuleRegistration
 
         services.AddScoped<IMandatsUnitOfWorkFactory, PostgresMandatsUnitOfWorkFactory>();
         services.AddScoped<IMandatsQueries, PostgresMandatsQueries>();
+
+        // Acceptation des auto-factures sous mandat (MND02, ADR-0024).
+        services.AddScoped<ISelfBilledAcceptanceUnitOfWorkFactory, PostgresSelfBilledAcceptanceUnitOfWorkFactory>();
+        services.AddScoped<ISelfBilledAcceptanceQueries, PostgresSelfBilledAcceptanceQueries>();
 
         return services;
     }
