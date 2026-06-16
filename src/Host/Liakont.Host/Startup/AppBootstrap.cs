@@ -678,6 +678,13 @@ public static class AppBootstrap
     /// </summary>
     public static async Task InitializeDataAsync(WebApplication app)
     {
+        // Validation au démarrage des fournisseurs de signature CONFIGURÉS (SIG03, ADR-0027 §4). Sur le
+        // modèle de la validation de l'abstraction IdP, mais — différence essentielle — la signature est
+        // OPTIONNELLE : ne bloque QUE pour un fournisseur déclaré dans Signature:EnabledProviders mais non
+        // câblé ; l'absence de tout fournisseur n'est jamais une erreur (un tenant Recorded démarre sans
+        // plug-in — INV-SIGPROV-6).
+        ValidateSignatureProviderConfiguration(app.Configuration, app.Services);
+
         // Signale l'activation du puits factice hors Development avant toute initialisation,
         // pour qu'un opérateur ayant posé PaClients:Fake:Enabled=true par erreur le voie immédiatement.
         app.WarnIfFakePaClientForcedOutsideDevelopment();
@@ -715,13 +722,6 @@ public static class AppBootstrap
         // Diagnostic (dev ET prod, FIX203b) : avertit si un job SYSTÈME attendu n'a aucune planification
         // active. En prod la planification est un geste OPS (README) ; ce warning évite la panne silencieuse.
         await app.WarnIfSystemJobsUnscheduledAsync();
-
-        // Validation au démarrage des fournisseurs de signature CONFIGURÉS (SIG03, ADR-0027 §4). Sur le
-        // modèle de la validation de l'abstraction IdP, mais — différence essentielle — la signature est
-        // OPTIONNELLE : ne bloque QUE pour un fournisseur déclaré dans Signature:EnabledProviders mais non
-        // câblé ; l'absence de tout fournisseur n'est jamais une erreur (un tenant Recorded démarre sans
-        // plug-in — INV-SIGPROV-6).
-        ValidateSignatureProviderConfiguration(app.Configuration, app.Services);
     }
 
     /// <summary>Configures the HTTP pipeline and maps all endpoints.</summary>
