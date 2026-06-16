@@ -10,6 +10,13 @@ using Microsoft.Extensions.Logging;
 /// (<see cref="DocumentDeliveryRequest.Target"/>). V1 = système de fichiers ; SFTP = fast-follow (package
 /// SSH.NET + ADR dédié, F16 §6.2/§10). Le nom de fichier est assaini (aucun séparateur de chemin) pour
 /// confiner l'écriture au dossier cible (jamais d'écriture hors du dossier du tenant).
+/// <para>
+/// ⚠️ La cible (<c>Target</c>) est un dossier de tenant fixé par l'OPÉRATEUR (paramétrage, jamais une
+/// saisie utilisateur) ; seul le nom de fichier (influencé par le numéro de document) est assaini ici. Le
+/// confinement du <c>Target</c> lui-même sous une RACINE DE DÉPÔT autorisée par l'instance (durcissement
+/// SaaS multi-tenant) est porté par FX07, au moment où ce canal est réellement câblé et où la cible provient
+/// du coffre du tenant — voir <see cref="GeneriquePaDeliveryBootstrap"/>.
+/// </para>
 /// </summary>
 internal sealed partial class FileDepositDocumentDeliveryChannel : IDocumentDeliveryChannel
 {

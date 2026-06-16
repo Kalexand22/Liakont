@@ -13,6 +13,14 @@ using Liakont.PaClients.Generique;
 /// EN MÉMOIRE uniquement (CLAUDE.md n°10). Le descripteur ne porte que des valeurs non sensibles : le mot
 /// de passe y figure UNIQUEMENT sous forme chiffrée (jamais en clair, jamais versionné — CLAUDE.md n°10/18).
 /// On bloque plutôt que de livrer faux (CLAUDE.md n°3) : canal/cible absents → exception.
+/// <para>
+/// ⚠️ La configuration (canal, cible, secret chiffré) est lue depuis <see cref="PaAccountDescriptor.Settings"/>.
+/// Les appelants de production du pipeline construisent aujourd'hui le descripteur SANS settings : c'est FX07,
+/// qui câble ce plug-in (voir <see cref="GeneriquePaDeliveryBootstrap"/>), qui doit garantir que le descripteur
+/// porte la config du tenant — soit en peuplant <c>Settings</c> depuis le coffre TenantSettings aux points
+/// d'appel, soit en faisant lire le store par ce résolveur (patron des résolveurs B2Brouter/Super PDP, à venir
+/// avec le câblage de production). Tant que FX07 ne l'a pas fait, le plug-in n'est pas enregistré (non résolu).
+/// </para>
 /// </summary>
 internal sealed class GeneriqueAccountResolver : IGeneriqueAccountResolver
 {

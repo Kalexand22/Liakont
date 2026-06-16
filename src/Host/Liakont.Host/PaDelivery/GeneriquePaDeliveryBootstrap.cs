@@ -8,11 +8,16 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 /// <summary>
 /// Câblage au COMPOSITION ROOT du plug-in PA GÉNÉRIQUE (F16 §6) et de ses canaux de livraison Host
 /// (email avec pièce jointe, dépôt de fichier) — le seul endroit autorisé à référencer un plug-in PA
-/// concret (CLAUDE.md n°6/14). À la différence du plug-in factice (dev/démo), le plug-in générique est
-/// une PA RÉELLE de niveau « Essentiel » : il est enregistré inconditionnellement, mais le registre ne le
-/// résout que pour un tenant dont le compte PA déclare le type « Generique ». Les canaux et le résolveur
-/// (qui déchiffre le secret SMTP par tenant via le coffre) sont des implémentations Host-only de contrats
-/// définis dans <c>Transmission.Contracts</c> : le plug-in ne référence ni MailKit ni le module Notification.
+/// concret (CLAUDE.md n°6/14). Les canaux et le résolveur (qui déchiffre le secret SMTP par tenant via le
+/// coffre) sont des implémentations Host-only de contrats définis dans <c>Transmission.Contracts</c> : le
+/// plug-in ne référence ni MailKit ni le module Notification.
+/// <para>
+/// ⚠️ NON appelé tant que FX07 n'a pas livré l'intégration pipeline : enregistrer la fabrique sans le flux
+/// qui GÉNÈRE et passe le Factur-X (extension du contrat IPaClient + génération à l'étape Sending, FX07)
+/// rendrait un compte « Generique » actif non transmissible (SendDocumentAsync bloquerait à chaque envoi).
+/// FX07 appelle <see cref="AddGeneriquePaDelivery"/> au composition root EN MÊME TEMPS qu'il câble la
+/// génération — le plug-in n'est résolu par le registre qu'à partir de ce moment.
+/// </para>
 /// </summary>
 public static class GeneriquePaDeliveryBootstrap
 {

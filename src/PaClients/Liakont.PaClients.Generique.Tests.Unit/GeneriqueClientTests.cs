@@ -10,6 +10,12 @@ using Xunit;
 /// régénère), bloque proprement en l'absence d'artefact, et dégrade toute capacité absente en résultat
 /// TYPÉ (jamais d'exception — PAA01). Note : le plug-in n'hérite PAS de <c>PaClientContractTests</c> (qui
 /// cible les PA construisant un payload) — c'est une PA « Essentiel » qui ne fait que transmettre.
+/// <para>
+/// <c>TransmitFacturXAsync</c> est la voie de transmission réelle, exercée ici en unitaire ; elle est
+/// branchée au pipeline (génération à l'étape Sending + passage de l'artefact) par FX07 — qui câble aussi
+/// le plug-in au Host. Tant que FX07 n'est pas livré, le plug-in n'est PAS enregistré (cf. AppBootstrap) :
+/// <c>SendDocumentAsync</c> ne peut donc pas être atteint en production, et son blocage reste un garde-fou.
+/// </para>
 /// </summary>
 public sealed class GeneriqueClientTests
 {
