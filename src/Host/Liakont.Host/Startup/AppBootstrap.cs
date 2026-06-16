@@ -39,6 +39,7 @@ using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.Staging.Infrastructure;
 using Liakont.Modules.Supervision.Application;
 using Liakont.Modules.Supervision.Infrastructure;
+using Liakont.Modules.SupportTrace.Infrastructure;
 using Liakont.Modules.TenantSettings.Infrastructure;
 using Liakont.Modules.TenantSettings.Web;
 using Liakont.Modules.Transmission.Infrastructure;
@@ -212,6 +213,16 @@ public static class AppBootstrap
         // d'instance n'est configurée (Staging:Storage:FileSystem:RootPath). Voir StagingHostRegistration —
         // remplace le repli bin/ du module, cause de la perte de contenu (documents zombies).
         builder.Services.AddStableStagingRoot(builder.Environment.ContentRootPath);
+
+        // Trace de support du Factur-X transmis (FX06, F16 §7) : store DÉDIÉ, tenant-scopé, chiffré au repos,
+        // à rétention courte (proposition 90 j configurable) et PURGEABLE — distinct par construction de la
+        // piste d'audit append-only (documents.document_events) et du coffre WORM probant. Le handler de purge
+        // fait le fan-out par tenant (TenantJobRunner, SOL06) ; sa PLANIFICATION (cron) reste un geste opérateur
+        // via l'admin des planifications, comme le digest de supervision — aucune cadence inventée (la cadence
+        // d'un housekeeping de rétention courte relève du déploiement). L'ÉCRITURE de la trace (au moment de la
+        // transmission) est câblée par FX07.
+        builder.Services.AddSupportTraceModule(builder.Configuration);
+        builder.Services.AddJobHandler<SupportTracePurgeTrigger, SupportTracePurgeFanOutHandler>("Purge de la trace de support du Factur-X");
 
         // Reconciliation (TRK07) après Archive : rapproche les PDF du pool non lié des documents émis et
         // ajoute le PDF réconcilié au paquet d'archive en addendum (consomme IArchiveService). Le job

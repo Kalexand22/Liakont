@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- ASP.NET Core Data Protection (chiffrement de la trace de support au repos) + DI/Options du framework
+         partagé Microsoft.AspNetCore.App — aucun package NuGet nouveau, aucun ADR (repo-standards §4). -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.SupportTrace.Tests.Unit" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Contracts/Liakont.Modules.SupportTrace.Contracts.csproj" />
+    <!-- Mécanique multi-tenant (SOL06) : ITenantJob / TenantJobContext / ITenantJobRunner — abstractions du
+         socle, jamais un module métier (la purge n'a aucune connaissance de Documents/Archive). -->
+    <ProjectReference Include="../../../Common/Abstractions/Stratum.Common.Abstractions.csproj" />
+    <!-- Module → Contracts d'un autre module uniquement (CLAUDE.md n°6) : la purge est un IJobHandler système,
+         planifié par le module Job (mécanique SOL06, comme l'ancrage quotidien du coffre). -->
+    <ProjectReference Include="../../Job/Contracts/Stratum.Modules.Job.Contracts.csproj" />
+  </ItemGroup>
+</Project>

@@ -46,6 +46,8 @@
     <ProjectReference Include="..\..\Modules\Archive\Infrastructure\Liakont.Modules.Archive.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Archive\Web\Liakont.Modules.Archive.Web.csproj" />
     <ProjectReference Include="..\..\Modules\Staging\Infrastructure\Liakont.Modules.Staging.Infrastructure.csproj" />
+    <!-- Trace de support du Factur-X transmis (FX06) : store dédié purgeable + job de purge. -->
+    <ProjectReference Include="..\..\Modules\SupportTrace\Infrastructure\Liakont.Modules.SupportTrace.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Reconciliation\Infrastructure\Liakont.Modules.Reconciliation.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Reconciliation\Web\Liakont.Modules.Reconciliation.Web.csproj" />
     <ProjectReference Include="..\..\Modules\Supervision\Infrastructure\Liakont.Modules.Supervision.Infrastructure.csproj" />
