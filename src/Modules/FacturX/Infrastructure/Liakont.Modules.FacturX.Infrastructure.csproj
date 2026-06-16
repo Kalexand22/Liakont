@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- Scellement PDF/A-3 — QuestPDF (ADR-0023 §1) CONFINÉE à cette couche (INV-FX-1) ; le scellement
+         lui-même (rendu visuel + factur-x.xml embarqué + XMP fx:) est livré par FX04. La garde
+         FacturXBoundaryTests échoue si QuestPDF fuit vers Contracts/Domain/Application. -->
+    <PackageReference Include="QuestPDF" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Microsoft.Extensions.* (DI) du framework partagé — aucun package NuGet nouveau, aucun ADR
+         requis (repo-standards §4). FacturX ne porte aucun secret : pas de Data Protection. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Application apporte transitivement Contracts, Domain et Liakont.Agent.Contracts (le pivot).
+         Aucune référence à un autre module métier ni à un plug-in PA (ADR-0023 INV-FX-4). -->
+    <ProjectReference Include="../Application/Liakont.Modules.FacturX.Application.csproj" />
+  </ItemGroup>
+</Project>

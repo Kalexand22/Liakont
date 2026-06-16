@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Contracts/Liakont.Modules.FacturX.Contracts.csproj" />
+    <ProjectReference Include="../Domain/Liakont.Modules.FacturX.Domain.csproj" />
+    <!-- Le port consomme le pivot EN 16931 (PivotDocumentDto) — contrat agent partagé, BCL-only.
+         Aucune référence à Transmission.Contracts ni à un module métier (ADR-0023 INV-FX-4). -->
+    <ProjectReference Include="../../../Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
+  </ItemGroup>
+</Project>
