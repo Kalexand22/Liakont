@@ -18,6 +18,43 @@
   patterns réels `src/Modules/Documents/**` (machine `DocumentState`, état `Blocked` existant, `DocumentEvent`
   append-only) et `src/Modules/TvaMapping/**` (UoW transactionnelle, journal append-only par trigger base).
 
+## Amendement 2026-06-16 (lot SIG, item SIG02) — `SelfBilledAcceptance` projeté via `DocumentApproval` ; journal `self_billed_acceptance_log` → `document_approval_log`
+
+> **Source : `docs/conception/F17-Signature-Validation-Document.md` §3/§4/§9 + `docs/adr/ADR-0028-workflow-validation-document-generique.md`.**
+> Cet amendement est **textuel et normatif** (gravé par SIG02) ; le **refactor du code** self-billing (déléguer à
+> `DocumentApproval`) est porté par **SIG05**.
+
+ADR-0028 grave un workflow de validation **générique** `Liakont.Modules.DocumentApproval` dont la machine
+`SelfBilledAcceptance` du présent ADR est une **PROJECTION restreinte** (pas une instanciation 1-pour-1, pas une
+extension). En conséquence :
+
+1. **La machine self-billing reste EXACTEMENT celle d'ADR-0024** : `PendingAcceptance → {Accepted, TacitlyAccepted,
+   Contested}`, **4 états (1 initial + 3 terminaux)**, **sans** `ValidationInProgress` ni `Expired` ni `Rejected`.
+   Elle est implémentée **via** `DocumentApproval` avec une **garde de purpose** (`SelfBilledAcceptance`) qui **exclut**
+   `ValidationInProgress`/`Expired`/`Rejected` et **conserve** `Contested` (sens fiscal : avoir 261). **Pas de fusion
+   de deux notions fiscales par renommage** (`Contested` ≠ `Rejected`). Correspondance : `Accepted` ≡ `Validated`,
+   `TacitlyAccepted` ≡ `TacitlyValidated`.
+2. **INV-ACCEPT-1, INV-ACCEPT-2, INV-ACCEPT-3, INV-ACCEPT-4 et INV-ACCEPT-6 sont INCHANGÉS.** Le test produit
+   cartésien d'INV-ACCEPT-4 est **re-prouvé sur le purpose** `SelfBilledAcceptance` (4 états, aucun retour arrière).
+3. **INV-ACCEPT-5 est AMENDÉ** : le journal du purpose self-billing devient **`document_approval_log`** (mêmes
+   garanties : append-only en transaction, **double trigger base** `BEFORE UPDATE OR DELETE` + `BEFORE TRUNCATE`,
+   tenant-scopé `company_id NOT NULL`), qui **REMPLACE** `self_billed_acceptance_log` — **pas de double
+   journalisation**.
+4. ⚠️ **Cet amendement couvre TOUTES les mentions de `self_billed_acceptance_log` dans le présent ADR** (§6
+   « Décision », « À la charge du(des) lot(s) d'implémentation » des Conséquences, **et** INV-ACCEPT-5), chacune
+   marquée d'un encart **« Amendé 2026-06-16 (SIG02) »** ci-dessous. Sinon un lot d'implémentation créerait la
+   migration de l'**ancien** journal d'après une section non amendée (faux-vert F17 §4).
+5. **Migration (à la charge de SIG05) :** reprise/abandon de `self_billed_acceptance_log` **selon l'état de MND au
+   moment du refactor** — si MND02 a déjà livré la table `self_billed_acceptance_log`, **migration de bascule** vers
+   `document_approval_log` **sans perte d'historique** ; sinon (MND02 écrit directement `document_approval_log`),
+   aucune table héritée à migrer. **Pas de double journalisation** dans les deux cas.
+
+Le port `ISelfBilledGate` (Mandats.Contracts) et le branchement pipeline **restent la frontière** (inchangés) ;
+en interne, `Mandats` implémentera `ISelfBilledGate` en **déléguant à `DocumentApproval` par ses Contracts**
+(NetArchTest). La **Règle de gate** (3 conditions) est gravée en ADR-0028 §5 (cohérente avec le présent ADR : la
+condition « acceptation expresse » ne s'applique qu'à une transition `Accepted`/`Validated` **expresse**, jamais à
+`TacitlyAccepted`/`TacitlyValidated`).
+
 ## Contexte
 
 L'art. 289 I-2 CGI subordonne l'émission au nom et pour le compte du vendeur à **l'acceptation de la facture par
@@ -90,6 +127,11 @@ append-only pur. La traçabilité est assurée par le journal **`self_billed_acc
 `PostgresTvaMappingUnitOfWork`/`TransactionScope`), journal immuable par **trigger base** (UPDATE/DELETE/TRUNCATE
 rejetés). C'est l'application d'**INV-MANDATS-3** (ADR-0022).
 
+> **Amendé 2026-06-16 (SIG02) :** le journal devient **`document_approval_log`** (mêmes garanties : append-only en
+> transaction, **double trigger** `BEFORE UPDATE OR DELETE` + `BEFORE TRUNCATE`, tenant-scopé `company_id NOT NULL`),
+> qui **remplace** `self_billed_acceptance_log` — **pas de double journalisation**. Voir « Amendement 2026-06-16 »
+> en tête + ADR-0028 §7.
+
 ### 7. Portée : structure et comportement, **aucun code, aucune décision fiscale**
 
 Cet ADR **n'écrit aucun code**. Il ne fixe **pas** la **valeur** du délai de contestation (donnée du contrat de
@@ -110,9 +152,11 @@ UoW + trigger append-only).
 - **INV-ACCEPT-4** — La machine d'état est **fermée** : toute transition hors de
   `PendingAcceptance → {Accepted, TacitlyAccepted, Contested}` est rejetée (test produit cartésien) ; aucun retour
   arrière depuis un état terminal.
-- **INV-ACCEPT-5** — **Toute** transition d'état écrit une entrée `self_billed_acceptance_log` dans la **MÊME
-  transaction** (test « pas de transition sans ligne de journal ») ; le journal est immuable par trigger base
-  (UPDATE/DELETE/TRUNCATE rejetés) et **tenant-scopé** (`company_id` NOT NULL).
+- **INV-ACCEPT-5** *(amendé 2026-06-16, SIG02 — journal `document_approval_log`)* — **Toute** transition d'état écrit
+  une entrée **`document_approval_log`** (⟵ ex-`self_billed_acceptance_log`, **remplacé**, pas de double
+  journalisation) dans la **MÊME transaction** (test « pas de transition sans ligne de journal ») ; le journal est
+  immuable par **double trigger base** (UPDATE/DELETE/TRUNCATE rejetés) et **tenant-scopé** (`company_id` NOT NULL).
+  Voir « Amendement 2026-06-16 » en tête + ADR-0028 §7.
 - **INV-ACCEPT-6** — La bascule tacite passe **exclusivement** par `TenantJobRunner` (SOL06) ; **aucune** boucle
   ni timer maison ; l'échec d'un tenant n'affecte pas les autres (isolation `TenantJobRunner`).
 
@@ -126,8 +170,10 @@ nouveau**, **aucun code `Stratum.*` vendored modifié**.
 
 **À la charge du(des) lot(s) d'implémentation** : agrégat `SelfBilledAcceptance` + machine fermée ; port
 `ISelfBilledGate` dans les `Contracts` de `Mandats` + branchement pipeline avant émission ; migration
-`self_billed_acceptance_log` (table + fonction `reject_*_mutation` + triggers `BEFORE UPDATE OR DELETE` et
-`BEFORE TRUNCATE`, gabarit `V004` TvaMapping) ; job `SelfBilledAcceptanceTenantJob` (Trigger + FanOutHandler +
+`document_approval_log` *(amendé 2026-06-16, SIG02 — ⟵ ex-`self_billed_acceptance_log`, **remplacé** ; reprise/abandon
+de l'ancienne table selon l'état de MND au refactor SIG05, sans perte d'historique ni double journalisation)* (table +
+fonction `reject_*_mutation` + triggers `BEFORE UPDATE OR DELETE` et `BEFORE TRUNCATE`, gabarit `V004` TvaMapping) ;
+job `SelfBilledAcceptanceTenantJob` (Trigger + FanOutHandler +
 enregistrement Host, gabarit `DailyAnchoring`/`Reconciliation`) ; tests : gate bloque l'émission, cartésien
 tacite/écrit × délai, « pas de transition sans ligne de journal », rejet UPDATE/DELETE/TRUNCATE, scoping
 cross-tenant ≥ 2 bases.
