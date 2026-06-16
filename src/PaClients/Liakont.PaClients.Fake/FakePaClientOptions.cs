@@ -31,11 +31,20 @@ public sealed record FakePaClientOptions
         SupportsTaxReportRetrieval = true,
         SupportsDocumentRetrieval = true,
         SupportsReportRectification = true,
+        SupportsSelfBilling = true,
         MaxDocumentsPerRequest = null,
     };
 
     /// <summary>Comportement appliqué aux envois (succès par défaut).</summary>
     public FakePaScenario SendScenario { get; init; } = FakePaScenario.Success;
+
+    /// <summary>
+    /// Simule un plug-in INCOHÉRENT (test MND07) : déclare <c>SupportsSelfBilling = true</c> mais REFUSE la
+    /// projection 389 au moment de l'envoi (résultat typé <see cref="PaCapability.SelfBilling"/>). Sert à prouver
+    /// que le pipeline traite ce refus comme un rejet DÉFINITIF (jamais une boucle de retry TechnicalError).
+    /// Par défaut <c>false</c> : un Fake déclarant la capacité émet le 389 normalement.
+    /// </summary>
+    public bool RefuseSelfBillingProjection { get; init; }
 
     /// <summary>
     /// Erreurs remontées telles quelles pour les scénarios <see cref="FakePaScenario.Rejected"/> et

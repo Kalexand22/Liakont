@@ -36,6 +36,14 @@ public sealed record PaCapabilities
     /// <summary>Rectification de déclaration — flux RE (PIP04).</summary>
     public bool SupportsReportRectification { get; init; }
 
+    /// <summary>
+    /// Émission d'auto-factures sous mandat (type BT-3 = 389, art. 289 I-2 CGI — F15 §1.2/§1.8, MND07).
+    /// Pilote la projection 389 du payload sortant : une PA qui ne déclare PAS cette capacité ne reçoit
+    /// JAMAIS un document self-billed (il est bloqué en amont, jamais dégradé en facture standard —
+    /// CLAUDE.md n°3/8/16). Jamais un <c>if (pa is …)</c> ni un flag produit.
+    /// </summary>
+    public bool SupportsSelfBilling { get; init; }
+
     /// <summary>Nombre maximal de documents par requête, ou <c>null</c> si la PA ne déclare pas de limite.</summary>
     public int? MaxDocumentsPerRequest { get; init; }
 

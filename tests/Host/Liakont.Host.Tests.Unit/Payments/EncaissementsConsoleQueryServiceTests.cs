@@ -151,6 +151,7 @@ public sealed class EncaissementsConsoleQueryServiceTests
         SupportsTaxReportRetrieval = false,
         SupportsDocumentRetrieval = false,
         SupportsReportRectification = false,
+        SupportsSelfBilling = false,
         MaxDocumentsPerRequest = null,
     };
 

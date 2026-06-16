@@ -18,6 +18,8 @@ using Liakont.Modules.Documents.Contracts.Lifecycle;
 using Liakont.Modules.Documents.Contracts.Queries;
 using Liakont.Modules.Documents.Infrastructure;
 using Liakont.Modules.Ingestion.Contracts;
+using Liakont.Modules.Mandats.Contracts.DTOs;
+using Liakont.Modules.Mandats.Contracts.Queries;
 using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Contracts.Queries;
 using Liakont.Modules.Pipeline.Infrastructure;
@@ -59,6 +61,7 @@ public sealed class PipelineSendHarness : IAsyncLifetime
         .Build();
 
     private readonly ProbeState _probeState = new();
+    private readonly FakeSelfBilledAcceptanceQueries _acceptanceQueries = new();
 
     private ServiceProvider? _provider;
     private string? _stagingRoot;
@@ -158,6 +161,21 @@ public sealed class PipelineSendHarness : IAsyncLifetime
     /// <summary>Fait passer un document <c>Detected</c> → <c>ReadyToSend</c> (version de mapping consignée).</summary>
     public Task MarkReadyToSendAsync(Guid documentId) =>
         WithLifecycle(lifecycle => lifecycle.MarkReadyToSendAsync(documentId, MappingVersion));
+
+    /// <summary>
+    /// Seede l'acceptation self-billed lue par le SEND (MND07) : état + BT-1 fiscal alloué (MND05). Représente
+    /// une précondition (acceptation acquise + allocation faite), comme les tests MND02-05 seedent la leur.
+    /// </summary>
+    public void SeedSelfBilledAcceptance(Guid documentId, string? allocatedNumber, bool isAccepted = true, string state = "Accepted") =>
+        _acceptanceQueries.Set(new SelfBilledAcceptanceDto
+        {
+            DocumentId = documentId,
+            State = state,
+            AllocatedNumber = allocatedNumber,
+            PendingSince = DateTimeOffset.UtcNow,
+            DeadlineUtc = null,
+            IsAccepted = isAccepted,
+        });
 
     /// <summary>Engage la transmission (<c>ReadyToSend</c> → <c>Sending</c>).</summary>
     public Task BeginSendingAsync(Guid documentId) =>
@@ -294,6 +312,11 @@ public sealed class PipelineSendHarness : IAsyncLifetime
         // Plug-in PA : un registre qui rend le plug-in factice PARTAGÉ du harnais (inspectable par les tests).
         services.AddSingleton<IPaClientRegistry>(new MutablePaClientRegistry(() => PaClient));
 
+        // Acceptation self-billed (MND02/03/05) côté lecture : le SEND lit le BT-1 fiscal alloué pour projeter
+        // le 389 (MND07). On câble une lecture factice configurable par test (les MND02-05 couvrent la vraie
+        // persistance/allocation) ; un document NON self-billed ne consulte jamais cette lecture.
+        services.AddSingleton<ISelfBilledAcceptanceQueries>(_acceptanceQueries);
+
         // Sonde de présence WORM (port du Host) réimplémentée au-dessus de IArchiveStore pour les tests.
         services.AddScoped<IArchivedDocumentProbe>(sp =>
             new TestArchivedDocumentProbe(sp.GetRequiredService<IArchiveStore>(), TenantSlug, _probeState));
@@ -415,6 +438,23 @@ public sealed class PipelineSendHarness : IAsyncLifetime
         public IPaClient Resolve(PaAccountDescriptor account) => _client();
 
         public bool IsRegistered(string paType) => true;
+    }
+
+    /// <summary>
+    /// Lecture factice de l'acceptation self-billed (MND07) : le SEND y lit le BT-1 fiscal alloué. Configurable
+    /// par document (le SEND est tenant-wide) ; un document sans acceptation seedée renvoie <c>null</c>.
+    /// </summary>
+    private sealed class FakeSelfBilledAcceptanceQueries : ISelfBilledAcceptanceQueries
+    {
+        private readonly Dictionary<Guid, SelfBilledAcceptanceDto> _byDocument = [];
+
+        public void Set(SelfBilledAcceptanceDto acceptance) => _byDocument[acceptance.DocumentId] = acceptance;
+
+        public Task<SelfBilledAcceptanceDto?> GetAcceptance(Guid companyId, Guid documentId, CancellationToken ct = default) =>
+            Task.FromResult(_byDocument.TryGetValue(documentId, out var acceptance) ? acceptance : null);
+
+        public Task<IReadOnlyList<SelfBilledAcceptanceLogEntryDto>> GetAcceptanceLog(Guid companyId, Guid documentId, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<SelfBilledAcceptanceLogEntryDto>>([]);
     }
 
     /// <summary>Contexte tenant figé (le module Archive est tenant-scopé).</summary>

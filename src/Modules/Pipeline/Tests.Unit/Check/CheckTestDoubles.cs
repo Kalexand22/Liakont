@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Liakont.Agent.Contracts.Pivot;
 using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Documents.Contracts.Lifecycle;
 using Liakont.Modules.Documents.Contracts.Queries;
@@ -13,6 +14,7 @@ using Liakont.Modules.Pipeline.Domain;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
+using Liakont.Modules.Transmission.Contracts;
 using Liakont.Modules.TvaMapping.Contracts.Services;
 using Liakont.Modules.Validation.Contracts;
 using Stratum.Common.Abstractions.MultiTenancy;
@@ -367,5 +369,57 @@ internal static class CheckTestDoubles
         public string? TenantId => _tenantId;
 
         public bool IsResolved => true;
+    }
+
+    /// <summary>
+    /// Plug-in PA factice « capacité seule » (MND07) : la garde de capacité 389 du CHECK ne lit que
+    /// <see cref="Capabilities"/> ; toute autre méthode lève (jamais appelée par cette garde).
+    /// </summary>
+    internal sealed class CapabilityStubPaClient : IPaClient
+    {
+        public CapabilityStubPaClient(PaCapabilities capabilities) => Capabilities = capabilities;
+
+        public PaCapabilities Capabilities { get; }
+
+        public Task<PaSendResult> SendDocumentAsync(PivotDocumentDto document, bool sendAfterImport = true, PaOutboundProjection? projection = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaSendResult> SendPaymentReportAsync(PaymentReportPeriod period, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaDocumentStatus> GetDocumentStatusAsync(string paDocumentId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<PaTaxReport>> ListTaxReportsAsync(DateTime? since = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaTaxReport> GetTaxReportAsync(string taxReportId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaAccountInfo> GetAccountInfoAsync(CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaTaxReportSetting> GetTaxReportSettingAsync(CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task EnsureTaxReportSettingAsync(PaTaxReportSettingRequest request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaGeneratedDocument> GetGeneratedDocumentAsync(string paDocumentId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
+
+    /// <summary>Registre PA factice (MND07) : résout par clé un client unique (capacités fixées), jamais un if (pa is …).</summary>
+    internal sealed class FakePaClientRegistry : IPaClientRegistry
+    {
+        private readonly IPaClient _client;
+
+        public FakePaClientRegistry(IPaClient client) => _client = client;
+
+        public IReadOnlyCollection<string> RegisteredTypes => new[] { "fake" };
+
+        public IPaClient Resolve(PaAccountDescriptor account) => _client;
+
+        public bool IsRegistered(string paType) => true;
     }
 }
