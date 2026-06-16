@@ -192,6 +192,30 @@ public sealed class MandatLifecycleIntegrationTests
                 "aucune mutation de A n'apparaît dans le journal de B.");
     }
 
+    [Fact]
+    public async Task Revoke_Persists_And_Logs_And_Suspends_After_RoundTrip()
+    {
+        var harness = new MandatsHarness(_fixture);
+        var companyId = Guid.NewGuid();
+        var mandantId = await SeedMandantAsync(harness, companyId);
+        var mandat = Mandat.Create(companyId, mandantId, "MDT-1", "Clause", estEcrit: true, assujettissementStatus: "ASSUJETTI", contestationDelay: Delay);
+        await InsertMandatAsync(harness, mandat, Guid.NewGuid());
+
+        // Valider (389 actif) puis révoquer : la révocation persistée doit suspendre le 389 après relecture.
+        await MutateAsync(harness, companyId, mandantId, "MDT-1", m => m.Validate("Valideur"), MandatChangeType.ValidateMandat);
+        await MutateAsync(harness, companyId, mandantId, "MDT-1", m => m.Revoke(), MandatChangeType.RevokeMandat);
+
+        var dto = await harness.Queries.GetMandat(companyId, mandantId, "MDT-1");
+        dto!.IsRevoked.Should().BeTrue();
+        dto.RevokedDate.Should().NotBeNull("revoked_date (timestamptz) doit faire un round-trip.");
+        dto.IsSelfBillingSuspended.Should().BeTrue("un mandat révoqué a 389 suspendu (INV-MANDATS-4).");
+
+        var log = await harness.Queries.GetChangeLog(companyId);
+        log[0].ChangeType.Should().Be(nameof(MandatChangeType.RevokeMandat));
+        log[0].MandatId.Should().NotBeNull();
+        log[0].AfterValue.Should().NotBeNull();
+    }
+
     private static async Task<Guid> SeedMandantAsync(MandatsHarness harness, Guid companyId)
     {
         var mandant = Mandant.Create(companyId, "MANDANT-EXEMPLE-1", "Ferme Exemple", null, "000000000", "EXM-");

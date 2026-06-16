@@ -15,7 +15,10 @@ CREATE TABLE IF NOT EXISTS mandats.mandants (
     updated_at        timestamptz,
 
     CONSTRAINT pk_mandants PRIMARY KEY (id),
-    CONSTRAINT uq_mandants_company_reference UNIQUE (company_id, reference)
+    CONSTRAINT uq_mandants_company_reference UNIQUE (company_id, reference),
+    -- Cible d'une FK COMPOSITE depuis mandats.mandats : garantit qu'un mandat ne référence un mandant
+    -- que DANS SON PROPRE tenant (défense en profondeur du tenant-scoping — V003 fk_mandats_mandant).
+    CONSTRAINT uq_mandants_company_id UNIQUE (company_id, id)
 );
 
 CREATE INDEX IF NOT EXISTS ix_mandants_company ON mandats.mandants (company_id);

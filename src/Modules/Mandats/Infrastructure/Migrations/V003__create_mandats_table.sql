@@ -22,7 +22,11 @@ CREATE TABLE IF NOT EXISTS mandats.mandats (
 
     CONSTRAINT pk_mandats PRIMARY KEY (id),
     CONSTRAINT uq_mandats_company_mandant_reference UNIQUE (company_id, mandant_id, reference),
-    CONSTRAINT fk_mandats_mandant FOREIGN KEY (mandant_id) REFERENCES mandats.mandants (id)
+    -- FK COMPOSITE (company_id, mandant_id) : un mandat ne peut référencer qu'un mandant DU MÊME tenant.
+    -- Ferme le trou de cohérence cross-tenant qu'une FK sur mandant_id seul laisserait ouvert (un futur
+    -- writer MND02+ ne peut pas créer un mandat dont company_id diffère de celui de son mandant).
+    CONSTRAINT fk_mandats_mandant FOREIGN KEY (company_id, mandant_id)
+        REFERENCES mandats.mandants (company_id, id)
 );
 
 CREATE INDEX IF NOT EXISTS ix_mandats_company_mandant ON mandats.mandats (company_id, mandant_id);
