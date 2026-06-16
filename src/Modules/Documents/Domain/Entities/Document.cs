@@ -45,6 +45,14 @@ public sealed class Document
     /// <summary>SIREN du fournisseur/émetteur (EN 16931 BT-30). Absent dans la source = <c>null</c>.</summary>
     public string? SupplierSiren { get; private set; }
 
+    /// <summary>
+    /// Identifiant du mandant en autofacturation (BT-3 = 389). <c>null</c> = document NON auto-facturé (cas
+    /// général). Renseigné à l'émission d'un 389 (le « supplier » fiscal est le mandant, BT-30) : il porte la
+    /// re-clé anti-doublon <c>(mandant_id, document_number)</c> où <c>document_number</c> = BT-1 fiscal alloué par
+    /// mandant (F06 §4 amendé par ADR-0025 §6 ; MND06). Aucun montant n'y est attaché (le mandat ne porte rien).
+    /// </summary>
+    public Guid? MandantId { get; private set; }
+
     /// <summary>Raison sociale / nom du destinataire (B2C sans tiers identifié = <c>null</c>).</summary>
     public string? CustomerName { get; private set; }
 
@@ -161,7 +169,8 @@ public sealed class Document
         string? mappingVersion,
         DateTimeOffset firstSeenUtc,
         DateTimeOffset lastUpdateUtc,
-        bool buyerConfirmedAsIndividual = false)
+        bool buyerConfirmedAsIndividual = false,
+        Guid? mandantId = null)
     {
         return new Document
         {
@@ -171,6 +180,7 @@ public sealed class Document
             DocumentType = documentType,
             IssueDate = issueDate,
             SupplierSiren = supplierSiren,
+            MandantId = mandantId,
             CustomerName = customerName,
             CustomerIsCompanyHint = customerIsCompanyHint,
             TotalNet = totalNet,

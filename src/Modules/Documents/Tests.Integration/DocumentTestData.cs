@@ -50,7 +50,8 @@ internal static class DocumentTestData
         string sourceReference = "SRC-1",
         string? supplierSiren = "123456789",
         string payloadHash = "hash-1",
-        DateTimeOffset? at = null)
+        DateTimeOffset? at = null,
+        Guid? mandantId = null)
     {
         var moment = at ?? DetectedAt;
         return Document.Reconstitute(
@@ -70,6 +71,7 @@ internal static class DocumentTestData
             paDocumentId: state == DocumentState.Issued ? "PA-1" : null,
             mappingVersion: null,
             firstSeenUtc: moment,
-            lastUpdateUtc: moment);
+            lastUpdateUtc: moment,
+            mandantId: mandantId);
     }
 }
