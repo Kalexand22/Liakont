@@ -133,11 +133,16 @@ de son côté. C'est l'arête WORM gravée par ADR-0028 §9.
   workspace, niveau défaut), `EncryptedApiKey?`, `EncryptedWebhookSecret?`. Purpose DataProtection **dédié et
   versionné** (`Liakont.Signature.ProviderAccount.ApiKey.v1`). `Authorization Bearer` et HMAC construits **en
   mémoire, jamais journalisés**. Rotation sans redéploiement.
-- ⚠️ **L'URL de base N'EST PAS un champ tenant libre (anti-SSRF) :** elle est **dérivée d'une allowlist par
-  provider × `Environment`** (Yousign sandbox `api-sandbox.yousign.app/v3` / prod `api.yousign.app/v3`, définies au
-  plug-in/environnement et validées). Le tenant ne choisit qu'**entre des endpoints CONNUS** (`Environment`),
-  **jamais** une adresse arbitraire. Sinon un admin tenant ferait émettre des appels **authentifiés (porteurs de la
-  clé API)** vers une adresse interne/arbitraire = **SSRF + fuite de la clé API**.
+- ⚠️ **L'URL de base N'EST PAS un champ tenant libre (anti-SSRF) :** elle est **dérivée d'une allowlist d'URI HTTPS
+  EXACTES par provider × `Environment`** — Yousign sandbox `https://api-sandbox.yousign.app/v3` / prod
+  `https://api.yousign.app/v3` (origines `https://…` complètes, définies au plug-in/environnement). Le tenant ne
+  choisit qu'**entre des `Environment` CONNUS** (jamais une adresse, jamais un host/path nu). **Renforcement
+  (correction P2) :** l'allowlist liste des **origines `https://` exactes** (schéma + host + port) et le plug-in
+  **REJETTE** (a) tout schéma **non-HTTPS** (`http`, `file`, … → refus), (b) toute origine hors liste, et (c) **toute
+  redirection (3xx) vers une cible non listée** (`AllowAutoRedirect = false`, ré-validation de chaque saut contre
+  l'allowlist). Sinon un admin tenant — ou un `http://`/une redirection — ferait émettre des appels **authentifiés
+  (porteurs de la clé API Bearer)** vers une adresse interne/arbitraire = **SSRF + fuite de la clé API**. Test : une
+  URL arbitraire, un `http://`, et une redirection vers une cible non listée sont **tous refusés**.
 - **Aucune donnée client dans le code (CLAUDE.md n°7)** : tout en `deployments/<client>/` ou exemples fictifs dans
   `config/exemples/`.
 
@@ -171,8 +176,10 @@ HTTP Yousign) restent à inventorier avant dev (Post-Dev Checklist), à la charg
   concret (NetArchTest : le job `NotHaveDependencyOnAny("Liakont.Modules.Archive.Domain", "…Stores.*")`).
 - **INV-YOUSIGN-7** — Secrets **par tenant chiffrés** (patron `DataProtectionSecretProtector`, purpose versionné),
   **jamais en clair ni journalisés** (clé API / secret webhook / `Authorization Bearer`). L'URL de base est
-  **dérivée d'une allowlist par `Environment`** (anti-SSRF) — **jamais** un champ tenant libre (test : une URL
-  arbitraire est refusée).
+  **dérivée d'une allowlist d'origines `https://` EXACTES par `Environment`** (anti-SSRF) — **jamais** un champ tenant
+  libre ; le plug-in **rejette** le non-HTTPS, les origines hors liste et les redirections (3xx) vers une cible non
+  listée (`AllowAutoRedirect = false`). Tests : une URL arbitraire, un `http://` et une redirection hors allowlist
+  sont **tous refusés**.
 - **INV-YOUSIGN-8** — **Aucune modification du socle vendored `Stratum.*`** (vérifié par `socle-baseline` ; toute
   primitive ajoutée serait consignée en provenance).
 
@@ -225,6 +232,9 @@ Aucun de ces points ne stalle le dev : ce sont des **défauts paramétrables**, 
 - **Idempotence par `event_id` seul** : deux tenants/providers peuvent partager un `event_id`. **Rejetée** — clé
   `(company_id, provider_type, event_id)`.
 - **URL de base en champ tenant libre** : SSRF + fuite de la clé API. **Rejetée** — allowlist par `Environment`.
+- **Allowlist en host/path nu (sans schéma) ou suivant les redirections** : un `http://` ou une redirection 3xx vers
+  une cible non listée contournerait l'anti-SSRF en emportant la clé API Bearer. **Rejetée** — origines `https://`
+  **exactes**, non-HTTPS refusé, `AllowAutoRedirect = false` + ré-validation de chaque saut.
 - **Rapatriement WORM par le plug-in ou via `Archive.Domain`** : viole la frontière (CLAUDE.md n°6). **Rejetée** —
   job de drain via `Archive.Contracts`.
 

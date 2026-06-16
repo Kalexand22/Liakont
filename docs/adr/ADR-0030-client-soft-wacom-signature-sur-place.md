@@ -71,11 +71,21 @@ dépendance navigateur.
   **plus étroit** : un `<PackageReference>` purement **déclaratif non exercé** (aucun type référencé) lui échappe.
   ⇒ **ajouter une inspection déclarative des `<PackageReference>` des `.csproj` sous `agent/`** (y **interdire le SDK
   Wacom** et toute lib non déclarée) — **pas** « écrire un test IL inexistant ». **(Livré par SIG09.)**
-- **`verify-fast` doit builder/tester la 3ᵉ solution.** `tools/verify-fast.ps1` ne build aujourd'hui que
-  `src/Liakont.sln` + `agent/Liakont.Agent.sln`. Une racine `clients/OnSiteSignature/*.sln` non ajoutée serait **ni
-  buildée ni testée** → le test de pureté serait **écrit-mais-jamais-lancé** (faux-vert). Ajout à `verify-fast` avec
-  **garde bootstrap** (skip tant que SIG08 pending, **ÉCHEC** si la `.sln` attendue disparaît une fois SIG08 done —
-  modèle `Test-SolItemPending`, jamais un skip silencieux). **(Livré par SIG09.)**
+- **`verify-fast` doit builder/tester la 3ᵉ solution — et le guard doit être en place AVANT que le code client
+  n'atterrisse.** `tools/verify-fast.ps1` ne build aujourd'hui que `src/Liakont.sln` + `agent/Liakont.Agent.sln`.
+  Une racine `clients/OnSiteSignature/*.sln` non ajoutée serait **ni buildée ni testée** → le test de pureté serait
+  **écrit-mais-jamais-lancé** (faux-vert). ⚠️ **Séquencement (correction P1) :** si le guard verify-fast n'est ajouté
+  qu'**après** le client (ex. dans un item postérieur à celui qui livre `clients/OnSiteSignature`), alors la passe
+  `verify-fast` **obligatoire** de l'item qui livre le client **passe au vert sans builder ni exécuter** la nouvelle
+  solution ni son test de pureté = **exactement le faux-vert que cet ADR prévient**. **Décision :** le guard
+  verify-fast est livré **AVANT ou DANS LE MÊME item que** le code client (étape initiale de SIG08, ou item antérieur),
+  **jamais après**. **Garde bootstrap présence-aware** (modèle `Test-SolItemPending`, jamais un skip silencieux) :
+  verify-fast **build `clients/OnSiteSignature/*.sln` dès que la `.sln` est présente sur disque** (donc la passe de
+  l'item qui livre le client l'exerce immédiatement) ; il **SKIP** uniquement tant que la solution est absente **et**
+  SIG08 non `done` ; il **ÉCHOUE** si la `.sln` attendue est **absente une fois SIG08 `done`**. ⚠️ **Implication
+  orchestration (à acter par l'opérateur, hors périmètre SIG02) :** le manifest place aujourd'hui le travail
+  verify-fast en SIG09 (`depends_on SIG08`) — il doit être **réordonné avant SIG08** (ou ce sous-travail folded dans
+  SIG08) pour respecter la décision ci-dessus ; sinon SIG08 produit un faux-vert sur son propre livrable.
 
 ### 3. Pur **capteur** → proxy `OnSiteCapture` tenant-scopé (aucune logique métier, aucun accès base)
 
@@ -179,9 +189,13 @@ charge de SIG08.
 - **INV-ONSITE-2** — Le **SDK Wacom n'entre jamais sous `agent/`** : inspection déclarative des `<PackageReference>`
   des `.csproj` sous `agent/` (un `<PackageReference>` non déclaré, ex. SDK Wacom, **échoue** le test) — complète
   `AgentBoundaryTests` (IL). **(SIG09.)**
-- **INV-ONSITE-3** — `verify-fast` **build + teste** la 3ᵉ solution `clients/OnSiteSignature` avec **garde
-  bootstrap** (skip si SIG08 pending ; **ÉCHEC** si la `.sln` attendue disparaît une fois SIG08 done — jamais un skip
-  silencieux). **(SIG09.)**
+- **INV-ONSITE-3** — `verify-fast` **build + teste** la 3ᵉ solution `clients/OnSiteSignature` **dès que sa `.sln` est
+  présente** (garde bootstrap **présence-aware**, modèle `Test-SolItemPending`) : skip **uniquement** si la solution
+  est absente **et** SIG08 non `done` ; **ÉCHEC** si la `.sln` attendue est **absente une fois SIG08 `done`** (jamais
+  un skip silencieux). ⚠️ Le guard est livré **avant ou dans le même item que** le code client (jamais après), pour
+  que la passe `verify-fast` obligatoire de l'item livrant le client **exerce réellement** la nouvelle solution +
+  son test de pureté (anti-faux-vert). **(Implication orchestration : réordonner le travail verify-fast avant SIG08 —
+  hors périmètre SIG02.)**
 - **INV-ONSITE-4** — Le client est un **pur capteur** : **aucune logique métier**, **aucun accès base** ; il POST un
   objet immuable au proxy `OnSiteCapture` (HTTPS, auth derrière l'abstraction IdP).
 - **INV-ONSITE-5** — Le proxy `OnSiteCapture` est **tenant-scopé** : re-vérif serveur `document_id → company_id`,
@@ -218,7 +232,11 @@ SDK Wacom, capture → POST immuable) + DPAPI locale `CurrentUser` ; proxy `OnSi
 `re-hash == hash signé` + preuve WORM/`DocumentEvent` ; `UploaderPrincipal` + `SignerIdentity` (liaison SVV) ;
 `SupportedLevels = {SES}` ; `SupportsBiometricTemplateMatching = false` + invariant « pas de gabarit » ; ADR de
 package (SDK Wacom Ink, lib PAdES/CAdES) ; tests : pureté + cross-tenant + binding + usurpation + « pas de gabarit ».
-**SIG09** — ajout `verify-fast` (3ᵉ solution, garde bootstrap) + inspection `<PackageReference>` agent. **SIG10** —
+⚠️ **Le guard `verify-fast` (3ᵉ solution, présence-aware) doit être en place AVANT/AVEC le code client** (§2) — donc
+livré comme première étape de SIG08 ou par un item antérieur, **jamais après** ; sinon SIG08 produit un faux-vert sur
+son propre test de pureté (correction P1). **SIG09** — inspection déclarative des `<PackageReference>` agent (+ le
+guard verify-fast s'il n'a pas déjà été folded dans SIG08, **à condition que SIG09 soit réordonné avant SIG08** —
+implication orchestration à acter par l'opérateur). **SIG10** —
 UI console signature (déclencher/statut/preuve, bUnit/Playwright, logique aux handlers MediatR — CLAUDE.md
 review n°19).
 
@@ -246,7 +264,11 @@ Aucun de ces points ne stalle le dev : ce sont des **défauts paramétrables**, 
 - **Se reposer sur `AgentBoundaryTests` (IL) seul** : un `<PackageReference>` déclaratif non exercé lui échappe.
   **Rejetée** — ajout d'une inspection déclarative des `<PackageReference>` (SIG09).
 - **Ne pas ajouter la 3ᵉ solution à `verify-fast`** : le test de pureté serait écrit-mais-jamais-lancé (faux-vert).
-  **Rejetée** — ajout avec garde bootstrap.
+  **Rejetée** — ajout avec garde bootstrap présence-aware.
+- **Ajouter le guard `verify-fast` APRÈS le code client** (ex. en SIG09 `depends_on SIG08`) : la passe verify-fast
+  **obligatoire** de l'item livrant le client passerait au vert **sans** builder/tester la nouvelle solution — le
+  faux-vert même que cet ADR prévient. **Rejetée** — le guard est livré **avant ou avec** le code client, et il est
+  **présence-aware** (build dès que la `.sln` existe).
 - **Faire confiance au `company_id` envoyé par le client** : fuite cross-tenant. **Rejetée** — re-vérif serveur
   `document_id↔company_id`, `NotFound`.
 - **Dériver `SignerIdentity` du déposant ou du payload** : fabrique une identité fausse (art. 26 b). **Rejetée** —
