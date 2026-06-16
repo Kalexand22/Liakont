@@ -150,6 +150,19 @@ contrat `IPaClient` (p. ex. un `PaSendContext` optionnel portant le Factur-X dé
 existantes l'**ignorent** (elles construisent leur payload), la PA générique l'**exige** (artefact absent →
 **blocage**, jamais une régénération dans le plug-in qui violerait l'indépendance). Décision scopée à FX07.
 
+> **Note d'amendement (2026-06-16, FX07 — décision de frontière).** Le pipeline (`SendTenantJob`, module
+> `Pipeline`) ne peut PAS référencer directement `IFacturXBuilder` : ce port vit en couche `Application` du
+> module FacturX, or un module n'accède à un autre que par ses **`Contracts`** (module-rules §3 / CLAUDE.md
+> n°14 ; une référence `Pipeline → FacturX.Application` serait un P1, sans précédent dans le dépôt). La
+> génération reste donc « **derrière `IFacturXBuilder`** » mais via un **pont** `IFacturXArtifactBuilder`
+> défini dans **`Transmission.Contracts`** (là où vivent déjà la capacité `SupportsFacturXTransmission` qui
+> le déclenche et le canal `IDocumentDeliveryChannel`), **implémenté au Host** (composition root) en
+> déléguant à `IFacturXBuilder`. Seul le Host référence à la fois `Transmission.Contracts` et le module
+> FacturX. Le pipeline reste Contracts-only ; FacturX reste indépendant des PA (INV-FX-4 intact).
+> La **journalisation** (FX06) est posée par un port d'écriture ségrégué `IPaTransmissionJournal`
+> (`Documents.Contracts`, symétrique au read `IPaTransmissionJournalQueries`), et la **trace de support**
+> par `ISupportTraceStore` (`SupportTrace.Contracts`), tous deux sur le chemin Factur-X uniquement.
+
 ### 6.2 Canaux de livraison (abstraction définie dans `Transmission.Contracts`)
 
 Le plug-in transmet via une **nouvelle abstraction définie dans `Transmission.Contracts`**, p. ex.

@@ -103,6 +103,59 @@ public sealed class SendTenantJobTests
     }
 
     [Fact]
+    public async Task ReadyToSend_With_FacturX_Capable_Pa_Generates_Transmits_Journals_And_Traces()
+    {
+        // Chemin « Essentiel » bout-en-bout (FX07, F16 §6.1/§7) : facture B2C → Factur-X généré AVANT
+        // transmission (piloté par SupportsFacturXTransmission, jamais if (pa is X)) → transmis (artefact
+        // pré-construit passé tel quel au plug-in) → journalisé (F06) + trace de support.
+        var (id, queries, lifecycle, staging) = SeedSingle("ReadyToSend");
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var purge = new SendTestDoubles.RecordingStagingPurgeService(wormPresent: true);
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var pa = new SendTestDoubles.FacturXCapablePaClient();
+        var artifact = System.Text.Encoding.ASCII.GetBytes("%PDF-1.7 factur-x e2e");
+        var builder = new SendTestDoubles.StubFacturXArtifactBuilder(artifact);
+        var journal = new SendTestDoubles.RecordingPaTransmissionJournal();
+        var trace = new SendTestDoubles.RecordingSupportTraceStore();
+
+        var account = SendTestData.ActiveAccount("generique");
+        var provider = BuildFacturXProvider(
+            new SendTestDoubles.ConfigurableTenantSettingsQueries(TenantCompany, new[] { account }),
+            queries, lifecycle, staging, purge, archive, runLogs, pa, builder, journal, trace);
+
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        // 1) GÉNÉRATION à l'étape Sending, AVANT transmission, pilotée par la capacité.
+        builder.BuildCount.Should().Be(1, "le Factur-X est généré à l'étape Sending (jamais dans FinalizeIssuedAsync).");
+
+        // 2) TRANSMISSION de l'artefact pré-construit, identique (jamais régénéré côté plug-in).
+        pa.SendCount.Should().Be(1);
+        pa.ReceivedArtifact.Should().Equal(artifact, "le plug-in reçoit l'artefact pré-construit via le PaSendContext.");
+        lifecycle.Issued.Should().ContainSingle().Which.Should().Be(id);
+
+        // 3) JOURNALISATION (F06 append-only) avec empreinte de l'artefact + clé d'idempotence recherchable.
+        var documentNumber = (await queries.GetByIdAsync(id))!.DocumentNumber;
+        journal.Entries.Should().ContainSingle();
+        var entry = journal.Entries[0];
+        entry.DocumentId.Should().Be(id);
+        entry.PaPluginId.Should().Be(account.PluginType);
+        entry.PaAccount.Should().Be(account.AccountIdentifiers);
+        entry.IdempotencyKey.Should().Be(documentNumber);
+        entry.TransmittedArtifactHash.Should().StartWith("sha256:");
+        entry.PaResponseSnapshot.Should().Contain("accepted");
+
+        // 4) TRACE DE SUPPORT : copie de l'artefact réellement transmis, tenant-scopée.
+        trace.Writes.Should().ContainSingle();
+        trace.Writes[0].TenantId.Should().Be(SendTestData.TenantSlug);
+        trace.Writes[0].DocumentId.Should().Be(id);
+        trace.Writes[0].FacturX.Should().Equal(artifact);
+
+        archive.Requests.Should().ContainSingle();
+        purge.Calls.Should().ContainSingle();
+        runLogs.Saved[^1].DocumentsSucceeded.Should().Be(1);
+    }
+
+    [Fact]
     public async Task Rejected_By_Pa_Keeps_Staging_And_Does_Not_Purge()
     {
         var (id, queries, lifecycle, staging) = SeedSingle("ReadyToSend");
@@ -272,6 +325,39 @@ public sealed class SendTenantJobTests
             .Add<Liakont.Modules.Staging.Contracts.IPayloadStagingStore>(staging)
             .Add<Liakont.Modules.Staging.Contracts.IStagingPurgeService>(purge)
             .Add<Liakont.Modules.Archive.Contracts.IArchiveService>(archive)
+            .Add<Liakont.Modules.Pipeline.Application.IPipelineRunLogStore>(runLogs);
+    }
+
+    /// <summary>
+    /// Provider du chemin Factur-X (FX07) : comme <see cref="BuildProvider"/> mais avec une PA à capacité
+    /// <c>SupportsFacturXTransmission</c> et les services de génération / journalisation / trace de support.
+    /// </summary>
+    private static SendTestDoubles.FakeServiceProvider BuildFacturXProvider(
+        SendTestDoubles.ConfigurableTenantSettingsQueries tenantSettings,
+        SendTestDoubles.ConfigurableDocumentQueries queries,
+        SendTestDoubles.RecordingDocumentLifecycle lifecycle,
+        SendTestDoubles.MapStagingStore staging,
+        SendTestDoubles.RecordingStagingPurgeService purge,
+        SendTestDoubles.RecordingArchiveService archive,
+        SendTestDoubles.RecordingRunLogStore runLogs,
+        SendTestDoubles.FacturXCapablePaClient paClient,
+        SendTestDoubles.StubFacturXArtifactBuilder builder,
+        SendTestDoubles.RecordingPaTransmissionJournal journal,
+        SendTestDoubles.RecordingSupportTraceStore trace)
+    {
+        return new SendTestDoubles.FakeServiceProvider()
+            .Add<TimeProvider>(new SendTestDoubles.FixedTimeProvider(SendTestData.Now))
+            .Add<ILogger<SendTenantJob>>(NullLogger<SendTenantJob>.Instance)
+            .Add<Liakont.Modules.TenantSettings.Contracts.Queries.ITenantSettingsQueries>(tenantSettings)
+            .Add<IPaClientRegistry>(new SendTestDoubles.StubPaClientRegistry(paClient))
+            .Add<Liakont.Modules.Documents.Contracts.Queries.IDocumentQueries>(queries)
+            .Add<Liakont.Modules.Documents.Contracts.Lifecycle.IDocumentLifecycle>(lifecycle)
+            .Add<Liakont.Modules.Documents.Contracts.Lifecycle.IPaTransmissionJournal>(journal)
+            .Add<Liakont.Modules.Staging.Contracts.IPayloadStagingStore>(staging)
+            .Add<Liakont.Modules.Staging.Contracts.IStagingPurgeService>(purge)
+            .Add<Liakont.Modules.Archive.Contracts.IArchiveService>(archive)
+            .Add<Liakont.Modules.SupportTrace.Contracts.ISupportTraceStore>(trace)
+            .Add<Liakont.Modules.Transmission.Contracts.IFacturXArtifactBuilder>(builder)
             .Add<Liakont.Modules.Pipeline.Application.IPipelineRunLogStore>(runLogs);
     }
 }

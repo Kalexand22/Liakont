@@ -3,6 +3,7 @@ namespace Liakont.Modules.Pipeline.Infrastructure.Send;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Liakont.Agent.Contracts.Pivot;
@@ -15,6 +16,7 @@ using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Domain;
 using Liakont.Modules.Pipeline.Infrastructure.Serialization;
 using Liakont.Modules.Staging.Contracts;
+using Liakont.Modules.SupportTrace.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
 using Liakont.Modules.Transmission.Contracts;
@@ -116,20 +118,28 @@ public sealed partial class SendTenantJob : ITenantJob
         var registry = services.GetRequiredService<IPaClientRegistry>();
         var paClient = registry.Resolve(new PaAccountDescriptor(active.PluginType, tenantId));
 
-        // DIAGNOSTIC PA (F04 §3.1) : SIREN publié / tax_report_setting actif. Une LECTURE — autorisée même en dry-run.
-        var setting = await paClient.GetTaxReportSettingAsync(cancellationToken);
-        if (!IsTaxReportSettingActive(setting, timeProvider))
+        // DIAGNOSTIC PA (F04 §3.1) : SIREN publié / tax_report_setting actif. Une LECTURE — autorisée même en
+        // dry-run. Piloté par CAPACITÉ (jamais if (pa is …), CLAUDE.md n°8) : ce pré-requis vaut pour les PA de
+        // niveau « Pilotage » (e-reporting, où l'envoi exige un SIREN publié côté PA). Une PA de niveau
+        // « Essentiel » qui ne fait que TRANSMETTRE un Factur-X pré-construit (SupportsFacturXTransmission,
+        // email/dépôt de fichier — F16 §6) n'a AUCUN tax_report_setting : la sauter ici est la seule façon
+        // qu'elle ait pour transmettre (sinon son réglage neutre faute « Transport not available »).
+        if (!paClient.Capabilities.SupportsFacturXTransmission)
         {
-            LogTransportNotAvailable(logger, tenantId);
-            await WriteRunLogAsync(
-                services,
-                timeProvider,
-                _trigger,
-                startedAt,
-                new SendTally(),
-                "SEND : SIREN non publié / paramétrage de transmission (tax_report_setting) inactif côté Plateforme Agréée — aucun envoi (documents maintenus ReadyToSend). Action opérateur : faites publier le SIREN auprès de la PA, puis relancez l'envoi.",
-                cancellationToken);
-            return;
+            var setting = await paClient.GetTaxReportSettingAsync(cancellationToken);
+            if (!IsTaxReportSettingActive(setting, timeProvider))
+            {
+                LogTransportNotAvailable(logger, tenantId);
+                await WriteRunLogAsync(
+                    services,
+                    timeProvider,
+                    _trigger,
+                    startedAt,
+                    new SendTally(),
+                    "SEND : SIREN non publié / paramétrage de transmission (tax_report_setting) inactif côté Plateforme Agréée — aucun envoi (documents maintenus ReadyToSend). Action opérateur : faites publier le SIREN auprès de la PA, puis relancez l'envoi.",
+                    cancellationToken);
+                return;
+            }
         }
 
         if (_dryRun)
@@ -153,18 +163,18 @@ public sealed partial class SendTenantJob : ITenantJob
         var sending = await services.GetRequiredService<IDocumentQueries>().GetPotentiallySentDocumentsAsync(cancellationToken);
         foreach (var summary in sending)
         {
-            tally.Add(await SafeProcessAsync(() => RecoverSendingAsync(services, paClient, tenantId, summary.Id, logger, cancellationToken), summary.Id, logger, cancellationToken));
+            tally.Add(await SafeProcessAsync(() => RecoverSendingAsync(services, paClient, active, timeProvider, tenantId, summary.Id, logger, cancellationToken), summary.Id, logger, cancellationToken));
         }
 
         // 2) Retry des TechnicalError (anti-doublon vérifié AVANT tout renvoi).
         await ForEachByStateAsync(
             services,
             TechnicalErrorStateName,
-            async id => tally.Add(await SafeProcessAsync(() => RetryTechnicalErrorAsync(services, paClient, tenantId, id, logger, cancellationToken), id, logger, cancellationToken)),
+            async id => tally.Add(await SafeProcessAsync(() => RetryTechnicalErrorAsync(services, paClient, active, timeProvider, tenantId, id, logger, cancellationToken), id, logger, cancellationToken)),
             cancellationToken);
 
         // 3) Envoi des ReadyToSend (les FACTURES d'origine des avoirs sont émises ICI, avant la réconciliation).
-        await SendReadyToSendPassAsync(services, paClient, tenantId, tally, logger, cancellationToken);
+        await SendReadyToSendPassAsync(services, paClient, active, timeProvider, tenantId, tally, logger, cancellationToken);
 
         // 4) RÉORDONNANCEMENT DES AVOIRS (PIP02, F07 §B.5) : un avoir resté Blocked parce que sa facture d'origine
         //    n'était pas (encore) émise est ré-évalué dès lors que l'origine est désormais émise (Blocked →
@@ -176,7 +186,7 @@ public sealed partial class SendTenantJob : ITenantJob
         //    les ReadyToSend : sinon les différés / ignorés de l'étape 3 seraient recomptés dans la trace SEND).
         foreach (var documentId in unblockedCreditNotes)
         {
-            tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, tenantId, documentId, logger, cancellationToken), documentId, logger, cancellationToken));
+            tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, active, timeProvider, tenantId, documentId, logger, cancellationToken), documentId, logger, cancellationToken));
         }
 
         var detail = unblockedCreditNotes.Count > 0
@@ -190,6 +200,8 @@ public sealed partial class SendTenantJob : ITenantJob
     private static Task SendReadyToSendPassAsync(
         IServiceProvider services,
         IPaClient paClient,
+        PaAccountDto account,
+        TimeProvider timeProvider,
         string tenantId,
         SendTally tally,
         ILogger logger,
@@ -197,7 +209,7 @@ public sealed partial class SendTenantJob : ITenantJob
         ForEachByStateAsync(
             services,
             ReadyToSendStateName,
-            async id => tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, tenantId, id, logger, cancellationToken), id, logger, cancellationToken)),
+            async id => tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, account, timeProvider, tenantId, id, logger, cancellationToken), id, logger, cancellationToken)),
             cancellationToken);
 
     /// <summary>Premier compte Plateforme Agréée ACTIF du tenant (l'envoi passe par lui), ou <c>null</c>.</summary>
@@ -222,6 +234,8 @@ public sealed partial class SendTenantJob : ITenantJob
     private static async Task<SendOutcome> RecoverSendingAsync(
         IServiceProvider services,
         IPaClient paClient,
+        PaAccountDto account,
+        TimeProvider timeProvider,
         string tenantId,
         Guid documentId,
         ILogger logger,
@@ -265,14 +279,16 @@ public sealed partial class SendTenantJob : ITenantJob
 
         // Pas de référence connue / la PA ne connaît pas le document : on renvoie (déjà Sending). La PA
         // déduplique par numéro (F05) : un document déjà émis revient Issued SANS nouvelle émission.
-        var result = await paClient.SendDocumentAsync(staged.Pivot!, sendAfterImport: true, cancellationToken);
-        return await HandleSendResultAsync(services, tenantId, document, staged.Pivot!, staged.Json!, result, logger, cancellationToken);
+        var (result, facturX) = await TransmitAsync(services, paClient, account, timeProvider, staged.Pivot!, cancellationToken);
+        return await HandleSendResultAsync(services, tenantId, document, staged.Pivot!, staged.Json!, result, facturX, logger, cancellationToken);
     }
 
     /// <summary>Retente un document <c>TechnicalError</c> : anti-doublon d'abord, puis TechnicalError → ReadyToSend → Sending → envoi.</summary>
     private static async Task<SendOutcome> RetryTechnicalErrorAsync(
         IServiceProvider services,
         IPaClient paClient,
+        PaAccountDto account,
+        TimeProvider timeProvider,
         string tenantId,
         Guid documentId,
         ILogger logger,
@@ -329,14 +345,16 @@ public sealed partial class SendTenantJob : ITenantJob
         }
 
         await lifecycle.BeginSendingAsync(documentId, cancellationToken);
-        var result = await paClient.SendDocumentAsync(staged.Pivot!, sendAfterImport: true, cancellationToken);
-        return await HandleSendResultAsync(services, tenantId, document, staged.Pivot!, staged.Json!, result, logger, cancellationToken);
+        var (result, facturX) = await TransmitAsync(services, paClient, account, timeProvider, staged.Pivot!, cancellationToken);
+        return await HandleSendResultAsync(services, tenantId, document, staged.Pivot!, staged.Json!, result, facturX, logger, cancellationToken);
     }
 
     /// <summary>Envoie un document <c>ReadyToSend</c> : ReadyToSend → Sending → envoi → issue.</summary>
     private static async Task<SendOutcome> SendReadyAsync(
         IServiceProvider services,
         IPaClient paClient,
+        PaAccountDto account,
+        TimeProvider timeProvider,
         string tenantId,
         Guid documentId,
         ILogger logger,
@@ -374,8 +392,8 @@ public sealed partial class SendTenantJob : ITenantJob
         }
 
         await services.GetRequiredService<IDocumentLifecycle>().BeginSendingAsync(documentId, cancellationToken);
-        var result = await paClient.SendDocumentAsync(staged.Pivot!, sendAfterImport: true, cancellationToken);
-        return await HandleSendResultAsync(services, tenantId, document, staged.Pivot!, staged.Json!, result, logger, cancellationToken);
+        var (result, facturX) = await TransmitAsync(services, paClient, account, timeProvider, staged.Pivot!, cancellationToken);
+        return await HandleSendResultAsync(services, tenantId, document, staged.Pivot!, staged.Json!, result, facturX, logger, cancellationToken);
     }
 
     /// <summary>
@@ -412,7 +430,11 @@ public sealed partial class SendTenantJob : ITenantJob
         }
 
         var paResponseJson = SendPaSnapshot.FromStatus(status);
-        await FinalizeIssuedAsync(services, tenantId, document, pivot, canonicalJson, paResponseJson, status.PaDocumentId, cancellationToken);
+
+        // Finalisation ANTI-DOUBLON : la PA connaissait déjà le document — AUCUNE transmission n'a eu lieu
+        // ce cycle, donc aucun artefact transmis à journaliser (facturX null). L'éventuelle journalisation
+        // FX07 a déjà été posée lors de la transmission d'origine.
+        await FinalizeIssuedAsync(services, tenantId, document, pivot, canonicalJson, paResponseJson, status.PaDocumentId, facturX: null, cancellationToken);
         LogAntiDuplicateFinalized(logger, document.Id);
         return true;
     }
@@ -425,6 +447,7 @@ public sealed partial class SendTenantJob : ITenantJob
         PivotDocumentDto pivot,
         string canonicalJson,
         PaSendResult result,
+        FacturXTransmission? facturX,
         ILogger logger,
         CancellationToken cancellationToken)
     {
@@ -432,7 +455,10 @@ public sealed partial class SendTenantJob : ITenantJob
         switch (result.State)
         {
             case PaSendState.Issued:
-                await FinalizeIssuedAsync(services, tenantId, document, pivot, canonicalJson, SendPaSnapshot.FromSendResult(result), result.PaDocumentId, cancellationToken);
+                // facturX non nul UNIQUEMENT si la PA active a généré+transmis un Factur-X (capacité
+                // SupportsFacturXTransmission) : la journalisation FX07 + la trace de support n'ont lieu que
+                // sur une transmission RÉUSSIE (Issued), jamais sur un rejet/erreur (pas d'artefact « transmis »).
+                await FinalizeIssuedAsync(services, tenantId, document, pivot, canonicalJson, SendPaSnapshot.FromSendResult(result), result.PaDocumentId, facturX, cancellationToken);
                 return SendOutcome.Succeeded;
 
             case PaSendState.RejectedByPa:
@@ -461,9 +487,13 @@ public sealed partial class SendTenantJob : ITenantJob
     }
 
     /// <summary>
-    /// Émission : archive WORM (TRK05) d'abord (idempotente) PUIS MarkIssued (preuve) PUIS purge du staging
-    /// subordonnée au WORM (ADR-0014 §4) — ordre auto-cicatrisant : un échec après l'archive laisse le document
-    /// Sending, ré-émis et dédoublonné au cycle suivant.
+    /// Émission : archive WORM (TRK05) d'abord (idempotente) PUIS MarkIssued (preuve) PUIS — sur le chemin
+    /// Factur-X (FX07) — journalisation de l'envoi PA (F06 append-only) + trace de support, PUIS purge du
+    /// staging subordonnée au WORM (ADR-0014 §4) — ordre auto-cicatrisant : un échec après l'archive laisse le
+    /// document Sending, ré-émis et dédoublonné au cycle suivant. <paramref name="facturX"/> non nul ⇔ un
+    /// Factur-X a été GÉNÉRÉ et TRANSMIS ce cycle (PA à capacité <c>SupportsFacturXTransmission</c>) : c'est la
+    /// seule branche qui journalise et trace l'artefact (F16 §7) ; les PA de niveau Pilotage le laissent nul
+    /// et leur chemin reste INCHANGÉ.
     /// </summary>
     private static async Task FinalizeIssuedAsync(
         IServiceProvider services,
@@ -473,6 +503,7 @@ public sealed partial class SendTenantJob : ITenantJob
         string canonicalJson,
         string paResponseJson,
         string? paDocumentId,
+        FacturXTransmission? facturX,
         CancellationToken cancellationToken)
     {
         var mappingTraceJson = System.Text.Json.JsonSerializer.Serialize(
@@ -494,10 +525,92 @@ public sealed partial class SendTenantJob : ITenantJob
             },
             cancellationToken);
 
+        // FX07 (F16 §7) : sur le chemin Factur-X, journaliser l'envoi (piste d'audit F06 APPEND-ONLY :
+        // compte/plug-in PA, horodatages, empreinte de l'artefact, clé d'idempotence, réponse PA) PUIS écrire
+        // la trace de support (copie du Factur-X transmis, store DÉDIÉ purgeable, tenant-scopé n°9 — distinct
+        // de l'audit WORM). Aucun chemin update/delete sur document_events (CLAUDE.md n°4).
+        if (facturX is not null)
+        {
+            await services.GetRequiredService<IPaTransmissionJournal>().JournalAsync(
+                new PaTransmissionJournalEntry
+                {
+                    DocumentId = document.Id,
+                    PaAccount = facturX.PaAccount,
+                    PaPluginId = facturX.PaPluginId,
+                    PaRequestUtc = facturX.RequestUtc,
+                    PaResponseUtc = facturX.ResponseUtc,
+                    TransmittedArtifactHash = facturX.ArtifactHash,
+                    IdempotencyKey = document.DocumentNumber,
+                    PaResponseSnapshot = paResponseJson,
+                    Detail = string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"Factur-X transmis à la Plateforme Agréée (compte « {facturX.PaAccount} », plug-in « {facturX.PaPluginId} »)."),
+                },
+                cancellationToken);
+
+            await services.GetRequiredService<ISupportTraceStore>().WriteAsync(
+                tenantId, document.Id, facturX.Artifact, facturX.ResponseUtc, cancellationToken);
+        }
+
         // Purge subordonnée à la présence EFFECTIVE du paquet WORM (jamais à la seule étiquette Issued).
         var key = new StagedPayloadKey(tenantId, document.Id, document.PayloadHash);
         var locator = new ArchivedDocumentLocator(document.Id, document.IssueDate.Year, document.IssueDate.Month, document.DocumentNumber);
         await services.GetRequiredService<IStagingPurgeService>().PurgeIfArchivedAsync(key, locator, cancellationToken);
+    }
+
+    /// <summary>
+    /// Transmet le pivot à la PA active à l'étape <c>Sending</c> (F16 §6.1) : si la PA déclare
+    /// <c>SupportsFacturXTransmission</c> (jamais <c>if (pa is …)</c>, CLAUDE.md n°8), GÉNÈRE le Factur-X
+    /// scellé JUSTE AVANT l'appel de transmission (via le pont <see cref="IFacturXArtifactBuilder"/> résolu
+    /// au Host, qui délègue à <c>IFacturXBuilder</c>) et le passe au plug-in dans le <see cref="PaSendContext"/> ;
+    /// les PA de niveau Pilotage ne génèrent rien (contexte nul, chemin inchangé). Capture les horodatages
+    /// requête/réponse et l'empreinte de l'artefact pour la journalisation FX07 (renvoyés via
+    /// <see cref="FacturXTransmission"/>, non nul uniquement sur le chemin Factur-X).
+    /// </summary>
+    private static async Task<(PaSendResult Result, FacturXTransmission? FacturX)> TransmitAsync(
+        IServiceProvider services,
+        IPaClient paClient,
+        PaAccountDto account,
+        TimeProvider timeProvider,
+        PivotDocumentDto pivot,
+        CancellationToken cancellationToken)
+    {
+        PaSendContext? context = null;
+        ReadOnlyMemory<byte> artifact = default;
+
+        if (paClient.Capabilities.SupportsFacturXTransmission)
+        {
+            // Génération déterministe du pivot SEUL, AVANT la transmission (jamais dans FinalizeIssuedAsync —
+            // qui s'exécute en aval, après le retour Issued : y générer produirait l'artefact APRÈS l'envoi,
+            // faux-vert F16 §6.1/§7). Bloque (lève) si un BT obligatoire manque (ADR-0023 INV-FX-2).
+            artifact = await services.GetRequiredService<IFacturXArtifactBuilder>()
+                .BuildSealedArtifactAsync(pivot, cancellationToken);
+            context = new PaSendContext(artifact);
+        }
+
+        var requestUtc = timeProvider.GetUtcNow();
+        var result = await paClient.SendDocumentAsync(pivot, sendAfterImport: true, context, cancellationToken);
+        var responseUtc = timeProvider.GetUtcNow();
+
+        FacturXTransmission? facturX = artifact.IsEmpty
+            ? null
+            : new FacturXTransmission(
+                artifact,
+                ComputeSha256Hex(artifact.Span),
+                requestUtc,
+                responseUtc,
+                account.AccountIdentifiers,
+                account.PluginType);
+
+        return (result, facturX);
+    }
+
+    /// <summary>Empreinte SHA-256 (hex minuscule, préfixe <c>sha256:</c>) de l'artefact transmis — pour la piste d'audit FX07.</summary>
+    private static string ComputeSha256Hex(ReadOnlySpan<byte> bytes)
+    {
+        Span<byte> hash = stackalloc byte[32];
+        SHA256.HashData(bytes, hash);
+        return "sha256:" + Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     /// <summary>Relit le pivot stagé (PIP00) et re-vérifie l'intégrité. Absence = transitoire ; altération = à bloquer.</summary>
@@ -683,4 +796,17 @@ public sealed partial class SendTenantJob : ITenantJob
     [LoggerMessage(EventId = 7212, Level = LogLevel.Error,
         Message = "SEND : échec inattendu sur le document {DocumentId} — document ignoré ce cycle, traitement du tenant poursuivi.")]
     private static partial void LogDocumentSendFailed(ILogger logger, Guid documentId, Exception exception);
+
+    /// <summary>
+    /// Données capturées d'une transmission Factur-X (FX07) : l'artefact transmis (pour la trace de support),
+    /// son empreinte, les horodatages requête/réponse et le compte/plug-in PA — alimentent la journalisation
+    /// d'envoi (F06) et la trace de support. Non null uniquement sur le chemin Factur-X (capacité déclarée).
+    /// </summary>
+    private sealed record FacturXTransmission(
+        ReadOnlyMemory<byte> Artifact,
+        string ArtifactHash,
+        DateTimeOffset RequestUtc,
+        DateTimeOffset ResponseUtc,
+        string PaAccount,
+        string PaPluginId);
 }

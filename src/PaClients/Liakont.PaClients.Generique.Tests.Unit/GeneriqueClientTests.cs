@@ -11,10 +11,10 @@ using Xunit;
 /// TYPÉ (jamais d'exception — PAA01). Note : le plug-in n'hérite PAS de <c>PaClientContractTests</c> (qui
 /// cible les PA construisant un payload) — c'est une PA « Essentiel » qui ne fait que transmettre.
 /// <para>
-/// <c>TransmitFacturXAsync</c> est la voie de transmission réelle, exercée ici en unitaire ; elle est
-/// branchée au pipeline (génération à l'étape Sending + passage de l'artefact) par FX07 — qui câble aussi
-/// le plug-in au Host. Tant que FX07 n'est pas livré, le plug-in n'est PAS enregistré (cf. AppBootstrap) :
-/// <c>SendDocumentAsync</c> ne peut donc pas être atteint en production, et son blocage reste un garde-fou.
+/// Depuis FX07, <c>SendDocumentAsync</c> route via le <c>PaSendContext</c> étendu (F16 §6.1) : artefact
+/// pré-construit présent → transmission réelle (déléguée à <c>TransmitFacturXAsync</c>) ; absent → blocage
+/// (jamais d'envoi à vide). <c>TransmitFacturXAsync</c> reste la voie de transmission réelle, exercée ici en
+/// unitaire et consommée par le câblage pipeline (génération à l'étape Sending + passage de l'artefact).
 /// </para>
 /// </summary>
 public sealed class GeneriqueClientTests
@@ -54,17 +54,52 @@ public sealed class GeneriqueClientTests
     }
 
     [Fact]
-    public async Task SendDocumentAsync_Blocks_Because_Artifact_Not_Carried_Before_FX07()
+    public async Task SendDocumentAsync_Without_Context_Blocks()
     {
         var channel = new RecordingDeliveryChannel(DocumentDeliveryMethod.Email);
         var client = EmailClient(channel);
 
+        // Aucun contexte d'envoi (donc aucun artefact pré-construit) → blocage re-tentable, JAMAIS Issued :
+        // la PA générique exige l'artefact fourni par le pipeline (FX07), jamais régénéré (CLAUDE.md n°3/6).
         var result = await client.SendDocumentAsync(TestDocuments.Invoice("F-2026-001"));
 
-        // Bloque (re-tentable), JAMAIS Issued : l'artefact pré-construit n'est pas porté par le contrat (FX07).
         result.State.Should().Be(PaSendState.TechnicalError);
         result.Errors.Should().ContainSingle(e => e.Code == "FXG_ARTEFACT_REQUIS");
         channel.DeliverCount.Should().Be(0, "aucune transmission sans artefact (jamais d'envoi à vide)");
+    }
+
+    [Fact]
+    public async Task SendDocumentAsync_With_Empty_Artifact_Context_Blocks()
+    {
+        var channel = new RecordingDeliveryChannel(DocumentDeliveryMethod.Email);
+        var client = EmailClient(channel);
+
+        // Contexte présent mais artefact vide → même garde-fou : on bloque plutôt que d'émettre à vide.
+        var result = await client.SendDocumentAsync(
+            TestDocuments.Invoice("F-2026-001b"),
+            context: new PaSendContext(ReadOnlyMemory<byte>.Empty));
+
+        result.State.Should().Be(PaSendState.TechnicalError);
+        result.Errors.Should().ContainSingle(e => e.Code == "FXG_ARTEFACT_REQUIS");
+        channel.DeliverCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task SendDocumentAsync_With_PreBuilt_Artifact_Transmits()
+    {
+        var channel = new RecordingDeliveryChannel(DocumentDeliveryMethod.Email);
+        var client = EmailClient(channel);
+
+        // FX07 : l'artefact pré-construit est porté par le PaSendContext → SendDocumentAsync transmet
+        // (route vers TransmitFacturXAsync), exactement l'artefact reçu, sans jamais le régénérer.
+        var result = await client.SendDocumentAsync(
+            TestDocuments.Invoice("F-2026-001c"),
+            context: new PaSendContext(SampleFacturX));
+
+        result.State.Should().Be(PaSendState.Issued);
+        result.PaDocumentId.Should().Be("GENERIQUE-F-2026-001c");
+        channel.DeliverCount.Should().Be(1);
+        channel.LastRequest!.Content.ToArray().Should().Equal(SampleFacturX);
     }
 
     [Fact]

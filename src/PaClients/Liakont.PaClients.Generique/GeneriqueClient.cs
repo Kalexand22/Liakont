@@ -42,18 +42,25 @@ internal sealed class GeneriqueClient : IPaClient
     public Task<PaSendResult> SendDocumentAsync(
         PivotDocumentDto document,
         bool sendAfterImport = true,
+        PaSendContext? context = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(document);
         cancellationToken.ThrowIfCancellationRequested();
 
         // La PA générique (Essentiel) ne fait que TRANSPORTER un Factur-X DÉJÀ SCELLÉ produit par la
-        // plateforme à l'étape d'envoi. Le contrat IPaClient ne porte pas (encore) l'artefact pré-construit :
-        // son extension (PaSendContext) ET le câblage pipeline qui génère l'artefact puis appelle
-        // TransmitFacturXAsync sont scopés à FX07 (F16 §6.1). En l'absence d'artefact, on BLOQUE — jamais de
-        // régénération dans le plug-in (indépendance plug-in, CLAUDE.md n°6), jamais d'émission « à vide »
-        // (bloquer plutôt qu'envoyer faux, CLAUDE.md n°3).
-        return Task.FromResult(BlockedMissingArtifact(document.Number));
+        // plateforme à l'étape d'envoi (FX07, F16 §6.1) et passé via le contexte d'envoi étendu
+        // (PaSendContext.PreBuiltArtifact). En l'absence d'artefact (contexte nul / octets vides), on BLOQUE :
+        // jamais de régénération dans le plug-in (indépendance plug-in, CLAUDE.md n°6), jamais d'émission
+        // « à vide » (bloquer plutôt qu'envoyer faux, CLAUDE.md n°3). sendAfterImport n'a pas de sémantique
+        // « créer sans envoyer » côté Essentiel (transmission fire-and-forget) : la transmission est inconditionnelle.
+        var artifact = context?.PreBuiltArtifact ?? default;
+        if (artifact.IsEmpty)
+        {
+            return Task.FromResult(BlockedMissingArtifact(document.Number));
+        }
+
+        return TransmitFacturXAsync(document.Number, artifact, cancellationToken);
     }
 
     /// <inheritdoc />

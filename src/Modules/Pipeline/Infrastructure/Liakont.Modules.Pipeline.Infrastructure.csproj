@@ -35,6 +35,9 @@
          Contracts d'autres modules — aucun plug-in PA concret (frontière P1, CLAUDE.md n°6/14). -->
     <ProjectReference Include="../../Transmission/Contracts/Liakont.Modules.Transmission.Contracts.csproj" />
     <ProjectReference Include="../../Archive/Contracts/Liakont.Modules.Archive.Contracts.csproj" />
+    <!-- FX07 — SEND : trace de support du Factur-X transmis (store dédié, purgeable, tenant-scopé,
+         distinct de l'audit WORM). Contracts uniquement (frontière P1, CLAUDE.md n°14). -->
+    <ProjectReference Include="../../SupportTrace/Contracts/Liakont.Modules.SupportTrace.Contracts.csproj" />
     <ProjectReference Include="../../Job/Contracts/Stratum.Modules.Job.Contracts.csproj" />
   </ItemGroup>
 </Project>

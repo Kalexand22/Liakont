@@ -36,8 +36,12 @@ Aucun en FX02 (le port est synchrone, appelé par le pipeline à l'étape Sendin
 
 ## Consumed Events
 
-Aucun en FX02. Le port `IFacturXBuilder` sera **appelé directement** par le pipeline (FX07) à l'étape
-Sending, AVANT la transmission au plug-in PA, lorsque la PA active déclare `SupportsFacturXTransmission`.
+Aucun en FX02. Le port `IFacturXBuilder` est **appelé à l'étape Sending** (FX07), AVANT la transmission au
+plug-in PA, lorsque la PA active déclare `SupportsFacturXTransmission`. Pour respecter la frontière
+Contracts-only (le pipeline ne peut référencer la couche `Application` d'un autre module — module-rules §3),
+l'appel passe par le **pont `IFacturXArtifactBuilder`** (`Transmission.Contracts`), **implémenté au Host**
+en déléguant à `IFacturXBuilder` (cf. F16 §6.1, note d'amendement 2026-06-16). FacturX reste indépendant des
+PA (INV-FX-4) : c'est le pipeline appelant, pas FacturX, qui décide de générer.
 
 ## Dependencies
 

@@ -50,6 +50,11 @@ public static class DocumentsModuleRegistration
         // même implémentation ; consommée par le pipeline (FX07, anti double-journalisation) et le support.
         services.AddScoped<IPaTransmissionJournalQueries, PostgresDocumentQueries>();
 
+        // Écriture (append-only) du journal d'envoi PA (FX07, F16 §7) : seule surface autorisée pour que le
+        // pipeline consigne la transmission d'un Factur-X (frontière Contracts-only). Ségrégée du port de
+        // transitions IDocumentLifecycle (symétrique au read IPaTransmissionJournalQueries).
+        services.AddScoped<IPaTransmissionJournal, PaTransmissionJournal>();
+
         // Anti-doublon AVANT envoi (TRK03, F06 §4) — port consommé par le pipeline (PIP01).
         services.AddScoped<IDuplicateDocumentCheck, PostgresDuplicateDocumentCheck>();
 
