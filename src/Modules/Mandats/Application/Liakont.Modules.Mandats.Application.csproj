@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Couche Application du module Mandats : abstraction d'unité de travail + entrée de journal.
+       MND01 (fondation) n'a aucun handler MediatR — ils arrivent avec les items suivants (MND02+).
+       Aucune dépendance inter-module (INV-MANDATS-2). -->
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.Mandats.Domain.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- Microsoft.Extensions.* (DI, Options) du framework partagé — aucun package NuGet nouveau,
+         aucun ADR requis (repo-standards §4). MND01 ne porte aucun secret. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.Mandats.Tests.Unit" />
+    <InternalsVisibleTo Include="Liakont.Modules.Mandats.Tests.Integration" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.Mandats.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.Mandats.Application.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.Mandats.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

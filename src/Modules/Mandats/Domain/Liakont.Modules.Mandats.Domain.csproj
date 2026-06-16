@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Domain du module Mandats (ADR-0022, F15 §2) : agrégats Mandant/Mandat + cycle de vie.
+       Pur BCL — le mandat ne porte aucun montant (aucun decimal/float ici) et aucune règle fiscale
+       n'est inventée (CLAUDE.md n°1/2). Aucune dépendance inter-module (frontière, INV-MANDATS-2). -->
+</Project>
