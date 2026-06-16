@@ -1,9 +1,12 @@
 ﻿#requires -Version 5.1
 <#
 .SYNOPSIS
-    Vérifie HORS PLATEFORME l'intégrité d'un coffre d'archive Liakont exporté (réversibilité ou contrôle
-    fiscal). Outil AUTONOME : aucune dépendance au code Liakont, seul .NET (SHA-256) est utilisé. Destiné
-    au destinataire d'un export (changement de logiciel, contrôle fiscal, fin de contrat).
+    Vérifie HORS PLATEFORME l'intégrité d'un coffre d'archive Liakont exporté. Outil AUTONOME : aucune
+    dépendance au code Liakont, seul .NET (SHA-256) est utilisé. Destiné au destinataire d'un export de
+    RÉVERSIBILITÉ COMPLET (changement de logiciel, fin de contrat). Sur un export PARTIEL (contrôle fiscal
+    mono-document ou par période), seules les empreintes pièce/paquet sont vérifiables — pas le lien de
+    chaîne complet (la tête de chaîne du coffre n'y figure pas) : l'outil le signale (VERDICT=INCOMPLETE)
+    au lieu de conclure à tort à une altération.
 
 .DESCRIPTION
     Recalcule, à partir des seuls fichiers exportés, la chaîne d'empreintes scellée par la plateforme et
@@ -110,6 +113,7 @@ if ($entries.Count -eq 0) {
         exit 2
     }
     Write-Host "Aucun paquet d'archive à vérifier (coffre vide) — rien à signaler." -ForegroundColor Green
+    Write-Host "VERDICT=EMPTY"
     exit 0
 }
 
@@ -181,13 +185,28 @@ while ($remaining.Count -gt 0) {
     $linked++
 }
 
-$chainIntact = ($remaining.Count -eq 0)
-if (-not $chainIntact) {
+# Interprétation du résultat de reconstruction :
+#  - $linked == total                 -> chaîne complète et intègre.
+#  - 0 < $linked < total              -> rupture STRUCTURELLE après la genèse (paquet supprimé / inséré /
+#                                        réordonné, ou tête falsifiée puis recohérencée) = altération.
+#  - $linked == 0 (et contenu intact) -> la chaîne ne s'ancre PAS en genèse : EXPORT PARTIEL (un export
+#                                        de contrôle fiscal ne contient pas la tête de chaîne du coffre).
+#                                        Ce n'est PAS une altération — seules les empreintes pièce/paquet
+#                                        (vérifiées ci-dessus) sont vérifiables hors plateforme.
+$incompleteChain = $false
+if ($linked -eq $entries.Count) {
+    # Chaîne complète, rattachée jusqu'à la dernière entrée.
+}
+elseif ($linked -gt 0) {
     $tampered = $true
     Write-Host "[ALTÉRÉ] rupture de chaîne : $($remaining.Count) entrée(s) ne se rattachent pas (paquet supprimé, inséré ou réordonné)." -ForegroundColor Red
     foreach ($orphan in $remaining) {
         Write-Host "         - $($orphan.ManifestPath)" -ForegroundColor Red
     }
+}
+else {
+    # Aucune entrée ne s'ancre en genèse : export partiel (pas la tête de chaîne du coffre).
+    $incompleteChain = $true
 }
 
 # ── 3) Preuves d'ancrage temporel (signalées ; vérification RFC 3161 hors de cet outil) ──
@@ -203,8 +222,17 @@ if ($anchorProofs.Count -gt 0) {
 Write-Host ""
 if ($tampered) {
     Write-Host "RÉSULTAT : ARCHIVE ALTÉRÉE — au moins une incohérence ci-dessus. NE PAS s'y fier." -ForegroundColor Red
+    Write-Host "VERDICT=TAMPERED"
     exit 1
 }
 
+if ($incompleteChain) {
+    Write-Host "RÉSULTAT : EMPREINTES PIÈCE/PAQUET INTÈGRES — chaîne NON ancrée en genèse (export PARTIEL)." -ForegroundColor Yellow
+    Write-Host "Pour vérifier le LIEN de chaîne complet, fournissez l'export de RÉVERSIBILITÉ COMPLET du tenant." -ForegroundColor Yellow
+    Write-Host "VERDICT=INCOMPLETE"
+    exit 0
+}
+
 Write-Host "RÉSULTAT : ARCHIVE INTÈGRE — toutes les empreintes et le chaînage concordent." -ForegroundColor Green
+Write-Host "VERDICT=OK"
 exit 0

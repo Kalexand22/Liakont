@@ -669,6 +669,29 @@ public sealed class ConsoleApiFactory : IAsyncLifetime, IAsyncDisposable
     }
 
     /// <summary>
+    /// Ajoute un addendum CHAÎNÉ (tax-report) à un paquet déjà archivé, via le VRAI service Archive dans
+    /// un scope tenant — pour exercer la branche addendum de l'outil de vérification hors plateforme (OPS06a).
+    /// </summary>
+    public async Task AddArchiveAddendumAsync(
+        string tenant, Guid documentId, string number, DateOnly issueDate, CancellationToken cancellationToken = default)
+    {
+        var scopeFactory = _app!.Services.GetRequiredService<ITenantScopeFactory>();
+        await using ITenantScope scope = scopeFactory.Create(tenant);
+        var archiveService = scope.Services.GetRequiredService<IArchiveService>();
+        await archiveService.AddAddendumAsync(
+            new ArchiveAddendumRequest
+            {
+                DocumentId = documentId,
+                DocumentNumber = number,
+                IssueDate = issueDate,
+                Kind = "tax-report",
+                Attachment = new ArchiveAttachment(
+                    "tax-report.xml", "application/xml", Encoding.UTF8.GetBytes("<taxReport>OPS06a</taxReport>")),
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Falsifie le contenu d'un paquet d'archive du tenant (un fichier <c>payload.json</c>) en levant le
     /// verrou WORM applicatif (lecture seule) puis en réécrivant — pour exercer la détection d'altération
     /// (API03). Retourne <c>true</c> si un fichier a été falsifié.
