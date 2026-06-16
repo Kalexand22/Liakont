@@ -1,13 +1,26 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
-    <!-- Microsoft.Extensions.* (DI) du framework partagé — aucun package NuGet nouveau, aucun ADR
-         (repo-standards §4). Le registre n'a aucune dépendance base/réseau : pure composition. -->
+    <!-- Microsoft.Extensions.* (DI, Options, Logging) du framework partagé — aucun package NuGet nouveau,
+         aucun ADR (repo-standards §4). Dapper arrive transitivement via Common.Infrastructure. -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Liakont.Modules.Signature.Tests.Unit" />
+    <InternalsVisibleTo Include="Liakont.Modules.Signature.Tests.Integration" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\*.sql" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Contracts/Liakont.Modules.Signature.Contracts.csproj" />
+    <ProjectReference Include="../Domain/Liakont.Modules.Signature.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.Signature.Application.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+    <!-- Rapatriement WORM de la preuve via Archive.Contracts (jamais Archive.Domain, jamais le plug-in —
+         ADR-0029 §5 / INV-YOUSIGN-6). Frontière Contracts-only vérifiée par NetArchTest. -->
+    <ProjectReference Include="../../Archive/Contracts/Liakont.Modules.Archive.Contracts.csproj" />
+    <!-- Seam du job SYSTÈME multi-tenant (drain, gabarit DailyAnchoring/SOL06) : IJobHandler vit dans le
+         module socle vendored Stratum.Modules.Job (mécanique de planification). Réf au Contracts seul. -->
+    <ProjectReference Include="../../Job/Contracts/Stratum.Modules.Job.Contracts.csproj" />
   </ItemGroup>
 </Project>

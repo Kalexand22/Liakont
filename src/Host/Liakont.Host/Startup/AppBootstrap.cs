@@ -19,6 +19,7 @@ using Liakont.Host.Security;
 using Liakont.Host.Security.Abstractions;
 using Liakont.Host.Security.Keycloak;
 using Liakont.Host.Services;
+using Liakont.Host.Signature;
 using Liakont.Host.Staging;
 using Liakont.Modules.Archive.Infrastructure;
 using Liakont.Modules.Archive.Web;
@@ -40,8 +41,10 @@ using Liakont.Modules.Pipeline.Infrastructure.Send;
 using Liakont.Modules.Pipeline.Web;
 using Liakont.Modules.Reconciliation.Infrastructure;
 using Liakont.Modules.Reconciliation.Web;
+using Liakont.Modules.Signature.Application;
 using Liakont.Modules.Signature.Contracts;
 using Liakont.Modules.Signature.Infrastructure;
+using Liakont.Modules.Signature.Infrastructure.Drain;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.Staging.Infrastructure;
 using Liakont.Modules.Supervision.Application;
@@ -54,6 +57,7 @@ using Liakont.Modules.Transmission.Infrastructure;
 using Liakont.Modules.TvaMapping.Infrastructure;
 using Liakont.Modules.TvaMapping.Web;
 using Liakont.Modules.Validation.Infrastructure;
+using Liakont.SignatureProviders.Yousign;
 using MediatR;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -319,6 +323,17 @@ public static class AppBootstrap
         // détectés au démarrage (ValidateSignatureProviderConfiguration, dans InitializeDataAsync).
         builder.Services.AddSignatureModule();
 
+        // Plug-in de signature à distance Yousign (SIG07, ADR-0029) câblé au COMPOSITION ROOT — seul endroit
+        // autorisé à référencer un plug-in concret (CLAUDE.md n°6/14). Le résolveur de compte (déchiffrement
+        // des secrets par tenant via ISecretProtector) est fourni par le Host (le plug-in ne voit pas le
+        // coffre) ; AddYousignSignatureProvider enregistre le client HTTP anti-SSRF + la fabrique (singleton),
+        // que le registre du module Signature découvre par son type. Le drain WORM (job système fan-out par
+        // tenant via TenantJobRunner) est enregistré comme les autres jobs (DailyAnchoring/Supervision).
+        builder.Services.TryAddSingleton<IYousignAccountResolver, YousignAccountResolver>();
+        builder.Services.AddYousignSignatureProvider();
+        builder.Services.AddJobHandler<SignatureWebhookDrainTrigger, SignatureWebhookDrainFanOutHandler>(
+            "Drain des webhooks de signature (rapatriement WORM)");
+
         // DocumentApproval (SIG04, ADR-0028) : workflow de validation de document GÉNÉRIQUE (cœur réutilisable
         // du lot signature) — agrégat à machine fermée par purpose, slots N-parties, journal append-only,
         // règle de gate. Le Host enregistre la persistance (migrations du schéma documentapproval + UoW +
@@ -401,6 +416,19 @@ public static class AppBootstrap
                     factory: _ => new FixedWindowRateLimiterOptions
                     {
                         PermitLimit = 120,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                    }));
+
+            // Webhook de signature (SIG07, ADR-0029) : endpoint anonyme (la vraie garde est le HMAC par
+            // tenant). Fenêtre par IP anti-flood, dimensionnée généreusement (un provider peut émettre des
+            // rafales légitimes) — borne le brute-force/inondation sans rejeter du trafic valide.
+            options.AddPolicy(SignatureWebhookEndpoints.RateLimiterPolicy, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 300,
                         Window = TimeSpan.FromMinutes(1),
                         QueueLimit = 0,
                     }));
@@ -966,6 +994,10 @@ public static class AppBootstrap
         // Endpoint central de la flotte (OPS04) : POST /api/fleet/v1/heartbeat, authentifié par clé
         // d'ingestion (en-tête X-Fleet-Key), actif seulement si le rôle central est activé (sinon 404).
         app.MapFleetApi();
+
+        // Webhooks de signature (SIG07, ADR-0029) : POST /webhooks/signature/{providerType}/{opaqueRef},
+        // anonyme (garde = HMAC par tenant), routage par handle opaque + inbox durable avant 2xx.
+        app.MapSignatureWebhooks();
 
         app.MapRazorComponents<App>()
             .AddAdditionalAssemblies(

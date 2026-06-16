@@ -14,15 +14,25 @@ public sealed record SignatureWebhookResult
     /// <summary>Référence côté fournisseur concernée par l'événement, ou <c>null</c>.</summary>
     public string? ProviderReference { get; init; }
 
+    /// <summary>
+    /// Identifiant d'ÉVÉNEMENT côté fournisseur, ou <c>null</c>. Porte la clé d'idempotence de l'inbox durable
+    /// avec le tenant et le type de fournisseur — <c>(company_id, provider_type, event_id)</c>, jamais
+    /// <c>event_id</c> seul (deux tenants/providers peuvent partager un identifiant — SIG07, ADR-0029 §4).
+    /// Renseigné sur un événement <see cref="SignatureWebhookState.Accepted"/> par les plug-ins à webhook.
+    /// </summary>
+    public string? EventId { get; init; }
+
     /// <summary>Détail de la capacité absente si le webhook n'est pas pertinent pour ce fournisseur ; <c>null</c> sinon.</summary>
     public SignatureCapabilityNotSupportedResult? CapabilityNotSupported { get; init; }
 
     /// <summary>Construit un résultat « webhook accepté » (événement pris en compte).</summary>
     /// <param name="providerReference">Référence côté fournisseur (facultatif).</param>
-    public static SignatureWebhookResult Accepted(string? providerReference = null) => new()
+    /// <param name="eventId">Identifiant d'événement pour l'idempotence de l'inbox (facultatif — SIG07).</param>
+    public static SignatureWebhookResult Accepted(string? providerReference = null, string? eventId = null) => new()
     {
         State = SignatureWebhookState.Accepted,
         ProviderReference = providerReference,
+        EventId = eventId,
     };
 
     /// <summary>Construit un résultat « webhook ignoré » (déjà traité — idempotence, ou non pertinent).</summary>
