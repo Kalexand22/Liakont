@@ -37,9 +37,28 @@
 - `FacturXModuleRegistrationTests.AddFacturXModule_IsIdempotent` — appel répété sans erreur (le socle
   peut déjà avoir posé la licence).
 
+### Sérialiseur CII — FX03 (`Cii/CrossIndustryInvoiceSerializer*`)
+
+- `CrossIndustryInvoiceSerializerTests` — recopie des valeurs qualitatives (BT-24/1/2/3, catégorie
+  BT-151, taux BT-152, PU BT-146, qté BT-129, net BT-131, SIREN scheme 0002, TVA scheme VA, devise BT-5),
+  dérivation BG-23 (une vs deux ventilations), BT-115 = BT-112 − BT-113 (acompte), et BLOCAGE
+  (`FacturXGenerationException`) sur : BT-146 absent, ligne sans/avec plusieurs ventilations TVA (BG-30),
+  catégorie absente (BT-151), acheteur absent (BR-07/BT-44), pays vendeur/acheteur absent (BT-40/BT-55),
+  charges document (BG-20/21 non V1), et écarts non réconciliables BR-CO-10/13, BR-CO-14, BR-CO-15.
+- `CrossIndustryInvoiceMatrixTests` — sur la matrice (mono-taux, multi-taux, exonéré VATEX,
+  autoliquidation, criée mono-Seller) : structure EN 16931 complète (`CiiStructuralValidator`),
+  identités arithmétiques `CiiBusinessRuleChecker` (BR-CO-10/13/14/15/16/17), et stabilité vis-à-vis des
+  golden files commités (`Cii/GoldenFiles/*.cii.xml`).
+
+> **Périmètre de validation FX03 (fast tier).** La conformité XSD CII EN 16931 + Schematron CEN/TC 434
+> n'est PAS exercée en unitaire : les XSD CII du dépôt (`F1_BASE`/`F1_FULL_CII_D22B`) sont des profils
+> DGFiP RESTREINTS (BT-106/112/115 commentés → faux négatif sur un CII EN 16931 conforme) ; le XSD CII
+> EN 16931 complet et le Schematron CEN sont des artefacts EXTERNES non vendorés (F16 §10 action A4, NON
+> TRANCHÉ) et le Schematron exige un processeur XSLT 2.0 (Saxon → ADR). La conformité RÉELLE est portée
+> par **veraPDF + Mustangproject** (conteneur, tier intégration) en **FX04** + la recette **GATE_FACTURX**.
+
 ## Integration
 
-Aucun en FX02 : l'ossature du module n'a ni base ni I/O. La génération réelle (sérialisation CII,
-scellement PDF/A-3) et sa validation conteneur (veraPDF + Mustangproject, tier intégration) arrivent
-en FX03/FX04 ; les golden files (mono-taux, multi-taux, exonéré VATEX, autoliquidation, criée
-mono-Seller) sont livrés par FX03. La recette humaine de bout en bout est portée par GATE_FACTURX.
+Aucun en FX02/FX03 : l'ossature et le sérialiseur CII sont purs (ni base ni I/O ; validation structurelle
++ BR-CO en mémoire). Le scellement PDF/A-3 et sa validation conteneur (veraPDF + Mustangproject, tier
+intégration) arrivent en FX04. La recette humaine de bout en bout est portée par GATE_FACTURX.
