@@ -1,6 +1,7 @@
 namespace Liakont.Modules.Mandats.Tests.Integration;
 
 using Liakont.Modules.Mandats.Application;
+using Liakont.Modules.Mandats.Contracts;
 using Liakont.Modules.Mandats.Contracts.Queries;
 using Liakont.Modules.Mandats.Infrastructure;
 using Liakont.Modules.Mandats.Infrastructure.Queries;
@@ -21,6 +22,7 @@ internal sealed class MandatsHarness
         Queries = new PostgresMandatsQueries(ConnectionFactory);
         AcceptanceUowFactory = new PostgresSelfBilledAcceptanceUnitOfWorkFactory(ConnectionFactory);
         AcceptanceQueries = new PostgresSelfBilledAcceptanceQueries(ConnectionFactory);
+        NumberAllocator = new PostgresSelfBilledNumberAllocator(ConnectionFactory);
     }
 
     public IConnectionFactory ConnectionFactory { get; }
@@ -32,4 +34,6 @@ internal sealed class MandatsHarness
     public ISelfBilledAcceptanceUnitOfWorkFactory AcceptanceUowFactory { get; }
 
     public ISelfBilledAcceptanceQueries AcceptanceQueries { get; }
+
+    public ISelfBilledNumberAllocator NumberAllocator { get; }
 }
