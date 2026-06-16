@@ -52,9 +52,11 @@ public sealed class TacitAcceptanceProcessingIntegrationTests
         var reader = new PostgresTacitAcceptanceCandidateReader(harness.ConnectionFactory);
         var service = new TacitAcceptanceService(reader, harness.AcceptanceUowFactory, new FixedTimeProvider(Now));
 
-        var result = await service.ProcessDueAsync();
-
-        result.TacitlyAccepted.Should().Be(2, "seules les acceptations en attente à échéance échue basculent (dueA, boundaryB).");
+        // Le service est volontairement DB-wide (database-per-tenant) et la fixture est PARTAGÉE par la
+        // collection : on n'asserte donc QUE l'état par document (jamais le compteur global du résultat —
+        // anti-pattern faux-vert sur fixture partagée, leçons pipeline). Le compteur de retour est couvert,
+        // en isolation, par TacitAcceptanceServiceTests (unit).
+        await service.ProcessDueAsync();
 
         await AssertStateAsync(harness, companyA, dueA, SelfBilledAcceptanceState.TacitlyAccepted);
         await AssertStateAsync(harness, companyB, boundaryB, SelfBilledAcceptanceState.TacitlyAccepted);
@@ -81,11 +83,17 @@ public sealed class TacitAcceptanceProcessingIntegrationTests
         var reader = new PostgresTacitAcceptanceCandidateReader(harness.ConnectionFactory);
         var service = new TacitAcceptanceService(reader, harness.AcceptanceUowFactory, new FixedTimeProvider(Now));
 
-        (await service.ProcessDueAsync()).TacitlyAccepted.Should().Be(1);
-        (await service.ProcessDueAsync()).TacitlyAccepted.Should().Be(0,
-            "une fois basculée, l'acceptation n'est plus en attente → un second passage ne re-bascule rien.");
+        // Assertions PAR DOCUMENT (jamais le compteur global : fixture partagée, service DB-wide).
+        await service.ProcessDueAsync();
+        (await harness.AcceptanceQueries.GetAcceptance(companyId, documentId))!.State
+            .Should().Be(nameof(SelfBilledAcceptanceState.TacitlyAccepted), "le premier passage bascule le document dû.");
 
-        // Une seule transition journalisée (pas de double écriture du journal append-only).
+        await service.ProcessDueAsync();
+        (await harness.AcceptanceQueries.GetAcceptance(companyId, documentId))!.State
+            .Should().Be(nameof(SelfBilledAcceptanceState.TacitlyAccepted),
+                "une fois basculée, l'acceptation n'est plus en attente → un second passage ne re-bascule rien.");
+
+        // Une SEULE transition journalisée (genèse + une bascule) : pas de double écriture (idempotence + append-only).
         var log = await harness.AcceptanceQueries.GetAcceptanceLog(companyId, documentId);
         log.Should().HaveCount(2, "genèse + une bascule tacite, jamais deux.");
     }
