@@ -133,6 +133,37 @@ public sealed class SignatureProviderCapabilitiesTests
     }
 
     [Fact]
+    public async Task DownloadProofAsync_WhenProofDownloadUnsupported_ReturnsTypedGap_NoContent()
+    {
+        var provider = new FakeSignatureProvider(new SignatureProviderCapabilities
+        {
+            ProviderName = "Fake",
+            SupportsProofDownload = false,
+        });
+
+        var result = await provider.DownloadProofAsync("ref-1");
+
+        result.CapabilityNotSupported.Should().NotBeNull();
+        result.CapabilityNotSupported!.Capability.Should().Be(SignatureCapability.ProofDownload);
+        result.Content.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DownloadProofAsync_WhenProofDownloadSupported_ReturnsContent()
+    {
+        var provider = new FakeSignatureProvider(new SignatureProviderCapabilities
+        {
+            ProviderName = "Fake",
+            SupportsProofDownload = true,
+        });
+
+        var result = await provider.DownloadProofAsync("ref-1");
+
+        result.Content.Should().NotBeNull();
+        result.CapabilityNotSupported.Should().BeNull();
+    }
+
+    [Fact]
     public void CapabilityNotSupportedResult_OperatorMessage_IsFrench_AndJournalisable()
     {
         var gap = SignatureCapabilityNotSupportedResult.Create("Yousign", SignatureCapability.QualifiedLevel);

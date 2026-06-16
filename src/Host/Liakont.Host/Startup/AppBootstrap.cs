@@ -721,7 +721,7 @@ public static class AppBootstrap
         // OPTIONNELLE : ne bloque QUE pour un fournisseur déclaré dans Signature:EnabledProviders mais non
         // câblé ; l'absence de tout fournisseur n'est jamais une erreur (un tenant Recorded démarre sans
         // plug-in — INV-SIGPROV-6).
-        ValidateSignatureProviderConfiguration(app);
+        ValidateSignatureProviderConfiguration(app.Configuration, app.Services);
     }
 
     /// <summary>Configures the HTTP pipeline and maps all endpoints.</summary>
@@ -970,6 +970,27 @@ public static class AppBootstrap
     }
 
     /// <summary>
+    /// Valide au démarrage les fournisseurs de signature CONFIGURÉS (SIG03, ADR-0027 §4). Lit
+    /// <c>Signature:EnabledProviders</c> (liste de types de plug-ins activés, vide par défaut) et délègue à
+    /// <see cref="SignatureProviderStartupValidator"/> : bloque le démarrage UNIQUEMENT pour un fournisseur
+    /// configuré mais non câblé ; l'absence de tout fournisseur n'est jamais une erreur (signature
+    /// optionnelle — INV-SIGPROV-6). La logique pure est testée par <c>SignatureProviderStartupValidatorTests</c>.
+    /// </summary>
+    /// <param name="configuration">Configuration de l'application (lit <c>Signature:EnabledProviders</c>).</param>
+    /// <param name="services">Fournisseur de services (résout <see cref="ISignatureProviderRegistry"/>).</param>
+    internal static void ValidateSignatureProviderConfiguration(
+        Microsoft.Extensions.Configuration.IConfiguration configuration,
+        IServiceProvider services)
+    {
+        var enabledProviders = configuration
+            .GetSection("Signature:EnabledProviders")
+            .Get<string[]>() ?? [];
+
+        var registry = services.GetRequiredService<ISignatureProviderRegistry>();
+        SignatureProviderStartupValidator.Validate(enabledProviders, registry);
+    }
+
+    /// <summary>
     /// Applies any missing migrations to all active tenant databases.
     /// Must run after system migrations so that <c>outbox.tenants</c> is available.
     /// </summary>
@@ -1010,23 +1031,6 @@ public static class AppBootstrap
             $"Fournisseur d'identité « {providerName} » inconnu. Implémentations disponibles : "
             + $"{string.Join(", ", providers.Keys)}. Branchez une implémentation "
             + "d'IIdentityProviderAuthenticator pour ce fournisseur (décision D10).");
-    }
-
-    /// <summary>
-    /// Valide au démarrage les fournisseurs de signature CONFIGURÉS (SIG03, ADR-0027 §4). Lit
-    /// <c>Signature:EnabledProviders</c> (liste de types de plug-ins activés, vide par défaut) et délègue à
-    /// <see cref="SignatureProviderStartupValidator"/> : bloque le démarrage UNIQUEMENT pour un fournisseur
-    /// configuré mais non câblé ; l'absence de tout fournisseur n'est jamais une erreur (signature
-    /// optionnelle — INV-SIGPROV-6). La logique pure est testée par <c>SignatureProviderStartupValidatorTests</c>.
-    /// </summary>
-    private static void ValidateSignatureProviderConfiguration(WebApplication app)
-    {
-        var enabledProviders = app.Configuration
-            .GetSection("Signature:EnabledProviders")
-            .Get<string[]>() ?? [];
-
-        var registry = app.Services.GetRequiredService<ISignatureProviderRegistry>();
-        SignatureProviderStartupValidator.Validate(enabledProviders, registry);
     }
 
     /// <summary>

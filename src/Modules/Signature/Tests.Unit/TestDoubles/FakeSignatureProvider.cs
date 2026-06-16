@@ -70,7 +70,7 @@ internal sealed class FakeSignatureProvider : ISignatureProvider
         CancellationToken cancellationToken = default)
     {
         _calls.Add(nameof(DownloadProofAsync));
-        if (!Capabilities.SupportsDocumentHashBinding)
+        if (!Capabilities.SupportsProofDownload)
         {
             return Task.FromResult(SignatureProof.NotSupported(
                 SignatureCapabilityNotSupportedResult.Create(

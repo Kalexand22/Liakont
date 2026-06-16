@@ -40,6 +40,9 @@ public sealed record SignatureProviderCapabilities
     /// </summary>
     public bool SupportsBiometricTemplateMatching { get; init; }
 
+    /// <summary>Téléchargement de la preuve de signature (dossier de preuve / PDF signé) — pour le rapatriement WORM.</summary>
+    public bool SupportsProofDownload { get; init; }
+
     /// <summary>Taille maximale d'un document en octets, ou <c>null</c> si le fournisseur ne déclare pas de limite.</summary>
     public long? MaxDocumentSizeBytes { get; init; }
 
