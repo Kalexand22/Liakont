@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Liakont.Modules.Mandats.Application;
+using Liakont.Modules.Mandats.Contracts;
 using Liakont.Modules.Mandats.Contracts.Queries;
 using Liakont.Modules.Mandats.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
@@ -38,6 +39,7 @@ public sealed class MandatsModuleRegistrationTests
         sp.GetRequiredService<IMandatsUnitOfWorkFactory>().Should().NotBeNull("IMandatsUnitOfWorkFactory doit être résolu après AddMandatsModule");
         sp.GetRequiredService<ISelfBilledAcceptanceQueries>().Should().NotBeNull("ISelfBilledAcceptanceQueries (MND02) doit être résolu après AddMandatsModule");
         sp.GetRequiredService<ISelfBilledAcceptanceUnitOfWorkFactory>().Should().NotBeNull("ISelfBilledAcceptanceUnitOfWorkFactory (MND02) doit être résolu après AddMandatsModule");
+        sp.GetRequiredService<ISelfBilledGate>().Should().NotBeNull("ISelfBilledGate (MND03) doit être résolu après AddMandatsModule");
 
         var migrationOptions = sp.GetRequiredService<IOptions<MigrationAssembliesOptions>>().Value;
         migrationOptions.Assemblies.Should().Contain(

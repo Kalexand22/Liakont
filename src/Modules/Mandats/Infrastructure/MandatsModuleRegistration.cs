@@ -1,6 +1,7 @@
 namespace Liakont.Modules.Mandats.Infrastructure;
 
 using Liakont.Modules.Mandats.Application;
+using Liakont.Modules.Mandats.Contracts;
 using Liakont.Modules.Mandats.Contracts.Queries;
 using Liakont.Modules.Mandats.Infrastructure.Queries;
 using Microsoft.Extensions.DependencyInjection;
@@ -24,6 +25,9 @@ public static class MandatsModuleRegistration
         // Acceptation des auto-factures sous mandat (MND02, ADR-0024).
         services.AddScoped<ISelfBilledAcceptanceUnitOfWorkFactory, PostgresSelfBilledAcceptanceUnitOfWorkFactory>();
         services.AddScoped<ISelfBilledAcceptanceQueries, PostgresSelfBilledAcceptanceQueries>();
+
+        // Garde d'émission interrogée par le pipeline avant l'envoi (MND03, ADR-0024 §3 / INV-ACCEPT-2).
+        services.AddScoped<ISelfBilledGate, SelfBilledGate>();
 
         return services;
     }

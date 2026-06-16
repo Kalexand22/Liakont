@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Documents.Contracts.Lifecycle;
 using Liakont.Modules.Documents.Contracts.Queries;
+using Liakont.Modules.Mandats.Contracts;
 using Liakont.Modules.Pipeline.Application;
 using Liakont.Modules.Pipeline.Domain;
 using Liakont.Modules.Staging.Contracts;
@@ -170,6 +171,12 @@ internal static class CheckTestDoubles
 
         public string? BlockReason { get; private set; }
 
+        public Guid? RecheckReadyToSendId { get; private set; }
+
+        public Guid? RecheckStillBlockedId { get; private set; }
+
+        public string? RecheckStillBlockedReason { get; private set; }
+
         public Task BlockAsync(Guid documentId, string reason, CancellationToken cancellationToken = default)
         {
             BlockedId = documentId;
@@ -184,11 +191,18 @@ internal static class CheckTestDoubles
             return Task.CompletedTask;
         }
 
-        public Task<DocumentRecheckPersistOutcome> MarkReadyToSendByRecheckAsync(Guid documentId, string mappingVersion, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+        public Task<DocumentRecheckPersistOutcome> MarkReadyToSendByRecheckAsync(Guid documentId, string mappingVersion, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default)
+        {
+            RecheckReadyToSendId = documentId;
+            return Task.FromResult(DocumentRecheckPersistOutcome.Persisted);
+        }
 
-        public Task<DocumentRecheckPersistOutcome> RecordRecheckStillBlockedAsync(Guid documentId, string reevaluatedReason, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+        public Task<DocumentRecheckPersistOutcome> RecordRecheckStillBlockedAsync(Guid documentId, string reevaluatedReason, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default)
+        {
+            RecheckStillBlockedId = documentId;
+            RecheckStillBlockedReason = reevaluatedReason;
+            return Task.FromResult(DocumentRecheckPersistOutcome.Persisted);
+        }
 
         public Task BeginSendingAsync(Guid documentId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
@@ -281,6 +295,40 @@ internal static class CheckTestDoubles
             throw new NotSupportedException();
     }
 
+    /// <summary>
+    /// Garde d'émission self-billed factice (MND03) : le pipeline n'interroge que l'abstraction
+    /// <see cref="ISelfBilledGate"/>, jamais le module Mandats concret. Renvoie un verdict configuré et
+    /// enregistre le dernier appel (pour prouver qu'un document NON self-billed ne consulte JAMAIS le gate).
+    /// </summary>
+    internal sealed class FakeSelfBilledGate : ISelfBilledGate
+    {
+        private readonly SelfBilledGateDecision _decision;
+
+        private FakeSelfBilledGate(SelfBilledGateDecision decision) => _decision = decision;
+
+        public bool WasCalled { get; private set; }
+
+        public Guid? LastCompanyId { get; private set; }
+
+        public Guid? LastDocumentId { get; private set; }
+
+        /// <summary>Gate ouvert : émission autorisée (acceptation acquise).</summary>
+        public static FakeSelfBilledGate Allowing() =>
+            new(new SelfBilledGateDecision { IsEmissionAllowed = true, AcceptanceState = "Accepted" });
+
+        /// <summary>Gate fermé : émission refusée pour l'état d'acceptation donné (défaut : en attente).</summary>
+        public static FakeSelfBilledGate Blocking(string? acceptanceState = "PendingAcceptance") =>
+            new(new SelfBilledGateDecision { IsEmissionAllowed = false, AcceptanceState = acceptanceState });
+
+        public Task<SelfBilledGateDecision> EvaluateEmissionAsync(Guid companyId, Guid documentId, CancellationToken ct = default)
+        {
+            WasCalled = true;
+            LastCompanyId = companyId;
+            LastDocumentId = documentId;
+            return Task.FromResult(_decision);
+        }
+    }
+
     internal sealed class FakeRunLogStore : IPipelineRunLogStore
     {
         public RunLog? Saved { get; private set; }
@@ -304,5 +352,20 @@ internal static class CheckTestDoubles
 
         public Task<Liakont.Modules.Pipeline.Domain.Ventilation.VentilationSnapshot?> GetAsync(Guid documentId, string mappingVersion, CancellationToken cancellationToken = default) =>
             Task.FromResult(Saved);
+    }
+
+    /// <summary>
+    /// Contexte tenant factice (MND03 / recheck) : expose un identifiant de tenant fixé pour les tests
+    /// unitaires qui instancient directement <see cref="DocumentRecheckService"/> (hors scope HTTP).
+    /// </summary>
+    internal sealed class FakeTenantContext : ITenantContext
+    {
+        private readonly string _tenantId;
+
+        public FakeTenantContext(string tenantId) => _tenantId = tenantId;
+
+        public string? TenantId => _tenantId;
+
+        public bool IsResolved => true;
     }
 }

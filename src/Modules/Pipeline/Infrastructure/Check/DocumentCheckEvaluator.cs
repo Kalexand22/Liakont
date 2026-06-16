@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Liakont.Agent.Contracts.Pivot;
+using Liakont.Modules.Mandats.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
 using Liakont.Modules.TvaMapping.Contracts.Services;
@@ -55,6 +56,10 @@ internal static class DocumentCheckEvaluator
     /// </summary>
     /// <param name="services">Fournisseur de services du scope TENANT courant.</param>
     /// <param name="companyId">Société du tenant (clé d'isolation du mapping et de la validation).</param>
+    /// <param name="documentId">
+    /// Identifiant du document — clé (avec <paramref name="companyId"/>) de la garde d'émission self-billed
+    /// (MND03, ADR-0024 §3) : un document <c>IsSelfBilled</c> n'est émissible que si son acceptation est acquise.
+    /// </param>
     /// <param name="documentNumber">Numéro de document, préfixé aux motifs rédigés par le CHECK (CLAUDE.md n°12).</param>
     /// <param name="pivot">Le pivot relu (hash déjà re-vérifié par le magasin de staging).</param>
     /// <param name="buyerConfirmedB2C">
@@ -70,6 +75,7 @@ internal static class DocumentCheckEvaluator
     public static async Task<CheckDecision> EvaluateAsync(
         IServiceProvider services,
         Guid companyId,
+        Guid documentId,
         string documentNumber,
         PivotDocumentDto pivot,
         bool buyerConfirmedB2C = false,
@@ -117,9 +123,54 @@ internal static class DocumentCheckEvaluator
         var validationResult = await validation.ValidateAsync(
             new DocumentValidationContext(evaluation.EnrichedDocument!, companyId, buyerConfirmedB2C), cancellationToken);
 
-        return validationResult.HasBlockingIssue
-            ? CheckDecision.Blocked(AggregateBlockingIssues(validationResult))
-            : CheckDecision.Ready(evaluation.MappingVersion, evaluation.Ventilation!, pivot.OperationCategory);
+        if (validationResult.HasBlockingIssue)
+        {
+            return CheckDecision.Blocked(AggregateBlockingIssues(validationResult));
+        }
+
+        // GARDE D'ÉMISSION SELF-BILLED (MND03, ADR-0024 §3 / F15 §2.3, INV-ACCEPT-2) — DERNIÈRE garde avant
+        // l'émissibilité, par INVERSION DE DÉPENDANCE : un document self-billed (autofacturation sous mandat,
+        // art. 289 I-2 CGI) n'est émissible que si son acceptation est acquise (gate ouvert). Sinon, il est
+        // MAINTENU Blocked (nouveau MOTIF, AUCUN nouvel état d'émission — INV-ACCEPT-1), jamais Sent
+        // (« bloquer plutôt qu'émettre faux », CLAUDE.md n°3). Le pipeline n'interroge QUE l'abstraction
+        // ISelfBilledGate (Mandats.Contracts), jamais le module Mandats concret (frontière P1, CLAUDE.md n°14).
+        // Placée APRÈS les contrôles de contenu (un document à corriger montre d'abord ses motifs de contenu)
+        // et partagée par CHECK + recheck + réconciliation des avoirs : un recheck post-acceptation rouvre le gate.
+        if (pivot.IsSelfBilled)
+        {
+            var verdict = await services.GetRequiredService<ISelfBilledGate>()
+                .EvaluateEmissionAsync(companyId, documentId, cancellationToken);
+            if (!verdict.IsEmissionAllowed)
+            {
+                return CheckDecision.Blocked(
+                    WithDocumentNumber(documentNumber, SelfBilledAcceptanceReason(verdict.AcceptanceState)));
+            }
+        }
+
+        return CheckDecision.Ready(evaluation.MappingVersion, evaluation.Ventilation!, pivot.OperationCategory);
+    }
+
+    /// <summary>
+    /// Motif de blocage d'une auto-facture sous mandat (art. 289 I-2 CGI) dont l'acceptation n'est pas acquise
+    /// (MND03, ADR-0024 §3 / F15 §2.3, INV-ACCEPT-2). N'INVENTE aucune règle fiscale (CLAUDE.md n°2) : l'exigence
+    /// d'acceptation vient de F15 §2.3 / ADR-0024 ; le périmètre du Contested (avoir de correction 261) reste
+    /// NON TRANCHÉ (F15 §6.5) — on ne prescrit donc pas son traitement. Cite l'état courant (transparence) et une
+    /// action corrective générique (CLAUDE.md n°12). Préfixé du n° de document par l'appelant.
+    /// </summary>
+    private static string SelfBilledAcceptanceReason(string? acceptanceState)
+    {
+        var situation = acceptanceState switch
+        {
+            "PendingAcceptance" => "l'acceptation par le mandant est en attente",
+            "Contested" => "l'acceptation par le mandant a été contestée",
+            _ => "aucune acceptation par le mandant n'est enregistrée",
+        };
+
+        return
+            $"auto-facture sous mandat (art. 289 I-2 CGI) : {situation}. L'émission reste suspendue tant que " +
+            "l'acceptation n'est pas acquise (acceptation expresse, ou bascule tacite sous mandat écrit après le " +
+            "délai de contestation) — document maintenu bloqué, jamais transmis sans acceptation. Action " +
+            "opérateur : faites acter l'acceptation de cette auto-facture, puis relancez la vérification.";
     }
 
     /// <summary>
