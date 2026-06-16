@@ -12,6 +12,13 @@ using Stratum.Common.Infrastructure.Database;
 /// </summary>
 internal sealed class PostgresSignatureWebhookInbox : ISignatureWebhookInbox
 {
+    /// <summary>
+    /// Nombre maximal de tentatives de drain avant qu'une entrée soit exclue du lot (mise de côté). Les entrées
+    /// dépassant ce seuil restent dans la table avec leur <c>last_error</c> pour inspection opérateur ; elles ne
+    /// bloquent plus le traitement des entrées suivantes.
+    /// </summary>
+    public const int MaxDrainAttempts = 10;
+
     private readonly IConnectionFactory _connectionFactory;
 
     public PostgresSignatureWebhookInbox(IConnectionFactory connectionFactory)
@@ -70,14 +77,14 @@ internal sealed class PostgresSignatureWebhookInbox : ISignatureWebhookInbox
                    attempt_count      AS AttemptCount,
                    last_error         AS LastError
             FROM signature.signature_webhook_inbox
-            WHERE processed_at IS NULL
+            WHERE processed_at IS NULL AND attempt_count < @MaxAttempts
             ORDER BY received_at ASC
             LIMIT @Max
             """;
 
         using var connection = await _connectionFactory.OpenAsync(cancellationToken);
         var rows = await connection.QueryAsync<InboxRow>(
-            new CommandDefinition(sql, new { Max = max }, cancellationToken: cancellationToken));
+            new CommandDefinition(sql, new { Max = max, MaxAttempts = MaxDrainAttempts }, cancellationToken: cancellationToken));
 
         // Conversion robuste des horodatages (timestamptz → DateTimeOffset, indépendante de la représentation
         // CLR exacte renvoyée par Npgsql — même posture que DocumentApprovalRowReader).

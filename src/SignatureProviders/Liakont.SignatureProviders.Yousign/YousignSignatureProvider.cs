@@ -61,6 +61,14 @@ internal sealed class YousignSignatureProvider : ISignatureProvider
                 SignatureCapabilityNotSupportedResult.Create(Capabilities.ProviderName, request.RequestedLevel));
         }
 
+        // La clé API est requise pour les appels sortants. Absente = compte inbound-only (webhook seul) : le
+        // provider renvoie un résultat technique typé sans lever d'exception (jamais un 500 non contrôlé).
+        if (string.IsNullOrWhiteSpace(_config.ApiKey))
+        {
+            return SignatureRequestResult.Technical(
+                "Clé API Yousign absente : configurez la clé API du compte de signature.");
+        }
+
         // Crée la demande de signature côté Yousign (cycle v3 : create → … → activate → webhook, ADR-0029 §1).
         // Le payload ne porte que la corrélation (external_id = document) + le hash de binding eIDAS art. 26 d
         // quand il est fourni ; le CONTENU binaire du document est fourni par l'orchestration appelante (qui
@@ -118,6 +126,11 @@ internal sealed class YousignSignatureProvider : ISignatureProvider
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(providerReference);
 
+        if (string.IsNullOrWhiteSpace(_config.ApiKey))
+        {
+            return new SignatureStatus { ProviderReference = providerReference, State = SignatureCompletionState.Unknown };
+        }
+
         var outcome = await SendWithRetryAsync(
             () => new HttpRequestMessage(HttpMethod.Get, $"signature_requests/{Uri.EscapeDataString(providerReference)}"),
             cancellationToken).ConfigureAwait(false);
@@ -152,6 +165,12 @@ internal sealed class YousignSignatureProvider : ISignatureProvider
         ArgumentException.ThrowIfNullOrWhiteSpace(providerReference);
 
         if (!Capabilities.SupportsProofDownload)
+        {
+            return SignatureProof.NotSupported(
+                SignatureCapabilityNotSupportedResult.Create(Capabilities.ProviderName, SignatureCapability.ProofDownload));
+        }
+
+        if (string.IsNullOrWhiteSpace(_config.ApiKey))
         {
             return SignatureProof.NotSupported(
                 SignatureCapabilityNotSupportedResult.Create(Capabilities.ProviderName, SignatureCapability.ProofDownload));
@@ -217,7 +236,16 @@ internal sealed class YousignSignatureProvider : ISignatureProvider
             return Task.FromResult(SignatureWebhookResult.Ignored());
         }
 
-        return Task.FromResult(SignatureWebhookResult.Accepted(reference, evt!.ResolveEventId()));
+        // Seul l'événement de complétion déclenche le rapatriement WORM (ADR-0029 §5). Les autres événements
+        // Yousign (ongoing, declined, expired, signer-level) sont ignorés : le HMAC était valide mais l'événement
+        // n'est pas actionnable dans le périmètre SIG07 → HTTP 200 sans persistance.
+        if (string.IsNullOrWhiteSpace(evt!.EventName)
+            || !string.Equals(evt.EventName, YousignDefaults.CompletedEventName, StringComparison.Ordinal))
+        {
+            return Task.FromResult(SignatureWebhookResult.Ignored());
+        }
+
+        return Task.FromResult(SignatureWebhookResult.Accepted(reference, evt.ResolveEventId()));
     }
 
     private static SignatureCompletionState MapStatus(string? status) => status?.ToLowerInvariant() switch

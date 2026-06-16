@@ -39,10 +39,14 @@ public sealed class YousignSignatureProviderFactory : ISignatureProviderFactory
 
         // Client HTTP nommé (handler anti-SSRF + AllowAutoRedirect=false partagé), configuré POUR CE COMPTE :
         // URL de base ALLOWLISTÉE (jamais un champ tenant) + Bearer en mémoire (jamais journalisé — CLAUDE.md n°10).
+        // La clé API peut être absente (compte inbound-only) : le header Authorization n'est posé que si présente.
         var httpClient = _httpClientFactory.CreateClient(YousignDefaults.HttpClientName);
         httpClient.BaseAddress = config.BaseUri;
         httpClient.Timeout = YousignDefaults.HttpTimeout;
-        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey);
+        if (!string.IsNullOrWhiteSpace(config.ApiKey))
+        {
+            httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey);
+        }
 
         return new YousignSignatureProvider(httpClient, config);
     }

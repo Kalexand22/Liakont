@@ -3,6 +3,7 @@ namespace Liakont.Modules.Signature.Infrastructure.Drain;
 using Liakont.Modules.Archive.Contracts;
 using Liakont.Modules.Signature.Application;
 using Liakont.Modules.Signature.Contracts;
+using Liakont.Modules.Signature.Infrastructure.Persistence;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -86,6 +87,9 @@ internal sealed partial class SignatureWebhookDrainService : ISignatureWebhookDr
     [LoggerMessage(Level = LogLevel.Warning, Message = "Drain d'un webhook de signature échoué (entrée {ItemId}) : {Error}.")]
     private static partial void LogDrainItemFailed(ILogger logger, Guid itemId, string error);
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Webhook de signature mis de côté après {Attempts} tentatives (entrée {ItemId}) : preuve toujours indisponible.")]
+    private static partial void LogDeadLettered(ILogger logger, int attempts, Guid itemId);
+
     // Traite UNE entrée. Renvoie true si l'entrée est définitivement traitée (à marquer), false si elle doit
     // rester en attente pour un prochain drain (preuve pas encore disponible).
     private async Task<bool> ProcessAsync(
@@ -120,6 +124,11 @@ internal sealed partial class SignatureWebhookDrainService : ISignatureWebhookDr
         {
             // Capacité absente ou preuve pas encore disponible : laisser en attente (re-tentable au prochain drain).
             LogProofUnavailable(_logger, item.ProviderReference, proof.CapabilityNotSupported?.OperatorMessage ?? "indisponible");
+            if (item.AttemptCount + 1 >= PostgresSignatureWebhookInbox.MaxDrainAttempts)
+            {
+                LogDeadLettered(_logger, item.AttemptCount + 1, item.Id);
+            }
+
             await _inbox.MarkFailedAsync(item.Id, "Preuve indisponible (re-tentable).", cancellationToken).ConfigureAwait(false);
             return false;
         }

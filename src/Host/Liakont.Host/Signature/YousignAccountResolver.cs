@@ -35,13 +35,12 @@ internal sealed class YousignAccountResolver : IYousignAccountResolver
                 ? parsed
                 : YousignEnvironment.Sandbox;
 
-        if (!settings.TryGetValue(SignatureAccountSettingKeys.EncryptedApiKey, out var encryptedApiKey)
-            || string.IsNullOrWhiteSpace(encryptedApiKey))
-        {
-            throw new InvalidOperationException(
-                $"Compte Yousign du tenant « {account.CompanyId} » : clé API absente — résolution bloquée. "
-                + "Saisissez la clé API du compte de signature.");
-        }
+        // La clé API est optionnelle : absente pour un compte inbound-only (webhook seul). Les appels sortants
+        // seront court-circuités par le provider avec un résultat typé (jamais une exception non contrôlée).
+        string? apiKey = settings.TryGetValue(SignatureAccountSettingKeys.EncryptedApiKey, out var enc)
+            && !string.IsNullOrWhiteSpace(enc)
+                ? _secretProtector.Unprotect(enc)
+                : null;
 
         if (!settings.TryGetValue(SignatureAccountSettingKeys.EncryptedWebhookSecret, out var encryptedWebhookSecret)
             || string.IsNullOrWhiteSpace(encryptedWebhookSecret))
@@ -52,7 +51,6 @@ internal sealed class YousignAccountResolver : IYousignAccountResolver
         }
 
         // Déchiffrement EN MÉMOIRE uniquement (jamais journalisé — CLAUDE.md n°10).
-        var apiKey = _secretProtector.Unprotect(encryptedApiKey);
         var webhookSecret = _secretProtector.Unprotect(encryptedWebhookSecret);
 
         return new YousignAccountConfig(environment, apiKey, webhookSecret);

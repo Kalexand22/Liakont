@@ -93,4 +93,17 @@ public sealed class YousignWebhookTests
 
         first.EventId.Should().Be(second.EventId, "le même événement produit la même clé d'idempotence");
     }
+
+    [Fact]
+    public async Task Valid_hmac_on_non_completion_event_is_ignored()
+    {
+        // Un événement Yousign autre que signature_request.done (ex. ongoing) est ignoré même si le HMAC est
+        // valide — le drain ne doit pas tenter de télécharger une preuve absente (ADR-0029 §5).
+        const string ongoingBody =
+            """{"event_name":"signature_request.ongoing","data":{"signature_request":{"id":"sig-77","status":"ongoing"}}}""";
+
+        var result = await Provider().HandleWebhookAsync(Context(ongoingBody, ComputeSignature(ongoingBody, Secret)));
+
+        result.State.Should().Be(SignatureWebhookState.Ignored);
+    }
 }

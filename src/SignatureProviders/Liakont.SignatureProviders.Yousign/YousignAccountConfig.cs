@@ -14,15 +14,14 @@ public sealed record YousignAccountConfig
 {
     /// <summary>Crée une configuration de compte Yousign résolue.</summary>
     /// <param name="environment">Environnement du compte (sandbox / production) — décide l'URL de base allowlistée.</param>
-    /// <param name="apiKey">Clé API en clair (déchiffrée par le Host) — transport mémoire, jamais persistée/journalisée.</param>
-    /// <param name="webhookSecret">Secret HMAC du webhook en clair (déchiffré) — idem.</param>
-    public YousignAccountConfig(YousignEnvironment environment, string apiKey, string webhookSecret)
+    /// <param name="apiKey">
+    /// Clé API en clair (déchiffrée par le Host) — transport mémoire, jamais persistée/journalisée. Optionnelle :
+    /// absente lors d'une configuration inbound-only (webhook seul) ; les appels sortants (<c>RequestSignatureAsync</c>,
+    /// <c>GetSignatureStatusAsync</c>, <c>DownloadProofAsync</c>) renvoient alors un résultat dégradé typé.
+    /// </param>
+    /// <param name="webhookSecret">Secret HMAC du webhook en clair (déchiffré) — requis pour la vérification HMAC inbound.</param>
+    public YousignAccountConfig(YousignEnvironment environment, string? apiKey, string webhookSecret)
     {
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            throw new ArgumentException("La clé API Yousign est obligatoire.", nameof(apiKey));
-        }
-
         if (string.IsNullOrWhiteSpace(webhookSecret))
         {
             throw new ArgumentException("Le secret de webhook Yousign est obligatoire.", nameof(webhookSecret));
@@ -36,8 +35,11 @@ public sealed record YousignAccountConfig
     /// <summary>Environnement du compte (sandbox / production).</summary>
     public YousignEnvironment Environment { get; }
 
-    /// <summary>Clé API en clair (transport mémoire — ne jamais persister/journaliser).</summary>
-    public string ApiKey { get; }
+    /// <summary>
+    /// Clé API en clair (transport mémoire — ne jamais persister/journaliser). <c>null</c> si le compte est
+    /// configuré en mode inbound-only (webhook sans clé API) ; les appels sortants sont alors court-circuités.
+    /// </summary>
+    public string? ApiKey { get; }
 
     /// <summary>Secret HMAC du webhook en clair (transport mémoire — ne jamais persister/journaliser).</summary>
     public string WebhookSecret { get; }

@@ -24,6 +24,12 @@ public static class YousignDefaults
     /// <summary>Préfixe de l'en-tête de signature (HMAC hex minuscule, modèle <c>sha256=…</c>).</summary>
     public const string WebhookSignaturePrefix = "sha256=";
 
+    /// <summary>
+    /// Nom de l'événement Yousign signalant la complétion d'une demande de signature (ADR-0029 §5) — seul
+    /// événement entraînant le rapatriement WORM de la preuve par le drain.
+    /// </summary>
+    public const string CompletedEventName = "signature_request.done";
+
     /// <summary>Délai d'attente HTTP des appels sortants (anti-blocage du drain et du handler webhook).</summary>
     public static readonly TimeSpan HttpTimeout = TimeSpan.FromSeconds(60);
 }
