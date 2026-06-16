@@ -1,6 +1,7 @@
 namespace Liakont.Host.Startup;
 
 using System.Globalization;
+using System.Text.RegularExpressions;
 using Liakont.Host.PaAccounts;
 using Liakont.Modules.TenantSettings.Contracts.Commands;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
@@ -330,6 +331,16 @@ internal static partial class DevTenantSeeder
     }
 
     /// <summary>
+    /// Identifiant de base PostgreSQL sûr : minuscules, chiffres et underscores, commençant par une
+    /// lettre, au plus 63 caractères (limite d'identifiant PostgreSQL). Couvre le nom dérivé
+    /// <c>stratum_&lt;id&gt;</c> et ferme l'injection dans le <c>CREATE DATABASE</c> (non paramétrable).
+    /// </summary>
+    internal static bool IsSafeDatabaseIdentifier(string databaseName) =>
+        !string.IsNullOrEmpty(databaseName)
+        && databaseName.Length <= 63
+        && DatabaseIdentifierRegex().IsMatch(databaseName);
+
+    /// <summary>
     /// Amorce les tenants de recette additionnels dans <c>outbox.tenants</c> AVEC leur <c>company_id</c>.
     /// Une entrée incomplète (champ NOT NULL/UNIQUE manquant ou company_id vide) est signalée et ignorée —
     /// jamais d'insert à moitié. Idempotent (<c>ON CONFLICT DO NOTHING</c>).
@@ -374,8 +385,68 @@ internal static partial class DevTenantSeeder
             {
                 LogDevTenantAlreadyPresent(logger, tenant.TenantId);
             }
+
+            // La base du tenant additionnel doit EXISTER pour que MigrateExistingTenantsAsync la migre
+            // juste après (InitializeDataAsync) ; sinon le runtime, qui DÉRIVE le nom {DatabasePrefix}{id}
+            // via TenantAwareNpgsqlConnectionFactory, plante toute requête en 3D000 (finding F3/RLF01).
+            // Exécuté même si la ligne de registre préexistait : la base a pu manquer indépendamment.
+            await EnsureTenantDatabaseExistsAsync(connection, tenant.DatabaseName, tenant.TenantId, logger);
         }
     }
+
+    /// <summary>
+    /// Crée la base d'un tenant additionnel de DEV si elle n'existe pas encore, pour que
+    /// <c>MigrateExistingTenantsAsync</c> (appelé juste après dans <c>InitializeDataAsync</c>) puisse la
+    /// migrer. Le nom DOIT être celui que le runtime dérive (<c>{DatabasePrefix}{tenantId}</c>, cf.
+    /// <see cref="Stratum.Common.Infrastructure.Database.TenantAwareNpgsqlConnectionFactory"/>) et que le
+    /// seed pose dans <c>outbox.tenants.database_name</c> — cohérence registre ↔ runtime (RLF01). Idempotent
+    /// (vérifie <c>pg_database</c>) et strictement NON FATAL : un échec (rôle sans CREATEDB, etc.) est
+    /// journalisé et n'empêche jamais le démarrage de dev.
+    /// </summary>
+    private static async Task EnsureTenantDatabaseExistsAsync(
+        NpgsqlConnection connection,
+        string databaseName,
+        string tenantId,
+        ILogger logger)
+    {
+        // CREATE DATABASE ne peut être ni paramétré ni exécuté dans une transaction : l'identifiant est
+        // validé contre une liste blanche stricte AVANT toute interpolation (anti-injection, défense 1/2).
+        if (!IsSafeDatabaseIdentifier(databaseName))
+        {
+            LogAdditionalTenantDatabaseNameUnsafe(logger, databaseName, tenantId);
+            return;
+        }
+
+        try
+        {
+            await using (var existsCommand = new NpgsqlCommand(
+                "SELECT 1 FROM pg_database WHERE datname = @name", connection))
+            {
+                existsCommand.Parameters.AddWithValue("name", databaseName);
+                if (await existsCommand.ExecuteScalarAsync() is not null)
+                {
+                    return;
+                }
+            }
+
+            // Identifiant déjà validé ci-dessus ; quoté en plus (double garde, défense 2/2).
+            var quoted = "\"" + databaseName.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
+            await using var createCommand = new NpgsqlCommand($"CREATE DATABASE {quoted}", connection);
+            await createCommand.ExecuteNonQueryAsync();
+            LogAdditionalTenantDatabaseCreated(logger, databaseName, tenantId);
+        }
+        catch (Exception ex)
+        {
+            // NON FATAL : l'amorçage de dev ne doit jamais empêcher le démarrage (la base restera
+            // injoignable, mais l'opérateur le voit dans les logs au lieu d'un crash de boot).
+            LogAdditionalTenantDatabaseCreationFailed(logger, databaseName, tenantId, ex);
+        }
+    }
+
+    // \z (et non $) : en .NET, $ matche aussi AVANT un saut de ligne final — « stratum_tenant2\n »
+    // passerait la liste blanche. \z ancre la VRAIE fin de chaîne, fermant complètement le filtre.
+    [GeneratedRegex(@"^[a-z][a-z0-9_]*\z", RegexOptions.CultureInvariant)]
+    private static partial Regex DatabaseIdentifierRegex();
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Seed du tenant de dev « {TenantId} » ignoré : RealmName et DatabaseName sont requis (section DevTenantSeed).")]
     private static partial void LogDevTenantSeedIncomplete(ILogger logger, string tenantId);
@@ -427,4 +498,13 @@ internal static partial class DevTenantSeeder
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Tenant de recette additionnel « {TenantId} » amorcé dans outbox.tenants (company_id {CompanyId}).")]
     private static partial void LogAdditionalTenantSeeded(ILogger logger, string tenantId, Guid companyId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Base du tenant de recette « {TenantId} » créée : « {DatabaseName} » (sera migrée par MigrateExistingTenantsAsync).")]
+    private static partial void LogAdditionalTenantDatabaseCreated(ILogger logger, string databaseName, string tenantId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Création de la base du tenant de recette « {TenantId} » ignorée : nom « {DatabaseName} » non conforme (minuscules/chiffres/underscore, débutant par une lettre).")]
+    private static partial void LogAdditionalTenantDatabaseNameUnsafe(ILogger logger, string databaseName, string tenantId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Échec de la création de la base « {DatabaseName} » du tenant de recette « {TenantId} » (non fatal — le démarrage continue ; la base restera injoignable).")]
+    private static partial void LogAdditionalTenantDatabaseCreationFailed(ILogger logger, string databaseName, string tenantId, Exception exception);
 }

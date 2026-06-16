@@ -1,6 +1,6 @@
 @page "/agents"
 @rendermode InteractiveServer
-@attribute [Authorize]
+@attribute [Authorize(Policy = LiakontPermissions.Settings)]
 @using System.Globalization
 @using Microsoft.Extensions.Logging
 @using Microsoft.JSInterop

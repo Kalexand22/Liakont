@@ -1,6 +1,6 @@
 @page "/parametrage/fiscal"
 @rendermode InteractiveServer
-@attribute [Authorize]
+@attribute [Authorize(Policy = LiakontPermissions.Settings)]
 @using Liakont.Host.Fiscal
 @using Liakont.Host.Components
 @using Liakont.Host.Security

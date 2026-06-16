@@ -26,12 +26,20 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
 
     public NavNode GetNavNode()
     {
-        var children = new List<NavNode>
+        var children = new List<NavNode>();
+
+        // Documents / Encaissements / Traitements : surfaces de CONSULTATION (liakont.read). La matrice §3
+        // (identity-permissions-liakont.md : read = « documents, transmissions, journaux ») et le guide opérateur
+        // §17 (lecture consulte « les traitements », journal en lecture seule) classent le journal des traitements
+        // en lecture ; l'endpoint backing le confirme (GET /runs → liakont.read ; seul POST /runs/trigger, l'action,
+        // = liakont.actions). Gardées par liakont.read (finding F5a / RLF03) : un principal sans read (ex. exploitant
+        // de flotte) ne les voit pas, et les pages portent la même policy. Le super-admin court-circuite.
+        if (_permissions.HasPermission(LiakontPermissions.Read))
         {
-            new() { Label = "Documents", Href = "/documents" },
-            new() { Label = "Encaissements", Href = "/encaissements" },
-            new() { Label = "Traitements", Href = "/traitements" },
-        };
+            children.Add(new() { Label = "Documents", Href = "/documents" });
+            children.Add(new() { Label = "Encaissements", Href = "/encaissements" });
+            children.Add(new() { Label = "Traitements", Href = "/traitements" });
+        }
 
         // Réconciliation : visible uniquement si l'agent du tenant alimente un pool de PDF non rattachés. Le
         // nombre d'éléments en attente (propositions + orphelins) est embarqué dans le libellé — le modèle
@@ -47,7 +55,11 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
             children.Add(new NavNode { Label = label, Href = "/reconciliation" });
         }
 
-        children.Add(BuildParametrageNode());
+        var parametrage = BuildParametrageNode();
+        if (parametrage is not null)
+        {
+            children.Add(parametrage);
+        }
 
         // Supervision : réservée au superviseur — SOUS-MENU (même pattern que Paramétrage) :
         // « Vue d'ensemble » (santé cross-tenant, lecture seule) et « Clients » (administration
@@ -83,13 +95,29 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
     }
 
     /// <summary>
-    /// Nœud « Paramétrage » : SOUS-MENU pour les porteurs de <c>liakont.settings</c> (une entrée par
-    /// élément à paramétrer — les pages cibles refusent de toute façon l'accès sans la permission),
-    /// simple lien vers la vue d'ensemble sinon (le hub /parametrage reste consultable en lecture).
+    /// Nœud « Paramétrage » (finding F5a / RLF03, contraint par FIX208) :
+    /// <list type="bullet">
+    /// <item><c>null</c> sans <c>liakont.read</c> (ex. exploitant de flotte) — la page <c>/parametrage</c>
+    /// exige <c>liakont.read</c>, le trou « ouvrable par tout authentifié » est fermé.</item>
+    /// <item>simple lien vers le hub <c>/parametrage</c> pour un porteur de <c>liakont.read</c> sans
+    /// <c>liakont.settings</c> : le hub reste accessible au lecteur pour l'export d'audit par période
+    /// (FIX208, capacité <c>liakont.read</c> — la masquer régresserait cette capacité d'audit).</item>
+    /// <item>SOUS-MENU (une entrée par élément à paramétrer) pour un porteur de <c>liakont.settings</c> ;
+    /// les sous-pages sont gardées par <c>[Authorize(Policy = liakont.settings)]</c>.</item>
+    /// </list>
     /// </summary>
-    private NavNode BuildParametrageNode()
+    private NavNode? BuildParametrageNode()
     {
-        if (!_permissions.HasPermission(LiakontPermissions.Settings))
+        var hasSettings = _permissions.HasPermission(LiakontPermissions.Settings);
+
+        // Visible au porteur de liakont.read (hub + export d'audit FIX208) OU de liakont.settings (paramétrage).
+        // Caché sinon (ex. exploitant de flotte) : le trou « ouvrable par tout authentifié » est fermé.
+        if (!hasSettings && !_permissions.HasPermission(LiakontPermissions.Read))
+        {
+            return null;
+        }
+
+        if (!hasSettings)
         {
             return new NavNode { Label = "Paramétrage", Href = "/parametrage" };
         }

@@ -1,6 +1,10 @@
 @page "/parametrage"
 @rendermode InteractiveServer
-@attribute [Authorize]
+@* Hub Paramétrage : capacité MINIMALE = liakont.read (FIX208 y offre l'export d'audit par période aux
+   lecteurs ; gater la page par settings régresserait cette capacité d'audit). Les surfaces settings — sous-pages
+   (table TVA, comptes PA, fiscal, alertes, agents) et réversibilité du tenant — restent gardées par settings
+   (sous-pages : [Authorize(Policy = Settings)] ; réversibilité : _canExportTenant). Cf. RLF03 / finding F5a. *@
+@attribute [Authorize(Policy = LiakontPermissions.Read)]
 @using Liakont.Host.Parametrage
 @using Liakont.Host.Security
 @using Liakont.Modules.Archive.Contracts

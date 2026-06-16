@@ -74,9 +74,14 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
             await using var connection = new NpgsqlConnection(_defaultConnectionString);
             await connection.OpenAsync(cancellationToken);
 
+            // Alias database_name AS databasename: Dapper does not strip underscores by default
+            // (MatchNamesWithUnderscores is never set), so without the alias TenantRecord.DatabaseName
+            // stays empty — RunTenantMigrationsAsync would then connect to the DEFAULT (system) database
+            // and report a false success, masking a missing tenant DB (recette finding F4 / RLF02).
+            // Same aliasing convention as the other queries below (GetTenantForReprovisionAsync, etc.).
             var tenants = await connection.QueryAsync<TenantRecord>(
                 new CommandDefinition(
-                    "SELECT id, database_name FROM outbox.tenants WHERE is_active = true",
+                    "SELECT id, database_name AS databasename FROM outbox.tenants WHERE is_active = true",
                     cancellationToken: cancellationToken));
 
             tenantList = tenants.ToList();
@@ -91,6 +96,7 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
         LogTenantMigrationStarted(_logger, tenantList.Count);
 
         var migrated = 0;
+        var skipped = new List<string>();
         var failures = new List<(string TenantId, Exception Error)>();
 
         foreach (var tenant in tenantList)
@@ -105,7 +111,10 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
             }
             catch (NpgsqlException ex)
             {
-                // Connection/network error — skip with warning (tenant DB inaccessible)
+                // Connection/network error — tenant DB inaccessible. NOT counted as migrated
+                // and surfaced as an aggregate warning below: an inaccessible tenant must never
+                // be hidden behind the (green) completion summary (review rule #8 — false-green).
+                skipped.Add(tenant.Id);
                 LogTenantMigrationSkipped(_logger, tenant.Id, tenant.DatabaseName, ex);
             }
             catch (InvalidOperationException ex)
@@ -116,7 +125,16 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
             }
         }
 
-        LogTenantMigrationCompleted(_logger, migrated, tenantList.Count);
+        LogTenantMigrationCompleted(_logger, migrated, skipped.Count, failures.Count, tenantList.Count);
+
+        // An inaccessible tenant database is a fault, not a silent skip: raise an explicit
+        // aggregate warning naming the affected tenants. Availability policy is preserved —
+        // an inaccessible tenant does NOT abort startup (healthy tenants keep working); only
+        // DbUp SQL migration failures throw below.
+        if (skipped.Count > 0)
+        {
+            LogTenantsInaccessible(_logger, skipped.Count, string.Join(", ", skipped));
+        }
 
         if (failures.Count > 0)
         {
@@ -374,8 +392,11 @@ public sealed partial class TenantProvisioningService : ITenantProvisioningServi
     [LoggerMessage(Level = LogLevel.Error, Message = "Migration failed for tenant '{TenantId}' (database '{DatabaseName}')")]
     private static partial void LogTenantMigrationFailed(ILogger logger, string tenantId, string databaseName, Exception exception);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Incremental tenant migration completed: {Migrated}/{Total} tenant(s) updated")]
-    private static partial void LogTenantMigrationCompleted(ILogger logger, int migrated, int total);
+    [LoggerMessage(Level = LogLevel.Information, Message = "Incremental tenant migration completed: {Migrated} migrated, {Skipped} inaccessible, {Failed} failed (of {Total} active tenant(s))")]
+    private static partial void LogTenantMigrationCompleted(ILogger logger, int migrated, int skipped, int failed, int total);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Count} tenant database(s) inaccessible and NOT migrated — operator attention required: {TenantIds}")]
+    private static partial void LogTenantsInaccessible(ILogger logger, int count, string tenantIds);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Provisioning tenant '{TenantId}' with database '{DatabaseName}'")]
     private static partial void LogProvisioningStarted(ILogger logger, string tenantId, string databaseName);

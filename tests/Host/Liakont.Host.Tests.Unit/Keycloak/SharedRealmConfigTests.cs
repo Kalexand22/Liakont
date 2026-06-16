@@ -90,6 +90,33 @@ public sealed class SharedRealmConfigTests
 
     [Theory]
     [MemberData(nameof(RealmFiles))]
+    public void ConfigureTotp_Is_A_Realm_Default_RequiredAction(string realmPath)
+    {
+        using var realm = LoadRealm(realmPath);
+        var root = realm.RootElement;
+
+        // RLF05 / F6-A (durcissement realm-level de F6) : CONFIGURE_TOTP doit être une required action
+        // PAR DÉFAUT du realm (defaultAction=true), pas seulement seedée par compte (dev) ou ajoutée par
+        // le provisioner (F6). Conséquence Keycloak : TOUT chemin de création d'utilisateur (console admin
+        // Keycloak, brokering RLM05, scripts) hérite automatiquement de l'enrôlement 2FA au 1er login — le
+        // « 2FA forcé » ne dépend plus du seul chemin de provisioning (cf. recette GATE_REALM_UNIQUE, F6).
+        root.TryGetProperty("requiredActions", out var requiredActions).Should().BeTrue(
+            "le realm doit déclarer ses required actions au niveau realm pour rendre CONFIGURE_TOTP action par défaut");
+
+        var configureTotp = requiredActions.EnumerateArray()
+            .Where(a => a.GetProperty("alias").GetString() == "CONFIGURE_TOTP")
+            .ToList();
+
+        configureTotp.Should().ContainSingle("CONFIGURE_TOTP doit être déclaré une seule fois au niveau realm");
+
+        var action = configureTotp[0];
+        action.GetProperty("enabled").GetBoolean().Should().BeTrue("la required action CONFIGURE_TOTP doit être activée");
+        action.GetProperty("defaultAction").GetBoolean().Should().BeTrue(
+            "INV-0021-7 durci (F6-A) : CONFIGURE_TOTP action PAR DÉFAUT du realm — tout user créé hors provisioner enrôle aussi le 2FA");
+    }
+
+    [Theory]
+    [MemberData(nameof(RealmFiles))]
     public void CompanyId_Is_Immutable_In_User_Profile(string realmPath)
     {
         using var realm = LoadRealm(realmPath);
