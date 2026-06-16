@@ -313,7 +313,8 @@ public sealed class SendTenantJobTests
         SendTestDoubles.RecordingStagingPurgeService purge,
         SendTestDoubles.RecordingArchiveService archive,
         SendTestDoubles.RecordingRunLogStore runLogs,
-        FakePaClient paClient)
+        FakePaClient paClient,
+        SendTestDoubles.StubPaTransmissionJournalQueries? journalQueries = null)
     {
         return new SendTestDoubles.FakeServiceProvider()
             .Add<TimeProvider>(new SendTestDoubles.FixedTimeProvider(SendTestData.Now))
@@ -322,6 +323,7 @@ public sealed class SendTenantJobTests
             .Add<IPaClientRegistry>(new SendTestDoubles.StubPaClientRegistry(paClient))
             .Add<Liakont.Modules.Documents.Contracts.Queries.IDocumentQueries>(queries)
             .Add<Liakont.Modules.Documents.Contracts.Lifecycle.IDocumentLifecycle>(lifecycle)
+            .Add<Liakont.Modules.Documents.Contracts.Queries.IPaTransmissionJournalQueries>(journalQueries ?? new SendTestDoubles.StubPaTransmissionJournalQueries())
             .Add<Liakont.Modules.Staging.Contracts.IPayloadStagingStore>(staging)
             .Add<Liakont.Modules.Staging.Contracts.IStagingPurgeService>(purge)
             .Add<Liakont.Modules.Archive.Contracts.IArchiveService>(archive)
@@ -343,7 +345,8 @@ public sealed class SendTenantJobTests
         SendTestDoubles.FacturXCapablePaClient paClient,
         SendTestDoubles.StubFacturXArtifactBuilder builder,
         SendTestDoubles.RecordingPaTransmissionJournal journal,
-        SendTestDoubles.RecordingSupportTraceStore trace)
+        SendTestDoubles.RecordingSupportTraceStore trace,
+        SendTestDoubles.StubPaTransmissionJournalQueries? journalQueries = null)
     {
         return new SendTestDoubles.FakeServiceProvider()
             .Add<TimeProvider>(new SendTestDoubles.FixedTimeProvider(SendTestData.Now))
@@ -353,11 +356,138 @@ public sealed class SendTenantJobTests
             .Add<Liakont.Modules.Documents.Contracts.Queries.IDocumentQueries>(queries)
             .Add<Liakont.Modules.Documents.Contracts.Lifecycle.IDocumentLifecycle>(lifecycle)
             .Add<Liakont.Modules.Documents.Contracts.Lifecycle.IPaTransmissionJournal>(journal)
+            .Add<Liakont.Modules.Documents.Contracts.Queries.IPaTransmissionJournalQueries>(journalQueries ?? new SendTestDoubles.StubPaTransmissionJournalQueries())
             .Add<Liakont.Modules.Staging.Contracts.IPayloadStagingStore>(staging)
             .Add<Liakont.Modules.Staging.Contracts.IStagingPurgeService>(purge)
             .Add<Liakont.Modules.Archive.Contracts.IArchiveService>(archive)
             .Add<Liakont.Modules.SupportTrace.Contracts.ISupportTraceStore>(trace)
             .Add<Liakont.Modules.Transmission.Contracts.IFacturXArtifactBuilder>(builder)
             .Add<Liakont.Modules.Pipeline.Application.IPipelineRunLogStore>(runLogs);
+    }
+
+    [Fact]
+    public async Task RecoverSending_With_FacturX_Pa_And_No_Prior_Journal_Generates_Transmits_And_Journals()
+    {
+        // Chemin de reprise (recover Sending) sur une PA Essentiel SANS journal préexistant : on doit générer,
+        // transmettre et journaliser (INV-PIPELINE-038 sur le chemin de reprise). La garde ne doit PAS
+        // déclencher (journal vide = FindByIdempotencyKey → null).
+        var id = Guid.NewGuid();
+        const string number = "F-2026-0150";
+        var document = SendTestData.Document(id, "Sending", number: number, payloadHash: "hash-150");
+        var queries = new SendTestDoubles.ConfigurableDocumentQueries();
+        queries.AddDocument(document);
+        queries.AddPotentiallySent(SendTestData.Summary(id, "Sending", number));
+
+        var pivot = SendTestData.SingleLinePivot(number);
+        var staging = new SendTestDoubles.MapStagingStore();
+        staging.Stage(id, Liakont.Agent.Contracts.Serialization.CanonicalJson.Serialize(pivot));
+
+        var lifecycle = new SendTestDoubles.RecordingDocumentLifecycle();
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var purge = new SendTestDoubles.RecordingStagingPurgeService(true);
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var pa = new SendTestDoubles.FacturXCapablePaClient();
+        var artifact = System.Text.Encoding.ASCII.GetBytes("%PDF-1.7 recover-no-journal");
+        var builder = new SendTestDoubles.StubFacturXArtifactBuilder(artifact);
+        var journal = new SendTestDoubles.RecordingPaTransmissionJournal();
+        var trace = new SendTestDoubles.RecordingSupportTraceStore();
+        var journalQueries = new SendTestDoubles.StubPaTransmissionJournalQueries();
+
+        var account = SendTestData.ActiveAccount("generique");
+        var provider = BuildFacturXProvider(
+            new SendTestDoubles.ConfigurableTenantSettingsQueries(TenantCompany, new[] { account }),
+            queries, lifecycle, staging, purge, archive, runLogs, pa, builder, journal, trace,
+            journalQueries);
+
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        builder.BuildCount.Should().Be(1, "le Factur-X est généré sur le chemin de reprise (INV-PIPELINE-038).");
+        pa.SendCount.Should().Be(1, "aucun journal préexistant : la garde ne déclenche pas, on transmet.");
+        journal.Entries.Should().ContainSingle("la journalisation a lieu après la transmission réussie.");
+        lifecycle.Issued.Should().ContainSingle().Which.Should().Be(id);
+    }
+
+    [Fact]
+    public async Task RecoverSending_With_Already_Journaled_FacturX_Does_Not_Retransmit()
+    {
+        // Garde anti double-envoi (INV-PIPELINE-041) : un cycle précédent a transmis et journalisé (FX07) mais
+        // crashé AVANT MarkIssued. Le document est resté Sending. Au cycle suivant, la garde lit la clé
+        // d'idempotence et finalise Issued SANS retransmettre (jamais de double émission).
+        var id = Guid.NewGuid();
+        const string number = "F-2026-0160";
+        var document = SendTestData.Document(id, "Sending", number: number, payloadHash: "hash-160");
+        var queries = new SendTestDoubles.ConfigurableDocumentQueries();
+        queries.AddDocument(document);
+        queries.AddPotentiallySent(SendTestData.Summary(id, "Sending", number));
+
+        var pivot = SendTestData.SingleLinePivot(number);
+        var staging = new SendTestDoubles.MapStagingStore();
+        staging.Stage(id, Liakont.Agent.Contracts.Serialization.CanonicalJson.Serialize(pivot));
+
+        var lifecycle = new SendTestDoubles.RecordingDocumentLifecycle();
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var purge = new SendTestDoubles.RecordingStagingPurgeService(true);
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var pa = new SendTestDoubles.FacturXCapablePaClient();
+        var artifact = System.Text.Encoding.ASCII.GetBytes("%PDF-1.7 recover-already-journaled");
+        var builder = new SendTestDoubles.StubFacturXArtifactBuilder(artifact);
+        var journal = new SendTestDoubles.RecordingPaTransmissionJournal();
+        var trace = new SendTestDoubles.RecordingSupportTraceStore();
+
+        // La garde lit ce journal : la clé = numéro de document, déjà journalisée.
+        var journalQueries = new SendTestDoubles.StubPaTransmissionJournalQueries();
+        journalQueries.AddJournaled(number, id);
+
+        var account = SendTestData.ActiveAccount("generique");
+        var provider = BuildFacturXProvider(
+            new SendTestDoubles.ConfigurableTenantSettingsQueries(TenantCompany, new[] { account }),
+            queries, lifecycle, staging, purge, archive, runLogs, pa, builder, journal, trace,
+            journalQueries);
+
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        pa.SendCount.Should().Be(0, "déjà transmis : aucune retransmission.");
+        builder.BuildCount.Should().Be(0, "pas de régénération.");
+        lifecycle.Issued.Should().ContainSingle().Which.Should().Be(id, "finalisé via le raccrochage.");
+        journal.Entries.Should().BeEmpty("aucune nouvelle journalisation : facturX null sur le raccrochage.");
+        archive.Requests.Should().ContainSingle("la preuve WORM est posée même sur le raccrochage.");
+    }
+
+    [Fact]
+    public async Task Pilotage_Path_Does_Not_Journal_Nor_Trace()
+    {
+        // INV-PIPELINE-040 : sur le chemin Pilotage (PA sans SupportsFacturXTransmission), ni journal ni trace
+        // ne doivent être écrits. La garde anti double-envoi (TryFinalizeFromJournalAsync) est no-op (journal
+        // vide → retourne false), et FinalizeIssuedAsync ne journalise pas (facturX null).
+        var (id, queries, lifecycle, staging) = SeedSingle("ReadyToSend");
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var purge = new SendTestDoubles.RecordingStagingPurgeService(wormPresent: true);
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var journal = new SendTestDoubles.RecordingPaTransmissionJournal();
+        var trace = new SendTestDoubles.RecordingSupportTraceStore();
+        var journalQueries = new SendTestDoubles.StubPaTransmissionJournalQueries();
+
+        // PA Pilotage : SupportsFacturXTransmission == false (FakePaClient avec tax_report_setting publié).
+        var fake = await PublishedFakeAsync(FakePaScenario.Success);
+
+        var provider = new SendTestDoubles.FakeServiceProvider()
+            .Add<TimeProvider>(new SendTestDoubles.FixedTimeProvider(SendTestData.Now))
+            .Add<ILogger<SendTenantJob>>(NullLogger<SendTenantJob>.Instance)
+            .Add<Liakont.Modules.TenantSettings.Contracts.Queries.ITenantSettingsQueries>(ActiveAccountSettings())
+            .Add<IPaClientRegistry>(new SendTestDoubles.StubPaClientRegistry(fake))
+            .Add<Liakont.Modules.Documents.Contracts.Queries.IDocumentQueries>(queries)
+            .Add<Liakont.Modules.Documents.Contracts.Lifecycle.IDocumentLifecycle>(lifecycle)
+            .Add<Liakont.Modules.Documents.Contracts.Lifecycle.IPaTransmissionJournal>(journal)
+            .Add<Liakont.Modules.Documents.Contracts.Queries.IPaTransmissionJournalQueries>(journalQueries)
+            .Add<Liakont.Modules.Staging.Contracts.IPayloadStagingStore>(staging)
+            .Add<Liakont.Modules.Staging.Contracts.IStagingPurgeService>(purge)
+            .Add<Liakont.Modules.Archive.Contracts.IArchiveService>(archive)
+            .Add<Liakont.Modules.Pipeline.Application.IPipelineRunLogStore>(runLogs);
+
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        lifecycle.Issued.Should().ContainSingle().Which.Should().Be(id, "le Pilotage émet normalement.");
+        journal.Entries.Should().BeEmpty("le chemin Pilotage NE journalise PAS (INV-PIPELINE-040).");
+        trace.Writes.Should().BeEmpty("le chemin Pilotage NE trace PAS (INV-PIPELINE-040).");
     }
 }

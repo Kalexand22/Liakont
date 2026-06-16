@@ -369,6 +369,32 @@ internal static class SendTestDoubles
         }
     }
 
+    /// <summary>Recherche d'envoi PA journalisé de test (FX07) : configurable par clé d'idempotence (défaut : rien).</summary>
+    internal sealed class StubPaTransmissionJournalQueries : Liakont.Modules.Documents.Contracts.Queries.IPaTransmissionJournalQueries
+    {
+        private readonly Dictionary<string, PaTransmissionJournalDto> _byKey = new(StringComparer.Ordinal);
+
+        /// <summary>Déclare qu'un envoi est DÉJÀ journalisé pour cette clé (numéro de document) — déclenche la garde.</summary>
+        public void AddJournaled(string idempotencyKey, Guid documentId)
+        {
+            _byKey[idempotencyKey] = new PaTransmissionJournalDto
+            {
+                EventId = Guid.NewGuid(),
+                DocumentId = documentId,
+                TimestampUtc = SendTestData.Now,
+                IdempotencyKey = idempotencyKey,
+                PaAccount = "compte-generique",
+                PaPluginId = "generique",
+                PaRequestUtc = SendTestData.Now,
+                PaResponseUtc = SendTestData.Now,
+                TransmittedArtifactHash = "sha256:deadbeef",
+            };
+        }
+
+        public Task<PaTransmissionJournalDto?> FindByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_byKey.TryGetValue(idempotencyKey, out var dto) ? dto : null);
+    }
+
     /// <summary>Journal d'envoi PA de test (FX07) : enregistre chaque entrée journalisée par le pipeline.</summary>
     internal sealed class RecordingPaTransmissionJournal : IPaTransmissionJournal
     {

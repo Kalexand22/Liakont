@@ -277,8 +277,17 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Succeeded;
         }
 
-        // Pas de référence connue / la PA ne connaît pas le document : on renvoie (déjà Sending). La PA
-        // déduplique par numéro (F05) : un document déjà émis revient Issued SANS nouvelle émission.
+        // Garde anti double-envoi pour une PA SANS dédoublonnage propre (Essentiel : la générique email/dépôt
+        // ne déduplique pas, GetDocumentStatus = CapabilityNotSupported). Un cycle précédent a pu transmettre +
+        // journaliser ce Factur-X puis crasher AVANT MarkIssued : la journalisation FX06/FX07 (clé d'idempotence
+        // = numéro de document) est ALORS la preuve de transmission. Auto-gating : les PA Pilotage ne
+        // journalisent jamais ⇒ no-op (leur filet reste le dédoublonnage PA par numéro, ci-dessous).
+        if (await TryFinalizeFromJournalAsync(services, tenantId, document, staged.Pivot!, staged.Json!, beginSending: false, logger, cancellationToken))
+        {
+            return SendOutcome.Succeeded;
+        }
+
+        // Aucune transmission journalisée : on (re)transmet (déjà Sending). Pilotage : la PA déduplique par numéro (F05). Essentiel : le destinataire dédoublonne par numéro (BT-1) — at-least-once assumé (canal externe).
         var (result, facturX) = await TransmitAsync(services, paClient, account, timeProvider, staged.Pivot!, cancellationToken);
         return await HandleSendResultAsync(services, tenantId, document, staged.Pivot!, staged.Json!, result, facturX, logger, cancellationToken);
     }
@@ -340,6 +349,13 @@ public sealed partial class SendTenantJob : ITenantJob
 
         // Anti-doublon AVANT tout renvoi : si la PA connaît déjà le document, on le finalise sans réémettre.
         if (await TryFinalizeFromPaStatusAsync(services, paClient, tenantId, document, staged.Pivot!, staged.Json!, beginSending: true, logger, cancellationToken))
+        {
+            return SendOutcome.Succeeded;
+        }
+
+        // Même garde anti double-envoi que RecoverSendingAsync : si la transmission est déjà journalisée, on
+        // finalise sans retransmettre. beginSending:true car le document vient de repasser ReadyToSend.
+        if (await TryFinalizeFromJournalAsync(services, tenantId, document, staged.Pivot!, staged.Json!, beginSending: true, logger, cancellationToken))
         {
             return SendOutcome.Succeeded;
         }
@@ -439,6 +455,58 @@ public sealed partial class SendTenantJob : ITenantJob
         return true;
     }
 
+    /// <summary>
+    /// Garde anti double-envoi par la PISTE D'AUDIT : si une transmission est DÉJÀ journalisée pour ce document
+    /// (clé d'idempotence = numéro de document, FX06/FX07), elle a effectivement eu lieu à un cycle précédent
+    /// (crash avant <c>MarkIssued</c>, document resté <c>Sending</c>) — on finalise <c>Issued</c> SANS
+    /// retransmettre (jamais de double émission, INV-PIPELINE-016/041). Retourne <c>false</c> si rien n'est
+    /// journalisé (cas nominal : on transmet). Auto-gating : les PA de niveau Pilotage ne journalisent pas
+    /// (artefact nul) ⇒ toujours <c>false</c> pour elles (leur filet reste le dédoublonnage PA par numéro).
+    /// <paramref name="beginSending"/> engage la transition Sending requise avant la finalisation (cas retry
+    /// depuis ReadyToSend).
+    /// </summary>
+    private static async Task<bool> TryFinalizeFromJournalAsync(
+        IServiceProvider services,
+        string tenantId,
+        DocumentDto document,
+        PivotDocumentDto pivot,
+        string canonicalJson,
+        bool beginSending,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        var journaled = await services.GetRequiredService<IPaTransmissionJournalQueries>()
+            .FindByIdempotencyKeyAsync(document.DocumentNumber, cancellationToken);
+        if (journaled is null)
+        {
+            return false;
+        }
+
+        if (beginSending)
+        {
+            await services.GetRequiredService<IDocumentLifecycle>().BeginSendingAsync(document.Id, cancellationToken);
+        }
+
+        // Réponse PA d'origine non relisible (perdue au crash) : snapshot HONNÊTE de raccrochage (jamais une
+        // réponse PA inventée), traçant la preuve de transmission journalisée.
+        var recoveredSnapshot = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            recovered = "Transmission déjà journalisée à un cycle précédent — raccrochage anti double-envoi (FX07).",
+            idempotencyKey = journaled.IdempotencyKey,
+            transmittedArtifactHash = journaled.TransmittedArtifactHash,
+            paAccount = journaled.PaAccount,
+            paPluginId = journaled.PaPluginId,
+            paResponseUtc = journaled.PaResponseUtc,
+        });
+
+        // facturX null : AUCUNE retransmission ce cycle ⇒ aucune nouvelle journalisation/trace (déjà posées à
+        // la transmission d'origine). paDocumentId null : la PA générique (Essentiel) n'a pas de référence
+        // relisible ; la preuve d'émission est l'archive WORM + la journalisation FX06.
+        await FinalizeIssuedAsync(services, tenantId, document, pivot, canonicalJson, recoveredSnapshot, paDocumentId: null, facturX: null, cancellationToken);
+        LogAntiDuplicateJournalFinalized(logger, document.Id);
+        return true;
+    }
+
     /// <summary>Aiguille l'issue d'un envoi (déjà <c>Sending</c>) vers la transition finale et les effets associés.</summary>
     private static async Task<SendOutcome> HandleSendResultAsync(
         IServiceProvider services,
@@ -487,13 +555,15 @@ public sealed partial class SendTenantJob : ITenantJob
     }
 
     /// <summary>
-    /// Émission : archive WORM (TRK05) d'abord (idempotente) PUIS MarkIssued (preuve) PUIS — sur le chemin
-    /// Factur-X (FX07) — journalisation de l'envoi PA (F06 append-only) + trace de support, PUIS purge du
-    /// staging subordonnée au WORM (ADR-0014 §4) — ordre auto-cicatrisant : un échec après l'archive laisse le
-    /// document Sending, ré-émis et dédoublonné au cycle suivant. <paramref name="facturX"/> non nul ⇔ un
-    /// Factur-X a été GÉNÉRÉ et TRANSMIS ce cycle (PA à capacité <c>SupportsFacturXTransmission</c>) : c'est la
-    /// seule branche qui journalise et trace l'artefact (F16 §7) ; les PA de niveau Pilotage le laissent nul
-    /// et leur chemin reste INCHANGÉ.
+    /// Émission : (1) si chemin Factur-X — journalisation de l'envoi PA (F06 APPEND-ONLY) + trace de support,
+    /// posés AVANT MarkIssued (ancre d'idempotence + aucun fait d'audit perdu si crash) ; (2) archive WORM
+    /// (TRK05, idempotente) ; (3) MarkIssued (preuve) ; (4) purge du staging subordonnée au WORM (ADR-0014 §4).
+    /// Ordre auto-cicatrisant : un crash avant MarkIssued laisse le document Sending — si journal+trace ont été
+    /// posés, la garde anti double-envoi (INV-PIPELINE-041) raccrocherait proprement au cycle suivant.
+    /// <paramref name="facturX"/> non nul ⇔ un Factur-X a été GÉNÉRÉ et TRANSMIS ce cycle (PA à capacité
+    /// <c>SupportsFacturXTransmission</c>) : journal et trace n'ont lieu que dans cette branche (F16 §7) ; les
+    /// PA de niveau Pilotage le laissent nul et leur chemin Archive→MarkIssued→purge reste INCHANGÉ. Aucun
+    /// chemin update/delete sur document_events (CLAUDE.md n°4).
     /// </summary>
     private static async Task FinalizeIssuedAsync(
         IServiceProvider services,
@@ -509,26 +579,12 @@ public sealed partial class SendTenantJob : ITenantJob
         var mappingTraceJson = System.Text.Json.JsonSerializer.Serialize(
             new { mappingVersion = document.MappingVersion ?? "(non précisée)" });
 
-        var archiveRequest = SendArchiveComposer.Compose(document, pivot, canonicalJson, paResponseJson, mappingTraceJson);
-        await services.GetRequiredService<IArchiveService>().ArchiveIssuedDocumentAsync(archiveRequest, cancellationToken);
-
-        // La référence PA est persistée sur le document à l'émission (clé de récupération aval — SYNC/PIP01d) ;
-        // elle n'est jamais effacée par une finalisation anti-doublon sans id (Document.MarkIssued).
-        await services.GetRequiredService<IDocumentLifecycle>().MarkIssuedAsync(
-            document.Id,
-            new DocumentIssuanceSnapshots
-            {
-                PayloadSnapshot = canonicalJson,
-                PaResponseSnapshot = paResponseJson,
-                MappingTrace = mappingTraceJson,
-                PaDocumentId = paDocumentId,
-            },
-            cancellationToken);
-
         // FX07 (F16 §7) : sur le chemin Factur-X, journaliser l'envoi (piste d'audit F06 APPEND-ONLY :
         // compte/plug-in PA, horodatages, empreinte de l'artefact, clé d'idempotence, réponse PA) PUIS écrire
         // la trace de support (copie du Factur-X transmis, store DÉDIÉ purgeable, tenant-scopé n°9 — distinct
-        // de l'audit WORM). Aucun chemin update/delete sur document_events (CLAUDE.md n°4).
+        // de l'audit WORM). Posés AVANT MarkIssued : la clé est l'ancre d'idempotence pour la garde anti
+        // double-envoi (INV-PIPELINE-041) ; un crash ici laisse le document Sending (ré-examiné au cycle
+        // suivant), le fait d'audit est conservé. Aucun chemin update/delete sur document_events (CLAUDE.md n°4).
         if (facturX is not null)
         {
             await services.GetRequiredService<IPaTransmissionJournal>().JournalAsync(
@@ -551,6 +607,22 @@ public sealed partial class SendTenantJob : ITenantJob
             await services.GetRequiredService<ISupportTraceStore>().WriteAsync(
                 tenantId, document.Id, facturX.Artifact, facturX.ResponseUtc, cancellationToken);
         }
+
+        var archiveRequest = SendArchiveComposer.Compose(document, pivot, canonicalJson, paResponseJson, mappingTraceJson);
+        await services.GetRequiredService<IArchiveService>().ArchiveIssuedDocumentAsync(archiveRequest, cancellationToken);
+
+        // La référence PA est persistée sur le document à l'émission (clé de récupération aval — SYNC/PIP01d) ;
+        // elle n'est jamais effacée par une finalisation anti-doublon sans id (Document.MarkIssued).
+        await services.GetRequiredService<IDocumentLifecycle>().MarkIssuedAsync(
+            document.Id,
+            new DocumentIssuanceSnapshots
+            {
+                PayloadSnapshot = canonicalJson,
+                PaResponseSnapshot = paResponseJson,
+                MappingTrace = mappingTraceJson,
+                PaDocumentId = paDocumentId,
+            },
+            cancellationToken);
 
         // Purge subordonnée à la présence EFFECTIVE du paquet WORM (jamais à la seule étiquette Issued).
         var key = new StagedPayloadKey(tenantId, document.Id, document.PayloadHash);
@@ -796,6 +868,10 @@ public sealed partial class SendTenantJob : ITenantJob
     [LoggerMessage(EventId = 7212, Level = LogLevel.Error,
         Message = "SEND : échec inattendu sur le document {DocumentId} — document ignoré ce cycle, traitement du tenant poursuivi.")]
     private static partial void LogDocumentSendFailed(ILogger logger, Guid documentId, Exception exception);
+
+    [LoggerMessage(EventId = 7213, Level = LogLevel.Information,
+        Message = "SEND : document {DocumentId} déjà transmis (journalisé) à un cycle précédent — finalisé Issued sans renvoi (anti double-envoi FX07).")]
+    private static partial void LogAntiDuplicateJournalFinalized(ILogger logger, Guid documentId);
 
     /// <summary>
     /// Données capturées d'une transmission Factur-X (FX07) : l'artefact transmis (pour la trace de support),

@@ -17,7 +17,7 @@ using System.Threading.Tasks;
 public interface IPaTransmissionJournal
 {
     /// <summary>
-    /// Consigne, en append-only, l'envoi d'un artefact à la PA pour un document déjà émis. N'effectue
+    /// Consigne, en append-only, l'envoi d'un artefact à la PA (posé avant la finalisation Issued). N'effectue
     /// AUCUNE transition d'état (la machine à états relève de <see cref="IDocumentLifecycle"/>) : un pur
     /// ajout d'événement d'audit. Lève si <paramref name="entry"/> est incomplet.
     /// </summary>
