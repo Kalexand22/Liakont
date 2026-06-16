@@ -150,7 +150,12 @@ meta:
   #   le lot s'auto-propulse jusqu'à la recette. Séquencement option (A) RETENUE (SIG05 refactor
   #   SelfBilledAcceptance via DocumentApproval). ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS merge
   #   (SIG01..SIG10 + GATE_SIGNATURE en `pending` ; SIG01 éligible).
-  version: 27
+  # version 28 = déblocage dev du lot SIG : la branche de segment feat/signature est créée PRÉ-CONSOLIDÉE
+  #   sur feat/autofacturation + feat/facturx (devs gate_pending, non encore sur main) — verify-fast +
+  #   run-tests (6001) verts sur la consolidation. depends_on_gate du segment `signature` réduit de
+  #   [GATE_AUTOFACTURATION, GATE_FACTURX, GATE_CONSOLE_WEB] à [GATE_CONSOLE_WEB] : le code amont est porté
+  #   par la branche, plus besoin d'attendre la recette humaine des 2 gates. Recette globale assumée (Karl).
+  version: 28
   host: multi_agent_v1
 
 segments:
@@ -277,7 +282,11 @@ segments:
     base: main
     lots: [SIG]
     gate: GATE_SIGNATURE
-    depends_on_gate: [GATE_AUTOFACTURATION, GATE_FACTURX, GATE_CONSOLE_WEB]
+    # v28 : feat/signature est PRÉ-CONSOLIDÉE sur feat/autofacturation + feat/facturx (le code MND/FX que
+    # SIG05 refactore est déjà DANS la branche de segment, pas attendu sur main) → les gates amont
+    # GATE_AUTOFACTURATION / GATE_FACTURX ne sont plus des prérequis de claim ; seule GATE_CONSOLE_WEB
+    # (done) subsiste (lignée UI console pour SIG10). Recette globale assumée (décision Karl, déblocage dev).
+    depends_on_gate: [GATE_CONSOLE_WEB]
 
 items:
   # ── SOL ──
