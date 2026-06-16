@@ -24,6 +24,7 @@ Import-Module (Join-Path $provDir 'Provisioning.psm1') -Force
 $psExe = if ($PSVersionTable.PSEdition -eq 'Core') { 'pwsh' } else { 'powershell' }
 $newScript = Join-Path $provDir 'new-instance.ps1'
 $updateScript = Join-Path $provDir 'update-instance.ps1'
+$migrateScript = Join-Path $provDir 'migrate-instance.ps1'
 
 $script:passed = 0
 $script:failed = 0
@@ -216,6 +217,60 @@ try {
         New-Item -ItemType Directory -Path (Join-Path $root 'known') -Force | Out-Null
         $code = Invoke-Script -Path $updateScript -Arguments @('-InstanceName', 'known', '-InstancesRoot', $root, '-DryRun')
         Assert-Equal 0 $code 'DryRun OK (code 0)'
+    }
+
+    # ── migrate-instance.ps1 (OPS06b) : codes de sortie hors Docker (le round-trip réel est porté par
+    # deploy/provisioning/test-migrate-instance.sh, exécuté à la recette GATE_TOOLKIT comme l'appliance). ──
+    Test-Case 'migrate-instance EXPORT : instance source inconnue → code 1' {
+        $root = Join-Path $tmpRoot 'mig-export-missing'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $code = Invoke-Script -Path $migrateScript -Arguments @('-InstanceName', 'nope', '-InstancesRoot', $root, '-DryRun')
+        Assert-Equal 1 $code 'instance source inconnue (code 1)'
+    }
+    Test-Case 'migrate-instance EXPORT : instance sans .env → code 1 (secrets requis)' {
+        $root = Join-Path $tmpRoot 'mig-export-noenv'
+        New-Item -ItemType Directory -Path (Join-Path $root 'src1') -Force | Out-Null
+        $code = Invoke-Script -Path $migrateScript -Arguments @('-InstanceName', 'src1', '-InstancesRoot', $root, '-DryRun')
+        Assert-Equal 1 $code 'instance sans .env (code 1)'
+    }
+    Test-Case 'migrate-instance EXPORT : DryRun sur instance existante (+.env) → code 0' {
+        $root = Join-Path $tmpRoot 'mig-export-dry'
+        $dir = Join-Path $root 'src1'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $dir '.env') -Value 'PUBLIC_HOSTNAME=h.test' -NoNewline
+        $code = Invoke-Script -Path $migrateScript -Arguments @('-InstanceName', 'src1', '-InstancesRoot', $root, '-DryRun')
+        Assert-Equal 0 $code 'DryRun export OK (code 0)'
+    }
+    Test-Case 'migrate-instance APPLY : bundle absent → code 1' {
+        $root = Join-Path $tmpRoot 'mig-apply-missing'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $code = Invoke-Script -Path $migrateScript -Arguments @('-ApplyBundle', (Join-Path $root 'absent.zip'), '-InstancesRoot', $root, '-DryRun')
+        Assert-Equal 1 $code 'bundle absent (code 1)'
+    }
+    Test-Case 'migrate-instance APPLY : .zip sans manifeste de migration → code 1' {
+        $root = Join-Path $tmpRoot 'mig-apply-badzip'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $junk = Join-Path $root 'junk.txt'
+        Set-Content -LiteralPath $junk -Value 'x' -NoNewline
+        $zip = Join-Path $root 'notbundle.zip'
+        Compress-Archive -Path $junk -DestinationPath $zip -Force
+        $code = Invoke-Script -Path $migrateScript -Arguments @('-ApplyBundle', $zip, '-TargetInstanceName', 'tgt1', '-InstancesRoot', $root, '-DryRun')
+        Assert-Equal 1 $code '.zip non-bundle refusé (code 1)'
+    }
+    Test-Case 'migrate-instance APPLY : DryRun sur bundle valide → code 0' {
+        $root = Join-Path $tmpRoot 'mig-apply-dry'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        # Bundle minimal valide : migration-manifest.json + backup/SHA256SUMS + config/.env.
+        $bsrc = Join-Path $root 'bundlesrc'
+        New-Item -ItemType Directory -Path (Join-Path $bsrc 'backup') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $bsrc 'config') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $bsrc 'migration-manifest.json') -Value '{ "source_instance": "src1", "databases": [] }'
+        Set-Content -LiteralPath (Join-Path $bsrc 'backup\SHA256SUMS') -Value '' -NoNewline
+        Set-Content -LiteralPath (Join-Path $bsrc 'config\.env') -Value 'PUBLIC_HOSTNAME=h.test' -NoNewline
+        $zip = Join-Path $root 'bundle.zip'
+        Compress-Archive -Path (Join-Path $bsrc '*') -DestinationPath $zip -Force
+        $code = Invoke-Script -Path $migrateScript -Arguments @('-ApplyBundle', $zip, '-TargetInstanceName', 'tgt1', '-InstancesRoot', (Join-Path $root 'targets'), '-DryRun')
+        Assert-Equal 0 $code 'DryRun apply OK (code 0)'
     }
 
     Write-Host ""
