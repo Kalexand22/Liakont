@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="NetArchTest.Rules" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Domain + Contracts pour les tests d'agrégat/DTO ; Infrastructure pour les gardes de frontière
+         (réflexion sur l'assembly référencée — MandatsBoundaryTests). Toutes des références INTERNES au
+         module : la frontière inter-modules (INV-MANDATS-2) reste respectée. -->
+    <ProjectReference Include="../Domain/Liakont.Modules.Mandats.Domain.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.Mandats.Contracts.csproj" />
+    <ProjectReference Include="../Infrastructure/Liakont.Modules.Mandats.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

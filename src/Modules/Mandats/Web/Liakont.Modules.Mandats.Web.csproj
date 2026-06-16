@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Couche Web (console / endpoints) du module Mandats. MND01 (fondation) ne livre AUCUN écran : le
+       point de montage est posé pour que les items console ultérieurs (registre des mandants, édition
+       des mandats) y ajoutent leurs routes sans toucher la composition root. Aucune logique métier dans
+       cette couche (déléguée aux handlers, module-rules §1). -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Contracts/Liakont.Modules.Mandats.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Abstractions/Stratum.Common.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

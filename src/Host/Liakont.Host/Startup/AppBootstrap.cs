@@ -28,6 +28,7 @@ using Liakont.Modules.FleetSupervision.Infrastructure;
 using Liakont.Modules.Ingestion.Application;
 using Liakont.Modules.Ingestion.Infrastructure;
 using Liakont.Modules.Ingestion.Web;
+using Liakont.Modules.Mandats.Infrastructure;
 using Liakont.Modules.Payments.Infrastructure;
 using Liakont.Modules.Pipeline.Contracts.Jobs;
 using Liakont.Modules.Pipeline.Infrastructure;
@@ -175,6 +176,11 @@ public static class AppBootstrap
         builder.Services.AddTenantSettingsModule();
         builder.Services.AddIngestionModule();
         builder.Services.AddTvaMappingModule();
+
+        // Mandats (F15 §2, ADR-0022) : registre des mandants + cycle de vie des mandats (autofacturation
+        // 389). MND01 (fondation) n'enregistre que la persistance (migrations DbUp du schéma mandats +
+        // journal append-only, UoW, requêtes) ; les handlers et le port ISelfBilledGate arrivent avec MND02+.
+        builder.Services.AddMandatsModule();
 
         // Validation (F04) : expose IValidationService à la frontière Contracts (consommé par le pipeline,
         // PIP01b). Les règles métier (IDocumentRule, VAL02-VAL05) s'enregistrent avec leurs items ; sans
