@@ -69,6 +69,11 @@ else
                             OnConfirm="ConfirmStatusChangeAsync"
                             OnCancel="CloseStatusDialog" />
     }
+
+    @if (_exportDialogLine is { } exportLine)
+    {
+        <ClientExportDialog Line="exportLine" OnClose="CloseExportDialog" />
+    }
 }
 
 @code {
@@ -88,6 +93,8 @@ else
     private string? _actionFeedback;
     private bool _actionFailed;
 
+    private ClientConsoleLine? _exportDialogLine;
+
     [Inject]
     private NavigationManager Nav { get; set; } = null!;
 
@@ -103,6 +110,18 @@ else
                 Callback: line =>
                 {
                     OpenStatusDialog(line);
+                    return Task.CompletedTask;
+                }),
+            // Export de réversibilité du client (OPS06a) — disponible pour TOUT client, y compris
+            // désactivé (la restitution de fin de vie est précisément ce cas).
+            new GridRowAction<ClientConsoleLine>(
+                Id: "export",
+                Label: "Exporter ce client",
+                Icon: "download",
+                IsQuickAction: true,
+                Callback: line =>
+                {
+                    OpenExportDialog(line);
                     return Task.CompletedTask;
                 }),
         ];
@@ -172,6 +191,19 @@ else
         _statusDialogLine = null;
         _statusBusy = false;
         _statusError = null;
+    }
+
+    private void OpenExportDialog(ClientConsoleLine line)
+    {
+        _actionFeedback = null;
+        _exportDialogLine = line;
+        StateHasChanged();
+    }
+
+    private void CloseExportDialog()
+    {
+        _exportDialogLine = null;
+        StateHasChanged();
     }
 
     private async Task ConfirmStatusChangeAsync()
