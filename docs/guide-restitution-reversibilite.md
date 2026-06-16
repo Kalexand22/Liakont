@@ -47,6 +47,10 @@ powershell -ExecutionPolicy Bypass -File verifier-integrite-archive.ps1 -ExportP
 
 - Code de sortie **0** + « ARCHIVE INTÈGRE » : toutes les empreintes et le chaînage concordent.
 - Code de sortie **1** + « ARCHIVE ALTÉRÉE » : au moins une incohérence (détaillée à l'écran).
+- Code de sortie **0** + « chaîne NON ancrée en genèse » (VERDICT=INCOMPLETE) : l'archive fournie n'est
+  pas un export de réversibilité **complet** (export partiel, ou tête de chaîne retirée) — seules les
+  empreintes pièce/paquet ont pu être vérifiées ; fournissez l'export complet du tenant. La preuve
+  d'ancrage RFC 3161 sur la tête de chaîne (étape 3.b §4) atteste qu'aucun maillon n'a été retiré.
 - Code de sortie **2** : chemin introuvable ou dossier non reconnu.
 
 ### 3.b — Procédure manuelle (équivalente, sans l'outil)

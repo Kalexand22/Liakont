@@ -10,8 +10,13 @@
 
 .DESCRIPTION
     Recalcule, à partir des seuls fichiers exportés, la chaîne d'empreintes scellée par la plateforme et
-    la compare aux manifestes — toute altération (pièce modifiée, paquet supprimé/inséré/réordonné) est
-    détectée. La formule reproduite est exactement celle de la plateforme (TRK05) :
+    la compare aux manifestes. Sont détectées : toute pièce MODIFIÉE (empreintes de pièce et de paquet
+    recalculées) et toute suppression / insertion / réordonnancement AU SEIN de la chaîne présente. En
+    revanche, la troncature de la TÊTE (paquet de genèse) ou de la QUEUE d'un export est, à partir des
+    seuls fichiers, indistinguable d'un export partiel : l'outil la signale par VERDICT=INCOMPLETE (chaîne
+    non ancrée en genèse), et non par une fausse altération — c'est la preuve d'ancrage temporel RFC 3161
+    sur la tête de chaîne qui atteste qu'aucun maillon n'a été retiré (vérification openssl, voir la
+    notice). La formule reproduite est exactement celle de la plateforme (TRK05) :
 
       empreinte d'une pièce  = SHA-256(octets du fichier)                      -> hex minuscule
       empreinte d'un paquet  = SHA-256( pour chaque pièce TRIÉE par nom (ordinal) : "<nom>:<empreinte>\n" )
@@ -28,8 +33,9 @@
     Chemin du dossier d'export DÉCOMPRESSÉ (la racine du ZIP, ou directement son sous-dossier « archive »).
 
 .OUTPUTS
-    Code de sortie : 0 = archive intègre (ou aucune entrée d'archive) ; 1 = altération détectée ;
-    2 = erreur d'usage (chemin introuvable / dossier non reconnu).
+    Code de sortie : 0 = archive intègre, OU chaîne non ancrée en genèse (export partiel / tête absente,
+    VERDICT=INCOMPLETE), OU coffre vide ; 1 = altération détectée (VERDICT=TAMPERED) ; 2 = erreur d'usage
+    (chemin introuvable / dossier non reconnu).
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File verifier-integrite-archive.ps1 -ExportPath .\reversibilite-acme
