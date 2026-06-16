@@ -10,6 +10,9 @@
     <PackageReference Include="FluentAssertions" />
     <!-- Gardes de frontière du module FacturX (confinement QuestPDF + indépendance PA) — FX02. -->
     <PackageReference Include="NetArchTest.Rules" />
+    <!-- Lecture/inspection du Factur-X généré (FX04) : texte (cohérence visuel↔XML), fichiers embarqués
+         et flux XMP. PdfPig (ADR-0010) — dépendance de TEST uniquement, pas du produit. -->
+    <PackageReference Include="PdfPig" />
   </ItemGroup>
   <ItemGroup>
     <!-- ServiceCollection pour tester AddFacturXModule (même patron que Transmission.Tests.Unit). -->

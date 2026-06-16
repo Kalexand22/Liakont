@@ -51,6 +51,9 @@
           <ram:CityName>Bordeaux</ram:CityName>
           <ram:CountryID>FR</ram:CountryID>
         </ram:PostalTradeAddress>
+        <ram:SpecifiedTaxRegistration>
+          <ram:ID schemeID="VA">FR35839204561</ram:ID>
+        </ram:SpecifiedTaxRegistration>
       </ram:SellerTradeParty>
       <ram:BuyerTradeParty>
         <ram:Name>Client particulier</ram:Name>
