@@ -483,6 +483,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests.Unit", "Tests.Unit", 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.Modules.FacturX.Tests.Unit", "Modules\FacturX\Tests.Unit\Liakont.Modules.FacturX.Tests.Unit.csproj", "{3A087827-0DAD-4139-88E9-60D5B36F088B}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests.Integration", "Tests.Integration", "{63736714-CBB1-4631-FD06-2A540B76B28E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.Modules.FacturX.Tests.Integration", "Modules\FacturX\Tests.Integration\Liakont.Modules.FacturX.Tests.Integration.csproj", "{E3093532-C5CE-4D1C-8E43-4A2ED2D40EC8}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -2089,6 +2093,18 @@ Global
 		{3A087827-0DAD-4139-88E9-60D5B36F088B}.Release|x64.Build.0 = Release|Any CPU
 		{3A087827-0DAD-4139-88E9-60D5B36F088B}.Release|x86.ActiveCfg = Release|Any CPU
 		{3A087827-0DAD-4139-88E9-60D5B36F088B}.Release|x86.Build.0 = Release|Any CPU
+		{E3093532-C5CE-4D1C-8E43-4A2ED2D40EC8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E3093532-C5CE-4D1C-8E43-4A2ED2D40EC8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E3093532-C5CE-4D1C-8E43-4A2ED2D40EC8}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{E3093532-C5CE-4D1C-8E43-4A2ED2D40EC8}.Debug|x64.Build.0 = Debug|Any CPU
+		{E3093532-C5CE-4D1C-8E43-4A2ED2D40EC8}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{E3093532-C5CE-4D1C-8E43-4A2ED2D40EC8}.Debug|x86.Build.0 = Debug|Any CPU
+		{E3093532-C5CE-4D1C-8E43-4A2ED2D40EC8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E3093532-C5CE-4D1C-8E43-4A2ED2D40EC8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E3093532-C5CE-4D1C-8E43-4A2ED2D40EC8}.Release|x64.ActiveCfg = Release|Any CPU
+		{E3093532-C5CE-4D1C-8E43-4A2ED2D40EC8}.Release|x64.Build.0 = Release|Any CPU
+		{E3093532-C5CE-4D1C-8E43-4A2ED2D40EC8}.Release|x86.ActiveCfg = Release|Any CPU
+		{E3093532-C5CE-4D1C-8E43-4A2ED2D40EC8}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -2319,5 +2335,7 @@ Global
 		{F0BBC377-A14D-47D9-8473-FEF0AD1CAC27} = {4E99EA2A-930E-CA5B-54D4-F9648D866ADC}
 		{3B5CC556-0501-BFEB-5E31-DAFC7F06CF75} = {2B43D024-A6C9-8CDB-2076-F474BA1A5ED5}
 		{3A087827-0DAD-4139-88E9-60D5B36F088B} = {3B5CC556-0501-BFEB-5E31-DAFC7F06CF75}
+		{63736714-CBB1-4631-FD06-2A540B76B28E} = {2B43D024-A6C9-8CDB-2076-F474BA1A5ED5}
+		{E3093532-C5CE-4D1C-8E43-4A2ED2D40EC8} = {63736714-CBB1-4631-FD06-2A540B76B28E}
 	EndGlobalSection
 EndGlobal

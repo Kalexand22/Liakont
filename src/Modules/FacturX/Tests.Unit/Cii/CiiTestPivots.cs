@@ -68,11 +68,15 @@ internal static class CiiTestPivots
     }
 
     // Cas 3 — exonéré (franchise en base, catégorie E + code VATEX), prestation de services.
+    // EN 16931 BR-E-02 : une facture portant une ligne en catégorie E (exonéré) DOIT porter un
+    // identifiant TVA/fiscal vendeur (BT-31/32/63) — un vendeur en franchise garde un n° de TVA
+    // intracommunautaire. N° fictif à clé française valide pour le SIREN 839204561 (CLAUDE.md n°7).
     private static PivotDocumentDto ExonereVatex()
     {
         var supplier = new PivotPartyDto(
             "Les Jardins de Léa",
             siren: "839204561",
+            vatNumber: "FR35839204561",
             address: new PivotAddressDto("3 chemin Vert", null, "33000", "Bordeaux", "FR"),
             isCompanyHint: true);
         var customer = new PivotPartyDto(
