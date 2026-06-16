@@ -218,6 +218,21 @@ public sealed class SelfBilledAcceptanceIntegrationTests
             "aucune transition de A n'apparaît dans le journal de B.");
     }
 
+    [Fact]
+    public async Task Insert_And_Get_RoundTrips_Null_Deadline()
+    {
+        var harness = new MandatsHarness(_fixture);
+        var companyId = Guid.NewGuid();
+        var documentId = Guid.NewGuid();
+        await InsertPendingAsync(harness, companyId, documentId, deadline: null);
+
+        var dto = await harness.AcceptanceQueries.GetAcceptance(companyId, documentId);
+        dto.Should().NotBeNull();
+        dto!.State.Should().Be(nameof(SelfBilledAcceptanceState.PendingAcceptance));
+        dto.DeadlineUtc.Should().BeNull(
+            "une échéance NULL (timestamptz) doit faire un round-trip exact : sans délai renseigné, la bascule tacite est impossible (F15 §2.3 / INV-ACCEPT-3).");
+    }
+
     private static async Task InsertPendingAsync(
         MandatsHarness harness, Guid companyId, Guid documentId, DateTimeOffset? deadline)
     {
