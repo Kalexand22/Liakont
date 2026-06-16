@@ -29,6 +29,14 @@
   `Constructor_BlankFileName_Throws` — un artefact de conformité ne se construit jamais incomplet
   (CLAUDE.md n°3).
 
+### Enregistrement DI du module (`AddFacturXModule`)
+- `FacturXModuleRegistrationTests.AddFacturXModule_ReturnsSameCollection_ForChaining` — l'API de
+  composition chaîne (retourne la même `IServiceCollection`).
+- `FacturXModuleRegistrationTests.AddFacturXModule_ActivatesQuestPdfCommunityLicense` — l'effet de
+  bord public (licence QuestPDF Community) est posé.
+- `FacturXModuleRegistrationTests.AddFacturXModule_IsIdempotent` — appel répété sans erreur (le socle
+  peut déjà avoir posé la licence).
+
 ## Integration
 
 Aucun en FX02 : l'ossature du module n'a ni base ni I/O. La génération réelle (sérialisation CII,
