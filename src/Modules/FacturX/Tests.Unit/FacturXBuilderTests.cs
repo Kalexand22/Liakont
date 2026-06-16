@@ -108,9 +108,9 @@ public sealed class FacturXBuilderTests
         string pdfText = ExtractText(result.PdfBytes);
         string normalized = NormalizeAmounts(pdfText);
 
-        normalized.Should().Contain(Money(ciiNet, pivot.CurrencyCode), "le total HT du PDF == BT-109 du CII");
-        normalized.Should().Contain(Money(ciiTax, pivot.CurrencyCode), "le total TVA du PDF == BT-110 du CII");
-        normalized.Should().Contain(Money(ciiGross, pivot.CurrencyCode), "le total TTC du PDF == BT-112 du CII");
+        AssertAmountRendered(normalized, ciiNet, pivot.CurrencyCode, "le total HT du PDF == BT-109 du CII");
+        AssertAmountRendered(normalized, ciiTax, pivot.CurrencyCode, "le total TVA du PDF == BT-110 du CII");
+        AssertAmountRendered(normalized, ciiGross, pivot.CurrencyCode, "le total TTC du PDF == BT-112 du CII");
 
         // Parité PAR GROUPE (BG-23) : chaque ventilation TVA document du CII (base BT-116 + TVA BT-117)
         // doit apparaître à l'identique dans le tableau de ventilation du PDF lisible (pas seulement les
@@ -119,8 +119,8 @@ public sealed class FacturXBuilderTests
         {
             decimal basis = ElementDecimal(tradeTax, "BasisAmount");
             decimal calculated = ElementDecimal(tradeTax, "CalculatedAmount");
-            normalized.Should().Contain(Money(basis, pivot.CurrencyCode), "la base BG-23 du PDF == BT-116 du CII");
-            normalized.Should().Contain(Money(calculated, pivot.CurrencyCode), "la TVA BG-23 du PDF == BT-117 du CII");
+            AssertAmountRendered(normalized, basis, pivot.CurrencyCode, "la base BG-23 du PDF == BT-116 du CII");
+            AssertAmountRendered(normalized, calculated, pivot.CurrencyCode, "la TVA BG-23 du PDF == BT-117 du CII");
         }
 
         // Cohérence interne : BT-109 + BT-110 == BT-112 (les totaux du CII sont eux-mêmes cohérents).
@@ -198,6 +198,13 @@ public sealed class FacturXBuilderTests
     private static string NormalizeAmounts(string text) =>
         Regex.Replace(text, @"\s", string.Empty).Replace(",", ".", System.StringComparison.Ordinal);
 
-    private static string Money(decimal amount, string currencyCode) =>
-        amount.ToString("0.00", CultureInfo.InvariantCulture) + currencyCode;
+    // Asserte qu'un montant (formaté « 0.00<devise> ») est rendu dans le texte normalisé, ANCRÉ à gauche
+    // sur une frontière non-chiffre : « 20.00EUR » ne doit PAS être satisfait par « 120.00EUR » (sinon
+    // faux-vert sur la parité, un total absent étant masqué par un montant plus grand qui le contient).
+    private static void AssertAmountRendered(string normalizedText, decimal amount, string currencyCode, string because)
+    {
+        var token = amount.ToString("0.00", CultureInfo.InvariantCulture) + currencyCode;
+        Regex.IsMatch(normalizedText, @"(?<!\d)" + Regex.Escape(token))
+            .Should().BeTrue("{0} (montant {1} attendu dans le rendu)", because, token);
+    }
 }
