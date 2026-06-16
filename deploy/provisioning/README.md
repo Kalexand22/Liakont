@@ -11,6 +11,7 @@ Outillage de **création** et de **mise à jour** d'instances Liakont, par-dessu
 |---|---|
 | `new-instance.ps1` | Crée une instance (répertoire dédié, secrets uniques, realm, .env) — modes `hosted` / `self-hosted` |
 | `update-instance.ps1` | Montée de version **multi-bases** sûre (maintenance 503 → sauvegarde → migration → santé/rollback) |
+| `migrate-instance.ps1` | **Migration d'instance** (réversibilité OPS06b) : EXPORT d'un bundle complet (toutes bases + volume) sur la source, APPLY (restauration + santé + bascule DNS) sur la cible |
 | `Provisioning.psm1` | Fonctions partagées (validation de nom, secrets, registre, enveloppes Docker) |
 | `maintenance.Caddyfile` | Caddyfile de maintenance (503 + Retry-After sur `/api/agent/*`) posé pendant une migration |
 | `instances.example.yaml` | **Exemple FICTIF** du format du registre (le registre réel n'est pas versionné) |
@@ -113,7 +114,47 @@ La séquence garantit qu'**une instance ne tourne jamais avec des bases à des v
 
 ---
 
-## 4. Registre des instances
+## 4. Migrer une instance (réversibilité — OPS06b)
+
+La **réversibilité** (déplacer une instance d'une cible à une autre — *dédiée hébergée* → *self-hosted*,
+ou changement de machine) est une exigence de V1 (F12 §6.3). `migrate-instance.ps1` la réalise en deux
+phases autour d'un **bundle de migration** intègre, en réutilisant la mécanique de sauvegarde/restauration
+**par base** déjà testée d'OPS01b (`deploy/docker/backup.sh` / `restore.sh`).
+
+### EXPORT (sur la SOURCE)
+
+```powershell
+./migrate-instance.ps1 -InstanceName acme-prod -TargetMode self-hosted
+```
+
+`pg_dump` de **toutes** les bases (système + chaque tenant, **actif OU suspendu** — un tenant suspendu
+sous rétention fiscale n'est jamais omis) + archive du **volume applicatif** (coffre d'archive WORM +
+clés Data Protection) + **secrets** de l'instance, le tout dans un `.zip` horodaté avec empreintes
+SHA-256. L'export est **en lecture seule** : la source reste en service.
+
+> ⚠️ Le bundle contient des **secrets** et des **données fiscales** — transférez-le par un canal sûr et
+> **supprimez-le après application**. Il est écrit sous `instances/` (gitignoré). Voir `MIGRATE-README.md`
+> dans le bundle.
+
+### APPLY (sur la CIBLE)
+
+```powershell
+./migrate-instance.ps1 -ApplyBundle ./instances/acme-prod-migration-<horodatage>.zip
+```
+
+Matérialise la cible (config + **secrets préservés** → Keycloak/Host cohérents), **vérifie l'intégrité**
+(SHA-256) avant de restaurer, restaure toutes les bases + le volume (le coffre WORM n'est restitué que
+sur une cible **vierge**), attend un **démarrage stable du Host** (contrôle de santé), puis affiche la
+procédure de **bascule DNS**. En cas d'échec de santé, la source est intacte — **rollback = ne pas
+basculer le DNS**.
+
+Ajouter `-DryRun` à l'une ou l'autre phase affiche la séquence **sans rien écrire**.
+
+> Fin de vie d'un tenant (résiliation/RGPD avec conservation fiscale) : voir `OPS06c`, pas cet outil.
+
+---
+
+## 5. Registre des instances
 
 `instances.yaml` (non versionné) liste les instances **opérées par IT Innovations** : `name`,
 `editor`, `url`, `hosting`, `version`, `project`, `created_at`, `updated_at`. **Aucun secret** n'y
@@ -123,10 +164,17 @@ n'y apparaissent que si l'éditeur a souscrit la méta-supervision (OPS04). Voir
 
 ---
 
-## 5. Vérification
+## 6. Vérification
 
-La logique des scripts (validation, secrets, registre, états vide/sale/échec) est couverte par le
-self-test `tools/test-provisioning.ps1` (câblé dans `tools/run-tests.ps1`, PowerShell pur, sans
-Docker). Le **déploiement de bout en bout** (provisioning + montée de version réelle + échec partiel
-simulé) sur machine avec Docker est **revalidé à la recette humaine** (gate `GATE_TOOLKIT`),
-comme pour l'appliance (OPS01a).
+La logique des scripts (validation, secrets, registre, états vide/sale/échec, codes de sortie de
+`migrate-instance.ps1`) est couverte par le self-test `tools/test-provisioning.ps1` (câblé dans
+`tools/run-tests.ps1`, PowerShell pur, sans Docker).
+
+Le **round-trip réel** avec Docker est porté par deux auto-tests (recette humaine `GATE_TOOLKIT`,
+comme l'appliance OPS01a) :
+
+- `deploy/docker/test-backup-restore.sh` — sauvegarde/restauration (OPS01b) ;
+- `deploy/provisioning/test-migrate-instance.sh` — **migration de bout en bout** (OPS06b) : EXPORT +
+  APPLY sur une stack réduite (source + cible), avec un tenant **suspendu** (preuve qu'il migre quand
+  même) et vérification que toutes les bases + le coffre WORM + les clés Data Protection ont survécu,
+  santé verte sur la cible.
