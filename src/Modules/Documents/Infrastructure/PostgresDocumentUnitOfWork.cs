@@ -15,12 +15,12 @@ internal sealed class PostgresDocumentUnitOfWork : IDocumentUnitOfWork
 {
     private const string InsertDocumentIfAbsentSql = """
         INSERT INTO documents.documents
-            (id, source_reference, document_number, document_type, issue_date, supplier_siren,
+            (id, source_reference, document_number, document_type, issue_date, supplier_siren, mandant_id,
              customer_name, customer_is_company_hint, total_net, total_tax, total_gross, state,
              payload_hash, pa_document_id, mapping_version, first_seen_utc, last_update_utc,
              buyer_confirmed_as_individual)
         VALUES
-            (@Id, @SourceReference, @DocumentNumber, @DocumentType, @IssueDate, @SupplierSiren,
+            (@Id, @SourceReference, @DocumentNumber, @DocumentType, @IssueDate, @SupplierSiren, @MandantId,
              @CustomerName, @CustomerIsCompanyHint, @TotalNet, @TotalTax, @TotalGross, @State,
              @PayloadHash, @PaDocumentId, @MappingVersion, @FirstSeenUtc, @LastUpdateUtc,
              @BuyerConfirmedAsIndividual)
@@ -29,12 +29,12 @@ internal sealed class PostgresDocumentUnitOfWork : IDocumentUnitOfWork
 
     private const string UpsertDocumentSql = """
         INSERT INTO documents.documents
-            (id, source_reference, document_number, document_type, issue_date, supplier_siren,
+            (id, source_reference, document_number, document_type, issue_date, supplier_siren, mandant_id,
              customer_name, customer_is_company_hint, total_net, total_tax, total_gross, state,
              payload_hash, pa_document_id, mapping_version, first_seen_utc, last_update_utc,
              buyer_confirmed_as_individual)
         VALUES
-            (@Id, @SourceReference, @DocumentNumber, @DocumentType, @IssueDate, @SupplierSiren,
+            (@Id, @SourceReference, @DocumentNumber, @DocumentType, @IssueDate, @SupplierSiren, @MandantId,
              @CustomerName, @CustomerIsCompanyHint, @TotalNet, @TotalTax, @TotalGross, @State,
              @PayloadHash, @PaDocumentId, @MappingVersion, @FirstSeenUtc, @LastUpdateUtc,
              @BuyerConfirmedAsIndividual)
@@ -44,6 +44,7 @@ internal sealed class PostgresDocumentUnitOfWork : IDocumentUnitOfWork
             document_type                 = excluded.document_type,
             issue_date                    = excluded.issue_date,
             supplier_siren                = excluded.supplier_siren,
+            mandant_id                    = excluded.mandant_id,
             customer_name                 = excluded.customer_name,
             customer_is_company_hint      = excluded.customer_is_company_hint,
             total_net                     = excluded.total_net,
@@ -58,7 +59,7 @@ internal sealed class PostgresDocumentUnitOfWork : IDocumentUnitOfWork
         """;
 
     private const string SelectForUpdateSql = """
-        SELECT id, source_reference, document_number, document_type, issue_date, supplier_siren,
+        SELECT id, source_reference, document_number, document_type, issue_date, supplier_siren, mandant_id,
                customer_name, customer_is_company_hint, total_net, total_tax, total_gross, state,
                payload_hash, pa_document_id, mapping_version, first_seen_utc, last_update_utc,
                buyer_confirmed_as_individual
@@ -220,7 +221,8 @@ internal sealed class PostgresDocumentUnitOfWork : IDocumentUnitOfWork
             (string?)row.mapping_version,
             DocumentRowReader.ToDateTimeOffset((object)row.first_seen_utc),
             DocumentRowReader.ToDateTimeOffset((object)row.last_update_utc),
-            (bool)row.buyer_confirmed_as_individual);
+            (bool)row.buyer_confirmed_as_individual,
+            (Guid?)row.mandant_id);
     }
 
     private static object ToDocumentParameters(Document document)
@@ -233,6 +235,7 @@ internal sealed class PostgresDocumentUnitOfWork : IDocumentUnitOfWork
             document.DocumentType,
             document.IssueDate,
             document.SupplierSiren,
+            document.MandantId,
             document.CustomerName,
             document.CustomerIsCompanyHint,
             document.TotalNet,

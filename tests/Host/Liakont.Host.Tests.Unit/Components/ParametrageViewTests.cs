@@ -522,6 +522,7 @@ public sealed class ParametrageViewTests : BunitContext
         SupportsTaxReportRetrieval = false,
         SupportsDocumentRetrieval = false,
         SupportsReportRectification = true,
+        SupportsSelfBilling = false,
         MaxDocumentsPerRequest = 100,
     };
 

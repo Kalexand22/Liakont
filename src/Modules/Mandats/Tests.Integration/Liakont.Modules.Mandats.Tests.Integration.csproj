@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Infrastructure (UoW + migrations DbUp + Dapper/Npgsql, transitifs) ; Common.Testing fournit
+         Testcontainers.PostgreSql et les helpers de migration du socle. -->
+    <ProjectReference Include="../Infrastructure/Liakont.Modules.Mandats.Infrastructure.csproj" />
+    <ProjectReference Include="../../../Common/Testing/Stratum.Common.Testing.csproj" />
+  </ItemGroup>
+</Project>

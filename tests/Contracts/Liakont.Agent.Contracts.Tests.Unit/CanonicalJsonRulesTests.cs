@@ -142,6 +142,31 @@ public sealed class CanonicalJsonRulesTests
         act.Should().Throw<ArgumentNullException>();
     }
 
+    [Fact]
+    public void SelfBilled_keeps_source_number_in_canonical_and_no_allocated_fiscal_number()
+    {
+        // INV-BT1-1 (ADR-0025 §3, MND05) : en 389, le payload canonique est INCHANGÉ — `Number` reste
+        // l'identifiant source (déjà hashé), et le BT-1 FISCAL alloué par mandant vit HORS du payload hashé
+        // (assigné à l'émission sur l'acceptation, jamais dans le pivot). Aucune branche de format au flux 389.
+        string json = CanonicalJson.Serialize(Build(number: "F00172473", isSelfBilled: true));
+
+        json.Should().Contain("\"Number\":\"F00172473\"", "en 389, Number reste l'identifiant source, jamais un BT-1 fiscal alloué.");
+        json.Should().Contain("\"IsSelfBilled\":true");
+        json.Should().NotContain("Allocated", "le BT-1 fiscal alloué n'entre jamais dans le payload canonique (hors hash).");
+    }
+
+    [Fact]
+    public void SelfBilled_flag_is_the_only_canonical_difference_no_format_branch()
+    {
+        // Aucune branche de format conditionnelle au flux 389 (ADR-0007 préservé) : un pivot self-billed et son
+        // équivalent standard ne diffèrent QUE par le booléen IsSelfBilled — aucun champ de numéro fiscal ajouté.
+        string selfBilled = CanonicalJson.Serialize(Build(number: "F1", isSelfBilled: true));
+        string standard = CanonicalJson.Serialize(Build(number: "F1", isSelfBilled: false));
+
+        selfBilled.Replace("\"IsSelfBilled\":true", "\"IsSelfBilled\":false")
+            .Should().Be(standard, "le seul différenciateur 389/standard au canonique est le booléen : le hash reste celui des champs du pivot.");
+    }
+
     /// <summary>
     /// Garantit que chaque propriété publique de chaque DTO pivot apparaît comme clé JSON dans
     /// la sortie canonique d'un document entièrement peuplé. Un champ ajouté à un DTO sans mise
@@ -313,7 +338,8 @@ public sealed class CanonicalJsonRulesTests
         PivotTotalsDto? totals = null,
         OperationCategory category = OperationCategory.LivraisonBiens,
         PivotLineDto[]? lines = null,
-        decimal? prepaid = null)
+        decimal? prepaid = null,
+        bool isSelfBilled = false)
     {
         return new PivotDocumentDto(
             sourceDocumentKind: "B",
@@ -325,6 +351,7 @@ public sealed class CanonicalJsonRulesTests
             operationCategory: category,
             customer: customer,
             lines: lines,
-            prepaidAmount: prepaid);
+            prepaidAmount: prepaid,
+            isSelfBilled: isSelfBilled);
     }
 }

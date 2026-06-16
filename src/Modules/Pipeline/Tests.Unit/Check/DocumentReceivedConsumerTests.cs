@@ -9,15 +9,18 @@ using Liakont.Agent.Contracts.Serialization;
 using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Documents.Contracts.Lifecycle;
 using Liakont.Modules.Documents.Contracts.Queries;
+using Liakont.Modules.Mandats.Contracts;
 using Liakont.Modules.Pipeline.Application;
 using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Infrastructure.Check;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
+using Liakont.Modules.Transmission.Contracts;
 using Liakont.Modules.TvaMapping.Contracts.Services;
 using Liakont.Modules.Validation.Contracts;
 using Microsoft.Extensions.Logging.Abstractions;
+using Stratum.Common.Abstractions.MultiTenancy;
 using Xunit;
 using static Liakont.Modules.Pipeline.Tests.Unit.Check.CheckTestDoubles;
 
@@ -94,6 +97,144 @@ public sealed class DocumentReceivedConsumerTests
         harness.Lifecycle.BlockedId.Should().Be(documentId);
         harness.Lifecycle.BlockReason.Should().Contain("ne correspond pas");
         harness.Lifecycle.ReadyToSendId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task SelfBilled_Not_Accepted_Blocks_With_Acceptance_Motif()
+    {
+        // MND03 (ADR-0024 §3, INV-ACCEPT-2) : contenu valide MAIS acceptation en attente ⇒ maintenu Blocked,
+        // jamais ReadyToSend (« bloquer plutôt qu'émettre faux »).
+        var documentId = Guid.NewGuid();
+        var harness = Build(
+            document: CheckTestData.Document(documentId, "Detected"),
+            companyId: Guid.NewGuid(),
+            staging: Staging(CheckTestData.SelfBilledSingleLinePivot()),
+            mapping: CheckTestData.MappedResult(),
+            validation: ValidOk,
+            selfBilledGate: FakeSelfBilledGate.Blocking("PendingAcceptance"));
+
+        await harness.Consumer.HandleAsync(CheckTestData.Event(documentId));
+
+        harness.Lifecycle.BlockedId.Should().Be(documentId);
+        harness.Lifecycle.BlockReason.Should().Contain("auto-facture sous mandat");
+        harness.Lifecycle.BlockReason.Should().Contain("en attente");
+        harness.Lifecycle.ReadyToSendId.Should().BeNull();
+        harness.SelfBilledGate.LastDocumentId.Should().Be(documentId, "la garde est interrogée avec l'identifiant du document");
+        harness.RunLog.Saved!.DocumentsFailed.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task SelfBilled_Contested_Blocks_With_Contested_Situation()
+    {
+        var documentId = Guid.NewGuid();
+        var harness = Build(
+            document: CheckTestData.Document(documentId, "Detected"),
+            companyId: Guid.NewGuid(),
+            staging: Staging(CheckTestData.SelfBilledSingleLinePivot()),
+            mapping: CheckTestData.MappedResult(),
+            validation: ValidOk,
+            selfBilledGate: FakeSelfBilledGate.Blocking("Contested"));
+
+        await harness.Consumer.HandleAsync(CheckTestData.Event(documentId));
+
+        harness.Lifecycle.BlockedId.Should().Be(documentId);
+        harness.Lifecycle.BlockReason.Should().Contain("contestée");
+        harness.Lifecycle.ReadyToSendId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task SelfBilled_Accepted_Marks_ReadyToSend()
+    {
+        var documentId = Guid.NewGuid();
+        var harness = Build(
+            document: CheckTestData.Document(documentId, "Detected"),
+            companyId: Guid.NewGuid(),
+            staging: Staging(CheckTestData.SelfBilledSingleLinePivot()),
+            mapping: CheckTestData.MappedResult(version: "cmp-v1"),
+            validation: ValidOk,
+            selfBilledGate: FakeSelfBilledGate.Allowing());
+
+        await harness.Consumer.HandleAsync(CheckTestData.Event(documentId));
+
+        harness.Lifecycle.ReadyToSendId.Should().Be(documentId, "acceptation acquise ⇒ le gate est ouvert");
+        harness.Lifecycle.ReadyToSendMappingVersion.Should().Be("cmp-v1");
+        harness.Lifecycle.BlockedId.Should().BeNull();
+        harness.SelfBilledGate.WasCalled.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Non_SelfBilled_Document_Never_Consults_The_Gate()
+    {
+        // La garde est strictement gardée par pivot.IsSelfBilled : un document standard ne consulte JAMAIS
+        // le gate (non-régression — un gate fermé ne doit pas bloquer un document non concerné).
+        var documentId = Guid.NewGuid();
+        var harness = Build(
+            document: CheckTestData.Document(documentId, "Detected"),
+            companyId: Guid.NewGuid(),
+            staging: Staging(CheckTestData.SingleLinePivot()),
+            mapping: CheckTestData.MappedResult(),
+            validation: ValidOk,
+            selfBilledGate: FakeSelfBilledGate.Blocking());
+
+        await harness.Consumer.HandleAsync(CheckTestData.Event(documentId));
+
+        harness.SelfBilledGate.WasCalled.Should().BeFalse("un document non self-billed ne déclenche pas la garde MND03");
+        harness.Lifecycle.ReadyToSendId.Should().Be(documentId);
+        harness.Lifecycle.BlockedId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task SelfBilled_With_Pa_Without_SelfBilling_Capability_Blocks_With_Capability_Motif()
+    {
+        // MND07 (F15 §1.2, CLAUDE.md n°3/8) : une auto-facture sous mandat vers une PA active qui NE déclare PAS
+        // la capacité d'émission 389 ⇒ bloquée, jamais dégradée en facture standard. La garde de capacité passe
+        // AVANT la garde d'acceptation (un 389 inémissible n'a pas à être évalué pour acceptation).
+        var documentId = Guid.NewGuid();
+        var registry = new FakePaClientRegistry(
+            new CapabilityStubPaClient(new PaCapabilities { PaName = "PA Sans 389", SupportsSelfBilling = false }));
+        var harness = Build(
+            document: CheckTestData.Document(documentId, "Detected"),
+            companyId: Guid.NewGuid(),
+            staging: Staging(CheckTestData.SelfBilledSingleLinePivot()),
+            mapping: CheckTestData.MappedResult(),
+            validation: ValidOk,
+            paAccounts: new[] { CheckTestData.PaAccount("Sandbox", isActive: true) },
+            selfBilledGate: FakeSelfBilledGate.Allowing(),
+            paRegistry: registry);
+
+        await harness.Consumer.HandleAsync(CheckTestData.Event(documentId));
+
+        harness.Lifecycle.BlockedId.Should().Be(documentId);
+        harness.Lifecycle.BlockReason.Should().Contain("ne déclare pas la capacité d'émission");
+        harness.Lifecycle.BlockReason.Should().Contain("389");
+        harness.Lifecycle.BlockReason.Should().Contain("PA Sans 389");
+        harness.Lifecycle.ReadyToSendId.Should().BeNull();
+        harness.SelfBilledGate.WasCalled.Should().BeFalse("la garde de capacité bloque avant la garde d'acceptation");
+    }
+
+    [Fact]
+    public async Task SelfBilled_With_Capable_Pa_Proceeds_To_The_Acceptance_Gate()
+    {
+        // MND07 : capacité 389 présente ⇒ la garde de capacité n'over-bloque pas ; l'acceptation tranche ensuite
+        // (ici acquise ⇒ ReadyToSend). Prouve que la garde n'est pas un blocage généralisé des self-billed.
+        var documentId = Guid.NewGuid();
+        var registry = new FakePaClientRegistry(
+            new CapabilityStubPaClient(new PaCapabilities { PaName = "PA 389", SupportsSelfBilling = true }));
+        var harness = Build(
+            document: CheckTestData.Document(documentId, "Detected"),
+            companyId: Guid.NewGuid(),
+            staging: Staging(CheckTestData.SelfBilledSingleLinePivot()),
+            mapping: CheckTestData.MappedResult(version: "cmp-v1"),
+            validation: ValidOk,
+            paAccounts: new[] { CheckTestData.PaAccount("Sandbox", isActive: true) },
+            selfBilledGate: FakeSelfBilledGate.Allowing(),
+            paRegistry: registry);
+
+        await harness.Consumer.HandleAsync(CheckTestData.Event(documentId));
+
+        harness.Lifecycle.ReadyToSendId.Should().Be(documentId);
+        harness.Lifecycle.BlockedId.Should().BeNull();
+        harness.SelfBilledGate.WasCalled.Should().BeTrue("capacité OK ⇒ on passe à la garde d'acceptation");
     }
 
     [Fact]
@@ -317,12 +458,18 @@ public sealed class DocumentReceivedConsumerTests
         DocumentTvaMappingResult mapping,
         ValidationResult validation,
         IReadOnlyList<PaAccountDto>? paAccounts = null,
-        ValidationResult? mappingIndependentValidation = null)
+        ValidationResult? mappingIndependentValidation = null,
+        FakeSelfBilledGate? selfBilledGate = null,
+        IPaClientRegistry? paRegistry = null)
     {
         var lifecycle = new FakeDocumentLifecycle();
         var runLog = new FakeRunLogStore();
         var validationService = new FakeValidationService(validation, mappingIndependentValidation);
         var snapshots = new FakeVentilationSnapshotStore();
+
+        // Gate ouvert par défaut (non-régression : les documents non self-billed ne le consultent jamais —
+        // la garde est gardée par pivot.IsSelfBilled). Les tests self-billed fournissent un gate explicite.
+        var gate = selfBilledGate ?? FakeSelfBilledGate.Allowing();
 
         var services = new Dictionary<Type, object>
         {
@@ -334,7 +481,16 @@ public sealed class DocumentReceivedConsumerTests
             [typeof(IDocumentLifecycle)] = lifecycle,
             [typeof(IPipelineRunLogStore)] = runLog,
             [typeof(IVentilationSnapshotStore)] = snapshots,
+            [typeof(ISelfBilledGate)] = gate,
+            [typeof(ITenantContext)] = new FakeTenantContext(CheckTestData.TenantSlug),
         };
+
+        // La garde de capacité 389 (MND07) ne résout le registre PA QUE pour un document self-billed avec une PA
+        // active : les tests qui ne l'exercent pas n'en fournissent pas (résolution fail-open — pas de blocage).
+        if (paRegistry is not null)
+        {
+            services[typeof(IPaClientRegistry)] = paRegistry;
+        }
 
         var scopeFactory = new FakeTenantScopeFactory(new FakeServiceProvider(services));
         var consumer = new DocumentReceivedConsumer(
@@ -342,7 +498,7 @@ public sealed class DocumentReceivedConsumerTests
             NullLogger<DocumentReceivedConsumer>.Instance,
             new FixedTimeProvider(CheckTestData.Now));
 
-        return new ConsumerHarness(consumer, lifecycle, runLog, validationService, snapshots);
+        return new ConsumerHarness(consumer, lifecycle, runLog, validationService, snapshots, gate);
     }
 
     private sealed record ConsumerHarness(
@@ -350,5 +506,6 @@ public sealed class DocumentReceivedConsumerTests
         FakeDocumentLifecycle Lifecycle,
         FakeRunLogStore RunLog,
         FakeValidationService Validation,
-        FakeVentilationSnapshotStore Snapshots);
+        FakeVentilationSnapshotStore Snapshots,
+        FakeSelfBilledGate SelfBilledGate);
 }

@@ -38,6 +38,9 @@ public record PaCapabilitiesSummaryDto
     /// <summary>Rectification de déclaration (flux RE).</summary>
     public required bool SupportsReportRectification { get; init; }
 
+    /// <summary>Émission d'auto-factures sous mandat (type 389, MND07).</summary>
+    public required bool SupportsSelfBilling { get; init; }
+
     /// <summary>Nombre maximal de documents par requête, ou <c>null</c> si la PA ne déclare pas de limite.</summary>
     public int? MaxDocumentsPerRequest { get; init; }
 }

@@ -55,6 +55,7 @@ internal sealed class B2BrouterClient : IPaClient
     public async Task<PaSendResult> SendDocumentAsync(
         PivotDocumentDto document,
         bool sendAfterImport = true,
+        PaOutboundProjection? projection = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -67,6 +68,16 @@ internal sealed class B2BrouterClient : IPaClient
         {
             return PaSendResult.NotSupported(
                 PaCapabilityNotSupportedResult.Create(Capabilities.PaName, PaCapability.CreditNotes));
+        }
+
+        // Le builder de ce plug-in ne projette pas le 389 (il fige TypeCode=380 et lit document.Number) : refuser
+        // TOUTE projection 389 par un résultat typé, quelle que soit la capacité déclarée — jamais une émission
+        // dégradée en facture standard 380 avec le numéro source en place du BT-1 fiscal (MND07, CLAUDE.md n°3/8).
+        // Coupler la garde à l'implémentation : activer la capacité 389 exigera d'implémenter la projection ici.
+        if (projection is { DocumentTypeCode: PaDocumentTypeCode.SelfBilledInvoice })
+        {
+            return PaSendResult.NotSupported(
+                PaCapabilityNotSupportedResult.Create(Capabilities.PaName, PaCapability.SelfBilling));
         }
 
         // Construction + sérialisation du payload AVANT toute tentative HTTP : un document mal formé

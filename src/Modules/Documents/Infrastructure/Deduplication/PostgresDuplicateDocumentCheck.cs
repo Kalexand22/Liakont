@@ -18,10 +18,28 @@ using Stratum.Common.Infrastructure.Database;
 /// </summary>
 public sealed class PostgresDuplicateDocumentCheck : IDuplicateDocumentCheck
 {
+    // Clé HISTORIQUE (non-389). `mandant_id IS NULL` rend les deux clés STRICTEMENT DISJOINTES : un 389 est
+    // persisté avec supplier_siren = SIREN du mandant (BT-30) et document_number = BT-1 fiscal — sans ce filtre, un
+    // mandant qui est aussi fournisseur ordinaire (même SIREN) dont un BT-1 coïncide avec un numéro source ferait
+    // remonter sa ligne 389 comme antécédent d'un non-389 → blocage parasite. La branche 389 (mandant_id = @MandantId)
+    // exclut déjà naturellement les NULL ; on rend l'exclusion SYMÉTRIQUE côté non-389.
     private const string PriorsBySupplierAndNumberSql = """
         SELECT id, state
         FROM documents.documents
         WHERE supplier_siren = @SupplierSiren
+          AND document_number = @DocumentNumber
+          AND mandant_id IS NULL
+          AND id <> @CandidateId
+        ORDER BY last_update_utc DESC
+        """;
+
+    // F06 §4 amendé (ADR-0025 §6) — clé 389 : en autofacturation le « supplier » fiscal est le MANDANT, la clé
+    // fonctionnelle bascule vers (mandant_id, document_number = BT-1 fiscal alloué). Deux 389 de même numéro mais
+    // mandants différents NE sont PAS doublons (séquences distinctes) ; même mandant + ré-extraction = doublon.
+    private const string PriorsByMandantAndNumberSql = """
+        SELECT id, state
+        FROM documents.documents
+        WHERE mandant_id = @MandantId
           AND document_number = @DocumentNumber
           AND id <> @CandidateId
         ORDER BY last_update_utc DESC
@@ -50,15 +68,29 @@ public sealed class PostgresDuplicateDocumentCheck : IDuplicateDocumentCheck
 
         using var conn = await _connectionFactory.OpenAsync(cancellationToken);
 
-        // F06 §4.1-4.3 : antécédents de même clé fonctionnelle (supplier_siren, document_number). Sans SIREN,
-        // la clé fonctionnelle est incomplète : on ne peut affirmer « même fournisseur », on n'en déduit donc
-        // aucun antécédent (le garde-fou d'empreinte 4.4 reste actif). On n'invente pas un rapprochement.
+        // F06 §4.1-4.3 : antécédents de même clé fonctionnelle. La clé DÉPEND DU FLUX (F06 §4 amendé, ADR-0025 §6) :
+        //  - 389 (MandantId présent) : clé (mandant_id, document_number = BT-1 fiscal alloué) — le « supplier »
+        //    fiscal est le mandant. La bascule est atomique côté base par un index d'unicité (V010), jamais une
+        //    « neutralisation du SIREN » applicative (INV-BT1-6).
+        //  - cas général (non-389) : clé historique (supplier_siren, document_number), INCHANGÉE. Sans SIREN, la
+        //    clé est incomplète : aucun antécédent rapproché (le garde-fou d'empreinte 4.4 reste actif).
+        // Le candidat est toujours exclu de ses propres antécédents (id <> @CandidateId).
         IReadOnlyCollection<PriorDocumentMatch> priors;
-        if (string.IsNullOrWhiteSpace(request.SupplierSiren))
+        if (request.MandantId is { } mandantId)
         {
-            priors = Array.Empty<PriorDocumentMatch>();
+            var rows = await conn.QueryAsync(new CommandDefinition(
+                PriorsByMandantAndNumberSql,
+                new
+                {
+                    MandantId = mandantId,
+                    request.DocumentNumber,
+                    CandidateId = request.DocumentId,
+                },
+                cancellationToken: cancellationToken));
+
+            priors = MapPriors(rows);
         }
-        else
+        else if (!string.IsNullOrWhiteSpace(request.SupplierSiren))
         {
             var rows = await conn.QueryAsync(new CommandDefinition(
                 PriorsBySupplierAndNumberSql,
@@ -70,11 +102,11 @@ public sealed class PostgresDuplicateDocumentCheck : IDuplicateDocumentCheck
                 },
                 cancellationToken: cancellationToken));
 
-            priors = rows
-                .Select(row => new PriorDocumentMatch(
-                    (Guid)row.id,
-                    Enum.Parse<DocumentState>((string)row.state)))
-                .ToList();
+            priors = MapPriors(rows);
+        }
+        else
+        {
+            priors = Array.Empty<PriorDocumentMatch>();
         }
 
         // F06 §4.4 : empreinte de payload identique à un document déjà émis (toute clé fonctionnelle).
@@ -96,6 +128,12 @@ public sealed class PostgresDuplicateDocumentCheck : IDuplicateDocumentCheck
             RelatedDocumentId = decision.RelatedDocumentId,
         };
     }
+
+    private static List<PriorDocumentMatch> MapPriors(IEnumerable<dynamic> rows) => rows
+        .Select(row => new PriorDocumentMatch(
+            (Guid)row.id,
+            Enum.Parse<DocumentState>((string)row.state)))
+        .ToList();
 
     private static DuplicateCheckDecision ToContract(DocumentDuplicateOutcome outcome) => outcome switch
     {

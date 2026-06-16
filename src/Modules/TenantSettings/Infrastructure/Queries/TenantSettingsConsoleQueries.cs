@@ -105,6 +105,7 @@ public sealed partial class TenantSettingsConsoleQueries : ITenantSettingsConsol
         SupportsTaxReportRetrieval = capabilities.SupportsTaxReportRetrieval,
         SupportsDocumentRetrieval = capabilities.SupportsDocumentRetrieval,
         SupportsReportRectification = capabilities.SupportsReportRectification,
+        SupportsSelfBilling = capabilities.SupportsSelfBilling,
         MaxDocumentsPerRequest = capabilities.MaxDocumentsPerRequest,
     };
 

@@ -30,4 +30,7 @@ public enum PaCapability
 
     /// <summary>Rectification de déclaration — flux RE.</summary>
     ReportRectification = 8,
+
+    /// <summary>Émission d'auto-factures sous mandat (type BT-3 = 389, art. 289 I-2 CGI — F15 §1.2).</summary>
+    SelfBilling = 9,
 }
