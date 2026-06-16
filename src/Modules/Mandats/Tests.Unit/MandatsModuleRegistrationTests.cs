@@ -7,6 +7,7 @@ using FluentAssertions;
 using Liakont.Modules.Mandats.Application;
 using Liakont.Modules.Mandats.Contracts.Queries;
 using Liakont.Modules.Mandats.Infrastructure;
+using Liakont.Modules.Mandats.Infrastructure.TacitAcceptance;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Stratum.Common.Infrastructure.Database;
@@ -38,6 +39,7 @@ public sealed class MandatsModuleRegistrationTests
         sp.GetRequiredService<IMandatsUnitOfWorkFactory>().Should().NotBeNull("IMandatsUnitOfWorkFactory doit être résolu après AddMandatsModule");
         sp.GetRequiredService<ISelfBilledAcceptanceQueries>().Should().NotBeNull("ISelfBilledAcceptanceQueries (MND02) doit être résolu après AddMandatsModule");
         sp.GetRequiredService<ISelfBilledAcceptanceUnitOfWorkFactory>().Should().NotBeNull("ISelfBilledAcceptanceUnitOfWorkFactory (MND02) doit être résolu après AddMandatsModule");
+        sp.GetRequiredService<ITacitAcceptanceService>().Should().NotBeNull("ITacitAcceptanceService (MND04) doit être résolu après AddMandatsModule — sinon le job de bascule tacite ne tourne pas");
 
         var migrationOptions = sp.GetRequiredService<IOptions<MigrationAssembliesOptions>>().Value;
         migrationOptions.Assemblies.Should().Contain(

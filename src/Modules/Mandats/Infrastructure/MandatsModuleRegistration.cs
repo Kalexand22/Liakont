@@ -3,7 +3,9 @@ namespace Liakont.Modules.Mandats.Infrastructure;
 using Liakont.Modules.Mandats.Application;
 using Liakont.Modules.Mandats.Contracts.Queries;
 using Liakont.Modules.Mandats.Infrastructure.Queries;
+using Liakont.Modules.Mandats.Infrastructure.TacitAcceptance;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Stratum.Common.Infrastructure.Database;
 
 /// <summary>
@@ -24,6 +26,13 @@ public static class MandatsModuleRegistration
         // Acceptation des auto-factures sous mandat (MND02, ADR-0024).
         services.AddScoped<ISelfBilledAcceptanceUnitOfWorkFactory, PostgresSelfBilledAcceptanceUnitOfWorkFactory>();
         services.AddScoped<ISelfBilledAcceptanceQueries, PostgresSelfBilledAcceptanceQueries>();
+
+        // Bascule tacite des acceptations 389 (MND04, ADR-0024 §4) : lecteur des candidats dus + service de
+        // bascule, résolus par le TenantJob (SOL06) dans le scope du tenant. Horloge injectable (défaut
+        // système) pour la condition « now ≥ DeadlineUtc » — testable, jamais DateTimeOffset.UtcNow en dur.
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddScoped<ITacitAcceptanceCandidateReader, PostgresTacitAcceptanceCandidateReader>();
+        services.AddScoped<ITacitAcceptanceService, TacitAcceptanceService>();
 
         return services;
     }

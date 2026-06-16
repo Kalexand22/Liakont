@@ -77,12 +77,20 @@ public sealed class MandatsBoundaryTests
         csprojs.Should().NotBeEmpty("les .csproj du module Mandats doivent être localisables depuis le répertoire de test");
 
         // Références de projet autorisées : le module lui-même, le socle Common (Abstractions /
-        // Infrastructure / Testing), et le contrat agent partagé (BCL-only, autorisé pour tous les modules).
+        // Infrastructure / Testing), le contrat agent partagé (BCL-only, autorisé pour tous les modules), et
+        // le seam de planification du socle vendored `Stratum.Modules.Job.Contracts` (IJobHandler) — exigé par
+        // le job SYSTÈME de bascule tacite (MND04, gabarit DailyAnchoring/SOL06), référencé de la même façon
+        // par Archive/Supervision. C'est un module SOCLE (Stratum.Modules.Job), pas un module métier Liakont :
+        // la frontière inter-modules (INV-MANDATS-2 ; test `Infrastructure_DoesNotReachIntoAnotherBusinessModule`)
+        // reste verrouillée.
         bool IsAllowed(string resolvedSlash) =>
             resolvedSlash.StartsWith(mandatsRootSlash + "/", StringComparison.OrdinalIgnoreCase)
             || resolvedSlash.StartsWith(srcRootSlash + "/Common/", StringComparison.OrdinalIgnoreCase)
             || resolvedSlash.EndsWith(
                 "/src/Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj",
+                StringComparison.OrdinalIgnoreCase)
+            || resolvedSlash.EndsWith(
+                "/src/Modules/Job/Contracts/Stratum.Modules.Job.Contracts.csproj",
                 StringComparison.OrdinalIgnoreCase);
 
         var violations = (
@@ -96,8 +104,9 @@ public sealed class MandatsBoundaryTests
             .ToArray();
 
         violations.Should().BeEmpty(
-            "un .csproj Mandats ne référence que le module lui-même, le socle Common et Liakont.Agent.Contracts " +
-            "(jamais un autre module métier — CLAUDE.md n°6/14, INV-MANDATS-2)");
+            "un .csproj Mandats ne référence que le module lui-même, le socle Common, Liakont.Agent.Contracts " +
+            "et le seam de planification socle Stratum.Modules.Job.Contracts (IJobHandler, MND04) — jamais un " +
+            "autre module métier (CLAUDE.md n°6/14, INV-MANDATS-2)");
     }
 
     private static IEnumerable<string> ReferencedAssemblyNames(Assembly assembly) =>
