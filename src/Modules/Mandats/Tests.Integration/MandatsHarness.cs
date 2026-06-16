@@ -19,6 +19,8 @@ internal sealed class MandatsHarness
         ConnectionFactory = fixture.CreateConnectionFactory();
         UowFactory = new PostgresMandatsUnitOfWorkFactory(ConnectionFactory);
         Queries = new PostgresMandatsQueries(ConnectionFactory);
+        AcceptanceUowFactory = new PostgresSelfBilledAcceptanceUnitOfWorkFactory(ConnectionFactory);
+        AcceptanceQueries = new PostgresSelfBilledAcceptanceQueries(ConnectionFactory);
     }
 
     public IConnectionFactory ConnectionFactory { get; }
@@ -26,4 +28,8 @@ internal sealed class MandatsHarness
     public IMandatsUnitOfWorkFactory UowFactory { get; }
 
     public IMandatsQueries Queries { get; }
+
+    public ISelfBilledAcceptanceUnitOfWorkFactory AcceptanceUowFactory { get; }
+
+    public ISelfBilledAcceptanceQueries AcceptanceQueries { get; }
 }

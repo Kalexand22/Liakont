@@ -16,9 +16,17 @@ validation humaine, révocation).
 - le **suspendu-par-défaut** : `AssujettissementStatus`/`ContestationDelay` `null`, mandat non validé ou
   révoqué ⇒ **389 suspendu** (`Mandat.IsSelfBillingSuspended`), jamais un défaut inventé.
 
-**Hors périmètre de MND01 (items suivants du lot, F15/ADR-filles)** :
+**Périmètre de l'item MND02 (workflow d'acceptation — ADR-0024, F15 §2.3)** :
+- l'agrégat **`SelfBilledAcceptance`** (clé `(company_id, document_id)`, état mutable) et sa **machine fermée**
+  `PendingAcceptance → {Accepted, TacitlyAccepted, Contested}` (aucun retour arrière, INV-ACCEPT-4) ;
+- le **journal append-only** `self_billed_acceptance_log` : CHAQUE transition (création incluse) écrit une
+  ligne dans la MÊME transaction (INV-ACCEPT-5), immuable par double trigger base ;
+- l'état calculé **« gate ouvert »** (`IsAccepted` = Accepted ou TacitlyAccepted) exposé aux Contracts.
+- Hors MND02 : la **garde** d'émission (port `ISelfBilledGate` → MND03), la **bascule tacite** par job
+  (MND04), l'**allocation** du BT-1 fiscal (MND05), et l'**avoir 261** d'un `Contested` (NON TRANCHÉ F15 §6.5).
+
+**Hors périmètre de MND01/MND02 (items suivants du lot, F15/ADR-filles)** :
 - `MandatSequence` + numérotation BT-1 par mandant → **MND05** (ADR-0025) ;
-- `SelfBilledAcceptance` + machine d'acceptation + `self_billed_acceptance_log` → **MND02** (ADR-0024) ;
 - port `ISelfBilledGate` + branchement pipeline → **MND03** ; bascule tacite (`TenantJobRunner`) → **MND04** ;
 - re-clé anti-doublon F06 → **MND06** ; projection BT-3=389 vers la PA → **MND07** ;
 - les écrans console (registre, édition) — le squelette `Web/MandatsEndpointMapping.cs` est posé, sans route.
@@ -32,11 +40,15 @@ restent **NON TRANCHÉS** (F15 §6) — un item qui les rencontre **bloque**, il
   - `mandants` : registre des mandants (référence, raison sociale, n° TVA BT-31 nullable, SIREN, préfixe).
   - `mandats` : mandats (clause, écrit/tacite, statut, délai, validation, révocation).
   - `mandat_change_log` : journal **append-only** (registre + cycle de vie), immuable par double trigger.
+  - `self_billed_acceptances` (MND02) : état d'acceptation par document (clé `(company_id, document_id)`, état mutable).
+  - `self_billed_acceptance_log` (MND02) : journal **append-only** des transitions d'acceptation, immuable par double trigger.
 - **Lit / écrit** : uniquement son propre schéma, toujours scopé par `company_id` (CLAUDE.md n°9, INV-MANDATS-1).
 - **Interdits** (module-rules §2) : montant sur le mandat, règle fiscale inventée, donnée client embarquée,
   lecture cross-tenant, mandant traité en sous-tenant, chemin d'update/delete sur le journal.
-- **Surface publique** : `Contracts/` uniquement (`IMandatsQueries`, DTOs `MandantDto`/`MandatDto`/
-  `MandatChangeLogEntryDto`). L'unité de travail d'écriture (`IMandatsUnitOfWork`) est **interne** au module.
+- **Surface publique** : `Contracts/` uniquement (`IMandatsQueries`, `ISelfBilledAcceptanceQueries`, DTOs
+  `MandantDto`/`MandatDto`/`MandatChangeLogEntryDto`/`SelfBilledAcceptanceDto`/`SelfBilledAcceptanceLogEntryDto`).
+  Les abstractions d'unité de travail d'écriture (`IMandatsUnitOfWork`, `ISelfBilledAcceptanceUnitOfWork`)
+  vivent dans `Application` ; les implémentations Postgres sont **internes** au module.
 - **Web** : `Web/MandatsEndpointMapping.cs` — squelette de montage (aucune route en MND01).
 
 ## Published Events
