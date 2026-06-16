@@ -509,8 +509,15 @@ function Invoke-Apply {
         Write-Step '2/5 Démarrage des bases cible (postgres + keycloak-db ; Host NON démarré)'
         & docker @composeArgs up -d postgres keycloak-db
         if ($LASTEXITCODE -ne 0) { throw "Le démarrage des bases cible a échoué (docker compose up). Voir les logs." }
+        # Attendre la disponibilité des DEUX clusters : restore.sh restaure db-*.dump par ordre
+        # alphabétique → db-keycloak.dump EN PREMIER. Sur une cible vierge, postgres et keycloak-db
+        # lancent initdb en parallèle ; n'attendre que postgres laisserait restore.sh échouer si
+        # keycloak-db accepte les connexions un peu plus tard (faux-rouge dépendant du timing).
         if (-not (Wait-PostgresReady -ComposeArgs $composeArgs -Service 'postgres' -User 'liakont')) {
             throw "Le service postgres de la cible n'est pas prêt (pg_isready) — restauration impossible."
+        }
+        if (-not (Wait-PostgresReady -ComposeArgs $composeArgs -Service 'keycloak-db' -User 'keycloak')) {
+            throw "Le service keycloak-db de la cible n'est pas prêt (pg_isready) — restauration impossible."
         }
         Write-Ok 'Bases cible démarrées (Host non démarré → volume vierge pour la restitution du coffre).'
 
