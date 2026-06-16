@@ -34,7 +34,12 @@ validation humaine, révocation).
   un recheck post-acceptation rouvre le gate (Blocked → ReadyToSend). Couverture : CHECK initial testé par
   `DocumentReceivedConsumerTests.SelfBilled_*` ; recheck testé par `DocumentRecheckServiceTests.SelfBilled_*`
   (gate ouvert → ReadyToSend, gate fermé → stays Blocked) ; la réconciliation des avoirs partage la même
-  source de décision mais n'est pas couverte séparément par un test unitaire du cas self-billed.
+  source de décision mais n'est pas couverte séparément par un test unitaire du cas self-billed. Ce dernier
+  chemin est volontairement NON exercé : un avoir auto-facturé (261) y serait évalué contre une acceptation
+  portée par son PROPRE `document_id` (inexistante — l'acceptation est celle de la facture d'origine) ⇒
+  blocage fail-closed permanent. Or le passage d'un avoir 261 par `ISelfBilledGate` est **NON TRANCHÉ**
+  (F15 §6.5 item 5) ; le blocage est la direction SÛRE (CLAUDE.md n°2/3), mais asserter un comportement par
+  un test reviendrait à trancher une règle fiscale non décidée — à câbler/tester lors de l'arbitrage F15 §6.5.
 - Hors MND03 : la création de l'enregistrement `SelfBilledAcceptance` à la détection d'un document self-billed
   n'est câblée par aucun item du lot à ce stade (le gate « interroge » = lecture seule, fail-closed) — à
   rattacher au flux de bout en bout avant la recette `GATE_AUTOFACTURATION`.
