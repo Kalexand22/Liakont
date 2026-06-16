@@ -29,6 +29,7 @@ internal sealed class StubPaClient : IPaClient
         PivotDocumentDto document,
         bool sendAfterImport = true,
         PaOutboundProjection? projection = null,
+        PaSendContext? context = null,
         CancellationToken cancellationToken = default)
     {
         _calls.Add(nameof(SendDocumentAsync));

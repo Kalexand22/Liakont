@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Surface publique du module FacturX (ADR-0023). BCL-only : le Factur-X est une suite d'octets
+       (PDF/A-3) + le factur-x.xml CII embarqué + un nom de fichier. AUCUNE référence à
+       Transmission.Contracts, à un plug-in PA ou à PaCapabilities (INV-FX-4) : la décision de générer
+       est prise par le pipeline appelant (FX07), jamais par FacturX. -->
+</Project>

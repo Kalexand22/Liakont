@@ -53,6 +53,24 @@ public sealed class DocumentEvent
     /// </summary>
     public string? OperatorName { get; private set; }
 
+    /// <summary>Compte de la Plateforme Agréée par lequel le document a été transmis (FX06) ; <c>null</c> hors envoi.</summary>
+    public string? PaAccount { get; private set; }
+
+    /// <summary>Identifiant du type de plug-in PA ayant transmis (FX06, p. ex. <c>generique</c>) ; <c>null</c> hors envoi.</summary>
+    public string? PaPluginId { get; private set; }
+
+    /// <summary>Horodatage UTC de l'envoi de la requête de transmission à la PA (FX06) ; <c>null</c> hors envoi.</summary>
+    public DateTimeOffset? PaRequestUtc { get; private set; }
+
+    /// <summary>Horodatage UTC de la réponse de la PA (FX06) ; <c>null</c> hors envoi.</summary>
+    public DateTimeOffset? PaResponseUtc { get; private set; }
+
+    /// <summary>Empreinte SHA-256 de l'artefact réellement transmis (le Factur-X, FX06) ; <c>null</c> hors envoi.</summary>
+    public string? TransmittedArtifactHash { get; private set; }
+
+    /// <summary>Clé d'idempotence recherchable de l'envoi à la PA (FX06) ; <c>null</c> hors envoi.</summary>
+    public string? IdempotencyKey { get; private set; }
+
     /// <summary>
     /// Crée l'événement de GENÈSE écrit à la détection du document par l'ingestion (PIV04). Événement
     /// SYSTÈME (aucun opérateur), sans snapshot (le document n'est pas encore transmis).
@@ -294,6 +312,54 @@ public sealed class DocumentEvent
             MappingTrace = null,
             OperatorIdentity = operatorIdentity.Trim(),
             OperatorName = NormalizeOperatorName(operatorName),
+        };
+    }
+
+    /// <summary>
+    /// Crée le fait d'audit de la JOURNALISATION DE L'ENVOI à la Plateforme Agréée (item FX06, F16 §7), posé
+    /// par le pipeline à la finalisation de la transmission (FX07). Trace, en colonnes explicites et
+    /// recherchables, le compte/plug-in PA, les horodatages requête/réponse, l'empreinte de l'artefact
+    /// transmis (le Factur-X) et la clé d'idempotence ; la réponse PA brute est portée par
+    /// <paramref name="paResponseSnapshot"/> (colonne <c>pa_response_snapshot</c> existante, jamais dupliquée).
+    /// Événement SYSTÈME (la transmission n'est pas une action opérateur), append-only — jamais réécrit après
+    /// coup (CLAUDE.md n°4). N'emporte AUCUNE transition d'état.
+    /// </summary>
+    public static DocumentEvent PaTransmissionJournaled(
+        Guid documentId,
+        DateTimeOffset occurredAtUtc,
+        string paAccount,
+        string paPluginId,
+        DateTimeOffset paRequestUtc,
+        DateTimeOffset paResponseUtc,
+        string transmittedArtifactHash,
+        string idempotencyKey,
+        string paResponseSnapshot,
+        string detail)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(paAccount);
+        ArgumentException.ThrowIfNullOrWhiteSpace(paPluginId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(transmittedArtifactHash);
+        ArgumentException.ThrowIfNullOrWhiteSpace(idempotencyKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(paResponseSnapshot);
+        ArgumentException.ThrowIfNullOrWhiteSpace(detail);
+
+        return new DocumentEvent
+        {
+            Id = Guid.NewGuid(),
+            DocumentId = documentId,
+            TimestampUtc = occurredAtUtc,
+            EventType = DocumentEventType.DocumentPaTransmissionJournaled,
+            Detail = detail.Trim(),
+            PayloadSnapshot = null,
+            PaResponseSnapshot = paResponseSnapshot,
+            MappingTrace = null,
+            OperatorIdentity = null,
+            PaAccount = paAccount.Trim(),
+            PaPluginId = paPluginId.Trim(),
+            PaRequestUtc = paRequestUtc,
+            PaResponseUtc = paResponseUtc,
+            TransmittedArtifactHash = transmittedArtifactHash.Trim(),
+            IdempotencyKey = idempotencyKey.Trim(),
         };
     }
 

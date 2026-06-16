@@ -56,10 +56,14 @@ internal sealed class B2BrouterClient : IPaClient
         PivotDocumentDto document,
         bool sendAfterImport = true,
         PaOutboundProjection? projection = null,
+        PaSendContext? context = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(document);
         cancellationToken.ThrowIfCancellationRequested();
+
+        // FX07 : B2Brouter (niveau Pilotage) IGNORE l'artefact pré-construit (context) — elle bâtit son
+        // propre payload depuis le pivot (capacité SupportsFacturXTransmission = false). Chemin inchangé.
 
         // Avoir demandé alors que la capacité n'est pas déclarée → résultat typé, jamais d'exception
         // ni de blocage produit (invariant PAA01). Détection « avoir » = présence d'une référence

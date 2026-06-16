@@ -772,6 +772,30 @@ ces logs d'infrastructure du socle hérité).
 (1) qu'il n'est pas compté migré, (2) qu'une alerte Warning le nomme, (3) que le démarrage n'est pas
 interrompu ; un second cas (tenant sain + tenant cassé) prouve le compteur mixte honnête (1 migré /
 1 injoignable) et la non-régression du chemin de succès.
+### 4.30 `Directory.Packages.props` — bump QuestPDF `2024.12.3 → 2025.7.4` (FX02, ADR-0023 §1)
+
+**Motif** : la génération Factur-X (module Liakont `FacturX.Infrastructure`, ADR-0023) scelle le
+PDF/A-3 avec QuestPDF et exige le correctif de compatibilité **Mustang** livré à partir de **2025.7.4**
+(changelog QuestPDF). La version est **centralisée** (`ManagePackageVersionsCentrally`) : la bumper
+recompile aussi le **socle vendored** `Stratum.Common.UI` (`Services/PdfExportHelper.cs` →
+`document.GeneratePdf()`, export PDF des grilles), d'où la consignation ici — la règle de tête (§0)
+vise « un fichier de configuration qui en conditionne la compilation », et `Directory.Packages.props`
+est listé §2 comme config socle adaptée.
+
+**Changement** : `Directory.Packages.props` — `<PackageVersion Include="QuestPDF" Version="2024.12.3" />`
+→ `Version="2025.7.4"`, commentaire actualisé (périmètre élargi à `FacturX.Infrastructure`, QuestPDF
+confinée à cette couche, INV-FX-1). **Aucun fichier `Stratum.*` source modifié** ; l'API Fluent QuestPDF
+utilisée par `PdfExportHelper` (`Document.Create`/`Page`/`Table`/`GeneratePdf`, `PageSizes`, `Colors`)
+est **stable** entre 2024.12.3 et 2025.7.4. **Aucun nouveau package** (ADR-0023 §1) : l'ADR socle
+`docs/adr/socle/ADR-0004-questpdf.md` reste la référence du choix de lib, non re-décidé.
+
+**Vérification** : `verify-fast` (build 2 solutions + analyzers) et `run-tests` (5702 tests, dont
+`tests/Common.UI/Unit/PdfExportHelperTests.cs` qui asserte les magic bytes `%PDF` de l'export socle)
+**verts** sous 2025.7.4. **Limite connue de la garde** : `tools/socle-provenance-check.ps1` +
+`tools/socle-baseline.sha1` (§4.12) n'épinglent que `src/**` — un changement de version dans la config
+RACINE n'est donc PAS détecté automatiquement (il passe `verify-fast` au vert sans alerte). La présente
+consignation comble ce trou côté **traçabilité** ; étendre la garde à la config racine est un item
+d'outillage de suivi (hors périmètre FX02).
 
 ## 5. ADR du socle hérités
 

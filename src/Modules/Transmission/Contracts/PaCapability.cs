@@ -33,4 +33,7 @@ public enum PaCapability
 
     /// <summary>Émission d'auto-factures sous mandat (type BT-3 = 389, art. 289 I-2 CGI — F15 §1.2).</summary>
     SelfBilling = 9,
+
+    /// <summary>Transmission d'un Factur-X pré-construit (niveau « Essentiel » — F16 §6).</summary>
+    FacturXTransmission = 10,
 }

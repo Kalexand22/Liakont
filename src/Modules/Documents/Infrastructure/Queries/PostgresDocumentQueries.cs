@@ -14,7 +14,7 @@ using Stratum.Common.Infrastructure.Database;
 /// (<see cref="IConnectionFactory"/> route vers le tenant résolu — database-per-tenant, blueprint §7).
 /// Aucune requête cross-tenant n'est possible : la connexion EST la frontière de tenant (CLAUDE.md n°9/17).
 /// </summary>
-public sealed class PostgresDocumentQueries : IDocumentQueries, IDocumentStateCountQueries
+public sealed class PostgresDocumentQueries : IDocumentQueries, IDocumentStateCountQueries, IPaTransmissionJournalQueries
 {
     private const int MaxPageSize = 200;
 
@@ -193,6 +193,29 @@ public sealed class PostgresDocumentQueries : IDocumentQueries, IDocumentStateCo
             sql, new { DocumentId = documentId }, cancellationToken: cancellationToken));
 
         return rows.Select(MapEvent).ToList();
+    }
+
+    public async Task<PaTransmissionJournalDto?> FindByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(idempotencyKey);
+
+        using var conn = await _connectionFactory.OpenAsync(cancellationToken);
+
+        // Recherche par clé d'idempotence (FX06, F16 §7) — sert l'index partiel ix_document_events_idempotency_key.
+        // Une clé doit être unique, mais on borne à la plus récente par sûreté (jamais d'exception sur un doublon).
+        const string sql = """
+            SELECT id, document_id, timestamp_utc, idempotency_key, pa_account, pa_plugin_id,
+                   pa_request_utc, pa_response_utc, transmitted_artifact_hash
+            FROM documents.document_events
+            WHERE idempotency_key = @IdempotencyKey
+            ORDER BY timestamp_utc DESC
+            LIMIT 1
+            """;
+
+        var row = await conn.QueryFirstOrDefaultAsync(new CommandDefinition(
+            sql, new { IdempotencyKey = idempotencyKey }, cancellationToken: cancellationToken));
+
+        return row is null ? null : MapPaTransmissionJournal(row);
     }
 
     public async Task<DocumentListResult> GetDocumentsAsync(
@@ -438,6 +461,22 @@ public sealed class PostgresDocumentQueries : IDocumentQueries, IDocumentStateCo
             MappingTrace = (string?)row.mapping_trace,
             OperatorIdentity = (string?)row.operator_identity,
             OperatorName = (string?)row.operator_name,
+        };
+    }
+
+    private static PaTransmissionJournalDto MapPaTransmissionJournal(dynamic row)
+    {
+        return new PaTransmissionJournalDto
+        {
+            EventId = (Guid)row.id,
+            DocumentId = (Guid)row.document_id,
+            TimestampUtc = DocumentRowReader.ToDateTimeOffset((object)row.timestamp_utc),
+            IdempotencyKey = (string)row.idempotency_key,
+            PaAccount = (string)row.pa_account,
+            PaPluginId = (string)row.pa_plugin_id,
+            PaRequestUtc = DocumentRowReader.ToDateTimeOffset((object)row.pa_request_utc),
+            PaResponseUtc = DocumentRowReader.ToDateTimeOffset((object)row.pa_response_utc),
+            TransmittedArtifactHash = (string)row.transmitted_artifact_hash,
         };
     }
 }

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+    <!-- Validation de conformité en conteneur (ADR-0023 §4) : veraPDF (PDF/A-3b) + Mustangproject
+         (Factur-X EN 16931) via Docker — JRE/JVM embarquée, aucun Java sur le runner. -->
+    <PackageReference Include="Testcontainers" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Infrastructure/Liakont.Modules.FacturX.Infrastructure.csproj" />
+    <ProjectReference Include="../../../Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Réutilise la matrice de pivots de FX03 (mono/multi-taux, exonéré VATEX, autoliquidation, criée)
+         par lien de compilation : un seul jeu de cas, aucune divergence (DRY). Données fictives. -->
+    <Compile Include="../Tests.Unit/Cii/CiiTestPivots.cs" Link="Cii/CiiTestPivots.cs" />
+  </ItemGroup>
+</Project>

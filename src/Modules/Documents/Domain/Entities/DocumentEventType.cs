@@ -82,4 +82,14 @@ public enum DocumentEventType
     /// la trace du geste opérateur et de son résultat.
     /// </summary>
     DocumentRecheckedStillBlocked,
+
+    /// <summary>
+    /// Journalisation de l'envoi à la Plateforme Agréée (item FX06, F16 §7) : trace, en colonnes explicites
+    /// et recherchables, le COMPTE / PLUG-IN de la PA, les horodatages requête/réponse, l'EMPREINTE de
+    /// l'artefact transmis (le Factur-X) et la CLÉ d'idempotence de l'envoi ; la réponse PA brute reste portée
+    /// par <c>pa_response_snapshot</c>. Fait d'audit append-only SYSTÈME (la transmission n'est pas une action
+    /// opérateur). N'emporte AUCUNE transition d'état : c'est le détail de support/traçabilité de l'envoi, posé
+    /// par le pipeline au moment de la finalisation (FX07), pas une décision de la machine à états.
+    /// </summary>
+    DocumentPaTransmissionJournaled,
 }

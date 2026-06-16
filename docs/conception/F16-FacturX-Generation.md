@@ -150,6 +150,19 @@ contrat `IPaClient` (p. ex. un `PaSendContext` optionnel portant le Factur-X dé
 existantes l'**ignorent** (elles construisent leur payload), la PA générique l'**exige** (artefact absent →
 **blocage**, jamais une régénération dans le plug-in qui violerait l'indépendance). Décision scopée à FX07.
 
+> **Note d'amendement (2026-06-16, FX07 — décision de frontière).** Le pipeline (`SendTenantJob`, module
+> `Pipeline`) ne peut PAS référencer directement `IFacturXBuilder` : ce port vit en couche `Application` du
+> module FacturX, or un module n'accède à un autre que par ses **`Contracts`** (module-rules §3 / CLAUDE.md
+> n°14 ; une référence `Pipeline → FacturX.Application` serait un P1, sans précédent dans le dépôt). La
+> génération reste donc « **derrière `IFacturXBuilder`** » mais via un **pont** `IFacturXArtifactBuilder`
+> défini dans **`Transmission.Contracts`** (là où vivent déjà la capacité `SupportsFacturXTransmission` qui
+> le déclenche et le canal `IDocumentDeliveryChannel`), **implémenté au Host** (composition root) en
+> déléguant à `IFacturXBuilder`. Seul le Host référence à la fois `Transmission.Contracts` et le module
+> FacturX. Le pipeline reste Contracts-only ; FacturX reste indépendant des PA (INV-FX-4 intact).
+> La **journalisation** (FX06) est posée par un port d'écriture ségrégué `IPaTransmissionJournal`
+> (`Documents.Contracts`, symétrique au read `IPaTransmissionJournalQueries`), et la **trace de support**
+> par `ISupportTraceStore` (`SupportTrace.Contracts`), tous deux sur le chemin Factur-X uniquement.
+
 ### 6.2 Canaux de livraison (abstraction définie dans `Transmission.Contracts`)
 
 Le plug-in transmet via une **nouvelle abstraction définie dans `Transmission.Contracts`**, p. ex.
@@ -191,6 +204,20 @@ journalisés (CLAUDE.md n°10/18).
   (BR-* dont BR-CO-15 fatale) + artefacts **FNFE-MPE** (BR-FR-*, §10).
 - Tier intégration (`run-tests`, Testcontainers) : **veraPDF + Mustangproject** (Docker) — **bloquant**.
 - Un Factur-X qui échoue ces validations n'est **pas émissible** (ADR-0023 §4, INV-FX-5).
+
+> **Note d'amendement (2026-06-16, FX03).** Les **XSD CII présents au dépôt**
+> (`docs/references/dgfip-v3.2/.../F1_BASE_CII_D22B`, `F1_FULL_CII_D22B`) sont des **profils DGFiP
+> RESTREINTS** : la plupart des Business Terms EN 16931 y sont **commentés** dans le XSD — dont
+> BT-106 (`LineTotalAmount`), BT-112 (`GrandTotalAmount`), BT-115 (`DuePayableAmount`), pourtant
+> obligatoires EN 16931. Valider un CII EN 16931 (COMFORT) contre eux produit un **faux négatif**
+> (rejet d'un document conforme). Le **XSD CII EN 16931 complet** et le **Schematron CEN/TC 434** sont
+> donc des **artefacts externes non vendorés** (même bucket que les artefacts FNFE-MPE — §10 action
+> A4, NON TRANCHÉ) ; le Schematron exige en plus un **processeur XSLT 2.0** (Saxon → ADR dédié, aucun
+> package sans ADR). En conséquence, **FX03** assure au tier rapide : (1) bonne formation + **complétude
+> structurelle EN 16931** (BT/BG obligatoires) et (2) **identités arithmétiques BR-CO** (BR-CO-10/13/14/
+> 15/16/17, dont BR-CO-15 fatale) sur les golden files. La **conformité XSD/Schematron EN 16931 réelle**
+> reste portée par **Mustangproject** (qui rejoue le Schematron EN 16931) **au tier intégration de FX04**
+> + la **recette GATE_FACTURX**.
 
 ## 9. Frontières & règles (récapitulatif)
 
