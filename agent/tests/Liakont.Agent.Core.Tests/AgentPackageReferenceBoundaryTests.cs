@@ -57,10 +57,12 @@ public class AgentPackageReferenceBoundaryTests
     // (auto-fermée ou avec enfants). Couvre aussi Directory.Packages.props et Directory.Build.targets
     // où un GlobalPackageReference s'applique à tous les projets sans <PackageReference> dans aucun
     // csproj. [^>]* reste dans la balise (les classes négatives traversent les sauts de ligne).
+    // Accepte les guillemets SIMPLES et DOUBLES (syntaxe MSBuild valide) via rétroréférence \1 :
+    // groupe 1 = caractère de guillemet ouvrant, groupe 2 = nom du paquet.
     // Note : <PackageVersion> est volontairement exclu — c'est une déclaration de version, pas une
     // référence qui tire le paquet.
     private static readonly Regex PackageReferenceInclude = new Regex(
-        "<(?:PackageReference|GlobalPackageReference)\\b[^>]*?\\bInclude\\s*=\\s*\"([^\"]+)\"",
+        "<(?:PackageReference|GlobalPackageReference)\\b[^>]*?\\bInclude\\s*=\\s*([\"'])([^\"']+)\\1",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     [Fact]
@@ -117,8 +119,13 @@ public class AgentPackageReferenceBoundaryTests
         const string clean =
             "<Project><ItemGroup><PackageReference Include=\"Newtonsoft.Json\" /></ItemGroup></Project>";
 
+        // Guillemets simples : syntaxe MSBuild valide qui devait s'echapper auparavant.
+        const string withSingleQuoteWacom =
+            "<Project><ItemGroup><PackageReference Include='Wacom.Stu.Sdk' Version='1.0.0' /></ItemGroup></Project>";
+
         ViolatingPackages(withWacom, allowed).Should().ContainSingle().Which.Should().Be("Wacom.Stu.Sdk");
         ViolatingPackages(withGlobalWacom, allowed).Should().ContainSingle().Which.Should().Be("Wacom.Stu.Sdk");
+        ViolatingPackages(withSingleQuoteWacom, allowed).Should().ContainSingle().Which.Should().Be("Wacom.Stu.Sdk");
         ViolatingPackages(versionOnly, allowed).Should().BeEmpty();
         ViolatingPackages(clean, allowed).Should().BeEmpty();
     }
@@ -127,7 +134,7 @@ public class AgentPackageReferenceBoundaryTests
     {
         return PackageReferenceInclude.Matches(projectXml)
             .Cast<Match>()
-            .Select(m => m.Groups[1].Value)
+            .Select(m => m.Groups[2].Value)
             .Where(name => !allowed.Contains(name))
             .ToArray();
     }
