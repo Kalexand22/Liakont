@@ -76,20 +76,24 @@ public sealed class BrandingHeadTests : BunitContext
         style.Should().Contain("--color-primary:#123456;");
         style.Should().Contain("--color-primary-600:#123456;", "la barre latérale dérive de --color-primary-600");
         style.Should().Contain("--color-primary-container:#abcdef;", "l'accent surcharge le conteneur primaire");
+        style.Should().Contain("--sidebar-active-accent:#abcdef;", "l'accent peint la ligne sélectionnée (RB5)");
+        style.Should().Contain("--sidebar-bg:#123456;", "le thème sombre rebrande la barre latérale codée en dur (RB5)");
     }
 
     [Fact]
-    public void Color_Override_Is_Scoped_To_Light_Theme()
+    public void Color_Override_Covers_Both_Themes()
     {
-        // Le contrat : la surcharge cible le thème CLAIR. Le sélecteur :root:not([data-theme="dark"])
-        // ne matche jamais en thème sombre, où le socle garde sa palette sombre scellée.
-        WithBranding(new BrandingOptions { PrimaryColor = "#123456" });
+        // RB5 : le branding repeint le chrome dans les DEUX thèmes (le socle code la barre latérale du
+        // thème sombre en dur). Le bloc clair reste SCOPÉ (:root:not([data-theme="dark"])) ; un bloc
+        // [data-theme="dark"] dédié couvre le sombre — jamais un :root nu sans distinction de thème.
+        WithBranding(new BrandingOptions { PrimaryColor = "#123456", AccentColor = "#abcdef" });
 
         var cut = Render<BrandingHead>();
 
         string style = cut.Find("style").TextContent;
-        style.Should().StartWith(":root:not([data-theme=\"dark\"]){", "la marque ne repeint pas le thème sombre");
-        style.Should().NotContain(":root{", "jamais un :root nu qui s'appliquerait aussi en sombre");
+        style.Should().StartWith(":root:not([data-theme=\"dark\"]){", "bloc thème clair scopé en tête");
+        style.Should().Contain("[data-theme=\"dark\"]{", "bloc thème sombre (RB5)");
+        style.Should().NotContain(":root{", "jamais un :root nu qui s'appliquerait sans distinction de thème");
     }
 
     [Fact]
