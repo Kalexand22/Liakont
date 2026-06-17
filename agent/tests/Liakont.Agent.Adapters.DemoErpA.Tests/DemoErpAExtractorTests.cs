@@ -19,9 +19,6 @@ using Xunit;
 /// </summary>
 public class DemoErpAExtractorTests
 {
-    private static readonly SourceEmitterConfig Emitter =
-        new SourceEmitterConfig("123456782", "Société Fictive de Démonstration", OperationCategory.LivraisonBiens);
-
     [Fact]
     public void Groups_rows_into_documents_emitting_first_last_and_lineless_invoices()
     {
@@ -32,7 +29,7 @@ public class DemoErpAExtractorTests
             Row("2", 1),
             Row("3", null),
         };
-        var extractor = new DemoErpAExtractor(new FakeSourceConnectionFactory(rows), Emitter, new CapturingAgentLog());
+        var extractor = new DemoErpAExtractor(new FakeSourceConnectionFactory(rows), new CapturingAgentLog());
 
         List<PivotDocumentDto> docs = extractor.ExtractDocuments(DateTime.UtcNow.AddDays(-1), DateTime.UtcNow).ToList();
 
@@ -56,7 +53,7 @@ public class DemoErpAExtractorTests
             Row("3", 1),
         };
         var log = new CapturingAgentLog();
-        var extractor = new DemoErpAExtractor(new FakeSourceConnectionFactory(rows), Emitter, log);
+        var extractor = new DemoErpAExtractor(new FakeSourceConnectionFactory(rows), log);
 
         List<PivotDocumentDto> docs = extractor.ExtractDocuments(DateTime.UtcNow.AddDays(-1), DateTime.UtcNow).ToList();
 
@@ -68,7 +65,7 @@ public class DemoErpAExtractorTests
     public void Credit_note_with_resolved_origin_carries_the_reference()
     {
         var rows = new[] { Row("5", 1, typePiece: "AVO", origineNum: "A-2026-0001", origineDate: "2026-05-30") };
-        var extractor = new DemoErpAExtractor(new FakeSourceConnectionFactory(rows), Emitter, new CapturingAgentLog());
+        var extractor = new DemoErpAExtractor(new FakeSourceConnectionFactory(rows), new CapturingAgentLog());
 
         PivotDocumentDto doc = extractor.ExtractDocuments(DateTime.UtcNow.AddDays(-1), DateTime.UtcNow).Single();
 

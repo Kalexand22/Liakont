@@ -47,7 +47,7 @@ public sealed class SupplierIdentityRule : IDocumentRule
 
         // SIRET émetteur porté par le document, contrôlé s'il est fourni (F04 §3.1, 14 chiffres + Luhn).
         // Indépendant du profil tenant : évalué avant la résolution du SIREN émetteur de référence.
-        var documentSiret = document.Supplier.Siret;
+        var documentSiret = document.Supplier?.Siret;
         if (!string.IsNullOrWhiteSpace(documentSiret) && !SiretValidator.IsValid(documentSiret))
         {
             issues.Add(ValidationIssue.Blocking(
@@ -84,7 +84,7 @@ public sealed class SupplierIdentityRule : IDocumentRule
             return issues;
         }
 
-        var documentSiren = document.Supplier.Siren;
+        var documentSiren = document.Supplier?.Siren;
         if (!string.IsNullOrWhiteSpace(documentSiren) && !string.Equals(documentSiren, issuerSiren, StringComparison.Ordinal))
         {
             issues.Add(ValidationIssue.Blocking(

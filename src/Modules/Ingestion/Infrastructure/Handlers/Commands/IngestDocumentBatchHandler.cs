@@ -11,6 +11,8 @@ using Liakont.Modules.Ingestion.Contracts.Events;
 using Liakont.Modules.Ingestion.Domain;
 using Liakont.Modules.Ingestion.Domain.Entities;
 using Liakont.Modules.Staging.Contracts;
+using Liakont.Modules.TenantSettings.Contracts.DTOs;
+using Liakont.Modules.TenantSettings.Contracts.Queries;
 using MediatR;
 using Microsoft.Extensions.Logging;
 using Stratum.Common.Abstractions.Events;
@@ -42,6 +44,7 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
     private readonly ISourceTaxRegimeWriter _sourceTaxRegimeWriter;
     private readonly IDocumentIntake _documentIntake;
     private readonly IPayloadStagingStore _stagingStore;
+    private readonly ITenantSettingsQueries _tenantSettingsQueries;
     private readonly ILogger<IngestDocumentBatchHandler> _logger;
 
     public IngestDocumentBatchHandler(
@@ -49,22 +52,37 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
         ISourceTaxRegimeWriter sourceTaxRegimeWriter,
         IDocumentIntake documentIntake,
         IPayloadStagingStore stagingStore,
+        ITenantSettingsQueries tenantSettingsQueries,
         ILogger<IngestDocumentBatchHandler> logger)
     {
         _uowFactory = uowFactory;
         _sourceTaxRegimeWriter = sourceTaxRegimeWriter;
         _documentIntake = documentIntake;
         _stagingStore = stagingStore;
+        _tenantSettingsQueries = tenantSettingsQueries;
         _logger = logger;
     }
 
     public async Task<PushBatchResponseDto> Handle(IngestDocumentBatchCommand request, CancellationToken cancellationToken)
     {
+        // Identité émetteur = profil du tenant (ADR-0023 amendé) : résolue UNE fois par lot (chemin chaud à
+        // haut débit ; le profil est stable sur la durée d'un lot), puis injectée dans chaque pivot AVANT la
+        // sérialisation canonique. Profil/paramétrage fiscal incomplet → champs laissés nuls → document
+        // bloqué au CHECK (jamais deviné, CLAUDE.md n°2). Lecture tenant-scopée via Contracts (CLAUDE.md n°14).
+        var companyId = await _tenantSettingsQueries.GetCurrentCompanyId(cancellationToken);
+        TenantProfileDto? tenantProfile = null;
+        FiscalSettingsDto? fiscalSettings = null;
+        if (companyId is { } resolvedCompanyId)
+        {
+            tenantProfile = await _tenantSettingsQueries.GetTenantProfile(resolvedCompanyId, cancellationToken);
+            fiscalSettings = await _tenantSettingsQueries.GetFiscalSettings(resolvedCompanyId, cancellationToken);
+        }
+
         // 1. Chemin PRIMAIRE : traiter chaque document indépendamment (lot NON transactionnel, résultat individuel).
         var results = new List<DocumentPushResultDto>(request.Documents.Count);
         foreach (var document in request.Documents)
         {
-            results.Add(await ProcessDocumentAsync(request, document, cancellationToken));
+            results.Add(await ProcessDocumentAsync(request, document, tenantProfile, fiscalSettings, cancellationToken));
         }
 
         // 2. Métadonnée SECONDAIRE (régimes source pour TVA03), best-effort : son échec ne casse pas
@@ -127,6 +145,8 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
     private async Task<DocumentPushResultDto> ProcessDocumentAsync(
         IngestDocumentBatchCommand request,
         PivotDocumentDto document,
+        TenantProfileDto? tenantProfile,
+        FiscalSettingsDto? fiscalSettings,
         CancellationToken cancellationToken)
     {
         // Validation de contrat par document : un document malformé est REJETÉ ENTIÈREMENT (jamais
@@ -148,6 +168,12 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
                 DocumentPushStatus.Rejected,
                 "Numéro de document manquant (EN 16931 BT-1, champ obligatoire du contrat).");
         }
+
+        // Émetteur rempli par la plateforme depuis le profil tenant (ADR-0023 amendé), AVANT la sérialisation
+        // canonique : le pivot stagé — source UNIQUE relue par tout l'aval (CHECK/SEND/Factur-X/archive/PA) —
+        // porte l'émetteur, et son empreinte (payloadHash) est calculée sur le contenu RÉELLEMENT émis. Un
+        // document portant déjà un émetteur (ex. 389) n'est pas écrasé ; profil incomplet → reste nul, bloqué au CHECK.
+        document = PivotEmitterEnricher.Enrich(document, tenantProfile, fiscalSettings);
 
         string canonicalJson;
         string payloadHash;

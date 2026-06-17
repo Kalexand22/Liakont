@@ -84,7 +84,7 @@ public class EncheresV6FixtureExtractorTests
         adjudication.SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("5");
         adjudication.Taxes[0].CategoryCode.Should().BeNull();
         adjudication.Taxes[0].VatexCode.Should().BeNull();
-        sale.Supplier.Siren.Should().Be("111111111");
+        sale.Supplier!.Siren.Should().Be("111111111");
     }
 
     [Fact]

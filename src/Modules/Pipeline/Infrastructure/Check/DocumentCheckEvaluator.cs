@@ -52,6 +52,16 @@ internal static class DocumentCheckEvaluator
         "par l'expert-comptable avant tout envoi.";
 
     /// <summary>
+    /// Motif de blocage quand la nature d'opération du tenant n'est pas paramétrée (ADR-0023 amendé : la nature
+    /// d'opération est remplie par la plateforme à l'ingestion depuis le paramétrage fiscal — elle n'est plus
+    /// portée par l'agent). Absente = bloqué, jamais devinée (CLAUDE.md n°2/n°3).
+    /// </summary>
+    private const string OperationCategoryMissingReason =
+        "La nature d'opération (livraison de biens / prestation de services / mixte) n'est pas paramétrée pour ce " +
+        "tenant : document bloqué (aucune nature n'est devinée). Action opérateur : renseignez la nature " +
+        "d'opération dans la console (Paramétrage › Fiscal).";
+
+    /// <summary>
     /// Évalue un document : mapping TVA → garde-fou production → validation. Les services (mapping,
     /// paramétrage tenant, validation) sont résolus depuis le scope tenant <paramref name="services"/>
     /// (database-per-tenant, isolation par la connexion — CLAUDE.md n°9).
@@ -160,7 +170,14 @@ internal static class DocumentCheckEvaluator
             }
         }
 
-        return CheckDecision.Ready(evaluation.MappingVersion, evaluation.Ventilation!, pivot.OperationCategory);
+        // Nature d'opération remplie par la plateforme à l'ingestion (ADR-0023 amendé). Si le paramétrage fiscal
+        // du tenant ne la porte pas, l'émetteur enrichi la laisse nulle → on bloque (jamais devinée, CLAUDE.md n°2).
+        if (pivot.OperationCategory is null)
+        {
+            return CheckDecision.Blocked(WithDocumentNumber(documentNumber, OperationCategoryMissingReason));
+        }
+
+        return CheckDecision.Ready(evaluation.MappingVersion, evaluation.Ventilation!, pivot.OperationCategory.Value);
     }
 
     /// <summary>

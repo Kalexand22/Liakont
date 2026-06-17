@@ -117,7 +117,7 @@ internal sealed class SuperPdpClient : IPaClient
         // Même contrôle côté vendeur : la PA vérifie que le vendeur correspond à l'entreprise du compte
         // (✅ constaté sandbox : « L'entreprise (X) liée à cette session ne correspond pas au vendeur (Y) »).
         // Sans SIREN vendeur, ni l'identification (BT-30) ni l'adressage (BT-34) ne sont constructibles.
-        if (string.IsNullOrWhiteSpace(document.Supplier.Siren))
+        if (string.IsNullOrWhiteSpace(document.Supplier?.Siren))
         {
             const string sellerMessage =
                 "Le SIREN du vendeur est absent du document : l'émission Super PDP exige " +

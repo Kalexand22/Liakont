@@ -4,6 +4,10 @@ obj/
 publish/
 packages/
 
+## Artefacts de session outillage (profil Chrome CDP, cookies d'authentification) — jamais versionnés
+.cdpprofile/
+.cookies.txt
+
 ## Packaging agent (OPS05) — sortie de tools/package-agent.ps1, jamais versionnée
 artifacts/
 

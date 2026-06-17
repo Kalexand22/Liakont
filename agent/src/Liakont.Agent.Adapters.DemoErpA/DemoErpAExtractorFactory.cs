@@ -49,8 +49,7 @@ public static class DemoErpAExtractorFactory
         }
 
         string connectionString = protector.Unprotect(protectedOdbc!);
-        SourceEmitterConfig adapterConfig = SourceEmitterConfig.FromSection(config.GetAdapterConfig(AdapterName));
         var connectionFactory = new OdbcSourceConnectionFactory(connectionString);
-        return new DemoErpAExtractor(connectionFactory, adapterConfig, log);
+        return new DemoErpAExtractor(connectionFactory, log);
     }
 }

@@ -180,7 +180,7 @@ public sealed class CrossIndustryInvoiceSerializer : ICrossIndustryInvoiceSerial
     private static void WriteAgreement(XmlWriter writer, PivotDocumentDto pivot)
     {
         StartRam(writer, "ApplicableHeaderTradeAgreement");
-        WriteParty(writer, "SellerTradeParty", pivot.Supplier);
+        WriteParty(writer, "SellerTradeParty", pivot.Supplier!);
         if (pivot.Customer is not null)
         {
             WriteParty(writer, "BuyerTradeParty", pivot.Customer);
@@ -356,6 +356,18 @@ public sealed class CrossIndustryInvoiceSerializer : ICrossIndustryInvoiceSerial
     // pivot dès que la partie est présente.
     private static void GuardMandatoryParties(PivotDocumentDto pivot)
     {
+        if (pivot.Supplier is null)
+        {
+            // Défense en profondeur : la plateforme remplit l'émetteur à l'ingestion (ADR-0023 amendé) et le CHECK
+            // bloque un profil tenant incomplet (SUPPLIER_SIREN_MISSING). Un émetteur nul ici = invariant violé :
+            // bloquer plutôt qu'émettre un Factur-X sans vendeur (CLAUDE.md n°3).
+            var supplierMissing =
+                $"Document n° {pivot.Number} : émetteur (vendeur) absent. L'identité de l'émetteur doit être " +
+                "remplie par la plateforme depuis le profil tenant — complétez le profil de l'entreprise (SIREN, " +
+                "raison sociale) dans Liakont.";
+            throw new FacturXGenerationException(pivot.Number, supplierMissing);
+        }
+
         if (pivot.Customer is null)
         {
             var message =

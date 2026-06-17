@@ -52,17 +52,14 @@ public sealed class DemoErpBExtractor : IExtractor
     private const string CountInvoicesSql = "SELECT COUNT(*) FROM dbo.Invoice";
 
     private readonly ISourceConnectionFactory _connectionFactory;
-    private readonly SourceEmitterConfig _config;
     private readonly IAgentLog _log;
 
     /// <summary>Crée l'extracteur DemoErpB.</summary>
     /// <param name="connectionFactory">Fabrique de connexions ODBC (lecture seule).</param>
-    /// <param name="config">Configuration de l'adaptateur (émetteur, nature d'opération).</param>
     /// <param name="log">Journal (mise en quarantaine d'un document source malformé, sans figer la fenêtre).</param>
-    public DemoErpBExtractor(ISourceConnectionFactory connectionFactory, SourceEmitterConfig config, IAgentLog log)
+    public DemoErpBExtractor(ISourceConnectionFactory connectionFactory, IAgentLog log)
     {
         _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
-        _config = config ?? throw new ArgumentNullException(nameof(config));
         _log = log ?? throw new ArgumentNullException(nameof(log));
         Capabilities = new ExtractorCapabilities(
             providesSourceDocuments: false,
@@ -71,7 +68,7 @@ public sealed class DemoErpBExtractor : IExtractor
             hasCreditNoteLink: true,
             exposesPayments: false,
             regimeKeyShape: RegimeKeyShape.Simple,
-            emitterIdentitySource: EmitterIdentitySource.FromConfig,
+            emitterIdentitySource: EmitterIdentitySource.FilledByPlatform,
             hasStoredHeaderTotal: true,
             isMutableAfterIssue: false,
             numberUniquenessScope: NumberUniquenessScope.Global);
@@ -230,7 +227,7 @@ public sealed class DemoErpBExtractor : IExtractor
     {
         try
         {
-            return DemoErpBRowMapper.MapDocument(invoice, _config);
+            return DemoErpBRowMapper.MapDocument(invoice);
         }
         catch (SourceSchemaException ex)
         {

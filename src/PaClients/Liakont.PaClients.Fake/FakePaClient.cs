@@ -101,8 +101,8 @@ public sealed class FakePaClient : IPaClient
             fiscalNumber,
             document.Number,
             document.IsSelfBilled,
-            document.Supplier.Siren,
-            document.Supplier.VatNumber));
+            document.Supplier?.Siren,
+            document.Supplier?.VatNumber));
 
         var result = BuildSendResult(paDocumentId);
         if (result.State == PaSendState.Issued)

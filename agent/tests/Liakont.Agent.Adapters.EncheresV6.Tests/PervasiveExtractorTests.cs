@@ -68,7 +68,7 @@ public class PervasiveExtractorTests
         docs.Select(d => d.SourceReference).Should().Equal("no_ba=4500", "no_ba=4501");
         docs.Should().OnlyContain(d => d.SourceDocumentKind == "B");
         docs.Should().OnlyContain(d => d.Lines.Count == 2);
-        docs[0].Supplier.Siren.Should().Be("111111111", "le SIREN vient du paramétrage tenant, pas de la base");
+        docs[0].Supplier!.Siren.Should().Be("111111111", "le SIREN vient du paramétrage tenant, pas de la base");
     }
 
     [Fact]

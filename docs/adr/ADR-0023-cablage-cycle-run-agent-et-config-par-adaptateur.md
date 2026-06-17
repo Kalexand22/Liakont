@@ -91,6 +91,25 @@ ils sont portés par `agent.json` (`adapterConfig`) pour qu'un agent fonctionne 
 de façon autonome**. AGT03 pourra ensuite faire surcharger cette config par la plateforme
 (plateforme prioritaire) sans casser le schéma : `adapterConfig` reste le point de fusion.
 
+> **AMENDEMENT 2026-06-17 — l'émetteur est rempli par la PLATEFORME, plus par l'agent.**
+> D4 est **superseded**. L'argument « autonomie hors-ligne » est faible : l'agent est
+> **forcément en ligne** quand il pousse, et la plateforme connaît déjà l'identité du tenant
+> (profil `TenantProfile` + `FiscalSettings`). Décision révisée : `Supplier` (SIREN, raison
+> sociale) et `OperationCategory` deviennent **optionnels** dans le pivot (`PivotDocumentDto`,
+> omis du JSON canonique) ; l'agent **ne les porte plus** (suppression de `SourceEmitterConfig`
+> et du bloc `adapterConfig.<adaptateur>.emitterSiren/emitterName/operationCategory` pour
+> `DemoErpA`/`DemoErpB`) ; la **plateforme remplit l'émetteur À L'INGESTION** depuis le profil
+> tenant (`IngestDocumentBatchHandler` + `PivotEmitterEnricher`, avant la sérialisation/hash de
+> staging — donc tout l'aval CHECK/SEND/Factur-X/archive/PA en bénéficie sans modification).
+> Remplissage **quand absent** (un document portant déjà un émetteur — ex. 389 autofacturation,
+> où le vendeur est le mandant — n'est pas écrasé). Profil/paramétrage fiscal incomplet → champ
+> laissé nul → **document bloqué au CHECK** (`SUPPLIER_SIREN_MISSING` / nature d'opération
+> manquante), jamais deviné (CLAUDE.md n°2/n°3). Conséquence assumée : l'empreinte canonique d'un
+> document agent change (déploiement coordonné agent+plateforme ; pas de migration —
+> *content-addressed*). Met aussi à jour la mention F01-F02 §4.3 (« rempli par la plateforme »).
+> Élimine la **duplication** du SIREN (saisi côté plateforme ET dans l'agent) et le piège
+> `SUPPLIER_SIREN_MISMATCH`.
+
 ### D5 — Adaptateurs de démonstration `DemoErpA` / `DemoErpB`
 
 Pour exercer le câblage (D1) et le contrat `IExtractor` contre de **vraies sources ODBC**
