@@ -98,7 +98,8 @@ services:
     container_name: bucodi-host
     restart: unless-stopped
     environment:
-      # Development : auto-migration + auto-seed du tenant `default` + profil fictif + planifs de démo.
+      # Development : auto-migration de la base système + amorçage du super-admin (AdminSeed).
+      # PAS d'auto-seed de tenant (RB2) — voir DevTenantSeed__TenantId ci-dessous.
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_HTTP_PORTS: "8080"
       # Base applicative (système + tenant default partagent la base `liakont` en V1).
@@ -118,14 +119,12 @@ services:
       Keycloak__AdminBaseUrl: "http://keycloak:8080"
       Keycloak__AdminUsername: ${KC_BOOTSTRAP_ADMIN_USERNAME:-admin}
       Keycloak__AdminPassword: ${KC_BOOTSTRAP_ADMIN_PASSWORD:-admin}
-      # Le tenant de dev seedé doit pointer sur le realm `bucodi` (registre des realms cohérent).
-      DevTenantSeed__RealmName: bucodi
-      # Le profil fictif est monté dans le conteneur (le chemin relatif de dev ne résout pas sous /app).
-      DevTenantSeed__SeedDirectoryPath: /seed
-      # Neutralise le tenant de recette additionnel hérité d'appsettings.Development.json : RealmName vide
-      # → le seeder l'ignore (garde SeedAdditionalDevTenantsAsync), donc PAS de tenant « tenant2 »
-      # orphelin (realm inexistant dans le Keycloak bucodi) ni de base « stratum_tenant2 » pour la démo.
-      DevTenantSeed__AdditionalTenants__0__RealmName: ""
+      # RB2 — base neuve = 0 TENANT. TenantId vide → le DevTenantSeeder est entièrement ignoré (ni
+      # tenant `default`, ni tenant additionnel, ni profil fictif). Les tenants se créent PROPREMENT via
+      # l'écran « Clients » (provisioning : CREATE DATABASE + migration + enregistrement + company_id).
+      # Le super-admin (sysadmin) reste amorcé en base système (section AdminSeed) pour pouvoir se
+      # connecter et provisionner les tenants.
+      DevTenantSeed__TenantId: ""
       # ── Branding Bucodi (BRD01 « marque grise ») — couleurs réelles de la charte Bucodi ──
       Branding__CommercialName: Bucodi
       Branding__LogoUrl: /branding/bucodi-logo.svg
@@ -142,7 +141,6 @@ services:
       Archive__Storage__FileSystem__RootPath: /app/App_Data/archive-store
     volumes:
       - bucodi-app-data:/app/App_Data
-      - ../../config/exemples/tenant-seed:/seed:ro
     ports:
       - "8090:8080"
     depends_on:
