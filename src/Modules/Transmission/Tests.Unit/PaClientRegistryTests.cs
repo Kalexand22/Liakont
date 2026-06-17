@@ -38,6 +38,25 @@ public sealed class PaClientRegistryTests
     }
 
     [Fact]
+    public void DescribeAuthModes_Reports_The_Mode_Declared_By_Each_Factory()
+    {
+        // Option 1 (PAS) : le registre expose le mode d'auth PAR TYPE, sans instancier de client — la console
+        // s'en sert pour présenter les bons champs de creds (clé API vs OAuth2). Résolution par clé, jamais
+        // un if (type == "SuperPdp") (CLAUDE.md n°8/16).
+        var registry = new PaClientRegistry(new IPaClientFactory[]
+        {
+            new StubPaClientFactory("ClePa"),
+            new StubPaClientFactory("OAuthPa", authMode: PaAuthMode.OAuth2ClientCredentials),
+        });
+
+        var modes = registry.DescribeAuthModes();
+
+        modes["ClePa"].Should().Be(PaAuthMode.ApiKey);
+        modes["OAuthPa"].Should().Be(PaAuthMode.OAuth2ClientCredentials);
+        modes["oauthpa"].Should().Be(PaAuthMode.OAuth2ClientCredentials, "la clé de type est insensible à la casse");
+    }
+
+    [Fact]
     public void Resolve_UnknownType_Throws_WithFrenchMessage_NeverReturnsNull()
     {
         var registry = new PaClientRegistry([new StubPaClientFactory("Fake")]);

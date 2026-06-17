@@ -36,6 +36,9 @@ public sealed class SuperPdpClientFactory : IPaClientFactory
     public string PaType => SuperPdpDefaults.PaTypeKey;
 
     /// <inheritdoc />
+    public PaAuthMode AuthMode => PaAuthMode.OAuth2ClientCredentials;
+
+    /// <inheritdoc />
     public IPaClient Create(PaAccountDescriptor account)
     {
         ArgumentNullException.ThrowIfNull(account);
