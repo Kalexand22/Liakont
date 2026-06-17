@@ -57,16 +57,20 @@ internal sealed class PostgresDocumentApprovalRequirements : IDocumentApprovalRe
     /// </summary>
     private static SignatureLevel ParseApplicableLevel(string requiredLevelName)
     {
+        // Round-trip strict sur le NOM (le contrat n'accepte que des noms) : `Enum.TryParse("2")` réussirait et
+        // rendrait SES — on rejette donc toute entrée dont le `ToString()` ne réécrit pas exactement l'entrée
+        // (valeurs numériques, casse divergente). Le test du niveau unique exclut None et les ensembles combinés.
         if (!string.IsNullOrWhiteSpace(requiredLevelName)
             && Enum.TryParse<SignatureLevel>(requiredLevelName, ignoreCase: false, out var level)
+            && string.Equals(level.ToString(), requiredLevelName, StringComparison.Ordinal)
             && level is SignatureLevel.Recorded or SignatureLevel.SES or SignatureLevel.AES or SignatureLevel.QES)
         {
             return level;
         }
 
         throw new ArgumentException(
-            $"Niveau de preuve requis invalide : « {requiredLevelName} » (attendu : Recorded, SES, AES ou QES — " +
-            "ni None ni un ensemble combiné).",
+            $"Niveau de preuve requis invalide : « {requiredLevelName} » (attendu : le NOM Recorded, SES, AES ou " +
+            "QES — ni une valeur numérique, ni None, ni un ensemble combiné).",
             nameof(requiredLevelName));
     }
 }
