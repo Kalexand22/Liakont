@@ -612,6 +612,13 @@ public static class AppBootstrap
         // aucun second chemin d'envoi, aucune logique fiscale dans la page (garde liakont.actions, tenant-scopé).
         builder.Services.AddScoped<Liakont.Host.Documents.IDocumentSendActions, Liakont.Host.Documents.DocumentSendActionsService>();
 
+        // Composition de la page console des signatures/validations (SIG10) : lecture (statut + journal + registre
+        // des fournisseurs) et écriture (déclencher / enregistrer / contester). Appels in-process tenant-scopés,
+        // délégués aux ports génériques DocumentApproval (SIG04/05) + registre Signature (SIG03) — aucune logique
+        // métier dans la page (CLAUDE.md n°19), aucune règle fiscale dupliquée.
+        builder.Services.AddScoped<Liakont.Host.Signatures.ISignatureConsoleQueries, Liakont.Host.Signatures.SignatureConsoleQueryService>();
+        builder.Services.AddScoped<Liakont.Host.Signatures.ISignatureConsoleActions, Liakont.Host.Signatures.SignatureConsoleActionsService>();
+
         // Composition en lecture de la page Paramétrage du tenant (WEB04b) : assemble /settings + agents
         // et déclenche la vérification d'intégrité du coffre (API03). Isole l'assemblage hors de la page.
         builder.Services.AddScoped<Liakont.Host.Parametrage.IParametrageQueries, Liakont.Host.Parametrage.ParametrageQueryService>();

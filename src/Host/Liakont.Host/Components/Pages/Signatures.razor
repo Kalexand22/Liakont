@@ -1,0 +1,398 @@
+@page "/signatures"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = LiakontPermissions.Read)]
+@using System.Globalization
+@using Liakont.Host.Security
+@using Liakont.Host.Signatures
+@using Liakont.Modules.DocumentApproval.Contracts
+@using Microsoft.Extensions.Logging
+@using Stratum.Common.UI.Models
+@inject ISignatureConsoleQueries Queries
+@inject ISignatureConsoleActions Actions
+@inject Stratum.Common.Abstractions.Security.IPermissionService Permissions
+@inject ILogger<Signatures> Logger
+
+@* Page console des signatures/validations (SIG10, F17 §0 item 7 — UI dans le périmètre ; CLAUDE.md review n°19).
+ * Page MINCE : aucune logique métier ni accès base. Elle compose en lecture via ISignatureConsoleQueries et en
+ * écriture via ISignatureConsoleActions (appels in-process tenant-scopés) — la machine d'états fermée, le journal
+ * append-only et les gardes restent dans le module DocumentApproval (ADR-0028). Trois capacités opérateur (F17 §0) :
+ * (1) déclencher une demande de validation pour un document et une finalité, (2) suivre le statut (7 états) et
+ * l'historique, (3) consulter la référence de preuve archivée (coffre WORM, en lecture). Le niveau de preuve requis
+ * et le fournisseur relèvent du paramétrage du tenant (défauts conformes ; l'acceptation enregistrée — Recorded —
+ * est toujours disponible) : SIG10 ne les invente pas. Les actions ne sont proposées qu'aux porteurs de
+ * liakont.actions ; la page reste consultable en lecture sinon. *@
+
+<PageTitle>Signatures et validations — Liakont</PageTitle>
+
+<h1 class="liakont-signatures__title" data-testid="signatures-title">Signatures et validations</h1>
+
+<p class="liakont-signatures__intro">
+    Suivez l'état de validation ou de signature d'un document selon sa finalité, déclenchez une demande de
+    validation, et consultez la preuve archivée. Le niveau de preuve requis et le choix du fournisseur relèvent
+    du paramétrage du tenant — l'acceptation enregistrée (sans signature électronique) reste toujours disponible.
+</p>
+
+@* ── Recherche : finalité + identifiant du document ─────────────────────────────────────── *@
+<SectionCard Title="Consulter une validation" TestId="signatures-lookup">
+    <div class="liakont-signatures__form">
+        <div class="liakont-signatures__field">
+            <label for="sig-purpose">Finalité</label>
+            <select id="sig-purpose" class="liakont-signatures__select" data-testid="signatures-purpose" @bind="_purpose">
+                @foreach (var purpose in Purposes)
+                {
+                    <option value="@purpose">@SignatureStatusDisplay.PurposeLabel(purpose)</option>
+                }
+            </select>
+        </div>
+        <div class="liakont-signatures__field">
+            <label for="sig-doc">Identifiant du document</label>
+            <input id="sig-doc" type="text" class="liakont-signatures__input" data-testid="signatures-document-id"
+                   placeholder="00000000-0000-0000-0000-000000000000" @bind="_documentIdInput" />
+        </div>
+        <StratumButton Text="Consulter"
+                       Variant="ButtonVariant.Primary"
+                       TestId="signatures-lookup-submit"
+                       OnClick="LookupAsync" />
+    </div>
+
+    @if (_inputError is not null)
+    {
+        <p class="liakont-signatures__input-error" role="alert" data-testid="signatures-input-error">@_inputError</p>
+    }
+</SectionCard>
+
+@if (_loadFailed)
+{
+    <LiakontAlert TestId="signatures-error">
+        Impossible de charger l'état de validation pour le moment. Réessayez plus tard.
+    </LiakontAlert>
+}
+else if (_loading)
+{
+    <LiakontLoading TestId="signatures-loading" />
+}
+else if (_view is not null)
+{
+    @* ── Statut de la tentative la plus récente ───────────────────────────────────────── *@
+    <SectionCard Title="Statut de la validation" TestId="signatures-status">
+        @if (_view.Latest is { } latest)
+        {
+            <dl class="liakont-signatures__defs">
+                <div class="liakont-signatures__row">
+                    <dt>Finalité</dt>
+                    <dd data-testid="signatures-status-purpose">@SignatureStatusDisplay.PurposeLabel(_loadedPurpose)</dd>
+                </div>
+                <div class="liakont-signatures__row">
+                    <dt>État</dt>
+                    <dd>
+                        <StatusBadge Label="@SignatureStatusDisplay.StateLabel(latest.State)"
+                                     Severity="SignatureStatusDisplay.StateSeverity(latest.State)"
+                                     TestId="signatures-state" />
+                    </dd>
+                </div>
+                <div class="liakont-signatures__row">
+                    <dt>Tentative</dt>
+                    <dd data-testid="signatures-status-attempt">@latest.Attempt</dd>
+                </div>
+                <div class="liakont-signatures__row">
+                    <dt>Niveau de preuve</dt>
+                    <dd>@SignatureStatusDisplay.ProofLevelLabel(latest.ProofLevel)</dd>
+                </div>
+                @if (latest.DeadlineUtc is { } deadline)
+                {
+                    <div class="liakont-signatures__row">
+                        <dt>Échéance (bascule tacite)</dt>
+                        <dd>@FormatDateTime(deadline)</dd>
+                    </div>
+                }
+                <div class="liakont-signatures__row">
+                    <dt>Acceptation expresse enregistrée</dt>
+                    <dd>@(latest.ExpressAcceptanceRecorded ? "Oui" : "Non")</dd>
+                </div>
+            </dl>
+        }
+        else
+        {
+            <p data-testid="signatures-status-none">
+                Aucune validation enregistrée pour ce document et cette finalité.
+            </p>
+        }
+    </SectionCard>
+
+    @* ── Actions opérateur (liakont.actions) ──────────────────────────────────────────── *@
+    @if (_canAct)
+    {
+        <SectionCard Title="Actions" TestId="signatures-actions">
+            <div class="liakont-signatures__actions">
+                @if (CanRequest)
+                {
+                    <div class="liakont-signatures__field">
+                        <label for="sig-deadline">Échéance de bascule tacite (facultatif)</label>
+                        <input id="sig-deadline" type="date" class="liakont-signatures__input"
+                               data-testid="signatures-deadline" @bind="_deadline" />
+                    </div>
+                    <StratumButton Text="Déclencher une demande de validation"
+                                   Variant="ButtonVariant.Primary"
+                                   Disabled="_actionInProgress"
+                                   TestId="signatures-action-request"
+                                   OnClick="RequestAsync" />
+                }
+
+                @if (CanRecordOrContest)
+                {
+                    <StratumButton Text="Enregistrer l'acceptation (enregistrée)"
+                                   Variant="ButtonVariant.Primary"
+                                   Disabled="_actionInProgress"
+                                   TestId="signatures-action-record"
+                                   OnClick="RecordAsync" />
+                    <StratumButton Text="Contester (dans le délai)"
+                                   Variant="ButtonVariant.Secondary"
+                                   Outline
+                                   Disabled="_actionInProgress"
+                                   TestId="signatures-action-contest"
+                                   OnClick="ContestAsync" />
+                }
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(_actionFeedback))
+            {
+                <div class="liakont-signatures__feedback @(_actionFailed ? "liakont-signatures__feedback--error" : "liakont-signatures__feedback--ok")"
+                     role="status"
+                     data-testid="signatures-action-feedback">
+                    @_actionFeedback
+                </div>
+            }
+        </SectionCard>
+    }
+
+    @* ── Preuve : slots N-parties (référence WORM en lecture) ──────────────────────────── *@
+    @if (_view.Latest is { Slots.Count: > 0 } slotted)
+    {
+        <SectionCard Title="Preuve" TestId="signatures-proof">
+            <table class="liakont-signatures__table" data-testid="signatures-proof-table">
+                <thead>
+                    <tr>
+                        <th>Signataire / palier</th>
+                        <th>État</th>
+                        <th>Niveau de preuve</th>
+                        <th>Référence de preuve (coffre WORM)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var slot in slotted.Slots)
+                    {
+                        <tr>
+                            <td>@slot.SignerId</td>
+                            <td>@SignatureStatusDisplay.SlotStateLabel(slot.State)</td>
+                            <td>@SignatureStatusDisplay.ProofLevelLabel(slot.ProofLevel)</td>
+                            <td>
+                                @if (string.IsNullOrWhiteSpace(slot.ProofId))
+                                {
+                                    <span class="liakont-signatures__muted">En attente</span>
+                                }
+                                else
+                                {
+                                    <span class="liakont-signatures__hash">@slot.ProofId</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            <p class="liakont-signatures__hint">
+                La preuve de signature est rapatriée dans le coffre d'archive (WORM) et n'est consultable qu'en lecture.
+            </p>
+        </SectionCard>
+    }
+
+    @* ── Historique : journal append-only des transitions ─────────────────────────────── *@
+    <SectionCard Title="Historique" TestId="signatures-history">
+        @if (_view.Log.Count == 0)
+        {
+            <p data-testid="signatures-history-none">Aucune transition enregistrée.</p>
+        }
+        else
+        {
+            <table class="liakont-signatures__table" data-testid="signatures-history-table">
+                <thead>
+                    <tr>
+                        <th>Horodatage</th>
+                        <th>Tentative</th>
+                        <th>Transition</th>
+                        <th>Auteur</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var entry in _view.Log)
+                    {
+                        <tr>
+                            <td>@FormatDateTime(entry.OccurredAt)</td>
+                            <td>@entry.Attempt</td>
+                            <td>
+                                @(entry.FromState is null
+                                    ? "Genèse"
+                                    : SignatureStatusDisplay.StateLabel(entry.FromState))
+                                → @SignatureStatusDisplay.StateLabel(entry.ToState)
+                            </td>
+                            <td>@(entry.OperatorName ?? (entry.OperatorId?.ToString() ?? "Système"))</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </SectionCard>
+}
+
+@* ── Fournisseurs de signature configurés (diagnostic) ─────────────────────────────────── *@
+<SectionCard Title="Fournisseurs de signature configurés" TestId="signatures-providers">
+    @if (_providerTypes.Count == 0)
+    {
+        <p data-testid="signatures-providers-none">
+            Aucun fournisseur de signature externe configuré. L'acceptation enregistrée (sans signature
+            électronique) reste toujours disponible.
+        </p>
+    }
+    else
+    {
+        <ul class="liakont-signatures__providers" data-testid="signatures-providers-list">
+            @foreach (var providerType in _providerTypes)
+            {
+                <li>@providerType</li>
+            }
+        </ul>
+        <p class="liakont-signatures__hint">
+            L'acceptation enregistrée (sans signature) reste toujours disponible, quel que soit le fournisseur.
+        </p>
+    }
+</SectionCard>
+
+@code {
+    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+
+    /// <summary>Les finalités de validation proposées (machine fermée, ADR-0028 §4) — pur choix de présentation.</summary>
+    private static readonly ValidationPurpose[] Purposes = Enum.GetValues<ValidationPurpose>();
+
+    private ValidationPurpose _purpose = ValidationPurpose.SelfBilledAcceptance;
+    private string _documentIdInput = string.Empty;
+    private DateOnly? _deadline;
+    private string? _inputError;
+
+    private SignatureStatusView? _view;
+    private Guid _loadedDocumentId;
+    private ValidationPurpose _loadedPurpose;
+    private bool _loading;
+    private bool _loadFailed;
+
+    private bool _canAct;
+    private bool _actionInProgress;
+    private string? _actionFeedback;
+    private bool _actionFailed;
+
+    private IReadOnlyCollection<string> _providerTypes = [];
+
+    protected override void OnInitialized()
+    {
+        // Permission d'action opérateur : les boutons ne sont proposés qu'aux porteurs de liakont.actions
+        // (l'application réelle reste serveur — défense en profondeur dans le service in-process).
+        _canAct = Permissions.HasPermission(LiakontPermissions.Actions);
+        _providerTypes = Queries.GetConfiguredProviderTypes();
+    }
+
+    /// <summary>Vrai si une genèse est possible : aucune tentative, ou la tentative la plus récente est terminale.</summary>
+    private bool CanRequest => _view?.Latest is null || _view.Latest.IsTerminal;
+
+    /// <summary>Vrai si la tentative en attente accepte une acceptation enregistrée ou une contestation.</summary>
+    private bool CanRecordOrContest =>
+        _view?.Latest is { State: "PendingValidation" };
+
+    private async Task LookupAsync()
+    {
+        _inputError = null;
+        _actionFeedback = null;
+        _actionFailed = false;
+
+        if (!Guid.TryParse(_documentIdInput?.Trim(), out var documentId) || documentId == Guid.Empty)
+        {
+            _inputError = "Saisissez un identifiant de document valide (format GUID).";
+            _view = null;
+            return;
+        }
+
+        await LoadAsync(documentId, _purpose);
+    }
+
+    private async Task LoadAsync(Guid documentId, ValidationPurpose purpose)
+    {
+        _loading = true;
+        _loadFailed = false;
+        _view = null;
+
+        try
+        {
+            var view = await Queries.GetStatusAsync(documentId, purpose);
+            _view = view;
+            _loadedDocumentId = documentId;
+            _loadedPurpose = purpose;
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE (bandeau) et tracé — jamais avalé en silence.
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the signature validation status for document {DocumentId} ({Purpose}).", documentId, purpose);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private Task RequestAsync() =>
+        RunActionAsync(() => Actions.RequestValidationAsync(_loadedDocumentId, _loadedPurpose, ParseDeadline()));
+
+    private Task RecordAsync() =>
+        RunActionAsync(() => Actions.RecordRecordedAsync(_loadedDocumentId, _loadedPurpose));
+
+    private Task ContestAsync() =>
+        RunActionAsync(() => Actions.ContestAsync(_loadedDocumentId, _loadedPurpose));
+
+    /// <summary>
+    /// Exécute une action (genèse / acceptation / contestation) : désactive les boutons le temps de l'appel,
+    /// mémorise le message opérateur (succès ou refus) puis RECHARGE le statut + l'historique. Tout échec inattendu
+    /// reste VISIBLE (message) et tracé.
+    /// </summary>
+    private async Task RunActionAsync(Func<Task<SignatureActionResult>> action)
+    {
+        if (_actionInProgress || _view is null)
+        {
+            return;
+        }
+
+        _actionInProgress = true;
+        _actionFeedback = null;
+        _actionFailed = false;
+
+        try
+        {
+            var result = await action();
+            _actionFeedback = result.Message;
+            _actionFailed = !result.Success;
+            await LoadAsync(_loadedDocumentId, _loadedPurpose);
+        }
+        catch (Exception ex)
+        {
+            _actionFailed = true;
+            _actionFeedback = "L'action n'a pas pu être effectuée pour le moment. Réessayez plus tard.";
+            Logger.LogError(ex, "Signature console action failed for document {DocumentId} ({Purpose}).", _loadedDocumentId, _loadedPurpose);
+        }
+        finally
+        {
+            _actionInProgress = false;
+        }
+    }
+
+    /// <summary>Convertit l'échéance facultative (saisie de date) en instant UTC à minuit ; <c>null</c> si vide.</summary>
+    private DateTimeOffset? ParseDeadline() =>
+        _deadline is { } date ? new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero) : null;
+
+    private static string FormatDateTime(DateTimeOffset value) => value.ToString("dd/MM/yyyy HH:mm", Fr);
+}

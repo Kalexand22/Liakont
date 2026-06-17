@@ -39,6 +39,11 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
             children.Add(new() { Label = "Documents", Href = "/documents" });
             children.Add(new() { Label = "Encaissements", Href = "/encaissements" });
             children.Add(new() { Label = "Traitements", Href = "/traitements" });
+
+            // Signatures (SIG10) : surface de CONSULTATION du workflow de validation/signature (suivi du statut,
+            // historique, preuve WORM en lecture). Gardée par liakont.read comme les autres surfaces de consultation ;
+            // la page /signatures porte la même policy, les ACTIONS y exigent liakont.actions.
+            children.Add(new() { Label = "Signatures", Href = "/signatures" });
         }
 
         // Réconciliation : visible uniquement si l'agent du tenant alimente un pool de PDF non rattachés. Le
