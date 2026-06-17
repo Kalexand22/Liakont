@@ -129,7 +129,10 @@ services:
       Branding__CommercialName: Bucodi
       Branding__LogoUrl: /branding/bucodi-logo.svg
       Branding__FaviconUrl: /branding/bucodi-mark.svg
-      Branding__PrimaryColor: "#1B1D20"
+      # Couleur de MENU Bucodi = gris ardoise #2F3238 (charte : « fond des blocs de menu / barres »),
+      # nettement distincte du navy par défaut — et NON le quasi-noir #1B1D20 (qui ressemble au navy).
+      # Accent = jaune signature #FFE96E (item sélectionné, hover, emblème).
+      Branding__PrimaryColor: "#2F3238"
       Branding__AccentColor: "#FFE96E"
       Branding__PublicDomain: bucodi.com
       Branding__FooterText: "Bucodi — Bureau de Conseil et Développement Informatique"

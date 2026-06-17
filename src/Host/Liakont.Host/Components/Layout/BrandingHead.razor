@@ -14,7 +14,12 @@
 }
 @if (_colorCss is { Length: > 0 })
 {
-    <style>@_colorCss</style>
+    @* MarkupString = rendu BRUT obligatoire : dans le contenu d'un élément, Blazor HTML-encode les
+       guillemets (" → &quot;) ; or un <style> est du texte BRUT (raw-text) où &quot; n'est PAS décodé,
+       ce qui rendrait le sélecteur :root:not([data-theme="dark"]) INVALIDE → règle ignorée, branding
+       jamais appliqué. Sûr ici : _colorCss = sélecteurs/propriétés CONSTANTS + couleurs hex VALIDÉES
+       (BrandingOptions.IsHexColor), aucune entrée non maîtrisée → pas d'injection possible. *@
+    <style>@((MarkupString)_colorCss)</style>
 }
 
 @code {
