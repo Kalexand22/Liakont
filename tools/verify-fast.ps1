@@ -22,6 +22,12 @@ $ErrorActionPreference = 'Continue'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $platformSln = Join-Path $repoRoot 'src\Liakont.sln'
 $agentSln = Join-Path $repoRoot 'agent\Liakont.Agent.sln'
+# Third solution (SIG08, ADR-0030 §2) : the on-site signature client (.NET Framework 4.8) lives in a
+# DISTINCT solution root, never under agent/. verify-fast must build + test it (its purity test would
+# otherwise be written-but-never-run = the exact false-green ADR-0030 prevents). Present-aware bootstrap
+# guard below (Test-SolItemPending 'SIG08'): build as soon as the .sln exists, skip only while absent AND
+# SIG08 pending, FAIL if the .sln is missing once SIG08 is done.
+$onSiteSln = Join-Path $repoRoot 'clients\OnSiteSignature\Liakont.OnSiteSignature.sln'
 $logFile = Join-Path $repoRoot '.verify-fast.log'
 
 $steps = @()
@@ -255,6 +261,44 @@ if ($ok) {
                 throw "agent/Liakont.Agent.sln is missing but SOL02 is done — the solution has been deleted or the checkout is broken."
             }
             Write-Output "agent/Liakont.Agent.sln does not exist yet (SOL02 pending per state.yaml) — agent build/tests skipped (bootstrap mode)."
+        }
+    }
+}
+
+# ── Step 5: ON-SITE SIGNATURE CLIENT build + unit tests (when clients/OnSiteSignature/*.sln exists) ──
+# SIG08 / ADR-0030 §2 (INV-ONSITE-3). The on-site Wacom client (.NET Framework 4.8) is a THIRD solution
+# in a distinct root (clients/OnSiteSignature). Present-aware bootstrap guard: built the moment its .sln
+# is on disk (so the verify-fast pass of the item that lands the client really exercises its purity test —
+# anti-false-green), skipped ONLY while the .sln is absent AND SIG08 is still pending, and a FAILURE if the
+# .sln is missing once SIG08 is done (the solution was deleted), never a silent skip.
+if ($ok) {
+    if (Test-Path $onSiteSln) {
+        $ok = Run-Step 'onsite-client: restore' {
+            dotnet restore $onSiteSln --verbosity quiet
+            if ($LASTEXITCODE -ne 0) { throw "restore failed" }
+        }
+        if ($ok) {
+            $ok = Run-Step 'onsite-client: build+analyzers' {
+                dotnet build $onSiteSln --no-restore --verbosity quiet
+                if ($LASTEXITCODE -ne 0) { throw "build failed" }
+            }
+        }
+        if ($ok) {
+            # Unit + purity tests (the client has no integration suite). The purity test (boundary) proves
+            # the client references neither Liakont.Agent.* nor a platform module (pur capteur).
+            $ok = Run-Step 'onsite-client: unit-tests' {
+                dotnet test $onSiteSln --no-build --verbosity quiet --filter "Category!=Integration&Category!=Staging&Category!=E2E"
+                if ($LASTEXITCODE -ne 0) { throw "unit tests failed" }
+            }
+        }
+    }
+    else {
+        # Solution missing: decide bootstrap-skip vs failure from the orchestration state.
+        $ok = Run-Step 'onsite-client: bootstrap-check' {
+            if (-not (Test-SolItemPending 'SIG08')) {
+                throw "clients/OnSiteSignature/Liakont.OnSiteSignature.sln is missing but SIG08 is done — the on-site client solution has been deleted or the checkout is broken (ADR-0030 INV-ONSITE-3)."
+            }
+            Write-Output "clients/OnSiteSignature/Liakont.OnSiteSignature.sln does not exist yet (SIG08 pending per state.yaml) — on-site client build/tests skipped (bootstrap mode)."
         }
     }
 }

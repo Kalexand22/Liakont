@@ -16,7 +16,7 @@ using Xunit;
 public sealed class SignatureBootstrapTests
 {
     [Fact]
-    public void AddSignatureModule_RegistersRegistry_ResolvableFromContainer()
+    public void AddSignatureModule_RegistersRegistry_WithBuiltInOnSiteProvider()
     {
         var services = new ServiceCollection();
         services.AddSignatureModule();
@@ -25,7 +25,10 @@ public sealed class SignatureBootstrapTests
 
         var registry = provider.GetService<ISignatureProviderRegistry>();
         registry.Should().NotBeNull("AddSignatureModule doit enregistrer ISignatureProviderRegistry.");
-        registry!.RegisteredTypes.Should().BeEmpty("aucun plug-in n'est câblé : le registre se construit vide (signature optionnelle).");
+
+        // SIG08 (ADR-0030) : le plug-in SUR PLACE Wacom est livré PAR le module (frontière Contracts, jamais
+        // un if (type == "Wacom")). Le distant Yousign (SIG07) reste câblé séparément au composition root.
+        registry!.RegisteredTypes.Should().Contain("Wacom", "le plug-in sur place est intégré au module Signature (SIG08).");
     }
 
     [Fact]

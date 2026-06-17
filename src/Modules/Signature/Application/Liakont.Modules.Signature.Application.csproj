@@ -2,5 +2,8 @@
   <ItemGroup>
     <ProjectReference Include="../Contracts/Liakont.Modules.Signature.Contracts.csproj" />
     <ProjectReference Include="../Domain/Liakont.Modules.Signature.Domain.csproj" />
+    <!-- ICommand<T> (messages MediatR) du socle partagé — la capture sur place (SIG08) expose des commandes
+         dispatchées par l'endpoint proxy. Aucun package nouveau (repo-standards §4). -->
+    <ProjectReference Include="../../../Common/Abstractions/Stratum.Common.Abstractions.csproj" />
   </ItemGroup>
 </Project>

@@ -72,11 +72,18 @@ public sealed class SignatureBoundaryTests
     }
 
     [Fact]
-    public void ModuleCsprojs_OnlyReferenceTheSignatureModuleItself()
+    public void ModuleCsprojs_OnlyReferenceTheSignatureModuleContractsOfOthersOrCommon()
     {
         // Complète les gardes IL par un scan DÉCLARATIF des .csproj : une ProjectReference interdite
         // déclarée mais non exercée par du code échoue ici (même principe qu'AgentProjectReferenceTests).
-        // L'abstraction de signature est BCL-only : ses projets ne référencent QUE le module lui-même.
+        // FRONTIÈRE (module-rules §3 ; CLAUDE.md n°6/14) : un .csproj Signature ne référence QUE
+        //   (a) le module Signature lui-même (intra-module), OU
+        //   (b) les *.Contracts d'un AUTRE module (jamais son Domain/Application/Infrastructure/Web), OU
+        //   (c) le socle partagé Stratum.Common.* (src/Common/...).
+        // SIG08 a élargi la garde de « BCL-only » (état SIG03) à « Contracts-only cross-module » : le proxy
+        // OnSiteCapture consomme Documents.Contracts (re-vérif document↔company), SupportTrace.Contracts
+        // (octets de l'artefact scellé) et Archive.Contracts (coffre WORM) — TOUS par leurs Contracts.
+        // Atteindre le Domain/Application/Infrastructure d'un autre module, ou un plug-in concret, échoue ici.
         var signatureRoot = FindSignatureRoot();
         var signatureRootSlash = signatureRoot.Replace('\\', '/').TrimEnd('/');
 
@@ -88,8 +95,24 @@ public sealed class SignatureBoundaryTests
         csprojs.Should().NotBeEmpty(
             "les .csproj du module Signature doivent être localisables depuis le répertoire de test");
 
-        bool IsAllowed(string resolvedSlash) =>
-            resolvedSlash.StartsWith(signatureRootSlash + "/", StringComparison.OrdinalIgnoreCase);
+        bool IsAllowed(string resolvedSlash)
+        {
+            // (a) intra-module : le module Signature lui-même.
+            if (resolvedSlash.StartsWith(signatureRootSlash + "/", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            // (b) Contracts d'un AUTRE module UNIQUEMENT (frontière Contracts-only).
+            if (resolvedSlash.Contains("/Modules/", StringComparison.OrdinalIgnoreCase)
+                && resolvedSlash.Contains("/Contracts/", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            // (c) socle partagé Stratum.Common.*.
+            return resolvedSlash.Contains("/Common/", StringComparison.OrdinalIgnoreCase);
+        }
 
         var violations = (
             from csproj in csprojs
@@ -102,7 +125,8 @@ public sealed class SignatureBoundaryTests
             .ToArray();
 
         violations.Should().BeEmpty(
-            "un .csproj Signature ne référence que le module Signature lui-même (abstraction BCL-only, CLAUDE.md n°6/14/16)");
+            "un .csproj Signature ne référence que lui-même, les *.Contracts d'autres modules, ou Stratum.Common.* "
+            + "(jamais le Domain/Application/Infrastructure d'un autre module ni un plug-in concret — CLAUDE.md n°6/14/16)");
     }
 
     private static IEnumerable<string> ReferencedAssemblyNames(Assembly assembly) =>

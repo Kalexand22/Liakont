@@ -78,9 +78,11 @@
     <!-- Module Signature (SIG03, ADR-0027) : abstraction de signature à capacités. Le Host enregistre le
          registre de plug-ins (AddSignatureModule) et valide AU DÉMARRAGE les fournisseurs configurés —
          différence avec l'IdP : la signature est OPTIONNELLE (l'absence n'est jamais une erreur). Aucun
-         plug-in concret référencé ici (Yousign = SIG07, Wacom = SIG08, câblés au composition root plus tard,
-         CLAUDE.md n°6/14). La couche Web (console SIG10) sera référencée quand ses écrans arriveront. -->
+         plug-in concret référencé ici (Yousign = SIG07, câblé au composition root plus tard, CLAUDE.md n°6/14).
+         Le plug-in SUR PLACE Wacom (SIG08) est enregistré PAR AddSignatureModule (frontière Contracts), pas
+         référencé en dur ici. La couche Web monte le proxy OnSiteCapture (SIG08) ; SIG10 y ajoutera les pages. -->
     <ProjectReference Include="..\..\Modules\Signature\Infrastructure\Liakont.Modules.Signature.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Signature\Web\Liakont.Modules.Signature.Web.csproj" />
     <!-- Module DocumentApproval (SIG04, ADR-0028) : workflow de validation de document générique (cœur du lot
          signature). Le Host enregistre la persistance (migrations du schéma documentapproval + journal
          append-only, UoW, requêtes). Les ports par purpose (ISelfBilledGate réutilisé, …) et le câblage

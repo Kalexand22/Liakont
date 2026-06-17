@@ -1,13 +1,29 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
-    <!-- Microsoft.Extensions.* (DI) du framework partagé — aucun package NuGet nouveau, aucun ADR
-         (repo-standards §4). Le registre n'a aucune dépendance base/réseau : pure composition. -->
+    <!-- Microsoft.Extensions.* (DI, Options) + ASP.NET Core abstractions du framework partagé. -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
   <ItemGroup>
+    <!-- ISender / IRequestHandler du proxy OnSiteCapture (SIG08). MediatR n'arrive pas transitivement. -->
+    <PackageReference Include="MediatR" />
+  </ItemGroup>
+  <ItemGroup>
     <InternalsVisibleTo Include="Liakont.Modules.Signature.Tests.Unit" />
+    <InternalsVisibleTo Include="Liakont.Modules.Signature.Tests.Integration" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Migrations DbUp du schéma signature (SIG08 : liaisons signataire vérifié + journal de preuve append-only). -->
+    <EmbeddedResource Include="Migrations\*.sql" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Contracts/Liakont.Modules.Signature.Contracts.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.Signature.Application.csproj" />
+    <ProjectReference Include="../Domain/Liakont.Modules.Signature.Domain.csproj" />
+    <!-- Accès cross-module UNIQUEMENT par Contracts (module-rules §3 ; CLAUDE.md n°6/14) :
+         re-vérif document↔company (Documents), octets de l'artefact scellé (SupportTrace), coffre WORM (Archive). -->
+    <ProjectReference Include="../../Documents/Contracts/Liakont.Modules.Documents.Contracts.csproj" />
+    <ProjectReference Include="../../SupportTrace/Contracts/Liakont.Modules.SupportTrace.Contracts.csproj" />
+    <ProjectReference Include="../../Archive/Contracts/Liakont.Modules.Archive.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
   </ItemGroup>
 </Project>
