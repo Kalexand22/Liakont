@@ -27,16 +27,23 @@ RB7 → RB8 → RB6.
 - NOTE NUIT : socle (slice 1) sécurisé+poussé ; slices 2-4 (secrets+migration+UI, P1) laissées prêtes à
   finir en session dédiée plutôt que rush-buildées non relues. Suite de nuit : RB7 → RB8 → RB6.
 
-## 3. RB7 — le wizard d'install démarre le service après install (`AgentProcessDeployer`, OPS08b)
-- [ ] `sc start` après install + check-config OK ; refléter *Running* dans l'écran Résumé. Tests + push.
+## 3. RB7 — ✅ LIVRÉ (le wizard démarre le service après install)
+- [x] `AgentProcessDeployer.TryStartService` : démarre + attend *Running* (30 s) après install/check-config ;
+      échec de démarrage = avertissement `[!]` + action corrective, ne défait PAS l'install.
+- [x] verify-fast + run-tests (6238) verts ; codex-review propre (1 P2 doc-only adressé).
+- COUVERTURE = recette manuelle (déployeur de prod non mockable) → Karl vérifie en recette.
 
-## 4. RB8 — la planification est réellement appliquée (fin de la cadence 1 min figée, AGT03)
-- [ ] Le runner consulte `EffectiveExtractionPlan` (HH:mm local / cron plateforme) pour gater les runs.
-- [ ] Tests + push. (Sinon : masquer/désactiver le champ « Planification » du wizard — false affordance.)
+## 4. RB8 — DÉFÉRÉ (cadence figée 1 min ; planification non appliquée)
+- Enforcement réel = le runner gate les runs sur `EffectiveExtractionPlan`. BLOQUEURS pour une session de
+  nuit : (a) la planif PLATEFORME est une expression **cron** → parseur cron = **NuGet + ADR** (interdit
+  sans aval Karl, CLAUDE.md) ; (b) touche le cœur du cycle de run (composition + état last-run) — fork de
+  design (cron vs HH:mm local). L'interim « désactiver le champ Planification » est entremêlé dans la boucle
+  de champs générique du wizard + relève d'un choix UX. → **session dédiée** ; décider d'abord le parseur cron.
 
-## 5. RB6 — horodatages au fuseau du navigateur (helper commun UI, socle vendored non modifié)
-- [ ] Helper commun de formatage date/heure (JS interop offset navigateur, résolu une fois par circuit).
-- [ ] Généraliser (pas que la page Agents). Tests bUnit. + push.
+## 5. RB6 — DÉFÉRÉ (horodatages UTC affichés bruts → fuseau navigateur)
+- Fix = helper commun de formatage date/heure (JS interop offset navigateur, résolu 1× par circuit), puis
+  l'appliquer PARTOUT (cohérence). TRANSVERSE (de nombreuses pages Blazor) → un fix partiel serait
+  incohérent ; mérite une passe dédiée. Socle vendored non modifié (surcharge Host). + tests bUnit.
 
 ## Notes
 - Démo cette nuit/demain : PA = **Fake** (Development) pour exercer agent→plateforme→PA de bout en bout.

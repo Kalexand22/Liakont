@@ -162,6 +162,13 @@ secrets, injection CSS). Revue par sous-agent (le wrapper codex-review reste à 
   `deployments/demo-local/install-services.ps1` le faisait, lui, en deux temps (`install` puis `sc start`).
 - **Fix** : après l'install du service + `check-config` OK, **démarrer le service** et refléter l'état
   *Running* dans l'écran Résumé du wizard. Périmètre : `AgentProcessDeployer` (OPS08b).
+- **✅ Résolu (nuit 17→18/06)** : `AgentProcessDeployer.TryStartService` démarre le service après l'install
+  et attend le passage *Running* (30 s) ; un échec de démarrage NE défait PAS l'install (service enregistré
+  en auto-démarrage) et remonte une ligne `[!]` avec l'action corrective. verify-fast + run-tests verts ;
+  codex-review propre. **COUVERTURE = recette manuelle** (comme tout le déployeur de prod : `ServiceController`
+  pilote le SCM réel, non mockable sans abstraction — pas de sur-architecture au stade build). → **à VÉRIFIER
+  par Karl en recette** : après l'assistant, le service `LiakontAgent$<instance>` doit être *En cours
+  d'exécution* sans action manuelle.
 
 ## RB8 — Planification d'extraction NON appliquée (cadence figée à 1 min ; champ « Planification » inerte)
 
