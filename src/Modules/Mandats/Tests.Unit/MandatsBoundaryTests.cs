@@ -4,6 +4,7 @@ using System.IO;
 using System.Reflection;
 using System.Xml.Linq;
 using FluentAssertions;
+using Liakont.Modules.Mandats.Contracts;
 using Liakont.Modules.Mandats.Contracts.Queries;
 using Liakont.Modules.Mandats.Infrastructure;
 using NetArchTest.Rules;
@@ -65,6 +66,31 @@ public sealed class MandatsBoundaryTests
                      && !n.StartsWith("Liakont.Modules.Mandats", StringComparison.Ordinal)
                      && n != DocumentApprovalContractsAssembly,
                 "Mandats.Infrastructure ne référence aucun autre module métier hormis DocumentApproval.Contracts (SIG05, INV-MANDATS-2).");
+    }
+
+    [Fact]
+    public void Purpose_Gate_Ports_Are_Exposed_By_The_Mandats_Contracts_Surface()
+    {
+        // SIG06, ADR-0028 §4/§9 (chaîne des purposes) : les ports de gate par purpose sont exposés par les
+        // CONTRACTS du module exposeur (Mandats), jamais par son Domain/Application/Infrastructure ni par
+        // DocumentApproval. Le consommateur (Pipeline) ne dépend QUE de Mandats.Contracts (frontière imposée par
+        // construction : Pipeline.Infrastructure.csproj ne référence que Mandats.Contracts) ; les implémentations
+        // délèguent à DocumentApproval PAR SES CONTRACTS (garde assembly Infrastructure_DoesNotReachIntoAnotherBusinessModule).
+        var ports = new[]
+        {
+            typeof(ISelfBilledGate),          // SelfBilledAcceptance (MND03, réutilisé)
+            typeof(IMandateSignatureGate),    // MandateSignature
+            typeof(ICreditNoteAcceptanceGate), // CreditNoteAcceptance (avoir 261, #9 défaut « oui »)
+            typeof(IMultiPartySignatureGate), // MultiPartySignature
+        };
+
+        foreach (var port in ports)
+        {
+            port.Assembly.GetName().Name.Should().Be(
+                ContractsAssembly.GetName().Name,
+                "le port de gate {0} doit être exposé par Mandats.Contracts (module exposeur, ADR-0028 §4/§9)",
+                port.Name);
+        }
     }
 
     [Fact]

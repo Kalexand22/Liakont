@@ -40,6 +40,9 @@ public sealed class MandatsModuleRegistrationTests
         services.AddScoped<IDocumentApprovalWorkflow, FakeDocumentApprovalWorkflow>();
         services.AddScoped<IDocumentApprovalQueries, FakeDocumentApprovalQueries>();
 
+        // SIG06 : les ports de gate (ISelfBilledGate + les 3 nouveaux) délèguent à IDocumentApprovalGate.
+        services.AddScoped<IDocumentApprovalGate, FakeDocumentApprovalGate>();
+
         services.AddMandatsModule();
 
         using ServiceProvider provider = services.BuildServiceProvider(
@@ -52,6 +55,9 @@ public sealed class MandatsModuleRegistrationTests
         sp.GetRequiredService<ISelfBilledAcceptanceQueries>().Should().NotBeNull("ISelfBilledAcceptanceQueries (MND02) doit être résolu après AddMandatsModule");
         sp.GetRequiredService<ISelfBilledAcceptanceCommands>().Should().NotBeNull("ISelfBilledAcceptanceCommands (SIG05) doit être résolu après AddMandatsModule");
         sp.GetRequiredService<ISelfBilledGate>().Should().NotBeNull("ISelfBilledGate (MND03) doit être résolu après AddMandatsModule");
+        sp.GetRequiredService<IMandateSignatureGate>().Should().NotBeNull("IMandateSignatureGate (SIG06) doit être résolu après AddMandatsModule");
+        sp.GetRequiredService<ICreditNoteAcceptanceGate>().Should().NotBeNull("ICreditNoteAcceptanceGate (SIG06) doit être résolu après AddMandatsModule");
+        sp.GetRequiredService<IMultiPartySignatureGate>().Should().NotBeNull("IMultiPartySignatureGate (SIG06) doit être résolu après AddMandatsModule");
         sp.GetRequiredService<ITacitAcceptanceService>().Should().NotBeNull("ITacitAcceptanceService (MND04) doit être résolu après AddMandatsModule — sinon le job de bascule tacite ne tourne pas");
 
         var migrationOptions = sp.GetRequiredService<IOptions<MigrationAssembliesOptions>>().Value;
@@ -84,5 +90,11 @@ public sealed class MandatsModuleRegistrationTests
         public Task<IReadOnlyList<DocumentApprovalLogEntryDto>> GetApprovalLog(Guid companyId, Guid documentId, ValidationPurpose purpose, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<DocumentApprovalLogEntryDto>>([]);
 
         public Task<IReadOnlyList<TacitDueDocumentDto>> ListTacitDueDocumentsAsync(ValidationPurpose purpose, DateTimeOffset nowUtc, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<TacitDueDocumentDto>>([]);
+    }
+
+    private sealed class FakeDocumentApprovalGate : IDocumentApprovalGate
+    {
+        public Task<ApprovalGateResult> EvaluateAsync(Guid companyId, Guid documentId, ValidationPurpose purpose, CancellationToken ct = default) =>
+            Task.FromResult(new ApprovalGateResult { IsOpen = false, Reason = "fake" });
     }
 }

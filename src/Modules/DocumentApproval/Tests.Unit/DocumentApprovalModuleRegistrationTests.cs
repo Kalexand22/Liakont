@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Liakont.Modules.DocumentApproval.Application;
+using Liakont.Modules.DocumentApproval.Contracts;
 using Liakont.Modules.DocumentApproval.Contracts.Queries;
 using Liakont.Modules.DocumentApproval.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
@@ -39,6 +40,10 @@ public sealed class DocumentApprovalModuleRegistrationTests
             "IDocumentApprovalQueries doit être résolu après AddDocumentApprovalModule");
         sp.GetRequiredService<IDocumentValidationUnitOfWorkFactory>().Should().NotBeNull(
             "IDocumentValidationUnitOfWorkFactory doit être résolu après AddDocumentApprovalModule");
+        sp.GetRequiredService<IDocumentApprovalGate>().Should().NotBeNull(
+            "IDocumentApprovalGate (SIG06 — Règle de gate câblée) doit être résolu après AddDocumentApprovalModule");
+        sp.GetRequiredService<IDocumentApprovalRequirements>().Should().NotBeNull(
+            "IDocumentApprovalRequirements (SIG06 — niveau requis tenant) doit être résolu après AddDocumentApprovalModule");
 
         var migrationOptions = sp.GetRequiredService<IOptions<MigrationAssembliesOptions>>().Value;
         migrationOptions.Assemblies.Should().Contain(

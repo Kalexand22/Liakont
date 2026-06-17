@@ -9,20 +9,25 @@ pour qu'aucune règle NetArchTest / filtre DI ciblant `Liakont.Modules.Validatio
 
 ## Couches (pattern Stratum)
 
-| Couche | Rôle | Livré par SIG04 |
+| Couche | Rôle | Livré par |
 |---|---|---|
-| `Contracts` | `ValidationPurpose` (clé de couplage), DTOs de lecture, `IDocumentApprovalQueries` | ✅ |
-| `Domain` | Agrégat `DocumentValidation`, machine fermée 7 états, sous-graphes par purpose, slots, règle de gate | ✅ |
-| `Application` | `IDocumentValidationUnitOfWork` (transition + journal dans la MÊME transaction) | ✅ |
-| `Infrastructure` | Migrations DbUp (schéma `documentapproval`), UoW Postgres, requêtes, enregistrement DI | ✅ |
+| `Contracts` | `ValidationPurpose` (clé de couplage), DTOs de lecture, `IDocumentApprovalQueries`, `IDocumentApprovalWorkflow` (commande), `IDocumentApprovalGate` (lecture de la Règle de gate) + `IDocumentApprovalRequirements` (niveau requis tenant) | SIG04 / SIG05 / **SIG06** |
+| `Domain` | Agrégat `DocumentValidation`, machine fermée 7 états, sous-graphes par purpose, slots, règle de gate (`ApprovalGate`) | SIG04 |
+| `Application` | `IDocumentValidationUnitOfWork` (transition + journal dans la MÊME transaction) | SIG04 |
+| `Infrastructure` | Migrations DbUp (schéma `documentapproval` ; V005 = `document_approval_requirement`, SIG06), UoW Postgres, requêtes, câblage du gate, enregistrement DI | SIG04 / **SIG06** |
 | `Web` | Point de montage console (UI signature = SIG10) | mount point vide |
 
-## Périmètre de SIG04 (cœur générique) — ce qui N'est PAS ici
+## Découpage par item
 
-- **Ports par purpose** (`ISelfBilledGate` réutilisé, `IMandateSignatureGate`, `ICreditNoteAcceptanceGate`,
-  `IMultiPartySignatureGate`) + câblage pipeline : **SIG06**.
-- **Refactor de `SelfBilledAcceptance` (Mandats)** pour déléguer à ce module : **SIG05**.
-- **Jobs `TenantJobRunner`** (bascule tacite / timeout) et **drain WORM** (`Archive.Contracts`) : SIG06/SIG07.
+- **SIG04** : le **cœur générique** (agrégat + machine + slots + `attempt` + index partiel + garde anti-race +
+  journal append-only + règle de gate comme fonction pure) et sa **persistance**.
+- **SIG05** : refactor de `SelfBilledAcceptance` (Mandats) pour déléguer à ce module.
+- **SIG06** : **câblage de la Règle de gate de bout en bout** — `IDocumentApprovalGate` (lit la tentative la plus
+  récente, résout le niveau requis tenant, applique `ApprovalGate`) + `IDocumentApprovalRequirements` (paramétrage
+  tenant du niveau eIDAS requis par purpose, table `document_approval_requirement` V005, défaut `Recorded`). Les
+  **ports par purpose** (`ISelfBilledGate` réutilisé, `IMandateSignatureGate`, `ICreditNoteAcceptanceGate`,
+  `IMultiPartySignatureGate`) sont exposés par **`Mandats.Contracts`** et délèguent à `IDocumentApprovalGate`.
+- **SIG07** : plug-in Yousign + jobs `TenantJobRunner` (bascule tacite / timeout) + drain WORM (`Archive.Contracts`).
 
 SIG04 livre le **mécanisme** (agrégat + machine + slots + `attempt` + index partiel + garde anti-race + journal
 append-only + règle de gate comme fonction pure) et sa **persistance**, prouvés par tests unit + intégration.
@@ -44,7 +49,9 @@ Le gate ouvre **ssi** : (1) état ∈ `{Validated, TacitlyValidated}` **ET** (2)
 (par slot pour le N-parties ; `Recorded` nu ne franchit pas AES/QES ; un `TacitlyValidated` ne satisfait que
 `Recorded`) **ET** (3) pour le self-billing **sur transition `Validated` expresse uniquement**, acceptation
 enregistrée explicite. La condition 3 **ne s'applique PAS** à `TacitlyValidated`. Le niveau requis est un
-**paramétrage tenant** (jamais une obligation produit) — câblé en SIG06.
+**paramétrage tenant** (jamais une obligation produit) — câblé en SIG06 via `IDocumentApprovalGate` (qui résout le
+niveau requis du tenant, défaut `Recorded`, puis applique `ApprovalGate`). Un tenant en `Recorded` n'est jamais
+bloqué du seul fait de l'absence de fournisseur de signature.
 
 ## Frontières (NetArchTest, ADR-0028 §9)
 
