@@ -33,6 +33,7 @@ $env:DOTNET_CLI_UI_LANGUAGE = 'en'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $platformSln = Join-Path $repoRoot 'src\Liakont.sln'
 $agentSln = Join-Path $repoRoot 'agent\Liakont.Agent.sln'
+$onSiteSln = Join-Path $repoRoot 'clients\OnSiteSignature\Liakont.OnSiteSignature.sln'
 $logFile = Join-Path $repoRoot '.run-tests.log'
 
 "run-tests started at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Set-Content $logFile
@@ -142,6 +143,11 @@ Invoke-TestSuite -Label 'platform' -SlnPath $platformSln -SolItem 'SOL01' -Filte
 # ship x86 and x64; testing only one of them would be a coverage hole).
 Invoke-TestSuite -Label 'agent (x86)' -SlnPath $agentSln -SolItem 'SOL02' -Filter "Category!=Staging" -Platform 'x86'
 Invoke-TestSuite -Label 'agent (x64)' -SlnPath $agentSln -SolItem 'SOL02' -Filter "Category!=Staging" -Platform 'x64'
+
+# On-site signature client (SIG08, ADR-0030): third solution in clients/OnSiteSignature. Same
+# bootstrap guard (SIG08 pending -> skip; missing once done -> FAIL). No integration suite — its
+# unit + purity tests run here too so run-tests is genuinely the full suite (not just verify-fast).
+Invoke-TestSuite -Label 'onsite-client' -SlnPath $onSiteSln -SolItem 'SIG08' -Filter "Category!=Staging&Category!=E2E"
 
 # ── Self-test du packaging de l'agent (OPS05) ────────────────────
 # Garde PERMANENTE de la logique de tooling d'installation (module AgentInstall.psm1) + contrôle de

@@ -15,8 +15,9 @@ using Xunit;
 /// jamais exercé par du code (ex. un SDK natif tiré pour ses cibles MSBuild / son contenu, sans type
 /// C# référencé) — n'apparaît dans AUCUN assembly compilé et échappe donc à l'inspection IL.
 /// <para>
-/// Ce test lit les .csproj ET le Directory.Build.props SOUS agent/ et exige que chaque
-/// <c>&lt;PackageReference Include="X"&gt;</c> figure dans une liste BLANCHE FERMÉE codée ICI. Elle
+/// Ce test lit les .csproj, Directory.Build.props, Directory.Packages.props ET Directory.Build.targets
+/// SOUS agent/ et exige que chaque <c>&lt;PackageReference&gt;</c> ou
+/// <c>&lt;GlobalPackageReference&gt;</c> figure dans une liste BLANCHE FERMÉE codée ICI. Elle
 /// n'est volontairement PAS dérivée de Directory.Packages.props : sinon il suffirait d'ajouter le
 /// paquet interdit AUX DEUX fichiers (catalogue + csproj) pour passer — la garde doit être un choix
 /// humain explicite, exactement comme <see cref="AgentBoundaryTests"/> énumère ses tierces autorisées.
@@ -52,10 +53,14 @@ public class AgentPackageReferenceBoundaryTests
         "FluentAssertions",
     };
 
-    // Capture le nom du paquet sur la balise ouvrante d'un PackageReference (auto-fermée ou avec
-    // enfants). [^>]* reste dans la balise (les classes négatives traversent les sauts de ligne).
+    // Capture le nom du paquet sur la balise ouvrante d'un PackageReference ou GlobalPackageReference
+    // (auto-fermée ou avec enfants). Couvre aussi Directory.Packages.props et Directory.Build.targets
+    // où un GlobalPackageReference s'applique à tous les projets sans <PackageReference> dans aucun
+    // csproj. [^>]* reste dans la balise (les classes négatives traversent les sauts de ligne).
+    // Note : <PackageVersion> est volontairement exclu — c'est une déclaration de version, pas une
+    // référence qui tire le paquet.
     private static readonly Regex PackageReferenceInclude = new Regex(
-        "<PackageReference\\b[^>]*?\\bInclude\\s*=\\s*\"([^\"]+)\"",
+        "<(?:PackageReference|GlobalPackageReference)\\b[^>]*?\\bInclude\\s*=\\s*\"([^\"]+)\"",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     [Fact]
@@ -66,6 +71,8 @@ public class AgentPackageReferenceBoundaryTests
         string[] msbuildFiles = Directory
             .EnumerateFiles(agentRoot, "*.csproj", SearchOption.AllDirectories)
             .Concat(Directory.EnumerateFiles(agentRoot, "Directory.Build.props", SearchOption.AllDirectories))
+            .Concat(Directory.EnumerateFiles(agentRoot, "Directory.Packages.props", SearchOption.AllDirectories))
+            .Concat(Directory.EnumerateFiles(agentRoot, "Directory.Build.targets", SearchOption.AllDirectories))
             .Where(p => !IsUnderBinOrObj(p))
             .ToArray();
 
@@ -98,10 +105,21 @@ public class AgentPackageReferenceBoundaryTests
 
         const string withWacom =
             "<Project><ItemGroup><PackageReference Include=\"Wacom.Stu.Sdk\" Version=\"1.0.0\" /></ItemGroup></Project>";
+
+        // L'echappatoire de la gestion centralisee : un GlobalPackageReference (catalogue) vise tous
+        // les projets sans aucun <PackageReference> dans un csproj — doit etre attrape lui aussi.
+        const string withGlobalWacom =
+            "<Project><ItemGroup><GlobalPackageReference Include=\"Wacom.Stu.Sdk\" Version=\"1.0.0\" /></ItemGroup></Project>";
+
+        // <PackageVersion> seul (sans reference) ne tire rien : ne doit PAS etre signale.
+        const string versionOnly =
+            "<Project><ItemGroup><PackageVersion Include=\"Wacom.Stu.Sdk\" Version=\"1.0.0\" /></ItemGroup></Project>";
         const string clean =
             "<Project><ItemGroup><PackageReference Include=\"Newtonsoft.Json\" /></ItemGroup></Project>";
 
         ViolatingPackages(withWacom, allowed).Should().ContainSingle().Which.Should().Be("Wacom.Stu.Sdk");
+        ViolatingPackages(withGlobalWacom, allowed).Should().ContainSingle().Which.Should().Be("Wacom.Stu.Sdk");
+        ViolatingPackages(versionOnly, allowed).Should().BeEmpty();
         ViolatingPackages(clean, allowed).Should().BeEmpty();
     }
 
