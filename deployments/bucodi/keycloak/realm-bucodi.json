@@ -314,12 +314,12 @@
       "enabled": true,
       "firstName": "Sacha",
       "lastName": "Sysadmin",
-      "requiredActions": ["CONFIGURE_TOTP"],
+      "requiredActions": ["UPDATE_PASSWORD", "CONFIGURE_TOTP"],
       "credentials": [
         {
           "type": "password",
           "value": "Test@1234",
-          "temporary": false
+          "temporary": true
         }
       ],
       "realmRoles": ["stratum-admin"]
