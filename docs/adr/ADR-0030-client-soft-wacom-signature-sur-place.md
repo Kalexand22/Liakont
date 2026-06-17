@@ -100,6 +100,9 @@ probante — voir §5) }` vers un **endpoint plateforme dédié** : le proxy **`
   envoyé par le client.
 - **Aucune logique métier** dans le client : toute décision (transition `DocumentValidation`, bascule tacite,
   ouverture du gate) reste **côté plateforme / `TenantJobRunner`** (ADR-0028). **Aucun accès base** côté client.
+- **Rapatriement WORM complet :** le proxy archive en WORM (via `Archive.Contracts`, jamais un backend concret) à la
+  fois la **FSS chiffrée** (artefact probant, `Kind=onsite-signature-fss`) **et** le **rendu PNG** (lisible,
+  `Kind=onsite-signature`) — pas seulement l'un des deux.
 
 ### 4. Hash de **binding** = primitive **PROPRE à ADR-0030** (pas ADR-0023)
 

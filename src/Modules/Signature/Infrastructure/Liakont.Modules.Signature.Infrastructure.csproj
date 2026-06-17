@@ -1,26 +1,35 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
-    <!-- Microsoft.Extensions.* (DI, Options, Logging) du framework partagé — aucun package NuGet nouveau,
-         aucun ADR (repo-standards §4). Dapper arrive transitivement via Common.Infrastructure. -->
+    <!-- Microsoft.Extensions.* (DI, Options, Logging) + ASP.NET Core abstractions du framework partagé.
+         Dapper arrive transitivement via Common.Infrastructure. -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- ISender / IRequestHandler du proxy OnSiteCapture (SIG08). MediatR n'arrive pas transitivement. -->
+    <PackageReference Include="MediatR" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Liakont.Modules.Signature.Tests.Unit" />
     <InternalsVisibleTo Include="Liakont.Modules.Signature.Tests.Integration" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Migrations DbUp du schéma signature : Yousign (SIG07 : comptes, inbox, routes, requêtes) +
+         OnSite (SIG08 : liaisons signataire vérifié + journal de preuve append-only). -->
     <EmbeddedResource Include="Migrations\*.sql" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Contracts/Liakont.Modules.Signature.Contracts.csproj" />
-    <ProjectReference Include="../Domain/Liakont.Modules.Signature.Domain.csproj" />
     <ProjectReference Include="../Application/Liakont.Modules.Signature.Application.csproj" />
-    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
-    <!-- Rapatriement WORM de la preuve via Archive.Contracts (jamais Archive.Domain, jamais le plug-in —
-         ADR-0029 §5 / INV-YOUSIGN-6). Frontière Contracts-only vérifiée par NetArchTest. -->
+    <ProjectReference Include="../Domain/Liakont.Modules.Signature.Domain.csproj" />
+    <!-- Accès cross-module UNIQUEMENT par Contracts (module-rules §3 ; CLAUDE.md n°6/14) :
+         re-vérif document↔company (Documents, SIG08), octets de l'artefact scellé (SupportTrace, SIG08),
+         rapatriement WORM via Archive.Contracts (jamais Archive.Domain ni le plug-in — SIG07/SIG08). -->
+    <ProjectReference Include="../../Documents/Contracts/Liakont.Modules.Documents.Contracts.csproj" />
+    <ProjectReference Include="../../SupportTrace/Contracts/Liakont.Modules.SupportTrace.Contracts.csproj" />
     <ProjectReference Include="../../Archive/Contracts/Liakont.Modules.Archive.Contracts.csproj" />
-    <!-- Seam du job SYSTÈME multi-tenant (drain, gabarit DailyAnchoring/SOL06) : IJobHandler vit dans le
-         module socle vendored Stratum.Modules.Job (mécanique de planification). Réf au Contracts seul. -->
+    <!-- Seam du job SYSTÈME multi-tenant (drain WORM Yousign, SIG07) : IJobHandler vit dans le module socle
+         vendored Stratum.Modules.Job (mécanique de planification). Réf au Contracts seul. -->
     <ProjectReference Include="../../Job/Contracts/Stratum.Modules.Job.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

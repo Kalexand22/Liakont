@@ -95,15 +95,20 @@ public sealed class SignatureProviderRegistryTests
     }
 
     [Fact]
-    public void AddSignatureModule_WithNoFactories_BuildsEmptyRegistry_NoException()
+    public void AddSignatureModule_RegistersBuiltInOnSiteWacomProvider()
     {
-        // Signature optionnelle : aucun plug-in enregistré ne casse la composition DI (INV-SIGPROV-6).
+        // SIG08 (ADR-0030) : le module livre le plug-in SUR PLACE Wacom intégré. AddSignatureModule l'enregistre
+        // (frontière Contracts, jamais un if (type == "Wacom")) ; il est résolu en fournisseur OnSite SES.
         var services = new ServiceCollection();
         services.AddSignatureModule();
 
         using var provider = services.BuildServiceProvider();
         var registry = provider.GetRequiredService<ISignatureProviderRegistry>();
 
-        registry.RegisteredTypes.Should().BeEmpty();
+        registry.RegisteredTypes.Should().Contain("Wacom");
+        var wacom = registry.Resolve(new SignatureProviderAccount("Wacom", "tenant-a"));
+        wacom.Capabilities.Mode.Should().Be(SignatureMode.OnSite);
+        wacom.Capabilities.Supports(SignatureLevel.SES).Should().BeTrue();
+        wacom.Capabilities.SupportsBiometricTemplateMatching.Should().BeFalse();
     }
 }
