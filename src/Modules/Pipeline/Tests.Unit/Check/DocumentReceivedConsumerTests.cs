@@ -143,6 +143,32 @@ public sealed class DocumentReceivedConsumerTests
     }
 
     [Fact]
+    public async Task SelfBilled_Accepted_But_Gate_Closed_Blocks_Without_Claiming_No_Acceptance()
+    {
+        // SIG06 : le gate générique peut se fermer alors qu'une acceptation EST enregistrée (Accepted) — quand le
+        // tenant exige un niveau de preuve supérieur que la validation attachée ne couvre pas. Le motif opérateur
+        // ne doit JAMAIS affirmer « aucune acceptation enregistrée » (factuellement faux, CLAUDE.md n°12) ; il doit
+        // orienter vers le niveau de preuve requis. Le blocage lui-même reste correct (fail-closed).
+        var documentId = Guid.NewGuid();
+        var harness = Build(
+            document: CheckTestData.Document(documentId, "Detected"),
+            companyId: Guid.NewGuid(),
+            staging: Staging(CheckTestData.SelfBilledSingleLinePivot()),
+            mapping: CheckTestData.MappedResult(),
+            validation: ValidOk,
+            selfBilledGate: FakeSelfBilledGate.Blocking("Accepted"));
+
+        await harness.Consumer.HandleAsync(CheckTestData.Event(documentId));
+
+        harness.Lifecycle.BlockedId.Should().Be(documentId, "fail-closed : émission refusée tant que le niveau requis n'est pas atteint");
+        harness.Lifecycle.ReadyToSendId.Should().BeNull();
+        harness.Lifecycle.BlockReason.Should().NotContain(
+            "aucune acceptation", "une acceptation EST enregistrée — le blocage vient du niveau de preuve, pas de son absence");
+        harness.Lifecycle.BlockReason.Should().Contain(
+            "niveau de preuve requis", "le motif oriente l'opérateur vers le niveau eIDAS exigé par son paramétrage");
+    }
+
+    [Fact]
     public async Task SelfBilled_Accepted_Marks_ReadyToSend()
     {
         var documentId = Guid.NewGuid();

@@ -30,8 +30,19 @@ public static class MandatsModuleRegistration
         services.AddScoped<ISelfBilledAcceptanceCommands, SelfBilledAcceptanceCommands>();
         services.AddScoped<ISelfBilledAcceptanceQueries, PostgresSelfBilledAcceptanceQueries>();
 
-        // Garde d'émission interrogée par le pipeline avant l'envoi (MND03, ADR-0024 §3 / INV-ACCEPT-2).
+        // Garde d'émission interrogée par le pipeline avant l'envoi (MND03, ADR-0024 §3 / INV-ACCEPT-2). Depuis
+        // SIG06, elle applique la Règle de gate GÉNÉRIQUE (IDocumentApprovalGate, ADR-0028 §5) — état × niveau
+        // requis tenant × forme expresse — au lieu du seul état d'acceptation.
         services.AddScoped<ISelfBilledGate, SelfBilledGate>();
+
+        // SIG06 — ports de gate par PURPOSE (F17 §3.4, ADR-0028 §4) exposés par Mandats.Contracts, chacun
+        // délégant la Règle de gate générique au module DocumentApproval PAR SES CONTRACTS (frontière
+        // module-rules §3, chaîne NetArchTest ADR-0028 §9). ICreditNoteAcceptanceGate : avoir 261, défaut
+        // défendable #9 (F15 §6.5) « même discipline que le 389 ». IMultiPartySignatureGate : co-localisé ici
+        // faute d'un module exposeur dédié (défaut défendable, ADR-0028 §4).
+        services.AddScoped<IMandateSignatureGate, MandateSignatureGate>();
+        services.AddScoped<ICreditNoteAcceptanceGate, CreditNoteAcceptanceGate>();
+        services.AddScoped<IMultiPartySignatureGate, MultiPartySignatureGate>();
 
         // Allocateur du BT-1 fiscal 389 (MND05, ADR-0025) : get-or-create idempotent sur la clé source, verrou
         // par mandant ; interrogé par le pipeline au plus tard avant l'envoi, après acceptation.

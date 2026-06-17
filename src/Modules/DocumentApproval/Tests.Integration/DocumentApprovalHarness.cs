@@ -1,6 +1,7 @@
 namespace Liakont.Modules.DocumentApproval.Tests.Integration;
 
 using Liakont.Modules.DocumentApproval.Application;
+using Liakont.Modules.DocumentApproval.Contracts;
 using Liakont.Modules.DocumentApproval.Contracts.Queries;
 using Liakont.Modules.DocumentApproval.Infrastructure;
 using Liakont.Modules.DocumentApproval.Infrastructure.Queries;
@@ -18,6 +19,8 @@ internal sealed class DocumentApprovalHarness
         ConnectionFactory = connectionFactory;
         UowFactory = new PostgresDocumentValidationUnitOfWorkFactory(connectionFactory);
         Queries = new PostgresDocumentApprovalQueries(connectionFactory);
+        Gate = new DocumentApprovalGate(connectionFactory);
+        Requirements = new PostgresDocumentApprovalRequirements(connectionFactory);
     }
 
     public IConnectionFactory ConnectionFactory { get; }
@@ -25,4 +28,10 @@ internal sealed class DocumentApprovalHarness
     public IDocumentValidationUnitOfWorkFactory UowFactory { get; }
 
     public IDocumentApprovalQueries Queries { get; }
+
+    /// <summary>Câblage SIG06 de la Règle de gate (ADR-0028 §5) sur la base de ce tenant.</summary>
+    public IDocumentApprovalGate Gate { get; }
+
+    /// <summary>Paramétrage tenant du niveau de preuve requis par purpose (SIG06, V005).</summary>
+    public IDocumentApprovalRequirements Requirements { get; }
 }
