@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" role="img" aria-label="Bucodi">
+  <!-- Emblème de marque Bucodi (recréé, original) : anneau + rose des vents jaune signature (#FFE96E),
+       fond transparent pour se poser sur la barre latérale charbon. Clin d'œil maritime/criées. -->
+  <g transform="translate(14,14)" fill="#FFE96E">
+    <circle r="12.5" fill="none" stroke="#FFE96E" stroke-width="2.4"/>
+    <path d="M0,-9 L2.2,0 L0,9 L-2.2,0 Z"/>
+    <path d="M-9,0 L0,2.2 L9,0 L0,-2.2 Z"/>
+  </g>
+</svg>

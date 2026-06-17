@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Bucodi">
+  <!-- Favicon Bucodi : emblème jaune signature (#FFE96E) sur carré charbon (#1B1D20) pour rester
+       lisible sur un onglet de navigateur clair. Recréé, original (pas d'asset officiel détouré). -->
+  <rect width="32" height="32" rx="7" fill="#1B1D20"/>
+  <g transform="translate(16,16)" fill="#FFE96E">
+    <circle r="11" fill="none" stroke="#FFE96E" stroke-width="2.4"/>
+    <path d="M0,-8 L2,0 L0,8 L-2,0 Z"/>
+    <path d="M-8,0 L0,2 L8,0 L0,-2 Z"/>
+  </g>
+</svg>
