@@ -65,6 +65,24 @@ public sealed class LiakontNavNodeProviderTests
     }
 
     [Fact]
+    public void GetNavNode_Should_Show_Signatures_With_Read_Permission()
+    {
+        // Signatures (SIG10) : surface de CONSULTATION du workflow de validation/signature, gardée par liakont.read
+        // (mêmes conditions que Documents/Encaissements/Traitements ; les actions exigent liakont.actions sur la page).
+        var root = BuildProvider(permissions: [LiakontPermissions.Read]).GetNavNode();
+
+        Labels(root).Should().Contain("Signatures");
+    }
+
+    [Fact]
+    public void GetNavNode_Should_Hide_Signatures_Without_Read_Permission()
+    {
+        var root = BuildProvider(permissions: []).GetNavNode();
+
+        Labels(root).Should().NotContain("Signatures");
+    }
+
+    [Fact]
     public void GetNavNode_For_A_Reader_Should_Show_All_Consultation_Entries_And_The_Settings_Hub_As_A_Leaf()
     {
         // Preuve d'acceptance RLF03 (rôle `lecture`, matrice §3 : liakont.read seul) : il consulte

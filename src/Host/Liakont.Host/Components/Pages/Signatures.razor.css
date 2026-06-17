@@ -1,0 +1,130 @@
+/* Page Signatures et validations (SIG10) — mise en page du formulaire de consultation, du statut,
+   des actions, de la preuve et de l'historique. Layout uniquement : couleurs/contrôles viennent du
+   design-system (SectionCard, StatusBadge, StratumButton, tokens.css). */
+
+.liakont-signatures__title {
+    margin-bottom: 0.25rem;
+}
+
+.liakont-signatures__intro {
+    margin-bottom: 1.25rem;
+    max-width: 70ch;
+    color: var(--color-text-muted, #4b5563);
+    font-size: 0.9375rem;
+}
+
+.liakont-signatures__form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 1.5rem;
+}
+
+.liakont-signatures__field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.liakont-signatures__field label {
+    font-weight: 600;
+    font-size: 0.875rem;
+}
+
+.liakont-signatures__select,
+.liakont-signatures__input {
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--color-border, #d1d5db);
+    border-radius: var(--radius-sm, 0.25rem);
+    background: var(--color-surface, #fff);
+    color: inherit;
+    font: inherit;
+    min-width: 22ch;
+}
+
+.liakont-signatures__input-error {
+    margin-top: 0.5rem;
+    color: var(--color-error-text, #b91c1c);
+    font-size: 0.875rem;
+}
+
+.liakont-signatures__defs {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.4rem 1.5rem;
+    margin: 0;
+}
+
+.liakont-signatures__row {
+    display: contents;
+}
+
+.liakont-signatures__row dt {
+    font-weight: 600;
+    color: var(--color-text-muted, #4b5563);
+}
+
+.liakont-signatures__row dd {
+    margin: 0;
+}
+
+.liakont-signatures__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 1rem;
+}
+
+.liakont-signatures__feedback {
+    margin-top: 1rem;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-sm, 0.25rem);
+    border: 1px solid transparent;
+    font-size: 0.9375rem;
+}
+
+.liakont-signatures__feedback--ok {
+    background: var(--color-success-surface, #f0fdf4);
+    border-color: var(--color-success-border, #bbf7d0);
+    color: var(--color-success-text, #166534);
+}
+
+.liakont-signatures__feedback--error {
+    background: var(--color-error-surface, #fef2f2);
+    border-color: var(--color-error-border, #fecaca);
+    color: var(--color-error-text, #b91c1c);
+}
+
+.liakont-signatures__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9375rem;
+}
+
+.liakont-signatures__table th,
+.liakont-signatures__table td {
+    text-align: left;
+    padding: 0.4rem 0.75rem;
+    border-bottom: 1px solid var(--color-border, #e5e7eb);
+}
+
+.liakont-signatures__hash {
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 0.8125rem;
+    word-break: break-all;
+}
+
+.liakont-signatures__muted {
+    color: var(--color-text-muted, #6b7280);
+}
+
+.liakont-signatures__hint {
+    margin-top: 0.75rem;
+    color: var(--color-text-muted, #6b7280);
+    font-size: 0.875rem;
+}
+
+.liakont-signatures__providers {
+    margin: 0;
+    padding-left: 1.25rem;
+}
