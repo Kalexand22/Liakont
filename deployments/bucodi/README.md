@@ -49,21 +49,27 @@ répondent, puis affiche les accès. Premier `up` : quelques minutes (build de l
 | Keycloak (admin IdP) | http://localhost:8081/admin | `admin` / `admin` |
 | PostgreSQL plateforme | `localhost:5442` | `liakont` / `liakont_demo_pwd` (base `liakont`) |
 
-### Comptes de connexion (realm `bucodi`, mot de passe `Test@1234`)
+### Connexion (realm `bucodi`)
 
-| Compte | Rôle | Permissions |
+La base démarre à **0 tenant** (RB2) ; le realm ne contient qu'un **super-admin** d'amorçage. On crée
+tenants et utilisateurs **proprement depuis la console** (RB4).
+
+| Compte | Mot de passe | Rôle |
 |---|---|---|
-| `sysadmin` | `stratum-admin` | super-admin d'instance (provisioning, planifs de jobs) |
-| `parametrage` | `parametrage` | paramétrage fiscal : table TVA, mappings, comptes PA |
-| `operateur` | `operateur` | actions opérateur : déblocage, relance, ré-émission |
-| `superviseur` | `superviseur` | supervision en lecture seule |
-| `lecture` | `lecture` | consultation seule |
+| `sysadmin` | `Test@1234` (temporaire) | `stratum-admin` — super-admin d'instance |
 
-> **2FA (TOTP)** activé par défaut (ADR-0021). Au **premier login**, chaque compte enrôle un
-> authentificator (QR à scanner avec Google Authenticator / FreeOTP / Microsoft Authenticator).
-> Pour une démo sans friction, enrôler les comptes une fois à l'avance, ou désactiver l'action
-> requise `CONFIGURE_TOTP` dans la console admin Keycloak (realm `bucodi` → Authentication →
-> Required actions) — à ne PAS faire en production.
+**Parcours démo :**
+1. Se connecter en `sysadmin` → **changement de mot de passe forcé** + **enrôlement 2FA TOTP**
+   (QR à scanner : Google Authenticator / FreeOTP / Microsoft Authenticator) — RB3.
+2. Le super-admin atterrit sur **Supervision** (contexte cross-tenant, sans entrées ni tenant
+   imposés — RB1).
+3. **Clients › « Nouveau client »** : créer le tenant Bucodi (provisioning : base + enregistrement).
+4. **Clients › « Gérer les utilisateurs »** : créer les comptes du tenant (lecture/operateur/
+   parametrage/superviseur) et réinitialiser les mots de passe — RB4, sans console Keycloak.
+
+> Démo sans friction : pour éviter l'enrôlement 2FA + le changement de mot de passe, désactiver les
+> actions requises `CONFIGURE_TOTP` / `UPDATE_PASSWORD` dans la console admin Keycloak (realm `bucodi`
+> → Authentication → Required actions) — à ne PAS faire en production.
 
 ## Ce qui est habillé « Bucodi »
 
@@ -91,8 +97,10 @@ avec l'env de dev (`liakont-keycloak` sur 8080, Postgres dev sur 5432).
 | Keycloak 26.0 | `bucodi-keycloak` | 8081 → 8080 | — (état en base) |
 | PostgreSQL Keycloak | `bucodi-keycloak-db` | interne | `bucodi-keycloak-db-data` |
 
-**Base de données** : le Host en mode Development **crée et migre la base au démarrage** (DbUp), puis
-seede le tenant `default` + le profil fiscal fictif (`config/exemples/tenant-seed`, monté en `/seed`).
+**Base de données** : le Host **crée et migre la base système au démarrage** (DbUp, tous environnements).
+**Aucun tenant n'est auto-seedé** (RB2 : `DevTenantSeed__TenantId` vide) — la base démarre à **0 tenant** ;
+seul le super-admin `sysadmin` est amorcé (section `AdminSeed`, base système). Les tenants se créent via
+l'écran **Clients**.
 
 **OIDC en localhost** (même schéma que l'appliance) : Keycloak annonce un issuer **public fixe**
 (`KC_HOSTNAME=http://localhost:8081`, vu par le navigateur) tandis que le Host interroge Keycloak en

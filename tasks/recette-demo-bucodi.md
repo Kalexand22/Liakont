@@ -4,7 +4,22 @@
 > `demo/bucodi`). **À convertir en items d'orchestration en fin de session. NE PAS corriger pendant
 > la recette** (capture seulement).
 
-Session : 2026-06-17. Env : `liakont-bucodi` (Host Development, realm `bucodi`, comptes seedés).
+Session : 2026-06-17. Env : `liakont-bucodi` (Host Development, realm `bucodi`).
+
+## État de résolution (corrigés en interactif, vérifiés en live)
+
+| # | Statut | Commit | Vérification |
+|---|---|---|---|
+| RB1 | ✅ Résolu | `33f0d55` | login headless super-admin : nav tenant masquée, chip absent, `/` → `/supervision` |
+| RB2 | ✅ Résolu | `0acf097` | reset → `outbox.tenants` vide (0 tenant) ; super-admin → `/clients` « Aucun client » |
+| RB3 | ✅ Résolu | `b945841` | `sysadmin.requiredActions` contient `UPDATE_PASSWORD` ; login intercepté |
+| RB4 | ✅ Résolu (inc1) | `0e2277a` | tests bUnit (liste/création/reset) + smoke route+DI ; inc2/inc3 à suivre |
+| RB5 | ✅ Résolu | `67cbbee` | `<head>` injecte sidebar charbon + `--sidebar-active-accent:#FFE96E` (2 thèmes) |
+
+Finition : realm épuré au **super-admin seul** (cohérent RB2/RB4 — tenants & users créés via la
+console) ; revue consolidée RB1→RB5 = propre (P1 OK : socle intact, frontière IdP, tenant-scope,
+secrets, injection CSS). Revue par sous-agent (le wrapper codex-review reste à rejouer si besoin).
+
 
 ---
 

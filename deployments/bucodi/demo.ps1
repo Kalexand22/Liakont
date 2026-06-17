@@ -100,13 +100,14 @@ function Show-Access {
     Write-Host "  Keycloak (admin)         : $keycloakUrl/admin   (admin / admin)"
     Write-Host "  PostgreSQL               : localhost:5442   (liakont / liakont_demo_pwd)"
     Write-Host ""
-    Write-Host "  Comptes de connexion (realm bucodi, mot de passe Test@1234) :" -ForegroundColor Cyan
-    Write-Host "    sysadmin     → super-admin d'instance (stratum-admin)"
-    Write-Host "    parametrage  → paramétrage fiscal (table TVA, mappings, comptes PA)"
-    Write-Host "    operateur    → actions opérateur (déblocage, relance, ré-émission)"
-    Write-Host "    superviseur  → supervision lecture seule"
-    Write-Host "    lecture      → consultation seule"
-    Write-Host "  (1er login : enrôlement 2FA TOTP via une appli d'authentification)" -ForegroundColor DarkGray
+    Write-Host "  Connexion (realm bucodi) :" -ForegroundColor Cyan
+    Write-Host "    sysadmin / Test@1234   → super-admin d'instance (stratum-admin)"
+    Write-Host "    1er login : changement de mot de passe FORCÉ + enrôlement 2FA TOTP (appli d'authentification)" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "  Parcours démo (base à 0 tenant — création propre) :" -ForegroundColor Cyan
+    Write-Host "    1. Se connecter en sysadmin → atterrit sur Supervision (contexte cross-tenant)"
+    Write-Host "    2. Clients → « Nouveau client » : créer le tenant Bucodi"
+    Write-Host "    3. Clients → « Gérer les utilisateurs » : créer les comptes du tenant (lecture/operateur/…)"
     Write-Host ""
     Write-Host "  Arrêt        : demo.ps1 down     |  Remise à zéro : demo.ps1 reset" -ForegroundColor DarkGray
     Write-Host "═══════════════════════════════════════════════════════════════════" -ForegroundColor Yellow

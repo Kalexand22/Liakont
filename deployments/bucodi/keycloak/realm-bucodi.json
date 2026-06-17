@@ -6,7 +6,10 @@
   "enabled": true,
   "sslRequired": "external",
   "internationalizationEnabled": true,
-  "supportedLocales": ["fr", "en"],
+  "supportedLocales": [
+    "fr",
+    "en"
+  ],
   "defaultLocale": "fr",
   "registrationAllowed": false,
   "loginWithEmailAllowed": true,
@@ -139,7 +142,9 @@
       }
     ]
   },
-  "defaultRoles": ["lecture"],
+  "defaultRoles": [
+    "lecture"
+  ],
   "clients": [
     {
       "clientId": "liakont",
@@ -151,7 +156,9 @@
       "redirectUris": [
         "http://localhost:8090/*"
       ],
-      "webOrigins": ["+"],
+      "webOrigins": [
+        "+"
+      ],
       "protocol": "openid-connect",
       "publicClient": false,
       "standardFlowEnabled": true,
@@ -227,86 +234,6 @@
   ],
   "users": [
     {
-      "username": "lecture",
-      "email": "lecture@bucodi.local",
-      "emailVerified": true,
-      "enabled": true,
-      "firstName": "Lea",
-      "lastName": "Lecture",
-      "attributes": {
-        "company_id": ["00000000-0000-4000-a000-000000000001"]
-      },
-      "requiredActions": ["CONFIGURE_TOTP"],
-      "credentials": [
-        {
-          "type": "password",
-          "value": "Test@1234",
-          "temporary": false
-        }
-      ],
-      "realmRoles": ["lecture"]
-    },
-    {
-      "username": "operateur",
-      "email": "operateur@bucodi.local",
-      "emailVerified": true,
-      "enabled": true,
-      "firstName": "Olivier",
-      "lastName": "Operateur",
-      "attributes": {
-        "company_id": ["00000000-0000-4000-a000-000000000001"]
-      },
-      "requiredActions": ["CONFIGURE_TOTP"],
-      "credentials": [
-        {
-          "type": "password",
-          "value": "Test@1234",
-          "temporary": false
-        }
-      ],
-      "realmRoles": ["lecture", "operateur"]
-    },
-    {
-      "username": "parametrage",
-      "email": "parametrage@bucodi.local",
-      "emailVerified": true,
-      "enabled": true,
-      "firstName": "Paul",
-      "lastName": "Parametrage",
-      "attributes": {
-        "company_id": ["00000000-0000-4000-a000-000000000001"]
-      },
-      "requiredActions": ["CONFIGURE_TOTP"],
-      "credentials": [
-        {
-          "type": "password",
-          "value": "Test@1234",
-          "temporary": false
-        }
-      ],
-      "realmRoles": ["lecture", "operateur", "parametrage"]
-    },
-    {
-      "username": "superviseur",
-      "email": "superviseur@bucodi.local",
-      "emailVerified": true,
-      "enabled": true,
-      "firstName": "Sophie",
-      "lastName": "Superviseur",
-      "attributes": {
-        "company_id": ["00000000-0000-4000-a000-000000000001"]
-      },
-      "requiredActions": ["CONFIGURE_TOTP"],
-      "credentials": [
-        {
-          "type": "password",
-          "value": "Test@1234",
-          "temporary": false
-        }
-      ],
-      "realmRoles": ["lecture", "operateur", "parametrage", "superviseur"]
-    },
-    {
       "id": "ad000000-0000-4000-b000-000000000001",
       "username": "sysadmin",
       "email": "sysadmin@bucodi.local",
@@ -314,7 +241,10 @@
       "enabled": true,
       "firstName": "Sacha",
       "lastName": "Sysadmin",
-      "requiredActions": ["UPDATE_PASSWORD", "CONFIGURE_TOTP"],
+      "requiredActions": [
+        "UPDATE_PASSWORD",
+        "CONFIGURE_TOTP"
+      ],
       "credentials": [
         {
           "type": "password",
@@ -322,7 +252,9 @@
           "temporary": true
         }
       ],
-      "realmRoles": ["stratum-admin"]
+      "realmRoles": [
+        "stratum-admin"
+      ]
     }
   ],
   "components": {
