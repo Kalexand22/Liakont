@@ -33,27 +33,15 @@ $env:DOTNET_CLI_UI_LANGUAGE = 'en'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $platformSln = Join-Path $repoRoot 'src\Liakont.sln'
 $agentSln = Join-Path $repoRoot 'agent\Liakont.Agent.sln'
+$onSiteSln = Join-Path $repoRoot 'clients\OnSiteSignature\Liakont.OnSiteSignature.sln'
 $logFile = Join-Path $repoRoot '.run-tests.log'
 
 "run-tests started at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Set-Content $logFile
 
-# Returns $true while the given SOL item is still pending (absent from state = done).
-# THROWS if the orchestration state repo / state.yaml is missing: the protocol makes
-# state.yaml mandatory. Treating a missing state as "SOL pending" would let a deleted
-# solution (or a misconfigured ORCH_REPO) pass as a bootstrap skip — a false green.
-function Test-SolItemPending {
-    param([string]$ItemId)
-    $orchRepo = $env:ORCH_REPO
-    if (-not $orchRepo) { $orchRepo = 'C:\Source\liakont-orchestration' }
-    $statePath = Join-Path $orchRepo 'state.yaml'
-    if (-not (Test-Path $statePath)) {
-        throw "Orchestration state not found ($statePath). state.yaml is mandatory (protocol.md Step 1) - set ORCH_REPO to the state repo. NEVER recreate state.yaml (absent items = done items)."
-    }
-    $state = Get-Content $statePath -Raw -ErrorAction Stop
-    if ($state -notmatch "(?m)^  $([regex]::Escape($ItemId)):") { return $false }                          # absent = done
-    if ($state -match "(?m)^  $([regex]::Escape($ItemId)):\s*\{\s*status:\s*done") { return $false }       # explicit done
-    return $true
-}
+# Bootstrap-state predicate (Test-SolItemPending) shared with verify-fast.ps1 — one self-tested
+# source of truth (tools/test-bootstrap-guard.ps1) instead of a per-script copy that could
+# silently diverge. Decides bootstrap-skip vs FAILURE for a missing solution.
+. "$PSScriptRoot/sol-state-lib.ps1"
 
 $overallExit = 0
 $summaries = @()
@@ -155,6 +143,11 @@ Invoke-TestSuite -Label 'platform' -SlnPath $platformSln -SolItem 'SOL01' -Filte
 # ship x86 and x64; testing only one of them would be a coverage hole).
 Invoke-TestSuite -Label 'agent (x86)' -SlnPath $agentSln -SolItem 'SOL02' -Filter "Category!=Staging" -Platform 'x86'
 Invoke-TestSuite -Label 'agent (x64)' -SlnPath $agentSln -SolItem 'SOL02' -Filter "Category!=Staging" -Platform 'x64'
+
+# On-site signature client (SIG08, ADR-0030): third solution in clients/OnSiteSignature. Same
+# bootstrap guard (SIG08 pending -> skip; missing once done -> FAIL). No integration suite — its
+# unit + purity tests run here too so run-tests is genuinely the full suite (not just verify-fast).
+Invoke-TestSuite -Label 'onsite-client' -SlnPath $onSiteSln -SolItem 'SIG08' -Filter "Category!=Staging&Category!=E2E"
 
 # ── Self-test du packaging de l'agent (OPS05) ────────────────────
 # Garde PERMANENTE de la logique de tooling d'installation (module AgentInstall.psm1) + contrôle de

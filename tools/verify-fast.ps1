@@ -19,6 +19,10 @@
 #>
 $ErrorActionPreference = 'Continue'
 
+# Bootstrap-state predicate (Test-SolItemPending) shared with run-tests.ps1 — one self-tested source
+# of truth (tools/test-bootstrap-guard.ps1) instead of a per-script copy that could silently diverge.
+. "$PSScriptRoot/sol-state-lib.ps1"
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $platformSln = Join-Path $repoRoot 'src\Liakont.sln'
 $agentSln = Join-Path $repoRoot 'agent\Liakont.Agent.sln'
@@ -69,23 +73,8 @@ function Run-Step {
     }
 }
 
-# Returns $true while the given SOL item is still pending (absent from state = done).
-# THROWS if the orchestration state repo / state.yaml is missing: the protocol makes
-# state.yaml mandatory. Treating a missing state as "SOL pending" would let a deleted
-# solution (or a misconfigured ORCH_REPO) pass as a bootstrap skip — a false green.
-function Test-SolItemPending {
-    param([string]$ItemId)
-    $orchRepo = $env:ORCH_REPO
-    if (-not $orchRepo) { $orchRepo = 'C:\Source\liakont-orchestration' }
-    $statePath = Join-Path $orchRepo 'state.yaml'
-    if (-not (Test-Path $statePath)) {
-        throw "Orchestration state not found ($statePath). state.yaml is mandatory (protocol.md Step 1) - set ORCH_REPO to the state repo. NEVER recreate state.yaml (absent items = done items)."
-    }
-    $state = Get-Content $statePath -Raw -ErrorAction Stop
-    if ($state -notmatch "(?m)^  $([regex]::Escape($ItemId)):") { return $false }                          # absent = done
-    if ($state -match "(?m)^  $([regex]::Escape($ItemId)):\s*\{\s*status:\s*done") { return $false }       # explicit done
-    return $true
-}
+# Test-SolItemPending lives in tools/sol-state-lib.ps1 (dot-sourced above) — shared with
+# run-tests.ps1 and self-tested by tools/test-bootstrap-guard.ps1.
 
 # ── Step 1: structure checks (always run) ────────────────────────
 $ok = Run-Step 'structure' {
@@ -162,6 +151,21 @@ if ($ok) {
         & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot 'tools\test-ci-retry.ps1')
         if ($LASTEXITCODE -ne 0) {
             throw "ci-test retry self-test failed (exit $LASTEXITCODE) — see tools/test-ci-retry.ps1"
+        }
+    }
+}
+
+# ── Step 2a-ter: bootstrap-guard self-test (always run) ──────────
+# Guards the bootstrap-skip decision shared by verify-fast and run-tests (Test-SolItemPending):
+# a skip that hid a DELETED solution would be a false green. The self-test proves the predicate
+# fails-closed in both directions (done/absent -> FAIL on missing .sln ; pending -> skip ; missing
+# state.yaml -> throw). Pure PowerShell, no dotnet, runs in a child process so its synthetic
+# ORCH_REPO never leaks into the bootstrap-checks below.
+if ($ok) {
+    $ok = Run-Step 'bootstrap-guard: self-test' {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot 'tools\test-bootstrap-guard.ps1')
+        if ($LASTEXITCODE -ne 0) {
+            throw "bootstrap-guard self-test failed (exit $LASTEXITCODE) — see tools/test-bootstrap-guard.ps1"
         }
     }
 }
