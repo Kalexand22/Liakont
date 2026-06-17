@@ -563,6 +563,10 @@ public static class AppBootstrap
         // implémentation Keycloak dans la couche d'auth (seul endroit autorisé — décision D10).
         builder.Services.AddScoped<Security.Abstractions.ITenantUserProvisioningService, Security.Keycloak.KeycloakTenantUserProvisioner>();
 
+        // Gestion des utilisateurs de tenant depuis la console (RB4 inc1 : lister + réinitialiser le
+        // mot de passe). Même couche d'auth ; réutilise le client Admin Keycloak (socle, non modifié).
+        builder.Services.AddScoped<Security.Abstractions.ITenantUserManagementService, Security.Keycloak.KeycloakTenantUserManagementService>();
+
         // Application du statut Suspendu (OPS03.4 lot B) : lookup singleton (cache mémoire court,
         // fail-open documenté) consommé par le filtre de push agent, le middleware et le sign-in.
         builder.Services.AddSingleton<MultiTenancy.ITenantSuspensionLookup, MultiTenancy.TenantSuspensionLookup>();
