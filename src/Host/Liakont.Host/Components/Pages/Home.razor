@@ -2,8 +2,11 @@
 @rendermode InteractiveServer
 @attribute [Authorize]
 @using Liakont.Host.Dashboard
+@using Liakont.Host.Security
+@using Microsoft.AspNetCore.Components.Authorization
 @inject IDashboardQueries DashboardQueries
 @inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthStateProvider
 @inject ILogger<Home> Logger
 
 <PageTitle>Tableau de bord — Liakont</PageTitle>
@@ -41,6 +44,16 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        // RB1 — un super-admin (stratum-admin) opère en cross-tenant : le tableau de bord « / » est
+        // tenant-scopé et n'a pas de sens pour lui. On le redirige vers la Supervision (vue d'ensemble
+        // cross-tenant), son vrai tableau de bord. Aucune requête tenant n'est émise pour lui.
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        if (SuperAdminRoles.IsSuperAdmin(authState.User))
+        {
+            Nav.NavigateTo("/supervision");
+            return;
+        }
+
         try
         {
             _model = await DashboardQueries.GetDashboardAsync();

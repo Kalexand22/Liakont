@@ -1,6 +1,9 @@
+@using Liakont.Host.Security
+@using Microsoft.AspNetCore.Components.Authorization
 @using Stratum.Common.Abstractions.MultiTenancy
 @inject ITenantContext TenantContext
 @inject ITenantQueries TenantQueries
+@inject AuthenticationStateProvider AuthStateProvider
 @inject ILogger<TenantBadge> Logger
 
 @* Affiche le nom (DisplayName) du tenant résolu pour la requête courante dans le chrome de la console
@@ -22,6 +25,15 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // RB1 — un super-admin (stratum-admin) opère en CROSS-TENANT : il n'appartient à aucun tenant,
+        // on n'affiche donc pas de « tenant courant » dans le chrome (même s'il est résolu par défaut via
+        // le RealmTenantMap). La nav masque corrélativement les surfaces tenant-scopées.
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        if (SuperAdminRoles.IsSuperAdmin(authState.User))
+        {
+            return;
+        }
+
         // Requêtes système / non authentifiées : aucun tenant résolu → pas de badge.
         if (!TenantContext.IsResolved || string.IsNullOrWhiteSpace(TenantContext.TenantId))
         {

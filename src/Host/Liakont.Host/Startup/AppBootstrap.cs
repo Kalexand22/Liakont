@@ -572,7 +572,9 @@ public static class AppBootstrap
         builder.Services.AddScoped<Clients.IClientConsoleService, Clients.ClientConsoleService>();
 
         // Navigation providers (sidebar)
-        builder.Services.AddSingleton<INavSectionProvider, HostNavSectionProvider>();
+        // Scoped (et non Singleton) : la visibilité de « Accueil » dépend du contexte cross-tenant du
+        // super-admin (ILiakontConsoleContext scopé + HttpContext de la requête) — RB1.
+        builder.Services.AddScoped<INavSectionProvider, HostNavSectionProvider>();
 
         // FIX209 — assainissement de la nav socle (décision opérateur E5, recette GATE_CONSOLE_WEB run 2) :
         // l'« Annuaire » socle (Agents/Équipes/Délégations — collision avec les « Agents d'extraction » Liakont)

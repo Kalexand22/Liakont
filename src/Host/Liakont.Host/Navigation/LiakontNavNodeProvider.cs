@@ -2,6 +2,7 @@ namespace Liakont.Host.Navigation;
 
 using System.Collections.Generic;
 using Liakont.Host.Security;
+using Microsoft.AspNetCore.Http;
 using Stratum.Common.Abstractions.Security;
 using Stratum.Common.UI.Models;
 
@@ -17,16 +18,27 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
 {
     private readonly IPermissionService _permissions;
     private readonly ILiakontConsoleContext _console;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
-    public LiakontNavNodeProvider(IPermissionService permissions, ILiakontConsoleContext console)
+    public LiakontNavNodeProvider(
+        IPermissionService permissions,
+        ILiakontConsoleContext console,
+        IHttpContextAccessor httpContextAccessor)
     {
         _permissions = permissions;
         _console = console;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     public NavNode GetNavNode()
     {
         var children = new List<NavNode>();
+
+        // RB1 — Un super-admin (stratum-admin) opère en CROSS-TENANT : il n'appartient à aucun tenant.
+        // Les surfaces TENANT-SCOPÉES ci-dessous (Documents/Encaissements/Traitements/Signatures,
+        // Réconciliation, Paramétrage) « n'ont rien à faire là » pour lui — on ne les ajoute qu'en
+        // contexte tenant. Les surfaces cross-tenant (Supervision, Clients, Flotte) restent visibles.
+        var tenantScoped = !IsCrossTenant();
 
         // Documents / Encaissements / Traitements : surfaces de CONSULTATION (liakont.read). La matrice §3
         // (identity-permissions-liakont.md : read = « documents, transmissions, journaux ») et le guide opérateur
@@ -34,7 +46,7 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
         // en lecture ; l'endpoint backing le confirme (GET /runs → liakont.read ; seul POST /runs/trigger, l'action,
         // = liakont.actions). Gardées par liakont.read (finding F5a / RLF03) : un principal sans read (ex. exploitant
         // de flotte) ne les voit pas, et les pages portent la même policy. Le super-admin court-circuite.
-        if (_permissions.HasPermission(LiakontPermissions.Read))
+        if (tenantScoped && _permissions.HasPermission(LiakontPermissions.Read))
         {
             children.Add(new() { Label = "Documents", Href = "/documents" });
             children.Add(new() { Label = "Encaissements", Href = "/encaissements" });
@@ -52,7 +64,7 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
         // n'est montré qu'aux OPÉRATEURS (liakont.actions) : la file de réconciliation est une fonction opérateur
         // (l'endpoint API04 renvoie 403 à un simple lecteur). On garde l'affichage AU RENDU (permissions chargées),
         // pas au calcul du contexte (ouverture de circuit : les claims de permission ne sont pas garantis chargés).
-        if (_console.ReconciliationAvailable)
+        if (tenantScoped && _console.ReconciliationAvailable)
         {
             var pending = _console.ReconciliationPendingCount;
             var showCount = pending > 0 && _permissions.HasPermission(LiakontPermissions.Actions);
@@ -60,10 +72,15 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
             children.Add(new NavNode { Label = label, Href = "/reconciliation" });
         }
 
-        var parametrage = BuildParametrageNode();
-        if (parametrage is not null)
+        // Paramétrage est tenant-scopé (table TVA, comptes PA, agents… du tenant courant) : masqué pour un
+        // super-admin cross-tenant (RB1).
+        if (tenantScoped)
         {
-            children.Add(parametrage);
+            var parametrage = BuildParametrageNode();
+            if (parametrage is not null)
+            {
+                children.Add(parametrage);
+            }
         }
 
         // Supervision : réservée au superviseur — SOUS-MENU (même pattern que Paramétrage) :
@@ -98,6 +115,10 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
             Children = children,
         };
     }
+
+    /// <summary>Vrai si l'utilisateur courant est un super-admin opérant en CROSS-TENANT (RB1) — voir
+    /// <see cref="CrossTenantDetection"/>. Les surfaces tenant-scopées lui sont alors masquées.</summary>
+    private bool IsCrossTenant() => CrossTenantDetection.IsCrossTenant(_console, _httpContextAccessor);
 
     /// <summary>
     /// Nœud « Paramétrage » (finding F5a / RLF03, contraint par FIX208) :

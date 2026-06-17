@@ -4,6 +4,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Bunit;
+using Bunit.TestDoubles;
 using FluentAssertions;
 using Liakont.Host.Components.Pages;
 using Liakont.Host.Dashboard;
@@ -15,6 +16,8 @@ using Xunit;
 
 public sealed class HomeTests : BunitContext
 {
+    private readonly TestAuthorizationContext _auth;
+
     public HomeTests()
     {
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -22,6 +25,10 @@ public sealed class HomeTests : BunitContext
 
         // Le tableau de bord embarque le graphique « Année en cours » (Chart du design-system).
         Services.AddScoped<IChartRenderer, StubChartRenderer>();
+
+        // RB1 — Home lit l'état d'auth (un super-admin est redirigé vers la Supervision). Défaut : non
+        // authentifié (donc non super-admin) → le tableau de bord tenant se rend normalement.
+        _auth = this.AddAuthorization();
     }
 
     [Fact]
@@ -44,6 +51,22 @@ public sealed class HomeTests : BunitContext
 
         // L'échec d'assemblage reste VISIBLE (bandeau) et n'expose pas le tableau de bord (anti faux-vert).
         cut.FindAll("[data-testid='dashboard-error']").Should().ContainSingle();
+        cut.FindAll("[data-testid='liakont-dashboard']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Should_Redirect_A_Super_Admin_To_Supervision_Instead_Of_The_Tenant_Dashboard()
+    {
+        // RB1 — un super-admin (stratum-admin) opère en cross-tenant : « / » le redirige vers la
+        // Supervision (vue d'ensemble cross-tenant) et n'affiche jamais le tableau de bord tenant.
+        _auth.SetAuthorized("sysadmin");
+        _auth.SetRoles("stratum-admin");
+        Services.AddScoped<IDashboardQueries>(_ => FakeDashboardQueries.Succeeding(BuildModel()));
+
+        var cut = Render<Home>();
+
+        var nav = Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
+        nav.Uri.Should().EndWith("/supervision");
         cut.FindAll("[data-testid='liakont-dashboard']").Should().BeEmpty();
     }
 

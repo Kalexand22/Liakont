@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Bunit;
+using Bunit.TestDoubles;
 using FluentAssertions;
 using Liakont.Host.Components.Layout;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,10 +19,17 @@ using Xunit;
 /// </summary>
 public sealed class TenantBadgeTests : BunitContext
 {
+    private readonly TestAuthorizationContext _authContext;
+
     public TenantBadgeTests()
     {
         JSInterop.Mode = JSRuntimeMode.Loose;
         Services.AddLogging();
+
+        // RB1 — TenantBadge lit l'état d'auth (le badge est masqué pour un super-admin cross-tenant).
+        // Défaut : utilisateur NON authentifié (donc non super-admin) → comportement nominal du badge
+        // préservé pour les cas existants.
+        _authContext = this.AddAuthorization();
     }
 
     [Fact]
@@ -56,6 +64,21 @@ public sealed class TenantBadgeTests : BunitContext
         var cut = Render<TenantBadge>();
 
         // Lecture annexe : un échec ne doit jamais casser le chrome — pas de badge, pas d'exception propagée.
+        cut.FindAll("[data-testid='topbar-tenant']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Renders_nothing_for_a_cross_tenant_super_admin()
+    {
+        // RB1 : un super-admin (stratum-admin) opère en cross-tenant — aucun « tenant courant » affiché,
+        // même si un tenant est résolu par défaut (via le RealmTenantMap).
+        _authContext.SetAuthorized("sysadmin");
+        _authContext.SetRoles("stratum-admin");
+        Services.AddScoped<ITenantContext>(_ => new FakeTenantContext("acme"));
+        Services.AddScoped<ITenantQueries>(_ => FakeTenantQueries.With("acme", "Cabinet Durand"));
+
+        var cut = Render<TenantBadge>();
+
         cut.FindAll("[data-testid='topbar-tenant']").Should().BeEmpty();
     }
 

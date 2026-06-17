@@ -128,6 +128,8 @@ public sealed class ReconciliationTests : BunitContext
 
         public int ReconciliationPendingCount => 0;
 
+        public bool IsCrossTenantAdmin => false;
+
         public Task EnsureInitializedAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 

@@ -3,6 +3,7 @@ namespace Liakont.Host.Tests.Unit.Navigation;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
@@ -10,6 +11,7 @@ using Liakont.Host.Navigation;
 using Liakont.Modules.Ingestion.Contracts;
 using Liakont.Modules.Reconciliation.Contracts;
 using Liakont.Modules.Reconciliation.Contracts.DTOs;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.Logging.Abstractions;
 using Stratum.Common.Abstractions.MultiTenancy;
 using Xunit;
@@ -20,7 +22,7 @@ public sealed class LiakontConsoleContextTests
     public async Task ReconciliationAvailable_Should_Be_True_When_Pool_Has_Pdfs()
     {
         var store = new FakeIngestedPdfStore([new PooledPdfReference("p1", "facture.pdf")]);
-        var context = new LiakontConsoleContext(new FakeTenantContext("tenant-a"), store, new FakeReconciliationQueries(), NullLogger<LiakontConsoleContext>.Instance);
+        var context = new LiakontConsoleContext(new FakeTenantContext("tenant-a"), store, new FakeReconciliationQueries(), NonAdminAuth(), NullLogger<LiakontConsoleContext>.Instance);
 
         await context.EnsureInitializedAsync();
 
@@ -31,7 +33,7 @@ public sealed class LiakontConsoleContextTests
     public async Task ReconciliationAvailable_Should_Be_False_When_Pool_Is_Empty()
     {
         var store = new FakeIngestedPdfStore([]);
-        var context = new LiakontConsoleContext(new FakeTenantContext("tenant-a"), store, new FakeReconciliationQueries(), NullLogger<LiakontConsoleContext>.Instance);
+        var context = new LiakontConsoleContext(new FakeTenantContext("tenant-a"), store, new FakeReconciliationQueries(), NonAdminAuth(), NullLogger<LiakontConsoleContext>.Instance);
 
         await context.EnsureInitializedAsync();
 
@@ -42,7 +44,7 @@ public sealed class LiakontConsoleContextTests
     public async Task ReconciliationAvailable_Should_Be_False_And_Store_Untouched_When_Tenant_Unresolved()
     {
         var store = new FakeIngestedPdfStore([new PooledPdfReference("p1", "facture.pdf")]);
-        var context = new LiakontConsoleContext(new FakeTenantContext(null), store, new FakeReconciliationQueries(), NullLogger<LiakontConsoleContext>.Instance);
+        var context = new LiakontConsoleContext(new FakeTenantContext(null), store, new FakeReconciliationQueries(), NonAdminAuth(), NullLogger<LiakontConsoleContext>.Instance);
 
         await context.EnsureInitializedAsync();
 
@@ -54,7 +56,7 @@ public sealed class LiakontConsoleContextTests
     public async Task EnsureInitializedAsync_Should_Be_Idempotent()
     {
         var store = new FakeIngestedPdfStore([new PooledPdfReference("p1", "facture.pdf")]);
-        var context = new LiakontConsoleContext(new FakeTenantContext("tenant-a"), store, new FakeReconciliationQueries(), NullLogger<LiakontConsoleContext>.Instance);
+        var context = new LiakontConsoleContext(new FakeTenantContext("tenant-a"), store, new FakeReconciliationQueries(), NonAdminAuth(), NullLogger<LiakontConsoleContext>.Instance);
 
         await context.EnsureInitializedAsync();
         await context.EnsureInitializedAsync();
@@ -71,7 +73,7 @@ public sealed class LiakontConsoleContextTests
             Proposals = [Proposal(), Proposal()],
             Orphans = [Orphan()],
         };
-        var context = new LiakontConsoleContext(new FakeTenantContext("tenant-a"), store, queries, NullLogger<LiakontConsoleContext>.Instance);
+        var context = new LiakontConsoleContext(new FakeTenantContext("tenant-a"), store, queries, NonAdminAuth(), NullLogger<LiakontConsoleContext>.Instance);
 
         await context.EnsureInitializedAsync();
 
@@ -88,7 +90,7 @@ public sealed class LiakontConsoleContextTests
             Proposals = [Proposal()],
             Orphans = [Orphan()],
         };
-        var context = new LiakontConsoleContext(new FakeTenantContext("tenant-a"), store, queries, NullLogger<LiakontConsoleContext>.Instance);
+        var context = new LiakontConsoleContext(new FakeTenantContext("tenant-a"), store, queries, NonAdminAuth(), NullLogger<LiakontConsoleContext>.Instance);
 
         await context.EnsureInitializedAsync();
 
@@ -101,13 +103,48 @@ public sealed class LiakontConsoleContextTests
     {
         var store = new FakeIngestedPdfStore([new PooledPdfReference("p1", "facture.pdf")]);
         var queries = new ThrowingReconciliationQueries();
-        var context = new LiakontConsoleContext(new FakeTenantContext("tenant-a"), store, queries, NullLogger<LiakontConsoleContext>.Instance);
+        var context = new LiakontConsoleContext(new FakeTenantContext("tenant-a"), store, queries, NonAdminAuth(), NullLogger<LiakontConsoleContext>.Instance);
 
         await context.EnsureInitializedAsync();
 
         context.ReconciliationAvailable.Should().BeTrue();
         context.ReconciliationPendingCount.Should().Be(0);
     }
+
+    [Fact]
+    public async Task IsCrossTenantAdmin_Should_Be_True_For_A_Super_Admin_And_Skip_Tenant_Preload()
+    {
+        // RB1 : un super-admin (stratum-admin) opère en cross-tenant — IsCrossTenantAdmin est vrai et AUCUNE
+        // surface tenant n'est pré-chargée (le pool n'est jamais lu), même si un tenant est résolu par défaut.
+        var store = new FakeIngestedPdfStore([new PooledPdfReference("p1", "facture.pdf")]);
+        var context = new LiakontConsoleContext(
+            new FakeTenantContext("tenant-a"), store, new FakeReconciliationQueries(), AdminAuth(), NullLogger<LiakontConsoleContext>.Instance);
+
+        await context.EnsureInitializedAsync();
+
+        context.IsCrossTenantAdmin.Should().BeTrue();
+        context.ReconciliationAvailable.Should().BeFalse();
+        store.ListCallCount.Should().Be(0, "un super-admin cross-tenant ne pré-charge aucune surface tenant");
+    }
+
+    [Fact]
+    public async Task IsCrossTenantAdmin_Should_Be_False_For_A_Non_Admin_User()
+    {
+        var store = new FakeIngestedPdfStore([]);
+        var context = new LiakontConsoleContext(
+            new FakeTenantContext("tenant-a"), store, new FakeReconciliationQueries(), NonAdminAuth(), NullLogger<LiakontConsoleContext>.Instance);
+
+        await context.EnsureInitializedAsync();
+
+        context.IsCrossTenantAdmin.Should().BeFalse();
+    }
+
+    private static AuthenticationStateProvider NonAdminAuth() =>
+        new FakeAuthStateProvider(new ClaimsPrincipal(new ClaimsIdentity()));
+
+    private static AuthenticationStateProvider AdminAuth() =>
+        new FakeAuthStateProvider(new ClaimsPrincipal(
+            new ClaimsIdentity([new Claim(ClaimTypes.Role, "stratum-admin")], authenticationType: "test")));
 
     private static ReconciliationProposalDto Proposal() => new(
         Guid.NewGuid(), "pool", "f.pdf", Guid.NewGuid(), "TextMatching", "Medium", "détail", DateTimeOffset.UtcNow);
@@ -170,6 +207,16 @@ public sealed class LiakontConsoleContextTests
         public string? TenantId { get; }
 
         public bool IsResolved => TenantId is not null;
+    }
+
+    private sealed class FakeAuthStateProvider : AuthenticationStateProvider
+    {
+        private readonly ClaimsPrincipal _user;
+
+        public FakeAuthStateProvider(ClaimsPrincipal user) => _user = user;
+
+        public override Task<AuthenticationState> GetAuthenticationStateAsync() =>
+            Task.FromResult(new AuthenticationState(_user));
     }
 
     private sealed class ThrowingReconciliationQueries : IReconciliationQueries
