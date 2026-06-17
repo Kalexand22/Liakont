@@ -2,6 +2,7 @@ namespace Liakont.Modules.Ingestion.Tests.Integration.Doubles;
 
 using System;
 using System.Collections.Concurrent;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Liakont.Modules.Staging.Contracts;
@@ -25,6 +26,9 @@ internal sealed class RecordingPayloadStagingStore : IPayloadStagingStore
 
     /// <summary>Nombre d'entrées effectivement stagées.</summary>
     public int Count => _staged.Count;
+
+    /// <summary>JSON canonique de l'unique entrée stagée (lecture d'invariant pour les tests mono-document).</summary>
+    public string SingleStagedJson => _staged.Values.Single();
 
     /// <summary>Simule la PERTE du contenu stagé (ex. magasin sous l'arbre de build effacé au redéploiement) :
     /// vide les entrées sans toucher au compteur <see cref="WriteAttempts"/> — pour exercer la réhydratation au

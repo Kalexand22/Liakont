@@ -96,6 +96,13 @@ internal static class DocumentCheckEvaluator
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(pivot);
 
+        // Émetteur rempli au READ-TIME depuis le profil tenant COURANT (ADR-0023 amendé / RB9) : l'agent ne
+        // porte plus l'émetteur, et l'anti-doublon F06 hashe le pivot SOURCE à l'ingestion. On enrichit ICI,
+        // avant mapping/validation, pour que SupplierIdentityRule et la nature d'opération voient l'identité
+        // du tenant. Idempotent : un émetteur déjà porté (389 = mandant) n'est pas écrasé.
+        var tenantSettings = services.GetRequiredService<ITenantSettingsQueries>();
+        pivot = await PivotEmitterEnricher.EnrichFromTenantAsync(pivot, tenantSettings, companyId, cancellationToken);
+
         var mappingService = services.GetRequiredService<ITvaMappingService>();
         var plan = CheckTvaMapping.BuildPlan(pivot);
         var mapping = await mappingService.MapAsync(companyId, plan.Requests, cancellationToken);
@@ -111,7 +118,6 @@ internal static class DocumentCheckEvaluator
                 services, companyId, documentNumber, TableAbsentReason, pivot, buyerConfirmedB2C, cancellationToken);
         }
 
-        var tenantSettings = services.GetRequiredService<ITenantSettingsQueries>();
         if (!mapping.IsValidated && await IsProductionContextAsync(tenantSettings, companyId, cancellationToken))
         {
             // GARDE-FOU PRODUCTION (item PIP01b §3) — table non validée + compte PA production = tout reste Blocked.

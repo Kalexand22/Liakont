@@ -103,6 +103,70 @@ public sealed class SendTenantJobTests
     }
 
     [Fact]
+    public async Task ReadyToSend_With_Unresolvable_Emitter_Is_Held_Not_Transmitted()
+    {
+        // RB9 / garde « bloquer plutôt qu'envoyer faux » : le pivot stagé n'a pas d'émetteur et le profil tenant
+        // n'en fournit pas (vidé entre le CHECK et le SEND) → enrichissement read-time = émetteur toujours nul →
+        // HOLD : on ne transmet PAS un document sans vendeur (et l'archive ne déréférence jamais un Supplier nul).
+        var id = Guid.NewGuid();
+        var document = SendTestData.Document(id, "ReadyToSend");
+        var queries = new SendTestDoubles.ConfigurableDocumentQueries();
+        queries.AddDocument(document);
+        queries.AddInState("ReadyToSend", SendTestData.Summary(id, "ReadyToSend"));
+        var staging = new SendTestDoubles.MapStagingStore();
+        staging.Stage(id, CanonicalJson.Serialize(SendTestData.SupplierLessPivot(document.DocumentNumber)));
+
+        var lifecycle = new SendTestDoubles.RecordingDocumentLifecycle();
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var fake = await PublishedFakeAsync(FakePaScenario.Success);
+
+        // Profil tenant SANS émetteur (null) : l'enrichissement read-time ne peut pas résoudre le vendeur.
+        var tenantSettings = new SendTestDoubles.ConfigurableTenantSettingsQueries(TenantCompany, new[] { SendTestData.ActiveAccount() });
+        var provider = BuildProvider(tenantSettings, queries, lifecycle, staging, new SendTestDoubles.RecordingStagingPurgeService(true), archive, runLogs, fake);
+
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        lifecycle.BeganSending.Should().BeEmpty("émetteur non résolu = aucun envoi (HOLD).");
+        lifecycle.Issued.Should().BeEmpty();
+        fake.IssuedDocumentNumbers.Should().BeEmpty();
+        fake.Calls.Should().NotContain(c => c.Method == nameof(IPaClient.SendDocumentAsync), "on ne transmet jamais un document sans émetteur.");
+        archive.Requests.Should().BeEmpty("aucune archive d'un document non transmis.");
+    }
+
+    [Fact]
+    public async Task ReadyToSend_With_Null_Supplier_Is_Filled_From_Tenant_Profile_And_Transmitted()
+    {
+        // RB9 : l'émetteur est rempli au READ-TIME depuis le profil tenant. Pivot stagé SANS vendeur + profil
+        // renseigné → enrichissement → vendeur résolu → transmission nominale. Preuve que le SEND appelle bien
+        // l'enrichisseur : sans lui, la garde EmitterUnresolved bloquerait l'envoi (cf. test HOLD ci-dessus).
+        var id = Guid.NewGuid();
+        var document = SendTestData.Document(id, "ReadyToSend");
+        var queries = new SendTestDoubles.ConfigurableDocumentQueries();
+        queries.AddDocument(document);
+        queries.AddInState("ReadyToSend", SendTestData.Summary(id, "ReadyToSend"));
+        var staging = new SendTestDoubles.MapStagingStore();
+        staging.Stage(id, CanonicalJson.Serialize(SendTestData.SupplierLessPivot(document.DocumentNumber)));
+
+        var lifecycle = new SendTestDoubles.RecordingDocumentLifecycle();
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var fake = await PublishedFakeAsync(FakePaScenario.Success);
+        var tenantSettings = new SendTestDoubles.ConfigurableTenantSettingsQueries(
+            TenantCompany,
+            new[] { SendTestData.ActiveAccount() },
+            SendTestData.EmitterProfile(),
+            SendTestData.FiscalSettings());
+        var provider = BuildProvider(tenantSettings, queries, lifecycle, staging, new SendTestDoubles.RecordingStagingPurgeService(true), archive, runLogs, fake);
+
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        lifecycle.BeganSending.Should().ContainSingle().Which.Should().Be(id, "émetteur rempli depuis le profil → envoi nominal.");
+        lifecycle.Issued.Should().ContainSingle().Which.Should().Be(id);
+        fake.IssuedDocumentNumbers.Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task ReadyToSend_With_FacturX_Capable_Pa_Generates_Transmits_Journals_And_Traces()
     {
         // Chemin « Essentiel » bout-en-bout (FX07, F16 §6.1/§7) : facture B2C → Factur-X généré AVANT

@@ -1,25 +1,47 @@
-namespace Liakont.Modules.Ingestion.Infrastructure;
+namespace Liakont.Modules.Pipeline.Infrastructure;
 
 using System;
+using System.Threading;
+using System.Threading.Tasks;
 using Liakont.Agent.Contracts.Pivot;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
+using Liakont.Modules.TenantSettings.Contracts.Queries;
 
 /// <summary>
 /// Remplit l'identité de l'émetteur (SIREN, raison sociale, adresse) et la nature d'opération d'un pivot
-/// reçu d'un agent DEPUIS le profil du tenant (ADR-0023 amendé) : l'agent n'extrait que la base source et
-/// ne porte JAMAIS le SIREN émetteur (F01-F02 §4.3) — il est l'identité du TENANT, paramétrée côté
-/// plateforme. Remplissage « QUAND ABSENT » : un document qui porte déjà un émetteur (ex. 389
-/// autofacturation sous mandat, où le vendeur est le MANDANT, pas le tenant) n'est jamais écrasé. Si le
-/// profil tenant ou le paramétrage fiscal est incomplet, le champ reste <c>null</c> → le document est
-/// bloqué au CHECK (SUPPLIER_SIREN_MISSING / nature d'opération manquante), jamais deviné (CLAUDE.md
-/// n°2/n°3). Fonction PURE (aucune I/O) — testable en isolation.
+/// depuis le profil du tenant (ADR-0023 amendé). Appliqué au READ-TIME — CHECK et SEND, au chargement du
+/// pivot stagé — JAMAIS à l'ingestion (RB9) : l'anti-doublon F06 hashe le pivot SOURCE (ce que l'agent a
+/// extrait), donc l'identité émetteur — donnée PLATEFORME, mutable avec le profil — ne doit PAS entrer
+/// dans l'empreinte (sinon un changement de profil entre deux extractions de la même source casserait
+/// l'idempotence et produirait une fausse « altération »). L'émetteur est ainsi TOUJOURS résolu au profil
+/// COURANT au moment du traitement.
+/// <para>
+/// Remplissage « QUAND ABSENT » : un document portant déjà un émetteur (ex. 389 autofacturation, où le
+/// vendeur est le MANDANT) n'est jamais écrasé. Profil tenant ou paramétrage fiscal incomplet → champ
+/// laissé <c>null</c> → document bloqué au CHECK (jamais deviné, CLAUDE.md n°2/n°3). <see cref="Enrich"/>
+/// est PURE (testable) ; <see cref="EnrichFromTenantAsync"/> lit le paramétrage tenant puis l'applique.
+/// </para>
 /// </summary>
 internal static class PivotEmitterEnricher
 {
+    /// <summary>Lit le profil + le paramétrage fiscal du tenant (courant) puis applique l'enrichissement.</summary>
+    public static async Task<PivotDocumentDto> EnrichFromTenantAsync(
+        PivotDocumentDto pivot,
+        ITenantSettingsQueries tenantSettings,
+        Guid companyId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(pivot);
+        ArgumentNullException.ThrowIfNull(tenantSettings);
+
+        var profile = await tenantSettings.GetTenantProfile(companyId, cancellationToken);
+        var fiscal = await tenantSettings.GetFiscalSettings(companyId, cancellationToken);
+        return Enrich(pivot, profile, fiscal);
+    }
+
     /// <summary>
-    /// Renvoie le pivot avec l'émetteur et la nature d'opération remplis depuis le profil/paramétrage
-    /// fiscal du tenant quand le document ne les porte pas déjà. Renvoie le document inchangé si rien
-    /// n'est à remplir.
+    /// Renvoie le pivot avec l'émetteur et la nature d'opération remplis depuis le profil/fiscal du tenant
+    /// quand le document ne les porte pas déjà. Renvoie le document inchangé si rien n'est à remplir.
     /// </summary>
     public static PivotDocumentDto Enrich(PivotDocumentDto document, TenantProfileDto? profile, FiscalSettingsDto? fiscal)
     {
@@ -31,7 +53,7 @@ internal static class PivotEmitterEnricher
         if (ReferenceEquals(supplier, document.Supplier) && operationCategory == document.OperationCategory)
         {
             // Rien à remplir (déjà porté par la source, ou profil/fiscal incomplet → reste null) : pas de
-            // reconstruction inutile (préserve l'empreinte canonique d'un document déjà complet).
+            // reconstruction inutile (préserve l'identité de l'objet pour le court-circuit des appelants).
             return document;
         }
 

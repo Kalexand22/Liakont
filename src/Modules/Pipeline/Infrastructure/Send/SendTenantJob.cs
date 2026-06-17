@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Liakont.Agent.Contracts.Pivot;
+using Liakont.Agent.Contracts.Serialization;
 using Liakont.Modules.Archive.Contracts;
 using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Documents.Contracts.Lifecycle;
@@ -161,34 +162,40 @@ public sealed partial class SendTenantJob : ITenantJob
 
         var tally = new SendTally();
 
+        // Émetteur (profil tenant + paramétrage fiscal) résolu UNE fois par exécution de job et propagé à
+        // l'enrichissement read-time de CHAQUE document (RB9) — aucune relecture tenant par document (évite un
+        // N+1 sur le lot ; symétrique au hoist de companyId). Snapshot cohérent pour toute la passe SEND.
+        var tenantProfile = await tenantSettings.GetTenantProfile(companyId.Value, cancellationToken);
+        var fiscalSettings = await tenantSettings.GetFiscalSettings(companyId.Value, cancellationToken);
+
         // 1) PRE-SEND : raccroche les Sending restés en suspens (crash) — repris dès le 1er cycle (TRK03).
         var sending = await services.GetRequiredService<IDocumentQueries>().GetPotentiallySentDocumentsAsync(cancellationToken);
         foreach (var summary in sending)
         {
-            tally.Add(await SafeProcessAsync(() => RecoverSendingAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, summary.Id, logger, cancellationToken), summary.Id, logger, cancellationToken));
+            tally.Add(await SafeProcessAsync(() => RecoverSendingAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, tenantProfile, fiscalSettings, summary.Id, logger, cancellationToken), summary.Id, logger, cancellationToken));
         }
 
         // 2) Retry des TechnicalError (anti-doublon vérifié AVANT tout renvoi).
         await ForEachByStateAsync(
             services,
             TechnicalErrorStateName,
-            async id => tally.Add(await SafeProcessAsync(() => RetryTechnicalErrorAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, id, logger, cancellationToken), id, logger, cancellationToken)),
+            async id => tally.Add(await SafeProcessAsync(() => RetryTechnicalErrorAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, tenantProfile, fiscalSettings, id, logger, cancellationToken), id, logger, cancellationToken)),
             cancellationToken);
 
         // 3) Envoi des ReadyToSend (les FACTURES d'origine des avoirs sont émises ICI, avant la réconciliation).
-        await SendReadyToSendPassAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, tally, logger, cancellationToken);
+        await SendReadyToSendPassAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, tenantProfile, fiscalSettings, tally, logger, cancellationToken);
 
         // 4) RÉORDONNANCEMENT DES AVOIRS (PIP02, F07 §B.5) : un avoir resté Blocked parce que sa facture d'origine
         //    n'était pas (encore) émise est ré-évalué dès lors que l'origine est désormais émise (Blocked →
         //    ReadyToSend). Cela GARANTIT l'ordre chronologique « l'avoir après sa facture d'origine » : l'origine
         //    vient d'être émise en (3), l'avoir débloqué est envoyé en (5) — jamais l'inverse.
-        var unblockedCreditNotes = await ReconcileCreditNotesAsync(services, companyId.Value, tenantId, logger, cancellationToken);
+        var unblockedCreditNotes = await ReconcileCreditNotesAsync(services, companyId.Value, tenantProfile, fiscalSettings, tenantId, logger, cancellationToken);
 
         // 5) Envoi CIBLÉ des avoirs fraîchement débloqués (on n'envoie QUE ces IDs, jamais un re-snapshot de tous
         //    les ReadyToSend : sinon les différés / ignorés de l'étape 3 seraient recomptés dans la trace SEND).
         foreach (var documentId in unblockedCreditNotes)
         {
-            tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, documentId, logger, cancellationToken), documentId, logger, cancellationToken));
+            tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, tenantProfile, fiscalSettings, documentId, logger, cancellationToken), documentId, logger, cancellationToken));
         }
 
         var detail = unblockedCreditNotes.Count > 0
@@ -206,13 +213,15 @@ public sealed partial class SendTenantJob : ITenantJob
         TimeProvider timeProvider,
         string tenantId,
         Guid companyId,
+        TenantProfileDto? tenantProfile,
+        FiscalSettingsDto? fiscalSettings,
         SendTally tally,
         ILogger logger,
         CancellationToken cancellationToken) =>
         ForEachByStateAsync(
             services,
             ReadyToSendStateName,
-            async id => tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, account, timeProvider, tenantId, companyId, id, logger, cancellationToken), id, logger, cancellationToken)),
+            async id => tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, account, timeProvider, tenantId, companyId, tenantProfile, fiscalSettings, id, logger, cancellationToken), id, logger, cancellationToken)),
             cancellationToken);
 
     /// <summary>Premier compte Plateforme Agréée ACTIF du tenant (l'envoi passe par lui), ou <c>null</c>.</summary>
@@ -241,6 +250,8 @@ public sealed partial class SendTenantJob : ITenantJob
         TimeProvider timeProvider,
         string tenantId,
         Guid companyId,
+        TenantProfileDto? tenantProfile,
+        FiscalSettingsDto? fiscalSettings,
         Guid documentId,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -252,7 +263,7 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Skipped;
         }
 
-        var staged = await ReadStagedPivotAsync(services, tenantId, document, logger, cancellationToken);
+        var staged = await ReadStagedPivotAsync(services, tenantId, tenantProfile, fiscalSettings, document, logger, cancellationToken);
         if (staged.Status == StagedReadStatus.NotStaged)
         {
             return SendOutcome.Deferred;
@@ -266,6 +277,13 @@ public sealed partial class SendTenantJob : ITenantJob
             // (« bloquer plutôt qu'envoyer faux »). Le document est ré-examiné chaque cycle jusqu'à ré-extraction.
             LogStagingIntegrityNotSent(logger, documentId, tenantId);
             return SendOutcome.Failed;
+        }
+
+        if (staged.Status == StagedReadStatus.EmitterUnresolved)
+        {
+            // Émetteur non résolu au SEND (profil tenant vidé entre le CHECK et l'envoi, RB9) : HOLD — aucune
+            // transmission ni archive. Différé : repris dès que le profil retrouve son SIREN (déjà journalisé).
+            return SendOutcome.Deferred;
         }
 
         if (IsUnsendableCreditNote(staged.Pivot!, paClient))
@@ -312,6 +330,8 @@ public sealed partial class SendTenantJob : ITenantJob
         TimeProvider timeProvider,
         string tenantId,
         Guid companyId,
+        TenantProfileDto? tenantProfile,
+        FiscalSettingsDto? fiscalSettings,
         Guid documentId,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -331,7 +351,7 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Skipped;
         }
 
-        var staged = await ReadStagedPivotAsync(services, tenantId, document, logger, cancellationToken);
+        var staged = await ReadStagedPivotAsync(services, tenantId, tenantProfile, fiscalSettings, document, logger, cancellationToken);
         if (staged.Status == StagedReadStatus.NotStaged)
         {
             return SendOutcome.Deferred;
@@ -345,6 +365,13 @@ public sealed partial class SendTenantJob : ITenantJob
             // (« bloquer plutôt qu'envoyer faux »). Le document est ré-examiné chaque cycle jusqu'à ré-extraction.
             LogStagingIntegrityNotSent(logger, documentId, tenantId);
             return SendOutcome.Failed;
+        }
+
+        if (staged.Status == StagedReadStatus.EmitterUnresolved)
+        {
+            // Émetteur non résolu au SEND (profil tenant vidé entre le CHECK et l'envoi, RB9) : HOLD — aucune
+            // transmission ni archive. Différé : repris dès que le profil retrouve son SIREN (déjà journalisé).
+            return SendOutcome.Deferred;
         }
 
         if (IsUnsendableCreditNote(staged.Pivot!, paClient))
@@ -395,6 +422,8 @@ public sealed partial class SendTenantJob : ITenantJob
         TimeProvider timeProvider,
         string tenantId,
         Guid companyId,
+        TenantProfileDto? tenantProfile,
+        FiscalSettingsDto? fiscalSettings,
         Guid documentId,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -406,7 +435,7 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Skipped;
         }
 
-        var staged = await ReadStagedPivotAsync(services, tenantId, document, logger, cancellationToken);
+        var staged = await ReadStagedPivotAsync(services, tenantId, tenantProfile, fiscalSettings, document, logger, cancellationToken);
         if (staged.Status == StagedReadStatus.NotStaged)
         {
             return SendOutcome.Deferred;
@@ -420,6 +449,13 @@ public sealed partial class SendTenantJob : ITenantJob
             // (« bloquer plutôt qu'envoyer faux »). Le document est ré-examiné chaque cycle jusqu'à ré-extraction.
             LogStagingIntegrityNotSent(logger, documentId, tenantId);
             return SendOutcome.Failed;
+        }
+
+        if (staged.Status == StagedReadStatus.EmitterUnresolved)
+        {
+            // Émetteur non résolu au SEND (profil tenant vidé entre le CHECK et l'envoi, RB9) : HOLD — aucune
+            // transmission ni archive. Différé : repris dès que le profil retrouve son SIREN (déjà journalisé).
+            return SendOutcome.Deferred;
         }
 
         // Garde-fou avoirs : un avoir vers une PA sans capacité avoirs reste ReadyToSend (traité par PIP02),
@@ -734,6 +770,8 @@ public sealed partial class SendTenantJob : ITenantJob
     private static async Task<StagedRead> ReadStagedPivotAsync(
         IServiceProvider services,
         string tenantId,
+        TenantProfileDto? tenantProfile,
+        FiscalSettingsDto? fiscalSettings,
         DocumentDto document,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -744,6 +782,30 @@ public sealed partial class SendTenantJob : ITenantJob
         {
             var canonicalJson = await staging.ReadAsync(key, cancellationToken);
             var pivot = PivotCanonicalJsonReader.Read(canonicalJson);
+
+            // Émetteur rempli au READ-TIME depuis le profil tenant (ADR-0023 amendé / RB9) : le blob stagé est le
+            // pivot SOURCE (hashé à l'ingestion pour l'anti-doublon F06). On l'enrichit ICI pour l'émission, et on
+            // RE-SÉRIALISE l'enrichi pour que l'archive WORM porte EXACTEMENT ce qui est émis. Le profil/fiscal sont
+            // résolus UNE fois en tête de job (ExecuteAsync) et propagés — aucune relecture tenant par document.
+            var enriched = PivotEmitterEnricher.Enrich(pivot, tenantProfile, fiscalSettings);
+
+            // Garde anti-« envoi faux » (RB9) : si le profil tenant a perdu son SIREN entre le CHECK (passé,
+            // émetteur rempli) et le SEND, l'émetteur redevient nul. On NE transmet PAS un document sans
+            // émetteur (BT-27/BT-31 obligatoires) — HOLD, repris dès que le profil est rétabli (CLAUDE.md n°3).
+            // Sans cette garde, le chemin non-Factur-X transmettrait sans vendeur puis l'archive lèverait
+            // (NRE sur Supplier) APRÈS l'envoi : exactement l'inversion à proscrire.
+            if (enriched.Supplier is null)
+            {
+                LogEmitterUnresolvedNotSent(logger, document.Id, document.DocumentNumber, tenantId);
+                return new StagedRead(StagedReadStatus.EmitterUnresolved, null, null);
+            }
+
+            if (!ReferenceEquals(enriched, pivot))
+            {
+                pivot = enriched;
+                canonicalJson = CanonicalJson.Serialize(enriched);
+            }
+
             return new StagedRead(StagedReadStatus.Ok, pivot, canonicalJson);
         }
         catch (StagedPayloadNotFoundException)
@@ -956,6 +1018,10 @@ public sealed partial class SendTenantJob : ITenantJob
     [LoggerMessage(EventId = 7211, Level = LogLevel.Error,
         Message = "SEND : contenu stagé altéré/illisible pour le document {DocumentId} (tenant « {TenantId} ») — NON envoyé (intégrité) ; ré-extraction requise. Aucune transition d'état (document hors Detected).")]
     private static partial void LogStagingIntegrityNotSent(ILogger logger, Guid documentId, string tenantId);
+
+    [LoggerMessage(EventId = 7218, Level = LogLevel.Warning,
+        Message = "SEND : émetteur non résolu pour le document {DocumentNumber} ({DocumentId}, tenant « {TenantId} ») — le profil tenant n'a pas (ou plus) de SIREN. Document NON transmis (HOLD, repris automatiquement au prochain cycle). Action opérateur : renseignez le SIREN et la raison sociale dans Paramétrage › Profil de l'entreprise.")]
+    private static partial void LogEmitterUnresolvedNotSent(ILogger logger, Guid documentId, string documentNumber, string tenantId);
 
     [LoggerMessage(EventId = 7212, Level = LogLevel.Error,
         Message = "SEND : échec inattendu sur le document {DocumentId} — document ignoré ce cycle, traitement du tenant poursuivi.")]

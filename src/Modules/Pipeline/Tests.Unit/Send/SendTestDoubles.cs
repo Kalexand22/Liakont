@@ -256,11 +256,19 @@ internal static class SendTestDoubles
     {
         private readonly Guid? _companyId;
         private readonly IReadOnlyList<PaAccountDto> _accounts;
+        private readonly TenantProfileDto? _profile;
+        private readonly FiscalSettingsDto? _fiscal;
 
-        public ConfigurableTenantSettingsQueries(Guid? companyId, IReadOnlyList<PaAccountDto>? accounts = null)
+        public ConfigurableTenantSettingsQueries(
+            Guid? companyId,
+            IReadOnlyList<PaAccountDto>? accounts = null,
+            TenantProfileDto? profile = null,
+            FiscalSettingsDto? fiscal = null)
         {
             _companyId = companyId;
             _accounts = accounts ?? Array.Empty<PaAccountDto>();
+            _profile = profile;
+            _fiscal = fiscal;
         }
 
         public Task<Guid?> GetCurrentCompanyId(CancellationToken ct = default) => Task.FromResult(_companyId);
@@ -274,11 +282,13 @@ internal static class SendTestDoubles
         public Task<IReadOnlyList<PaAccountDto>> GetPaAccounts(Guid companyId, CancellationToken ct = default) =>
             Task.FromResult(_accounts);
 
+        // Lus au READ-TIME par l'enrichissement émetteur (RB9) : profil null = « non configuré » → l'enrichissement
+        // est un no-op (un pivot portant déjà son émetteur n'est jamais écrasé) ; profil renseigné = remplissage.
         public Task<TenantProfileDto?> GetTenantProfile(Guid companyId, CancellationToken ct = default) =>
-            throw new NotSupportedException();
+            Task.FromResult(_profile);
 
         public Task<FiscalSettingsDto?> GetFiscalSettings(Guid companyId, CancellationToken ct = default) =>
-            throw new NotSupportedException();
+            Task.FromResult(_fiscal);
 
         public Task<ExtractionScheduleDto?> GetExtractionSchedule(Guid companyId, CancellationToken ct = default) =>
             throw new NotSupportedException();

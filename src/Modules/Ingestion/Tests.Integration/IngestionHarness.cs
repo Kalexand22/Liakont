@@ -76,12 +76,6 @@ internal sealed class IngestionHarness
 
     public RecordingPayloadStagingStore PayloadStagingStore { get; }
 
-    /// <summary>
-    /// Lectures du profil/paramétrage fiscal du tenant (ADR-0023 amendé) — défaut « profil non
-    /// configuré » ; renseigner pour prouver le remplissage de l'émetteur à l'ingestion.
-    /// </summary>
-    public StubTenantSettingsQueries TenantSettingsQueries { get; } = new();
-
     public IngestDocumentBatchHandler BatchHandler =>
-        new(ReceivedDocumentUowFactory, SourceTaxRegimeWriter, DocumentIntake, PayloadStagingStore, TenantSettingsQueries, NullLogger<IngestDocumentBatchHandler>.Instance);
+        new(ReceivedDocumentUowFactory, SourceTaxRegimeWriter, DocumentIntake, PayloadStagingStore, NullLogger<IngestDocumentBatchHandler>.Instance);
 }

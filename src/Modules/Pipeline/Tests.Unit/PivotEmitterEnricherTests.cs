@@ -1,18 +1,19 @@
-namespace Liakont.Modules.Ingestion.Tests.Unit;
+namespace Liakont.Modules.Pipeline.Tests.Unit;
 
 using System;
 using FluentAssertions;
 using Liakont.Agent.Contracts.Pivot;
-using Liakont.Modules.Ingestion.Infrastructure;
+using Liakont.Modules.Pipeline.Infrastructure;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Xunit;
 
 /// <summary>
-/// Remplissage de l'émetteur à l'ingestion depuis le profil tenant (ADR-0023 amendé) : l'agent ne porte
-/// plus l'identité émetteur, la plateforme la remplit ICI avant la sérialisation/staging. Garde les
-/// invariants fiscaux : remplissage QUAND ABSENT (un émetteur déjà porté — ex. 389 — n'est pas écrasé),
-/// profil incomplet → champ laissé nul (bloqué au CHECK, jamais deviné — CLAUDE.md n°2/n°3), nature
-/// d'opération parsée PAR NOM (les deux enums OperationCategory ont des valeurs numériques différentes).
+/// Remplissage de l'émetteur au READ-TIME (CHECK/SEND) depuis le profil tenant (ADR-0023 amendé / RB9) :
+/// l'agent ne porte plus l'identité émetteur, la plateforme la remplit au traitement (PAS à l'ingestion —
+/// l'anti-doublon F06 hashe le pivot SOURCE). Garde les invariants fiscaux : remplissage QUAND ABSENT (un
+/// émetteur déjà porté — 389 — n'est pas écrasé), profil incomplet → champ laissé nul (bloqué au CHECK,
+/// jamais deviné — CLAUDE.md n°2/n°3), nature d'opération parsée PAR NOM (les deux enums OperationCategory
+/// ont des valeurs numériques différentes).
 /// </summary>
 public class PivotEmitterEnricherTests
 {

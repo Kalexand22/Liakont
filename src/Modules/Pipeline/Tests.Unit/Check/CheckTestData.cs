@@ -65,6 +65,56 @@ internal static class CheckTestData
             isSelfBilled: isSelfBilled);
     }
 
+    /// <summary>Pivot SANS émetteur ni nature d'opération (forme allégée AGT03) — la plateforme remplit au read-time (RB9).</summary>
+    public static PivotDocumentDto EmitterlessPivot(string regimeCode = "NORMAL", decimal net = 120.00m, decimal tax = 24.00m, decimal rate = 20m)
+    {
+        var line = new PivotLineDto(
+            description: "Adjudication lot 7",
+            netAmount: net,
+            quantity: 1m,
+            unitPriceNet: net,
+            sourceRegimeCodes: new[] { regimeCode },
+            taxes: new[] { new PivotLineTaxDto(tax, rate) },
+            sourceLineRef: "ligne#1");
+
+        return new PivotDocumentDto(
+            sourceDocumentKind: "F",
+            number: "F-2026-0007",
+            issueDate: new DateTime(2026, 1, 10),
+            sourceReference: "no_ba=4007",
+            supplier: null,
+            totals: new PivotTotalsDto(net, tax, net + tax),
+            operationCategory: null,
+            customer: new PivotPartyDto("Client SARL", isCompanyHint: true),
+            lines: new[] { line });
+    }
+
+    /// <summary>Profil tenant (émetteur) renseigné — source du remplissage read-time au CHECK (RB9).</summary>
+    public static TenantProfileDto EmitterProfile(string siren = "802193904", string raisonSociale = "SEM Keroman") =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = Guid.NewGuid(),
+            Siren = siren,
+            RaisonSociale = raisonSociale,
+            Street = "1 quai du Port",
+            PostalCode = "56100",
+            City = "Lorient",
+            Country = "FR",
+            Statut = "Actif",
+            CreatedAt = Now,
+        };
+
+    /// <summary>Paramétrage fiscal (nature d'opération) — source du remplissage read-time de l'operationCategory.</summary>
+    public static FiscalSettingsDto FiscalSettingsOf(string operationCategory) =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = Guid.NewGuid(),
+            OperationCategory = operationCategory,
+            CreatedAt = Now,
+        };
+
     public static DocumentTvaMappingResult MappedResult(string version = "cmp-v1", bool isValidated = true)
     {
         var line = new TvaLineMappingResult
