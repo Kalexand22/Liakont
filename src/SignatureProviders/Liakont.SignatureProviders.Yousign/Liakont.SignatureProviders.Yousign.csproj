@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- DI abstractions pour l'extension AddYousignSignatureProvider + Microsoft.Extensions.Http pour
+         IHttpClientFactory / AddHttpClient (client HTTP nommé, anti-SSRF AllowAutoRedirect=false — ADR-0029
+         §6). Aucun package NuGet nouveau, aucun ADR : versions gérées centralement (Directory.Packages.props,
+         repo-standards §4). System.Text.Json + System.Security.Cryptography sont dans la BCL net10.0
+         (HMAC interne — JAMAIS WebhookSignature.Compute vendored, ADR-0029 §3 / INV-YOUSIGN-2). -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Un plug-in de signature ne référence QUE Signature.Contracts (+ Common) — jamais un autre plug-in,
+         jamais un module métier, jamais Notification.Domain (WebhookSignature), jamais Archive.Domain
+         (CLAUDE.md n°6/14/16 ; INV-YOUSIGN-2/6). Le rapatriement WORM est fait par l'APPELANT (drain) via
+         Archive.Contracts, jamais ici. Frontière verrouillée par YousignBoundaryTests (NetArchTest + scan
+         <PackageReference>). -->
+    <ProjectReference Include="../../Modules/Signature/Contracts/Liakont.Modules.Signature.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Types « fil » Yousign (DTOs de payload, client, vérificateur HMAC) sont internal — AUCUN type
+         propriétaire Yousign n'est exposé hors de l'assembly ; aucun type HTTP ne traverse
+         ISignatureProvider (INV-YOUSIGN-2). Les tests les exercent via InternalsVisibleTo. -->
+    <InternalsVisibleTo Include="Liakont.SignatureProviders.Yousign.Tests.Unit" />
+  </ItemGroup>
+</Project>

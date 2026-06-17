@@ -60,6 +60,21 @@ public sealed class SignatureBoundaryTests
     }
 
     [Fact]
+    public void Infrastructure_RepatriatesWormThroughArchiveContractsNotArchiveDomain()
+    {
+        // ADR-0029 §5 / INV-YOUSIGN-6 : le drain WORM passe par Archive.Contracts (IArchiveService), JAMAIS par
+        // Archive.Domain ni un backend de stockage concret (CLAUDE.md n°6/14).
+        var result = Types.InAssembly(InfrastructureAssembly)
+            .Should()
+            .NotHaveDependencyOnAny("Liakont.Modules.Archive.Domain", "Liakont.Modules.Archive.Infrastructure")
+            .GetResult();
+
+        result.IsSuccessful.Should().BeTrue(
+            "le rapatriement WORM passe par Archive.Contracts, jamais Archive.Domain — {0}",
+            DescribeFailures(result));
+    }
+
+    [Fact]
     public void Contracts_DoesNotReachIntoAnotherBusinessModule()
     {
         // Aucune référence à un AUTRE module métier (module-rules §3, CLAUDE.md n°14). L'abstraction est
@@ -72,11 +87,14 @@ public sealed class SignatureBoundaryTests
     }
 
     [Fact]
-    public void ModuleCsprojs_OnlyReferenceTheSignatureModuleItself()
+    public void ModuleCsprojs_OnlyReferenceSignatureCommonOrContractsSeams()
     {
         // Complète les gardes IL par un scan DÉCLARATIF des .csproj : une ProjectReference interdite
         // déclarée mais non exercée par du code échoue ici (même principe qu'AgentProjectReferenceTests).
-        // L'abstraction de signature est BCL-only : ses projets ne référencent QUE le module lui-même.
+        // Frontière du module Signature (depuis SIG07, ADR-0029) : un .csproj Signature ne référence QUE
+        // (a) le module Signature lui-même, (b) le socle Common (persistance/jobs), ou (c) le *.Contracts
+        // d'un autre module (rapatriement WORM via Archive.Contracts, seam de job via Job.Contracts) — JAMAIS
+        // le Domain/Application/Infrastructure d'un autre module, ni un plug-in concret (CLAUDE.md n°6/14/16).
         var signatureRoot = FindSignatureRoot();
         var signatureRootSlash = signatureRoot.Replace('\\', '/').TrimEnd('/');
 
@@ -88,8 +106,12 @@ public sealed class SignatureBoundaryTests
         csprojs.Should().NotBeEmpty(
             "les .csproj du module Signature doivent être localisables depuis le répertoire de test");
 
+        // Autorisé : (a) un projet DU module Signature ; (b) le socle Common (persistance Dapper + jobs) ;
+        // (c) le *.Contracts d'un autre module (frontière par Contracts : Archive.Contracts, Job.Contracts).
         bool IsAllowed(string resolvedSlash) =>
-            resolvedSlash.StartsWith(signatureRootSlash + "/", StringComparison.OrdinalIgnoreCase);
+            resolvedSlash.StartsWith(signatureRootSlash + "/", StringComparison.OrdinalIgnoreCase)
+            || resolvedSlash.Contains("/src/Common/", StringComparison.OrdinalIgnoreCase)
+            || resolvedSlash.EndsWith(".Contracts.csproj", StringComparison.OrdinalIgnoreCase);
 
         var violations = (
             from csproj in csprojs
@@ -102,7 +124,7 @@ public sealed class SignatureBoundaryTests
             .ToArray();
 
         violations.Should().BeEmpty(
-            "un .csproj Signature ne référence que le module Signature lui-même (abstraction BCL-only, CLAUDE.md n°6/14/16)");
+            "un .csproj Signature ne référence que le module, Common, ou un *.Contracts (CLAUDE.md n°6/14/16)");
     }
 
     private static IEnumerable<string> ReferencedAssemblyNames(Assembly assembly) =>
