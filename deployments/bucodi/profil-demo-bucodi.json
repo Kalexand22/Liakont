@@ -1,0 +1,15 @@
+{
+  "_commentaire": "Profil intégrateur de DÉMO LOCALE Bucodi (jetable). Pré-remplit l'URL plateforme locale et l'adaptateur DemoErpA, le tout ÉDITABLE (affiché). apiKey + ODBC saisis au wizard. Aucun secret ici (F13 §5.5).",
+  "profil": "demo-bucodi",
+  "branding": {
+    "nom": "Bucodi (démo locale)"
+  },
+  "champs": {
+    "adapter": { "etat": "affiché", "valeur": "DemoErpA" },
+    "platformUrl": { "etat": "affiché", "valeur": "http://localhost:8090" },
+    "apiKey": { "etat": "affiché" },
+    "odbcConnection": { "etat": "affiché" },
+    "schedule": { "etat": "affiché" },
+    "instanceName": { "etat": "affiché", "valeur": "DemoErpA" }
+  }
+}

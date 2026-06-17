@@ -136,4 +136,97 @@ secrets, injection CSS). Revue par sous-agent (le wrapper codex-review reste à 
 - **Honnêteté** : ma validation précédente prouvait l'**injection CSS** (vraie), pas le **rendu visuel
   perçu** — qui est, lui, insuffisant. C'est le vrai critère et il n'est pas tenu.
 
-<!-- Prochaines observations dictées : RB6, … -->
+## RB6 — Horodatages affichés en UTC (pas convertis au fuseau local)
+
+- **Vu** : colonne « DERNIER CONTACT » d'un agent = `17/06/2026 18:42` alors qu'il est ~20:46 **locale**
+  (CEST = UTC+2). La date n'est pas décalée au fuseau de l'utilisateur.
+- **Attendu** : afficher l'heure **locale** de l'opérateur.
+- **Cause** : la colonne fait pourtant `.ToLocalTime()` (`Agents.razor`, colonne `LastSeenUtc`), MAIS
+  l'appli **Blazor Server tourne dans le conteneur Docker en UTC** → `ToLocalTime()` côté serveur ne
+  convertit rien (le serveur EST en UTC). **Portée** : TOUS les horodatages rendus ainsi (dernier
+  contact, dates de documents, créations…). **Pré-existant**, sans rapport avec AGT03.
+- **Fix retenu (Karl) = (b) PROPRE / PRODUIT** : convertir au fuseau du **navigateur** (JS interop —
+  `Intl.DateTimeFormat` / offset, résolu une fois par circuit), correct en multi-tenant/multi-région.
+  Écartées : (a) `TZ=Europe/Paris` sur le conteneur = mono-zone seulement ; (c) suffixe « UTC » = honnête
+  mais pas local. → généraliser via un **helper commun** de formatage date/heure côté UI (pas seulement
+  la page Agents), socle vendored non modifié.
+
+## RB7 — L'assistant d'installation de l'agent ne démarre pas le service en fin d'installation
+
+- **Vu** : après « Installer l'agent » (assistant GUI), le service `LiakontAgent$<instance>` est
+  **enregistré mais à l'arrêt** ; il faut le démarrer à la main (`services.msc` / `sc start`).
+- **Attendu** : l'assistant **démarre le service lui-même** en fin d'installation (un install réussi = un
+  agent qui tourne).
+- **Cause** : `AgentProcessDeployer.TryRunServiceInstaller` lance `Liakont.Agent.exe install` (enregistre
+  le service + démarrage auto au prochain boot) mais ne fait **pas** le `sc start` immédiat — le script
+  `deployments/demo-local/install-services.ps1` le faisait, lui, en deux temps (`install` puis `sc start`).
+- **Fix** : après l'install du service + `check-config` OK, **démarrer le service** et refléter l'état
+  *Running* dans l'écran Résumé du wizard. Périmètre : `AgentProcessDeployer` (OPS08b).
+
+## RB8 — Planification d'extraction NON appliquée (cadence figée à 1 min ; champ « Planification » inerte)
+
+- **Constat (vérifié code)** : le service extrait **toutes les minutes** quel que soit le `schedule`.
+  `AgentHost.Create` câble `AgentBackgroundRunner(runCycle, TimeSpan.FromMinutes(1))` (`AgentHost.cs:64`)
+  → boucle à **intervalle fixe**. `AgentRunCycle.Run` extrait `[filigrane, maintenant[` **sans consulter
+  la planif** ; `AgentRunComposition.Build` ne passe **pas** le `schedule` au cycle. (Les 12 docs de la
+  démo sont arrivés dans la minute, pas à l'heure planifiée.)
+- **La planif existe mais n'est pas branchée** : `extraction.schedule` (HH:mm local) + cron poussé par la
+  plateforme sont **résolus** (`EffectiveExtractionPlan`) et **remontés** au heartbeat, mais **jamais
+  appliqués** pour cadencer les runs. Le code l'assume : pilotage planif « porté par l'hôte et AGT03 » →
+  non câblé en AGT02.
+- **Conséquences** : (1) le champ **« Planification »** de l'assistant d'install est une **false
+  affordance** (stocké, sans effet) ; (2) cadence **non réglable** (1 min fixe) — potentiellement trop
+  agressif sur une vraie base ERP en production.
+- **Fix (AGT03)** : faire **consulter `EffectiveExtractionPlan`** par le runner (calcul du prochain run :
+  HH:mm local ou cron plateforme) pour gater les runs, au lieu de l'intervalle fixe. En attendant :
+  masquer/désactiver le champ « Planification » de l'assistant (ou l'appliquer), pour ne pas laisser
+  croire qu'il pilote la cadence.
+
+## RB9 — [P1] AGT03 casse l'idempotence anti-doublon (le `payload_hash` dépend du profil tenant)
+
+- **Constat (vérifié base)** : `A-2026-0014` (même document source) **en double**, deux `payload_hash`
+  différents (`1b303340…` à 18:43, `feb54374…` à 18:49). Entre les deux, le **paramétrage fiscal**
+  (nature d'opération) de SEM Keroman a été renseigné.
+- **Cause (défaut de conception AGT03)** : `PivotEmitterEnricher` injecte l'émetteur **et**
+  `operationCategory` dans le pivot **AVANT** `CanonicalJson.Serialize` + `payloadHash`
+  (`IngestDocumentBatchHandler`, choix « enrichir avant le hash » pour l'intégrité du staging). Donc le
+  `payload_hash` — clé anti-doublon F06 avec `source_reference` — **dépend désormais du profil/fiscal du
+  tenant**, plus seulement du document source. Un changement de config tenant entre deux extractions de la
+  MÊME source → hash différent → l'anti-doublon le voit comme une **altération** (`SourceAlterationDetectedV1`)
+  → **nouveau document** (doublon spurious). L'altération F06 (censée détecter une modif de la **source**)
+  est polluée par des données injectées plateforme.
+- **Gravité** : F06 (anti-doublon / détection d'altération) est un **invariant fiscal (P1)**. Atténué à
+  l'ENVOI (idempotence PA sur le n° BT-1 → pas de double transmission), mais le **dédup document est cassé**
+  et l'altération devient un **faux positif** à chaque changement de paramétrage.
+- **Fix** : le hash anti-doublon doit porter sur le pivot **SOURCE** (ce que l'agent a extrait), jamais sur
+  l'enrichi. (a) hasher le pivot **brut agent** pour l'anti-doublon + stager l'**enrichi** pour l'émission
+  (découpler *identité source* vs *contenu émis*) ; OU (b) enrichir au **read-time** (CHECK/SEND) au lieu de
+  l'ingestion-avant-hash. → **revient sur la décision « enrichir avant le hash »** du plan AGT03 (à
+  ré-trancher : intégrité staging vs idempotence — l'idempotence prime).
+
+## RB10 — [PRIORITAIRE] SuperPDP absent de la liste « Type de plug-in PA » (plug-in jamais câblé au Host)
+
+- **Vu (Karl)** : impossible de paramétrer un compte SuperPDP en PA — la liste déroulante n'affiche que
+  **Fake** et **Generique**.
+- **Cause racine (vérifiée code)** : le plug-in SuperPDP **existe** (`src/PaClients/Liakont.PaClients.SuperPdp/`,
+  codé + testé, envoi sandbox réel validé) mais **n'est jamais référencé/enregistré par le Host**. Le Host
+  ne câble que `AddFakePaClient()` (`PaClientBootstrap.cs:52`) et `AddGeneriquePaClient()` (via
+  `AddGeneriquePaDelivery`, `AppBootstrap.cs:332`). Aucun `AddSuperPdpPaClient()`. La liste est peuplée
+  depuis le **registre** des fabriques enregistrées → SuperPDP n'y est pas. Écrit explicitement dans le
+  code : `PaClientBootstrap.cs:32-37` (« les vraies PA, B2Brouter, Super PDP, s'ajouteront ici quand leur
+  câblage de production, secrets chiffrés par tenant, sera défini »). Confirmé : envoi réel d'avant validé
+  via le **harnais de test**, pas via la console produit.
+- **Décalage de creds** : le formulaire « compte PA » ne capture qu'une **Clé API** unique ; SuperPDP
+  s'authentifie en **OAuth2** (`SuperPdpAccountConfig` = `accountId` + `client_id` + `client_secret` +
+  environnement). 3 valeurs requises, 2 champs disponibles.
+- **DÉCISION KARL (2026-06-17) = OPTION 1** : champs d'auth **génériques par mode** — ajouter au modèle de
+  compte PA des champs OAuth2 (`client_id` + `client_secret`, chiffrés par tenant) à côté de la clé API ;
+  le plug-in **déclare son mode d'auth** (capacité) ; le form affiche les bons champs selon le type. Aucun
+  spécifique `if (pa is SuperPdp)` (CLAUDE.md n°8/16). PRIORITAIRE — **item suivant à corriger après RB9**.
+- **Fix (portée)** : (a) modèle de compte PA + migration DB (colonnes OAuth chiffrées par tenant) ;
+  (b) UI form conditionnelle au mode d'auth déclaré ; (c) `ISuperPdpAccountResolver` côté Host (déchiffre
+  depuis le coffre TenantSettings) ; (d) Host `ProjectReference` SuperPdp + `AddSuperPdpPaClient()` au
+  composition root ; (e) tests. NB : SuperPDP ne marche **qu'en Sandbox** aujourd'hui (`BaseUrl` lève en
+  Production, F14 §12 O1).
+
+<!-- Prochaines observations dictées : RB11, … -->

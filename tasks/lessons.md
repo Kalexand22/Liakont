@@ -275,3 +275,14 @@ versionné des changements qui n'étaient pas les miens.
   (Surgical Changes ; cf. [[commits-interactifs-directs-feat-branch]]).
 - Correctif appliqué : `.state-dump.txt` untracké + gitignoré ; les leases slot-1..3 (stales, slots null)
   laissées supprimées (cleanup correct, non nuisible).
+
+---
+
+## 2026-06-17 — « commit » = commit + push (récurrent)
+
+**Symptôme :** Karl demande « commit » (ou « isole sur sa propre branche ») ; je m'arrête au
+commit et demande « je pousse ? » / « tu ne l'as pas demandé ». Agacement, explicitement « xème fois ».
+
+**Règle :** « commit » ET « isole sur une branche » = commit ET push, systématiquement, sans étape
+de confirmation. Sa demande EST l'autorisation de push (CLAUDE.md « push when asked » satisfait).
+Ne plus jamais hedger sur le push.
