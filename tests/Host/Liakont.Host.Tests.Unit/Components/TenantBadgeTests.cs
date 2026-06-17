@@ -19,7 +19,7 @@ using Xunit;
 /// </summary>
 public sealed class TenantBadgeTests : BunitContext
 {
-    private readonly TestAuthorizationContext _authContext;
+    private readonly BunitAuthorizationContext _authContext;
 
     public TenantBadgeTests()
     {

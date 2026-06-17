@@ -139,11 +139,11 @@ public sealed class LiakontConsoleContextTests
         context.IsCrossTenantAdmin.Should().BeFalse();
     }
 
-    private static AuthenticationStateProvider NonAdminAuth() =>
-        new FakeAuthStateProvider(new ClaimsPrincipal(new ClaimsIdentity()));
+    private static FakeAuthStateProvider NonAdminAuth() =>
+        new(new ClaimsPrincipal(new ClaimsIdentity()));
 
-    private static AuthenticationStateProvider AdminAuth() =>
-        new FakeAuthStateProvider(new ClaimsPrincipal(
+    private static FakeAuthStateProvider AdminAuth() =>
+        new(new ClaimsPrincipal(
             new ClaimsIdentity([new Claim(ClaimTypes.Role, "stratum-admin")], authenticationType: "test")));
 
     private static ReconciliationProposalDto Proposal() => new(

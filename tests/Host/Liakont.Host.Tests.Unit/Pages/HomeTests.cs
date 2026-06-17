@@ -16,7 +16,7 @@ using Xunit;
 
 public sealed class HomeTests : BunitContext
 {
-    private readonly TestAuthorizationContext _auth;
+    private readonly BunitAuthorizationContext _auth;
 
     public HomeTests()
     {

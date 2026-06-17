@@ -246,6 +246,10 @@ else
         _feedback = null;
         _dialogError = null;
         _resetTarget = line;
+
+        // Action rapide de grille : le clic est porté par la grille (StratumDataGrid), pas par la page.
+        // Sans re-render explicite, muter l'état de la page n'affiche PAS le dialogue (cf. motif Clients).
+        StateHasChanged();
     }
 
     private void CloseDialogs()
