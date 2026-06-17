@@ -37,23 +37,10 @@ $logFile = Join-Path $repoRoot '.run-tests.log'
 
 "run-tests started at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Set-Content $logFile
 
-# Returns $true while the given SOL item is still pending (absent from state = done).
-# THROWS if the orchestration state repo / state.yaml is missing: the protocol makes
-# state.yaml mandatory. Treating a missing state as "SOL pending" would let a deleted
-# solution (or a misconfigured ORCH_REPO) pass as a bootstrap skip — a false green.
-function Test-SolItemPending {
-    param([string]$ItemId)
-    $orchRepo = $env:ORCH_REPO
-    if (-not $orchRepo) { $orchRepo = 'C:\Source\liakont-orchestration' }
-    $statePath = Join-Path $orchRepo 'state.yaml'
-    if (-not (Test-Path $statePath)) {
-        throw "Orchestration state not found ($statePath). state.yaml is mandatory (protocol.md Step 1) - set ORCH_REPO to the state repo. NEVER recreate state.yaml (absent items = done items)."
-    }
-    $state = Get-Content $statePath -Raw -ErrorAction Stop
-    if ($state -notmatch "(?m)^  $([regex]::Escape($ItemId)):") { return $false }                          # absent = done
-    if ($state -match "(?m)^  $([regex]::Escape($ItemId)):\s*\{\s*status:\s*done") { return $false }       # explicit done
-    return $true
-}
+# Bootstrap-state predicate (Test-SolItemPending) shared with verify-fast.ps1 — one self-tested
+# source of truth (tools/test-bootstrap-guard.ps1) instead of a per-script copy that could
+# silently diverge. Decides bootstrap-skip vs FAILURE for a missing solution.
+. "$PSScriptRoot/sol-state-lib.ps1"
 
 $overallExit = 0
 $summaries = @()
