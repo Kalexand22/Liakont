@@ -248,6 +248,63 @@ public sealed class SignaturesTests : BunitContext
         cut.FindAll("[data-testid='signatures-providers-list']").Should().BeEmpty();
     }
 
+    [Fact]
+    public void Should_Render_Proof_Table_With_Slot_ProofId_And_Pending_Slot()
+    {
+        _queries.View = new SignatureStatusView
+        {
+            Latest = new DocumentValidationDto
+            {
+                DocumentId = DocId,
+                Purpose = ValidationPurpose.SelfBilledAcceptance,
+                Attempt = 1,
+                State = "PendingValidation",
+                ProofLevel = "None",
+                ExpressAcceptanceRecorded = false,
+                IsTerminal = false,
+                Slots =
+                [
+                    new ApprovalSlotDto { SignerId = "signataire-1", State = "Approved", ProofLevel = "SES", ProofId = "worm://preuve/abc123" },
+                    new ApprovalSlotDto { SignerId = "signataire-2", State = "Pending", ProofLevel = "None", ProofId = null },
+                ],
+            },
+            Log = [],
+        };
+
+        var cut = Render<Signatures>();
+        Lookup(cut);
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.FindAll("[data-testid='signatures-proof-table']").Should().ContainSingle();
+            cut.Find("[data-testid='signatures-proof-table']").TextContent.Should().Contain("worm://preuve/abc123");
+            cut.Find("[data-testid='signatures-proof-table']").TextContent.Should().Contain("En attente");
+        });
+    }
+
+    [Fact]
+    public void Should_Show_Error_Feedback_When_Action_Fails()
+    {
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(canAct: true));
+        _queries.View = new SignatureStatusView
+        {
+            Latest = BuildValidation(state: "PendingValidation", attempt: 1, isTerminal: false),
+            Log = [],
+        };
+        _actions.RecordResult = SignatureActionResult.Failure("Refus simulé du service.");
+
+        var cut = Render<Signatures>();
+        Lookup(cut);
+        cut.Find("[data-testid='signatures-action-record']").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var feedback = cut.Find("[data-testid='signatures-action-feedback']");
+            feedback.GetAttribute("class").Should().Contain("liakont-signatures__feedback--error");
+            feedback.TextContent.Should().Contain("Refus simulé");
+        });
+    }
+
     private static void Lookup(IRenderedComponent<Signatures> cut)
     {
         cut.Find("[data-testid='signatures-document-id']").Change(DocId.ToString());
