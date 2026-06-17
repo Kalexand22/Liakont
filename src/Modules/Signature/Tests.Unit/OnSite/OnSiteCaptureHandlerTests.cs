@@ -159,17 +159,24 @@ public sealed class OnSiteCaptureHandlerTests
 
         await handler.Handle(Command(), CancellationToken.None);
 
+        // Le dernier addendum archivé doit être le PNG (rendu lisible).
         archive.LastAddendum.Should().NotBeNull();
         archive.LastAddendum!.Kind.Should().Be("onsite-signature");
         archive.LastAddendum.Attachment.ContentType.Should().Be("image/png");
-        archive.LastAddendum.Attachment.Content.Should().Equal(PngBytes, "la preuve WORM est l'image de signature, jamais la FSS brute");
+        archive.LastAddendum.Attachment.Content.Should().Equal(PngBytes, "le PNG est archivé en WORM comme rendu lisible");
+
+        // La FSS chiffrée (artefact probant) doit également être archivée en WORM.
+        var fssAddendum = archive.Addenda.Should().Contain(a => a.Kind == "onsite-signature-fss").Subject;
+        fssAddendum.Attachment.Content.Should().Equal(FssBytes, "la FSS est rapatriée en WORM comme artefact probant (ADR-0030 §3)");
+        fssAddendum.Attachment.ContentType.Should().Be("application/octet-stream");
     }
 
     [Fact]
     public async Task Handle_DoesNotDeriveBiometricTemplate_BindingHashesArtifactNotFss()
     {
-        // RGPD sobre (INV-ONSITE-10) : l'empreinte de preuve porte sur l'ARTEFACT scellé, jamais sur la FSS
-        // (aucun gabarit/feature-vector n'est dérivé de la dynamique du stylet).
+        // RGPD sobre (INV-ONSITE-10) : l'empreinte de binding porte sur l'ARTEFACT scellé, jamais sur la FSS
+        // (capture ≠ matching — aucun gabarit/feature-vector dérivé de la dynamique du stylet).
+        // La FSS EST archivée verbatim comme preuve ; ce qui est interdit c'est d'en DÉRIVER un gabarit.
         var handler = Handler(Document(), SealedArtifact, verifiedBinding: null, out var proofs, out var archive);
 
         await handler.Handle(Command(), CancellationToken.None);
@@ -177,6 +184,9 @@ public sealed class OnSiteCaptureHandlerTests
         var proof = proofs.Appended.Should().ContainSingle().Subject;
         proof.BindingHash.Should().Be(HashHex(SealedArtifact));
         proof.BindingHash.Should().NotBe(HashHex(FssBytes), "la FSS n'est jamais transformée en empreinte/gabarit stocké");
-        archive.LastAddendum!.Attachment.Content.Should().NotEqual(FssBytes, "la FSS brute n'est pas l'artefact de preuve WORM");
+
+        // La FSS est conservée telle quelle comme preuve (verbatim, non transformée en gabarit).
+        var fssAddendum = archive.Addenda.Should().Contain(a => a.Kind == "onsite-signature-fss").Subject;
+        fssAddendum.Attachment.Content.Should().Equal(FssBytes, "la FSS est conservée telle quelle comme preuve, jamais dérivée en gabarit (capture ≠ matching, INV-ONSITE-10)");
     }
 }

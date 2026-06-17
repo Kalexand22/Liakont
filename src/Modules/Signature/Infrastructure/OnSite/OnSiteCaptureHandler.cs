@@ -24,8 +24,9 @@ using Stratum.Common.Abstractions.MultiTenancy;
 ///   le BINDING : <c>re-hash == hash signé</c> (SHA-256, même flux — ADR-0030 §4, INV-ONSITE-6).</item>
 ///   <item>Résout le SIGNATAIRE vérifié via la liaison séparée (<see cref="IOnSiteSignerBindingStore"/>),
 ///   JAMAIS depuis le payload ni le déposant (ADR-0030 §5, INV-ONSITE-7).</item>
-///   <item>Rapatrie la preuve (PNG) en WORM via <see cref="IArchiveService"/> (Archive.Contracts, jamais un
-///   backend concret) puis consigne la preuve dans le journal append-only.</item>
+///   <item>Rapatrie en WORM via <see cref="IArchiveService"/> (Archive.Contracts, jamais un backend concret) la
+///   FSS chiffrée (artefact probant, Kind=onsite-signature-fss) puis le rendu PNG (lisible, Kind=onsite-signature),
+///   et consigne la preuve dans le journal append-only.</item>
 /// </list>
 /// Le niveau reste SES (ADR-0030 §6) ; AUCUN gabarit biométrique n'est dérivé de la FSS (ADR-0030 §8).
 /// </summary>
@@ -33,6 +34,7 @@ internal sealed class OnSiteCaptureHandler : IRequestHandler<OnSiteCaptureComman
 {
     private const string OnSiteLevel = "SES";
     private const string AddendumKind = "onsite-signature";
+    private const string AddendumKindFss = "onsite-signature-fss";
 
     private readonly IDocumentQueries _documents;
     private readonly ISupportTraceStore _sealedArtifacts;
@@ -105,9 +107,22 @@ internal sealed class OnSiteCaptureHandler : IRequestHandler<OnSiteCaptureComman
             request.CompanyId, request.DocumentId, cancellationToken);
         var signerVerified = verifiedBinding is not null;
 
-        // 5. Rapatriement WORM de la preuve (PNG) via Archive.Contracts — jamais un backend concret (CLAUDE.md n°6).
+        // 5. Rapatriement WORM via Archive.Contracts (jamais un backend concret — CLAUDE.md n°6) : d'abord la FSS
+        //    chiffrée (artefact probant), puis le rendu PNG (lisible). Les deux sont rapatriés en WORM.
+        var proofFss = Convert.FromBase64String(request.EncryptedFssBase64);
+        var fssArchived = await _archive.AddAddendumAsync(
+            new ArchiveAddendumRequest
+            {
+                DocumentId = document.Id,
+                DocumentNumber = document.DocumentNumber,
+                IssueDate = document.IssueDate,
+                Kind = AddendumKindFss,
+                Attachment = new ArchiveAttachment("onsite-signature.fss", "application/octet-stream", proofFss),
+            },
+            cancellationToken);
+
         var proofPng = Convert.FromBase64String(request.SignatureImagePngBase64);
-        var archived = await _archive.AddAddendumAsync(
+        var pngArchived = await _archive.AddAddendumAsync(
             new ArchiveAddendumRequest
             {
                 DocumentId = document.Id,
@@ -117,6 +132,7 @@ internal sealed class OnSiteCaptureHandler : IRequestHandler<OnSiteCaptureComman
                 Attachment = new ArchiveAttachment("onsite-signature.png", "image/png", proofPng),
             },
             cancellationToken);
+        _ = pngArchived;
 
         // 6. Journal append-only de la preuve (métadonnée seule ; aucun gabarit biométrique — INV-ONSITE-10).
         var binding = OnSiteBindingHasher.ComputeHex(sealedArtifact);
@@ -130,7 +146,7 @@ internal sealed class OnSiteCaptureHandler : IRequestHandler<OnSiteCaptureComman
             SignerIdentity = verifiedBinding?.SignerIdentity,
             SignerVerified = signerVerified,
             Level = OnSiteLevel,
-            ProofArchiveRef = archived.PackageHash,
+            ProofArchiveRef = fssArchived.PackageHash,
             CapturedAtUtc = request.CapturedAtUtc,
         };
         await _proofs.AppendAsync(proof, cancellationToken);
