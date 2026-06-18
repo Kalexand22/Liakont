@@ -1,8 +1,10 @@
-@rendermode InteractiveServer
 @using Microsoft.JSInterop
-@using Liakont.Host.Time
+@using Stratum.Common.UI.Time
 @inject IBrowserTimeZone Tz
 @inject IJSRuntime JS
+
+@* Le mode de rendu interactif est posé au SITE D'APPEL (ErpShellLayout) — le symbole InteractiveServer
+   n'est pas importé dans le socle ; le consommateur (Host) décide du mode, comme pour Toast/ConnectionStatus. *@
 
 @* RB6 — sonde invisible placée dans le shell : résout le fuseau du NAVIGATEUR UNE fois par circuit (un seul
    aller-retour JS), puis IBrowserTimeZone.Resolved fait passer tous les <LiakontDate> en heure locale. Aucun

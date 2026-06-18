@@ -1,4 +1,4 @@
-namespace Liakont.Host.Time;
+namespace Stratum.Common.UI.Time;
 
 using System;
 using System.Threading;
@@ -12,7 +12,8 @@ using Microsoft.JSInterop;
 /// le formatage de date dans le rendu Razor (synchrone) puisse l'utiliser ; la résolution (asynchrone, JS
 /// interop) est déclenchée par les composants dans <c>OnAfterRenderAsync(firstRender)</c>.
 /// <para>Enregistré en <c>AddScoped</c> (un fuseau par circuit/utilisateur — JAMAIS Singleton, qui mélangerait
-/// les fuseaux entre opérateurs).</para>
+/// les fuseaux entre opérateurs). Placé dans le socle <c>Stratum.Common.UI</c> pour être consommé par les pages
+/// Host (Liakont) ET les pages d'admin du socle (Stratum.Modules.*) sans inverser la dépendance socle→app.</para>
 /// </summary>
 public interface IBrowserTimeZone
 {

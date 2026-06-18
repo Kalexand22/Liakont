@@ -3,8 +3,8 @@ namespace Liakont.Host.Tests.Unit.Time;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Liakont.Host.Time;
 using Microsoft.JSInterop;
+using Stratum.Common.UI.Time;
 
 /// <summary>
 /// Double de test de <see cref="IBrowserTimeZone"/> : fuseau fixé d'emblée (résolu) ou nul (pré-rendu),

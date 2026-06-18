@@ -3,9 +3,9 @@ namespace Liakont.Host.Tests.Unit.Time;
 using System;
 using Bunit;
 using FluentAssertions;
-using Liakont.Host.Components;
-using Liakont.Host.Time;
 using Microsoft.Extensions.DependencyInjection;
+using Stratum.Common.UI.Components;
+using Stratum.Common.UI.Time;
 using Xunit;
 
 /// <summary>

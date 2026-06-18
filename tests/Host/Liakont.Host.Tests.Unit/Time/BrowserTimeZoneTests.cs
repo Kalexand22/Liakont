@@ -4,8 +4,8 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
-using Liakont.Host.Time;
 using Microsoft.JSInterop;
+using Stratum.Common.UI.Time;
 using Xunit;
 
 /// <summary>

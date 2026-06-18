@@ -2,7 +2,7 @@ namespace Liakont.Host.Tests.Unit.Time;
 
 using System;
 using FluentAssertions;
-using Liakont.Host.Time;
+using Stratum.Common.UI.Time;
 using Xunit;
 
 /// <summary>

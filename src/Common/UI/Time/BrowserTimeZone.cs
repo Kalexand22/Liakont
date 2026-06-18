@@ -1,4 +1,4 @@
-namespace Liakont.Host.Time;
+namespace Stratum.Common.UI.Time;
 
 using System;
 using System.Threading;
@@ -11,7 +11,7 @@ using Microsoft.JSInterop;
 /// (IANA inconnue, JS indisponible) retombe sur <see cref="TimeZoneInfo.Utc"/> plutôt que de lever — on
 /// bloque l'exception, jamais le rendu (CLAUDE.md n°3, esprit).
 /// </summary>
-internal sealed class BrowserTimeZone : IBrowserTimeZone
+public sealed class BrowserTimeZone : IBrowserTimeZone
 {
     private bool _resolved;
 
@@ -23,6 +23,27 @@ internal sealed class BrowserTimeZone : IBrowserTimeZone
 
     /// <inheritdoc />
     public bool IsResolved => _resolved;
+
+    /// <summary>
+    /// Mappe un identifiant IANA du navigateur vers un <see cref="TimeZoneInfo"/> (.NET résout les IDs IANA
+    /// cross-plateforme). Identifiant absent/inconnu → <see cref="TimeZoneInfo.Utc"/> (jamais d'exception).
+    /// </summary>
+    public static TimeZoneInfo ResolveZone(string? ianaId)
+    {
+        if (string.IsNullOrWhiteSpace(ianaId))
+        {
+            return TimeZoneInfo.Utc;
+        }
+
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(ianaId);
+        }
+        catch (Exception ex) when (ex is TimeZoneNotFoundException || ex is InvalidTimeZoneException)
+        {
+            return TimeZoneInfo.Utc;
+        }
+    }
 
     /// <inheritdoc />
     public async Task EnsureResolvedAsync(IJSRuntime js, CancellationToken cancellationToken = default)
@@ -53,26 +74,5 @@ internal sealed class BrowserTimeZone : IBrowserTimeZone
         Zone = ResolveZone(ianaId);
         _resolved = true;
         Resolved?.Invoke();
-    }
-
-    /// <summary>
-    /// Mappe un identifiant IANA du navigateur vers un <see cref="TimeZoneInfo"/> (.NET résout les IDs IANA
-    /// cross-plateforme). Identifiant absent/inconnu → <see cref="TimeZoneInfo.Utc"/> (jamais d'exception).
-    /// </summary>
-    internal static TimeZoneInfo ResolveZone(string? ianaId)
-    {
-        if (string.IsNullOrWhiteSpace(ianaId))
-        {
-            return TimeZoneInfo.Utc;
-        }
-
-        try
-        {
-            return TimeZoneInfo.FindSystemTimeZoneById(ianaId);
-        }
-        catch (Exception ex) when (ex is TimeZoneNotFoundException || ex is InvalidTimeZoneException)
-        {
-            return TimeZoneInfo.Utc;
-        }
     }
 }

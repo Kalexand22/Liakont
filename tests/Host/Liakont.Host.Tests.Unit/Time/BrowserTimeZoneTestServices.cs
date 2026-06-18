@@ -1,8 +1,8 @@
 namespace Liakont.Host.Tests.Unit.Time;
 
 using System;
-using Liakont.Host.Time;
 using Microsoft.Extensions.DependencyInjection;
+using Stratum.Common.UI.Time;
 
 /// <summary>
 /// Enregistrement du fuseau navigateur pour les tests bUnit des pages/composants migrés (RB6) : un

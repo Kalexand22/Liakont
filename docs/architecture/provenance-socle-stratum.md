@@ -246,6 +246,7 @@ src/Common/Infrastructure/Keycloak/KeycloakRealmProvisioner.cs
 src/Common/Abstractions/MultiTenancy/KeycloakRealmProvisionRequest.cs
 src/Common/Abstractions/MultiTenancy/TenantProvisionResult.cs
 src/Common/Infrastructure/Database/ServiceCollectionExtensions.cs
+src/Common/UI/CommonUIServiceExtensions.cs
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -796,6 +797,37 @@ est **stable** entre 2024.12.3 et 2025.7.4. **Aucun nouveau package** (ADR-0023 
 RACINE n'est donc PAS détecté automatiquement (il passe `verify-fast` au vert sans alerte). La présente
 consignation comble ce trou côté **traçabilité** ; étendre la garde à la config racine est un item
 d'outillage de suivi (hors périmètre FX02).
+
+### 4.31 `Stratum.Common.UI` — affichage des dates au fuseau du NAVIGATEUR (RB6)
+
+**Motif** : les horodatages s'affichaient en UTC (le serveur tourne en UTC ; `ToLocalTime()` côté Blazor
+Server ne convertit rien — il donne l'heure SERVEUR). Le correctif RB6 vise les pages Host (Liakont) ET les
+pages d'admin du socle (`Stratum.Modules.*` : Audit/Identity/Job/Notification). Le composant partagé est donc
+placé dans `Stratum.Common.UI` (RCL commune référencée par tous) — sinon les pages socle, qui ne référencent
+pas le Host, ne pourraient pas l'utiliser (dépendance socle→app interdite). NB : la sonde `<BrowserTimeProbe>`
+vit dans le shell Host (`ErpShellLayout`) ; les pages d'admin socle sont routées DANS l'app Host sous ce shell
+→ elles partagent le CIRCUIT et bénéficient du fuseau résolu (service scopé/circuit, résolu 1× par n'importe
+quelle page du shell). Une page socle servie hors de ce shell resterait en UTC (non applicable ici — toutes les
+pages transitent par `ErpShellLayout`).
+
+**Changement** :
+- AJOUTS (fichiers NEUFS — non épinglés par la garde, cf. §4.30 « Files ADDED later … are ignored ») :
+  `Time/IBrowserTimeZone.cs`, `Time/BrowserTimeZone.cs`, `Time/LiakontDateDisplay.cs`,
+  `Components/LiakontDate.razor`, `Components/BrowserTimeProbe.razor`, `wwwroot/js/liakont-time.js`.
+  `IBrowserTimeZone` (scopé/circuit) résout le fuseau via JS interop (`liakontTime.getTimeZone`, IANA →
+  `TimeZoneInfo`, repli UTC sans exception, mémorisé). `<LiakontDate>` formate au fuseau résolu (repli UTC
+  EXPLICITE avant résolution, jamais une fausse heure locale). `<BrowserTimeProbe>` (au layout Host) résout 1×/circuit.
+- MODIFICATION (fichier ÉPINGLÉ) : `src/Common/UI/CommonUIServiceExtensions.cs` — `AddCommonUI()` enregistre
+  désormais `AddScoped<IBrowserTimeZone, BrowserTimeZone>` (auto-suffisance : un hôte qui appelle `AddCommonUI()`
+  + rend `<LiakontDate>`/`<BrowserTimeProbe>` n'a rien d'autre à câbler).
+- Noms à marque « Liakont » ASSUMÉS dans le socle (le no-touch socle n'est pas une exigence produit) ; à
+  neutraliser le jour d'une re-convergence amont Stratum (§6).
+
+**Vérification** : `verify-fast` vert (build 2 solutions + analyzers + tests unitaires, dont
+`tests/Host/Liakont.Host.Tests.Unit/Time/*` : helper DST/UTC-fallback/null, service mapping/mémorisation/
+repli, bUnit `<LiakontDate>`/sonde). `CommonUIServiceExtensions.cs` (modifié, épinglé) consigné dans le bloc
+`SOCLE-CONSIGNED-DRIFT` — **baseline HEAD INCHANGÉ** (pas de re-pin en masse qui mélangerait des fichiers
+étrangers à RB6). Les 6 ajouts ne sont pas épinglés (garde par conception) — tracés ici uniquement.
 
 ## 5. ADR du socle hérités
 

@@ -1,13 +1,13 @@
-namespace Liakont.Host.Time;
+namespace Stratum.Common.UI.Time;
 
 using System;
 using System.Globalization;
 
 /// <summary>
-/// Formatage COMMUN des dates/heures de la console Liakont (RB6) : convertit un instant UTC
+/// Formatage COMMUN des dates/heures de la console (RB6) : convertit un instant UTC
 /// (<see cref="DateTimeOffset"/>) vers le fuseau du NAVIGATEUR de l'opérateur, en français. Centralise la
-/// culture fr-FR (auparavant redéfinie dans ~24 composants) et la règle de repli. Synchrone (le rendu Razor
-/// l'est) ; le fuseau est fourni par <see cref="IBrowserTimeZone.Zone"/>.
+/// culture fr-FR et la règle de repli. Synchrone (le rendu Razor l'est) ; le fuseau est fourni par
+/// <see cref="IBrowserTimeZone.Zone"/>.
 /// <para>RÈGLE DE REPLI (anti-mensonge) : tant que le fuseau navigateur n'est pas résolu (<paramref name="zone"/>
 /// nul, pré-rendu), on n'affiche JAMAIS une heure locale ambiguë — on rend l'UTC EXPLICITEMENT suffixé. Une
 /// fois le fuseau résolu, le composant se re-rend et l'heure passe en local (sans suffixe).</para>
