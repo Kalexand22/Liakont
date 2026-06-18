@@ -252,6 +252,15 @@ src/Modules/Audit/Web/Pages/AdminAudit.razor
 src/Modules/Audit/Web/Pages/AdminAuditDetail.razor
 src/Modules/Audit/Web/Pages/AdminAuditPolicies.razor
 src/Modules/Audit/Web/Pages/AdminAuditPolicyForm.razor
+src/Modules/Identity/Web/Pages/AdminUsers.razor
+src/Modules/Identity/Web/Pages/AdminUserForm.razor
+src/Modules/Identity/Web/Pages/AdminAgents.razor
+src/Modules/Identity/Web/Pages/AdminAgentForm.razor
+src/Modules/Identity/Web/Pages/AdminTeams.razor
+src/Modules/Identity/Web/Pages/AdminTeamForm.razor
+src/Modules/Identity/Web/Pages/AdminRoleForm.razor
+src/Modules/Identity/Web/Pages/AdminDelegations.razor
+src/Modules/Identity/Web/Pages/AdminDelegationForm.razor
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -882,6 +891,34 @@ Les registres (`AuditEntryColumnRegistry`/`AuditPolicyColumnRegistry`) **ne sont
 **Vérification** : `verify-fast` vert ; tests bUnit ajoutés par page (`AdminAuditTests`, `AdminAuditDetailTests`,
 `AdminAuditPoliciesTests`, `AdminAuditPolicyFormTests`) via stubs partagés (`AdminPageTestServices.AddAdminPageStubs`) —
 repli UTC déterministe en bUnit (sonde absente). La localisation reste couverte au niveau composant.
+
+### 4.34 `Stratum.Modules.Identity.Web` — horodatages d'admin Identity au fuseau navigateur (RB6 P2)
+
+**Motif** : suite de RB6 (§4.31→§4.33). Module Identity = ÉVÉNEMENTS migrés vers `<LiakontDate>` ; **dates de
+VALIDITÉ laissées** (convertir au fuseau décalerait le jour).
+
+**Changement — ÉVÉNEMENTS migrés** :
+- `AdminUsers.razor` : colonne « Dernière connexion » (`LastLoginAt`, visible) → `<LiakontDate>` (cas null « Jamais » conservé).
+- `AdminUserForm.razor` : « Dernière connexion » de la section Audit → `<LiakontDate>`.
+- `AdminAgentForm.razor` : « Créé le » / « Modifié le » (section Audit) → `<LiakontDate>`.
+- `AdminTeamForm.razor` : « Depuis le » des membres (`JoinedAt`, visible, jour) → `<LiakontDate DateOnly>` ; « Créé le » /
+  « Modifié le » (Audit) → `<LiakontDate>`.
+- `AdminRoleForm.razor` : « Créé le » (Audit) → `<LiakontDate>`.
+- `AdminDelegationForm.razor` : « Créé le » (Audit) → `<LiakontDate>`.
+- `AdminAgents.razor` / `AdminTeams.razor` / `AdminDelegations.razor` : colonne « Créé le » (`defaultVisible:false` mais
+  ACTIVABLE) → `ColumnTemplate` `<LiakontDate>` (cohérence ; testée via `FakeGridPreferenceService` forçant la visibilité).
+
+**Dates LAISSÉES (validité / jour)** : `ValidFrom`/`ValidUntil` de délégation (`AdminDelegations` colonnes + `AdminDelegationForm`
+inputs), `HireDate` et compétence `ValidUntil` (`AdminAgentForm`, `DateOnly`). Les calculs de statut (`DateTimeOffset.UtcNow`
+comparé à ValidFrom/ValidUntil) ne sont pas des affichages → inchangés.
+
+Les registres `*ColumnRegistry.cs` **ne sont pas touchés**. Les 9 `.razor` sont AJOUTÉS au bloc `SOCLE-CONSIGNED-DRIFT`.
+`AdminRoles.razor` (liste) n'a aucune date → non modifié, hors périmètre.
+
+**Vérification** : `verify-fast` vert ; 1 test bUnit par page modifiée (`AdminUsersTests`, `AdminUserFormTests`,
+`AdminAgentsTests`, `AdminAgentFormTests`, `AdminTeamsTests`, `AdminTeamFormTests`, `AdminRoleFormTests`,
+`AdminDelegationsTests`, `AdminDelegationFormTests`) + fakes de query partagés ; assertion discriminante sur
+`AdminDelegations` (ValidFrom rendue SANS suffixe « UTC » → preuve qu'elle est laissée).
 
 ## 5. ADR du socle hérités
 

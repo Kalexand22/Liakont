@@ -124,7 +124,7 @@
                                     <td>@(m.DisplayName ?? m.Username)</td>
                                     <td>@m.Username</td>
                                     <td>@(m.Role ?? "Membre")</td>
-                                    <td>@m.JoinedAt.ToString("dd/MM/yyyy")</td>
+                                    <td><LiakontDate Value="@m.JoinedAt" DateOnly="true" /></td>
                                     @if (ctx.Mode != FormMode.View)
                                     {
                                         <td>
@@ -156,11 +156,11 @@
                     <dt class="col-sm-3">Identifiant</dt>
                     <dd class="col-sm-9"><code class="text-muted small">@Id</code></dd>
                     <dt class="col-sm-3">Créé le</dt>
-                    <dd class="col-sm-9">@_createdAt.ToString("dd/MM/yyyy HH:mm")</dd>
+                    <dd class="col-sm-9"><LiakontDate Value="@_createdAt" /></dd>
                     @if (_updatedAt.HasValue)
                     {
                         <dt class="col-sm-3">Modifié le</dt>
-                        <dd class="col-sm-9">@_updatedAt.Value.ToString("dd/MM/yyyy HH:mm")</dd>
+                        <dd class="col-sm-9"><LiakontDate Value="@_updatedAt" /></dd>
                     }
                 </dl>
             </SectionCard>

@@ -60,6 +60,14 @@
         {
             __builder.AddContent(0, item.ValidUntil.ToString("dd/MM/yyyy"));
         },
+        // RB6 : « Créé le » = ÉVÉNEMENT → fuseau du navigateur. Colonne masquée par défaut mais ACTIVABLE → migrée.
+        // (ValidFrom/ValidUntil = dates de VALIDITÉ/jour → LAISSÉES : convertir au fuseau décalerait le jour.)
+        ["CreatedAt"] = item => __builder =>
+        {
+            __builder.OpenComponent<LiakontDate>(0);
+            __builder.AddAttribute(1, "Value", (DateTimeOffset?)item.CreatedAt);
+            __builder.CloseComponent();
+        },
     };
 
     private readonly IReadOnlyList<GridRowAction<DelegationDto>> _rowActions;
