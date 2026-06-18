@@ -286,3 +286,36 @@ commit et demande « je pousse ? » / « tu ne l'as pas demandé ». Agacement, 
 **Règle :** « commit » ET « isole sur une branche » = commit ET push, systématiquement, sans étape
 de confirmation. Sa demande EST l'autorisation de push (CLAUDE.md « push when asked » satisfait).
 Ne plus jamais hedger sur le push.
+
+## 2026-06-18 — Plan e-reporting B2C marge : 3 corrections en chaîne (ton catégorique sur du fiscal non sourcé + erreurs techniques non vérifiées)
+
+**Symptôme :** un plan d'implémentation (tasks/plan-ereporting-b2c-10-3.md) corrigé trois fois par Karl :
+(1) « le montant de marge dépend d'une capacité B2Brouter » → récidive du couplage à un PA concret
+(déjà consigné 2026-06-02 et 2026-06-15(3)) ; (2) « BV hors périmètre V1 ?? c'est intégral à la marge »
+→ j'avais confondu *périmètre des documents déclarés* (2e jambe) avec *composition de la marge* ;
+(3) redline finale : la formule « marge = frais acheteur + frais vendeur », l'enum `reportingFrequency`
+et l'enum méthode de marge présentés comme **acquis/sourcés** alors qu'aucune `F*.md` ne les porte
+(`FiscalSettings.ReportingFrequency` est une chaîne OPAQUE délibérée, INV-TENANTSETTINGS-008), plus deux
+erreurs techniques concrètes (garde `SupportsB2cReporting` posée sur `SendDocumentAsync` = voie unique →
+casse le Factur-X Essentiel ; « ajouter une `PivotLineDto` est hash-neutre » = faux, la collection `Lines`
+est toujours sérialisée).
+
+**Règles pour l'avenir :**
+- **Ton = niveau de preuve.** Dans ce produit fiscal, ne JAMAIS énoncer une inférence en registre
+  catégorique/sourcé. Chaque affirmation fiscale est soit ancrée (`F*.md` / code cité), soit marquée
+  explicitement « hypothèse non sourcée → item de sourcing bloquant ». Un plan qui dit « marge = X » sans
+  citer la source AUTORISE à coder avant sourcing — c'est le piège n°2 déguisé. Tenir un bloc
+  « Statut de sourcing : sourcé vs non sourcé » en tête de tout plan fiscal.
+- **Ne pas pré-câbler un enum non sourcé** (`{Globalisation, CoupParCoup}`, énum cadence) : pré-nommer =
+  même mécanisme d'invention que figer une valeur. Sourcer l'existence des options AVANT de nommer.
+- **Distinguer deux axes qu'on tend à fusionner** : « quels documents sont déclarés » (périmètre produit)
+  ≠ « comment se compose une grandeur fiscale » (la marge a besoin de BV même si la 1re jambe n'est pas un
+  document déclaré). Avant de dire « hors périmètre », vérifier de quel périmètre on parle.
+- **Vérifier les claims de CODE avant de les écrire dans un plan** : voie unique vs multiple
+  (`SendDocumentAsync` sert TOUS les documents), neutralité de hash (ajouter une ligne ≠ champ additif
+  absent), type de résultat exact (`PaCapabilityNotSupportedResult` ≠ `PendingCapability`), enum figé
+  (`TvaMappingPart` = {Adjudication, Frais, Autre}). Une garde générique sur une voie partagée casse les
+  flux voisins. Cf. [[2026-06-02 Liakont produit générique]] / [[2026-06-15(3) hors scope déjà couvert]].
+- **Récidive PA-concret** : une limite/feature d'un PA passe TOUJOURS par `PaCapabilities` (générique,
+  validée à l'envoi) ; l'état d'intégration d'un plug-in (ticket fournisseur) n'est jamais un blocage
+  produit. C'est la 3e consignation du même point — appliquer, pas re-apprendre.
