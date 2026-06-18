@@ -247,4 +247,49 @@ secrets, injection CSS). Revue par sous-agent (le wrapper codex-review reste à 
   composition root ; (e) tests. NB : SuperPDP ne marche **qu'en Sandbox** aujourd'hui (`BaseUrl` lève en
   Production, F14 §12 O1).
 
-<!-- Prochaines observations dictées : RB11, … -->
+## RB11 — [P1, ✅ RÉSOLU 18/06 — 926c05a] Horodatages socle lus en `DateTimeOffset` → `InvalidCastException`
+
+- **Vu** : pages d'admin socle (supervision/alertes, `/admin/jobs`, `/admin/notifications/*`) qui plantent ;
+  bandeau supervision en boucle d'erreur dans les logs.
+- **Cause** : les modules socle Job/Notification/Identity lisaient les colonnes `timestamptz` par cast direct
+  `(DateTimeOffset)row.x` ; Npgsql renvoie un `DateTime` (UTC) → `InvalidCastException`. Latent depuis le
+  vendoring SOL01, masqué par les tests bUnit (données mockées, jamais de vrai Postgres).
+- **Fix** : helper `Stratum.Common.Infrastructure.Database.DbTimestamp` + remplacement des ~80 casts (Audit
+  déjà sain). Provenance §4.36. `DbTimestampTests` + build Release 0/0 + run-tests verts.
+
+## RB12 — [P1, ✅ RÉSOLU 18/06 — a7b2ba7] Deadlock à la résolution d'un compte SuperPdp (pages figées)
+
+- **Vu** : dès qu'un compte SuperPdp **actif** existait, **Documents / Comptes PA / Vue d'ensemble** ne se
+  rendaient plus (URL + menu changent, mais contenu figé sur la page précédente), heartbeat agent bloqué,
+  save du compte PA en spinner infini. **Pas d'exception**, WebSocket `/_blazor` en 101.
+- **Cause** : `SuperPdpAccountResolver.Resolve` = `ResolveAsync(...).GetAwaiter().GetResult()` (sync-over-async).
+  Appelé au **RENDU UI** (`BuildPaAccountSettings` décrit le compte) sous le `SynchronizationContext` du circuit
+  Blazor Server, le `DisposeAsync` du scope tenant (`await using`) tentait de reprendre sur le thread du circuit,
+  bloqué par le `.GetResult()` → **deadlock**.
+- **Fix** : `Task.Run(() => ResolveAsync(account)).GetAwaiter().GetResult()` (offload hors `SynchronizationContext`)
+  + garde anti-régression (test reproduisant le deadlock sous un SC mono-thread, 8/8).
+
+## RB13 — [OUVERT] Compte PA désactivé INVISIBLE + recréation du même type bloquée (impasse)
+
+- **Vu** : créer un compte SuperPdp, le **désactiver**, puis vouloir **recréer** un compte du même type →
+  blocage « Un compte plateforme agréée existe déjà pour ce plug-in et cet environnement » (`ComptesPa.razor:301`),
+  **MAIS** le compte désactivé n'apparaît **nulle part** dans l'UI → impasse (ni gérable, ni réactivable, ni recréable).
+- **Cause** : la liste des comptes PA n'expose pas les comptes **inactifs**, alors que la contrainte d'unicité
+  (plugin_type + environnement) les **compte**.
+- **Fix (à décider)** : (a) lister les comptes inactifs avec réactiver/supprimer ; OU (b) recréation = réactivation
+  implicite ; OU (c) unicité portant sur les **actifs** seulement.
+- **Contournement recette (18/06)** : compte désactivé supprimé en base (`DELETE`) pour débloquer.
+
+## RB14 — [OUVERT, cosmétique] Bandeau de reconnexion Blazor « Rejoining the server… » en anglais
+
+- **Vu** : après un redémarrage du Host, l'onglet affiche « Rejoining the server… » (bandeau Blazor non localisé).
+- **Fix** : franciser le `components-reconnect-modal` (côté Host, `App.razor`).
+
+## RB15 — [✅ RÉSOLU 18/06 — b5024ce] SuperPDP affichait « Facturation B2B : Non disponible » à tort
+
+- **Vu** : capacité `SupportsB2bInvoicing = false` (« phase 2 ») alors que l'envoi B2B est **vérifié en sandbox**
+  (envoi réel facture 72272) et que `SendDocumentAsync` ne la garde pas → affichage trompeur, démo bloquée.
+- **Fix** : `SupportsB2bInvoicing = true` (directive de recette Karl 18/06) + test aligné (10/10). Les autres
+  capacités non confirmées restent `false` (principe « moins-disant »).
+
+<!-- Prochaines observations dictées : RB16, … -->
