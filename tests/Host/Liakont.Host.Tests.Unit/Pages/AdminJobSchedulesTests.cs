@@ -50,6 +50,10 @@ public sealed class AdminJobSchedulesTests : BunitContext
 
         cut.Markup.Should().Contain("Évaluation de la supervision");
         cut.Markup.Should().NotContain(SupervisionKey, "la colonne affiche le libellé FR, jamais le FullName .NET");
+
+        // RB6 : NextRunAt = PRÉVISION serveur (cron interprété en UTC) → UTC EXPLICITE (jamais l'heure SERVEUR
+        // muette de l'ancien ToLocalTime()). Les ÉVÉNEMENTS (LastRunAt) sont, eux, au fuseau du navigateur.
+        cut.Markup.Should().Contain("11/06/2026 08:15 UTC");
     }
 
     [Fact]

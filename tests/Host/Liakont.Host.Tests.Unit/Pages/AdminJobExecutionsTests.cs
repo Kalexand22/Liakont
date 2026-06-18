@@ -63,6 +63,10 @@ public sealed class AdminJobExecutionsTests : BunitContext
 
         // Statut en français.
         cut.Markup.Should().Contain("Terminé");
+
+        // RB6 : horodatages d'exécution au fuseau du NAVIGATEUR ; en bUnit la sonde n'est pas rendue → repli
+        // UTC EXPLICITE (les exécutions du fake sont à 08:00). Capte une régression de câblage/nullable/suffixe.
+        cut.Markup.Should().Contain("11/06/2026 08:00 UTC");
     }
 
     [Fact]

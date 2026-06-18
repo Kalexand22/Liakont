@@ -98,8 +98,9 @@ public sealed class AdminJobScheduleFormTests : BunitContext
         cut.Find("[data-testid='job-schedule-form-cron-preset']").Change("hourly");
         cut.Find("[data-testid='job-schedule-form-cron']").GetAttribute("value").Should().Be("0 * * * *");
 
-        // Le fuseau est explicite : les crons sont interprétés en UTC (constaté en recette).
-        cut.Markup.Should().Contain("UTC");
+        // RB6 : l'aperçu cron = PRÉVISION serveur (cron interprété en UTC) → UTC EXPLICITE, cohérent avec NextRunAt.
+        // Assertion sur une LIGNE d'aperçu datée (et non le titre « (UTC) » : asserter "UTC" seul serait un faux-vert).
+        cut.Markup.Should().Contain("11 juin 2026 à 01:00 UTC");
     }
 
     private IRenderedComponent<AdminJobScheduleForm> RenderCreate() =>

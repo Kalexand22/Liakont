@@ -227,11 +227,11 @@
                     <dt class="col-sm-3">Identifiant</dt>
                     <dd class="col-sm-9"><code class="text-muted small">@Id</code></dd>
                     <dt class="col-sm-3">Créé le</dt>
-                    <dd class="col-sm-9">@_createdAt.ToString("dd/MM/yyyy HH:mm")</dd>
+                    <dd class="col-sm-9"><LiakontDate Value="@_createdAt" /></dd>
                     @if (_updatedAt != default)
                     {
                         <dt class="col-sm-3">Modifié le</dt>
-                        <dd class="col-sm-9">@_updatedAt.ToString("dd/MM/yyyy HH:mm")</dd>
+                        <dd class="col-sm-9"><LiakontDate Value="@_updatedAt" /></dd>
                     }
                 </dl>
             </SectionCard>
@@ -718,6 +718,9 @@
         }
 
         var occurrences = CronPreview.GetNextOccurrences(_cronExpression, 3);
+        // PRÉVISION serveur : le cron est INTERPRÉTÉ EN UTC (cf. titre « (UTC) ») → aperçu en UTC EXPLICITE,
+        // cohérent avec NextRunAt de la liste. Les ÉVÉNEMENTS de la fiche (Créé/Modifié le) sont, eux, au fuseau
+        // du navigateur (<LiakontDate>). Une prévision affichée en heure locale induirait en erreur (le cron fire en UTC).
         _cronPreviewLines = occurrences
             .Select(o => o.UtcDateTime.ToString("dddd dd MMMM yyyy 'à' HH:mm 'UTC'", FrCulture))
             .ToList();

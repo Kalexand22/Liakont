@@ -247,6 +247,7 @@ src/Common/Abstractions/MultiTenancy/KeycloakRealmProvisionRequest.cs
 src/Common/Abstractions/MultiTenancy/TenantProvisionResult.cs
 src/Common/Infrastructure/Database/ServiceCollectionExtensions.cs
 src/Common/UI/CommonUIServiceExtensions.cs
+src/Modules/Job/Web/Pages/AdminJobExecutions.razor
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -828,6 +829,25 @@ pages transitent par `ErpShellLayout`).
 repli, bUnit `<LiakontDate>`/sonde). `CommonUIServiceExtensions.cs` (modifié, épinglé) consigné dans le bloc
 `SOCLE-CONSIGNED-DRIFT` — **baseline HEAD INCHANGÉ** (pas de re-pin en masse qui mélangerait des fichiers
 étrangers à RB6). Les 6 ajouts ne sont pas épinglés (garde par conception) — tracés ici uniquement.
+
+### 4.32 `Stratum.Modules.Job.Web` — horodatages d'admin Job au fuseau navigateur (RB6 P2)
+
+**Motif** : suite de RB6 (§4.31) — les pages d'admin du socle affichaient l'heure UTC/serveur. Migration des
+horodatages d'ÉVÉNEMENT vers `<LiakontDate>` (composant socle, §4.31).
+
+**Changement** — RÈGLE : les ÉVÉNEMENTS passent au fuseau du NAVIGATEUR (`<LiakontDate>`) ; les PRÉVISIONS serveur
+restent en UTC EXPLICITE (le cron est interprété en UTC — afficher une prévision en heure locale induirait en
+erreur, car le job fire à l'heure UTC ; cohérence + honnêteté du fuseau) :
+- `AdminJobSchedules.razor` : LastRunAt (ÉVÉNEMENT) → `<LiakontDate>` ; NextRunAt (PRÉVISION cron) → UTC explicite.
+  DÉJÀ au bloc `SOCLE-CONSIGNED-DRIFT` (items Job antérieurs).
+- `AdminJobScheduleForm.razor` : Créé/Modifié le (ÉVÉNEMENTS) → `<LiakontDate>` ; aperçu cron (PRÉVISION) → UTC
+  explicite (cohérent avec le titre « (UTC) » et avec NextRunAt). DÉJÀ au bloc.
+- `AdminJobExecutions.razor` : CreatedAt/StartedAt/CompletedAt (exécutions = ÉVÉNEMENTS) → `<LiakontDate>` (helper
+  `RenderLocalDate`) ; `FormatUtc`/`FrCulture` retirés (orphelins). AJOUTÉ au bloc `SOCLE-CONSIGNED-DRIFT`.
+
+**Vérification** : `verify-fast` vert ; `Host.Tests.Unit` 963/963 (les tests des pages Job appellent `AddCommonUI()`
+qui fournit désormais `IBrowserTimeZone` → aucun échec DI ; repli UTC en bUnit, aucune assertion de date cassée).
+La localisation est couverte au niveau composant (`LiakontDateTests`/`LiakontDateDisplayTests`).
 
 ## 5. ADR du socle hérités
 
