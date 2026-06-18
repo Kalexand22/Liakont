@@ -64,6 +64,25 @@ RB7 → RB8 → RB6.
       par le Host ET les modules.Web. = vraie restructuration → à acter avec Karl. NB : sites cron/planif
       (AdminJobScheduleForm, AdminJobExecutions) restent UTC EXPLICITE (prévision serveur, pas un événement).
 
+## 6. Chantier 2 — Adaptateur Chorus Pro (tranche démo) — plan détaillé : plan-chorus-pro.md
+- [ ] Plan complet rédigé (CP1→CP9 + prérequis externes + DoD). **À relire par Karl.**
+- Décisions tranchées : D1 = **étendre le schéma** (3ᵉ secret compte technique) ; D2 = **e-reporting
+  exclu du plug-in** (sourcé : Chorus Pro = B2G, e-reporting B2B via PA/PDP).
+- **Dépendance** : SuperPDP option-1 « Partie A » (slices 2-4 ci-dessus, **⛔ NON COMMENCÉE** — vérifié :
+  TenantSettings=V010, pas de V011/encrypted_client_id/IPaAccountSecretStore ; seule slice 1 mergée) =
+  infra OAuth générique partagée. **Bloque CP5/CP6** ; CP1→CP4 (plug-in pur) codables en parallèle.
+  Brancher Partie A ↔ Chorus Pro sur une branche partagée à décider (B5).
+- Plan **redliné par Karl 2026-06-18** : corrections de fond intégrées (dépôt→Sending jamais Issued ;
+  endpoints *.piste.gouv.fr ; pas d'idempotence par numeroFluxDepot ; libellés consulterCR exacts ;
+  câblage via bootstrap dédié, pas AddConfiguredPaClients).
+- **Arbitrages §2bis tranchés** : D7 = nouvel item plateforme **PR-PIPE** (support PaSendState.Sending
+  async : persiste PaDocumentId, confirme via consulterCR, finalise Issued seulement sur Intégré, ne
+  re-dépose jamais — bénéficie à SuperPDP ; prérequis envoi prod/e2e) ; D8 = pas de re-POST auto ;
+  D9 = avecSignature=false (Factur-X non signé) ; C3 = idUtilisateurCourant via consulterCompteUtilisateur
+  +cache ; B5 = Partie A mergée sur main d'abord, puis brancher feat/pa-chorus-pro.
+- Chorus Pro = hybride **SuperPdp** (OAuth2 client_credentials/PISTE) + **Generique** (transport
+  Factur-X scellé) ; sera le 1er connecteur HTTP réellement câblé en prod.
+
 ## Notes
 - Démo cette nuit/demain : PA = **Fake** (Development) pour exercer agent→plateforme→PA de bout en bout.
 - Ne PAS `demo.ps1 reset` (SEM Keroman en cours de démo).
