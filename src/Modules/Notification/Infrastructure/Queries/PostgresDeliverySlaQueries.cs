@@ -90,8 +90,8 @@ public sealed class PostgresDeliverySlaQueries : IDeliverySlaQueries
             EscalationAction = (string?)row.escalation_action,
             EscalationRecipient = (string?)row.escalation_recipient,
             CompanyId = (Guid?)row.company_id,
-            CreatedAt = (DateTimeOffset)row.created_at,
-            UpdatedAt = (DateTimeOffset?)row.updated_at,
+            CreatedAt = DbTimestamp.ToDateTimeOffset((object)row.created_at),
+            UpdatedAt = DbTimestamp.ToNullableDateTimeOffset((object?)row.updated_at),
         };
     }
 }

@@ -155,11 +155,11 @@ internal sealed class PostgresJobUnitOfWork : IJobUnitOfWork
             (int)row.priority,
             (int)row.max_retries,
             (int)row.retry_count,
-            (DateTimeOffset)row.scheduled_at,
-            (DateTimeOffset?)row.started_at,
-            (DateTimeOffset?)row.completed_at,
+            DbTimestamp.ToDateTimeOffset((object)row.scheduled_at),
+            DbTimestamp.ToNullableDateTimeOffset((object?)row.started_at),
+            DbTimestamp.ToNullableDateTimeOffset((object?)row.completed_at),
             (string?)row.error_message,
             (Guid?)row.company_id,
-            (DateTimeOffset)row.created_at);
+            DbTimestamp.ToDateTimeOffset((object)row.created_at));
     }
 }

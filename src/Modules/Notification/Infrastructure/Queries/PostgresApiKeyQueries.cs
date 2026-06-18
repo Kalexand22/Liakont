@@ -36,9 +36,9 @@ public sealed class PostgresApiKeyQueries : IApiKeyQueries
             RateLimit = (int)r.rate_limit,
             IsRevoked = (bool)r.is_revoked,
             CompanyId = (Guid)r.company_id,
-            CreatedAt = (DateTimeOffset)r.created_at,
-            RevokedAt = (DateTimeOffset?)r.revoked_at,
-            ExpiresAt = (DateTimeOffset?)r.expires_at,
+            CreatedAt = DbTimestamp.ToDateTimeOffset((object)r.created_at),
+            RevokedAt = DbTimestamp.ToNullableDateTimeOffset((object?)r.revoked_at),
+            ExpiresAt = DbTimestamp.ToNullableDateTimeOffset((object?)r.expires_at),
         }).ToList();
     }
 
@@ -69,9 +69,9 @@ public sealed class PostgresApiKeyQueries : IApiKeyQueries
             RateLimit = (int)row.rate_limit,
             IsRevoked = (bool)row.is_revoked,
             CompanyId = (Guid)row.company_id,
-            CreatedAt = (DateTimeOffset)row.created_at,
-            RevokedAt = (DateTimeOffset?)row.revoked_at,
-            ExpiresAt = (DateTimeOffset?)row.expires_at,
+            CreatedAt = DbTimestamp.ToDateTimeOffset((object)row.created_at),
+            RevokedAt = DbTimestamp.ToNullableDateTimeOffset((object?)row.revoked_at),
+            ExpiresAt = DbTimestamp.ToNullableDateTimeOffset((object?)row.expires_at),
         };
     }
 }

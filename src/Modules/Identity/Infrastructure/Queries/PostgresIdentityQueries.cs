@@ -186,7 +186,7 @@ internal sealed class PostgresIdentityQueries : IIdentityQueries
             Name = (string)roleRow.name,
             Description = (string?)roleRow.description,
             IsSystem = (bool)roleRow.is_system,
-            CreatedAt = (DateTimeOffset)roleRow.created_at,
+            CreatedAt = DbTimestamp.ToDateTimeOffset((object)roleRow.created_at),
             GrantedPermissions = grants.ToList(),
         };
     }

@@ -37,8 +37,8 @@ internal sealed class PostgresTeamQueries : ITeamQueries
             ServiceCode = (string?)r.service_code,
             MemberCount = (int)(long)r.member_count,
             IsActive = (bool)r.is_active,
-            CreatedAt = (DateTimeOffset)r.created_at,
-            UpdatedAt = (DateTimeOffset?)r.updated_at,
+            CreatedAt = DbTimestamp.ToDateTimeOffset((object)r.created_at),
+            UpdatedAt = DbTimestamp.ToNullableDateTimeOffset((object?)r.updated_at),
         }).ToList();
     }
 
@@ -69,8 +69,8 @@ internal sealed class PostgresTeamQueries : ITeamQueries
             ServiceCode = (string?)r.service_code,
             MemberCount = (int)(long)r.member_count,
             IsActive = (bool)r.is_active,
-            CreatedAt = (DateTimeOffset)r.created_at,
-            UpdatedAt = (DateTimeOffset?)r.updated_at,
+            CreatedAt = DbTimestamp.ToDateTimeOffset((object)r.created_at),
+            UpdatedAt = DbTimestamp.ToNullableDateTimeOffset((object?)r.updated_at),
         };
     }
 
@@ -95,7 +95,7 @@ internal sealed class PostgresTeamQueries : ITeamQueries
             Username = (string)r.username,
             DisplayName = (string?)r.display_name,
             Role = (string?)r.role,
-            JoinedAt = (DateTimeOffset)r.joined_at,
+            JoinedAt = DbTimestamp.ToDateTimeOffset((object)r.joined_at),
         }).ToList();
     }
 }

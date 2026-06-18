@@ -54,8 +54,8 @@ internal sealed class PostgresAgentQueries : IAgentQueries
             IsActive = (bool)r.is_active,
             Teams = (string?)r.teams,
             CompetenceCount = (int)(long)r.competence_count,
-            CreatedAt = (DateTimeOffset)r.created_at,
-            UpdatedAt = (DateTimeOffset?)r.updated_at,
+            CreatedAt = DbTimestamp.ToDateTimeOffset((object)r.created_at),
+            UpdatedAt = DbTimestamp.ToNullableDateTimeOffset((object?)r.updated_at),
         }).ToList();
     }
 
@@ -102,8 +102,8 @@ internal sealed class PostgresAgentQueries : IAgentQueries
             IsActive = (bool)r.is_active,
             Teams = (string?)r.teams,
             CompetenceCount = (int)(long)r.competence_count,
-            CreatedAt = (DateTimeOffset)r.created_at,
-            UpdatedAt = (DateTimeOffset?)r.updated_at,
+            CreatedAt = DbTimestamp.ToDateTimeOffset((object)r.created_at),
+            UpdatedAt = DbTimestamp.ToNullableDateTimeOffset((object?)r.updated_at),
         };
     }
 
@@ -150,8 +150,8 @@ internal sealed class PostgresAgentQueries : IAgentQueries
             IsActive = (bool)r.is_active,
             Teams = (string?)r.teams,
             CompetenceCount = (int)(long)r.competence_count,
-            CreatedAt = (DateTimeOffset)r.created_at,
-            UpdatedAt = (DateTimeOffset?)r.updated_at,
+            CreatedAt = DbTimestamp.ToDateTimeOffset((object)r.created_at),
+            UpdatedAt = DbTimestamp.ToNullableDateTimeOffset((object?)r.updated_at),
         };
     }
 
@@ -174,7 +174,7 @@ internal sealed class PostgresAgentQueries : IAgentQueries
             Name = (string)r.name,
             Category = (string?)r.category,
             ValidUntil = r.valid_until is null ? null : DateOnly.FromDateTime((DateTime)r.valid_until),
-            CreatedAt = (DateTimeOffset)r.created_at,
+            CreatedAt = DbTimestamp.ToDateTimeOffset((object)r.created_at),
         }).ToList();
     }
 }

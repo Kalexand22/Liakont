@@ -270,6 +270,24 @@ src/Modules/Notification/Web/Pages/AdminNotificationRouting.razor
 src/Modules/Notification/Web/Pages/AdminCatalogServices.razor
 src/Modules/Notification/Web/Pages/AdminWebhookSubscriptions.razor
 src/Modules/Notification/Web/Pages/AdminIntegrations.razor
+<!-- §4.36 — lecture timestamptz via DbTimestamp (casts directs (DateTimeOffset)row.x corriges) -->
+src/Modules/Job/Infrastructure/PostgresJobUnitOfWork.cs
+src/Modules/Job/Infrastructure/Queries/PostgresScheduleQueries.cs
+src/Modules/Job/Infrastructure/Queries/PostgresJobExecutionsQueries.cs
+src/Modules/Notification/Infrastructure/PostgresNotificationUnitOfWork.cs
+src/Modules/Notification/Infrastructure/Queries/PostgresApiKeyQueries.cs
+src/Modules/Notification/Infrastructure/Queries/PostgresIntegrationConfigQueries.cs
+src/Modules/Notification/Infrastructure/Queries/PostgresWebhookQueries.cs
+src/Modules/Notification/Infrastructure/Queries/PostgresDeliverySlaQueries.cs
+src/Modules/Notification/Infrastructure/Queries/PostgresServiceDefinitionQueries.cs
+src/Modules/Notification/Infrastructure/Queries/PostgresDeliveryRecordQueries.cs
+src/Modules/Notification/Infrastructure/Queries/PostgresRoutingRuleQueries.cs
+src/Modules/Notification/Infrastructure/Queries/PostgresEmailTemplateQueries.cs
+src/Modules/Identity/Infrastructure/PostgresIdentityUnitOfWork.cs
+src/Modules/Identity/Infrastructure/Queries/PostgresDelegationQueries.cs
+src/Modules/Identity/Infrastructure/Queries/PostgresIdentityQueries.cs
+src/Modules/Identity/Infrastructure/Queries/PostgresAgentQueries.cs
+src/Modules/Identity/Infrastructure/Queries/PostgresTeamQueries.cs
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -955,6 +973,32 @@ Les registres `*ColumnRegistry.cs` **ne sont pas touchés**. Les 9 `.razor` sont
 `AdminCatalogServiceFormTests`, `AdminNotificationRoutingDetailTests`, `AdminNotificationTemplatesTests`,
 `AdminNotificationRoutingTests`, `AdminCatalogServicesTests`, `AdminWebhookSubscriptionsTests`, `AdminIntegrationsTests`)
 + fakes de query ; assertion discriminante sur `AdminIntegrations` (`ExpiresAt` rendue SANS suffixe « UTC »).
+
+### 4.36 Lecture des `timestamptz` — casts directs `(DateTimeOffset)row.x` corrigés (recette RB, bug bloquant)
+
+**Contexte** : en recette (env Bucodi neuf), les pages d'admin du socle (supervision/alertes, admin Job,
+Notification, Identity) levaient `System.InvalidCastException: Invalid cast from 'System.DateTime' to
+'System.DateTimeOffset'`. Npgsql renvoie un `DateTime` (Kind=Utc) pour une colonne `timestamptz` ; le code
+socle lisait ces colonnes par **cast direct** `(DateTimeOffset)row.x` / `(DateTimeOffset?)row.x` et un
+`ExecuteScalar<DateTimeOffset?>`, ce qui échoue à l'exécution. Latent depuis le vendoring (SOL01), masqué
+par les tests bUnit (données mockées, jamais de Postgres réel). Les modules **Liakont** n'étaient pas
+touchés (chacun a un `RowReader` robuste, ex. `TenantSettingsRowReader.ToDateTimeOffset`).
+
+**Correctif** :
+- **AJOUTÉ** `src/Common/Infrastructure/Database/DbTimestamp.cs` (`Stratum.Common.Infrastructure.Database`,
+  fichier Liakont) : `ToDateTimeOffset(object)` / `ToNullableDateTimeOffset(object?)` — même contrat que les
+  RowReader Liakont (`DateTime` → `new DateTimeOffset(SpecifyKind(dt, Utc))`, `DateTimeOffset` inchangé,
+  `null`/`DBNull` → `null`). L'argument est casté en `(object)` à l'appel pour ne pas propager `dynamic`.
+- **MODIFIÉ** (casts directs → `DbTimestamp`) : `Stratum.Modules.Job.Infrastructure` (PostgresJobQueries +
+  `GetLastCompletedAtByTypeAsync` via `object?`, PostgresScheduleQueries, PostgresJobExecutionsQueries,
+  PostgresJobUnitOfWork, PostgresScheduleUnitOfWork) ; `Stratum.Modules.Notification.Infrastructure`
+  (PostgresNotificationUnitOfWork + 8 Queries) ; `Stratum.Modules.Identity.Infrastructure`
+  (PostgresIdentityUnitOfWork + Delegation/Agent/Team/Identity Queries). **Audit NON touché** (lisait déjà
+  via `new DateTimeOffset((DateTime)row.x, TimeSpan.Zero)`). Le module Liakont `TvaMapping`
+  (PostgresTvaMappingQueries, `occurred_at`) est corrigé de la même façon (hors socle).
+
+**Vérification** : build Release `0/0` (StyleCop) ; `DbTimestampTests` (unitaire) ; recette manuelle des
+pages admin socle (plus d'`InvalidCastException`). Aucun `*ColumnRegistry` ni `.razor` touché.
 
 ## 5. ADR du socle hérités
 

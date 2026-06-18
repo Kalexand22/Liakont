@@ -211,8 +211,8 @@ internal sealed class PostgresNotificationUnitOfWork : INotificationUnitOfWork
             (string)row.secret,
             (bool)row.is_active,
             (Guid)row.company_id,
-            (DateTimeOffset)row.created_at,
-            (DateTimeOffset?)row.updated_at);
+            DbTimestamp.ToDateTimeOffset((object)row.created_at),
+            DbTimestamp.ToNullableDateTimeOffset((object?)row.updated_at));
     }
 
     public async Task InsertServiceDefinitionAsync(ServiceDefinition serviceDefinition, CancellationToken ct = default)
@@ -337,8 +337,8 @@ internal sealed class PostgresNotificationUnitOfWork : INotificationUnitOfWork
             (string?)row.description,
             (bool)row.is_active,
             (Guid?)row.company_id,
-            (DateTimeOffset)row.created_at,
-            (DateTimeOffset?)row.updated_at,
+            DbTimestamp.ToDateTimeOffset((object)row.created_at),
+            DbTimestamp.ToNullableDateTimeOffset((object?)row.updated_at),
             (string?)row.manager_name,
             (int?)row.default_sla_hours,
             (string?)row.color,
@@ -550,8 +550,8 @@ internal sealed class PostgresNotificationUnitOfWork : INotificationUnitOfWork
             (string?)row.escalation_action,
             (string?)row.escalation_recipient,
             (Guid?)row.company_id,
-            (DateTimeOffset)row.created_at,
-            (DateTimeOffset?)row.updated_at);
+            DbTimestamp.ToDateTimeOffset((object)row.created_at),
+            DbTimestamp.ToNullableDateTimeOffset((object?)row.updated_at));
     }
 
     public async Task InsertDeliveryRecordAsync(DeliveryRecord record, CancellationToken ct = default)
@@ -636,9 +636,9 @@ internal sealed class PostgresNotificationUnitOfWork : INotificationUnitOfWork
             (string)row.recipient_email,
             (string?)row.entity_type,
             (string?)row.entity_id,
-            (DateTimeOffset)row.sent_at,
-            (DateTimeOffset?)row.delivered_at,
-            (DateTimeOffset?)row.failed_at,
+            DbTimestamp.ToDateTimeOffset((object)row.sent_at),
+            DbTimestamp.ToNullableDateTimeOffset((object?)row.delivered_at),
+            DbTimestamp.ToNullableDateTimeOffset((object?)row.failed_at),
             (int)row.retry_count,
             (bool)row.sla_breached,
             (Guid?)row.company_id);
@@ -670,8 +670,8 @@ internal sealed class PostgresNotificationUnitOfWork : INotificationUnitOfWork
             (string)row.body_template,
             ((string)row.language_code).Trim(),
             (Guid?)row.company_id,
-            (DateTimeOffset)row.created_at,
-            (DateTimeOffset?)row.updated_at,
+            DbTimestamp.ToDateTimeOffset((object)row.created_at),
+            DbTimestamp.ToNullableDateTimeOffset((object?)row.updated_at),
             (TemplateCategory)(int)(short)row.category,
             (string?)row.entity_type,
             templateLinks);
@@ -692,8 +692,8 @@ internal sealed class PostgresNotificationUnitOfWork : INotificationUnitOfWork
             (int)row.priority,
             (bool)row.is_active,
             (Guid?)row.company_id,
-            (DateTimeOffset)row.created_at,
-            (DateTimeOffset?)row.updated_at);
+            DbTimestamp.ToDateTimeOffset((object)row.created_at),
+            DbTimestamp.ToNullableDateTimeOffset((object?)row.updated_at));
     }
 
     private static string SerializeConditions(IReadOnlyList<RoutingCondition> conditions)

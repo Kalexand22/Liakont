@@ -59,12 +59,12 @@ internal sealed class PostgresJobExecutionsQueries : IJobExecutionsQueries
             Priority = (int)row.priority,
             MaxRetries = (int)row.max_retries,
             RetryCount = (int)row.retry_count,
-            ScheduledAt = (DateTimeOffset)row.scheduled_at,
-            StartedAt = (DateTimeOffset?)row.started_at,
-            CompletedAt = (DateTimeOffset?)row.completed_at,
+            ScheduledAt = DbTimestamp.ToDateTimeOffset((object)row.scheduled_at),
+            StartedAt = DbTimestamp.ToNullableDateTimeOffset((object?)row.started_at),
+            CompletedAt = DbTimestamp.ToNullableDateTimeOffset((object?)row.completed_at),
             ErrorMessage = (string?)row.error_message,
             CompanyId = (Guid?)row.company_id,
-            CreatedAt = (DateTimeOffset)row.created_at,
+            CreatedAt = DbTimestamp.ToDateTimeOffset((object)row.created_at),
         }).ToList();
     }
 }
