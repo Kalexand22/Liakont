@@ -35,6 +35,7 @@ public sealed class ReconciliationViewTests : BunitContext
         Services.AddLogging();
         Services.AddLocalization();
         Services.AddCommonUI();
+        Services.AddBrowserTimeZoneStub();
         Services.AddSingleton<IActorContextAccessor>(new FakeActorContextAccessor());
         Services.AddScoped<IGridPreferenceService, NoOpGridPreferenceService>();
         Services.AddScoped<ISavedFilterService, NoOpSavedFilterService>();

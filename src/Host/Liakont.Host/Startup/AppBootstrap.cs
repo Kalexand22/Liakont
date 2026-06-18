@@ -713,6 +713,10 @@ public static class AppBootstrap
         builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler>(
             sp => sp.GetRequiredService<Liakont.Host.Navigation.LiakontConsoleCircuitHandler>());
 
+        // Fuseau du NAVIGATEUR (RB6) : un état par circuit (JAMAIS Singleton — mélangerait les fuseaux entre
+        // opérateurs). Résolu une fois via JS interop puis lu de façon synchrone par le formatage des dates.
+        builder.Services.AddScoped<Liakont.Host.Time.IBrowserTimeZone, Liakont.Host.Time.BrowserTimeZone>();
+
         // Blazor Server-Side Rendering
         builder.Services.AddRazorComponents()
             .AddInteractiveServerComponents(options =>

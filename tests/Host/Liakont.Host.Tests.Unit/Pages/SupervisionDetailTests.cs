@@ -29,6 +29,7 @@ public sealed class SupervisionDetailTests : BunitContext
         JSInterop.Mode = JSRuntimeMode.Loose;
         Services.AddLogging();
         Services.AddCommonUI();
+        Services.AddBrowserTimeZoneStub();
         Services.AddSingleton<IStringLocalizer<SharedResources>>(new StubSharedResourcesLocalizer());
         Services.AddScoped<IActorContextAccessor>(_ => new TestActorContextAccessor("Superviseur Test"));
         Services.AddScoped<IGridPreferenceService>(_ => new NullGridPreferences());

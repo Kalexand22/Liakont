@@ -32,6 +32,12 @@ public sealed class DocumentsTests : BunitContext
         // registre de templates) via l'extension supportée. Les deux services non couverts (localisation,
         // contexte acteur) sont stubbés.
         Services.AddCommonUI();
+
+        // RB6 : Documents délègue l'affichage de LastUpdateUtc à <LiakontDate>. Cette colonne est MASQUÉE par
+        // défaut (DocumentColumnRegistry, defaultVisible:false) → aucun test de page ne la rend, donc la
+        // conversion fuseau-navigateur est couverte au niveau composant par LiakontDateTests. On enregistre tout
+        // de même le fuseau ici pour que la page rende sans erreur DI si une préférence de grille l'exposait.
+        Services.AddBrowserTimeZoneStub();
         Services.AddSingleton<IStringLocalizer<SharedResources>>(new StubStringLocalizer());
         Services.AddScoped<IActorContextAccessor>(_ => new StubActorContextAccessor());
 

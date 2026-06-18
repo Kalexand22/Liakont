@@ -150,6 +150,12 @@ secrets, injection CSS). Revue par sous-agent (le wrapper codex-review reste à 
   Écartées : (a) `TZ=Europe/Paris` sur le conteneur = mono-zone seulement ; (c) suffixe « UTC » = honnête
   mais pas local. → généraliser via un **helper commun** de formatage date/heure côté UI (pas seulement
   la page Agents), socle vendored non modifié.
+- **✅ Infra + P0 livrés** : `IBrowserTimeZone` (scopé/circuit) résout le fuseau du navigateur via JS interop
+  Liakont (hors socle), `<LiakontDate>` formate au fuseau résolu (repli UTC explicite avant résolution),
+  sonde `<BrowserTimeProbe>` dans le shell. 9 sites P0 migrés (le bug visible : Agents, Documents, Supervision…)
+  + 20 tests verts. **DateOnly (dates calendaires) laissées en l'état** (sans fuseau). P1/P2 (autres pages +
+  modules) en suivi. **À VÉRIFIER par Karl en recette** : « Dernier contact » de l'agent doit afficher
+  l'heure LOCALE (et non 18:42 UTC).
 
 ## RB7 — L'assistant d'installation de l'agent ne démarre pas le service en fin d'installation
 

@@ -37,6 +37,7 @@ public sealed class TableTvaViewTests : BunitContext
         // Graphe Common.UI réel (DeclaredListPage → StratumDataGrid) ; acteur anonyme (UserId == Empty)
         // pour court-circuiter les lectures de préférences par utilisateur — aucune base requise.
         Services.AddCommonUI();
+        Services.AddBrowserTimeZoneStub();
         Services.AddSingleton<IActorContextAccessor>(new FakeActorContextAccessor());
         Services.AddScoped<IGridPreferenceService, NoOpGridPreferenceService>();
         Services.AddScoped<ISavedFilterService, NoOpSavedFilterService>();

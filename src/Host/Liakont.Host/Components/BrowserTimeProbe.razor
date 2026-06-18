@@ -1,0 +1,25 @@
+@rendermode InteractiveServer
+@using Microsoft.JSInterop
+@using Liakont.Host.Time
+@inject IBrowserTimeZone Tz
+@inject IJSRuntime JS
+
+@* RB6 — sonde invisible placée dans le shell : résout le fuseau du NAVIGATEUR UNE fois par circuit (un seul
+   aller-retour JS), puis IBrowserTimeZone.Resolved fait passer tous les <LiakontDate> en heure locale. Aucun
+   rendu visible. Centraliser ici évite N appels JS (un par afficheur de date) sur les grandes listes. *@
+
+@code {
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Tant que NON résolu, on (re)tente à chaque rendu de la sonde (pas seulement au firstRender). La sonde
+        // ne se re-rend PAS d'elle-même : un nouveau rendu survient quand le shell (layout) se re-rend, typiquement
+        // à la NAVIGATION. Donc un échec JS au 1er rendu (cas rare — le JS est normalement disponible au 1er rendu
+        // interactif) n'est rattrapé qu'au prochain changement de page, pas dans la vue courante. En attendant,
+        // l'affichage reste en UTC EXPLICITE (repli honnête, jamais une fausse heure locale). Une fois résolu,
+        // EnsureResolvedAsync est un no-op (mémorisé) — aucun aller-retour JS superflu.
+        if (!Tz.IsResolved)
+        {
+            await Tz.EnsureResolvedAsync(JS);
+        }
+    }
+}

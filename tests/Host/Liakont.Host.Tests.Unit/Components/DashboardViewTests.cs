@@ -23,6 +23,7 @@ public sealed class DashboardViewTests : BunitContext
         // Le graphique « Année en cours » (Chart du design-system) rend via JS interop : un rendu
         // no-op suffit ici — la table accessible (sr-table) et le callback de clic restent testables.
         Services.AddScoped<IChartRenderer, StubChartRenderer>();
+        Services.AddBrowserTimeZoneStub();
     }
 
     // Périodes FIXES (juin 2026) : les bornes viennent du SERVICE via le modèle — la vue ne calcule

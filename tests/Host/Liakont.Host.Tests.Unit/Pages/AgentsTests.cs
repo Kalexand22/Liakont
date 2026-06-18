@@ -33,6 +33,7 @@ public sealed class AgentsTests : BunitContext
         // Services réels du design-system (DeclaredListPage), localisation + contexte acteur stubbés, et
         // préférences de grille / filtres enregistrés en no-op — comme les autres tests de pages de liste.
         Services.AddCommonUI();
+        Services.AddBrowserTimeZoneStub();
         Services.AddSingleton<IStringLocalizer<SharedResources>>(new StubStringLocalizer());
         Services.AddScoped<IActorContextAccessor>(_ => new StubActorContextAccessor());
         Services.AddScoped<IGridPreferenceService>(_ => new NullGridPreferenceService());

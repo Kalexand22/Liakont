@@ -31,6 +31,7 @@ public sealed class ClientsTests : BunitContext
         JSInterop.Mode = JSRuntimeMode.Loose;
         Services.AddLogging();
         Services.AddCommonUI();
+        Services.AddBrowserTimeZoneStub();
         Services.AddSingleton<IStringLocalizer<SharedResources>>(new StubLocalizer());
         Services.AddScoped<IActorContextAccessor>(_ => new StubActor());
         Services.AddScoped<IGridPreferenceService>(_ => new NullGridPrefs());

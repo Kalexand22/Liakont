@@ -40,10 +40,18 @@ RB7 → RB8 → RB6.
   design (cron vs HH:mm local). L'interim « désactiver le champ Planification » est entremêlé dans la boucle
   de champs générique du wizard + relève d'un choix UX. → **session dédiée** ; décider d'abord le parseur cron.
 
-## 5. RB6 — DÉFÉRÉ (horodatages UTC affichés bruts → fuseau navigateur)
-- Fix = helper commun de formatage date/heure (JS interop offset navigateur, résolu 1× par circuit), puis
-  l'appliquer PARTOUT (cohérence). TRANSVERSE (de nombreuses pages Blazor) → un fix partiel serait
-  incohérent ; mérite une passe dédiée. Socle vendored non modifié (surcharge Host). + tests bUnit.
+## 5. RB6 — horodatages au fuseau du navigateur (EN COURS — infra + P0 livrés)
+- [x] **Infra** : `IBrowserTimeZone` (scopé/circuit, JS `liakontTime.getTimeZone`, fallback UTC) +
+      `LiakontDateDisplay` (helper FR, UTC→local, repli UTC suffixé) + composant `<LiakontDate>` +
+      sonde `<BrowserTimeProbe>` dans le shell (résout 1×/circuit, événement → re-rendu). JS Liakont
+      (hors socle). DI AddScoped. Tests : 20 (xUnit helper/service + bUnit LiakontDate incl. re-rendu).
+- [x] **P0** (9 sites, le bug visible) migrés vers `<LiakontDate>` : Agents, AgentStatusList, Treatments,
+      Clients, Supervision, SupervisionDetail, TableTvaView, ReconciliationView, Documents (LastUpdateUtc).
+      NB : `Documents.IssueDate` = DateOnly (sans fuseau) → laissé tel quel (le convertir serait un bug).
+      Les 10 tests bUnit de pages migrées câblés (`AddBrowserTimeZoneStub`) → 961/961.
+- [ ] **P1** (4 sites Host à uniformiser : Flotte, Signatures, DocumentDetailView, SupervisionLivenessBanner).
+- [ ] **P2** (~20 pages modules : Audit/Identity/Notification/Job). NB : sites cron/planif (AdminJobScheduleForm,
+      AdminJobExecutions) → garder UTC EXPLICITE (prévision serveur, pas un horodatage d'événement).
 
 ## Notes
 - Démo cette nuit/demain : PA = **Fake** (Development) pour exercer agent→plateforme→PA de bout en bout.
