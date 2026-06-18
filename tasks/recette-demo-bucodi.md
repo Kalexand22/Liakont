@@ -153,9 +153,14 @@ secrets, injection CSS). Revue par sous-agent (le wrapper codex-review reste à 
 - **✅ Infra + P0 livrés** : `IBrowserTimeZone` (scopé/circuit) résout le fuseau du navigateur via JS interop
   Liakont (hors socle), `<LiakontDate>` formate au fuseau résolu (repli UTC explicite avant résolution),
   sonde `<BrowserTimeProbe>` dans le shell. 9 sites P0 migrés (le bug visible : Agents, Documents, Supervision…)
-  + 20 tests verts. **DateOnly (dates calendaires) laissées en l'état** (sans fuseau). P1/P2 (autres pages +
-  modules) en suivi. **À VÉRIFIER par Karl en recette** : « Dernier contact » de l'agent doit afficher
-  l'heure LOCALE (et non 18:42 UTC).
+  + 20 tests verts. **DateOnly (dates calendaires) laissées en l'état** (sans fuseau).
+- **✅ P1 livrés** (session préc.) : Flotte (LastSeen/backup), Signatures (OccurredAt).
+- **✅ P2 livrés (nuit 17→18/06)** : 4 modules d'admin du SOCLE migrés — Job (176e1f0), Audit (442b418),
+  Identity (4957aee), Notification (57bc1bf) = 25 pages. **RÈGLE figée** : ÉVÉNEMENTS → fuseau navigateur ;
+  PRÉVISIONS serveur (cron) → UTC EXPLICITE ; dates de VALIDITÉ (DateOnly / échéances / durées) → laissées.
+  Infra de test partagée (`AdminPageTestServices` + `FakeGridPreferenceService`), 1 test bUnit/page (règle 19),
+  provenance §4.32–4.35. verify-fast + build Release (StyleCop) + codex-review verts par module.
+- **À VÉRIFIER par Karl en recette** : « Dernier contact » de l'agent doit afficher l'heure LOCALE (et non 18:42 UTC).
 
 ## RB7 — L'assistant d'installation de l'agent ne démarre pas le service en fin d'installation
 
