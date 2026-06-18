@@ -1,0 +1,283 @@
+# Lot B2C — E-reporting B2C de la marge (OVV / ventes volontaires aux enchères)
+# Plan source : tasks/plan-ereporting-b2c-10-3.md (revue multi-agents + redline 2026-06-18, mergé).
+# Specs : F03-Mapping-TVA, F07-F08-Avoirs-Frontiere-B2B-B2C, F09-E-Reporting-Paiement,
+#   F12-A-Parametrage-Tenant, F01-F02-Modele-Pivot-Contrat-Extraction, F06-Tracking-Piste-Audit.
+# Branche : feat/ereporting-b2c (segment `ereporting-b2c`, base main).
+# depends_on_gate : [GATE_PIPELINE, GATE_ADAPTER_ENCHERESV6, GATE_CONSOLE_WEB, GATE_FACTURX].
+#
+# DÉCISIONS OPÉRATEUR (Karl, 2026-06-18) :
+#   (a) GATE_EREPORTING_B2C = CHANTIER COMPLET (Essentiel doc 10.3 + montant de marge). La gate
+#       n'est pas scopée au seul Essentiel ; elle attend la marge (donc le sourcing B2C-05 + le
+#       schéma BV B2C-06). Assumé.
+#   (b) B2C-05 (sourcing de la formule/méthode de marge) = « l'AGENT PROPOSE, l'HUMAIN VALIDE » :
+#       B2C-05 (claude, docs-spec) recherche la SOURCE PRIMAIRE (BOI/CGI), écrit un ancrage F03
+#       PROPOSÉ + citations, et BLOQUE s'il n'y a pas de source nette (jamais de devinette, n°2).
+#       Le checkpoint intra-segment GATE_B2C_SOURCING (humain, SANS PR) verrouille tout l'aval
+#       marge : aucun calcul/transmission n'est codé tant que l'humain n'a pas validé l'ancrage.
+#   (c) Base main, gated (convention).
+#
+# ⚠️ LOT 3 DU PLAN (piste 10.4, part frais encaissée) = PIP03b EXISTANT (orchestration/items/PIP.yaml,
+#    runtime `blocked`). B2C-10/11/12 du plan NE SONT PAS des items neufs : ils se débloquent en
+#    re-découpant PIP03b dans le manifest (geste opérateur). RIEN ici pour le 10.4 — ne pas dupliquer.
+#
+# RÈGLES NON NÉGOCIABLES (rappel CLAUDE.md — chaque violation = P1 en review) :
+#   - n°2 : aucune règle fiscale inventée. La COMPOSITION de la marge (« frais acheteur + frais
+#     vendeur »), l'EXISTENCE de méthodes de calcul, l'énumération de cadence sont NON SOURCÉES tant
+#     que B2C-05 (resp. PIP03b D-a) ne les a pas ancrées sur texte primaire. Pas de calcul/pré-câblage
+#     d'enum avant sourcing.
+#   - art. 297 E (F03:41 / F07-F08:36) : sous régime de la marge, AUCUNE TVA distincte ne figure.
+#   - n°1 : montants en decimal, arrondi commercial half-up 2 décimales (jamais float/double).
+#   - n°5 : lecture SELECT-only stricte de la base source (aucun INSERT/UPDATE/DELETE, aucun verrou).
+#   - n°6 : l'agent n'a AUCUNE logique métier (l'extraction BV + tag = extraction, pas de fiscalité).
+#   - n°4 : journaux/lien reporting↔pièces append-only ; coffre WORM ; aucun chemin update/delete.
+#   - n°8/n°16 : multi-PA piloté par les capacités déclarées (PaCapabilities), JAMAIS `if (pa is X)`
+#     ni un flag produit ; acceptation validée à l'ENVOI (résultat typé si capacité absente).
+#   - n°9 : toute requête métier tenant-scopée. n°7 : aucune donnée client en dur (seeds = exemples
+#     fictifs config/exemples). n°19 : page Blazor sans test (bUnit/Playwright) = P1, aucune logique
+#     métier en page (déléguée aux handlers MediatR).
+
+items:
+
+  B2C01:
+    title: "Router le document 10.3 + garde de capacité CIBLÉE sur la déclaration 10.3 (ne casse pas le transport Factur-X)"
+    description: |
+      (Plan B2C-01.) Acheminer une déclaration e-reporting B2C 10.3 par la voie document existante
+      (IPaClient.SendDocumentAsync) et poser la garde de capacité SANS régression des flux voisins.
+      1. PRÉALABLE D'ACTIONNABILITÉ : aucun marqueur de flux 10.3 n'existe sur PivotDocumentDto. Définir
+         d'abord COMMENT un document de déclaration 10.3 est identifié — champ ADDITIF (pattern EXT01,
+         hash canonique inchangé si absent) OU dérivation déterministe documentée. JAMAIS via
+         BuyerLooksProfessionalRule (règle de détection bloquante, elle ne route pas).
+      2. GARDE : SupportsB2cReporting / PaCapability.B2cReporting existent déjà (ne PAS introduire de
+         nouvelle capacité). Câbler la garde côté SEND (SendTenantJob) UNIQUEMENT pour un envoi de
+         DÉCLARATION 10.3. SendDocumentAsync est la voie UNIQUE de TOUS les documents (factures B2C
+         Factur-X, avoirs gatés SupportsCreditNotes, B2B) : une garde générale y casserait l'Essentiel
+         générique (GeneriqueCapabilities : SupportsFacturXTransmission=true ET SupportsB2cReporting=false)
+         et les avoirs/B2B.
+      3. Capacité absente → PaCapabilityNotSupportedResult.Create(paName, PaCapability.B2cReporting),
+         message opérateur FR (PAS PendingCapability, qui est un statut Pipeline paiement/rectification).
+      4. Transmission.Contracts only ; jamais `if (pa is X)` (NetArchTest).
+    acceptance:
+      - "Marqueur de flux 10.3 défini (champ additif EXT01 hash-neutre, OU dérivation documentée) ; PAS via BuyerLooksProfessionalRule ; test : un document sans 10.3 garde son hash canonique"
+      - "Garde SupportsB2cReporting câblée côté SEND UNIQUEMENT pour la déclaration 10.3 ; test : un PA générique (SupportsFacturXTransmission=true / SupportsB2cReporting=false) transmet TOUJOURS une facture B2C et un avoir — pas de régression"
+      - "Capacité absente → PaCapabilityNotSupportedResult typé (message FR), jamais exception ni PendingCapability ; aucune nouvelle capacité introduite"
+      - "Jamais `if (pa is X)` ; Transmission.Contracts only (NetArchTest vert)"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts : routage 10.3 + non-régression transport facture/avoir, ≥ 2 bases tenant"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  B2C02:
+    title: "Paramétrage fiscal tenant du chemin 10.3 + seed démo (defaultBehavior:block, OperationCategory null → suspendre)"
+    description: |
+      (Plan B2C-02.) Rendre le chemin 10.3 piloté par le paramétrage tenant existant, et démontrer le
+      blocage sûr. La présentation du régime de la marge (adjudication E/0%/VATEX-EU-F/I/J + frais
+      acheteur S/20%) est déjà supportée par le modèle 2 lignes — pas de calcul de marge ici.
+      1. Honorer `defaultBehavior:block` du mapping TVA tenant et `OperationCategory null → suspendre`.
+      2. Seed DÉMO (régimes décidés, exemples FICTIFS config/exemples — n°7, jamais de table TVA/SIREN
+         réels en dur). Le régime 6 NON mappé doit produire un BLOCAGE démontré (comportement correct,
+         n°3) — ne PAS seeder en prod le mapping régime 6 → VATEX-EU-J (exemple fictif ; défaut = bloquer).
+      3. Tout tenant-scopé (n°9).
+    acceptance:
+      - "`defaultBehavior:block` honoré ; `OperationCategory null` → document suspendu (test)"
+      - "Régime 6 non mappé → BLOCAGE démontré (test) ; aucun seed prod régime 6 → EU-J"
+      - "Seed démo = exemples fictifs (config/exemples), aucune donnée client en dur (n°7) ; tenant-scopé (n°9)"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts : paramétrage + blocage régime 6, ≥ 2 bases tenant"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  B2C03:
+    title: "Traçabilité reporting↔pièces (append-only, double sens, tenant-scopée) + export autoportant"
+    description: |
+      (Plan B2C-03.) Lier de façon immuable une transmission 10.3 aux pièces source, dans les deux sens,
+      et permettre un export autoportant pour le contrôle fiscal.
+      1. Lien figé à la transmission, APPEND-ONLY (n°4 — aucun chemin update/delete) ; double sens
+         (transmission → pièces et pièces → transmission) ; tenant-scopé (n°9).
+      2. Réutiliser le chaînage / horodatage / WORM existants + FiscalControlExport. Le coffre reste
+         derrière l'abstraction Archive.Contracts (jamais un backend de stockage concret).
+      3. Export AUTOPORTANT (réversibilité) : secrets PA masqués.
+    acceptance:
+      - "Lien reporting↔pièces append-only (double trigger / contrainte ; UPDATE/DELETE/TRUNCATE rejetés), double sens, company_id NOT NULL, tenant-scopé"
+      - "Réutilise chaînage/horodatage/WORM + FiscalControlExport via Archive.Contracts (jamais backend concret) ; export autoportant, secrets PA masqués"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts : append-only + double sens + tenant-scoping ≥ 2 bases"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  B2C04:
+    title: "Démo Essentiel bout-en-bout sur PA Fake (extraction BA → pivot → 10.3 → lien → export)"
+    description: |
+      (Plan B2C-04.) Exercer le chemin Essentiel de bout en bout sur le Fake : extraction bordereau
+      acheteur (BA) → pivot → mapping → 10.3 au document via Fake → lien B2C-03 → export.
+      Déclenchement manuel, restitution « transmis / accusé », et blocage régime 6 visibles à l'écran.
+      Page(s) console (Host + Liakont.Modules.*) : AUCUNE logique métier en page (handlers MediatR) ;
+      réutiliser le gabarit console existant.
+    acceptance:
+      - "Démo Fake bout-en-bout : extraction BA → pivot → mapping → 10.3 document (Fake) → lien B2C-03 → export ; déclenchement manuel + statut transmis/accusé + blocage régime 6 visibles"
+      - "Page(s) Blazor sans logique métier (déléguée handlers MediatR) ; gabarit console réutilisé"
+      - "Tests bUnit et/ou Playwright présents ET EXÉCUTÉS verts (P1 review n°19)"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  B2C05:
+    title: "SOURCER la composition de la marge (et l'éventuelle méthode) sur texte primaire → ancrage F03 PROPOSÉ (agent propose, humain valide)"
+    description: |
+      (Plan B2C-05.) PRÉREQUIS FISCAL BLOQUANT de toute la marge. AUCUN code de calcul. L'agent fait la
+      RECHERCHE documentaire et écrit une PROPOSITION d'ancrage dans F03 ; l'humain valide via
+      GATE_B2C_SOURCING avant que l'aval (B2C-07/08/08b/09b) ne code quoi que ce soit.
+      1. IDENTIFIER ET CITER la source primaire (BOI-TVA-SECT-90-50 / CGI art. 297 A / doctrine du régime
+         de la marge des biens d'occasion) de la COMPOSITION de la marge. Tant qu'elle n'est pas ancrée
+         dans F03, « marge = frais acheteur + frais vendeur » reste une HYPOTHÈSE → pas de calcul (n°2).
+         L'item doit ÉTABLIR la source, pas la présupposer. Si aucune source primaire nette → l'item
+         marque NON SOURCÉ (owner) et BLOQUE — jamais de devinette.
+      2. SOURCER l'EXISTENCE et la DÉFINITION d'éventuelles méthodes de calcul (globalisation /
+         coup-par-coup) AVANT de nommer un enum. NE PAS pré-câbler `{Globalisation, CoupParCoup}`. Si le
+         texte distingue plusieurs options → PARAMÉTRAGE (enum fermé nommé d'après le texte, conditionne
+         B2C-08b) ; s'il n'en distingue aucune → « 0 option → BLOQUÉ » (gouvernance §0.1), pas d'enum inventé.
+      3. Livrable = section F03 PROPOSÉE (formule + éventuelle méthode) avec citations exactes, soumise à
+         validation humaine (GATE_B2C_SOURCING). Aucune table/valeur fiscale réelle inventée.
+    acceptance:
+      - "Aucun code de calcul. Section F03 PROPOSÉE de la composition de la marge avec citation de la SOURCE PRIMAIRE (BOI/CGI), ou marquage explicite NON SOURCÉ + owner si aucune source nette (jamais de devinette, n°2)"
+      - "Existence/définition d'éventuelles méthodes SOURCÉE avant tout nommage d'enum ; `{Globalisation, CoupParCoup}` NON pré-câblé ; si 0 option dans le texte → bloqué, pas d'enum inventé"
+      - "Proposition soumise à validation humaine (GATE_B2C_SOURCING) ; aucune donnée fiscale réelle inventée"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  GATE_B2C_SOURCING:
+    type: gate
+    executor: human
+    title: "Checkpoint intra-segment : validation humaine de l'ancrage F03 de la marge (avant tout code marge)"
+    description: |
+      Gate INTRA-SEGMENT (n'est la gate d'aucun segment → le protocole ne crée PAS de PR ; l'opérateur
+      la passe à `done` via orch-state.ps1 quand la condition humaine est remplie — cf. GATE_DEMO_ISATECH).
+      CONDITION : un humain (Karl / le métier) valide que l'ancrage F03 PROPOSÉ par B2C-05 (composition de
+      la marge + éventuelle méthode de calcul) est correctement sourcé sur texte primaire. Tant que cette
+      gate n'est pas `done`, l'aval marge (B2C-07, B2C-08b, et transitivement B2C-08/B2C-09b) reste
+      bloqué — c'est voulu (l'agent ne code aucune marge sur une formule non validée, n°2).
+    acceptance:
+      - "B2C-05 done (ancrage F03 proposé + citations primaires)"
+      - "Validation HUMAINE de l'ancrage (formule + méthode éventuelle) sur source primaire ; si non validé, la gate reste fermée et l'aval marge reste bloqué"
+
+  B2C06:
+    title: "Obtenir/modéliser le schéma source du bordereau vendeur (BV) — réel ISATECH (prod) / fixture FICTIVE (démo)"
+    description: |
+      (Plan B2C-06.) Lever l'inconnue de schéma AVANT toute extraction. Le `no_lot` présumé n'existe pas
+      dans le modèle actuel (jointure courante = `no_ba`).
+      1. SPÉCIFIER : quelle table/vue porte les frais vendeur, quelles colonnes (montant / régime), quelle
+         CLÉ DE RATTACHEMENT au lot. AUCUNE invention de schéma (n°2/n°7).
+      2. PROD : demande ISATECH (dépendance EXTERNE — à re-confirmer à la recette, réutilise la
+         logique GATE_DEMO_ISATECH du segment CMP ; aucun code ne fige un schéma non confirmé).
+      3. DÉMO : modéliser un bordereau vendeur FICTIF dans la fixture (config/exemples / fixtures, donnée
+         fictive n°7) pour exercer le flux complet sans inventer le schéma client. Ce livrable débloque
+         B2C-07 sur le chemin démo.
+    acceptance:
+      - "Spécification écrite : table/vue, colonnes (montant/régime), clé de rattachement au lot ; le `no_lot` présumé documenté comme absent (jointure courante `no_ba`)"
+      - "Prod : besoin de schéma réel marqué comme dépendance EXTERNE ISATECH (re-confirmée à la recette), aucun schéma figé sans confirmation"
+      - "Démo : fixture bordereau vendeur FICTIVE (config/exemples / fixtures, n°7) exerçant le flux complet ; aucune donnée client en dur"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  B2C07:
+    title: "Étendre l'adaptateur EncheresV6 pour lire les frais vendeur (BV) — SELECT-only, structure tranchée par B2C-06"
+    description: |
+      (Plan B2C-07.) Dépend BLOQUANT de B2C-06 (schéma) ET de GATE_B2C_SOURCING (la marge est sourcée).
+      Lire le BV selon la structure tranchée par B2C-06 : soit (a) nouveau `type_ligne` du MÊME bordereau
+      (rattachement par le `no_ba` existant — AUCUNE jointure), soit (b) document distinct à joindre par
+      une clé identifiée. NE PAS écrire de SQL de jointure tant que B2C-06 n'a pas livré table/colonnes/clé.
+      Lecture SELECT-only (n°5, SourceQueryGuard/EnsureSelectOnly) ; nouvelle constante SQL dans
+      EncheresV6Schema (point unique). Extraction PURE : aucune logique fiscale dans l'agent (n°6), aucune
+      écriture/verrou sur la base source.
+    acceptance:
+      - "Lecture BV selon la structure B2C-06 (a: type_ligne même bordereau via no_ba / b: jointure par clé identifiée) ; aucune jointure inventée ; pas de SQL avant livraison B2C-06"
+      - "SELECT-only (SourceQueryGuard/EnsureSelectOnly) ; constante SQL unique dans EncheresV6Schema ; aucune écriture/verrou base source (n°5)"
+      - "Extraction pure, aucune logique fiscale dans l'agent (n°6) ; AgentBoundaryTests vert"
+      - "Tests adaptateur (fixture B2C-06) EXÉCUTÉS et verts"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  B2C08:
+    title: "Porter le BV comme DONNÉE SOURCE de calcul dans le pivot (hash-neutre) — jamais une ligne taxable"
+    description: |
+      (Plan B2C-08.) Dépend de B2C-07. Le BV est une DONNÉE DE CALCUL de marge, pas une ligne facturée à
+      l'acheteur.
+      1. Le porter via PivotLineDto.SourceData OU un champ ADDITIF hash-neutre au grain lot (pattern EXT01 —
+         seul un marqueur additif ABSENT est hash-neutre). Ajouter une PivotLineDto N'EST PAS hash-neutre
+         (la collection Lines est toujours sérialisée dans le JSON canonique + impacte les Totals).
+      2. JAMAIS via une ventilation Taxes/Rate/TaxAmount ; JAMAIS via une valeur de part `frais_vendeur`
+         (TvaMappingPart est figé {Adjudication, Frais, Autre} — l'inventer violerait n°2). Le BV ne gonfle
+         PAS la base imposable du document 10.3 et ne fait JAMAIS apparaître de TVA distincte (art. 297 E).
+      3. Ce champ alimente le calcul de B2C-09b, pas le document transmis.
+    acceptance:
+      - "BV porté via PivotLineDto.SourceData ou champ additif hash-neutre au grain lot ; test : pivot SANS BV → hash canonique INCHANGÉ (golden contrat-v1)"
+      - "Aucune PivotLineDto taxable ajoutée ; aucune ventilation Taxes/Rate/TaxAmount ; aucune valeur de part `frais_vendeur` (TvaMappingPart figé) ; le BV ne gonfle pas la base 10.3 (art. 297 E)"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts : neutralité de hash + absence de TVA distincte"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  B2C08b:
+    title: "(= « B2C-08bis » du plan) Persister/éditer en console le paramètre « méthode de marge » — CONDITIONNEL à B2C-05"
+    description: |
+      (Plan B2C-08bis.) Dépend de GATE_B2C_SOURCING. À NE RÉALISER QUE SI B2C-05 établit l'existence de
+      méthodes de calcul de marge. Si B2C-05 n'en établit AUCUNE, cet item est RETIRÉ (geste opérateur) —
+      ne rien inventer (n°2).
+      Champ FiscalSettings.MargeMethod? (liste fermée nommée d'après le texte sourcé, rejet de toute valeur
+      inconnue) + SetFiscalSettingsCommand/handler + migration ; `null` → suspension. Exposition console
+      (FiscalFormModel / FiscalSettingsInput / FiscalViewModel / FiscalView.razor) — aucune logique métier
+      en page. Doc F12-A §3.2.
+    acceptance:
+      - "CONDITIONNEL : réalisé seulement si B2C-05 (validé GATE_B2C_SOURCING) établit des méthodes ; sinon retiré"
+      - "Champ FiscalSettings.MargeMethod? (liste fermée, valeur inconnue rejetée) + command/handler + migration ; `null` → suspendre"
+      - "Exposition console + test bUnit (P1 review n°19) ; aucune logique métier en page (handlers MediatR) ; doc F12-A §3.2"
+      - "Tests (run-tests si migration/persistence) EXÉCUTÉS et verts"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  B2C09a:
+    title: "Capacité PA « montant de marge » (cas n°33) + gate typé — FORME du payload GELÉE tant que non sourcée"
+    description: |
+      (Plan B2C-09a.) Plomberie multi-PA codable indépendamment ; la FORME du payload reste gelée.
+      1. Décider si le montant de marge relève d'une capacité DISTINCTE (ex. SupportsMarginAmountReporting,
+         add-only sur Transmission.Contracts) ou de B2cReporting ; propager la capacité à TOUS les plug-ins
+         (Generique / B2Brouter / SuperPdp / Fake / Stub) + gate typé (PaCapabilityNotSupportedResult).
+         Jamais `if (pa is X)` ; NetArchTest.
+      2. La FORME du payload (champ / code VATEX, cas DGFiP n°33) reste GELÉE tant qu'elle n'est pas
+         sourcée — le ticket fournisseur est ouvert (F03:117). Le gate et la plomberie sont codables ;
+         le shape concret NON (n°2). Fake = capacité déclarée true pour la démo.
+    acceptance:
+      - "Capacité « montant de marge » décidée (distincte add-only OU B2cReporting) ; propagée à TOUS les plug-ins ; gate typé (PaCapabilityNotSupportedResult) ; jamais `if (pa is X)` (NetArchTest)"
+      - "Forme du payload (champ/code VATEX, cas n°33) GELÉE tant que non sourcée (ticket ouvert F03:117) — plomberie codable, shape non codé"
+      - "Tests (run-tests si touche tous plug-ins) EXÉCUTÉS et verts : gate ouvert/fermé par capacité"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  B2C09b:
+    title: "Calcul de la marge + transmission du montant (decimal half-up, aucune TVA distincte 297 E)"
+    description: |
+      (Plan B2C-09b.) Dépend de B2C-05 (formule validée GATE_B2C_SOURCING), B2C-08 (donnée source),
+      B2C-09a (capacité+gate) ET B2C-03 (lien). Si B2C-05 a établi des méthodes, dépend AUSSI de B2C-08b
+      (le param doit être câblé) — sinon B2C-08b est retiré.
+      1. Appliquer la formule ancrée par B2C-05, selon la méthode paramétrée (B2C-08b si méthodes). Calcul
+         en `decimal` exclusivement, arrondi half-up 2 décimales via PivotRounding.RoundAmount ; test
+         d'arrondi obligatoire (n°1).
+      2. CRITÈRE BLOQUANT (art. 297 E) : le payload du montant de marge ne porte AUCUNE ligne ni total de
+         TVA distincte (TotalTax=0, aucune ventilation > 0) ; un cas qui ferait apparaître une TVA distincte
+         ÉCHOUE (adossé à F03:41 / F07-F08:36, aucun seuil inventé).
+      3. Transmettre le montant via la capacité B2C-09a (validée à l'envoi, résultat typé si absente) ;
+         shape conforme au sourcing (sinon resté gelé). Lien reporting↔pièces (B2C-03) au grain lot.
+      4. Si la méthode « globalisation » est retenue, son agrégation par PÉRIODE est un mécanisme NEUF
+         (≠ PaymentAggregationCalculator, base encaissement) — d'où le sizing L.
+    acceptance:
+      - "Calcul en `decimal`, arrondi half-up 2 décimales via PivotRounding.RoundAmount ; test d'arrondi (n°1)"
+      - "CRITÈRE BLOQUANT 297 E : payload sans aucune ligne/total de TVA distincte (TotalTax=0, aucune ventilation > 0) ; un cas faisant apparaître une TVA distincte ÉCHOUE (F03:41 / F07-F08:36, aucun seuil inventé)"
+      - "Transmission via la capacité B2C-09a (résultat typé si absente, jamais `if (pa is X)`) ; lien reporting↔pièces B2C-03 au grain lot"
+      - "Mécanisme de globalisation (agrégation par période) distinct de PaymentAggregationCalculator si retenu"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts : calcul decimal + absence de TVA distincte + transmission Fake, ≥ 2 bases"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  # Gate de segment HUMAINE : recette de bout en bout (Essentiel + marge complète).
+  # depends_on (B2C04, B2C09a, B2C09b) porté par le manifest ; B2C09b couvre transitivement
+  # B2C03/05/06/07/08 + GATE_B2C_SOURCING, B2C04 couvre B2C01/02/03.
+  GATE_EREPORTING_B2C:
+    type: gate
+    executor: human
+    title: "Gate : e-reporting B2C de la marge — recette de bout en bout (doc 10.3 Essentiel + montant de marge)"
+    description: |
+      Recette humaine sur instance de dev. Essentiel : un bordereau acheteur est présenté en document 10.3
+      (adjudication E/0%/VATEX + frais acheteur S/20%), transmis via PA, lié aux pièces (append-only),
+      exportable ; le régime 6 non mappé bloque proprement. Marge complète : la formule ancrée (B2C-05,
+      validée) est appliquée en decimal half-up, le montant de marge est transmis via la capacité générique
+      SANS aucune TVA distincte (art. 297 E), au grain lot. Frontières/multi-PA vertes (jamais `if (pa is X)`),
+      tenant-scoping prouvé, aucune règle fiscale inventée.
+    acceptance:
+      - "Tous les items B2C done (B2C08b inclus si des méthodes ont été établies, sinon retiré)"
+      - "Recette Essentiel : doc 10.3 transmis (Fake/PA), lien reporting↔pièces append-only, export autoportant, blocage régime 6"
+      - "Recette marge : formule sourcée+validée appliquée en decimal half-up ; montant de marge transmis via capacité générique sans TVA distincte (297 E) ; shape conforme au sourcing"
+      - "Aucune règle fiscale inventée (formule/méthode sourcées ou bloquées) ; frontières/multi-PA vertes ; tenant-scoping prouvé"
+      - "PR du segment feat/ereporting-b2c revue et mergée dans main"
