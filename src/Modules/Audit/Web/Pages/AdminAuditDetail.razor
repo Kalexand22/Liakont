@@ -35,7 +35,7 @@
             <div class="audit-detail__summary-grid">
                 <div class="audit-detail__field">
                     <span class="audit-detail__label">Date</span>
-                    <span class="audit-detail__value" data-testid="audit-detail-date">@_activity.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</span>
+                    <span class="audit-detail__value" data-testid="audit-detail-date"><LiakontDate Value="@_activity.CreatedAt" Format="yyyy-MM-dd HH:mm:ss" /></span>
                 </div>
                 <div class="audit-detail__field">
                     <span class="audit-detail__label">Utilisateur</span>
@@ -87,7 +87,7 @@
                                 <td class="audit-detail__field-name">@change.FieldName</td>
                                 <td class="audit-detail__old-value">@(change.OldValue ?? "—")</td>
                                 <td class="audit-detail__new-value">@(change.NewValue ?? "—")</td>
-                                <td class="audit-detail__change-date">@change.OccurredAt.ToString("HH:mm:ss")</td>
+                                <td class="audit-detail__change-date"><LiakontDate Value="@change.OccurredAt" Format="HH:mm:ss" /></td>
                             </tr>
                         }
                     </tbody>

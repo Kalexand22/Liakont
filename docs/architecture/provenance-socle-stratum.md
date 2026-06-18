@@ -248,6 +248,10 @@ src/Common/Abstractions/MultiTenancy/TenantProvisionResult.cs
 src/Common/Infrastructure/Database/ServiceCollectionExtensions.cs
 src/Common/UI/CommonUIServiceExtensions.cs
 src/Modules/Job/Web/Pages/AdminJobExecutions.razor
+src/Modules/Audit/Web/Pages/AdminAudit.razor
+src/Modules/Audit/Web/Pages/AdminAuditDetail.razor
+src/Modules/Audit/Web/Pages/AdminAuditPolicies.razor
+src/Modules/Audit/Web/Pages/AdminAuditPolicyForm.razor
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -848,6 +852,36 @@ erreur, car le job fire à l'heure UTC ; cohérence + honnêteté du fuseau) :
 **Vérification** : `verify-fast` vert ; `Host.Tests.Unit` 963/963 (les tests des pages Job appellent `AddCommonUI()`
 qui fournit désormais `IBrowserTimeZone` → aucun échec DI ; repli UTC en bUnit, aucune assertion de date cassée).
 La localisation est couverte au niveau composant (`LiakontDateTests`/`LiakontDateDisplayTests`).
+
+### 4.33 `Stratum.Modules.Audit.Web` — horodatages d'admin Audit au fuseau navigateur (RB6 P2)
+
+**Motif** : suite de RB6 (§4.31/§4.32) — mêmes pages d'admin du socle affichant l'heure UTC/serveur. Module Audit :
+**que des ÉVÉNEMENTS** (aucune prévision serveur, aucune date de validité) → tous migrés vers `<LiakontDate>`.
+
+**Changement** :
+- `AdminAuditDetail.razor` : date du fait (`ActivityDto.CreatedAt`, format `yyyy-MM-dd HH:mm:ss`) et heure d'un
+  changement de champ (`FieldChangeDto.OccurredAt`, format `HH:mm:ss`) → `<LiakontDate>` (formats conservés).
+- `AdminAuditPolicyForm.razor` : « Créé le » / « Modifié le » de la section Audit (`CreatedAt`/`UpdatedAt`) →
+  `<LiakontDate>` (les 2 blocs dupliqués création/vue).
+- `AdminAudit.razor` : colonne « Date » du journal (`CreatedAt`, visible par défaut) — `ColumnTemplate` AJOUTÉ avec
+  `<LiakontDate>` (la grille rendait sinon le `DateTimeOffset` serveur brut via `value.ToString()`).
+- `AdminAuditPolicies.razor` : colonnes « Créé le » (visible) ET « Modifié le » (`defaultVisible:false`) — `ColumnTemplate`
+  AJOUTÉ avec `<LiakontDate>` pour les deux.
+
+**Périmètre RB6 — colonnes de grille masquées par défaut MAIS activables = MIGRÉES** : une colonne Date
+`defaultVisible:false` (ex. « Modifié le » d'`AdminAuditPolicies`, `CreatedAt` masqués d'Identity §4.34) reste
+ACTIVABLE par l'opérateur ; sans template elle rendrait le `DateTimeOffset` serveur brut (`value.ToString()`) — le
+même bug de fuseau que RB6 corrige, et une incohérence avec sa colonne sœur. Donc on les migre. Test : la préférence
+de grille stub (`FakeGridPreferenceService`) force la colonne visible pour exercer son template (sinon la grille
+retombe sur les colonnes par défaut et le template ne serait jamais rendu — faux-vert évité). En revanche les dates
+de VALIDITÉ (`DateOnly`/jour : ValidFrom/ValidUntil de délégation, HireDate, échéances) restent telles quelles.
+
+Les registres (`AuditEntryColumnRegistry`/`AuditPolicyColumnRegistry`) **ne sont pas touchés** (migration via le
+`.razor`, comme pour Job). Les 4 `.razor` sont AJOUTÉS au bloc `SOCLE-CONSIGNED-DRIFT`.
+
+**Vérification** : `verify-fast` vert ; tests bUnit ajoutés par page (`AdminAuditTests`, `AdminAuditDetailTests`,
+`AdminAuditPoliciesTests`, `AdminAuditPolicyFormTests`) via stubs partagés (`AdminPageTestServices.AddAdminPageStubs`) —
+repli UTC déterministe en bUnit (sonde absente). La localisation reste couverte au niveau composant.
 
 ## 5. ADR du socle hérités
 
