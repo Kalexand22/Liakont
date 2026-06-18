@@ -22,6 +22,12 @@ public record PaAccountDto
     /// <summary>Indique qu'une clé API a été saisie (chiffrée en base) — jamais la clé elle-même.</summary>
     public required bool HasApiKey { get; init; }
 
+    /// <summary>Indique qu'un « client_id » OAuth2 a été saisi (chiffré en base) — jamais la valeur elle-même.</summary>
+    public bool HasClientId { get; init; }
+
+    /// <summary>Indique qu'un « client_secret » OAuth2 a été saisi (chiffré en base) — jamais la valeur elle-même.</summary>
+    public bool HasClientSecret { get; init; }
+
     public required bool IsActive { get; init; }
 
     public required DateTimeOffset CreatedAt { get; init; }

@@ -28,4 +28,10 @@ public sealed class PaAccountFormModel
 
     /// <summary>Clé API EN CLAIR saisie par l'opérateur ; vide = aucune (création) ou inchangée (édition).</summary>
     public string? ApiKey { get; set; }
+
+    /// <summary>« client_id » OAuth2 EN CLAIR (plug-ins en OAuth2ClientCredentials) ; vide = aucun / inchangé.</summary>
+    public string? ClientId { get; set; }
+
+    /// <summary>« client_secret » OAuth2 EN CLAIR (plug-ins en OAuth2ClientCredentials) ; vide = aucun / inchangé.</summary>
+    public string? ClientSecret { get; set; }
 }

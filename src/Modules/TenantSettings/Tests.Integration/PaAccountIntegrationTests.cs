@@ -2,7 +2,9 @@ namespace Liakont.Modules.TenantSettings.Tests.Integration;
 
 using Dapper;
 using FluentAssertions;
+using Liakont.Modules.TenantSettings.Application;
 using Liakont.Modules.TenantSettings.Contracts.Commands;
+using Liakont.Modules.TenantSettings.Infrastructure;
 using Liakont.Modules.TenantSettings.Infrastructure.Handlers.Commands;
 using Liakont.Modules.TenantSettings.Tests.Integration.Fixtures;
 using Stratum.Common.Abstractions.Exceptions;
@@ -62,6 +64,64 @@ public sealed class PaAccountIntegrationTests
         // 4. Mutation journalisée avec l'identité opérateur.
         harness.ActivityLogger.Entries.Should().Contain(e =>
             e.EntityType == "PaAccount" && e.ActivityType == "created" && e.ActorId == harness.UserId.ToString());
+    }
+
+    [Fact]
+    public async Task OAuth_Client_Id_And_Secret_Are_Encrypted_At_Rest_And_Round_Trip()
+    {
+        const string clientId = "client-FICTIF-0123";
+        const string clientSecret = "secret-FICTIF-9876";
+
+        var harness = new TenantSettingsHarness(_fixture, Guid.NewGuid(), Guid.NewGuid());
+        var addHandler = new AddPaAccountHandler(harness.UowFactory, harness.CompanyFilter, harness.SecretProtector, harness.Journal);
+
+        var id = await addHandler.Handle(
+            new AddPaAccountCommand
+            {
+                PluginType = "SuperPdp",
+                Environment = "Staging",
+                AccountIdentifiers = "acct-1",
+                ClientId = clientId,
+                ClientSecret = clientSecret,
+            },
+            CancellationToken.None);
+
+        // 1. Les colonnes OAuth2 ne contiennent PAS le clair, mais un texte chiffré non vide.
+        string? storedClientId;
+        string? storedClientSecret;
+        using (var conn = await harness.ConnectionFactory.OpenAsync())
+        {
+            var row = await conn.QuerySingleAsync(
+                "SELECT encrypted_client_id, encrypted_client_secret FROM tenantsettings.pa_accounts WHERE id = @Id",
+                new { Id = id });
+            storedClientId = (string?)row.encrypted_client_id;
+            storedClientSecret = (string?)row.encrypted_client_secret;
+        }
+
+        storedClientId.Should().NotBeNullOrEmpty().And.NotBe(clientId).And.NotContain(clientId);
+        storedClientSecret.Should().NotBeNullOrEmpty().And.NotBe(clientSecret).And.NotContain(clientSecret);
+
+        // 2. Relecture via l'UoW : les colonnes chiffrées sont peuplées (le domaine ne voit que l'opaque).
+        await using (var uow = await harness.UowFactory.BeginAsync())
+        {
+            var account = await uow.GetPaAccountByIdAsync(id, harness.CompanyId);
+            account!.EncryptedClientId.Should().Be(storedClientId);
+            account.EncryptedClientSecret.Should().Be(storedClientSecret);
+        }
+
+        // 3. Le store de secrets (consommé par le résolveur Host) déchiffre vers le clair d'origine, par purpose.
+        var secretStore = new PostgresPaAccountSecretStore(harness.ConnectionFactory);
+        var secrets = await secretStore.GetActiveAsync(harness.CompanyId, "SuperPdp");
+        secrets.Should().NotBeNull();
+        harness.SecretProtector.Unprotect(secrets!.EncryptedClientId!, PaAccountSecretPurposes.ClientId).Should().Be(clientId);
+        harness.SecretProtector.Unprotect(secrets.EncryptedClientSecret!, PaAccountSecretPurposes.ClientSecret).Should().Be(clientSecret);
+
+        // 4. Le DTO de lecture n'expose jamais le secret — seulement son existence (booléens Has*).
+        var accounts = await harness.Queries.GetPaAccounts(harness.CompanyId);
+        accounts.Should().ContainSingle();
+        accounts[0].HasClientId.Should().BeTrue();
+        accounts[0].HasClientSecret.Should().BeTrue();
+        accounts[0].HasApiKey.Should().BeFalse();
     }
 
     [Fact]

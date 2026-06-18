@@ -70,6 +70,10 @@
          pré-construit par email/dépôt de fichier). Câblé au COMPOSITION ROOT (CLAUDE.md n°6/14) ;
          résolu par PaType « Generique » uniquement. Les canaux de livraison Host (MimeKit) vivent au Host. -->
     <ProjectReference Include="..\..\PaClients\Liakont.PaClients.Generique\Liakont.PaClients.Generique.csproj" />
+    <!-- Plug-in PA Super PDP (F14, OAuth2 client_credentials) : PA réelle de niveau « Pilotage ». Câblé au
+         COMPOSITION ROOT (CLAUDE.md n°6/14) ; résolu par PaType « SuperPdp ». Le Host fournit le résolveur de
+         compte (déchiffrement des secrets OAuth2 par tenant) ; le plug-in ne voit que Transmission.Contracts. -->
+    <ProjectReference Include="..\..\PaClients\Liakont.PaClients.SuperPdp\Liakont.PaClients.SuperPdp.csproj" />
     <!-- Module FacturX (FX02-FX04) câblé au COMPOSITION ROOT par FX07 : le Host enregistre AddFacturXModule
          (port IFacturXBuilder, QuestPDF confinée à FacturX.Infrastructure) et expose le pont
          IFacturXArtifactBuilder vers Transmission.Contracts pour que le pipeline génère « derrière

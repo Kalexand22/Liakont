@@ -91,10 +91,13 @@ public sealed class PostgresTenantSettingsQueries : ITenantSettingsQueries
 
     public async Task<IReadOnlyList<PaAccountDto>> GetPaAccounts(Guid companyId, CancellationToken ct = default)
     {
-        // La clé chiffrée n'est JAMAIS sélectionnée : on n'expose que son existence (has_api_key).
+        // Les secrets chiffrés ne sont JAMAIS sélectionnés : on n'expose que leur existence (has_*).
         const string sql = """
             SELECT id, company_id, plugin_type, environment, account_identifiers,
-                   (encrypted_api_key IS NOT NULL) AS has_api_key, is_active, created_at, updated_at
+                   (encrypted_api_key IS NOT NULL) AS has_api_key,
+                   (encrypted_client_id IS NOT NULL) AS has_client_id,
+                   (encrypted_client_secret IS NOT NULL) AS has_client_secret,
+                   is_active, created_at, updated_at
             FROM tenantsettings.pa_accounts
             WHERE company_id = @CompanyId
             ORDER BY created_at ASC
@@ -115,6 +118,8 @@ public sealed class PostgresTenantSettingsQueries : ITenantSettingsQueries
                 Environment = ((PaEnvironment)(int)row.environment).ToString(),
                 AccountIdentifiers = (string)row.account_identifiers,
                 HasApiKey = (bool)row.has_api_key,
+                HasClientId = (bool)row.has_client_id,
+                HasClientSecret = (bool)row.has_client_secret,
                 IsActive = (bool)row.is_active,
                 CreatedAt = TenantSettingsRowReader.ToDateTimeOffset((object)row.created_at),
                 UpdatedAt = TenantSettingsRowReader.ToNullableDateTimeOffset((object?)row.updated_at),

@@ -32,6 +32,12 @@ public sealed class PaAccount
     /// <summary>Clé API CHIFFRÉE (texte opaque), ou <c>null</c> si aucune clé n'a encore été saisie.</summary>
     public string? EncryptedApiKey { get; private set; }
 
+    /// <summary>« client_id » OAuth2 CHIFFRÉ (texte opaque), ou <c>null</c> si non saisi (plug-in en OAuth2 uniquement).</summary>
+    public string? EncryptedClientId { get; private set; }
+
+    /// <summary>« client_secret » OAuth2 CHIFFRÉ (texte opaque), ou <c>null</c> si non saisi (plug-in en OAuth2 uniquement).</summary>
+    public string? EncryptedClientSecret { get; private set; }
+
     public bool IsActive { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
@@ -43,7 +49,9 @@ public sealed class PaAccount
         string pluginType,
         PaEnvironment environment,
         string accountIdentifiers,
-        string? encryptedApiKey)
+        string? encryptedApiKey,
+        string? encryptedClientId = null,
+        string? encryptedClientSecret = null)
     {
         ValidatePluginType(pluginType);
 
@@ -55,6 +63,8 @@ public sealed class PaAccount
             Environment = environment,
             AccountIdentifiers = accountIdentifiers ?? string.Empty,
             EncryptedApiKey = encryptedApiKey,
+            EncryptedClientId = encryptedClientId,
+            EncryptedClientSecret = encryptedClientSecret,
             IsActive = true,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = null,
@@ -68,6 +78,8 @@ public sealed class PaAccount
         PaEnvironment environment,
         string accountIdentifiers,
         string? encryptedApiKey,
+        string? encryptedClientId,
+        string? encryptedClientSecret,
         bool isActive,
         DateTimeOffset createdAt,
         DateTimeOffset? updatedAt)
@@ -80,6 +92,8 @@ public sealed class PaAccount
             Environment = environment,
             AccountIdentifiers = accountIdentifiers,
             EncryptedApiKey = encryptedApiKey,
+            EncryptedClientId = encryptedClientId,
+            EncryptedClientSecret = encryptedClientSecret,
             IsActive = isActive,
             CreatedAt = createdAt,
             UpdatedAt = updatedAt,
@@ -101,6 +115,24 @@ public sealed class PaAccount
     public void SetEncryptedApiKey(string? encryptedApiKey)
     {
         EncryptedApiKey = encryptedApiKey;
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
+    /// <summary>
+    /// Remplace le « client_id » OAuth2 chiffré (valeur DÉJÀ chiffrée, texte opaque). <c>null</c> efface.
+    /// </summary>
+    public void SetEncryptedClientId(string? encryptedClientId)
+    {
+        EncryptedClientId = encryptedClientId;
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
+    /// <summary>
+    /// Remplace le « client_secret » OAuth2 chiffré (valeur DÉJÀ chiffrée, texte opaque). <c>null</c> efface.
+    /// </summary>
+    public void SetEncryptedClientSecret(string? encryptedClientSecret)
+    {
+        EncryptedClientSecret = encryptedClientSecret;
         UpdatedAt = DateTimeOffset.UtcNow;
     }
 

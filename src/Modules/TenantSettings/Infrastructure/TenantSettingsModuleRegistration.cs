@@ -39,6 +39,10 @@ public static class TenantSettingsModuleRegistration
         // nombreux implémenteurs d'ITenantSettingsQueries (tests inclus).
         services.AddScoped<IAlertRoutingQueries, PostgresAlertRoutingQueries>();
         services.AddSingleton<ISecretProtector, DataProtectionSecretProtector>();
+
+        // Lecture chiffrée des secrets d'un compte PA actif (résolution OAuth2 par un résolveur de plug-in
+        // côté Host). Scoped : la connexion est routée vers la base du tenant courant.
+        services.AddScoped<IPaAccountSecretStore, PostgresPaAccountSecretStore>();
         services.AddScoped<TenantSettingsJournal>();
 
         // Lecture composée du paramétrage pour la console (API01c, GET /api/v1/settings) : assemble

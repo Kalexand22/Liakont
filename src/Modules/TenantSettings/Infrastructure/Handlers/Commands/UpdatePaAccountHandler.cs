@@ -34,6 +34,8 @@ public sealed class UpdatePaAccountHandler : IRequestHandler<UpdatePaAccountComm
         var companyId = _companyFilter.GetRequiredCompanyId();
         var environment = TenantSettingsParsing.ParseEnvironment(request.Environment);
         var rotateKey = !string.IsNullOrWhiteSpace(request.ApiKey);
+        var rotateClientId = !string.IsNullOrWhiteSpace(request.ClientId);
+        var rotateClientSecret = !string.IsNullOrWhiteSpace(request.ClientSecret);
 
         await using (var uow = await _uowFactory.BeginAsync(cancellationToken))
         {
@@ -46,6 +48,16 @@ public sealed class UpdatePaAccountHandler : IRequestHandler<UpdatePaAccountComm
                 account.SetEncryptedApiKey(_secretProtector.Protect(request.ApiKey!));
             }
 
+            if (rotateClientId)
+            {
+                account.SetEncryptedClientId(_secretProtector.Protect(request.ClientId!, PaAccountSecretPurposes.ClientId));
+            }
+
+            if (rotateClientSecret)
+            {
+                account.SetEncryptedClientSecret(_secretProtector.Protect(request.ClientSecret!, PaAccountSecretPurposes.ClientSecret));
+            }
+
             await uow.UpdatePaAccountAsync(account, cancellationToken);
             await uow.CommitAsync(cancellationToken);
         }
@@ -56,7 +68,13 @@ public sealed class UpdatePaAccountHandler : IRequestHandler<UpdatePaAccountComm
             "updated",
             $"Compte PA mis à jour ({environment}).",
             companyId,
-            new { Environment = environment.ToString(), ApiKeyRotated = rotateKey },
+            new
+            {
+                Environment = environment.ToString(),
+                ApiKeyRotated = rotateKey,
+                ClientIdRotated = rotateClientId,
+                ClientSecretRotated = rotateClientSecret,
+            },
             cancellationToken);
     }
 }

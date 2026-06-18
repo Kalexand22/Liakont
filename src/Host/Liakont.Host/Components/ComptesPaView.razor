@@ -2,6 +2,7 @@
 @using System.Collections.Generic
 @using Liakont.Host.PaAccounts
 @using Liakont.Modules.TenantSettings.Contracts.DTOs
+@using Liakont.Modules.Transmission.Contracts
 @using Stratum.Common.UI.Components
 @using Stratum.Common.UI.Models
 
@@ -43,9 +44,19 @@
                             }
                         </div>
                         <span class="liakont-comptes-pa__account-meta">Identifiants : @(string.IsNullOrWhiteSpace(account.AccountIdentifiers) ? "—" : account.AccountIdentifiers)</span>
-                        <span class="liakont-comptes-pa__account-meta" data-testid="comptes-pa-secret">
-                            Clé API : @(account.HasApiKey ? "configurée (masquée)" : "non configurée")
-                        </span>
+                        @if (AuthModeFor(account.PluginType) == PaAuthMode.OAuth2ClientCredentials)
+                        {
+                            <span class="liakont-comptes-pa__account-meta" data-testid="comptes-pa-secret">
+                                Identifiants OAuth2 : client_id @(account.HasClientId ? "configuré (masqué)" : "non configuré"),
+                                client_secret @(account.HasClientSecret ? "configuré (masqué)" : "non configuré")
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="liakont-comptes-pa__account-meta" data-testid="comptes-pa-secret">
+                                Clé API : @(account.HasApiKey ? "configurée (masquée)" : "non configurée")
+                            </span>
+                        }
 
                         @* Capacités déclarées du plug-in — DÉPLACÉES depuis le hub Paramétrage (lot polish
                            UX/UI) : c'est ici, où l'opérateur configure le compte, que la capacité éclaire la
@@ -171,7 +182,8 @@
                         </select>
                     </FormField>
 
-                    <FormField Label="Identifiants de compte (facultatif)" FieldId="comptes-pa-identifiers"
+                    <FormField Label="@(IsOAuthSelected ? "Identifiant de compte" : "Identifiants de compte (facultatif)")"
+                               FieldId="comptes-pa-identifiers" Required="@IsOAuthSelected"
                                HelpText="Identifiants opaques attendus par le plug-in (ex. identifiant de compte). Jamais un secret.">
                         <input id="comptes-pa-identifiers"
                                class="form-control"
@@ -182,17 +194,48 @@
                                data-testid="comptes-pa-identifiers" />
                     </FormField>
 
-                    <FormField Label="Clé API" FieldId="comptes-pa-apikey"
-                               HelpText="@(EditorIsCreate ? "Facultative : peut être saisie plus tard. Chiffrée en base, jamais réaffichée." : "Laissez vide pour conserver la clé actuelle. Une nouvelle valeur remplace la clé (rotation).")">
-                        <input id="comptes-pa-apikey"
-                               class="form-control"
-                               type="password"
-                               autocomplete="new-password"
-                               value="@EditorModel.ApiKey"
-                               @oninput="OnApiKeyInput"
-                               disabled="@EditorBusy"
-                               data-testid="comptes-pa-apikey" />
-                    </FormField>
+                    @* Secret(s) pilotés par le MODE D'AUTH du type sélectionné (registre), jamais par le nom du PA
+                       (CLAUDE.md n°8/16) : clé API unique, ou client_id + client_secret OAuth2. Toujours masqués. *@
+                    @if (IsOAuthSelected)
+                    {
+                        <FormField Label="client_id (OAuth2)" FieldId="comptes-pa-clientid"
+                                   HelpText="@(EditorIsCreate ? "Identifiant client OAuth2. Chiffré en base, jamais réaffiché." : "Laissez vide pour conserver le client_id actuel. Une nouvelle valeur le remplace (rotation).")">
+                            <input id="comptes-pa-clientid"
+                                   class="form-control"
+                                   type="password"
+                                   autocomplete="new-password"
+                                   value="@EditorModel.ClientId"
+                                   @oninput="OnClientIdInput"
+                                   disabled="@EditorBusy"
+                                   data-testid="comptes-pa-clientid" />
+                        </FormField>
+
+                        <FormField Label="client_secret (OAuth2)" FieldId="comptes-pa-clientsecret"
+                                   HelpText="@(EditorIsCreate ? "Secret client OAuth2. Chiffré en base, jamais réaffiché." : "Laissez vide pour conserver le client_secret actuel. Une nouvelle valeur le remplace (rotation).")">
+                            <input id="comptes-pa-clientsecret"
+                                   class="form-control"
+                                   type="password"
+                                   autocomplete="new-password"
+                                   value="@EditorModel.ClientSecret"
+                                   @oninput="OnClientSecretInput"
+                                   disabled="@EditorBusy"
+                                   data-testid="comptes-pa-clientsecret" />
+                        </FormField>
+                    }
+                    else
+                    {
+                        <FormField Label="Clé API" FieldId="comptes-pa-apikey"
+                                   HelpText="@(EditorIsCreate ? "Facultative : peut être saisie plus tard. Chiffrée en base, jamais réaffichée." : "Laissez vide pour conserver la clé actuelle. Une nouvelle valeur remplace la clé (rotation).")">
+                            <input id="comptes-pa-apikey"
+                                   class="form-control"
+                                   type="password"
+                                   autocomplete="new-password"
+                                   value="@EditorModel.ApiKey"
+                                   @oninput="OnApiKeyInput"
+                                   disabled="@EditorBusy"
+                                   data-testid="comptes-pa-apikey" />
+                        </FormField>
+                    }
                 </div>
 
                 @if (!string.IsNullOrWhiteSpace(EditorError))
@@ -333,7 +376,16 @@
         EditorModel is not null
         && !EditorBusy
         && !string.IsNullOrWhiteSpace(EditorModel.PluginType)
-        && !string.IsNullOrWhiteSpace(EditorModel.Environment);
+        && !string.IsNullOrWhiteSpace(EditorModel.Environment)
+        // OAuth2 : l'identifiant de compte est requis (D4) ; les secrets restent facultatifs (saisie progressive,
+        // l'envoi est bloqué tant qu'ils manquent — block-not-send-wrong). Piloté par le mode d'auth, pas le nom du PA.
+        && (!IsOAuthSelected || !string.IsNullOrWhiteSpace(EditorModel.AccountIdentifiers));
+
+    /// <summary>Mode d'auth du type en cours d'édition (depuis le registre, défaut ApiKey) — pilote les champs de secret.</summary>
+    private PaAuthMode AuthModeForSelectedType => AuthModeFor(EditorModel?.PluginType);
+
+    /// <summary><c>true</c> si le type sélectionné s'authentifie en OAuth2 (client_id + client_secret).</summary>
+    private bool IsOAuthSelected => AuthModeForSelectedType == PaAuthMode.OAuth2ClientCredentials;
 
     private void OnPluginTypeChange(ChangeEventArgs e)
     {
@@ -366,6 +418,27 @@
             EditorModel.ApiKey = e.Value as string;
         }
     }
+
+    private void OnClientIdInput(ChangeEventArgs e)
+    {
+        if (EditorModel is not null)
+        {
+            EditorModel.ClientId = e.Value as string;
+        }
+    }
+
+    private void OnClientSecretInput(ChangeEventArgs e)
+    {
+        if (EditorModel is not null)
+        {
+            EditorModel.ClientSecret = e.Value as string;
+        }
+    }
+
+    private PaAuthMode AuthModeFor(string? pluginType) =>
+        !string.IsNullOrEmpty(pluginType) && Model.AuthModes.TryGetValue(pluginType, out var mode)
+            ? mode
+            : PaAuthMode.ApiKey;
 
     private static string? NullIfEmpty(string? value)
     {

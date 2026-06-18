@@ -51,6 +51,87 @@ public sealed class PaAccountConsoleServiceTests
     }
 
     [Fact]
+    public async Task GetModelAsync_Fills_AuthModes_From_The_Registry()
+    {
+        // Le registre déclare un type OAuth2 (jamais un if (type==...)) : le modèle porte ce mode pour que
+        // la page présente client_id/client_secret au lieu d'une clé API (slice 4).
+        var registry = new FakePaClientRegistry(
+            new Dictionary<string, PaAuthMode>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["OAuthPa"] = PaAuthMode.OAuth2ClientCredentials,
+                ["KeyPa"] = PaAuthMode.ApiKey,
+            });
+        var service = new PaAccountConsoleService(new RecordingSender(), registry, new FakeSettingsQueries());
+
+        var model = await service.GetModelAsync();
+
+        model.AuthModes.Should().ContainKey("OAuthPa").WhoseValue.Should().Be(PaAuthMode.OAuth2ClientCredentials);
+        model.AuthModes.Should().ContainKey("KeyPa").WhoseValue.Should().Be(PaAuthMode.ApiKey);
+    }
+
+    [Fact]
+    public async Task CreateAsync_Sends_Add_Command_With_OAuth_Client_Id_And_Secret()
+    {
+        var sender = new RecordingSender { CreatedId = Guid.NewGuid() };
+        var service = new PaAccountConsoleService(sender, new FakePaClientRegistry("OAuthPa"), new FakeSettingsQueries());
+
+        await service.CreateAsync(new PaAccountFormModel
+        {
+            PluginType = "OAuthPa",
+            Environment = "Staging",
+            AccountIdentifiers = "acct-1",
+            ClientId = "the-client-id",
+            ClientSecret = "the-client-secret",
+        });
+
+        var command = sender.Sent.OfType<AddPaAccountCommand>().Should().ContainSingle().Subject;
+        command.ClientId.Should().Be("the-client-id", "le client_id saisi est transmis (chiffré par le handler)");
+        command.ClientSecret.Should().Be("the-client-secret");
+    }
+
+    [Fact]
+    public async Task CreateAsync_With_Blank_OAuth_Secrets_Sends_Null()
+    {
+        var sender = new RecordingSender { CreatedId = Guid.NewGuid() };
+        var service = new PaAccountConsoleService(sender, new FakePaClientRegistry("OAuthPa"), new FakeSettingsQueries());
+
+        await service.CreateAsync(new PaAccountFormModel
+        {
+            PluginType = "OAuthPa",
+            Environment = "Staging",
+            AccountIdentifiers = "acct-1",
+            ClientId = "   ",
+            ClientSecret = null,
+        });
+
+        var command = sender.Sent.OfType<AddPaAccountCommand>().Single();
+        command.ClientId.Should().BeNull("un client_id vide = non saisi");
+        command.ClientSecret.Should().BeNull("un client_secret null = non saisi");
+    }
+
+    [Fact]
+    public async Task UpdateAsync_Sends_Update_Command_With_OAuth_Client_Id_And_Secret()
+    {
+        var id = Guid.NewGuid();
+        var sender = new RecordingSender();
+        var service = new PaAccountConsoleService(sender, new FakePaClientRegistry("OAuthPa"), new FakeSettingsQueries());
+
+        await service.UpdateAsync(new PaAccountFormModel
+        {
+            PaAccountId = id,
+            Environment = "Production",
+            AccountIdentifiers = "acct-1",
+            ClientId = "rotated-id",
+            ClientSecret = "rotated-secret",
+        });
+
+        var command = sender.Sent.OfType<UpdatePaAccountCommand>().Should().ContainSingle().Subject;
+        command.PaAccountId.Should().Be(id);
+        command.ClientId.Should().Be("rotated-id");
+        command.ClientSecret.Should().Be("rotated-secret");
+    }
+
+    [Fact]
     public async Task CreateAsync_Sends_Add_Command_With_Entered_Fields_And_Key()
     {
         var sender = new RecordingSender { CreatedId = Guid.NewGuid() };
@@ -215,13 +296,23 @@ public sealed class PaAccountConsoleServiceTests
     private sealed class FakePaClientRegistry : IPaClientRegistry
     {
         private readonly string[] _types;
+        private readonly IReadOnlyDictionary<string, PaAuthMode>? _authModes;
 
         public FakePaClientRegistry(params string[] types) => _types = types;
+
+        public FakePaClientRegistry(IReadOnlyDictionary<string, PaAuthMode> authModes)
+        {
+            _authModes = authModes;
+            _types = authModes.Keys.ToArray();
+        }
 
         public IReadOnlyCollection<string> RegisteredTypes => _types;
 
         public IPaClient Resolve(PaAccountDescriptor account) => throw new NotSupportedException();
 
         public bool IsRegistered(string paType) => _types.Contains(paType, StringComparer.OrdinalIgnoreCase);
+
+        public IReadOnlyDictionary<string, PaAuthMode> DescribeAuthModes() =>
+            _authModes ?? new Dictionary<string, PaAuthMode>(StringComparer.OrdinalIgnoreCase);
     }
 }

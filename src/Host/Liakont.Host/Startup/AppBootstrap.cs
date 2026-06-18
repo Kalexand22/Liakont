@@ -59,6 +59,7 @@ using Liakont.Modules.Transmission.Infrastructure;
 using Liakont.Modules.TvaMapping.Infrastructure;
 using Liakont.Modules.TvaMapping.Web;
 using Liakont.Modules.Validation.Infrastructure;
+using Liakont.PaClients.SuperPdp;
 using Liakont.SignatureProviders.Yousign;
 using MediatR;
 using Microsoft.AspNetCore.Authentication;
@@ -330,6 +331,16 @@ public static class AppBootstrap
         // devient ainsi transmissible de bout en bout (génération → transmission → journal + trace support).
         builder.Services.AddSingleton<IFacturXArtifactBuilder, FacturXArtifactBuilder>();
         builder.Services.AddGeneriquePaDelivery();
+
+        // Plug-in PA Super PDP (F14, OAuth2 client_credentials) câblé au COMPOSITION ROOT — seul endroit
+        // autorisé à référencer un plug-in PA concret (CLAUDE.md n°6/14). Le résolveur de compte (déchiffrement
+        // des secrets OAuth2 par tenant via ISecretProtector + lecture de pa_accounts) est fourni par le Host :
+        // le plug-in ne voit pas le coffre. Resolver AVANT la fabrique (AddSuperPdpPaClient en dépend, comme
+        // Yousign). NON gardé par l'environnement (PA réelle, contrairement au Fake) : le « sandbox-only » est
+        // imposé au runtime par SuperPdpAccountConfig.BaseUrl, qui lève en Production tant que PAS03 n'a pas
+        // confirmé l'URL (F14 §12 O1) — on bloque plutôt que d'envoyer faux (CLAUDE.md n°3).
+        builder.Services.TryAddSingleton<ISuperPdpAccountResolver, SuperPdpAccountResolver>();
+        builder.Services.AddSuperPdpPaClient();
 
         // Signature (SIG03, ADR-0027) : registre de types des fournisseurs de signature. Aucun plug-in
         // n'est référencé ici (le module ne connaît AUCUN fournisseur concret — CLAUDE.md n°6) ; chaque

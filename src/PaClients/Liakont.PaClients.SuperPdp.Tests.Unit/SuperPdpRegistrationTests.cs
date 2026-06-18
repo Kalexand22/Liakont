@@ -28,6 +28,16 @@ public sealed class SuperPdpRegistrationTests
     }
 
     [Fact]
+    public void Registry_Reports_SuperPdp_As_An_OAuth2_Type()
+    {
+        using var provider = BuildProvider();
+        var registry = provider.GetRequiredService<IPaClientRegistry>();
+
+        // La console lit ce mode pour présenter client_id/client_secret (slice 4) — jamais if (type==SuperPdp).
+        registry.DescribeAuthModes()["SuperPdp"].Should().Be(PaAuthMode.OAuth2ClientCredentials);
+    }
+
+    [Fact]
     public void AddSuperPdpPaClient_Registers_The_Named_Http_Client()
     {
         using var provider = BuildProvider();
