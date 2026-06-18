@@ -87,8 +87,8 @@ else
                             <td>@HealthLabel(instance.KeycloakHealth)</td>
                             <td>@instance.TenantCount</td>
                             <td>@FormatBytes(instance.DiskFreeBytes)</td>
-                            <td>@FormatDate(instance.LastSuccessfulBackupUtc)</td>
-                            <td>@FormatDate(instance.LastSeenUtc)</td>
+                            <td><LiakontDate Value="@instance.LastSuccessfulBackupUtc" /></td>
+                            <td><LiakontDate Value="@instance.LastSeenUtc" /></td>
                         </tr>
                     }
                 </tbody>
@@ -156,6 +156,4 @@ else
         return string.Format(Fr, "{0:0.#} {1}", value, units[unit]);
     }
 
-    private static string FormatDate(DateTimeOffset? value) =>
-        value is null ? "—" : value.Value.ToString("dd/MM/yyyy HH:mm", Fr) + " UTC";
 }

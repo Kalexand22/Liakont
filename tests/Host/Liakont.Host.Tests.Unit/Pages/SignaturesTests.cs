@@ -31,6 +31,7 @@ public sealed class SignaturesTests : BunitContext
     {
         JSInterop.Mode = JSRuntimeMode.Loose;
         Services.AddLogging();
+        Services.AddBrowserTimeZoneStub();
 
         // Par défaut : pas de permission d'action (la page reste consultable) + fakes in-process.
         Services.AddScoped<IPermissionService>(_ => new FakePermissionService(canAct: false));

@@ -49,9 +49,17 @@ RB7 → RB8 → RB6.
       Clients, Supervision, SupervisionDetail, TableTvaView, ReconciliationView, Documents (LastUpdateUtc).
       NB : `Documents.IssueDate` = DateOnly (sans fuseau) → laissé tel quel (le convertir serait un bug).
       Les 10 tests bUnit de pages migrées câblés (`AddBrowserTimeZoneStub`) → 961/961.
-- [ ] **P1** (4 sites Host à uniformiser : Flotte, Signatures, DocumentDetailView, SupervisionLivenessBanner).
-- [ ] **P2** (~20 pages modules : Audit/Identity/Notification/Job). NB : sites cron/planif (AdminJobScheduleForm,
-      AdminJobExecutions) → garder UTC EXPLICITE (prévision serveur, pas un horodatage d'événement).
+- [x] **P1** (Host) : Flotte (backup/last-seen) + Signatures (OccurredAt) migrés vers `<LiakontDate>`.
+      **Laissés en UTC À DESSEIN** (pas le bug, documenté) : DocumentDetailView (timeline d'événement en
+      UTC ISO pour CONTRÔLE FISCAL — recoupe écran/export, CLAUDE.md n°2) ; SupervisionLivenessBanner (UTC
+      ÉTIQUETÉ, diagnostic dead-man's-switch avec intervalle serveur). Signatures.échéance = DateOnly→minuit-UTC,
+      non convertie (comme IssueDate). FlotteTests/SignaturesTests recâblés.
+- [ ] **P2 — BLOQUÉ sur décision d'archi** : les pages `Modules.*.Web` (Audit/Identity/Notification/Job) ne
+      référencent PAS `Liakont.Host` (dépendance inverse) → `<LiakontDate>` (dans le Host) n'y est pas
+      disponible. Pour P2 il faut DÉPLACER l'infra RB6 (IBrowserTimeZone + LiakontDateDisplay + LiakontDate +
+      le JS) dans une **RCL Liakont partagée** (nouveau projet, ou lib commune Liakont hors socle) référencée
+      par le Host ET les modules.Web. = vraie restructuration → à acter avec Karl. NB : sites cron/planif
+      (AdminJobScheduleForm, AdminJobExecutions) restent UTC EXPLICITE (prévision serveur, pas un événement).
 
 ## Notes
 - Démo cette nuit/demain : PA = **Fake** (Development) pour exercer agent→plateforme→PA de bout en bout.
