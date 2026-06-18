@@ -97,7 +97,8 @@
                 <StratumColumn TItem="DeliverySlaDto" Title="Destinataire" Property="EscalationRecipient" Sortable />
                 <StratumColumn TItem="DeliverySlaDto" Title="Modifié le">
                     <Template Context="sla">
-                        @((sla.UpdatedAt ?? sla.CreatedAt).ToString("dd/MM/yyyy HH:mm"))
+                        @* RB6 : « Modifié le » = ÉVÉNEMENT → fuseau du navigateur (serveur en UTC). *@
+                        <LiakontDate Value="@(sla.UpdatedAt ?? sla.CreatedAt)" />
                     </Template>
                 </StratumColumn>
             </ChildContent>
@@ -141,7 +142,7 @@
                                 <dt class="col-sm-5">Destinataire</dt>
                                 <dd class="col-sm-7">@breach.RecipientEmail</dd>
                                 <dt class="col-sm-5">Envoyé le</dt>
-                                <dd class="col-sm-7">@breach.SentAt.ToString("dd/MM/yyyy HH:mm")</dd>
+                                <dd class="col-sm-7"><LiakontDate Value="@breach.SentAt" /></dd>
                                 <dt class="col-sm-5">Statut SLA</dt>
                                 <dd class="col-sm-7">
                                     <SlaCountdown Deadline="@ComputeDeadline(breach)"

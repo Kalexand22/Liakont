@@ -70,9 +70,19 @@
         {
             __builder.AddContent(0, item.EntityType ?? "—");
         },
+        // RB6 : « Dernière modif. » / « Créé le » = ÉVÉNEMENTS → fuseau du navigateur (serveur en UTC).
+        // « Créé le » est masquée par défaut mais ACTIVABLE → migrée pour cohérence.
         ["UpdatedAt"] = item => __builder =>
         {
-            __builder.AddContent(0, (item.UpdatedAt ?? item.CreatedAt).ToString("dd/MM/yyyy HH:mm"));
+            __builder.OpenComponent<LiakontDate>(0);
+            __builder.AddAttribute(1, "Value", (DateTimeOffset?)(item.UpdatedAt ?? item.CreatedAt));
+            __builder.CloseComponent();
+        },
+        ["CreatedAt"] = item => __builder =>
+        {
+            __builder.OpenComponent<LiakontDate>(0);
+            __builder.AddAttribute(1, "Value", (DateTimeOffset?)item.CreatedAt);
+            __builder.CloseComponent();
         },
     };
 

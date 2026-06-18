@@ -261,6 +261,15 @@ src/Modules/Identity/Web/Pages/AdminTeamForm.razor
 src/Modules/Identity/Web/Pages/AdminRoleForm.razor
 src/Modules/Identity/Web/Pages/AdminDelegations.razor
 src/Modules/Identity/Web/Pages/AdminDelegationForm.razor
+src/Modules/Notification/Web/Pages/AdminSla.razor
+src/Modules/Notification/Web/Pages/AdminSlaForm.razor
+src/Modules/Notification/Web/Pages/AdminCatalogServiceForm.razor
+src/Modules/Notification/Web/Pages/AdminNotificationRoutingDetail.razor
+src/Modules/Notification/Web/Pages/AdminNotificationTemplates.razor
+src/Modules/Notification/Web/Pages/AdminNotificationRouting.razor
+src/Modules/Notification/Web/Pages/AdminCatalogServices.razor
+src/Modules/Notification/Web/Pages/AdminWebhookSubscriptions.razor
+src/Modules/Notification/Web/Pages/AdminIntegrations.razor
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -919,6 +928,33 @@ Les registres `*ColumnRegistry.cs` **ne sont pas touchés**. Les 9 `.razor` sont
 `AdminAgentsTests`, `AdminAgentFormTests`, `AdminTeamsTests`, `AdminTeamFormTests`, `AdminRoleFormTests`,
 `AdminDelegationsTests`, `AdminDelegationFormTests`) + fakes de query partagés ; assertion discriminante sur
 `AdminDelegations` (ValidFrom rendue SANS suffixe « UTC » → preuve qu'elle est laissée).
+
+### 4.35 `Stratum.Modules.Notification.Web` — horodatages d'admin Notification au fuseau navigateur (RB6 P2)
+
+**Motif** : suite de RB6 (§4.31→§4.34) — dernier module d'admin du socle. ÉVÉNEMENTS migrés vers `<LiakontDate>` ;
+ÉCHÉANCES/DURÉES/dates de VALIDITÉ laissées.
+
+**Changement — ÉVÉNEMENTS migrés** :
+- `AdminSla.razor` : colonne « Modifié le » (`UpdatedAt ?? CreatedAt`, onglet Config, `<StratumColumn>`) + « Envoyé le »
+  (`SentAt` d'un breach, onglet Monitoring) → `<LiakontDate>`.
+- `AdminSlaForm.razor` / `AdminCatalogServiceForm.razor` / `AdminNotificationRoutingDetail.razor` : « Créé le » /
+  « Modifié le » (section Audit) → `<LiakontDate>`.
+- `AdminNotificationTemplates.razor` : colonne « Dernière modif. » (`UpdatedAt ?? CreatedAt`, visible) + « Créé le »
+  (masquée activable) → `ColumnTemplate` `<LiakontDate>`.
+- `AdminNotificationRouting.razor` / `AdminCatalogServices.razor` : colonne « Créé le » (masquée activable) → `<LiakontDate>`.
+- `AdminWebhookSubscriptions.razor` : « Créé le » (visible) + « Modifié le » (masquée activable) → `<LiakontDate>`.
+- `AdminIntegrations.razor` : colonne « Créée le » des clés API (`CreatedAt`, visible) → `<LiakontDate>`.
+
+**LAISSÉES** : `SlaCountdown` (échéances SLA calculées), durées (`MaxDelaySeconds`/`FormatDelay`, `DefaultSlaHours`,
+intervalle de sync, `SimulationDuration`), et la date d'EXPIRATION de clé API `ApiKey.ExpiresAt` (date de
+validité/échéance). `AdminNotificationTemplateDetail`/`AdminNotificationPreview` : strings d'exemple, non concernés.
+
+Les registres `*ColumnRegistry.cs` **ne sont pas touchés**. Les 9 `.razor` sont AJOUTÉS au bloc `SOCLE-CONSIGNED-DRIFT`.
+
+**Vérification** : `verify-fast` vert ; 1 test bUnit par page modifiée (`AdminSlaTests`, `AdminSlaFormTests`,
+`AdminCatalogServiceFormTests`, `AdminNotificationRoutingDetailTests`, `AdminNotificationTemplatesTests`,
+`AdminNotificationRoutingTests`, `AdminCatalogServicesTests`, `AdminWebhookSubscriptionsTests`, `AdminIntegrationsTests`)
++ fakes de query ; assertion discriminante sur `AdminIntegrations` (`ExpiresAt` rendue SANS suffixe « UTC »).
 
 ## 5. ADR du socle hérités
 
