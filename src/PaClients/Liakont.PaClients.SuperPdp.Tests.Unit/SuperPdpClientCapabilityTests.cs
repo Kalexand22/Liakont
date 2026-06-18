@@ -23,14 +23,16 @@ public sealed class SuperPdpClientCapabilityTests
         caps.PaName.Should().Be("Super PDP");
         caps.SupportsB2cReporting.Should().BeTrue("le B2C est ✅ vérifié (DR17) — seule capacité true en PAS02 (F14 §5)");
 
-        // Tout le reste est false tant que la sandbox (PAS03) n'a rien confirmé (« incertain = false ») :
+        // Facturation B2B : vérifiée en sandbox (envoi réel facture 72272) — activée sur directive de recette (18/06/2026).
+        caps.SupportsB2bInvoicing.Should().BeTrue("facturation B2B vérifiée en sandbox — envoi réel facture 72272");
+
+        // Les flux non confirmés restent false tant que la sandbox (PAS03) n'a rien validé (« incertain = false ») :
         caps.SupportsDomesticPaymentReporting.Should().BeFalse("flux 10.4 non documenté (O3)");
         caps.SupportsInternationalPaymentReporting.Should().BeFalse("flux 10.2 non documenté (O3)");
         caps.SupportsCreditNotes.Should().BeFalse("modèle d'avoir non confirmé (O7)");
         caps.SupportsTaxReportRetrieval.Should().BeFalse("endpoints tax reports non confirmés (O2)");
         caps.SupportsDocumentRetrieval.Should().BeFalse("endpoint de téléchargement non confirmé (O4)");
         caps.SupportsReportRectification.Should().BeFalse("flux RE non documenté (O9)");
-        caps.SupportsB2bInvoicing.Should().BeFalse("phase 2");
         caps.SupportsSelfBilling.Should().BeFalse("émission 389 non confirmée en sandbox — déclaration honnête (MND07 / F15 §1.8)");
         caps.MaxDocumentsPerRequest.Should().BeNull();
     }
