@@ -30,6 +30,12 @@ Branche de référence : `feat/emitter-filled-by-platform`. À relire par Karl a
 > V5.00/Swagger en CP0) ; `Incidenté`→`RejectedByPa` (reprise opérateur) tranché ; `C3`/`D9` requalifiés
 > « conditionnels » ; blueprint §7 = multi-tenancy (corrigé) ; énumération boundary = 5 gardes réelles ;
 > sizing CP3 → (M/L).
+>
+> **Mise à jour 2026-06-18 (3) — Partie A LIVRÉE.** SuperPDP option-1 slices 2-4 mergées (`efbfa4c`) :
+> `V011` (OAuth), `IPaAccountSecretStore`, `SuperPdpAccountResolver`, `ComptesPaView` par `AuthMode`
+> existent. Périmés → corrigés : A5 (Partie A ✅), B1 (`SuperPdpAccountResolver` = modèle CP6), B4
+> (migration technique = **V012**), §0 fait 1, PR-INT (✅ livré, plus un prérequis). Toujours valables :
+> A6 (enum à ajouter en CP1), D7 (**PR-PIPE** seul prérequis interne restant), D8, B2.
 
 ---
 
@@ -49,38 +55,39 @@ jamais » (`GeneriqueClient.cs:58-62` → `BlockedMissingArtifact`).
 
 ### Deux faits décisifs relevés dans le code
 
-1. **Aucun plug-in HTTP n'est encore câblé en prod.** `AddB2BrouterPaClient`/`AddSuperPdpPaClient`
-   existent mais ne sont **jamais appelés** dans le Host, et **aucun `*AccountResolver` Host n'existe**
-   pour eux (**seul `GeneriqueAccountResolver` existe**). Seuls `Generique` (+ `Fake` en dev) sont
-   résolvables. Chorus Pro sera le **premier connecteur HTTP réellement branché bout-en-bout**.
+1. **SuperPDP est désormais câblé en prod (HTTP/OAuth2).** `AddSuperPdpPaClient()` est appelé et
+   `SuperPdpAccountResolver` enregistré (`AppBootstrap.cs:342-343`) ; `Generique`, `Fake` **et `SuperPdp`**
+   sont résolvables (`AddB2BrouterPaClient` reste non appelé). Chorus Pro **suit exactement le même chemin**
+   que SuperPDP (HTTP + OAuth2 + resolver Host + coffre de secrets) — ce n'est plus un défrichage.
 2. **`SendTenantJob.cs:122`** (module **Pipeline** : `src/Modules/Pipeline/Infrastructure/Send/SendTenantJob.cs`)
-   construit `new PaAccountDescriptor(active.PluginType, tenantId)` **sans `Settings`**. Le plug-in
-   **dépendra** donc de son resolver Host pour relire/déchiffrer les secrets. ⚠️ Au futur : le seul
-   resolver existant (`GeneriqueAccountResolver`) lit aujourd'hui `descriptor.Settings`, et la lecture
-   du coffre `tenantsettings.pa_accounts` via une abstraction **`IPaAccountSecretStore`** reste **À
-   CONSTRUIRE** (Partie A, cf. ci-dessous — sa docstring dit « à venir avec le câblage de production »).
+   construit `new PaAccountDescriptor(active.PluginType, tenantId)` **sans `Settings`**. Le plug-in dépend
+   donc de son resolver Host pour relire/déchiffrer les secrets. ✅ Le chemin existe désormais :
+   `SuperPdpAccountResolver` ouvre un scope tenant (`ITenantScopeFactory`), lit
+   `IPaAccountSecretStore.GetActiveAsync(companyId, pluginType)` et déchiffre via `ISecretProtector.Unprotect`
+   (par *purpose*) — c'est le **modèle direct** du futur `ChorusProAccountResolver` (CP6).
 
-### ⛔ Dépendance interne forte : SuperPDP option-1 « Partie A » (générique) — NON COMMENCÉE
+### ✅ Dépendance interne « Partie A » (SuperPDP option-1, infra OAuth générique) — LIVRÉE
 
-Le plan `tasks/plan-superpdp-option1.md` introduit l'**infra OAuth générique partagée**, dont Chorus
-Pro a besoin et qu'il ne faut PAS dupliquer. **État réel vérifié dans le repo** (`tasks/todo.md` §2
-marque les slices 2-4 `[ ]` ; la NOTE NUIT dit « laissées prêtes à finir en session dédiée ») :
+L'**infra OAuth générique partagée** dont Chorus Pro a besoin est **livrée** sur
+`feat/emitter-filled-by-platform` (commit `efbfa4c` « câbler SuperPDP de bout en bout », doc `481e4c6` ;
+`tasks/todo.md` §2 marque slices 1-4 `[x] LIVRÉ`). Vérifié dans le code :
 
-- ✅ Slice 1 (mergé sur `feat/emitter-filled-by-platform`) : `PaAuthMode` (`ApiKey | OAuth2ClientCredentials`),
-  `IPaClientFactory.AuthMode`, `IPaClientRegistry.DescribeAuthModes()`.
-- ⛔ Slice 2 (**non commencé** — vérifié : pas de migration `V011`, **TenantSettings = V010**, pas de
-  `encrypted_client_id`, pas de champ `ClientId` sur `PaAccount`) : migration OAuth + `PaAccount` +2
-  champs + commandes/handlers (Protect) + UoW + `PaAccountDto` (`HasClientId/HasClientSecret`).
-- ⛔ Slice 3 (**non commencé** — vérifié : `IPaAccountSecretStore` **ABSENT** du repo) : abstraction
-  `IPaAccountSecretStore.GetActiveAsync(companyId, pluginType)` (TenantSettings) + impl Postgres + resolver Host.
-- ⛔ Slice 4 (**non commencé**) : form générique multi-secrets `ComptesPaView` piloté par **`AuthMode`**.
+- ✅ Slice 1 : `PaAuthMode` (`ApiKey | OAuth2ClientCredentials`), `IPaClientFactory.AuthMode`,
+  `IPaClientRegistry.DescribeAuthModes()`.
+- ✅ Slice 2 : migration **`V011__add_pa_oauth_credentials.sql`** (`encrypted_client_id` +
+  `encrypted_client_secret`) ; `PaAccount` +champs ; commandes/handlers (Protect) ; `PaAccountDto`.
+- ✅ Slice 3 : **`IPaAccountSecretStore.GetActiveAsync(companyId, pluginType)`** → record
+  `PaAccountSecrets(Environment, AccountIdentifiers, EncryptedApiKey, EncryptedClientId, EncryptedClientSecret)`
+  + impl Postgres + resolver Host (`SuperPdpAccountResolver`).
+- ✅ Slice 4 : `ComptesPaView` rend déjà des champs **conditionnels par `AuthMode`** (clé API vs
+  client_id/secret OAuth2).
 
-PISTE = OAuth2 `client_credentials` avec `client_id`/`client_secret` ⇒ **mappera** les colonnes de la
-migration OAuth de Partie A. **Conséquence : CP5/CP6 (et tout le câblage bout-en-bout) sont BLOQUÉS
-derrière un chantier non démarré.** CP1→CP4 (plug-in pur, mockable) sont codables en parallèle sans le
-toucher. **Décision préalable (B5)** : Partie A et Chorus Pro doivent partager une **branche** explicite
-(slice 1 est sur `feat/emitter-filled-by-platform`, aucune branche option-1 dédiée n'existe) — Karl
-tranche le nom de branche **avant CP1**, sinon conflit de merge sur `Transmission.Contracts`/`TenantSettings`.
+**Conséquence : CP5/CP6 ne sont PLUS bloqués par un prérequis interne** — ils **étendent** l'existant.
+CP5 ajoute la migration **`V012`** (mot de passe technique) au-dessus de `V011`, étend le record
+`PaAccountSecrets` et ajoute une 3ᵉ branche au dispatch `AuthMode` du form ; CP6 copie
+`SuperPdpAccountResolver`. **Base de branche (B5)** : `feat/pa-chorus-pro` branché sur la base qui porte
+déjà Partie A (`feat/emitter-filled-by-platform`, ou son merge sur `main`). Seul prérequis interne
+**restant** : **PR-PIPE** (support `PaSendState.Sending` au pipeline, cf. §2bis D7 — toujours à faire).
 
 ---
 
@@ -120,7 +127,7 @@ tranche le nom de branche **avant CP1**, sinon conflit de merge sur `Transmissio
 
 | # | Sujet | Décision | Statut |
 |---|---|---|---|
-| **D1** | Stockage des secrets | **Étendre le schéma** : réutiliser `encrypted_client_id`/`encrypted_client_secret` (migration OAuth de Partie A, **pas encore dans le repo — TenantSettings=V010**) pour PISTE + **migration suivante** pour le mot de passe du compte technique (coordonner le n° avec Partie A, cf. B4). | ✅ tranché (Karl) |
+| **D1** | Stockage des secrets | **Étendre le schéma livré** : `encrypted_client_id`/`encrypted_client_secret` (migration `V011`, **déjà dans le repo**) portent PISTE ; **`V012`** ajoute `encrypted_technical_password` pour le compte technique (B4). | ✅ tranché (Karl) |
 | **D2** | e-reporting via Chorus Pro | **Hors périmètre du plug-in** : capacités e-reporting = `false` → résultat typé. (a) aucune API e-reporting Chorus Pro publiée (seul `deposerFluxFacture`/e-invoicing existe) ; (b) e-reporting B2B **privé** via PA/PDP. **Nuance** : pour un **émetteur public**, la doctrine (FAQ + art. 123 LF 2026) route le **B2C/G2C** par Chorus Pro — mais sans API et rattachement CMP non vérifié (note CMP). | ✅ tranché (plug-in) |
 | **D3** | Tests de contrat | **Reco** : tests unitaires dédiés (patron `Generique`/`RoutedHttpMessageHandler`), **pas** l'héritage de `PaClientContractTests`. **Vraie raison** (corrigée) : la suite envoie **sans `PaSendContext`** → une PA *transport-only* bloque sur artefact absent → échoue le cas `Issued` nominal (ce n'est PAS une histoire de « construction de payload » : `SuperPdp` construit un payload et hérite bien de la suite). | reco — à valider |
 | **D4** | Profil Factur-X | **Reco** : la démo transporte un Factur-X **déjà scellé/validé en amont** ; verrouiller profil/version sur Spécifications Externes + FNFE-MPE **avant prod**. Tracer la cohérence FX07 ↔ `syntaxeFlux` (mismatch = `Rejeté`). | reco — à valider |
@@ -172,10 +179,11 @@ tranche le nom de branche **avant CP1**, sinon conflit de merge sur `Transmissio
   requis** : réglage compte « email de connexion du compte technique » + résolution via
   `consulterCompteUtilisateur(email)` **mise en cache par compte** ; **sinon** l'omettre du payload.
   Sourcer le service ET la cardinalité dans F18.
-- **B5 (branche) — TRANCHÉ : Partie A mergée d'abord.** Livrer Partie A (slices 2-4) comme item/branche
-  dédié → **merger sur `main`**, **puis** brancher `feat/pa-chorus-pro` sur `main`. CP1-CP4 peuvent
-  démarrer en parallèle si l'ajout de l'enum `OAuth2WithTechnicalAccount` (CP1) est coordonné (un seul
-  chantier édite `PaAuthMode.cs`).
+- **B5 (branche) — TRANCHÉ : Partie A est déjà livrée.** Slices 1-4 sont sur
+  `feat/emitter-filled-by-platform` (commit `efbfa4c`). Brancher **`feat/pa-chorus-pro`** sur cette base
+  (ou sur son merge `main`) qui porte déjà `V011` + `IPaAccountSecretStore` + `SuperPdpAccountResolver`.
+  Seul point de coordination : un seul chantier édite `PaAuthMode.cs` pour l'enum
+  `OAuth2WithTechnicalAccount` (CP1).
 
 ---
 
@@ -193,10 +201,11 @@ Bloquants pour CP8 (envoi réel) uniquement ; CP1→CP7 sont codables avec mocks
 
 ## 4. Plan ordonné (lots, sizing repris de la tranche démo)
 
-### PR-INT — Prérequis interne #1 : SuperPDP option-1 « Partie A » (générique) — ⛔ NON COMMENCÉ
-Slices 2-4 de `plan-superpdp-option1.md` : migration OAuth, `IPaAccountSecretStore`, form multi-secrets
-piloté par `AuthMode`. **Non démarrée** (vérifié §0). **Item/branche dédié → mergé sur `main` AVANT de
-brancher `feat/pa-chorus-pro`** (B5). **Bloque CP5/CP6** ; CP1→CP4 avancent en parallèle.
+### PR-INT — Prérequis interne #1 : SuperPDP option-1 « Partie A » (générique) — ✅ LIVRÉ
+Slices 2-4 livrées sur `feat/emitter-filled-by-platform` (commit `efbfa4c`) : migration `V011` (OAuth),
+`IPaAccountSecretStore` + impl Postgres, `SuperPdpAccountResolver`, form `ComptesPaView` piloté par
+`AuthMode`. **N'est plus un prérequis à faire** — CP5/CP6 l'**étendent**. (Livré hors orchestration par
+commit direct, pas via un item : **ne pas re-seeder**.)
 
 ### PR-PIPE — Prérequis interne #2 : support PA asynchrone dans le pipeline (D7) — ⛔ NON COMMENCÉ
 `case Sending` dans `HandleSendResultAsync` (`SendTenantJob.cs:590-634`) : **persiste le `PaDocumentId`**,
@@ -286,25 +295,26 @@ interne tracée, le code viole CLAUDE.md n°2 (les chaînes sont authentiques, p
   Transitoire = retry backoff (lecture idempotente). Renvoie `PaDocumentStatus { PaDocumentId, State, Errors, RawResponse }`.
 - Test : « statut `consulterCR` inconnu → jamais `Issued` » ; « les 9 `etatCourantFlux` mappés, seul `Intégré` → `Issued` ».
 
-### CP5 — Schéma 3ᵉ secret + AuthMode générique — (M) — *dépend PR-INT (Partie A) + D1 + D6*
-- **Migration** `Vnnn__add_pa_technical_account_secret.sql` (numéro **après** la migration OAuth de Partie
-  A — **coordonner** car TenantSettings=V010 et la V011 OAuth n'est pas encore dans le repo, B4) :
-  `ADD COLUMN IF NOT EXISTS encrypted_technical_password text;` (nullable, idempotent patron V008). Login
-  technique → `accountIdentifiers` (non secret).
+### CP5 — Schéma 3ᵉ secret + AuthMode générique — (M) — *dépend D1 + D6 (Partie A déjà livrée)*
+- **Migration `V012__add_pa_technical_account_secret.sql`** (numéro libre au-dessus de `V011` OAuth qui
+  existe déjà, B4) : `ADD COLUMN IF NOT EXISTS encrypted_technical_password text;` (nullable, idempotent
+  patron V008/V011). Login/email technique → `accountIdentifiers` (non secret).
 - `PaAuthMode.OAuth2WithTechnicalAccount` est **déjà ajoutée en CP1** ; ici on la **câble** au form/store.
-- Étendre `IPaAccountSecretStore` (tuple +`encryptedTechnicalPassword`/`technicalLogin` +`technicalEmail`
-  pour résoudre `idUtilisateurCourant`, C3), `PaAccount` (+champs+setters), `Add/UpdatePaAccountCommand` +
-  handlers (**Protect** le mot de passe), UoW, `PaAccountDto` (+`HasTechnicalPassword`, jamais le secret,
-  jamais loggé — INV-TENANTSETTINGS-003).
-- Form `ComptesPaView` : champs conditionnels rendus **par AuthMode** (jamais par nom de plug-in) —
-  pour `OAuth2WithTechnicalAccount` : client_id/secret + login + mot de passe technique (`type=password`).
-  **bUnit** (règle 19 = P1).
+- **Étendre l'existant** (pas reconstruire) : ajouter `EncryptedTechnicalPassword` (+`TechnicalLogin`/
+  `TechnicalEmail` pour résoudre `idUtilisateurCourant`, C3) au record `PaAccountSecrets` ;
+  `PaAccountSecretPurposes.TechnicalPassword` (v1) ; faire remonter la colonne par la requête Postgres ;
+  `PaAccount` (+champs+setters) ; `Add/UpdatePaAccountCommand` + handlers (**Protect** le mot de passe) ;
+  UoW ; `PaAccountDto` (+`HasTechnicalPassword`, jamais le secret, jamais loggé — INV-TENANTSETTINGS-003).
+- Form `ComptesPaView` : **ajouter une 3ᵉ branche** au dispatch `AuthMode` existant (binaire → ternaire ;
+  jamais par nom de plug-in) — pour `OAuth2WithTechnicalAccount` : client_id/secret + login + mot de passe
+  technique (`type=password`). **bUnit** (règle 19 = P1).
 
 ### CP6 — Resolver Host + câblage via bootstrap dédié — (S) — *dépend CP5*
 - `src/Host/Liakont.Host/PaDelivery/ChorusProAccountResolver.cs` (interne, **modèle
-  `GeneriqueAccountResolver` — seul resolver Host existant**, B1) : lit via `IPaAccountSecretStore`,
-  **déchiffre** (`ISecretProtector.Unprotect`), mappe l'environnement, construit `ChorusProAccountConfig`.
-  **Bloque si secret absent** (jamais d'envoi sans auth).
+  `SuperPdpAccountResolver.cs`** — resolver OAuth2 déjà livré, plus proche que `GeneriqueAccountResolver`,
+  B1) : scope tenant via `ITenantScopeFactory`, lit `IPaAccountSecretStore.GetActiveAsync`, **déchiffre par
+  *purpose*** (`ISecretProtector.Unprotect` ; + `TechnicalPassword`), mappe l'environnement, construit
+  `ChorusProAccountConfig`. **Bloque si secret absent** (jamais d'envoi sans auth, fail-closed CLAUDE.md n°3).
 - **Câblage (B2)** : créer un **`ChorusProPaDeliveryBootstrap.AddChorusProPaDelivery`** sur le modèle de
   `GeneriquePaDeliveryBootstrap.AddGeneriquePaDelivery` (`TryAddSingleton<IChorusProAccountResolver, …>` +
   `AddChorusProPaClient()`), **appelé depuis le bloc de composition d'`AppBootstrap.cs:332`** (à côté de
@@ -352,17 +362,17 @@ interne tracée, le code viole CLAUDE.md n°2 (les chaînes sont authentiques, p
 ## 5. Graphe de dépendances & chemin critique
 
 ```
-PR-INT (Partie A, ⛔) ─┐  (mergé sur main AVANT feat/pa-chorus-pro, B5)
-                       ├─> CP5 ──> CP6 ─┐
-CP0 ─> CP1 ─> CP2 ─> CP3 ─> CP4 ────────┴─> CP8(unit) ─> CP8(sandbox plug-in*)
-                        CP7 ─────────────┘
+Partie A (✅ LIVRÉE : V011 + store + resolver) ─┐
+                                               ├─> CP5 ──> CP6 ─┐
+CP0 ─> CP1 ─> CP2 ─> CP3 ─> CP4 ────────────────┘                ├─> CP8(unit) ─> CP8(sandbox plug-in*)
+                        CP7 ─────────────────────────────────────┘
                         CP9 (transverse)
-                                            PR-PIPE (async, ⛔) ──> [envoi RÉEL prod / démo e2e]
+                                            PR-PIPE (async, ⛔ à faire) ──> [envoi RÉEL prod / démo e2e]
    (* sandbox plug-in dépend des prérequis externes §3 ; n'a PAS besoin de PR-PIPE)
 ```
-**Chemin critique démo :** CP0 → CP1 → CP2 → CP3 → CP4 → CP8(unit) → CP8(sandbox plug-in). **Partie A**
-(mergée d'abord, B5) débloque CP5 → CP6 (câblage Host). **PR-PIPE** (D7) débloque l'**envoi RÉEL en prod /
-la démo e2e**, indépendamment des autres lots. CP7/CP9 finalisent.
+**Chemin critique démo :** CP0 → CP1 → CP2 → CP3 → CP4 → CP8(unit) → CP8(sandbox plug-in). **Partie A étant
+livrée**, CP5 → CP6 (câblage Host) sont débloqués immédiatement. **PR-PIPE** (D7, seul prérequis interne
+restant) débloque l'**envoi RÉEL en prod / la démo e2e**, indépendamment des autres lots. CP7/CP9 finalisent.
 
 ---
 

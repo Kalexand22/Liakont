@@ -1,0 +1,277 @@
+# Lot CP — Adaptateur Chorus Pro (plug-in PA B2G, tranche démo)
+# Plan détaillé : tasks/plan-chorus-pro.md (redliné + réconcilié 2026-06-18 (3))
+# Chorus Pro = dépôt d'un Factur-X DÉJÀ scellé (transport, modèle Generique) via OAuth2 PISTE
+#   (modèle SuperPdp). e-reporting EXCLU (B2G only — D2). Aucune logique fiscale dans le plug-in.
+#
+# DÉPENDANCES DE SOCLE (déjà livrées sur feat/emitter-filled-by-platform, commit efbfa4c) :
+#   « Partie A » = infra OAuth générique (V011, IPaAccountSecretStore, SuperPdpAccountResolver,
+#   ComptesPaView par AuthMode). CP06/CP07 l'ÉTENDENT (pas de reconstruction). La base de la branche
+#   feat/pa-chorus-pro doit contenir Partie A sur main (B5).
+# SEUL prérequis interne RESTANT : PR-PIPE (support PaSendState.Sending au pipeline, D7) — item
+#   plateforme séparé, prérequis de l'ENVOI RÉEL/e2e seulement (pas des lots CP01-CP09 au niveau plug-in).
+#
+# Mapping IDs ↔ plan : CP01=§CP0(F18) · CP02=CP1 · CP03=CP2 · CP04=CP3 · CP05=CP4 · CP06=CP5 ·
+#   CP07=CP6 · CP08=CP7 · CP09=CP8 · CP10=CP9. (Les IDs suivent la convention 2 chiffres du repo.)
+# Règles transverses : montants jamais manipulés (transport pur) ; secrets chiffrés au repos, JAMAIS
+#   loggés ; capacité absente → résultat typé, jamais d'exception ; bloquer plutôt qu'envoyer faux.
+items:
+  CP01:
+    title: "F18 — Tracer les sources API/fiscales Chorus Pro (CLAUDE.md n°2)"
+    description: |
+      Créer docs/conception/F18-Plugin-ChorusPro.md qui internalise, AVEC citation version + page de la
+      source officielle, toutes les constantes API/fiscales Chorus Pro AVANT de coder les constantes
+      (CLAUDE.md n°2 — les chaînes sont authentiques mais pas encore tracées dans docs/conception/) :
+      - syntaxeFlux Factur-X = IN_DP_E2_CII_FACTURX (+ nomenclature des autres syntaxes) ;
+      - les 9 libellés EXACTS etatCourantFlux de consulterCR (accents/casse) : Reçu, Traité SE CPP,
+        En attente de traitement, En cours de traitement, Incidenté, Rejeté, En attente de retraitement,
+        Intégré, Intégré partiellement — + le mapping PaSendState retenu (Intégré → Issued SEUL) ;
+      - scope=openid, format cpro-account = base64(login:motDePasse), codeRetour de succès ;
+      - service de résolution idUtilisateurCourant (consulterCompteUtilisateur(email)) + sa CARDINALITÉ ;
+      - host + base path REST EXACTS depuis le catalogue/Swagger PISTE (*.piste.gouv.fr ; chemin versionné
+        /cpro/factures/v1/…) — PAS les hôtes aife.economie.gouv.fr décommissionnés le 30/09/2023 ;
+      - acceptation d'un Factur-X NON signé (avecSignature=false) à confirmer sur la Spec.
+      Fixer la version de spec qui fait foi (V5.00 publique vs V4.14-bis annexe). Ne PAS coder de constante
+      non tracée ici. Réf : tasks/plan-chorus-pro.md §1, §2bis, CP0.
+    acceptance:
+      - "F18-Plugin-ChorusPro.md créé ; chaque constante citée avec version + page de source officielle"
+      - "Les 9 libellés etatCourantFlux et le mapping PaSendState documentés (Intégré → Issued seul)"
+      - "Endpoints *.piste.gouv.fr + base path versionné tracés depuis le Swagger (pas aife.economie.gouv.fr)"
+      - "Acceptation Factur-X non signé + cardinalité idUtilisateurCourant confirmées ou marquées 'à verrouiller'"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  CP02:
+    title: "Squelette du plug-in Liakont.PaClients.ChorusPro + enum AuthMode + boundary"
+    description: |
+      Créer le projet src/PaClients/Liakont.PaClients.ChorusPro (green-field — aucun code Chorus Pro
+      n'existe) :
+      - .csproj : ProjectReference UNIQUE Transmission.Contracts ; packages DI.Abstractions + Extensions.Http
+        (versions centralisées) ; InternalsVisibleTo vers .Tests.Unit.
+      - Ajouter la valeur d'enum PaAuthMode.OAuth2WithTechnicalAccount dans Transmission.Contracts
+        (PaAuthMode.cs — elle n'existe pas encore ; sinon CP04/CP06 ne compilent pas). Aucune dépendance à
+        Partie A. UN SEUL chantier édite PaAuthMode.cs (coordination B5).
+      - ChorusProDefaults (PaType "ChorusPro", PaName "Chorus Pro", URLs *.piste.gouv.fr depuis F18 — PAS en
+        dur, en-têtes, timeouts).
+      - ChorusProClientFactory : IPaClientFactory (PaType => Defaults.PaTypeKey ;
+        AuthMode => PaAuthMode.OAuth2WithTechnicalAccount ; Create résout via IChorusProAccountResolver).
+      - ChorusProPaClientRegistration.AddChorusProPaClient (AddHttpClient TLS1.2/1.3 +
+        TryAddEnumerable<IPaClientFactory, ChorusProClientFactory>).
+      - internal sealed ChorusProClient : IPaClient — squelette des 9 méthodes (SendDocumentAsync,
+        SendPaymentReportAsync, GetDocumentStatusAsync, ListTaxReportsAsync, GetTaxReportAsync,
+        GetAccountInfoAsync, GetTaxReportSettingAsync, EnsureTaxReportSettingAsync, GetGeneratedDocumentAsync)
+        + propriété Capabilities ; capacité absente → résultat typé NotSupported, jamais d'exception.
+      - IChorusProAccountResolver (interface publique) + ChorusProAccountConfig (record, secrets en mémoire
+        seulement, ToString caviardé).
+      - Test ChorusProBoundaryTests (NetArchTest, patron SuperPdpBoundaryTests.cs:20,29,39,52,73 — LES 5
+        GARDES RÉELLES) : (1) aucune réf IL vers un autre plug-in Liakont.PaClients.* ; (2) aucune réf IL
+        vers un autre module Liakont.Modules.* hors Transmission.Contracts ; (3) pas de dépendance sur
+        Transmission.Infrastructure ; (4) scan .csproj : ProjectReference = Transmission.Contracts seul ;
+        (5) types Wire/Client/TokenProvider propriétaires non exportés hors assembly.
+      Réf : tasks/plan-chorus-pro.md CP1.
+    acceptance:
+      - "Projet ChorusPro compile (les 2 solutions) ; enum OAuth2WithTechnicalAccount ajoutée au lot qui la consomme"
+      - "ProjectReference unique = Transmission.Contracts ; IPaClient interne ; aucun type Wire exporté"
+      - "Les 9 méthodes + propriété Capabilities présentes ; capacité absente → résultat typé, jamais d'exception"
+      - "ChorusProBoundaryTests vert (les 5 gardes)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  CP03:
+    title: "Auth PISTE — token provider OAuth2 + double en-tête (Bearer + cpro-account)"
+    description: |
+      - IChorusProTokenProvider + ChorusProTokenProvider (interne), patron SuperPdpTokenProvider.cs :
+        POST <oauth>/api/oauth/token form-urlencoded
+        grant_type=client_credentials&client_id&client_secret&scope=openid (scope=openid = spécificité
+        PISTE). Jeton mis en cache (record immuable) + renouvellement proactif (expires_in RÉEL − skew ;
+        NE PAS figer 3600 s ; pas de refresh_token → re-échange). Le provider ne fait QUE cache + renouvellement.
+      - Le retry 401 ×1 vit dans le CLIENT, pas dans le provider (patron SuperPdpClient.cs:379-391
+        SendWithAuthAsync : sur 401 → forceRefresh + retente une fois).
+      - En-tête cpro-account: base64(login:motDePasse) ajouté à CHAQUE requête métier (constant par compte,
+        fourni par le resolver), distinct du Bearer.
+      - Sécurité (C5) : base64 n'est PAS du chiffrement → garde explicite, AUCUN logging des en-têtes
+        cpro-account ET Authorization (Chorus Pro = 1er connecteur HTTP réellement en prod) ; assertion de
+        test « aucun credential dans les logs ».
+      - Aucun type OAuth ne traverse IPaClient.
+      Réf : tasks/plan-chorus-pro.md CP2 + §1.
+    acceptance:
+      - "Jeton PISTE caché + renouvelé sur expires_in réel (pas de 3600 codé en dur), pas de refresh_token"
+      - "Retry 401 ×1 (forceRefresh) côté client ; présence simultanée Bearer + cpro-account à chaque requête"
+      - "Aucun logging des en-têtes cpro-account/Authorization — test d'assertion vert"
+      - "StubTokenProvider couvre renouvellement + retry 401"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  CP04:
+    title: "SendDocumentAsync — dépôt du Factur-X scellé (deposerFluxFacture)"
+    description: |
+      - Gardes typées AVANT tout HTTP (patron Generique) : artefact Factur-X (PaSendContext/FX07) présent
+        et non vide, sinon Bloqué (code *_ARTEFACT_REQUIS, TechnicalError, message FR) — ne régénère JAMAIS
+        l'artefact (CLAUDE.md n°6). Le plug-in ne calcule/n'arrondit AUCUN montant (transport pur).
+      - Résoudre idUtilisateurCourant via consulterCompteUtilisateur(email du compte technique), mis en
+        cache par compte (C3). Cardinalité non confirmée → SI requis (vérifié au Swagger/F18) l'inclure au
+        payload, SINON l'omettre.
+      - Payload deposerFluxFacture : fichierFlux = base64 du PDF/A-3 scellé, nomFichier,
+        syntaxeFlux = IN_DP_E2_CII_FACTURX, avecSignature = false (constante, D9 — Factur-X non signé).
+        JSON + base path REST depuis F18/Swagger (pas en dur).
+      - ChorusProResponseMapper : codeRetour OK → PaSendResult état Sending (PaDocumentId = numeroFluxDepot
+        — JAMAIS Issued au dépôt, A1/D5) ; 4xx métier → Rejected (PaError[] intacts) ; 5xx/401/403/timeout
+        → Technical (re-tentable). RawResponse conservée, sans credential (C5).
+      - Idempotence (A3/D8) : PAS de raccrochage par numeroFluxDepot (inconnu sur timeout) ni de re-POST
+        automatique. Timeout → TechnicalError, reprise opérateur (jamais de double dépôt).
+      Réf : tasks/plan-chorus-pro.md CP3 + §2bis D8/D9.
+    acceptance:
+      - "Artefact absent → Bloqué (code *_ARTEFACT_REQUIS, TechnicalError, message FR), jamais régénéré"
+      - "Dépôt accepté → PaSendState.Sending (PaDocumentId=numeroFluxDepot), JAMAIS Issued"
+      - "4xx → Rejected (PaError intacts) ; 5xx/timeout → Technical ; RawResponse conservée sans credential"
+      - "avecSignature=false ; aucun montant manipulé par le plug-in"
+      - "Test : « timeout sans numeroFluxDepot ne re-POST jamais »"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  CP05:
+    title: "GetDocumentStatusAsync — compte rendu d'intégration (consulterCR)"
+    description: |
+      consulterCR(numeroFluxDepot) → mapper sur les libellés etatCourantFlux EXACTS (via F18, 9 valeurs) :
+      - Intégré → Issued (LE SEUL chemin vers Issued, A1) ;
+      - Rejeté → RejectedByPa (PaError intacts) ;
+      - Intégré partiellement → RejectedByPa (C2 — prudent : intégration incomplète ≠ émis) ;
+      - Incidenté → RejectedByPa (flux NON traité, « à rejouer entièrement » = reprise opérateur, JAMAIS
+        re-dépôt automatique ; surtout PAS Technical re-tentable — cohérent D8) ;
+      - états d'attente/en-cours → Sending ;
+      - valeur INCONNUE → fail-safe, JAMAIS Issued.
+      Transitoire = retry backoff (lecture idempotente). Renvoie PaDocumentStatus { PaDocumentId, State,
+      Errors, RawResponse }. Réf : tasks/plan-chorus-pro.md CP4 + §1.
+    acceptance:
+      - "Les 9 etatCourantFlux mappés ; Intégré seul → Issued ; Intégré partiellement/Incidenté → RejectedByPa"
+      - "Statut inconnu → fail-safe, jamais Issued (test dédié)"
+      - "Lecture idempotente (retry backoff sur transitoire) ; PaError + RawResponse intacts"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  CP06:
+    title: "3ᵉ secret (compte technique) — migration V012 + AuthMode câblé + form ComptesPaView"
+    description: |
+      ÉTEND l'infra Partie A déjà livrée (V011, IPaAccountSecretStore, PaAccountSecrets, ComptesPaView par
+      AuthMode) — ne reconstruit pas :
+      - Migration V012__add_pa_technical_account_secret.sql (numéro libre au-dessus de V011 OAuth qui existe
+        déjà) : ADD COLUMN IF NOT EXISTS encrypted_technical_password text; (nullable, idempotent patron
+        V008/V011). Login/email technique → accountIdentifiers (non secret).
+      - Étendre le record PaAccountSecrets (+EncryptedTechnicalPassword, +TechnicalLogin/TechnicalEmail pour
+        résoudre idUtilisateurCourant) ; PaAccountSecretPurposes.TechnicalPassword (v1) ; faire remonter la
+        colonne par la requête Postgres ; PaAccount (+champs+setters) ; Add/UpdatePaAccountCommand + handlers
+        (Protect le mot de passe) ; UoW ; PaAccountDto (+HasTechnicalPassword, JAMAIS le secret, jamais loggé
+        — INV-TENANTSETTINGS-003).
+      - Form ComptesPaView : ajouter une 3ᵉ branche au dispatch AuthMode existant (binaire → ternaire,
+        JAMAIS par nom de plug-in) — pour OAuth2WithTechnicalAccount : client_id/secret + login + mot de
+        passe technique (type=password).
+      Réf : tasks/plan-chorus-pro.md CP5 ; modèles SuperPdpAccountResolver/PaAccountSecrets livrés.
+    acceptance:
+      - "Migration V012 idempotente, additive (aucun audit/WORM touché)"
+      - "PaAccountSecrets étendu + purpose dédié ; mot de passe Protect au repos, jamais en clair ni loggé (HasTechnicalPassword seulement)"
+      - "Form rend les champs OAuth2WithTechnicalAccount PAR AuthMode (pas par if pa is) ; couvert en bUnit (règle 19)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  CP07:
+    title: "Resolver Host ChorusProAccountResolver + câblage via bootstrap dédié"
+    description: |
+      - src/Host/Liakont.Host/PaDelivery/ChorusProAccountResolver.cs (interne), modèle
+        SuperPdpAccountResolver.cs (resolver OAuth2 déjà livré, plus proche que GeneriqueAccountResolver) :
+        scope tenant via ITenantScopeFactory, lit IPaAccountSecretStore.GetActiveAsync, déchiffre PAR PURPOSE
+        (ISecretProtector.Unprotect ; + TechnicalPassword), mappe l'environnement (Staging→Sandbox,
+        Production→Production), construit ChorusProAccountConfig. BLOQUE si secret/identifiant absent
+        (fail-closed, jamais d'envoi sans auth, CLAUDE.md n°3).
+      - Câblage : créer ChorusProPaDeliveryBootstrap.AddChorusProPaDelivery (modèle
+        GeneriquePaDeliveryBootstrap : TryAddSingleton<IChorusProAccountResolver,…> + AddChorusProPaClient()),
+        appelé depuis le bloc de composition d'AppBootstrap.cs (à côté de AddGeneriquePaDelivery) — PAS dans
+        PaClientBootstrap.AddConfiguredPaClients (qui ne câble que Fake). → Chorus Pro résolvable par
+        registry.Resolve.
+      Réf : tasks/plan-chorus-pro.md CP6.
+    acceptance:
+      - "ChorusProAccountResolver lit le coffre via IPaAccountSecretStore + déchiffre par purpose ; bloque si secret absent"
+      - "Câblé via ChorusProPaDeliveryBootstrap appelé depuis AppBootstrap (pas AddConfiguredPaClients)"
+      - "registry.Resolve(PaType ChorusPro) retourne le client ; aucun secret dans le PaAccountDescriptor"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  CP08:
+    title: "Capacités PaCapabilities de Chorus Pro (déclaration explicite)"
+    description: |
+      ChorusProCapabilities.Value (record PaCapabilities) — déclarer EXPLICITEMENT, rien d'inventé :
+      - PaName "Chorus Pro" ;
+      - SupportsFacturXTransmission = true (transport d'un Factur-X scellé ; ⚠️ déclenche la génération
+        Factur-X amont et fait SAUTER le diagnostic tax_report_setting au SEND — SendTenantJob.cs:130,734 —
+        voulu pour une PA B2G de transport, à confirmer explicitement) ;
+      - SupportsCreditNotes = false en démo (bascule à true UNIQUEMENT sur confirmation explicite
+        sandbox+Spec, jamais déduite d'un test vert — patron SuperPdpCapabilities.cs:31) ;
+      - SupportsB2cReporting / SupportsDomesticPaymentReporting / SupportsInternationalPaymentReporting =
+        false (e-reporting hors Chorus Pro, D2) ;
+      - SupportsB2bInvoicing = false (Chorus Pro = B2G) ;
+      - SupportsTaxReportRetrieval / SupportsDocumentRetrieval / SupportsReportRectification /
+        SupportsSelfBilling = false ;
+      - MaxDocumentsPerRequest = null (dépôt unitaire ; dépôt par lot = fast-follow).
+      Réf : tasks/plan-chorus-pro.md CP7.
+    acceptance:
+      - "Toutes les capacités déclarées explicitement et justifiées ; aucune capacité inventée"
+      - "e-reporting/B2B = false → résultat typé ; effet de SupportsFacturXTransmission=true documenté"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  CP09:
+    title: "Tests — unitaires (RoutedHttpMessageHandler) + boundary + sandbox réel"
+    description: |
+      - Unitaires (D3 : tests DÉDIÉS, PAS héritage de PaClientContractTests — la suite envoie sans
+        PaSendContext, ce qui bloque une PA transport-only) : RoutedHttpMessageHandler scriptant token PISTE
+        + deposerFluxFacture + consulterCR (patron SuperPdpTestData). Couvrir : dépôt accepté → Sending
+        (jamais Issued) ; consulterCR=Intégré → Issued ; Rejeté/Intégré partiellement/Incidenté →
+        RejectedByPa ; statut inconnu → jamais Issued ; erreur silencieuse (200 + errors) ; 5xx/timeout →
+        Technical ; « timeout sans numeroFluxDepot ne re-POST jamais » ; « échec de résolution
+        idUtilisateurCourant → TechnicalError, aucun dépôt » + « cache idUtilisateurCourant réutilisé » ;
+        RawResponse sans credential ; capacité absente → résultat typé + message FR ; renouvellement/retry
+        OAuth ; présence cpro-account ; aucun credential loggé (C5).
+      - Boundary : ChorusProBoundaryTests (CP02, les 5 gardes).
+      - Sandbox réel : ChorusProSandboxTests [Trait("Category","Sandbox")] (patron SuperPdpSandboxTests),
+        secrets via env, EXIGE un parcours dépôt→Sending→consulterCR=Intégré→Issued RÉEL en qualif (leçon
+        faux-vert 2026-06-12), EXCLU de CI. NB : le parcours sandbox e2e VIA LE PIPELINE exige PR-PIPE ; les
+        tests unitaires/sandbox au niveau PLUG-IN n'en dépendent pas.
+      Réf : tasks/plan-chorus-pro.md CP8.
+    acceptance:
+      - "Suite unitaire couvre tous les cas (Sending/Issued/Rejected/Technical/inconnu/idUtilisateurCourant/no-log)"
+      - "ChorusProBoundaryTests vert (5 gardes)"
+      - "Sandbox prouve un Issued réel en qualif (pas de faux-vert) ; tests Sandbox exclus de CI"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  CP10:
+    title: "Seed/config fictif + note d'exploitation (raccordement qualif)"
+    description: |
+      - Exemple FICTIF dans config/exemples/tenant-seed/pa-accounts.json (pluginType "ChorusPro",
+        environment "Staging", accountIdentifiers fictifs, AUCUN secret — saisi via console). Aucune donnée
+        client dans le code (ni SIREN, ni compte PA, ni chaîne ODBC réels).
+      - Note d'exploitation : procédure de raccordement qualif (compte PISTE + app SANDBOX + compte technique
+        → cpro-account) dans deployments/README.md ou doc dédiée.
+      Réf : tasks/plan-chorus-pro.md CP9.
+    acceptance:
+      - "Exemple pa-accounts.json fictif (aucun secret, aucun SIREN/compte réel)"
+      - "Procédure de raccordement qualif documentée (deployments/)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  GATE_CHORUS_PRO:
+    type: gate
+    executor: human
+    title: "Gate (humaine) : recette de l'adaptateur Chorus Pro (lot CP)"
+    description: |
+      Recette humaine du lot CP. Vérifie EN RÉEL (qualif PISTE / Chorus Pro sandbox) :
+        - parcours dépôt deposerFluxFacture → PaSendState.Sending (JAMAIS Issued au dépôt) → consulterCR →
+          Issued UNIQUEMENT sur Intégré ;
+        - aucun re-POST sur timeout (pas de double dépôt) ;
+        - secrets chiffrés au repos, AUCUN credential (cpro-account/Authorization) dans les logs ;
+        - endpoints *.piste.gouv.fr ; constantes tracées dans docs/conception/F18 ;
+        - capacités correctes (e-reporting = false → résultat typé).
+      PRÉREQUIS : PR-PIPE (support PaSendState.Sending au pipeline) mergé pour l'envoi RÉEL/e2e ; sinon
+      recette limitée au niveau plug-in (sandbox/mock), à documenter. Réf : tasks/plan-chorus-pro.md §6 DoD.
+    acceptance:
+      - "Parcours qualif dépôt→Sending→Intégré→Issued démontré en réel (ou sandbox plug-in si PR-PIPE non mergé, documenté)"
+      - "Aucun double dépôt sur timeout ; aucun credential loggé ; secrets chiffrés"
+      - "verify-fast + tests + codex-review verts sur l'ensemble du lot CP"
