@@ -167,7 +167,12 @@ meta:
   #   (retiré si B2C05 n'établit aucune méthode de marge). ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS
   #   merge : B2C01..B2C09b + GATE_B2C_SOURCING + GATE_EREPORTING_B2C en `pending` (B2C01/02/03/05/06/09a
   #   éligibles). Détails : items/B2C.yaml.
-  version: 29
+  # version 30 = + segment `chorus-pro` (lot CP : adaptateur Chorus Pro, plug-in PA B2G — plan
+  #   tasks/plan-chorus-pro.md) et segment `pipe-async` (lot PIPE : support PaSendState.Sending au
+  #   pipeline, prérequis transverse D7). « Partie A » (infra OAuth générique : V011, IPaAccountSecretStore,
+  #   SuperPdpAccountResolver) déjà livrée hors orchestration (efbfa4c) ; la base de feat/pa-chorus-pro
+  #   doit la contenir. Items détaillés : orchestration/items/CP.yaml + PIPE.yaml.
+  version: 30
   host: multi_agent_v1
 
 segments:
@@ -306,6 +311,22 @@ segments:
     lots: [B2C]
     gate: GATE_EREPORTING_B2C
     depends_on_gate: [GATE_PIPELINE, GATE_ADAPTER_ENCHERESV6, GATE_CONSOLE_WEB, GATE_FACTURX]
+
+  chorus-pro:
+    branch: feat/pa-chorus-pro
+    # base main DOIT contenir « Partie A » (V011 + IPaAccountSecretStore + SuperPdpAccountResolver, efbfa4c) :
+    # brancher feat/pa-chorus-pro sur un main qui a mergé feat/emitter-filled-by-platform (B5).
+    base: main
+    lots: [CP]
+    gate: GATE_CHORUS_PRO
+    depends_on_gate: GATE_PA_FRAMEWORK
+
+  pipe-async:
+    branch: feat/pipe-async
+    base: main
+    lots: [PIPE]
+    gate: GATE_PIPE_ASYNC
+    depends_on_gate: GATE_PIPELINE
 
 items:
   # ── SOL ──
@@ -616,3 +637,20 @@ items:
   - { id: B2C09a, lot: B2C, priority: 9780, depends_on: [] }
   - { id: B2C09b, lot: B2C, priority: 9790, depends_on: [B2C05, B2C08, B2C09a, B2C03] }
   - { id: GATE_EREPORTING_B2C, type: gate, executor: human, priority: 9799, depends_on: [B2C04, B2C09a, B2C09b] }
+
+  # Lot CP — Adaptateur Chorus Pro (plug-in PA B2G, plan tasks/plan-chorus-pro.md) — détail : items/CP.yaml
+  - { id: CP01, lot: CP, blueprint: docs-spec-item, priority: 9800, depends_on: [] }
+  - { id: CP02, lot: CP, priority: 9805, depends_on: [] }
+  - { id: CP03, lot: CP, priority: 9810, depends_on: [CP02] }
+  - { id: CP04, lot: CP, priority: 9815, depends_on: [CP03, CP01] }
+  - { id: CP05, lot: CP, priority: 9820, depends_on: [CP03, CP01] }
+  - { id: CP06, lot: CP, priority: 9825, depends_on: [CP02] }
+  - { id: CP07, lot: CP, priority: 9830, depends_on: [CP06] }
+  - { id: CP08, lot: CP, priority: 9835, depends_on: [CP02] }
+  - { id: CP09, lot: CP, priority: 9840, depends_on: [CP04, CP05] }
+  - { id: CP10, lot: CP, priority: 9845, depends_on: [CP02] }
+  - { id: GATE_CHORUS_PRO, type: gate, executor: human, priority: 9890, depends_on: [CP07, CP08, CP09, CP10] }
+
+  # Lot PIPE — Support PA asynchrone (PaSendState.Sending) au pipeline (D7) — détail : items/PIPE.yaml
+  - { id: PIPE01, lot: PIPE, priority: 9900, depends_on: [] }
+  - { id: GATE_PIPE_ASYNC, type: gate, executor: human, priority: 9990, depends_on: [PIPE01] }
