@@ -15,17 +15,20 @@ RB7 → RB8 → RB6.
       `IPaClientFactory.AuthMode` (membre par défaut = ApiKey), `IPaClientRegistry.DescribeAuthModes()`
       (défaut ApiKey, surcharge réelle dans PaClientRegistry), SuperPdpClientFactory déclare OAuth2.
       Tests : PaClientRegistryTests.DescribeAuthModes + SuperPdpClientFactoryTests.AuthMode.
-- [ ] **Slice 2 — stockage chiffré OAuth** : migration V011 (encrypted_client_id/secret), PaAccount
-      (+2 champs+setters), Add/UpdatePaAccountCommand (+ClientId/ClientSecret), handlers (Protect),
-      UoW (INSERT/UPDATE/SELECT/Reconstitute), PaAccountDto (+HasClientId/HasClientSecret), queries.
-- [ ] **Slice 3 — câblage + résolveur** : IPaAccountSecretStore (TenantSettings) + impl Postgres ;
-      SuperPdpAccountResolver (Host, lit le store, déchiffre, mappe l'env) ; Host csproj ref SuperPdp +
-      AddSuperPdpPaClient() + TryAddSingleton resolver (composition root). → SuperPDP apparaît dans la liste.
-- [ ] **Slice 4 — formulaire** : ComptesPaView conditionnel au AuthMode (clé API vs client_id/secret,
-      accountId requis pour OAuth) + PaAccountConsoleService/Model + bUnit.
-- [ ] verify + run-tests + codex-review → commit+push. (SuperPDP = Sandbox only, BaseUrl lève en Prod, F14 §12 O1.)
-- NOTE NUIT : socle (slice 1) sécurisé+poussé ; slices 2-4 (secrets+migration+UI, P1) laissées prêtes à
-  finir en session dédiée plutôt que rush-buildées non relues. Suite de nuit : RB7 → RB8 → RB6.
+- [x] **Slice 2 — stockage chiffré OAuth** (LIVRÉ, commit efbfa4c) : migration V011 (encrypted_client_id/secret),
+      PaAccount (+2 champs+setters), Add/UpdatePaAccountCommand (+ClientId/ClientSecret), handlers (Protect par
+      purpose DÉDIÉ — PaAccountSecretPurposes), UoW (INSERT/UPDATE/SELECT/Reconstitute), PaAccountDto
+      (+HasClientId/HasClientSecret), queries (IS NOT NULL). ISecretProtector : surcharges (plaintext, purpose).
+- [x] **Slice 3 — câblage + résolveur** (LIVRÉ, commit efbfa4c) : IPaAccountSecretStore + PostgresPaAccountSecretStore ;
+      SuperPdpAccountResolver (Host, scope tenant via ITenantScopeFactory, déchiffre, mappe l'env, bloque si absent) ;
+      Host csproj ref SuperPdp + AddSuperPdpPaClient() + TryAddSingleton resolver (composition root, inconditionnel).
+      → SuperPDP apparaît dans la liste.
+- [x] **Slice 4 — formulaire** (LIVRÉ, commit efbfa4c) : ComptesPaView conditionnel au AuthMode (clé API vs
+      client_id/secret type=password, accountId requis pour OAuth) + PaAccountConsoleService/Model (AuthModes) + bUnit.
+- [x] verify + run-tests + codex-review + build Release : tous verts (commit efbfa4c). (SuperPDP = Sandbox only,
+      BaseUrl lève en Prod, F14 §12 O1.)
+- **RESTE (suivi)** : recette Karl = créer un compte SuperPDP OAuth2 dans la console puis envoi sandbox réel.
+  SuperPDP option 1 = TERMINÉ côté code (slices 1-4).
 
 ## 3. RB7 — ✅ LIVRÉ (le wizard démarre le service après install)
 - [x] `AgentProcessDeployer.TryStartService` : démarre + attend *Running* (30 s) après install/check-config ;
