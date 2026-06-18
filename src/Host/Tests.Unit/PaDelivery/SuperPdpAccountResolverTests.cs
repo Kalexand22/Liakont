@@ -1,6 +1,7 @@
 namespace Liakont.Host.Tests.Unit.PaDelivery;
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -137,6 +138,50 @@ public sealed class SuperPdpAccountResolverTests
         act.Should().Throw<InvalidOperationException>().WithMessage("*incomplet*");
     }
 
+    [Fact]
+    public void Resolve_DoesNotDeadlock_Under_SingleThreaded_SynchronizationContext()
+    {
+        // Garde anti-régression (recette RB) : ce résolveur est appelé au RENDU UI (BuildPaAccountSettings
+        // décrit le compte), donc sous le SynchronizationContext mono-thread du circuit Blazor Server. Un
+        // `.GetResult()` direct y deadlockait : le DisposeAsync du scope tenant (`await using`) tentait de
+        // reprendre sur le thread du circuit, lui-même bloqué par le `.GetResult()`. Le fix (Task.Run) offload
+        // la résolution hors du SynchronizationContext → pas de deadlock.
+        var secrets = new PaAccountSecrets(
+            PaEnvironment.Staging, "acct-1", null, "ENC:cid", "ENC:csecret");
+        var resolver = new SuperPdpAccountResolver(
+            new YieldingTenantScopeFactory(BuildScopeServices(CompanyId, secrets)),
+            new FakeSecretProtector());
+
+        using var ctx = new SingleThreadSynchronizationContext();
+        SuperPdpAccountConfig? config = null;
+        Exception? error = null;
+        using var done = new ManualResetEventSlim();
+
+        ctx.Post(
+            _ =>
+            {
+                try
+                {
+                    config = resolver.Resolve(Descriptor());
+                }
+                catch (Exception ex)
+                {
+                    error = ex;
+                }
+                finally
+                {
+                    done.Set();
+                }
+            },
+            null);
+
+        // Sans le fix, Resolve deadlocke et l'évènement n'est jamais signalé → le test échoue par timeout.
+        done.Wait(TimeSpan.FromSeconds(10)).Should()
+            .BeTrue("Resolve ne doit pas deadlocker sous un SynchronizationContext mono-thread (circuit Blazor)");
+        error.Should().BeNull();
+        config!.ClientId.Should().Be("cid");
+    }
+
     private static ServiceProvider BuildScopeServices(Guid? companyId, PaAccountSecrets? secrets) =>
         new ServiceCollection()
             .AddScoped<ITenantSettingsQueries>(_ => new FakeSettingsQueries(companyId))
@@ -228,5 +273,69 @@ public sealed class SuperPdpAccountResolverTests
 
         public Task<bool> GetAuctionVerticalEnabled(Guid companyId, CancellationToken ct = default) =>
             throw new NotSupportedException();
+    }
+
+    /// <summary>
+    /// Scope tenant dont le <c>DisposeAsync</c> CÈDE réellement (<c>await Task.Yield()</c>) : reproduit la
+    /// capture du <see cref="SynchronizationContext"/> par le <c>await using</c> de <c>ResolveAsync</c>, sans
+    /// quoi le deadlock ne se manifesterait pas (un dispose synchrone ne reposterait rien sur le contexte).
+    /// </summary>
+    private sealed class YieldingTenantScopeFactory : ITenantScopeFactory
+    {
+        private readonly IServiceProvider _services;
+
+        public YieldingTenantScopeFactory(IServiceProvider services) => _services = services;
+
+        public ITenantScope Create(string tenantId) => new YieldingTenantScope(tenantId, _services);
+    }
+
+    private sealed class YieldingTenantScope : ITenantScope
+    {
+        public YieldingTenantScope(string tenantId, IServiceProvider services)
+        {
+            TenantId = tenantId;
+            Services = services;
+        }
+
+        public string TenantId { get; }
+
+        public IServiceProvider Services { get; }
+
+        public async ValueTask DisposeAsync() => await Task.Yield();
+    }
+
+    /// <summary>
+    /// <see cref="SynchronizationContext"/> mono-thread avec pompe de messages — modélise le circuit Blazor
+    /// Server : une continuation postée pendant qu'un appelant bloque le thread (sync-over-async) ne s'exécute
+    /// jamais (deadlock).
+    /// </summary>
+    private sealed class SingleThreadSynchronizationContext : SynchronizationContext, IDisposable
+    {
+        private readonly BlockingCollection<(SendOrPostCallback Callback, object? State)> _queue = new();
+        private readonly Thread _thread;
+
+        public SingleThreadSynchronizationContext()
+        {
+            _thread = new Thread(Pump) { IsBackground = true, Name = "test-blazor-circuit" };
+            _thread.Start();
+        }
+
+        public override void Post(SendOrPostCallback d, object? state) => _queue.Add((d, state));
+
+        public void Dispose()
+        {
+            _queue.CompleteAdding();
+            _thread.Join(TimeSpan.FromSeconds(5));
+            _queue.Dispose();
+        }
+
+        private void Pump()
+        {
+            SetSynchronizationContext(this);
+            foreach (var (callback, state) in _queue.GetConsumingEnumerable())
+            {
+                callback(state);
+            }
+        }
     }
 }

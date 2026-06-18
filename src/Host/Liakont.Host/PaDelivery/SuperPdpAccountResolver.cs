@@ -39,10 +39,14 @@ internal sealed class SuperPdpAccountResolver : ISuperPdpAccountResolver
     {
         ArgumentNullException.ThrowIfNull(account);
 
-        // ISuperPdpAccountResolver.Resolve est SYNCHRONE (contrat IPaClientFactory.Create figé). Le SEND
-        // tourne sur le pool de threads (job multi-tenant, aucun SynchronizationContext) → ce sync-over-async
-        // est sans risque de deadlock.
-        return ResolveAsync(account).GetAwaiter().GetResult();
+        // ISuperPdpAccountResolver.Resolve est SYNCHRONE (contrat IPaClientFactory.Create figé). Ce résolveur
+        // est appelé au SEND (pool de threads) MAIS AUSSI au RENDU UI (BuildPaAccountSettings décrit le compte
+        // sous le SynchronizationContext du circuit Blazor Server). Un `.GetResult()` direct sur le thread du
+        // circuit DEADLOCKE : le DisposeAsync du scope tenant (`await using`, sans ConfigureAwait(false)) tente
+        // de reprendre sur le thread du circuit, lui-même bloqué par le `.GetResult()`. Task.Run exécute la
+        // résolution sur un thread du pool (sans SynchronizationContext capturé) → aucun deadlock, quel que
+        // soit l'appelant.
+        return Task.Run(() => ResolveAsync(account)).GetAwaiter().GetResult();
     }
 
     private static SuperPdpEnvironment MapEnvironment(PaEnvironment environment) => environment switch
