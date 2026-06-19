@@ -292,4 +292,219 @@ secrets, injection CSS). Revue par sous-agent (le wrapper codex-review reste à 
 - **Fix** : `SupportsB2bInvoicing = true` (directive de recette Karl 18/06) + test aligné (10/10). Les autres
   capacités non confirmées restent `false` (principe « moins-disant »).
 
-<!-- Prochaines observations dictées : RB16, … -->
+---
+
+# Session nuit 18→19/06/2026 — Envoi B2B réel vers SuperPDP de bout en bout
+
+> Objectif : faire partir une vraie facture vers la sandbox SuperPDP via la console. **Résultat : ✅ 6
+> factures B2B ÉMISES** (Issued, IDs SuperPDP **#79196 → #79201**) — chaîne complète extraction → mapping
+> TVA → identité émetteur → conversion CII → POST /invoices → émission asynchrone confirmée.
+>
+> ⚠️ **Tous les correctifs ci-dessous sont en WORKING TREE, NON COMMITTÉS** (Karl : review + commit + tests
+> au calme ensuite). Plusieurs sont des **scories d'agents précédents** (sur-restrictions / oublis), pas des
+> bugs « naturels ». Chaque correctif révélait le suivant (aucun envoi B2B n'avait jamais traversé toute la
+> chaîne avant cette nuit).
+>
+> Paramétrage de recette posé : profil tenant = **Burger Queen / SIREN `000000002`** (la company du compte
+> sandbox de Karl ; `315143296` qu'il voyait = ID de COMPTE / préfixe annuaire, PAS un SIREN) ; acheteur de
+> test adressable = **Tricatel `000000001`**. Script de seed rejouable livré :
+> `deployments/demo-local/seed-factures-b2b.ps1`.
+
+## RB16 — [OUVERT] L'agent ne communique qu'après un redémarrage MANUEL du service (heartbeat muet)
+
+- **Vu** : après installation + auto-démarrage du service, **un seul heartbeat** reçu (« dernier contact »
+  figé) ; l'agent ne pousse plus rien. Un `Restart-Service` manuel débloque tout (heartbeat + extraction).
+- **Cause (à investiguer)** : quelque chose dans le démarrage auto post-install diffère du démarrage manuel
+  (timing de lecture de config / DPAPI / réseau au boot ?). Lien possible avec RB7 (démarrage auto du service).
+- **Fix** : à diagnostiquer — l'agent doit communiquer dès le 1er démarrage auto, sans intervention.
+
+## RB17 — [✅ corrigé working tree] « SIREN non publié / tax_report_setting inactif » bloquait tout envoi
+
+- **Vu** : tout envoi SuperPDP refusé en amont — « SIREN non publié / paramétrage de transmission inactif ».
+- **Cause** : `SuperPdpClient.GetTaxReportSettingAsync`/`EnsureTaxReportSettingAsync` = **bouchons no-op**
+  (PAS02, endpoint « à confirmer »). Le pré-check SEND lisait donc un réglage TOUJOURS vide → fail-closed.
+  Or chez SuperPDP, « publier le SIREN » = **vérification KYC de la company** (faite dans leur espace), pas
+  un endpoint produit — et la company de Karl est déjà vérifiée (envois réels passés).
+- **Fix** : câbler la **lecture réelle de l'état** via `GET /v1.beta/companies/me` (endpoint confirmé) — si la
+  company existe avec un SIREN ⇒ transmission active. `EnsureTaxReportSettingAsync` = simple constat (no-op si
+  vérifiée, message actionnable sinon). (O2 partiellement levé.)
+
+## RB18 — [✅ corrigé working tree + paramétrage] SIREN émetteur faux + Luhn refusant les SIREN sandbox
+
+- **Vu** : profil tenant configuré avec `315143296` ; envoi refusé (vendeur ≠ company de session). Et les SIREN
+  sandbox (`00000000X`) échouaient le contrôle de **clé de Luhn**.
+- **Cause** : `315143296` est l'**identifiant de compte** SuperPDP (préfixe des adresses annuaire
+  `315143296_120xx`), pas le SIREN ; la vraie company = Burger Queen **`000000002`**. Et les SIREN fictifs des
+  bacs à sable ne satisfont jamais la clé de Luhn.
+- **Fix** : profil aligné sur `000000002` (paramétrage). **TVA émetteur dérivée du SIREN** (`FR`+clé, ex.
+  `FR18000000002`) dans `PivotEmitterEnricher` — le pipeline ne la remplissait pas (`vatNumber: null`), or
+  EN 16931 l'exige (BR-S-02). **Luhn assoupli pour les SIREN de test** (préfixe `00000`) dans les deux
+  `SirenValidator` (Validation + TenantSettings) — décision Karl.
+
+## RB19 — [✅ corrigé working tree — MAJEUR] Le B2B était BLOQUÉ en V1 (garde-fou « tout est B2C »)
+
+- **Vu** : une facture à acheteur professionnel était **bloquée** au CHECK — « facture électronique B2B
+  requise, **non gérée automatiquement en V1** — traitez manuellement ou confirmez qu'il s'agit d'un
+  particulier ». Aucune vente B2B ne pouvait partir.
+- **Cause (SCORIE d'agent)** : `BuyerLooksProfessionalRule` (VAL05) bloquait tout acheteur « pro » au motif que
+  le B2B n'était « pas géré en V1 » — une **réduction erronée du périmètre à « criée = B2C »**. Or l'e-invoicing
+  B2B est le **cœur de la réforme**. Réaction de Karl : *« comment c'est possible un truc pareil ? évidemment
+  que ça doit gérer le B2B en V1 ».*
+- **Fix** : un acheteur **identifié par un SIREN** = vente B2B **émettable** = flux nominal (plus de blocage) ;
+  le garde-fou ne couvre plus que le « pseudo-pro » SANS SIREN (ni adressable, ni sûrement particulier). Tests
+  11/11. **`Liakont DOIT gérer le B2B en V1`** (à graver).
+
+## RB20 — [✅ corrigé working tree] Mapping TVA OUBLIÉ au SEND (catégorie absente du pivot transmis)
+
+- **Vu** : `Ventilation de TVA sans catégorie UNCL5305` (exception au plug-in) → erreur d'envoi. Révélé
+  seulement maintenant (les B2C étaient rejetés AVANT d'atteindre le constructeur de payload).
+- **Cause** : la branche `emitter-filled-by-platform` a déplacé l'enrichissement au **read-time** mais n'a
+  ré-appliqué que **l'émetteur** — la **catégorie TVA** (posée au CHECK) n'était PAS reportée sur le pivot
+  transmis (le staging = pivot SOURCE, régimes bruts). « Ça marchait avant » = quand le pivot stagé portait
+  déjà la catégorie.
+- **Fix** : reposer le mapping TVA au SEND (`SendTenantJob.ReadStagedPivotAsync`), **symétrique à l'émetteur**,
+  via le même moteur qu'au CHECK (`CheckTvaMapping`). Nouveau statut `TvaUnresolved` (HOLD différé si la table
+  a changé entre CHECK et SEND).
+
+## RB21 — [⚠️ CONTOURNEMENT TEMPORAIRE + DETTE] Conformité FR : facture non soldée + mentions légales absentes
+
+- **Vu** : rejet du **converter EN 16931/FR** de SuperPDP (la facture l'atteint enfin) :
+  - **[BR-CO-25]** montant dû positif sans échéance (BT-9) ni conditions de paiement (BT-20) ;
+  - **[BR-FR-05]** mentions légales FR obligatoires absentes des notes (PMT/frais de recouvrement,
+    PMD/pénalités de retard, AAB/escompte).
+- **Cause** : (a) l'adaptateur de démo ne porte ni acompte ni échéance → montant dû positif ; (b) le produit ne
+  **génère pas** les mentions légales FR. **Ce ne sont PAS des scories — ce sont de vraies exigences de
+  conformité française** (SuperPDP fait correctement son travail).
+- **Contournement (TEMPORAIRE, marqué)** : dans `SuperPdpPayloadBuilder`, une facture **sans acompte** est
+  traitée **SOLDÉE** (comptant criée) → montant dû nul ⇒ lève BR-CO-25 **et** BR-FR-05 (validé : le test
+  sandbox soldé passe). **À REMPLACER** par l'acompte/échéance RÉELS portés par l'adaptateur source.
+- **DETTE produit** : générer les **mentions légales FR** (BR-FR-05) proprement — vraie fonctionnalité.
+
+## RB22 — [✅ corrigé working tree] L'émission ASYNCHRONE de SuperPDP affichée en « erreur technique »
+
+- **Vu** : facture **téléversée chez SuperPDP** (POST `/invoices` → **200**) mais Liakont affichait « ⚠️ Erreur
+  technique » (faux échec).
+- **Cause** : SuperPDP est **asynchrone** (200 = `api:uploaded` téléversée ; l'émission `fr:201` suit en ~2 s).
+  Le pipeline (`HandleSendResultAsync`) n'avait **pas de cas pour `Sending`** → tombait dans `default` →
+  `MarkTechnicalError`. Jamais révélé car aucun POST B2B n'avait abouti avant.
+- **Fix** : `case PaSendState.Sending → Deferred` (le document reste « en cours d'envoi », ni succès ni échec) ;
+  le raccrochage (relecture d'état / anti-doublon par `external_id`) le finalise **Issued** au cycle suivant.
+  Vérifié : `Sending → Issued` proprement (IDs #79199-79201).
+
+## RB23 — [OUVERT, dette] Des références internes `(CLAUDE.md n°X)` fuitent dans les messages d'erreur PRODUIT
+
+- **Vu (Karl)** : un message d'erreur du converter citait `(CLAUDE.md n°2)`. *« CLAUDE.md dans un message
+  d'erreur ?! »* — `CLAUDE.md` est le fichier d'instructions internes de l'agent, il n'a rien à faire dans un
+  message produit.
+- **Fix** : nettoyer le code (commentaires de messages opérateur / exceptions) — remplacer les `(CLAUDE.md n°X)`
+  par des références de spec réelles (F03, EN 16931, BOI…) ou rien. Grep `CLAUDE.md` dans le code produit.
+
+## RB24 — [OUVERT] Préférences perdues au changement de navigateur (application via localStorage, pas la base au login)
+
+- **Vu (Karl)** : les préférences (thème, densité, taille de page) sont **stockées/appliquées côté navigateur**
+  → en **changeant de navigateur, on les perd**. Attendu : préférences **par utilisateur**, qui le suivent quel
+  que soit le poste/navigateur.
+- **Constat (vérifié code)** : une persistance **EN BASE existe pourtant** — `IUserPreferencesService` /
+  `PostgresUserPreferencesService` + table `identity.user_preferences` (migration V012) pour thème/densité/langue,
+  et `PersistedLanguageRequestCultureProvider` pour la langue. **MAIS** :
+  1. L'application **LIVE** du thème/densité repose sur **localStorage** (`stratumUI.setDensity/getDensity`,
+     `setTheme/getTheme`). La valeur base n'est **ré-appliquée vers le JS que par le PANNEAU** de préférences
+     (`UserPreferencesPanel.OnAfterRender`), **pas globalement au login**. Sur un navigateur neuf → localStorage
+     vide → l'appli affiche le **défaut** (OS/JS), la préférence base est ignorée tant que le panneau n'est pas ouvert.
+  2. La **taille de page des grilles** reste **volontairement en localStorage** (commentaire « out of scope GUX06 »).
+- **Fix** : **hydrater** la préférence base → couche client **dès le login / le rendu du shell** (thème + densité +
+  pagination), pour que la base soit la source appliquée partout, pas seulement dans le panneau. Décider du sort du
+  grid page size (le passer en base aussi, cohérent avec « suit l'utilisateur »).
+
+## RB25 — [OUVERT, simple] Densité par défaut = Compact ; doit être Standard
+
+- **Vu (Karl)** : la densité par défaut affichée est **Compact** (sélectionné). Exigence : **défaut = Standard**.
+- **Constat** : le **modèle base** `UserPreferences.Density` a déjà **`"standard"`** par défaut, et le panneau
+  initialise `_density = DensityStandard`. Le **Compact** vient donc de la **couche JS** : quand aucune préférence
+  n'est posée, `stratumUI.getDensity()` (socle `stratum-ui.js`) renvoie/applique **compact** → défaut EFFECTIF = compact.
+- **Fix** : aligner le **défaut de la couche client** sur **`standard`** (socle `stratum-ui.js` — attention provenance
+  socle vendored ; sinon forcer l'hydratation « standard » au login si pas de pref). Trivial, mais à faire au bon
+  endroit pour rester cohérent avec RB24.
+
+## RB26 — [OUVERT] Page Documents : pas de refresh auto après traitement + bandeau « différés (staging absent) » trompeur
+
+- **Vu (Karl)** : après « Lancer un traitement », (1) la **liste ne se rafraîchit pas** automatiquement (il
+  faut **actualiser la page** pour voir les nouveaux états) ; (2) le **bandeau ROUGE** affiche « *Le traitement
+  d'envoi du tenant est terminé : aucun document émis. SEND : 0 émis, 0 en échec, **6 différés (staging absent)**,
+  0 ignorés.* » — **trompeur** : tout s'est bien passé, les 6 documents sont **téléversés à la PA** (statut **« En
+  cours »**) et passeront **« Émis »** au **prochain traitement**. Confirmé par les captures suivantes : après
+  actualisation → 6 « En cours » ; au traitement suivant → **retours PA corrects** (19 « Émis », 2 « Rejeté »).
+- **Cause** :
+  1. **UI** : la grille Documents ne **re-fetch pas** après le déclenchement d'un traitement (`Tout envoyer` /
+     `Lancer un traitement`) — l'état affiché reste celui d'avant.
+  2. **Message inadapté (effet de bord de RB22)** : le correctif « état `Sending` asynchrone » classe les
+     documents **téléversés** en `SendOutcome.Deferred` ; or le `tally.Describe()` annote tout différé
+     « **(staging absent)** » → libellé **faux** pour un document parti avec succès, et le bandeau **« aucun
+     document émis » en ROUGE** donne une fausse impression d'**échec** alors que l'envoi a réussi (émission
+     asynchrone en cours).
+- **Fix** :
+  1. **Rafraîchir la liste** après un traitement (re-fetch + maj des compteurs d'onglets).
+  2. **Distinguer « téléversé / en cours d'émission » de « différé (staging absent) »** : un `SendOutcome`
+     dédié (ou un compteur séparé) + message **non alarmant** (« *N document(s) téléversé(s) à la PA — émission
+     en cours, confirmée au prochain traitement* ») et **bandeau info (pas rouge)** quand des documents sont
+     partis correctement. Réserver le rouge aux vrais échecs (rejet / erreur technique).
+- **À confirmer** : les **2 « Rejeté »** du 2ᵉ traitement (BQ-2026-118/120) — vrai rejet PA ou effet de
+  re-soumission/anti-doublon ? À investiguer (le **retour PA fonctionne**, c'est la cause des 2 rejets qui reste à qualifier).
+
+## RB27 — [OUVERT, P2 opérateur] Le motif EXACT du rejet PA n'est affiché nulle part dans l'UI
+
+- **Vu (Karl)** : un document **« Rejeté »** affiche l'état, mais **pas le retour exact de la Plateforme Agréée**
+  → l'opérateur **ne sait pas ce qui a posé problème** ni quoi corriger. (Cette nuit, le motif `[BR-CO-25]` /
+  `[BR-FR-05]` n'a pu être obtenu qu'en **SQL** : `documents.document_events.pa_response_snapshot`.)
+- **Cause** : le message/les erreurs de la PA sont bien **persistés** (piste d'audit : `pa_response_snapshot`,
+  `errors[]` du `DocumentRejectionSnapshots`) mais **non surfacés** dans le détail du document. L'UI montre
+  l'**état** (`DocumentStateDisplay`) et la **timeline d'events** (`DocumentEventDisplay`), pas le **message PA
+  détaillé**. → exigence **CLAUDE.md n°12** (message opérateur FR + **action corrective**) **non tenue** pour les rejets PA.
+- **Fix** : sur un document **Rejeté / en erreur technique**, afficher dans le détail le **message EXACT de la PA**
+  (texte + code, ex. `[BR-CO-25]…`), l'**horodatage**, et une **action corrective** — lu depuis
+  `pa_response_snapshot` / `errors[]`. C'est *le* livrable qui rend les rejets exploitables sans accès base.
+
+## RB28 — [OUVERT] Le bouton « Actualiser » des listes ne fonctionne pas correctement
+
+- **Vu (Karl)** : le bouton **actualiser** (icône refresh circulaire) de la barre d'outils des grilles **ne
+  rafraîchit pas correctement** la liste (lien direct avec RB26 : même en forçant, l'état n'est pas mis à jour ;
+  seul un **rechargement complet de la page** fonctionne).
+- **Cause (à confirmer)** : le bouton refresh de la grille (`StratumDataGrid` / barre d'outils) ne déclenche
+  **pas un vrai re-fetch** serveur des données + **re-comptage** des onglets (Tous / Prêt / En cours / Émis /
+  Rejeté), ou ne redessine pas après le fetch.
+- **Fix** : le bouton « Actualiser » doit **re-interroger** la source (mêmes filtres/période) **et** recalculer
+  les compteurs d'onglets, puis re-rendre — sans rechargement de page.
+
+## RB29 — [AUDIT + MISE AU PROPRE] verify-fast ROUGE (faux-verts) + 2 hacks retirés → dette inscrite (lot RBF)
+
+Audit adversarial du working tree (workflow 19 agents) à la demande de Karl (« a-t-on du code sale ? »).
+
+**⚠️ Fait dominant : `verify-fast` était ROUGE.** Les marqueurs « ✅ corrigé working tree » des RB17/RB19/RB20/
+RB21/RB22 ci-dessus étaient des **FAUX-VERTS** : 11 tests cassaient (2 SuperPDP + 9 SendTenantJob — le SEND
+appelle désormais `ITvaMappingService` non enregistré dans le harnais, et les nouvelles branches HOLD/Sending
+n'avaient aucun test). **Aucune déclaration « corrigé » n'était valide.** → réparé/testé par **RBF03**.
+
+**Hacks RETIRÉS en interactif (cette nuit) :**
+- **A1 — « facture soldée d'office »** (`SuperPdpPayloadBuilder`) : forçait `PaidAmount = TotalGross` / montant
+  dû = 0 → donnée fiscale FABRIQUÉE (paiement inexistant déclaré à l'administration), contournait BR-CO-25.
+  **Retiré** (retour à `PaidAmount = PrepaidAmount`). Le converter rejette à nouveau une facture non soldée
+  sans échéance — comportement correct. Vrai fix = **RBF01** (acompte/échéance à la source + mentions FR).
+- **A2 — bypass Luhn sur le SIREN ACHETEUR** (`Validation.SirenValidator.IsValid`, préfixe `00000`) : affaiblissait
+  une garde Blocking sur une donnée EXTRAITE (non demandé — Karl n'avait parlé que de SON SIREN émetteur).
+  **Retiré** (acheteur de nouveau Luhn-strict). Tests réétiquetés (`315143296` n'est pas un SIREN mais l'ID de
+  compte SuperPDP → `000000002`). Mise au propre complète = **RBF02**.
+
+**Reste assoupli (décision Karl, à mettre au propre) :** le SIREN ÉMETTEUR paramétré est accepté sans Luhn
+(`SupplierIdentityRule` → `IsWellFormed` ; `TenantSettings.SirenValidator` format-only). Conservé pour la recette,
+mais non sourcé (F04 §4.1 n'autorise que La Poste) → **RBF02** doit le porter par PARAMÉTRAGE/contexte sandbox
+(hors validateur produit) + amender F04/F12-A + INV-*.
+
+**➡️ TOUTE la dette est inscrite dans le backlog des agents autonomes : lot `RBF` (Recette Bucodi Fixes),
+`orchestration/items/RBF.yaml` + `manifest.yaml` v30** (segment `recette-bucodi`, gate humaine
+`GATE_RECETTE_BUCODI`). 9 items RBF01→RBF09 couvrant : conformité facture FR (RBF01), Luhn propre (RBF02),
+tests/verify-fast vert (RBF03), amendement spec B2B/B2C (RBF04), traçabilité SuperPDP + refs CLAUDE.md (RBF05),
+motif de rejet PA dans l'UI (RBF06 ← RB27), refresh listes (RBF07 ← RB26/RB28), préférences en base + densité
+défaut (RBF08 ← RB24/RB25), heartbeat agent au 1er démarrage (RBF09 ← RB16).
+⚠️ Le lot RBF est à **seeder dans `$ORCH_REPO/state.yaml`** (pending) après merge, comme les autres lots planifiés.
+
+<!-- Prochaines observations dictées : RB30, … -->
