@@ -320,6 +320,16 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Succeeded;
         }
 
+        // Garde déclaration 10.3 (B2C01) — placée APRÈS les deux raccrochages anti-doublon : un document déjà
+        // Sending a forcément franchi la garde au ReadyToSend (capacité B2C présente à l'envoi) et a été TRANSMIS.
+        // Si la capacité a été retirée depuis, on le RÉCONCILIE (finalisation ci-dessus) plutôt que de le figer ;
+        // la garde ne retient ICI que la RE-transmission (jamais un renvoi sans la capacité).
+        if (IsUnsendableB2cReportingDeclaration(staged.Pivot!, paClient))
+        {
+            LogB2cReportingDeclarationHeld(logger, paClient, document.Id);
+            return SendOutcome.Skipped;
+        }
+
         // Aucune transmission journalisée : on (re)transmet (déjà Sending). Pilotage : la PA déduplique par numéro (F05). Essentiel : le destinataire dédoublonne par numéro (BT-1) — at-least-once assumé (canal externe).
         var (result, facturX) = await TransmitAsync(services, paClient, account, timeProvider, staged.Pivot!, selfBilled.Projection, cancellationToken);
         return await HandleSendResultAsync(services, tenantId, document, staged.Pivot!, staged.Json!, result, facturX, logger, cancellationToken);
@@ -383,6 +393,14 @@ public sealed partial class SendTenantJob : ITenantJob
             // Avoir vers une PA sans capacité avoirs : laissé en TechnicalError (aucune transition), traité par
             // le pipeline des avoirs (PIP02) — jamais promu en ReadyToSend (pas de double comptage ni de boucle).
             LogCreditNoteCapabilityMissing(logger, documentId, paClient.Capabilities.PaName);
+            return SendOutcome.Skipped;
+        }
+
+        if (IsUnsendableB2cReportingDeclaration(staged.Pivot!, paClient))
+        {
+            // Déclaration 10.3 vers une PA sans capacité B2C : laissée en TechnicalError (aucune transition) —
+            // jamais re-promue ni transmise sans la capacité (résultat typé journalisé, pas de boucle).
+            LogB2cReportingDeclarationHeld(logger, paClient, documentId);
             return SendOutcome.Skipped;
         }
 
@@ -468,6 +486,15 @@ public sealed partial class SendTenantJob : ITenantJob
         if (IsUnsendableCreditNote(staged.Pivot!, paClient))
         {
             LogCreditNoteCapabilityMissing(logger, documentId, paClient.Capabilities.PaName);
+            return SendOutcome.Skipped;
+        }
+
+        // Garde-fou déclaration 10.3 : une déclaration e-reporting B2C vers une PA sans capacité B2C reste
+        // ReadyToSend (jamais transmise sans la capacité — résultat typé journalisé, CLAUDE.md n°3). CIBLÉE
+        // sur le marqueur 10.3 : une facture B2C / un avoir ordinaire (marqueur faux) n'est jamais touché.
+        if (IsUnsendableB2cReportingDeclaration(staged.Pivot!, paClient))
+        {
+            LogB2cReportingDeclarationHeld(logger, paClient, documentId);
             return SendOutcome.Skipped;
         }
 
@@ -867,6 +894,28 @@ public sealed partial class SendTenantJob : ITenantJob
         pivot.CreditNoteRefs.Count > 0 && !paClient.Capabilities.SupportsCreditNotes;
 
     /// <summary>
+    /// Garde CIBLÉE sur la DÉCLARATION e-reporting B2C (flux 10.3, B2C01) : vraie UNIQUEMENT quand le document
+    /// porte le marqueur <see cref="PivotDocumentDto.IsB2cReportingDeclaration"/> ET que la PA active ne déclare
+    /// PAS <c>SupportsB2cReporting</c>. Un document ORDINAIRE (facture B2C Factur-X, avoir, B2B — marqueur faux)
+    /// n'est JAMAIS concerné : la garde ne touche pas la voie unique <c>SendDocumentAsync</c> des autres flux
+    /// (pas de régression de l'Essentiel générique ni des avoirs). Capacité existante (PAA01) — aucune nouvelle
+    /// capacité introduite. Jamais un <c>if (pa is …)</c> (CLAUDE.md n°8/16).
+    /// </summary>
+    private static bool IsUnsendableB2cReportingDeclaration(PivotDocumentDto pivot, IPaClient paClient) =>
+        pivot.IsB2cReportingDeclaration && !paClient.Capabilities.SupportsB2cReporting;
+
+    /// <summary>
+    /// Construit le résultat TYPÉ « capacité B2C absente » (message opérateur FR, journalisable — jamais une
+    /// exception, jamais <c>PendingCapability</c> qui est un statut Pipeline de paiement/rectification) et le
+    /// journalise. La déclaration 10.3 est MAINTENUE en l'état (jamais transmise sans la capacité, CLAUDE.md n°3).
+    /// </summary>
+    private static void LogB2cReportingDeclarationHeld(ILogger logger, IPaClient paClient, Guid documentId)
+    {
+        var notSupported = PaCapabilityNotSupportedResult.Create(paClient.Capabilities.PaName, PaCapability.B2cReporting);
+        LogB2cReportingCapabilityMissing(logger, documentId, notSupported.OperatorMessage);
+    }
+
+    /// <summary>
     /// Résout l'envoi d'un document self-billed (autofacturation 389, MND07) : lit l'acceptation (MND02/03)
     /// pour récupérer le BT-1 fiscal alloué (MND05) et confirme la capacité PA. Renvoie un HOLD (document
     /// maintenu, jamais émis faux — CLAUDE.md n°3/8) quand la PA active ne déclare pas
@@ -1050,6 +1099,10 @@ public sealed partial class SendTenantJob : ITenantJob
     [LoggerMessage(EventId = 7209, Level = LogLevel.Warning,
         Message = "SEND : avoir {DocumentId} non envoyé — la Plateforme Agréée « {PaName} » ne déclare pas la capacité avoirs (maintenu ReadyToSend, traité par le pipeline des avoirs).")]
     private static partial void LogCreditNoteCapabilityMissing(ILogger logger, Guid documentId, string paName);
+
+    [LoggerMessage(EventId = 7221, Level = LogLevel.Warning,
+        Message = "SEND : déclaration e-reporting B2C (flux 10.3) {DocumentId} non envoyée — {OperatorMessage} Document MAINTENU (jamais transmis sans la capacité). Action opérateur : activez une Plateforme Agréée déclarant l'e-reporting B2C.")]
+    private static partial void LogB2cReportingCapabilityMissing(ILogger logger, Guid documentId, string operatorMessage);
 
     [LoggerMessage(EventId = 7210, Level = LogLevel.Warning,
         Message = "SEND : document {DocumentId} sans version de mapping en envoi — anomalie de données, non renvoyé.")]

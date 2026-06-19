@@ -48,7 +48,8 @@ public static class PivotCanonicalJsonReader
         isSelfBilled: Bool(element, "IsSelfBilled"),
         prepaidAmount: DecimalOrNull(element, "PrepaidAmount"),
         sourceData: StrOrNull(element, "SourceData"),
-        paymentDueDate: DateOrNull(element, "PaymentDueDate"));
+        paymentDueDate: DateOrNull(element, "PaymentDueDate"),
+        isB2cReportingDeclaration: BoolOrFalse(element, "IsB2cReportingDeclaration"));
 
     private static PivotPartyDto ReadParty(JsonElement element) => new(
         name: Str(element, "Name"),
@@ -126,6 +127,12 @@ public static class PivotCanonicalJsonReader
     }
 
     private static bool Bool(JsonElement element, string name) => element.GetProperty(name).GetBoolean();
+
+    // Booléen optionnel ABSENT du JSON → false : miroir EXACT du writer, qui OMET le marqueur 10.3 (B2C01)
+    // quand il est faux (champ additif hash-neutre). Un document qui ne porte pas la clé n'est jamais une
+    // déclaration B2C 10.3 ; le round-trip d'un tel document reste octet par octet identique.
+    private static bool BoolOrFalse(JsonElement element, string name) =>
+        element.TryGetProperty(name, out JsonElement value) && value.GetBoolean();
 
     private static DateTime Date(JsonElement element, string name) =>
         DateTime.ParseExact(Str(element, name), "yyyy-MM-dd", CultureInfo.InvariantCulture);

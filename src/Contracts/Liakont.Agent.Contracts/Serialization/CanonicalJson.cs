@@ -120,6 +120,16 @@ public static class CanonicalJson
             writer.WriteDate(document.PaymentDueDate.Value);
         }
 
+        // Marqueur de flux 10.3 (e-reporting B2C / B2C01) : champ ADDITIF en FIN (ADR-0007), émis SEULEMENT
+        // quand il est VRAI — contrairement à IsSelfBilled (toujours émis), ce booléen est OMIS s'il est faux
+        // pour que le hash canonique d'un document qui n'est PAS une déclaration 10.3 reste INCHANGÉ (pattern
+        // EXT01, hash identique octet par octet).
+        if (document.IsB2cReportingDeclaration)
+        {
+            writer.WritePropertyName("IsB2cReportingDeclaration");
+            writer.WriteBoolean(document.IsB2cReportingDeclaration);
+        }
+
         writer.EndObject();
     }
 

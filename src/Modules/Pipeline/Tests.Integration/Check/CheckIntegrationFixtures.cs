@@ -103,6 +103,34 @@ internal static class CheckIntegrationFixtures
             creditNoteRefs: originRefs);
     }
 
+    /// <summary>
+    /// Construit une DÉCLARATION d'e-reporting B2C (flux 10.3, B2C01) — porte le marqueur
+    /// <see cref="PivotDocumentDto.IsB2cReportingDeclaration"/> qui la route vers la capacité PA
+    /// <c>SupportsB2cReporting</c> à l'envoi. Valeurs fictives (CLAUDE.md n°7).
+    /// </summary>
+    public static PivotDocumentDto BuildB2cReportingDeclaration(string sourceReference, string regimeCode)
+    {
+        var line = new PivotLineDto(
+            description: "Déclaration 10.3 — adjudication lot 7",
+            netAmount: 120.00m,
+            quantity: 1m,
+            unitPriceNet: 120.00m,
+            sourceRegimeCodes: new[] { regimeCode },
+            taxes: new[] { new PivotLineTaxDto(24.00m, 20m) },
+            sourceLineRef: "ligne#1");
+
+        return new PivotDocumentDto(
+            sourceDocumentKind: "DECLARATION",
+            number: "B2C-2026-" + ((uint)sourceReference.GetHashCode(StringComparison.Ordinal)).ToString("D10", CultureInfo.InvariantCulture),
+            issueDate: new DateTime(2026, 1, 20),
+            sourceReference: sourceReference,
+            supplier: new PivotPartyDto("Étude Fictïve SVV"),
+            totals: new PivotTotalsDto(120.00m, 24.00m, 144.00m, 144.00m),
+            operationCategory: OperationCategory.LivraisonBiens,
+            lines: new[] { line },
+            isB2cReportingDeclaration: true);
+    }
+
     public static IntegrationEvent<DocumentReceivedV1> Event(Guid documentId, string sourceReference, string payloadHash)
     {
         var payload = new DocumentReceivedV1

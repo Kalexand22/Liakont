@@ -128,6 +128,34 @@ internal static class SendTestData
             lines: lines);
     }
 
+    /// <summary>
+    /// Pivot porteur du marqueur de flux 10.3 (déclaration e-reporting B2C, B2C01) — mono-ligne, émetteur
+    /// renseigné (le seul motif de maintien testé est l'absence de capacité B2C de la PA, jamais l'émetteur).
+    /// </summary>
+    public static PivotDocumentDto B2cReportingDeclarationPivot(string number = "B2C-2026-0007")
+    {
+        var line = new PivotLineDto(
+            description: "Adjudication lot 7 (déclaration 10.3)",
+            netAmount: 120.00m,
+            quantity: 1m,
+            unitPriceNet: 120.00m,
+            sourceRegimeCodes: NormalRegime,
+            taxes: new[] { new PivotLineTaxDto(24.00m, 20m, VatCategory.S) },
+            sourceLineRef: "ligne#1");
+
+        return new PivotDocumentDto(
+            sourceDocumentKind: "DECLARATION",
+            number: number,
+            issueDate: new DateTime(2026, 1, 10),
+            sourceReference: "no_ba=4007",
+            supplier: new PivotPartyDto("Étude Fictïve SVV", siren: "404833048"),
+            totals: new PivotTotalsDto(120.00m, 24.00m, 144.00m),
+            operationCategory: OperationCategory.LivraisonBiens,
+            customer: new PivotPartyDto("Client SARL", isCompanyHint: true),
+            lines: new[] { line },
+            isB2cReportingDeclaration: true);
+    }
+
     /// <summary>Pivot SANS émetteur ni nature d'opération (forme allégée AGT03) — la plateforme remplit au read-time (RB9).</summary>
     public static PivotDocumentDto SupplierLessPivot(string number = "F-2026-0007")
     {

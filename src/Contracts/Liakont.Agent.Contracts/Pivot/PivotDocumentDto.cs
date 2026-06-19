@@ -54,6 +54,14 @@ public sealed class PivotDocumentDto
     /// en fin de constructeur (ADR-0007) : un appelant existant reste valide, et le hash canonique d'un
     /// document sans échéance est INCHANGÉ (champ optionnel omis — F01-F02 §3.1, F14 §3.2/O11).
     /// </param>
+    /// <param name="isB2cReportingDeclaration">
+    /// Marqueur de FLUX : ce document est une DÉCLARATION d'e-reporting B2C (flux 10.3, F09 §10.3 / B2C01) — il
+    /// est routé vers la capacité PA <c>SupportsB2cReporting</c> à l'envoi, jamais via une règle de détection
+    /// (BuyerLooksProfessionalRule). Marqueur de PLATEFORME (l'agent ne le porte jamais : il extrait des
+    /// pièces source, pas des déclarations) : <c>false</c> par défaut. Paramètre ADDITIF en fin de constructeur
+    /// (pattern EXT01, ADR-0007) émis SEULEMENT quand il est vrai : le hash canonique d'un document qui n'est
+    /// PAS une déclaration 10.3 est INCHANGÉ (octet par octet).
+    /// </param>
     public PivotDocumentDto(
         string sourceDocumentKind,
         string number,
@@ -73,7 +81,8 @@ public sealed class PivotDocumentDto
         bool isSelfBilled = false,
         decimal? prepaidAmount = null,
         string? sourceData = null,
-        DateTime? paymentDueDate = null)
+        DateTime? paymentDueDate = null,
+        bool isB2cReportingDeclaration = false)
     {
         SourceDocumentKind = sourceDocumentKind;
         Number = number;
@@ -94,6 +103,7 @@ public sealed class PivotDocumentDto
         PrepaidAmount = prepaidAmount;
         SourceData = sourceData;
         PaymentDueDate = paymentDueDate;
+        IsB2cReportingDeclaration = isB2cReportingDeclaration;
     }
 
     /// <summary>Type de document de la source, BRUT (ADR-0004 D3-3).</summary>
@@ -162,4 +172,12 @@ public sealed class PivotDocumentDto
     /// (F14 §3.2/O11) : émise vers la PA seulement quand elle est présente.
     /// </summary>
     public DateTime? PaymentDueDate { get; }
+
+    /// <summary>
+    /// Vrai si ce document est une DÉCLARATION d'e-reporting B2C (flux 10.3, F09 / B2C01) — routée vers la
+    /// capacité PA <c>SupportsB2cReporting</c> à l'envoi. <c>false</c> pour tout autre document (facture,
+    /// avoir, B2B) : marqueur de plateforme, jamais porté par l'agent. Émis dans le JSON canonique SEULEMENT
+    /// quand il est vrai (champ additif hash-neutre — pattern EXT01).
+    /// </summary>
+    public bool IsB2cReportingDeclaration { get; }
 }
