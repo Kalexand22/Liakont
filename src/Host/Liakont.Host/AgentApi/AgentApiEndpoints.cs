@@ -94,6 +94,10 @@ internal static class AgentApiEndpoints
 
         // POST /api/agent/v1/documents/batch — push d'un lot de documents pivot (PIV04). Résultat
         // INDIVIDUEL par document (jamais de rejet global du lot pour un seul document invalide).
+        // Exception structurelle (RDL04) : un membre inconnu dans le corps est une violation du
+        // contrat de version — le binding STJ rejette le lot entier en 400 avant tout traitement
+        // métier. Ce rejet global est intentionnel ; il est distinct de l'invalidité métier
+        // (mauvais champ connu), qui elle continue à produire un résultat Rejected par document.
         group.MapPost("/documents/batch", async (
             PushBatchRequestDto? request,
             HttpContext http,

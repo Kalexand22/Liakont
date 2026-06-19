@@ -114,9 +114,12 @@ enum/champ-optionnel du sérialiseur cross-runtime ; l'agent lui-même ne rempli
    (PIV04) et détection d'altération (TRK03) cassés. Défaut SÛR (RDL04, « bloquer plutôt qu'envoyer faux ») :
    `JsonUnmappedMemberHandling.Disallow` est posé par réflexion sur **tous** les DTOs de
    `Liakont.Agent.Contracts` (`AgentApiJson.ConfigureContractBinding`) → un membre inconnu **lève en
-   désérialisation (400)**, jamais droppé. (Une version de payload *déclarée* > N reçoit d'abord
-   `426 Upgrade Required` au niveau de l'en-tête, règle 3 ; cette garde couvre le cas résiduel d'un
-   payload déclaré « 1 » mais porteur d'un membre v2.)
+   désérialisation (400)**, jamais droppé. (Pour les endpoints GET sans corps — ex. `/configuration` —
+   la règle 3 s'applique en premier : un en-tête `X-Contract-Version` > N reçoit `426 Upgrade Required`
+   avant tout traitement. Pour les endpoints POST portant un corps — `/documents/batch`, `/heartbeat` —
+   le binding de paramètre s'exécute avant le filtre `AgentApiAuthenticationFilter` : un membre inconnu
+   est rejeté en **400** dès la désérialisation, avant que le 426 ne puisse se déclencher. La propriété
+   de sûreté est préservée dans les deux cas — rejet propre, aucune corruption — mais l'ordre diffère.)
 
 ### 4.1 Runbook de bascule v2 (points à muter ENSEMBLE)
 
