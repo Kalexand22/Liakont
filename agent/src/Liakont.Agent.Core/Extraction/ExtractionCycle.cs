@@ -54,6 +54,7 @@ public sealed class ExtractionCycle
         ExtractorCapabilities capabilities = extractor.Capabilities;
         int documentsEnqueued = 0;
         int documentsSkipped = 0;
+        int documentsQuarantined = 0;
         int linkedPdfs = 0;
 
         foreach (PivotDocumentDto document in extractor.ExtractDocuments(fromInclusiveUtc, toExclusiveUtc))
@@ -65,16 +66,18 @@ public sealed class ExtractionCycle
                 canonicalJson = CanonicalJson.Serialize(document);
                 hash = PayloadHasher.ComputeHash(canonicalJson);
             }
-            catch (ArgumentException ex)
+            catch (ArgumentOutOfRangeException ex)
             {
-                // Document NON CONFORME au contrat (p. ex. valeur d'énumération hors plage — RDL01,
-                // WriteEnum) : il ne peut pas être sérialisé canoniquement, donc ne sera JAMAIS transmis
-                // (« bloquer plutôt qu'envoyer faux », CLAUDE.md n°3). On le met en QUARANTAINE — journalisé
-                // pour l'opérateur (référence source + action) — SANS avorter le cycle : les documents valides
-                // de la fenêtre sont quand même enfilés et le filigrane avance. Sinon un seul document fautif
-                // bloquerait toute l'extraction du tenant en boucle (le filigrane ne progresserait jamais).
-                // Symétrique du rejet par document côté plateforme (IngestDocumentBatchHandler).
-                documentsSkipped++;
+                // Document NON CONFORME au contrat : valeur d'énumération HORS PLAGE (RDL01, WriteEnum) —
+                // le SEUL cas que la garde de sérialisation lève. Il ne peut pas être sérialisé canoniquement,
+                // donc ne sera JAMAIS transmis (« bloquer plutôt qu'envoyer faux », CLAUDE.md n°3). On le met
+                // en QUARANTAINE — journalisé pour l'opérateur (référence source + action) — SANS avorter le
+                // cycle : les documents valides de la fenêtre sont quand même enfilés et le filigrane avance.
+                // Sinon un seul document fautif bloquerait toute l'extraction du tenant en boucle. Symétrique
+                // du rejet par document côté plateforme (IngestDocumentBatchHandler). Le catch est RESTREINT à
+                // ArgumentOutOfRangeException : tout autre bug d'argument (p. ex. document null) doit faire
+                // ÉCHOUER le cycle de façon visible, jamais quarantainer tous les documents en silence.
+                documentsQuarantined++;
                 _log.Warn(
                     $"Document « {document.SourceReference} » ignoré : non conforme au contrat (sérialisation "
                     + $"canonique impossible — {ex.Message}). Le document n'est PAS transmis ; corrigez la donnée "
@@ -115,9 +118,10 @@ public sealed class ExtractionCycle
 
         _log.Info(
             $"Run d'extraction terminé : {documentsEnqueued} document(s) enfilé(s), {documentsSkipped} ignoré(s), " +
+            $"{documentsQuarantined} en quarantaine (non conforme), " +
             $"{linkedPdfs} PDF lié(s), {poolPdfs} PDF de pool, {regimes} régime(s) TVA source.");
 
-        return new ExtractionResult(documentsEnqueued, documentsSkipped, linkedPdfs, poolPdfs, regimes);
+        return new ExtractionResult(documentsEnqueued, documentsSkipped, linkedPdfs, poolPdfs, regimes, documentsQuarantined);
     }
 
     private int CollectLinkedPdfs(IExtractor extractor, string sourceReference)

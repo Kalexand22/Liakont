@@ -162,7 +162,8 @@ public class ExtractionCycleTests
 
             ExtractionResult result = cycle.Run(extractor, From, To);
 
-            result.DocumentsSkipped.Should().Be(1, "le document non sérialisable est mis en quarantaine, jamais transmis");
+            result.DocumentsQuarantined.Should().Be(1, "le document non sérialisable est mis en quarantaine, jamais transmis");
+            result.DocumentsSkipped.Should().Be(0, "la quarantaine (conformité) est comptée à part des skips anti-re-push");
             result.DocumentsEnqueued.Should().Be(1, "le document valide de la fenêtre est quand même enfilé");
             queue.Peek(QueueItemStatus.Pending, QueueItemKind.Document, 10).Should().ContainSingle()
                 .Which.SourceReference.Should().Be("REF-OK");
