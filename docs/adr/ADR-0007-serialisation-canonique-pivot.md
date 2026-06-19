@@ -75,10 +75,23 @@ d'être que `PivotRounding`. Aucune règle fiscale n'est portée ici.
   montant négatif, caractères non-ASCII) sérialisé doit produire la MÊME empreinte figée. Toute
   divergence runtime — ou régression de format — casse le test. PIV03 étendra à un jeu de fixtures.
 - **Round-trip sans perte** prouvé par un lecteur canonique de test (lié des deux côtés) : `désérialiser(sérialiser(doc))`
-  re-sérialise à l'identique. Le lecteur ne vit PAS en production (le contrat n'a besoin que du
-  writer + du hasher).
+  re-sérialise à l'identique. Le contrat lui-même n'a besoin que du writer + du hasher.
+- **Un lecteur canonique vit AUSSI en production** (amendement 2026-06-19, RDL02) : `PivotCanonicalJsonReader`
+  (module `Pipeline`, .NET 10) relit le pivot canonique depuis le magasin de staging (PIP00) pour le SEND
+  (`SendTenantJob`). Il est un **miroir STRICT du writer, au champ près** — le round-trip
+  `Serialize(Read(json)) == json` est garanti octet par octet (INV-PIPELINE-001/002). Il **NE RE-SÉRIALISE
+  JAMAIS pour ré-hacher** : la re-vérification du `payload_hash` porte sur la **string brute** lue du staging
+  (`IPayloadStagingStore.ReadAsync`), pas sur une re-sérialisation. Conséquence : writer, lecteur de test et
+  lecteur prod sont **trois artefacts à garder synchronisés au champ près**. Cette synchronisation est
+  verrouillée par des **gardes de complétude par RÉFLEXION** sur un document entièrement peuplé — côté writer
+  (`CanonicalJsonRulesTests`) et côté lecteur prod (`PivotCanonicalJsonReaderTests`, RDL02) : un champ pivot
+  ajouté mais oublié dans le lecteur prod serait amputé avant transmission PA (EXT01/BT-9 l'a frôlé), et fait
+  désormais échouer la garde.
 - Le **format canonique est la base du HASH**, pas nécessairement le format de la requête HTTP. PIV04
-  recalcule l'empreinte côté plateforme à partir du DTO reçu (et non du JSON HTTP brut).
+  recalcule l'empreinte côté plateforme à partir du DTO reçu (et non du JSON HTTP brut) — la plateforme
+  **re-désérialise les octets du fil via System.Text.Json** puis re-sérialise canoniquement et hashe le DTO
+  (`AgentApiEndpoints` → `IngestDocumentBatchHandler`). L'axe `wire→STJ→writer→hash` est ancré par un test
+  Host net10 sur le jeu de golden contrat-v1 (RDL02).
 
 ### Champs de traçabilité dans l'empreinte (`SourceData`, `SourceReference`)
 
