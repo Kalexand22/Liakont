@@ -1,0 +1,191 @@
+{
+  "regimes": [
+    { "code_regime": "5", "libelle": "Assujetti normal 20%", "taux": 20.0, "assujetti_tva": true, "regime_marge": false },
+    { "code_regime": "6", "libelle": "Regime de la marge", "taux": 0.0, "assujetti_tva": true, "regime_marge": true }
+  ],
+  "bordereaux": [
+    {
+      "no_ba": "7001",
+      "numero_piece": "F-2026-7001",
+      "bordereau_ou_avoir": "B",
+      "date_vente": "2026-03-02",
+      "acheteur_nom": "Acheteur Particulier Demo (fictif)",
+      "acheteur_societe": null,
+      "acheteur_ville": "Paris",
+      "acheteur_code_postal": "75001",
+      "acheteur_pays": "FR",
+      "total_ht": 575.00,
+      "total_tva": 115.00,
+      "total_ttc": 690.00,
+      "lignes": [
+        {
+          "type_ligne": "4",
+          "designation": "Adjudication lot 21 — montre ancienne (gage)",
+          "montant_ht": 500.00,
+          "montant_tva": 100.00,
+          "taux_tva": 20.0,
+          "quantite": 1,
+          "prix_unitaire": 500.00,
+          "code_regime": "5",
+          "no_ligne": "ligne#1"
+        },
+        {
+          "type_ligne": "2",
+          "designation": "Frais acheteur",
+          "montant_ht": 75.00,
+          "montant_tva": 15.00,
+          "taux_tva": 20.0,
+          "quantite": 1,
+          "code_regime": "5",
+          "no_ligne": "ligne#2"
+        },
+        {
+          "type_ligne": "3",
+          "designation": "Reglement CB",
+          "montant_ht": 690.00,
+          "montant_tva": 0.0,
+          "code_regime": null,
+          "no_ligne": "ligne#3",
+          "date_reglement": "2026-03-05",
+          "mode_reglement": "CB",
+          "no_remise": "REM-7001"
+        }
+      ]
+    },
+    {
+      "no_ba": "7002",
+      "numero_piece": "F-2026-7002",
+      "bordereau_ou_avoir": "B",
+      "date_vente": "2026-03-03",
+      "acheteur_nom": "Collectionneur Particulier (fictif)",
+      "acheteur_societe": null,
+      "acheteur_ville": "Versailles",
+      "acheteur_code_postal": "78000",
+      "acheteur_pays": "FR",
+      "total_ht": 1380.00,
+      "total_tva": 36.00,
+      "total_ttc": 1416.00,
+      "lignes": [
+        {
+          "type_ligne": "4",
+          "designation": "Adjudication lot 34 — tableau ancien (regime de la marge)",
+          "montant_ht": 1200.00,
+          "montant_tva": 0.0,
+          "taux_tva": 0.0,
+          "quantite": 1,
+          "prix_unitaire": 1200.00,
+          "code_regime": "6",
+          "no_ligne": "ligne#1"
+        },
+        {
+          "type_ligne": "2",
+          "designation": "Frais acheteur",
+          "montant_ht": 180.00,
+          "montant_tva": 36.00,
+          "taux_tva": 20.0,
+          "quantite": 1,
+          "code_regime": "5",
+          "no_ligne": "ligne#2"
+        },
+        {
+          "type_ligne": "3",
+          "designation": "Reglement especes",
+          "montant_ht": 1416.00,
+          "montant_tva": 0.0,
+          "code_regime": null,
+          "no_ligne": "ligne#3",
+          "date_reglement": "2026-03-06",
+          "mode_reglement": "Especes",
+          "no_remise": "REM-7002"
+        }
+      ]
+    },
+    {
+      "no_ba": "7003",
+      "numero_piece": "F-2026-7003",
+      "bordereau_ou_avoir": "B",
+      "date_vente": "2026-03-04",
+      "acheteur_nom": "Galerie Pro Demo (fictif)",
+      "acheteur_societe": "Galerie Pro Demo SARL (fictif)",
+      "acheteur_siren": "523456788",
+      "acheteur_ville": "Paris",
+      "acheteur_code_postal": "75003",
+      "acheteur_pays": "FR",
+      "total_ht": 3450.00,
+      "total_tva": 690.00,
+      "total_ttc": 4140.00,
+      "lignes": [
+        {
+          "type_ligne": "4",
+          "designation": "Adjudication lot 52 — sculpture bronze",
+          "montant_ht": 3000.00,
+          "montant_tva": 600.00,
+          "taux_tva": 20.0,
+          "quantite": 1,
+          "prix_unitaire": 3000.00,
+          "code_regime": "5",
+          "no_ligne": "ligne#1"
+        },
+        {
+          "type_ligne": "2",
+          "designation": "Frais acheteur",
+          "montant_ht": 450.00,
+          "montant_tva": 90.00,
+          "taux_tva": 20.0,
+          "quantite": 1,
+          "code_regime": "5",
+          "no_ligne": "ligne#2"
+        },
+        {
+          "type_ligne": "3",
+          "designation": "Reglement virement",
+          "montant_ht": 4140.00,
+          "montant_tva": 0.0,
+          "code_regime": null,
+          "no_ligne": "ligne#3",
+          "date_reglement": "2026-03-08",
+          "mode_reglement": "Virement",
+          "no_remise": "REM-7003"
+        }
+      ]
+    },
+    {
+      "no_ba": "7050",
+      "numero_piece": "AV-2026-7050",
+      "bordereau_ou_avoir": "A",
+      "date_vente": "2026-03-10",
+      "no_ba_lettrage": "7001",
+      "acheteur_nom": "Acheteur Particulier Demo (fictif)",
+      "acheteur_societe": null,
+      "acheteur_ville": "Paris",
+      "acheteur_code_postal": "75001",
+      "acheteur_pays": "FR",
+      "total_ht": 575.00,
+      "total_tva": 115.00,
+      "total_ttc": 690.00,
+      "lignes": [
+        {
+          "type_ligne": "4",
+          "designation": "Annulation adjudication lot 21 — montre ancienne",
+          "montant_ht": 500.00,
+          "montant_tva": 100.00,
+          "taux_tva": 20.0,
+          "quantite": 1,
+          "prix_unitaire": 500.00,
+          "code_regime": "5",
+          "no_ligne": "ligne#1"
+        },
+        {
+          "type_ligne": "2",
+          "designation": "Annulation frais acheteur",
+          "montant_ht": 75.00,
+          "montant_tva": 15.00,
+          "taux_tva": 20.0,
+          "quantite": 1,
+          "code_regime": "5",
+          "no_ligne": "ligne#2"
+        }
+      ]
+    }
+  ]
+}

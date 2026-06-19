@@ -1,0 +1,27 @@
+{
+  "_commentaire": "MODÈLE de configuration de l'agent Liakont côté CMP (Crédit Municipal de Paris), lot CMP02. Copiez-le en agent.json dans le répertoire de données de l'instance (C:\\ProgramData\\Liakont\\cmp\\agent.json), puis remplacez les placeholders. Les secrets (apiKey, odbcConnectionString) doivent être CHIFFRÉS via « Liakont.Agent.Cli.exe encrypt » — jamais en clair (CLAUDE.md n°10). Aucune donnée client réelle ici hors deployments/cmp/.",
+
+  "_modes": "DEUX modes mutuellement EXCLUSIFS pour l'adaptateur EncheresV6 (EncheresV6AdapterConfig.FromExtractionConfig refuse les deux ensemble) : (A) mode FIXTURES = démo ISATECH, ACTIF ci-dessous (extraction.fixturesPath renseigné, odbcConnectionString absent) ; (B) mode PERVASIVE = production sur le serveur dédié (extraction.odbcConnectionString chiffré renseigné, fixturesPath retiré). Pour passer en Pervasive : retirez extraction.fixturesPath et renseignez extraction.odbcConnectionString (voir le bloc _pervasive ci-dessous).",
+
+  "platformUrl": "https://liakont.a-renseigner-cmp.example",
+
+  "_apiKey": "PLACEHOLDER — clé API de l'agent CMP, CHIFFRÉE. Collez la valeur produite par : Liakont.Agent.Cli.exe encrypt (la clé en clair est lue sur stdin, jamais en argument).",
+  "apiKey": "AQAAANCMnd8_PLACEHOLDER_CLE_AGENT_CMP_CHIFFREE_A_REMPLACER",
+
+  "heartbeatMinutes": 15,
+
+  "extraction": {
+    "adapter": "EncheresV6",
+
+    "_fixturesPath": "Mode FIXTURES (démo ISATECH) : dossier des fixtures EncheresV6 déployées sur la machine de démo. Chemin à adapter à l'emplacement réel du dossier copié depuis deployments/cmp/fixtures-demo/.",
+    "fixturesPath": "C:\\ProgramData\\Liakont\\cmp\\fixtures-demo",
+
+    "_pdfPoolPath": "Dossier des PDF de bordereaux (pool non lié) pour la réconciliation plateforme (TRK07). Pour la démo : dossier fixtures-demo/pdf-pool/ déployé sur la machine.",
+    "pdfPoolPath": "C:\\ProgramData\\Liakont\\cmp\\fixtures-demo\\pdf-pool",
+
+    "_pervasive": "Mode PRODUCTION (serveur dédié) — NON ACTIF en démo. Décommentez/renseignez extraction.odbcConnectionString (DSN Pervasive du CMP, CHIFFRÉ via « encrypt »), et RETIREZ extraction.fixturesPath ci-dessus. Exemple : \"odbcConnectionString\": \"AQAAANCMnd8_DSN_PERVASIVE_CMP_CHIFFRE\".",
+
+    "schedule": ["03:00"],
+    "catchUpOnStart": true
+  }
+}

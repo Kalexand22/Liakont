@@ -1,0 +1,53 @@
+// Profil tenant — déploiement CMP (Crédit Municipal de Paris), seed versionné (lot CMP02).
+//
+// PÉRIMÈTRE : ce fichier matérialise le PROFIL du tenant CMP au format de seed CFG01/CFG02
+// (record TenantProfileSeed : src/Modules/TenantSettings/Infrastructure/Seed/TenantProfileSeed.cs).
+// À l'import (CFG02 ImportTenantSeed / assistant OPS03), il est copié en `tenant-profile.json` à la
+// racine du dossier de seed du tenant (le lecteur d'import ne lit QUE `tenant-profile.json` —
+// TenantSeedReader.ProfileFileName), exactement comme `tva-mapping-cmp-v1.json` est copié en
+// `mapping-tva.json` (décision de format CMP01). Les comptes PA vivent dans `pa-accounts-cmp.json`
+// (copié en `pa-accounts.json` — TenantSeedReader.PaAccountsFileName) car le lecteur attend deux
+// fichiers distincts ; chaque fichier reste donc un document canonique, simplement renommé à l'import.
+//
+// DONNÉES : le SIREN, la raison sociale et l'adresse du CMP sont des données de REGISTRE PUBLIC
+// (INSEE/Sirene, unité légale 267500007) — leur place est ici, dans deployments/<client>/, JAMAIS
+// dans src/ ni config/exemples/ (CLAUDE.md n°7/n°15). AUCUN secret dans ce fichier : la chaîne ODBC
+// et les clés API ne figurent que sous forme de placeholders (compte PA : pa-accounts-cmp.json ;
+// agent : agent-cmp.json.example), saisis chiffrés au déploiement (CLAUDE.md n°10).
+//
+// PARAMÈTRES FISCAUX EN ATTENTE : vatOnDebits et operationCategory restent `null` tant que
+// l'expert-comptable du CMP n'a pas tranché (DECISIONS-FISCALES.md Q2/Q3). Le produit ne devine
+// jamais (F12-A §3.1, CLAUDE.md n°2). La table de mapping reste NON VALIDÉE → le garde-fou d'envoi
+// (PIP01b) suspend tout envoi réel jusqu'à GATE_PROD_CMP.
+{
+  "siren": "267500007",
+  "raisonSociale": "Crédit Municipal de Paris",
+  "address": {
+    "street": "55 rue des Francs Bourgeois",
+    "postalCode": "75004",
+    "city": "Paris",
+    "country": "FR"
+  },
+  "_contactEmailAlerte": "À RENSEIGNER — adresse réelle de l'équipe d'exploitation CMP destinataire des alertes (placeholder ci-dessous).",
+  "contactEmailAlerte": "alertes-cmp@a-renseigner.example",
+  "fiscal": {
+    "_vatOnDebits": "EN ATTENTE — Expert-comptable CMP (DECISIONS-FISCALES.md Q2 : débits vs encaissements). null = non tranché, jamais deviné.",
+    "vatOnDebits": null,
+    "_operationCategory": "EN ATTENTE — Expert-comptable CMP (DECISIONS-FISCALES.md Q3 : livraison de biens / prestation / mixte). null = non tranché.",
+    "operationCategory": null,
+    "reportingFrequency": null
+  },
+  "schedule": {
+    "hours": ["03:00"],
+    "catchUpOnStart": true
+  },
+  "thresholds": {
+    "agentSilentHours": 24,
+    "missedRunHours": 36,
+    "pushQueueMaxItems": 50,
+    "pushQueueMaxAgeHours": 6,
+    "blockedDocumentsDays": 5,
+    "paRejectionsDays": 2,
+    "alertTenantContact": false
+  }
+}

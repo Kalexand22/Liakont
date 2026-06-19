@@ -16,12 +16,30 @@ code produit** : il prouve que le produit se déploie par **paramétrage**, sans
   TVA sur débits, catégorie d'opération, acheteurs professionnels), leur impact et l'espace pour
   consigner les réponses de l'expert-comptable.
 
-## À venir dans ce dossier (lots CMP02 / CMP03)
+## Fichiers (état CMP02)
 
-- `tenant-cmp.json` — profil tenant (SIREN, contact, paramètres fiscaux en attente, planification,
-  seuils), compte PA (clé en placeholder).
-- `agent-cmp.json.example` — configuration de l'agent côté CMP (adaptateur EncheresV6, placeholders).
-- `fixtures-demo/` — jeu de bordereaux EncheresV6 pour la démo ISATECH.
+- [`tenant-cmp.json`](tenant-cmp.json) — profil du tenant CMP (format `TenantProfileSeed`) : SIREN
+  (registre public 267500007), raison sociale, adresse, contact (placeholder), paramètres fiscaux
+  **en attente** (`vatOnDebits`/`operationCategory` = `null`), planification (03:00) et seuils
+  d'alerte. À l'import, copié en `tenant-profile.json` (le lecteur ne lit que ce nom).
+- [`pa-accounts-cmp.json`](pa-accounts-cmp.json) — comptes Plateforme Agréée du CMP : compte
+  **B2Brouter staging** pour la démo (clé API en **placeholder**, jamais importée — saisie console),
+  emplacement du compte production pré-décrit. À l'import, copié en `pa-accounts.json`.
+- [`agent-cmp.json.example`](agent-cmp.json.example) — configuration de l'agent côté CMP : mode
+  **fixtures ACTIF** (démo), mode **Pervasive** (ODBC chiffré) documenté pour la production. Secrets
+  (apiKey, odbcConnectionString) en placeholders chiffrés.
+- [`fixtures-demo/`](fixtures-demo/) — jeu de bordereaux EncheresV6 **fictifs** pour la démo ISATECH
+  (vente normale, régime de la marge, avoir, acheteur pro B2B, encaissements) + `pdf-pool/` (PDF
+  factices pour la réconciliation). Voir [`fixtures-demo/README.md`](fixtures-demo/README.md).
+
+> **Mapping des noms à l'import** (convention CMP01) : les fichiers versionnés/descriptifs de ce
+> dossier sont copiés sous les noms canoniques attendus par le lecteur de seed (assistant OPS03 /
+> CFG02 `ImportTenantSeed`) : `tenant-cmp.json` → `tenant-profile.json`, `pa-accounts-cmp.json` →
+> `pa-accounts.json`, `tva-mapping-cmp-v1.json` → `mapping-tva.json`. Chaque fichier reste un
+> document canonique, simplement renommé — aucune transformation de structure.
+
+## À venir dans ce dossier (lot CMP03)
+
 - `SCENARIO-DEMO-ISATECH.md` — scénario de démo pas à pas.
 
 ## Règles
