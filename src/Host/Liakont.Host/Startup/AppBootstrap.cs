@@ -468,8 +468,9 @@ public static class AppBootstrap
         // (cf. CanonicalJson / fixtures contrat-v1). Sans convertisseur string→enum, System.Text.Json
         // attend un nombre et rejette un lot au format documenté en 400 au model-binding (requête) et
         // émet le statut de réponse en nombre. Scopé aux trois enums du contrat (deux en requête, un en
-        // réponse — voir AgentApiJson) pour ne pas toucher le format des autres enums.
-        builder.Services.ConfigureHttpJsonOptions(options => AgentApiJson.ConfigureContractEnums(options.SerializerOptions));
+        // réponse — voir AgentApiJson) pour ne pas toucher le format des autres enums. RDL04 ajoute le
+        // rejet strict des membres inconnus sur les DTOs du contrat (intégrité du hash N+1→N).
+        builder.Services.ConfigureHttpJsonOptions(options => AgentApiJson.ConfigureContractBinding(options.SerializerOptions));
 
         // Le module ERP Party n'est pas vendoré (seul Party.Contracts — décision D1). Identity
         // dépend de IPartyQueries par injection ; Liakont ne lie pas ses utilisateurs à des Party

@@ -41,7 +41,7 @@ public sealed class AgentContractJsonBindingTests
     private static JsonSerializerOptions HostMinimalApiOptions()
     {
         var services = new ServiceCollection();
-        services.ConfigureHttpJsonOptions(options => AgentApiJson.ConfigureContractEnums(options.SerializerOptions));
+        services.ConfigureHttpJsonOptions(options => AgentApiJson.ConfigureContractBinding(options.SerializerOptions));
         using ServiceProvider provider = services.BuildServiceProvider();
         return provider.GetRequiredService<IOptions<HttpJsonOptions>>().Value.SerializerOptions;
     }
@@ -94,6 +94,41 @@ public sealed class AgentContractJsonBindingTests
 
         bind.Should().Throw<JsonException>("un entier hors plage est refusé en binding strict (RDL01)");
     }
+
+    [Fact]
+    public void Unknown_member_in_v1_payload_is_rejected_not_dropped()
+    {
+        // RDL04 — sens N+1→N (déploiement non atomique). Un agent portant un champ POST-v1 dans un
+        // payload déclaré « 1 » : STJ DROPPE le membre inconnu par défaut → la plateforme re-sérialise
+        // un DTO amputé → empreinte plateforme ≠ empreinte agent → anti-doublon (PIV04) / altération
+        // (TRK03) cassés. Défaut SÛR : REJET au model-binding (→ 400), jamais droppé silencieusement.
+        // Membre inconnu au niveau de l'ENVELOPPE du lot.
+        const string batchWithUnknownEnvelopeMember =
+            "{\"ContractVersion\":\"1\",\"Documents\":[],\"FutureV2Field\":\"x\"}";
+
+        Action bindEnvelope = () => JsonSerializer.Deserialize<PushBatchRequestDto>(
+            batchWithUnknownEnvelopeMember, HostMinimalApiOptions());
+
+        bindEnvelope.Should().Throw<JsonException>(
+            "un membre inconnu de l'enveloppe est REFUSÉ (pas droppé) — intégrité du contrat (RDL04)");
+
+        // Membre inconnu DANS un document pivot (le cas qui casse réellement le hash : c'est le document
+        // qui est re-sérialisé puis hashé). Le document de référence + un champ post-v1 injecté.
+        PivotDocumentDto reference = ContractFixtures.GetDocument("facture-standard-b2c");
+        string documentWithUnknownMember = InsertUnknownMember(CanonicalJson.Serialize(reference));
+        string batchWithUnknownDocumentMember =
+            "{\"ContractVersion\":\"1\",\"Documents\":[" + documentWithUnknownMember + "]}";
+
+        Action bindDocument = () => JsonSerializer.Deserialize<PushBatchRequestDto>(
+            batchWithUnknownDocumentMember, HostMinimalApiOptions());
+
+        bindDocument.Should().Throw<JsonException>(
+            "un membre inconnu d'un document pivot est REFUSÉ — sinon hash amputé, anti-doublon/altération cassés (RDL04)");
+    }
+
+    // Injecte un membre inconnu (post-v1) juste après l'accolade ouvrante d'un objet JSON canonique.
+    private static string InsertUnknownMember(string canonicalDocumentJson) =>
+        "{\"FutureV2Field\":\"x\"," + canonicalDocumentJson[1..];
 
     [Fact]
     public void Batch_response_status_is_serialized_by_name()

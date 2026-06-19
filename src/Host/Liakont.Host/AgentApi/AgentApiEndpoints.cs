@@ -1,5 +1,6 @@
 namespace Liakont.Host.AgentApi;
 
+using Liakont.Agent.Contracts;
 using Liakont.Agent.Contracts.Transport;
 using Liakont.Modules.Ingestion.Contracts;
 using Liakont.Modules.Ingestion.Contracts.Commands;
@@ -33,7 +34,11 @@ internal static class AgentApiEndpoints
 
     public static IEndpointRouteBuilder MapAgentApi(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/agent/v1");
+        // Préfixe d'URL DÉRIVÉ de la version courante du contrat (plus de littéral "v1" indépendant —
+        // RDL04). L'invariant statique Current == "v" + ContractVersion (AgentContractVersionInvariantTests)
+        // garantit que ce groupe reste aligné avec la version de payload portée par l'assembly : au passage
+        // v2, muter la seule constante AgentContractVersion.Current propage l'URL ici (runbook contrat-agent-v1.md §4).
+        var group = app.MapGroup($"/api/agent/{AgentContractVersion.Current}");
 
         // L'agent ne s'authentifie pas par OIDC mais par clé API (filtre ci-dessous) ; AllowAnonymous
         // écarte le pipeline d'autorisation console. Le rate limiting est posé PAR ENDPOINT (les
