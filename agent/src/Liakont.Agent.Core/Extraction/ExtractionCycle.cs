@@ -58,8 +58,29 @@ public sealed class ExtractionCycle
 
         foreach (PivotDocumentDto document in extractor.ExtractDocuments(fromInclusiveUtc, toExclusiveUtc))
         {
-            string canonicalJson = CanonicalJson.Serialize(document);
-            string hash = PayloadHasher.ComputeHash(canonicalJson);
+            string canonicalJson;
+            string hash;
+            try
+            {
+                canonicalJson = CanonicalJson.Serialize(document);
+                hash = PayloadHasher.ComputeHash(canonicalJson);
+            }
+            catch (ArgumentException ex)
+            {
+                // Document NON CONFORME au contrat (p. ex. valeur d'énumération hors plage — RDL01,
+                // WriteEnum) : il ne peut pas être sérialisé canoniquement, donc ne sera JAMAIS transmis
+                // (« bloquer plutôt qu'envoyer faux », CLAUDE.md n°3). On le met en QUARANTAINE — journalisé
+                // pour l'opérateur (référence source + action) — SANS avorter le cycle : les documents valides
+                // de la fenêtre sont quand même enfilés et le filigrane avance. Sinon un seul document fautif
+                // bloquerait toute l'extraction du tenant en boucle (le filigrane ne progresserait jamais).
+                // Symétrique du rejet par document côté plateforme (IngestDocumentBatchHandler).
+                documentsSkipped++;
+                _log.Warn(
+                    $"Document « {document.SourceReference} » ignoré : non conforme au contrat (sérialisation "
+                    + $"canonique impossible — {ex.Message}). Le document n'est PAS transmis ; corrigez la donnée "
+                    + "ou l'adaptateur source, puis ré-extrayez la période. Les autres documents sont traités normalement.");
+                continue;
+            }
 
             // Anti re-push (F12 §2.2) : un document déjà acquitté (même hash) n'est pas ré-enfilé.
             if (_queue.IsAlreadyPushed(QueueItemKind.Document, document.SourceReference, hash))

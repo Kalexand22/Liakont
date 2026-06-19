@@ -111,10 +111,12 @@ public sealed class CanonicalJsonWriter
     /// Écrit une énumération par son NOM (règle 4 d'<c>ADR-0007</c> : « émis par leur NOM »),
     /// GARDÉE par <see cref="Enum.IsDefined(Type, object)"/> : une valeur hors plage LÈVE au lieu
     /// d'émettre le NOMBRE muet que produirait <c>ToString()</c> (les enums du contrat commencent à 1 ;
-    /// <c>((OperationCategory)99).ToString()</c> donne « 99 »). L'exception est captée en REJET par
-    /// l'enveloppe try/catch de l'ingestion (« bloquer plutôt qu'envoyer faux », CLAUDE.md n°3) — jamais
-    /// un chiffre hashé et archivé (WORM). Garde GÉNÉRIQUE, donc impossible à oublier sur un futur champ
-    /// enum (contrairement à un <c>ToString()</c> écrit à la main site par site).
+    /// <c>((OperationCategory)99).ToString()</c> donne « 99 »). L'exception fait REJETER le document, dans
+    /// les deux sens du contrat : côté PLATEFORME l'enveloppe try/catch de l'ingestion la convertit en rejet
+    /// par document ; côté AGENT le cycle d'extraction met le document en quarantaine (non transmis,
+    /// journalisé pour l'opérateur) sans bloquer la fenêtre. Dans les deux cas, jamais un chiffre hashé puis
+    /// archivé (WORM) — « bloquer plutôt qu'envoyer faux », CLAUDE.md n°3. Garde GÉNÉRIQUE, donc impossible
+    /// à oublier sur un futur champ enum (contrairement à un <c>ToString()</c> écrit à la main site par site).
     /// </summary>
     /// <typeparam name="T">Le type d'énumération du contrat.</typeparam>
     /// <param name="value">La valeur (doit être définie dans <typeparamref name="T"/>).</param>
