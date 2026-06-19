@@ -214,6 +214,66 @@ public sealed class SendTenantJobTests
     }
 
     [Fact]
+    public async Task B2cReportingDeclaration_In_Sending_Without_Capability_Stays_Sending_Not_Resent()
+    {
+        // B2C01 — chemin REPRISE (RecoverSendingAsync) : une déclaration 10.3 restée Sending (crash) vers une PA
+        // sans capacité B2C est MAINTENUE Sending (aucune finalisation, aucune retransmission) — la garde ciblée
+        // s'applique aussi sur ce chemin, jamais un faux Issued/Failed.
+        var id = Guid.NewGuid();
+        const string number = "B2C-2026-0099";
+        var document = SendTestData.Document(id, "Sending", number: number, payloadHash: "hash-b2c-99");
+        var queries = new SendTestDoubles.ConfigurableDocumentQueries();
+        queries.AddDocument(document);
+        queries.AddPotentiallySent(SendTestData.Summary(id, "Sending", number));
+        var staging = new SendTestDoubles.MapStagingStore();
+        staging.Stage(id, CanonicalJson.Serialize(SendTestData.B2cReportingDeclarationPivot(number)));
+
+        var lifecycle = new SendTestDoubles.RecordingDocumentLifecycle();
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var fake = await PublishedFakeWithoutB2cReportingAsync();
+        var provider = BuildProvider(ActiveAccountSettings(), queries, lifecycle, staging, new SendTestDoubles.RecordingStagingPurgeService(true), archive, runLogs, fake);
+
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        lifecycle.Issued.Should().BeEmpty("capacité B2C absente = aucune finalisation depuis Sending.");
+        lifecycle.Rejected.Should().BeEmpty("maintenu, jamais un faux rejet.");
+        lifecycle.TechnicalError.Should().BeEmpty("maintenu, jamais une fausse erreur technique.");
+        fake.Calls.Should().NotContain(c => c.Method == nameof(IPaClient.SendDocumentAsync), "aucune retransmission d'une déclaration 10.3 sans la capacité.");
+        archive.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task B2cReportingDeclaration_In_TechnicalError_Without_Capability_Stays_And_Is_Not_Repromoted()
+    {
+        // B2C01 — chemin RETRY (RetryTechnicalErrorAsync) : une déclaration 10.3 en TechnicalError vers une PA
+        // sans capacité B2C est MAINTENUE (jamais re-promue en ReadyToSend ni retransmise) — la garde ciblée
+        // s'applique AVANT la reprise (pas de boucle de retry).
+        var id = Guid.NewGuid();
+        const string number = "B2C-2026-0111";
+        var document = SendTestData.Document(id, "TechnicalError", number: number, payloadHash: "hash-b2c-111");
+        var queries = new SendTestDoubles.ConfigurableDocumentQueries();
+        queries.AddDocument(document);
+        queries.AddInState("TechnicalError", SendTestData.Summary(id, "TechnicalError", number));
+        var staging = new SendTestDoubles.MapStagingStore();
+        staging.Stage(id, CanonicalJson.Serialize(SendTestData.B2cReportingDeclarationPivot(number)));
+
+        var lifecycle = new SendTestDoubles.RecordingDocumentLifecycle();
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var fake = await PublishedFakeWithoutB2cReportingAsync();
+        var provider = BuildProvider(ActiveAccountSettings(), queries, lifecycle, staging, new SendTestDoubles.RecordingStagingPurgeService(true), archive, runLogs, fake);
+
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        lifecycle.ReadyToSend.Should().BeEmpty("capacité B2C absente = jamais re-promue en ReadyToSend (la garde précède la reprise).");
+        lifecycle.BeganSending.Should().BeEmpty();
+        lifecycle.Issued.Should().BeEmpty();
+        fake.Calls.Should().NotContain(c => c.Method == nameof(IPaClient.SendDocumentAsync), "aucune retransmission d'une déclaration 10.3 sans la capacité.");
+        archive.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task ReadyToSend_With_Unmapped_Tva_Regime_Is_Held_Not_Transmitted()
     {
         // Miroir TVA du test émetteur (..._Unresolvable_Emitter_Is_Held_Not_Transmitted) : le mapping TVA est
