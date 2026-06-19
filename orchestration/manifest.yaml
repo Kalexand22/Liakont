@@ -181,7 +181,20 @@ meta:
   #   0019->0021 / v25->v26). A SEEDER dans $ORCH_REPO/state.yaml APRES merge :
   #   RDF01..RDF18 + GATE_REDLINE_FONDATEURS en `pending` + `adr-redline-fondateurs: { integration_status: pending }` dans
   #   segments (RDF01..RDF17 eligibles ; RDF18 attend GATE_FACTURX ; RDF03 dep RDF02, RDF15 dep RDF07).
-  version: 31
+  # version 32 = nouveau segment `adr-redline-0004` + lot RD4 : backlog du redline de l'ADR-0004 (périmètre
+  #   contrat d'extraction & pivot V1), demande Karl 2026-06-19 (source : tasks/redline-adr-0004.md ;
+  #   19 findings vérifiés adversarialement → 12 confirmés, 6 ajustés, 1 réfuté). 9 items RD401→RD409 +
+  #   GATE_REDLINE_ADR4 (humaine). Cœur : capacités D2 (ExtractorCapabilities) mortes côté plateforme (RD401,
+  #   fondation, débloque RD403) ; gate « document finalisé » manquant (RD402, seul P1) ; cohérence
+  #   auto-facturation + Payee inerte (RD404). DÉCISION KARL : cibles FULL EURO → RD408 = verrou bloquant
+  #   non-EUR, PAS de gestion multi-devises (BT-111/taux écartés). Identifiants DISTINCTS des 2 autres
+  #   redlines parallèles : RDF (ADR fondateurs, bande 99xx) et lot RDL/segment adr-redline (ADR-0005/0006/0007,
+  #   branche feat/adr-redline NON mergée, bande 98xx/v30) → RD4 prend la bande 10000 et la version 32.
+  #   Segment sur feat/adr-redline-0004 (base main), depends_on_gate [GATE_PIPELINE, GATE_AGENT,
+  #   GATE_CONSOLE_WEB] (tous done ; code touché déjà sur main). ⚠️ À SEEDER dans $ORCH_REPO/state.yaml
+  #   APRÈS merge : RD401→RD409 + GATE_REDLINE_ADR4 en `pending` (tous éligibles sauf RD403 qui dep RD401).
+  #   Détails + verdicts : tasks/redline-adr-0004.md + items/RD4.yaml.
+  version: 32
   host: multi_agent_v1
 
 segments:
@@ -327,6 +340,13 @@ segments:
     lots: [RDF]
     gate: GATE_REDLINE_FONDATEURS
     depends_on_gate: [GATE_AGENT, GATE_CONSOLE_WEB, GATE_REALM_FOLLOWUP]
+
+  adr-redline-0004:
+    branch: feat/adr-redline-0004
+    base: main
+    lots: [RD4]
+    gate: GATE_REDLINE_ADR4
+    depends_on_gate: [GATE_PIPELINE, GATE_AGENT, GATE_CONSOLE_WEB]
 
 items:
   # ── SOL ──
@@ -660,3 +680,16 @@ items:
   - { id: RDF17, lot: RDF, blueprint: docs-spec-item, priority: 9964, depends_on: [] }
   - { id: RDF18, lot: RDF, priority: 9968, depends_on: [GATE_FACTURX] }
   - { id: GATE_REDLINE_FONDATEURS, type: gate, executor: human, priority: 9990, depends_on: [RDF01, RDF02, RDF03, RDF04, RDF05, RDF06, RDF07, RDF08, RDF09, RDF10, RDF11, RDF12, RDF13, RDF14, RDF15, RDF16, RDF17] }
+
+  # ── RD4 (segment adr-redline-0004 — backlog du redline ADR-0004, manifest v32) ──
+  # Détails, décisions opérateur et verdicts de vérification adversariale : items/RD4.yaml + tasks/redline-adr-0004.md.
+  - { id: RD401, lot: RD4, priority: 10000, depends_on: [] }
+  - { id: RD402, lot: RD4, priority: 10005, depends_on: [] }
+  - { id: RD403, lot: RD4, priority: 10010, depends_on: [RD401] }
+  - { id: RD404, lot: RD4, priority: 10015, depends_on: [] }
+  - { id: RD405, lot: RD4, blueprint: docs-spec-item, priority: 10020, depends_on: [] }
+  - { id: RD406, lot: RD4, priority: 10025, depends_on: [] }
+  - { id: RD407, lot: RD4, priority: 10030, depends_on: [] }
+  - { id: RD408, lot: RD4, priority: 10035, depends_on: [] }
+  - { id: RD409, lot: RD4, blueprint: docs-spec-item, priority: 10040, depends_on: [] }
+  - { id: GATE_REDLINE_ADR4, type: gate, executor: human, priority: 10090, depends_on: [RD401, RD402, RD403, RD404, RD405, RD406, RD407, RD408, RD409] }
