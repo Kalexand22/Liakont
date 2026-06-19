@@ -52,6 +52,7 @@ public sealed class FakePaClient : IPaClient
         PivotDocumentDto document,
         bool sendAfterImport = true,
         PaOutboundProjection? projection = null,
+        PaSendContext? context = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -62,6 +63,9 @@ public sealed class FakePaClient : IPaClient
         var typeCode = projection?.DocumentTypeCode ?? PaDocumentTypeCode.CommercialInvoice;
         var fiscalNumber = projection?.FiscalNumber ?? document.Number;
         Record(nameof(SendDocumentAsync), fiscalNumber);
+
+        // FX07 : la PA factice (chemin Pilotage de test) IGNORE l'artefact pré-construit (context) —
+        // capacité SupportsFacturXTransmission = false. Comportement inchangé.
 
         // Avoir demandé alors que la PA ne le supporte pas → résultat typé, jamais d'exception (PAA01).
         if (document.CreditNoteRefs.Count > 0 && !Capabilities.SupportsCreditNotes)

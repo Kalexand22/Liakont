@@ -261,14 +261,11 @@ public sealed class MandatNumberAllocatorIntegrationTests
         return mandant;
     }
 
-    private static async Task SeedPendingAcceptanceAsync(MandatsHarness harness, Guid companyId, Guid documentId)
-    {
-        var acceptance = SelfBilledAcceptance.Create(companyId, documentId, PendingSince, PendingSince.AddDays(30));
-        await using var uow = await harness.AcceptanceUowFactory.BeginAsync();
-        var entry = SelfBilledAcceptanceLogFactory.ForCreation(acceptance, operatorId: null, "Ingestion (test)");
-        await uow.InsertAsync(acceptance, entry);
-        await uow.CommitAsync();
-    }
+    // SIG05 : l'acceptation est projetée via DocumentApproval ; la companion fiscale (self_billed_acceptances,
+    // cible de l'allocateur MND05) est créée par la commande d'ouverture. L'allocateur reste INCHANGÉ.
+    private static Task SeedPendingAcceptanceAsync(MandatsHarness harness, Guid companyId, Guid documentId)
+        => harness.Commands.OpenPendingAsync(
+            companyId, documentId, PendingSince, PendingSince.AddDays(30), operatorId: null, "Ingestion (test)");
 
     private static async Task<long?> ReadSequenceNextValueAsync(MandatsHarness harness, Guid companyId, Guid mandantId)
     {

@@ -29,15 +29,24 @@ public interface IPaClient
     /// et <see cref="PaOutboundProjection.FiscalNumber"/> ; un 389 n'est passé qu'à une PA dont la capacité
     /// <see cref="PaCapabilities.SupportsSelfBilling"/> est déclarée (garde posée par le pipeline, CLAUDE.md n°8).
     /// </para>
+    /// <para>
+    /// <paramref name="context"/> (FX07, F16 §6.1) porte un artefact fiscal PRÉ-CONSTRUIT par la
+    /// plateforme (le Factur-X scellé), à transmettre tel quel. Les PA de niveau « Pilotage » (Super PDP,
+    /// B2Brouter) l'IGNORENT — elles construisent leur payload depuis le pivot ; la PA générique l'EXIGE
+    /// (artefact absent → blocage, jamais régénéré dans le plug-in). <c>null</c> = aucun artefact
+    /// pré-construit (comportement historique inchangé pour les PA existantes).
+    /// </para>
     /// </summary>
     /// <param name="document">Le document pivot enrichi à transmettre (EN 16931, F01-F02 §3.1).</param>
     /// <param name="sendAfterImport">Vrai = créer ET envoyer ; faux = créer sans envoyer.</param>
     /// <param name="projection">Projection sortante (type/BT-1) pour les cas non standard, ou <c>null</c>.</param>
+    /// <param name="context">Artefact pré-construit optionnel (FX07) ; <c>null</c> pour les PA qui bâtissent leur payload.</param>
     /// <param name="cancellationToken">Jeton d'annulation.</param>
     Task<PaSendResult> SendDocumentAsync(
         PivotDocumentDto document,
         bool sendAfterImport = true,
         PaOutboundProjection? projection = null,
+        PaSendContext? context = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

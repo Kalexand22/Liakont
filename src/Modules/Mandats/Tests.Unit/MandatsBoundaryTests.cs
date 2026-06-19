@@ -4,6 +4,7 @@ using System.IO;
 using System.Reflection;
 using System.Xml.Linq;
 using FluentAssertions;
+using Liakont.Modules.Mandats.Contracts;
 using Liakont.Modules.Mandats.Contracts.Queries;
 using Liakont.Modules.Mandats.Infrastructure;
 using NetArchTest.Rules;
@@ -18,6 +19,8 @@ using Xunit;
 /// </summary>
 public sealed class MandatsBoundaryTests
 {
+    private const string DocumentApprovalContractsAssembly = "Liakont.Modules.DocumentApproval.Contracts";
+
     private static readonly Assembly ContractsAssembly = typeof(IMandatsQueries).Assembly;
     private static readonly Assembly InfrastructureAssembly = typeof(MandatsModuleRegistration).Assembly;
 
@@ -54,11 +57,40 @@ public sealed class MandatsBoundaryTests
     [Fact]
     public void Infrastructure_DoesNotReachIntoAnotherBusinessModule()
     {
+        // SIG05 : l'acceptation 389 est PROJETÉE via le module générique DocumentApproval — la SEULE arête
+        // cross-module autorisée est Mandats.Infrastructure → DocumentApproval.Contracts (jamais Domain/
+        // Application/Infrastructure). C'est l'accès « par les Contracts » de module-rules §3 / CLAUDE.md n°14.
         ReferencedAssemblyNames(InfrastructureAssembly)
             .Should().NotContain(
                 n => n.StartsWith("Liakont.Modules.", StringComparison.Ordinal)
-                     && !n.StartsWith("Liakont.Modules.Mandats", StringComparison.Ordinal),
-                "MND01 (fondation) ne référence aucun autre module métier (INV-MANDATS-2).");
+                     && !n.StartsWith("Liakont.Modules.Mandats", StringComparison.Ordinal)
+                     && n != DocumentApprovalContractsAssembly,
+                "Mandats.Infrastructure ne référence aucun autre module métier hormis DocumentApproval.Contracts (SIG05, INV-MANDATS-2).");
+    }
+
+    [Fact]
+    public void Purpose_Gate_Ports_Are_Exposed_By_The_Mandats_Contracts_Surface()
+    {
+        // SIG06, ADR-0028 §4/§9 (chaîne des purposes) : les ports de gate par purpose sont exposés par les
+        // CONTRACTS du module exposeur (Mandats), jamais par son Domain/Application/Infrastructure ni par
+        // DocumentApproval. Le consommateur (Pipeline) ne dépend QUE de Mandats.Contracts (frontière imposée par
+        // construction : Pipeline.Infrastructure.csproj ne référence que Mandats.Contracts) ; les implémentations
+        // délèguent à DocumentApproval PAR SES CONTRACTS (garde assembly Infrastructure_DoesNotReachIntoAnotherBusinessModule).
+        var ports = new[]
+        {
+            typeof(ISelfBilledGate),          // SelfBilledAcceptance (MND03, réutilisé)
+            typeof(IMandateSignatureGate),    // MandateSignature
+            typeof(ICreditNoteAcceptanceGate), // CreditNoteAcceptance (avoir 261, #9 défaut « oui »)
+            typeof(IMultiPartySignatureGate), // MultiPartySignature
+        };
+
+        foreach (var port in ports)
+        {
+            port.Assembly.GetName().Name.Should().Be(
+                ContractsAssembly.GetName().Name,
+                "le port de gate {0} doit être exposé par Mandats.Contracts (module exposeur, ADR-0028 §4/§9)",
+                port.Name);
+        }
     }
 
     [Fact]
@@ -69,12 +101,19 @@ public sealed class MandatsBoundaryTests
         var srcRootSlash = Path.GetFullPath(Path.Combine(mandatsRoot, "..", ".."))
             .Replace('\\', '/').TrimEnd('/');
 
+        // La frontière inter-modules est une garantie de PRODUCTION : on scanne les .csproj de production du
+        // module (Domain/Application/Contracts/Infrastructure/Web), pas les projets de TEST. Un projet de test
+        // compose légitimement l'infrastructure d'autres modules pour piloter ses scénarios (SIG05 :
+        // Tests.Integration référence DocumentApproval.Infrastructure pour semer des validations) — sans pour
+        // autant relâcher la frontière du runtime (gardée par Infrastructure_DoesNotReachIntoAnotherBusinessModule
+        // au niveau ASSEMBLY + le scan des .csproj de production ci-dessous).
         var csprojs = Directory
             .EnumerateFiles(mandatsRoot, "*.csproj", SearchOption.AllDirectories)
             .Where(p => !p.Replace('\\', '/').Contains("/bin/") && !p.Replace('\\', '/').Contains("/obj/"))
+            .Where(p => !p.Replace('\\', '/').Contains("/Tests."))
             .ToArray();
 
-        csprojs.Should().NotBeEmpty("les .csproj du module Mandats doivent être localisables depuis le répertoire de test");
+        csprojs.Should().NotBeEmpty("les .csproj de production du module Mandats doivent être localisables depuis le répertoire de test");
 
         // Références de projet autorisées : le module lui-même, le socle Common (Abstractions /
         // Infrastructure / Testing), le contrat agent partagé (BCL-only, autorisé pour tous les modules), et
@@ -91,6 +130,11 @@ public sealed class MandatsBoundaryTests
                 StringComparison.OrdinalIgnoreCase)
             || resolvedSlash.EndsWith(
                 "/src/Modules/Job/Contracts/Stratum.Modules.Job.Contracts.csproj",
+                StringComparison.OrdinalIgnoreCase)
+
+            // SIG05 : projection self-billing via DocumentApproval — Contracts UNIQUEMENT (frontière module-rules §3).
+            || resolvedSlash.EndsWith(
+                "/src/Modules/DocumentApproval/Contracts/Liakont.Modules.DocumentApproval.Contracts.csproj",
                 StringComparison.OrdinalIgnoreCase);
 
         var violations = (
@@ -104,9 +148,10 @@ public sealed class MandatsBoundaryTests
             .ToArray();
 
         violations.Should().BeEmpty(
-            "un .csproj Mandats ne référence que le module lui-même, le socle Common, Liakont.Agent.Contracts " +
-            "et le seam de planification socle Stratum.Modules.Job.Contracts (IJobHandler, MND04) — jamais un " +
-            "autre module métier (CLAUDE.md n°6/14, INV-MANDATS-2)");
+            "un .csproj Mandats ne référence que le module lui-même, le socle Common, Liakont.Agent.Contracts, " +
+            "le seam de planification socle Stratum.Modules.Job.Contracts (IJobHandler, MND04) et " +
+            "DocumentApproval.Contracts (SIG05, projection self-billing) — jamais un autre module métier " +
+            "ni le Domain/Application/Infrastructure d'un module (CLAUDE.md n°6/14, INV-MANDATS-2)");
     }
 
     private static IEnumerable<string> ReferencedAssemblyNames(Assembly assembly) =>

@@ -164,14 +164,31 @@ internal static class DocumentCheckEvaluator
     }
 
     /// <summary>
-    /// Motif de blocage d'une auto-facture sous mandat (art. 289 I-2 CGI) dont l'acceptation n'est pas acquise
+    /// Motif de blocage d'une auto-facture sous mandat (art. 289 I-2 CGI) dont le gate d'émission est fermé
     /// (MND03, ADR-0024 §3 / F15 §2.3, INV-ACCEPT-2). N'INVENTE aucune règle fiscale (CLAUDE.md n°2) : l'exigence
     /// d'acceptation vient de F15 §2.3 / ADR-0024 ; le périmètre du Contested (avoir de correction 261) reste
     /// NON TRANCHÉ (F15 §6.5) — on ne prescrit donc pas son traitement. Cite l'état courant (transparence) et une
-    /// action corrective générique (CLAUDE.md n°12). Préfixé du n° de document par l'appelant.
+    /// action corrective JUSTE (CLAUDE.md n°12). ⚠️ Depuis SIG06, le gate peut se fermer alors qu'une acceptation
+    /// EST enregistrée (Accepted/TacitlyAccepted) — quand le tenant exige un niveau de preuve supérieur (eIDAS) que
+    /// la validation attachée ne couvre pas : on ne doit JAMAIS affirmer « aucune acceptation enregistrée » dans ce
+    /// cas (message faux + action corrective inapplicable). Préfixé du n° de document par l'appelant.
     /// </summary>
     private static string SelfBilledAcceptanceReason(string? acceptanceState)
     {
+        // Acceptation ENREGISTRÉE mais gate fermé ⇒ le blocage vient du NIVEAU DE PREUVE requis (paramétrage tenant,
+        // SIG06) ou de la forme, jamais d'une absence d'acceptation. Message + action corrective adaptés (CLAUDE.md
+        // n°12) : ne pas dire « aucune acceptation » (factuellement faux), orienter vers le niveau requis.
+        if (acceptanceState is "Accepted" or "TacitlyAccepted")
+        {
+            return
+                "auto-facture sous mandat (art. 289 I-2 CGI) : une acceptation est enregistrée, mais elle ne " +
+                "satisfait pas le niveau de preuve requis par le paramétrage du tenant pour ce document (la " +
+                "validation/signature attachée est d'un niveau inférieur à l'exigence configurée). L'émission " +
+                "reste suspendue — jamais transmise tant que le niveau requis n'est pas atteint. Action opérateur : " +
+                "faites valider/signer ce document au niveau de preuve requis par votre paramétrage, puis relancez " +
+                "la vérification.";
+        }
+
         var situation = acceptanceState switch
         {
             "PendingAcceptance" => "l'acceptation par le mandant est en attente",

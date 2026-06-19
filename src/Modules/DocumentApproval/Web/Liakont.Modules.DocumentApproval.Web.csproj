@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Couche Web (console / endpoints) du module DocumentApproval. SIG04 (cœur générique) ne livre AUCUN
+       écran : le point de montage est posé pour que l'UI signature (SIG10) y ajoute ses routes sans toucher
+       la composition root. Aucune logique métier dans cette couche (déléguée aux handlers, module-rules §1). -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Contracts/Liakont.Modules.DocumentApproval.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Abstractions/Stratum.Common.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

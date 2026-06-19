@@ -24,6 +24,9 @@ typé** (`PaCapabilityNotSupportedResult`), journalisable en français, **jamais
 | Plug-ins PA concrets | **interdit** | Le module ne référence AUCUNE PA concrète (`Liakont.PaClients.*`) — frontière vérifiée par NetArchTest (`TransmissionBoundaryTests`). |
 | Types HTTP | **interdit dans l'abstraction** | La construction du payload PA-spécifique vit dans le plug-in (F05 §6) — aucun type HTTP ne traverse `IPaClient`. |
 | `PivotDocumentDto` (contrat agent) | **read** | Le document transmis est le pivot ENRICHI (le mapping TVA a déjà écrit `CategoryCode`/`VatexCode` sur `PivotLineTaxDto`). Référence partagée, comme Ingestion/Validation.Contracts. |
+| `PaSendContext` | **abstraction publique** | Contexte d'envoi OPTIONNEL portant un artefact fiscal PRÉ-CONSTRUIT (Factur-X scellé, FX07/F16 §6.1). Les PA Pilotage l'ignorent ; la PA générique l'exige. |
+| `IFacturXArtifactBuilder` (pont) | **abstraction publique, impl. Host** | Pont de génération du Factur-X consommé par le pipeline (FX07). Vit ici (où vit la capacité `SupportsFacturXTransmission`) et est IMPLÉMENTÉ AU HOST en délégant à `IFacturXBuilder` (module FacturX), pour que le pipeline génère « derrière IFacturXBuilder » SANS franchir la frontière Contracts-only (module-rules §3). |
+| `IDocumentDeliveryChannel` (canal) | **abstraction publique, impl. Host** | Canal de livraison (email avec pièce jointe / dépôt de fichier) de la PA générique (FXG, F16 §6.2), implémenté au Host ; le plug-in ne voit que le contrat. |
 
 Le module **n'accède à aucun autre module métier** (sa seule dépendance inter-projet est le contrat
 agent partagé `Liakont.Agent.Contracts`). Les secrets (clé API par tenant, chiffrés) ne transitent
@@ -52,7 +55,9 @@ attente : la plateforme … ne prend pas encore en charge … »).
   `PaymentReportPeriod`, `PaSendState`/`PaSendResult`, `PaDocumentStatus`, `PaTaxReport`/
   `PaTaxReportState`, `PaAccountInfo`, `PaTaxReportSetting`(+`Request`), `PaError`,
   `PaGeneratedDocument`, `PaCapabilityNotSupportedResult`, `IPaClientFactory`, `IPaClientRegistry`,
-  `PaAccountDescriptor`.
+  `PaAccountDescriptor` ; `PaSendContext` (artefact pré-construit, FX07), `IFacturXArtifactBuilder`
+  (pont génération impl. Host, FX07), `IDocumentDeliveryChannel`/`DocumentDeliveryRequest`/
+  `DocumentDeliveryMethod`/`SmtpDeliveryAuthentication` (canaux de livraison impl. Host, FXG).
 - **Infrastructure** : `PaClientRegistry` (registre par clé de type) + `AddTransmissionModule()`
   (enregistrement DI, câblé par `Liakont.Host`).
 - **Domain / Application** : aucun en PAA01 (pas de logique métier propre au module : la transformation

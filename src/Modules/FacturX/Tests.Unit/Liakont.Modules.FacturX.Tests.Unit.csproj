@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+    <!-- Gardes de frontière du module FacturX (confinement QuestPDF + indépendance PA) — FX02. -->
+    <PackageReference Include="NetArchTest.Rules" />
+    <!-- Lecture/inspection du Factur-X généré (FX04) : texte (cohérence visuel↔XML), fichiers embarqués
+         et flux XMP. PdfPig (ADR-0010) — dépendance de TEST uniquement, pas du produit. -->
+    <PackageReference Include="PdfPig" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- ServiceCollection pour tester AddFacturXModule (même patron que Transmission.Tests.Unit). -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Contracts/Liakont.Modules.FacturX.Contracts.csproj" />
+    <ProjectReference Include="../Domain/Liakont.Modules.FacturX.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.FacturX.Application.csproj" />
+    <ProjectReference Include="../Infrastructure/Liakont.Modules.FacturX.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

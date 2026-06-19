@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- DI abstractions pour l'extension AddGeneriquePaClient — aucun package NuGet nouveau, aucun ADR
+         (versions gérées centralement, Directory.Packages.props, repo-standards §4). AUCUNE référence à
+         MailKit/MimeKit ni au module Notification : la composition MIME (pièce jointe) vit au Host derrière
+         IDocumentDeliveryChannel (F16 §6.2 ; frontière verrouillée par GeneriqueBoundaryTests). -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Un plug-in PA ne référence QUE Transmission.Contracts (+ Common) — jamais un autre plug-in,
+         jamais un module métier (y compris FacturX et Notification), jamais l'Infrastructure du module
+         (blueprint.md §2 règle 4 ; module-rules §6 ; CLAUDE.md n°6/16). Frontière verrouillée par
+         GeneriqueBoundaryTests. PivotDocumentDto arrive transitivement via Transmission.Contracts. -->
+    <ProjectReference Include="../../Modules/Transmission/Contracts/Liakont.Modules.Transmission.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Le client (implémentation d'IPaClient) et sa voie de transmission interne restent INTERNAL —
+         aucun type propriétaire n'est exposé hors de l'assembly. Les tests les exercent via InternalsVisibleTo. -->
+    <InternalsVisibleTo Include="Liakont.PaClients.Generique.Tests.Unit" />
+  </ItemGroup>
+</Project>

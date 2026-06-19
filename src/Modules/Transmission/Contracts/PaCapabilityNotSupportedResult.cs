@@ -45,6 +45,7 @@ public sealed record PaCapabilityNotSupportedResult
         PaCapability.DocumentRetrieval => "le téléchargement de la facture générée",
         PaCapability.ReportRectification => "la rectification de déclaration (flux RE)",
         PaCapability.SelfBilling => "l'émission d'auto-factures sous mandat (389)",
+        PaCapability.FacturXTransmission => "la transmission d'un Factur-X pré-construit",
         _ => capability.ToString(),
     };
 }

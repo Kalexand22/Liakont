@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Hôte capteur autonome (ADR-0030 §1). L'intégration du SDK Wacom natif se fait au déploiement derrière
+         ISignaturePadDevice (README.md) — non référencée ici pour préserver build + pureté (INV-ONSITE-2/3). -->
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Liakont.OnSiteSignature.Client</RootNamespace>
+    <AssemblyName>Liakont.OnSiteSignature.Client</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.OnSiteSignature.Client.Tests" />
+  </ItemGroup>
+
+  <!-- Assemblies du framework net48 : DPAPI (ProtectedData, System.Security), client HTTPS sortant
+       (System.Net.Http). Signés Microsoft → acceptés par le test de pureté via jeton de clé publique. -->
+  <ItemGroup>
+    <Reference Include="System.Security" />
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
+
+  <!-- Sérialisation JSON du payload de capture (POST HTTPS). Tierce DÉCLARÉE et tolérée par le test de pureté. -->
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" />
+  </ItemGroup>
+
+</Project>

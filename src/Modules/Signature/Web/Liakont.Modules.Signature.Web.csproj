@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Couche Web (console / endpoints) du module Signature. SIG08 monte le proxy OnSiteCapture (capture sur
+       place + enregistrement du signataire vérifié) ; SIG10 ajoutera les pages console. Aucune logique métier
+       ici (déléguée aux handlers MediatR, module-rules §1 ; CLAUDE.md review n°19). -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- ISender (dispatch des commandes du proxy OnSiteCapture). MediatR.Contracts seul ne suffit pas. -->
+    <PackageReference Include="MediatR" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Contracts/Liakont.Modules.Signature.Contracts.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.Signature.Application.csproj" />
+    <!-- IActorContextAccessor (company_id / user_id du principal authentifié) — socle partagé. -->
+    <ProjectReference Include="../../../Common/Abstractions/Stratum.Common.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

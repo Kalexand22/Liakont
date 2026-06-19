@@ -15,15 +15,19 @@ using Liakont.Host.Localization;
 using Liakont.Host.MultiTenancy;
 using Liakont.Host.Navigation;
 using Liakont.Host.Notifications;
+using Liakont.Host.PaDelivery;
 using Liakont.Host.Security;
 using Liakont.Host.Security.Abstractions;
 using Liakont.Host.Security.Keycloak;
 using Liakont.Host.Services;
+using Liakont.Host.Signature;
 using Liakont.Host.Staging;
 using Liakont.Modules.Archive.Infrastructure;
 using Liakont.Modules.Archive.Web;
+using Liakont.Modules.DocumentApproval.Infrastructure;
 using Liakont.Modules.Documents.Infrastructure;
 using Liakont.Modules.Documents.Web;
+using Liakont.Modules.FacturX.Infrastructure;
 using Liakont.Modules.FleetSupervision.Application;
 using Liakont.Modules.FleetSupervision.Infrastructure;
 using Liakont.Modules.Ingestion.Application;
@@ -38,16 +42,24 @@ using Liakont.Modules.Pipeline.Infrastructure.Send;
 using Liakont.Modules.Pipeline.Web;
 using Liakont.Modules.Reconciliation.Infrastructure;
 using Liakont.Modules.Reconciliation.Web;
+using Liakont.Modules.Signature.Application;
+using Liakont.Modules.Signature.Contracts;
+using Liakont.Modules.Signature.Infrastructure;
+using Liakont.Modules.Signature.Infrastructure.Drain;
+using Liakont.Modules.Signature.Web;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.Staging.Infrastructure;
 using Liakont.Modules.Supervision.Application;
 using Liakont.Modules.Supervision.Infrastructure;
+using Liakont.Modules.SupportTrace.Infrastructure;
 using Liakont.Modules.TenantSettings.Infrastructure;
 using Liakont.Modules.TenantSettings.Web;
+using Liakont.Modules.Transmission.Contracts;
 using Liakont.Modules.Transmission.Infrastructure;
 using Liakont.Modules.TvaMapping.Infrastructure;
 using Liakont.Modules.TvaMapping.Web;
 using Liakont.Modules.Validation.Infrastructure;
+using Liakont.SignatureProviders.Yousign;
 using MediatR;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -179,9 +191,23 @@ public static class AppBootstrap
         builder.Services.AddIngestionModule();
         builder.Services.AddTvaMappingModule();
 
+        // DocumentApproval (SIG04, ADR-0028) : workflow de validation de document GÉNÉRIQUE (cœur réutilisable
+        // du lot signature) — agrégat à machine fermée par purpose, slots N-parties, journal append-only,
+        // règle de gate. Le Host enregistre la persistance (migrations du schéma documentapproval + UoW +
+        // requêtes + port de commande générique). Aucun port par purpose ni job ici (SIG06/SIG07) ; aucune
+        // logique fiscale (CLAUDE.md n°2). ⚠️ ENREGISTRÉ AVANT Mandats : depuis SIG05, la migration de bascule
+        // du module Mandats (self-billing → documentapproval) ÉCRIT dans le schéma documentapproval ; ses tables
+        // (V001-V004) doivent donc exister AVANT. La garantie tient des DEUX côtés : (1) par le NOM de script,
+        // « ...DocumentApproval...Migrations.V004 » trie avant « ...Mandats...Migrations.V010 » (ordre lexical
+        // des ressources embarquées) ; (2) cet enregistrement de DocumentApproval AVANT Mandats (défense en
+        // profondeur, et c'est l'ordre des fixtures de test). La migration V010 est exercée sur données réelles
+        // par SelfBilledAcceptanceMigrationV010Tests.
+        builder.Services.AddDocumentApprovalModule();
+
         // Mandats (F15 §2, ADR-0022) : registre des mandants + cycle de vie des mandats (autofacturation
-        // 389). MND01 (fondation) n'enregistre que la persistance (migrations DbUp du schéma mandats +
-        // journal append-only, UoW, requêtes) ; les handlers et le port ISelfBilledGate arrivent avec MND02+.
+        // 389) + acceptation 389 PROJETÉE via DocumentApproval (SIG05 : machine + journal document_approval_log
+        // délégués au module générique ; le module garde le port ISelfBilledGate, l'allocation BT-1 et la
+        // companion fiscale allocated_number). Les handlers de bascule tacite arrivent par MND04.
         builder.Services.AddMandatsModule();
 
         // Validation (F04) : expose IValidationService à la frontière Contracts (consommé par le pipeline,
@@ -229,6 +255,16 @@ public static class AppBootstrap
         // d'instance n'est configurée (Staging:Storage:FileSystem:RootPath). Voir StagingHostRegistration —
         // remplace le repli bin/ du module, cause de la perte de contenu (documents zombies).
         builder.Services.AddStableStagingRoot(builder.Environment.ContentRootPath);
+
+        // Trace de support du Factur-X transmis (FX06, F16 §7) : store DÉDIÉ, tenant-scopé, chiffré au repos,
+        // à rétention courte (proposition 90 j configurable) et PURGEABLE — distinct par construction de la
+        // piste d'audit append-only (documents.document_events) et du coffre WORM probant. Le handler de purge
+        // fait le fan-out par tenant (TenantJobRunner, SOL06) ; sa PLANIFICATION (cron) reste un geste opérateur
+        // via l'admin des planifications, comme le digest de supervision — aucune cadence inventée (la cadence
+        // d'un housekeeping de rétention courte relève du déploiement). L'ÉCRITURE de la trace (au moment de la
+        // transmission) est câblée par FX07.
+        builder.Services.AddSupportTraceModule(builder.Configuration);
+        builder.Services.AddJobHandler<SupportTracePurgeTrigger, SupportTracePurgeFanOutHandler>("Purge de la trace de support du Factur-X");
 
         // Reconciliation (TRK07) après Archive : rapproche les PDF du pool non lié des documents émis et
         // ajoute le PDF réconcilié au paquet d'archive en addendum (consomme IArchiveService). Le job
@@ -279,6 +315,42 @@ public static class AppBootstrap
         // réelle (bug-inbox « Fake jamais câblé » : sans lui le registre ci-dessus ne résout rien) ;
         // en production il reste absent. Le registre le découvre et le résout par PaType (CLAUDE.md n°8).
         builder.Services.AddConfiguredPaClients(builder.Environment, builder.Configuration);
+
+        // Génération Factur-X (FX02-FX04) : enregistre le port IFacturXBuilder (sérialiseur CII maison +
+        // scellement PDF/A-3 QuestPDF confiné à FacturX.Infrastructure, INV-FX-1). La décision de générer
+        // reste au pipeline appelant (FacturX ne consulte aucune PaCapabilities — ADR-0023 INV-FX-4).
+        builder.Services.AddFacturXModule();
+
+        // FX07 (F16 §6.1) : le plug-in PA GÉNÉRIQUE (Essentiel) et ses canaux de livraison Host sont câblés
+        // ICI, EN MÊME TEMPS que la génération à l'étape Sending — au moment où le pipeline sait nourrir le
+        // plug-in (extension du contrat IPaClient via PaSendContext + génération du Factur-X). Le pont
+        // IFacturXArtifactBuilder → IFacturXBuilder (composition root) laisse le pipeline générer « derrière
+        // IFacturXBuilder » SANS franchir la frontière Contracts-only (module-rules §3) : seul le Host
+        // référence à la fois Transmission.Contracts et le module FacturX. Un compte « Generique » actif
+        // devient ainsi transmissible de bout en bout (génération → transmission → journal + trace support).
+        builder.Services.AddSingleton<IFacturXArtifactBuilder, FacturXArtifactBuilder>();
+        builder.Services.AddGeneriquePaDelivery();
+
+        // Signature (SIG03, ADR-0027) : registre de types des fournisseurs de signature. Aucun plug-in
+        // n'est référencé ici (le module ne connaît AUCUN fournisseur concret — CLAUDE.md n°6) ; chaque
+        // plug-in (Yousign = SIG07, Wacom = SIG08) ajoutera sa propre ISignatureProviderFactory en singleton
+        // au composition root et le registre la découvrira. La signature est OPTIONNELLE : le registre se
+        // construit vide sans erreur (défaut Recorded) ; les fournisseurs CONFIGURÉS mais non câblés sont
+        // détectés au démarrage (ValidateSignatureProviderConfiguration, dans InitializeDataAsync).
+        builder.Services.AddSignatureModule();
+
+        // Plug-in de signature à distance Yousign (SIG07, ADR-0029) câblé au COMPOSITION ROOT — seul endroit
+        // autorisé à référencer un plug-in concret (CLAUDE.md n°6/14). Le résolveur de compte (déchiffrement
+        // des secrets par tenant via ISecretProtector) est fourni par le Host (le plug-in ne voit pas le
+        // coffre) ; AddYousignSignatureProvider enregistre le client HTTP anti-SSRF + la fabrique (singleton),
+        // que le registre du module Signature découvre par son type. Le drain WORM (job système fan-out par
+        // tenant via TenantJobRunner) est enregistré comme les autres jobs (DailyAnchoring/Supervision).
+        // NB : AddDocumentApprovalModule() est enregistré plus haut (avant Mandats) depuis SIG05 — ordre des
+        // migrations DbUp (Mandats écrit dans le schéma documentapproval).
+        builder.Services.TryAddSingleton<IYousignAccountResolver, YousignAccountResolver>();
+        builder.Services.AddYousignSignatureProvider();
+        builder.Services.AddJobHandler<SignatureWebhookDrainTrigger, SignatureWebhookDrainFanOutHandler>(
+            "Drain des webhooks de signature (rapatriement WORM)");
 
         // Pipeline (PIP01a — fondations) : lecteur canonique du contenu stagé + journal d'exécutions
         // (pipeline.run_logs) + points d'entrée Contracts consommés par CHECK/SEND/SYNC. AUCUN comportement
@@ -356,6 +428,19 @@ public static class AppBootstrap
                     factory: _ => new FixedWindowRateLimiterOptions
                     {
                         PermitLimit = 120,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                    }));
+
+            // Webhook de signature (SIG07, ADR-0029) : endpoint anonyme (la vraie garde est le HMAC par
+            // tenant). Fenêtre par IP anti-flood, dimensionnée généreusement (un provider peut émettre des
+            // rafales légitimes) — borne le brute-force/inondation sans rejeter du trafic valide.
+            options.AddPolicy(SignatureWebhookEndpoints.RateLimiterPolicy, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 300,
                         Window = TimeSpan.FromMinutes(1),
                         QueueLimit = 0,
                     }));
@@ -559,6 +644,13 @@ public static class AppBootstrap
         // aucun second chemin d'envoi, aucune logique fiscale dans la page (garde liakont.actions, tenant-scopé).
         builder.Services.AddScoped<Liakont.Host.Documents.IDocumentSendActions, Liakont.Host.Documents.DocumentSendActionsService>();
 
+        // Composition de la page console des signatures/validations (SIG10) : lecture (statut + journal + registre
+        // des fournisseurs) et écriture (déclencher / enregistrer / contester). Appels in-process tenant-scopés,
+        // délégués aux ports génériques DocumentApproval (SIG04/05) + registre Signature (SIG03) — aucune logique
+        // métier dans la page (CLAUDE.md n°19), aucune règle fiscale dupliquée.
+        builder.Services.AddScoped<Liakont.Host.Signatures.ISignatureConsoleQueries, Liakont.Host.Signatures.SignatureConsoleQueryService>();
+        builder.Services.AddScoped<Liakont.Host.Signatures.ISignatureConsoleActions, Liakont.Host.Signatures.SignatureConsoleActionsService>();
+
         // Composition en lecture de la page Paramétrage du tenant (WEB04b) : assemble /settings + agents
         // et déclenche la vérification d'intégrité du coffre (API03). Isole l'assemblage hors de la page.
         builder.Services.AddScoped<Liakont.Host.Parametrage.IParametrageQueries, Liakont.Host.Parametrage.ParametrageQueryService>();
@@ -640,6 +732,13 @@ public static class AppBootstrap
     /// </summary>
     public static async Task InitializeDataAsync(WebApplication app)
     {
+        // Validation au démarrage des fournisseurs de signature CONFIGURÉS (SIG03, ADR-0027 §4). Sur le
+        // modèle de la validation de l'abstraction IdP, mais — différence essentielle — la signature est
+        // OPTIONNELLE : ne bloque QUE pour un fournisseur déclaré dans Signature:EnabledProviders mais non
+        // câblé ; l'absence de tout fournisseur n'est jamais une erreur (un tenant Recorded démarre sans
+        // plug-in — INV-SIGPROV-6).
+        ValidateSignatureProviderConfiguration(app.Configuration, app.Services);
+
         // Signale l'activation du puits factice hors Development avant toute initialisation,
         // pour qu'un opérateur ayant posé PaClients:Fake:Enabled=true par erreur le voie immédiatement.
         app.WarnIfFakePaClientForcedOutsideDevelopment();
@@ -907,6 +1006,7 @@ public static class AppBootstrap
         v1.MapTvaMappingEndpoints();
         v1.MapReconciliationEndpoints();
         v1.MapAgentManagementEndpoints();
+        v1.MapSignatureEndpoints();
 
         // API agent → plateforme (contrat d'ingestion, F12 §3) : groupe /api/agent/v1 distinct de
         // l'API console OIDC, authentifié par clé API (filtre) et protégé par rate limiting.
@@ -916,6 +1016,10 @@ public static class AppBootstrap
         // d'ingestion (en-tête X-Fleet-Key), actif seulement si le rôle central est activé (sinon 404).
         app.MapFleetApi();
 
+        // Webhooks de signature (SIG07, ADR-0029) : POST /webhooks/signature/{providerType}/{opaqueRef},
+        // anonyme (garde = HMAC par tenant), routage par handle opaque + inbox durable avant 2xx.
+        app.MapSignatureWebhooks();
+
         app.MapRazorComponents<App>()
             .AddAdditionalAssemblies(
                 typeof(Stratum.Modules.Notification.Web.NotificationEndpointMapping).Assembly,
@@ -923,6 +1027,27 @@ public static class AppBootstrap
                 typeof(Stratum.Modules.Audit.Web.AuditNavSectionProvider).Assembly,
                 typeof(Stratum.Modules.Job.Web.JobNavSectionProvider).Assembly)
             .AddInteractiveServerRenderMode();
+    }
+
+    /// <summary>
+    /// Valide au démarrage les fournisseurs de signature CONFIGURÉS (SIG03, ADR-0027 §4). Lit
+    /// <c>Signature:EnabledProviders</c> (liste de types de plug-ins activés, vide par défaut) et délègue à
+    /// <see cref="SignatureProviderStartupValidator"/> : bloque le démarrage UNIQUEMENT pour un fournisseur
+    /// configuré mais non câblé ; l'absence de tout fournisseur n'est jamais une erreur (signature
+    /// optionnelle — INV-SIGPROV-6). La logique pure est testée par <c>SignatureProviderStartupValidatorTests</c>.
+    /// </summary>
+    /// <param name="configuration">Configuration de l'application (lit <c>Signature:EnabledProviders</c>).</param>
+    /// <param name="services">Fournisseur de services (résout <see cref="ISignatureProviderRegistry"/>).</param>
+    internal static void ValidateSignatureProviderConfiguration(
+        Microsoft.Extensions.Configuration.IConfiguration configuration,
+        IServiceProvider services)
+    {
+        var enabledProviders = configuration
+            .GetSection("Signature:EnabledProviders")
+            .Get<string[]>() ?? [];
+
+        var registry = services.GetRequiredService<ISignatureProviderRegistry>();
+        SignatureProviderStartupValidator.Validate(enabledProviders, registry);
     }
 
     /// <summary>

@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Couche Application du module DocumentApproval : abstraction d'unité de travail transactionnelle +
+       entrée de journal. SIG04 (cœur générique) n'expose AUCUN port par purpose ni handler MediatR — les
+       ports (ISelfBilledGate réutilisé, IMandateSignatureGate, …) arrivent avec SIG06. Aucune dépendance
+       inter-module (frontière). -->
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.DocumentApproval.Domain.csproj" />
+  </ItemGroup>
+</Project>

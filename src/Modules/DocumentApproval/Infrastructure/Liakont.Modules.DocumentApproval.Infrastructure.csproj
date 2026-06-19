@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- Microsoft.Extensions.* (DI, Options) du framework partagé — aucun package NuGet nouveau, aucun ADR
+         requis (repo-standards §4). Le module ne porte aucun secret. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.DocumentApproval.Tests.Unit" />
+    <InternalsVisibleTo Include="Liakont.Modules.DocumentApproval.Tests.Integration" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.DocumentApproval.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.DocumentApproval.Application.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.DocumentApproval.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

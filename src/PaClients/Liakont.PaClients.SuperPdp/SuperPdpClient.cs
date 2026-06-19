@@ -60,10 +60,14 @@ internal sealed class SuperPdpClient : IPaClient
         PivotDocumentDto document,
         bool sendAfterImport = true,
         PaOutboundProjection? projection = null,
+        PaSendContext? context = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(document);
         cancellationToken.ThrowIfCancellationRequested();
+
+        // FX07 : Super PDP (niveau Pilotage) IGNORE l'artefact pré-construit (context) — elle convertit le
+        // pivot en CII côté PA (capacité SupportsFacturXTransmission = false). Chemin inchangé par FX07.
 
         // Avoir demandé alors que la capacité n'est pas déclarée → résultat typé, jamais d'exception ni de
         // blocage produit (invariant PAA01). Le modèle d'avoir Super PDP est confirmé en sandbox (PAS03,

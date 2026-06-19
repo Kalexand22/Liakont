@@ -16,6 +16,10 @@
     <ProjectReference Include="../Application/Liakont.Modules.Mandats.Application.csproj" />
     <ProjectReference Include="../Contracts/Liakont.Modules.Mandats.Contracts.csproj" />
     <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+    <!-- SIG05 : l'acceptation 389 est PROJETÉE via le module générique DocumentApproval. Mandats.Infrastructure
+         délègue l'état + le journal à DocumentApproval PAR SES CONTRACTS (frontière module-rules §3, CLAUDE.md
+         n°6/14 : un module n'accède à un autre que par ses Contracts) — jamais Domain/Application/Infrastructure. -->
+    <ProjectReference Include="../../DocumentApproval/Contracts/Liakont.Modules.DocumentApproval.Contracts.csproj" />
     <!-- Seam du job SYSTÈME multi-tenant (MND04, gabarit DailyAnchoring/SOL06) : IJobHandler vit dans le
          module socle vendored Stratum.Modules.Job (mécanique de planification), pas dans Common. Réf au
          Contracts seul (comme Archive/Supervision pour leurs FanOutHandler) — JAMAIS un module métier. -->

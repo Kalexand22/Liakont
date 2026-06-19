@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Seule surface publique du module DocumentApproval (module-rules §1/§3, CLAUDE.md n°6/14) :
+       ValidationPurpose (clé de couplage par purpose), DTOs de lecture et interface de requêtes. Aucune
+       dépendance sur Domain/Application/Infrastructure (consommable sans tirer la persistance) ni sur un autre
+       module métier (les niveaux de preuve sont exposés par leur NOM, pas par l'enum Signature). -->
+  <ItemGroup>
+    <ProjectReference Include="../../../Common/Abstractions/Stratum.Common.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

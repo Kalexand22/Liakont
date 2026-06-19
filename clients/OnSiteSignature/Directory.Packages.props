@@ -1,0 +1,21 @@
+<Project>
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Ciblage net48 via le SDK .NET (pas de pack de ciblage requis sur la machine de build/CI). -->
+    <PackageVersion Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" />
+    <!-- Enforcement de style aligné avec la plateforme et l'agent (ADR-0003). -->
+    <PackageVersion Include="StyleCop.Analyzers" Version="1.2.0-beta.556" />
+    <!-- Sérialisation JSON du payload de capture (POST HTTPS vers le proxy) — net48, aligné agent. -->
+    <PackageVersion Include="Newtonsoft.Json" Version="13.0.3" />
+    <!-- Tests (xUnit net48) — versions alignées sur agent/Directory.Packages.props. -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.0.2" />
+    <PackageVersion Include="FluentAssertions" Version="8.2.0" />
+  </ItemGroup>
+
+</Project>

@@ -16,12 +16,19 @@ validation humaine, révocation).
 - le **suspendu-par-défaut** : `AssujettissementStatus`/`ContestationDelay` `null`, mandat non validé ou
   révoqué ⇒ **389 suspendu** (`Mandat.IsSelfBillingSuspended`), jamais un défaut inventé.
 
-**Périmètre de l'item MND02 (workflow d'acceptation — ADR-0024, F15 §2.3)** :
-- l'agrégat **`SelfBilledAcceptance`** (clé `(company_id, document_id)`, état mutable) et sa **machine fermée**
-  `PendingAcceptance → {Accepted, TacitlyAccepted, Contested}` (aucun retour arrière, INV-ACCEPT-4) ;
-- le **journal append-only** `self_billed_acceptance_log` : CHAQUE transition (création incluse) écrit une
-  ligne dans la MÊME transaction (INV-ACCEPT-5), immuable par double trigger base ;
-- l'état calculé **« gate ouvert »** (`IsAccepted` = Accepted ou TacitlyAccepted) exposé aux Contracts.
+**Périmètre de l'item MND02 (workflow d'acceptation — ADR-0024, F15 §2.3 ; machine déléguée à
+DocumentApproval depuis SIG05 / ADR-0024 amendé par ADR-0028)** :
+- la **machine fermée** `PendingAcceptance → {Accepted, TacitlyAccepted, Contested}` (aucun retour arrière,
+  INV-ACCEPT-4) est désormais portée par le module générique **DocumentApproval** (purpose
+  `SelfBilledAcceptance`) ; `mandats.self_billed_acceptances` est réduit à la **companion fiscale** (clé
+  `(company_id, document_id)`, colonnes : `allocated_number` BT-1/MND05 + `pending_since`) ;
+- le **journal append-only** est `documentapproval.document_approval_log` (INV-ACCEPT-5 amendé per ADR-0024 /
+  F17 §4) : CHAQUE transition (création incluse) écrit une ligne dans la MÊME transaction DocumentApproval,
+  immuable par double trigger base ;
+- le cycle de vie est piloté via `ISelfBilledAcceptanceCommands` (port Mandats) qui délègue à
+  `DocumentApproval.Contracts` — aucune logique dupliquée ;
+- l'état calculé **« gate ouvert »** (`IsAccepted` = Accepted ou TacitlyAccepted) est projeté depuis l'état
+  DocumentApproval vers le vocabulaire fiscal (`SelfBilledAcceptanceStateMap`).
 - Hors MND02 : la **garde** d'émission (port `ISelfBilledGate` → MND03), la **bascule tacite** par job
   (MND04), l'**allocation** du BT-1 fiscal (MND05), et l'**avoir 261** d'un `Contested` (NON TRANCHÉ F15 §6.5).
 
@@ -72,8 +79,7 @@ restent **NON TRANCHÉS** (F15 §6) — un item qui les rencontre **bloque**, il
   - `mandants` : registre des mandants (référence, raison sociale, n° TVA BT-31 nullable, SIREN, préfixe).
   - `mandats` : mandats (clause, écrit/tacite, statut, délai, validation, révocation).
   - `mandat_change_log` : journal **append-only** (registre + cycle de vie), immuable par double trigger.
-  - `self_billed_acceptances` (MND02) : état d'acceptation par document (clé `(company_id, document_id)`, état mutable).
-  - `self_billed_acceptance_log` (MND02) : journal **append-only** des transitions d'acceptation, immuable par double trigger.
+  - `self_billed_acceptances` (MND02 / SIG05) : **companion fiscale** seulement (`allocated_number` BT-1 + `pending_since`) ; l'état et le journal ont été relocalisés dans DocumentApproval par la migration V010.
   - `mandat_sequences` (MND05) : séquence de numérotation BT-1 par mandant (clé `(company_id, mandant_id)`, `next_value` bigint, **mutable** sous verrou `FOR UPDATE`).
   - `mandat_number_allocations` (MND05) : mémoire d'idempotence `source_reference → BT-1 fiscal`, **immuable** par double trigger (un numéro alloué ne change jamais).
 - **Lit / écrit** : uniquement son propre schéma, toujours scopé par `company_id` (CLAUDE.md n°9, INV-MANDATS-1).
@@ -82,8 +88,9 @@ restent **NON TRANCHÉS** (F15 §6) — un item qui les rencontre **bloque**, il
 - **Surface publique** : `Contracts/` uniquement (`IMandatsQueries`, `ISelfBilledAcceptanceQueries`,
   `ISelfBilledGate` (MND03, verdict `SelfBilledGateDecision`), `ISelfBilledNumberAllocator` (MND05), DTOs
   `MandantDto`/`MandatDto`/`MandatChangeLogEntryDto`/`SelfBilledAcceptanceDto`/`SelfBilledAcceptanceLogEntryDto`).
-  Les abstractions d'unité de travail d'écriture (`IMandatsUnitOfWork`, `ISelfBilledAcceptanceUnitOfWork`)
-  vivent dans `Application` ; les implémentations Postgres sont **internes** au module.
+  L'abstraction d'unité de travail d'écriture (`IMandatsUnitOfWork`) vit dans `Application` ; son implémentation
+  Postgres est **interne** au module. Depuis SIG05, `ISelfBilledAcceptanceUnitOfWork` est supprimée : les
+  écritures d'acceptation passent par `IDocumentApprovalWorkflow` (DocumentApproval.Contracts).
 - **Web** : `Web/MandatsEndpointMapping.cs` — squelette de montage (aucune route en MND01).
 
 ## Published Events

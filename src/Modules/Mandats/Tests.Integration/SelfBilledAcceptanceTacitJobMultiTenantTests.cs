@@ -4,9 +4,11 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
+using Liakont.Modules.DocumentApproval.Infrastructure;
+using Liakont.Modules.Mandats.Contracts;
+using Liakont.Modules.Mandats.Contracts.Queries;
 using Liakont.Modules.Mandats.Domain.Entities;
 using Liakont.Modules.Mandats.Infrastructure;
-using Liakont.Modules.Mandats.Infrastructure.Queries;
 using Liakont.Modules.Mandats.Infrastructure.TacitAcceptance;
 using Liakont.Modules.Mandats.Tests.Integration.Fixtures;
 using Microsoft.Extensions.DependencyInjection;
@@ -85,19 +87,15 @@ public sealed class SelfBilledAcceptanceTacitJobMultiTenantTests : IAsyncLifetim
 
     private async Task SeedPendingAsync(string tenantId, Guid companyId, Guid documentId, DateTimeOffset? deadline)
     {
-        var factory = _fixture.CreateConnectionFactory(tenantId);
-        var uowFactory = new PostgresSelfBilledAcceptanceUnitOfWorkFactory(factory);
-
-        var acceptance = SelfBilledAcceptance.Create(companyId, documentId, PendingSince, deadline);
-        await using var uow = await uowFactory.BeginAsync();
-        var entry = SelfBilledAcceptanceLogFactory.ForCreation(acceptance, operatorId: null, "Ingestion (test)");
-        await uow.InsertAsync(acceptance, entry);
-        await uow.CommitAsync();
+        await using var provider = MandatsHarness.BuildProvider(_fixture.CreateConnectionFactory(tenantId));
+        var commands = provider.GetRequiredService<ISelfBilledAcceptanceCommands>();
+        await commands.OpenPendingAsync(companyId, documentId, PendingSince, deadline, operatorId: null, "Ingestion (test)");
     }
 
     private async Task<string?> StateAsync(string tenantId, Guid companyId, Guid documentId)
     {
-        var queries = new PostgresSelfBilledAcceptanceQueries(_fixture.CreateConnectionFactory(tenantId));
+        await using var provider = MandatsHarness.BuildProvider(_fixture.CreateConnectionFactory(tenantId));
+        var queries = provider.GetRequiredService<ISelfBilledAcceptanceQueries>();
         var dto = await queries.GetAcceptance(companyId, documentId);
         return dto?.State;
     }
@@ -120,6 +118,10 @@ public sealed class SelfBilledAcceptanceTacitJobMultiTenantTests : IAsyncLifetim
             services.AddSingleton(_tenantConnectionFactory);
             services.AddSingleton<ITenantContext>(new FixedTenantContext(tenantId));
             services.AddScoped<IConnectionFactory, TenantScopedConnectionFactory>();
+
+            // SIG05 : la bascule tacite Mandats est projetée via DocumentApproval — le scope doit l'enregistrer
+            // (le service y résout IDocumentApprovalQueries + IDocumentApprovalWorkflow).
+            services.AddDocumentApprovalModule();
             services.AddMandatsModule();
             var provider = services.BuildServiceProvider();
             return new TestTenantScope(provider, provider.CreateAsyncScope(), tenantId);

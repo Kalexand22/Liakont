@@ -381,7 +381,7 @@ internal static class CheckTestDoubles
 
         public PaCapabilities Capabilities { get; }
 
-        public Task<PaSendResult> SendDocumentAsync(PivotDocumentDto document, bool sendAfterImport = true, PaOutboundProjection? projection = null, CancellationToken cancellationToken = default) =>
+        public Task<PaSendResult> SendDocumentAsync(PivotDocumentDto document, bool sendAfterImport = true, PaOutboundProjection? projection = null, PaSendContext? context = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
         public Task<PaSendResult> SendPaymentReportAsync(PaymentReportPeriod period, CancellationToken cancellationToken = default) =>

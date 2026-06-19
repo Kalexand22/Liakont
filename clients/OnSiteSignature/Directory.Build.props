@@ -1,0 +1,27 @@
+<Project>
+
+  <!-- Le client soft de signature SUR PLACE (Wacom) cible le .NET Framework 4.8 (ADR-0030 §1 : SDK Wacom Ink
+       NATIF, USB) dans une RACINE DE SOLUTION DISTINCTE (clients/OnSiteSignature), JAMAIS sous agent/ (frontière
+       physique + isolation du SDK natif, INV-ONSITE-1). Ce fichier masque le Directory.Build.props racine (net10) :
+       MSBuild s'arrête au premier trouvé en remontant l'arborescence. AnyCPU (le SDK Wacom natif n'est PAS
+       référencé dans le source buildé — il est intégré au déploiement via ISignaturePadDevice, voir README.md ;
+       préserve build + test de pureté, INV-ONSITE-2). -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <Platforms>AnyCPU</Platforms>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+  </PropertyGroup>
+
+  <!-- Compile net48 via le SDK .NET sans pack de ciblage installé (CI / poste sans VS).
+       StyleCop.Analyzers : aligne l'enforcement de style avec la plateforme et l'agent (ADR-0003). -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" PrivateAssets="all" />
+    <PackageReference Include="StyleCop.Analyzers" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

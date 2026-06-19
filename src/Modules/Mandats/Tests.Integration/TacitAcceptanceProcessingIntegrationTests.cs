@@ -4,17 +4,17 @@ using System;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Liakont.Modules.Mandats.Domain.Entities;
-using Liakont.Modules.Mandats.Infrastructure;
 using Liakont.Modules.Mandats.Infrastructure.TacitAcceptance;
 using Liakont.Modules.Mandats.Tests.Integration.Fixtures;
 using Xunit;
 
 /// <summary>
-/// Bascule tacite des auto-factures 389 (MND04, ADR-0024 §4) sur PostgreSQL réel (Testcontainers), via le
-/// VRAI lecteur de candidats + la VRAIE unité de travail. Produit cartésien échéance null / échue / future
-/// × état, journalisation système atomique (operator_id null, « pas de transition sans ligne de journal »),
-/// et attribution par <c>company_id</c> sur ≥ 2 sociétés (INV-MANDATS-1, le service est DB-wide en
-/// database-per-tenant et écrit chaque bascule sous le company_id porté par la ligne).
+/// Bascule tacite des auto-factures 389 (MND04, ADR-0024 §4) sur PostgreSQL réel (Testcontainers). SIG05 — la
+/// bascule est PROJETÉE via DocumentApproval : le service énumère les candidats dus (purpose SelfBilledAcceptance)
+/// puis bascule chacun sous verrou (re-vérification d'éligibilité anti-TOCTOU dans DocumentApproval). Produit
+/// cartésien échéance null / échue / future, journalisation système atomique (operator_id null) dans
+/// <c>document_approval_log</c>, et attribution par <c>company_id</c> sur ≥ 2 sociétés (INV-MANDATS-1 ; le service
+/// est DB-wide en database-per-tenant et écrit chaque bascule sous le company_id porté par la ligne).
 /// </summary>
 [Collection("MandatsIntegration")]
 public sealed class TacitAcceptanceProcessingIntegrationTests
@@ -44,13 +44,12 @@ public sealed class TacitAcceptanceProcessingIntegrationTests
         var boundaryB = Guid.NewGuid();            // échéance EXACTEMENT à now (deadline <= now) → bascule
         var futureB = Guid.NewGuid();              // échéance future → pas encore
 
-        await InsertPendingAsync(harness, companyA, dueA, deadline: Now.AddDays(-1));
-        await InsertPendingAsync(harness, companyA, nullDeadlineA, deadline: null);
-        await InsertPendingAsync(harness, companyB, boundaryB, deadline: Now);
-        await InsertPendingAsync(harness, companyB, futureB, deadline: Now.AddDays(1));
+        await OpenPendingAsync(harness, companyA, dueA, deadline: Now.AddDays(-1));
+        await OpenPendingAsync(harness, companyA, nullDeadlineA, deadline: null);
+        await OpenPendingAsync(harness, companyB, boundaryB, deadline: Now);
+        await OpenPendingAsync(harness, companyB, futureB, deadline: Now.AddDays(1));
 
-        var reader = new PostgresTacitAcceptanceCandidateReader(harness.ConnectionFactory);
-        var service = new TacitAcceptanceService(reader, harness.AcceptanceUowFactory, new FixedTimeProvider(Now));
+        var service = new TacitAcceptanceService(harness.ApprovalQueries, harness.Workflow, new FixedTimeProvider(Now));
 
         // Le service est volontairement DB-wide (database-per-tenant) et la fixture est PARTAGÉE par la
         // collection : on n'asserte donc QUE l'état par document (jamais le compteur global du résultat —
@@ -78,10 +77,9 @@ public sealed class TacitAcceptanceProcessingIntegrationTests
         var harness = new MandatsHarness(_fixture);
         var companyId = Guid.NewGuid();
         var documentId = Guid.NewGuid();
-        await InsertPendingAsync(harness, companyId, documentId, deadline: Now.AddDays(-1));
+        await OpenPendingAsync(harness, companyId, documentId, deadline: Now.AddDays(-1));
 
-        var reader = new PostgresTacitAcceptanceCandidateReader(harness.ConnectionFactory);
-        var service = new TacitAcceptanceService(reader, harness.AcceptanceUowFactory, new FixedTimeProvider(Now));
+        var service = new TacitAcceptanceService(harness.ApprovalQueries, harness.Workflow, new FixedTimeProvider(Now));
 
         // Assertions PAR DOCUMENT (jamais le compteur global : fixture partagée, service DB-wide).
         await service.ProcessDueAsync();
@@ -98,15 +96,10 @@ public sealed class TacitAcceptanceProcessingIntegrationTests
         log.Should().HaveCount(2, "genèse + une bascule tacite, jamais deux.");
     }
 
-    private static async Task InsertPendingAsync(
+    private static Task OpenPendingAsync(
         MandatsHarness harness, Guid companyId, Guid documentId, DateTimeOffset? deadline)
-    {
-        var acceptance = SelfBilledAcceptance.Create(companyId, documentId, PendingSince, deadline);
-        await using var uow = await harness.AcceptanceUowFactory.BeginAsync();
-        var entry = SelfBilledAcceptanceLogFactory.ForCreation(acceptance, operatorId: null, "Ingestion (test)");
-        await uow.InsertAsync(acceptance, entry);
-        await uow.CommitAsync();
-    }
+        => harness.Commands.OpenPendingAsync(
+            companyId, documentId, PendingSince, deadline, operatorId: null, "Ingestion (test)");
 
     private static async Task AssertStateAsync(
         MandatsHarness harness, Guid companyId, Guid documentId, SelfBilledAcceptanceState expected)
@@ -122,7 +115,7 @@ public sealed class TacitAcceptanceProcessingIntegrationTests
             e => e.FromState == nameof(SelfBilledAcceptanceState.PendingAcceptance)
                  && e.ToState == nameof(SelfBilledAcceptanceState.TacitlyAccepted)
                  && e.OperatorId == null,
-            "chaque bascule tacite écrit une transition système (operator_id null) — réutilise MND02.");
+            "chaque bascule tacite écrit une transition système (operator_id null) dans document_approval_log.");
     }
 
     private sealed class FixedTimeProvider : TimeProvider

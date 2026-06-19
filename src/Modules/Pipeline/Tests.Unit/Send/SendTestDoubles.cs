@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Liakont.Agent.Contracts.Pivot;
 using Liakont.Modules.Archive.Contracts;
 using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Documents.Contracts.Lifecycle;
@@ -12,6 +13,7 @@ using Liakont.Modules.Documents.Contracts.Queries;
 using Liakont.Modules.Pipeline.Application;
 using Liakont.Modules.Pipeline.Domain;
 using Liakont.Modules.Staging.Contracts;
+using Liakont.Modules.SupportTrace.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
 using Liakont.Modules.Transmission.Contracts;
@@ -294,5 +296,132 @@ internal static class SendTestDoubles
             Saved.Add(runLog);
             return Task.CompletedTask;
         }
+    }
+
+    /// <summary>
+    /// PA de test de niveau « Essentiel » (FX07) : déclare <c>SupportsFacturXTransmission</c> et ne fait que
+    /// TRANSMETTRE l'artefact pré-construit porté par le <see cref="PaSendContext"/> — bloque si absent (jamais
+    /// d'envoi à vide). Enregistre les octets reçus pour prouver que le pipeline génère et passe le Factur-X.
+    /// </summary>
+    internal sealed class FacturXCapablePaClient : IPaClient
+    {
+        public PaCapabilities Capabilities { get; } = new() { PaName = "Test générique", SupportsFacturXTransmission = true };
+
+        /// <summary>Octets EXACTS reçus dans le contexte d'envoi (preuve « généré avant transmission, passé tel quel »).</summary>
+        public byte[]? ReceivedArtifact { get; private set; }
+
+        public int SendCount { get; private set; }
+
+        public Task<PaSendResult> SendDocumentAsync(PivotDocumentDto document, bool sendAfterImport = true, PaOutboundProjection? projection = null, PaSendContext? context = null, CancellationToken cancellationToken = default)
+        {
+            SendCount++;
+            var artifact = context?.PreBuiltArtifact ?? default;
+            if (artifact.IsEmpty)
+            {
+                // Garde-fou identique au vrai plug-in générique : jamais d'émission « à vide ».
+                return Task.FromResult(PaSendResult.Technical([new PaError("FXG_ARTEFACT_REQUIS", "Artefact requis.")]));
+            }
+
+            ReceivedArtifact = artifact.ToArray();
+            return Task.FromResult(PaSendResult.Issued($"GENERIQUE-{document.Number}", rawResponse: "{\"status\":\"accepted\"}"));
+        }
+
+        public Task<PaSendResult> SendPaymentReportAsync(PaymentReportPeriod period, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaDocumentStatus> GetDocumentStatusAsync(string paDocumentId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<PaTaxReport>> ListTaxReportsAsync(DateTime? since = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaTaxReport> GetTaxReportAsync(string taxReportId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaAccountInfo> GetAccountInfoAsync(CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        // Niveau Essentiel : aucun tax_report_setting. Le SEND saute ce diagnostic pour une PA à capacité
+        // SupportsFacturXTransmission, mais on rend un DTO neutre par robustesse (jamais d'exception ici).
+        public Task<PaTaxReportSetting> GetTaxReportSettingAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new PaTaxReportSetting());
+
+        public Task EnsureTaxReportSettingAsync(PaTaxReportSettingRequest request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaGeneratedDocument> GetGeneratedDocumentAsync(string paDocumentId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
+
+    /// <summary>Pont de génération de test (FX07) : renvoie un artefact canonique fixe et compte ses appels.</summary>
+    internal sealed class StubFacturXArtifactBuilder : IFacturXArtifactBuilder
+    {
+        private readonly byte[] _artifact;
+
+        public StubFacturXArtifactBuilder(byte[] artifact) => _artifact = artifact;
+
+        public int BuildCount { get; private set; }
+
+        public Task<ReadOnlyMemory<byte>> BuildSealedArtifactAsync(PivotDocumentDto pivot, CancellationToken cancellationToken = default)
+        {
+            BuildCount++;
+            return Task.FromResult<ReadOnlyMemory<byte>>(_artifact);
+        }
+    }
+
+    /// <summary>Recherche d'envoi PA journalisé de test (FX07) : configurable par clé d'idempotence (défaut : rien).</summary>
+    internal sealed class StubPaTransmissionJournalQueries : Liakont.Modules.Documents.Contracts.Queries.IPaTransmissionJournalQueries
+    {
+        private readonly Dictionary<string, PaTransmissionJournalDto> _byKey = new(StringComparer.Ordinal);
+
+        /// <summary>Déclare qu'un envoi est DÉJÀ journalisé pour cette clé (numéro de document) — déclenche la garde.</summary>
+        public void AddJournaled(string idempotencyKey, Guid documentId)
+        {
+            _byKey[idempotencyKey] = new PaTransmissionJournalDto
+            {
+                EventId = Guid.NewGuid(),
+                DocumentId = documentId,
+                TimestampUtc = SendTestData.Now,
+                IdempotencyKey = idempotencyKey,
+                PaAccount = "compte-generique",
+                PaPluginId = "generique",
+                PaRequestUtc = SendTestData.Now,
+                PaResponseUtc = SendTestData.Now,
+                TransmittedArtifactHash = "sha256:deadbeef",
+            };
+        }
+
+        public Task<PaTransmissionJournalDto?> FindByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_byKey.TryGetValue(idempotencyKey, out var dto) ? dto : null);
+    }
+
+    /// <summary>Journal d'envoi PA de test (FX07) : enregistre chaque entrée journalisée par le pipeline.</summary>
+    internal sealed class RecordingPaTransmissionJournal : IPaTransmissionJournal
+    {
+        public List<PaTransmissionJournalEntry> Entries { get; } = new();
+
+        public Task JournalAsync(PaTransmissionJournalEntry entry, CancellationToken cancellationToken = default)
+        {
+            Entries.Add(entry);
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>Trace de support de test (FX07) : enregistre les écritures (tenant, document, octets).</summary>
+    internal sealed class RecordingSupportTraceStore : ISupportTraceStore
+    {
+        public List<(string TenantId, Guid DocumentId, byte[] FacturX)> Writes { get; } = new();
+
+        public Task WriteAsync(string tenantId, Guid documentId, ReadOnlyMemory<byte> facturX, DateTimeOffset recordedAtUtc, CancellationToken cancellationToken = default)
+        {
+            Writes.Add((tenantId, documentId, facturX.ToArray()));
+            return Task.CompletedTask;
+        }
+
+        public Task<byte[]?> ReadAsync(string tenantId, Guid documentId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<int> PurgeOlderThanAsync(string tenantId, DateTimeOffset cutoffUtc, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 }
