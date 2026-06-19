@@ -73,7 +73,10 @@ d'être que `PivotRounding`. Aucune règle fiscale n'est portée ici.
    MÊME empreinte — sinon une source ODBC renvoyant tantôt NFC tantôt NFD romprait l'anti-doublon (PIV04).
    La forme NFC est **stable entre net48 et .NET 10** : la *Unicode Normalization Stability Policy* garantit
    que la décomposition canonique d'un caractère **assigné** ne change jamais d'une version d'Unicode à
-   l'autre — l'empreinte reste donc identique des deux côtés (ancré par les golden cross-runtime). La
+   l'autre — l'empreinte reste donc identique des deux côtés. C'est **ancré par des tests NFC≡NFD exécutés
+   des DEUX côtés** (`CanonicalDeterminismTests`, lié net48 + .NET 10) : un cas Latin-1 (« café ») ET une
+   syllabe Hangul HORS Latin-1 (U+AC00 ≡ U+1100 U+1161), pour ne pas réduire la preuve à une garantie de
+   « policy » sur le seul Latin-1 ; les golden à empreinte figée complètent la couverture cross-runtime. La
    normalisation est portée par le **seul** `WriteString` (texte libre) : noms de membres, dates et noms
    d'énum sont du texte CONTRÔLÉ (ASCII) pour lequel NFC est un no-op. Ensuite, **sortie ASCII pur** : tout
    caractère `< 0x20` ou `> 0x7E` est échappé en `\uXXXX` **hexadécimal minuscule** ; `"` → `\"` et

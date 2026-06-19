@@ -46,6 +46,34 @@ public sealed class CanonicalDeterminismTests
     }
 
     [Fact]
+    public void Free_text_nfd_recomposes_to_nfc_for_a_non_latin1_character()
+    {
+        // Au-delà du Latin-1 (« café ») : une syllabe Hangul U+AC00 (가) PRÉCOMPOSÉE vs sa décomposition
+        // canonique U+1100 U+1161 (jamo Choseong Kiyeok + Jungseong A). La recomposition NFC est
+        // ALGORITHMIQUE (Hangul Syllable Composition) et identique entre l'implémentation NLS (net48) et
+        // ICU (.NET 10) — ce test l'EXÉCUTE des deux côtés (fichier lié), transformant la garantie « stability
+        // policy » en preuve pour un caractère HORS Latin-1 (ADR-0007 règle 7).
+        string nfc = "x" + (char)0xAC00;                // précomposé U+AC00
+        string nfd = "x" + (char)0x1100 + (char)0x1161; // décomposé : Choseong (U+1100) + Jungseong (U+1161)
+        nfc.Should().NotBe(nfd, "les deux formes diffèrent au niveau des unités de code UTF-16 (prérequis du test)");
+
+        PivotDocumentDto withNfc = BuildWithSupplierName(nfc);
+        PivotDocumentDto withNfd = BuildWithSupplierName(nfd);
+
+        string jsonNfc = CanonicalJson.Serialize(withNfc);
+
+        CanonicalJson.Serialize(withNfd).Should().Be(
+            jsonNfc,
+            "NFD Hangul → NFC, même JSON canonique octet par octet des DEUX côtés (net48 NLS ≡ .NET 10 ICU)");
+        jsonNfc.Should().Contain(
+            "x\\uac00",
+            "la syllabe précomposée U+AC00 est émise échappée \\uac00 (forme NFC), jamais les jamo décomposés");
+        PayloadHasher.ComputeHash(withNfd).Should().Be(
+            PayloadHasher.ComputeHash(withNfc),
+            "même empreinte cross-runtime pour un caractère hors Latin-1 (anti-doublon PIV04)");
+    }
+
+    [Fact]
     public void Lone_surrogate_is_serialized_deterministically_without_throwing()
     {
         // Surrogate UTF-16 ISOLÉ (nvarchar tronqué côté source) : String.Normalize lèverait « Unicode invalide ».
