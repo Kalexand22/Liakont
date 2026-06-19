@@ -54,9 +54,11 @@ Le **BOFiP BOI-TVA-SECT-90-50 §270** (ventes aux enchères publiques) décompos
 - **prix total payé par l'adjudicataire** = prix d'adjudication + impôts/droits/taxes dus au titre de l'opération + **frais accessoires demandés à l'acquéreur** (commission acheteur) ;
 - **montant net payé au commettant** = prix d'adjudication **diminué de la commission et des autres frais dus par le commettant** (commission vendeur).
 
-Le prix d'adjudication s'annule dans la différence. Le **§270 conclut explicitement** que la marge « correspond en fait à la **commission totale** du commissaire-priseur (sur son commettant et l'acheteur) », soit, en termes de données source :
+Le prix d'adjudication s'annule dans la différence. Le **§270 conclut lui-même, verbatim**, que la marge « correspond en fait à la **commission totale** du commissaire-priseur (sur son commettant et l'acheteur) ». **C'est cette conclusion du texte primaire — et non une réduction algébrique faite ici — qui fait foi** ; en termes de données source elle s'exprime :
 
 > **marge = frais (commission) à la charge de l'acheteur + frais (commission) à la charge du vendeur**
+
+> ⚠️ **Sort du 3e terme « impôts, droits, prélèvements et taxes dus au titre de l'opération »** (présent côté acheteur dans le §270). Le §270 ne le retient PAS dans la marge nette : il conclut que le résultat *est* la commission totale, donc ces taxes (collectées au titre de l'opération, non conservées par l'opérateur) sont **hors marge**. **À valider à `GATE_B2C_SOURCING`** : si la donnée source d'un déploiement porte des impôts/droits/taxes propres à l'opération (p. ex. droit de suite), l'humain confirme qu'ils restent hors base de marge — un implémenteur ne doit PAS les agréger à `frais acheteur + frais vendeur` sans cette confirmation (sinon base sur/sous-estimée).
 
 → La « formule = frais acheteur + frais vendeur » du plan B2C est donc **confirmée sur texte primaire** (CGI 297 A I-2° + BOI-TVA-SECT-90-50 §270), et n'est plus une hypothèse. Conséquence : le **bordereau vendeur** (BV, frais vendeur) est **intégral au calcul** — l'omettre tronque la marge (alimente B2C-06/07/08). Le calcul reste en **`decimal`, arrondi half-up 2 décimales** (règle n°1).
 
@@ -73,7 +75,7 @@ Or pour l'OVV agissant en son nom propre, le texte *spécifique aux enchères* (
 **Décision en attente (GATE_B2C_SOURCING, humain).** Valide (a) la composition ci-dessus et (b) l'absence (ou non) d'un paramètre de méthode. Tant que `pending`, l'aval marge (B2C-07/08/08b/09b) reste bloqué — c'est voulu (règle n°2).
 
 **Sources primaires citées :**
-- CGI art. 297 A (I-1° revendeurs ; **I-2° ventes aux enchères publiques**) — Légifrance `LEGIARTI000048835065`.
+- CGI art. 297 A (I-1° revendeurs ; **I-2° ventes aux enchères publiques**) — l'ancrage faisant foi est le **numéro d'article (297 A I-2°)** ; l'identifiant Légifrance `LEGIARTI000048835065` n'est qu'un lien de commodité, dont la version en vigueur (article non abrogé/distinct) est à reconfirmer manuellement à la validation de `GATE_B2C_SOURCING`.
 - BOI-TVA-SECT-90-50 **§270** (ventes aux enchères publiques — base d'imposition) — version 2025-05-14.
 - BOI-TVA-SECT-90-20-20 **§110** (coup par coup), **§240-260** (globalisation, facultative) — version 2025-05-14.
 - CGI art. 297 E (pas de TVA distincte sous le régime de la marge).
