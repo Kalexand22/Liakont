@@ -27,5 +27,6 @@ internal static class GeneriqueCapabilities
         SupportsTaxReportRetrieval = false,
         SupportsDocumentRetrieval = false,
         SupportsReportRectification = false,
+        SupportsMarginAmountReporting = false, // Essentiel : ne reporte aucun montant de marge (B2C09a).
     };
 }

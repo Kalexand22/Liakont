@@ -39,6 +39,7 @@ public sealed class GeneriqueClientTests
         caps.SupportsTaxReportRetrieval.Should().BeFalse();
         caps.SupportsDocumentRetrieval.Should().BeFalse();
         caps.SupportsReportRectification.Should().BeFalse();
+        caps.SupportsMarginAmountReporting.Should().BeFalse();
     }
 
     [Fact]

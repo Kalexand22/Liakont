@@ -46,6 +46,7 @@ public sealed record PaCapabilityNotSupportedResult
         PaCapability.ReportRectification => "la rectification de déclaration (flux RE)",
         PaCapability.SelfBilling => "l'émission d'auto-factures sous mandat (389)",
         PaCapability.FacturXTransmission => "la transmission d'un Factur-X pré-construit",
+        PaCapability.MarginAmountReporting => "le report du montant de la marge (e-reporting B2C, cas n°33)",
         _ => capability.ToString(),
     };
 }

@@ -32,6 +32,7 @@ public sealed class B2BrouterClientCapabilityTests
         caps.SupportsInternationalPaymentReporting.Should().BeFalse("flux 10.2 absent de B2Brouter (F09)");
         caps.SupportsB2bInvoicing.Should().BeFalse("phase 2");
         caps.SupportsSelfBilling.Should().BeFalse("émission 389 non confirmée en staging — déclaration honnête (MND07 / F15 §1.8)");
+        caps.SupportsMarginAmountReporting.Should().BeFalse("montant de marge (cas n°33) non confirmé côté B2Brouter — déclaration honnête (B2C09a)");
     }
 
     [Fact]

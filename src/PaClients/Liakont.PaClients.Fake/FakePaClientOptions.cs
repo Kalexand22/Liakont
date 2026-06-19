@@ -32,6 +32,7 @@ public sealed record FakePaClientOptions
         SupportsDocumentRetrieval = true,
         SupportsReportRectification = true,
         SupportsSelfBilling = true,
+        SupportsMarginAmountReporting = true, // PA généreuse pour la démo : reporte le montant de marge (cas n°33, B2C09a).
         MaxDocumentsPerRequest = null,
     };
 

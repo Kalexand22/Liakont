@@ -24,6 +24,7 @@ public sealed class FakePaClientTests
         client.Capabilities.SupportsInternationalPaymentReporting.Should().BeFalse("V1 n'alimente que le flux domestique (D2)");
         client.Capabilities.SupportsCreditNotes.Should().BeTrue();
         client.Capabilities.SupportsDocumentRetrieval.Should().BeTrue();
+        client.Capabilities.SupportsMarginAmountReporting.Should().BeTrue("PA généreuse pour la démo : reporte le montant de marge (cas n°33, B2C09a)");
     }
 
     [Fact]
