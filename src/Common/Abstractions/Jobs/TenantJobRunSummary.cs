@@ -37,4 +37,19 @@ public sealed class TenantJobRunSummary
 
     /// <summary>Number of tenants for which the job threw.</summary>
     public int FailedCount => Failures.Count;
+
+    /// <summary>
+    /// True when the run found NO active tenant to fan out to. Exposed so the caller can distinguish a
+    /// legitimate empty run from an anomaly (empty instance catalog from a provisioning bug or the wrong
+    /// database) — the runner logs this case at <c>Warning</c> (RDL07/A6-runtime-3), not <c>Information</c>.
+    /// </summary>
+    public bool HadNoActiveTenants => TotalTenants == 0;
+
+    /// <summary>
+    /// True when at least one tenant failed: a partial (or total) failure of the fan-out. The job still
+    /// completes (no retry/dead-letter) — escalation for high-stakes work is carried by document states and
+    /// the supervision dead-man's-switch (ADR-0006 §4) — but the runner emits a structured <c>Warning</c>
+    /// signal so a failed fan-out is never a silent false-green (RDL07/A6-runtime-1).
+    /// </summary>
+    public bool HasFailures => FailedCount > 0;
 }
