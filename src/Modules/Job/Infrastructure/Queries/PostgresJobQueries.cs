@@ -101,9 +101,9 @@ internal sealed class PostgresJobQueries : IJobQueries
     }
 
     // Liakont addition (RDL08) : dé-duplication à l'enqueue (A6-scale-2). Existence d'un job 'Pending' du même
-    // type ET de la même portée tenant (company_id NULL pour les jobs système — 'IS NOT DISTINCT FROM' gère
-    // l'égalité NULL). Limité à 'Pending' (pas 'Running') pour ne jamais bloquer sur un Running orphelin
-    // (A6-scale-1, aucun reaper). Voir docs/adr/ADR-0006 §5.
+    // type ET de la même portée tenant (le scheduler passe `schedule.CompanyId`, un GUID non-nul ;
+    // 'IS NOT DISTINCT FROM' rend l'égalité NULL-safe, garde-fou défensif). Limité à 'Pending' (pas 'Running')
+    // pour ne jamais bloquer sur un Running orphelin (A6-scale-1, aucun reaper). Voir docs/adr/ADR-0006 §5.
     public async Task<bool> HasPendingJobOfTypeAsync(string jobType, Guid? companyId, CancellationToken ct = default)
     {
         using IDbConnection conn = await _connectionFactory.OpenAsync(ct);

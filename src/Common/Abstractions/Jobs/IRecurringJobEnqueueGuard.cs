@@ -18,8 +18,9 @@ public interface IRecurringJobEnqueueGuard
 {
     /// <summary>
     /// Returns <c>true</c> when the scheduler should SKIP enqueuing a job of <paramref name="jobType"/>
-    /// for <paramref name="companyId"/> (system jobs carry <c>null</c>) because an equivalent job is
-    /// already queued. Read-only; never mutates the queue.
+    /// for <paramref name="companyId"/> (the schedule's tenant scope — a non-null company GUID for the
+    /// recurring system fan-outs) because an equivalent job is already queued. Read-only; never mutates
+    /// the queue.
     /// </summary>
     Task<bool> ShouldSuppressEnqueueAsync(
         string jobType,

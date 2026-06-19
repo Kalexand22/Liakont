@@ -15,9 +15,9 @@ public interface IJobQueries
     Task<DateTimeOffset?> GetLastCompletedAtByTypeAsync(string jobType, CancellationToken ct = default);
 
     // Liakont addition (RDL08) : dé-duplication à l'enqueue des jobs récurrents (A6-scale-2). Vrai s'il existe
-    // déjà un job du type donné EN ATTENTE (status 'Pending') pour la même portée tenant (company_id NULL pour
-    // les jobs système). Volontairement limité à 'Pending' (pas 'Running') : dé-duper contre 'Running'
-    // bloquerait à jamais un job dont l'entrée Running a été orpheline par un crash (aucun reaper, A6-scale-1).
-    // Lecture seule, additive. Voir docs/adr/ADR-0006 §5.
+    // déjà un job du type donné EN ATTENTE (status 'Pending') pour la même portée tenant. Le scheduler passe
+    // `schedule.CompanyId` (un GUID non-nul ; `companyId` reste nullable, NULL-safe par défense). Volontairement
+    // limité à 'Pending' (pas 'Running') : dé-duper contre 'Running' bloquerait à jamais un job dont l'entrée
+    // Running a été orpheline par un crash (aucun reaper, A6-scale-1). Lecture seule, additive. Voir ADR-0006 §5.
     Task<bool> HasPendingJobOfTypeAsync(string jobType, Guid? companyId, CancellationToken ct = default);
 }

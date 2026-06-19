@@ -33,24 +33,32 @@ public sealed class JobEnqueueDeDupIntegrationTests
     public async Task HasPendingJobOfType_Detects_Pending_System_Job_Honouring_Scope_And_Status()
     {
         await CleanupAsync();
-        var otherCompany = Guid.NewGuid();
+
+        // Le scheduler récurrent insère/interroge TOUJOURS avec `schedule.CompanyId` — un GUID NON-NUL (la
+        // portée tenant du schedule). C'est le chemin réellement emprunté en production : on le valide en
+        // priorité, le cas NULL n'étant qu'un garde-fou défensif (jamais produit par le scheduler).
+        var scheduleScope = Guid.NewGuid();
+        var otherScope = Guid.NewGuid();
         try
         {
             // Aucun job du type sondé → pas de suppression.
+            (await QueryHasPendingAsync(PendingProbeType, scheduleScope)).Should().BeFalse();
+
+            // Un job EN ATTENTE (Pending) du même type ET de la même portée (GUID non-nul) existe.
+            await InsertJobAsync(PendingProbeType, status: "Pending", companyId: scheduleScope);
+
+            // Même type + même portée (GUID) → suppression : le chemin nominal de production.
+            (await QueryHasPendingAsync(PendingProbeType, scheduleScope)).Should().BeTrue();
+
+            // Même type, portée tenant DIFFÉRENTE → PAS de suppression (la dé-dup est tenant-scopée).
+            (await QueryHasPendingAsync(PendingProbeType, otherScope)).Should().BeFalse();
+
+            // Portée NULL (cas-limite défensif, non produit par le scheduler) → pas de suppression non plus.
             (await QueryHasPendingAsync(PendingProbeType, companyId: null)).Should().BeFalse();
 
-            // Un job EN ATTENTE (Pending) système (company_id NULL) du même type existe.
-            await InsertJobAsync(PendingProbeType, status: "Pending", companyId: null);
-
-            // Même type + même portée système → suppression (anti-empilement).
-            (await QueryHasPendingAsync(PendingProbeType, companyId: null)).Should().BeTrue();
-
-            // Même type mais portée tenant différente → PAS de suppression (la dé-dup est tenant-scopée).
-            (await QueryHasPendingAsync(PendingProbeType, companyId: otherCompany)).Should().BeFalse();
-
             // Un job RUNNING (orphelin potentiel) n'est JAMAIS compté : Pending-only, anti-deadlock (A6-scale-1).
-            await InsertJobAsync(RunningProbeType, status: "Running", companyId: null);
-            (await QueryHasPendingAsync(RunningProbeType, companyId: null)).Should().BeFalse();
+            await InsertJobAsync(RunningProbeType, status: "Running", companyId: scheduleScope);
+            (await QueryHasPendingAsync(RunningProbeType, scheduleScope)).Should().BeFalse();
         }
         finally
         {
