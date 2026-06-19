@@ -3,7 +3,6 @@ namespace Liakont.Host.Demo;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Liakont.Host.Documents;
@@ -48,10 +47,11 @@ internal sealed class DemoB2cConsoleService : IDemoB2cConsoleService
 
     public async Task<DemoB2cViewModel> GetAsync(CancellationToken cancellationToken = default)
     {
-        var all = await _documents.GetDocumentsInPeriodAsync(from: null, to: null, cancellationToken).ConfigureAwait(false);
-        var declarations = all
-            .Where(d => string.Equals(d.DocumentType, DeclarationDocumentType, StringComparison.Ordinal))
-            .ToList();
+        // Filtrage CÔTÉ SERVEUR sur le type brut DECLARATION : le plafond de chargement s'applique au seul type
+        // demandé (jamais une troncature silencieuse d'un sous-ensemble filtré après coup — anti faux-vert).
+        var declarations = await _documents
+            .GetDocumentsInPeriodAsync(from: null, to: null, documentType: DeclarationDocumentType, cancellationToken)
+            .ConfigureAwait(false);
 
         // companyId du tenant courant (défense en profondeur pour la lecture tenant-scopée du store de liens).
         // Absent (profil non créé) → aucun lien restituable : la démo reste lisible (états/export), sans inventer.

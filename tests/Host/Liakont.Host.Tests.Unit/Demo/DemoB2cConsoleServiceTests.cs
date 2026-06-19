@@ -116,8 +116,15 @@ public sealed class DemoB2cConsoleServiceTests
         public FakeDocuments(params DocumentSummaryDto[] all) => _all = all;
 
         public Task<IReadOnlyList<DocumentSummaryDto>> GetDocumentsInPeriodAsync(
-            DateOnly? from, DateOnly? to, CancellationToken cancellationToken = default) =>
-            Task.FromResult(_all);
+            DateOnly? from, DateOnly? to, string? documentType = null, CancellationToken cancellationToken = default)
+        {
+            // Double fidèle : le filtre par type est appliqué CÔTÉ « serveur » (comme la vraie requête), pas en
+            // mémoire dans le service. Le service doit donc demander le bon type pour ne voir que les déclarations.
+            IReadOnlyList<DocumentSummaryDto> result = documentType is null
+                ? _all
+                : _all.Where(d => string.Equals(d.DocumentType, documentType, StringComparison.Ordinal)).ToList();
+            return Task.FromResult(result);
+        }
     }
 
     private sealed class FakeLinks : IReportingPieceLinkStore
