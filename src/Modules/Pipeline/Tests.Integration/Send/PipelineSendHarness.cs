@@ -376,7 +376,7 @@ public sealed class PipelineSendHarness : IAsyncLifetime
 
     /// <summary>
     /// Seede la table de mapping TVA VALIDÉE du tenant (régime « NORMAL » → catégorie S 20 %), comme le harnais
-    /// CHECK : depuis emitter-filled-by-platform (ADR-0023 amendé), le SEND repose la catégorie TVA au read-time
+    /// CHECK : depuis emitter-filled-by-platform (ADR-0031 amendé), le SEND repose la catégorie TVA au read-time
     /// (symétrique au CHECK) — sans cette table, tout document partirait en HOLD <c>TvaUnresolved</c>.
     /// </summary>
     private async Task SeedValidatedMappingTableAsync()

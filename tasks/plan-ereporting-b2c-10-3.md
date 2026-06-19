@@ -56,7 +56,7 @@ du « montant de marge » transmis (cas DGFiP n°33).
 | **Régime 6 → marge vs hors-champ** | **PARAMÉTRAGE** | table mapping TVA tenant ; `defaultBehavior:block` ; ne pas seeder EU-J en prod | **oui** |
 | **VATEX de la marge** | **PARAMÉTRAGE** | `vatexCode` (codelist EN16931 : EU-F/I/J) ; défaut block | **oui** |
 | **Catégorie TVA (AA/AAA…)** | **PARAMÉTRAGE** | enum fermé `VatCategory` ; ne pas retirer AA/AAA ; acceptation PA validée à l'envoi | **oui** |
-| **OperationCategory** (LB/PS/Mixte) | **PARAMÉTRAGE** | paramétrage **tenant** → projeté sur `PivotDocumentDto.OperationCategory` à l'ingestion (`PivotEmitterEnricher`, ADR-0023) ; `null`→suspendre | **oui** |
+| **OperationCategory** (LB/PS/Mixte) | **PARAMÉTRAGE** | paramétrage **tenant** → projeté sur `PivotDocumentDto.OperationCategory` à l'ingestion (`PivotEmitterEnricher`, ADR-0031) ; `null`→suspendre | **oui** |
 | **Méthode d'imputation frais** (mono-cat.) | **PARAMÉTRAGE** | `FeeImputationMethod` {Prorata, AgregationJourTaux} ; `null`→Suspended | **oui** |
 | **Modélisation du 10.3** (archi) | **IMPLÉMENTER** | router via `SendDocumentAsync` ; ne PAS greffer sur `SendPaymentReportAsync` ; gate **uniquement** sur un envoi de **déclaration 10.3** (voir B2C-01) | gate à câbler |
 | **Cadence** `reportingFrequency` | **À TRANCHER puis figer** | modélisation (régime vs fréquence) + réconciliation D4↔F09 NON tranchées (INV-TENANTSETTINGS-008) ; chaîne opaque `null`→suspendre en attendant | champ opaque **oui** ; enum **non figeable encore** |

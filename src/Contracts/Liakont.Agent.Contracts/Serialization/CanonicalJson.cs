@@ -50,7 +50,7 @@ public static class CanonicalJson
         writer.WriteString(document.SourceReference);
 
         // Émetteur optionnel : OMIS quand l'agent ne le porte pas (la plateforme le remplit à
-        // l'ingestion depuis le profil tenant — ADR-0023 amendé). Un document agent sans émetteur
+        // l'ingestion depuis le profil tenant — ADR-0031 amendé). Un document agent sans émetteur
         // produit un JSON canonique sans la clé « Supplier » (et « OperationCategory »).
         if (document.Supplier != null)
         {

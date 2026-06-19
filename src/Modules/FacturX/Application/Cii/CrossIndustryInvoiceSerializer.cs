@@ -358,7 +358,7 @@ public sealed class CrossIndustryInvoiceSerializer : ICrossIndustryInvoiceSerial
     {
         if (pivot.Supplier is null)
         {
-            // Défense en profondeur : la plateforme remplit l'émetteur à l'ingestion (ADR-0023 amendé) et le CHECK
+            // Défense en profondeur : la plateforme remplit l'émetteur à l'ingestion (ADR-0031 amendé) et le CHECK
             // bloque un profil tenant incomplet (SUPPLIER_SIREN_MISSING). Un émetteur nul ici = invariant violé :
             // bloquer plutôt qu'émettre un Factur-X sans vendeur (CLAUDE.md n°3).
             var supplierMissing =

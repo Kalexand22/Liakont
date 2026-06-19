@@ -13,7 +13,7 @@ using Liakont.Agent.Core.Security;
 /// Registre UNIQUE des adaptateurs source EMBARQUÉS dans cette version de l'agent. Source de vérité
 /// partagée par le CLI (« adaptateur connu » de check-config) et l'installeur (menu source du wizard),
 /// pour éviter deux listes parallèles qui dériveraient (CLAUDE.md n°6). Expose AUSSI la fabrique du
-/// cycle de run (AGT02, ADR-0023) : seuls les adaptateurs dotés d'un canal de configuration
+/// cycle de run (AGT02, ADR-0031) : seuls les adaptateurs dotés d'un canal de configuration
 /// (<c>adapterConfig</c>) sont câblés au run ; les autres restent reconnus de check-config mais non
 /// exécutables tant que leur lot ADP ne les a pas câblés (jamais d'exécution muette — CLAUDE.md n°3).
 /// </summary>

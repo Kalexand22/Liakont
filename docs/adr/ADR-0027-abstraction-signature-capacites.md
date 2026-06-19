@@ -13,8 +13,8 @@
 - **Numérotation** : ADR-**0027**. Plan d'ADR-filles du lot signature (F17 §9) : **0027** (cette abstraction),
   **0028** (module générique `DocumentApproval`), **0029** (plug-in Yousign), **0030** (client soft Wacom). Les ADR
   0029/0030 et les amendements (F15 §1.9, ADR-0024 journal) sont gravés séparément (lot SIG, item SIG02). *(Note :
-  deux fichiers `ADR-0023-*` coexistent dans `docs/adr/` — câblage agent et génération Factur-X — collision de
-  numéro assumée « numéro libre toutes branches actives confondues » ; sans incidence ici.)*
+  la collision ADR-0023 (câblage agent ↔ génération Factur-X) a été levée le 2026-06-20 (item RDL13) — le câblage
+  de l'agent est désormais **ADR-0031**, ADR-0023 reste la génération Factur-X ; voir `docs/adr/README.md`.)*
 - **Contexte décisionnel** : `docs/conception/F17-Signature-Validation-Document.md` §2 (abstraction à capacités),
   §7 (niveau eIDAS proportionné, jamais obligation), §9 (plan d'ADR), §10 (points ouverts — défauts défendables),
   §11 (garde-fous P1 testables) ; patrons réels imités **exactement** : `src/Modules/Transmission/Contracts/`

@@ -105,7 +105,7 @@ public static class AgentConfigLoader
             BuildAdapterConfig(dto.AdapterConfig));
     }
 
-    // Transporte la section adapterConfig (ADR-0023) SANS connaître les champs d'un adaptateur : un
+    // Transporte la section adapterConfig (ADR-0031) SANS connaître les champs d'un adaptateur : un
     // dictionnaire nom d'adaptateur → (clé → valeur), toutes les clés insensibles à la casse. La
     // validation (champs requis, valeurs autorisées) est déléguée à la fabrique de chaque adaptateur.
     private static Dictionary<string, AdapterConfigSection> BuildAdapterConfig(
@@ -223,7 +223,7 @@ public static class AgentConfigLoader
         [JsonProperty("heartbeatMinutes")]
         public int? HeartbeatMinutes { get; set; }
 
-        // Section adapterConfig (ADR-0023) : nom d'adaptateur → (clé → valeur, chaînes). Transportée
+        // Section adapterConfig (ADR-0031) : nom d'adaptateur → (clé → valeur, chaînes). Transportée
         // telle quelle ; les champs propres à un adaptateur sont validés par sa fabrique, pas ici.
         [JsonProperty("adapterConfig")]
         public Dictionary<string, Dictionary<string, string>>? AdapterConfig { get; set; }

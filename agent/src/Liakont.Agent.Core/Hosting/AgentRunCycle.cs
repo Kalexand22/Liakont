@@ -55,7 +55,7 @@ public sealed class AgentRunCycle
     /// </param>
     /// <param name="extractFromUtc">
     /// Borne basse INITIALE d'extraction (UTC) utilisée au PREMIER run, tant qu'aucun filigrane n'existe
-    /// (ADR-0023) : c'est la date déclarée par l'intégrateur « extraire depuis » (jamais inventée —
+    /// (ADR-0031) : c'est la date déclarée par l'intégrateur « extraire depuis » (jamais inventée —
     /// CLAUDE.md n°2). Sans filigrane ni borne, la fenêtre reste vide (aucun rattrapage présumé). Une fois
     /// un run effectué, le filigrane prime ; AGT03 pourra surcharger cette borne depuis la plateforme.
     /// </param>

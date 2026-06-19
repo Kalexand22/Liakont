@@ -4,6 +4,10 @@
   Amendé (2026-06-19, item RDL07) : §4 ajouté (sémantique d'un run de fan-out partiel + observabilité).
   Amendé (2026-06-19, item RDL08) : §5 ajouté (robustesse à l'échelle — budget par tenant, dé-duplication à
   l'enqueue, contrat de reprise après crash/annulation).
+- **Raffiné par [ADR-0016](ADR-0016-job-tenant-scope.md)** (Accepté) : un job déclenché par une **action de
+  console** est mono-tenant (`SendTenantTrigger` sur le tenant de l'opérateur), tandis que le **fan-out
+  tous-tenants** (`RunForAllTenantsAsync`) de cet ADR-0006 reste réservé aux déclencheurs **planifiés (cron)**
+  d'instance — jamais à une action d'opérateur (CLAUDE.md n°9).
 - **Date** : 2026-06-04
 - **Contexte décisionnel** : `orchestration/items/SOL.yaml` (SOL06), `blueprint.md` §7 (multi-tenancy),
   `docs/architecture/module-rules.md` §6, `docs/conception/F12`, `CLAUDE.md` n°9 (requêtes
@@ -265,4 +269,5 @@ implémentation, la résolution du runner échoue à la première utilisation (p
   RDL08 : A6-scale-1/2/3/5, A6-runtime-2/4, A6-di-2)
 - `src/Common/Abstractions/Jobs/TenantJobRunnerOptions.cs`, `IRecurringJobEnqueueGuard.cs` (RDL08, §5)
 - `docs/conception/F12` §5.1 (cadences sourcées), §5.2 (catalogue fermé des règles d'alerte)
+- `docs/adr/ADR-0016-job-tenant-scope.md` (raffinement : scope tenant d'un job déclenché depuis la console)
 - `docs/adr/socle/ADR-0011-database-per-tenant.md`
