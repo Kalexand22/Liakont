@@ -172,7 +172,16 @@ meta:
   #   pipeline, prérequis transverse D7). « Partie A » (infra OAuth générique : V011, IPaAccountSecretStore,
   #   SuperPdpAccountResolver) déjà livrée hors orchestration (efbfa4c) ; la base de feat/pa-chorus-pro
   #   doit la contenir. Items détaillés : orchestration/items/CP.yaml + PIPE.yaml.
-  version: 30
+  # version 31 = lot RBF (Recette Bucodi Fixes) : dette de la recette « envoi B2B réel vers SuperPDP »
+  #   (nuit 2026-06-18→19 ; 6 factures Issued en sandbox au prix de correctifs + 2 contournements RETIRÉS
+  #   en interactif : « facture soldée d'office » et « bypass Luhn acheteur »). Source :
+  #   tasks/recette-demo-bucodi.md (RB16→RB28) + audit adversarial du working tree (verify-fast ROUGE =
+  #   faux-verts à réparer). 9 items RBF01→RBF09 + GATE_RECETTE_BUCODI (humaine), segment `recette-bucodi`
+  #   (feat/recette-bucodi, base main contenant le code emitter-filled-by-platform), depends_on_gate
+  #   GATE_PA_SUPERPDP. Recoupements : Sending=PIPE01, échéance BT-9=EXT01. Bande 100xx (B2C occupe 97xx,
+  #   CP 98xx, PIPE 99xx — rebandé au rebase pour éviter la collision de priorité avec B2C).
+  #   ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS merge (RBF01→RBF09 + GATE_RECETTE_BUCODI `pending`).
+  version: 31
   host: multi_agent_v1
 
 segments:
@@ -327,6 +336,13 @@ segments:
     lots: [PIPE]
     gate: GATE_PIPE_ASYNC
     depends_on_gate: GATE_PIPELINE
+
+  recette-bucodi:
+    branch: feat/recette-bucodi
+    base: main
+    lots: [RBF]
+    gate: GATE_RECETTE_BUCODI
+    depends_on_gate: GATE_PA_SUPERPDP
 
 items:
   # ── SOL ──
@@ -654,3 +670,17 @@ items:
   # Lot PIPE — Support PA asynchrone (PaSendState.Sending) au pipeline (D7) — détail : items/PIPE.yaml
   - { id: PIPE01, lot: PIPE, priority: 9900, depends_on: [] }
   - { id: GATE_PIPE_ASYNC, type: gate, executor: human, priority: 9990, depends_on: [PIPE01] }
+
+  # ── RBF (Recette Bucodi Fixes) — dette de la nuit envoi B2B SuperPDP (2026-06-18→19) ──
+  # Détail + acceptances : items/RBF.yaml. Source : tasks/recette-demo-bucodi.md (RB16→RB28) + audit
+  # code-sale. RB22 (Sending) recoupe PIPE01 ; échéance BT-9 = EXT01. ⚠️ PAS ENCORE seedé (cf. note v30).
+  - { id: RBF01, lot: RBF, priority: 10000, depends_on: [] }
+  - { id: RBF02, lot: RBF, priority: 10005, depends_on: [] }
+  - { id: RBF03, lot: RBF, priority: 10010, depends_on: [] }
+  - { id: RBF04, lot: RBF, blueprint: docs-spec-item, priority: 10015, depends_on: [] }
+  - { id: RBF05, lot: RBF, priority: 10020, depends_on: [] }
+  - { id: RBF06, lot: RBF, blueprint: blazor-page-item, priority: 10025, depends_on: [] }
+  - { id: RBF07, lot: RBF, blueprint: blazor-page-item, priority: 10030, depends_on: [] }
+  - { id: RBF08, lot: RBF, blueprint: blazor-page-item, priority: 10035, depends_on: [] }
+  - { id: RBF09, lot: RBF, priority: 10040, depends_on: [] }
+  - { id: GATE_RECETTE_BUCODI, type: gate, executor: human, priority: 10090, depends_on: [RBF01, RBF02, RBF03, RBF04, RBF05, RBF06, RBF07, RBF08, RBF09] }
