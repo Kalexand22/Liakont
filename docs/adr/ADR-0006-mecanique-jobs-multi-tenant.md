@@ -2,6 +2,8 @@
 
 - **Statut** : Accepté (2026-06-04). Mise en œuvre : item SOL06.
   Amendé (2026-06-19, item RDL07) : §4 ajouté (sémantique d'un run de fan-out partiel + observabilité).
+  Amendé (2026-06-19, item RDL08) : §5 ajouté (robustesse à l'échelle — budget par tenant, dé-duplication à
+  l'enqueue, contrat de reprise après crash/annulation).
 - **Date** : 2026-06-04
 - **Contexte décisionnel** : `orchestration/items/SOL.yaml` (SOL06), `blueprint.md` §7 (multi-tenancy),
   `docs/architecture/module-rules.md` §6, `docs/conception/F12`, `CLAUDE.md` n°9 (requêtes
@@ -137,6 +139,79 @@ Le récapitulatif de supervision (SUP03, opt-in désactivé par défaut) et la m
 (OPS04, opt-in, non des fan-out par tenant) restent **hors** de ce filet (un avertissement serait du
 bruit).
 
+### 5. Robustesse à l'échelle : budget par tenant, dé-duplication à l'enqueue, contrat de reprise (amendement RDL08)
+
+La revue critique (A6-scale-1/2/3/5, A6-runtime-2/4, A6-di-2) a relevé que le runner, robuste sur deux
+tenants, présente des angles morts à l'échelle. Décisions tranchées ici :
+
+#### 5.1 Contrat de reprise après crash/annulation (A6-scale-1, A6-runtime-2)
+
+Le module `Job` vendored n'a **pas de reaper** : si le processus meurt pendant un fan-out (ou est annulé au
+shutdown), le `JobEntry` reste `Running` (le worker ne reprend que les `Pending`), et le `TenantJobRunSummary`
+partiel est perdu (l'`OperationCanceledException` de l'appelant interrompt tout le run, §3).
+
+**Décision : PAS de reaper ajouté au socle. La reprise se fait par RE-EXÉCUTION au tick suivant, garantie sûre
+par l'IDEMPOTENCE des `ITenantJob`.** C'est un **contrat** imposé à tout `ITenantJob` : ré-exécuter le job
+pour un tenant déjà (partiellement) traité doit converger sans effet de bord nuisible (l'ancrage TRK06
+re-scelle ce qui ne l'est pas et ignore ce qui l'est ; la purge FX06 est idempotente ; etc.). Un run crashé
+n'est donc pas « perdu » : le `JobEntry` `Running` orphelin est *superseded* par le prochain déclenchement
+cron, qui ré-enqueue une entrée fraîche (cf. §5.2, dé-dup Pending-only) que le worker exécute. Le travail déjà
+committé dans chaque base tenant est durable ; le summary partiel est un diagnostic, pas un état à persister.
+
+Justification du non-reaper : un reaper générique (`Running` expiré → `Pending`/`Dead`) dans le `JobWorker`
+vendored serait une dérive de socle significative pour un gain nul ici — la re-exécution idempotente au tick
+suivant couvre déjà la reprise, et l'escalade des cas à enjeu reste portée par les états document + le
+dead-man's-switch (§4).
+
+#### 5.2 Dé-duplication à l'enqueue, **Pending-only** (A6-scale-2)
+
+Un fan-out plus long que sa cadence cron (supervision `*/15`) empilerait, à chaque tick, un déclencheur
+identique → la file du worker mono-job (`BatchSize=1`) se remplit de doublons. **Décision : le scheduler
+récurrent consulte une garde (`IRecurringJobEnqueueGuard`, impl. Host) avant d'enqueuer ; il SAUTE l'enqueue
+s'il existe déjà un job du même type ET de la même portée tenant (`company_id`) en statut `Pending`** — puis
+avance `next_run_at` à la prochaine échéance cron (respect de la cadence, pas de ré-essai en boucle). La
+détection est `IJobQueries.HasPendingJobOfTypeAsync` (lecture seule, base système).
+
+**Volontairement `Pending` SEULEMENT, jamais `Running`.** Dé-duper contre `Running` introduirait un
+**deadlock** : un `Running` orphelin (crash, §5.1, aucun reaper) bloquerait à jamais le ré-enqueue → l'ancrage
+WORM quotidien s'arrêterait silencieusement (grave pour un produit fiscal). Pending-only **borne** la file à
+*au plus un Running + un Pending* par type (élimine l'empilement non borné, A6-scale-2) tout en laissant un run
+crashé reprendre au tick suivant (§5.1). Le seul écart au littéral « ni Pending ni Running » est qu'un unique
+Pending peut coexister avec un Running en cours — bénin et idempotent.
+
+**Granularité de la clé : `(type de job, company_id)`.** Le scheduler passe `schedule.CompanyId` — un `Guid`
+**non-nul** (la portée tenant du schedule, p.ex. `DevTenantSeed:CompanyId`), jamais `NULL` ; la requête est
+NULL-safe (`IS NOT DISTINCT FROM`) à titre purement défensif. C'est suffisant ET correct pour les fan-out
+SYSTÈME récurrents, où **un seul schedule existe par type** (ancrage quotidien, évaluation de la supervision,
+etc. — `SystemJobDefinitions`). C'est une **contrainte assumée** : deux schedules distincts
+partageant le même `JobType` et la même portée tenant se dé-dupliqueraient mutuellement. La discriminer par
+`schedule.Id` n'est PAS souhaitable (deux schedules du même type de fan-out empileraient à nouveau le worker —
+le défaut même que A6-scale-2 corrige). Si un besoin futur exigeait plusieurs cadences pour un même type, il
+faudrait des types de job distincts, pas une clé de dé-dup plus fine.
+
+#### 5.3 Budget de temps par tenant (A6-scale-3, A6-runtime-4)
+
+`TenantJobRunner` accepte un `TenantJobRunnerOptions.PerTenantTimeout` optionnel : quand il est posé, chaque
+`job.ExecuteAsync` d'un tenant tourne sous un `CancellationTokenSource` lié (linked CTS) ; un tenant qui dépasse
+le budget devient un `TenantJobFailure` **isolé** (la `OperationCanceledException` du budget est convertie en
+`TimeoutException`), sans interrompre les tenants suivants. Le filtre d'`OperationCanceledException` clé sur le
+token de l'**appelant** spécifiquement (`cancellationToken.IsCancellationRequested`) — un budget par tenant
+n'est jamais confondu avec une annulation d'appelant, et une annulation d'appelant a toujours **précédence**
+(elle abandonne tout le run, A6-runtime-4).
+
+**Opt-in, désactivé par défaut (`null`)** : un budget par défaut agressif transformerait un ancrage WORM
+légitimement lent (gros lot, base saturée) en faux échec → piste d'audit non scellée. L'opérateur fixe le
+budget par déploiement (`TenantJobs:PerTenantTimeout`) à partir des durées observées. Règle produit : ne jamais
+auto-échouer un scellement valide.
+
+#### 5.4 Témoin de vie au grain run-entier (A6-scale-5) — accepté
+
+Le dead-man's-switch lit l'achèvement du fan-out ENTIER (`GetLastCompletedAtByTypeAsync`, base système), pas la
+fraîcheur par-tenant. Une fraîcheur par-tenant exigerait un suivi d'exécution tenant-scopé (changement
+d'architecture) ; à l'échelle visée ce n'est pas justifié. Le résidu (un tenant en échec dans un run par
+ailleurs réussi) est **déjà** porté par le signal structuré `HasFailures` (§4) + les états document. Décision :
+**conserver le grain run-entier** ; ne pas inventer de règle d'alerte par-tenant (catalogue F12 §5.2 fermé).
+
 ## Conséquences
 
 **Positif** : une mécanique unique, testée (unit + intégration sur 2 bases tenant), réutilisable par
@@ -151,7 +226,8 @@ un job **système** (via le module Job) dont le handler appelle
 `ITenantJobRunner.RunForAllTenantsAsync(...)`. Patron documenté dans
 `docs/architecture/tenant-jobs.md` (référencé par `module-rules.md` §6). Un nouveau job de fan-out
 récurrent DOIT être déclaré dans `SystemJobDefinitions` (classe adéquate) pour entrer dans le filet de
-démarrage.
+démarrage. **Depuis RDL08 (§5.1), tout `ITenantJob` DOIT être idempotent** : la reprise après crash/annulation
+repose sur une ré-exécution au tick suivant (pas de reaper).
 
 **Contrat d'enregistrement** : `AddTenantJobs()` (Common) enregistre `ITenantJobRunner` ; le Host
 DOIT aussi enregistrer un `ITenantScopeFactory` (fait par `AddStratumMultiTenancy`). Sans cette
@@ -185,6 +261,8 @@ implémentation, la résolution du runner échoue à la première utilisation (p
 - `docs/architecture/module-rules.md` §6, §11 ; `docs/architecture/tenant-jobs.md`
 - `docs/architecture/provenance-socle-stratum.md` §4.4, §4.12, §4.14
 - `tasks/analyse-impact-pivot-plateforme.md` (constat module Job sans tenant)
-- `tasks/redline-adr-005-006-007.md` (RDL07 : A6-runtime-1, A6-cons-2, A6-runtime-3)
+- `tasks/redline-adr-005-006-007.md` (RDL07 : A6-runtime-1, A6-cons-2, A6-runtime-3 ;
+  RDL08 : A6-scale-1/2/3/5, A6-runtime-2/4, A6-di-2)
+- `src/Common/Abstractions/Jobs/TenantJobRunnerOptions.cs`, `IRecurringJobEnqueueGuard.cs` (RDL08, §5)
 - `docs/conception/F12` §5.1 (cadences sourcées), §5.2 (catalogue fermé des règles d'alerte)
 - `docs/adr/socle/ADR-0011-database-per-tenant.md`

@@ -2,6 +2,7 @@
 namespace Stratum.Common.Infrastructure.Jobs;
 
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Stratum.Common.Abstractions.Jobs;
 using Stratum.Common.Abstractions.MultiTenancy;
 
@@ -9,22 +10,29 @@ using Stratum.Common.Abstractions.MultiTenancy;
 /// Default <see cref="ITenantJobRunner"/>. Lists active tenants from the instance catalog
 /// (<see cref="ITenantQueries"/>, system database) and runs the given <see cref="ITenantJob"/> once
 /// per tenant inside a tenant-scoped DI scope obtained from <see cref="ITenantScopeFactory"/>, so the
-/// job's connection is switched to that tenant's database. Failures are isolated per tenant.
+/// job's connection is switched to that tenant's database. Failures are isolated per tenant. An optional
+/// per-tenant time budget (<see cref="TenantJobRunnerOptions.PerTenantTimeout"/>) caps a single tenant's
+/// execution so a slow tenant becomes an isolated failure instead of blocking the whole run (RDL08).
 /// </summary>
 public sealed partial class TenantJobRunner : ITenantJobRunner
 {
     private readonly ITenantQueries _tenantQueries;
     private readonly ITenantScopeFactory _scopeFactory;
     private readonly ILogger<TenantJobRunner> _logger;
+    private readonly TenantJobRunnerOptions _options;
 
     public TenantJobRunner(
         ITenantQueries tenantQueries,
         ITenantScopeFactory scopeFactory,
-        ILogger<TenantJobRunner> logger)
+        ILogger<TenantJobRunner> logger,
+        IOptions<TenantJobRunnerOptions>? options = null)
     {
+        // Options are optional: DI always supplies them (AddTenantJobs calls AddOptions), and the per-tenant
+        // budget defaults to disabled (null) when absent — so existing 3-arg callers keep their behaviour.
         _tenantQueries = tenantQueries;
         _scopeFactory = scopeFactory;
         _logger = logger;
+        _options = options?.Value ?? new TenantJobRunnerOptions();
     }
 
     public async Task<TenantJobRunSummary> RunForAllTenantsAsync(
@@ -57,13 +65,15 @@ public sealed partial class TenantJobRunner : ITenantJobRunner
             {
                 await using var scope = _scopeFactory.Create(tenant.Id);
                 var context = new TenantJobContext(tenant.Id, scope.Services);
-                await job.ExecuteAsync(context, cancellationToken).ConfigureAwait(false);
+                await ExecuteForTenantAsync(job, context, tenant.Id, cancellationToken).ConfigureAwait(false);
                 succeeded++;
                 LogTenantSucceeded(_logger, job.Name, tenant.Id);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                // Caller-requested cancellation aborts the whole run; it is not a per-tenant failure.
+                // CALLER-requested cancellation (shutdown) aborts the whole run; it is not a per-tenant
+                // failure. The filter keys on the CALLER token specifically (A6-runtime-4) so a future
+                // per-tenant timeout (linked CTS, below) is never mistaken for a caller abort.
                 throw;
             }
             catch (Exception ex)
@@ -114,4 +124,42 @@ public sealed partial class TenantJobRunner : ITenantJobRunner
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "TenantJob '{JobName}' completed with FAILURES: {TotalTenants} tenant(s), {SucceededCount} succeeded, {FailedCount} failed (failed tenants: {FailedTenantIds})")]
     private static partial void LogCompletedWithFailures(ILogger logger, string jobName, int totalTenants, int succeededCount, int failedCount, string failedTenantIds);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "TenantJob '{JobName}' EXCEEDED the per-tenant time budget of {Budget} for tenant '{TenantId}' (isolated as a failure; other tenants continue)")]
+    private static partial void LogTenantBudgetExceeded(ILogger logger, string jobName, string tenantId, TimeSpan budget);
+
+    /// <summary>
+    /// Runs the job for a single tenant, applying the optional per-tenant time budget (A6-scale-3). When a
+    /// budget is set, a linked <see cref="CancellationTokenSource"/> cancels the job after the timeout; the
+    /// resulting cancellation is re-thrown as a <see cref="TimeoutException"/> so it is caught by the caller's
+    /// generic handler as an ISOLATED tenant failure — it never reaches the caller-cancellation filter, so it
+    /// never aborts the run. A genuine caller cancellation still propagates as <see cref="OperationCanceledException"/>.
+    /// </summary>
+    private async Task ExecuteForTenantAsync(
+        ITenantJob job,
+        TenantJobContext context,
+        string tenantId,
+        CancellationToken cancellationToken)
+    {
+        if (_options.PerTenantTimeout is not { } budget)
+        {
+            await job.ExecuteAsync(context, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        using var tenantCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        tenantCts.CancelAfter(budget);
+        try
+        {
+            await job.ExecuteAsync(context, tenantCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (tenantCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            // The PER-TENANT budget fired (not the caller). Convert to a TimeoutException so this tenant is
+            // isolated as a failure (caught generically by the caller) while the run continues for the others.
+            LogTenantBudgetExceeded(_logger, job.Name, tenantId, budget);
+            throw new TimeoutException(
+                $"Le traitement du tenant '{tenantId}' par le job '{job.Name}' a dépassé le budget de temps de {budget} et a été interrompu.");
+        }
+    }
 }

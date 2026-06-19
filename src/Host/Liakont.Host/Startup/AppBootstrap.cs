@@ -72,6 +72,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
+using Stratum.Common.Abstractions.Jobs;
 using Stratum.Common.Abstractions.MultiTenancy;
 using Stratum.Common.Abstractions.Security;
 using Stratum.Common.Infrastructure.Actions;
@@ -162,8 +163,14 @@ public static class AppBootstrap
         builder.Services.AddStratumGis(builder.Configuration);
 
         // Multi-tenant job runner (SOL06) — fans an ITenantJob out over all active tenants.
-        // Requires ITenantScopeFactory (registered by AddStratumMultiTenancy above).
-        builder.Services.AddTenantJobs();
+        // Requires ITenantScopeFactory (registered by AddStratumMultiTenancy above). The optional per-tenant
+        // time budget (RDL08, A6-scale-3) is bound from the "TenantJobs" section; absent → disabled (null).
+        builder.Services.AddTenantJobs(opts =>
+            builder.Configuration.GetSection(TenantJobRunnerOptions.SectionName).Bind(opts));
+
+        // De-duplication guard for the recurring scheduler (RDL08, A6-scale-2): consulted by JobScheduler
+        // before enqueuing, suppresses an enqueue when a Pending job of the same type/scope already exists.
+        builder.Services.AddScoped<IRecurringJobEnqueueGuard, RecurringJobEnqueueGuard>();
 
         // Modules
         builder.Services.AddIdentityModule(builder.Configuration);
