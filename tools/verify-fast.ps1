@@ -170,6 +170,20 @@ if ($ok) {
     }
 }
 
+# ── Step 2a-quater: socle-provenance guard self-test (always run) ──
+# Guards the marker-exclusion + tamper detection of socle-provenance-check.ps1 (RDL09): a regression
+# that silently excluded a true Stratum.* file, stopped catching an unconsigned edit, or stopped
+# catching a pinned file that gained a marker would be a false green. Runs in a throwaway git repo,
+# pure PowerShell, no dotnet.
+if ($ok) {
+    $ok = Run-Step 'socle-provenance: self-test' {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot 'tools\test-socle-provenance-guard.ps1')
+        if ($LASTEXITCODE -ne 0) {
+            throw "socle-provenance self-test failed (exit $LASTEXITCODE) — see tools/test-socle-provenance-guard.ps1"
+        }
+    }
+}
+
 # ── Step 2b: socle provenance guard (when the vendored tree exists) ──
 # Any silent modification of a vendored Stratum.* file that is not consigned in
 # docs/architecture/provenance-socle-stratum.md is a P1 (CLAUDE.md rule 11). The check pins

@@ -1,3 +1,4 @@
+// Liakont addition (affichage des dates cote navigateur) - not part of the original Stratum vendoring.
 namespace Stratum.Common.UI.Time;
 
 using System;
