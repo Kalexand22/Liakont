@@ -170,6 +170,14 @@ public sealed class PipelineE2ETenant : IAsyncLifetime
         return document?.State;
     }
 
+    /// <summary>Piste d'audit append-only d'un document (pour vérifier la persistance des motifs de blocage).</summary>
+    public async Task<IReadOnlyList<Liakont.Modules.Documents.Contracts.DTOs.DocumentEventDto>> GetEventsAsync(Guid documentId)
+    {
+        await using var scope = _provider!.CreateAsyncScope();
+        var queries = scope.ServiceProvider.GetRequiredService<IDocumentQueries>();
+        return await queries.GetEventsAsync(documentId);
+    }
+
     /// <summary>Vrai si un document existe (toute base : isolation tenant) avec cet identifiant.</summary>
     public async Task<bool> DocumentExistsAsync(Guid documentId)
     {
