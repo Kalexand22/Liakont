@@ -155,7 +155,19 @@ meta:
   #   run-tests (6001) verts sur la consolidation. depends_on_gate du segment `signature` réduit de
   #   [GATE_AUTOFACTURATION, GATE_FACTURX, GATE_CONSOLE_WEB] à [GATE_CONSOLE_WEB] : le code amont est porté
   #   par la branche, plus besoin d'attendre la recette humaine des 2 gates. Recette globale assumée (Karl).
-  version: 28
+  # version 29 = nouveau segment `ereporting-b2c` + lot B2C : e-reporting B2C de la marge (OVV/ventes
+  #   volontaires) — document 10.3 (Essentiel, démo Fake) + montant de marge (cas DGFiP n°33, BV intégral).
+  #   Issu de tasks/plan-ereporting-b2c-10-3.md (revue multi-agents + redline 2026-06-18). Bande 97xx.
+  #   Décisions opérateur (Karl 2026-06-18) : (a) gate = CHANTIER COMPLET (Essentiel + marge) ;
+  #   (b) B2C05 = sourcing « agent propose, humain valide » via checkpoint intra-segment GATE_B2C_SOURCING
+  #   (l'aval marge ne code qu'après validation de l'ancrage F03 sur source primaire — règle n°2) ;
+  #   (c) base main, gated. depends_on_gate [GATE_PIPELINE, GATE_ADAPTER_ENCHERESV6, GATE_CONSOLE_WEB, GATE_FACTURX].
+  #   ⚠️ Lot 3 du plan (10.4 part frais paiement) = PIP03b EXISTANT (`blocked`) — NON dupliqué ; les
+  #   B2C-10/11/12 du plan se débloquent en re-découpant PIP03b (geste opérateur). B2C08b conditionnel
+  #   (retiré si B2C05 n'établit aucune méthode de marge). ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS
+  #   merge : B2C01..B2C09b + GATE_B2C_SOURCING + GATE_EREPORTING_B2C en `pending` (B2C01/02/03/05/06/09a
+  #   éligibles). Détails : items/B2C.yaml.
+  version: 29
   host: multi_agent_v1
 
 segments:
@@ -287,6 +299,13 @@ segments:
     # GATE_AUTOFACTURATION / GATE_FACTURX ne sont plus des prérequis de claim ; seule GATE_CONSOLE_WEB
     # (done) subsiste (lignée UI console pour SIG10). Recette globale assumée (décision Karl, déblocage dev).
     depends_on_gate: [GATE_CONSOLE_WEB]
+
+  ereporting-b2c:
+    branch: feat/ereporting-b2c
+    base: main
+    lots: [B2C]
+    gate: GATE_EREPORTING_B2C
+    depends_on_gate: [GATE_PIPELINE, GATE_ADAPTER_ENCHERESV6, GATE_CONSOLE_WEB, GATE_FACTURX]
 
 items:
   # ── SOL ──
@@ -579,3 +598,21 @@ items:
   - { id: SIG09, lot: SIG, blueprint: tooling-item, priority: 9580, depends_on: [SIG08] }
   - { id: SIG10, lot: SIG, blueprint: blazor-page-item, priority: 9590, depends_on: [SIG03, SIG04] }
   - { id: GATE_SIGNATURE, type: gate, executor: human, priority: 9690, depends_on: [SIG05, SIG06, SIG07, SIG08, SIG09, SIG10] }
+
+  # ── B2C (segment ereporting-b2c — e-reporting B2C de la marge, manifest v29) ──
+  # Lot 3 du plan (piste 10.4 part frais) = PIP03b existant (`blocked`), NON dupliqué. Détails : items/B2C.yaml.
+  # GATE_B2C_SOURCING = checkpoint intra-segment (humain, SANS PR) : valide l'ancrage F03 de la marge
+  # proposé par B2C05 avant que l'aval marge (B2C07/08b/09b) ne code (règle n°2).
+  - { id: B2C01, lot: B2C, priority: 9700, depends_on: [] }
+  - { id: B2C02, lot: B2C, priority: 9710, depends_on: [] }
+  - { id: B2C03, lot: B2C, priority: 9720, depends_on: [] }
+  - { id: B2C04, lot: B2C, blueprint: blazor-page-item, priority: 9730, depends_on: [B2C01, B2C02, B2C03] }
+  - { id: B2C05, lot: B2C, blueprint: docs-spec-item, priority: 9740, depends_on: [] }
+  - { id: GATE_B2C_SOURCING, type: gate, executor: human, priority: 9745, depends_on: [B2C05] }
+  - { id: B2C06, lot: B2C, priority: 9750, depends_on: [] }
+  - { id: B2C07, lot: B2C, priority: 9760, depends_on: [B2C06, GATE_B2C_SOURCING] }
+  - { id: B2C08, lot: B2C, priority: 9770, depends_on: [B2C07] }
+  - { id: B2C08b, lot: B2C, blueprint: blazor-page-item, priority: 9775, depends_on: [GATE_B2C_SOURCING] }
+  - { id: B2C09a, lot: B2C, priority: 9780, depends_on: [] }
+  - { id: B2C09b, lot: B2C, priority: 9790, depends_on: [B2C05, B2C08, B2C09a, B2C03] }
+  - { id: GATE_EREPORTING_B2C, type: gate, executor: human, priority: 9799, depends_on: [B2C04, B2C09a, B2C09b] }
