@@ -22,12 +22,32 @@ public sealed class TenantProfileTests
         profile.Siren.Should().Be("123456782");
     }
 
-    [Fact]
-    public void Create_With_Invalid_Siren_Throws()
+    [Theory]
+    [InlineData("12345678")] // 8 chiffres : longueur != 9
+    [InlineData("1234567890")] // 10 chiffres : longueur != 9
+    [InlineData("12345678A")] // 9 caractères mais non numérique
+    public void Create_With_Invalid_Siren_Throws(string invalidSiren)
     {
-        var act = () => TenantProfile.Create(Guid.NewGuid(), "123456789", "Société Fictive", ValidAddress(), null);
+        // Le SIREN du PROFIL TENANT est un paramétrage de CONFIANCE : la règle est « 9 chiffres » (la clé de
+        // Luhn n'est PAS imposée — décision de recette 18/06/2026, autorise les SIREN de test sandbox comme
+        // « Burger Queen » 000000002, cf. SirenValidator). Un SIREN de longueur ≠ 9 ou non numérique reste
+        // rejeté (INV-TENANTSETTINGS-001) ; un SIREN « 9 chiffres » sans clé de Luhn valide est ACCEPTÉ.
+        var act = () => TenantProfile.Create(Guid.NewGuid(), invalidSiren, "Société Fictive", ValidAddress(), null);
 
         act.Should().Throw<ArgumentException>().WithMessage("*INV-TENANTSETTINGS-001*");
+    }
+
+    [Fact]
+    public void Create_With_Nine_Digit_Siren_Without_Valid_Luhn_Key_Is_Accepted()
+    {
+        // Garde-fou anti-régression (recette Bucodi, 18/06/2026) : un SIREN de 9 chiffres dont la clé de Luhn
+        // n'est pas valide (ex. « 123456789 ») doit être ACCEPTÉ pour le profil tenant — sinon les SIREN de
+        // test sandbox des PA seraient refusés au déploiement. La clé de Luhn n'est exigée que sur les SIREN
+        // EXTRAITS (Validation.Domain.Identity.SirenValidator, VAL02), jamais sur ce paramétrage de confiance.
+        var profile = TenantProfile.Create(Guid.NewGuid(), "123456789", "Société Fictive", ValidAddress(), null);
+
+        profile.Siren.Should().Be("123456789");
+        profile.Statut.Should().Be(TenantStatus.Actif);
     }
 
     [Fact]

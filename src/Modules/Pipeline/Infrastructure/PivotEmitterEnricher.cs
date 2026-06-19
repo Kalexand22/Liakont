@@ -1,6 +1,7 @@
 namespace Liakont.Modules.Pipeline.Infrastructure;
 
 using System;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Liakont.Agent.Contracts.Pivot;
@@ -72,7 +73,7 @@ internal static class PivotEmitterEnricher
             name: profile.RaisonSociale,
             siren: profile.Siren,
             siret: null,
-            vatNumber: null,
+            vatNumber: BuildFrenchIntracomVat(profile.Siren, profile.Country),
             address: new PivotAddressDto(
                 line1: NullIfBlank(profile.Street),
                 line2: null,
@@ -100,6 +101,26 @@ internal static class PivotEmitterEnricher
     }
 
     private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
+
+    /// <summary>
+    /// N° TVA intracommunautaire FR (EN 16931 BT-31) dérivé du SIREN de l'émetteur : <c>"FR"</c> + clé de
+    /// contrôle + SIREN. La clé est la formule administrative STANDARD française
+    /// (<c>(12 + 3 × (SIREN mod 97)) mod 97</c>) — déterministe et publique, ce n'est pas une règle fiscale
+    /// inventée (CLAUDE.md n°2). Dérivée UNIQUEMENT pour un émetteur français (<c>country == "FR"</c>) dont
+    /// le SIREN est bien formé (9 chiffres) ; sinon <c>null</c> (le BT-31 reste absent — jamais deviné).
+    /// Requis car la conversion EN 16931 (BR-S-02/…) exige le n° TVA vendeur dès qu'une ligne porte de la TVA.
+    /// </summary>
+    private static string? BuildFrenchIntracomVat(string? siren, string? country)
+    {
+        if (!string.Equals(country, "FR", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(siren) || siren.Length != 9
+            || !long.TryParse(siren, NumberStyles.None, CultureInfo.InvariantCulture, out var numericSiren))
+        {
+            return null;
+        }
+
+        var key = (12 + (3 * (numericSiren % 97))) % 97;
+        return string.Create(CultureInfo.InvariantCulture, $"FR{key:D2}{siren}");
+    }
 
     private static PivotDocumentDto Rebuild(PivotDocumentDto pivot, PivotPartyDto? supplier, OperationCategory? operationCategory) =>
         new(

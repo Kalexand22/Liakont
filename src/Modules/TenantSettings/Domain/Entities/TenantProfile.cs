@@ -135,7 +135,7 @@ public sealed class TenantProfile
         if (!SirenValidator.IsValid(siren))
         {
             throw new ArgumentException(
-                "INV-TENANTSETTINGS-001 : le SIREN doit comporter 9 chiffres et satisfaire la clé de Luhn.",
+                "INV-TENANTSETTINGS-001 : le SIREN doit comporter 9 chiffres.",
                 nameof(siren));
         }
     }

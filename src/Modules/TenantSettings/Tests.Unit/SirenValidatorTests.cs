@@ -15,11 +15,15 @@ public sealed class SirenValidatorTests
     }
 
     [Theory]
-    [InlineData("123456789")] // clé de Luhn invalide
+    [InlineData("123456789")] // 9 chiffres, clé de Luhn NON satisfaite
     [InlineData("111111111")]
-    public void IsValid_With_Luhn_Invalid_Siren_Returns_False(string siren)
+    [InlineData("000000002")] // SIREN de test sandbox SuperPDP (« Burger Queen »), Luhn non satisfaite
+    public void IsValid_Accepts_9Digit_Siren_Even_When_Luhn_Invalid(string siren)
     {
-        SirenValidator.IsValid(siren).Should().BeFalse("la clé de Luhn n'est pas satisfaite (INV-TENANTSETTINGS-001).");
+        // Décision de recette (Karl, 18/06/2026) : le SIREN du PROFIL TENANT n'est plus contrôlé par la clé
+        // de Luhn (paramétrage de confiance ; autorise les SIREN de test des sandboxes PA). Seul le format
+        // (9 chiffres) est exigé. La clé de Luhn reste appliquée aux SIREN extraits (Validation.SirenValidator).
+        SirenValidator.IsValid(siren).Should().BeTrue("le SIREN du profil tenant n'impose plus la clé de Luhn (9 chiffres suffisent).");
     }
 
     [Theory]

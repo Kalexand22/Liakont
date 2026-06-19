@@ -1,17 +1,21 @@
 namespace Liakont.Modules.TenantSettings.Domain.Services;
 
 /// <summary>
-/// Validation d'un SIREN : 9 chiffres + clé de Luhn (F12-A §2, blueprint §7.1).
+/// Validation du SIREN du PROFIL TENANT : 9 chiffres. La clé de Luhn n'est PAS imposée (le SIREN
+/// émetteur est un paramétrage de CONFIANCE ; cf. corps de <see cref="IsValid"/>). À NE PAS confondre
+/// avec <c>Liakont.Modules.Validation.Domain.Identity.SirenValidator</c> (Luhn EXIGÉ sur les SIREN extraits).
 /// </summary>
 /// <remarks>
-/// Duplication TEMPORAIRE et documentée de la règle de validation SIREN qui sera portée par
-/// VAL02 (cf. F12-A §2 et description CFG02). À consolider derrière la règle VAL02 dès que
-/// le lot VAL est livré — ne pas diverger entre les deux implémentations entre-temps.
+/// Décision de recette (Karl, 18/06/2026) : autoriser les SIREN de TEST des sandboxes PA (ex. SuperPDP
+/// « Burger Queen »). Le SIREN émetteur est saisi par le déployeur/l'opérateur, pas extrait — on ne
+/// re-contrôle donc pas sa clé de Luhn. Divergence ASSUMÉE (sur la seule clé de Luhn) avec la règle VAL02
+/// (F12-A §2), qui reste à consolider.
 /// </remarks>
 public static class SirenValidator
 {
     /// <summary>
-    /// Indique si <paramref name="siren"/> est composé de 9 chiffres et satisfait la clé de Luhn.
+    /// Indique si <paramref name="siren"/> est composé de 9 chiffres. La clé de Luhn n'est PAS vérifiée :
+    /// le SIREN du profil tenant est un paramétrage de confiance (autorise les SIREN de test sandbox).
     /// </summary>
     public static bool IsValid(string? siren)
     {
@@ -20,33 +24,14 @@ public static class SirenValidator
             return false;
         }
 
-        var sum = 0;
-        var doubleDigit = false;
-
-        // Luhn : on parcourt de droite à gauche, on double un chiffre sur deux (le 2e en partant
-        // de la droite), et on retranche 9 si le résultat dépasse 9. Total multiple de 10 = valide.
-        for (var i = siren.Length - 1; i >= 0; i--)
+        foreach (var c in siren)
         {
-            var c = siren[i];
             if (c < '0' || c > '9')
             {
                 return false;
             }
-
-            var digit = c - '0';
-            if (doubleDigit)
-            {
-                digit *= 2;
-                if (digit > 9)
-                {
-                    digit -= 9;
-                }
-            }
-
-            sum += digit;
-            doubleDigit = !doubleDigit;
         }
 
-        return sum % 10 == 0;
+        return true;
     }
 }

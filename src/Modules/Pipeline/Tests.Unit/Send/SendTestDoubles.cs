@@ -17,6 +17,7 @@ using Liakont.Modules.SupportTrace.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
 using Liakont.Modules.Transmission.Contracts;
+using Liakont.Modules.TvaMapping.Contracts.Services;
 
 /// <summary>
 /// Doubles de test (sans I/O ni conteneur DI) pour le SEND : un <see cref="IServiceProvider"/> minimal
@@ -306,6 +307,124 @@ internal static class SendTestDoubles
             Saved.Add(runLog);
             return Task.CompletedTask;
         }
+    }
+
+    /// <summary>
+    /// Service de mapping TVA factice du SEND (emitter-filled-by-platform) : le SEND repose la catégorie au
+    /// READ-TIME via <see cref="ITvaMappingService.MapAsync"/> (SYMÉTRIQUE à l'émetteur). Par défaut MAPPE
+    /// chaque requête de ligne vers la catégorie <c>S</c> (échoue du régime/LineRef de la requête, ordre
+    /// préservé), de sorte que l'évaluation CHECK n'est jamais bloquée et que l'envoi nominal repasse vert.
+    /// La variante <see cref="Blocking"/> renvoie chaque ligne BLOQUÉE (régime non couvert) — HOLD.
+    /// </summary>
+    internal sealed class FakeTvaMappingService : ITvaMappingService
+    {
+        private readonly bool _block;
+        private readonly decimal _rate;
+        private readonly string _category;
+
+        private FakeTvaMappingService(bool block, string category, decimal rate)
+        {
+            _block = block;
+            _category = category;
+            _rate = rate;
+        }
+
+        public IReadOnlyList<TvaLineMappingRequest>? LastRequests { get; private set; }
+
+        /// <summary>Mappe chaque ligne vers une catégorie valide (défaut <c>S</c>, 20 %) — l'envoi nominal passe.</summary>
+        public static FakeTvaMappingService Mapping(string category = "S", decimal rate = 20m) =>
+            new(block: false, category, rate);
+
+        /// <summary>Bloque chaque ligne (régime non couvert depuis le CHECK) → HOLD (TvaUnresolved).</summary>
+        public static FakeTvaMappingService Blocking() => new(block: true, category: "S", rate: 20m);
+
+        public Task<DocumentTvaMappingResult> MapAsync(
+            Guid companyId,
+            IReadOnlyList<TvaLineMappingRequest> lines,
+            CancellationToken cancellationToken = default)
+        {
+            LastRequests = lines;
+
+            var results = new List<TvaLineMappingResult>(lines.Count);
+            foreach (var request in lines)
+            {
+                results.Add(_block
+                    ? new TvaLineMappingResult
+                    {
+                        SourceRegimeCode = request.SourceRegimeCode,
+                        LineRef = request.LineRef,
+                        IsMapped = false,
+                        BlockReason = $"Régime de TVA source « {request.SourceRegimeCode} » absent de la table de mapping (action opérateur : complétez la table dans Paramétrage › TVA).",
+                    }
+                    : new TvaLineMappingResult
+                    {
+                        SourceRegimeCode = request.SourceRegimeCode,
+                        LineRef = request.LineRef,
+                        IsMapped = true,
+                        Category = _category,
+                        Rate = _rate,
+                        Vatex = null,
+                    });
+            }
+
+            return Task.FromResult(new DocumentTvaMappingResult
+            {
+                TableExists = true,
+                IsValidated = true,
+                MappingVersion = SendTestData.MappingVersion,
+                Lines = results,
+            });
+        }
+    }
+
+    /// <summary>
+    /// PA de test de niveau « Pilotage » ASYNCHRONE (F14 §3.4, Super PDP) : le SIREN est publié
+    /// (tax_report_setting actif) et l'envoi répond <see cref="PaSendState.Sending"/> — un POST 200
+    /// « téléversée » (api:uploaded), pas encore émise. Sert à prouver que le SEND DIFFÈRE (ni succès ni
+    /// erreur technique : pas de MarkIssued, pas de MarkTechnicalError) un téléversement asynchrone.
+    /// </summary>
+    internal sealed class SendingPaClient : IPaClient
+    {
+        public PaCapabilities Capabilities { get; } = new() { PaName = "Super PDP (test)" };
+
+        public int SendCount { get; private set; }
+
+        public Task<PaSendResult> SendDocumentAsync(PivotDocumentDto document, bool sendAfterImport = true, PaOutboundProjection? projection = null, PaSendContext? context = null, CancellationToken cancellationToken = default)
+        {
+            SendCount++;
+            return Task.FromResult(new PaSendResult
+            {
+                State = PaSendState.Sending,
+                PaDocumentId = $"SPDP-{document.Number}",
+                RawResponse = "{\"events\":[{\"status_code\":\"api:uploaded\"}]}",
+            });
+        }
+
+        // tax_report_setting ACTIF (SIREN publié) : StartDate non future → IsActiveOn true → le diagnostic
+        // pré-envoi laisse passer (sinon « SIREN non publié » court-circuiterait avant tout envoi).
+        public Task<PaTaxReportSetting> GetTaxReportSettingAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new PaTaxReportSetting { StartDate = new DateOnly(2026, 1, 1) });
+
+        public Task<PaSendResult> SendPaymentReportAsync(PaymentReportPeriod period, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaDocumentStatus> GetDocumentStatusAsync(string paDocumentId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<PaTaxReport>> ListTaxReportsAsync(DateTime? since = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaTaxReport> GetTaxReportAsync(string taxReportId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaAccountInfo> GetAccountInfoAsync(CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task EnsureTaxReportSettingAsync(PaTaxReportSettingRequest request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaGeneratedDocument> GetGeneratedDocumentAsync(string paDocumentId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     /// <summary>

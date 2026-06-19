@@ -17,12 +17,14 @@ using Liakont.Modules.Mandats.Contracts.Queries;
 using Liakont.Modules.Pipeline.Application;
 using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Domain;
+using Liakont.Modules.Pipeline.Infrastructure.Check;
 using Liakont.Modules.Pipeline.Infrastructure.Serialization;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.SupportTrace.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
 using Liakont.Modules.Transmission.Contracts;
+using Liakont.Modules.TvaMapping.Contracts.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Stratum.Common.Abstractions.Jobs;
@@ -263,7 +265,7 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Skipped;
         }
 
-        var staged = await ReadStagedPivotAsync(services, tenantId, tenantProfile, fiscalSettings, document, logger, cancellationToken);
+        var staged = await ReadStagedPivotAsync(services, tenantId, companyId, tenantProfile, fiscalSettings, document, logger, cancellationToken);
         if (staged.Status == StagedReadStatus.NotStaged)
         {
             return SendOutcome.Deferred;
@@ -279,10 +281,11 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Failed;
         }
 
-        if (staged.Status == StagedReadStatus.EmitterUnresolved)
+        if (staged.Status is StagedReadStatus.EmitterUnresolved or StagedReadStatus.TvaUnresolved)
         {
-            // Émetteur non résolu au SEND (profil tenant vidé entre le CHECK et l'envoi, RB9) : HOLD — aucune
-            // transmission ni archive. Différé : repris dès que le profil retrouve son SIREN (déjà journalisé).
+            // Émetteur non résolu (profil vidé entre CHECK et SEND, RB9) OU catégorie TVA non reposée (table de
+            // mapping modifiée depuis le CHECK) : HOLD — aucune transmission ni archive. Différé : repris dès que
+            // le profil / la table sont rétablis (la cause précise est déjà journalisée dans ReadStagedPivotAsync).
             return SendOutcome.Deferred;
         }
 
@@ -351,7 +354,7 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Skipped;
         }
 
-        var staged = await ReadStagedPivotAsync(services, tenantId, tenantProfile, fiscalSettings, document, logger, cancellationToken);
+        var staged = await ReadStagedPivotAsync(services, tenantId, companyId, tenantProfile, fiscalSettings, document, logger, cancellationToken);
         if (staged.Status == StagedReadStatus.NotStaged)
         {
             return SendOutcome.Deferred;
@@ -367,10 +370,11 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Failed;
         }
 
-        if (staged.Status == StagedReadStatus.EmitterUnresolved)
+        if (staged.Status is StagedReadStatus.EmitterUnresolved or StagedReadStatus.TvaUnresolved)
         {
-            // Émetteur non résolu au SEND (profil tenant vidé entre le CHECK et l'envoi, RB9) : HOLD — aucune
-            // transmission ni archive. Différé : repris dès que le profil retrouve son SIREN (déjà journalisé).
+            // Émetteur non résolu (profil vidé entre CHECK et SEND, RB9) OU catégorie TVA non reposée (table de
+            // mapping modifiée depuis le CHECK) : HOLD — aucune transmission ni archive. Différé : repris dès que
+            // le profil / la table sont rétablis (la cause précise est déjà journalisée dans ReadStagedPivotAsync).
             return SendOutcome.Deferred;
         }
 
@@ -435,7 +439,7 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Skipped;
         }
 
-        var staged = await ReadStagedPivotAsync(services, tenantId, tenantProfile, fiscalSettings, document, logger, cancellationToken);
+        var staged = await ReadStagedPivotAsync(services, tenantId, companyId, tenantProfile, fiscalSettings, document, logger, cancellationToken);
         if (staged.Status == StagedReadStatus.NotStaged)
         {
             return SendOutcome.Deferred;
@@ -451,10 +455,11 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Failed;
         }
 
-        if (staged.Status == StagedReadStatus.EmitterUnresolved)
+        if (staged.Status is StagedReadStatus.EmitterUnresolved or StagedReadStatus.TvaUnresolved)
         {
-            // Émetteur non résolu au SEND (profil tenant vidé entre le CHECK et l'envoi, RB9) : HOLD — aucune
-            // transmission ni archive. Différé : repris dès que le profil retrouve son SIREN (déjà journalisé).
+            // Émetteur non résolu (profil vidé entre CHECK et SEND, RB9) OU catégorie TVA non reposée (table de
+            // mapping modifiée depuis le CHECK) : HOLD — aucune transmission ni archive. Différé : repris dès que
+            // le profil / la table sont rétablis (la cause précise est déjà journalisée dans ReadStagedPivotAsync).
             return SendOutcome.Deferred;
         }
 
@@ -625,6 +630,15 @@ public sealed partial class SendTenantJob : ITenantJob
                 LogCapabilityRefusedAtSend(logger, document.Id, result.CapabilityNotSupported?.Capability.ToString() ?? "(inconnue)");
                 return SendOutcome.Failed;
 
+            case PaSendState.Sending:
+                // SuperPDP est ASYNCHRONE (F14 §3.4) : un POST 200 = facture TÉLÉVERSÉE (api:uploaded), pas
+                // encore émise (fr:201 suit en quelques secondes). Le document RESTE Sending (déjà engagé) —
+                // NI succès NI échec. Le raccrochage (RecoverSendingAsync : relecture d'état / anti-doublon par
+                // external_id, F14 §4.1) le finalisera Issued dès l'émission PA. JAMAIS une erreur technique,
+                // qui afficherait un FAUX échec opérateur sur une facture pourtant acceptée par la PA.
+                LogSendingInProgress(logger, document.Id);
+                return SendOutcome.Deferred;
+
             default:
                 // New inattendu pour un envoi de document : on retombe sur une erreur technique re-tentable
                 // plutôt que d'inventer une issue ou de laisser le document figé en Sending.
@@ -770,6 +784,7 @@ public sealed partial class SendTenantJob : ITenantJob
     private static async Task<StagedRead> ReadStagedPivotAsync(
         IServiceProvider services,
         string tenantId,
+        Guid companyId,
         TenantProfileDto? tenantProfile,
         FiscalSettingsDto? fiscalSettings,
         DocumentDto document,
@@ -798,6 +813,27 @@ public sealed partial class SendTenantJob : ITenantJob
             {
                 LogEmitterUnresolvedNotSent(logger, document.Id, document.DocumentNumber, tenantId);
                 return new StagedRead(StagedReadStatus.EmitterUnresolved, null, null);
+            }
+
+            // Mapping TVA rempli au READ-TIME (catégorie UNCL5305 + VATEX par ligne) — SYMÉTRIQUE à l'émetteur
+            // (emitter-filled-by-platform / ADR-0023 amendé) : le blob stagé est le pivot SOURCE (régimes bruts,
+            // catégorie nulle — hashé à l'ingestion pour l'anti-doublon F06). La PA exige la catégorie par ligne
+            // (EN 16931 BG-30) : on la repose ICI, depuis la table validée du tenant, via le MÊME moteur qu'au
+            // CHECK (CheckTvaMapping) — une seule source de la classification, jamais inventée (F03). Un régime
+            // devenu non couvert entre CHECK et SEND (table modifiée) → HOLD différé, jamais un envoi sans catégorie.
+            var mappingPlan = CheckTvaMapping.BuildPlan(enriched);
+            if (mappingPlan.Requests.Count > 0)
+            {
+                var mappingResult = await services.GetRequiredService<ITvaMappingService>()
+                    .MapAsync(companyId, mappingPlan.Requests, cancellationToken);
+                var evaluation = CheckTvaMapping.Evaluate(enriched, mappingPlan, mappingResult);
+                if (evaluation.IsBlocked)
+                {
+                    LogTvaUnresolvedNotSent(logger, document.Id, document.DocumentNumber, tenantId);
+                    return new StagedRead(StagedReadStatus.TvaUnresolved, null, null);
+                }
+
+                enriched = evaluation.EnrichedDocument!;
             }
 
             if (!ReferenceEquals(enriched, pivot))
@@ -1007,6 +1043,10 @@ public sealed partial class SendTenantJob : ITenantJob
         Message = "SEND : issue d'envoi inattendue « {State} » pour le document {DocumentId} — marqué erreur technique (re-tentable).")]
     private static partial void LogUnexpectedSendState(ILogger logger, Guid documentId, string state);
 
+    [LoggerMessage(EventId = 7220, Level = LogLevel.Information,
+        Message = "SEND : document {DocumentId} téléversé à la Plateforme Agréée (émission asynchrone en cours) — maintenu « en cours d'envoi », finalisé automatiquement dès l'émission confirmée par la PA.")]
+    private static partial void LogSendingInProgress(ILogger logger, Guid documentId);
+
     [LoggerMessage(EventId = 7209, Level = LogLevel.Warning,
         Message = "SEND : avoir {DocumentId} non envoyé — la Plateforme Agréée « {PaName} » ne déclare pas la capacité avoirs (maintenu ReadyToSend, traité par le pipeline des avoirs).")]
     private static partial void LogCreditNoteCapabilityMissing(ILogger logger, Guid documentId, string paName);
@@ -1022,6 +1062,10 @@ public sealed partial class SendTenantJob : ITenantJob
     [LoggerMessage(EventId = 7218, Level = LogLevel.Warning,
         Message = "SEND : émetteur non résolu pour le document {DocumentNumber} ({DocumentId}, tenant « {TenantId} ») — le profil tenant n'a pas (ou plus) de SIREN. Document NON transmis (HOLD, repris automatiquement au prochain cycle). Action opérateur : renseignez le SIREN et la raison sociale dans Paramétrage › Profil de l'entreprise.")]
     private static partial void LogEmitterUnresolvedNotSent(ILogger logger, Guid documentId, string documentNumber, string tenantId);
+
+    [LoggerMessage(EventId = 7219, Level = LogLevel.Warning,
+        Message = "SEND : catégorie de TVA non reposée pour le document {DocumentNumber} ({DocumentId}, tenant « {TenantId} ») — la table de mapping TVA a changé depuis le contrôle (un régime n'est plus couvert). Document NON transmis (HOLD, repris automatiquement au prochain cycle). Action opérateur : complétez/faites valider la table de mapping TVA dans Paramétrage › TVA.")]
+    private static partial void LogTvaUnresolvedNotSent(ILogger logger, Guid documentId, string documentNumber, string tenantId);
 
     [LoggerMessage(EventId = 7212, Level = LogLevel.Error,
         Message = "SEND : échec inattendu sur le document {DocumentId} — document ignoré ce cycle, traitement du tenant poursuivi.")]

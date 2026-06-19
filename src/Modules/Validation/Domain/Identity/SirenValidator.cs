@@ -39,4 +39,28 @@ public static class SirenValidator
 
         return Luhn.IsValid(siren);
     }
+
+    /// <summary>
+    /// Indique si <paramref name="siren"/> est BIEN FORMÉ (9 chiffres), SANS contrôle de la clé de Luhn.
+    /// Réservé au SIREN ÉMETTEUR PARAMÉTRÉ (donnée de confiance du tenant) : autorise les SIREN de TEST des
+    /// sandboxes PA (décision de recette Karl, 18/06/2026). NE PAS utiliser pour un SIREN EXTRAIT (acheteur),
+    /// qui reste contrôlé par <see cref="IsValid"/> (clé de Luhn, F04 §4.1).
+    /// </summary>
+    public static bool IsWellFormed(string? siren)
+    {
+        if (string.IsNullOrEmpty(siren) || siren.Length != 9)
+        {
+            return false;
+        }
+
+        foreach (var c in siren)
+        {
+            if (c < '0' || c > '9')
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 }

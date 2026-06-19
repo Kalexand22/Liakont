@@ -77,6 +77,73 @@ public class PivotEmitterEnricherTests
         enriched.OperationCategory.Should().BeNull("nature d'opération inconnue → bloquée au CHECK, jamais devinée");
     }
 
+    [Fact]
+    public void Derives_french_intracom_vat_BT31_from_a_well_formed_french_siren()
+    {
+        // BT-31 dérivé du SIREN émetteur (EN 16931) : « FR » + clé de contrôle + SIREN. La clé est la formule
+        // administrative STANDARD française (12 + 3 × (SIREN mod 97)) mod 97 — déterministe, jamais inventée
+        // (CLAUDE.md n°2). Requise par la conversion EN 16931 dès qu'une ligne porte de la TVA (BR-S-02).
+        PivotDocumentDto enriched = PivotEmitterEnricher.Enrich(
+            Pivot(supplier: null, operationCategory: null),
+            Profile("123456782", "SEM Keroman"),
+            Fiscal("LivraisonBiens"));
+
+        // (12 + 3 × (123456782 mod 97)) mod 97 = 11 → FR11123456782.
+        enriched.Supplier!.VatNumber.Should().Be("FR11123456782");
+
+        // Forme : « FR » + clé (2 chiffres) + SIREN (9 chiffres) = 13 caractères, clé cohérente avec le SIREN
+        // (même formule que le validateur F04 §4.2 ; le module Validation n'est pas référencé ici, on revérifie).
+        var vat = enriched.Supplier.VatNumber!;
+        vat.Should().HaveLength(13).And.StartWith("FR");
+        var siren = int.Parse(vat[4..], System.Globalization.CultureInfo.InvariantCulture);
+        var key = int.Parse(vat[2..4], System.Globalization.CultureInfo.InvariantCulture);
+        key.Should().Be((12 + (3 * (siren % 97))) % 97, "la clé de contrôle est cohérente avec le SIREN intégré");
+    }
+
+    [Fact]
+    public void Does_not_derive_vat_when_country_is_not_france()
+    {
+        PivotDocumentDto enriched = PivotEmitterEnricher.Enrich(
+            Pivot(supplier: null, operationCategory: null),
+            ProfileWithCountry("123456782", "Acme GmbH", "DE"),
+            Fiscal("LivraisonBiens"));
+
+        // BT-31 dérivé UNIQUEMENT pour un émetteur français : un autre pays → null (jamais une clé FR sur un
+        // SIREN non français — la dérivation n'est sourcée que pour la France, CLAUDE.md n°2).
+        enriched.Supplier!.Siren.Should().Be("123456782", "le SIREN reste posé, seule la dérivation BT-31 est conditionnée au pays");
+        enriched.Supplier.VatNumber.Should().BeNull("n° TVA intracom FR dérivé seulement pour country == FR");
+    }
+
+    [Theory]
+    [InlineData("12345678")] // 8 chiffres (longueur != 9)
+    [InlineData("1234567890")] // 10 chiffres (longueur != 9)
+    [InlineData("12345678A")] // 9 caractères mais non numérique
+    public void Does_not_derive_vat_when_siren_is_malformed(string malformedSiren)
+    {
+        PivotDocumentDto enriched = PivotEmitterEnricher.Enrich(
+            Pivot(supplier: null, operationCategory: null),
+            Profile(malformedSiren, "SEM Keroman"),
+            Fiscal("LivraisonBiens"));
+
+        // SIREN mal formé (longueur ≠ 9 ou non numérique) : BT-31 laissé null (jamais deviné). Le SIREN
+        // non vide est tout de même posé sur l'émetteur — c'est le CHECK qui le validera/bloquera.
+        enriched.Supplier!.VatNumber.Should().BeNull("BT-31 dérivé seulement d'un SIREN bien formé (9 chiffres)");
+    }
+
+    private static TenantProfileDto ProfileWithCountry(string siren, string raisonSociale, string country) => new()
+    {
+        Id = Guid.NewGuid(),
+        CompanyId = Guid.NewGuid(),
+        Siren = siren,
+        RaisonSociale = raisonSociale,
+        Street = "1 Hauptstrasse",
+        PostalCode = "10115",
+        City = "Berlin",
+        Country = country,
+        Statut = "Actif",
+        CreatedAt = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
+    };
+
     private static PivotDocumentDto Pivot(PivotPartyDto? supplier, OperationCategory? operationCategory) =>
         new(
             sourceDocumentKind: "FAC",

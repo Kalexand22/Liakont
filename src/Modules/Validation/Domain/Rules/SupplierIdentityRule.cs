@@ -72,12 +72,16 @@ public sealed class SupplierIdentityRule : IDocumentRule
             return issues;
         }
 
-        if (!SirenValidator.IsValid(issuerSiren))
+        // L'émetteur est le SIREN PARAMÉTRÉ du tenant (donnée de confiance, saisie au déploiement) : on
+        // contrôle le FORMAT (9 chiffres), pas la clé de Luhn — ce qui autorise les SIREN de TEST des
+        // sandboxes PA (décision de recette Karl, 18/06/2026). Le contrôle Luhn reste appliqué aux SIREN
+        // EXTRAITS (acheteur — BuyerIdentityRule).
+        if (!SirenValidator.IsWellFormed(issuerSiren))
         {
             issues.Add(ValidationIssue.Blocking(
                 SirenInvalid,
-                $"Le SIREN de l'émetteur paramétré ({issuerSiren}) est invalide (clé de Luhn). Corrigez le profil de l'entreprise dans Liakont avant d'envoyer le document n° {document.Number}.",
-                $"Le SIREN émetteur '{issuerSiren}' (profil tenant) échoue la validation Luhn (F04 §4.1).",
+                $"Le SIREN de l'émetteur paramétré ({issuerSiren}) est mal formé (9 chiffres attendus). Corrigez le profil de l'entreprise dans Liakont avant d'envoyer le document n° {document.Number}.",
+                $"Le SIREN émetteur '{issuerSiren}' (profil tenant) n'a pas le format attendu (9 chiffres).",
                 "BT-30"));
 
             // Émetteur mal paramétré : la cohérence document/profil n'a pas de sens tant qu'il n'est pas corrigé.
