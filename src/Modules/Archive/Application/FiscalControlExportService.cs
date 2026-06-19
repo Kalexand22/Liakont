@@ -14,6 +14,7 @@ using Liakont.Modules.Archive.Contracts;
 using Liakont.Modules.Archive.Domain;
 using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Documents.Contracts.Queries;
+using Liakont.Modules.TenantSettings.Contracts.Queries;
 using Stratum.Common.Abstractions.MultiTenancy;
 
 /// <summary>
@@ -41,6 +42,8 @@ public sealed class FiscalControlExportService : IFiscalControlExportService
         - <année>/<mois>/<numéro>/manifest.json    : empreintes SHA-256 de chaque pièce + chaînage.
         - <année>/<mois>/<numéro>/manifest-addendum-*.json : pièces ajoutées a posteriori (chaînées).
         - <année>/<mois>/<numéro>/chronologie.json|.txt : journal horodaté append-only du document.
+        - <année>/<mois>/<numéro>/liens-reporting-pieces.json : pour une déclaration d'e-reporting B2C
+          (flux 10.3), les pièces source liées de façon immuable à la transmission (traçabilité B2C03).
         - _anchors/...                              : preuves d'ancrage temporel (jetons RFC 3161).
         - rapport-integrite.json                    : résultat de la vérification au moment de l'export.
 
@@ -71,6 +74,8 @@ public sealed class FiscalControlExportService : IFiscalControlExportService
     private readonly IArchiveEntryStore _entryStore;
     private readonly IArchiveVerifier _verifier;
     private readonly IDocumentQueries _documentQueries;
+    private readonly IReportingPieceLinkStore _linkStore;
+    private readonly ITenantSettingsQueries _settingsQueries;
     private readonly ITenantContext _tenantContext;
 
     public FiscalControlExportService(
@@ -78,12 +83,16 @@ public sealed class FiscalControlExportService : IFiscalControlExportService
         IArchiveEntryStore entryStore,
         IArchiveVerifier verifier,
         IDocumentQueries documentQueries,
+        IReportingPieceLinkStore linkStore,
+        ITenantSettingsQueries settingsQueries,
         ITenantContext tenantContext)
     {
         _store = store;
         _entryStore = entryStore;
         _verifier = verifier;
         _documentQueries = documentQueries;
+        _linkStore = linkStore;
+        _settingsQueries = settingsQueries;
         _tenantContext = tenantContext;
     }
 
@@ -310,6 +319,11 @@ public sealed class FiscalControlExportService : IFiscalControlExportService
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         string tenant = RequireTenant();
+
+        // Société du tenant SÉLECTIONNÉ (résolue depuis sa base, comme l'export de réversibilité) : correcte
+        // y compris pour un export OPÉRATEUR cross-tenant — contrairement au filtre acteur, nul dans ce cas.
+        // null = aucun profil société (tenant non provisionné) → aucun lien reporting↔pièces ajouté.
+        Guid? reportingCompanyId = await _settingsQueries.GetCurrentCompanyId(cancellationToken);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var documentIds = new List<Guid>();
         var documentDir = new Dictionary<Guid, string>();
@@ -351,7 +365,8 @@ public sealed class FiscalControlExportService : IFiscalControlExportService
             }
         }
 
-        // 2. Chronologie (DocumentEvents) par document, dans son répertoire de paquet.
+        // 2. Chronologie (DocumentEvents) + traçabilité reporting↔pièces (B2C03) par document, dans son
+        //    répertoire de paquet.
         foreach (Guid documentId in documentIds)
         {
             foreach (FiscalExportFile file in await BuildChronologyFilesAsync(documentId, documentDir[documentId], cancellationToken))
@@ -359,6 +374,15 @@ public sealed class FiscalControlExportService : IFiscalControlExportService
                 if (seen.Add(file.Path))
                 {
                     yield return file;
+                }
+            }
+
+            if (reportingCompanyId is { } companyId)
+            {
+                FiscalExportFile? linkFile = await BuildReportingLinkFileAsync(companyId, documentId, documentDir[documentId], cancellationToken);
+                if (linkFile is { } file2 && seen.Add(file2.Path))
+                {
+                    yield return file2;
                 }
             }
         }
@@ -425,6 +449,31 @@ public sealed class FiscalControlExportService : IFiscalControlExportService
             new FiscalExportFile(packageDir + "chronologie.json", "application/json", json),
             new FiscalExportFile(packageDir + "chronologie.txt", "text/plain; charset=utf-8", text),
         ];
+    }
+
+    /// <summary>
+    /// Traçabilité reporting↔pièces (B2C03) : pour une transmission d'e-reporting B2C (déclaration 10.3),
+    /// ajoute au dossier la liste IMMUABLE de ses pièces source liées (sens transmission → pièces), gelées à
+    /// la transmission. Un document ORDINAIRE (facture, avoir, B2B — aucun lien) ne produit AUCUN fichier :
+    /// l'export des documents non-10.3 est inchangé. Le lien ne porte aucun secret PA (identifiant de
+    /// document + référence de pièce + horodatage) — rien à masquer.
+    /// </summary>
+    private async Task<FiscalExportFile?> BuildReportingLinkFileAsync(
+        Guid companyId,
+        Guid documentId,
+        string packageDir,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<ReportingPieceLink> links = await _linkStore.GetByDocumentAsync(companyId, documentId, cancellationToken);
+        if (links.Count == 0)
+        {
+            return null;
+        }
+
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(
+            new { documentId, links },
+            ExportJsonOptions);
+        return new FiscalExportFile(packageDir + "liens-reporting-pieces.json", "application/json", json);
     }
 
     private async Task<byte[]?> TryReadAsync(string tenant, string path, CancellationToken cancellationToken)
