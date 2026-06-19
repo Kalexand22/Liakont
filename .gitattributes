@@ -3,3 +3,9 @@
 # backup.sh / restore.sh / _backup-common.sh y sont exécutés/sourcés. eol=lf force LF au checkout
 # quel que soit core.autocrlf du poste.
 *.sh text eol=lf
+
+# Golden files du contrat v1 (PIV03/ADR-0007) : leur empreinte SHA-256 figee porte sur les OCTETS
+# bruts du fichier. Tout reencodage au checkout (CRLF via core.autocrlf, BOM UTF-8, newline finale)
+# changerait ces octets et casserait l'ancre cross-runtime. -text => octets opaques, jamais convertis :
+# LF et no-BOM sont preserves exactement tels que commites (verrouillage RDL05, assertion sur octets bruts).
+tests/fixtures/contrat-v1/*.json -text

@@ -42,6 +42,7 @@
     <Compile Include="..\..\..\tests\_shared\contract-v1\ContractFixtures.cs" Link="ContractV1\ContractFixtures.cs" />
     <Compile Include="..\..\..\tests\_shared\contract-v1\ContractFixtureTests.cs" Link="ContractV1\ContractFixtureTests.cs" />
     <Compile Include="..\..\..\tests\_shared\contract-v1\CanonicalEnumGuardTests.cs" Link="ContractV1\CanonicalEnumGuardTests.cs" />
+    <Compile Include="..\..\..\tests\_shared\contract-v1\CanonicalDeterminismTests.cs" Link="ContractV1\CanonicalDeterminismTests.cs" />
   </ItemGroup>
 
   <!-- Golden files du contrat v1 (PIV03) : copiés en sortie pour être lus côté agent (net48) avec
