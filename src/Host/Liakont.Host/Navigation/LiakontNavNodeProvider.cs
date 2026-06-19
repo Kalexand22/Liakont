@@ -56,6 +56,12 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
             // historique, preuve WORM en lecture). Gardée par liakont.read comme les autres surfaces de consultation ;
             // la page /signatures porte la même policy, les ACTIONS y exigent liakont.actions.
             children.Add(new() { Label = "Signatures", Href = "/signatures" });
+
+            // Démo e-reporting B2C — Essentiel (B2C04) : surface de CONSULTATION du chemin Essentiel (déclarations
+            // 10.3, transmis/accusé, blocage régime non mappé, lien B2C-03, export). Gardée par liakont.read comme
+            // les autres surfaces de consultation ; la page /demo/b2c porte la même policy, le déclenchement manuel
+            // y exige liakont.actions.
+            children.Add(new() { Label = "Démo e-reporting B2C", Href = "/demo/b2c" });
         }
 
         // Réconciliation : visible uniquement si l'agent du tenant alimente un pool de PDF non rattachés. Le
