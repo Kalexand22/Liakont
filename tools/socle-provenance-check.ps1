@@ -19,12 +19,20 @@
     (Identity, Party/Contracts, Job, Notification, Audit). The adapted Liakont.Host is NOT
     vendored Stratum.* (it is reviewed as Liakont code) and is excluded.
 
-    Scope of the guard: it pins the files present at baseline generation (the consigned
-    vendored set = SOL01 vendoring + the modifications documented in provenance section 4).
-    Files ADDED later under these roots are NOT pinned (they may be legitimate Liakont code,
-    e.g. SOL06 multi-tenant job mechanics) and are ignored. The guard's job is to catch a
-    silent MODIFICATION or DELETION of an existing vendored Stratum file, which is exactly
-    CLAUDE.md rule 11.
+    Scope of the guard: it pins the true vendored Stratum.* files only. Files ADDED by Liakont
+    under these roots (legitimate Liakont code placed in the vendored tree, e.g. SOL06 multi-tenant
+    job mechanics, the job catalog/executions of FIX210/FIX211, the browser-time display, the
+    Keycloak user provisioner) are NOT pinned: editing them is normal Liakont work, not a Stratum
+    drift. They are identified — and excluded from BOTH -Generate and check — by a head marker:
+    the file's FIRST line contains the literal string "Liakont addition" (the convention of
+    provenance section 4.14, e.g. "// Liakont addition (SOL06): ...", "@* Liakont addition ... *@",
+    "-- Liakont addition ..."). The guard's job is to catch a silent MODIFICATION or DELETION of an
+    existing vendored Stratum file, which is exactly CLAUDE.md rule 11.
+
+    Why a head marker rather than an exclusion list: the marker travels with the file (a new
+    Liakont addition is excluded the moment it carries the marker, no second place to update) and
+    is self-contained (the check runs on CI with no access to the upstream Stratum repo). A true
+    Stratum file never carries the marker, so it stays pinned and a real edit is still caught.
 
     Modes:
       (default)  check    : recompute hashes, fail on drift not consigned in provenance.
@@ -72,6 +80,16 @@ function Get-VendoredHashes {
         # Only hash files that exist on disk (a tracked-but-deleted working-tree file would
         # make git hash-object error; we treat its absence as drift later, against the baseline).
         $existing = @($tracked | Where-Object { Test-Path -LiteralPath (Join-Path $repoRoot $_) })
+
+        # Exclude Liakont additions (head marker — see the scope note above). These are Liakont
+        # code placed under the vendored tree, not Stratum.* files: they must not be pinned (else a
+        # legitimate edit would fail the guard as a "silent drift"). A file is an addition when its
+        # FIRST line contains the literal "Liakont addition". The check is line-1 only and string-
+        # anchored, so a true Stratum file (which never carries the marker) is never excluded.
+        $existing = @($existing | Where-Object {
+            $firstLine = Get-Content -LiteralPath (Join-Path $repoRoot $_) -TotalCount 1 -ErrorAction SilentlyContinue
+            -not ($firstLine -and ($firstLine -like '*Liakont addition*'))
+        })
 
         $map = @{}
         $batchSize = 200
