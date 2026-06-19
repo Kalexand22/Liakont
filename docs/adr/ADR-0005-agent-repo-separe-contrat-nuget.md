@@ -170,6 +170,27 @@ avec l'humain, à ne pas improviser.
   le vecteur de partage, elle ne **déclenche pas** la migration ni ne modifie l'orchestration runtime
   (`manifest.yaml`, `state.yaml`, `protocol.md`). Les gardes exécutables sont RDL11/RDL12.
 
+### Placement de `PivotReconciliation` (RDL12, 2026-06-20)
+
+La formule de réconciliation **BR-CO-13** (EN 16931, F04 §3.3 ; total HT = Σ lignes ± charges/remises
+de niveau document, arrondi half-up) est portée par `PivotReconciliation`, **source UNIQUE** de la
+validation bloquante `LineTotalsRule` (module `Validation`) et de l'affichage console du contrôle de
+cohérence `DocumentLineProjection` (Host, FIX205). C'est de la **logique de validation fiscale** : par
+la décision 3 ci-dessus (« le contrat NuGet n'a aucune logique ») et CLAUDE.md n°6 (« l'agent n'a
+AUCUNE logique métier »), elle ne peut **pas** vivre dans `Liakont.Agent.Contracts`, qui sera publié et
+consommé par l'agent net48 à la bascule.
+
+- **Décision** : `PivotReconciliation` est déplacée de `src/Contracts/Liakont.Agent.Contracts` vers un
+  assembly **plateforme-seul** `src/Platform/Liakont.Platform.Pivot` (net10), qui référence le contrat
+  agent pour les DTOs/arrondi mais **n'est jamais référencé par l'agent** ni inclus dans le paquet du
+  contrat. `LineTotalsRule` et `DocumentLineProjection` y référent. **Aucune valeur calculée ne change**
+  (déplacement, pas réécriture) : `LineTotalsRule` reste la source unique BR-CO-13, inchangée.
+- **Après RDL12, le paquet publiable du contrat ne porte plus que** writer canonique + hasher +
+  arrondi (`PivotRounding`) + DTOs — exactement ce dont l'agent a besoin.
+- **Garde anti-régression** : `ContractArchitectureTests.Contracts_Assembly_Carries_No_Fiscal_Reconciliation_Logic`
+  échoue si un type `*Reconciliation` réapparaît dans le contrat agent ; la pureté BCL du contrat
+  (`ContractCouplingGuardTests`, `ContractsPurityTests`) et les gardes de frontière agent restent vertes.
+
 ## Alternatives rejetées
 
 - **Template cloné/forké par client final** : divergence du code, perte de l'auto-update unifié, un

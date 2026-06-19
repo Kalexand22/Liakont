@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Assembly PLATEFORME-SEUL (net10) : porte la logique de réconciliation fiscale du pivot
+       (BR-CO-13) partagée entre la validation bloquante (module Validation) et l'affichage console
+       (Host). Il référence le contrat agent pour les DTOs/arrondi, mais N'EST JAMAIS publié dans le
+       paquet NuGet du contrat ni référencé par l'agent net48 (ADR-0005 : « l'agent n'a AUCUNE logique
+       métier », CLAUDE.md n°6). C'est ce qui sort la formule de cohérence du paquet publiable (RDL12). -->
+  <ItemGroup>
+    <ProjectReference Include="../../Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj" />
+  </ItemGroup>
+</Project>

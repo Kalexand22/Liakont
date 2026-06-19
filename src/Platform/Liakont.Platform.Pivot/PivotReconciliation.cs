@@ -1,7 +1,8 @@
-namespace Liakont.Agent.Contracts;
+namespace Liakont.Platform.Pivot;
 
 using System;
 using System.Linq;
+using Liakont.Agent.Contracts;
 using Liakont.Agent.Contracts.Pivot;
 
 /// <summary>
@@ -10,6 +11,11 @@ using Liakont.Agent.Contracts.Pivot;
 /// cohérence (<c>DocumentLineProjection</c>, FIX205) ne puissent JAMAIS diverger : un seul endroit porte la
 /// formule (quelles charges/remises s'ajoutent/retranchent, quel arrondi). Pur, sans état, aucun montant
 /// recalculé au-delà de la somme arrondie (CLAUDE.md n°1).
+/// <para>
+/// Vit dans un assembly PLATEFORME-SEUL (et non plus dans <c>Liakont.Agent.Contracts</c>, paquet publiable
+/// consommé par l'agent net48) : l'agent n'a AUCUNE logique métier (ADR-0005 décision 3, CLAUDE.md n°6).
+/// La frontière agent reste préservée tout en gardant cette formule source-unique côté plateforme (RDL12).
+/// </para>
 /// </summary>
 public static class PivotReconciliation
 {
@@ -22,10 +28,7 @@ public static class PivotReconciliation
     /// <param name="document">Le document pivot (jamais <c>null</c>).</param>
     public static decimal ExpectedNet(PivotDocumentDto document)
     {
-        if (document is null)
-        {
-            throw new ArgumentNullException(nameof(document));
-        }
+        ArgumentNullException.ThrowIfNull(document);
 
         // Remises/charges de niveau document, en HT : IsCharge = true ajoute (BG-21), false retranche (BG-20).
         var documentChargeNet = document.DocumentCharges.Sum(charge => charge.IsCharge ? charge.Amount : -charge.Amount);
