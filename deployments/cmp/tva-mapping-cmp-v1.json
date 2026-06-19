@@ -1,0 +1,65 @@
+// Table de mapping TVA — déploiement CMP (Crédit Municipal de Paris), version « cmp-v1 ».
+//
+// ⚠️ TABLE NON VALIDÉE. validatedDate absente → IsValidated = false (cf. MappingTable.IsValidated).
+// Le garde-fou d'envoi (PIP01b) SUSPEND tout envoi réel tant que l'expert-comptable du CMP n'a pas
+// tranché les questions ouvertes (voir DECISIONS-FISCALES.md) et validé/horodaté la table.
+//
+// PÉRIMÈTRE : ce fichier matérialise EXACTEMENT les régimes EncheresV6 documentés dans
+// docs/conception/F03-Mapping-TVA.md (§4.1 régimes 5 et 6 ; §2.3 modèle 2 lignes du régime de la
+// marge ; §2.1 catégories UNCL5305 ; §2.2 codes VATEX). AUCUNE règle fiscale n'est inventée
+// (CLAUDE.md n°2) : la liste réelle complète des régimes de la base CMP sera découverte sur le
+// serveur dédié via `check-config` (IExtractor.ListSourceTaxRegimes, F03 §4.3), JAMAIS devinée ici.
+// Tout régime présent en base mais absent de cette table BLOQUE le document (defaultBehavior: Block).
+//
+// VERTICAL ENCHÈRES : le CMP vend aux enchères → découpage Adjudication / Frais acheteur (F03 §2.3).
+// Le tenant CMP doit avoir AuctionVerticalSettings.Enabled = true, sinon les règles Adjudication/Frais
+// seraient signalées « mortes » au contrôle de cohérence (DeadRuleReason.PartNotConsulted).
+//
+// DONNÉES : régimes (5, 6), catégories et VATEX proviennent de F03 (décision opérateur CMP01) — pas
+// de SIREN, pas de secret, pas de chaîne ODBC ici (ceux-ci vivent dans tenant-cmp.json / saisie console).
+// À l'import (CMP02 / OPS03), ce fichier versionné est copié en `mapping-tva.json` à la racine du
+// dossier de seed du tenant (le lecteur d'import ne lit que `mapping-tva.json` à la racine). L'historique
+// des versions (cmp-v1, cmp-v2…) est conservé sous ce nom versionné (F03 §6 décision #5).
+{
+  "mappingVersion": "cmp-v1",
+  "validatedBy": "EN ATTENTE — Expert-comptable CMP",
+  "validatedDate": null,
+  "defaultBehavior": "Block",
+  "rules": [
+    {
+      "sourceRegimeCode": "5",
+      "label": "Assujetti 20% — adjudication",
+      "part": "Adjudication",
+      "category": "S",
+      "rateMode": "Fixed",
+      "rateValue": 20,
+      "note": "Régime assujetti normal : adjudication au taux standard (F03 §4.1)."
+    },
+    {
+      "sourceRegimeCode": "5",
+      "label": "Assujetti 20% — frais acheteur",
+      "part": "Frais",
+      "category": "S",
+      "rateMode": "ComputedFromSource",
+      "note": "Frais acheteur toujours taxables ; taux = montant_tva_frais / montant_frais_ht (F03 §2.3 / §4.1)."
+    },
+    {
+      "sourceRegimeCode": "6",
+      "label": "Non assujetti 20% — adjudication",
+      "part": "Adjudication",
+      "category": "E",
+      "vatex": "VATEX-EU-J",
+      "rateMode": "Fixed",
+      "rateValue": 0,
+      "note": "À VALIDER — Expert-comptable CMP : marge (objets de collection, VATEX-EU-J) OU hors champ (catégorie O) ? Défaut prudent retenu = régime de la marge collection (F03 §3 / §6 décision #1). Sous régime de la marge, la TVA ne figure jamais distinctement (art. 297 E CGI)."
+    },
+    {
+      "sourceRegimeCode": "6",
+      "label": "Non assujetti 20% — frais acheteur",
+      "part": "Frais",
+      "category": "S",
+      "rateMode": "ComputedFromSource",
+      "note": "Frais acheteur toujours taxables même quand l'adjudication est exonérée (F03 §2.3) ; taux = montant_tva_frais / montant_frais_ht (F03 §4.1)."
+    }
+  ]
+}
