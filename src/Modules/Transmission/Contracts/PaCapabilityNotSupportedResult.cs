@@ -44,6 +44,7 @@ public sealed record PaCapabilityNotSupportedResult
         PaCapability.TaxReportRetrieval => "la récupération des tax reports",
         PaCapability.DocumentRetrieval => "le téléchargement de la facture générée",
         PaCapability.ReportRectification => "la rectification de déclaration (flux RE)",
+        PaCapability.SelfBilling => "l'émission d'auto-factures sous mandat (389)",
         _ => capability.ToString(),
     };
 }

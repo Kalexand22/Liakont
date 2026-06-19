@@ -16,8 +16,10 @@ public sealed class FakePaClient : IPaClient
 {
     private readonly FakePaClientOptions _options;
     private readonly List<FakePaCall> _calls = [];
+    private readonly List<FakePaSentDocument> _sentDocuments = [];
 
-    // Idempotence (F05 ; clé = numéro de document BT-1) : un document déjà ÉMIS n'est jamais ré-émis.
+    // Idempotence (F05 ; clé = BT-1 émis) : un document déjà ÉMIS n'est jamais ré-émis. En 389, le BT-1
+    // émis est le numéro fiscal alloué par mandant (projection MND07), aligné sur l'unicité CTC G1.42/G1.45.
     private readonly Dictionary<string, PaSendResult> _issued = new(StringComparer.Ordinal);
 
     // Dernier réglage de tax report « assuré » (EnsureTaxReportSettingAsync) — relu par GetTaxReportSettingAsync.
@@ -36,18 +38,30 @@ public sealed class FakePaClient : IPaClient
     /// <summary>Journal des appels reçus, dans l'ordre — exploitable en assertion (preuve d'audit du pipeline).</summary>
     public IReadOnlyList<FakePaCall> Calls => _calls;
 
-    /// <summary>Numéros des documents EFFECTIVEMENT émis (déduplication idempotente) — preuve « jamais deux fois ».</summary>
+    /// <summary>BT-1 des documents EFFECTIVEMENT émis (déduplication idempotente) — preuve « jamais deux fois ».</summary>
     public IReadOnlyCollection<string> IssuedDocumentNumbers => _issued.Keys;
+
+    /// <summary>
+    /// Instantanés des documents transmis (type BT-3 projeté, BT-1 émis, vendeur fiscal) — preuve de la
+    /// PROJECTION sortante (MND07), exploitable en assertion (autofacturation 389 vs facture standard).
+    /// </summary>
+    public IReadOnlyList<FakePaSentDocument> SentDocuments => _sentDocuments;
 
     /// <inheritdoc />
     public Task<PaSendResult> SendDocumentAsync(
         PivotDocumentDto document,
         bool sendAfterImport = true,
+        PaOutboundProjection? projection = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(document);
         cancellationToken.ThrowIfCancellationRequested();
-        Record(nameof(SendDocumentAsync), document.Number);
+
+        // Le BT-1 émis = la projection (numéro fiscal alloué en 389, MND07) sinon le Number du pivot
+        // (cas standard). La clé d'idempotence/déduplication PA suit ce BT-1 (aligné CTC G1.42/G1.45).
+        var typeCode = projection?.DocumentTypeCode ?? PaDocumentTypeCode.CommercialInvoice;
+        var fiscalNumber = projection?.FiscalNumber ?? document.Number;
+        Record(nameof(SendDocumentAsync), fiscalNumber);
 
         // Avoir demandé alors que la PA ne le supporte pas → résultat typé, jamais d'exception (PAA01).
         if (document.CreditNoteRefs.Count > 0 && !Capabilities.SupportsCreditNotes)
@@ -55,7 +69,14 @@ public sealed class FakePaClient : IPaClient
             return Task.FromResult(NotSupported(PaCapability.CreditNotes));
         }
 
-        var paDocumentId = $"FAKE-{document.Number}";
+        // Double INCOHÉRENT (test MND07) : capacité 389 déclarée mais sérialiseur la refuse → résultat typé.
+        // Prouve que le pipeline ne dégrade jamais en 380 ET ne boucle pas (rejet définitif côté SEND).
+        if (_options.RefuseSelfBillingProjection && projection?.DocumentTypeCode == PaDocumentTypeCode.SelfBilledInvoice)
+        {
+            return Task.FromResult(NotSupported(PaCapability.SelfBilling));
+        }
+
+        var paDocumentId = $"FAKE-{fiscalNumber}";
 
         // send_after_import = false → créé sans envoi (état New, non facturable — F05 §2).
         if (!sendAfterImport)
@@ -63,16 +84,26 @@ public sealed class FakePaClient : IPaClient
             return Task.FromResult(new PaSendResult { State = PaSendState.New, PaDocumentId = paDocumentId });
         }
 
-        // Idempotence : même numéro déjà émis → on retourne le résultat d'origine, sans ré-émettre.
-        if (_issued.TryGetValue(document.Number, out var existing))
+        // Idempotence : même BT-1 déjà émis → on retourne le résultat d'origine, sans ré-émettre.
+        if (_issued.TryGetValue(fiscalNumber, out var existing))
         {
             return Task.FromResult(existing);
         }
 
+        // Instantané de projection (le vendeur fiscal = Supplier du pivot, BG-4 → BT-30/BT-31 ; en 389
+        // c'est le mandant, l'émission étant faite au nom et pour le compte du mandant — art. 289 I-2 CGI).
+        _sentDocuments.Add(new FakePaSentDocument(
+            typeCode,
+            fiscalNumber,
+            document.Number,
+            document.IsSelfBilled,
+            document.Supplier.Siren,
+            document.Supplier.VatNumber));
+
         var result = BuildSendResult(paDocumentId);
         if (result.State == PaSendState.Issued)
         {
-            _issued[document.Number] = result;
+            _issued[fiscalNumber] = result;
         }
 
         return Task.FromResult(result);

@@ -65,9 +65,10 @@ public sealed class ComptesPaViewTests : BunitContext
         var cut = Render<ComptesPaView>(p => p.Add(v => v.Model, model));
 
         cut.FindAll("[data-testid='comptes-pa-capabilities']").Should().ContainSingle();
-        cut.FindAll("[data-testid='comptes-pa-capability']").Should().HaveCount(8);
+        cut.FindAll("[data-testid='comptes-pa-capability']").Should().HaveCount(9);
         var details = cut.Find("[data-testid='comptes-pa-capabilities']");
         details.TextContent.Should().Contain("Déclaration B2C");
+        details.TextContent.Should().Contain("Auto-facturation sous mandat (389)", "la capacité 389 est affichée (MND07)");
         details.TextContent.Should().Contain("Disponible");
         details.TextContent.Should().Contain("Non disponible");
     }
@@ -206,6 +207,7 @@ public sealed class ComptesPaViewTests : BunitContext
         SupportsTaxReportRetrieval = false,
         SupportsDocumentRetrieval = false,
         SupportsReportRectification = true,
+        SupportsSelfBilling = false,
         MaxDocumentsPerRequest = 100,
     };
 }

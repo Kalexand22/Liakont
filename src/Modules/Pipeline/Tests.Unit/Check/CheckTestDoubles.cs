@@ -4,14 +4,17 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Liakont.Agent.Contracts.Pivot;
 using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Documents.Contracts.Lifecycle;
 using Liakont.Modules.Documents.Contracts.Queries;
+using Liakont.Modules.Mandats.Contracts;
 using Liakont.Modules.Pipeline.Application;
 using Liakont.Modules.Pipeline.Domain;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
+using Liakont.Modules.Transmission.Contracts;
 using Liakont.Modules.TvaMapping.Contracts.Services;
 using Liakont.Modules.Validation.Contracts;
 using Stratum.Common.Abstractions.MultiTenancy;
@@ -170,6 +173,12 @@ internal static class CheckTestDoubles
 
         public string? BlockReason { get; private set; }
 
+        public Guid? RecheckReadyToSendId { get; private set; }
+
+        public Guid? RecheckStillBlockedId { get; private set; }
+
+        public string? RecheckStillBlockedReason { get; private set; }
+
         public Task BlockAsync(Guid documentId, string reason, CancellationToken cancellationToken = default)
         {
             BlockedId = documentId;
@@ -184,11 +193,18 @@ internal static class CheckTestDoubles
             return Task.CompletedTask;
         }
 
-        public Task<DocumentRecheckPersistOutcome> MarkReadyToSendByRecheckAsync(Guid documentId, string mappingVersion, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+        public Task<DocumentRecheckPersistOutcome> MarkReadyToSendByRecheckAsync(Guid documentId, string mappingVersion, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default)
+        {
+            RecheckReadyToSendId = documentId;
+            return Task.FromResult(DocumentRecheckPersistOutcome.Persisted);
+        }
 
-        public Task<DocumentRecheckPersistOutcome> RecordRecheckStillBlockedAsync(Guid documentId, string reevaluatedReason, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+        public Task<DocumentRecheckPersistOutcome> RecordRecheckStillBlockedAsync(Guid documentId, string reevaluatedReason, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default)
+        {
+            RecheckStillBlockedId = documentId;
+            RecheckStillBlockedReason = reevaluatedReason;
+            return Task.FromResult(DocumentRecheckPersistOutcome.Persisted);
+        }
 
         public Task BeginSendingAsync(Guid documentId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
@@ -281,6 +297,40 @@ internal static class CheckTestDoubles
             throw new NotSupportedException();
     }
 
+    /// <summary>
+    /// Garde d'émission self-billed factice (MND03) : le pipeline n'interroge que l'abstraction
+    /// <see cref="ISelfBilledGate"/>, jamais le module Mandats concret. Renvoie un verdict configuré et
+    /// enregistre le dernier appel (pour prouver qu'un document NON self-billed ne consulte JAMAIS le gate).
+    /// </summary>
+    internal sealed class FakeSelfBilledGate : ISelfBilledGate
+    {
+        private readonly SelfBilledGateDecision _decision;
+
+        private FakeSelfBilledGate(SelfBilledGateDecision decision) => _decision = decision;
+
+        public bool WasCalled { get; private set; }
+
+        public Guid? LastCompanyId { get; private set; }
+
+        public Guid? LastDocumentId { get; private set; }
+
+        /// <summary>Gate ouvert : émission autorisée (acceptation acquise).</summary>
+        public static FakeSelfBilledGate Allowing() =>
+            new(new SelfBilledGateDecision { IsEmissionAllowed = true, AcceptanceState = "Accepted" });
+
+        /// <summary>Gate fermé : émission refusée pour l'état d'acceptation donné (défaut : en attente).</summary>
+        public static FakeSelfBilledGate Blocking(string? acceptanceState = "PendingAcceptance") =>
+            new(new SelfBilledGateDecision { IsEmissionAllowed = false, AcceptanceState = acceptanceState });
+
+        public Task<SelfBilledGateDecision> EvaluateEmissionAsync(Guid companyId, Guid documentId, CancellationToken ct = default)
+        {
+            WasCalled = true;
+            LastCompanyId = companyId;
+            LastDocumentId = documentId;
+            return Task.FromResult(_decision);
+        }
+    }
+
     internal sealed class FakeRunLogStore : IPipelineRunLogStore
     {
         public RunLog? Saved { get; private set; }
@@ -304,5 +354,72 @@ internal static class CheckTestDoubles
 
         public Task<Liakont.Modules.Pipeline.Domain.Ventilation.VentilationSnapshot?> GetAsync(Guid documentId, string mappingVersion, CancellationToken cancellationToken = default) =>
             Task.FromResult(Saved);
+    }
+
+    /// <summary>
+    /// Contexte tenant factice (MND03 / recheck) : expose un identifiant de tenant fixé pour les tests
+    /// unitaires qui instancient directement <see cref="DocumentRecheckService"/> (hors scope HTTP).
+    /// </summary>
+    internal sealed class FakeTenantContext : ITenantContext
+    {
+        private readonly string _tenantId;
+
+        public FakeTenantContext(string tenantId) => _tenantId = tenantId;
+
+        public string? TenantId => _tenantId;
+
+        public bool IsResolved => true;
+    }
+
+    /// <summary>
+    /// Plug-in PA factice « capacité seule » (MND07) : la garde de capacité 389 du CHECK ne lit que
+    /// <see cref="Capabilities"/> ; toute autre méthode lève (jamais appelée par cette garde).
+    /// </summary>
+    internal sealed class CapabilityStubPaClient : IPaClient
+    {
+        public CapabilityStubPaClient(PaCapabilities capabilities) => Capabilities = capabilities;
+
+        public PaCapabilities Capabilities { get; }
+
+        public Task<PaSendResult> SendDocumentAsync(PivotDocumentDto document, bool sendAfterImport = true, PaOutboundProjection? projection = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaSendResult> SendPaymentReportAsync(PaymentReportPeriod period, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaDocumentStatus> GetDocumentStatusAsync(string paDocumentId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<PaTaxReport>> ListTaxReportsAsync(DateTime? since = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaTaxReport> GetTaxReportAsync(string taxReportId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaAccountInfo> GetAccountInfoAsync(CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaTaxReportSetting> GetTaxReportSettingAsync(CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task EnsureTaxReportSettingAsync(PaTaxReportSettingRequest request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaGeneratedDocument> GetGeneratedDocumentAsync(string paDocumentId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
+
+    /// <summary>Registre PA factice (MND07) : résout par clé un client unique (capacités fixées), jamais un if (pa is …).</summary>
+    internal sealed class FakePaClientRegistry : IPaClientRegistry
+    {
+        private readonly IPaClient _client;
+
+        public FakePaClientRegistry(IPaClient client) => _client = client;
+
+        public IReadOnlyCollection<string> RegisteredTypes => new[] { "fake" };
+
+        public IPaClient Resolve(PaAccountDescriptor account) => _client;
+
+        public bool IsRegistered(string paType) => true;
     }
 }

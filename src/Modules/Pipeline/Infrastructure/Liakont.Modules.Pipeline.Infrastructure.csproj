@@ -27,6 +27,10 @@
     <ProjectReference Include="../../Validation/Contracts/Liakont.Modules.Validation.Contracts.csproj" />
     <ProjectReference Include="../../Documents/Contracts/Liakont.Modules.Documents.Contracts.csproj" />
     <ProjectReference Include="../../TenantSettings/Contracts/Liakont.Modules.TenantSettings.Contracts.csproj" />
+    <!-- MND03 — garde d'émission des auto-factures sous mandat : le pipeline interroge l'abstraction
+         ISelfBilledGate (Mandats.Contracts) avant l'envoi, jamais le module Mandats concret (frontière
+         Contracts-only, module-rules §3 / CLAUDE.md n°14 ; ADR-0024 §3, INV-ACCEPT-2). -->
+    <ProjectReference Include="../../Mandats/Contracts/Liakont.Modules.Mandats.Contracts.csproj" />
     <!-- PIP03a — AGRÉGATION DE PAIEMENT : lecture des encaissements bruts (IPaymentQueries) du module
          Payments par ses Contracts uniquement (frontière P1, CLAUDE.md n°14). -->
     <ProjectReference Include="../../Payments/Contracts/Liakont.Modules.Payments.Contracts.csproj" />

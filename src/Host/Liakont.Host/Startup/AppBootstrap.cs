@@ -28,6 +28,8 @@ using Liakont.Modules.FleetSupervision.Infrastructure;
 using Liakont.Modules.Ingestion.Application;
 using Liakont.Modules.Ingestion.Infrastructure;
 using Liakont.Modules.Ingestion.Web;
+using Liakont.Modules.Mandats.Infrastructure;
+using Liakont.Modules.Mandats.Infrastructure.TacitAcceptance;
 using Liakont.Modules.Payments.Infrastructure;
 using Liakont.Modules.Pipeline.Contracts.Jobs;
 using Liakont.Modules.Pipeline.Infrastructure;
@@ -176,6 +178,11 @@ public static class AppBootstrap
         builder.Services.AddIngestionModule();
         builder.Services.AddTvaMappingModule();
 
+        // Mandats (F15 §2, ADR-0022) : registre des mandants + cycle de vie des mandats (autofacturation
+        // 389). MND01 (fondation) n'enregistre que la persistance (migrations DbUp du schéma mandats +
+        // journal append-only, UoW, requêtes) ; les handlers et le port ISelfBilledGate arrivent avec MND02+.
+        builder.Services.AddMandatsModule();
+
         // Validation (F04) : expose IValidationService à la frontière Contracts (consommé par le pipeline,
         // PIP01b). Les règles métier (IDocumentRule, VAL02-VAL05) s'enregistrent avec leurs items ; sans
         // règle, la validation passe (aucune anomalie).
@@ -199,6 +206,15 @@ public static class AppBootstrap
         // créée par l'opérateur via l'admin des schedules (job.schedules), comme tout job récurrent de la
         // plateforme — la fréquence et l'activation relèvent du déploiement (ADR-0011).
         builder.Services.AddJobHandler<DailyAnchoringTrigger, DailyAnchoringFanOutHandler>("Ancrage quotidien du coffre d'archive");
+
+        // Bascule tacite des acceptations d'auto-factures 389 (MND04, ADR-0024 §4) : le handler de fan-out
+        // (gabarit DailyAnchoring/SOL06) bascule PendingAcceptance → TacitlyAccepted pour les documents sous
+        // mandat écrit dont l'échéance (DeadlineUtc) est échue. La CADENCE n'est PAS fixée par la spec (F15
+        // §2.3 ne fixe que l'échéance par document) : aucune n'est inventée ici → pas d'entrée
+        // SystemJobDefinitions ; la planification reste un geste opérateur (admin des schedules), comme le
+        // récapitulatif SUP03 (optionnel, non amorcé).
+        builder.Services.AddJobHandler<SelfBilledAcceptanceTacitTrigger, SelfBilledAcceptanceTacitFanOutHandler>(
+            "Bascule tacite des acceptations d'auto-factures");
 
         // Staging du contenu pivot (PIP00, ADR-0014) : la plateforme détient DURABLEMENT le pivot dès
         // l'intake (l'agent redevient un filet de sécurité). Magasin transitoire purgeable, chiffré au
