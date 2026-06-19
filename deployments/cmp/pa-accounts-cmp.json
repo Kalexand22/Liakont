@@ -1,0 +1,31 @@
+// Comptes Plateforme Agréée — déploiement CMP (Crédit Municipal de Paris), seed versionné (lot CMP02).
+//
+// PÉRIMÈTRE : liste des comptes PA du tenant CMP au format de seed CFG01/CFG02 (record PaAccountSeed :
+// src/Modules/TenantSettings/Infrastructure/Seed/PaAccountSeed.cs). À l'import, copié en
+// `pa-accounts.json` à la racine du dossier de seed (TenantSeedReader.PaAccountsFileName).
+//
+// SÉCURITÉ (CLAUDE.md n°10, INV-TENANTSETTINGS-007) : la clé API n'est JAMAIS importée depuis le seed.
+// Le champ `apiKey` ci-dessous est un PLACEHOLDER explicite, ignoré par l'import (ImportTenantSeedHandler
+// journalise « clé non importée — à saisir via la console »). La clé réelle est saisie dans la console
+// d'administration, chiffrée en base, par tenant.
+//
+// ÉTAT DÉMO : pour la démo ISATECH, seul le compte STAGING B2Brouter est paramétré (la démo s'exerce
+// en environnement de validation, jamais en production). L'emplacement du compte PRODUCTION est
+// pré-décrit (commenté) pour le passage en production (GATE_PROD_CMP) — à dé-commenter et renseigner
+// quand l'expert-comptable a validé la table TVA et que les identifiants production sont disponibles.
+[
+  {
+    "pluginType": "B2Brouter",
+    "environment": "Staging",
+    "_accountIdentifiers": "Identifiants NON secrets du compte de validation B2Brouter du CMP (placeholder à renseigner à l'import).",
+    "accountIdentifiers": "{ \"accountSlug\": \"A-RENSEIGNER-CMP-STAGING\" }",
+    "_apiKey": "PLACEHOLDER — jamais importé. Saisir la clé API B2Brouter staging via la console (chiffrée en base).",
+    "apiKey": "${PA_API_KEY_B2BROUTER_STAGING}"
+  }
+  // ,{
+  //   "pluginType": "B2Brouter",
+  //   "environment": "Production",
+  //   "accountIdentifiers": "{ \"accountSlug\": \"A-RENSEIGNER-CMP-PROD\" }",
+  //   "apiKey": "${PA_API_KEY_B2BROUTER_PROD}"
+  // }
+]
