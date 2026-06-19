@@ -297,14 +297,6 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Skipped;
         }
 
-        if (IsUnsendableB2cReportingDeclaration(staged.Pivot!, paClient))
-        {
-            // Déclaration 10.3 vers une PA sans capacité B2C : maintenue en l'état (aucune transition) —
-            // jamais transmise sans la capacité (résultat typé journalisé, CLAUDE.md n°3).
-            LogB2cReportingDeclarationHeld(logger, paClient, document.Id);
-            return SendOutcome.Skipped;
-        }
-
         if (await TryFinalizeFromPaStatusAsync(services, paClient, tenantId, document, staged.Pivot!, staged.Json!, beginSending: false, logger, cancellationToken))
         {
             return SendOutcome.Succeeded;
@@ -326,6 +318,16 @@ public sealed partial class SendTenantJob : ITenantJob
         if (await TryFinalizeFromJournalAsync(services, tenantId, document, staged.Pivot!, staged.Json!, beginSending: false, logger, cancellationToken))
         {
             return SendOutcome.Succeeded;
+        }
+
+        // Garde déclaration 10.3 (B2C01) — placée APRÈS les deux raccrochages anti-doublon : un document déjà
+        // Sending a forcément franchi la garde au ReadyToSend (capacité B2C présente à l'envoi) et a été TRANSMIS.
+        // Si la capacité a été retirée depuis, on le RÉCONCILIE (finalisation ci-dessus) plutôt que de le figer ;
+        // la garde ne retient ICI que la RE-transmission (jamais un renvoi sans la capacité).
+        if (IsUnsendableB2cReportingDeclaration(staged.Pivot!, paClient))
+        {
+            LogB2cReportingDeclarationHeld(logger, paClient, document.Id);
+            return SendOutcome.Skipped;
         }
 
         // Aucune transmission journalisée : on (re)transmet (déjà Sending). Pilotage : la PA déduplique par numéro (F05). Essentiel : le destinataire dédoublonne par numéro (BT-1) — at-least-once assumé (canal externe).

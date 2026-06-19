@@ -68,6 +68,28 @@ public sealed class B2cReportingCapabilityTests : IAsyncLifetime
         _harness.PaClient.IssuedDocumentNumbers.Should().Contain(invoice.Number);
     }
 
+    [Fact]
+    public async Task B2cReportingDeclaration_To_Pa_With_Capability_Is_Routed_And_Issued()
+    {
+        // ROUTAGE NOMINAL : une déclaration 10.3 vers une PA qui DÉCLARE l'e-reporting B2C (défaut V1) est routée
+        // par la voie document unique et émise — la garde ciblée ne bloque pas quand la capacité est présente.
+        await _harness.UsePublishedFakeAsync();
+        _harness.ForceWormAbsent = false;
+
+        var documentId = Guid.NewGuid();
+        var declaration = CheckIntegrationFixtures.BuildB2cReportingDeclaration(
+            "send-b2c-ok-" + documentId.ToString("N"),
+            "NORMAL");
+        await _harness.SeedDetectedAndStageAsync(documentId, declaration);
+        await _harness.MarkReadyToSendAsync(documentId);
+
+        await _harness.RunSendAsync();
+
+        (await _harness.GetDocumentStateAsync(documentId))
+            .Should().Be("Issued", "une déclaration 10.3 vers une PA capable est routée et émise.");
+        _harness.PaClient.IssuedDocumentNumbers.Should().Contain(declaration.Number);
+    }
+
     /// <summary>Capacités d'une PA publiée générale MAIS sans la capacité e-reporting B2C (le reste = défaut V1).</summary>
     private static PaCapabilities WithoutB2cReporting() => new()
     {

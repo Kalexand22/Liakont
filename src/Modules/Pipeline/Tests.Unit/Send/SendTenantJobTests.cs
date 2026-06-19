@@ -214,6 +214,68 @@ public sealed class SendTenantJobTests
     }
 
     [Fact]
+    public async Task B2cReportingDeclaration_To_Pa_With_Capability_Is_Routed_And_Issued()
+    {
+        // B2C01 — chemin NOMINAL POSITIF : une déclaration 10.3 vers une PA qui DÉCLARE SupportsB2cReporting est
+        // routée par la voie document unique (SendDocumentAsync) et émise. Preuve que la garde est CIBLÉE (ne
+        // bloque pas quand la capacité est présente) et que le marqueur n'empêche pas le routage.
+        var id = Guid.NewGuid();
+        var document = SendTestData.Document(id, "ReadyToSend");
+        var queries = new SendTestDoubles.ConfigurableDocumentQueries();
+        queries.AddDocument(document);
+        queries.AddInState("ReadyToSend", SendTestData.Summary(id, "ReadyToSend"));
+        var staging = new SendTestDoubles.MapStagingStore();
+        staging.Stage(id, CanonicalJson.Serialize(SendTestData.B2cReportingDeclarationPivot(document.DocumentNumber)));
+
+        var lifecycle = new SendTestDoubles.RecordingDocumentLifecycle();
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var fake = await PublishedFakeAsync(FakePaScenario.Success); // capacités par défaut : SupportsB2cReporting = true.
+        var provider = BuildProvider(ActiveAccountSettings(), queries, lifecycle, staging, new SendTestDoubles.RecordingStagingPurgeService(true), archive, runLogs, fake);
+
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        lifecycle.Issued.Should().ContainSingle().Which.Should().Be(id, "une déclaration 10.3 vers une PA capable est routée et émise.");
+        fake.IssuedDocumentNumbers.Should().Contain(document.DocumentNumber);
+    }
+
+    [Fact]
+    public async Task B2cReportingDeclaration_In_Sending_Already_Transmitted_Is_Reconciled_Even_If_Capability_Removed()
+    {
+        // B2C01 — robustesse : un document Sending a forcément été TRANSMIS (capacité B2C présente à l'envoi). Si
+        // la capacité est retirée après coup, la reprise doit le RÉCONCILIER (finalisation anti-doublon depuis le
+        // statut PA) — JAMAIS le figer en Sending. La garde 10.3 ne retient QUE la re-transmission, pas la
+        // finalisation d'un document déjà parti.
+        var id = Guid.NewGuid();
+        const string number = "B2C-2026-0123";
+        var document = SendTestData.Document(id, "Sending", number: number, payloadHash: "hash-b2c-123", paDocumentId: "FAKE-" + number);
+        var queries = new SendTestDoubles.ConfigurableDocumentQueries();
+        queries.AddDocument(document);
+        queries.AddPotentiallySent(SendTestData.Summary(id, "Sending", number));
+
+        var pivot = SendTestData.B2cReportingDeclarationPivot(number);
+        var staging = new SendTestDoubles.MapStagingStore();
+        staging.Stage(id, CanonicalJson.Serialize(pivot));
+
+        var lifecycle = new SendTestDoubles.RecordingDocumentLifecycle();
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var fake = await PublishedFakeWithoutB2cReportingAsync(); // capacité B2C RETIRÉE depuis l'envoi.
+
+        // Cycle N : la déclaration a bien été transmise (la PA la connaît comme Issued), réponse perdue → restée Sending.
+        await fake.SendDocumentAsync(pivot);
+        var sendCallsBefore = fake.Calls.Count(c => c.Method == nameof(IPaClient.SendDocumentAsync));
+
+        var provider = BuildProvider(ActiveAccountSettings(), queries, lifecycle, staging, new SendTestDoubles.RecordingStagingPurgeService(true), archive, runLogs, fake);
+
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        lifecycle.Issued.Should().ContainSingle().Which.Should().Be(id, "un document déjà transmis est finalisé (réconcilié), jamais figé par la garde.");
+        fake.Calls.Count(c => c.Method == nameof(IPaClient.SendDocumentAsync))
+            .Should().Be(sendCallsBefore, "réconciliation anti-doublon : aucune RE-transmission.");
+    }
+
+    [Fact]
     public async Task B2cReportingDeclaration_In_Sending_Without_Capability_Stays_Sending_Not_Resent()
     {
         // B2C01 — chemin REPRISE (RecoverSendingAsync) : une déclaration 10.3 restée Sending (crash) vers une PA
