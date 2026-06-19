@@ -3,8 +3,10 @@ namespace Liakont.Host.Tests.Unit.AgentApi;
 using System;
 using System.Text.Json;
 using FluentAssertions;
+using Liakont.Agent.Contracts;
 using Liakont.Agent.Contracts.ContractTests;
 using Liakont.Agent.Contracts.Pivot;
+using Liakont.Agent.Contracts.Serialization;
 using Liakont.Agent.Contracts.Transport;
 using Liakont.Host.AgentApi;
 using Microsoft.Extensions.DependencyInjection;
@@ -110,4 +112,63 @@ public sealed class AgentContractJsonBindingTests
         json.Should().Contain("\"Accepted\"").And.Contain("\"Rejected\"");
         json.Should().NotContain("\"status\":1").And.NotContain("\"status\":3");
     }
+
+    // RDL02 — fermeture de la boucle de hash RÉELLE wire→STJ→writer→hash.
+    // En PRODUCTION, la plateforme ne hashe PAS les octets reçus de l'agent : elle les RE-DÉSÉRIALISE
+    // via System.Text.Json (AgentApiEndpoints), puis CanonicalJson.Serialize + PayloadHasher.ComputeHash
+    // sur le DTO STJ-désérialisé (IngestDocumentBatchHandler). Les golden de ContractFixtureTests prouvent
+    // writer↔writer sur DTO EN MÉMOIRE ; l'axe STJ(fil)→writer→hash, dont dépendent l'anti-doublon (PIV04)
+    // et la détection d'altération (TRK03), n'avait AUCUNE ancre de test (il « marchait par chance » du
+    // comportement de STJ). Ces tests l'ancrent avec les options STJ RÉELLES du Host.
+
+    [Theory]
+    [MemberData(nameof(ContractFixtures.DocumentCases), MemberType = typeof(ContractFixtures))]
+    public void Wire_document_deserialized_by_host_stj_rehashes_to_frozen_imprint(string name)
+    {
+        PivotDocumentDto fixture = ContractFixtures.GetDocument(name);
+        string canonicalWire = CanonicalJson.Serialize(fixture);
+
+        // L'empreinte FIGÉE du contrat = le hash des octets canoniques du golden. L'identité
+        // golden↔empreinte figée (FrozenHashes) est ancrée cross-runtime par ContractFixtureTests
+        // (ComputeHash(golden) == FrozenHashes[name]) ; ici on prouve l'AUTRE moitié : le DTO obtenu
+        // par STJ depuis le fil re-hashe vers cette même empreinte.
+        string frozenImprint = PayloadHasher.ComputeHash(canonicalWire);
+
+        string batchWire = ComposeSingleDocumentBatch(fixture);
+        PushBatchRequestDto? request = JsonSerializer.Deserialize<PushBatchRequestDto>(batchWire, HostMinimalApiOptions());
+
+        request.Should().NotBeNull();
+        request!.Documents.Should().ContainSingle();
+        PayloadHasher.ComputeHash(request.Documents[0]).Should().Be(
+            frozenImprint,
+            "l'axe wire→STJ→writer→hash doit reproduire l'empreinte figée (golden « {0} ») — sinon anti-doublon PIV04 / altération TRK03 cassés",
+            name);
+    }
+
+    [Fact]
+    public void Fully_populated_wire_via_host_stj_rehashes_identically_including_due_date_and_reason_code()
+    {
+        // Couvre l'axe STJ sur les champs ABSENTS des 8 golden : PaymentDueDate (BT-9, EXT01) et
+        // PivotDocumentChargeDto.ReasonCode. Un champ STJ-désérialisé puis oublié changerait le hash.
+        PivotDocumentDto full = ContractFixtures.BuildFullyPopulatedDocument();
+        string expected = PayloadHasher.ComputeHash(CanonicalJson.Serialize(full));
+
+        string batchWire = ComposeSingleDocumentBatch(full);
+        PushBatchRequestDto? request = JsonSerializer.Deserialize<PushBatchRequestDto>(batchWire, HostMinimalApiOptions());
+
+        request.Should().NotBeNull();
+        PivotDocumentDto roundTripped = request!.Documents[0];
+        PayloadHasher.ComputeHash(roundTripped).Should().Be(
+            expected,
+            "le chemin STJ doit préserver TOUS les champs, y compris ceux non couverts par les golden (BT-9, ReasonCode)");
+        roundTripped.PaymentDueDate.Should().Be(new DateTime(2026, 3, 31), "BT-9 doit survivre à la liaison STJ");
+        roundTripped.DocumentCharges.Should().ContainSingle();
+        roundTripped.DocumentCharges[0].ReasonCode.Should().Be("ECO", "le code de motif de charge doit survivre à la liaison STJ");
+    }
+
+    // Enveloppe de lot minimale portant UN document canonique (mêmes noms de propriété que
+    // PushBatchRequestDto, version de contrat de l'assembly) — la forme fil réellement POSTée par l'agent.
+    private static string ComposeSingleDocumentBatch(PivotDocumentDto document) =>
+        "{\"ContractVersion\":\"" + AgentContractVersion.ContractVersion + "\",\"Documents\":["
+        + CanonicalJson.Serialize(document) + "]}";
 }

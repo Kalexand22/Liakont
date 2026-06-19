@@ -19,4 +19,10 @@
          déclarée). Réservé aux TESTS — le module Pipeline ne référence jamais un plug-in PA concret. -->
     <ProjectReference Include="../../../PaClients/Liakont.PaClients.Fake/Liakont.PaClients.Fake.csproj" />
   </ItemGroup>
+  <!-- Fixtures de contrat partagées (builder ENTIÈREMENT peuplé) : source unique de la garde de
+       complétude par réflexion du lecteur de PRODUCTION PivotCanonicalJsonReader (RDL02). Même fichier
+       lié côté agent (net48), contrat (.NET 10) et Host. -->
+  <ItemGroup>
+    <Compile Include="../../../../tests/_shared/contract-v1/ContractFixtures.cs" Link="ContractV1/ContractFixtures.cs" />
+  </ItemGroup>
 </Project>

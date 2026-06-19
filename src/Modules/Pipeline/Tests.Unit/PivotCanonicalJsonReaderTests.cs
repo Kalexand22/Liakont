@@ -4,7 +4,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Text.Json;
 using FluentAssertions;
+using Liakont.Agent.Contracts.ContractTests;
 using Liakont.Agent.Contracts.Pivot;
 using Liakont.Agent.Contracts.Serialization;
 using Liakont.Modules.Pipeline.Infrastructure.Serialization;
@@ -97,6 +100,62 @@ public sealed class PivotCanonicalJsonReaderTests
         var act = () => PivotCanonicalJsonReader.Read(null!);
 
         act.Should().Throw<ArgumentNullException>();
+    }
+
+    /// <summary>
+    /// RDL02 — garde de COMPLÉTUDE PAR RÉFLEXION du lecteur de PRODUCTION : chaque propriété publique de
+    /// chaque DTO pivot est CONSOMMÉE par <see cref="PivotCanonicalJsonReader"/>. ADR-0007 promettait
+    /// « le lecteur ne vit PAS en prod » ; or ce lecteur sert le SEND (SendTenantJob), miroir au champ près
+    /// du writer. Un champ porté par l'agent mais oublié ici serait AMPUTÉ avant transmission PA (EXT01/BT-9
+    /// l'a frôlé ; ReasonCode/PaymentDueDate ne sont couverts par AUCUN golden). La réflexion force le
+    /// document de référence à exercer chaque propriété ; le round-trip octet-par-octet prouve la consommation.
+    /// </summary>
+    [Fact]
+    public void Reader_Consumes_Every_Public_Property_Of_Every_Pivot_Dto()
+    {
+        // Document de RÉFÉRENCE entièrement peuplé (source UNIQUE : ContractFixtures, RDL02). Chaque
+        // optionnel et collection est renseigné, dont PaymentDueDate (BT-9) et ReasonCode (charge).
+        PivotDocumentDto full = ContractFixtures.BuildFullyPopulatedDocument();
+        string json = CanonicalJson.Serialize(full);
+
+        // 1. Réflexion : CHAQUE propriété publique de CHAQUE DTO pivot doit être une clé JSON. Un champ
+        //    ajouté à un DTO (et écrit par le writer) mais non exercé ici fait échouer cette garde — on est
+        //    alors forcé de le peupler, donc de vérifier (étape 2) que le lecteur prod le consomme.
+        using JsonDocument parsed = JsonDocument.Parse(json);
+        JsonElement root = parsed.RootElement;
+        AssertAllPublicPropertiesAreJsonKeys(root, typeof(PivotDocumentDto));
+        JsonElement supplier = root.GetProperty("Supplier");
+        AssertAllPublicPropertiesAreJsonKeys(supplier, typeof(PivotPartyDto));
+        AssertAllPublicPropertiesAreJsonKeys(supplier.GetProperty("Address"), typeof(PivotAddressDto));
+        AssertAllPublicPropertiesAreJsonKeys(root.GetProperty("Totals"), typeof(PivotTotalsDto));
+        JsonElement line = root.GetProperty("Lines")[0];
+        AssertAllPublicPropertiesAreJsonKeys(line, typeof(PivotLineDto));
+        AssertAllPublicPropertiesAreJsonKeys(line.GetProperty("Taxes")[0], typeof(PivotLineTaxDto));
+        AssertAllPublicPropertiesAreJsonKeys(root.GetProperty("CreditNoteRefs")[0], typeof(PivotDocumentRefDto));
+        AssertAllPublicPropertiesAreJsonKeys(root.GetProperty("Payments")[0], typeof(PivotPaymentDto));
+        AssertAllPublicPropertiesAreJsonKeys(root.GetProperty("DocumentCharges")[0], typeof(PivotDocumentChargeDto));
+
+        // 2. Le lecteur de PRODUCTION doit consommer chaque propriété présente : un champ oublié serait
+        //    laissé à sa valeur par défaut dans le DTO reconstruit et la re-sérialisation divergerait.
+        //    L'identité octet-par-octet du round-trip ⇒ consommation complète (INV-PIPELINE-001/002, ADR-0007).
+        PivotDocumentDto rebuilt = PivotCanonicalJsonReader.Read(json);
+        CanonicalJson.Serialize(rebuilt).Should().Be(
+            json, "Serialize(Read(json)) == json : le lecteur prod consomme chaque champ du pivot entièrement peuplé (ADR-0007)");
+        PayloadHasher.ComputeHash(rebuilt).Should().Be(
+            PayloadHasher.ComputeHash(full),
+            "l'empreinte survit au round-trip du lecteur prod sur un document entièrement peuplé");
+    }
+
+    private static void AssertAllPublicPropertiesAreJsonKeys(JsonElement node, Type dtoType)
+    {
+        foreach (PropertyInfo property in dtoType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            node.TryGetProperty(property.Name, out _).Should().BeTrue(
+                "la propriété {0}.{1} doit être une clé de SON objet JSON canonique : le document de "
+                + "référence doit l'exercer pour que la garde du lecteur prod la couvre (RDL02)",
+                dtoType.Name,
+                property.Name);
+        }
     }
 
     private static string FixturesDirectory()
