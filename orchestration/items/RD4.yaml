@@ -1,0 +1,272 @@
+# Lot RD4 — Redline de l'ADR-0004 (périmètre du contrat d'extraction & pivot V1).
+# Source détaillée (findings, preuves file:line, verdicts de vérification adversariale) :
+#   tasks/redline-adr-0004.md. Revue multi-agents + vérification adversariale du 2026-06-19 (Karl).
+# 19 findings tracés → 12 confirmés, 6 ajustés, 1 réfuté (RD4-14 dates : CanonicalJson tronque déjà à
+# yyyy-MM-dd avant hash → idempotence R2 saine, écarté). Ce lot capture les 9 items actionnables.
+# PLANIFIÉ (manifest v32) : segment `adr-redline-0004` (branche feat/adr-redline-0004) + gate humaine
+# GATE_REDLINE_ADR4. APRÈS merge de la PR du segment, seeder `pending` RD401→RD409 + GATE_REDLINE_ADR4
+# dans $ORCH_REPO/state.yaml (gate comprise, sinon « done » par défaut).
+#
+# Lot DISTINCT des 2 autres redlines parallèles : RDF (ADR fondateurs 0001/0002/0003, bande 99xx) et
+# lot RDL/segment adr-redline (ADR-0005/0006/0007, branche feat/adr-redline non mergée, bande 98xx) →
+# RD4 prend la bande 10000 (collision de lot/bande/version évitée).
+#
+# CONSTAT TRANSVERSAL : le CONTRAT pivot (le modèle de données) honore bien l'ADR ; ce sont les MÉCANISMES
+# D'ADAPTATION qui n'ont pas suivi — (1) les capacités déclarées D2 (ExtractorCapabilities) sont mortes
+# côté plateforme (RD401), (2) plusieurs slots « réservés » des différés n'existent pas (RD406). L'overfit
+# que l'ADR voulait tuer est DÉPLACÉ vers la couche de consommation, pas supprimé — encore réparable à coût
+# faible car aucun adaptateur réel n°2 n'existe (seuls EncheresV6 placeholder + 2 démos).
+#
+# DÉCISION KARL (2026-06-19) : l'intégralité des cibles produit est en FULL EURO → ne PAS bâtir la gestion
+# multi-devises (BT-111/BT-6/taux de change) ; RD408 = simple verrou bloquant non-EUR + correction ADR.
+#
+# Règles non négociables inchangées (CLAUDE.md) : montants decimal, AUCUNE règle fiscale inventée (toute
+# catégorie/VATEX/seuil/correspondance vient de docs/conception/ ou d'une table tenant validée), bloquer
+# plutôt qu'envoyer faux, DocumentEvent append-only, scoping tenant, frontières module/Contracts, secrets
+# jamais versionnés, socle vendored → provenance.
+
+items:
+  RD401:
+    title: "Transport + persistance des ExtractorCapabilities (agent → plateforme) — câbler le mécanisme D2"
+    description: |
+      Finding RD4-01 (vérifié : fait confirmé, sévérité ajustée P2 — dette de contrat, pas de donnée
+      fiscale fausse aujourd'hui). Cœur de la décision ADR-0004 D2 : la plateforme s'adapte aux capacités
+      SOURCE déclarées « jamais par if (source is NAV) », symétrique de PaCapabilities. Or les 10 capacités
+      de `ExtractorCapabilities` (agent/src/Liakont.Agent.Core/Extraction/ExtractorCapabilities.cs) sont
+      déclarées ET valuées côté agent (DemoErpAExtractor.cs:72-82) mais : absentes de
+      `PushBatchRequestDto` (n'expose que ContractVersion/Documents/SourceTaxRegimes) et de
+      `IngestDocumentBatchCommand`, jamais persistées ni lues — grep `ExtractorCapabilities|HasDetailedLines
+      |ExposesPayments|IsMutableAfterIssue|NumberUniquenessScope|...` sur src/ = 0. Le chemin EXISTE déjà :
+      `SourceTaxRegimes` a été ajouté exactement comme il faut (champ optionnel additif, enveloppe non
+      hashée, persisté par tenant jusqu'à AgentApiEndpoints.cs:120 + writer/queries). Répliquer ce pattern.
+
+      Périmètre : ajouter un champ optionnel additif `extractorCapabilities` à `PushBatchRequestDto` (en
+      FIN de constructeur, add-only → un agent N-1 l'omet sans casser ; enveloppe non hashée comme
+      SourceTaxRegimes → l'empreinte canonique des documents reste INCHANGÉE), le propager dans
+      `IngestDocumentBatchCommand`, et le persister par agent/tenant (table + writer + queries, sur le
+      modèle SourceTaxRegime). AUCUN consommateur métier requis dans CET item (les consommateurs = RD403 et
+      différés tracés RD409) — mais le chemin transport→persistance→lecture doit être COMPLET et testé.
+      Frontières : l'agent ne référence que Liakont.Agent.Contracts ; la plateforme lit via Ingestion.
+    acceptance:
+      - "Capacités d'extraction transmises (PushBatchRequestDto additif) + persistées par agent/tenant côté Ingestion"
+      - "Champ add-only : un agent qui l'omet reste valide, et le hash canonique des documents est INCHANGÉ (test)"
+      - "Round-trip testé : transport → persistance → relecture par la plateforme"
+      - "Aucune frontière violée (agent → Contracts.Transport ; plateforme → Ingestion) ; NetArchTest vert"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  RD402:
+    title: "Gate « document finalisé » : ne jamais transmettre un brouillon / document non comptabilisé"
+    description: |
+      Finding RD4-11 (vérifié : confirmé, sévérité REMONTÉE P2→P1 par le vérificateur — risque d'envoi de
+      faux). ADR-0004 D4 Famille 2 classe « Brouillon / non comptabilisé mêlé aux factures validées →
+      Capability gate document finalisé » en P1, mais rien ne l'implémente : `ExtractorCapabilities` n'en
+      porte aucune, aucune des règles Validation ne filtre un brouillon, et `IExtractor.ExtractDocuments`
+      n'impose aucune exclusion. NAV et Axelor (sources de prod à workflow draft/posted, profilées au panel
+      ADR ligne 224) transmettraient leurs brouillons comme factures réelles → donnée fiscale fausse
+      (viole CLAUDE.md n°3 « bloquer plutôt qu'envoyer faux »).
+
+      Périmètre, SANS inventer de critère de finalisation côté plateforme (chaque source sait ce qu'est
+      « finalisé ») : (a) inscrire dans le CONTRAT IExtractor la règle « l'adaptateur n'extrait QUE les
+      documents finalisés/comptabilisés » + un test de contrat qui le prouve ; (b) optionnellement, une
+      capacité déclarative (ex. `ExtractsOnlyFinalized` ou un drapeau de gel) transportée via RD401 pour
+      une garde plateforme. Minimum viable = la règle de contrat + test. Ne pas deviner un statut de
+      finalisation depuis le pivot.
+    acceptance:
+      - "Le contrat IExtractor stipule explicitement l'extraction des SEULS documents finalisés (doc XML + test de contrat)"
+      - "Si capacité retenue : déclarée par les adaptateurs et transportée (RD401), sans logique métier dans l'agent"
+      - "Aucune règle de finalisation inventée côté plateforme (chaque adaptateur porte la connaissance de sa source)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  RD403:
+    title: "Premiers consommateurs de capacités : ExposesPayments → F09, IsMutableAfterIssue → alerte d'altération"
+    description: |
+      Findings RD4-12 + volet ExposesPayments (vérifiés P2). Dépend de RD401 (capacités transmises). Une
+      fois les capacités disponibles côté plateforme, brancher les 2 consommateurs à valeur PRÉSENTE :
+      1. Conditionner l'agrégation / le flux de paiement F09 (`PaymentAggregatorTenantJob`) à
+         `ExposesPayments` de la SOURCE (aujourd'hui seul `SupportsDomesticPaymentReporting` de la PA est
+         consulté). Distinguer « source sans encaissements » (ExposesPayments=false) de « zéro
+         encaissement » — ne jamais transmettre un néant à tort, ne pas présumer que toute source expose
+         les paiements (F09 §5.4).
+      2. Conditionner la stratégie d'alerte d'altération (`SourceAlterationDetectedV1`,
+         IngestDocumentBatchHandler.cs:182,242) à `IsMutableAfterIssue` : une source légitimement mutable
+         ne doit pas générer de fausses alertes d'altération à chaque modification attendue.
+      `NumberUniquenessScope` (clé d'idempotence composite) reste un différé tracé (RD409) tant qu'aucune
+      source multi-établissement/série n'est branchée.
+    acceptance:
+      - "Flux/agrégation F09 conditionné à ExposesPayments (source) ; 'source incapable' distingué de 'zéro paiement'"
+      - "Alerte d'altération conditionnée à IsMutableAfterIssue (pas de faux positif sur source mutable)"
+      - "Tests de comportement (capacité true/false) ; requêtes tenant-scopées"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  RD404:
+    title: "Cohérence auto-facturation en Validation (IsSelfBilled / Invoicer) + trancher le sort de Payee"
+    description: |
+      Finding RD4-09 (vérifié : confirmé P2). Le contrat porte Invoicer/Payee/IsSelfBilled (ADR-0004 D3-6)
+      et le Pipeline consomme `IsSelfBilled` (gate 389), mais AUCUNE règle Validation ne lit IsSelfBilled,
+      Invoicer ni Payee (grep src/Modules/Validation = 0) → aucun contrôle de cohérence. `Payee` (BG-10,
+      affacturage) est dans le contrat + le hash canonique mais INERTE : aucun PA client ne le projette
+      (grep src/PaClients Payee = 0).
+
+      Périmètre, sans inventer de règle (sourcer BT-30/BG-4/BG-10) :
+      1. Règle Validation de cohérence : `IsSelfBilled=true` ⇒ Invoicer présent ET identifié (SIREN BT-30
+         requis sur un document auto-facturé 389) ; Invoicer présent ⇒ IsSelfBilled cohérent.
+      2. Décider du sort de `Payee` : soit le projeter vers la PA (BG-10, sourcé), soit le marquer
+         explicitement « différé » (et l'acter dans l'addendum RD409). Ne pas laisser un champ contractuel
+         passer pour implémenté alors qu'il est inerte.
+    acceptance:
+      - "Règle Validation de cohérence auto-facturation (tests : 389 sans Invoicer, SIREN Invoicer manquant, Invoicer sans IsSelfBilled)"
+      - "Décision Payee tracée : projeté vers la PA (sourcé BG-10) OU différé explicite"
+      - "Aucune règle fiscale inventée ; messages opérateur FR avec numéro de document"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  RD405:
+    title: "Classificateur SourceDocumentKind → {facture, avoir} (spec d'abord, sourcé, table tenant)"
+    description: |
+      Finding RD4-16 (vérifié : confirmé P2). ADR-0004 D3-3 promet « la classification facture/avoir vit
+      dans Validation », mais le classificateur `SourceDocumentKind` → type canonique n'existe PAS
+      (CreditNoteRule.cs:22-27 le déclare « non bâti et NON spécifié » ; MODULE.md idem). En pratique
+      l'avoir est détecté UNIQUEMENT par la présence de `CreditNoteRefs` (signal structurel). Une source
+      qui ne porte la nature avoir que par un flag dans `SourceDocumentKind` (sans CreditNoteRefs) ne
+      serait pas reconnue → avoir traité comme facture (signe/sens inversé).
+
+      SPEC D'ABORD (CLAUDE.md n°2) : spécifier une table tenant de correspondance `SourceDocumentKind`
+      → {facture (380), avoir (381)} (paramétrable, validée par l'EC du tenant, JAMAIS devinée), puis
+      l'implémenter en Validation. Un avoir reconnu sans origine résoluble reste BLOQUÉ (non deviné).
+      Ne pas inventer la correspondance (chaque source a ses propres codes).
+    acceptance:
+      - "Spec (sourcée) de la classification SourceDocumentKind → type via table tenant (docs/conception/)"
+      - "Implémentation Validation + tests : un avoir porté uniquement par SourceDocumentKind est reconnu"
+      - "Avoir reconnu sans origine résoluble → BLOQUANT (jamais deviné) ; aucune correspondance inventée"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  RD406:
+    title: "Réserver les slots nommés des différés (FlowKind, InvoicePeriod, code service B2G…) ou amender l'ADR §5"
+    description: |
+      Findings RD4-06 (P3) + RD4-07 (FlowKind, P2). La Conséquence §5 de l'ADR-0004 est normative : tout
+      « Différé (réservé) » EXIGE « un emplacement nommé dans le contrat (capacité ou champ optionnel) pour
+      qu'un futur connecteur soit un ajout, jamais une rupture ». Non tenu pour : `FlowKind` (POS B2C
+      agrégé, ADR ligne 161, classé P1 — facture unitaire vs e-reporting agrégé), Marketplace, Abonnement
+      (InvoicePeriod BG-14 / BT-73-74), B2G/Chorus Pro (code service BT-19, engagement), BTP (retenue de
+      garantie), tiers payant. Seul `Payee` (affacturage) est réellement réservé.
+
+      TRANCHER par cas (et acter dans l'addendum RD409) : (a) créer maintenant le slot optionnel nommé
+      additif (ex. enum `FlowKind` nullable dans ExtractorCapabilities ; champs optionnels nuls par défaut
+      pour InvoicePeriod / code service — hash canonique INCHANGÉ), ou (b) amender l'ADR §5 pour requalifier
+      le cas en « rupture assumée à V-next ». Privilégier (a) pour FlowKind (cas B2C plausible en V1) et les
+      standards EN 16931 (InvoicePeriod BG-14, code service BT-19) ; (b) acceptable pour marketplace /
+      tiers payant. AUCUNE logique métier — uniquement des slots réservés.
+    acceptance:
+      - "Décision (a) créer le slot / (b) amender l'ADR tracée pour CHAQUE différé (FlowKind, InvoicePeriod, B2G, BTP, tiers payant)"
+      - "Si (a) : slots additifs nuls par défaut, hash canonique inchangé prouvé par test ; aucune logique métier ajoutée"
+      - "Si (b) : ADR-0004 §5 amendé (cohérence ADR ↔ contrat rétablie)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  RD407:
+    title: "Unité de mesure BT-130 : champ optionnel UnitCode additif (défaut C62) ou C62 documenté B2C-V1"
+    description: |
+      Finding RD4-13 (vérifié : confirmé P2). `PivotLineDto` porte `Quantity` (BT-129) sans `UnitCode`
+      (BT-130, UNECE Rec 20). FacturX (CiiProfile.cs:64 `DefaultUnitCode="C62"`) et SuperPdp émettent C62
+      (« one ») en dur sur chaque ligne. Inoffensif en B2C V1 (qté=1, UnitCode optionnel dans le XSD
+      e-reporting) mais sémantiquement faux et bloquant en e-invoicing B2B phase 2 (kg/m²/heures). L'ADR
+      ne tranche jamais cette question.
+
+      TRANCHER : (a) ajouter un champ optionnel `UnitCode` (BT-130) additif à `PivotLineDto` (défaut C62
+      quand absent → golden B2C inchangés, hash inchangé), projeté par FacturX + SuperPdp ; ou (b)
+      documenter formellement le C62 intentionnel pour le périmètre B2C V1 et tracer l'item B2B.
+      Recommandé (a) : additif, peu coûteux, prépare le B2B. Codes UNECE Rec 20 (aucune invention).
+    acceptance:
+      - "Décision (a) champ UnitCode optionnel / (b) C62 documenté tracée"
+      - "Si (a) : UnitCode additif (défaut C62, hash B2C inchangé prouvé) + projection FacturX/SuperPdp + tests ; codes UNECE Rec 20"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  RD408:
+    title: "Verrou EUR-only : règle Validation bloquante non-EUR + correction ADR (PAS de gestion multi-devises)"
+    description: |
+      Finding RD4-03 (vérifié : confirmé P1 sur le code, mais RAMENÉ P3 par DÉCISION KARL 2026-06-19 :
+      l'intégralité des cibles produit est en FULL EURO — la devise étrangère « ne concerne personne »).
+      État actuel : `StructureRule.cs:87` n'accepte/bloque QUE selon ISO 4217 → USD/GBP passent ; la devise
+      est recopiée brute vers la PA (SuperPdpPayloadBuilder.cs:63,123) et dans le CII
+      (CrossIndustryInvoiceSerializer.cs:247), sans équivalent EUR (violerait EN 16931 BR-53 SI on visait
+      l'étranger — ce n'est pas le cas).
+
+      Périmètre STRICTEMENT minimal (ne PAS bâtir la gestion des devises) :
+      1. Ajouter une règle Validation BLOQUANTE « devise ≠ EUR non supportée en V1 » (message opérateur FR
+         avec numéro de document — CLAUDE.md n°3/n°12) pour ne jamais transmettre faux.
+      2. Corriger l'ADR-0004 D4 Famille 1 (ligne 138) : « Devise étrangère… Pivot V1 P1 si étranger » →
+         « hors V1, EUR-only (verrou bloquant) ».
+      NON-OBJECTIFS EXPLICITES : ne PAS ajouter ExchangeRate (BT-6), TaxCurrencyCode, TVA-en-EUR (BT-111),
+      ni aucune logique multi-devises. Décision actée.
+    acceptance:
+      - "Règle Validation bloquante non-EUR (test : USD/GBP bloqués avec message FR, EUR passe)"
+      - "ADR-0004 D4-F1 (ligne 138) corrigé en EUR-only / hors V1"
+      - "AUCUN champ ni logique multi-devises ajouté (BT-111/BT-6 NON introduits)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  RD409:
+    title: "Addendum ADR-0004-bis (reclassements) + alignement des specs (drift) + différés tracés"
+    description: |
+      Item DOCUMENTAIRE (aucune logique de code). Regroupe les findings de cohérence ADR↔spec↔code
+      confirmés en P3/P2 par la vérification : RD4-02, RD4-05 (débours), RD4-15 (marge), RD4-17 (drift),
+      RD4-18 (démo), RD4-19 (veille).
+
+      1. Rédiger un ADDENDUM ADR-0004-bis qui RECLASSE les décisions sur/sous-calibrées au vu de
+         l'implémentation, sans rien inventer :
+         - D3-1 : la collection de régimes par ligne est TENUE au contrat (PivotLineDto.SourceRegimeCodes) ;
+           la SCISSION BG-30 multi-codes/multi-taxes est un DIFFÉRÉ TRACÉ, pas « V1 » — le moteur bloque
+           DÉLIBÉRÉMENT (CheckTvaMapping.cs:25-30, testé) tant que F03 ne SOURCE pas l'association
+           régime→ventilation (la deviner violerait CLAUDE.md n°2/n°3).
+         - Débours art. 267 : réconcilier ADR:133 (« Pivot V1 P1 ») avec F15:375 (« non sourcé, F-spec
+           avant tout code ») → hors V1 tant qu'aucune F-spec ne tranche ; une source à débours est
+           bloquée, jamais mappée silencieusement en catégorie O.
+         - Marge / Mixte : acter la limite V1 = source déjà éclatée en 2 lignes (CheckTvaMapping.cs:15-23) ;
+           la dérivation adjudication/frais reste OUVERTE et non sourcée (table tenant validée par l'EC,
+           jamais d'heuristique).
+         - Renvoyer à RD406 (slots réservés) et RD408 (EUR-only).
+      2. Tracer les « différés capacité » (à câbler quand la source concernée arrivera, pas avant) :
+         HasDetailedLines → lignes synthétiques par taux (spec F03) ; EmitterIdentitySource.
+         DerivedFromVatNumber → normalisation TVA→SIREN ; NumberUniquenessScope → clé d'idempotence
+         composite multi-établissement/série.
+      3. Corriger le DRIFT spec↔code : F01-F02 §3.3 (l.98) et §4.2 R3 (l.173) « SourceRegimeCode string »
+         → « SourceRegimeCodes : IReadOnlyList<string> (collection) » ; ajouter à F03 la note « collection
+         de régimes par ligne + scission BG-30 = différé tracé ».
+      4. Note de cohérence : les adaptateurs démo DemoErpA/DemoErpB sont INVERSÉS vs le panel ADR (l'ADR
+         nomme « Source A » comme la source float, mais c'est DemoErpB qui porte les double + SourceAmounts) ;
+         ajouter une note (README adaptateurs démo ou XML-doc) — aucun changement de code requis.
+      5. Planifier l'action de veille HUMAINE : croiser l'Annexe 7 DGFiP v3.2 (règles de gestion V1.9) +
+         le Dossier général avec F04 (LECTURE-LIAKONT.md:48-51) — ne pas conclure « delta minime » sur le
+         seul changelog XSD.
+    acceptance:
+      - "Addendum ADR-0004-bis rédigé : reclassements (D3-1/débours/marge) + différés capacité tracés, AUCUNE règle inventée"
+      - "F01-F02 §3.3 + §4.2 R3 et F03 alignés sur le code (collection de régimes ; scission BG-30 = différé tracé)"
+      - "Note d'inversion des adaptateurs démo ajoutée ; action de veille Annexe 7 v1.9 planifiée/tracée"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  GATE_REDLINE_ADR4:
+    type: gate
+    executor: human
+    title: "Gate (humaine) : recette du backlog redline ADR-0004 (lot RD4)"
+    description: |
+      Recette humaine du lot RD4 (suites du redline ADR-0004 + vérification adversariale 2026-06-19).
+      Vérifie que les 9 items sont livrés ET prouvés :
+        - RD401 : capacités d'extraction transmises + persistées par agent/tenant (round-trip testé, hash inchangé) ;
+        - RD402 : contrat IExtractor n'extrait que le finalisé (brouillon jamais transmis) ;
+        - RD403 : F09 conditionné à ExposesPayments ; alerte d'altération conditionnée à IsMutableAfterIssue ;
+        - RD404 : cohérence auto-facturation contrôlée en Validation ; sort de Payee tranché ;
+        - RD405 : classificateur SourceDocumentKind → type (sourcé, table tenant), avoir reconnu ;
+        - RD406 : slots réservés des différés créés (additifs, hash inchangé) ou ADR §5 amendé ;
+        - RD407 : UnitCode (BT-130) additif ou C62 documenté B2C-V1 ;
+        - RD408 : verrou bloquant non-EUR + ADR corrigé (AUCUNE gestion multi-devises ajoutée) ;
+        - RD409 : addendum ADR-0004-bis + specs F01-F02/F03 alignées + veille Annexe 7 planifiée.
+      Aucune règle fiscale inventée ; bloquer plutôt qu'envoyer faux respecté partout.
+    acceptance:
+      - "RD401→RD409 done et prouvés (tests + revue) ; aucune règle fiscale inventée ; EUR-only respecté (pas de multi-devises)"
+      - "PR ouverte, CI verte (verify + tests : plateforme .NET 10 + agent net48), merge humain"
