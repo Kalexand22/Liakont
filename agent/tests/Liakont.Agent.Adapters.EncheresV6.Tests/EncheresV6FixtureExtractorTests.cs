@@ -6,10 +6,12 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using FluentAssertions;
+using Liakont.Agent.Adapters.EncheresV6.Source;
 using Liakont.Agent.Contracts.Pivot;
 using Liakont.Agent.Contracts.Serialization;
 using Liakont.Agent.Contracts.Transport;
 using Liakont.Agent.Core.Extraction;
+using Newtonsoft.Json;
 using Xunit;
 
 /// <summary>
@@ -111,6 +113,40 @@ public class EncheresV6FixtureExtractorTests
     }
 
     [Fact]
+    public void Demo_fixture_carries_fictional_seller_fee_lines_for_b2c06()
+    {
+        // B2C-06 : la fixture démo modélise le bordereau vendeur (frais vendeur, BV) FICTIF — donnée
+        // que B2C-07 lira par une requête additive (F01-F02 §4.3.1). Verrouille sa présence dans la
+        // source (une régression qui la perdrait casserait le chemin démo de la marge).
+        var snapshot = JsonConvert.DeserializeObject<EncheresV6SourceSnapshot>(File.ReadAllText(SalesFile))!;
+
+        List<EncheresV6Ligne> sellerFees = snapshot.Bordereaux
+            .SelectMany(b => b.Lignes)
+            .Where(l => l.TypeLigne == "5")
+            .ToList();
+
+        sellerFees.Should().NotBeEmpty("la fixture démo doit porter au moins un frais vendeur fictif (B2C-06)");
+        sellerFees.Should().OnlyContain(
+            l => !string.IsNullOrWhiteSpace(l.Designation) && l.Designation!.Contains("vendeur"),
+            "chaque ligne BV est libellée « Frais vendeur »");
+    }
+
+    [Fact]
+    public void Seller_fee_line_is_never_a_buyer_document_line()
+    {
+        // B2C-06/08 : le frais vendeur (type 5) n'est JAMAIS une ligne facturée à l'acheteur (art. 297 E) —
+        // c'est une donnée de calcul de marge. L'extraction document courante l'ignore : le bordereau
+        // 4500 garde exactement ses 2 lignes (adjudication + frais acheteur), donc son empreinte canonique.
+        PivotDocumentDto sale = SalesExtractor().ExtractDocuments(PeriodFrom, PeriodTo)
+            .Single(d => d.SourceReference == "no_ba=4500");
+
+        sale.Lines.Should().HaveCount(2, "le frais vendeur (type 5) n'est pas une ligne de document acheteur (B2C-08)");
+        sale.Lines.Should().NotContain(
+            l => l.Description.Contains("vendeur"),
+            "le bordereau vendeur ne figure pas sur la facture acheteur");
+    }
+
+    [Fact]
     public void ExtractDocuments_pro_buyer_sets_company_hint()
     {
         List<PivotDocumentDto> docs = SalesExtractor().ExtractDocuments(PeriodFrom, PeriodTo).ToList();
@@ -160,7 +196,9 @@ public class EncheresV6FixtureExtractorTests
         IReadOnlyList<SourceTaxRegimeDto> regimes = SalesExtractor().ListSourceTaxRegimes();
 
         regimes.Should().HaveCount(2);
-        regimes.Single(r => r.Code == "5").Occurrences.Should().Be(5);
+
+        // 5 lignes document (adjudication/frais acheteur) + 3 frais vendeur (type 5, B2C-06) référencent le régime « 5 ».
+        regimes.Single(r => r.Code == "5").Occurrences.Should().Be(8);
         regimes.Single(r => r.Code == "6").Occurrences.Should().Be(1);
         regimes.Single(r => r.Code == "6").Label.Should().Be("Regime de la marge");
     }
