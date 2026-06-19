@@ -41,6 +41,45 @@ L'enjeu : une erreur de mapping = un motif d'exonération erroné transmis à la
 - Sous régime de marge, **la TVA ne figure JAMAIS distinctement** sur le bordereau (art. 297 E). Mention « Régime particulier – Biens d'occasion ».
 - Modèle **2 lignes** validé en staging : adjudication (E, 0 %, VATEX-EU-F/I/J selon nature du bien) + frais acheteur (S, 20 %).
 
+### 2.4 Composition du « montant de la marge » — e-reporting B2C (cas DGFiP n°33) — 🟧 PROPOSÉ (B2C-05, soumis à GATE_B2C_SOURCING)
+
+> ⚠️ **Statut : PROPOSITION d'ancrage soumise à validation humaine** (checkpoint intra-segment `GATE_B2C_SOURCING`, owner Karl / métier — `tasks/plan-ereporting-b2c-10-3.md` §0.1, pas de ratification expert-comptable). Tant que cette gate n'est pas `done`, **aucun calcul ni transmission de marge n'est codé** (CLAUDE.md règle n°2). Cette section *établit* la source primaire ; elle ne fige **aucun** enum.
+
+**Périmètre.** L'e-reporting B2C de la marge (document 10.3, « montant de la marge », cas DGFiP n°33) concerne l'opérateur de ventes volontaires (OVV) / commissaire-priseur **agissant en son nom propre** pour le compte d'un commettant non assujetti — l'intermédiaire opaque déjà décrit en F07-F08 §A.3 (deux jambes : commettant→OVV et OVV→acquéreur ; le périmètre CMP ne couvre que la 2e).
+
+**Composition de la marge — SOURCÉE.** Sous le régime de la marge, la base d'imposition de cet opérateur est définie par l'**art. 297 A I-2° du CGI** :
+> « la différence entre le prix total payé par l'adjudicataire et le montant net payé par cet assujetti à son commettant ».
+
+Le **BOFiP BOI-TVA-SECT-90-50 §270** (ventes aux enchères publiques) décompose ces deux termes :
+- **prix total payé par l'adjudicataire** = prix d'adjudication + impôts/droits/taxes dus au titre de l'opération + **frais accessoires demandés à l'acquéreur** (commission acheteur) ;
+- **montant net payé au commettant** = prix d'adjudication **diminué de la commission et des autres frais dus par le commettant** (commission vendeur).
+
+Le prix d'adjudication s'annule dans la différence. Le **§270 conclut lui-même, verbatim**, que la marge « correspond en fait à la **commission totale** du commissaire-priseur (sur son commettant et l'acheteur) ». **C'est cette conclusion du texte primaire — et non une réduction algébrique faite ici — qui fait foi** ; en termes de données source elle s'exprime :
+
+> **marge = frais (commission) à la charge de l'acheteur + frais (commission) à la charge du vendeur**
+
+> ⚠️ **Sort du 3e terme « impôts, droits, prélèvements et taxes dus au titre de l'opération »** (présent côté acheteur dans le §270). Le §270 ne le retient PAS dans la marge nette : il conclut que le résultat *est* la commission totale, donc ces taxes (collectées au titre de l'opération, non conservées par l'opérateur) sont **hors marge**. **À valider à `GATE_B2C_SOURCING`** : si la donnée source d'un déploiement porte des impôts/droits/taxes propres à l'opération (p. ex. droit de suite), l'humain confirme qu'ils restent hors base de marge — un implémenteur ne doit PAS les agréger à `frais acheteur + frais vendeur` sans cette confirmation (sinon base sur/sous-estimée).
+
+→ La « formule = frais acheteur + frais vendeur » du plan B2C est donc **confirmée sur texte primaire** (CGI 297 A I-2° + BOI-TVA-SECT-90-50 §270), et n'est plus une hypothèse. Conséquence : le **bordereau vendeur** (BV, frais vendeur) est **intégral au calcul** — l'omettre tronque la marge (alimente B2C-06/07/08). Le calcul reste en **`decimal`, arrondi half-up 2 décimales** (règle n°1).
+
+**Cohérence art. 297 E.** Le montant de marge reste sous le régime de la marge : **aucune TVA distincte** n'y figure (art. 297 E ; cf. §2.3 et F07-F08:36). Le « montant de marge » est une **base**, jamais une ligne portant une ventilation de TVA > 0 (critère bloquant de B2C-09b).
+
+**Méthode de calcul — NON figée, AUCUN enum pré-câblé.** Deux méthodes existent dans le régime *général* des assujettis-revendeurs :
+- **au coup par coup** (par opération) : différence prix de vente / prix d'achat de **chaque** objet, seules les opérations bénéficiaires imposées (BOI-TVA-SECT-90-20-20 §110) ;
+- **par globalisation** (par période mensuelle/trimestrielle) : différence achats globaux / ventes globales, **facultative** (§260) et réservée au cas où « les articles **ne peuvent pas être individualisés** » (§250).
+
+Or pour l'OVV agissant en son nom propre, le texte *spécifique aux enchères* (**SECT-90-50 §270**) détermine la marge **par opération** (la commission est connue lot par lot) et **ne mentionne pas la globalisation**. L'applicabilité de la globalisation à la marge-commission de l'OVV n'est donc **pas établie** par le texte applicable à ce cas.
+
+→ **Application de la gouvernance §0.1 (« source l'existence avant de nommer ; 0/1 option ancrée pour CE cas → pas d'enum inventé ») :** pour le périmètre visé (OVV, marge-commission par lot), **seule la détermination par opération est ancrée**. On ne pré-câble donc **aucun** enum de méthode (`{Globalisation, CoupParCoup}` interdit). L'ouverture d'un paramètre « méthode de marge » (et donc l'item B2C-08bis) est **conditionnée** à un ancrage ultérieur, dans une `F*.md`, établissant que la globalisation s'applique à la marge-commission de l'OVV — à défaut, méthode **par opération unique**, sans paramètre.
+
+**Décision en attente (GATE_B2C_SOURCING, humain).** Valide (a) la composition ci-dessus et (b) l'absence (ou non) d'un paramètre de méthode. Tant que `pending`, l'aval marge (B2C-07/08/08b/09b) reste bloqué — c'est voulu (règle n°2).
+
+**Sources primaires citées :**
+- CGI art. 297 A (I-1° revendeurs ; **I-2° ventes aux enchères publiques**) — l'ancrage faisant foi est le **numéro d'article (297 A I-2°)** ; l'identifiant Légifrance `LEGIARTI000048835065` n'est qu'un lien de commodité, dont la version en vigueur (article non abrogé/distinct) est à reconfirmer manuellement à la validation de `GATE_B2C_SOURCING`.
+- BOI-TVA-SECT-90-50 **§270** (ventes aux enchères publiques — base d'imposition) — version 2025-05-14.
+- BOI-TVA-SECT-90-20-20 **§110** (coup par coup), **§240-260** (globalisation, facultative) — version 2025-05-14.
+- CGI art. 297 E (pas de TVA distincte sous le régime de la marge).
+
 ## 3. La subtilité métier (cœur du risque — cf. Analyse-Donnees §5)
 
 **On ne peut pas déduire mécaniquement le bon VATEX du seul code régime du logiciel.** Trois situations produisent une adjudication « sans TVA apparente » pour des raisons juridiques **différentes** :
