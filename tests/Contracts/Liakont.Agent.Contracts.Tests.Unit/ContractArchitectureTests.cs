@@ -82,6 +82,26 @@ public sealed class ContractArchitectureTests
     }
 
     [Fact]
+    public void Contracts_Assembly_Carries_No_Fiscal_Reconciliation_Logic()
+    {
+        // RDL12 (redline ADR-0005) : la formule de réconciliation BR-CO-13 (PivotReconciliation) est
+        // une logique de validation fiscale, source UNIQUE de LineTotalsRule (Blocking) — elle ne doit
+        // JAMAIS revenir dans le paquet publiable consommé par l'agent net48 (« l'agent n'a AUCUNE
+        // logique métier », ADR-0005 décision 3, CLAUDE.md n°6). Elle vit désormais dans l'assembly
+        // plateforme-seul Liakont.Platform.Pivot. Garde anti-régression : aucun type « *Reconciliation »
+        // dans le contrat agent.
+        var reconciliationTypes = ContractsAssembly
+            .GetTypes()
+            .Where(t => t.IsPublic && t.Name.Contains("Reconciliation", StringComparison.Ordinal))
+            .Select(t => t.FullName)
+            .ToArray();
+
+        reconciliationTypes.Should().BeEmpty(
+            "la formule de réconciliation BR-CO-13 reste hors du contrat agent publiable, dans un assembly "
+            + "plateforme-seul (RDL12, ADR-0005) — l'agent net48 n'embarque aucune logique métier");
+    }
+
+    [Fact]
     public void Contracts_Assembly_References_Only_The_Bcl()
     {
         var bclPrefixes = new[] { "mscorlib", "netstandard", "System", "Microsoft.CSharp", "WindowsBase" };

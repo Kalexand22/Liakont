@@ -2,6 +2,7 @@ namespace Liakont.Modules.Validation.Domain.Rules;
 
 using Liakont.Agent.Contracts;
 using Liakont.Modules.Validation.Contracts;
+using Liakont.Platform.Pivot;
 
 /// <summary>
 /// Cohérence des totaux lignes ↔ totaux document (F04 §3.3) : le total HT (EN 16931 BT-109) doit

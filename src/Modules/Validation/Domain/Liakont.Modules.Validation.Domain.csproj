@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../Contracts/Liakont.Modules.Validation.Contracts.csproj" />
+    <!-- Formule de réconciliation BR-CO-13 (PivotReconciliation), source UNIQUE partagée avec
+         l'affichage console (Host). Sortie du contrat agent publiable vers cet assembly
+         plateforme-seul (RDL12, ADR-0005) : l'agent n'a aucune logique métier. -->
+    <ProjectReference Include="../../../Platform/Liakont.Platform.Pivot/Liakont.Platform.Pivot.csproj" />
     <!-- Frontière inter-modules : Validation lit le profil émetteur via les Contracts de
          TenantSettings (CFG02), scopé par CompanyId (module-rules.md §3 ; MODULE.md). -->
     <ProjectReference Include="../../TenantSettings/Contracts/Liakont.Modules.TenantSettings.Contracts.csproj" />

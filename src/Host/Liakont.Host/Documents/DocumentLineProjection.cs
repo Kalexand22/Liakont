@@ -8,6 +8,7 @@ using Liakont.Agent.Contracts;
 using Liakont.Agent.Contracts.Pivot;
 using Liakont.Host.Components;
 using Liakont.Modules.Pipeline.Infrastructure.Serialization;
+using Liakont.Platform.Pivot;
 
 /// <summary>
 /// Projette le pivot TRANSMIS d'un document (snapshot canonique ADR-0007 porté par le dernier événement
