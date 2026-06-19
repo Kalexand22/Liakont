@@ -107,6 +107,42 @@ enum/champ-optionnel du sérialiseur cross-runtime ; l'agent lui-même ne rempli
    (`ContractFixtureTests.FrozenHashes`) sont l'ancre : si une modification du writer ou d'un DTO
    change la sortie canonique, les tests cassent des DEUX côtés. C'est volontaire — la régénération
    est un acte explicite, revu en gate humaine.
+5. **Sens N+1 → N (déploiement non atomique) : la plateforme REFUSE un membre inconnu.** La plateforme
+   ne hashe pas les octets reçus — elle re-sérialise le DTO STJ-désérialisé (`IngestDocumentBatchHandler`).
+   Un agent N+1 portant un champ post-v1 dans un payload déclaré « 1 » verrait, sous le comportement STJ
+   par défaut, ce champ **droppé silencieusement** → empreinte plateforme ≠ empreinte agent → anti-doublon
+   (PIV04) et détection d'altération (TRK03) cassés. Défaut SÛR (RDL04, « bloquer plutôt qu'envoyer faux ») :
+   `JsonUnmappedMemberHandling.Disallow` est posé par réflexion sur **tous** les DTOs de
+   `Liakont.Agent.Contracts` (`AgentApiJson.ConfigureContractBinding`) → un membre inconnu **lève en
+   désérialisation (400)**, jamais droppé. (Pour les endpoints GET sans corps — ex. `/configuration` —
+   la règle 3 s'applique en premier : un en-tête `X-Contract-Version` > N reçoit `426 Upgrade Required`
+   avant tout traitement. Pour les endpoints POST portant un corps — `/documents/batch`, `/heartbeat` —
+   le binding de paramètre s'exécute avant le filtre `AgentApiAuthenticationFilter` : un membre inconnu
+   est rejeté en **400** dès la désérialisation, avant que le 426 ne puisse se déclencher. La propriété
+   de sûreté est préservée dans les deux cas — rejet propre, aucune corruption — mais l'ordre diffère.)
+
+### 4.1 Runbook de bascule v2 (points à muter ENSEMBLE)
+
+Une rupture (règle 2) ouvre la v2. Tous ces points changent dans la **même** transaction — un test
+d'invariant (`AgentContractVersionInvariantTests`) et la dérivation du préfixe d'URL réduisent les
+sources de vérité indépendantes, mais la liste reste à dérouler :
+
+1. **`AgentContractVersion.ContractVersion`** (`src/Contracts/Liakont.Agent.Contracts/AgentContractVersion.cs`) :
+   `"1"` → `"2"`. C'est la SEULE constante de version du payload.
+2. **`AgentContractVersion.Current`** : `"v1"` → `"v2"`. L'invariant `Current == "v" + ContractVersion`
+   est verrouillé par test ; le préfixe d'URL du groupe d'endpoints (`AgentApiEndpoints.MapAgentApi`)
+   en est DÉRIVÉ — aucun littéral `/api/agent/v2` à éditer à la main.
+3. **`AgentContractVersionPolicy.Previous`** (`src/Modules/Ingestion/Contracts`) : `null` → `"1"` —
+   la plateforme sert v2 (courante) **et** v1 (N-1) tant que des agents N-1 existent (règle 3, → `426`
+   au-delà). Décommissionner v1 (repasser `Previous` à `null`) est un acte ultérieur, séparé.
+4. **Golden files** (`tests/fixtures/contrat-v1/`) : créer le jeu `contrat-v2/` et figer ses hashes
+   (`FrozenHashes`) ; conserver `contrat-v1/` tant que v1 est servie. Régénération = acte explicite
+   revu en gate (cf. §5).
+5. **DTOs / writer / lecteur** : appliquer la rupture (renommage/suppression/type) au modèle pivot, au
+   `CanonicalJson` (writer) ET au `PivotCanonicalJsonReader` (lecteur prod, miroir du writer) — les
+   trois restent synchronisés au champ près (gardes de complétude par réflexion).
+6. **Docs** : dupliquer ce fichier en `contrat-agent-v2.md` (ou versionner les sections) et acter la
+   matrice de compatibilité N/N-1 à jour.
 
 ---
 
