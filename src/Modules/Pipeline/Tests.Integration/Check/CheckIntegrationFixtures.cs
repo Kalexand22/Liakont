@@ -14,7 +14,11 @@ internal static class CheckIntegrationFixtures
 
     public static string PayloadHashOf(PivotDocumentDto pivot) => PayloadHasher.ComputeHash(CanonicalJson.Serialize(pivot));
 
-    public static PivotDocumentDto BuildPivot(string sourceReference, string regimeCode, PivotPartyDto? customer = null)
+    public static PivotDocumentDto BuildPivot(
+        string sourceReference,
+        string regimeCode,
+        PivotPartyDto? customer = null,
+        OperationCategory? operationCategory = OperationCategory.LivraisonBiens)
     {
         var line = new PivotLineDto(
             description: "Adjudication lot 7 — vase décoratif",
@@ -25,6 +29,10 @@ internal static class CheckIntegrationFixtures
             taxes: new[] { new PivotLineTaxDto(24.00m, 20m) },
             sourceLineRef: "ligne#1");
 
+        // operationCategory NULLABLE (B2C02) : le défaut (LivraisonBiens) préserve tous les appels existants ;
+        // un appelant passe `null` pour exercer la suspension « nature d'opération non paramétrée » du CHECK
+        // (la plateforme remplit la nature à l'ingestion depuis le paramétrage fiscal — absente = bloqué,
+        // jamais devinée, CLAUDE.md n°2/n°3 ; cf. DocumentCheckEvaluator.OperationCategoryMissingReason).
         return new PivotDocumentDto(
             sourceDocumentKind: "F",
             number: "F-2026-" + ((uint)sourceReference.GetHashCode(StringComparison.Ordinal)).ToString("D10", CultureInfo.InvariantCulture),
@@ -32,7 +40,7 @@ internal static class CheckIntegrationFixtures
             sourceReference: sourceReference,
             supplier: new PivotPartyDto("Étude Fictïve SVV"),
             totals: new PivotTotalsDto(120.00m, 24.00m, 144.00m, 144.00m),
-            operationCategory: OperationCategory.LivraisonBiens,
+            operationCategory: operationCategory,
             customer: customer,
             lines: new[] { line });
     }
