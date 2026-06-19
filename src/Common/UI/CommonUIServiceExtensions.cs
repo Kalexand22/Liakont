@@ -134,6 +134,10 @@ public static class CommonUIServiceExtensions
         // Form registry — maps (entityType, contextKey?) → form component type (GUX15).
         services.TryAddSingleton<IFormRegistry, FormRegistry>();
 
+        // Fuseau du NAVIGATEUR (RB6) : un état par circuit (JAMAIS Singleton — mélangerait les fuseaux entre
+        // utilisateurs). Consommé par <LiakontDate>/<BrowserTimeProbe> ; ajouter <BrowserTimeProbe> au layout.
+        services.AddScoped<Time.IBrowserTimeZone, Time.BrowserTimeZone>();
+
         return services;
     }
 }

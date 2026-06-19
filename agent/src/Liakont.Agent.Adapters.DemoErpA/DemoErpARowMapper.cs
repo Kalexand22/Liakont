@@ -13,8 +13,9 @@ using Newtonsoft.Json;
 /// EN 16931. Respecte le contrat d'extraction (F01-F02 §4.2) : ne mappe PAS la TVA (R3 — régimes bruts,
 /// <c>CategoryCode</c>/<c>VatexCode</c> nuls), ne classe PAS facture/avoir (<c>SourceDocumentKind</c>
 /// brut « FAC »/« AVO », ADR-0004 D3-3), ne calcule aucun montant (les montants <c>decimal</c> de la
-/// source sont seulement arrondis au centime via <see cref="PivotRounding"/>). L'identité de l'émetteur
-/// et la nature d'opération viennent de la config (paramétrage tenant — absents de la base, F01-F02 §4.3).
+/// source sont seulement arrondis au centime via <see cref="PivotRounding"/>). L'identité de l'émetteur et
+/// la nature d'opération ne sont PAS portées par l'agent : la plateforme les remplit à l'ingestion depuis le
+/// profil tenant (ADR-0023 amendé) — l'agent n'extrait que la base source (F01-F02 §4.3).
 /// </summary>
 internal static class DemoErpARowMapper
 {
@@ -31,18 +32,12 @@ internal static class DemoErpARowMapper
 
     /// <summary>Mappe une facture (ou un avoir) DemoErpA en document pivot.</summary>
     /// <param name="invoice">La facture source (avec ses lignes).</param>
-    /// <param name="config">La configuration de l'adaptateur (émetteur, nature d'opération).</param>
     /// <returns>Le document pivot correspondant.</returns>
-    public static PivotDocumentDto MapDocument(DemoErpAInvoice invoice, SourceEmitterConfig config)
+    public static PivotDocumentDto MapDocument(DemoErpAInvoice invoice)
     {
         if (invoice is null)
         {
             throw new ArgumentNullException(nameof(invoice));
-        }
-
-        if (config is null)
-        {
-            throw new ArgumentNullException(nameof(config));
         }
 
         string factureId = RequireField(invoice.FactureId, "facture_id", invoice.FactureId);
@@ -69,13 +64,13 @@ internal static class DemoErpARowMapper
             number: number,
             issueDate: invoice.DateEmission,
             sourceReference: SourceReferencePrefix + number,
-            supplier: MapEmitter(config),
+            supplier: null,
             totals: new PivotTotalsDto(
                 totalNet: PivotRounding.RoundAmount(invoice.TotalHt),
                 totalTax: PivotRounding.RoundAmount(invoice.TotalTva),
                 totalGross: PivotRounding.RoundAmount(invoice.TotalTtc),
                 sourceTotalGross: PivotRounding.RoundAmount(invoice.TotalTtc)),
-            operationCategory: config.OperationCategory,
+            operationCategory: null,
             currencyCode: string.IsNullOrWhiteSpace(invoice.Devise) ? CurrencyDefault : invoice.Devise!.Trim(),
             customer: MapCustomer(invoice),
             lines: lines,
@@ -117,9 +112,6 @@ internal static class DemoErpARowMapper
             sourceLineRef: line.NoLigne,
             sourceData: null);
     }
-
-    private static PivotPartyDto MapEmitter(SourceEmitterConfig config) =>
-        new PivotPartyDto(name: config.EmitterName, siren: config.EmitterSiren, isCompanyHint: true);
 
     private static PivotPartyDto? MapCustomer(DemoErpAInvoice invoice)
     {

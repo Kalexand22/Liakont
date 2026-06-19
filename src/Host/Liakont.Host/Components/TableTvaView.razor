@@ -343,7 +343,7 @@
                 {
                     var diff = ChangeDiff(entry);
                     <li class="liakont-tva-table__changelog-entry" data-testid="table-tva-changelog-entry">
-                        <span class="liakont-tva-table__changelog-when">@entry.OccurredAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr)</span>
+                        <span class="liakont-tva-table__changelog-when"><LiakontDate Value="@entry.OccurredAt" /></span>
                         <span class="liakont-tva-table__changelog-what">@DescribeChange(entry)</span>
                         <span class="liakont-tva-table__changelog-who">par @(string.IsNullOrWhiteSpace(entry.OperatorName) ? entry.OperatorId.ToString() : entry.OperatorName)</span>
                         @if (diff.Count > 0)

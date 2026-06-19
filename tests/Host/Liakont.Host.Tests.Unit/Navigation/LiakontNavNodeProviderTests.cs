@@ -3,11 +3,13 @@ namespace Liakont.Host.Tests.Unit.Navigation;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Liakont.Host.Navigation;
 using Liakont.Host.Security;
+using Microsoft.AspNetCore.Http;
 using Stratum.Common.Abstractions.Security;
 using Stratum.Common.UI.Models;
 using Xunit;
@@ -254,11 +256,61 @@ public sealed class LiakontNavNodeProviderTests
         clients.Href.Should().Be("/clients");
     }
 
+    [Fact]
+    public void GetNavNode_For_A_CrossTenant_SuperAdmin_Should_Hide_All_Tenant_Scoped_Entries()
+    {
+        // RB1 : un super-admin (stratum-admin) opère en cross-tenant ; même avec toutes les permissions et
+        // un pool de réconciliation présent, les surfaces TENANT-SCOPÉES ne doivent PAS apparaître.
+        var root = BuildProvider(
+            reconciliationAvailable: true,
+            reconciliationPendingCount: 3,
+            permissions: [LiakontPermissions.Read, LiakontPermissions.Actions, LiakontPermissions.Settings],
+            isCrossTenantAdmin: true).GetNavNode();
+
+        AllLabels(root).Should().NotContain([
+            "Documents", "Encaissements", "Traitements", "Signatures", "Réconciliation",
+            "Réconciliation (3)", "Paramétrage",
+        ]);
+    }
+
+    [Fact]
+    public void GetNavNode_For_A_CrossTenant_SuperAdmin_Should_Keep_CrossTenant_Entries()
+    {
+        // Les surfaces CROSS-TENANT (Supervision, Clients, Flotte) restent visibles pour le super-admin.
+        var root = BuildProvider(
+            permissions: [LiakontPermissions.Supervision, LiakontPermissions.Fleet],
+            isCrossTenantAdmin: true).GetNavNode();
+
+        Labels(root).Should().Contain(["Supervision", "Flotte"]);
+        AllLabels(root).Should().Contain("Clients");
+    }
+
+    [Fact]
+    public void GetNavNode_Should_Treat_A_SuperAdmin_From_HttpContext_As_CrossTenant_During_Prerender()
+    {
+        // RB1 — au PRÉRENDU SSR (pas de circuit → console non initialisée, IsCrossTenantAdmin=false), le
+        // super-admin est détecté via le HttpContext de la requête → les surfaces tenant-scopées sont
+        // masquées DÈS le prérendu (pas de « flash »), et la nav reste correcte même sans circuit.
+        var superAdmin = new ClaimsPrincipal(
+            new ClaimsIdentity([new Claim(ClaimTypes.Role, "stratum-admin")], authenticationType: "test"));
+        var root = BuildProvider(
+            permissions: [LiakontPermissions.Read, LiakontPermissions.Settings],
+            isCrossTenantAdmin: false,
+            httpUser: superAdmin).GetNavNode();
+
+        AllLabels(root).Should().NotContain(["Documents", "Encaissements", "Traitements", "Signatures", "Paramétrage"]);
+    }
+
     private static LiakontNavNodeProvider BuildProvider(
         bool reconciliationAvailable = false,
         int reconciliationPendingCount = 0,
-        string[]? permissions = null) =>
-        new(new FakePermissionService(permissions ?? []), new FakeConsoleContext(reconciliationAvailable, reconciliationPendingCount));
+        string[]? permissions = null,
+        bool isCrossTenantAdmin = false,
+        ClaimsPrincipal? httpUser = null) =>
+        new(
+            new FakePermissionService(permissions ?? []),
+            new FakeConsoleContext(reconciliationAvailable, reconciliationPendingCount, isCrossTenantAdmin),
+            new StubHttpContextAccessor(httpUser));
 
     private static IEnumerable<string> Labels(NavNode root) =>
         root.Children.Select(i => i.Label);
@@ -287,16 +339,32 @@ public sealed class LiakontNavNodeProviderTests
 
     private sealed class FakeConsoleContext : ILiakontConsoleContext
     {
-        public FakeConsoleContext(bool reconciliationAvailable, int reconciliationPendingCount)
+        public FakeConsoleContext(bool reconciliationAvailable, int reconciliationPendingCount, bool isCrossTenantAdmin = false)
         {
             ReconciliationAvailable = reconciliationAvailable;
             ReconciliationPendingCount = reconciliationPendingCount;
+            IsCrossTenantAdmin = isCrossTenantAdmin;
         }
 
         public bool ReconciliationAvailable { get; }
 
         public int ReconciliationPendingCount { get; }
 
+        public bool IsCrossTenantAdmin { get; }
+
         public Task EnsureInitializedAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class StubHttpContextAccessor : IHttpContextAccessor
+    {
+        public StubHttpContextAccessor(ClaimsPrincipal? user)
+        {
+            if (user is not null)
+            {
+                HttpContext = new DefaultHttpContext { User = user };
+            }
+        }
+
+        public HttpContext? HttpContext { get; set; }
     }
 }

@@ -86,8 +86,8 @@ public sealed class PostgresServiceDefinitionQueries : IServiceDefinitionQueries
             DefaultSlaHours = (int?)row.default_sla_hours,
             Color = (string?)row.color,
             Competences = (string?)row.competences,
-            CreatedAt = (DateTimeOffset)row.created_at,
-            UpdatedAt = (DateTimeOffset?)row.updated_at,
+            CreatedAt = DbTimestamp.ToDateTimeOffset((object)row.created_at),
+            UpdatedAt = DbTimestamp.ToNullableDateTimeOffset((object?)row.updated_at),
         };
     }
 }

@@ -202,10 +202,10 @@ internal sealed class PostgresScheduleUnitOfWork : IScheduleUnitOfWork
             (string)row.job_type,
             (string)row.payload_template,
             (bool)row.is_active,
-            (DateTimeOffset)row.next_run_at,
-            (DateTimeOffset?)row.last_run_at,
+            DbTimestamp.ToDateTimeOffset((object)row.next_run_at),
+            DbTimestamp.ToNullableDateTimeOffset((object?)row.last_run_at),
             (Guid)row.company_id,
-            (DateTimeOffset)row.created_at,
-            (DateTimeOffset)row.updated_at);
+            DbTimestamp.ToDateTimeOffset((object)row.created_at),
+            DbTimestamp.ToDateTimeOffset((object)row.updated_at));
     }
 }

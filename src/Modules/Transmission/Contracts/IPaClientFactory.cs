@@ -14,6 +14,13 @@ public interface IPaClientFactory
     string PaType { get; }
 
     /// <summary>
+    /// Mode d'authentification du type de plug-in — capacité STATIQUE lue par la console (champs de creds
+    /// à présenter) sans instancier de client. Par défaut <see cref="PaAuthMode.ApiKey"/> ; un plug-in
+    /// OAuth2 (Super PDP) surcharge ce membre. Générique, jamais un <c>if (pa is …)</c> (CLAUDE.md n°8/16).
+    /// </summary>
+    PaAuthMode AuthMode => PaAuthMode.ApiKey;
+
+    /// <summary>
     /// Construit un client pour le compte PA d'un tenant donné. La résolution des secrets (chiffrés
     /// par tenant) est interne au plug-in — le <paramref name="account"/> n'en porte aucun en clair.
     /// </summary>

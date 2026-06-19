@@ -60,7 +60,7 @@ public class EncheresV6RowMapperTests
         PivotDocumentDto doc = EncheresV6RowMapper.MapDocument(SaleWithAdjudicationAndFees(), Emitter(), OperationCategory.LivraisonBiens, null);
 
         doc.SourceDocumentKind.Should().Be("B", "le type de pièce source est transporté brut (ADR-0004 D3-3)");
-        doc.Supplier.Siren.Should().Be("111111111", "le SIREN émetteur vient de la config, pas de la base");
+        doc.Supplier!.Siren.Should().Be("111111111", "le SIREN émetteur vient de la config, pas de la base");
         doc.SourceReference.Should().Be("no_ba=4500");
         doc.CurrencyCode.Should().Be("EUR");
     }

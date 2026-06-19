@@ -18,6 +18,7 @@ public sealed class ParametrageViewTests : BunitContext
     {
         // RadzenButton (StratumButton) appelle du JS sur certaines interactions : mode permissif.
         JSInterop.Mode = JSRuntimeMode.Loose;
+        Services.AddBrowserTimeZoneStub();
     }
 
     [Fact]

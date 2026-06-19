@@ -13,6 +13,19 @@ public interface IPaClientRegistry
     IReadOnlyCollection<string> RegisteredTypes { get; }
 
     /// <summary>
+    /// Mode d'authentification de CHAQUE type enregistré (clé = type, insensible à la casse) — la console
+    /// l'utilise pour présenter les bons champs de creds à la création d'un compte PA, sans instancier de
+    /// client (option 1 / PAS). Générique : jamais un <c>if (type == "SuperPdp")</c> (CLAUDE.md n°8/16).
+    /// <para>Défaut : <see cref="PaAuthMode.ApiKey"/> pour tous les types enregistrés (le registre réel
+    /// surcharge ce membre pour refléter le mode déclaré par chaque fabrique).</para>
+    /// </summary>
+    IReadOnlyDictionary<string, PaAuthMode> DescribeAuthModes() =>
+        RegisteredTypes.ToDictionary(
+            paType => paType,
+            _ => PaAuthMode.ApiKey,
+            StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Résout le client PA d'un compte de tenant par son type. Lève une
     /// <see cref="InvalidOperationException"/> avec un message opérateur français si le type n'est
     /// enregistré par aucun plug-in.

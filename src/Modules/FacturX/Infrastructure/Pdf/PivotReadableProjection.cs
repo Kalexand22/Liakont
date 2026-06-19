@@ -45,7 +45,7 @@ internal static class PivotReadableProjection
             IssueDate: DateOnly.FromDateTime(pivot.IssueDate),
             DueDate: pivot.PaymentDueDate is { } dueDate ? DateOnly.FromDateTime(dueDate) : null,
             CurrencyCode: pivot.CurrencyCode,
-            SellerName: pivot.Supplier.Name,
+            SellerName: pivot.Supplier!.Name,
             SellerSiren: pivot.Supplier.Siren,
             SellerVatNumber: pivot.Supplier.VatNumber,
             BuyerName: pivot.Customer?.Name,

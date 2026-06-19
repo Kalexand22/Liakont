@@ -91,8 +91,6 @@
     private string _from = string.Empty;
     private string _to = string.Empty;
 
-    private static readonly System.Globalization.CultureInfo FrCulture = new("fr-FR");
-
     private static readonly IReadOnlyList<KeyValuePair<string, string>> StatusOptions =
     [
         new("Pending", "En attente"),
@@ -123,9 +121,9 @@
                 builder.AddAttribute(2, "Label", StatusLabel(item.Status));
                 builder.CloseComponent();
             },
-            ["CreatedAt"] = item => builder => builder.AddContent(0, FormatUtc(item.CreatedAt)),
-            ["StartedAt"] = item => builder => builder.AddContent(0, FormatUtc(item.StartedAt)),
-            ["CompletedAt"] = item => builder => builder.AddContent(0, FormatUtc(item.CompletedAt)),
+            ["CreatedAt"] = item => builder => RenderLocalDate(builder, item.CreatedAt),
+            ["StartedAt"] = item => builder => RenderLocalDate(builder, item.StartedAt),
+            ["CompletedAt"] = item => builder => RenderLocalDate(builder, item.CompletedAt),
             ["RetryCount"] = item => builder => builder.AddContent(0, $"{item.RetryCount} / {item.MaxRetries}"),
             ["ErrorMessage"] = item => builder =>
             {
@@ -211,8 +209,13 @@
             : technicalKey;
     }
 
-    private static string FormatUtc(DateTimeOffset? value) =>
-        value.HasValue ? value.Value.UtcDateTime.ToString("dd/MM/yyyy HH:mm 'UTC'", FrCulture) : "—";
+    // RB6 : rend un instant (UTC) au fuseau du NAVIGATEUR via <LiakontDate> (null → tiret cadratin).
+    private static void RenderLocalDate(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder, DateTimeOffset? value)
+    {
+        builder.OpenComponent<LiakontDate>(0);
+        builder.AddAttribute(1, "Value", value);
+        builder.CloseComponent();
+    }
 
     private static string Truncate(string value, int max) =>
         value.Length <= max ? value : string.Concat(value.AsSpan(0, max), "…");

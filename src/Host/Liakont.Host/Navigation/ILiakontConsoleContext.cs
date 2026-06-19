@@ -33,6 +33,16 @@ internal interface ILiakontConsoleContext
     /// </summary>
     int ReconciliationPendingCount { get; }
 
+    /// <summary>
+    /// Vrai si l'utilisateur courant est un super-admin (rôle <c>stratum-admin</c>) opérant en contexte
+    /// CROSS-TENANT : il n'appartient à aucun tenant en particulier (RB1). La navigation masque alors les
+    /// entrées TENANT-SCOPÉES (Documents, Encaissements, Traitements, Signatures, Réconciliation,
+    /// Paramétrage) et ne laisse que les surfaces cross-tenant (Supervision, Clients, Flotte) ; le chrome
+    /// n'affiche pas de « tenant courant ». Faux pour un utilisateur de tenant ordinaire (qui voit, lui,
+    /// ses surfaces tenant selon ses permissions). Faux tant que le contexte n'est pas chargé.
+    /// </summary>
+    bool IsCrossTenantAdmin { get; }
+
     /// <summary>Charge (une seule fois) l'état de console pour le tenant courant. Idempotent.</summary>
     Task EnsureInitializedAsync(CancellationToken cancellationToken = default);
 }

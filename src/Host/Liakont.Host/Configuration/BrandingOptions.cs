@@ -29,18 +29,18 @@ public sealed class BrandingOptions
 
     /// <summary>
     /// Couleur primaire de marque (hex CSS, ex. <c>#001b44</c>). Vide ou invalide = thème socle par défaut.
-    /// CONTRAT : doit être une couleur SOMBRE (comme le bleu marine par défaut) — en THÈME CLAIR la barre
-    /// latérale en dérive (<c>--color-primary-600/700</c>) et y affiche du texte CLAIR (<c>--sidebar-text</c>) ;
-    /// une primaire claire rendrait ce texte illisible. La surcharge CIBLE LE THÈME CLAIR : en thème sombre,
-    /// le socle conserve sa palette sombre SCELLÉE (fond de barre latérale codé en dur, primaire dark-mode
-    /// redéfinie — tokens.css) ; la marque n'y repeint donc pas la coquille.
+    /// CONTRAT : doit être une couleur SOMBRE (comme le bleu marine par défaut) — la barre latérale en dérive
+    /// (<c>--color-primary-600/700</c> en clair, <c>--sidebar-bg/-header</c> en sombre) et y affiche du texte
+    /// CLAIR (<c>--sidebar-text</c>) ; une primaire claire rendrait ce texte illisible. La surcharge couvre
+    /// les DEUX thèmes (RB5) : barre latérale + CTA en clair, barre latérale en sombre (où le socle code
+    /// sinon un fond en dur) — un rendu cohérent quel que soit le thème.
     /// </summary>
     public string PrimaryColor { get; init; } = string.Empty;
 
     /// <summary>
-    /// Couleur d'accent de marque (hex CSS). Vide ou invalide = pas de surcharge d'accent. Surcharge
-    /// <c>--color-primary-container</c> ; comme <see cref="PrimaryColor"/>, cible le thème clair (le thème
-    /// sombre garde la palette socle scellée).
+    /// Couleur d'accent de marque (hex CSS). Vide ou invalide = pas de surcharge d'accent. Peint, dans les
+    /// DEUX thèmes (RB5), <c>--color-primary-container</c> (hover/secondaire) ET <c>--sidebar-active-accent</c>
+    /// (accent de la ligne SÉLECTIONNÉE de la barre latérale — le signal de marque le plus visible).
     /// </summary>
     public string AccentColor { get; init; } = string.Empty;
 

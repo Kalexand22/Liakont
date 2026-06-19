@@ -27,6 +27,9 @@ using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.Staging.Infrastructure;
 using Liakont.Modules.TenantSettings.Infrastructure;
 using Liakont.Modules.Transmission.Contracts;
+using Liakont.Modules.TvaMapping.Application;
+using Liakont.Modules.TvaMapping.Domain.Entities;
+using Liakont.Modules.TvaMapping.Infrastructure;
 using Liakont.PaClients.Fake;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -89,6 +92,7 @@ public sealed class PipelineSendHarness : IAsyncLifetime
 
         RunCommonMigrations();
         RunModuleMigrations(typeof(DocumentsModuleRegistration).Assembly);
+        RunModuleMigrations(typeof(TvaMappingModuleRegistration).Assembly);
         RunModuleMigrations(typeof(TenantSettingsModuleRegistration).Assembly);
         RunModuleMigrations(typeof(StagingModuleRegistration).Assembly);
         RunModuleMigrations(typeof(PipelineModuleRegistration).Assembly);
@@ -98,6 +102,7 @@ public sealed class PipelineSendHarness : IAsyncLifetime
 
         await SeedTenantProfileAsync();
         await SeedActivePaAccountAsync();
+        await SeedValidatedMappingTableAsync();
     }
 
     public async Task DisposeAsync()
@@ -304,6 +309,7 @@ public sealed class PipelineSendHarness : IAsyncLifetime
         services.AddSingleton<ITenantContext>(new StubTenantContext(TenantSlug));
 
         services.AddDocumentsModule();
+        services.AddTvaMappingModule();
         services.AddTenantSettingsModule();
         services.AddStagingModule(config);
         services.AddPipelineModule();
@@ -366,6 +372,38 @@ public sealed class PipelineSendHarness : IAsyncLifetime
             Environment = 0,
             AccountIdentifiers = "{}",
         });
+    }
+
+    /// <summary>
+    /// Seede la table de mapping TVA VALIDÉE du tenant (régime « NORMAL » → catégorie S 20 %), comme le harnais
+    /// CHECK : depuis emitter-filled-by-platform (ADR-0023 amendé), le SEND repose la catégorie TVA au read-time
+    /// (symétrique au CHECK) — sans cette table, tout document partirait en HOLD <c>TvaUnresolved</c>.
+    /// </summary>
+    private async Task SeedValidatedMappingTableAsync()
+    {
+        var rule = new MappingRule
+        {
+            SourceRegimeCode = "NORMAL",
+            Label = "Assujetti 20 %",
+            Part = MappingPart.Autre,
+            Category = VatCategory.S,
+            RateMode = RateMode.Fixed,
+            RateValue = 20m,
+        };
+
+        var table = MappingTable.Create(
+            CompanyId,
+            MappingVersion,
+            "Expert-comptable CMP",
+            new DateOnly(2026, 7, 15),
+            MappingDefaultBehavior.Block,
+            new[] { rule });
+
+        await using var scope = _provider!.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<ITvaMappingUnitOfWorkFactory>();
+        await using var uow = await factory.BeginAsync();
+        await uow.InsertMappingTableAsync(table);
+        await uow.CommitAsync();
     }
 
     private void RunCommonMigrations()

@@ -34,9 +34,9 @@ public static class PivotCanonicalJsonReader
         number: Str(element, "Number"),
         issueDate: Date(element, "IssueDate"),
         sourceReference: Str(element, "SourceReference"),
-        supplier: ReadParty(element.GetProperty("Supplier")),
+        supplier: TryObject(element, "Supplier", out JsonElement supplier) ? ReadParty(supplier) : null,
         totals: ReadTotals(element.GetProperty("Totals")),
-        operationCategory: EnumByName<OperationCategory>(Str(element, "OperationCategory")),
+        operationCategory: ReadOperationCategory(element),
         currencyCode: Str(element, "CurrencyCode"),
         customer: TryObject(element, "Customer", out JsonElement customer) ? ReadParty(customer) : null,
         lines: ReadList(element, "Lines", ReadLine),
@@ -150,6 +150,11 @@ public static class PivotCanonicalJsonReader
     private static TEnum EnumByName<TEnum>(string name)
         where TEnum : struct =>
         Enum.Parse<TEnum>(name);
+
+    // Nature d'opération optionnelle (ADR-0023 amendé) : absente du JSON → null (la plateforme la remplit à
+    // l'ingestion ; un pivot émis par l'agent ne la porte pas). Miroir exact du writer (omis si null).
+    private static OperationCategory? ReadOperationCategory(JsonElement element) =>
+        TryString(element, "OperationCategory", out string value) ? EnumByName<OperationCategory>(value) : null;
 
     private static List<string> StrList(JsonElement element, string name)
     {

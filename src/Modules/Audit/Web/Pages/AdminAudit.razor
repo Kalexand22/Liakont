@@ -95,6 +95,14 @@
 
     private readonly Dictionary<string, RenderFragment<AuditSearchResultDto>> _columnTemplates = new()
     {
+        // RB6 : la date d'audit est un ÉVÉNEMENT → affichée au fuseau du navigateur (le serveur tourne en UTC).
+        // Sans ce template, la grille rendait le DateTimeOffset brut serveur (value.ToString()).
+        ["CreatedAt"] = item => __builder =>
+        {
+            __builder.OpenComponent<LiakontDate>(0);
+            __builder.AddAttribute(1, "Value", (DateTimeOffset?)item.CreatedAt);
+            __builder.CloseComponent();
+        },
         ["ActivityType"] = item => __builder =>
         {
             var (severity, label) = item.ActivityType switch

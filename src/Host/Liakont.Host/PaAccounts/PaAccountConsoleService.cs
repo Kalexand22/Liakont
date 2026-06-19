@@ -53,6 +53,9 @@ internal sealed class PaAccountConsoleService : IPaAccountConsoleService
         {
             Accounts = accounts,
             RegisteredPluginTypes = pluginTypes,
+
+            // Mode d'auth par type (clé API vs OAuth2 client_id/secret), lu du registre — jamais un if (type==...).
+            AuthModes = _registry.DescribeAuthModes(),
         };
     }
 
@@ -67,6 +70,8 @@ internal sealed class PaAccountConsoleService : IPaAccountConsoleService
             Environment = model.Environment,
             AccountIdentifiers = model.AccountIdentifiers,
             ApiKey = NullIfBlank(model.ApiKey),
+            ClientId = NullIfBlank(model.ClientId),
+            ClientSecret = NullIfBlank(model.ClientSecret),
         };
 
         return _sender.Send(command, cancellationToken);
@@ -89,6 +94,8 @@ internal sealed class PaAccountConsoleService : IPaAccountConsoleService
             Environment = model.Environment,
             AccountIdentifiers = model.AccountIdentifiers,
             ApiKey = NullIfBlank(model.ApiKey),
+            ClientId = NullIfBlank(model.ClientId),
+            ClientSecret = NullIfBlank(model.ClientSecret),
         };
 
         return _sender.Send(command, cancellationToken);

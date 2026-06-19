@@ -249,6 +249,14 @@
     private readonly ApiKeyColumnRegistry _apiKeyRegistry = new();
     private readonly Dictionary<string, RenderFragment<ApiKeyDto>> _apiKeyColumnTemplates = new()
     {
+        // RB6 : « Créée le » (CreatedAt) = ÉVÉNEMENT → fuseau du navigateur (serveur en UTC). « Expire le »
+        // (ExpiresAt) est une date de VALIDITÉ/échéance → LAISSÉE telle quelle (pas migrée).
+        ["CreatedAt"] = item => __builder =>
+        {
+            __builder.OpenComponent<LiakontDate>(0);
+            __builder.AddAttribute(1, "Value", (DateTimeOffset?)item.CreatedAt);
+            __builder.CloseComponent();
+        },
         ["IsRevoked"] = item => __builder =>
         {
             __builder.OpenComponent<StatusBadge>(0);

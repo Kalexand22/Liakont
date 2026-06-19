@@ -38,8 +38,8 @@ public sealed class PostgresIntegrationConfigQueries : IIntegrationConfigQueries
             ConfigJson = (string)row.config_json,
             IsEnabled = (bool)row.is_enabled,
             CompanyId = (Guid)row.company_id,
-            CreatedAt = (DateTimeOffset)row.created_at,
-            UpdatedAt = (DateTimeOffset?)row.updated_at,
+            CreatedAt = DbTimestamp.ToDateTimeOffset((object)row.created_at),
+            UpdatedAt = DbTimestamp.ToNullableDateTimeOffset((object?)row.updated_at),
         };
     }
 
@@ -62,8 +62,8 @@ public sealed class PostgresIntegrationConfigQueries : IIntegrationConfigQueries
             ConfigJson = (string)r.config_json,
             IsEnabled = (bool)r.is_enabled,
             CompanyId = (Guid)r.company_id,
-            CreatedAt = (DateTimeOffset)r.created_at,
-            UpdatedAt = (DateTimeOffset?)r.updated_at,
+            CreatedAt = DbTimestamp.ToDateTimeOffset((object)r.created_at),
+            UpdatedAt = DbTimestamp.ToNullableDateTimeOffset((object?)r.updated_at),
         }).ToList();
     }
 }

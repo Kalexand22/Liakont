@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Liakont.Modules.Documents.Contracts.Lifecycle;
 using Liakont.Modules.Documents.Contracts.Queries;
 using Liakont.Modules.Pipeline.Infrastructure.Check;
+using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -44,6 +45,8 @@ public sealed partial class SendTenantJob
     private static async Task<List<Guid>> ReconcileCreditNotesAsync(
         IServiceProvider services,
         Guid companyId,
+        TenantProfileDto? tenantProfile,
+        FiscalSettingsDto? fiscalSettings,
         string tenantId,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -71,7 +74,7 @@ public sealed partial class SendTenantJob
                     continue;
                 }
 
-                var staged = await ReadStagedPivotAsync(services, tenantId, document, logger, cancellationToken);
+                var staged = await ReadStagedPivotAsync(services, tenantId, companyId, tenantProfile, fiscalSettings, document, logger, cancellationToken);
                 if (staged.Status != StagedReadStatus.Ok)
                 {
                     // Absent = transitoire (repris au prochain cycle) ; intégrité = laissé Blocked (déjà signalé au CHECK).

@@ -65,7 +65,7 @@ internal static class SuperPdpPayloadBuilder
             {
                 SpecificationIdentifier = SuperPdpDefaults.SpecificationIdentifier,
             },
-            Seller = MapParty(document.Supplier),
+            Seller = MapParty(document.Supplier!),
             Buyer = MapParty(document.Customer),
             Totals = MapTotals(document),
             VatBreakDown = BuildVatBreakDown(document.Lines),

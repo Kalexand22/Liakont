@@ -1,7 +1,6 @@
 @page "/clients"
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = LiakontPermissions.Supervision)]
-@using System.Globalization
 @using Liakont.Host.Clients
 @using Liakont.Host.Security
 @using Microsoft.AspNetCore.Authorization
@@ -77,8 +76,6 @@ else
 }
 
 @code {
-    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
-
     private readonly ClientColumnRegistry _registry = new();
     private readonly IReadOnlyList<GridRowAction<ClientConsoleLine>> _rowActions;
     private readonly Dictionary<string, RenderFragment<ClientConsoleLine>> _columnTemplates;
@@ -112,6 +109,17 @@ else
                     OpenStatusDialog(line);
                     return Task.CompletedTask;
                 }),
+            // RB4 — gérer les utilisateurs du client (lister/créer/réinitialiser) depuis la console.
+            new GridRowAction<ClientConsoleLine>(
+                Id: "manage-users",
+                Label: "Gérer les utilisateurs",
+                Icon: "group",
+                IsQuickAction: true,
+                Callback: line =>
+                {
+                    Nav.NavigateTo($"/clients/{line.TenantId}/utilisateurs");
+                    return Task.CompletedTask;
+                }),
             // Export de réversibilité du client (OPS06a) — disponible pour TOUT client, y compris
             // désactivé (la restitution de fin de vie est précisément ce cas).
             new GridRowAction<ClientConsoleLine>(
@@ -141,7 +149,10 @@ else
             },
             ["ProvisionedAt"] = line => __builder =>
             {
-                __builder.AddContent(0, line.ProvisionedAt.ToLocalTime().ToString("dd/MM/yyyy", Fr));
+                __builder.OpenComponent<LiakontDate>(0);
+                __builder.AddAttribute(1, "Value", (DateTimeOffset?)line.ProvisionedAt);
+                __builder.AddAttribute(2, "DateOnly", true);
+                __builder.CloseComponent();
             },
         };
     }

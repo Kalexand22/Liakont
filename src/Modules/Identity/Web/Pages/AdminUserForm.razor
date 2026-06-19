@@ -161,7 +161,7 @@
                         @if (_lastLoginAt.HasValue)
                         {
                             <dt class="col-sm-3">Dernière connexion</dt>
-                            <dd class="col-sm-9">@_lastLoginAt.Value.ToString("dd/MM/yyyy HH:mm")</dd>
+                            <dd class="col-sm-9"><LiakontDate Value="@_lastLoginAt" /></dd>
                         }
                         @if (!string.IsNullOrEmpty(_externalId))
                         {

@@ -1,0 +1,40 @@
+# Lot PIPE — Support PA asynchrone (PaSendState.Sending) dans le pipeline
+# Prérequis transverse révélé par l'adaptateur Chorus Pro (D7) ; bénéficie à TOUTE PA asynchrone
+# (Chorus Pro, SuperPDP). Prérequis de l'ENVOI RÉEL/e2e Chorus Pro — PAS des lots CP01-CP09 (plug-in).
+# Réf : tasks/plan-chorus-pro.md §2bis D7, PR-PIPE.
+items:
+  PIPE01:
+    title: "Support PaSendState.Sending au pipeline (PA asynchrone, anti double-dépôt)"
+    description: |
+      Ajouter un case PaSendState.Sending à SendTenantJob.HandleSendResultAsync
+      (src/Modules/Pipeline/Infrastructure/Send/SendTenantJob.cs:590-634). Aujourd'hui un retour Sending
+      tombe dans le `default` → MarkTechnicalErrorAsync (EventId 7208) → réémission au cycle suivant =
+      DOUBLE DÉPÔT pour une PA asynchrone (faute fiscale, CLAUDE.md n°3). Le case Sending doit :
+      - persister le PaDocumentId (n° de flux PA) sur le document ;
+      - garder le document en attente de confirmation (état NON terminal), sans JAMAIS re-déposer un Sending ;
+      - la reprise relit le statut via GetDocumentStatusAsync (consulterCR côté Chorus Pro) et finalise
+        Issued UNIQUEMENT sur confirmation positive (Intégré) ; un rejet → RejectedByPa.
+      Bénéficie à toute PA asynchrone (SuperPDP a la même lacune latente, non encore exercée). Prérequis de
+      l'envoi RÉEL en prod / de la démo e2e Chorus Pro ; les lots CP01-CP09 (niveau plug-in) n'en dépendent
+      PAS. Réf : tasks/plan-chorus-pro.md §2bis D7, PR-PIPE.
+    acceptance:
+      - "case PaSendState.Sending : persiste le PaDocumentId, garde en attente, ne re-dépose JAMAIS un Sending"
+      - "Reprise via GetDocumentStatusAsync → Issued seulement sur état terminal positif (Intégré) ; rejet → RejectedByPa"
+      - "Aucun double dépôt : test « un Sending non confirmé n'est jamais re-POST »"
+      - "Pas de régression sur le flux synchrone (Issued/RejectedByPa/TechnicalError) ni sur SuperPDP"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  GATE_PIPE_ASYNC:
+    type: gate
+    executor: human
+    title: "Gate (humaine) : support PA asynchrone (Sending) au pipeline"
+    description: |
+      Recette humaine du support PaSendState.Sending. Vérifie :
+        - un retour Sending est persisté (PaDocumentId) et N'EST JAMAIS re-déposé ;
+        - la confirmation différée (GetDocumentStatusAsync = Intégré) finalise Issued ; un rejet → RejectedByPa ;
+        - aucune régression sur le flux synchrone existant (Issued/RejectedByPa/TechnicalError).
+      Réf : tasks/plan-chorus-pro.md §2bis D7.
+    acceptance:
+      - "Parcours async Sending → confirmation → Issued démontré ; aucun double dépôt"
+      - "verify-fast + tests + codex-review verts sur le lot PIPE"

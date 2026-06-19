@@ -223,8 +223,8 @@ public sealed class PostgresIdentityUnitOfWork : IIdentityUnitOfWork
             (string?)r.office_location,
             r.hire_date is null ? null : DateOnly.FromDateTime((DateTime)r.hire_date),
             (string?)r.notes,
-            (DateTimeOffset)r.created_at,
-            (DateTimeOffset?)r.updated_at);
+            DbTimestamp.ToDateTimeOffset((object)r.created_at),
+            DbTimestamp.ToNullableDateTimeOffset((object?)r.updated_at));
     }
 
     public async Task<AgentProfile?> GetAgentProfileByUserIdAsync(Guid userId, CancellationToken ct = default)
@@ -244,8 +244,8 @@ public sealed class PostgresIdentityUnitOfWork : IIdentityUnitOfWork
             (string?)r.office_location,
             r.hire_date is null ? null : DateOnly.FromDateTime((DateTime)r.hire_date),
             (string?)r.notes,
-            (DateTimeOffset)r.created_at,
-            (DateTimeOffset?)r.updated_at);
+            DbTimestamp.ToDateTimeOffset((object)r.created_at),
+            DbTimestamp.ToNullableDateTimeOffset((object?)r.updated_at));
     }
 
     public async Task InsertAgentProfileAsync(AgentProfile profile, CancellationToken ct = default)
@@ -314,8 +314,8 @@ public sealed class PostgresIdentityUnitOfWork : IIdentityUnitOfWork
             (string?)r.description,
             (string?)r.service_code,
             (bool)r.is_active,
-            (DateTimeOffset)r.created_at,
-            (DateTimeOffset?)r.updated_at);
+            DbTimestamp.ToDateTimeOffset((object)r.created_at),
+            DbTimestamp.ToNullableDateTimeOffset((object?)r.updated_at));
     }
 
     public async Task InsertTeamAsync(Team team, CancellationToken ct = default)
@@ -436,11 +436,11 @@ public sealed class PostgresIdentityUnitOfWork : IIdentityUnitOfWork
             (Guid)r.delegator_id,
             (Guid)r.delegate_id,
             (string)r.scope,
-            (DateTimeOffset)r.valid_from,
-            (DateTimeOffset)r.valid_until,
+            DbTimestamp.ToDateTimeOffset((object)r.valid_from),
+            DbTimestamp.ToDateTimeOffset((object)r.valid_until),
             (string?)r.reason,
             (bool)r.is_active,
-            (DateTimeOffset)r.created_at);
+            DbTimestamp.ToDateTimeOffset((object)r.created_at));
     }
 
     public async Task InsertDelegationAsync(Delegation delegation, CancellationToken ct = default)

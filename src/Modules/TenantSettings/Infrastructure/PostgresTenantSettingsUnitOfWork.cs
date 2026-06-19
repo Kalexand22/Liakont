@@ -196,7 +196,7 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
     {
         const string sql = """
             SELECT id, company_id, plugin_type, environment, account_identifiers, encrypted_api_key,
-                   is_active, created_at, updated_at
+                   encrypted_client_id, encrypted_client_secret, is_active, created_at, updated_at
             FROM tenantsettings.pa_accounts
             WHERE id = @Id AND company_id = @CompanyId
             """;
@@ -211,7 +211,7 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
     {
         const string sql = """
             SELECT id, company_id, plugin_type, environment, account_identifiers, encrypted_api_key,
-                   is_active, created_at, updated_at
+                   encrypted_client_id, encrypted_client_secret, is_active, created_at, updated_at
             FROM tenantsettings.pa_accounts
             WHERE company_id = @CompanyId
             ORDER BY created_at ASC
@@ -234,10 +234,10 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
         const string sql = """
             INSERT INTO tenantsettings.pa_accounts
                 (id, company_id, plugin_type, environment, account_identifiers, encrypted_api_key,
-                 is_active, created_at, updated_at)
+                 encrypted_client_id, encrypted_client_secret, is_active, created_at, updated_at)
             VALUES
                 (@Id, @CompanyId, @PluginType, @Environment, @AccountIdentifiers, @EncryptedApiKey,
-                 @IsActive, @CreatedAt, @UpdatedAt)
+                 @EncryptedClientId, @EncryptedClientSecret, @IsActive, @CreatedAt, @UpdatedAt)
             """;
 
         await ExecuteWriteAsync(
@@ -251,6 +251,8 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
                     Environment = (int)account.Environment,
                     account.AccountIdentifiers,
                     account.EncryptedApiKey,
+                    account.EncryptedClientId,
+                    account.EncryptedClientSecret,
                     account.IsActive,
                     account.CreatedAt,
                     account.UpdatedAt,
@@ -264,12 +266,14 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
     {
         const string sql = """
             UPDATE tenantsettings.pa_accounts
-            SET plugin_type         = @PluginType,
-                environment         = @Environment,
-                account_identifiers = @AccountIdentifiers,
-                encrypted_api_key   = @EncryptedApiKey,
-                is_active           = @IsActive,
-                updated_at          = @UpdatedAt
+            SET plugin_type             = @PluginType,
+                environment             = @Environment,
+                account_identifiers     = @AccountIdentifiers,
+                encrypted_api_key       = @EncryptedApiKey,
+                encrypted_client_id     = @EncryptedClientId,
+                encrypted_client_secret = @EncryptedClientSecret,
+                is_active               = @IsActive,
+                updated_at              = @UpdatedAt
             WHERE id = @Id AND company_id = @CompanyId
             """;
 
@@ -284,6 +288,8 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
                     Environment = (int)account.Environment,
                     account.AccountIdentifiers,
                     account.EncryptedApiKey,
+                    account.EncryptedClientId,
+                    account.EncryptedClientSecret,
                     account.IsActive,
                     account.UpdatedAt,
                 },
@@ -610,6 +616,8 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
             (PaEnvironment)(int)row.environment,
             (string)row.account_identifiers,
             (string?)row.encrypted_api_key,
+            (string?)row.encrypted_client_id,
+            (string?)row.encrypted_client_secret,
             (bool)row.is_active,
             TenantSettingsRowReader.ToDateTimeOffset((object)row.created_at),
             TenantSettingsRowReader.ToNullableDateTimeOffset((object?)row.updated_at));

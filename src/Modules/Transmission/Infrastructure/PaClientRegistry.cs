@@ -50,6 +50,13 @@ public sealed class PaClientRegistry : IPaClientRegistry
     public IReadOnlyCollection<string> RegisteredTypes => (IReadOnlyCollection<string>)_factories.Keys;
 
     /// <inheritdoc />
+    public IReadOnlyDictionary<string, PaAuthMode> DescribeAuthModes() =>
+        _factories.ToDictionary(
+            entry => entry.Key,
+            entry => entry.Value.AuthMode,
+            StringComparer.OrdinalIgnoreCase);
+
+    /// <inheritdoc />
     public bool IsRegistered(string paType) =>
         !string.IsNullOrWhiteSpace(paType) && _factories.ContainsKey(paType);
 

@@ -310,7 +310,10 @@ else
             },
             ["LastUpdateUtc"] = item => __builder =>
             {
-                __builder.AddContent(0, item.LastUpdateUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr));
+                // RB6 : LastUpdateUtc est un instant (UTC) → fuseau navigateur. IssueDate reste une DateOnly (sans fuseau).
+                __builder.OpenComponent<LiakontDate>(0);
+                __builder.AddAttribute(1, "Value", (DateTimeOffset?)item.LastUpdateUtc);
+                __builder.CloseComponent();
             },
         };
     }

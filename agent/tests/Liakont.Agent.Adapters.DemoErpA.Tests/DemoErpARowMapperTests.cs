@@ -18,13 +18,13 @@ public class DemoErpARowMapperTests
     [Fact]
     public void Maps_invoice_with_decimal_amounts_and_raw_regime()
     {
-        PivotDocumentDto doc = DemoErpARowMapper.MapDocument(SimpleInvoice(), Emitter());
+        PivotDocumentDto doc = DemoErpARowMapper.MapDocument(SimpleInvoice());
 
         doc.SourceDocumentKind.Should().Be("FAC");
         doc.Number.Should().Be("A-2026-0001");
         doc.SourceReference.Should().Be("demoerpa:A-2026-0001");
-        doc.Supplier.Siren.Should().Be("123456782");
-        doc.OperationCategory.Should().Be(OperationCategory.LivraisonBiens);
+        doc.Supplier.Should().BeNull("l'émetteur n'est plus porté par l'agent — la plateforme le remplit à l'ingestion (ADR-0023 amendé)");
+        doc.OperationCategory.Should().BeNull("la nature d'opération est remplie par la plateforme depuis le paramétrage fiscal du tenant");
         doc.Totals.TotalNet.Should().Be(100.00m);
         doc.Totals.TotalTax.Should().Be(20.00m);
         doc.Totals.TotalGross.Should().Be(120.00m);
@@ -39,7 +39,7 @@ public class DemoErpARowMapperTests
     [Fact]
     public void Maps_b2c_customer_without_company_hint()
     {
-        PivotDocumentDto doc = DemoErpARowMapper.MapDocument(SimpleInvoice(), Emitter());
+        PivotDocumentDto doc = DemoErpARowMapper.MapDocument(SimpleInvoice());
 
         doc.Customer.Should().NotBeNull();
         doc.Customer!.Name.Should().Be("Jean Dupont");
@@ -56,7 +56,7 @@ public class DemoErpARowMapperTests
         avoir.FactureOrigineNumero = "A-2026-0001";
         avoir.OrigineDate = new DateTime(2026, 6, 1);
 
-        PivotDocumentDto doc = DemoErpARowMapper.MapDocument(avoir, Emitter());
+        PivotDocumentDto doc = DemoErpARowMapper.MapDocument(avoir);
 
         doc.SourceDocumentKind.Should().Be("AVO");
         doc.CreditNoteRefs.Should().HaveCount(1);
@@ -72,7 +72,7 @@ public class DemoErpARowMapperTests
         avoir.TypePiece = "AVO";
         avoir.FactureOrigineNumero = null;
 
-        Action act = () => DemoErpARowMapper.MapDocument(avoir, Emitter());
+        Action act = () => DemoErpARowMapper.MapDocument(avoir);
 
         act.Should().Throw<SourceSchemaException>();
     }
@@ -83,13 +83,10 @@ public class DemoErpARowMapperTests
         DemoErpAInvoice invoice = SimpleInvoice();
         invoice.DateEmission = default(DateTime);
 
-        Action act = () => DemoErpARowMapper.MapDocument(invoice, Emitter());
+        Action act = () => DemoErpARowMapper.MapDocument(invoice);
 
         act.Should().Throw<SourceSchemaException>();
     }
-
-    private static SourceEmitterConfig Emitter() =>
-        new SourceEmitterConfig("123456782", "Société Fictive de Démonstration", OperationCategory.LivraisonBiens);
 
     private static DemoErpAInvoice SimpleInvoice()
     {

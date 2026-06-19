@@ -40,6 +40,21 @@
 
     private readonly Dictionary<string, RenderFragment<AuditPolicyDto>> _columnTemplates = new()
     {
+        // RB6 : « Créé le » / « Modifié le » sont des ÉVÉNEMENTS → fuseau du navigateur (serveur en UTC).
+        // Sans ces templates, la grille rend le DateTimeOffset brut serveur (value.ToString()). « Modifié le »
+        // est masquée par défaut mais ACTIVABLE par l'opérateur → migrée pour cohérence (même bug de fuseau).
+        ["CreatedAt"] = item => __builder =>
+        {
+            __builder.OpenComponent<LiakontDate>(0);
+            __builder.AddAttribute(1, "Value", (DateTimeOffset?)item.CreatedAt);
+            __builder.CloseComponent();
+        },
+        ["UpdatedAt"] = item => __builder =>
+        {
+            __builder.OpenComponent<LiakontDate>(0);
+            __builder.AddAttribute(1, "Value", item.UpdatedAt);
+            __builder.CloseComponent();
+        },
         ["IsEnabled"] = item => __builder =>
         {
             __builder.OpenComponent<StatusBadge>(0);

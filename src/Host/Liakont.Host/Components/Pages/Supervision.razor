@@ -1,7 +1,6 @@
 @page "/supervision"
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = LiakontPermissions.Supervision)]
-@using System.Globalization
 @using Microsoft.Extensions.Logging
 @using Stratum.Common.Abstractions.Grid
 @using Stratum.Common.UI.Models
@@ -60,8 +59,6 @@ else
 }
 
 @code {
-    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
-
     private readonly SupervisionTenantColumnRegistry _registry = new();
 
     private bool _loadFailed;
@@ -114,9 +111,10 @@ else
             },
             ["LastAgentSeenUtc"] = row => __builder =>
             {
-                __builder.AddContent(0, row.LastAgentSeenUtc is { } seen
-                    ? seen.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr)
-                    : "jamais vu");
+                __builder.OpenComponent<LiakontDate>(0);
+                __builder.AddAttribute(1, "Value", (DateTimeOffset?)row.LastAgentSeenUtc);
+                __builder.AddAttribute(2, "NullText", "jamais vu");
+                __builder.CloseComponent();
             },
         };
     }

@@ -91,8 +91,8 @@ public sealed class PostgresEmailTemplateQueries : IEmailTemplateQueries
             EntityType = (string?)row.entity_type,
             TemplateLinks = links.Select(l => new TemplateLinkDto { Label = l.Label, UrlTemplate = l.UrlTemplate }).ToList(),
             CompanyId = (Guid?)row.company_id,
-            CreatedAt = (DateTimeOffset)row.created_at,
-            UpdatedAt = (DateTimeOffset?)row.updated_at,
+            CreatedAt = DbTimestamp.ToDateTimeOffset((object)row.created_at),
+            UpdatedAt = DbTimestamp.ToNullableDateTimeOffset((object?)row.updated_at),
         };
     }
 }

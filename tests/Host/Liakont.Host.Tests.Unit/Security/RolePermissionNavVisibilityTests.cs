@@ -9,6 +9,7 @@ using FluentAssertions;
 using Liakont.Host.Navigation;
 using Liakont.Host.Security;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Http;
 using Xunit;
 
 /// <summary>
@@ -44,7 +45,8 @@ public sealed class RolePermissionNavVisibilityTests
         _ = label;
         using var permissionService = BuildPermissionService(realmRoles);
 
-        var root = new LiakontNavNodeProvider(permissionService, new FakeConsoleContext())
+        // HttpContext nul (rôles §4 NON super-admin) → contexte tenant : la nav tenant-scopée reste visible.
+        var root = new LiakontNavNodeProvider(permissionService, new FakeConsoleContext(), new HttpContextAccessor())
             .GetNavNode();
 
         var labels = root.Children.Select(item => item.Label).ToList();
@@ -126,6 +128,9 @@ public sealed class RolePermissionNavVisibilityTests
         public bool ReconciliationAvailable => false;
 
         public int ReconciliationPendingCount => 0;
+
+        // Ces tests portent sur des rôles NON super-admin (cf. matrice §4) → contexte tenant, pas cross-tenant.
+        public bool IsCrossTenantAdmin => false;
 
         public Task EnsureInitializedAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }

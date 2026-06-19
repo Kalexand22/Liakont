@@ -60,7 +60,7 @@ public sealed class PostgresTvaMappingQueries : ITvaMappingQueries
                 AfterJson = (string?)row.after_json,
                 OperatorId = (Guid)row.operator_id,
                 OperatorName = (string?)row.operator_name,
-                OccurredAt = (DateTimeOffset)row.occurred_at,
+                OccurredAt = DbTimestamp.ToDateTimeOffset((object)row.occurred_at),
             });
         }
 

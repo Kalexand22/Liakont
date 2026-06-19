@@ -7,6 +7,7 @@ using FluentAssertions;
 using Liakont.Host.Components;
 using Liakont.Host.PaAccounts;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
+using Liakont.Modules.Transmission.Contracts;
 using Microsoft.Extensions.DependencyInjection;
 using Stratum.Common.UI;
 using Xunit;
@@ -113,6 +114,59 @@ public sealed class ComptesPaViewTests : BunitContext
     }
 
     [Fact]
+    public void Create_editor_with_oauth_type_shows_client_id_and_secret_and_hides_api_key()
+    {
+        // Type OAuth2 sélectionné → champs client_id + client_secret (masqués), pas de champ clé API.
+        var authModes = new Dictionary<string, PaAuthMode>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["OAuthPa"] = PaAuthMode.OAuth2ClientCredentials,
+        };
+        var cut = Render<ComptesPaView>(p => p
+            .Add(v => v.Model, Model([], ["OAuthPa"], authModes))
+            .Add(v => v.EditorOpen, true)
+            .Add(v => v.EditorIsCreate, true)
+            .Add(v => v.EditorModel, new PaAccountFormModel { PluginType = "OAuthPa" }));
+
+        var clientId = cut.Find("[data-testid='comptes-pa-clientid']");
+        clientId.GetAttribute("type").Should().Be("password", "le client_id est saisi masqué (CLAUDE.md n°10)");
+        var clientSecret = cut.Find("[data-testid='comptes-pa-clientsecret']");
+        clientSecret.GetAttribute("type").Should().Be("password", "le client_secret est saisi masqué (CLAUDE.md n°10)");
+        cut.FindAll("[data-testid='comptes-pa-apikey']").Should().BeEmpty("en OAuth2, le champ clé API est masqué");
+    }
+
+    [Fact]
+    public void Create_editor_with_api_key_type_shows_api_key_and_hides_oauth_fields()
+    {
+        // Type ApiKey (défaut, aucun mode déclaré) → champ clé API, pas de client_id/secret.
+        var cut = Render<ComptesPaView>(p => p
+            .Add(v => v.Model, Model([], ["Fake"]))
+            .Add(v => v.EditorOpen, true)
+            .Add(v => v.EditorIsCreate, true)
+            .Add(v => v.EditorModel, new PaAccountFormModel { PluginType = "Fake" }));
+
+        cut.FindAll("[data-testid='comptes-pa-apikey']").Should().ContainSingle();
+        cut.FindAll("[data-testid='comptes-pa-clientid']").Should().BeEmpty();
+        cut.FindAll("[data-testid='comptes-pa-clientsecret']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void List_oauth_account_shows_client_id_secret_state_not_api_key()
+    {
+        // Compte de type OAuth2 : la ligne « secret » décrit l'état client_id/client_secret, pas « Clé API ».
+        var authModes = new Dictionary<string, PaAuthMode>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["OAuthPa"] = PaAuthMode.OAuth2ClientCredentials,
+        };
+        var account = Account(pluginType: "OAuthPa", hasClientId: true, hasClientSecret: false);
+        var cut = Render<ComptesPaView>(p => p.Add(v => v.Model, Model([account], ["OAuthPa"], authModes)));
+
+        var secret = cut.Find("[data-testid='comptes-pa-secret']");
+        secret.TextContent.Should().Contain("client_id");
+        secret.TextContent.Should().Contain("client_secret");
+        secret.TextContent.Should().NotContain("Clé API", "un compte OAuth2 n'affiche pas l'état de la clé API");
+    }
+
+    [Fact]
     public void Create_editor_with_empty_registry_shows_no_plugin_message_and_no_select()
     {
         var cut = Render<ComptesPaView>(p => p
@@ -175,23 +229,33 @@ public sealed class ComptesPaViewTests : BunitContext
         cut.Find("[data-testid='comptes-pa-deactivate-confirm']").TextContent.Should().Contain("Fake — Staging");
     }
 
-    private static PaAccountConsoleModel Model(IReadOnlyList<PaAccountDto> accounts, IReadOnlyList<string> pluginTypes) =>
+    private static PaAccountConsoleModel Model(
+        IReadOnlyList<PaAccountDto> accounts,
+        IReadOnlyList<string> pluginTypes,
+        IReadOnlyDictionary<string, PaAuthMode>? authModes = null) =>
         new()
         {
             // Capacités résolues par défaut absentes (plug-in non chargé) : les tests dédiés aux
             // capacités construisent leur propre PaAccountSettingsDto.
             Accounts = accounts.Select(a => new PaAccountSettingsDto { Account = a, PluginAvailable = false, Capabilities = null }).ToList(),
             RegisteredPluginTypes = pluginTypes,
+            AuthModes = authModes ?? new Dictionary<string, PaAuthMode>(StringComparer.OrdinalIgnoreCase),
         };
 
-    private static PaAccountDto Account(bool hasApiKey = false) => new()
+    private static PaAccountDto Account(
+        bool hasApiKey = false,
+        string pluginType = "Fake",
+        bool hasClientId = false,
+        bool hasClientSecret = false) => new()
     {
         Id = Guid.NewGuid(),
         CompanyId = Guid.NewGuid(),
-        PluginType = "Fake",
+        PluginType = pluginType,
         Environment = "Staging",
         AccountIdentifiers = "{}",
         HasApiKey = hasApiKey,
+        HasClientId = hasClientId,
+        HasClientSecret = hasClientSecret,
         IsActive = true,
         CreatedAt = new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero),
     };

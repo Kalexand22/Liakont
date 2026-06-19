@@ -103,6 +103,147 @@ public sealed class SendTenantJobTests
     }
 
     [Fact]
+    public async Task ReadyToSend_With_Unresolvable_Emitter_Is_Held_Not_Transmitted()
+    {
+        // RB9 / garde « bloquer plutôt qu'envoyer faux » : le pivot stagé n'a pas d'émetteur et le profil tenant
+        // n'en fournit pas (vidé entre le CHECK et le SEND) → enrichissement read-time = émetteur toujours nul →
+        // HOLD : on ne transmet PAS un document sans vendeur (et l'archive ne déréférence jamais un Supplier nul).
+        var id = Guid.NewGuid();
+        var document = SendTestData.Document(id, "ReadyToSend");
+        var queries = new SendTestDoubles.ConfigurableDocumentQueries();
+        queries.AddDocument(document);
+        queries.AddInState("ReadyToSend", SendTestData.Summary(id, "ReadyToSend"));
+        var staging = new SendTestDoubles.MapStagingStore();
+        staging.Stage(id, CanonicalJson.Serialize(SendTestData.SupplierLessPivot(document.DocumentNumber)));
+
+        var lifecycle = new SendTestDoubles.RecordingDocumentLifecycle();
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var fake = await PublishedFakeAsync(FakePaScenario.Success);
+
+        // Profil tenant SANS émetteur (null) : l'enrichissement read-time ne peut pas résoudre le vendeur.
+        var tenantSettings = new SendTestDoubles.ConfigurableTenantSettingsQueries(TenantCompany, new[] { SendTestData.ActiveAccount() });
+        var provider = BuildProvider(tenantSettings, queries, lifecycle, staging, new SendTestDoubles.RecordingStagingPurgeService(true), archive, runLogs, fake);
+
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        lifecycle.BeganSending.Should().BeEmpty("émetteur non résolu = aucun envoi (HOLD).");
+        lifecycle.Issued.Should().BeEmpty();
+        fake.IssuedDocumentNumbers.Should().BeEmpty();
+        fake.Calls.Should().NotContain(c => c.Method == nameof(IPaClient.SendDocumentAsync), "on ne transmet jamais un document sans émetteur.");
+        archive.Requests.Should().BeEmpty("aucune archive d'un document non transmis.");
+    }
+
+    [Fact]
+    public async Task ReadyToSend_With_Null_Supplier_Is_Filled_From_Tenant_Profile_And_Transmitted()
+    {
+        // RB9 : l'émetteur est rempli au READ-TIME depuis le profil tenant. Pivot stagé SANS vendeur + profil
+        // renseigné → enrichissement → vendeur résolu → transmission nominale. Preuve que le SEND appelle bien
+        // l'enrichisseur : sans lui, la garde EmitterUnresolved bloquerait l'envoi (cf. test HOLD ci-dessus).
+        var id = Guid.NewGuid();
+        var document = SendTestData.Document(id, "ReadyToSend");
+        var queries = new SendTestDoubles.ConfigurableDocumentQueries();
+        queries.AddDocument(document);
+        queries.AddInState("ReadyToSend", SendTestData.Summary(id, "ReadyToSend"));
+        var staging = new SendTestDoubles.MapStagingStore();
+        staging.Stage(id, CanonicalJson.Serialize(SendTestData.SupplierLessPivot(document.DocumentNumber)));
+
+        var lifecycle = new SendTestDoubles.RecordingDocumentLifecycle();
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var fake = await PublishedFakeAsync(FakePaScenario.Success);
+        var tenantSettings = new SendTestDoubles.ConfigurableTenantSettingsQueries(
+            TenantCompany,
+            new[] { SendTestData.ActiveAccount() },
+            SendTestData.EmitterProfile(),
+            SendTestData.FiscalSettings());
+        var provider = BuildProvider(tenantSettings, queries, lifecycle, staging, new SendTestDoubles.RecordingStagingPurgeService(true), archive, runLogs, fake);
+
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        lifecycle.BeganSending.Should().ContainSingle().Which.Should().Be(id, "émetteur rempli depuis le profil → envoi nominal.");
+        lifecycle.Issued.Should().ContainSingle().Which.Should().Be(id);
+        fake.IssuedDocumentNumbers.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task ReadyToSend_With_Unmapped_Tva_Regime_Is_Held_Not_Transmitted()
+    {
+        // Miroir TVA du test émetteur (..._Unresolvable_Emitter_Is_Held_Not_Transmitted) : le mapping TVA est
+        // reposé au READ-TIME au SEND (symétrique à l'émetteur). Si un régime de la fixture n'est plus couvert
+        // par la table validée (table modifiée entre CHECK et SEND), l'évaluation est BLOQUANTE → HOLD :
+        // aucune transmission, aucune archive, run DÉFÉRÉ (jamais Failed, repris au prochain cycle).
+        var (id, queries, lifecycle, staging) = SeedSingle("ReadyToSend");
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var purge = new SendTestDoubles.RecordingStagingPurgeService(true);
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var fake = await PublishedFakeAsync(FakePaScenario.Success);
+
+        // Mapping BLOQUANT : le régime de la fixture n'est plus couvert (StagedReadStatus.TvaUnresolved).
+        var provider = BuildProvider(
+            ActiveAccountSettings(), queries, lifecycle, staging, purge, archive, runLogs, fake,
+            tvaMapping: SendTestDoubles.FakeTvaMappingService.Blocking());
+
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        lifecycle.BeganSending.Should().BeEmpty("catégorie TVA non reposée = aucun envoi (HOLD).");
+        lifecycle.Issued.Should().BeEmpty();
+        lifecycle.TechnicalError.Should().BeEmpty("un HOLD est DÉFÉRÉ, jamais une erreur technique.");
+        lifecycle.Rejected.Should().BeEmpty();
+        fake.IssuedDocumentNumbers.Should().BeEmpty();
+        fake.Calls.Should().NotContain(c => c.Method == nameof(IPaClient.SendDocumentAsync), "on ne transmet jamais un document sans catégorie TVA.");
+        archive.Requests.Should().BeEmpty("aucune archive d'un document non transmis.");
+        purge.Calls.Should().BeEmpty();
+
+        // Run DÉFÉRÉ : le document est compté mais ni succès ni échec (Deferred), jamais Failed.
+        runLogs.Saved.Should().ContainSingle();
+        runLogs.Saved[^1].DocumentsSucceeded.Should().Be(0);
+        runLogs.Saved[^1].DocumentsFailed.Should().Be(0, "un HOLD différé n'est pas un échec.");
+    }
+
+    [Fact]
+    public async Task Pa_Sending_Response_Is_Deferred_Not_Failed()
+    {
+        // SuperPDP est ASYNCHRONE (F14 §3.4) : un POST 200 = facture TÉLÉVERSÉE (api:uploaded), pas encore
+        // émise. Le plug-in renvoie PaSendState.Sending : le document RESTE Sending (déjà engagé), l'outcome
+        // est DÉFÉRÉ — NI succès NI erreur technique (un faux échec afficherait une facture pourtant acceptée).
+        var (id, queries, lifecycle, staging) = SeedSingle("ReadyToSend");
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var purge = new SendTestDoubles.RecordingStagingPurgeService(true);
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var pa = new SendTestDoubles.SendingPaClient(); // POST 200 → PaSendState.Sending (téléversée, asynchrone).
+
+        var provider = new SendTestDoubles.FakeServiceProvider()
+            .Add<TimeProvider>(new SendTestDoubles.FixedTimeProvider(SendTestData.Now))
+            .Add<ILogger<SendTenantJob>>(NullLogger<SendTenantJob>.Instance)
+            .Add<Liakont.Modules.TenantSettings.Contracts.Queries.ITenantSettingsQueries>(ActiveAccountSettings())
+            .Add<IPaClientRegistry>(new SendTestDoubles.StubPaClientRegistry(pa))
+            .Add<Liakont.Modules.Documents.Contracts.Queries.IDocumentQueries>(queries)
+            .Add<Liakont.Modules.Documents.Contracts.Lifecycle.IDocumentLifecycle>(lifecycle)
+            .Add<Liakont.Modules.Documents.Contracts.Queries.IPaTransmissionJournalQueries>(new SendTestDoubles.StubPaTransmissionJournalQueries())
+            .Add<Liakont.Modules.Staging.Contracts.IPayloadStagingStore>(staging)
+            .Add<Liakont.Modules.Staging.Contracts.IStagingPurgeService>(purge)
+            .Add<Liakont.Modules.Archive.Contracts.IArchiveService>(archive)
+            .Add<Liakont.Modules.TvaMapping.Contracts.Services.ITvaMappingService>(SendTestDoubles.FakeTvaMappingService.Mapping())
+            .Add<Liakont.Modules.Pipeline.Application.IPipelineRunLogStore>(runLogs);
+
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        pa.SendCount.Should().Be(1, "le document est bien téléversé (POST effectué).");
+        lifecycle.BeganSending.Should().ContainSingle().Which.Should().Be(id, "le document est engagé Sending avant le POST.");
+        lifecycle.Issued.Should().BeEmpty("api:uploaded ≠ émise : pas de finalisation Issued sur le seul POST.");
+        lifecycle.TechnicalError.Should().BeEmpty("un téléversement asynchrone n'est JAMAIS une erreur technique (faux échec opérateur).");
+        lifecycle.Rejected.Should().BeEmpty();
+        archive.Requests.Should().BeEmpty("rien n'est archivé tant que la PA n'a pas confirmé l'émission.");
+        purge.Calls.Should().BeEmpty();
+
+        // Outcome DÉFÉRÉ : compté, ni succès ni échec.
+        runLogs.Saved.Should().ContainSingle();
+        runLogs.Saved[^1].DocumentsSucceeded.Should().Be(0);
+        runLogs.Saved[^1].DocumentsFailed.Should().Be(0, "un Sending asynchrone est différé, pas en échec.");
+    }
+
+    [Fact]
     public async Task ReadyToSend_With_FacturX_Capable_Pa_Generates_Transmits_Journals_And_Traces()
     {
         // Chemin « Essentiel » bout-en-bout (FX07, F16 §6.1/§7) : facture B2C → Factur-X généré AVANT
@@ -314,7 +455,8 @@ public sealed class SendTenantJobTests
         SendTestDoubles.RecordingArchiveService archive,
         SendTestDoubles.RecordingRunLogStore runLogs,
         FakePaClient paClient,
-        SendTestDoubles.StubPaTransmissionJournalQueries? journalQueries = null)
+        SendTestDoubles.StubPaTransmissionJournalQueries? journalQueries = null,
+        Liakont.Modules.TvaMapping.Contracts.Services.ITvaMappingService? tvaMapping = null)
     {
         return new SendTestDoubles.FakeServiceProvider()
             .Add<TimeProvider>(new SendTestDoubles.FixedTimeProvider(SendTestData.Now))
@@ -327,6 +469,7 @@ public sealed class SendTenantJobTests
             .Add<Liakont.Modules.Staging.Contracts.IPayloadStagingStore>(staging)
             .Add<Liakont.Modules.Staging.Contracts.IStagingPurgeService>(purge)
             .Add<Liakont.Modules.Archive.Contracts.IArchiveService>(archive)
+            .Add<Liakont.Modules.TvaMapping.Contracts.Services.ITvaMappingService>(tvaMapping ?? SendTestDoubles.FakeTvaMappingService.Mapping())
             .Add<Liakont.Modules.Pipeline.Application.IPipelineRunLogStore>(runLogs);
     }
 
@@ -362,6 +505,7 @@ public sealed class SendTenantJobTests
             .Add<Liakont.Modules.Archive.Contracts.IArchiveService>(archive)
             .Add<Liakont.Modules.SupportTrace.Contracts.ISupportTraceStore>(trace)
             .Add<Liakont.Modules.Transmission.Contracts.IFacturXArtifactBuilder>(builder)
+            .Add<Liakont.Modules.TvaMapping.Contracts.Services.ITvaMappingService>(SendTestDoubles.FakeTvaMappingService.Mapping())
             .Add<Liakont.Modules.Pipeline.Application.IPipelineRunLogStore>(runLogs);
     }
 
@@ -482,6 +626,7 @@ public sealed class SendTenantJobTests
             .Add<Liakont.Modules.Staging.Contracts.IPayloadStagingStore>(staging)
             .Add<Liakont.Modules.Staging.Contracts.IStagingPurgeService>(purge)
             .Add<Liakont.Modules.Archive.Contracts.IArchiveService>(archive)
+            .Add<Liakont.Modules.TvaMapping.Contracts.Services.ITvaMappingService>(SendTestDoubles.FakeTvaMappingService.Mapping())
             .Add<Liakont.Modules.Pipeline.Application.IPipelineRunLogStore>(runLogs);
 
         await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));

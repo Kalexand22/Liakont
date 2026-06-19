@@ -52,6 +52,16 @@ internal static class DocumentCheckEvaluator
         "par l'expert-comptable avant tout envoi.";
 
     /// <summary>
+    /// Motif de blocage quand la nature d'opération du tenant n'est pas paramétrée (ADR-0023 amendé : la nature
+    /// d'opération est remplie par la plateforme à l'ingestion depuis le paramétrage fiscal — elle n'est plus
+    /// portée par l'agent). Absente = bloqué, jamais devinée (CLAUDE.md n°2/n°3).
+    /// </summary>
+    private const string OperationCategoryMissingReason =
+        "La nature d'opération (livraison de biens / prestation de services / mixte) n'est pas paramétrée pour ce " +
+        "tenant : document bloqué (aucune nature n'est devinée). Action opérateur : renseignez la nature " +
+        "d'opération dans la console (Paramétrage › Fiscal).";
+
+    /// <summary>
     /// Évalue un document : mapping TVA → garde-fou production → validation. Les services (mapping,
     /// paramétrage tenant, validation) sont résolus depuis le scope tenant <paramref name="services"/>
     /// (database-per-tenant, isolation par la connexion — CLAUDE.md n°9).
@@ -86,6 +96,13 @@ internal static class DocumentCheckEvaluator
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(pivot);
 
+        // Émetteur rempli au READ-TIME depuis le profil tenant COURANT (ADR-0023 amendé / RB9) : l'agent ne
+        // porte plus l'émetteur, et l'anti-doublon F06 hashe le pivot SOURCE à l'ingestion. On enrichit ICI,
+        // avant mapping/validation, pour que SupplierIdentityRule et la nature d'opération voient l'identité
+        // du tenant. Idempotent : un émetteur déjà porté (389 = mandant) n'est pas écrasé.
+        var tenantSettings = services.GetRequiredService<ITenantSettingsQueries>();
+        pivot = await PivotEmitterEnricher.EnrichFromTenantAsync(pivot, tenantSettings, companyId, cancellationToken);
+
         var mappingService = services.GetRequiredService<ITvaMappingService>();
         var plan = CheckTvaMapping.BuildPlan(pivot);
         var mapping = await mappingService.MapAsync(companyId, plan.Requests, cancellationToken);
@@ -101,7 +118,6 @@ internal static class DocumentCheckEvaluator
                 services, companyId, documentNumber, TableAbsentReason, pivot, buyerConfirmedB2C, cancellationToken);
         }
 
-        var tenantSettings = services.GetRequiredService<ITenantSettingsQueries>();
         if (!mapping.IsValidated && await IsProductionContextAsync(tenantSettings, companyId, cancellationToken))
         {
             // GARDE-FOU PRODUCTION (item PIP01b §3) — table non validée + compte PA production = tout reste Blocked.
@@ -160,7 +176,14 @@ internal static class DocumentCheckEvaluator
             }
         }
 
-        return CheckDecision.Ready(evaluation.MappingVersion, evaluation.Ventilation!, pivot.OperationCategory);
+        // Nature d'opération remplie par la plateforme à l'ingestion (ADR-0023 amendé). Si le paramétrage fiscal
+        // du tenant ne la porte pas, l'émetteur enrichi la laisse nulle → on bloque (jamais devinée, CLAUDE.md n°2).
+        if (pivot.OperationCategory is null)
+        {
+            return CheckDecision.Blocked(WithDocumentNumber(documentNumber, OperationCategoryMissingReason));
+        }
+
+        return CheckDecision.Ready(evaluation.MappingVersion, evaluation.Ventilation!, pivot.OperationCategory.Value);
     }
 
     /// <summary>

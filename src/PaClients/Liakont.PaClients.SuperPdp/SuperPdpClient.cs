@@ -117,7 +117,7 @@ internal sealed class SuperPdpClient : IPaClient
         // Même contrôle côté vendeur : la PA vérifie que le vendeur correspond à l'entreprise du compte
         // (✅ constaté sandbox : « L'entreprise (X) liée à cette session ne correspond pas au vendeur (Y) »).
         // Sans SIREN vendeur, ni l'identification (BT-30) ni l'adressage (BT-34) ne sont constructibles.
-        if (string.IsNullOrWhiteSpace(document.Supplier.Siren))
+        if (string.IsNullOrWhiteSpace(document.Supplier?.Siren))
         {
             const string sellerMessage =
                 "Le SIREN du vendeur est absent du document : l'émission Super PDP exige " +
@@ -248,39 +248,83 @@ internal sealed class SuperPdpClient : IPaClient
         throw NotYetConfirmedInSandbox(nameof(GetAccountInfoAsync));
 
     /// <inheritdoc />
-    public Task<PaTaxReportSetting> GetTaxReportSettingAsync(CancellationToken cancellationToken = default)
+    public async Task<PaTaxReportSetting> GetTaxReportSettingAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Lecture du réglage de transmission (« SIREN publié ? ») appelée INCONDITIONNELLEMENT par le
-        // diagnostic pré-envoi du pipeline (SendTenantJob, F04 §3.1) — HORS de toute garde de capacité ET
-        // HORS du filet SafeProcessAsync : lever ici bloquerait TOUT envoi et planterait le job (invariant
-        // PAA01 « jamais un blocage du produit »). L'endpoint Super PDP du réglage n'est PAS confirmé
-        // (F14 §3.5, O2) : on retourne un réglage VIDE/INACTIF (IsActiveOn = false) plutôt que de sonder un
-        // endpoint deviné. Le SEND dégrade alors proprement en « SIREN non publié / Transport not available »
-        // — fail-closed : on NE risque JAMAIS d'émettre depuis un réglage faussement actif (CLAUDE.md n°3) —
-        // sans planter. PAS03 livre la lecture réelle contre l'endpoint confirmé en sandbox PUIS bascule
-        // cette branche (et la capacité de récupération).
-        return Task.FromResult(new PaTaxReportSetting());
+        // « SIREN publié ? » — appelée INCONDITIONNELLEMENT par le diagnostic pré-envoi du pipeline
+        // (SendTenantJob, F04 §3.1), HORS de toute garde de capacité ET hors du filet SafeProcessAsync :
+        // elle ne doit JAMAIS lever (planterait le job — invariant PAA01 « jamais un blocage du produit »).
+        // Super PDP n'expose PAS de « tax_report_setting » éditable comme B2Brouter : l'enregistrement /
+        // vérification du SIREN (KYC) est réalisé dans l'espace Super PDP (company_verification_status). Le
+        // SIREN est donc « publié » / la transmission ACTIVE dès que l'entreprise liée au compte OAuth existe
+        // et porte un SIREN — l'émission exige DÉJÀ que le vendeur SOIT cette entreprise (F14 §3.2). On LIT
+        // l'état réel via GET /v1.beta/companies/me (✅ endpoint confirmé sandbox 2026-06-12) : aucune valeur
+        // devinée (CLAUDE.md n°2), fail-closed (toute indisponibilité → réglage INACTIF, re-tentable).
+        try
+        {
+            using var response = await SendWithAuthAsync(
+                () => new HttpRequestMessage(HttpMethod.Get, CompaniesMeUrl()),
+                cancellationToken).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var siren = response.IsSuccessStatusCode ? TryReadCompanySiren(body) : null;
+            if (string.IsNullOrWhiteSpace(siren))
+            {
+                return new PaTaxReportSetting();
+            }
+
+            // Entreprise enregistrée côté Super PDP → transmission active. StartDate = aujourd'hui (non
+            // future → IsActiveOn = true : le SIREN est publié au moment du constat) ; CinScheme 0002 =
+            // SIREN (F14 §3.2). RawResponse conservée pour l'audit (F06/DR6).
+            return new PaTaxReportSetting
+            {
+                StartDate = DateOnly.FromDateTime(DateTime.UtcNow),
+                CinScheme = SuperPdpDefaults.SirenScheme,
+                RawResponse = body,
+            };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // Indisponibilité (réseau, auth OAuth, parsing) : NE PAS planter le job (PAA01). Réglage INACTIF
+            // → le SEND reste bloqué proprement « SIREN non publié », re-tentable au cycle suivant
+            // (fail-closed, on NE risque JAMAIS d'émettre depuis un réglage faussement actif — CLAUDE.md n°3).
+            return new PaTaxReportSetting();
+        }
     }
 
     /// <inheritdoc />
-    public Task EnsureTaxReportSettingAsync(
+    public async Task EnsureTaxReportSettingAsync(
         PaTaxReportSettingRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Publication du SIREN / activation de la transmission (action opérateur « Publier le SIREN »,
-        // PaPublicationConsoleService). N'est gardée par AUCUNE capacité : par convention du contrat
-        // (Fake et B2Brouter ne lèvent jamais ici), on NE lève PAS — lever contredirait l'invariant PAA01.
-        // L'endpoint Super PDP du réglage n'est PAS confirmé (F14 §3.5, O2) : PAS02 est un NO-OP idempotent.
-        // Conséquence cohérente et SÛRE : le réglage ne devient pas actif (GetTaxReportSettingAsync reste
-        // VIDE) → le SEND reste correctement bloqué (« SIREN non publié »), le produit n'émet JAMAIS vers un
-        // SIREN non publié (CLAUDE.md n°3). PAS03 livre l'écriture idempotente réelle contre l'endpoint
-        // confirmé en sandbox.
-        return Task.CompletedTask;
+        // Action opérateur « Publier le SIREN » (PaPublicationConsoleService). Super PDP n'expose PAS
+        // d'ÉCRITURE de « tax_report_setting » : la vérification du SIREN (KYC) est réalisée dans l'espace
+        // Super PDP, pas par un appel du produit — AUCUN champ du request (type d'opération / taille
+        // d'entreprise) n'est utilisé/transmis (ils n'ont pas d'objet pour Super PDP). On CONSTATE l'état
+        // réel via GET /v1.beta/companies/me (✅ confirmé sandbox) : entreprise présente avec SIREN → déjà
+        // publié (no-op idempotent) ; sinon message opérateur actionnable, capté/affiché par la console
+        // (CLAUDE.md n°12). Aucune valeur devinée (CLAUDE.md n°2).
+        using var response = await SendWithAuthAsync(
+            () => new HttpRequestMessage(HttpMethod.Get, CompaniesMeUrl()),
+            cancellationToken).ConfigureAwait(false);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        if (response.IsSuccessStatusCode && !string.IsNullOrWhiteSpace(TryReadCompanySiren(body)))
+        {
+            // Entreprise vérifiée côté Super PDP → transmission active, rien à écrire (idempotent).
+            return;
+        }
+
+        throw new HttpRequestException(
+            "Super PDP : aucune entreprise vérifiée n'est associée à ce compte. La publication / vérification " +
+            "du SIREN (KYC) se fait dans votre espace Super PDP, pas depuis Liakont. Vérifiez l'enregistrement " +
+            "de l'entreprise côté Super PDP, puis relancez l'envoi.");
     }
 
     /// <inheritdoc />
@@ -349,6 +393,30 @@ internal sealed class SuperPdpClient : IPaClient
     // URL de relecture d'état : /v1.beta/invoices/{id} (F14 §3.4).
     private static string StatusUrl(string paDocumentId) =>
         $"{SuperPdpDefaults.ApiVersionPrefix}/{SuperPdpDefaults.InvoicesPath}/{Uri.EscapeDataString(paDocumentId)}";
+
+    // URL de l'entreprise du compte OAuth : /v1.beta/companies/me (lecture de l'état de publication du
+    // SIREN — F14 §3.2). Pas d'identifiant dans l'URL : l'entreprise est portée par le jeton OAuth.
+    private static string CompaniesMeUrl() =>
+        $"{SuperPdpDefaults.ApiVersionPrefix}/{SuperPdpDefaults.CompaniesMePath}";
+
+    // Extrait le SIREN (champ « number ») de la réponse GET /v1.beta/companies/me (✅ forme confirmée
+    // sandbox — SuperPdpSandboxTests). Renvoie null si le corps est illisible ou le champ absent : un corps
+    // inattendu vaut « non publié » (fail-closed), jamais une exception de parsing propagée.
+    private static string? TryReadCompanySiren(string body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            return document.RootElement.TryGetProperty("number", out var number)
+                && number.ValueKind == JsonValueKind.String
+                ? number.GetString()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 
     private static PaDocumentStatus TechnicalStatus(string paDocumentId, string code, string message) => new()
     {

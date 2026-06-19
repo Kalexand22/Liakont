@@ -104,6 +104,8 @@ public sealed class GeneriqueAccountResolverTests
 
         public string Protect(string plaintext) => "ENC:" + plaintext;
 
+        public string Protect(string plaintext, string purpose) => Protect(plaintext);
+
         public string Unprotect(string protectedValue)
         {
             UnprotectCalls++;
@@ -111,5 +113,7 @@ public sealed class GeneriqueAccountResolverTests
                 ? protectedValue["ENC:".Length..]
                 : protectedValue;
         }
+
+        public string Unprotect(string protectedValue, string purpose) => Unprotect(protectedValue);
     }
 }

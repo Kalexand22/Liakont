@@ -1,7 +1,9 @@
 namespace Liakont.Host.PaAccounts;
 
+using System;
 using System.Collections.Generic;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
+using Liakont.Modules.Transmission.Contracts;
 
 /// <summary>
 /// Données assemblées de la page « Comptes plateforme agréée » (FIX01c) : les comptes PA du tenant
@@ -21,4 +23,12 @@ public sealed class PaAccountConsoleModel
 
     /// <summary>Types de plug-ins PA enregistrés (clé du registre), triés, proposés en création.</summary>
     public required IReadOnlyList<string> RegisteredPluginTypes { get; init; }
+
+    /// <summary>
+    /// Mode d'authentification par type de plug-in (depuis <c>IPaClientRegistry.DescribeAuthModes()</c>,
+    /// insensible à la casse) : pilote les champs de secret affichés (clé API vs client_id/client_secret),
+    /// sans jamais nommer un PA concret (CLAUDE.md n°8/16).
+    /// </summary>
+    public IReadOnlyDictionary<string, PaAuthMode> AuthModes { get; init; } =
+        new Dictionary<string, PaAuthMode>(StringComparer.OrdinalIgnoreCase);
 }

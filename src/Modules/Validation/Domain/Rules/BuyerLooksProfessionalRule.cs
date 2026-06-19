@@ -4,12 +4,14 @@ using Liakont.Modules.Validation.Contracts;
 using Liakont.Modules.Validation.Domain.Detection;
 
 /// <summary>
-/// Garde-fou B2B/B2C (F08) : si l'acheteur d'un bordereau (traité en B2C par défaut) « semble être un
-/// professionnel » (heuristique F07-F08 §A.4, <see cref="CompanyHintDetector"/>), le document est
-/// BLOQUÉ. Déclarer en e-reporting B2C une vente qui relève de l'e-invoicing B2B prive l'acheteur pro
-/// de sa facture déductible = manquement à l'obligation (F08, BOI-TVA-SECT-90-50). Le blocage est la
-/// protection V1 : l'opérateur tranche ensuite (« confirmer B2C » ou « traiter manuellement ») via
-/// l'endpoint verdict (API02) et la console (WEB03). La règle DÉTECTE, elle ne corrige ni ne reclasse
+/// Garde-fou B2B/B2C (F08). L'e-invoicing B2B est un flux NOMINAL géré en V1 : un acheteur IDENTIFIÉ par un
+/// SIREN est une vente B2B émettable (la facture part vers la Plateforme Agréée) — ce n'est PAS une anomalie
+/// (décision produit Karl, 19/06/2026). Le garde-fou ne couvre que le cas RÉSIDUEL ambigu : un acheteur qui
+/// « semble être un professionnel » (heuristique F07-F08 §A.4, <see cref="CompanyHintDetector"/>) MAIS sans
+/// SIREN exploitable — ni adressable en B2B, ni sûrement un particulier. Déclarer un tel cas en e-reporting
+/// B2C alors qu'il relève du B2B priverait l'acheteur pro de sa facture déductible = manquement (F08,
+/// BOI-TVA-SECT-90-50) : on BLOQUE et l'opérateur tranche (« confirmer B2C » ou « traiter manuellement »)
+/// via l'endpoint verdict (API02) et la console (WEB03). La règle DÉTECTE, elle ne corrige ni ne reclasse
 /// jamais le document. Anomalie BLOQUANTE (CLAUDE.md n°3). Règle pure : elle ne lit que le document.
 /// </summary>
 public sealed class BuyerLooksProfessionalRule : IDocumentRule
@@ -42,6 +44,16 @@ public sealed class BuyerLooksProfessionalRule : IDocumentRule
             // d'indice : le garde-fou ne bloque plus CE document. Ce n'est pas un affaiblissement de la règle
             // (CLAUDE.md n°3) mais l'incorporation d'une entrée légitime — la règle reste détection-seule pour
             // tout document non tranché par l'opérateur.
+            return Task.FromResult<IReadOnlyList<ValidationIssue>>(issues);
+        }
+
+        if (!string.IsNullOrWhiteSpace(buyer.Siren))
+        {
+            // Acheteur IDENTIFIÉ par un SIREN ⇒ vente B2B ÉMETTABLE (facture électronique entre entreprises,
+            // cœur de la réforme) : flux NOMINAL géré en V1, pas une anomalie (décision produit Karl,
+            // 19/06/2026). La facture part vers la Plateforme Agréée. La VALIDITÉ du SIREN reste contrôlée par
+            // BuyerIdentityRule (clé de Luhn). Le garde-fou ne vaut que pour un acheteur « pseudo-pro » SANS
+            // SIREN (ci-dessous) — ni adressable en B2B, ni sûrement un particulier.
             return Task.FromResult<IReadOnlyList<ValidationIssue>>(issues);
         }
 

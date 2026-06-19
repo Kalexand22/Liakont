@@ -37,13 +37,21 @@ public sealed class AddPaAccountHandler : IRequestHandler<AddPaAccountCommand, G
         var encryptedApiKey = string.IsNullOrWhiteSpace(request.ApiKey)
             ? null
             : _secretProtector.Protect(request.ApiKey);
+        var encryptedClientId = string.IsNullOrWhiteSpace(request.ClientId)
+            ? null
+            : _secretProtector.Protect(request.ClientId, PaAccountSecretPurposes.ClientId);
+        var encryptedClientSecret = string.IsNullOrWhiteSpace(request.ClientSecret)
+            ? null
+            : _secretProtector.Protect(request.ClientSecret, PaAccountSecretPurposes.ClientSecret);
 
         var account = PaAccount.Create(
             companyId,
             request.PluginType,
             environment,
             request.AccountIdentifiers ?? string.Empty,
-            encryptedApiKey);
+            encryptedApiKey,
+            encryptedClientId,
+            encryptedClientSecret);
 
         await using (var uow = await _uowFactory.BeginAsync(cancellationToken))
         {
@@ -57,7 +65,14 @@ public sealed class AddPaAccountHandler : IRequestHandler<AddPaAccountCommand, G
             "created",
             $"Compte PA ajouté ({request.PluginType} / {environment}).",
             companyId,
-            new { request.PluginType, Environment = environment.ToString(), HasApiKey = encryptedApiKey is not null },
+            new
+            {
+                request.PluginType,
+                Environment = environment.ToString(),
+                HasApiKey = encryptedApiKey is not null,
+                HasClientId = encryptedClientId is not null,
+                HasClientSecret = encryptedClientSecret is not null,
+            },
             cancellationToken);
 
         return account.Id;

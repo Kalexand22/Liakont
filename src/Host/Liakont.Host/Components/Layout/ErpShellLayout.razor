@@ -5,6 +5,8 @@
 <Toast @rendermode="InteractiveServer" />
 <GlobalShortcutHandler @rendermode="InteractiveServer" />
 <BugCaptureButton @rendermode="InteractiveServer" />
+@* RB6 — résout le fuseau du navigateur une fois par circuit (sonde invisible, socle Stratum.Common.UI). *@
+<BrowserTimeProbe @rendermode="InteractiveServer" />
 
 <div class="erp-shell">
     <ErpNav @rendermode="InteractiveServer" />

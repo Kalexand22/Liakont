@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 161 117" role="img" aria-label="Bucodi">
+  <!-- Emblème de marque Bucodi : tracé vectoriel EXACT fourni par le client (arche signature +
+       arbre stylisé). Variante « fond sombre » pour la barre latérale ardoise : l'arche reste jaune
+       signature (#FFE96E) et l'arbre passe en ivoire (#F2F0E9) — l'original NOIR serait invisible sur
+       fond sombre (knockout standard d'un logo posé sur un chrome foncé). Fond transparent. -->
+  <g transform="translate(0,117) scale(0.1,-0.1)" stroke="none">
+    <path fill="#FFE96E" d="M715 1083 c-33 -7 -98 -32 -144 -55 -68 -32 -101 -57 -165 -122 -125 -126 -182 -242 -207 -416 -15 -109 -1 -236 38 -342 25 -68 25 -68 64 -68 l38 0 -25 56 c-97 220 -59 497 93 675 83 98 175 159 297 197 65 20 232 22 301 3 190 -53 353 -211 422 -408 23 -67 27 -94 27 -198 1 -124 -12 -191 -55 -279 -10 -22 -19 -41 -19 -43 0 -2 18 -3 39 -3 45 0 46 1 88 150 20 73 20 266 0 341 -72 266 -261 455 -512 514 -81 18 -199 18 -280 -2z"/>
+    <path fill="#F2F0E9" d="M827 755 l-27 -66 25 -49 c14 -28 29 -50 34 -50 4 0 20 22 34 49 l27 48 -28 67 c-15 36 -30 66 -33 66 -3 0 -18 -29 -32 -65z"/>
+    <path fill="#F2F0E9" d="M666 605 c-26 -13 -52 -27 -57 -32 -6 -6 15 -21 52 -38 l61 -30 46 26 c25 14 47 30 49 35 2 9 -81 65 -95 63 -4 0 -29 -11 -56 -24z"/>
+    <path fill="#F2F0E9" d="M947 606 c-61 -37 -61 -40 -4 -71 l53 -28 65 30 64 31 -64 31 c-36 17 -67 31 -70 30 -3 0 -23 -11 -44 -23z"/>
+    <path fill="#F2F0E9" d="M852 547 c-5 -6 -23 -41 -40 -77 -16 -36 -48 -104 -71 -152 -23 -48 -41 -90 -41 -94 0 -3 11 -3 25 0 23 6 24 4 19 -24 -8 -36 1 -38 33 -9 22 21 23 21 29 3 4 -10 18 -44 32 -74 l24 -55 13 35 c7 19 20 53 29 74 l16 39 23 -21 c31 -30 38 -28 30 9 -5 28 -4 30 21 23 14 -3 26 -3 26 0 0 3 -23 54 -51 114 -29 59 -64 133 -79 164 -20 43 -30 55 -38 45z"/>
+  </g>
+</svg>

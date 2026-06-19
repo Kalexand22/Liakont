@@ -54,10 +54,11 @@
     {
         [nameof(PipelineRunRow.StartedAt)] = item => builder =>
         {
-            // StartedAt est en UTC (PipelineRunLogDto) : on affiche l'heure LOCALE du serveur, comme
-            // DashboardView/AdminJobSchedules, pour répondre fidèlement à « est-ce que ça a tourné
-            // cette nuit ? » sans décalage d'offset (1–2 h en France).
-            builder.AddContent(0, item.StartedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr));
+            // StartedAt est en UTC (PipelineRunLogDto) : affiché au fuseau du NAVIGATEUR (RB6) pour répondre
+            // fidèlement à « est-ce que ça a tourné cette nuit ? » à l'heure de l'opérateur.
+            builder.OpenComponent<LiakontDate>(0);
+            builder.AddAttribute(1, "Value", (DateTimeOffset?)item.StartedAt);
+            builder.CloseComponent();
         },
         [nameof(PipelineRunRow.Nature)] = item => builder =>
         {

@@ -226,7 +226,7 @@ else if (_view is not null)
                     @foreach (var entry in _view.Log)
                     {
                         <tr>
-                            <td>@FormatDateTime(entry.OccurredAt)</td>
+                            <td><LiakontDate Value="@entry.OccurredAt" /></td>
                             <td>@entry.Attempt</td>
                             <td>
                                 @(entry.FromState is null

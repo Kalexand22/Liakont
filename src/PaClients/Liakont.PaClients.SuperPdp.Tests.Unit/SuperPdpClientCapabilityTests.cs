@@ -23,14 +23,16 @@ public sealed class SuperPdpClientCapabilityTests
         caps.PaName.Should().Be("Super PDP");
         caps.SupportsB2cReporting.Should().BeTrue("le B2C est ✅ vérifié (DR17) — seule capacité true en PAS02 (F14 §5)");
 
-        // Tout le reste est false tant que la sandbox (PAS03) n'a rien confirmé (« incertain = false ») :
+        // Facturation B2B : vérifiée en sandbox (envoi réel facture 72272) — activée sur directive de recette (18/06/2026).
+        caps.SupportsB2bInvoicing.Should().BeTrue("facturation B2B vérifiée en sandbox — envoi réel facture 72272");
+
+        // Les flux non confirmés restent false tant que la sandbox (PAS03) n'a rien validé (« incertain = false ») :
         caps.SupportsDomesticPaymentReporting.Should().BeFalse("flux 10.4 non documenté (O3)");
         caps.SupportsInternationalPaymentReporting.Should().BeFalse("flux 10.2 non documenté (O3)");
         caps.SupportsCreditNotes.Should().BeFalse("modèle d'avoir non confirmé (O7)");
         caps.SupportsTaxReportRetrieval.Should().BeFalse("endpoints tax reports non confirmés (O2)");
         caps.SupportsDocumentRetrieval.Should().BeFalse("endpoint de téléchargement non confirmé (O4)");
         caps.SupportsReportRectification.Should().BeFalse("flux RE non documenté (O9)");
-        caps.SupportsB2bInvoicing.Should().BeFalse("phase 2");
         caps.SupportsSelfBilling.Should().BeFalse("émission 389 non confirmée en sandbox — déclaration honnête (MND07 / F15 §1.8)");
         caps.MaxDocumentsPerRequest.Should().BeNull();
     }
@@ -115,9 +117,16 @@ public sealed class SuperPdpClientCapabilityTests
     }
 
     [Fact]
-    public async Task Ungated_Tax_Report_Setting_Methods_Degrade_Gracefully_Without_Throwing()
+    public async Task Tax_Report_Setting_Is_Active_When_Companies_Me_Returns_A_Registered_Siren()
     {
-        var handler = StubHttpMessageHandler.Returns(HttpStatusCode.OK, SuperPdpTestData.IssuedJson);
+        // GetTaxReportSettingAsync / EnsureTaxReportSettingAsync NE sont gardées par AUCUNE capacité (chemin
+        // d'envoi : diagnostic pré-envoi de SendTenantJob, action « Publier le SIREN »). Super PDP n'expose pas
+        // de tax_report_setting éditable : l'état réel est LU via GET /v1.beta/companies/me (✅ sandbox
+        // 2026-06-12). Entreprise présente avec un SIREN (champ « number ») → transmission ACTIVE (StartDate =
+        // aujourd'hui, IsActiveOn true) ; EnsureTaxReportSettingAsync est un no-op idempotent (ne lève pas).
+        const string companyJson = """{"number":"000000002","formal_name":"Burger Queen"}""";
+        var handler = new PathRoutingHttpMessageHandler()
+            .On(SuperPdpDefaults.CompaniesMePath, HttpStatusCode.OK, companyJson);
         var client = SuperPdpTestData.CreateClient(handler);
         var request = new PaTaxReportSettingRequest
         {
@@ -126,19 +135,70 @@ public sealed class SuperPdpClientCapabilityTests
             EnterpriseSize = "PME",
         };
 
-        // GetTaxReportSettingAsync et EnsureTaxReportSettingAsync NE sont gardées par AUCUNE capacité et sont
-        // appelées par le chemin d'envoi : GetTaxReportSettingAsync par le diagnostic pré-envoi de
-        // SendTenantJob (HORS SafeProcessAsync), EnsureTaxReportSettingAsync par l'action « Publier le SIREN ».
-        // Elles ne doivent JAMAIS lever (invariant PAA01). Endpoint non confirmé (O2) → réglage VIDE/INACTIF
-        // + écriture no-op : le SEND dégrade proprement en « SIREN non publié » (fail-closed) sans planter, et
-        // le produit n'émet jamais vers un SIREN non publié (CLAUDE.md n°3).
         var setting = await client.GetTaxReportSettingAsync();
-        setting.IsActiveOn(new DateOnly(2026, 6, 1)).Should().BeFalse(
-            "un réglage vide bloque l'envoi (« SIREN non publié ») sans risquer un faux envoi");
+        setting.IsActiveOn(DateOnly.FromDateTime(DateTime.UtcNow)).Should().BeTrue(
+            "une entreprise enregistrée côté Super PDP (SIREN « number ») rend la transmission active");
+        setting.RawResponse.Should().Contain("000000002", "la réponse companies/me est conservée pour l'audit (F06/DR6)");
 
         var ensure = async () => await client.EnsureTaxReportSettingAsync(request);
-        await ensure.Should().NotThrowAsync("la publication ne bloque jamais le produit par une exception (PAA01)");
+        await ensure.Should().NotThrowAsync(
+            "une entreprise déjà vérifiée → no-op idempotent, jamais une exception (PAA01)");
 
-        handler.CallCount.Should().Be(0, "aucun endpoint réglage non confirmé n'est sondé en PAS02");
+        // Au moins une requête a touché companies/me (GET pour chacune des deux méthodes) — endpoint réel.
+        handler.Requests.Should().OnlyContain(r => r.Path.EndsWith(SuperPdpDefaults.CompaniesMePath, StringComparison.Ordinal));
+        handler.Requests.Should().HaveCount(2, "chaque méthode LIT l'état réel via GET companies/me");
+    }
+
+    [Fact]
+    public async Task Tax_Report_Setting_Is_Inactive_When_Companies_Me_Has_No_Siren_And_Ensure_Throws_Actionable()
+    {
+        // Aucune entreprise vérifiée (companies/me sans « number ») : la transmission est INACTIVE (réglage vide
+        // → IsActiveOn false, le SEND dégrade en « SIREN non publié », fail-closed, jamais un faux envoi —
+        // CLAUDE.md n°3) ET l'action « Publier le SIREN » lève un message opérateur actionnable (FR, CLAUDE.md
+        // n°12) — la KYC se fait dans l'espace Super PDP, pas depuis Liakont.
+        const string companyWithoutSiren = """{"formal_name":"Burger Queen"}""";
+        var handler = new PathRoutingHttpMessageHandler()
+            .On(SuperPdpDefaults.CompaniesMePath, HttpStatusCode.OK, companyWithoutSiren);
+        var client = SuperPdpTestData.CreateClient(handler);
+        var request = new PaTaxReportSettingRequest
+        {
+            StartDate = new DateOnly(2026, 1, 1),
+            TypeOperation = "GOODS",
+            EnterpriseSize = "PME",
+        };
+
+        var setting = await client.GetTaxReportSettingAsync();
+        setting.IsActiveOn(DateOnly.FromDateTime(DateTime.UtcNow)).Should().BeFalse(
+            "sans SIREN vérifié, l'envoi reste bloqué « SIREN non publié » (fail-closed)");
+
+        var ensure = async () => await client.EnsureTaxReportSettingAsync(request);
+        (await ensure.Should().ThrowAsync<HttpRequestException>(
+            "la publication / vérification du SIREN (KYC) se fait dans l'espace Super PDP"))
+            .Which.Message.Should().Contain("espace Super PDP");
+    }
+
+    [Fact]
+    public async Task Tax_Report_Setting_Is_Inactive_When_Companies_Me_Returns_404()
+    {
+        // Indisponibilité / 404 sur companies/me : GetTaxReportSettingAsync NE DOIT JAMAIS lever (PAA01 —
+        // elle est appelée HORS SafeProcessAsync par le diagnostic pré-envoi) ; elle dégrade en réglage INACTIF
+        // (fail-closed, re-tentable au cycle suivant). EnsureTaxReportSettingAsync lève le message actionnable.
+        var handler = new PathRoutingHttpMessageHandler()
+            .On(SuperPdpDefaults.CompaniesMePath, HttpStatusCode.NotFound, """{"http_status_code":404,"message":"Not found"}""");
+        var client = SuperPdpTestData.CreateClient(handler);
+        var request = new PaTaxReportSettingRequest
+        {
+            StartDate = new DateOnly(2026, 1, 1),
+            TypeOperation = "GOODS",
+            EnterpriseSize = "PME",
+        };
+
+        var settingTask = async () => await client.GetTaxReportSettingAsync();
+        var setting = (await settingTask.Should().NotThrowAsync(
+            "le diagnostic pré-envoi ne plante jamais le job sur une indisponibilité (PAA01)")).Subject;
+        setting.IsActiveOn(DateOnly.FromDateTime(DateTime.UtcNow)).Should().BeFalse("404 → réglage inactif (fail-closed)");
+
+        var ensure = async () => await client.EnsureTaxReportSettingAsync(request);
+        await ensure.Should().ThrowAsync<HttpRequestException>("aucune entreprise vérifiée → action opérateur requise");
     }
 }

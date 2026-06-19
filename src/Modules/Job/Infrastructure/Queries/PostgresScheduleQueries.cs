@@ -75,11 +75,11 @@ internal sealed class PostgresScheduleQueries : IScheduleQueries
             JobType = (string)row.job_type,
             PayloadTemplate = (string)row.payload_template,
             IsActive = (bool)row.is_active,
-            NextRunAt = (DateTimeOffset)row.next_run_at,
-            LastRunAt = (DateTimeOffset?)row.last_run_at,
+            NextRunAt = DbTimestamp.ToDateTimeOffset((object)row.next_run_at),
+            LastRunAt = DbTimestamp.ToNullableDateTimeOffset((object?)row.last_run_at),
             CompanyId = (Guid)row.company_id,
-            CreatedAt = (DateTimeOffset)row.created_at,
-            UpdatedAt = (DateTimeOffset)row.updated_at,
+            CreatedAt = DbTimestamp.ToDateTimeOffset((object)row.created_at),
+            UpdatedAt = DbTimestamp.ToDateTimeOffset((object)row.updated_at),
         };
     }
 }

@@ -1,7 +1,6 @@
 @page "/supervision/{TenantId}"
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = LiakontPermissions.Supervision)]
-@using System.Globalization
 @using Microsoft.Extensions.Logging
 @using Stratum.Common.Abstractions.Grid
 @using Stratum.Common.Abstractions.Security
@@ -82,9 +81,7 @@ else
                         version : @(agent.LastAgentVersion ?? "inconnue")
                     </span>
                     <span class="supervision-detail__agent-seen">
-                        dernier heartbeat : @(agent.LastSeenAtUtc is { } seen
-                            ? seen.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr)
-                            : "jamais vu")
+                        dernier heartbeat : <LiakontDate Value="@agent.LastSeenAtUtc" NullText="jamais vu" />
                     </span>
                 </li>
             }
@@ -115,8 +112,6 @@ else
 }
 
 @code {
-    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
-
     [Parameter]
     public string TenantId { get; set; } = default!;
 
@@ -157,13 +152,16 @@ else
             },
             ["TriggeredUtc"] = alert => __builder =>
             {
-                __builder.AddContent(0, alert.TriggeredUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr));
+                __builder.OpenComponent<LiakontDate>(0);
+                __builder.AddAttribute(1, "Value", (DateTimeOffset?)alert.TriggeredUtc);
+                __builder.CloseComponent();
             },
             ["ResolvedUtc"] = alert => __builder =>
             {
-                __builder.AddContent(0, alert.ResolvedUtc is { } resolved
-                    ? resolved.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr)
-                    : "Active");
+                __builder.OpenComponent<LiakontDate>(0);
+                __builder.AddAttribute(1, "Value", (DateTimeOffset?)alert.ResolvedUtc);
+                __builder.AddAttribute(2, "NullText", "Active");
+                __builder.CloseComponent();
             },
             ["AcknowledgedBy"] = alert => __builder =>
             {

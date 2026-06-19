@@ -48,12 +48,25 @@ public static class CanonicalJson
         writer.WriteDate(document.IssueDate);
         writer.WritePropertyName("SourceReference");
         writer.WriteString(document.SourceReference);
-        writer.WritePropertyName("Supplier");
-        WriteParty(writer, document.Supplier);
+
+        // Émetteur optionnel : OMIS quand l'agent ne le porte pas (la plateforme le remplit à
+        // l'ingestion depuis le profil tenant — ADR-0023 amendé). Un document agent sans émetteur
+        // produit un JSON canonique sans la clé « Supplier » (et « OperationCategory »).
+        if (document.Supplier != null)
+        {
+            writer.WritePropertyName("Supplier");
+            WriteParty(writer, document.Supplier);
+        }
+
         writer.WritePropertyName("Totals");
         WriteTotals(writer, document.Totals);
-        writer.WritePropertyName("OperationCategory");
-        writer.WriteString(document.OperationCategory.ToString());
+
+        if (document.OperationCategory.HasValue)
+        {
+            writer.WritePropertyName("OperationCategory");
+            writer.WriteString(document.OperationCategory.Value.ToString());
+        }
+
         writer.WritePropertyName("CurrencyCode");
         writer.WriteString(document.CurrencyCode);
 

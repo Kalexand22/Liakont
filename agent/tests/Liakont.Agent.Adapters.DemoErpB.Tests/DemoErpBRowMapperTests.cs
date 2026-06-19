@@ -18,13 +18,13 @@ public class DemoErpBRowMapperTests
     [Fact]
     public void Maps_invoice_with_float_amounts_converted_to_decimal_and_raw_regime()
     {
-        PivotDocumentDto doc = DemoErpBRowMapper.MapDocument(SimpleInvoice(), Emitter());
+        PivotDocumentDto doc = DemoErpBRowMapper.MapDocument(SimpleInvoice());
 
         doc.SourceDocumentKind.Should().Be("I");
         doc.Number.Should().Be("B-2026-0001");
         doc.SourceReference.Should().Be("demoerpb:B-2026-0001");
-        doc.Supplier.Siren.Should().Be("123456782");
-        doc.OperationCategory.Should().Be(OperationCategory.Mixte);
+        doc.Supplier.Should().BeNull("l'émetteur n'est plus porté par l'agent — la plateforme le remplit à l'ingestion (ADR-0023 amendé)");
+        doc.OperationCategory.Should().BeNull("la nature d'opération est remplie par la plateforme depuis le paramétrage fiscal du tenant");
         doc.Totals.TotalNet.Should().Be(100.00m);
         doc.Totals.TotalTax.Should().Be(20.00m);
         doc.Totals.TotalGross.Should().Be(120.00m);
@@ -40,7 +40,7 @@ public class DemoErpBRowMapperTests
         DemoErpBInvoice invoice = SimpleInvoice();
         invoice.Items[0].VatAmount = 5.555; // float → decimal half-up → 5.56
 
-        PivotDocumentDto doc = DemoErpBRowMapper.MapDocument(invoice, Emitter());
+        PivotDocumentDto doc = DemoErpBRowMapper.MapDocument(invoice);
 
         doc.Lines[0].Taxes[0].TaxAmount.Should().Be(5.56m);
     }
@@ -54,7 +54,7 @@ public class DemoErpBRowMapperTests
         avoir.OriginInvoiceNo = "B-2026-0001";
         avoir.OriginIssuedOn = new DateTime(2026, 6, 1);
 
-        PivotDocumentDto doc = DemoErpBRowMapper.MapDocument(avoir, Emitter());
+        PivotDocumentDto doc = DemoErpBRowMapper.MapDocument(avoir);
 
         doc.SourceDocumentKind.Should().Be("C");
         doc.CreditNoteRefs.Should().HaveCount(1);
@@ -69,13 +69,10 @@ public class DemoErpBRowMapperTests
         avoir.Kind = "C";
         avoir.OriginInvoiceNo = null;
 
-        Action act = () => DemoErpBRowMapper.MapDocument(avoir, Emitter());
+        Action act = () => DemoErpBRowMapper.MapDocument(avoir);
 
         act.Should().Throw<SourceSchemaException>();
     }
-
-    private static SourceEmitterConfig Emitter() =>
-        new SourceEmitterConfig("123456782", "Société Fictive de Démonstration", OperationCategory.Mixte);
 
     private static DemoErpBInvoice SimpleInvoice()
     {

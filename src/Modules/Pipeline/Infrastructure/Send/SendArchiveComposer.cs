@@ -75,7 +75,7 @@ internal static class SendArchiveComposer
             DocumentTypeLabel: DocumentTypeLabel(pivot),
             IssueDate: document.IssueDate,
             CurrencyCode: pivot.CurrencyCode,
-            SellerName: pivot.Supplier.Name,
+            SellerName: pivot.Supplier!.Name,
             SellerSiren: pivot.Supplier.Siren,
             BuyerName: pivot.Customer?.Name,
             Lines: lines,

@@ -1,0 +1,59 @@
+@using System
+@using Stratum.Common.UI.Time
+@implements IDisposable
+@inject IBrowserTimeZone Tz
+
+@* RB6 — affichage d'un instant UTC au fuseau du NAVIGATEUR de l'opérateur (le serveur tourne en UTC).
+   Tant que le fuseau n'est pas résolu (pré-rendu), rend l'UTC EXPLICITEMENT suffixé (jamais une heure locale
+   fausse) ; dès que la sonde du shell résout le fuseau, ce composant se re-rend en heure locale. *@
+@if (Value is null)
+{
+    @(NullText ?? LiakontDateDisplay.Placeholder)
+}
+else if (DateOnly)
+{
+    @LiakontDateDisplay.Date(Value, Tz.Zone, EffectiveFormat)
+}
+else
+{
+    @LiakontDateDisplay.DateTime(Value, Tz.Zone, EffectiveFormat)
+}
+
+@code {
+    /// <summary>Instant à afficher (UTC). <c>null</c> → <see cref="NullText"/> ou le tiret cadratin.</summary>
+    [Parameter] public DateTimeOffset? Value { get; set; }
+
+    /// <summary>Vrai pour n'afficher que la date (jour) au fuseau navigateur ; sinon date + heure.</summary>
+    [Parameter] public bool DateOnly { get; set; }
+
+    /// <summary>Format .NET explicite (sinon <c>dd/MM/yyyy</c> ou <c>dd/MM/yyyy HH:mm</c>).</summary>
+    [Parameter] public string? Format { get; set; }
+
+    /// <summary>Texte affiché quand <see cref="Value"/> est nul (ex. « jamais ») ; défaut = tiret cadratin.</summary>
+    [Parameter] public string? NullText { get; set; }
+
+    private bool _subscribed;
+
+    private string EffectiveFormat => Format ?? (DateOnly ? "dd/MM/yyyy" : "dd/MM/yyyy HH:mm");
+
+    protected override void OnInitialized()
+    {
+        // Fuseau pas encore connu : s'abonner pour se re-rendre en local dès que la sonde du shell l'a résolu.
+        // Déjà résolu (composant créé après la sonde, ex. re-rendu de grille) : rien à faire, on rend direct local.
+        if (!Tz.IsResolved)
+        {
+            Tz.Resolved += OnZoneResolved;
+            _subscribed = true;
+        }
+    }
+
+    private void OnZoneResolved() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        if (_subscribed)
+        {
+            Tz.Resolved -= OnZoneResolved;
+        }
+    }
+}

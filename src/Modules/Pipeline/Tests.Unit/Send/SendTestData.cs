@@ -128,6 +128,56 @@ internal static class SendTestData
             lines: lines);
     }
 
+    /// <summary>Pivot SANS émetteur ni nature d'opération (forme allégée AGT03) — la plateforme remplit au read-time (RB9).</summary>
+    public static PivotDocumentDto SupplierLessPivot(string number = "F-2026-0007")
+    {
+        var line = new PivotLineDto(
+            description: "Adjudication lot 7",
+            netAmount: 120.00m,
+            quantity: 1m,
+            unitPriceNet: 120.00m,
+            sourceRegimeCodes: NormalRegime,
+            taxes: new[] { new PivotLineTaxDto(24.00m, 20m, VatCategory.S) },
+            sourceLineRef: "ligne#1");
+
+        return new PivotDocumentDto(
+            sourceDocumentKind: "F",
+            number: number,
+            issueDate: new DateTime(2026, 1, 10),
+            sourceReference: "no_ba=4007",
+            supplier: null,
+            totals: new PivotTotalsDto(120.00m, 24.00m, 144.00m),
+            operationCategory: null,
+            customer: new PivotPartyDto("Client SARL", isCompanyHint: true),
+            lines: new[] { line });
+    }
+
+    /// <summary>Profil tenant (émetteur) renseigné — source du remplissage read-time au SEND (RB9).</summary>
+    public static TenantProfileDto EmitterProfile(string siren = "802193904", string raisonSociale = "SEM Keroman") =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = Guid.NewGuid(),
+            Siren = siren,
+            RaisonSociale = raisonSociale,
+            Street = "1 quai du Port",
+            PostalCode = "56100",
+            City = "Lorient",
+            Country = "FR",
+            Statut = "Actif",
+            CreatedAt = Now,
+        };
+
+    /// <summary>Paramétrage fiscal (nature d'opération) — source du remplissage read-time de l'operationCategory.</summary>
+    public static FiscalSettingsDto FiscalSettings(string operationCategory = "LivraisonBiens") =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = Guid.NewGuid(),
+            OperationCategory = operationCategory,
+            CreatedAt = Now,
+        };
+
     public static PaAccountDto ActiveAccount(string pluginType = "Fake", bool isActive = true)
     {
         return new PaAccountDto

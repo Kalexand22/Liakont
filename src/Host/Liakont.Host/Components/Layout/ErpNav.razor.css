@@ -192,8 +192,10 @@
 
 ::deep .erp-nav-leaf.active {
     color: #ffffff;
-    background-color: var(--sidebar-active-bg);
-    box-shadow: inset 3px 0 0 var(--sidebar-active-accent);
+    /* Voile de la couleur d'accent (marque) sur l'item sélectionné + barre latérale plus épaisse :
+       l'accent de marque (jaune pour Bucodi, navy clair par défaut) devient nettement visible. */
+    background-color: color-mix(in srgb, var(--sidebar-active-accent) 16%, var(--sidebar-active-bg));
+    box-shadow: inset 4px 0 0 var(--sidebar-active-accent);
     font-weight: var(--font-weight-medium);
 }
 
@@ -215,6 +217,8 @@
 ::deep .erp-nav-leaf.active .erp-nav-icon,
 ::deep .erp-nav-branch.active-parent .erp-nav-icon {
     background: rgb(255 255 255 / 0.1);
+    /* Glyphe de l'item actif en couleur d'accent de marque (jaune pour Bucodi) — repère visible. */
+    color: var(--sidebar-active-accent);
 }
 
 ::deep .erp-nav-label {

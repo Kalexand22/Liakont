@@ -26,6 +26,7 @@ public sealed class FlotteTests : BunitContext
     {
         JSInterop.Mode = JSRuntimeMode.Loose;
         Services.AddLogging();
+        Services.AddBrowserTimeZoneStub();
     }
 
     [Fact]

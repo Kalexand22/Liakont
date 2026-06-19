@@ -34,7 +34,7 @@ else
                 }
                 @if (agent.LastSeenUtc is not null)
                 {
-                    <span class="liakont-agent-list__meta">Dernier contact : @FormatHeartbeat(agent.LastSeenUtc)</span>
+                    <span class="liakont-agent-list__meta">Dernier contact : <LiakontDate Value="@agent.LastSeenUtc" /></span>
                 }
                 <span class="liakont-agent-list__meta">Version : @(string.IsNullOrWhiteSpace(agent.Version) ? "inconnue" : agent.Version)</span>
             </li>
@@ -54,8 +54,4 @@ else
     /// <summary>Identifiant de test du message « aucun agent ».</summary>
     [Parameter, EditorRequired]
     public string EmptyTestId { get; set; } = null!;
-
-    // Appelé seulement quand un contact a eu lieu (sans contact : badge « Jamais connecté », pas de méta).
-    private static string FormatHeartbeat(DateTimeOffset? when) =>
-        when is { } value ? value.ToLocalTime().ToString("dd/MM/yyyy HH:mm") : string.Empty;
 }

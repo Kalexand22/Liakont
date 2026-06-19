@@ -11,14 +11,18 @@ internal sealed class StubPaClientFactory : IPaClientFactory
 {
     private readonly PaCapabilities _capabilities;
 
-    public StubPaClientFactory(string paType, PaCapabilities? capabilities = null)
+    public StubPaClientFactory(string paType, PaCapabilities? capabilities = null, PaAuthMode authMode = PaAuthMode.ApiKey)
     {
         PaType = paType;
         _capabilities = capabilities ?? new PaCapabilities { PaName = paType };
+        AuthMode = authMode;
     }
 
     /// <inheritdoc />
     public string PaType { get; }
+
+    /// <inheritdoc />
+    public PaAuthMode AuthMode { get; }
 
     /// <summary>Dernier compte passé à <see cref="Create"/> (assertion de propagation).</summary>
     public PaAccountDescriptor? LastAccount { get; private set; }

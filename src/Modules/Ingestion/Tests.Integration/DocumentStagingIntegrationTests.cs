@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Dapper;
 using FluentAssertions;
 using Liakont.Agent.Contracts.Pivot;
+using Liakont.Agent.Contracts.Serialization;
 using Liakont.Agent.Contracts.Transport;
 using Liakont.Modules.Ingestion.Contracts.Commands;
 using Liakont.Modules.Ingestion.Contracts.Events;
@@ -106,6 +107,24 @@ public sealed class DocumentStagingIntegrationTests
         (await CountEventsAsync(harness, IngestionEventTypes.DocumentReceived)).Should().Be(1, "réhydratation du staging = aucune ré-émission d'événement");
     }
 
+    [Fact]
+    public async Task Staged_Payload_Is_The_Raw_Agent_Pivot_Without_Tenant_Emitter_Enrichment()
+    {
+        // RB9 : l'anti-doublon F06 hashe le pivot SOURCE. L'émetteur (profil tenant) est rempli au READ-TIME
+        // (CHECK/SEND), JAMAIS à l'ingestion-avant-hash — sinon le payload_hash dépendrait du profil tenant et un
+        // changement de paramétrage entre deux extractions de la MÊME source créerait un doublon spurious (altération
+        // F06 polluée par des données plateforme). Ce test échouerait si l'enrichissement repassait avant le hash.
+        var harness = new IngestionHarness(_fixture, NewTenant());
+        var rawPivot = DocWithoutEmitter("ref-rb9");
+
+        await harness.BatchHandler.Handle(Batch(harness, rawPivot), CancellationToken.None);
+
+        harness.PayloadStagingStore.Count.Should().Be(1);
+        harness.PayloadStagingStore.SingleStagedJson.Should().Be(
+            CanonicalJson.Serialize(rawPivot),
+            "le blob stagé est EXACTEMENT le pivot source de l'agent — aucun enrichissement émetteur avant le hash (RB9)");
+    }
+
     private static IngestDocumentBatchCommand Batch(IngestionHarness harness, params PivotDocumentDto[] documents) =>
         new()
         {
@@ -125,6 +144,17 @@ public sealed class DocumentStagingIntegrationTests
             supplier: new PivotPartyDto("Fournisseur Fictif"),
             totals: new PivotTotalsDto(ht, ht * 0.2m, ht * 1.2m),
             operationCategory: OperationCategory.LivraisonBiens);
+
+    /// <summary>Pivot agent SANS émetteur ni nature d'opération (forme allégée AGT03 : la plateforme remplit au read-time).</summary>
+    private static PivotDocumentDto DocWithoutEmitter(string sourceReference, string number = "F-RB9", decimal ht = 100m) =>
+        new(
+            sourceDocumentKind: "INV",
+            number: number,
+            issueDate: new DateTime(2026, 3, 1),
+            sourceReference: sourceReference,
+            supplier: null,
+            totals: new PivotTotalsDto(ht, ht * 0.2m, ht * 1.2m),
+            operationCategory: null);
 
     private static async Task<int> CountReceivedAsync(IngestionHarness harness)
     {

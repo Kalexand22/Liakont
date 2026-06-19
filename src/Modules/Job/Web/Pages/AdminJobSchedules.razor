@@ -51,13 +51,16 @@
         },
         ["NextRunAt"] = item => __builder =>
         {
-            __builder.AddContent(0, item.NextRunAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm"));
+            // RB6 : NextRunAt est une PRÉVISION serveur (prochaine occurrence du cron, INTERPRÉTÉ EN UTC) → UTC
+            // EXPLICITE, cohérent avec l'aperçu cron du formulaire. Les ÉVÉNEMENTS (LastRunAt) passent, eux, au
+            // fuseau du navigateur. (Ancien ToLocalTime() = heure SERVEUR muette, corrigé.)
+            __builder.AddContent(0, item.NextRunAt.UtcDateTime.ToString("dd/MM/yyyy HH:mm 'UTC'", System.Globalization.CultureInfo.InvariantCulture));
         },
         ["LastRunAt"] = item => __builder =>
         {
-            __builder.AddContent(0, item.LastRunAt.HasValue
-                ? item.LastRunAt.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
-                : "—");
+            __builder.OpenComponent<LiakontDate>(0);
+            __builder.AddAttribute(1, "Value", item.LastRunAt);
+            __builder.CloseComponent();
         },
         ["CronExpression"] = item => __builder =>
         {

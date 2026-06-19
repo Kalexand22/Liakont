@@ -15,4 +15,10 @@ public enum EmitterIdentitySource
 
     /// <summary>L'identité de l'émetteur est dérivée de son numéro de TVA.</summary>
     DerivedFromVatNumber = 3,
+
+    /// <summary>
+    /// L'agent ne porte PAS l'identité de l'émetteur : la PLATEFORME la remplit à l'ingestion depuis le
+    /// profil du tenant (ADR-0023 amendé). L'adaptateur émet un pivot sans émetteur (cas DemoErpA/B).
+    /// </summary>
+    FilledByPlatform = 4,
 }

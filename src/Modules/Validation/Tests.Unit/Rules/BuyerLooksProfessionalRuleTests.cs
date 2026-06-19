@@ -79,6 +79,20 @@ public sealed class BuyerLooksProfessionalRuleTests
     }
 
     [Fact]
+    public async Task Buyer_identified_by_siren_is_a_normal_b2b_sale_and_does_not_block()
+    {
+        // L'e-invoicing B2B est un flux NOMINAL géré en V1 : un acheteur IDENTIFIÉ par un SIREN — même avec
+        // TOUS les indices pro (forme juridique dans le nom + n° TVA + indice société) — n'est PAS une
+        // anomalie. La facture B2B part vers la Plateforme Agréée (décision produit Karl, 19/06/2026). La
+        // VALIDITÉ du SIREN est contrôlée par BuyerIdentityRule (clé de Luhn), jamais ici.
+        var customer = new PivotPartyDto("MARTIN SAS", siren: "552100554", vatNumber: "FR40303265045", isCompanyHint: true);
+
+        var issues = await new BuyerLooksProfessionalRule().ValidateAsync(Context(customer));
+
+        issues.Should().BeEmpty("un acheteur professionnel identifié par un SIREN est une vente B2B émettable, pas un blocage.");
+    }
+
+    [Fact]
     public async Task Amount_alone_is_never_a_criterion()
     {
         // Bordereau à montant élevé mais acheteur particulier : le montant n'est jamais un indice (F07-F08 §A.4).

@@ -42,6 +42,14 @@
 
     private readonly Dictionary<string, RenderFragment<TeamDto>> _columnTemplates = new()
     {
+        // RB6 : « Créé le » = ÉVÉNEMENT → fuseau du navigateur (serveur en UTC). Colonne masquée par défaut mais
+        // ACTIVABLE → migrée pour cohérence (sinon DateTimeOffset serveur brut via value.ToString()).
+        ["CreatedAt"] = item => __builder =>
+        {
+            __builder.OpenComponent<LiakontDate>(0);
+            __builder.AddAttribute(1, "Value", (DateTimeOffset?)item.CreatedAt);
+            __builder.CloseComponent();
+        },
         ["IsActive"] = item => __builder =>
         {
             __builder.OpenComponent<StatusBadge>(0);

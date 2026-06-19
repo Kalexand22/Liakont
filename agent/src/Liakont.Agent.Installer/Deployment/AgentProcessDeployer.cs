@@ -6,6 +6,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.ServiceProcess;
 using System.Text;
 using System.Threading.Tasks;
 using Liakont.Agent.Cli.Commands;
@@ -28,6 +29,9 @@ internal sealed class AgentProcessDeployer : IAgentDeployer
     private const string ServiceExecutableName = "Liakont.Agent.exe";
     private const string ConfigFileName = "agent.json";
     private static readonly string[] LineSeparators = { "\r\n", "\n" };
+
+    /// <summary>Délai d'attente du passage « En cours d'exécution » après le démarrage du service (RB7).</summary>
+    private static readonly TimeSpan ServiceStartTimeout = TimeSpan.FromSeconds(30);
 
     private readonly ISecretProtector _protector;
     private readonly IReadOnlyCollection<string> _knownAdapters;
@@ -87,6 +91,12 @@ internal sealed class AgentProcessDeployer : IAgentDeployer
         }
 
         report.Add(serviceMessage);
+
+        // RB7 : démarrer le service IMMÉDIATEMENT (un install réussi = un agent qui tourne). Le service est
+        // enregistré en démarrage AUTOMATIQUE (il repartirait au prochain boot), mais l'opérateur ne doit pas
+        // avoir à le lancer à la main après l'assistant. Un échec de démarrage NE défait PAS l'install (le
+        // service reste enregistré) : on le signale en avertissement avec l'action corrective (CLAUDE.md n°12).
+        report.Add(TryStartService(instance));
         return new DeploymentOutcome(true, report);
     }
 
@@ -167,6 +177,54 @@ internal sealed class AgentProcessDeployer : IAgentDeployer
                 $"[ÉCHEC] {(uninstall ? "Désinstallation" : "Installation")} du service « {instance.ServiceName} » : " +
                 $"{ex.Message} Relancez l'installeur en tant qu'administrateur.";
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Démarre le service de l'instance et attend qu'il passe « En cours d'exécution » (RB7). Renvoie une
+    /// ligne de rapport (français, CLAUDE.md n°12) : succès, déjà démarré, ou avertissement avec l'action
+    /// corrective si le démarrage automatique échoue (le service reste installé, l'install n'est pas défaite).
+    /// <para>
+    /// COUVERTURE : comme tout le déployeur de PRODUCTION (E/S réelles : <see cref="TryRunServiceInstaller"/>,
+    /// écriture de agent.json), ce chemin pilote le SCM Windows réel (<see cref="ServiceController"/>, non
+    /// mockable sans abstraction). Il n'est donc PAS couvert par un test unitaire (les tests passent par le
+    /// fake <c>RecordingDeployer</c>) : le démarrage EFFECTIF est vérifié en RECETTE manuelle (RB7). On
+    /// n'extrait pas d'<c>IServiceController</c> tant que ce besoin de testabilité ne se concrétise pas
+    /// (pas de sur-architecture au stade build).
+    /// </para>
+    /// </summary>
+    private static string TryStartService(AgentInstance instance)
+    {
+        try
+        {
+            using (var controller = new ServiceController(instance.ServiceName))
+            {
+                if (controller.Status == ServiceControllerStatus.Running)
+                {
+                    return $"[OK]    Service « {instance.ServiceName} » déjà en cours d'exécution.";
+                }
+
+                if (controller.Status != ServiceControllerStatus.StartPending)
+                {
+                    controller.Start();
+                }
+
+                controller.WaitForStatus(ServiceControllerStatus.Running, ServiceStartTimeout);
+                return $"[OK]    Service « {instance.ServiceName} » démarré (en cours d'exécution).";
+            }
+        }
+        catch (System.ServiceProcess.TimeoutException)
+        {
+            return
+                $"[!]     Service « {instance.ServiceName} » installé mais pas encore passé « En cours d'exécution » " +
+                $"dans le délai imparti. Consultez les journaux de l'agent ; au besoin, démarrez-le via les " +
+                $"Services Windows ou « sc start {instance.ServiceName} ».";
+        }
+        catch (Exception ex) when (ex is InvalidOperationException || ex is Win32Exception)
+        {
+            return
+                $"[!]     Service « {instance.ServiceName} » installé mais le démarrage automatique a échoué : " +
+                $"{ex.Message} Démarrez-le via les Services Windows ou « sc start {instance.ServiceName} ».";
         }
     }
 

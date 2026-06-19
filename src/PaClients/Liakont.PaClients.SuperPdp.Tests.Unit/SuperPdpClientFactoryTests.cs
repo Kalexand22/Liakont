@@ -26,6 +26,18 @@ public sealed class SuperPdpClientFactoryTests
     }
 
     [Fact]
+    public void AuthMode_Is_OAuth2_So_The_Console_Presents_Client_Id_And_Secret()
+    {
+        // Option 1 (PAS) : SuperPDP déclare OAuth2 (client_id + client_secret), pas une clé API unique.
+        // La console lit ce mode via le registre pour présenter les bons champs (jamais if (pa is SuperPdp)).
+        var factory = new SuperPdpClientFactory(
+            new FakeHttpClientFactory(StubHttpMessageHandler.Returns(HttpStatusCode.OK, "{}")),
+            new StubAccountResolver(Config));
+
+        factory.AuthMode.Should().Be(PaAuthMode.OAuth2ClientCredentials);
+    }
+
+    [Fact]
     public void Create_Builds_A_SuperPdpClient_With_The_Declared_Capabilities()
     {
         var factory = new SuperPdpClientFactory(

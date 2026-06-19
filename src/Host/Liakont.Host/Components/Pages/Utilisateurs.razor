@@ -1,0 +1,355 @@
+@page "/clients/{TenantId}/utilisateurs"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = LiakontPermissions.Supervision)]
+@using Liakont.Host.Clients
+@using Liakont.Host.Security
+@using Liakont.Host.Security.Abstractions
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.Extensions.Logging
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.Abstractions.MultiTenancy
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@inject ITenantUserManagementService UserManagement
+@inject ITenantUserProvisioningService UserProvisioning
+@inject ITenantQueries TenantQueries
+@inject NavigationManager Nav
+@inject ILogger<Utilisateurs> Logger
+
+@* Écran « Utilisateurs » d'un client (RB4 inc1) : gérer les comptes du tenant DEPUIS la console,
+ * sans console Keycloak — lister, créer, réinitialiser le mot de passe. Réservé à l'OPÉRATEUR
+ * d'instance (liakont.supervision, même garde que Clients). 100 % français. *@
+
+<PageTitle>Utilisateurs — @_tenantName</PageTitle>
+
+<div class="utilisateurs-header">
+    <a href="/clients" class="utilisateurs-back" data-testid="users-back">← Clients</a>
+    <h1>Utilisateurs — @_tenantName</h1>
+</div>
+
+@if (_loadFailed)
+{
+    <LiakontAlert TestId="users-error">@_loadError</LiakontAlert>
+}
+else
+{
+    @if (_feedback is not null)
+    {
+        <div class="clients-feedback @(_feedbackError ? "clients-feedback--error" : "clients-feedback--ok")"
+             role="@(_feedbackError ? "alert" : "status")" data-testid="users-feedback">
+            @_feedback
+        </div>
+    }
+
+    <button type="button" class="liakont-btn liakont-btn--primary" data-testid="users-create-btn"
+            @onclick="OpenCreateDialog">+ Nouvel utilisateur</button>
+
+    <DeclaredListPage @key="_epoch"
+                      TItem="TenantUserLine"
+                      Title="Utilisateurs"
+                      TestId="users"
+                      LoadItems="LoadItemsAsync"
+                      DetailUrl="@(_ => Nav.Uri)"
+                      ColumnRegistry="_registry"
+                      ColumnTemplates="_columnTemplates"
+                      GridKey="Liakont.TenantUsers"
+                      RowActions="_rowActions"
+                      AriaLabel="Liste des utilisateurs du client"
+                      DefaultSortColumn="Username"
+                      DefaultSortDirection="SortDirection.Ascending"
+                      SearchPlaceholder="Rechercher un utilisateur… (raccourci : /)">
+        <EmptyContent>
+            <p data-testid="users-empty">Aucun utilisateur — créez le premier via « Nouvel utilisateur ».</p>
+        </EmptyContent>
+    </DeclaredListPage>
+}
+
+@if (_showCreate)
+{
+    <div class="liakont-dialog-backdrop" data-testid="users-create-dialog">
+        <div class="liakont-dialog" role="dialog" aria-modal="true" aria-label="Nouvel utilisateur">
+            <h2>Nouvel utilisateur</h2>
+            <div class="form-group">
+                <label for="u-username">Identifiant (login)</label>
+                <input id="u-username" data-testid="users-create-username" @bind="_newUsername"
+                       autocomplete="off" placeholder="ex. j.durand" />
+            </div>
+            <div class="form-group">
+                <label for="u-displayname">Nom affiché</label>
+                <input id="u-displayname" data-testid="users-create-displayname" @bind="_newDisplayName"
+                       autocomplete="off" placeholder="ex. Jean Durand" />
+            </div>
+            <div class="form-group">
+                <label for="u-email">E-mail</label>
+                <input id="u-email" type="email" data-testid="users-create-email" @bind="_newEmail"
+                       autocomplete="off" placeholder="ex. jean.durand@client.fr" />
+            </div>
+            <div class="form-group">
+                <label for="u-role">Rôle</label>
+                <select id="u-role" data-testid="users-create-role" @bind="_newRole">
+                    @foreach (var role in LiakontRealmRoles.Descriptions)
+                    {
+                        <option value="@role.Key">@role.Key — @role.Value</option>
+                    }
+                </select>
+            </div>
+            @if (_dialogError is not null)
+            {
+                <p class="clients-feedback--error" role="alert" data-testid="users-create-error">@_dialogError</p>
+            }
+            <div class="liakont-dialog__actions">
+                <button type="button" class="liakont-btn" @onclick="CloseDialogs" disabled="@_busy">Annuler</button>
+                <button type="button" class="liakont-btn liakont-btn--primary" data-testid="users-create-submit"
+                        @onclick="CreateUserAsync" disabled="@_busy">Créer</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_resetTarget is { } target)
+{
+    <div class="liakont-dialog-backdrop" data-testid="users-reset-dialog">
+        <div class="liakont-dialog" role="dialog" aria-modal="true" aria-label="Réinitialiser le mot de passe">
+            <h2>Réinitialiser le mot de passe</h2>
+            <p>Réinitialiser le mot de passe de <strong>@target.Username</strong> ? Un mot de passe
+               temporaire sera généré (changement forcé à la prochaine connexion).</p>
+            @if (_dialogError is not null)
+            {
+                <p class="clients-feedback--error" role="alert" data-testid="users-reset-error">@_dialogError</p>
+            }
+            <div class="liakont-dialog__actions">
+                <button type="button" class="liakont-btn" @onclick="CloseDialogs" disabled="@_busy">Annuler</button>
+                <button type="button" class="liakont-btn liakont-btn--primary" data-testid="users-reset-submit"
+                        @onclick="ResetPasswordAsync" disabled="@_busy">Réinitialiser</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_secretToShow is { } secret)
+{
+    <div class="liakont-dialog-backdrop" data-testid="users-secret-dialog">
+        <div class="liakont-dialog" role="dialog" aria-modal="true" aria-label="Mot de passe temporaire">
+            <h2>Mot de passe temporaire</h2>
+            <p>Communiquez ce mot de passe à l'utilisateur. Il ne sera <strong>plus jamais affiché</strong> ;
+               l'utilisateur devra le changer à la première connexion.</p>
+            <pre class="utilisateurs-secret" data-testid="users-secret-value">@secret</pre>
+            <div class="liakont-dialog__actions">
+                <button type="button" class="liakont-btn liakont-btn--primary" @onclick="CloseSecret">J'ai noté</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string TenantId { get; set; } = string.Empty;
+
+    private readonly TenantUserColumnRegistry _registry = new();
+    private readonly Dictionary<string, RenderFragment<TenantUserLine>> _columnTemplates;
+    private readonly IReadOnlyList<GridRowAction<TenantUserLine>> _rowActions;
+
+    private IReadOnlyList<TenantUserLine> _lines = [];
+    private string _tenantName = string.Empty;
+    private bool _loadFailed;
+    private string? _loadError;
+    private int _epoch;
+
+    private string? _feedback;
+    private bool _feedbackError;
+
+    private bool _showCreate;
+    private TenantUserLine? _resetTarget;
+    private string? _secretToShow;
+    private string? _dialogError;
+    private bool _busy;
+
+    private string _newUsername = string.Empty;
+    private string _newDisplayName = string.Empty;
+    private string _newEmail = string.Empty;
+    private string _newRole = "lecture";
+
+    public Utilisateurs()
+    {
+        _columnTemplates = new Dictionary<string, RenderFragment<TenantUserLine>>
+        {
+            ["Roles"] = line => __builder =>
+            {
+                __builder.AddContent(0, line.Roles.Count == 0 ? "—" : string.Join(", ", line.Roles));
+            },
+            ["Enabled"] = line => __builder =>
+            {
+                __builder.AddContent(0, line.Enabled ? "Actif" : "Désactivé");
+            },
+        };
+
+        _rowActions =
+        [
+            new GridRowAction<TenantUserLine>(
+                Id: "reset-password",
+                Label: "Réinitialiser le mot de passe",
+                Icon: "key",
+                IsQuickAction: true,
+                Callback: line =>
+                {
+                    OpenResetDialog(line);
+                    return Task.CompletedTask;
+                }),
+        ];
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var tenant = await TenantQueries.GetByIdAsync(TenantId);
+            _tenantName = tenant?.DisplayName ?? TenantId;
+        }
+        catch (Exception ex)
+        {
+            _tenantName = TenantId;
+            Logger.LogWarning(ex, "Résolution du nom du client impossible pour {TenantId}.", TenantId);
+        }
+
+        await ReloadAsync();
+    }
+
+    private Task<IReadOnlyList<TenantUserLine>> LoadItemsAsync() => Task.FromResult(_lines);
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _lines = await UserManagement.ListUsersAsync(TenantId);
+            _loadFailed = false;
+            _epoch++;
+        }
+        catch (Exception ex)
+        {
+            _loadFailed = true;
+            _loadError = "Impossible de charger les utilisateurs pour le moment. Réessayez plus tard.";
+            Logger.LogError(ex, "Failed to load tenant users for {TenantId}.", TenantId);
+        }
+    }
+
+    private void OpenCreateDialog()
+    {
+        _feedback = null;
+        _dialogError = null;
+        _newUsername = _newDisplayName = _newEmail = string.Empty;
+        _newRole = "lecture";
+        _showCreate = true;
+    }
+
+    private void OpenResetDialog(TenantUserLine line)
+    {
+        _feedback = null;
+        _dialogError = null;
+        _resetTarget = line;
+
+        // Action rapide de grille : le clic est porté par la grille (StratumDataGrid), pas par la page.
+        // Sans re-render explicite, muter l'état de la page n'affiche PAS le dialogue (cf. motif Clients).
+        StateHasChanged();
+    }
+
+    private void CloseDialogs()
+    {
+        _showCreate = false;
+        _resetTarget = null;
+        _dialogError = null;
+        _busy = false;
+    }
+
+    private void CloseSecret()
+    {
+        _secretToShow = null;
+    }
+
+    private async Task CreateUserAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _dialogError = null;
+        try
+        {
+            var result = await UserProvisioning.ProvisionUserAsync(new TenantUserProvisionRequest
+            {
+                TenantId = TenantId,
+                Username = _newUsername.Trim(),
+                DisplayName = _newDisplayName.Trim(),
+                Email = _newEmail.Trim(),
+                Role = _newRole,
+            });
+
+            if (!result.Success)
+            {
+                _dialogError = result.ErrorMessage ?? "La création a échoué.";
+                return;
+            }
+
+            CloseDialogs();
+            _feedbackError = false;
+            _feedback = result.InvitationEmailSent
+                ? $"Utilisateur « {_newUsername} » créé — une invitation a été envoyée par e-mail."
+                : $"Utilisateur créé. Communiquez le mot de passe temporaire ci-dessous.";
+            if (!result.InvitationEmailSent)
+            {
+                _secretToShow = result.TemporaryPassword;
+            }
+
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            _dialogError = "Une erreur est survenue lors de la création.";
+            Logger.LogError(ex, "Failed to create tenant user for {TenantId}.", TenantId);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ResetPasswordAsync()
+    {
+        if (_busy || _resetTarget is not { } target)
+        {
+            return;
+        }
+
+        _busy = true;
+        _dialogError = null;
+        try
+        {
+            var result = await UserManagement.ResetPasswordAsync(TenantId, target.IdpUserId);
+            if (!result.Success)
+            {
+                _dialogError = result.Error ?? "La réinitialisation a échoué.";
+                return;
+            }
+
+            CloseDialogs();
+            _feedbackError = false;
+            _feedback = result.InvitationEmailSent
+                ? $"Mot de passe de « {target.Username} » réinitialisé — un e-mail a été envoyé."
+                : $"Mot de passe de « {target.Username} » réinitialisé. Communiquez le mot de passe ci-dessous.";
+            if (!result.InvitationEmailSent)
+            {
+                _secretToShow = result.TemporaryPassword;
+            }
+        }
+        catch (Exception ex)
+        {
+            _dialogError = "Une erreur est survenue lors de la réinitialisation.";
+            Logger.LogError(ex, "Failed to reset password for {TenantId}.", TenantId);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

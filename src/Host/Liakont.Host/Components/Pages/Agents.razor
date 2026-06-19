@@ -1,7 +1,6 @@
 @page "/agents"
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = LiakontPermissions.Settings)]
-@using System.Globalization
 @using Microsoft.Extensions.Logging
 @using Microsoft.JSInterop
 @using Stratum.Common.Abstractions.Grid
@@ -96,8 +95,6 @@ else
 }
 
 @code {
-    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
-
     private readonly AgentConsoleColumnRegistry _registry = new();
     private readonly IReadOnlyList<GridRowAction<AgentConsoleLine>> _rowActions;
     private readonly Dictionary<string, RenderFragment<AgentConsoleLine>> _columnTemplates;
@@ -168,9 +165,11 @@ else
             },
             ["LastSeenUtc"] = item => __builder =>
             {
-                __builder.AddContent(0, item.LastSeenUtc is { } seen
-                    ? seen.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr)
-                    : "jamais");
+                // RB6 : heure au fuseau du NAVIGATEUR (le serveur tourne en UTC) ; « jamais » si aucun battement.
+                __builder.OpenComponent<LiakontDate>(0);
+                __builder.AddAttribute(1, "Value", (DateTimeOffset?)item.LastSeenUtc);
+                __builder.AddAttribute(2, "NullText", "jamais");
+                __builder.CloseComponent();
             },
             ["Version"] = item => __builder =>
             {
@@ -178,7 +177,10 @@ else
             },
             ["CreatedAt"] = item => __builder =>
             {
-                __builder.AddContent(0, item.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy", Fr));
+                __builder.OpenComponent<LiakontDate>(0);
+                __builder.AddAttribute(1, "Value", (DateTimeOffset?)item.CreatedAt);
+                __builder.AddAttribute(2, "DateOnly", true);
+                __builder.CloseComponent();
             },
         };
     }

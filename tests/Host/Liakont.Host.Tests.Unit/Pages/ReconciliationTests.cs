@@ -33,6 +33,7 @@ public sealed class ReconciliationTests : BunitContext
         Services.AddLocalization();
 
         Services.AddCommonUI();
+        Services.AddBrowserTimeZoneStub();
         Services.AddSingleton<IActorContextAccessor>(new FakeActorContextAccessor());
         Services.AddScoped<IGridPreferenceService, NoOpGridPreferenceService>();
         Services.AddScoped<ISavedFilterService, NoOpSavedFilterService>();
@@ -127,6 +128,8 @@ public sealed class ReconciliationTests : BunitContext
         public bool ReconciliationAvailable { get; }
 
         public int ReconciliationPendingCount => 0;
+
+        public bool IsCrossTenantAdmin => false;
 
         public Task EnsureInitializedAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }

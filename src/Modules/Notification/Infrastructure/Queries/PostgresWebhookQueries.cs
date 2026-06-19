@@ -67,7 +67,7 @@ public sealed class PostgresWebhookQueries : IWebhookQueries
         TargetUrl = (string)r.target_url,
         IsActive = (bool)r.is_active,
         CompanyId = (Guid)r.company_id,
-        CreatedAt = (DateTimeOffset)r.created_at,
-        UpdatedAt = (DateTimeOffset?)r.updated_at,
+        CreatedAt = DbTimestamp.ToDateTimeOffset((object)r.created_at),
+        UpdatedAt = DbTimestamp.ToNullableDateTimeOffset((object?)r.updated_at),
     };
 }

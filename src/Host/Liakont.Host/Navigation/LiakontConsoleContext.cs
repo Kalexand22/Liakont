@@ -3,8 +3,10 @@ namespace Liakont.Host.Navigation;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Liakont.Host.Security;
 using Liakont.Modules.Ingestion.Contracts;
 using Liakont.Modules.Reconciliation.Contracts;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.Logging;
 using Stratum.Common.Abstractions.MultiTenancy;
 
@@ -19,6 +21,7 @@ internal sealed partial class LiakontConsoleContext : ILiakontConsoleContext
     private readonly ITenantContext _tenantContext;
     private readonly IIngestedPdfStore _pdfStore;
     private readonly IReconciliationQueries _reconciliationQueries;
+    private readonly AuthenticationStateProvider _authStateProvider;
     private readonly ILogger<LiakontConsoleContext> _logger;
     private bool _initialized;
 
@@ -26,17 +29,21 @@ internal sealed partial class LiakontConsoleContext : ILiakontConsoleContext
         ITenantContext tenantContext,
         IIngestedPdfStore pdfStore,
         IReconciliationQueries reconciliationQueries,
+        AuthenticationStateProvider authStateProvider,
         ILogger<LiakontConsoleContext> logger)
     {
         _tenantContext = tenantContext;
         _pdfStore = pdfStore;
         _reconciliationQueries = reconciliationQueries;
+        _authStateProvider = authStateProvider;
         _logger = logger;
     }
 
     public bool ReconciliationAvailable { get; private set; }
 
     public int ReconciliationPendingCount { get; private set; }
+
+    public bool IsCrossTenantAdmin { get; private set; }
 
     public async Task EnsureInitializedAsync(CancellationToken cancellationToken = default)
     {
@@ -46,6 +53,26 @@ internal sealed partial class LiakontConsoleContext : ILiakontConsoleContext
         }
 
         _initialized = true;
+
+        // RB1 — un super-admin (stratum-admin) opère en CROSS-TENANT : il n'appartient à aucun tenant.
+        // On le détecte une fois à l'ouverture du circuit ; la nav masque alors les surfaces tenant-scopées
+        // et le chrome n'affiche pas de tenant courant. Un hoquet de lecture de l'état d'auth dégrade à
+        // « pas super-admin » (deny-by-default sur le masquage : on n'élargit jamais l'accès par erreur).
+        try
+        {
+            var authState = await _authStateProvider.GetAuthenticationStateAsync().ConfigureAwait(false);
+            IsCrossTenantAdmin = SuperAdminRoles.IsSuperAdmin(authState.User);
+        }
+        catch
+        {
+            IsCrossTenantAdmin = false;
+        }
+
+        if (IsCrossTenantAdmin)
+        {
+            // Cross-tenant : aucune surface tenant n'est rendue (la nav les masque) → rien à pré-charger.
+            return;
+        }
 
         var tenantId = _tenantContext.TenantId;
         if (string.IsNullOrEmpty(tenantId))

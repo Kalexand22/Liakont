@@ -44,6 +44,15 @@ public static class SuperPdpDefaults
     public const string InvoicesPath = "invoices";
 
     /// <summary>
+    /// Chemin relatif de l'entreprise liée au compte OAuth (✅ endpoint confirmé sandbox 2026-06-12 :
+    /// <c>GET /v1.beta/companies/me</c> → <c>{ number, formal_name, … }</c> — F14 §3.2,
+    /// <c>SuperPdpSandboxTests</c>). Sert à LIRE l'état de publication du SIREN : Super PDP n'expose pas de
+    /// <c>tax_report_setting</c> éditable (la vérification KYC de l'entreprise est faite dans l'espace Super
+    /// PDP) — l'entreprise présente avec un <c>number</c>/SIREN = transmission active. Relatif au préfixe de version.
+    /// </summary>
+    public const string CompaniesMePath = "companies/me";
+
+    /// <summary>
     /// Chemin relatif de CONVERSION de format (✅ confirmé sandbox 2026-06-12 :
     /// <c>POST /v1.beta/invoices/convert?from=en16931&amp;to=cii</c> — F14 §3.2). Le converter applique les
     /// règles de validation EN 16931 officielles (<c>BR-*</c>). Relatif au préfixe de version.

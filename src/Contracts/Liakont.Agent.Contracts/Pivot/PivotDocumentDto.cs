@@ -22,9 +22,15 @@ public sealed class PivotDocumentDto
     /// <param name="sourceReference">Identifiant du document dans le système source (réconciliation + audit).</param>
     /// <param name="supplier">
     /// Le vendeur / fournisseur — l'émetteur au sens EN 16931 BG-4 (la SVV / l'entreprise cliente).
+    /// <c>null</c> quand l'agent ne le porte pas : l'émetteur est l'identité du TENANT, REMPLIE par la
+    /// plateforme à l'ingestion depuis le profil tenant (ADR-0023 amendé) — l'agent n'extrait que la base
+    /// source et ne devine jamais le SIREN (CLAUDE.md n°2).
     /// </param>
     /// <param name="totals">Totaux de contrôle (EN 16931 BG-22).</param>
-    /// <param name="operationCategory">Nature de l'opération (mention obligatoire réforme).</param>
+    /// <param name="operationCategory">
+    /// Nature de l'opération (mention obligatoire réforme). <c>null</c> côté agent : remplie par la
+    /// plateforme à l'ingestion depuis le paramétrage fiscal du tenant (ADR-0023 amendé).
+    /// </param>
     /// <param name="currencyCode">Devise ISO 4217 (EN 16931 BT-5). Défaut « EUR ».</param>
     /// <param name="customer">Le destinataire (EN 16931 BG-7) — nul en B2C sans tiers identifié.</param>
     /// <param name="lines">Lignes du document (EN 16931 BG-25).</param>
@@ -53,9 +59,9 @@ public sealed class PivotDocumentDto
         string number,
         DateTime issueDate,
         string sourceReference,
-        PivotPartyDto supplier,
+        PivotPartyDto? supplier,
         PivotTotalsDto totals,
-        OperationCategory operationCategory,
+        OperationCategory? operationCategory,
         string currencyCode = "EUR",
         PivotPartyDto? customer = null,
         IReadOnlyList<PivotLineDto>? lines = null,
@@ -102,14 +108,20 @@ public sealed class PivotDocumentDto
     /// <summary>Identifiant du document dans le système source.</summary>
     public string SourceReference { get; }
 
-    /// <summary>Le vendeur / fournisseur (EN 16931 BG-4).</summary>
-    public PivotPartyDto Supplier { get; }
+    /// <summary>
+    /// Le vendeur / fournisseur (EN 16931 BG-4). <c>null</c> tant que la plateforme ne l'a pas rempli
+    /// depuis le profil tenant à l'ingestion (ADR-0023 amendé).
+    /// </summary>
+    public PivotPartyDto? Supplier { get; }
 
     /// <summary>Totaux de contrôle (EN 16931 BG-22).</summary>
     public PivotTotalsDto Totals { get; }
 
-    /// <summary>Nature de l'opération (mention obligatoire réforme).</summary>
-    public OperationCategory OperationCategory { get; }
+    /// <summary>
+    /// Nature de l'opération (mention obligatoire réforme). <c>null</c> tant que la plateforme ne l'a
+    /// pas remplie depuis le paramétrage fiscal du tenant à l'ingestion (ADR-0023 amendé).
+    /// </summary>
+    public OperationCategory? OperationCategory { get; }
 
     /// <summary>Devise ISO 4217 (EN 16931 BT-5).</summary>
     public string CurrencyCode { get; }

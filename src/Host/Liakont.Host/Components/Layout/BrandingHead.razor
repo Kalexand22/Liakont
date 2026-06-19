@@ -14,7 +14,12 @@
 }
 @if (_colorCss is { Length: > 0 })
 {
-    <style>@_colorCss</style>
+    @* MarkupString = rendu BRUT obligatoire : dans le contenu d'un élément, Blazor HTML-encode les
+       guillemets (" → &quot;) ; or un <style> est du texte BRUT (raw-text) où &quot; n'est PAS décodé,
+       ce qui rendrait le sélecteur :root:not([data-theme="dark"]) INVALIDE → règle ignorée, branding
+       jamais appliqué. Sûr ici : _colorCss = sélecteurs/propriétés CONSTANTS + couleurs hex VALIDÉES
+       (BrandingOptions.IsHexColor), aucune entrée non maîtrisée → pas d'injection possible. *@
+    <style>@((MarkupString)_colorCss)</style>
 }
 
 @code {
@@ -28,34 +33,70 @@
     }
 
     /// <summary>
-    /// Construit la surcharge <c>:root</c> des jetons de thème à partir des seules couleurs hex valides.
-    /// La barre latérale dérive de <c>--color-primary-600/700</c> (tokens.css) ; on surcharge donc la
-    /// rampe primaire ancre, et l'accent surcharge <c>--color-primary-container</c>. Émis au niveau
-    /// <c>:root</c> APRÈS tokens.css : CIBLE LE THÈME CLAIR (barre latérale + CTA). En thème sombre, le socle
-    /// scelle sa palette (fond de barre latérale codé en dur, primaire dark-mode redéfinie — tokens.css) :
-    /// la marque n'y repeint pas la coquille. CONTRAT : <c>PrimaryColor</c> doit être SOMBRE (texte de
-    /// sidebar clair) — voir <see cref="BrandingOptions.PrimaryColor"/>.
+    /// Construit la surcharge des jetons de thème à partir des seules couleurs hex valides, pour un
+    /// recoloriage VISIBLE et GÉNÉRIQUE du chrome (RB5), piloté par la config d'instance — un seul
+    /// mécanisme commun, jamais un spécifique par éditeur, et SANS modifier le socle vendored.
+    /// <list type="bullet">
+    /// <item>THÈME CLAIR (<c>:root:not([data-theme="dark"])</c>) : la rampe primaire ancre suit
+    /// <c>PrimaryColor</c> (la barre latérale dérive de <c>--color-primary-600/700</c> ; les CTA de
+    /// <c>--color-primary</c>) ; <c>AccentColor</c> peint <c>--color-primary-container</c> (hover/secondaire)
+    /// ET <c>--sidebar-active-accent</c> (accent de la ligne SÉLECTIONNÉE — le changement le plus visible).</item>
+    /// <item>THÈME SOMBRE (<c>[data-theme="dark"]</c>) : la barre latérale du socle y est CODÉE EN DUR
+    /// (<c>--sidebar-bg/-header</c>) — on la rebrande explicitement avec <c>PrimaryColor</c>, plus l'accent
+    /// de sélection avec <c>AccentColor</c>, pour un rendu cohérent QUEL QUE SOIT le thème. On ne touche
+    /// PAS <c>--color-primary</c> en sombre (il est éclairci pour le contraste sur surfaces sombres).</item>
+    /// </list>
+    /// Émis APRÈS tokens.css ; spécificité (0,2,0) pour le bloc clair (gagne sans matcher le sombre).
+    /// CONTRAT : <c>PrimaryColor</c> doit être SOMBRE (texte de sidebar clair) — voir
+    /// <see cref="BrandingOptions.PrimaryColor"/>.
     /// </summary>
     private static string? BuildColorCss(BrandingOptions brand)
     {
+        var primary = BrandingOptions.IsHexColor(brand.PrimaryColor) ? brand.PrimaryColor : null;
+        var accent = BrandingOptions.IsHexColor(brand.AccentColor) ? brand.AccentColor : null;
+        if (primary is null && accent is null)
+        {
+            return null;
+        }
+
+        var light = new StringBuilder();
+        if (primary is not null)
+        {
+            light.Append("--color-primary:").Append(primary).Append(';');
+            light.Append("--color-primary-600:").Append(primary).Append(';');
+            light.Append("--color-primary-700:").Append(primary).Append(';');
+        }
+
+        if (accent is not null)
+        {
+            light.Append("--color-primary-container:").Append(accent).Append(';');
+            light.Append("--sidebar-active-accent:").Append(accent).Append(';');
+        }
+
+        var dark = new StringBuilder();
+        if (primary is not null)
+        {
+            dark.Append("--sidebar-bg:").Append(primary).Append(';');
+            dark.Append("--sidebar-bg-header:").Append(primary).Append(';');
+        }
+
+        if (accent is not null)
+        {
+            dark.Append("--color-primary-container:").Append(accent).Append(';');
+            dark.Append("--sidebar-active-accent:").Append(accent).Append(';');
+        }
+
         var sb = new StringBuilder();
-
-        if (BrandingOptions.IsHexColor(brand.PrimaryColor))
+        if (light.Length > 0)
         {
-            sb.Append("--color-primary:").Append(brand.PrimaryColor).Append(';');
-            sb.Append("--color-primary-600:").Append(brand.PrimaryColor).Append(';');
-            sb.Append("--color-primary-700:").Append(brand.PrimaryColor).Append(';');
+            sb.Append(":root:not([data-theme=\"dark\"]){").Append(light).Append('}');
         }
 
-        if (BrandingOptions.IsHexColor(brand.AccentColor))
+        if (dark.Length > 0)
         {
-            sb.Append("--color-primary-container:").Append(brand.AccentColor).Append(';');
+            sb.Append("[data-theme=\"dark\"]{").Append(dark).Append('}');
         }
 
-        // Scopé au thème CLAIR : :root:not([data-theme="dark"]) a une spécificité (0,2,0) — il gagne en
-        // clair mais ne matche JAMAIS sous <html data-theme="dark">, où le socle garde sa palette sombre
-        // scellée (sinon, à spécificité égale avec [data-theme="dark"], ce bloc émis après tokens.css
-        // l'emporterait aussi en sombre). Rend vrai le contrat documenté ci-dessus.
-        return sb.Length == 0 ? null : ":root:not([data-theme=\"dark\"]){" + sb + "}";
+        return sb.Length == 0 ? null : sb.ToString();
     }
 }

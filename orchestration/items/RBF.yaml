@@ -1,0 +1,207 @@
+# Lot RBF — Recette Bucodi Fixes (nuit du 2026-06-18→19, envoi B2B réel vers SuperPDP)
+# Source : tasks/recette-demo-bucodi.md (RB16→RB28) + audit adversarial du working tree
+#          (workflow audit-code-sale, 19 agents) qui a révélé : verify-fast ROUGE (faux-verts)
+#          et 2 hacks (facture soldée d'office + bypass Luhn acheteur), DÉJÀ RETIRÉS en interactif.
+#
+# CONTEXTE : la chaîne d'émission B2B SuperPDP a été exercée de bout en bout en sandbox
+#   (6 factures Issued #79196-79201) au prix de plusieurs correctifs ET de 2 contournements
+#   maintenant retirés. Ce lot = la dette de mise au propre + les findings UI de recette.
+#
+# RECOUPEMENTS (ne pas re-faire) :
+#   - PaSendState.Sending au pipeline = déjà planifié lot PIPE (segment pipe-async, PIPE01).
+#     Le case `Sending → Deferred` a été POSÉ en interactif (anticipe PIPE01) ; RBF03 le verrouille par test.
+#   - Échéance BT-9 dans le PIVOT = EXT01 (déjà fait). RBF01 vise l'ADAPTATEUR SOURCE qui doit la PORTER.
+#
+# Branche de segment : feat/recette-bucodi (base main). Gate humaine GATE_RECETTE_BUCODI (re-recette).
+# ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS merge (RBF01→RBF09 + GATE_RECETTE_BUCODI en `pending`).
+
+items:
+  RBF01:
+    title: "Conformité facture FR : acompte/échéance à la source + mentions légales BR-FR-05"
+    description: |
+      Le contournement « facture soldée d'office » (PaidAmount forcé = TotalGross) a été RETIRÉ de
+      SuperPdpPayloadBuilder (donnée fiscale fabriquée, P1). Conséquence : une facture à montant dû
+      positif sans échéance est désormais REJETÉE par le converter (BR-CO-25) — comportement correct
+      (« bloquer plutôt qu'envoyer faux »). Le vrai correctif :
+      1. L'adaptateur source de la criée (EncheresV6 / DemoErpA) et le seed
+         deployments/demo-local/seed-factures-b2b.ps1 doivent porter l'ACOMPTE réel (PrepaidAmount, BT-113)
+         et/ou l'ÉCHÉANCE réelle (PaymentDueDate, BT-9 — déjà supporté par le pivot via EXT01) depuis la
+         source. Aucune valeur fabriquée.
+      2. Tant que la source ne porte pas cette information, un document à montant dû positif sans échéance
+         doit être BLOQUÉ AU CHECK avec une anomalie Blocking actionnable FR (message opérateur), pas
+         laissé partir pour rejet PA tardif.
+      3. Générer les MENTIONS LÉGALES FR obligatoires (BR-FR-05 : frais de recouvrement PMT, pénalités de
+         retard PMD, escompte/absence AAB) dans les notes du document (BG-1) — vraie fonctionnalité produit,
+         sourcée (code de commerce L441-9 / référentiel DGFiP), jamais un texte inventé non sourcé.
+    acceptance:
+      - "SuperPdpPayloadBuilder n'invente plus aucun acompte (PaidAmount = PrepaidAmount strict)"
+      - "L'adaptateur source porte acompte/échéance réels ; un document sans paiement ni échéance bloque au CHECK"
+      - "Mentions légales FR (PMT/PMD/AAB) émises depuis une source de texte tracée (spec/ADR)"
+      - "Test : une facture criée soldée part ; une facture à dû positif sans échéance bloque au CHECK"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  RBF02:
+    title: "Luhn SIREN : restaurer la garde stricte + dérogation sandbox par PARAMÉTRAGE (hors validateur)"
+    description: |
+      Les SIREN de test des sandboxes PA (000000001/000000002, Luhn invalide) ont été acceptés en
+      relâchant les validateurs PRODUIT — non sourcé (F04 §4.1 n'autorise que La Poste). Déjà retiré :
+      le bypass préfixe « 00000 » sur le SIREN ACHETEUR extrait (Validation.SirenValidator.IsValid). RESTE
+      à mettre au propre :
+      1. TenantSettings.SirenValidator.IsValid : aujourd'hui « tout 9 chiffres » (Luhn retirée en totalité).
+         Restaurer la clé de Luhn par défaut (cohérence avec Validation.SirenValidator).
+      2. SupplierIdentityRule : l'émetteur passe par IsWellFormed (format 9 chiffres, sans Luhn) — décision
+         de recette pour accepter le SIREN sandbox émetteur. La déplacer HORS du validateur produit : une
+         allow-list de SIREN de test SCOPÉE À L'ENVIRONNEMENT DE DÉMO (deployments/<demo>/ ou contexte
+         sandbox issu de PaCapabilities/environnement), de sorte qu'AUCUNE règle de format non sourcée ne
+         subsiste dans le code de prod ; le validateur produit reste Luhn-strict.
+      3. Si une dérogation doit perdurer comme règle produit : l'inscrire dans docs/conception/F04 et
+         F12-A §2 (amendement DATÉ, comme La Poste) + ADR si besoin, et faire pointer le code vers cette
+         source au lieu d'un commentaire « décision Karl ».
+      4. Mettre à jour INV-TENANTSETTINGS-001, INV-VALIDATION-008 et le docstring TenantProfile (« validée
+         Luhn ») pour refléter le comportement réel.
+    acceptance:
+      - "Les deux SirenValidator (TenantSettings + Validation) appliquent Luhn par défaut, critère identique"
+      - "La tolérance des SIREN de test vit dans le paramétrage de déploiement / un contexte sandbox, pas dans le validateur"
+      - "F04/F12-A amendés (ou allow-list paramétrée) ; invariants + docstrings alignés sur le code"
+      - "Tests : SIREN acheteur Luhn-invalide → bloqué ; SIREN sandbox toléré uniquement en contexte démo"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  RBF03:
+    title: "verify-fast vert : réparer le harnais SEND + tester les nouvelles branches (faux-verts)"
+    description: |
+      L'audit a révélé verify-fast ROUGE sur le working tree (faux-verts) : les correctifs RB17/RB20/RB22
+      ont été livrés sans test et cassent les suites.
+      1. SendTenantJobTests / SendTestDoubles : enregistrer un FakeTvaMappingService dans le harnais
+         (cause des 9 échecs SendTenantJob — le SEND appelle désormais ITvaMappingService au read-time, RB20).
+      2. Ajouter ReadyToSend_With_Unmapped_Tva_Regime_Is_Held_Not_Transmitted (miroir du test émetteur) :
+         régime non couvert → StagedReadStatus.TvaUnresolved → HOLD (aucun SendDocumentAsync, aucune archive,
+         run déféré). Grave la symétrie CHECK↔SEND rétablie par RB20.
+      3. Ajouter Pa_Sending_Response_Is_Deferred_Not_Failed (case PaSendState.Sending → Deferred, RB22 —
+         anticipe PIPE01) : un POST 200 « téléversé » n'est ni un succès ni une erreur technique.
+      4. PivotEmitterEnricher : tester la dérivation BT-31 (BuildFrenchIntracomVat) — FR + SIREN bien formé
+         → VatNumber == "FR11123456782" (croisé FrenchVatNumberValidator.IsValid) ; Country != FR / SIREN
+         court / non numérique → null.
+      5. SuperPdpClientCapabilityTests : Ungated_Tax_Report_Setting_Methods_… scelle encore l'ancien no-op
+         (CallCount == 0) alors que Get/EnsureTaxReportSettingAsync font un vrai GET /v1.beta/companies/me —
+         router companies/me (avec/sans `number`), asserter IsActiveOn true/false et le no-op/levée d'Ensure.
+    acceptance:
+      - "Suites Pipeline.Tests.Unit (SendTenantJob) et SuperPdp.Tests.Unit VERTES"
+      - "Branches TvaUnresolved, Sending→Deferred, BuildFrenchIntracomVat couvertes par des tests qui les exercent"
+      - "verify-fast passes (les 11 échecs constatés à l'audit sont résolus)"
+      - "codex-review clean or only accepted P2s"
+
+  RBF04:
+    title: "Amender la spec frontière B2B/B2C (F07-F08) : le B2B identifié est un flux nominal V1"
+    description: |
+      BuyerLooksProfessionalRule ne bloque plus un acheteur IDENTIFIÉ par SIREN (e-invoicing B2B = cœur de
+      la réforme) — décision produit Karl. Mais F07-F08 §A.4/§A.5 dit encore l'inverse (« B2B non disponible
+      en V1 → bloque ») : le code contredit la spec committée.
+      1. Amender docs/conception/F07-F08-Avoirs-Frontiere-B2B-B2C.md §A.4/§A.5 (amendement DATÉ + décision
+         produit) : « acheteur identifié par SIREN ⇒ e-invoicing B2B nominal V1 (routage annuaire) ; le
+         garde-fou ne couvre plus que le pseudo-pro SANS SIREN ».
+      2. Faire pointer le doc-comment de BuyerLooksProfessionalRule + le test vers « F07-F08 §A.4 (amendé) »
+         au lieu de « décision produit Karl, 19/06/2026 ».
+      3. Test d'intégration : un document à acheteur SIREN part en e-invoicing B2B (vers PA) et n'est PAS
+         agrégé dans l'e-reporting B2C — preuve que le déblocage ne recrée pas le manquement F08.
+    acceptance:
+      - "F07-F08 §A.4/§A.5 amendé (daté) ; code et test référencent la spec, pas une décision orale"
+      - "Test prouvant le routage B2B (pas d'agrégation e-reporting B2C) d'un acheteur à SIREN"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  RBF05:
+    title: "Traçabilité SuperPDP + nettoyage des références internes CLAUDE.md dans le code produit"
+    description: |
+      Imprécisions tracées par l'audit (cosmétique, mais à border) :
+      1. SuperPdpDefaults : docstring « ✅ endpoint confirmé sandbox … F14 §3.2 » sur-affirmé pour
+         companies/me — reformuler en « forme vérifiée par SuperPdpSandboxTests ; mapping compte F14 §12 O2
+         partiellement levé ».
+      2. SuperPdpClient : les commentaires invoquent un contrôle KYC company_verification_status jamais lu
+         (le code teste la seule présence de `number`) — aligner le commentaire sur la réalité, ou lire le
+         vrai statut si la sandbox l'expose. Le message KYC actionnable d'EnsureTaxReportSettingAsync est
+         avalé par PaPublicationConsoleService (message générique) → le remonter via résultat typé, ou
+         retirer la prétention « capté/affiché par la console ».
+      3. Balayage RB23 : remplacer les références internes « (CLAUDE.md n°X) » des COMMENTAIRES de code
+         produit par la source spec réelle (F03/F04, EN 16931 BR-S-02) — non visible opérateur, sans urgence.
+         (Vérifié : aucune fuite CLAUDE.md dans un message opérateur/exception runtime du diff de la nuit.)
+    acceptance:
+      - "Docstrings SuperPDP alignées sur le statut réel des endpoints (companies/me = O2 partiel)"
+      - "Message KYC opérateur remonté correctement (ou prétention retirée)"
+      - "Références (CLAUDE.md n°X) des commentaires produit remplacées par les sources spec"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  RBF06:
+    title: "UI : afficher le motif EXACT du rejet PA dans le détail du document (RB27)"
+    description: |
+      Un document « Rejeté » affiche l'état mais pas le retour exact de la Plateforme Agréée — l'opérateur
+      ne sait pas ce qui a posé problème (le motif [BR-CO-25]/[BR-FR-05] n'a pu être lu qu'en SQL dans
+      documents.document_events.pa_response_snapshot). Sur un document Rejeté / en erreur technique, afficher
+      dans le détail le MESSAGE EXACT de la PA (texte + code), l'horodatage et une action corrective, lu
+      depuis pa_response_snapshot / errors[]. Exigence CLAUDE.md n°12 (message opérateur FR + action).
+    acceptance:
+      - "Le détail d'un document Rejeté/erreur montre le message PA exact (code + texte) + horodatage + action"
+      - "Données lues depuis le snapshot de réponse PA persisté (pas de recalcul, pas d'accès base opérateur)"
+      - "Test bUnit de la page de détail sur un document rejeté ; verify-fast passes ; codex-review clean"
+
+  RBF07:
+    title: "UI listes : refresh auto après traitement + bouton Actualiser + bandeau non trompeur (RB26/RB28)"
+    description: |
+      Page Documents : (1) la liste ne se rafraîchit pas après « Lancer un traitement » (il faut recharger
+      la page) ; (2) le bouton « Actualiser » ne re-fetch pas correctement (ni les compteurs d'onglets) ;
+      (3) le bandeau « aucun document émis… N différés (staging absent) » est trompeur — les documents sont
+      en fait téléversés (En cours) et passeront Émis au traitement suivant.
+      1. Re-fetch + recomptage des onglets après un traitement et sur le bouton Actualiser (sans recharger).
+      2. Distinguer « téléversé / en cours d'émission » des « différés (staging absent) » dans le tally et le
+         message ; bandeau INFO (pas rouge) quand des documents sont partis correctement ; rouge réservé aux
+         vrais échecs (rejet / erreur technique).
+    acceptance:
+      - "Le bouton Actualiser et la fin d'un traitement rafraîchissent la liste + les compteurs sans reload"
+      - "Le message de fin de traitement nomme les documents 'en cours d'émission' (pas 'staging absent') et n'est pas rouge en cas de succès"
+      - "Tests UI ; verify-fast passes ; codex-review clean or only accepted P2s"
+
+  RBF08:
+    title: "Préférences utilisateur : appliquer la base dès le login + densité par défaut Standard (RB24/RB25)"
+    description: |
+      Les préférences (thème/densité/pagination) sont écrites en base (IUserPreferencesService) mais
+      l'application LIVE repose sur localStorage et la base n'est ré-appliquée qu'au panneau, pas au login →
+      perdues en changeant de navigateur. De plus la densité par défaut EFFECTIVE (couche JS) est Compact,
+      alors qu'elle doit être Standard.
+      1. Hydrater la préférence base → couche client DÈS le login / le rendu du shell (thème + densité +
+         pagination), pour que la base soit la source appliquée partout, pas seulement dans le panneau.
+         Décider du grid page size (le porter en base aussi, cohérent avec « suit l'utilisateur »).
+      2. Aligner le défaut EFFECTIF de la densité sur Standard (le modèle UserPreferences dit déjà
+         « standard » ; corriger la couche JS / l'hydratation au login). Attention : socle vendored
+         (stratum-ui.js) — extension côté Host si possible, sinon provenance.
+    acceptance:
+      - "La préférence base (thème/densité/pagination) s'applique dès le login, quel que soit le navigateur"
+      - "Densité par défaut = Standard (effectif à l'écran, pas seulement dans le modèle)"
+      - "Tests ; verify-fast passes ; toute modif socle vendored consignée en provenance ; codex-review clean"
+
+  RBF09:
+    title: "Agent : communiquer dès le 1er démarrage automatique du service (heartbeat muet, RB16)"
+    description: |
+      Après installation + auto-démarrage du service LiakontAgent$<instance>, un seul heartbeat est reçu
+      puis l'agent ne pousse plus rien ; un Restart-Service manuel débloque tout. Diagnostiquer la différence
+      entre le démarrage AUTO post-install et le démarrage manuel (timing de lecture config / DPAPI / réseau
+      au boot ?) — lien possible avec RB7 (OPS08b). L'agent doit extraire et émettre dès le 1er démarrage
+      automatique, sans intervention.
+    acceptance:
+      - "Après l'assistant d'installation, l'agent communique (heartbeat + extraction) sans Restart-Service manuel"
+      - "Cause racine identifiée et corrigée (pas un simple retry de contournement)"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  GATE_RECETTE_BUCODI:
+    type: gate
+    executor: human
+    title: "Gate : recette de la mise au propre Bucodi (envoi B2B SuperPDP)"
+    description: |
+      Re-recette humaine après traitement du lot RBF. Valide que la mise au propre de la nuit « envoi B2B
+      réel vers SuperPDP » est complète et conforme : conformité de la facture FR (acompte/échéance réels +
+      mentions légales BR-FR-05), garde Luhn restaurée + dérogation sandbox par paramétrage, verify-fast vert
+      de bout en bout, frontière B2B/B2C sourcée en spec, et les findings UI (motif de rejet PA, refresh des
+      listes, préférences en base, heartbeat agent). Aucun contournement résiduel dans le code de production.
+    acceptance:
+      - "Tous les items RBF01→RBF09 sont done"
+      - "verify-fast passe de bout en bout (build 2 solutions + tests unit + manifest-sanity + NetArchTest)"
+      - "Un envoi B2B SuperPDP réussit via le PRODUIT, sans contournement (acompte/échéance réels, pas de solde fabriqué)"
+      - "Le motif exact d'un rejet PA est visible dans l'UI ; les listes se rafraîchissent ; les préférences suivent l'utilisateur"
+      - "PR du segment feat/recette-bucodi revue et mergée dans main"

@@ -246,6 +246,48 @@ src/Common/Infrastructure/Keycloak/KeycloakRealmProvisioner.cs
 src/Common/Abstractions/MultiTenancy/KeycloakRealmProvisionRequest.cs
 src/Common/Abstractions/MultiTenancy/TenantProvisionResult.cs
 src/Common/Infrastructure/Database/ServiceCollectionExtensions.cs
+src/Common/UI/CommonUIServiceExtensions.cs
+src/Modules/Job/Web/Pages/AdminJobExecutions.razor
+src/Modules/Audit/Web/Pages/AdminAudit.razor
+src/Modules/Audit/Web/Pages/AdminAuditDetail.razor
+src/Modules/Audit/Web/Pages/AdminAuditPolicies.razor
+src/Modules/Audit/Web/Pages/AdminAuditPolicyForm.razor
+src/Modules/Identity/Web/Pages/AdminUsers.razor
+src/Modules/Identity/Web/Pages/AdminUserForm.razor
+src/Modules/Identity/Web/Pages/AdminAgents.razor
+src/Modules/Identity/Web/Pages/AdminAgentForm.razor
+src/Modules/Identity/Web/Pages/AdminTeams.razor
+src/Modules/Identity/Web/Pages/AdminTeamForm.razor
+src/Modules/Identity/Web/Pages/AdminRoleForm.razor
+src/Modules/Identity/Web/Pages/AdminDelegations.razor
+src/Modules/Identity/Web/Pages/AdminDelegationForm.razor
+src/Modules/Notification/Web/Pages/AdminSla.razor
+src/Modules/Notification/Web/Pages/AdminSlaForm.razor
+src/Modules/Notification/Web/Pages/AdminCatalogServiceForm.razor
+src/Modules/Notification/Web/Pages/AdminNotificationRoutingDetail.razor
+src/Modules/Notification/Web/Pages/AdminNotificationTemplates.razor
+src/Modules/Notification/Web/Pages/AdminNotificationRouting.razor
+src/Modules/Notification/Web/Pages/AdminCatalogServices.razor
+src/Modules/Notification/Web/Pages/AdminWebhookSubscriptions.razor
+src/Modules/Notification/Web/Pages/AdminIntegrations.razor
+<!-- §4.36 — lecture timestamptz via DbTimestamp (casts directs (DateTimeOffset)row.x corriges) -->
+src/Modules/Job/Infrastructure/PostgresJobUnitOfWork.cs
+src/Modules/Job/Infrastructure/Queries/PostgresScheduleQueries.cs
+src/Modules/Job/Infrastructure/Queries/PostgresJobExecutionsQueries.cs
+src/Modules/Notification/Infrastructure/PostgresNotificationUnitOfWork.cs
+src/Modules/Notification/Infrastructure/Queries/PostgresApiKeyQueries.cs
+src/Modules/Notification/Infrastructure/Queries/PostgresIntegrationConfigQueries.cs
+src/Modules/Notification/Infrastructure/Queries/PostgresWebhookQueries.cs
+src/Modules/Notification/Infrastructure/Queries/PostgresDeliverySlaQueries.cs
+src/Modules/Notification/Infrastructure/Queries/PostgresServiceDefinitionQueries.cs
+src/Modules/Notification/Infrastructure/Queries/PostgresDeliveryRecordQueries.cs
+src/Modules/Notification/Infrastructure/Queries/PostgresRoutingRuleQueries.cs
+src/Modules/Notification/Infrastructure/Queries/PostgresEmailTemplateQueries.cs
+src/Modules/Identity/Infrastructure/PostgresIdentityUnitOfWork.cs
+src/Modules/Identity/Infrastructure/Queries/PostgresDelegationQueries.cs
+src/Modules/Identity/Infrastructure/Queries/PostgresIdentityQueries.cs
+src/Modules/Identity/Infrastructure/Queries/PostgresAgentQueries.cs
+src/Modules/Identity/Infrastructure/Queries/PostgresTeamQueries.cs
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -796,6 +838,167 @@ est **stable** entre 2024.12.3 et 2025.7.4. **Aucun nouveau package** (ADR-0023 
 RACINE n'est donc PAS détecté automatiquement (il passe `verify-fast` au vert sans alerte). La présente
 consignation comble ce trou côté **traçabilité** ; étendre la garde à la config racine est un item
 d'outillage de suivi (hors périmètre FX02).
+
+### 4.31 `Stratum.Common.UI` — affichage des dates au fuseau du NAVIGATEUR (RB6)
+
+**Motif** : les horodatages s'affichaient en UTC (le serveur tourne en UTC ; `ToLocalTime()` côté Blazor
+Server ne convertit rien — il donne l'heure SERVEUR). Le correctif RB6 vise les pages Host (Liakont) ET les
+pages d'admin du socle (`Stratum.Modules.*` : Audit/Identity/Job/Notification). Le composant partagé est donc
+placé dans `Stratum.Common.UI` (RCL commune référencée par tous) — sinon les pages socle, qui ne référencent
+pas le Host, ne pourraient pas l'utiliser (dépendance socle→app interdite). NB : la sonde `<BrowserTimeProbe>`
+vit dans le shell Host (`ErpShellLayout`) ; les pages d'admin socle sont routées DANS l'app Host sous ce shell
+→ elles partagent le CIRCUIT et bénéficient du fuseau résolu (service scopé/circuit, résolu 1× par n'importe
+quelle page du shell). Une page socle servie hors de ce shell resterait en UTC (non applicable ici — toutes les
+pages transitent par `ErpShellLayout`).
+
+**Changement** :
+- AJOUTS (fichiers NEUFS — non épinglés par la garde, cf. §4.30 « Files ADDED later … are ignored ») :
+  `Time/IBrowserTimeZone.cs`, `Time/BrowserTimeZone.cs`, `Time/LiakontDateDisplay.cs`,
+  `Components/LiakontDate.razor`, `Components/BrowserTimeProbe.razor`, `wwwroot/js/liakont-time.js`.
+  `IBrowserTimeZone` (scopé/circuit) résout le fuseau via JS interop (`liakontTime.getTimeZone`, IANA →
+  `TimeZoneInfo`, repli UTC sans exception, mémorisé). `<LiakontDate>` formate au fuseau résolu (repli UTC
+  EXPLICITE avant résolution, jamais une fausse heure locale). `<BrowserTimeProbe>` (au layout Host) résout 1×/circuit.
+- MODIFICATION (fichier ÉPINGLÉ) : `src/Common/UI/CommonUIServiceExtensions.cs` — `AddCommonUI()` enregistre
+  désormais `AddScoped<IBrowserTimeZone, BrowserTimeZone>` (auto-suffisance : un hôte qui appelle `AddCommonUI()`
+  + rend `<LiakontDate>`/`<BrowserTimeProbe>` n'a rien d'autre à câbler).
+- Noms à marque « Liakont » ASSUMÉS dans le socle (le no-touch socle n'est pas une exigence produit) ; à
+  neutraliser le jour d'une re-convergence amont Stratum (§6).
+
+**Vérification** : `verify-fast` vert (build 2 solutions + analyzers + tests unitaires, dont
+`tests/Host/Liakont.Host.Tests.Unit/Time/*` : helper DST/UTC-fallback/null, service mapping/mémorisation/
+repli, bUnit `<LiakontDate>`/sonde). `CommonUIServiceExtensions.cs` (modifié, épinglé) consigné dans le bloc
+`SOCLE-CONSIGNED-DRIFT` — **baseline HEAD INCHANGÉ** (pas de re-pin en masse qui mélangerait des fichiers
+étrangers à RB6). Les 6 ajouts ne sont pas épinglés (garde par conception) — tracés ici uniquement.
+
+### 4.32 `Stratum.Modules.Job.Web` — horodatages d'admin Job au fuseau navigateur (RB6 P2)
+
+**Motif** : suite de RB6 (§4.31) — les pages d'admin du socle affichaient l'heure UTC/serveur. Migration des
+horodatages d'ÉVÉNEMENT vers `<LiakontDate>` (composant socle, §4.31).
+
+**Changement** — RÈGLE : les ÉVÉNEMENTS passent au fuseau du NAVIGATEUR (`<LiakontDate>`) ; les PRÉVISIONS serveur
+restent en UTC EXPLICITE (le cron est interprété en UTC — afficher une prévision en heure locale induirait en
+erreur, car le job fire à l'heure UTC ; cohérence + honnêteté du fuseau) :
+- `AdminJobSchedules.razor` : LastRunAt (ÉVÉNEMENT) → `<LiakontDate>` ; NextRunAt (PRÉVISION cron) → UTC explicite.
+  DÉJÀ au bloc `SOCLE-CONSIGNED-DRIFT` (items Job antérieurs).
+- `AdminJobScheduleForm.razor` : Créé/Modifié le (ÉVÉNEMENTS) → `<LiakontDate>` ; aperçu cron (PRÉVISION) → UTC
+  explicite (cohérent avec le titre « (UTC) » et avec NextRunAt). DÉJÀ au bloc.
+- `AdminJobExecutions.razor` : CreatedAt/StartedAt/CompletedAt (exécutions = ÉVÉNEMENTS) → `<LiakontDate>` (helper
+  `RenderLocalDate`) ; `FormatUtc`/`FrCulture` retirés (orphelins). AJOUTÉ au bloc `SOCLE-CONSIGNED-DRIFT`.
+
+**Vérification** : `verify-fast` vert ; `Host.Tests.Unit` 963/963 (les tests des pages Job appellent `AddCommonUI()`
+qui fournit désormais `IBrowserTimeZone` → aucun échec DI ; repli UTC en bUnit, aucune assertion de date cassée).
+La localisation est couverte au niveau composant (`LiakontDateTests`/`LiakontDateDisplayTests`).
+
+### 4.33 `Stratum.Modules.Audit.Web` — horodatages d'admin Audit au fuseau navigateur (RB6 P2)
+
+**Motif** : suite de RB6 (§4.31/§4.32) — mêmes pages d'admin du socle affichant l'heure UTC/serveur. Module Audit :
+**que des ÉVÉNEMENTS** (aucune prévision serveur, aucune date de validité) → tous migrés vers `<LiakontDate>`.
+
+**Changement** :
+- `AdminAuditDetail.razor` : date du fait (`ActivityDto.CreatedAt`, format `yyyy-MM-dd HH:mm:ss`) et heure d'un
+  changement de champ (`FieldChangeDto.OccurredAt`, format `HH:mm:ss`) → `<LiakontDate>` (formats conservés).
+- `AdminAuditPolicyForm.razor` : « Créé le » / « Modifié le » de la section Audit (`CreatedAt`/`UpdatedAt`) →
+  `<LiakontDate>` (les 2 blocs dupliqués création/vue).
+- `AdminAudit.razor` : colonne « Date » du journal (`CreatedAt`, visible par défaut) — `ColumnTemplate` AJOUTÉ avec
+  `<LiakontDate>` (la grille rendait sinon le `DateTimeOffset` serveur brut via `value.ToString()`).
+- `AdminAuditPolicies.razor` : colonnes « Créé le » (visible) ET « Modifié le » (`defaultVisible:false`) — `ColumnTemplate`
+  AJOUTÉ avec `<LiakontDate>` pour les deux.
+
+**Périmètre RB6 — colonnes de grille masquées par défaut MAIS activables = MIGRÉES** : une colonne Date
+`defaultVisible:false` (ex. « Modifié le » d'`AdminAuditPolicies`, `CreatedAt` masqués d'Identity §4.34) reste
+ACTIVABLE par l'opérateur ; sans template elle rendrait le `DateTimeOffset` serveur brut (`value.ToString()`) — le
+même bug de fuseau que RB6 corrige, et une incohérence avec sa colonne sœur. Donc on les migre. Test : la préférence
+de grille stub (`FakeGridPreferenceService`) force la colonne visible pour exercer son template (sinon la grille
+retombe sur les colonnes par défaut et le template ne serait jamais rendu — faux-vert évité). En revanche les dates
+de VALIDITÉ (`DateOnly`/jour : ValidFrom/ValidUntil de délégation, HireDate, échéances) restent telles quelles.
+
+Les registres (`AuditEntryColumnRegistry`/`AuditPolicyColumnRegistry`) **ne sont pas touchés** (migration via le
+`.razor`, comme pour Job). Les 4 `.razor` sont AJOUTÉS au bloc `SOCLE-CONSIGNED-DRIFT`.
+
+**Vérification** : `verify-fast` vert ; tests bUnit ajoutés par page (`AdminAuditTests`, `AdminAuditDetailTests`,
+`AdminAuditPoliciesTests`, `AdminAuditPolicyFormTests`) via stubs partagés (`AdminPageTestServices.AddAdminPageStubs`) —
+repli UTC déterministe en bUnit (sonde absente). La localisation reste couverte au niveau composant.
+
+### 4.34 `Stratum.Modules.Identity.Web` — horodatages d'admin Identity au fuseau navigateur (RB6 P2)
+
+**Motif** : suite de RB6 (§4.31→§4.33). Module Identity = ÉVÉNEMENTS migrés vers `<LiakontDate>` ; **dates de
+VALIDITÉ laissées** (convertir au fuseau décalerait le jour).
+
+**Changement — ÉVÉNEMENTS migrés** :
+- `AdminUsers.razor` : colonne « Dernière connexion » (`LastLoginAt`, visible) → `<LiakontDate>` (cas null « Jamais » conservé).
+- `AdminUserForm.razor` : « Dernière connexion » de la section Audit → `<LiakontDate>`.
+- `AdminAgentForm.razor` : « Créé le » / « Modifié le » (section Audit) → `<LiakontDate>`.
+- `AdminTeamForm.razor` : « Depuis le » des membres (`JoinedAt`, visible, jour) → `<LiakontDate DateOnly>` ; « Créé le » /
+  « Modifié le » (Audit) → `<LiakontDate>`.
+- `AdminRoleForm.razor` : « Créé le » (Audit) → `<LiakontDate>`.
+- `AdminDelegationForm.razor` : « Créé le » (Audit) → `<LiakontDate>`.
+- `AdminAgents.razor` / `AdminTeams.razor` / `AdminDelegations.razor` : colonne « Créé le » (`defaultVisible:false` mais
+  ACTIVABLE) → `ColumnTemplate` `<LiakontDate>` (cohérence ; testée via `FakeGridPreferenceService` forçant la visibilité).
+
+**Dates LAISSÉES (validité / jour)** : `ValidFrom`/`ValidUntil` de délégation (`AdminDelegations` colonnes + `AdminDelegationForm`
+inputs), `HireDate` et compétence `ValidUntil` (`AdminAgentForm`, `DateOnly`). Les calculs de statut (`DateTimeOffset.UtcNow`
+comparé à ValidFrom/ValidUntil) ne sont pas des affichages → inchangés.
+
+Les registres `*ColumnRegistry.cs` **ne sont pas touchés**. Les 9 `.razor` sont AJOUTÉS au bloc `SOCLE-CONSIGNED-DRIFT`.
+`AdminRoles.razor` (liste) n'a aucune date → non modifié, hors périmètre.
+
+**Vérification** : `verify-fast` vert ; 1 test bUnit par page modifiée (`AdminUsersTests`, `AdminUserFormTests`,
+`AdminAgentsTests`, `AdminAgentFormTests`, `AdminTeamsTests`, `AdminTeamFormTests`, `AdminRoleFormTests`,
+`AdminDelegationsTests`, `AdminDelegationFormTests`) + fakes de query partagés ; assertion discriminante sur
+`AdminDelegations` (ValidFrom rendue SANS suffixe « UTC » → preuve qu'elle est laissée).
+
+### 4.35 `Stratum.Modules.Notification.Web` — horodatages d'admin Notification au fuseau navigateur (RB6 P2)
+
+**Motif** : suite de RB6 (§4.31→§4.34) — dernier module d'admin du socle. ÉVÉNEMENTS migrés vers `<LiakontDate>` ;
+ÉCHÉANCES/DURÉES/dates de VALIDITÉ laissées.
+
+**Changement — ÉVÉNEMENTS migrés** :
+- `AdminSla.razor` : colonne « Modifié le » (`UpdatedAt ?? CreatedAt`, onglet Config, `<StratumColumn>`) + « Envoyé le »
+  (`SentAt` d'un breach, onglet Monitoring) → `<LiakontDate>`.
+- `AdminSlaForm.razor` / `AdminCatalogServiceForm.razor` / `AdminNotificationRoutingDetail.razor` : « Créé le » /
+  « Modifié le » (section Audit) → `<LiakontDate>`.
+- `AdminNotificationTemplates.razor` : colonne « Dernière modif. » (`UpdatedAt ?? CreatedAt`, visible) + « Créé le »
+  (masquée activable) → `ColumnTemplate` `<LiakontDate>`.
+- `AdminNotificationRouting.razor` / `AdminCatalogServices.razor` : colonne « Créé le » (masquée activable) → `<LiakontDate>`.
+- `AdminWebhookSubscriptions.razor` : « Créé le » (visible) + « Modifié le » (masquée activable) → `<LiakontDate>`.
+- `AdminIntegrations.razor` : colonne « Créée le » des clés API (`CreatedAt`, visible) → `<LiakontDate>`.
+
+**LAISSÉES** : `SlaCountdown` (échéances SLA calculées), durées (`MaxDelaySeconds`/`FormatDelay`, `DefaultSlaHours`,
+intervalle de sync, `SimulationDuration`), et la date d'EXPIRATION de clé API `ApiKey.ExpiresAt` (date de
+validité/échéance). `AdminNotificationTemplateDetail`/`AdminNotificationPreview` : strings d'exemple, non concernés.
+
+Les registres `*ColumnRegistry.cs` **ne sont pas touchés**. Les 9 `.razor` sont AJOUTÉS au bloc `SOCLE-CONSIGNED-DRIFT`.
+
+**Vérification** : `verify-fast` vert ; 1 test bUnit par page modifiée (`AdminSlaTests`, `AdminSlaFormTests`,
+`AdminCatalogServiceFormTests`, `AdminNotificationRoutingDetailTests`, `AdminNotificationTemplatesTests`,
+`AdminNotificationRoutingTests`, `AdminCatalogServicesTests`, `AdminWebhookSubscriptionsTests`, `AdminIntegrationsTests`)
++ fakes de query ; assertion discriminante sur `AdminIntegrations` (`ExpiresAt` rendue SANS suffixe « UTC »).
+
+### 4.36 Lecture des `timestamptz` — casts directs `(DateTimeOffset)row.x` corrigés (recette RB, bug bloquant)
+
+**Contexte** : en recette (env Bucodi neuf), les pages d'admin du socle (supervision/alertes, admin Job,
+Notification, Identity) levaient `System.InvalidCastException: Invalid cast from 'System.DateTime' to
+'System.DateTimeOffset'`. Npgsql renvoie un `DateTime` (Kind=Utc) pour une colonne `timestamptz` ; le code
+socle lisait ces colonnes par **cast direct** `(DateTimeOffset)row.x` / `(DateTimeOffset?)row.x` et un
+`ExecuteScalar<DateTimeOffset?>`, ce qui échoue à l'exécution. Latent depuis le vendoring (SOL01), masqué
+par les tests bUnit (données mockées, jamais de Postgres réel). Les modules **Liakont** n'étaient pas
+touchés (chacun a un `RowReader` robuste, ex. `TenantSettingsRowReader.ToDateTimeOffset`).
+
+**Correctif** :
+- **AJOUTÉ** `src/Common/Infrastructure/Database/DbTimestamp.cs` (`Stratum.Common.Infrastructure.Database`,
+  fichier Liakont) : `ToDateTimeOffset(object)` / `ToNullableDateTimeOffset(object?)` — même contrat que les
+  RowReader Liakont (`DateTime` → `new DateTimeOffset(SpecifyKind(dt, Utc))`, `DateTimeOffset` inchangé,
+  `null`/`DBNull` → `null`). L'argument est casté en `(object)` à l'appel pour ne pas propager `dynamic`.
+- **MODIFIÉ** (casts directs → `DbTimestamp`) : `Stratum.Modules.Job.Infrastructure` (PostgresJobQueries +
+  `GetLastCompletedAtByTypeAsync` via `object?`, PostgresScheduleQueries, PostgresJobExecutionsQueries,
+  PostgresJobUnitOfWork, PostgresScheduleUnitOfWork) ; `Stratum.Modules.Notification.Infrastructure`
+  (PostgresNotificationUnitOfWork + 8 Queries) ; `Stratum.Modules.Identity.Infrastructure`
+  (PostgresIdentityUnitOfWork + Delegation/Agent/Team/Identity Queries). **Audit NON touché** (lisait déjà
+  via `new DateTimeOffset((DateTime)row.x, TimeSpan.Zero)`). Le module Liakont `TvaMapping`
+  (PostgresTvaMappingQueries, `occurred_at`) est corrigé de la même façon (hors socle).
+
+**Vérification** : build Release `0/0` (StyleCop) ; `DbTimestampTests` (unitaire) ; recette manuelle des
+pages admin socle (plus d'`InvalidCastException`). Aucun `*ColumnRegistry` ni `.razor` touché.
 
 ## 5. ADR du socle hérités
 

@@ -58,16 +58,34 @@ public sealed class SupplierIdentityRuleTests
     }
 
     [Fact]
-    public async Task Invalid_issuer_siren_is_blocking()
+    public async Task Malformed_issuer_siren_is_blocking()
     {
+        // L'émetteur (SIREN PARAMÉTRÉ du tenant) n'est plus contrôlé par la clé de Luhn (décision de recette
+        // Karl, 18/06/2026 : autorise les SIREN de test des sandboxes PA), mais le FORMAT (9 chiffres) reste
+        // exigé : un SIREN mal formé est bloquant.
         var companyId = Guid.NewGuid();
-        var rule = new SupplierIdentityRule(new FakeTenantSettingsQueries(Profile(companyId, "123456789"))); // Luhn invalide
+        var rule = new SupplierIdentityRule(new FakeTenantSettingsQueries(Profile(companyId, "12345678"))); // 8 chiffres : mal formé
 
         var issues = await rule.ValidateAsync(Context(companyId));
 
         var issue = issues.Should().ContainSingle().Subject;
         issue.Code.Should().Be(SupplierIdentityRule.SirenInvalid);
         issue.Severity.Should().Be(ValidationSeverity.Blocking);
+    }
+
+    [Fact]
+    public async Task Issuer_siren_with_invalid_luhn_is_accepted()
+    {
+        // Le SIREN ÉMETTEUR PARAMÉTRÉ (donnée de confiance du tenant) n'impose plus la clé de Luhn — autorise
+        // les SIREN de test des sandboxes PA (ex. 000000002 = company « Burger Queen » de la sandbox SuperPDP,
+        // Luhn non satisfaite). Dette RB29 : à terme, dérogation portée par paramétrage/spec, pas en relâchant
+        // le validateur produit.
+        var companyId = Guid.NewGuid();
+        var rule = new SupplierIdentityRule(new FakeTenantSettingsQueries(Profile(companyId, "000000002")));
+
+        var issues = await rule.ValidateAsync(Context(companyId, supplierSiren: "000000002"));
+
+        issues.Should().BeEmpty("le SIREN émetteur paramétré (9 chiffres) est accepté sans clé de Luhn (donnée de confiance).");
     }
 
     [Fact]

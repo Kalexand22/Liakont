@@ -61,7 +61,10 @@
         {
             if (item.LastLoginAt.HasValue)
             {
-                __builder.AddContent(0, item.LastLoginAt.Value.ToString("dd/MM/yyyy HH:mm"));
+                // RB6 : dernière connexion = ÉVÉNEMENT → fuseau du navigateur (serveur en UTC).
+                __builder.OpenComponent<LiakontDate>(0);
+                __builder.AddAttribute(1, "Value", item.LastLoginAt);
+                __builder.CloseComponent();
             }
             else
             {

@@ -56,7 +56,7 @@
                                 <td>@proposal.FileName</td>
                                 <td>@ResolveDocumentNumber(proposal.ProposedDocumentId)</td>
                                 <td>@DescribeProposalReason(proposal)</td>
-                                <td>@FormatInstant(proposal.CreatedUtc)</td>
+                                <td><LiakontDate Value="@proposal.CreatedUtc" /></td>
                                 <td class="liakont-reconciliation__actions">
                                     <StratumButton Text="Aperçu"
                                                    Variant="ButtonVariant.Secondary"
@@ -114,7 +114,7 @@
                             <tr data-testid="reconciliation-orphan">
                                 <td>@orphan.FileName</td>
                                 <td>@orphan.Detail</td>
-                                <td>@FormatInstant(orphan.CreatedUtc)</td>
+                                <td><LiakontDate Value="@orphan.CreatedUtc" /></td>
                                 <td class="liakont-reconciliation__actions">
                                     <StratumButton Text="Aperçu"
                                                    Variant="ButtonVariant.Secondary"
@@ -350,6 +350,4 @@
             ? $"Confiance {proposal.Confidence}"
             : proposal.Detail;
 
-    private static string FormatInstant(DateTimeOffset instant) =>
-        instant.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr);
 }

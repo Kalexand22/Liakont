@@ -28,6 +28,7 @@ public sealed class TreatmentsTests : BunitContext
         // Production Common.UI graph (toast, tab manager, persistent selection, display templates…)
         // so the full DeclaredListPage → StratumDataGrid tree resolves as it does at runtime.
         Services.AddCommonUI();
+        Services.AddBrowserTimeZoneStub();
 
         // Anonymous actor (UserId == Guid.Empty) so DeclaredListPage short-circuits all
         // per-user preference reads/writes — no database required for the render.
@@ -100,9 +101,11 @@ public sealed class TreatmentsTests : BunitContext
             markup.Should().Contain("Manuel");
             markup.Should().Contain("Planifié");
 
-            // Date rendered the French way in LOCAL time (computed identically here so the
-            // assertion is timezone-independent), and the duration surfaced verbatim.
-            var expectedStart = started.ToLocalTime().ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.GetCultureInfo("fr-FR"));
+            // Date rendue à l'heure du NAVIGATEUR (RB6 : <LiakontDate>). Le stub de test pose Europe/Paris :
+            // on calcule l'attendu avec CE fuseau (et non ToLocalTime() de la machine de test, sinon faux-vert
+            // sur un runner CI en UTC où l'heure rendue, Paris, diffère de l'heure machine).
+            var paris = System.TimeZoneInfo.FindSystemTimeZoneById("Europe/Paris");
+            var expectedStart = System.TimeZoneInfo.ConvertTime(started, paris).ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.GetCultureInfo("fr-FR"));
             markup.Should().Contain(expectedStart);
             markup.Should().Contain("1 min 0 s");
         });

@@ -167,6 +167,20 @@ meta:
   #   (retiré si B2C05 n'établit aucune méthode de marge). ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS
   #   merge : B2C01..B2C09b + GATE_B2C_SOURCING + GATE_EREPORTING_B2C en `pending` (B2C01/02/03/05/06/09a
   #   éligibles). Détails : items/B2C.yaml.
+  # version 30 = + segment `chorus-pro` (lot CP : adaptateur Chorus Pro, plug-in PA B2G — plan
+  #   tasks/plan-chorus-pro.md) et segment `pipe-async` (lot PIPE : support PaSendState.Sending au
+  #   pipeline, prérequis transverse D7). « Partie A » (infra OAuth générique : V011, IPaAccountSecretStore,
+  #   SuperPdpAccountResolver) déjà livrée hors orchestration (efbfa4c) ; la base de feat/pa-chorus-pro
+  #   doit la contenir. Items détaillés : orchestration/items/CP.yaml + PIPE.yaml.
+  # version 34 (merge 2026-06-19 avec les redlines RDL/RDF/RD4) = lot RBF (Recette Bucodi Fixes) : dette de la recette « envoi B2B réel vers SuperPDP »
+  #   (nuit 2026-06-18→19 ; 6 factures Issued en sandbox au prix de correctifs + 2 contournements RETIRÉS
+  #   en interactif : « facture soldée d'office » et « bypass Luhn acheteur »). Source :
+  #   tasks/recette-demo-bucodi.md (RB16→RB28) + audit adversarial du working tree (verify-fast ROUGE =
+  #   faux-verts à réparer). 9 items RBF01→RBF09 + GATE_RECETTE_BUCODI (humaine), segment `recette-bucodi`
+  #   (feat/recette-bucodi, base main contenant le code emitter-filled-by-platform), depends_on_gate
+  #   GATE_PA_SUPERPDP. Recoupements : Sending=PIPE01, échéance BT-9=EXT01. Bandes REBANDÉES au merge du
+  #   2026-06-19 (main avait rempli 98xx/99xx/100xx avec RDL/RDF/RD4) : CP=101xx, PIPE=102xx, RBF=103xx.
+  #   ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS merge (RBF01→RBF09 + GATE_RECETTE_BUCODI `pending`).
   # version 31 = nouveau segment `adr-redline-fondateurs` + lot RDF : redline prospectif des ADR fondateurs
   #   (ADR-0001 pivot / ADR-0002 IdP / ADR-0003 stack agent) et descendance, demande de Karl le 2026-06-19
   #   (source : tasks/redline-adr-fondateurs.md ; 32 findings verifies). 18 items RDF01->RDF18 +
@@ -207,7 +221,7 @@ meta:
   #   RDL07 (run partiel). Détail + 12 réfutés : items/RDL.yaml + tasks/redline-adr-005-006-007.md.
   #   ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS merge : RDL01→RDL13 + GATE_ADR_REDLINE en `pending`
   #   (RDL01, RDL02, RDL06, RDL09, RDL10, RDL11, RDL12, RDL13 éligibles — depends_on []).
-  version: 33
+  version: 34
   host: multi_agent_v1
 
 segments:
@@ -346,6 +360,29 @@ segments:
     lots: [B2C]
     gate: GATE_EREPORTING_B2C
     depends_on_gate: [GATE_PIPELINE, GATE_ADAPTER_ENCHERESV6, GATE_CONSOLE_WEB, GATE_FACTURX]
+
+  chorus-pro:
+    branch: feat/pa-chorus-pro
+    # base main DOIT contenir « Partie A » (V011 + IPaAccountSecretStore + SuperPdpAccountResolver, efbfa4c) :
+    # brancher feat/pa-chorus-pro sur un main qui a mergé feat/emitter-filled-by-platform (B5).
+    base: main
+    lots: [CP]
+    gate: GATE_CHORUS_PRO
+    depends_on_gate: GATE_PA_FRAMEWORK
+
+  pipe-async:
+    branch: feat/pipe-async
+    base: main
+    lots: [PIPE]
+    gate: GATE_PIPE_ASYNC
+    depends_on_gate: GATE_PIPELINE
+
+  recette-bucodi:
+    branch: feat/recette-bucodi
+    base: main
+    lots: [RBF]
+    gate: GATE_RECETTE_BUCODI
+    depends_on_gate: GATE_PA_SUPERPDP
 
   adr-redline:
     branch: feat/adr-redline
@@ -676,6 +713,38 @@ items:
   - { id: B2C09a, lot: B2C, priority: 9780, depends_on: [] }
   - { id: B2C09b, lot: B2C, priority: 9790, depends_on: [B2C05, B2C08, B2C09a, B2C03] }
   - { id: GATE_EREPORTING_B2C, type: gate, executor: human, priority: 9799, depends_on: [B2C04, B2C09a, B2C09b] }
+
+  # Lot CP — Adaptateur Chorus Pro (plug-in PA B2G, plan tasks/plan-chorus-pro.md) — détail : items/CP.yaml
+  # Bande REBANDÉE 101xx au merge du 2026-06-19 (main avait pris 98xx pour le lot RDL/adr-redline).
+  - { id: CP01, lot: CP, blueprint: docs-spec-item, priority: 10100, depends_on: [] }
+  - { id: CP02, lot: CP, priority: 10105, depends_on: [] }
+  - { id: CP03, lot: CP, priority: 10110, depends_on: [CP02] }
+  - { id: CP04, lot: CP, priority: 10115, depends_on: [CP03, CP01] }
+  - { id: CP05, lot: CP, priority: 10120, depends_on: [CP03, CP01] }
+  - { id: CP06, lot: CP, priority: 10125, depends_on: [CP02] }
+  - { id: CP07, lot: CP, priority: 10130, depends_on: [CP06] }
+  - { id: CP08, lot: CP, priority: 10135, depends_on: [CP02] }
+  - { id: CP09, lot: CP, priority: 10140, depends_on: [CP04, CP05] }
+  - { id: CP10, lot: CP, priority: 10145, depends_on: [CP02] }
+  - { id: GATE_CHORUS_PRO, type: gate, executor: human, priority: 10190, depends_on: [CP07, CP08, CP09, CP10] }
+
+  # Lot PIPE — Support PA asynchrone (PaSendState.Sending) au pipeline (D7) — détail : items/PIPE.yaml
+  - { id: PIPE01, lot: PIPE, priority: 10200, depends_on: [] }
+  - { id: GATE_PIPE_ASYNC, type: gate, executor: human, priority: 10290, depends_on: [PIPE01] }
+
+  # ── RBF (Recette Bucodi Fixes) — dette de la nuit envoi B2B SuperPDP (2026-06-18→19) ──
+  # Détail + acceptances : items/RBF.yaml. Source : tasks/recette-demo-bucodi.md (RB16→RB28) + audit
+  # code-sale. RB22 (Sending) recoupe PIPE01 ; échéance BT-9 = EXT01. ⚠️ PAS ENCORE seedé (cf. note v30).
+  - { id: RBF01, lot: RBF, priority: 10300, depends_on: [] }
+  - { id: RBF02, lot: RBF, priority: 10305, depends_on: [] }
+  - { id: RBF03, lot: RBF, priority: 10310, depends_on: [] }
+  - { id: RBF04, lot: RBF, blueprint: docs-spec-item, priority: 10315, depends_on: [] }
+  - { id: RBF05, lot: RBF, priority: 10320, depends_on: [] }
+  - { id: RBF06, lot: RBF, blueprint: blazor-page-item, priority: 10325, depends_on: [] }
+  - { id: RBF07, lot: RBF, blueprint: blazor-page-item, priority: 10330, depends_on: [] }
+  - { id: RBF08, lot: RBF, blueprint: blazor-page-item, priority: 10335, depends_on: [] }
+  - { id: RBF09, lot: RBF, priority: 10340, depends_on: [] }
+  - { id: GATE_RECETTE_BUCODI, type: gate, executor: human, priority: 10390, depends_on: [RBF01, RBF02, RBF03, RBF04, RBF05, RBF06, RBF07, RBF08, RBF09] }
 
   # ── RDL (segment adr-redline — redline ADR-0005/0006/0007, manifest v33) ──
   # PLANIFIÉ : APRÈS merge, seeder `pending` RDL01→RDL13 + GATE_ADR_REDLINE dans $ORCH_REPO/state.yaml

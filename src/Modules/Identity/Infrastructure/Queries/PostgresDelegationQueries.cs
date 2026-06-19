@@ -38,11 +38,11 @@ internal sealed class PostgresDelegationQueries : IDelegationQueries
             DelegateId = (Guid)r.delegate_id,
             DelegateName = (string?)r.delegate_name ?? "—",
             Scope = (string)r.scope,
-            ValidFrom = (DateTimeOffset)r.valid_from,
-            ValidUntil = (DateTimeOffset)r.valid_until,
+            ValidFrom = DbTimestamp.ToDateTimeOffset((object)r.valid_from),
+            ValidUntil = DbTimestamp.ToDateTimeOffset((object)r.valid_until),
             Reason = (string?)r.reason,
             IsActive = (bool)r.is_active,
-            CreatedAt = (DateTimeOffset)r.created_at,
+            CreatedAt = DbTimestamp.ToDateTimeOffset((object)r.created_at),
         }).ToList();
     }
 
@@ -74,11 +74,11 @@ internal sealed class PostgresDelegationQueries : IDelegationQueries
             DelegateId = (Guid)r.delegate_id,
             DelegateName = (string?)r.delegate_name ?? "—",
             Scope = (string)r.scope,
-            ValidFrom = (DateTimeOffset)r.valid_from,
-            ValidUntil = (DateTimeOffset)r.valid_until,
+            ValidFrom = DbTimestamp.ToDateTimeOffset((object)r.valid_from),
+            ValidUntil = DbTimestamp.ToDateTimeOffset((object)r.valid_until),
             Reason = (string?)r.reason,
             IsActive = (bool)r.is_active,
-            CreatedAt = (DateTimeOffset)r.created_at,
+            CreatedAt = DbTimestamp.ToDateTimeOffset((object)r.created_at),
         };
     }
 
@@ -108,11 +108,11 @@ internal sealed class PostgresDelegationQueries : IDelegationQueries
             DelegateId = (Guid)r.delegate_id,
             DelegateName = (string?)r.delegate_name ?? "—",
             Scope = (string)r.scope,
-            ValidFrom = (DateTimeOffset)r.valid_from,
-            ValidUntil = (DateTimeOffset)r.valid_until,
+            ValidFrom = DbTimestamp.ToDateTimeOffset((object)r.valid_from),
+            ValidUntil = DbTimestamp.ToDateTimeOffset((object)r.valid_until),
             Reason = (string?)r.reason,
             IsActive = (bool)r.is_active,
-            CreatedAt = (DateTimeOffset)r.created_at,
+            CreatedAt = DbTimestamp.ToDateTimeOffset((object)r.created_at),
         }).ToList();
     }
 }

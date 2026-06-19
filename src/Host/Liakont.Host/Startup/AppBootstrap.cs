@@ -59,6 +59,7 @@ using Liakont.Modules.Transmission.Infrastructure;
 using Liakont.Modules.TvaMapping.Infrastructure;
 using Liakont.Modules.TvaMapping.Web;
 using Liakont.Modules.Validation.Infrastructure;
+using Liakont.PaClients.SuperPdp;
 using Liakont.SignatureProviders.Yousign;
 using MediatR;
 using Microsoft.AspNetCore.Authentication;
@@ -331,6 +332,16 @@ public static class AppBootstrap
         builder.Services.AddSingleton<IFacturXArtifactBuilder, FacturXArtifactBuilder>();
         builder.Services.AddGeneriquePaDelivery();
 
+        // Plug-in PA Super PDP (F14, OAuth2 client_credentials) câblé au COMPOSITION ROOT — seul endroit
+        // autorisé à référencer un plug-in PA concret (CLAUDE.md n°6/14). Le résolveur de compte (déchiffrement
+        // des secrets OAuth2 par tenant via ISecretProtector + lecture de pa_accounts) est fourni par le Host :
+        // le plug-in ne voit pas le coffre. Resolver AVANT la fabrique (AddSuperPdpPaClient en dépend, comme
+        // Yousign). NON gardé par l'environnement (PA réelle, contrairement au Fake) : le « sandbox-only » est
+        // imposé au runtime par SuperPdpAccountConfig.BaseUrl, qui lève en Production tant que PAS03 n'a pas
+        // confirmé l'URL (F14 §12 O1) — on bloque plutôt que d'envoyer faux (CLAUDE.md n°3).
+        builder.Services.TryAddSingleton<ISuperPdpAccountResolver, SuperPdpAccountResolver>();
+        builder.Services.AddSuperPdpPaClient();
+
         // Signature (SIG03, ADR-0027) : registre de types des fournisseurs de signature. Aucun plug-in
         // n'est référencé ici (le module ne connaît AUCUN fournisseur concret — CLAUDE.md n°6) ; chaque
         // plug-in (Yousign = SIG07, Wacom = SIG08) ajoutera sa propre ISignatureProviderFactory en singleton
@@ -563,6 +574,10 @@ public static class AppBootstrap
         // implémentation Keycloak dans la couche d'auth (seul endroit autorisé — décision D10).
         builder.Services.AddScoped<Security.Abstractions.ITenantUserProvisioningService, Security.Keycloak.KeycloakTenantUserProvisioner>();
 
+        // Gestion des utilisateurs de tenant depuis la console (RB4 inc1 : lister + réinitialiser le
+        // mot de passe). Même couche d'auth ; réutilise le client Admin Keycloak (socle, non modifié).
+        builder.Services.AddScoped<Security.Abstractions.ITenantUserManagementService, Security.Keycloak.KeycloakTenantUserManagementService>();
+
         // Application du statut Suspendu (OPS03.4 lot B) : lookup singleton (cache mémoire court,
         // fail-open documenté) consommé par le filtre de push agent, le middleware et le sign-in.
         builder.Services.AddSingleton<MultiTenancy.ITenantSuspensionLookup, MultiTenancy.TenantSuspensionLookup>();
@@ -572,7 +587,9 @@ public static class AppBootstrap
         builder.Services.AddScoped<Clients.IClientConsoleService, Clients.ClientConsoleService>();
 
         // Navigation providers (sidebar)
-        builder.Services.AddSingleton<INavSectionProvider, HostNavSectionProvider>();
+        // Scoped (et non Singleton) : la visibilité de « Accueil » dépend du contexte cross-tenant du
+        // super-admin (ILiakontConsoleContext scopé + HttpContext de la requête) — RB1.
+        builder.Services.AddScoped<INavSectionProvider, HostNavSectionProvider>();
 
         // FIX209 — assainissement de la nav socle (décision opérateur E5, recette GATE_CONSOLE_WEB run 2) :
         // l'« Annuaire » socle (Agents/Équipes/Délégations — collision avec les « Agents d'extraction » Liakont)
@@ -706,6 +723,9 @@ public static class AppBootstrap
         builder.Services.AddScoped<Liakont.Host.Navigation.LiakontConsoleCircuitHandler>();
         builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler>(
             sp => sp.GetRequiredService<Liakont.Host.Navigation.LiakontConsoleCircuitHandler>());
+
+        // Fuseau du NAVIGATEUR (RB6) : enregistré par AddCommonUI() (socle Stratum.Common.UI) avec les autres
+        // services scopés des composants socle — l'hôte n'a rien à enregistrer ici (auto-suffisance du socle).
 
         // Blazor Server-Side Rendering
         builder.Services.AddRazorComponents()

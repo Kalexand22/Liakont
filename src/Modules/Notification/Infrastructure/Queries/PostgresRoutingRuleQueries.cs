@@ -98,8 +98,8 @@ public sealed class PostgresRoutingRuleQueries : IRoutingRuleQueries
             Priority = (int)row.priority,
             IsActive = (bool)row.is_active,
             CompanyId = (Guid?)row.company_id,
-            CreatedAt = (DateTimeOffset)row.created_at,
-            UpdatedAt = (DateTimeOffset?)row.updated_at,
+            CreatedAt = DbTimestamp.ToDateTimeOffset((object)row.created_at),
+            UpdatedAt = DbTimestamp.ToNullableDateTimeOffset((object?)row.updated_at),
         };
     }
 }
