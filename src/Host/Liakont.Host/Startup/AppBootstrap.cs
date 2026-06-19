@@ -661,6 +661,12 @@ public static class AppBootstrap
         // aucun second chemin d'envoi, aucune logique fiscale dans la page (garde liakont.actions, tenant-scopé).
         builder.Services.AddScoped<Liakont.Host.Documents.IDocumentSendActions, Liakont.Host.Documents.DocumentSendActionsService>();
 
+        // Composition EN LECTURE de la page « Démo e-reporting B2C — Essentiel » (B2C04) : assemble les
+        // déclarations 10.3 du tenant courant + leur état (transmis/accusé, bloqué régime non mappé) + la présence
+        // du lien reporting↔pièces (B2C03). Pure composition de contrats existants ; le déclenchement passe par la
+        // voie unique IDocumentSendActions — aucun second chemin d'envoi, aucune logique métier dans la page.
+        builder.Services.AddScoped<Liakont.Host.Demo.IDemoB2cConsoleService, Liakont.Host.Demo.DemoB2cConsoleService>();
+
         // Composition de la page console des signatures/validations (SIG10) : lecture (statut + journal + registre
         // des fournisseurs) et écriture (déclencher / enregistrer / contester). Appels in-process tenant-scopés,
         // délégués aux ports génériques DocumentApproval (SIG04/05) + registre Signature (SIG03) — aucune logique

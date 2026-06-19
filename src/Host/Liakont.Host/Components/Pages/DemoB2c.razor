@@ -1,0 +1,113 @@
+@page "/demo/b2c"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = LiakontPermissions.Read)]
+@using Liakont.Host.Demo
+@using Liakont.Host.Documents
+@using Liakont.Host.Components
+@using Liakont.Host.Security
+@using Stratum.Common.Abstractions.Security
+@using Stratum.Common.UI.Models
+@inject IDemoB2cConsoleService Service
+@inject IDocumentSendActions SendActions
+@inject IPermissionService Permissions
+@inject ILogger<DemoB2c> Logger
+
+<PageTitle>Démo e-reporting B2C — Liakont</PageTitle>
+
+<h1 class="visually-hidden">Démo e-reporting B2C — Essentiel</h1>
+
+@if (_loadFailed)
+{
+    <LiakontAlert TestId="demo-b2c-error">
+        Impossible de charger la démo e-reporting B2C pour le moment. Réessayez plus tard.
+    </LiakontAlert>
+}
+else if (_model is null)
+{
+    <LiakontLoading TestId="demo-b2c-loading" />
+}
+else
+{
+    <DemoB2cView Model="_model"
+                 Busy="_busy"
+                 CanAct="_canAct"
+                 Message="@_message"
+                 IsError="_isError"
+                 OnTrigger="TriggerAsync" />
+}
+
+@code {
+    private DemoB2cViewModel? _model;
+    private bool _loadFailed;
+
+    /// <summary>Permission d'action (liakont.actions) : conditionne l'offre du déclenchement manuel.</summary>
+    private bool _canAct;
+
+    private bool _busy;
+    private string? _message;
+    private bool _isError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Contrôle côté serveur (circuit Blazor Server), non falsifiable côté client. Le déclenchement passe par
+        // la voie UNIQUE IDocumentSendActions (qui re-vérifie liakont.actions côté serveur) — aucun second chemin.
+        _canAct = Permissions.HasPermission(LiakontPermissions.Actions);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _model = await Service.GetAsync();
+            _loadFailed = false;
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the Liakont B2C e-reporting demo page.");
+        }
+    }
+
+    private async Task ReloadAfterActionAsync()
+    {
+        try
+        {
+            _model = await Service.GetAsync();
+        }
+        catch (Exception ex)
+        {
+            // Un échec de RECHARGEMENT après un déclenchement réussi ne doit pas masquer la réussite (leçon WEB09).
+            Logger.LogError(ex, "Failed to reload the Liakont B2C e-reporting demo after a trigger.");
+        }
+    }
+
+    private async Task TriggerAsync()
+    {
+        _busy = true;
+        _message = null;
+        _isError = false;
+
+        try
+        {
+            // Voie UNIQUE : déclenche un traitement du tenant courant (miroir de POST /runs/trigger). L'envoi
+            // proprement dit (anti-doublon, archive WORM, transitions, gel du lien B2C-03 à l'émission) reste
+            // dans le pipeline — aucune logique métier ni second chemin d'envoi ici.
+            var result = await SendActions.TriggerRunAsync();
+            _message = result.Message;
+            _isError = !result.Success;
+            await ReloadAfterActionAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to trigger a run from the Liakont B2C e-reporting demo page.");
+            _message = "Le déclenchement du traitement a échoué. Réessayez plus tard.";
+            _isError = true;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

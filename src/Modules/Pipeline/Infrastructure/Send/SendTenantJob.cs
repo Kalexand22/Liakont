@@ -745,10 +745,47 @@ public sealed partial class SendTenantJob : ITenantJob
             },
             cancellationToken);
 
+        // B2C04 — déclaration e-reporting B2C (flux 10.3) ÉMISE : on GÈLE le lien reporting↔pièces (B2C03) entre
+        // la transmission et sa pièce source (le bordereau acheteur, identifié par la référence source du pivot).
+        // Le lien est figé À L'ÉMISSION (le store est le PRODUCTEUR attendu par IReportingPieceLinkStore), APPEND-ONLY
+        // et idempotent (un Issued ré-examiné par une finalisation anti-doublon ne le ré-insère pas, CLAUDE.md n°4).
+        // Tenant-scopé (companyId résolu sur la connexion courante, n°9). Posé APRÈS MarkIssued (le lien est une
+        // métadonnée de traçabilité aval — l'export contrôle fiscal le consomme — pas une ancre d'idempotence d'envoi).
+        // CIBLÉ sur le marqueur 10.3 : aucune facture/avoir ordinaire ne crée de lien.
+        if (pivot.IsB2cReportingDeclaration && !string.IsNullOrWhiteSpace(pivot.SourceReference))
+        {
+            await FreezeReportingPieceLinkAsync(services, document.Id, pivot.SourceReference, cancellationToken);
+        }
+
         // Purge subordonnée à la présence EFFECTIVE du paquet WORM (jamais à la seule étiquette Issued).
         var key = new StagedPayloadKey(tenantId, document.Id, document.PayloadHash);
         var locator = new ArchivedDocumentLocator(document.Id, document.IssueDate.Year, document.IssueDate.Month, document.DocumentNumber);
         await services.GetRequiredService<IStagingPurgeService>().PurgeIfArchivedAsync(key, locator, cancellationToken);
+    }
+
+    /// <summary>
+    /// Gèle le lien reporting↔pièces (B2C03/B2C04) d'une déclaration 10.3 émise : résout le <c>companyId</c> du
+    /// tenant courant (la connexion EST le tenant, CLAUDE.md n°9) et appelle <see cref="IReportingPieceLinkStore"/>
+    /// (APPEND-ONLY, idempotent). Si le profil tenant (companyId) n'est pas résolu, on n'invente rien : on ne
+    /// gèle pas de lien (la déclaration reste émise ; un envoi sans profil tenant est déjà écarté en amont).
+    /// </summary>
+    private static async Task FreezeReportingPieceLinkAsync(
+        IServiceProvider services,
+        Guid documentId,
+        string sourceReference,
+        CancellationToken cancellationToken)
+    {
+        var companyId = await services.GetRequiredService<ITenantSettingsQueries>().GetCurrentCompanyId(cancellationToken);
+        if (companyId is null)
+        {
+            return;
+        }
+
+        await services.GetRequiredService<IReportingPieceLinkStore>().AppendAsync(
+            companyId.Value,
+            documentId,
+            new[] { sourceReference },
+            cancellationToken);
     }
 
     /// <summary>

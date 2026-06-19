@@ -660,7 +660,7 @@ public sealed class DocumentsTests : BunitContext
 
         public static FakeDocumentConsoleQueries Throwing() => new(null, throws: true);
 
-        public Task<IReadOnlyList<DocumentSummaryDto>> GetDocumentsInPeriodAsync(DateOnly? from, DateOnly? to, CancellationToken cancellationToken = default)
+        public Task<IReadOnlyList<DocumentSummaryDto>> GetDocumentsInPeriodAsync(DateOnly? from, DateOnly? to, string? documentType = null, CancellationToken cancellationToken = default)
         {
             if (_throws)
             {

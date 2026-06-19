@@ -235,6 +235,17 @@ public sealed class PipelineSendHarness : IAsyncLifetime
         return document?.State;
     }
 
+    /// <summary>
+    /// Liens reporting↔pièces (B2C03) gelés pour une transmission donnée, dans le sens transmission → pièces
+    /// (tenant courant). Permet de prouver que la voie d'envoi gèle bien le lien d'une déclaration 10.3 émise (B2C04).
+    /// </summary>
+    public async Task<IReadOnlyList<Liakont.Modules.Archive.Contracts.ReportingPieceLink>> GetReportingPieceLinksAsync(Guid documentId)
+    {
+        await using var scope = _provider!.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<Liakont.Modules.Archive.Contracts.IReportingPieceLinkStore>();
+        return await store.GetByDocumentAsync(CompanyId, documentId);
+    }
+
     /// <summary>Indique si le contenu pivot est encore présent dans le staging.</summary>
     public async Task<bool> IsStagedAsync(Guid documentId, string payloadHash)
     {

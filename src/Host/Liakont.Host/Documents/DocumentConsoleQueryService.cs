@@ -35,11 +35,12 @@ internal sealed partial class DocumentConsoleQueryService : IDocumentConsoleQuer
     public async Task<IReadOnlyList<DocumentSummaryDto>> GetDocumentsInPeriodAsync(
         DateOnly? from,
         DateOnly? to,
+        string? documentType = null,
         CancellationToken cancellationToken = default)
     {
         var first = await _documents
             .GetDocumentsAsync(
-                new DocumentListFilter { From = from, To = to, Page = 1, PageSize = PageSize },
+                new DocumentListFilter { From = from, To = to, Type = documentType, Page = 1, PageSize = PageSize },
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -65,7 +66,7 @@ internal sealed partial class DocumentConsoleQueryService : IDocumentConsoleQuer
         {
             var next = await _documents
                 .GetDocumentsAsync(
-                    new DocumentListFilter { From = from, To = to, Page = page, PageSize = PageSize },
+                    new DocumentListFilter { From = from, To = to, Type = documentType, Page = page, PageSize = PageSize },
                     cancellationToken)
                 .ConfigureAwait(false);
 
