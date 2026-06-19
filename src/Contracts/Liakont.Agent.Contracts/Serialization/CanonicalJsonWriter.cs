@@ -85,7 +85,7 @@ public sealed class CanonicalJsonWriter
     /// </summary>
     public void BeginArrayElement() => Separate();
 
-    /// <summary>Écrit une valeur de texte LIBRE, normalisée en Unicode NFC puis échappée en ASCII pur.</summary>
+    /// <summary>Écrit une valeur de texte LIBRE, normalisée en Unicode NFC (si possible) puis échappée en ASCII pur.</summary>
     /// <param name="value">La chaîne à écrire (non nulle).</param>
     public void WriteString(string value)
     {
@@ -94,19 +94,7 @@ public sealed class CanonicalJsonWriter
             throw new ArgumentNullException(nameof(value));
         }
 
-        // Normalisation Unicode NFC (ADR-0007 règle 7). Une valeur de texte LIBRE issue de la source
-        // (raison sociale, libellé, SourceData…) peut arriver en NFC ou NFD selon le pilote ODBC ;
-        // « café » précomposé (U+00E9) et décomposé (U+0065 U+0301) sont la MÊME chaîne abstraite
-        // (équivalence canonique Unicode) mais produiraient deux empreintes — anti-doublon PIV04 rompu.
-        // On canonicalise la FORME d'encodage ici, au même titre que l'échappement ASCII : c'est une
-        // canonicalisation d'ENCODAGE de chaîne, distincte du déterminisme de CONTENU/structure (ordre des
-        // champs, absence d'horodatage d'extraction) qui reste la responsabilité de l'adaptateur
-        // (ADR-0007 §traçabilité). La forme NFC est STABLE entre net48 et .NET 10 — la Unicode Normalization
-        // Stability Policy garantit que la décomposition canonique d'un caractère ASSIGNÉ ne change jamais —
-        // donc l'empreinte reste identique des deux côtés (prouvé par les golden cross-runtime).
-        // Seul WriteString normalise : noms de membres, dates et noms d'énum sont du texte CONTRÔLÉ (ASCII),
-        // pour lequel NFC est un no-op — les normaliser n'aurait aucun sens.
-        AppendEscapedString(value.Normalize(NormalizationForm.FormC));
+        AppendEscapedString(NormalizeToNfc(value));
     }
 
     /// <summary>Écrit un montant <see cref="decimal"/> (invariant, échelle préservée, sans exposant).</summary>
@@ -163,6 +151,32 @@ public sealed class CanonicalJsonWriter
     /// <summary>Restitue le JSON canonique accumulé.</summary>
     /// <returns>Le document JSON canonique.</returns>
     public override string ToString() => _builder.ToString();
+
+    // Normalisation Unicode NFC (ADR-0007 règle 7). Une valeur de texte LIBRE issue de la source (raison
+    // sociale, libellé, SourceData…) peut arriver en NFC ou NFD selon le pilote ODBC ; « café » précomposé
+    // (U+00E9) et décomposé (U+0065 U+0301) sont la MÊME chaîne abstraite (équivalence canonique Unicode)
+    // mais produiraient deux empreintes — anti-doublon PIV04 rompu. On canonicalise la FORME d'encodage ici,
+    // au même titre que l'échappement ASCII : c'est une canonicalisation d'ENCODAGE de chaîne, distincte du
+    // déterminisme de CONTENU/structure (ordre des champs, absence d'horodatage) qui reste la responsabilité
+    // de l'adaptateur (ADR-0007 §traçabilité). La forme NFC est STABLE entre net48 (NLS) et .NET 10 (ICU) —
+    // Unicode Normalization Stability Policy : la décomposition canonique d'un caractère ASSIGNÉ ne change
+    // jamais — donc l'empreinte reste identique des deux côtés (prouvé par les golden cross-runtime).
+    private static string NormalizeToNfc(string value)
+    {
+        try
+        {
+            return value.Normalize(NormalizationForm.FormC);
+        }
+        catch (ArgumentException)
+        {
+            // Unicode INVALIDE (typiquement un surrogate UTF-16 ISOLÉ issu d'un nvarchar tronqué côté ODBC) :
+            // String.Normalize lève. Une chaîne mal formée n'a PAS de forme NFC définie — on PRÉSERVE alors le
+            // comportement antérieur à RDL05 (échappement code-unité par code-unité, déterministe et identique
+            // des deux côtés via AppendEscapedString), plutôt que d'introduire un nouveau chemin de rejet hors
+            // périmètre. Le contenu mal formé reste hashé EXACTEMENT comme avant ce correctif (aucune régression).
+            return value;
+        }
+    }
 
     private void Separate()
     {

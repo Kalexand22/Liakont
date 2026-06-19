@@ -46,6 +46,21 @@ public sealed class CanonicalDeterminismTests
     }
 
     [Fact]
+    public void Lone_surrogate_is_serialized_deterministically_without_throwing()
+    {
+        // Surrogate UTF-16 ISOLÉ (nvarchar tronqué côté source) : String.Normalize lèverait « Unicode invalide ».
+        // RDL05 ne doit PAS introduire un nouveau rejet hors périmètre — on préserve l'échappement code-unité
+        // déterministe d'avant (chaque unité → \udXXX), identique des deux côtés, sans exception.
+        string loneSurrogate = "lot" + (char)0xD83D; // high surrogate sans low surrogate associé
+
+        string json = CanonicalJson.Serialize(BuildWithSupplierName(loneSurrogate));
+
+        json.Should().Contain(
+            "lot\\ud83d",
+            "le surrogate isolé est échappé code-unité (\\ud83d), sans normalisation NFC ni exception");
+    }
+
+    [Fact]
     public void WriteDate_ignores_kind_and_time_of_day_for_the_same_calendar_date()
     {
         // Même date calendaire 2026-03-15, trois Kind et trois heures du jour différentes.

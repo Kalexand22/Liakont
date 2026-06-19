@@ -78,7 +78,7 @@ d'être que `PivotRounding`. Aucune règle fiscale n'est portée ici.
    d'énum sont du texte CONTRÔLÉ (ASCII) pour lequel NFC est un no-op. Ensuite, **sortie ASCII pur** : tout
    caractère `< 0x20` ou `> 0x7E` est échappé en `\uXXXX` **hexadécimal minuscule** ; `"` → `\"` et
    `\` → `\\` ; les contrôles usuels utilisent `\b \f \n \r \t`. C'est le point qui fait le plus diverger
-   Newtonsoft (pas d'échappement non-ASCII) et STJ.
+   Newtonsoft (pas d'échappement non-ASCII) et STJ. Une chaîne Unicode **mal formée** (surrogate isolé) ne peut pas être normalisée — `String.Normalize` lève ; on préserve alors l'échappement code-unité déterministe antérieur (aucun nouveau rejet introduit, hors périmètre).
 8. **Sortie compacte** : aucun espace ni saut de ligne hors des chaînes.
 9. **Empreinte** : SHA-256 des octets UTF-8 (identiques aux octets ASCII) → **hexadécimal minuscule
    de 64 caractères**.
