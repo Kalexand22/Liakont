@@ -135,6 +135,19 @@ public sealed class PivotCanonicalJsonReaderTests
         AssertAllPublicPropertiesAreJsonKeys(root.GetProperty("Payments")[0], typeof(PivotPaymentDto));
         AssertAllPublicPropertiesAreJsonKeys(root.GetProperty("DocumentCharges")[0], typeof(PivotDocumentChargeDto));
 
+        // 1bis. Aucune propriété de TYPE VALEUR du document de référence n'est laissée à son défaut —
+        //       sinon un champ valeur optionnel ajouté plus tard (ex. bool=false) passerait la garde
+        //       alors que le lecteur prod le droppe (false==false au round-trip).
+        AssertValueTypePropertiesAreNonDefault(full, typeof(PivotDocumentDto));
+        AssertValueTypePropertiesAreNonDefault(full.Supplier!, typeof(PivotPartyDto));
+        AssertValueTypePropertiesAreNonDefault(full.Supplier!.Address!, typeof(PivotAddressDto));
+        AssertValueTypePropertiesAreNonDefault(full.Totals, typeof(PivotTotalsDto));
+        AssertValueTypePropertiesAreNonDefault(full.Lines[0], typeof(PivotLineDto));
+        AssertValueTypePropertiesAreNonDefault(full.Lines[0].Taxes[0], typeof(PivotLineTaxDto));
+        AssertValueTypePropertiesAreNonDefault(full.CreditNoteRefs[0], typeof(PivotDocumentRefDto));
+        AssertValueTypePropertiesAreNonDefault(full.Payments[0], typeof(PivotPaymentDto));
+        AssertValueTypePropertiesAreNonDefault(full.DocumentCharges[0], typeof(PivotDocumentChargeDto));
+
         // 2. Le lecteur de PRODUCTION doit consommer chaque propriété présente : un champ oublié serait
         //    laissé à sa valeur par défaut dans le DTO reconstruit et la re-sérialisation divergerait.
         //    L'identité octet-par-octet du round-trip ⇒ consommation complète (INV-PIPELINE-001/002, ADR-0007).
@@ -153,6 +166,37 @@ public sealed class PivotCanonicalJsonReaderTests
             node.TryGetProperty(property.Name, out _).Should().BeTrue(
                 "la propriété {0}.{1} doit être une clé de SON objet JSON canonique : le document de "
                 + "référence doit l'exercer pour que la garde du lecteur prod la couvre (RDL02)",
+                dtoType.Name,
+                property.Name);
+        }
+    }
+
+    // RDL02 (renfort revue) : la présence de clé + le round-trip ne suffisent PAS pour un champ
+    // optionnel de TYPE VALEUR ajouté plus tard (ex. `bool isCorrected = false`) — le writer émettrait
+    // toujours la clé et `false == false` rendrait le round-trip identique même si le lecteur prod droppe
+    // le champ. On exige donc que chaque propriété de type valeur du document de référence porte une
+    // valeur NON par défaut : tout champ valeur ajouté DOIT être peuplé ici à une valeur distinguable du
+    // défaut, ce qui force le round-trip à révéler un drop du lecteur.
+    private static void AssertValueTypePropertiesAreNonDefault(object instance, Type dtoType)
+    {
+        foreach (PropertyInfo property in dtoType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            Type valueType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
+            if (!valueType.IsValueType)
+            {
+                // Les types référence (string, DTO imbriqué, collection) sont couverts par la présence de
+                // clé JSON (optionnel null → clé omise → garde rouge) + le round-trip.
+                continue;
+            }
+
+            object? value = property.GetValue(instance);
+            value.Should().NotBeNull(
+                "{0}.{1} (type valeur) doit porter une valeur dans le document de référence (RDL02)",
+                dtoType.Name,
+                property.Name);
+            value.Should().NotBe(
+                Activator.CreateInstance(valueType),
+                "{0}.{1} doit être ≠ de son défaut pour que le round-trip révèle un drop du lecteur prod (RDL02)",
                 dtoType.Name,
                 property.Name);
         }
