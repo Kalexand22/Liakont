@@ -12,13 +12,15 @@ using Liakont.Modules.Pipeline.Tests.Integration.Check;
 using Xunit;
 
 /// <summary>
-/// B2C02 — le chemin (déclaration e-reporting B2C 10.3 incluse) est piloté par le PARAMÉTRAGE FISCAL DU
-/// TENANT et BLOQUE SÛREMENT quand ce paramétrage ne tranche pas, démontré sur DEUX bases tenant réelles
-/// (database-per-tenant). Les déclarations 10.3 empruntent la même voie document que les factures : elles
-/// traversent le CHECK (<see cref="Liakont.Modules.Pipeline.Infrastructure.Check.DocumentReceivedConsumer"/>
+/// B2C02 — le MÉCANISME PARTAGÉ de pilotage par le paramétrage fiscal du tenant est piloté par le PARAMÉTRAGE
+/// FISCAL DU TENANT et BLOQUE SÛREMENT quand ce paramétrage ne tranche pas, démontré sur DEUX bases tenant
+/// réelles (database-per-tenant). Les tests exercent des documents de type facture (sourceDocumentKind "F") ;
+/// les déclarations 10.3 (introduites par B2C01) emprunteront la même voie CHECK (
+/// <see cref="Liakont.Modules.Pipeline.Infrastructure.Check.DocumentReceivedConsumer"/>
 /// → <see cref="Liakont.Modules.Pipeline.Infrastructure.Check.DocumentCheckEvaluator"/>), qui applique la
 /// table de mapping TVA validée du tenant et la nature d'opération du paramétrage fiscal — aucun comportement
-/// spécifique 10.3 à ajouter, le pilotage par le tenant est structurel.
+/// spécifique 10.3 à ajouter, le pilotage par le tenant est structurel. Démontrer ce mécanisme partagé sur
+/// factures suffit ; aucune déclaration 10.3 n'est exercée ici (gelé jusqu'à la merge de B2C01 et GATE_B2C_SOURCING).
 /// </summary>
 /// <remarks>
 /// <para>Couvre les invariants non négociables de B2C02 :</para>
@@ -141,10 +143,7 @@ public sealed class B2cReportingTenantConfigIntegrationTests
             Tenants = new[] { (_tenantA, "A"), (_tenantB, "B") };
         }
 
-        public async Task DisposeAsync()
-        {
-            await _tenantA.DisposeAsync();
-            await _tenantB.DisposeAsync();
-        }
+        public Task DisposeAsync() =>
+            Task.WhenAll(_tenantA.DisposeAsync(), _tenantB.DisposeAsync());
     }
 }
