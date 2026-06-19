@@ -18,9 +18,13 @@ using System.Text;
 /// <item>Decimals : <see cref="decimal"/> en culture invariante, point décimal, l'échelle de la
 /// source est PRÉSERVÉE (10,00 → « 10.00 » ; 1234,5 → « 1234.5 »), jamais de notation
 /// exponentielle (garanti par le type <see cref="decimal"/>).</item>
-/// <item>Chaînes : sortie ASCII pur ; tout caractère &lt; 0x20 ou &gt; 0x7E est échappé en
-/// <c>\uXXXX</c> (hexadécimal minuscule) ; <c>"</c> et <c>\</c> sont échappés.</item>
-/// <item>Dates : format unique <c>yyyy-MM-dd</c> en culture invariante (les horodatages UTC
+/// <item>Chaînes (valeurs de texte LIBRE) : normalisées en <b>Unicode NFC</b> puis sortie ASCII
+/// pur ; tout caractère &lt; 0x20 ou &gt; 0x7E est échappé en <c>\uXXXX</c> (hexadécimal minuscule) ;
+/// <c>"</c> et <c>\</c> sont échappés. La normalisation NFC (équivalence canonique : « café »
+/// précomposé U+00E9 ≡ décomposé U+0065 U+0301) garantit qu'une source renvoyant tantôt NFC tantôt
+/// NFD produit la MÊME empreinte (ADR-0007 règle 7).</item>
+/// <item>Dates : format unique <c>yyyy-MM-dd</c> en culture invariante, composantes calendaires
+/// (Year/Month/Day) seules — le <c>DateTimeKind</c> et le fuseau sont ignorés (les horodatages UTC
 /// éventuels — enveloppes de transport, hors périmètre PIV02 — utiliseront
 /// <c>yyyy-MM-ddTHH:mm:ssZ</c>).</item>
 /// <item>Pas d'espace ni de saut de ligne hors des chaînes : la sortie est compacte et
@@ -81,7 +85,7 @@ public sealed class CanonicalJsonWriter
     /// </summary>
     public void BeginArrayElement() => Separate();
 
-    /// <summary>Écrit une valeur chaîne, échappée en ASCII pur.</summary>
+    /// <summary>Écrit une valeur de texte LIBRE, normalisée en Unicode NFC puis échappée en ASCII pur.</summary>
     /// <param name="value">La chaîne à écrire (non nulle).</param>
     public void WriteString(string value)
     {
@@ -90,7 +94,19 @@ public sealed class CanonicalJsonWriter
             throw new ArgumentNullException(nameof(value));
         }
 
-        AppendEscapedString(value);
+        // Normalisation Unicode NFC (ADR-0007 règle 7). Une valeur de texte LIBRE issue de la source
+        // (raison sociale, libellé, SourceData…) peut arriver en NFC ou NFD selon le pilote ODBC ;
+        // « café » précomposé (U+00E9) et décomposé (U+0065 U+0301) sont la MÊME chaîne abstraite
+        // (équivalence canonique Unicode) mais produiraient deux empreintes — anti-doublon PIV04 rompu.
+        // On canonicalise la FORME d'encodage ici, au même titre que l'échappement ASCII : c'est une
+        // canonicalisation d'ENCODAGE de chaîne, distincte du déterminisme de CONTENU/structure (ordre des
+        // champs, absence d'horodatage d'extraction) qui reste la responsabilité de l'adaptateur
+        // (ADR-0007 §traçabilité). La forme NFC est STABLE entre net48 et .NET 10 — la Unicode Normalization
+        // Stability Policy garantit que la décomposition canonique d'un caractère ASSIGNÉ ne change jamais —
+        // donc l'empreinte reste identique des deux côtés (prouvé par les golden cross-runtime).
+        // Seul WriteString normalise : noms de membres, dates et noms d'énum sont du texte CONTRÔLÉ (ASCII),
+        // pour lequel NFC est un no-op — les normaliser n'aurait aucun sens.
+        AppendEscapedString(value.Normalize(NormalizationForm.FormC));
     }
 
     /// <summary>Écrit un montant <see cref="decimal"/> (invariant, échelle préservée, sans exposant).</summary>
@@ -102,8 +118,16 @@ public sealed class CanonicalJsonWriter
     /// <param name="value">La valeur.</param>
     public void WriteBoolean(bool value) => _builder.Append(value ? "true" : "false");
 
-    /// <summary>Écrit une date au format canonique <c>yyyy-MM-dd</c> (composante horaire ignorée).</summary>
-    /// <param name="value">La date.</param>
+    /// <summary>
+    /// Écrit une date au format canonique <c>yyyy-MM-dd</c> (culture invariante).
+    /// INVARIANT « date calendaire » (ADR-0007 règle 6) : seules les composantes Year/Month/Day sont
+    /// émises ; le <see cref="DateTimeKind"/> (Utc/Local/Unspecified), l'heure et le fuseau sont IGNORÉS —
+    /// aucune conversion de fuseau n'est appliquée, donc deux <see cref="DateTime"/> de même date
+    /// calendaire mais de Kind différent produisent le MÊME octet (vérifié par test). Un adaptateur ne
+    /// doit jamais dériver une date du pivot d'un <c>DateTimeOffset.ToLocalTime()</c> qui décalerait la
+    /// composante calendaire près de minuit (responsabilité de déterminisme de la source, ADR-0007 §traçabilité).
+    /// </summary>
+    /// <param name="value">La date (sa composante calendaire seule est retenue).</param>
     public void WriteDate(DateTime value) =>
         AppendEscapedString(value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
 

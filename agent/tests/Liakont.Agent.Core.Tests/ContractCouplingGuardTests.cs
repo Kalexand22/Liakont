@@ -28,7 +28,7 @@ using Xunit;
 /// un analyseur injecté via un fichier importé échapperait à la garde. Aujourd'hui les props racine
 /// déclarent les paquets directement, la garde est donc exhaustive pour la configuration réelle.</item>
 /// <item><b>A5-coupling-2</b> — le couplage cross-solution (6 <c>ProjectReference</c> vers
-/// <c>src/Contracts</c>, 5 <c>Compile</c>-link de <c>tests/_shared/contract-v1</c>, 1 copie de fixtures)
+/// <c>src/Contracts</c>, 6 <c>Compile</c>-link de <c>tests/_shared/contract-v1</c>, 1 copie de fixtures)
 /// n'est verrouillé par aucun test : un nouveau chemin <c>..\..\..\src</c> ou <c>..\..\..\tests</c> dans un
 /// csproj agent passerait inaperçu.</item>
 /// <item><b>A5-coupling-3</b> — les empreintes figées du contrat (golden cross-runtime) sont exercées
@@ -57,6 +57,7 @@ public sealed class ContractCouplingGuardTests
         "tests/Liakont.Agent.Adapters.DemoErpB.Tests/Liakont.Agent.Adapters.DemoErpB.Tests.csproj -> src/Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj",
         "tests/Liakont.Agent.Adapters.EncheresV6.Tests/Liakont.Agent.Adapters.EncheresV6.Tests.csproj -> src/Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj",
         "tests/Liakont.Agent.Core.Tests/Liakont.Agent.Core.Tests.csproj -> src/Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj",
+        "tests/Liakont.Agent.Core.Tests/Liakont.Agent.Core.Tests.csproj -> tests/_shared/contract-v1/CanonicalDeterminismTests.cs",
         "tests/Liakont.Agent.Core.Tests/Liakont.Agent.Core.Tests.csproj -> tests/_shared/contract-v1/CanonicalEnumGuardTests.cs",
         "tests/Liakont.Agent.Core.Tests/Liakont.Agent.Core.Tests.csproj -> tests/_shared/contract-v1/ContractFixtureTests.cs",
         "tests/Liakont.Agent.Core.Tests/Liakont.Agent.Core.Tests.csproj -> tests/_shared/contract-v1/ContractFixtures.cs",
