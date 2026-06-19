@@ -1,0 +1,364 @@
+# Lot RDL — Redline ADR-0005/0006/0007 : findings de la revue critique du 2026-06-19 (Karl).
+# Source détaillée (finding ids, file:line, preuves, verdicts adversariaux, 12 réfutés, 2 arbitrages) :
+# tasks/redline-adr-005-006-007.md.
+# PLANIFIÉ (manifest v30) : segment `adr-redline` (branche feat/adr-redline) + gate humaine
+# GATE_ADR_REDLINE. APRÈS merge de la PR du segment, seeder `pending` RDL01→RDL13 + GATE_ADR_REDLINE
+# dans $ORCH_REPO/state.yaml (gate comprise, sinon « done » par défaut → recette jamais ouverte).
+# Règles non négociables inchangées (CLAUDE.md) : montants decimal, aucune règle fiscale inventée,
+# DocumentEvent/WORM append-only, scoping tenant, lecture seule base source, frontières de modules,
+# secrets jamais versionnés, socle vendored Stratum.* → consigner en provenance.
+# Sévérités = sévérités CORRIGÉES après vérification adversariale.
+
+items:
+  RDL01:
+    title: "[P1] Enum canonique gardé (Enum.IsDefined) qui LÈVE + binding strict (allowIntegerValues:false)"
+    description: |
+      Findings A7-fmt-1 (P1), A7-fmt-2 (P1), A7-det-2 (P3), A5-purity-4 (P3).
+      CanonicalJson.cs:56 (OperationCategory.ToString()) et :189 (CategoryCode.Value.ToString())
+      émettent un NOMBRE pour une valeur d'enum non définie (enums commençant à 1 ; ((Enum)99).ToString()
+      → "99"), contredisant ADR-0007 règle 4 (« émis par leur NOM »). ToString() ne lève pas, donc
+      l'enveloppe try/catch d'ingestion (IngestDocumentBatchHandler.cs:160) ne capte rien : une
+      catégorie/nature hors plage est HASHÉE et ARCHIVÉE (WORM) comme un chiffre muet. AgentApiJson.cs:32-33
+      laisse allowIntegerValues=true → un entier hors plage entre par le fil sans rejet. Le site
+      CategoryCode est déjà largement défendu (mapping plateforme gardé Enum.IsDefined, hash avant
+      mapping quand CategoryCode=null) ; le vrai trou résiduel est OperationCategory (toujours sérialisé,
+      sans validation plateforme). Impact borné (nombre muet dans le hash/archive, pas un code sur la
+      facture transmise) mais contredit la justification même de la règle 4.
+      Fix : WriteEnum<T> sur CanonicalJsonWriter gardé par Enum.IsDefined qui LÈVE si indéfini (déjà
+      attrapé en rejet par le handler) ; appeler aux 2 sites ; allowIntegerValues:false sur les 2
+      convertisseurs du contrat pivot. Aligné sur « bloquer plutôt qu'envoyer faux » (CLAUDE.md n°3).
+    acceptance:
+      - "Une valeur d'enum non définie LÈVE à la sérialisation canonique (rejet, jamais un nombre dans le hash)"
+      - "allowIntegerValues:false sur OperationCategory et VatCategory ; test négatif {\"OperationCategory\":99} → rejet"
+      - "WriteEnum appliqué aux 2 sites (OperationCategory + CategoryCode) — garde impossible à oublier sur un futur champ enum"
+      - "Tests des deux côtés (net48 + net10) : valeur définie → nom ; valeur indéfinie → exception"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RDL02:
+    title: "[P2] Fermer la boucle de hash RÉELLE wire-STJ↔writer + acter le lecteur prod (ADR-0007)"
+    description: |
+      Findings A7-det-1 (P2), A7-golden-1 (P3), X-down-2 (P2).
+      En prod la plateforme NE hashe PAS les octets reçus de l'agent : elle re-désérialise via
+      System.Text.Json (AgentApiEndpoints.cs:92-96) puis CanonicalJson.Serialize + PayloadHasher.ComputeHash
+      sur le DTO STJ-désérialisé (IngestDocumentBatchHandler.cs:157-158). L'axe STJ(wire)→writer→hash,
+      dont dépendent PIV04 (anti-doublon) et TRK03 (altération), n'a AUCUNE ancre de test (les golden
+      prouvent writer↔writer sur DTO en mémoire). Marche aujourd'hui par chance du comportement STJ.
+      Par ailleurs un SECOND lecteur canonique vit en PROD (PivotCanonicalJsonReader du Pipeline, sert le
+      SEND : SendTenantJob.cs:746→Read), alors qu'ADR-0007:77-79 promet « le lecteur ne vit PAS en prod » :
+      3 artefacts à garder synchronisés au champ près, sans garde de complétude par réflexion sur le
+      lecteur prod (un champ porté par l'agent mais oublié dans le lecteur prod est AMPUTÉ avant
+      transmission PA — EXT01/BT-9 l'a frôlé ; ReasonCode/PaymentDueDate non couverts par golden).
+      Fix : (a) test Host net10 par fixture contrat-v1 : Deserialize<PushBatchRequestDto>(golden_wire,
+      HostMinimalApiOptions()) puis assert ComputeHash(request.Documents[i]) == FrozenHashes[name] ;
+      (b) garde de complétude par réflexion sur PivotCanonicalJsonReader (chaque propriété DTO consommée) ;
+      (c) ADR-0007 §Conséquences mis à jour pour acter le lecteur prod (miroir du writer, ré-hash interdit,
+      INV-PIPELINE-001/002).
+    acceptance:
+      - "Test Host net10 : chaque golden contrat-v1 désérialisé via STJ (options Host) re-hashe vers l'empreinte figée"
+      - "Garde par réflexion : chaque propriété de chaque DTO pivot est consommée par PivotCanonicalJsonReader (échec sinon)"
+      - "ADR-0007 acte l'existence du lecteur prod Pipeline (miroir net10, ré-hash interdit)"
+      - "verify-fast passes"
+      - "run-tests (intégration) vert"
+      - "codex-review clean or only accepted P2s"
+  RDL03:
+    title: "[P2] Garde de complétude/ordre par réflexion du writer canonique + cas limites de format"
+    description: |
+      Findings A7-cov-1 (P2), A7-cov-3 (P3), A7-cov-4 (P3), A7-fmt-4 (P2), A7-evo-3 (P2), A7-evo-5 (P3).
+      Le test de couverture par réflexion (CanonicalJsonRulesTests.cs:176-202) vérifie la PRÉSENCE de
+      chaque propriété mais JAMAIS l'ordre de déclaration (règle 1 ADR) ; le seul test d'ordre ne contrôle
+      que 4 paires au niveau document, aucun DTO imbriqué. Un champ inséré au milieu d'un DTO mais écrit
+      en fin passe vert puis casse l'empreinte du premier document réel qui le porte. Optionnels absents
+      des 8 fixtures (Email, Siret, Line2, ReasonCode, ordre party) jamais exercés (A7-evo-3). Aucun test
+      pour 0x00/0x7F, paire de substitution UTF-16, 0.00m (A7-fmt-4). Enveloppes (Heartbeat) écrites à la
+      main, divergent déjà de 8 champs (A7-cov-3). Double maintenance writer + BuildFullyPopulated,
+      message d'échec ambigu (A7-cov-4). Non-régression « additif → hash inchangé » ancrée sur un seul
+      golden (A7-evo-5).
+      Fix : assertion d'ordre par réflexion (parser positionnel ordonné vs GetProperties() filtré) pour
+      CHAQUE DTO imbriqué ; tests cas limites d'échappement + decimal (0.00m, échelle max) ; généraliser
+      AssertAllPropertiesArePresent aux enveloppes (ou figer la liste hors-périmètre format fil) ; ancrer
+      la non-régression additive sur tout le jeu de fixtures.
+    acceptance:
+      - "Test d'ordre par réflexion : l'ordre d'émission de chaque DTO == ordre de déclaration (échec sur insertion-au-milieu)"
+      - "Tests cas limites : \\u0000, 0x7F, caractère hors-BMP (paire de substitution déterministe), 0.00m, decimal à échelle max"
+      - "Couverture (présence) étendue aux DTO d'enveloppe écrits par writer manuel (ou liste hors-périmètre figée + revue à l'ajout)"
+      - "Non-régression additive vérifiée sur tout le jeu de fixtures, pas un seul golden"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RDL04:
+    title: "[P2] Évolution du contrat : trancher/tester le sens N+1→N + croiser version↔forme"
+    description: |
+      Findings A7-evo-2 (P2), A7-evo-4 (P3).
+      Le hash plateforme est recalculé par re-sérialisation du DTO (pas des octets HTTP) et le lecteur
+      droppe SILENCIEUSEMENT tout membre inconnu (TryGetProperty par nom). Donc agent N+1 (déploiement
+      non atomique) → plateforme N : le champ v2 est ignoré, empreinte plateforme ≠ empreinte agent →
+      anti-doublon cassé / fausse alerte d'altération (TRK03). Aucun garde-fou ne refuse un payload « 1 »
+      portant un membre v2. Par ailleurs AgentContractVersion.Current="v1" (URL) et ContractVersion="1"
+      (payload) sont deux constantes indépendantes jamais croisées ; aucun test ne lie la version déclarée
+      à la forme réelle (3 sources de vérité à muter à la main au passage v2 : const URL, const payload,
+      route MapGroup).
+      Fix : trancher et tester le sens N+1→N — défaut sûr : le lecteur REJETTE tout membre inconnu pour
+      préserver l'intégrité du hash (ou acter+enforcer que l'agent ne dépasse jamais la plateforme).
+      Invariant statique liant Current et ContractVersion (Current == "v"+ContractVersion) + dériver le
+      préfixe MapGroup de Current ; runbook de bascule v2 dans contrat-agent-v1.md.
+    acceptance:
+      - "Comportement « membre inconnu » du lecteur tranché et TESTÉ (défaut : rejet) ; un payload v1 portant un membre post-v1 est refusé, pas droppé"
+      - "Invariant statique Current ↔ ContractVersion (test) ; préfixe d'URL dérivé de Current (plus de littéral indépendant)"
+      - "Runbook de bascule v2 listant tous les points à muter ensemble"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RDL05:
+    title: "[P3+arbitrage] Déterminisme : normalisation Unicode (décision sourcée) + date calendaire + verrou EOL des golden"
+    description: |
+      Findings A7-det-3 (P3, ARBITRAGE HUMAIN), A7-fmt-5 (P3), A7-det-4 (P3).
+      A7-det-3 (décision à trancher, règle n°2) : AppendEscapedString n'applique aucune normalisation
+      Unicode ; « café » NFC (U+00E9) et NFD (U+0065 U+0301) produisent deux empreintes. Identique
+      net48/net10 (pas une divergence cross-runtime) mais risque PIV04 si une source ODBC renvoie tantôt
+      NFC tantôt NFD. ADR-0007:96-104 délègue le déterminisme de SourceData à l'adaptateur mais n'énumère
+      PAS la normalisation. Décision défendable PAR DÉFAUT : normaliser en NFC dans le writer
+      (value.Normalize(NormalizationForm.FormC), identique des deux côtés) + figer en règle 7 de l'ADR ;
+      OU ajouter NFC à la liste explicite des invariants que l'adaptateur DOIT garantir + test ADP.
+      Tracer la décision (ne pas la laisser implicite) — attention : normaliser dans le writer change le
+      golden et la sémantique « octets de la source » dont dépend TRK03.
+      A7-fmt-5 : WriteDate sérialise la date verbatim sans normaliser Kind/fuseau ; pas de bug aujourd'hui,
+      mais un futur adaptateur dérivant la date d'un DateTimeOffset/ToLocalTime décalerait la date hashée
+      près de minuit. Documenter l'invariant « date calendaire, fuseau ignoré » + test (deux Kind, même octet).
+      A7-det-4 : golden .json non verrouillés LF/no-BOM dans .gitattributes (seul *.sh text eol=lf) ;
+      risque actuel nul (fixtures mono-ligne) mais cohérent avec la lesson repo « forcer LF ».
+      Fix : trancher+tracer A7-det-3 (défaut NFC) ; doc+test WriteDate ; .gitattributes
+      tests/fixtures/contrat-v1/*.json -text + assertion no-BOM/no-CRLF/no-trailing-newline sur octets bruts.
+    acceptance:
+      - "Décision NFC tranchée et TRACÉE (ADR-0007 règle 7 si normalisation writer, ou invariant adaptateur + test ADP) — aucune règle inventée"
+      - "Si normalisation writer : golden régénérés et hash figés cohérents ; test NFC≡NFD → même octet"
+      - "WriteDate : invariant « date calendaire » documenté + test (Utc/Local/Unspecified même date → même octet)"
+      - "tests/fixtures/contrat-v1/*.json verrouillés en LF/no-BOM (.gitattributes) + assertion sur octets bruts"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RDL06:
+    title: "[P1] Câbler les 4 fan-out Pipeline via AddJobHandler + test de dispatchabilité (jobs morts en prod)"
+    description: |
+      Findings A6-cons-1 (P1), A6-cons-3 (P2).
+      PipelineModuleRegistration.cs:65,69,75,83 enregistre SendAllTrigger / SyncAllTrigger /
+      AggregatePaymentsAllTrigger / RectifyReportsAllTrigger en AddScoped<IJobHandler<T>> SEUL, alors que
+      tous les autres jobs système passent par AddJobHandler<T,H> (qui ajoute la JobHandlerRegistration
+      singleton). Or JobHandlerResolver (ExecuteAsync lève INV-JOB-001 ligne 53 AVANT la résolution DI
+      ligne 68) et JobTypeCatalog se construisent UNIQUEMENT depuis ces singletons. Vérifié sur pièce :
+      ces 4 déclencheurs ne sont NI planifiables (absents du catalogue) NI dispatchables. AddScoped est
+      nécessaire mais PAS suffisant. SEND a un repli console mono-tenant (SendTenantTrigger), mais SYNC
+      (rapprochement tax reports DGFiP + addenda WORM), AGGREGATE (projection paiements → page Encaissements)
+      et RECTIFY (rectificatifs e-reporting annule-et-remplace) n'ont AUCUN chemin alternatif → ne tournent
+      JAMAIS. Faux-vert co-responsable (A6-cons-3) : les tests de fan-out prouvent la délégation au runner,
+      jamais la dispatchabilité.
+      Fix : remplacer les 4 AddScoped par AddJobHandler<*AllTrigger, *AllFanOutHandler>("libellé FR") ;
+      test de composition (graphe DI réel) asserttant que CHAQUE IJobHandler<T> de fan-out récurrent a
+      CanHandle(FullName)==true ET JobTypeCatalog.Find(FullName)!=null.
+    acceptance:
+      - "Les 4 déclencheurs (SendAll/SyncAll/AggregatePaymentsAll/RectifyReportsAll) passent par AddJobHandler avec libellé FR"
+      - "Chacun est planifiable (présent dans JobTypeCatalog.GetAll()) ET dispatchable (JobHandlerResolver.CanHandle==true)"
+      - "Test de composition sur le graphe DI réel : chaque IJobHandler<T> de fan-out récurrent a une JobHandlerRegistration (échec sinon)"
+      - "verify-fast passes"
+      - "run-tests (intégration) vert"
+      - "codex-review clean or only accepted P2s"
+  RDL07:
+    title: "[P2+arbitrage] Observabilité des jobs de fan-out : run partiel (décision) + health-check + no-op 0 tenant"
+    description: |
+      Findings A6-runtime-1 (P3, ARBITRAGE HUMAIN), A6-cons-2 (P2), A6-runtime-3 (P2).
+      A6-runtime-1 (décision à trancher, sévérité corrigée P1→P3) : les 6 fan-out handlers loguent un
+      Warning sur FailedCount>0 puis retournent sans throw → JobWorker.MarkCompleted() + job.completed,
+      aucun retry/dead-letter pour un échec PARTIEL. Nuance vérifiée : l'escalade existe DÉJÀ pour les cas
+      à enjeu, par conception, via le dead-man's-switch Supervision + états document (Blocked/RejectedByPa)
+      + règles d'alerte testées (BlockedDocumentsAlertRule, PaRejectedDocumentsAlertRule, agent.missed_run)
+      — un SEND à moitié échoué N'EST PAS invisible. Résidu RÉEL mais étroit : aucune règle d'alerte ne
+      couvre « ancrage quotidien échoué pour tenant X » (TRK06) ni « purge support échouée » (FX06).
+      Décision produit/observabilité à acter dans ADR-0006 : sémantique d'un run partiel + faut-il une
+      règle d'alerte dédiée à l'ancrage/purge ?
+      A6-cons-2 : SystemJobScheduleHealthCheck (filet FIX203b) ne couvre que 2 jobs (SystemJobDefinitions.All
+      = SupervisionEvaluation + DailyAnchoring) ; Réconciliation, purge, drain signature, tacite 389 (+ les
+      4 de RDL06) sont enregistrés mais absents → s'ils ne sont pas planifiés, aucun warning de démarrage.
+      A6-runtime-3 : ListAsync renvoyant 0 tenant actif est un no-op Information indistinct d'une anomalie
+      (catalogue vide par bug de provisioning, mauvaise base).
+      Fix : trancher+tracer A6-runtime-1 dans ADR-0006 ; étendre le health-check à tous les IJobHandler<T>
+      de fan-out récurrent (classe « requis seedé+dur » vs « cadence-déploiement ») ; logger le 0-tenant en
+      Warning + distinction dans la summary.
+    acceptance:
+      - "Décision « run partiellement échoué » tranchée et TRACÉE dans ADR-0006 (escalade jobs vs signal structuré) ; au minimum une couverture d'alerte pour l'ancrage/purge échoués"
+      - "SystemJobScheduleHealthCheck couvre tous les jobs de fan-out récurrents ; un job récurrent non planifié émet un warning au démarrage"
+      - "0 tenant actif loggué en Warning (anomalie potentielle), pas Information ; distinction exposée"
+      - "Tests couvrant : run partiel → signal attendu ; health-check → warning sur job non planifié ; 0 tenant → warning"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RDL08:
+    title: "[P2] Robustesse du runner multi-tenant à l'échelle : reprise sur crash, anti-recouvrement, budget temps"
+    description: |
+      Findings A6-scale-1 (P3), A6-scale-2 (P2), A6-scale-3 (P2), A6-scale-5 (P3), A6-runtime-2 (P2),
+      A6-runtime-4 (P3), A6-di-2 (P3).
+      A6-scale-1 : un fan-out qui meurt en cours laisse le JobEntry bloqué Running à jamais (aucun reaper) ;
+      les tenants restants ne sont pas rattrapés ce tick — pour l'ancrage WORM quotidien (TRK06), une
+      fraction non scellée sans alerte ni reprise. A6-runtime-2 : annulation (shutdown) → job orphelin
+      Running + summary partiel perdu. A6-scale-2 : pas de garde anti-recouvrement ; un fan-out plus long
+      que l'intervalle cron (supervision */15) empile des déclencheurs qui affament le worker mono-job
+      (BatchSize=1). A6-scale-3 : aucune borne de temps par tenant autour de job.ExecuteAsync ; un tenant
+      lent retarde tout le run séquentiel. A6-scale-5 : le témoin de vie lit l'achèvement du fan-out ENTIER
+      → fausse alarme si > 2×15 min, fraîcheur par-tenant invisible. A6-runtime-4 : filtre OCE basé sur
+      l'état global du token appelant — piège latent si un timeout par tenant (linked CTS) est introduit.
+      A6-di-2 : le seam de prod (Host TenantScopeFactory) n'est jamais exercé bout-en-bout sur 2 vraies
+      bases (l'intégration utilise un double). (A6-scale-4 jugé acceptable « none », non inscrit ; au plus
+      pousser le filtre IsActive en SQL.)
+      Fix : documenter dans ADR-0006 le contrat de reprise (reaper des Running expirés → Pending/Dead,
+      idempotence des ITenantJob) ; dé-duplication à l'enqueue d'un job système d'un type déjà Pending/Running ;
+      budget temps par tenant (linked CTS → TenantJobFailure isolé, filtrer sur ex.CancellationToken) ;
+      fraîcheur par tenant pour la liveness ; test d'intégration DI réel (AddStratumMultiTenancy + Host
+      TenantScopeFactory sur 2 bases) prouvant le routage. ⚠️ Édite TenantJobRunner.cs (épinglé baseline) →
+      DÉPEND de RDL09 (provenance) ; si le socle est modifié, consigner en provenance.
+    acceptance:
+      - "Contrat de reprise après crash/annulation documenté dans ADR-0006 (reaper Running→Pending/Dead OU acceptation tracée du re-run au tick suivant + idempotence)"
+      - "Dé-duplication à l'enqueue : pas de 2e job système d'un type déjà Pending/Running (test)"
+      - "Budget temps par tenant (linked CTS) : un tenant lent devient un TenantJobFailure isolé, pas un blocage de la file (test)"
+      - "Test d'intégration DI RÉEL (2 bases) : RunForAllTenantsAsync via le Host TenantScopeFactory écrit dans la bonne base (current_database() distinct)"
+      - "Modif socle éventuelle consignée (provenance + socle-provenance-check exit 0)"
+      - "verify-fast passes ; run-tests (intégration) vert"
+      - "codex-review clean or only accepted P2s"
+  RDL09:
+    title: "[P2] Provenance du socle : lever la contradiction baseline↔doc (ajouts Liakont) + consigner les régénérations"
+    description: |
+      Findings A6-prov-1 (P2), A6-prov-2 (P3).
+      A6-prov-1 : tools/socle-baseline.sha1 ÉPINGLE désormais les fichiers AJOUTÉS par SOL06 (ex.
+      src/Common/Abstractions/Jobs/ITenantJob.cs, TenantJobRunner.cs) — régénérés par OPS03 — alors que
+      provenance §4.14 et ADR-0006:52-55 affirment « ces ajouts ne dérivent pas et ne figurent PAS dans le
+      bloc ». Faux positif latent DÉMONTRÉ : éditer légitimement un de ces fichiers fait échouer verify-fast
+      (« modif socle non consignée »), poussant au mauvais geste (consigner du code Liakont comme dérive
+      Stratum, ou régénérer le baseline et masquer une vraie dérive). A6-prov-2 : décompte périmé (§4.12 dit
+      1226, réel 1249) ; régénération OPS03 jamais consignée. ⚠️ CET ITEM PRÉCÈDE RDL07/RDL08 (qui éditent
+      TenantJobRunner.cs épinglé).
+      Fix : choisir une politique cohérente — (A) EXCLURE les fichiers « // Liakont addition (…) » du
+      périmètre épinglé (filtre sur le marqueur de tête dans Get-VendoredHashes), l'invariant doc redevient
+      vrai ; OU (B) assumer que tout fichier sous les roots vendored est épinglé après régénération et
+      corriger §4.14/§4.25/§4.27/§4.28 + workflow §4.12. Consigner chaque -Generate (item, commit, raison,
+      décompte) ; remplacer le « 1226 » codé en dur par une formulation tenue à jour.
+    acceptance:
+      - "Politique tranchée et COHÉRENTE code↔doc : éditer un fichier « Liakont addition » ne déclenche plus un faux « dérive socle non consignée » (smoke-test reproduit)"
+      - "Une vraie modif d'un fichier Stratum EXISTANT reste bien détectée (pas de faux négatif introduit)"
+      - "Chaque exécution -Generate consignée en provenance (item, commit, raison, décompte) ; décompte de fichiers à jour"
+      - "socle-provenance-check.ps1 smoke-testé sur état propre / dérive consignée / dérive non consignée / régénération"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RDL10:
+    title: "[P2] Mettre à jour ADR-0005 : prémisse périmée + plan de bascule cross-repo EXHAUSTIF"
+    description: |
+      Findings A5-coupling-1 (P2), A5-coupling-5 (P3), A5-fix-1 (P2), A5-fix-4 (P3), A5-fix-5 (P2).
+      A5-coupling-1 : la prémisse de l'ADR (« rien de substantiel à déplacer ») est invalidée — 8 projets
+      de prod, ~190 fichiers, ~15 900 LOC (extraction ODBC réelle, transport/queue/auto-update, installeur
+      WinForms, updater, 3 adaptateurs). La fenêtre « scission bon marché » est passée. A5-coupling-5 :
+      Liakont.Agent.Updater (AGT04/ADR-0013) et les adaptateurs de démo DemoErpA/DemoErpB absents de
+      l'énumération « Contenu » de l'ADR ; statuer (Updater dans le produit ; démo → fixtures ?). A5-fix-1 :
+      les golden/lecteur de contrat sont des fichiers liés intra-repo (tests/_shared/contract-v1,
+      tests/fixtures/contrat-v1) ; à la scission, soit duplication (deux ancres SHA-256 qui divergent — le
+      faux-vert que F12 §3.4 veut empêcher), soit la preuve net48 disparaît. Décider le vecteur de partage
+      (NuGet *.TestKit en contentFiles) AVANT la bascule. A5-fix-5 : verify-fast Step 4 + job CI agent codent
+      le mono-repo en dur ; documenter la séquence de transition + garantir la preuve de hash net48 re-jouée.
+      A5-fix-4 : le champ repo: au niveau segment n'existe ni dans MANIFEST-CONVENTIONS.md ni dans le manifest.
+      Fix : réécrire §Conséquences d'ADR-0005 avec un inventaire de bascule EXHAUSTIF et à jour ; énumérer
+      Updater + statuer sur les adaptateurs de démo ; décider le vecteur de partage des golden ; documenter
+      la séquence verify-fast/CI ; réserver/spécifier le champ repo: dans MANIFEST-CONVENTIONS.md. Item DOC
+      uniquement (l'ADR acte la bascule DIFFÉRÉE ; les gardes exécutables sont RDL11).
+    acceptance:
+      - "ADR-0005 §Conséquences réécrit : prémisse « squelette » corrigée ; inventaire de couplage EXHAUSTIF (cf. RDL11)"
+      - "« Contenu » du dépôt agent inclut Updater ; statut explicite des adaptateurs DemoErpA/DemoErpB (produit vs fixtures)"
+      - "Vecteur de partage cross-repo des golden/lecteur/fixtures décidé et tracé (avant la bascule)"
+      - "Séquence de transition verify-fast/CI documentée ; preuve de hash net48 garantie re-jouée côté plateforme"
+      - "Champ repo: au niveau segment réservé/spécifié dans MANIFEST-CONVENTIONS.md"
+      - "verify-fast passes (docs n'introduisent pas de régression)"
+      - "codex-review clean or only accepted P2s"
+  RDL11:
+    title: "[P2] Gardes déclaratives : pureté du contrat (netstandard2.0 / zéro PackageReference) + anti-divergence des golden"
+    description: |
+      Findings A5-purity-1 (P2), A5-coupling-2 (P2), A5-coupling-3 (P2).
+      A5-purity-1 : aucune garde DÉCLARATIVE ne verrouille « zéro PackageReference » ni « netstandard2.0 »
+      sur Liakont.Agent.Contracts.csproj (les tests existants inspectent l'IL, qui rate un PackageReference
+      purement déclaratif ; AgentPackageReferenceBoundaryTests ne scanne que agent/, pas src/Contracts/).
+      Un analyseur en PrivateAssets=all ou un passage à net8.0 casserait la consommabilité net48 sans test
+      rouge — condition même de la publication NuGet. A5-coupling-2 : le couplage cross-solution est
+      sous-compté (6 ProjectReference vers src/Contracts, pas 1 ; + 1 Compile-link de 4 fichiers _shared ;
+      + 1 copie de fixtures) ; ajouter un test qui échoue si un nouveau chemin ..\..\..\src ou ..\..\..\tests
+      apparaît dans un csproj agent. A5-coupling-3 : ajouter un test asserttant que les N empreintes figées
+      sont effectivement exercées côté agent (compte des cas) pour qu'un retrait du Compile-link échoue
+      bruyamment (sinon le test disparaît du run agent à la scission = faux-vert silencieux).
+      Fix : test déclaratif lisant le csproj du contrat (TargetFramework == netstandard2.0 ; zéro
+      PackageReference effectif en tenant compte du Remove hérité) ; tests anti-dérive sur les chemins
+      cross-solution et sur la présence/le compte des golden exercés côté agent.
+    acceptance:
+      - "Test déclaratif : Liakont.Agent.Contracts.csproj est netstandard2.0 ET sans PackageReference effectif (échec si analyseur/TFM change)"
+      - "Test anti-dérive : un nouveau chemin ..\\..\\..\\src ou ..\\..\\..\\tests dans un csproj agent fait échouer la garde"
+      - "Test : les N empreintes figées du contrat sont effectivement exercées côté agent net48 (compte des cas), échec si le lien est retiré"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RDL12:
+    title: "[P2] Sortir PivotReconciliation (formule fiscale BR-CO-13) du contrat publiable vers un assembly plateforme-seul"
+    description: |
+      Finding A5-purity-2 (P2).
+      PivotReconciliation.cs:14-34 (assembly de contrat Liakont.Agent.Contracts) encode la sémantique
+      EN 16931 BR-CO-13 (« IsCharge ajoute BG-21, sinon retranche BG-20 » + placement de l'arrondi) et est
+      la source UNIQUE d'une validation BLOQUANTE (LineTotalsRule.cs:46, DocumentLineProjection.cs:109).
+      L'agent net48 ne l'utilise JAMAIS (il consomme PivotRounding/CanonicalJson/PayloadHasher). Or ADR-0005
+      décision 3 (« aucune logique ») et CLAUDE.md n°6 (« l'agent n'a AUCUNE logique métier ») : ce paquet —
+      publié et référencé par l'agent à la bascule NuGet — embarquerait une règle de réconciliation fiscale.
+      Ni ADR-0005 ni ADR-0007 ne tracent ce placement (ADR-0007 justifie nommément PivotRounding/writer,
+      PAS PivotReconciliation). Au moment de la bascule, soit on publie de la logique de validation dans le
+      contrat agent, soit on duplique la formule en urgence (divergence avec LineTotalsRule).
+      Fix : déplacer PivotReconciliation dans un assembly partagé PLATEFORME-SEUL (côté src/), de sorte que
+      le paquet du contrat ne porte que writer+hasher+rounding+DTOs (ce dont l'agent a besoin) ; mettre à
+      jour les références (Validation, Host) ; la formule BR-CO-13 reste source-unique côté plateforme sans
+      franchir la frontière agent. Aucune modification de la VALEUR calculée (déplacement, pas réécriture).
+    acceptance:
+      - "PivotReconciliation ne vit plus dans Liakont.Agent.Contracts ; le contrat ne porte que writer+hasher+rounding+DTOs"
+      - "LineTotalsRule reste la source UNIQUE de la validation BR-CO-13, inchangée fonctionnellement (mêmes totaux/arrondis)"
+      - "Aucune référence agent à PivotReconciliation ; frontière agent préservée (NetArchTest/garde de pureté verte)"
+      - "Décision tracée (ADR-0005 ou note ADR-0007) sur la place de PivotReconciliation"
+      - "verify-fast passes ; run-tests (intégration) vert"
+      - "codex-review clean or only accepted P2s"
+  RDL13:
+    title: "[P3] Intégrité documentaire des ADR : collision ADR-0023 (renumérotation + index) + statut ADR-0016"
+    description: |
+      Findings X-down-1 (P3), X-down-3 (P3), A6-cons-4 (P3).
+      X-down-1 : deux fichiers portent le numéro ADR-0023 (cablage-cycle-run-agent… et
+      generation-facturx-pdfa3-cii). Une convention de désambiguïsation de facto existe (FacturX = « §N » ;
+      câblage = « D1-D5 ») et 4 ADR ultérieurs assument la collision, mais la traçabilité est déjà dégradée :
+      DemoErpARowMapper.cs:27 / DemoErpBRowMapper.cs:26 citent « ADR-0023 D8 » alors que l'ADR câblage ne
+      contient que D1-D5 (référence orpheline). X-down-3 / A6-cons-4 : ADR-0016 reste « Proposé » alors que
+      sa décision (isolation tenant, SendTenantTrigger) est livrée et testée (CLAUDE.md n°9) — un futur
+      contributeur pourrait croire la décision négociable et réintroduire un fan-out tous-tenants.
+      Fix : renuméroter l'ADR câblage-agent vers un numéro libre (ex. ADR-0031) + en-tête « Numérotation »
+      dans les fichiers concernés + index docs/adr/README.md ; corriger la référence orpheline « D8 ».
+      Passer ADR-0016 à « Accepté » + « Mise en œuvre : item API02a » + back-link depuis ADR-0006 (ADR-0016
+      raffine ADR-0006 : cron = tous-tenants / console = un tenant). Mettre à jour les renvois.
+    acceptance:
+      - "Collision ADR-0023 levée : l'ADR câblage-agent renuméroté (numéro libre) ; renvois et référence orpheline « D8 » corrigés"
+      - "Index docs/adr/README.md créé (numéro → titre → statut) + en-tête de numérotation où utile"
+      - "ADR-0016 passé à « Accepté » avec « Mise en œuvre : item API02a » + back-link depuis/vers ADR-0006"
+      - "Aucune citation d'ADR aval cassée par la renumérotation (grep des renvois)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  GATE_ADR_REDLINE:
+    type: gate
+    executor: human
+    title: "Gate (humaine) : recette du lot RDL (redline ADR-0005/0006/0007)"
+    description: |
+      Recette humaine du lot RDL (findings confirmés de la revue critique du 2026-06-19). Vérifie que les
+      13 items sont livrés ET prouvés, et VALIDE les 2 arbitrages humains (décisions tracées) :
+        - P1 : RDL01 (enum gardé/rejet + binding strict) ; RDL06 (4 fan-out Pipeline dispatchables — SYNC/
+          AGGREGATE/RECTIFY ne sont plus des jobs morts).
+        - Hash & contrat (ADR-0007) : RDL02 (boucle wire-STJ↔writer + lecteur prod acté), RDL03 (complétude/
+          ordre/cas limites), RDL04 (sens N+1→N tranché), RDL05 (ARBITRAGE : décision NFC tracée).
+        - Jobs multi-tenant (ADR-0006) : RDL07 (ARBITRAGE : run partiel + observabilité), RDL08 (reprise/
+          anti-recouvrement/budget temps), RDL09 (provenance baseline cohérente).
+        - Dépôt agent (ADR-0005) : RDL10 (ADR à jour + plan de bascule), RDL11 (gardes déclaratives de pureté),
+          RDL12 (PivotReconciliation hors du contrat publiable).
+        - Doc : RDL13 (collision ADR-0023 + statut ADR-0016).
+      Les 2 décisions d'arbitrage (RDL05 NFC ; RDL07 sémantique run partiel) doivent être tranchées et
+      TRACÉES (aucune règle fiscale inventée — règle n°2). Les 12 findings réfutés ne sont pas dans le
+      périmètre (voir tasks/redline-adr-005-006-007.md).
+    acceptance:
+      - "RDL01→RDL13 done et prouvés (verify-fast + run-tests verts ; tests dédiés exécutés, pas seulement écrits)"
+      - "Les 2 arbitrages (RDL05 NFC, RDL07 run partiel) tranchés et tracés dans les ADR concernés"
+      - "Aucune frontière violée, aucune règle fiscale inventée, socle vendored consigné en provenance"
+      - "PR ouverte, CI verte (verify + tests), merge humain"
