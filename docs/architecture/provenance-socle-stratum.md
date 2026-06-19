@@ -261,6 +261,8 @@ src/Modules/Job/Web/JobNavSectionProvider.cs
 src/Modules/Job/Infrastructure/JobHandlerResolver.cs
 src/Modules/Job/Contracts/Queries/IJobQueries.cs
 src/Modules/Job/Infrastructure/Queries/PostgresJobQueries.cs
+<!-- §4.38 — RDL08 : dé-duplication à l'enqueue des jobs récurrents (anti-empilement) -->
+src/Modules/Job/Infrastructure/JobScheduler.cs
 src/Common/Infrastructure/Database/TenantProvisioningService.cs
 src/Common/Infrastructure/Keycloak/KeycloakRealmProvisioner.cs
 src/Common/Abstractions/MultiTenancy/KeycloakRealmProvisionRequest.cs
@@ -1032,12 +1034,39 @@ régénération elle-même invisible. Désormais, toute régénération s'inscri
 | (non daté, antérieur à RDL09) | OPS03 (non consigné à l'époque) | Régénération après ajouts sous racines vendorées ; a par effet de bord épinglé les ajouts Liakont (cause d'A6-prov-1) | 1249 |
 | 2026-06-19 | RDL09 | Exclure les ajouts Liakont du périmètre épinglé (marqueur de tête `Liakont addition`) → lever la contradiction baseline↔doc §4.12/§4.14/ADR-0006 ; rebaser sur les seuls `Stratum.*` | 1226 |
 
+> Note RDL08 (2026-06-20) : **aucune régénération** — la modification de `JobScheduler`/`IJobQueries`/
+> `PostgresJobQueries` est absorbée par le bloc `SOCLE-CONSIGNED-DRIFT` (§4.38), pas par une re-cuisson du
+> baseline (qui resterait la référence stable). Le baseline reste à 1226.
+
 Au-delà du décompte, la régénération RDL09 a aussi : (a) ajouté le marqueur de tête `Liakont addition`
 aux 21 ajouts Liakont qui en étaient dépourvus (les 13 ajouts SOL06 le portaient déjà) — total 34
 ajouts désormais tous marqués et exclus ; (b) retiré du bloc `SOCLE-CONSIGNED-DRIFT` deux entrées qui
 étaient des ajouts Liakont (donc plus jamais épinglés) :
 `src/Modules/Job/Web/Pages/AdminJobExecutions.razor` et
 `src/Modules/Job/Infrastructure/Queries/PostgresJobExecutionsQueries.cs`.
+
+### 4.38 RDL08 — dé-duplication à l'enqueue des jobs récurrents (anti-empilement)
+RDL08 (redline ADR-0006, finding A6-scale-2) ajoute une garde de dé-duplication à l'enqueue : le
+`JobScheduler` récurrent ne doit pas empiler un déclencheur identique quand un job du même type/portée est
+déjà `Pending` (sinon un fan-out plus long que la cadence cron affame le worker mono-job). La logique de
+décision et la requête vivent côté **Liakont** (ajouts non épinglés, marqués `// Liakont addition (RDL08)`) :
+`Stratum.Common.Abstractions.Jobs.IRecurringJobEnqueueGuard` (+ impl. Host `RecurringJobEnqueueGuard`),
+`TenantJobRunnerOptions` (budget par tenant, A6-scale-3). Trois fichiers `Stratum.*` épinglés sont **modifiés**
+(ajouts additifs uniquement, aucune logique métier socle changée) :
+
+- `src/Modules/Job/Contracts/Queries/IJobQueries.cs` (déjà consigné) : signature `HasPendingJobOfTypeAsync`.
+- `src/Modules/Job/Infrastructure/Queries/PostgresJobQueries.cs` (déjà consigné) : implémentation SQL
+  (`EXISTS … status = 'Pending' AND company_id IS NOT DISTINCT FROM …`). `Pending`-only (jamais `Running`)
+  pour ne pas bloquer sur un `Running` orphelin — ADR-0006 §5.2.
+- `src/Modules/Job/Infrastructure/JobScheduler.cs` (**AJOUTÉ** au bloc CONSIGNED-DRIFT) : avant `InsertJobAsync`,
+  consulte `IRecurringJobEnqueueGuard` (résolu en option, `GetService` — comportement inchangé si absent) ;
+  si suppression, avance `next_run_at` et saute l'enqueue avec un log `Information` structuré.
+
+`TenantJobRunner.cs` (ajout SOL06, NON épinglé) gagne le budget par tenant (linked CTS). Aucune table ni
+migration socle modifiée. La dérive de ces trois fichiers est absorbée par le bloc `SOCLE-CONSIGNED-DRIFT`
+ci-dessus — **le baseline n'est PAS régénéré** (il reste la référence stable ; régénérer est optionnel, §4.12).
+**Vérification** : `verify-fast` (2 solutions, dont `socle-provenance-check` exit 0) + `run-tests` (unit
+garde/runner + intégration `HasPendingJobOfTypeAsync` et seam DI réel sur 2 bases).
 
 ## 5. ADR du socle hérités
 

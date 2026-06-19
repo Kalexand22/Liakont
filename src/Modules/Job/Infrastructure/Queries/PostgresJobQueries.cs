@@ -99,4 +99,25 @@ internal sealed class PostgresJobQueries : IJobQueries
             new CommandDefinition(sql, new { Type = jobType }, cancellationToken: ct));
         return DbTimestamp.ToNullableDateTimeOffset(lastCompleted);
     }
+
+    // Liakont addition (RDL08) : dé-duplication à l'enqueue (A6-scale-2). Existence d'un job 'Pending' du même
+    // type ET de la même portée tenant (company_id NULL pour les jobs système — 'IS NOT DISTINCT FROM' gère
+    // l'égalité NULL). Limité à 'Pending' (pas 'Running') pour ne jamais bloquer sur un Running orphelin
+    // (A6-scale-1, aucun reaper). Voir docs/adr/ADR-0006 §5.
+    public async Task<bool> HasPendingJobOfTypeAsync(string jobType, Guid? companyId, CancellationToken ct = default)
+    {
+        using IDbConnection conn = await _connectionFactory.OpenAsync(ct);
+
+        const string sql = """
+            SELECT EXISTS (
+                SELECT 1 FROM job.jobs
+                WHERE type = @Type
+                  AND status = 'Pending'
+                  AND company_id IS NOT DISTINCT FROM @CompanyId
+            )
+            """;
+
+        return await conn.ExecuteScalarAsync<bool>(
+            new CommandDefinition(sql, new { Type = jobType, CompanyId = companyId }, cancellationToken: ct));
+    }
 }
