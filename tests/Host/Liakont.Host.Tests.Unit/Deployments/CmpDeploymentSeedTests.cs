@@ -10,13 +10,14 @@ using Xunit;
 
 /// <summary>
 /// Validation NOMMÉE du seed de déploiement CMP (lot CMP02), sur les fichiers RÉELS de
-/// <c>deployments/cmp/</c>. Prouve, sans toucher au code produit (<c>src/</c>) ni à l'agent
-/// (<c>agent/</c>) — acceptance CMP02 — que :
+/// <c>deployments/cmp/</c>. Périmètre : CORRECTION DES FICHIERS DE SEED (forme JSON + valeurs +
+/// cohérence), sans toucher au code produit (<c>src/</c>) ni à l'agent (<c>agent/</c>) — acceptance
+/// CMP02. Vérifie, en lisant chaque fichier avec la même TOLÉRANCE de parse que le lecteur de seed
+/// (<c>JsonCommentHandling.Skip</c> + virgules traînantes), que :
 /// <list type="bullet">
-///   <item>le profil <c>tenant-cmp.json</c> se désérialise avec les MÊMES options que le lecteur de
-///   seed (<c>TenantSeedReader</c> : commentaires ignorés, virgules traînantes, casse insensible) et
-///   porte les champs requis par l'import (SIREN valide, raison sociale, adresse), paramètres fiscaux
-///   laissés <c>null</c> (en attente expert-comptable, jamais devinés) ;</item>
+///   <item>le profil <c>tenant-cmp.json</c> est un JSON bien formé portant les champs que l'import
+///   exige (SIREN valide, raison sociale, adresse) sous leurs noms canoniques, et laisse les
+///   paramètres fiscaux <c>null</c> (en attente expert-comptable, jamais devinés) ;</item>
 ///   <item>les comptes PA (<c>pa-accounts-cmp.json</c>) ne portent AUCUN secret en clair (clé en
 ///   placeholder — INV-TENANTSETTINGS-007 / CLAUDE.md n°10) ;</item>
 ///   <item>la config agent (<c>agent-cmp.json.example</c>) est en mode fixtures (démo), HTTPS, sans
@@ -24,13 +25,19 @@ using Xunit;
 ///   <item>les fixtures de démo couvrent tous les cas du scénario ISATECH et n'utilisent que des
 ///   régimes COUVERTS par la table de mapping (aucun régime non mappé).</item>
 /// </list>
-/// Le chemin d'import en base (écriture du profil/des comptes) est couvert de façon générique par
-/// <c>TenantSeedAdminEndpointTests</c> (suite d'intégration) ; ce test cible la CORRECTION des fichiers
-/// CMP eux-mêmes (forme + valeurs + cohérence), exécuté dans verify-fast (rapide, sans conteneur).
+/// PÉRIMÈTRE ASSUMÉ : ce test fait une validation STRUCTURELLE (lecture <c>JsonDocument</c> des
+/// propriétés), pas un aller-retour de désérialisation dans les records internes
+/// (<c>TenantProfileSeed</c>/<c>PaAccountSeed</c>, non accessibles hors du module et de ses propres
+/// tests). L'import en base de bout en bout — désérialisation dans les records puis écriture — est
+/// couvert de façon générique par <c>TenantSeedAdminEndpointTests</c> (suite d'intégration). Ce test
+/// s'exécute dans verify-fast (rapide, sans conteneur) et cible les fichiers CMP eux-mêmes.
 /// </summary>
 public sealed class CmpDeploymentSeedTests
 {
-    // Mêmes options que TenantSeedReader.SerializerOptions (lecture tolérante des seeds versionnés).
+    // Même TOLÉRANCE de parse que TenantSeedReader.SerializerOptions (commentaires + virgules
+    // traînantes des seeds versionnés). La casse insensible des noms de propriété est une option
+    // de JsonSerializer côté lecteur réel, non exercée ici : les fichiers de seed emploient les
+    // noms canoniques exacts, et c'est précisément ce que ce test vérifie.
     private static readonly JsonDocumentOptions SeedDocOptions = new()
     {
         CommentHandling = JsonCommentHandling.Skip,

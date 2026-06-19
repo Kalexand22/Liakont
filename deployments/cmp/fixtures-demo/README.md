@@ -20,7 +20,7 @@ fixtures (l'agent ne porte aucune identité d'émetteur dans la source — F12).
 |---|---|---|
 | `7001` (B) | **Vente normale** (régime 5, assujetti 20 %) + **encaissement** | adjudication + frais acheteur taxables ; ligne de règlement (type 3, CB). |
 | `7002` (B) | **Régime de la marge** (régime 6) + **encaissement** | adjudication marge (TVA jamais distincte, art. 297 E CGI) ; frais acheteur taxables même si l'adjudication est exonérée (F03 §2.3) ; règlement espèces. |
-| `7003` (B) | **Acheteur professionnel (B2B)** | `acheteur_societe` + `acheteur_siren` renseignés (fictif `523456788`) → flux e-invoicing B2B selon les capacités du plug-in PA. |
+| `7003` (B) | **Acheteur professionnel (B2B)** | `acheteur_societe` + `acheteur_siren` renseignés (fictif `800000002`, non attribué dans SIRENE) → flux e-invoicing B2B selon les capacités du plug-in PA. |
 | `7050` (A) | **Avoir** lettré | `bordereau_ou_avoir = "A"`, `no_ba_lettrage = "7001"` → annulation de la vente `7001`. |
 
 Les régimes de la source (`5`, `6`) correspondent exactement aux régimes de la table de mapping
