@@ -3,6 +3,8 @@ namespace Liakont.Agent.Contracts.ContractTests;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Reflection;
 using System.Text;
 using FluentAssertions;
 using Liakont.Agent.Contracts;
@@ -44,6 +46,32 @@ public sealed class ContractFixtureTests
         ["facture-b2b-pro"] = "9ef37f38c06112225dfedebf855136af9fe5eefc5b30608d43310dd1b631bf8d",
         ["facture-prestation-paiements"] = "b30d6a942afe250efb26c48711c85bc91aa6de949148e52e00d07c1d6331be81",
         ["facture-push-agent-brut"] = "cefc4ed66002ce4305e1a3b3b38dc35f0e16f12399840d3c7fc07115dcf2b4a6",
+    };
+
+    /// <summary>
+    /// Propriétés d'enveloppe HORS du périmètre du format ILLUSTRATIF (télémétrie diagnostique de
+    /// heartbeat ajoutée par la supervision : leur encodage fil définitif appartient à l'ingestion,
+    /// PIV04/PIV05). Figées explicitement pour qu'un champ AJOUTÉ au DTO sans être émis ET sans être
+    /// listé ici casse <see cref="Envelope_composers_cover_every_dto_property_or_freeze_it_out_of_scope"/>
+    /// (revue obligatoire — A7-cov-3).
+    /// </summary>
+    private static readonly HashSet<string> HeartbeatOutOfIllustrativeScope = new HashSet<string>(StringComparer.Ordinal)
+    {
+        nameof(HeartbeatRequestDto.ServiceState),
+        nameof(HeartbeatRequestDto.PushQueueDepth),
+        nameof(HeartbeatRequestDto.PushQueueErrorCount),
+        nameof(HeartbeatRequestDto.LastRunStartedUtc),
+        nameof(HeartbeatRequestDto.LastRunCompletedUtc),
+        nameof(HeartbeatRequestDto.LastRunOutcome),
+        nameof(HeartbeatRequestDto.LastError),
+        nameof(HeartbeatRequestDto.DiskFreeBytes),
+    };
+
+    /// <summary>Propriétés de l'enveloppe batch hors du format illustratif (les régimes source ne sont
+    /// pas portés par le lot de référence à deux documents).</summary>
+    private static readonly HashSet<string> BatchOutOfIllustrativeScope = new HashSet<string>(StringComparer.Ordinal)
+    {
+        nameof(PushBatchRequestDto.SourceTaxRegimes),
     };
 
     private static string FixturesDirectory => Path.Combine(AppContext.BaseDirectory, "fixtures", "contrat-v1");
@@ -142,6 +170,41 @@ public sealed class ContractFixtureTests
     }
 
     /// <summary>
+    /// Garde de complétude des composeurs d'enveloppe ILLUSTRATIVE écrits À LA MAIN (le writer
+    /// canonique ne réinjecte pas un sous-document déjà sérialisé). Chaque propriété publique du DTO
+    /// d'enveloppe est SOIT émise comme clé du JSON illustratif, SOIT figée hors périmètre (XOR) :
+    /// un champ ajouté au DTO sans l'un ni l'autre — ou figé ET émis — casse le test et impose une
+    /// revue. Évite la dérive silencieuse « heartbeat à la main vs DTO » (A7-cov-3, RDL03).
+    /// </summary>
+    [Fact]
+    public void Envelope_composers_cover_every_dto_property_or_freeze_it_out_of_scope()
+    {
+        AssertEnvelopeCoverage(typeof(HeartbeatRequestDto), ContractFixtures.ComposeHeartbeatJson(), HeartbeatOutOfIllustrativeScope);
+        AssertEnvelopeCoverage(typeof(PushBatchRequestDto), ContractFixtures.ComposeBatchRequestJson(), BatchOutOfIllustrativeScope);
+    }
+
+    /// <summary>
+    /// Non-régression ADDITIVE ancrée sur TOUT le jeu de fixtures (pas un seul golden) : le dernier
+    /// champ additif du contrat (BT-9 <c>PaymentDueDate</c>, ADR-0007) est OMIS pour toute fixture qui
+    /// ne le porte pas, et son empreinte figée reste inchangée — preuve qu'ajouter un optionnel en fin
+    /// de DTO ne perturbe aucun document existant (A7-evo-5).
+    /// </summary>
+    /// <param name="name">Nom de la fixture document.</param>
+    [Theory]
+    [MemberData(nameof(ContractFixtures.DocumentCases), MemberType = typeof(ContractFixtures))]
+    public void Additive_optional_field_is_omitted_and_hash_frozen_for_every_fixture(string name)
+    {
+        PivotDocumentDto document = ContractFixtures.GetDocument(name);
+        string json = CanonicalJson.Serialize(document);
+
+        document.PaymentDueDate.Should().BeNull("aucune fixture du jeu ne porte d'échéance — c'est l'ancre de non-régression additive");
+        json.Should().NotContain("PaymentDueDate", "un optionnel non porté n'est jamais émis (le hash figé doit rester intact)");
+        PayloadHasher.ComputeHash(document).Should().Be(
+            FrozenHashes[name],
+            "l'ajout d'un champ additif (BT-9) ne change RIEN pour une fixture qui ne le porte pas (" + name + ")");
+    }
+
+    /// <summary>
     /// Présence des golden files — OU régénération sur demande explicite. En mode normal (CI), ce
     /// test ÉCHOUE si un golden manque. Pour régénérer après une évolution VOLONTAIRE du contrat :
     /// <c>LIAKONT_REGEN_FIXTURES=1</c> + <c>LIAKONT_FIXTURE_OUT=&lt;tests/fixtures/contrat-v1&gt;</c>.
@@ -178,6 +241,27 @@ public sealed class ContractFixtureTests
 
         File.Exists(Path.Combine(FixturesDirectory, ContractFixtures.BatchFixtureName + ".json")).Should().BeTrue();
         File.Exists(Path.Combine(FixturesDirectory, ContractFixtures.HeartbeatFixtureName + ".json")).Should().BeTrue();
+    }
+
+    private static void AssertEnvelopeCoverage(Type dtoType, string composedJson, HashSet<string> outOfScope)
+    {
+        IDictionary<string, object?> map = PivotCanonicalReader.ParseToMap(composedJson);
+
+        foreach (PropertyInfo property in dtoType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            bool emitted = map.ContainsKey(property.Name);
+            bool frozenOut = outOfScope.Contains(property.Name);
+
+            (emitted ^ frozenOut).Should().BeTrue(
+                dtoType.Name + "." + property.Name + " doit être SOIT émis dans le format illustratif, SOIT figé hors périmètre (jamais les deux, jamais aucun) — un champ ajouté sans revue casse ici (A7-cov-3)");
+        }
+
+        // Pas d'entrée hors-périmètre périmée : chaque nom figé doit encore correspondre à une propriété.
+        foreach (string name in outOfScope)
+        {
+            dtoType.GetProperty(name, BindingFlags.Public | BindingFlags.Instance).Should().NotBeNull(
+                "l'entrée hors-périmètre " + dtoType.Name + "." + name + " doit correspondre à une propriété réelle (liste à revoir si un champ a été retiré)");
+        }
     }
 
     private static string ReadFixture(string fileName)

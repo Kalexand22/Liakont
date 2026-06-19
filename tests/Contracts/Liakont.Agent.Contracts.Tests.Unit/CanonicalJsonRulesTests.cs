@@ -2,6 +2,7 @@ namespace Liakont.Agent.Contracts.Tests.Unit;
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using FluentAssertions;
@@ -117,6 +118,52 @@ public sealed class CanonicalJsonRulesTests
     }
 
     [Fact]
+    public void Control_and_non_bmp_characters_are_escaped_to_lowercase_4hex()
+    {
+        // Cas limites d'échappement (A7-fmt-4) : un caractère de contrôle (NUL), le DEL (0x7F, juste
+        // au-dessus de '~' = 0x7E), et un caractère HORS-BMP (émoji) émis comme paire de substitution
+        // UTF-16 déterministe, code-unité par code-unité. Construits par code (jamais de NUL brut ni
+        // d'échappement \uXXXX dans le source) pour rester robustes au passage par les outils.
+        string nul = ((char)0x00).ToString(CultureInfo.InvariantCulture);
+        string del = ((char)0x7F).ToString(CultureInfo.InvariantCulture);
+        string nonBmp = char.ConvertFromUtf32(0x1F600); // 😀 → paire de substitution U+D83D U+DE00
+
+        string json = CanonicalJson.Serialize(Build(supplier: new PivotPartyDto(nul + del + nonBmp)));
+
+        json.Should().Contain(Escape(0x00), "NUL (< 0x20) est échappé en \\u0000");
+        json.Should().Contain(Escape(0x7F), "DEL (> 0x7E) est échappé en hexadécimal minuscule");
+        json.Should().Contain(Escape(0xD83D) + Escape(0xDE00), "un caractère hors-BMP est émis comme sa paire de substitution UTF-16, déterministe");
+        json.All(c => c >= ' ' && c <= '~').Should().BeTrue("la sortie reste ASCII pur même pour les caractères de contrôle et hors-BMP");
+    }
+
+    [Fact]
+    public void Decimal_zero_with_explicit_scale_keeps_its_trailing_zeros()
+    {
+        // A7-fmt-4 : 0.00m garde son échelle source (2), jamais réduit à « 0 » — l'échelle fait partie
+        // de l'empreinte (deux montants d'échelle différente ne sont pas le même payload).
+        string json = CanonicalJson.Serialize(
+            Build(totals: new PivotTotalsDto(totalNet: 0.00m, totalTax: 0m, totalGross: 0.0m)));
+
+        json.Should().Contain("\"TotalNet\":0.00", "0.00m conserve son échelle 2");
+        json.Should().Contain("\"TotalTax\":0", "0m (échelle 0) reste « 0 »");
+        json.Should().Contain("\"TotalGross\":0.0", "0.0m conserve son échelle 1");
+    }
+
+    [Fact]
+    public void Decimal_with_maximum_scale_is_emitted_in_full_without_exponent()
+    {
+        // A7-fmt-4 : un decimal à l'échelle MAXIMALE (28 décimales) est émis en entier, culture
+        // invariante, JAMAIS en notation exponentielle (garanti par le type decimal).
+        const decimal maxScale = 0.0000000000000000000000000001m; // 1e-28, échelle 28
+
+        string json = CanonicalJson.Serialize(
+            Build(totals: new PivotTotalsDto(totalNet: maxScale, totalTax: 0m, totalGross: 0m)));
+
+        json.Should().Contain("\"TotalNet\":0.0000000000000000000000000001", "l'échelle max est préservée intégralement");
+        json.Should().NotContain("E+").And.NotContain("E-", "jamais d'exposant, même à l'échelle maximale");
+    }
+
+    [Fact]
     public void Hash_of_document_equals_hash_of_its_canonical_json()
     {
         var document = Build();
@@ -175,160 +222,80 @@ public sealed class CanonicalJsonRulesTests
     [Fact]
     public void All_public_properties_of_every_pivot_dto_appear_as_json_keys_in_fully_populated_document()
     {
-        string json = CanonicalJson.Serialize(BuildFullyPopulated());
+        WalkFullyPopulatedDtoNodes(AssertAllPropertiesArePresent);
+    }
+
+    /// <summary>
+    /// Au-delà de la PRÉSENCE (test ci-dessus), garantit que l'ORDRE d'émission JSON de CHAQUE DTO
+    /// imbriqué suit l'ordre de DÉCLARATION du DTO (règle 1 d'<c>ADR-0007</c>). Un champ inséré au
+    /// milieu d'un DTO mais écrit en fin par le writer passerait la présence mais casserait
+    /// l'empreinte du premier document réel qui le porte : ce test l'attrape immédiatement (RDL03).
+    /// </summary>
+    [Fact]
+    public void Json_key_order_of_every_pivot_dto_matches_its_declaration_order()
+    {
+        WalkFullyPopulatedDtoNodes(AssertKeyOrderMatchesDeclarationOrder);
+    }
+
+    /// <summary>
+    /// Parcourt chaque nœud DTO du document entièrement peuplé et applique <paramref name="assert"/>
+    /// (couverture par présence ET ordre partagent la même navigation, source unique).
+    /// </summary>
+    private static void WalkFullyPopulatedDtoNodes(Action<IDictionary<string, object?>, Type> assert)
+    {
+        string json = CanonicalJson.Serialize(ContractTests.ContractFixtures.BuildFullyPopulatedDocument());
         var root = ContractTests.PivotCanonicalReader.ParseToMap(json);
 
-        AssertAllPropertiesArePresent(root, typeof(PivotDocumentDto));
+        assert(root, typeof(PivotDocumentDto));
         var supplier = Child(root, "Supplier");
-        AssertAllPropertiesArePresent(supplier, typeof(PivotPartyDto));
-        AssertAllPropertiesArePresent(Child(supplier, "Address"), typeof(PivotAddressDto));
-        AssertAllPropertiesArePresent(Child(root, "Totals"), typeof(PivotTotalsDto));
+        assert(supplier, typeof(PivotPartyDto));
+        assert(Child(supplier, "Address"), typeof(PivotAddressDto));
+        assert(Child(root, "Totals"), typeof(PivotTotalsDto));
         var line = Element(root, "Lines", 0);
-        AssertAllPropertiesArePresent(line, typeof(PivotLineDto));
-        AssertAllPropertiesArePresent(Element(line, "Taxes", 0), typeof(PivotLineTaxDto));
-        AssertAllPropertiesArePresent(Element(root, "CreditNoteRefs", 0), typeof(PivotDocumentRefDto));
-        AssertAllPropertiesArePresent(Element(root, "Payments", 0), typeof(PivotPaymentDto));
-        AssertAllPropertiesArePresent(Element(root, "DocumentCharges", 0), typeof(PivotDocumentChargeDto));
+        assert(line, typeof(PivotLineDto));
+        assert(Element(line, "Taxes", 0), typeof(PivotLineTaxDto));
+        assert(Element(root, "CreditNoteRefs", 0), typeof(PivotDocumentRefDto));
+        assert(Element(root, "Payments", 0), typeof(PivotPaymentDto));
+        assert(Element(root, "DocumentCharges", 0), typeof(PivotDocumentChargeDto));
     }
 
     private static void AssertAllPropertiesArePresent(IDictionary<string, object?> node, Type dtoType)
     {
-        foreach (PropertyInfo property in dtoType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        foreach (string propertyName in DeclaredPropertyNames(dtoType))
         {
             node.Keys.Should().Contain(
-                property.Name,
-                $"la propriété {dtoType.Name}.{property.Name} doit être une clé de SON objet JSON (complétude par-DTO : anti-doublon PIV04 / détection d'altération TRK03)");
+                propertyName,
+                $"la propriété {dtoType.Name}.{propertyName} doit être une clé de SON objet JSON (complétude par-DTO : anti-doublon PIV04 / détection d'altération TRK03)");
         }
     }
+
+    private static void AssertKeyOrderMatchesDeclarationOrder(IDictionary<string, object?> node, Type dtoType)
+    {
+        // Document entièrement peuplé ⇒ chaque propriété est émise : l'ordre des clés JSON doit être
+        // EXACTEMENT l'ordre de déclaration du DTO (≠ simple présence — détecte l'insertion-au-milieu).
+        node.Keys.Should().Equal(
+            DeclaredPropertyNames(dtoType),
+            $"l'ordre d'émission JSON de {dtoType.Name} doit suivre l'ordre de déclaration du DTO (ADR-0007 règle 1)");
+    }
+
+    /// <summary>Noms des propriétés publiques d'instance d'un DTO, dans l'ordre de DÉCLARATION
+    /// (jeton de métadonnées — l'ordre de <see cref="Type.GetProperties()"/> n'est pas garanti).</summary>
+    private static List<string> DeclaredPropertyNames(Type dtoType) =>
+        dtoType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .OrderBy(property => property.MetadataToken)
+            .Select(property => property.Name)
+            .ToList();
+
+    /// <summary>Échappement canonique attendu d'un code de caractère (<c>\uXXXX</c> minuscule), construit
+    /// par code pour ne jamais écrire un échappement \u littéral dans le source.</summary>
+    private static string Escape(int code) =>
+        ((char)92).ToString(CultureInfo.InvariantCulture) + "u" + code.ToString("x4", CultureInfo.InvariantCulture);
 
     private static IDictionary<string, object?> Child(IDictionary<string, object?> node, string key) =>
         (IDictionary<string, object?>)node[key]!;
 
     private static IDictionary<string, object?> Element(IDictionary<string, object?> node, string key, int index) =>
         (IDictionary<string, object?>)((List<object?>)node[key]!)[index]!;
-
-    private static PivotDocumentDto BuildFullyPopulated()
-    {
-        var address = new PivotAddressDto(
-            line1: "1 rue de la Paix",
-            line2: "Bât B",
-            postalCode: "75001",
-            city: "Paris",
-            countryCode: "FR");
-
-        var supplier = new PivotPartyDto(
-            name: "Fournisseur Fictif SA",
-            siren: "123456789",
-            siret: "12345678900012",
-            vatNumber: "FR12345678901",
-            address: address,
-            email: "contact@fournisseur-fictif.example",
-            isCompanyHint: true);
-
-        var customer = new PivotPartyDto(
-            name: "Client Fictif SARL",
-            siren: "987654321",
-            siret: "98765432100099",
-            vatNumber: "FR98765432109",
-            address: new PivotAddressDto(
-                line1: "2 avenue de l'Opéra",
-                line2: "Étage 3",
-                postalCode: "69001",
-                city: "Lyon",
-                countryCode: "FR"),
-            email: "facturation@client-fictif.example",
-            isCompanyHint: true);
-
-        var invoicer = new PivotPartyDto(
-            name: "Emetteur Fictif SAS",
-            siren: "111222333",
-            siret: "11122233300011",
-            vatNumber: "FR11122233301",
-            address: new PivotAddressDto(
-                line1: "3 boulevard Haussmann",
-                line2: "Suite 12",
-                postalCode: "75009",
-                city: "Paris",
-                countryCode: "FR"),
-            email: "emission@emetteur-fictif.example",
-            isCompanyHint: true);
-
-        var payee = new PivotPartyDto(
-            name: "Bénéficiaire Fictif SNC",
-            siren: "444555666",
-            siret: "44455566600044",
-            vatNumber: "FR44455566604",
-            address: new PivotAddressDto(
-                line1: "4 place Vendôme",
-                line2: "RDC",
-                postalCode: "75001",
-                city: "Paris",
-                countryCode: "FR"),
-            email: "paiement@beneficiaire-fictif.example",
-            isCompanyHint: true);
-
-        var totals = new PivotTotalsDto(
-            totalNet: 1000.00m,
-            totalTax: 200.00m,
-            totalGross: 1200.00m,
-            sourceTotalGross: 1200.00m);
-
-        var lineTax = new PivotLineTaxDto(
-            taxAmount: 200.00m,
-            rate: 20.00m,
-            categoryCode: VatCategory.S,
-            vatexCode: "VATEX-EU-G");
-
-        var line = new PivotLineDto(
-            description: "Prestation fictive de test",
-            netAmount: 1000.00m,
-            quantity: 2m,
-            unitPriceNet: 500.00m,
-            sourceRegimeCodes: new[] { "TVA_20" },
-            taxes: new[] { lineTax },
-            sourceLineRef: "LIG-001",
-            sourceData: "{\"raw\":\"line\"}");
-
-        var creditNoteRef = new PivotDocumentRefDto(
-            number: "FA-2026-001",
-            issueDate: new DateTime(2026, 1, 15),
-            sourceReference: "SRC-FA-001");
-
-        var payment = new PivotPaymentDto(
-            paymentDate: new DateTime(2026, 2, 1),
-            amount: 1200.00m,
-            method: "virement",
-            relatedDocumentNumber: "FA-2026-001",
-            sourceReference: "PAY-001");
-
-        var documentCharge = new PivotDocumentChargeDto(
-            isCharge: true,
-            amount: 10.00m,
-            reason: "éco-contribution",
-            reasonCode: "ECO",
-            sourceRegimeCodes: new[] { "ECO_CONTRIB" });
-
-        return new PivotDocumentDto(
-            sourceDocumentKind: "FA",
-            number: "FA-2026-TEST",
-            issueDate: new DateTime(2026, 3, 1),
-            sourceReference: "SRC-2026-TEST",
-            supplier: supplier,
-            totals: totals,
-            operationCategory: OperationCategory.PrestationServices,
-            currencyCode: "EUR",
-            customer: customer,
-            lines: new[] { line },
-            creditNoteRefs: new[] { creditNoteRef },
-            payments: new[] { payment },
-            documentCharges: new[] { documentCharge },
-            invoicer: invoicer,
-            payee: payee,
-            isSelfBilled: true,
-            prepaidAmount: 100.00m,
-            sourceData: "{\"raw\":\"doc\"}",
-            paymentDueDate: new DateTime(2026, 3, 31));
-    }
 
     private static PivotDocumentDto Build(
         string number = "AV-1",
