@@ -92,6 +92,51 @@ public sealed class PivotCanonicalJsonReaderTests
     }
 
     [Fact]
+    public void B2c_Reporting_Declaration_Marker_Survives_The_Round_Trip_For_The_Pa_Send()
+    {
+        // B2C01 — bout en bout : le marqueur de flux 10.3 écrit dans le staging doit être RELU par le pipeline
+        // (ce lecteur) avant la garde de capacité au SEND. Sans cette lecture, le marqueur serait écrit puis
+        // PERDU à la relecture → la déclaration 10.3 serait transmise même par une PA sans capacité B2C.
+        var pivot = new PivotDocumentDto(
+            sourceDocumentKind: "DECLARATION",
+            number: "B2C-10.3-001",
+            issueDate: new DateTime(2026, 1, 15),
+            sourceReference: "SRC-B2C-001",
+            supplier: new PivotPartyDto("SVV Démo", siren: "123456789"),
+            totals: new PivotTotalsDto(100m, 20m, 120m),
+            operationCategory: OperationCategory.LivraisonBiens,
+            customer: new PivotPartyDto("Client Démo", siren: "987654321"),
+            lines: new[] { new PivotLineDto("Adjudication", 100m, taxes: new[] { new PivotLineTaxDto(20m, 20m, VatCategory.S) }) },
+            isB2cReportingDeclaration: true);
+        var json = CanonicalJson.Serialize(pivot);
+
+        var rebuilt = PivotCanonicalJsonReader.Read(json);
+
+        rebuilt.IsB2cReportingDeclaration.Should().BeTrue("le marqueur 10.3 doit traverser le staging intact");
+        CanonicalJson.Serialize(rebuilt).Should().Be(json, "round-trip stable octet par octet avec le marqueur 10.3 (ADR-0007)");
+    }
+
+    [Fact]
+    public void Document_Without_B2c_Marker_Reads_It_As_False()
+    {
+        // Miroir hash-neutre : un document ORDINAIRE (sans la clé IsB2cReportingDeclaration dans le JSON) est
+        // relu avec le marqueur à false — l'absence de clé n'est jamais une erreur (champ additif optionnel).
+        var pivot = new PivotDocumentDto(
+            sourceDocumentKind: "FACTURE",
+            number: "F-ORDINAIRE",
+            issueDate: new DateTime(2026, 1, 15),
+            sourceReference: "SRC-ORD",
+            supplier: new PivotPartyDto("SVV Démo", siren: "123456789"),
+            totals: new PivotTotalsDto(100m, 20m, 120m),
+            operationCategory: OperationCategory.LivraisonBiens,
+            lines: new[] { new PivotLineDto("Prestation", 100m, taxes: new[] { new PivotLineTaxDto(20m, 20m, VatCategory.S) }) });
+        var json = CanonicalJson.Serialize(pivot);
+
+        json.Should().NotContain("IsB2cReportingDeclaration", "un document non-10.3 n'émet pas la clé du marqueur");
+        PivotCanonicalJsonReader.Read(json).IsB2cReportingDeclaration.Should().BeFalse();
+    }
+
+    [Fact]
     public void Read_Null_Throws()
     {
         var act = () => PivotCanonicalJsonReader.Read(null!);

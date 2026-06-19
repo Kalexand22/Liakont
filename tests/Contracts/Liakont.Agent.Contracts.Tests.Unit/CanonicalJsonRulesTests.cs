@@ -167,6 +167,32 @@ public sealed class CanonicalJsonRulesTests
             .Should().Be(standard, "le seul différenciateur 389/standard au canonique est le booléen : le hash reste celui des champs du pivot.");
     }
 
+    [Fact]
+    public void B2cReportingDeclaration_marker_is_omitted_when_false_so_hash_is_unchanged()
+    {
+        // B2C01 : le marqueur de flux 10.3 est un champ ADDITIF hash-neutre (pattern EXT01). Un document qui
+        // n'est PAS une déclaration 10.3 (marqueur faux) produit le JSON canonique INCHANGÉ — octet par octet —
+        // que par rapport à un pivot bâti sans même connaître le champ (sa clé est ABSENTE, pas émise à false).
+        string withFlagFalse = CanonicalJson.Serialize(Build(number: "F1", isB2cReportingDeclaration: false));
+
+        withFlagFalse.Should().NotContain("IsB2cReportingDeclaration", "le marqueur 10.3 faux est OMIS (jamais émis à false) — contrairement à IsSelfBilled.");
+        PayloadHasher.ComputeHash(Build(number: "F1", isB2cReportingDeclaration: false))
+            .Should().Be(PayloadHasher.ComputeHash(Build(number: "F1")), "un document non-10.3 garde son hash canonique (champ additif hash-neutre).");
+    }
+
+    [Fact]
+    public void B2cReportingDeclaration_marker_is_emitted_in_tail_position_when_true()
+    {
+        // Quand le document EST une déclaration 10.3, le marqueur est émis (à true) en FIN d'objet (après
+        // PaymentDueDate) — c'est un NOUVEAU type de document qui n'existait pas avant, donc aucune régression
+        // de hash sur l'existant ; seules les déclarations 10.3 portent la clé.
+        string json = CanonicalJson.Serialize(Build(number: "F1", isB2cReportingDeclaration: true));
+
+        json.Should().Contain("\"IsB2cReportingDeclaration\":true");
+        json.IndexOf("\"IsSelfBilled\"", StringComparison.Ordinal)
+            .Should().BeLessThan(json.IndexOf("\"IsB2cReportingDeclaration\"", StringComparison.Ordinal), "marqueur additif émis en queue (ordre de déclaration ADR-0007).");
+    }
+
     /// <summary>
     /// Garantit que chaque propriété publique de chaque DTO pivot apparaît comme clé JSON dans
     /// la sortie canonique d'un document entièrement peuplé. Un champ ajouté à un DTO sans mise
@@ -327,7 +353,8 @@ public sealed class CanonicalJsonRulesTests
             isSelfBilled: true,
             prepaidAmount: 100.00m,
             sourceData: "{\"raw\":\"doc\"}",
-            paymentDueDate: new DateTime(2026, 3, 31));
+            paymentDueDate: new DateTime(2026, 3, 31),
+            isB2cReportingDeclaration: true);
     }
 
     private static PivotDocumentDto Build(
@@ -339,7 +366,8 @@ public sealed class CanonicalJsonRulesTests
         OperationCategory category = OperationCategory.LivraisonBiens,
         PivotLineDto[]? lines = null,
         decimal? prepaid = null,
-        bool isSelfBilled = false)
+        bool isSelfBilled = false,
+        bool isB2cReportingDeclaration = false)
     {
         return new PivotDocumentDto(
             sourceDocumentKind: "B",
@@ -352,6 +380,7 @@ public sealed class CanonicalJsonRulesTests
             customer: customer,
             lines: lines,
             prepaidAmount: prepaid,
-            isSelfBilled: isSelfBilled);
+            isSelfBilled: isSelfBilled,
+            isB2cReportingDeclaration: isB2cReportingDeclaration);
     }
 }
