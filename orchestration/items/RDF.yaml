@@ -1,0 +1,409 @@
+# Lot RDF — Redline des ADR fondateurs (ADR-0001 pivot, ADR-0002 IdP, ADR-0003 stack agent).
+# Source détaillée (finding par finding, preuves, verdict de vérification) : tasks/redline-adr-fondateurs.md.
+# Revue prospective demandée par Karl le 2026-06-19 (« ce qu'on aurait loupé qui nous impacterait par
+# la suite »). 32 findings vérifiés ; ce lot porte ceux qui se traduisent en travail constructible.
+#
+# PLANIFIÉ (manifest v31) : segment `adr-redline-fondateurs` (branche feat/adr-redline-fondateurs) + gate humaine
+# `GATE_REDLINE_FONDATEURS`. APRÈS merge de la PR du segment, seeder `pending` RDF01→RDF18 + GATE_REDLINE_FONDATEURS
+# dans $ORCH_REPO/state.yaml (gate comprise, sinon « done » par défaut → recette jamais ouverte), et
+# ajouter `adr-redline-fondateurs: { integration_status: pending }` à state.yaml `segments:`. RDF18 = fast-follow
+# HORS gate (couplé GATE_FACTURX), comme PIP03b/API01d/SUP01c.
+#
+# Règles non négociables inchangées (CLAUDE.md) : montants decimal, aucune règle fiscale inventée,
+# bloquer plutôt qu'envoyer faux, DocumentEvent/MappingChangeLog append-only + archive WORM, lecture
+# seule stricte de la base source, requêtes tenant-scopées, secrets jamais versionnés ni journalisés,
+# socle vendored (Stratum.*) modifié → consigné dans provenance + ADR socle JAMAIS modifié.
+#
+# DÉCISIONS OPÉRATEUR ATTENDUES (Karl) — l'agent prépare/recommande un défaut défendable, le client tranche :
+#   DEC-1 (RDF09) : OpenIddict — MVP de réversibilité in-process, OU rester Keycloak-only et acter
+#     « OpenIddict NON IMPLÉMENTÉ » dans ADR-0002/0020. Défaut recommandé : acter + retirer la phrase
+#     trompeuse ; le MVP est un go/no-go Karl (la plus petite appliance DOIT alors provisionner ~1 GiB).
+#   DEC-2 (RDF17) : FluentAssertions 8.x devenu commercial — 7.x (gratuit) / licence Xceed / migration
+#     AwesomeAssertions-Shouldly. RDF17 produit l'ADR comparatif + recommandation ; l'EXÉCUTION (migration
+#     >250 fichiers, 3 catalogues) est un item ultérieur APRÈS décision Karl.
+#   DEC-3 (RDF18) : QuestPDF — qui est le « licensee » par topologie (marque grise) et licence Community
+#     (< 1 M$ CA) vs commerciale. RDF18 rend `LicenseType` configurable + check au déploiement ; la
+#     DÉCLARATION du licensee reste un geste de paramétrage/déploiement, jamais codée en dur.
+#   DEC-4 (RDF16) : préfixe de base `stratum_` (assumé) vs `liakont_`. RDF16 documente le défaut `stratum_`
+#     + l'option de surcharge ; la bascule éventuelle est une décision Karl À ARBITRER AVEC RLF01 (seed dev
+#     déjà aligné sur `stratum_<id>`) — ne PAS basculer unilatéralement.
+#   DEC-5 (RDF12) : Wacom (clients/OnSiteSignature, 3ᵉ binaire net48 client) — hérite-t-il du modèle de
+#     confiance/auto-update ADR-0013 (recommandé, SDK natif CVE-bearing) ou patch manuel documenté ?
+#     RDF12 amende ADR-0001 + recommande l'héritage ; le modèle de patch effectif = décision Karl.
+#   DEC-6 (RDF10) : niveau d'atténuation acceptable de la fenêtre de révocation (sliding raccourci vs
+#     vérification serveur) pour liakont.actions / liakont.settings. RDF10 propose le défaut défendable.
+
+items:
+  RDF01:
+    source: "RL-AGT-1 (P1, ADR-0001 — agent net48)"
+    title: "Forcer TLS 1.2/1.3 sur le chemin de données RÉEL de l'agent (pas seulement dans test-api/updater)"
+    description: |
+      L'agent net48 pousse en HTTPS depuis de vieux Windows, mais `AgentRunComposition.CreateHttpClient`
+      (`agent/src/Liakont.Agent.Core/Hosting/AgentRunComposition.cs:91-97`) ne pose JAMAIS
+      `ServicePointManager.SecurityProtocol`. Le TLS fort n'est forcé que dans la sonde de diagnostic
+      (`test-api`) et l'updater — TROIS processus distincts ; `ServicePointManager` est un statique global
+      NON partagé entre processus. Sur un hôte sans clé `SchUseStrongCrypto`, le SERVICE réel qui pousse
+      négocie potentiellement TLS 1.0/1.1 pendant que `test-api` valide en vert → le critère AGT02
+      (« HttpClient net48 TLS 1.2+ ») est un FAUX-VERT (règle review #8).
+      Fix : poser `ServicePointManager.SecurityProtocol |= Tls12 | Tls13` au tout début du `Main` de
+      CHAQUE exécutable agent (`Liakont.Agent` service ET `Liakont.Agent.Cli`), via un point d'entrée
+      centralisé partagé ; durcir aussi via app.config (`Switch.System.Net.DontEnableSchUseStrongCrypto=false`,
+      `runtime` SchUseStrongCrypto). Aucune logique métier ajoutée (ADR-0001 règle 5).
+    acceptance:
+      - "TLS 1.2/1.3 forcé au démarrage de CHAQUE processus agent (service + CLI), via un point centralisé"
+      - "Test prouvant que le client HTTP du chemin de RUN (pas seulement test-api) impose TLS 1.2+"
+      - "app.config agent durci (SchUseStrongCrypto) ; aucun secret ni donnée client ajouté"
+      - "verify-fast passes (plateforme + agent net48 x86/x64)"
+      - "codex-review clean or only accepted P2s"
+  RDF02:
+    source: "RL-IDP-3 (P1, ADR-0002 — realm prod)"
+    title: "Durcir le realm prod (appliance) : 2FA par défaut (CONFIGURE_TOTP + otpPolicy) + étendre RealmFiles() à l'appliance"
+    description: |
+      Le realm de PRODUCTION importé par l'appliance (`deploy/docker/appliance/keycloak/realm-liakont.json`,
+      référencé par `deploy/docker/appliance/docker-compose.yml`) ne porte AUCUN `CONFIGURE_TOTP`, AUCUN
+      `requiredActions`, AUCUN `otpPolicy` : le durcissement RLF05 n'a touché que `realm-export.json` (dev) et
+      le realm E2E. Pire, `SharedRealmConfigTests.RealmFiles()` n'énumère que les realms dev + E2E →
+      INV-0021-7 (« login sans 2FA enrôlé force l'enrôlement ») est PROUVÉ SUR UN FAUX ARTEFACT (faux-vert,
+      règle review #8). Un compte créé via la console admin Keycloak se connecte au mot de passe seul →
+      `liakont.actions`/`liakont.settings` accessibles sans 2FA.
+      Fix : aligner `realm-liakont.json` sur `realm-export.json` (`CONFIGURE_TOTP` en defaultAction + `otpPolicy`),
+      et ÉTENDRE `RealmFiles()` pour que les assertions de sécurité couvrent AUSSI le realm appliance.
+      Aucune règle inventée : on réplique la config déjà durcie du realm dev.
+    acceptance:
+      - "realm-liakont.json (appliance) impose CONFIGURE_TOTP par défaut + otpPolicy, aligné sur realm-export.json"
+      - "SharedRealmConfigTests.RealmFiles() inclut le realm appliance ; les assertions 2FA tournent dessus"
+      - "Preuve statique (test sur le JSON, sans credentials) que tout chemin de création de compte enrôle le 2FA"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RDF03:
+    source: "RL-IDP-4 (P2, ADR-0002 — realm prod)"
+    title: "Realm prod : User Profile read-only sur company_id (edit admin-only) + unmanagedAttributePolicy explicite"
+    description: |
+      Le realm prod `realm-liakont.json` ne contient AUCUN composant `declarative-user-profile` (présent en
+      dev/E2E) → INV-0021-3 (`company_id` immuable, garanti côté IdP) n'est pas garanti sur le realm que le
+      client exécute, et `CompanyId_Is_Immutable` ne tourne pas sur l'appliance. Sous Keycloak 26 un attribut
+      non déclaré + `unmanagedAttributePolicy=DISABLED` rejette l'écriture (d'où P2, pas P1), mais c'est un
+      écart de conformité + trou de test à fermer avant prod.
+      Fix : porter le composant `declarative-user-profile` (`company_id` avec `edit:[admin]`) + déclarer
+      `unmanagedAttributePolicy` explicitement dans `realm-liakont.json` ; étendre les tests + une preuve E2E
+      « l'Account API refuse l'édition de company_id » sur le realm prod.
+    acceptance:
+      - "realm-liakont.json déclare declarative-user-profile (company_id edit admin-only) + unmanagedAttributePolicy explicite"
+      - "Test/preuve E2E : édition de company_id refusée par l'IdP sur le realm prod"
+      - "Cohérent avec ADR-0021 (isolation par claim company_id) ; aucune règle inventée"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RDF04:
+    source: "RL-IDP-5 (P2, ADR-0002/0020 — appliance)"
+    title: "Plafonner la mémoire Keycloak de l'appliance (mem_limit 1g + MaxRAMPercentage) + lint CI de présence du plafond"
+    description: |
+      La « recommandation actée » d'ADR-0020 (mem_limit ≈ 1 GiB, reprise d'OPS01a) est LETTRE MORTE :
+      `deploy/docker/appliance/docker-compose.yml` ne pose aucun `mem_limit` / `deploy.resources.limits.memory`
+      ni `-XX:MaxRAMPercentage` sur le service Keycloak. Sans plafond, la JVM Quarkus happe ~1,83 GiB sur un
+      gros hôte (mesuré par l'ADR) → OOM/thrash sur un VPS self-hosted 15-40 €, NON corrigeable à chaud.
+      Fix : poser `mem_limit: 1g` (ou `deploy.resources.limits.memory: 1g`) + `JAVA_OPTS_APPEND`
+      `-XX:MaxRAMPercentage=75` (valeurs traçables à ADR-0020) sur le service keycloak de l'appliance, et
+      ajouter un LINT CI qui échoue si le compose appliance n'a pas de plafond mémoire Keycloak (anti-régression).
+    acceptance:
+      - "Le service Keycloak de l'appliance a un plafond mémoire (~1 GiB) + MaxRAMPercentage, tracé à ADR-0020"
+      - "Lint CI : la CI ÉCHOUE si le compose appliance perd le plafond mémoire Keycloak (test du lint vérifié)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RDF05:
+    source: "RL-IDP-6 (P2, ADR-0002/0013 — image Keycloak)"
+    title: "Politique de version Keycloak + outiller le bump d'image (update-instance.ps1) + pin d'un tag de patch"
+    description: |
+      4 composes/tests épinglent l'image Keycloak sur le tag FLOTTANT `:26.0`, EOL depuis janv. 2025
+      (~17 mois sans patch ; courant 26.6.x). `update-instance.ps1 --pull` ne rafraîchit que les images du
+      Dockerfile Host, JAMAIS l'image Keycloak pinnée. Aucune politique de version ni veille CVE → l'IdP non
+      patché RETOURNE l'argument « battle-tested security » d'ADR-0013.
+      Fix : (1) documenter une politique de version Keycloak (suivre le dernier minor supporté, bumper avant
+      EOL, cadence amont ~4 minors/an dans un ADR/avenant) ; (2) outiller le bump de l'image Keycloak (dans
+      OPS02 / `update-instance.ps1`) + revalidation du realm après bump ; (3) pinner un tag de PATCH précis
+      (pas `:26.0`). Pas de donnée client.
+    acceptance:
+      - "Politique de version Keycloak documentée (ADR ou avenant), avec cadence et critère de bump avant EOL"
+      - "Le bump de l'image Keycloak est outillé (update-instance.ps1/OPS02) + revalidation realm"
+      - "Les composes pinnent un tag de patch précis (non flottant)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RDF06:
+    source: "RL-SER-1 (P2, ADR-0003/0007 — intégrité)"
+    title: "Test d'intégrité round-trip STJ→CanonicalJson sur les golden (garder la jambe de désérialisation WORM/anti-doublon)"
+    description: |
+      L'intégrité fiscale (anti-doublon `payload_hash`, archive WORM) repose sur l'égalité OCTET-POUR-OCTET
+      `STJ.Deserialize(canonique_agent) → CanonicalJson.Serialize == canonique_agent`. Le re-hash plateforme
+      (PIV04) recalcule l'empreinte sur un DTO produit par la DÉSÉRIALISATION System.Text.Json du JSON fil, et
+      NON par `PivotCanonicalJsonReader` (réservé au staging). Cette égalité TIENT aujourd'hui (vérifié) mais
+      n'est gardée par AUCUN test : une montée .NET, un changement du parseur decimal STJ, ou un nouveau champ
+      string à échappement divergent casserait silencieusement le statut (Pending éternel), créerait de faux
+      nouveaux documents ou un doublon WORM.
+      Fix : ajouter un test qui, pour chaque golden canonique, fait `JsonSerializer.Deserialize<PushBatchRequestDto>`
+      (options RÉELLES du endpoint) → `CanonicalJson.Serialize` → hash, et asserte l'égalité avec le hash figé.
+      Clarifier le commentaire de `PivotCanonicalJsonReader` (l'ingestion HTTP ne l'utilise pas).
+    acceptance:
+      - "Test : golden canonique → désérialisation STJ (options réelles) → CanonicalJson → hash == hash figé"
+      - "Le test échoue si la désérialisation/re-sérialisation dévie d'un octet (preuve par mutation)"
+      - "Commentaire de PivotCanonicalJsonReader clarifié (chemin staging vs chemin ingestion HTTP)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RDF07:
+    source: "RL-PKG-1 (P2, ADR-0003 — SQLite)"
+    title: "Avenant ADR-0003 SQLite : politique de rafraîchissement + cible interop >= 3.50.2 (packaging natif par bitness) + currency CI"
+    description: |
+      `System.Data.SQLite.Core 1.0.119` embarque SQLite 3.46.1, sous CVE-2025-6965 (fix 3.50.2) et
+      CVE-2025-29088 (fix 3.49.1) ; la branche 1.x n'est plus maintenue. Atténuation forte : buffer local
+      alimenté par l'agent lui-même, AUCUN input réseau hostile. Mais un scanner de vulnérabilités côté client
+      (DSI, étude de sécurité) lèvera ces CVE et peut BLOQUER un déploiement.
+      Fix : avenant à ADR-0003 actant (1) une politique de rafraîchissement du paquet SQLite + cible interop
+      >= 3.50.2 ; (2) la contrainte de packaging — passer à 2.x ne bundle plus le moteur → packager
+      `SQLite.Interop.dll` par bitness (x86 + x64) ; (3) un contrôle de CURRENCY en CI sur les DEUX catalogues
+      (`agent/Directory.Packages.props` + racine) qui alerte quand une dépendance épinglée prend du retard.
+      Le BUMP effectif du binaire (effort M, packaging natif) peut être un item ultérieur ; ici = avenant +
+      politique + garde CI.
+    acceptance:
+      - "Avenant ADR-0003 : politique de rafraîchissement SQLite + cible interop >= 3.50.2 + contrainte packaging par bitness"
+      - "Currency CI sur les 2 catalogues (agent + racine) : alerte/échec quand une dépendance épinglée est en retard"
+      - "Aucune régression de build agent (net48 x86/x64)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RDF08:
+    source: "RL-AGT-4 (P2, ADR-0001 — contrat versionné)"
+    title: "Matérialiser le seam contrat agent N/N-1 : test de cohabitation + jeu de golden v2 (avant la première rupture)"
+    description: |
+      ADR-0001/F12 promet « la plateforme supporte la version N ET N-1 ». La négociation est câblée et correcte
+      pour V1 (`Previous => null` honnête, 426 testé), mais il n'existe qu'un seul `MapGroup(/api/agent/v1)`,
+      AUCUN endpoint v2, AUCUNE fixture v2, AUCUN test de cohabitation. Ce n'est pas un faux-vert (aucun test
+      n'affirme à tort que N-1 marche) mais une dette de seam non exercé : au premier changement cassant du
+      contrat — sous échéance légale sept. 2026/2027 et flotte d'agents lente à se mettre à jour — on découvrira
+      le seam en production.
+      Fix : matérialiser le seam SANS attendre un vrai besoin métier : un endpoint/fixture v2 minimal (ou un test
+      de contrat paramétré) prouvant que N et N-1 cohabitent, + un jeu de golden v2. Documenter l'articulation
+      préfixe-URL (`/v1`) vs en-tête `ContractVersion`.
+    acceptance:
+      - "Test de cohabitation prouvant que la plateforme sert simultanément N et N-1 (golden des deux versions)"
+      - "Jeu de golden v2 ajouté (des deux côtés si applicable) ; sérialisation identique vérifiée"
+      - "Articulation préfixe-URL / en-tête ContractVersion documentée (contrat-agent-v1.md ou F12)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RDF09:
+    source: "RL-IDP-1 (P2, ADR-0002 — seam IdP) ; voir DEC-1"
+    title: "Acter honnêtement l'état OpenIddict dans ADR-0002/0020 (NON IMPLÉMENTÉ) + retirer la phrase 'seul le sélecteur change'"
+    description: |
+      Le seam D10 (`IIdentityProviderAuthenticator`) n'a qu'UNE implémentation (Keycloak) : 0 implémentation
+      OpenIddict (prod ou test). L'affirmation « brancher OpenIddict = ajouter une implémentation, seul le
+      sélecteur change » est FAUSSE en l'état — `IKeycloakRealmProvisioner`/`IKeycloakUserProvisioner` sont
+      câblés dans la couche DB indépendamment du sélecteur, plus le 2FA Keycloak et la résolution par issuer.
+      Le cas qui MOTIVE le spike (petite appliance VPS 15-40 €) n'a pas de solution livrée.
+      Fix (défaut recommandé, autonome) : amender ADR-0002 et ADR-0020 pour ACTER que la réversibilité OpenIddict
+      est NON IMPLÉMENTÉE, que la seule topologie V1 est Keycloak-par-instance (la plus petite appliance DOIT
+      provisionner ~1 GiB — cohérent avec RDF04), et RETIRER/QUALIFIER la phrase trompeuse. Le MVP OpenIddict de
+      preuve de réversibilité est un go/no-go Karl (DEC-1) — hors de cet item.
+    acceptance:
+      - "ADR-0002 et ADR-0020 actent l'état réel : OpenIddict NON IMPLÉMENTÉ ; topologie V1 = Keycloak par instance"
+      - "La phrase 'seul le sélecteur change' est retirée ou qualifiée (le câblage provisioning/2FA/issuer est listé)"
+      - "Renvoi à RDF04 (l'appliance doit provisionner ~1 GiB Keycloak) ; aucune décision commerciale tranchée par l'agent"
+      - "verify-fast passes"
+  RDF10:
+    source: "RL-IDP-7 (P2, ADR-0017/0013) ; voir DEC-6"
+    title: "Borner la fenêtre de révocation pour liakont.actions/liakont.settings + garde CI (>=1 E2E rôle non super-admin par permission sensible)"
+    description: |
+      Le pont rôle→permission (IDN01) est correct, mais les claims permission sont figés dans un cookie sliding
+      8h : révoquer une permission sensible (`liakont.actions`, `liakont.settings`) n'a pas d'effet avant
+      expiration. L'acceptation de cette fenêtre n'est tracée QUE dans un commentaire de code, pas en recette.
+      NB : la suspension de tenant est déjà honorée live (`TenantSuspensionMiddleware`) — il s'agit ici de la
+      révocation de PERMISSION, pas du tenant.
+      Fix : (1) atténuer/formaliser la fenêtre pour ces 2 permissions sensibles — défaut défendable (DEC-6) :
+      sliding raccourci ou re-vérification serveur de la permission au moment de l'action sensible ; (2) garde
+      CI : au moins un E2E par permission sensible joué avec un rôle NON super-admin (le super-admin
+      court-circuite la garde — c'était la cause du trou IDN01).
+    acceptance:
+      - "Fenêtre de révocation des permissions sensibles bornée (défaut défendable documenté) ; comportement testé"
+      - "Garde CI : >=1 E2E par permission sensible avec un rôle NON super-admin"
+      - "Cohérent avec ADR-0017 ; aucune permission/règle inventée (matrice §3 d'identity-permissions-liakont.md)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RDF11:
+    source: "RL-IDP-8 (P2, ADR-0021 — profil dédié)"
+    title: "Profil dédié mono-tenant : valider le flag DedicatedRealmPerTenant au démarrage + le marquer hors périmètre INV-0021-* jusqu'à jeu de preuves"
+    description: |
+      Le flag `DedicatedRealmPerTenant` (capacité realm-par-tenant pour le déploiement dédié) est lu en dur en
+      2 endroits indépendants, sans validation au démarrage ni cohérence garantie ; et en mode dédié,
+      `CreateRealmAsync` ne pose AUCUN User Profile read-only → INV-0021-3 non garanti. Les invariants INV-0021-1..10
+      ne sont prouvés QUE pour le SaaS partagé. La capacité dédiée est LATENTE (non livrée en prod).
+      Fix : (1) valider le flag au démarrage (configuration cohérente, échec explicite si incohérent) ;
+      (2) documenter (ADR-0021 ou ADR de déploiement) ce que le profil dédié GARANTIT et PERD, et le marquer
+      HORS PÉRIMÈTRE des invariants INV-0021-* tant qu'il n'a pas son propre jeu de preuves. Aucune capacité
+      activée sans preuve.
+    acceptance:
+      - "Le flag DedicatedRealmPerTenant est validé au démarrage (incohérence = échec explicite, fail-closed)"
+      - "Doc (ADR) : périmètre du profil dédié (garanties/pertes) ; marqué hors INV-0021-* jusqu'à jeu de preuves"
+      - "Aucune fuite cross-tenant introduite ; cohérent avec ADR-0021"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RDF12:
+    source: "RL-IDP-2 / RL-AGT-3 / RL-AGT-5 / RL-TR-8 / RL-SOCLE-5 (hygiène d'ADR) ; voir DEC-5"
+    title: "Hygiène d'ADR : marquer Superseded/Amended (0020<->0021, 0002, 0005, 0001) + notes Liakont sur ADR socle (sans les modifier)"
+    description: |
+      Plusieurs ADR fondateurs/structurants affirment des choses dépassées par des ADR ultérieurs ou par le
+      code, sans être marqués. À corriger (DOC pur, un seul passage) :
+        - ADR-0020 (prioritaire) : en-tête « partiellement superseded par ADR-0021 » (la frontière crypto
+          par-realm est remplacée par l'isolation par claim company_id + cross-check) ; note équivalente sur la
+          ligne d'ADR-0002 ; créer le renvoi RÉCIPROQUE dans ADR-0021.
+        - ADR-0013 SOCLE (« RBAC unchanged/Neutral ») : NE PAS modifier l'ADR socle (règle repo / socle/README) ;
+          consigner la nuance « partiellement superseded sous OIDC, permissions recréées par IDN01 » dans une
+          note Liakont (docs/architecture/identity-permissions-liakont.md ou un ADR Liakont).
+        - ADR-0005 : re-statuer « Reporté/Conditionnel » + date butoir (déclencheur AGT écoulé sans bascule ;
+          agent et plateforme consomment encore Liakont.Agent.Contracts par ProjectReference).
+        - ADR-0001 : amender pour `clients/OnSiteSignature` (Wacom, 3ᵉ composant client net48 — « l'agent n'est
+          plus le seul composant client », DEC-5 : recommander l'héritage du modèle de confiance ADR-0013) ET
+          séparer les deux justifications accolées (« net48 <= compat OS hôte legacy + zéro runtime » vs
+          « x86/x64 <= ODBC 32-bit »), avec condition de sortie.
+        - socle/README.md : nommer la collision de numéro 0011 cross-dossier (socle vs Liakont).
+      Aucune règle fiscale ni décision commerciale tranchée ici ; uniquement la mise en cohérence documentaire.
+    acceptance:
+      - "ADR-0020 + ADR-0002 marqués partiellement superseded par ADR-0021 ; renvoi réciproque dans ADR-0021"
+      - "Note Liakont (hors ADR socle) sur ADR-0013 RBAC ; ADR socle NON modifié (règle repo respectée)"
+      - "ADR-0005 re-statué (Reporté/Conditionnel + date butoir) ; ADR-0001 amendé (client Wacom + justif net48/x86)"
+      - "Collision 0011 nommée dans socle/README.md"
+      - "verify-fast passes"
+  RDF13:
+    source: "RL-SOCLE-4 (P3, ADR-0001 — frontière de nommage)"
+    title: "NetArchTest de direction : un assembly Stratum.* ne dépend JAMAIS de Liakont.* (frontière de packaging gardée)"
+    description: |
+      La frontière de nommage Stratum.*/Liakont.* « matérialise la limite ne pas modifier le socle », mais la
+      garde de provenance ne juge que le CONTENU (hash), pas la DIRECTION des dépendances. Comme la solution
+      contient les deux côtés, un `.csproj` `Stratum.*` pourrait référencer du code `Liakont.*` et compiler ;
+      verify-fast resterait vert → le fichier socle devient NON REVERSABLE en package NuGet (casse l'option D).
+      Fix : ajouter un NetArchTest où tout assembly `Stratum.*` est sujet de `NotHaveDependencyOn("Liakont")`.
+      `NetArchTest.Rules` est déjà au catalogue et s'insère dans la suite `platform:unit-tests`.
+      NB : un couplage par chaîne au runtime existe déjà (`ReflectionPermissionCatalog` filtre `Liakont.`) mais
+      ne casse pas le packaging → hors périmètre de ce test.
+    acceptance:
+      - "NetArchTest : aucun assembly Stratum.* ne dépend d'un assembly Liakont.* (le test ÉCHOUE si on en introduit un)"
+      - "Test intégré à verify-fast (platform unit tests)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RDF14:
+    source: "RL-UPD-1 (P3, ADR-0013/0019 — auto-update)"
+    title: "Durcir la signature d'auto-update : imposer RSA >= 2048/3072 (vérificateur + provisioning) + planifier Authenticode"
+    description: |
+      La chaîne d'auto-update est conforme (manifeste signé RSA/SHA-256 fail-closed, anti-downgrade, rollback).
+      Deux réserves : (1) `RsaManifestSignatureVerifier` ne contrôle AUCUNE taille de clé (une clé 1024 bits
+      passerait) ; (2) Authenticode est toujours « fast-follow » → les binaires ne sont pas signés au niveau OS
+      (frottement SmartScreen/EDR ; un binaire posé hors-canal n'est pas rejeté par l'OS).
+      Fix : (1) imposer RSA >= 2048 (idéalement 3072) dans le vérificateur ET au provisionnement de la clé
+      (`install-agent.ps1` copie aujourd'hui sans valider) ; (2) sortir Authenticode du « fast-follow » :
+      planifier l'acquisition du certificat avant tout déploiement de flotte large, et mettre à jour
+      ADR-0013/0019 en conséquence. Secrets/clés jamais versionnés (règle 10/18).
+    acceptance:
+      - "RsaManifestSignatureVerifier rejette une clé < 2048 bits ; install-agent.ps1 valide la taille au provisioning"
+      - "Test prouvant le rejet d'une clé trop courte (fail-closed)"
+      - "Authenticode planifié (ADR-0013/0019 mis à jour : prérequis avant flotte large)"
+      - "Aucune clé/secret versionné"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RDF15:
+    source: "RL-PKG-2 + RL-SER-2 (P3, ADR-0003 — Newtonsoft + fil v1)"
+    title: "Bump Newtonsoft 13.0.4 (rôle = transport, pas pivot) + documenter le fil v1 PascalCase non négociable + test négatif d'insensibilité de casse"
+    description: |
+      Deux petites dettes du contrat agent :
+        - Newtonsoft.Json 13.0.3 (un patch en retard) ne sert qu'aux ENVELOPPES de transport non hashées (le
+          hash d'intégrité passe par un writer canonique manuel, sans Newtonsoft) ; le libellé d'ADR-0003
+          (« sérialisation du PIVOT ») est TROMPEUR. Fix : bump 13.0.4 + corriger le libellé en « transport ».
+        - Le fil v1 n'a pas de négociation de format : l'agent envoie du PascalCase, lié UNIQUEMENT grâce à
+          `PropertyNameCaseInsensitive=true` (défaut Web), non documenté. Un durcissement futur (camelCase
+          strict) casserait la liaison SILENCIEUSEMENT (champs null, NRE sur `Documents.Count`). Fix : documenter
+          que le fil v1 EST le canonique PascalCase (non négociable) + ajouter un contrôle NÉGATIF (avec
+          `PropertyNameCaseInsensitive=false`, la liaison doit échouer proprement, pas produire un DTO vide).
+    acceptance:
+      - "Newtonsoft.Json bumpé en 13.0.4 (avenant ADR-0003) ; libellé du rôle corrigé (transport, pas pivot)"
+      - "Doc : le fil v1 EST le canonique PascalCase non négociable (contrat-agent-v1.md ou F12)"
+      - "Test négatif : PropertyNameCaseInsensitive=false => la liaison échoue (pas de DTO silencieusement vide)"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+  RDF16:
+    source: "RL-SOCLE-2 / RL-AGT-6 / RL-SOCLE-1 (doc + gouvernance, ADR-0001) ; voir DEC-4"
+    title: "Documenter : plafond tenants/topologie + verrous de lecture implicites + mesure de dérive socle cumulée + backport sécurité Stratum"
+    description: |
+      Trois dettes documentaires/gouvernance autour d'ADR-0001 :
+        - Plafond multi-tenant : le boot est O(N) (migration DbUp par base, en série, fail-closed assumé).
+          Documenter un ORDRE DE GRANDEUR de tenants/instance PAR TOPOLOGIE + coût de boot + seuil de sharding.
+          NE PAS proposer de migration paresseuse (contredit l'invariant fail-closed documenté).
+        - Verrous de lecture implicites : la lecture seule interdit déjà verrous explicites + transactions
+          d'écriture (prouvé). Documenter que la suppression des verrous PARTAGÉS IMPLICITES du moteur
+          (READ COMMITTED) relève du paramétrage tenant (`ApplicationIntent=ReadOnly`/snapshot selon moteur),
+          avec un EXEMPLE par moteur dans `config/exemples/` (comme prévu par la XML-doc du connection factory).
+        - Dérive socle : `socle-provenance-check.ps1` ne mesure que la dérive post-régénération, jamais vs le
+          commit source `1454c7f`. Publier une mesure de dérive CUMULÉE vs `1454c7f` + acter une politique de
+          BACKPORT des correctifs de sécurité Stratum amont (ADR-0001 reconnaît l'absence de descente auto sans
+          trancher) + requalifier l'option D (« non planifiée / à réévaluer » ou critère + budget).
+        - Préfixe de base (DEC-4) : documenter le défaut `stratum_` assumé + l'option de surcharge (`liakont_`) ;
+          ne pas basculer (arbitrage Karl avec RLF01).
+    acceptance:
+      - "Doc : plafond tenants/instance par topologie + coût de boot + seuil de sharding (pas de migration paresseuse)"
+      - "Doc + exemple par moteur (config/exemples/) : verrous de lecture implicites via paramétrage tenant"
+      - "Mesure de dérive socle cumulée vs 1454c7f publiée ; politique de backport sécurité Stratum actée ; option D requalifiée"
+      - "Défaut de préfixe de base documenté (stratum_ assumé + option de surcharge) ; aucune bascule unilatérale"
+      - "verify-fast passes"
+  RDF17:
+    source: "RL-TR-1 (P2, transverse — FluentAssertions) ; voir DEC-2"
+    title: "Décision-prep FluentAssertions : ADR comparatif (7.x / licence Xceed / migration AwesomeAssertions) + recommandation (exécution = item ultérieur post-Karl)"
+    description: |
+      FluentAssertions 8.x est devenu une dépendance COMMERCIALE (licence Xceed 14,95-130 $/dev/an depuis
+      janv. 2025) ; la 7.x reste gratuite. Il est épinglé `8.2.0` dans 3 catalogues (plateforme, agent,
+      OnSiteSignature), exempté par ADR-0003:27 sur une prémisse devenue fausse. >250 fichiers de test → coût de
+      downgrade croissant. P2 (et non P1) : paquet de test BUILD-TIME, jamais livré, n'affecte ni le runtime ni
+      la correction fiscale.
+      Fix (autonome, prépare la décision DEC-2) : produire un ADR (Liakont) comparant 3 options — (a) downgrade
+      7.x, (b) acheter la licence Xceed, (c) migrer vers AwesomeAssertions/Shouldly — avec coût, blast radius
+      (compte de fichiers/catalogues impactés), risque, et une RECOMMANDATION. NE PAS exécuter la migration :
+      l'EXÉCUTION est un item ultérieur APRÈS arbitrage Karl. Mettre à jour l'exemption d'ADR-0003 (prémisse
+      caduque actée).
+    acceptance:
+      - "ADR Liakont comparant 7.x / licence / migration (coût, blast radius >250 fichiers + 3 catalogues, risque) + recommandation"
+      - "ADR-0003 corrigé : l'exemption FluentAssertions repose sur une prémisse devenue fausse (actée)"
+      - "AUCUNE migration exécutée dans cet item (l'exécution attend la décision Karl)"
+      - "verify-fast passes"
+  RDF18:
+    source: "RL-TR-6 (P2, transverse — QuestPDF) ; voir DEC-3 ; HORS gate (couplé GATE_FACTURX)"
+    title: "QuestPDF : rendre LicenseType configurable par topologie + check au déploiement (licensee = paramétrage, jamais codé en dur)"
+    description: |
+      QuestPDF est en `LicenseType.Community` CODÉ EN DUR (`CommonUIServiceExtensions.cs:91`,
+      `FacturXModuleRegistration.cs:26`), sans config par topologie. La licence Community est gratuite sous
+      1 M$ de CA, mais s'applique au SCELLEMENT PDF/A-3 (INV-FX-1) sur le chemin d'émission FISCALE, et le
+      « licensee » est ambigu en marque grise.
+      Fix (code autonome) : rendre `LicenseType` CONFIGURABLE par topologie/instance (pas de licence en dur) +
+      un check au déploiement qui exige une valeur explicite de `LicenseType` (pas une « clé »). La DÉCLARATION
+      du licensee par topologie reste un geste de paramétrage/déploiement (DEC-3, Karl) — jamais une donnée
+      client dans le code (règle 7). Mentionner le plan B documenté (ZUGFeRD.PDF-csharp) sans le coder.
+      ⚠️ Couplé à FacturX : depends_on GATE_FACTURX (ne pas durcir la licence avant que la recette FacturX soit
+      intégrée). HORS gate GATE_REDLINE_FONDATEURS (fast-follow, comme PIP03b/API01d/SUP01c).
+    acceptance:
+      - "QuestPDF LicenseType configurable par topologie/instance (plus de licence codée en dur)"
+      - "Check au déploiement : LicenseType explicite requis (échec si absent) ; aucune donnée client dans le code"
+      - "verify-fast passes"
+      - "codex-review clean or only accepted P2s"
+
+  GATE_REDLINE_FONDATEURS:
+    type: gate
+    executor: human
+    title: "Gate (humaine) : recette du redline des ADR fondateurs (lot RDF)"
+    description: |
+      Recette humaine du lot RDF (redline ADR-0001/0002/0003 et descendance, source
+      tasks/redline-adr-fondateurs.md). Vérifie que les correctifs sont livrés ET prouvés :
+        - P1 : RDF01 (TLS forcé sur le chemin réel agent), RDF02 (2FA realm prod + RealmFiles élargi) ;
+        - sécurité/intégrité : RDF03 (company_id immuable realm prod), RDF06 (round-trip d'intégrité STJ),
+          RDF10 (révocation bornée + E2E non super-admin), RDF11 (profil dédié validé/cadré), RDF14 (RSA >= 2048) ;
+        - ops : RDF04 (plafond mémoire Keycloak + lint), RDF05 (politique de version Keycloak + bump outillé) ;
+        - contrat/paquets : RDF07 (avenant SQLite + currency CI), RDF08 (seam N/N-1 matérialisé), RDF15
+          (Newtonsoft + fil v1 documenté + test négatif), RDF13 (NetArchTest direction) ;
+        - hygiène/gouvernance/décision-prep : RDF09 (OpenIddict acté), RDF12 (Superseded/Amended), RDF16
+          (plafond tenants/verrous/dérive socle/préfixe), RDF17 (ADR FluentAssertions + reco).
+      RDF18 (QuestPDF, couplé GATE_FACTURX) est HORS de cette gate. Les décisions opérateur DEC-1..DEC-6
+      (en-tête de ce fichier) doivent être tranchées par Karl pour les exécutions différées.
+    acceptance:
+      - "RDF01->RDF17 done et prouvés (tests + recette des points sécurité/realm/contrat concernés)"
+      - "Les 2 P1 (RDF01, RDF02) validés en réel avant tout feu vert de prod"
+      - "Décisions DEC-1..DEC-6 tranchées ou explicitement reportées par l'opérateur"
+      - "PR ouverte, CI verte (verify + tests), merge humain"
