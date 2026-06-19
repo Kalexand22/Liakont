@@ -132,6 +132,38 @@ public sealed class ClientsTests : BunitContext
         _service.StatusCalls.Should().BeEmpty();
     }
 
+    [Fact]
+    public void Exporting_A_Client_Opens_A_Dialog_With_The_Download_Link_To_The_Operator_Endpoint()
+    {
+        // OPS06a : l'action « Exporter ce client » ouvre un dialogue dont le lien de téléchargement
+        // pointe sur l'endpoint opérateur d'export du tenant choisi (/api/v1/clients/{id}/tenant-export).
+        _service.Lines = [Line("acme")];
+        var cut = Render<Clients>();
+
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='quick-action-export']").Should().NotBeEmpty());
+        cut.FindAll("[data-testid='quick-action-export']")[0].Click();
+
+        var download = cut.Find("[data-testid='client-export-dialog-download']");
+        download.GetAttribute("href").Should().Be("/api/v1/clients/acme/tenant-export");
+        download.HasAttribute("download").Should().BeTrue("le lien doit forcer un téléchargement de fichier");
+        cut.Find("[data-testid='client-export-dialog-text']").TextContent
+            .Should().Contain("Client acme").And.Contain("coffre d'archive");
+    }
+
+    [Fact]
+    public void A_Disabled_Client_Can_Still_Be_Exported_For_End_Of_Life_Restitution()
+    {
+        // La restitution de fin de vie est précisément le cas d'un client désactivé : l'export reste offert.
+        _service.Lines = [Line("zombie", ClientStatut.Desactive, siren: null)];
+        var cut = Render<Clients>();
+
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='quick-action-export']").Should().NotBeEmpty());
+        cut.FindAll("[data-testid='quick-action-export']")[0].Click();
+
+        cut.Find("[data-testid='client-export-dialog-download']").GetAttribute("href")
+            .Should().Be("/api/v1/clients/zombie/tenant-export");
+    }
+
     private sealed class FakeClientConsoleService : IClientConsoleService
     {
         public IReadOnlyList<ClientConsoleLine> Lines { get; set; } = [];

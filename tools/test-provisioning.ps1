@@ -24,6 +24,8 @@ Import-Module (Join-Path $provDir 'Provisioning.psm1') -Force
 $psExe = if ($PSVersionTable.PSEdition -eq 'Core') { 'pwsh' } else { 'powershell' }
 $newScript = Join-Path $provDir 'new-instance.ps1'
 $updateScript = Join-Path $provDir 'update-instance.ps1'
+$migrateScript = Join-Path $provDir 'migrate-instance.ps1'
+$decommissionScript = Join-Path $provDir 'decommission-tenant.ps1'
 
 $script:passed = 0
 $script:failed = 0
@@ -216,6 +218,154 @@ try {
         New-Item -ItemType Directory -Path (Join-Path $root 'known') -Force | Out-Null
         $code = Invoke-Script -Path $updateScript -Arguments @('-InstanceName', 'known', '-InstancesRoot', $root, '-DryRun')
         Assert-Equal 0 $code 'DryRun OK (code 0)'
+    }
+
+    # ── migrate-instance.ps1 (OPS06b) : codes de sortie hors Docker (le round-trip réel est porté par
+    # deploy/provisioning/test-migrate-instance.sh, exécuté à la recette GATE_TOOLKIT comme l'appliance). ──
+    Test-Case 'migrate-instance EXPORT : instance source inconnue → code 1' {
+        $root = Join-Path $tmpRoot 'mig-export-missing'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $code = Invoke-Script -Path $migrateScript -Arguments @('-InstanceName', 'nope', '-InstancesRoot', $root, '-DryRun')
+        Assert-Equal 1 $code 'instance source inconnue (code 1)'
+    }
+    Test-Case 'migrate-instance EXPORT : instance sans .env → code 1 (secrets requis)' {
+        $root = Join-Path $tmpRoot 'mig-export-noenv'
+        New-Item -ItemType Directory -Path (Join-Path $root 'src1') -Force | Out-Null
+        $code = Invoke-Script -Path $migrateScript -Arguments @('-InstanceName', 'src1', '-InstancesRoot', $root, '-DryRun')
+        Assert-Equal 1 $code 'instance sans .env (code 1)'
+    }
+    Test-Case 'migrate-instance EXPORT : DryRun sur instance existante (+.env) → code 0' {
+        $root = Join-Path $tmpRoot 'mig-export-dry'
+        $dir = Join-Path $root 'src1'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $dir '.env') -Value 'PUBLIC_HOSTNAME=h.test' -NoNewline
+        $code = Invoke-Script -Path $migrateScript -Arguments @('-InstanceName', 'src1', '-InstancesRoot', $root, '-DryRun')
+        Assert-Equal 0 $code 'DryRun export OK (code 0)'
+    }
+    Test-Case 'migrate-instance APPLY : bundle absent → code 1' {
+        $root = Join-Path $tmpRoot 'mig-apply-missing'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $code = Invoke-Script -Path $migrateScript -Arguments @('-ApplyBundle', (Join-Path $root 'absent.zip'), '-InstancesRoot', $root, '-DryRun')
+        Assert-Equal 1 $code 'bundle absent (code 1)'
+    }
+    Test-Case 'migrate-instance APPLY : .zip sans manifeste de migration → code 1' {
+        $root = Join-Path $tmpRoot 'mig-apply-badzip'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $junk = Join-Path $root 'junk.txt'
+        Set-Content -LiteralPath $junk -Value 'x' -NoNewline
+        $zip = Join-Path $root 'notbundle.zip'
+        Compress-Archive -Path $junk -DestinationPath $zip -Force
+        $code = Invoke-Script -Path $migrateScript -Arguments @('-ApplyBundle', $zip, '-TargetInstanceName', 'tgt1', '-InstancesRoot', $root, '-DryRun')
+        Assert-Equal 1 $code '.zip non-bundle refusé (code 1)'
+    }
+    Test-Case 'migrate-instance APPLY : DryRun sur bundle valide → code 0' {
+        $root = Join-Path $tmpRoot 'mig-apply-dry'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        # Bundle minimal valide : migration-manifest.json + backup/SHA256SUMS + config/.env.
+        $bsrc = Join-Path $root 'bundlesrc'
+        New-Item -ItemType Directory -Path (Join-Path $bsrc 'backup') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $bsrc 'config') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $bsrc 'migration-manifest.json') -Value '{ "source_instance": "src1", "databases": [] }'
+        Set-Content -LiteralPath (Join-Path $bsrc 'backup\SHA256SUMS') -Value '' -NoNewline
+        Set-Content -LiteralPath (Join-Path $bsrc 'config\.env') -Value 'PUBLIC_HOSTNAME=h.test' -NoNewline
+        $zip = Join-Path $root 'bundle.zip'
+        Compress-Archive -Path (Join-Path $bsrc '*') -DestinationPath $zip -Force
+        $code = Invoke-Script -Path $migrateScript -Arguments @('-ApplyBundle', $zip, '-TargetInstanceName', 'tgt1', '-InstancesRoot', (Join-Path $root 'targets'), '-DryRun')
+        Assert-Equal 0 $code 'DryRun apply OK (code 0)'
+    }
+
+    # ── Audit d'instance de fin de vie de tenant (OPS06c) — append-only ──
+    Test-Case 'Audit instance : append-only round-trip + préservation de la 1re entrée' {
+        $p = Join-Path $tmpRoot 'audit1.jsonl'
+        Add-TenantDecommissionAuditEntry -Path $p -Entry ([ordered]@{ event = 'tenant-decommissioned'; tenant_id = 't1'; operator = 'o1' })
+        Add-TenantDecommissionAuditEntry -Path $p -Entry ([ordered]@{ event = 'tenant-decommissioned'; tenant_id = 't2'; operator = 'o2' })
+        $read = @(Read-TenantDecommissionAuditEntries -Path $p)
+        Assert-Equal 2 $read.Count 'deux entrées'
+        Assert-Equal 't1' $read[0].tenant_id 'première entrée préservée (append-only)'
+        Assert-Equal 't2' $read[1].tenant_id 'seconde entrée ajoutée'
+        # Une entrée = une ligne (JSONL).
+        $lines = @([System.IO.File]::ReadAllLines($p) | Where-Object { $_.Trim().Length -gt 0 })
+        Assert-Equal 2 $lines.Count 'une ligne JSON par entrée'
+        # Pas de BOM UTF-8 en tête (casserait le parsing JSON de la 1re ligne).
+        $bytes = [System.IO.File]::ReadAllBytes($p)
+        Assert-True (-not ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)) 'aucun BOM UTF-8'
+    }
+    Test-Case 'Audit instance : fichier absent → tableau vide' {
+        Assert-Equal 0 (@(Read-TenantDecommissionAuditEntries -Path (Join-Path $tmpRoot 'audit-absent.jsonl'))).Count 'vide'
+    }
+
+    # ── Fixtures d'export pour les gardes de suppression (vérifiées par le VRAI verifier-integrite-archive.ps1) ──
+    # EMPTY : un dossier « archive/ » vide → VERDICT=EMPTY (coffre vide, vert).
+    $emptyExport = Join-Path $tmpRoot 'export-empty'
+    New-Item -ItemType Directory -Path (Join-Path $emptyExport 'archive') -Force | Out-Null
+    # TAMPERED : empreinte de pièce déclarée FAUSSE → VERDICT=TAMPERED.
+    $tamperedExport = Join-Path $tmpRoot 'export-tampered'
+    $tdir = Join-Path $tamperedExport 'archive\pkg'
+    New-Item -ItemType Directory -Path $tdir -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $tdir 'piece.txt') -Value 'x' -NoNewline
+    $hx = ('de' * 32)  # 64 hex
+    $tamperedManifest = '{ "entryKind":"package","packageHash":"' + $hx + '","chainHash":"' + $hx + '","files":[{"name":"piece.txt","sha256":"' + ('0' * 64) + '"}] }'
+    Set-Content -LiteralPath (Join-Path $tdir 'manifest.json') -Value $tamperedManifest
+    # INCOMPLETE : pièce/paquet COHÉRENTS mais chaîne NON ancrée en genèse → VERDICT=INCOMPLETE.
+    $incompleteExport = Join-Path $tmpRoot 'export-incomplete'
+    $idir = Join-Path $incompleteExport 'archive\add'
+    New-Item -ItemType Directory -Path $idir -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $idir 'piece.txt') -Value 'x' -NoNewline
+    $fileHash = (Get-FileHash -LiteralPath (Join-Path $idir 'piece.txt') -Algorithm SHA256).Hash.ToLowerInvariant()
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try { $cb = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes("prev$fileHash")) } finally { $sha.Dispose() }
+    $chainHash = -join ($cb | ForEach-Object { $_.ToString('x2') })  # sha256("prev"+fileHash) ≠ sha256(""+fileHash)
+    $incompleteManifest = '{ "entryKind":"addendum","packageHash":"' + $fileHash + '","chainHash":"' + $chainHash + '","files":[{"name":"piece.txt","sha256":"' + $fileHash + '"}] }'
+    Set-Content -LiteralPath (Join-Path $idir 'manifest.json') -Value $incompleteManifest
+
+    # ── decommission-tenant.ps1 (OPS06c) : gardes hors Docker (le round-trip réel est porté par
+    # deploy/provisioning/test-decommission-tenant.sh, exécuté à la recette GATE_TOOLKIT). ──
+    Test-Case 'decommission : nom d''instance invalide → code 1' {
+        $code = Invoke-Script -Path $decommissionScript -Arguments @('-InstanceName', 'mauvais nom', '-Tenant', 'acme', '-DryRun')
+        Assert-Equal 1 $code 'nom invalide (code 1)'
+    }
+    Test-Case 'decommission : DÉSACTIVATION DryRun → code 0 (sans Docker)' {
+        $code = Invoke-Script -Path $decommissionScript -Arguments @('-InstanceName', 'fresh', '-Tenant', 'acme', '-DryRun')
+        Assert-Equal 0 $code 'désactivation DryRun (code 0)'
+    }
+    Test-Case 'decommission -Delete : sans export → REFUS (code 1)' {
+        $code = Invoke-Script -Path $decommissionScript -Arguments @('-InstanceName', 'fresh', '-Tenant', 'acme', '-Delete', '-DryRun')
+        Assert-Equal 1 $code 'suppression sans export refusée (code 1)'
+    }
+    Test-Case 'decommission -Delete : export introuvable → REFUS (code 1)' {
+        $code = Invoke-Script -Path $decommissionScript -Arguments @('-InstanceName', 'fresh', '-Tenant', 'acme', '-Delete',
+            '-VerifiedExportPath', (Join-Path $tmpRoot 'export-absent'), '-Operator', 'o@test', '-Yes', '-ConfirmTenantName', 'acme', '-DryRun')
+        Assert-Equal 1 $code 'export introuvable refusé (code 1)'
+    }
+    Test-Case 'decommission -Delete : sans opérateur → REFUS (code 1)' {
+        $code = Invoke-Script -Path $decommissionScript -Arguments @('-InstanceName', 'fresh', '-Tenant', 'acme', '-Delete',
+            '-VerifiedExportPath', $emptyExport, '-Yes', '-ConfirmTenantName', 'acme', '-DryRun')
+        Assert-Equal 1 $code 'opérateur requis (code 1)'
+    }
+    Test-Case 'decommission -Delete : export ALTÉRÉ (TAMPERED) → REFUS (code 1)' {
+        $code = Invoke-Script -Path $decommissionScript -Arguments @('-InstanceName', 'fresh', '-Tenant', 'acme', '-Delete',
+            '-VerifiedExportPath', $tamperedExport, '-Operator', 'o@test', '-Yes', '-ConfirmTenantName', 'acme', '-DryRun')
+        Assert-Equal 1 $code 'export altéré refusé (code 1)'
+    }
+    Test-Case 'decommission -Delete : export PARTIEL (INCOMPLETE) → REFUS (code 1)' {
+        $code = Invoke-Script -Path $decommissionScript -Arguments @('-InstanceName', 'fresh', '-Tenant', 'acme', '-Delete',
+            '-VerifiedExportPath', $incompleteExport, '-Operator', 'o@test', '-Yes', '-ConfirmTenantName', 'acme', '-DryRun')
+        Assert-Equal 1 $code 'export partiel refusé (code 1)'
+    }
+    Test-Case 'decommission -Delete : nom de confirmation ERRONÉ → REFUS (code 1)' {
+        $code = Invoke-Script -Path $decommissionScript -Arguments @('-InstanceName', 'fresh', '-Tenant', 'acme', '-Delete',
+            '-VerifiedExportPath', $emptyExport, '-Operator', 'o@test', '-Yes', '-ConfirmTenantName', 'mauvais', '-DryRun')
+        Assert-Equal 1 $code 'confirmation erronée refusée (code 1)'
+    }
+    Test-Case 'decommission -Delete : 1re confirmation manquante (sans -Yes, non interactif) → REFUS (code 1)' {
+        $code = Invoke-Script -Path $decommissionScript -Arguments @('-InstanceName', 'fresh', '-Tenant', 'acme', '-Delete',
+            '-VerifiedExportPath', $emptyExport, '-Operator', 'o@test', '-ConfirmTenantName', 'acme', '-DryRun')
+        Assert-Equal 1 $code '1re confirmation manquante refusée (code 1)'
+    }
+    Test-Case 'decommission -Delete : export VERT (EMPTY) + confirmation correcte → DryRun code 0' {
+        $code = Invoke-Script -Path $decommissionScript -Arguments @('-InstanceName', 'fresh', '-Tenant', 'acme', '-Delete',
+            '-VerifiedExportPath', $emptyExport, '-Operator', 'o@test', '-Recipient', 'dpo@acme.test', '-Yes', '-ConfirmTenantName', 'acme', '-DryRun')
+        Assert-Equal 0 $code 'toutes gardes vertes → DryRun OK (code 0)'
     }
 
     Write-Host ""

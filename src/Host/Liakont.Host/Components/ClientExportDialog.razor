@@ -1,0 +1,60 @@
+@namespace Liakont.Host.Components
+@using System
+@using Liakont.Host.Clients
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* ClientExportDialog — confirmation d'export de réversibilité d'UN client (OPS06a). Vue PURE
+ * (aucune injection — testable en bUnit) : le téléchargement réel passe par un lien
+ * <a href … download> vers l'endpoint opérateur (ZIP en pièce jointe, auth par le cookie de
+ * session, garde liakont.supervision re-vérifiée côté serveur). Le texte dit le CONTENU du
+ * bundle et renvoie à la notice de restitution. 100 % français. *@
+
+<div class="client-export-dialog" role="dialog"
+     aria-label="Confirmer l'export de réversibilité du client"
+     data-testid="client-export-dialog">
+    <p class="client-export-dialog__text" data-testid="client-export-dialog-text">
+        Vous allez exporter l'INTÉGRALITÉ du dossier du client « @Line.DisplayName » au format ZIP :
+        coffre d'archive (paquets WORM + preuves d'ancrage + rapport d'intégrité), suivi des documents,
+        paramétrage (profil, table TVA, comptes Plateforme Agréée — clés masquées) et journal d'audit.
+        <strong>Opération lourde</strong> selon le volume archivé ; destinée à une restitution
+        (changement de logiciel, fin de contrat). Les données du client restent intactes.
+    </p>
+    <p class="client-export-dialog__hint" data-testid="client-export-dialog-hint">
+        L'archive est vérifiable HORS PLATEFORME : voir la notice de restitution
+        (<code>docs/guide-restitution-reversibilite.md</code>) et l'outil
+        <code>tools/verifier-integrite-archive.ps1</code>.
+    </p>
+
+    <div class="client-export-dialog__actions">
+        <a class="client-export-dialog__download"
+           href="@DownloadUrl"
+           data-testid="client-export-dialog-download"
+           @onclick="@(_ => OnClose.InvokeAsync())"
+           download>
+            Confirmer et télécharger
+        </a>
+        <StratumButton Text="Annuler"
+                       Variant="ButtonVariant.Secondary"
+                       Outline
+                       Size="ButtonSize.Small"
+                       OnClick="@(_ => OnClose.InvokeAsync())"
+                       TestId="client-export-dialog-cancel" />
+    </div>
+</div>
+
+@code {
+    /// <summary>Client à exporter.</summary>
+    [Parameter, EditorRequired]
+    public ClientConsoleLine Line { get; set; } = null!;
+
+    /// <summary>Fermeture du dialogue (clic sur Télécharger ou Annuler).</summary>
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    /// <summary>
+    /// URL de l'endpoint opérateur d'export du tenant choisi (API03/OPS06a). L'identifiant est encodé
+    /// (segment d'URL) — il provient du registre, mais on ne fait jamais confiance à une donnée en clair.
+    /// </summary>
+    private string DownloadUrl => $"/api/v1/clients/{Uri.EscapeDataString(Line.TenantId)}/tenant-export";
+}

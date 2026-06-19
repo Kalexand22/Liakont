@@ -7,6 +7,7 @@ using System.Threading.RateLimiting;
 using Asp.Versioning;
 using Liakont.Host.AgentApi;
 using Liakont.Host.Behaviors;
+using Liakont.Host.Clients;
 using Liakont.Host.Components;
 using Liakont.Host.Configuration;
 using Liakont.Host.FleetApi;
@@ -897,6 +898,7 @@ public static class AppBootstrap
         v1.MapNotificationEndpoints();
         v1.MapAuditEndpoints();
         v1.MapTenantAdminEndpoints();
+        v1.MapClientExportEndpoints();
         v1.MapDocumentsEndpoints();
         v1.MapDocumentActionsEndpoints();
         v1.MapPipelineEndpoints();
