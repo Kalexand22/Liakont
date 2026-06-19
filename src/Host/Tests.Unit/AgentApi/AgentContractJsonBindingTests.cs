@@ -201,9 +201,39 @@ public sealed class AgentContractJsonBindingTests
         roundTripped.DocumentCharges[0].ReasonCode.Should().Be("ECO", "le code de motif de charge doit survivre à la liaison STJ");
     }
 
+    [Fact]
+    public void Unknown_member_on_non_contract_type_is_tolerated_not_rejected()
+    {
+        // RDL04 — garde du périmètre de l'assembly-guard. Le modificateur RejectUnknownContractMembers
+        // applique JsonUnmappedMemberHandling.Disallow UNIQUEMENT aux types dont l'assembly est
+        // Liakont.Agent.Contracts (typeInfo.Type.Assembly == typeof(AgentContractVersion).Assembly).
+        // Les types HORS de cet assembly doivent rester PERMISSIFS (membre inconnu droppé, pas rejeté) :
+        // c'est le comportement par défaut des options « Web » pour tous les endpoints console.
+        // Si un refactor supprime la garde d'assembly (jugée « redondante »), TOUS les endpoints
+        // minimal-API switchent silencieusement vers le rejet strict — régression invisible côté clients.
+        // Ce test verrouille que le périmètre de RDL04 ne s'étend PAS aux types du contexte test/console.
+        const string jsonWithUnknownMember =
+            "{\"Name\":\"test\",\"Value\":42,\"UnknownFutureField\":\"droppé\"}";
+
+        ConsoleTestPocoDto? result = null;
+        Action deserialize = () =>
+            result = JsonSerializer.Deserialize<ConsoleTestPocoDto>(jsonWithUnknownMember, HostMinimalApiOptions());
+
+        deserialize.Should().NotThrow(
+            "un membre inconnu sur un type hors Liakont.Agent.Contracts est droppé, jamais rejeté (périmètre RDL04)");
+        result.Should().NotBeNull();
+        result!.Name.Should().Be("test");
+        result.Value.Should().Be(42);
+    }
+
     // Enveloppe de lot minimale portant UN document canonique (mêmes noms de propriété que
     // PushBatchRequestDto, version de contrat de l'assembly) — la forme fil réellement POSTée par l'agent.
     private static string ComposeSingleDocumentBatch(PivotDocumentDto document) =>
         "{\"ContractVersion\":\"" + AgentContractVersion.ContractVersion + "\",\"Documents\":["
         + CanonicalJson.Serialize(document) + "]}";
+
+    // POCO LOCAL — vit dans l'assembly de test (PAS dans Liakont.Agent.Contracts).
+    // Représente n'importe quel DTO console/minimal-API hors du contrat agent.
+    // Utilisé uniquement par Unknown_member_on_non_contract_type_is_tolerated_not_rejected.
+    private sealed record ConsoleTestPocoDto(string Name, int Value);
 }
