@@ -64,7 +64,7 @@ public static class CanonicalJson
         if (document.OperationCategory.HasValue)
         {
             writer.WritePropertyName("OperationCategory");
-            writer.WriteString(document.OperationCategory.Value.ToString());
+            writer.WriteEnum(document.OperationCategory.Value);
         }
 
         writer.WritePropertyName("CurrencyCode");
@@ -199,7 +199,7 @@ public static class CanonicalJson
         if (tax.CategoryCode.HasValue)
         {
             writer.WritePropertyName("CategoryCode");
-            writer.WriteString(tax.CategoryCode.Value.ToString());
+            writer.WriteEnum(tax.CategoryCode.Value);
         }
 
         WriteOptionalString(writer, "VatexCode", tax.VatexCode);
