@@ -194,7 +194,20 @@ meta:
   #   GATE_CONSOLE_WEB] (tous done ; code touché déjà sur main). ⚠️ À SEEDER dans $ORCH_REPO/state.yaml
   #   APRÈS merge : RD401→RD409 + GATE_REDLINE_ADR4 en `pending` (tous éligibles sauf RD403 qui dep RD401).
   #   Détails + verdicts : tasks/redline-adr-0004.md + items/RD4.yaml.
-  version: 32
+  # version 33 = merge du 3e redline parallèle (anticipé par v31) : segment `adr-redline` + lot RDL —
+  #   findings CONFIRMÉS de la revue critique des ADR-0005/0006/0007 et descendance (Karl, 2026-06-19 ;
+  #   vérification adversariale : 57 findings → 43 confirmés + 2 arbitrages, 12 réfutés). 13 items RDL01→RDL13
+  #   + GATE_ADR_REDLINE (humaine). Bande 98xx (distincte de RDF 99xx et RD4 10000 ; ids/segment/gate distincts
+  #   pour coexister, cf. v31). Segment sur feat/adr-redline (base main — fixes sur du code DÉJÀ sur main),
+  #   pas de depends_on_gate. 2 P1 : RDL01 (enum canonique gardé/rejet + binding strict) ; RDL06 (4 fan-out
+  #   Pipeline indispatchables : SyncAll/AggregatePaymentsAll/RectifyReportsAll en AddScoped au lieu
+  #   d'AddJobHandler → SYNC/AGGREGATE/RECTIFY ne tournent JAMAIS). Dépendances internes : RDL03→RDL01,
+  #   RDL04→RDL02, RDL05→RDL01, RDL07→RDL09, RDL08→RDL07 (RDL09 répare la contradiction baseline↔provenance
+  #   AVANT que RDL07/RDL08 n'éditent TenantJobRunner.cs, épinglé). 2 arbitrages humains : RDL05 (NFC),
+  #   RDL07 (run partiel). Détail + 12 réfutés : items/RDL.yaml + tasks/redline-adr-005-006-007.md.
+  #   ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS merge : RDL01→RDL13 + GATE_ADR_REDLINE en `pending`
+  #   (RDL01, RDL02, RDL06, RDL09, RDL10, RDL11, RDL12, RDL13 éligibles — depends_on []).
+  version: 33
   host: multi_agent_v1
 
 segments:
@@ -333,6 +346,12 @@ segments:
     lots: [B2C]
     gate: GATE_EREPORTING_B2C
     depends_on_gate: [GATE_PIPELINE, GATE_ADAPTER_ENCHERESV6, GATE_CONSOLE_WEB, GATE_FACTURX]
+
+  adr-redline:
+    branch: feat/adr-redline
+    base: main
+    lots: [RDL]
+    gate: GATE_ADR_REDLINE
 
   adr-redline-fondateurs:
     branch: feat/adr-redline-fondateurs
@@ -657,6 +676,26 @@ items:
   - { id: B2C09a, lot: B2C, priority: 9780, depends_on: [] }
   - { id: B2C09b, lot: B2C, priority: 9790, depends_on: [B2C05, B2C08, B2C09a, B2C03] }
   - { id: GATE_EREPORTING_B2C, type: gate, executor: human, priority: 9799, depends_on: [B2C04, B2C09a, B2C09b] }
+
+  # ── RDL (segment adr-redline — redline ADR-0005/0006/0007, manifest v33) ──
+  # PLANIFIÉ : APRÈS merge, seeder `pending` RDL01→RDL13 + GATE_ADR_REDLINE dans $ORCH_REPO/state.yaml
+  # (gate comprise, sinon « done » par défaut). 2 P1 : RDL01 (enum gardé), RDL06 (fan-out dispatchables).
+  # RDL09 (provenance) PRÉCÈDE RDL07/RDL08 (éditent TenantJobRunner.cs épinglé). Détails : items/RDL.yaml +
+  # tasks/redline-adr-005-006-007.md.
+  - { id: RDL01, lot: RDL, priority: 9800, depends_on: [] }
+  - { id: RDL02, lot: RDL, priority: 9804, depends_on: [] }
+  - { id: RDL03, lot: RDL, priority: 9808, depends_on: [RDL01] }
+  - { id: RDL04, lot: RDL, priority: 9810, depends_on: [RDL02] }
+  - { id: RDL05, lot: RDL, priority: 9830, depends_on: [RDL01] }
+  - { id: RDL06, lot: RDL, priority: 9802, depends_on: [] }
+  - { id: RDL07, lot: RDL, priority: 9812, depends_on: [RDL09] }
+  - { id: RDL08, lot: RDL, priority: 9814, depends_on: [RDL07] }
+  - { id: RDL09, lot: RDL, blueprint: tooling-item, priority: 9806, depends_on: [] }
+  - { id: RDL10, lot: RDL, blueprint: docs-spec-item, priority: 9816, depends_on: [] }
+  - { id: RDL11, lot: RDL, priority: 9818, depends_on: [] }
+  - { id: RDL12, lot: RDL, priority: 9820, depends_on: [] }
+  - { id: RDL13, lot: RDL, blueprint: docs-spec-item, priority: 9832, depends_on: [] }
+  - { id: GATE_ADR_REDLINE, type: gate, executor: human, priority: 9890, depends_on: [RDL01, RDL02, RDL03, RDL04, RDL05, RDL06, RDL07, RDL08, RDL09, RDL10, RDL11, RDL12, RDL13] }
 
   # ── RDF (segment adr-redline-fondateurs — redline des ADR fondateurs, manifest v31) ──
   # Source : tasks/redline-adr-fondateurs.md. Décisions opérateur DEC-1..DEC-6 : orchestration/items/RDF.yaml.
