@@ -12,13 +12,20 @@ using Stratum.Modules.Job.Infrastructure;
 using Xunit;
 
 /// <summary>
-/// RDL06 (findings A6-cons-1 P1 / A6-cons-3 P2) — test de composition sur le graphe DI RÉEL : les 4 fan-out
-/// SYSTÈME récurrents du pipeline (SendAll / SyncAll / AggregatePaymentsAll / RectifyReportsAll) doivent être
-/// à la fois DISPATCHABLES (<c>IJobHandlerResolver.CanHandle</c>) et PLANIFIABLES (présents dans
-/// <c>IJobTypeCatalog</c>). C'est l'enregistrement <c>AddJobHandler</c> (et la <c>JobHandlerRegistration</c>
-/// singleton qu'il pose) qui le garantit — un <c>AddScoped</c> seul (état antérieur) laissait ces déclencheurs
-/// muets pour le resolver et le catalogue (jobs morts en production). Ce test aurait attrapé le bug et le
-/// rattrapera au prochain fan-out récurrent ajouté.
+/// RDL06 (findings A6-cons-1 P1 / A6-cons-3 P2) — test de composition de l'EXTENSION
+/// <c>AddPipelineSystemJobHandlers</c> : les 4 fan-out SYSTÈME récurrents du pipeline (SendAll / SyncAll /
+/// AggregatePaymentsAll / RectifyReportsAll) doivent être à la fois DISPATCHABLES
+/// (<c>IJobHandlerResolver.CanHandle</c>) et PLANIFIABLES (présents dans <c>IJobTypeCatalog</c>). C'est
+/// l'enregistrement <c>AddJobHandler</c> (et la <c>JobHandlerRegistration</c> singleton qu'il pose) qui le
+/// garantit — un <c>AddScoped</c> seul (état antérieur dans le module Pipeline) laissait ces déclencheurs
+/// muets pour le resolver et le catalogue (jobs morts en production).
+/// <para>
+/// PORTÉE : ce test couvre la CORRECTION de l'extension, pas son CÂBLAGE au composition root. La garde du
+/// câblage réel (si <c>AddPipelineSystemJobHandlers</c> est retiré d'<c>AppBootstrap</c>, les jobs
+/// redeviennent morts) est portée par le test d'INTÉGRATION sur le Host réel
+/// (<c>PipelineSystemJobHandlersCompositionIntegrationTests</c>), qui résout le resolver/catalogue depuis le
+/// graphe DI de production.
+/// </para>
 /// </summary>
 public sealed class PipelineSystemJobHandlersTests
 {
