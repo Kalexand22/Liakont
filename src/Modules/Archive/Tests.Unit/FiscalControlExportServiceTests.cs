@@ -18,6 +18,8 @@ public sealed class FiscalControlExportServiceTests
     private readonly FakeArchiveEntryStore _entryStore = new();
     private readonly FakeArchiveAnchorStore _anchorStore = new();
     private readonly FakeDocumentQueries _documentQueries = new();
+    private readonly FakeReportingPieceLinkStore _linkStore = new();
+    private readonly FakeTenantSettingsQueries _settingsQueries = new();
     private readonly StubTenantContext _tenant = new(ArchiveTestData.Tenant);
     private readonly ArchiveService _archiveService;
 
@@ -71,7 +73,28 @@ public sealed class FiscalControlExportServiceTests
         paths.Should().Contain("2026/05/F-2026-001/chronologie.txt");
         paths.Should().Contain("rapport-integrite.json");
         paths.Should().Contain("notice-verification.txt");
+
+        // Document ordinaire (aucun lien reporting↔pièces) → AUCUN fichier de liens (non-régression non-10.3).
+        paths.Should().NotContain("2026/05/F-2026-001/liens-reporting-pieces.json");
         export.Notice.Should().Contain("NF Z42-013");
+    }
+
+    [Fact]
+    public async Task BuildForDocument_With10_3Links_IncludesReportingPieceLinkFile()
+    {
+        ArchivePackageRequest request = ArchiveTestData.PackageRequest();
+        await _archiveService.ArchiveIssuedDocumentAsync(request);
+        _documentQueries.Add(BuildDoc(request.DocumentId, request.DocumentNumber));
+
+        // Une déclaration 10.3 gelée à la transmission : deux pièces source liées (sens transmission → pièces).
+        // Même société que celle résolue par l'export (FakeTenantSettingsQueries.GetCurrentCompanyId).
+        await _linkStore.AppendAsync(FakeTenantSettingsQueries.CompanyId, request.DocumentId, ["BA-2026-77", "BV-2026-77"]);
+
+        FiscalControlExport export = await Create().BuildForDocumentAsync(request.DocumentId);
+
+        FiscalExportFile linkFile = export.Files.Single(f => f.Path == "2026/05/F-2026-001/liens-reporting-pieces.json");
+        string json = System.Text.Encoding.UTF8.GetString(linkFile.Content);
+        json.Should().Contain("BA-2026-77").And.Contain("BV-2026-77");
     }
 
     [Fact]
@@ -148,6 +171,6 @@ public sealed class FiscalControlExportServiceTests
     private FiscalControlExportService Create()
     {
         var verifier = new ArchiveVerifier(_archiveService, _entryStore, _anchorStore, _store, new NoAnchorTimestampAnchor(), _tenant);
-        return new FiscalControlExportService(_store, _entryStore, verifier, _documentQueries, _tenant);
+        return new FiscalControlExportService(_store, _entryStore, verifier, _documentQueries, _linkStore, _settingsQueries, _tenant);
     }
 }
