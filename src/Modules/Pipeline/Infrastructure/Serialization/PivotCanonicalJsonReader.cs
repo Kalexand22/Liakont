@@ -151,7 +151,7 @@ public static class PivotCanonicalJsonReader
         where TEnum : struct =>
         Enum.Parse<TEnum>(name);
 
-    // Nature d'opération optionnelle (ADR-0023 amendé) : absente du JSON → null (la plateforme la remplit à
+    // Nature d'opération optionnelle (ADR-0031 amendé) : absente du JSON → null (la plateforme la remplit à
     // l'ingestion ; un pivot émis par l'agent ne la porte pas). Miroir exact du writer (omis si null).
     private static OperationCategory? ReadOperationCategory(JsonElement element) =>
         TryString(element, "OperationCategory", out string value) ? EnumByName<OperationCategory>(value) : null;

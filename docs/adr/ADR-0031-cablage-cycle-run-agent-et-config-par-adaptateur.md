@@ -1,8 +1,15 @@
-# ADR-0023 — Câblage du cycle de run de l'agent (AGT02) et canal de configuration par-adaptateur
+# ADR-0031 — Câblage du cycle de run de l'agent (AGT02) et canal de configuration par-adaptateur
 
 **Date :** 2026-06-14
 
 **Statut :** Accepté (2026-06-14)
+
+> **Numérotation (renuméroté le 2026-06-20, item RDL13).** Cet ADR portait initialement le
+> numéro **ADR-0023**, en collision avec `ADR-0023-generation-facturx-pdfa3-cii.md`. Il est
+> renuméroté **ADR-0031** (numéro libre, toutes branches actives confondues) pour lever la
+> collision. Le numéro **ADR-0023** reste attribué à la **génération Factur-X**. Les renvois
+> historiques « ADR-0023 D1–D5 / amendé » du câblage de l'agent pointent désormais vers cet
+> ADR-0031 ; voir l'index `docs/adr/README.md`.
 
 ---
 

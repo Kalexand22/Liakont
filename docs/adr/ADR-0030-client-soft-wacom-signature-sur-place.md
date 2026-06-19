@@ -12,8 +12,9 @@
   RGPD/eIDAS **paramétrables tenant** (la qualification fine relève du DPO/EC du client au déploiement, F17 §10).
 - **Numérotation** : ADR-**0030**. Plan d'ADR-filles du lot signature (F17 §9) : 0027 (abstraction), 0028 (module
   générique), 0029 (Yousign), **0030** (ce client Wacom). Les amendements (F15 §1.9, ADR-0024 journal) sont gravés
-  dans le même item (SIG02). *(Note : deux fichiers `ADR-0023-*` coexistent — collision de numéro assumée ; sans
-  incidence ici.)*
+  dans le même item (SIG02). *(Note : la collision ADR-0023 (câblage agent ↔ génération Factur-X) a été levée le
+  2026-06-20 (item RDL13) — le câblage de l'agent est désormais **ADR-0031**, ADR-0023 reste la génération
+  Factur-X ; voir `docs/adr/README.md`.)*
 - **Contexte décisionnel** : `docs/conception/F17-Signature-Validation-Document.md` §1.3 (Wacom : qualification +
   RGPD), §6 (volet sur place), §8 (secrets DPAPI), §9 (plan d'ADR), §10 (points ouverts — #5 AES, #7 RGPD, #8
   identité **tranché**), §11 (garde-fous P1) ; `docs/adr/ADR-0027-abstraction-signature-capacites.md`

@@ -41,7 +41,7 @@ public sealed class AgentConfig
 
     /// <summary>
     /// Configuration spécifique de l'adaptateur <paramref name="adapterName"/> (section
-    /// <c>adapterConfig.&lt;nom&gt;</c>, ADR-0023). Retourne une section VIDE si rien n'est fourni —
+    /// <c>adapterConfig.&lt;nom&gt;</c>, ADR-0031). Retourne une section VIDE si rien n'est fourni —
     /// c'est la fabrique de l'adaptateur qui décide quels paramètres sont obligatoires (le chargeur
     /// reste générique : il ne connaît aucun champ propre à un adaptateur).
     /// </summary>

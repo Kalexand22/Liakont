@@ -15,7 +15,7 @@ using Newtonsoft.Json;
 /// brut « FAC »/« AVO », ADR-0004 D3-3), ne calcule aucun montant (les montants <c>decimal</c> de la
 /// source sont seulement arrondis au centime via <see cref="PivotRounding"/>). L'identité de l'émetteur et
 /// la nature d'opération ne sont PAS portées par l'agent : la plateforme les remplit à l'ingestion depuis le
-/// profil tenant (ADR-0023 amendé) — l'agent n'extrait que la base source (F01-F02 §4.3).
+/// profil tenant (ADR-0031 amendé) — l'agent n'extrait que la base source (F01-F02 §4.3).
 /// </summary>
 internal static class DemoErpARowMapper
 {
@@ -25,7 +25,7 @@ internal static class DemoErpARowMapper
     /// <summary>Type de pièce source « avoir ».</summary>
     internal const string PieceAvoir = "AVO";
 
-    /// <summary>Préfixe NAMESPACÉ de la référence source (anti-collision cross-agent — ADR-0023 D8).</summary>
+    /// <summary>Préfixe NAMESPACÉ de la référence source (anti-collision cross-agent — ADR-0031).</summary>
     internal const string SourceReferencePrefix = "demoerpa:";
 
     private const string CurrencyDefault = "EUR";

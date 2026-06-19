@@ -53,10 +53,10 @@ déplacer aujourd'hui » et sur une bascule **bon marché**.
    du point 5) + les **adaptateurs en plug-ins**, un par logiciel source
    (`Liakont.Agent.Adapters.EncheresV6`, futurs Sage/AS400…). Un adaptateur varie selon le
    **logiciel**, jamais selon le client. Les **adaptateurs de démonstration** `DemoErpA`/`DemoErpB`
-   (ADR-0023 D5) sont **embarqués dans l'agent** et clairement marqués démo — ils éprouvent le
+   (ADR-0031 D5) sont **embarqués dans l'agent** et clairement marqués démo — ils éprouvent le
    câblage `IExtractor` contre de vraies sources ODBC (données fictives sous `deployments/demo-local/`,
    règle n°7) ; ils **restent donc dans le dépôt agent** comme adaptateurs de référence, ils ne sont
-   PAS reclassés en fixtures de test (un service installé doit les connaître — ADR-0023 D5).
+   PAS reclassés en fixtures de test (un service installé doit les connaître — ADR-0031 D5).
 3. **Le contrat partagé via NuGet versionné** : `Liakont.Agent.Contracts` (netstandard2.0, aucune
    logique) est publié sur un feed privé et **consommé** par l'agent (net48) **et** par le module
    `Ingestion` de la plateforme (net10), au lieu d'une référence projet intra-repo. La
@@ -97,8 +97,8 @@ sous `agent/src/` :
 | `Liakont.Agent.Installer` | installeur WinForms + profils intégrateur (F13) | oui |
 | `Liakont.Agent.Updater` | auto-update de flotte (AGT04 / ADR-0013) | oui (produit, point 5) |
 | `Liakont.Agent.Adapters.EncheresV6` | adaptateur ODBC réel | oui (plug-in) |
-| `Liakont.Agent.Adapters.DemoErpA` | adaptateur **démo** embarqué (ADR-0023 D5) | oui (réf. démo, pas fixtures) |
-| `Liakont.Agent.Adapters.DemoErpB` | adaptateur **démo** embarqué (ADR-0023 D5) | oui (réf. démo, pas fixtures) |
+| `Liakont.Agent.Adapters.DemoErpA` | adaptateur **démo** embarqué (ADR-0031 D5) | oui (réf. démo, pas fixtures) |
+| `Liakont.Agent.Adapters.DemoErpB` | adaptateur **démo** embarqué (ADR-0031 D5) | oui (réf. démo, pas fixtures) |
 
 Plus les 7 projets de tests agent (`agent/tests/`) et leur outillage (`agent/tests/_shared/`).
 
@@ -208,7 +208,7 @@ consommé par l'agent net48 à la bascule.
 - `docs/conception/F13-Installateur-Agent-Profils-Integrateur.md` (installateur + profils intégrateur)
 - `docs/conception/F12-Architecture-Plateforme-Agent.md` (architecture agent, contrat d'ingestion)
 - `docs/adr/ADR-0001-pivot-plateforme-agent.md` (option B cross-repo pesée), `ADR-0003` (stack agent)
-- `docs/adr/ADR-0013` (updater de flotte), `ADR-0023` D5 (adaptateurs de démo `DemoErpA`/`DemoErpB`)
+- `docs/adr/ADR-0013` (updater de flotte), `ADR-0031` D5 (adaptateurs de démo `DemoErpA`/`DemoErpB`)
 - `docs/conception/F12-Architecture-Plateforme-Agent.md` §3.4 (anti faux-vert : une seule ancre de hash)
 - `orchestration/protocol.md`, `tools/verify-fast.ps1` (Step 4), `.github/workflows/ci.yml` (job `agent:`)
 - `orchestration/MANIFEST-CONVENTIONS.md` (champ `repo:` au niveau segment)

@@ -798,7 +798,7 @@ public sealed partial class SendTenantJob : ITenantJob
             var canonicalJson = await staging.ReadAsync(key, cancellationToken);
             var pivot = PivotCanonicalJsonReader.Read(canonicalJson);
 
-            // Émetteur rempli au READ-TIME depuis le profil tenant (ADR-0023 amendé / RB9) : le blob stagé est le
+            // Émetteur rempli au READ-TIME depuis le profil tenant (ADR-0031 amendé / RB9) : le blob stagé est le
             // pivot SOURCE (hashé à l'ingestion pour l'anti-doublon F06). On l'enrichit ICI pour l'émission, et on
             // RE-SÉRIALISE l'enrichi pour que l'archive WORM porte EXACTEMENT ce qui est émis. Le profil/fiscal sont
             // résolus UNE fois en tête de job (ExecuteAsync) et propagés — aucune relecture tenant par document.
@@ -816,7 +816,7 @@ public sealed partial class SendTenantJob : ITenantJob
             }
 
             // Mapping TVA rempli au READ-TIME (catégorie UNCL5305 + VATEX par ligne) — SYMÉTRIQUE à l'émetteur
-            // (emitter-filled-by-platform / ADR-0023 amendé) : le blob stagé est le pivot SOURCE (régimes bruts,
+            // (emitter-filled-by-platform / ADR-0031 amendé) : le blob stagé est le pivot SOURCE (régimes bruts,
             // catégorie nulle — hashé à l'ingestion pour l'anti-doublon F06). La PA exige la catégorie par ligne
             // (EN 16931 BG-30) : on la repose ICI, depuis la table validée du tenant, via le MÊME moteur qu'au
             // CHECK (CheckTvaMapping) — une seule source de la classification, jamais inventée (F03). Un régime
