@@ -33,6 +33,38 @@ YAML inline minimal. Un item par ligne :
 | Définitions de lots/segments archivés (terminés) | `orchestration/archive/` (CE dépôt source) |
 | Données runtime archivées (sessions, états purgés) | `$ORCH_REPO/archive/` (dépôt d'état)  |
 
+## Champ `repo:` au niveau segment (réservé — ADR-0005)
+
+Un segment peut cibler un **dépôt Git autre** que le dépôt plateforme courant. Le champ `repo:`,
+au niveau d'un `segments.<nom>`, déclare ce dépôt cible.
+
+```yaml
+segments:
+  agent:
+    branch: feat/agent
+    base: main
+    repo: liakont-agent      # ← dépôt cible (défaut implicite : dépôt plateforme courant)
+    lots: [AGT]
+    gate: GATE_AGENT
+```
+
+- **Défaut** : champ **omis** ⇒ le segment vit dans le dépôt plateforme courant (`Liakont`). C'est
+  le cas de TOUS les segments aujourd'hui — l'agent n'a PAS encore basculé dans son dépôt séparé.
+- **Réservé, pas encore actif** : la bascule de l'agent vers `liakont-agent` est **différée**
+  (ADR-0005). Tant qu'elle n'est pas faite, **ne renseigner `repo:` sur aucun segment**. Le champ est
+  spécifié ici pour qu'au démarrage du chantier de migration on dispose d'une convention stable. Seuls
+  les segments **entièrement agent** sont des cibles `repo: liakont-agent` : `agent` (lots `AGT`) et
+  `adapter-encheresv6` (lots `ADP`).
+- **Cas mixte non routable tel quel** : `deploiement-toolkit` (lots `[OPS, BRD, DOC]`) mêle des items
+  agent (OPS05 packaging agent, OPS08a/b/c installeur) et plateforme (OPS03, OPS01a, OPS07). Un `repo:`
+  segment-level — **une seule valeur par segment** — ne peut pas exprimer ce partage : le segment doit
+  d'abord être **scindé** (part agent / part plateforme) au chantier avant tout routage `repo:`. Ne pas
+  l'inscrire comme cible agent en l'état.
+- **Prérequis d'activation** : l'orchestration multi-repo (`protocol.md` : quel clone pour quel
+  `repo:`, `build-agent-context`, merge-back, partage `$ORCH_REPO`) doit être étendue AVANT de
+  renseigner le champ — sinon le runner, qui suppose un dépôt unique, route vers le mauvais clone.
+  Voir ADR-0005 §Conséquences (réévaluation 2026-06-20).
+
 ## Règles
 
 1. **Pas de titres dans le manifest** — l'agent lit `items/<lot>.yaml` pour le titre + la description.
@@ -59,3 +91,6 @@ YAML inline minimal. Un item par ligne :
    est un checkpoint humain SANS PR : le protocole ne crée des PR que pour les gates de segment.
    L'opérateur passe une gate intra-segment à `done` via `orch-state.ps1` quand la condition
    humaine est remplie (ex. démo déroulée). Les items en aval restent bloqués d'ici là — c'est voulu.
+10. **Champ `repo:` au niveau segment** — réservé pour la bascule de l'agent vers un dépôt séparé
+    (ADR-0005). Omis par défaut (= dépôt plateforme courant). **Ne pas le renseigner** tant que
+    l'orchestration multi-repo n'est pas livrée. Voir la section dédiée ci-dessus.
