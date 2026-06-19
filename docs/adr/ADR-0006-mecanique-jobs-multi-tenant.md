@@ -179,6 +179,14 @@ WORM quotidien s'arrêterait silencieusement (grave pour un produit fiscal). Pen
 crashé reprendre au tick suivant (§5.1). Le seul écart au littéral « ni Pending ni Running » est qu'un unique
 Pending peut coexister avec un Running en cours — bénin et idempotent.
 
+**Granularité de la clé : `(type de job, company_id)`.** C'est suffisant ET correct pour les fan-out SYSTÈME
+récurrents, où **un seul schedule existe par type** (ancrage quotidien, évaluation de la supervision, etc. —
+`SystemJobDefinitions`, `company_id` système). C'est une **contrainte assumée** : deux schedules distincts
+partageant le même `JobType` et la même portée tenant se dé-dupliqueraient mutuellement. La discriminer par
+`schedule.Id` n'est PAS souhaitable (deux schedules du même type de fan-out empileraient à nouveau le worker —
+le défaut même que A6-scale-2 corrige). Si un besoin futur exigeait plusieurs cadences pour un même type, il
+faudrait des types de job distincts, pas une clé de dé-dup plus fine.
+
 #### 5.3 Budget de temps par tenant (A6-scale-3, A6-runtime-4)
 
 `TenantJobRunner` accepte un `TenantJobRunnerOptions.PerTenantTimeout` optionnel : quand il est posé, chaque

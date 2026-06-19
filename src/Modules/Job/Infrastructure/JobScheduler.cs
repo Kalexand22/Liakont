@@ -6,7 +6,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Stratum.Common.Abstractions.Jobs;
 using Stratum.Modules.Job.Application;
-using Stratum.Modules.Job.Contracts.Queries;
 using Stratum.Modules.Job.Domain.Entities;
 
 /// <summary>
@@ -79,9 +78,10 @@ internal sealed partial class JobScheduler : BackgroundService
         var scheduleUowFactory = scope.ServiceProvider.GetRequiredService<IScheduleUnitOfWorkFactory>();
         var jobUowFactory = scope.ServiceProvider.GetRequiredService<IJobUnitOfWorkFactory>();
 
-        // Liakont addition (RDL08, A6-scale-2) : garde de dé-duplication à l'enqueue.
+        // Liakont addition (RDL08, A6-scale-2) : garde de dé-duplication à l'enqueue. Optionnelle (GetService) :
+        // si le composition root ne l'enregistre pas, le scheduler garde son comportement d'origine (la garde
+        // tire elle-même sa dépendance IJobQueries — pas de 2e condition fail-open ici).
         var enqueueGuard = scope.ServiceProvider.GetService<IRecurringJobEnqueueGuard>();
-        var jobQueries = scope.ServiceProvider.GetService<IJobQueries>();
 
         await using var scheduleUow = await scheduleUowFactory.BeginAsync(ct);
         var dueSchedules = await scheduleUow.GetDueSchedulesAsync(DateTimeOffset.UtcNow, ct);
@@ -94,7 +94,7 @@ internal sealed partial class JobScheduler : BackgroundService
                 // même type/portée est déjà EN ATTENTE (sinon un fan-out plus long que la cadence cron affame
                 // le worker mono-job). On avance tout de même next_run_at à la prochaine échéance cron pour
                 // respecter la cadence, sans ré-essayer en boucle. Pending-only (pas Running) : voir ADR-0006 §5.
-                if (enqueueGuard is not null && jobQueries is not null
+                if (enqueueGuard is not null
                     && await enqueueGuard.ShouldSuppressEnqueueAsync(schedule.JobType, schedule.CompanyId, ct))
                 {
                     var suppressedNextRunAt = CronParser.CalculateNextRun(schedule.CronExpression, DateTimeOffset.UtcNow);
