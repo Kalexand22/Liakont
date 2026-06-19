@@ -41,6 +41,25 @@ public sealed class DevJobScheduleSeederTests
     }
 
     [Fact]
+    public async Task TrySeedSchedule_Should_Not_Seed_DeploymentCadence_Job_Without_Sourced_Cron()
+    {
+        // RDL07/A6-cons-2 : un job à cadence de déploiement (cron null) n'est jamais amorcé en dev — sa
+        // planification reste un geste opérateur ; aucune cadence n'est inventée.
+        var deploymentCadence = new SystemJobDefinition(
+            "Liakont.Modules.Pipeline.Contracts.Jobs.SyncAllTrigger",
+            "Synchronisation des comptes rendus (tous les tenants)",
+            null,
+            "label",
+            SystemJobClass.DeploymentCadence);
+        var sender = new FakeSender();
+        var uowFactory = new FakeScheduleUowFactory { Exists = false };
+
+        await DevJobScheduleSeeder.TrySeedScheduleAsync(sender, uowFactory, deploymentCadence, Company, new NullTestLogger());
+
+        sender.Sent.Should().BeEmpty("un job sans cron sourcé n'est pas amorçable");
+    }
+
+    [Fact]
     public async Task TrySeedSchedule_Should_Swallow_AlreadyExists_So_Boot_Is_Idempotent()
     {
         var sender = new FakeSender();

@@ -1,6 +1,7 @@
 namespace Liakont.Host.Tests.Unit.Startup;
 
 using System;
+using System.Linq;
 using FluentAssertions;
 using Liakont.Host.Startup;
 using Xunit;
@@ -59,9 +60,57 @@ public sealed class SystemJobScheduleHealthCheckTests
     [Fact]
     public void Real_System_Jobs_Should_All_Be_Missing_When_Schedules_Table_Is_Empty()
     {
-        // Garde anti-régression : les vrais jobs système (supervision, ancrage) sont évalués.
+        // Garde anti-régression : TOUS les vrais jobs de fan-out récurrents sont évalués (un job jamais
+        // planifié = un warning au démarrage, RDL07/A6-cons-2).
         var missing = SystemJobScheduleHealthCheck.FindMissing(SystemJobDefinitions.All, Array.Empty<string>());
 
         missing.Should().HaveCount(SystemJobDefinitions.All.Count);
+    }
+
+    [Fact]
+    public void RequiredSeeded_Jobs_Have_A_Sourced_Cron_And_DeploymentCadence_Jobs_Have_None()
+    {
+        // RDL07/A6-cons-2 : la cadence d'un job RequiredSeeded est SOURCÉE (cron non nul, amorçable) ; celle
+        // d'un job DeploymentCadence relève du déploiement → aucun cron inventé (null).
+        foreach (var job in SystemJobDefinitions.All)
+        {
+            if (job.Class == SystemJobClass.RequiredSeeded)
+            {
+                job.CronExpression.Should().NotBeNullOrWhiteSpace(
+                    $"un job requis ({job.Label}) a une cadence sourcée");
+            }
+            else
+            {
+                job.CronExpression.Should().BeNull(
+                    $"un job à cadence de déploiement ({job.Label}) n'invente aucun cron");
+            }
+        }
+    }
+
+    [Fact]
+    public void All_Recurring_FanOut_Triggers_Are_Declared_In_SystemJobDefinitions()
+    {
+        // Lock de COUVERTURE (RDL07/A6-cons-2) : l'ensemble des jobs de fan-out récurrents déclarés est figé.
+        // Câbler un nouveau fan-out récurrent SANS l'ajouter ici (le faux-vert « job mort en prod » que le
+        // diagnostic doit attraper) casse ce test. Le récapitulatif SUP03 (opt-in) et la méta-supervision de
+        // flotte (OPS04, non fan-out par tenant) sont volontairement absents.
+        var expected = new[]
+        {
+            "Liakont.Modules.Supervision.Infrastructure.SupervisionEvaluationTrigger",
+            "Liakont.Modules.Archive.Infrastructure.DailyAnchoringTrigger",
+            "Liakont.Modules.Pipeline.Contracts.Jobs.SendAllTrigger",
+            "Liakont.Modules.Pipeline.Contracts.Jobs.SyncAllTrigger",
+            "Liakont.Modules.Pipeline.Contracts.Jobs.AggregatePaymentsAllTrigger",
+            "Liakont.Modules.Pipeline.Contracts.Jobs.RectifyReportsAllTrigger",
+            "Liakont.Modules.Reconciliation.Infrastructure.ReconciliationFanOutJobPayload",
+            "Liakont.Modules.SupportTrace.Infrastructure.SupportTracePurgeTrigger",
+            "Liakont.Modules.Mandats.Infrastructure.TacitAcceptance.SelfBilledAcceptanceTacitTrigger",
+            "Liakont.Modules.Signature.Infrastructure.Drain.SignatureWebhookDrainTrigger",
+        };
+
+        SystemJobDefinitions.All.Select(d => d.JobType)
+            .Should().BeEquivalentTo(
+                expected,
+                "tout fan-out récurrent doit être déclaré pour entrer dans le diagnostic de démarrage");
     }
 }

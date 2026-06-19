@@ -1,11 +1,14 @@
 # ADR-0006 — Mécanique de jobs multi-tenant dans `src/Common`, basculement de tenant derrière une abstraction
 
 - **Statut** : Accepté (2026-06-04). Mise en œuvre : item SOL06.
+  Amendé (2026-06-19, item RDL07) : §4 ajouté (sémantique d'un run de fan-out partiel + observabilité).
 - **Date** : 2026-06-04
 - **Contexte décisionnel** : `orchestration/items/SOL.yaml` (SOL06), `blueprint.md` §7 (multi-tenancy),
   `docs/architecture/module-rules.md` §6, `docs/conception/F12`, `CLAUDE.md` n°9 (requêtes
   tenant-scopées), `tasks/analyse-impact-pivot-plateforme.md` (constat : le module Job vendored n'a
   pas de résolution de tenant), `docs/architecture/provenance-socle-stratum.md` §4.4 et §4.12.
+  Amendement §4 : `orchestration/items/RDL.yaml` (RDL07), `tasks/redline-adr-005-006-007.md`
+  (A6-runtime-1, A6-cons-2, A6-runtime-3).
 
 ## Contexte
 
@@ -85,16 +88,70 @@ le runner comme **deuxième établisseur sanctionné** (l'analogue, côté jobs 
 - L'annulation (`CancellationToken` de l'appelant) **interrompt tout le run** (elle n'est pas avalée
   comme un échec de tenant).
 
+### 4. Sémantique d'un run de fan-out PARTIEL + observabilité (amendement RDL07)
+
+La revue critique (A6-runtime-1) a posé la question : quand un fan-out échoue pour une PARTIE des
+tenants, les handlers loguent puis retournent sans `throw` → le `JobWorker` marque le job
+`completed`, **sans retry ni dead-letter**. Faut-il escalader (retry/dead-letter) ? Et faut-il une
+**règle d'alerte** dédiée pour l'ancrage/purge échoués ?
+
+**Décision (tranchée ici, sévérité corrigée P1→P3) : un run partiel se TERMINE — pas de retry ni de
+dead-letter automatique — et l'échec partiel est porté par un SIGNAL STRUCTURÉ, jamais un faux-vert
+silencieux. On N'AJOUTE PAS de règle d'alerte de supervision dédiée.**
+
+Justification :
+
+1. **L'escalade des cas à enjeu existe DÉJÀ, par conception, et reste SOURCÉE.** Un envoi (SEND) à
+   moitié échoué n'est pas invisible : les documents concernés restent en état `Blocked` /
+   `RejectedByPa`, couverts par des règles d'alerte **sourcées F12 §5.2** (`documents.blocked`,
+   `documents.pa_rejected`) ; l'absence prolongée d'agent ou de run d'extraction est couverte par le
+   dead-man's-switch (`agent.mute`, `agent.missed_run`). Un retry/dead-letter générique au niveau du
+   runner doublerait cette escalade sans la rendre plus fiable (et masquerait l'erreur de fond).
+2. **Pas de nouvelle règle d'alerte tenant** : le catalogue des règles de supervision est
+   l'**ensemble fermé de F12 §5.2** (`AlertRuleCatalog` — « aucune règle inventée », CLAUDE.md n°2).
+   Ajouter « ancrage quotidien échoué pour tenant X » ou « purge support échouée » comme règle
+   d'alerte tenant serait une règle INVENTÉE hors spec — interdit. Le résidu (ancrage TRK06, purge
+   FX06) est donc couvert par le signal structuré ci-dessous, pas par une 9ᵉ règle.
+3. **Le signal structuré, uniforme pour TOUS les fan-out** : `TenantJobRunner` émet, à la fin d'un
+   run comportant au moins un échec, un `Warning` unique (`TenantJobRunSummary.HasFailures`) portant
+   le nom du job, les compteurs et la liste des tenants en échec. C'est observable par la supervision
+   d'exploitation (logs structurés + télémétrie d'instance / méta-supervision OPS04) sans inventer de
+   règle métier. `TenantJobRunSummary` expose `HasFailures` et `HadNoActiveTenants` pour que le
+   handler appelant décide en connaissance de cause.
+4. **0 tenant actif = anomalie potentielle** (A6-runtime-3) : un catalogue d'instance vide (bug de
+   provisioning, mauvaise base) est désormais loggué en `Warning` distinct (et non plus en
+   `Information` indistinct d'un run normal), via `HadNoActiveTenants`.
+
+**Filet de démarrage complémentaire (A6-cons-2)** : `SystemJobScheduleHealthCheck` couvre désormais
+**tous** les jobs de fan-out récurrents (`SystemJobDefinitions`), répartis en deux classes :
+
+- `RequiredSeeded` : cadence **sourcée** (supervision 15 min F12 §5.1 ; ancrage quotidien TRK06,
+  ADR-0011), amorcée en dev. Absente au démarrage → `Warning` « doit être planifié ».
+- `DeploymentCadence` : récurrent mais **cadence = geste de déploiement** (aucune n'est sourcée → pas
+  de cron inventé, non amorcée) — envoi/sync/agrégation/rectificatifs (PIP), réconciliation (TRK07),
+  purge de trace (FX06), drain de signature (SIG09), bascule tacite 389 (MND04). Absente au démarrage
+  → `Warning` conditionnel « à planifier si vous utilisez cette fonctionnalité » : un job de fan-out
+  jamais planifié (« job mort en production ») ne reste plus un faux-vert.
+
+Le récapitulatif de supervision (SUP03, opt-in désactivé par défaut) et la méta-supervision de flotte
+(OPS04, opt-in, non des fan-out par tenant) restent **hors** de ce filet (un avertissement serait du
+bruit).
+
 ## Conséquences
 
 **Positif** : une mécanique unique, testée (unit + intégration sur 2 bases tenant), réutilisable par
 TRK06/PIP01/PIP03/SUP01 sans réinventer de boucle de tenants ; invariant de mutation du tenant
-préservé ; aucune dépendance au module Job (découplage) ; aucun fichier `Stratum.*` modifié.
+préservé ; aucune dépendance au module Job (découplage) ; aucun fichier `Stratum.*` modifié. Depuis
+l'amendement §4 : un fan-out partiellement échoué, un run sans tenant actif et un job de fan-out
+récurrent jamais planifié sont tous des signaux explicites (Warning), sans nouvelle règle fiscale ni
+règle d'alerte inventée.
 
 **À la charge des consommateurs (TRK06/PIP01/PIP03/SUP01)** : déclarer leur `ITenantJob` et planifier
 un job **système** (via le module Job) dont le handler appelle
 `ITenantJobRunner.RunForAllTenantsAsync(...)`. Patron documenté dans
-`docs/architecture/tenant-jobs.md` (référencé par `module-rules.md` §6).
+`docs/architecture/tenant-jobs.md` (référencé par `module-rules.md` §6). Un nouveau job de fan-out
+récurrent DOIT être déclaré dans `SystemJobDefinitions` (classe adéquate) pour entrer dans le filet de
+démarrage.
 
 **Contrat d'enregistrement** : `AddTenantJobs()` (Common) enregistre `ITenantJobRunner` ; le Host
 DOIT aussi enregistrer un `ITenantScopeFactory` (fait par `AddStratumMultiTenancy`). Sans cette
@@ -115,11 +172,19 @@ implémentation, la résolution du runner échoue à la première utilisation (p
   `IConnectionFactory`) — il faudrait réécrire chaque consommateur autour d'une connexion explicite,
   perdant la transparence « réutilise la tenancy ». **Rejetée** (mais reste possible pour un job qui
   veut une connexion brute : `TenantJobContext.Services` l'expose).
+- **(Amendement §4) Retry/dead-letter automatique d'un run partiel au niveau du runner** : double
+  l'escalade déjà portée (états document + dead-man's-switch sourcés F12 §5.2) sans fiabilité
+  supplémentaire, et masque l'erreur de fond. **Rejetée** au profit du signal structuré.
+- **(Amendement §4) Règle d'alerte de supervision « ancrage/purge échoué »** : serait une règle hors
+  de l'ensemble fermé F12 §5.2 (règle inventée, CLAUDE.md n°2). **Rejetée** au profit du signal
+  structuré + filet de démarrage.
 
 ## Références
 
-- `orchestration/items/SOL.yaml` (SOL06), `blueprint.md` §7
+- `orchestration/items/SOL.yaml` (SOL06), `orchestration/items/RDL.yaml` (RDL07), `blueprint.md` §7
 - `docs/architecture/module-rules.md` §6, §11 ; `docs/architecture/tenant-jobs.md`
 - `docs/architecture/provenance-socle-stratum.md` §4.4, §4.12, §4.14
 - `tasks/analyse-impact-pivot-plateforme.md` (constat module Job sans tenant)
+- `tasks/redline-adr-005-006-007.md` (RDL07 : A6-runtime-1, A6-cons-2, A6-runtime-3)
+- `docs/conception/F12` §5.1 (cadences sourcées), §5.2 (catalogue fermé des règles d'alerte)
 - `docs/adr/socle/ADR-0011-database-per-tenant.md`

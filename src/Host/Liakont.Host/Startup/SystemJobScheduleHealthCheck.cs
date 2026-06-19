@@ -35,7 +35,16 @@ internal static partial class SystemJobScheduleHealthCheck
 
             foreach (var job in FindMissing(SystemJobDefinitions.All, activeJobTypes))
             {
-                LogSystemJobUnscheduled(logger, job.Label, job.CronExpression);
+                if (job.Class == SystemJobClass.RequiredSeeded && job.CronExpression is { } cron)
+                {
+                    LogSystemJobUnscheduled(logger, job.Label, cron);
+                }
+                else
+                {
+                    // Cadence de déploiement (RDL07/A6-cons-2) : récurrent mais aucune cadence sourcée — on
+                    // signale sans suggérer de cron (à planifier SI la fonctionnalité est utilisée).
+                    LogDeploymentCadenceJobUnscheduled(logger, job.Label);
+                }
             }
         }
         catch (Exception ex)
@@ -73,6 +82,14 @@ internal static partial class SystemJobScheduleHealthCheck
             + "(supervision/ancrage muets). Créez-le via l'admin des planifications (cron suggéré « {Cron} », UTC) "
             + "— en dev, le seed le pose automatiquement.")]
     private static partial void LogSystemJobUnscheduled(ILogger logger, string label, string cron);
+
+    [LoggerMessage(
+        EventId = 7222,
+        Level = LogLevel.Warning,
+        Message = "Job SYSTÈME de fan-out récurrent SANS planification active : {Label}. SI vous utilisez la "
+            + "fonctionnalité correspondante, planifiez-le via l'admin des planifications (sa cadence relève de "
+            + "votre déploiement, UTC) — sinon il ne s'exécutera JAMAIS (job mort en production).")]
+    private static partial void LogDeploymentCadenceJobUnscheduled(ILogger logger, string label);
 
     [LoggerMessage(
         EventId = 7221,

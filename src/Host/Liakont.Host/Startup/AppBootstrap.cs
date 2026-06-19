@@ -238,9 +238,9 @@ public static class AppBootstrap
         // Bascule tacite des acceptations d'auto-factures 389 (MND04, ADR-0024 §4) : le handler de fan-out
         // (gabarit DailyAnchoring/SOL06) bascule PendingAcceptance → TacitlyAccepted pour les documents sous
         // mandat écrit dont l'échéance (DeadlineUtc) est échue. La CADENCE n'est PAS fixée par la spec (F15
-        // §2.3 ne fixe que l'échéance par document) : aucune n'est inventée ici → pas d'entrée
-        // SystemJobDefinitions ; la planification reste un geste opérateur (admin des schedules), comme le
-        // récapitulatif SUP03 (optionnel, non amorcé).
+        // §2.3 ne fixe que l'échéance par document) : aucune n'est inventée → entrée SystemJobDefinitions de
+        // classe DeploymentCadence (cron null, NON amorcée) pour que le diagnostic de démarrage signale un job
+        // jamais planifié (RDL07/A6-cons-2) ; la planification reste un geste opérateur (admin des schedules).
         builder.Services.AddJobHandler<SelfBilledAcceptanceTacitTrigger, SelfBilledAcceptanceTacitFanOutHandler>(
             "Bascule tacite des acceptations d'auto-factures");
 
@@ -261,9 +261,10 @@ public static class AppBootstrap
         // à rétention courte (proposition 90 j configurable) et PURGEABLE — distinct par construction de la
         // piste d'audit append-only (documents.document_events) et du coffre WORM probant. Le handler de purge
         // fait le fan-out par tenant (TenantJobRunner, SOL06) ; sa PLANIFICATION (cron) reste un geste opérateur
-        // via l'admin des planifications, comme le digest de supervision — aucune cadence inventée (la cadence
-        // d'un housekeeping de rétention courte relève du déploiement). L'ÉCRITURE de la trace (au moment de la
-        // transmission) est câblée par FX07.
+        // via l'admin des planifications — aucune cadence inventée (housekeeping de rétention courte = cadence de
+        // déploiement) : entrée SystemJobDefinitions de classe DeploymentCadence (cron null, non amorcée) pour
+        // que le diagnostic de démarrage signale un job jamais planifié (RDL07/A6-cons-2). L'ÉCRITURE de la trace
+        // (au moment de la transmission) est câblée par FX07.
         builder.Services.AddSupportTraceModule(builder.Configuration);
         builder.Services.AddJobHandler<SupportTracePurgeTrigger, SupportTracePurgeFanOutHandler>("Purge de la trace de support du Factur-X");
 

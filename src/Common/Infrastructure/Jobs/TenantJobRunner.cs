@@ -36,6 +36,14 @@ public sealed partial class TenantJobRunner : ITenantJobRunner
         var allTenants = await _tenantQueries.ListAsync(cancellationToken).ConfigureAwait(false);
         var activeTenants = allTenants.Where(t => t.IsActive).ToList();
 
+        if (activeTenants.Count == 0)
+        {
+            // 0 tenant actif est INDISTINCT d'une anomalie (catalogue vide par bug de provisioning, mauvaise
+            // base) : on le signale en Warning au lieu d'un no-op Information silencieux (RDL07/A6-runtime-3).
+            LogNoActiveTenants(_logger, job.Name);
+            return new TenantJobRunSummary(job.Name, 0, 0, []);
+        }
+
         LogStarting(_logger, job.Name, activeTenants.Count);
 
         var failures = new List<TenantJobFailure>();
@@ -66,7 +74,26 @@ public sealed partial class TenantJobRunner : ITenantJobRunner
         }
 
         var summary = new TenantJobRunSummary(job.Name, activeTenants.Count, succeeded, failures);
-        LogCompleted(_logger, job.Name, summary.TotalTenants, summary.SucceededCount, summary.FailedCount);
+
+        if (summary.HasFailures)
+        {
+            // Run partiel/total échoué : signal structuré UNIFORME (RDL07/A6-runtime-1). Le job se termine
+            // tout de même (pas de retry/dead-letter — ADR-0006 §4 : l'escalade des cas à enjeu passe par les
+            // états document + le dead-man's-switch) ; ce Warning porte les tenants en échec pour qu'un
+            // fan-out à moitié réussi ne soit jamais un faux-vert silencieux.
+            LogCompletedWithFailures(
+                _logger,
+                job.Name,
+                summary.TotalTenants,
+                summary.SucceededCount,
+                summary.FailedCount,
+                string.Join(", ", failures.Select(f => f.TenantId)));
+        }
+        else
+        {
+            LogCompleted(_logger, job.Name, summary.TotalTenants, summary.SucceededCount, summary.FailedCount);
+        }
+
         return summary;
     }
 
@@ -81,4 +108,10 @@ public sealed partial class TenantJobRunner : ITenantJobRunner
 
     [LoggerMessage(Level = LogLevel.Information, Message = "TenantJob '{JobName}' complete: {TotalTenants} tenant(s), {SucceededCount} succeeded, {FailedCount} failed")]
     private static partial void LogCompleted(ILogger logger, string jobName, int totalTenants, int succeededCount, int failedCount);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "TenantJob '{JobName}' found NO active tenant to run for (possible anomaly: empty instance catalog or wrong database)")]
+    private static partial void LogNoActiveTenants(ILogger logger, string jobName);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "TenantJob '{JobName}' completed with FAILURES: {TotalTenants} tenant(s), {SucceededCount} succeeded, {FailedCount} failed (failed tenants: {FailedTenantIds})")]
+    private static partial void LogCompletedWithFailures(ILogger logger, string jobName, int totalTenants, int succeededCount, int failedCount, string failedTenantIds);
 }
