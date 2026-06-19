@@ -368,6 +368,13 @@ public static class AppBootstrap
         // de pipeline ici (PIP01b-d) ; le pipeline ne référence aucune PA concrète (CLAUDE.md n°6).
         builder.Services.AddPipelineModule();
 
+        // RDL06 — les 4 fan-out SYSTÈME récurrents du pipeline (SendAll/SyncAll/AggregatePaymentsAll/
+        // RectifyReportsAll) sont câblés ICI via AddJobHandler (l'extension vit dans le module Job, que seul le
+        // Host référence) : c'est AddJobHandler qui pose la JobHandlerRegistration singleton vue par le
+        // JobHandlerResolver (dispatch) et le JobTypeCatalog (planification). Leur PLANIFICATION (cron) reste un
+        // geste opérateur via l'admin des schedules, comme l'ancrage TRK06 et la supervision.
+        builder.Services.AddPipelineSystemJobHandlers();
+
         // SEND déclenché par une ACTION de console (API02a, ADR-0016) : handler SYSTÈME du déclencheur
         // MONO-TENANT SendTenantTrigger. Enregistré au composition root (comme DailyAnchoring/Supervision)
         // pour exposer sa JobHandlerRegistration au JobHandlerResolver — c'est lui que le JobWorker résout
