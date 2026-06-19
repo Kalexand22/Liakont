@@ -149,11 +149,17 @@ bascule, dans l'ordre, en gardant la **preuve de hash net48 re-jouée** à tout 
 
 **5. Orchestration multi-repo (`orchestration/protocol.md`).** Étendre l'orchestration au multi-repo
 (quel dépôt pour quel segment, `build-agent-context`, branches, merge-back, partage `$ORCH_REPO`) —
-le point qu'ADR-0001 signalait non géré. Les segments `agent` et `adapter-encheresv6` (et la part
-agent de `deploiement-toolkit`) **ciblent le dépôt agent** : matérialisé par un champ **`repo:` au
+le point qu'ADR-0001 signalait non géré. Les segments **entièrement agent** — `agent` (lots `AGT`) et
+`adapter-encheresv6` (lots `ADP`) — **ciblent le dépôt agent** : matérialisé par un champ **`repo:` au
 niveau segment**, désormais **réservé/spécifié dans `MANIFEST-CONVENTIONS.md`** (défaut = dépôt
-plateforme courant ; à renseigner sur les segments agent au chantier). Chantier à valider avec
-l'humain, à ne pas improviser.
+plateforme courant ; à renseigner sur ces deux segments au chantier).
+⚠️ **`deploiement-toolkit` est un cas MIXTE, pas un segment-cible** : ses lots `[OPS, BRD, DOC]`
+mêlent des items **agent** (OPS05 packaging agent, OPS08a/b/c installeur WinForms) et des items
+**plateforme** (OPS03 assistant tenant, OPS01a appliance, OPS07 publication de versions). Un `repo:`
+unique au niveau segment ne peut PAS exprimer ce partage : il **doit d'abord être scindé** (part agent
+/ part plateforme) au chantier de migration AVANT qu'on puisse y router un `repo:` — il n'est donc PAS
+listé comme cible `repo: liakont-agent` tant que ce découpage n'est pas tranché. Chantier à valider
+avec l'humain, à ne pas improviser.
 
 **Garde-fous de cet ADR** :
 
