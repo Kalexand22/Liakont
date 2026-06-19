@@ -143,6 +143,35 @@ public class ExtractionCycleTests
     }
 
     [Fact]
+    public void Run_quarantines_a_non_serializable_document_without_aborting_the_cycle()
+    {
+        using (var db = new TempDatabase())
+        using (var queue = new LocalQueue(db.Path, new MutableClock(Clock)))
+        {
+            // Un document NON conforme (OperationCategory hors plage → CanonicalJson.Serialize lève,
+            // garde WriteEnum RDL01) ne doit PAS avorter le cycle : le document valide suivant est enfilé
+            // et le filigrane avance (sinon un seul document fautif bloquerait l'extraction du tenant en boucle).
+            var extractor = new FixtureExtractor(
+                "Fixture",
+                documents: new[]
+                {
+                    PivotTestData.DocumentWithUndefinedOperationCategory("REF-BAD", Mid),
+                    PivotTestData.Document("REF-OK", Mid),
+                });
+            var cycle = new ExtractionCycle(queue, new NullAgentLog());
+
+            ExtractionResult result = cycle.Run(extractor, From, To);
+
+            result.DocumentsQuarantined.Should().Be(1, "le document non sérialisable est mis en quarantaine, jamais transmis");
+            result.DocumentsSkipped.Should().Be(0, "la quarantaine (conformité) est comptée à part des skips anti-re-push");
+            result.DocumentsEnqueued.Should().Be(1, "le document valide de la fenêtre est quand même enfilé");
+            queue.Peek(QueueItemStatus.Pending, QueueItemKind.Document, 10).Should().ContainSingle()
+                .Which.SourceReference.Should().Be("REF-OK");
+            queue.GetExtractionWatermarkUtc().Should().Be(To, "un document fautif ne bloque pas l'avancée du filigrane");
+        }
+    }
+
+    [Fact]
     public void Run_stashes_source_tax_regimes_and_advances_the_watermark()
     {
         using (var db = new TempDatabase())

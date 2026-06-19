@@ -76,6 +76,24 @@ public sealed class AgentContractJsonBindingTests
     }
 
     [Fact]
+    public void Out_of_range_integer_enum_is_rejected_by_strict_binding()
+    {
+        // RDL01 : allowIntegerValues:false sur les convertisseurs de requête. Un entier hors plage
+        // ({"OperationCategory":99}) ne doit PAS lier comme une valeur d'enum non définie (qui finirait
+        // hashée/archivée en nombre muet) — il est REJETÉ au model-binding (→ 400 à la frontière HTTP),
+        // symétrique de la garde WriteEnum côté sérialisation canonique.
+        const string json =
+            "{\"ContractVersion\":\"1\",\"Documents\":[{\"SourceDocumentKind\":\"FA\",\"Number\":\"FA-1\","
+            + "\"IssueDate\":\"2026-01-01\",\"SourceReference\":\"SRC-1\",\"Totals\":{\"TotalNet\":0,"
+            + "\"TotalTax\":0,\"TotalGross\":0},\"OperationCategory\":99,\"CurrencyCode\":\"EUR\","
+            + "\"Lines\":[],\"CreditNoteRefs\":[],\"Payments\":[],\"DocumentCharges\":[],\"IsSelfBilled\":false}]}";
+
+        Action bind = () => JsonSerializer.Deserialize<PushBatchRequestDto>(json, HostMinimalApiOptions());
+
+        bind.Should().Throw<JsonException>("un entier hors plage est refusé en binding strict (RDL01)");
+    }
+
+    [Fact]
     public void Batch_response_status_is_serialized_by_name()
     {
         // Symétrie du contrat : le statut d'ingestion de la RÉPONSE (DocumentPushStatus) doit partir par

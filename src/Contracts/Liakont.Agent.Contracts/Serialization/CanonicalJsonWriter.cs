@@ -107,6 +107,35 @@ public sealed class CanonicalJsonWriter
     public void WriteDate(DateTime value) =>
         AppendEscapedString(value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
 
+    /// <summary>
+    /// Écrit une énumération par son NOM (règle 4 d'<c>ADR-0007</c> : « émis par leur NOM »),
+    /// GARDÉE par <see cref="Enum.IsDefined(Type, object)"/> : une valeur hors plage LÈVE au lieu
+    /// d'émettre le NOMBRE muet que produirait <c>ToString()</c> (les enums du contrat commencent à 1 ;
+    /// <c>((OperationCategory)99).ToString()</c> donne « 99 »). L'exception fait REJETER le document, dans
+    /// les deux sens du contrat : côté PLATEFORME l'enveloppe try/catch de l'ingestion la convertit en rejet
+    /// par document ; côté AGENT le cycle d'extraction met le document en quarantaine (non transmis,
+    /// journalisé pour l'opérateur) sans bloquer la fenêtre. Dans les deux cas, jamais un chiffre hashé puis
+    /// archivé (WORM) — « bloquer plutôt qu'envoyer faux », CLAUDE.md n°3. Garde GÉNÉRIQUE, donc impossible
+    /// à oublier sur un futur champ enum (contrairement à un <c>ToString()</c> écrit à la main site par site).
+    /// </summary>
+    /// <typeparam name="T">Le type d'énumération du contrat.</typeparam>
+    /// <param name="value">La valeur (doit être définie dans <typeparamref name="T"/>).</param>
+    /// <exception cref="ArgumentOutOfRangeException">La valeur n'est pas définie dans <typeparamref name="T"/>.</exception>
+    public void WriteEnum<T>(T value)
+        where T : struct, Enum
+    {
+        if (!Enum.IsDefined(typeof(T), value))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(value),
+                value,
+                "Valeur d'énumération non définie pour " + typeof(T).Name
+                    + " : sérialisation canonique refusée (ADR-0007 règle 4 — émise par son nom, jamais un nombre).");
+        }
+
+        AppendEscapedString(value.ToString());
+    }
+
     /// <summary>Restitue le JSON canonique accumulé.</summary>
     /// <returns>Le document JSON canonique.</returns>
     public override string ToString() => _builder.ToString();
