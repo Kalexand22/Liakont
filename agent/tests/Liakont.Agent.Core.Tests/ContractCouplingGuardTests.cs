@@ -22,7 +22,11 @@ using Xunit;
 /// <c>src/Contracts/</c>. Un analyseur en <c>PrivateAssets=all</c> ou un passage à net8.0 casserait
 /// la consommabilité net48 (publication NuGet) sans test rouge. La garde couvre également le vecteur
 /// CPM (<c>GlobalPackageReference</c> dans <c>Directory.Packages.props</c>) : la chaîne MSBuild
-/// inclut désormais les <c>Directory.Packages.props</c> à chaque niveau.</item>
+/// inclut désormais les <c>Directory.Packages.props</c> à chaque niveau.
+/// <b>Limitation assumée :</b> <see cref="MsbuildChain"/> lit <c>Directory.Build.props</c> et
+/// <c>Directory.Packages.props</c> littéralement et ne suit PAS les chaînes <c>&lt;Import&gt;</c> ;
+/// un analyseur injecté via un fichier importé échapperait à la garde. Aujourd'hui les props racine
+/// déclarent les paquets directement, la garde est donc exhaustive pour la configuration réelle.</item>
 /// <item><b>A5-coupling-2</b> — le couplage cross-solution (6 <c>ProjectReference</c> vers
 /// <c>src/Contracts</c>, 5 <c>Compile</c>-link de <c>tests/_shared/contract-v1</c>, 1 copie de fixtures)
 /// n'est verrouillé par aucun test : un nouveau chemin <c>..\..\..\src</c> ou <c>..\..\..\tests</c> dans un
@@ -163,6 +167,15 @@ public sealed class ContractCouplingGuardTests
         // A5-coupling-3 : la suite golden cross-runtime (empreintes figées) est tirée dans CE projet par
         // des Compile-link (tests/_shared/contract-v1). Si le lien était retiré, le typeof ci-dessous ne
         // COMPILERAIT pas (échec bruyant immédiat) et le compte de cas chuterait — jamais un faux-vert.
+
+        // 0. Ancrage runtime : ce test DOIT tourner sous .NET Framework 4.8 (agent net48).
+        //    Si le TFM du projet de test changeait (ex. net8.0), cette assertion deviendrait rouge
+        //    immédiatement — fermant le vecteur de faux-vert documenté par RDL11.
+        string runtimeBecause =
+            "ce test est la preuve cross-runtime net48 ; s'il tournait sous .NET 8/10, il prouverait "
+            + "les empreintes sur le MAUVAIS runtime (ADR-0005, RDL11)";
+        System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription.Should().Contain(
+            ".NET Framework", runtimeBecause);
 
         // 1. Le type golden lié est compilé DANS l'assembly de test AGENT (net48), pas une coquille
         //    importée d'ailleurs : la preuve d'empreinte cross-runtime tourne réellement côté agent.
@@ -316,6 +329,7 @@ public sealed class ContractCouplingGuardTests
     // Les entrées <PackageVersion> de Directory.Packages.props sont inoffensives : la regex
     // PackageReferenceInclude ne les reconnaît pas (elle exige PackageReference ou
     // GlobalPackageReference, jamais PackageVersion).
+    // Limitation : les chaînes <Import> ne sont PAS suivies (voir doc XML de classe, A5-purity-1).
     private static IEnumerable<string> MsbuildChain(string projectDir, string repoRoot)
     {
         yield return Directory.EnumerateFiles(projectDir, "*.csproj").First();
