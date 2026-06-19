@@ -1,0 +1,96 @@
+namespace Liakont.Host.Tests.Unit.Startup;
+
+using System;
+using FluentAssertions;
+using Liakont.Host.Startup;
+using Liakont.Modules.Pipeline.Contracts.Jobs;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Stratum.Modules.Job.Application;
+using Stratum.Modules.Job.Contracts.Services;
+using Stratum.Modules.Job.Infrastructure;
+using Xunit;
+
+/// <summary>
+/// RDL06 (findings A6-cons-1 P1 / A6-cons-3 P2) — test de composition sur le graphe DI RÉEL : les 4 fan-out
+/// SYSTÈME récurrents du pipeline (SendAll / SyncAll / AggregatePaymentsAll / RectifyReportsAll) doivent être
+/// à la fois DISPATCHABLES (<c>IJobHandlerResolver.CanHandle</c>) et PLANIFIABLES (présents dans
+/// <c>IJobTypeCatalog</c>). C'est l'enregistrement <c>AddJobHandler</c> (et la <c>JobHandlerRegistration</c>
+/// singleton qu'il pose) qui le garantit — un <c>AddScoped</c> seul (état antérieur) laissait ces déclencheurs
+/// muets pour le resolver et le catalogue (jobs morts en production). Ce test aurait attrapé le bug et le
+/// rattrapera au prochain fan-out récurrent ajouté.
+/// </summary>
+public sealed class PipelineSystemJobHandlersTests
+{
+    // Les 4 déclencheurs de fan-out récurrents câblés par AddPipelineSystemJobHandlers.
+    private static readonly Type[] RecurringFanOutTriggers =
+    [
+        typeof(SendAllTrigger),
+        typeof(SyncAllTrigger),
+        typeof(AggregatePaymentsAllTrigger),
+        typeof(RectifyReportsAllTrigger),
+    ];
+
+    private static ServiceProvider BuildProvider()
+    {
+        var configuration = new ConfigurationBuilder().Build();
+        var services = new ServiceCollection();
+
+        // Graphe RÉEL : le module Job fournit IJobHandlerResolver + IJobTypeCatalog (construits depuis les
+        // JobHandlerRegistration singletons), AddPipelineSystemJobHandlers est l'extension exacte appelée par
+        // le composition root du Host (AppBootstrap).
+        services.AddJobModule(configuration);
+        services.AddPipelineSystemJobHandlers();
+
+        return services.BuildServiceProvider();
+    }
+
+    [Fact]
+    public void Each_Recurring_FanOut_Trigger_Is_Dispatchable_And_Schedulable()
+    {
+        using var provider = BuildProvider();
+        var resolver = provider.GetRequiredService<IJobHandlerResolver>();
+        var catalog = provider.GetRequiredService<IJobTypeCatalog>();
+
+        foreach (var trigger in RecurringFanOutTriggers)
+        {
+            var key = trigger.FullName!;
+
+            resolver.CanHandle(key).Should()
+                .BeTrue($"{trigger.Name} doit être dispatchable (JobHandlerRegistration présente)");
+
+            catalog.Find(key).Should()
+                .NotBeNull($"{trigger.Name} doit être planifiable (présent dans le catalogue des types de jobs)");
+        }
+    }
+
+    [Fact]
+    public void Each_Recurring_FanOut_Trigger_Is_Listed_In_The_Catalog()
+    {
+        using var provider = BuildProvider();
+        var catalog = provider.GetRequiredService<IJobTypeCatalog>();
+
+        var keys = catalog.GetAll();
+
+        foreach (var trigger in RecurringFanOutTriggers)
+        {
+            keys.Should().Contain(d => d.TechnicalKey == trigger.FullName, $"{trigger.Name} doit apparaître dans GetAll()");
+        }
+    }
+
+    [Fact]
+    public void Each_Recurring_FanOut_Trigger_Has_A_French_Label_Not_The_FullName()
+    {
+        using var provider = BuildProvider();
+        var catalog = provider.GetRequiredService<IJobTypeCatalog>();
+
+        foreach (var trigger in RecurringFanOutTriggers)
+        {
+            var descriptor = catalog.Find(trigger.FullName!);
+
+            descriptor.Should().NotBeNull();
+            descriptor!.DisplayName.Should().NotBeNullOrWhiteSpace();
+            descriptor.DisplayName.Should().NotBe(trigger.FullName, "le libellé exposé à l'opérateur est en français, jamais le FullName .NET");
+        }
+    }
+}
