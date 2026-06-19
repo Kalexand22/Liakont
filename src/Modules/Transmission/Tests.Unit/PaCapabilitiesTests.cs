@@ -91,6 +91,32 @@ public sealed class PaCapabilitiesTests
     }
 
     [Fact]
+    public void RequireMarginAmountReporting_GateOpen_WhenCapabilityDeclared()
+    {
+        // Gate OUVERT (B2C09a) : une PA déclarant la capacité ne produit aucun écart (null) — l'aval marge
+        // (B2C09b) peut transmettre. Piloté par la capacité déclarée, jamais par un if (pa is …).
+        var capabilities = new PaCapabilities { PaName = "FakePa", SupportsMarginAmountReporting = true };
+
+        capabilities.RequireMarginAmountReporting().Should().BeNull("la capacité est déclarée : le gate est ouvert");
+    }
+
+    [Fact]
+    public void RequireMarginAmountReporting_GateClosed_ReturnsTypedResult_NoException()
+    {
+        // Gate FERMÉ (B2C09a) : capacité absente → résultat TYPÉ journalisable, jamais une exception
+        // ni un blocage du produit (PAA01 ; CLAUDE.md n°3/8). La FORME du payload reste gelée (B2C09b).
+        var capabilities = new PaCapabilities { PaName = "B2Brouter", SupportsMarginAmountReporting = false };
+
+        var gap = capabilities.RequireMarginAmountReporting();
+
+        gap.Should().NotBeNull("la capacité n'est pas déclarée : le gate est fermé");
+        gap!.Capability.Should().Be(PaCapability.MarginAmountReporting);
+        gap.PaName.Should().Be("B2Brouter");
+        gap.OperatorMessage.Should().Contain("B2Brouter");
+        gap.OperatorMessage.Should().Contain("montant de la marge");
+    }
+
+    [Fact]
     public void CapabilityNotSupportedResult_OperatorMessage_IsFrench_AndJournalisable()
     {
         var gap = PaCapabilityNotSupportedResult.Create("B2Brouter", PaCapability.DocumentRetrieval);

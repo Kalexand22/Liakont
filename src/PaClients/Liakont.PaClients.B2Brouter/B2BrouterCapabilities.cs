@@ -34,6 +34,10 @@ internal static class B2BrouterCapabilities
         SupportsInternationalPaymentReporting = false, // Flux 10.2 — idem.
         SupportsB2bInvoicing = false,                  // phase 2.
 
+        // Cas DGFiP n°33 — montant de marge : forme du fil (code VATEX) NON confirmée côté B2Brouter
+        // (ticket support ouvert, F03 §2.2) → déclaration honnête = false tant que non vérifié (CLAUDE.md n°2/3 ; B2C09a).
+        SupportsMarginAmountReporting = false,
+
         MaxDocumentsPerRequest = null,
     };
 }

@@ -33,6 +33,7 @@ internal static class SuperPdpCapabilities
         SupportsTaxReportRetrieval = false,            // endpoints tax reports non confirmés (O2).
         SupportsDocumentRetrieval = false,             // endpoint de téléchargement non confirmé (O4).
         SupportsReportRectification = false,           // flux RE non documenté (O9).
+        SupportsMarginAmountReporting = false,         // montant de marge (cas n°33) non confirmé en sandbox — déclaré false (CLAUDE.md n°2/3 ; B2C09a).
 
         MaxDocumentsPerRequest = null,                 // aucune limite déclarée connue.
     };
