@@ -51,7 +51,7 @@
       "vatex": "VATEX-EU-J",
       "rateMode": "Fixed",
       "rateValue": 0,
-      "note": "À VALIDER — Expert-comptable CMP : marge (objets de collection, VATEX-EU-J) OU hors champ (catégorie O) ? Défaut prudent retenu = régime de la marge collection (F03 §3 / §6 décision #1). Sous régime de la marge, la TVA ne figure jamais distinctement (art. 297 E CGI)."
+      "note": "À VALIDER — Expert-comptable CMP (voir DECISIONS-FISCALES.md Q1). Deux décisions ouvertes : (1) régime de la marge OU hors champ (catégorie O) ? (2) si marge, le code VATEX dépend de la NATURE DU BIEN (F03 §2.3 « EU-F/I/J selon la nature du bien ») : EU-F = biens d'occasion, EU-I = œuvres d'art, EU-J = objets de collection/antiquité. VATEX-EU-J n'est ici qu'un PLACEHOLDER chargeable (la catégorie E exige un VATEX), PAS une recommandation : pour un mont-de-piété, biens d'occasion (EU-F) est tout aussi plausible. Sous régime de la marge, la TVA ne figure jamais distinctement (art. 297 E CGI). Table NON VALIDÉE → envoi suspendu tant que l'expert-comptable n'a pas tranché."
     },
     {
       "sourceRegimeCode": "6",

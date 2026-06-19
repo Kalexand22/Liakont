@@ -27,10 +27,20 @@ position de l'expert-comptable, ticket support B2Brouter) avant d'être reporté
   déclencheur même* du régime de la marge — un libellé « non assujetti » peut correspondre fiscalement
   à une vente au régime de la marge. Se tromper = mauvais motif d'exonération transmis à la DGFiP.
 - **Impact paramétrage.** Détermine la catégorie/VATEX des règles `(régime 6, Adjudication)` du seed.
-  Défaut **prudent** actuellement retenu dans `tva-mapping-cmp-v1.json` : régime de la marge collection
-  (E / VATEX-EU-J). À confirmer ou corriger.
-- **Réponse expert-comptable CMP :** _(à compléter — préciser marge vs hors champ, et le VATEX exact si
-  marge : EU-F biens d'occasion / EU-I œuvres d'art / EU-J collection-antiquité)_
+  La valeur actuellement présente dans `tva-mapping-cmp-v1.json` est **VATEX-EU-J**, mais c'est un
+  simple **PLACEHOLDER chargeable** (la catégorie E *exige* un code VATEX non nul — sinon la table est
+  rejetée), **PAS une recommandation**. Le code correct dépend de la **nature du bien vendu** (F03 §2.3
+  « EU-F/I/J selon la nature du bien ») :
+  - **EU-F** — biens d'occasion (bijoux, montres, métaux précieux issus de gages — fréquents pour un
+    mont-de-piété) ;
+  - **EU-I** — œuvres d'art ;
+  - **EU-J** — objets de collection et d'antiquité.
+  Pour un mont-de-piété, **EU-F** (biens d'occasion) est au moins aussi plausible qu'EU-J : à trancher
+  selon la nature réelle des biens adjugés. Alternative : **hors champ** (catégorie O) si le vendeur
+  particulier non assujetti ne relève pas du régime de la marge.
+- **Réponse expert-comptable CMP :** _(à compléter — préciser : (a) marge vs hors champ ; (b) si marge,
+  le VATEX exact selon la nature des biens : EU-F biens d'occasion / EU-I œuvres d'art / EU-J
+  collection-antiquité)_
 - **Source :** _(à compléter)_  **Date :** _(à compléter)_
 
 ## Question 2 — TVA sur les débits ou sur les encaissements ?
