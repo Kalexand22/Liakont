@@ -167,7 +167,21 @@ meta:
   #   (retiré si B2C05 n'établit aucune méthode de marge). ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS
   #   merge : B2C01..B2C09b + GATE_B2C_SOURCING + GATE_EREPORTING_B2C en `pending` (B2C01/02/03/05/06/09a
   #   éligibles). Détails : items/B2C.yaml.
-  version: 29
+  # version 31 = nouveau segment `adr-redline-fondateurs` + lot RDF : redline prospectif des ADR fondateurs
+  #   (ADR-0001 pivot / ADR-0002 IdP / ADR-0003 stack agent) et descendance, demande de Karl le 2026-06-19
+  #   (source : tasks/redline-adr-fondateurs.md ; 32 findings verifies). 18 items RDF01->RDF18 +
+  #   GATE_REDLINE_FONDATEURS (humaine). 2 P1 (RDF01 TLS chemin reel agent, RDF02 2FA realm prod). Segment sur
+  #   feat/adr-redline-fondateurs (base main), depends_on_gate [GATE_AGENT, GATE_CONSOLE_WEB, GATE_REALM_FOLLOWUP]
+  #   (tous done ; le reste du code touche est deja sur main). RDF18 (QuestPDF) = fast-follow HORS gate,
+  #   couple GATE_FACTURX. Decisions operateur DEC-1..DEC-6 inscrites en tete d'items/RDF.yaml.
+  #   ⚠️ EFFORT PARALLELE : la branche feat/adr-redline (NON mergee) porte un AUTRE redline (ADR-0005/0006/0007)
+  #   sous lot RDL / segment adr-redline / GATE_ADR_REDLINE / version 30. Identifiants ici volontairement
+  #   DISTINCTS (RDF / adr-redline-fondateurs / GATE_REDLINE_FONDATEURS / bande 99xx vs 98xx) pour coexister.
+  #   Collision de version (30/30 avec adr-redline + chorus-pro) : renumeroter au merge si besoin (convention
+  #   0019->0021 / v25->v26). A SEEDER dans $ORCH_REPO/state.yaml APRES merge :
+  #   RDF01..RDF18 + GATE_REDLINE_FONDATEURS en `pending` + `adr-redline-fondateurs: { integration_status: pending }` dans
+  #   segments (RDF01..RDF17 eligibles ; RDF18 attend GATE_FACTURX ; RDF03 dep RDF02, RDF15 dep RDF07).
+  version: 31
   host: multi_agent_v1
 
 segments:
@@ -306,6 +320,13 @@ segments:
     lots: [B2C]
     gate: GATE_EREPORTING_B2C
     depends_on_gate: [GATE_PIPELINE, GATE_ADAPTER_ENCHERESV6, GATE_CONSOLE_WEB, GATE_FACTURX]
+
+  adr-redline-fondateurs:
+    branch: feat/adr-redline-fondateurs
+    base: main
+    lots: [RDF]
+    gate: GATE_REDLINE_FONDATEURS
+    depends_on_gate: [GATE_AGENT, GATE_CONSOLE_WEB, GATE_REALM_FOLLOWUP]
 
 items:
   # ── SOL ──
@@ -616,3 +637,26 @@ items:
   - { id: B2C09a, lot: B2C, priority: 9780, depends_on: [] }
   - { id: B2C09b, lot: B2C, priority: 9790, depends_on: [B2C05, B2C08, B2C09a, B2C03] }
   - { id: GATE_EREPORTING_B2C, type: gate, executor: human, priority: 9799, depends_on: [B2C04, B2C09a, B2C09b] }
+
+  # ── RDF (segment adr-redline-fondateurs — redline des ADR fondateurs, manifest v31) ──
+  # Source : tasks/redline-adr-fondateurs.md. Décisions opérateur DEC-1..DEC-6 : orchestration/items/RDF.yaml.
+  # RDF18 (QuestPDF) = fast-follow HORS gate (couplé GATE_FACTURX), comme PIP03b/API01d/SUP01c.
+  - { id: RDF01, lot: RDF, priority: 9900, depends_on: [] }
+  - { id: RDF02, lot: RDF, priority: 9904, depends_on: [] }
+  - { id: RDF03, lot: RDF, priority: 9908, depends_on: [RDF02] }
+  - { id: RDF04, lot: RDF, blueprint: tooling-item, priority: 9912, depends_on: [] }
+  - { id: RDF05, lot: RDF, blueprint: tooling-item, priority: 9916, depends_on: [] }
+  - { id: RDF06, lot: RDF, priority: 9920, depends_on: [] }
+  - { id: RDF07, lot: RDF, blueprint: tooling-item, priority: 9924, depends_on: [] }
+  - { id: RDF08, lot: RDF, priority: 9928, depends_on: [] }
+  - { id: RDF09, lot: RDF, blueprint: docs-spec-item, priority: 9932, depends_on: [] }
+  - { id: RDF10, lot: RDF, priority: 9936, depends_on: [] }
+  - { id: RDF11, lot: RDF, priority: 9940, depends_on: [] }
+  - { id: RDF12, lot: RDF, blueprint: docs-spec-item, priority: 9944, depends_on: [] }
+  - { id: RDF13, lot: RDF, priority: 9948, depends_on: [] }
+  - { id: RDF14, lot: RDF, priority: 9952, depends_on: [] }
+  - { id: RDF15, lot: RDF, priority: 9956, depends_on: [RDF07] }
+  - { id: RDF16, lot: RDF, blueprint: docs-spec-item, priority: 9960, depends_on: [] }
+  - { id: RDF17, lot: RDF, blueprint: docs-spec-item, priority: 9964, depends_on: [] }
+  - { id: RDF18, lot: RDF, priority: 9968, depends_on: [GATE_FACTURX] }
+  - { id: GATE_REDLINE_FONDATEURS, type: gate, executor: human, priority: 9990, depends_on: [RDF01, RDF02, RDF03, RDF04, RDF05, RDF06, RDF07, RDF08, RDF09, RDF10, RDF11, RDF12, RDF13, RDF14, RDF15, RDF16, RDF17] }
