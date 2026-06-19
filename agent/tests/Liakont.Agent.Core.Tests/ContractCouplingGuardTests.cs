@@ -16,10 +16,13 @@ using Xunit;
 /// Trois angles morts laissés par les gardes existantes :
 /// <list type="number">
 /// <item><b>A5-purity-1</b> — la pureté de <c>Liakont.Agent.Contracts</c> (netstandard2.0, zéro
-/// <c>PackageReference</c>) n'a AUCUNE garde déclarative : <see cref="ContractsPurityTests"/> inspecte
-/// l'IL (un PackageReference purement déclaratif y échappe) et <see cref="AgentPackageReferenceBoundaryTests"/>
-/// ne scanne que <c>agent/</c>, pas <c>src/Contracts/</c>. Un analyseur en <c>PrivateAssets=all</c> ou un
-/// passage à net8.0 casserait la consommabilité net48 (publication NuGet) sans test rouge.</item>
+/// <c>PackageReference</c> effectif) n'a AUCUNE garde déclarative : <see cref="ContractsPurityTests"/>
+/// inspecte l'IL (un PackageReference purement déclaratif y échappe) et
+/// <see cref="AgentPackageReferenceBoundaryTests"/> ne scanne que <c>agent/</c>, pas
+/// <c>src/Contracts/</c>. Un analyseur en <c>PrivateAssets=all</c> ou un passage à net8.0 casserait
+/// la consommabilité net48 (publication NuGet) sans test rouge. La garde couvre également le vecteur
+/// CPM (<c>GlobalPackageReference</c> dans <c>Directory.Packages.props</c>) : la chaîne MSBuild
+/// inclut désormais les <c>Directory.Packages.props</c> à chaque niveau.</item>
 /// <item><b>A5-coupling-2</b> — le couplage cross-solution (6 <c>ProjectReference</c> vers
 /// <c>src/Contracts</c>, 5 <c>Compile</c>-link de <c>tests/_shared/contract-v1</c>, 1 copie de fixtures)
 /// n'est verrouillé par aucun test : un nouveau chemin <c>..\..\..\src</c> ou <c>..\..\..\tests</c> dans un
@@ -220,6 +223,45 @@ public sealed class ContractCouplingGuardTests
     }
 
     [Fact]
+    public void Effective_package_computation_detects_cpm_global_package_reference_not_package_version()
+    {
+        // Vecteur CPM : un GlobalPackageReference dans Directory.Packages.props injecte un analyseur
+        // dans TOUS les projets — exactement comme un PackageReference dans Directory.Build.props.
+        // La garde doit le détecter. En revanche, <PackageVersion> est une déclaration de version,
+        // pas une référence ; elle ne doit PAS entrer dans l'effectif.
+        // Directory.Packages.props typique : version déclarée (PackageVersion) + injection globale
+        // (GlobalPackageReference). Le GlobalPackageReference DOIT compter ; le PackageVersion non.
+        string packagesPropsWithGlobalRef =
+            "<Project><ItemGroup>"
+            + "<PackageVersion Include=\"Dapper\" Version=\"2.1.35\" />"
+            + "<GlobalPackageReference Include=\"SomeAnalyzer\" PrivateAssets=\"all\" />"
+            + "</ItemGroup></Project>";
+
+        // Csproj du contrat : aucune référence propre.
+        string contractCsproj = "<Project><PropertyGroup><TargetFramework>netstandard2.0</TargetFramework></PropertyGroup></Project>";
+
+        var withGlobalRef = new List<string> { contractCsproj, packagesPropsWithGlobalRef };
+        string globalRefBecause =
+            "un GlobalPackageReference dans Directory.Packages.props est une référence effective "
+            + "qui doit être détectée par la garde (vecteur CPM — faux-vert sans cette couverture)";
+        ComputeEffectivePackages(withGlobalRef).Should().ContainSingle(globalRefBecause)
+            .Which.Should().Be("SomeAnalyzer");
+
+        // Un PackageVersion seul (sans GlobalPackageReference) ne doit PAS être compté.
+        string packagesPropsVersionOnly =
+            "<Project><ItemGroup>"
+            + "<PackageVersion Include=\"Dapper\" Version=\"2.1.35\" />"
+            + "<PackageVersion Include=\"SomeAnalyzer\" Version=\"1.0.0\" />"
+            + "</ItemGroup></Project>";
+
+        var withVersionOnly = new List<string> { contractCsproj, packagesPropsVersionOnly };
+        string versionOnlyBecause =
+            "un PackageVersion est une déclaration de version CPM, pas une référence ; "
+            + "il ne doit pas entrer dans l'effectif de pureté du contrat";
+        ComputeEffectivePackages(withVersionOnly).Should().BeEmpty(versionOnlyBecause);
+    }
+
+    [Fact]
     public void Cross_solution_detection_flags_an_escape_and_ignores_an_internal_reference()
     {
         // Un lien depuis agent/tests vers tests/_shared échappe (cross-solution).
@@ -268,8 +310,12 @@ public sealed class ContractCouplingGuardTests
     }
 
     // Chaîne MSBuild qui s'applique au projet : le csproj lui-même PLUS chaque Directory.Build.props
-    // rencontré en remontant jusqu'à la racine du dépôt (inclusivement). Suffit pour ce dépôt où seul le
-    // props racine injecte un paquet (aucun props intermédiaire sous src/).
+    // ET Directory.Packages.props rencontrés en remontant jusqu'à la racine du dépôt (inclusivement).
+    // Couvre les injections par PackageReference classique (Directory.Build.props) ET par Central
+    // Package Management (GlobalPackageReference dans Directory.Packages.props — vecteur CPM).
+    // Les entrées <PackageVersion> de Directory.Packages.props sont inoffensives : la regex
+    // PackageReferenceInclude ne les reconnaît pas (elle exige PackageReference ou
+    // GlobalPackageReference, jamais PackageVersion).
     private static IEnumerable<string> MsbuildChain(string projectDir, string repoRoot)
     {
         yield return Directory.EnumerateFiles(projectDir, "*.csproj").First();
@@ -278,10 +324,16 @@ public sealed class ContractCouplingGuardTests
         string repoRootFull = new DirectoryInfo(repoRoot).FullName;
         while (dir != null)
         {
-            string props = Path.Combine(dir.FullName, "Directory.Build.props");
-            if (File.Exists(props))
+            string buildProps = Path.Combine(dir.FullName, "Directory.Build.props");
+            if (File.Exists(buildProps))
             {
-                yield return props;
+                yield return buildProps;
+            }
+
+            string packagesProps = Path.Combine(dir.FullName, "Directory.Packages.props");
+            if (File.Exists(packagesProps))
+            {
+                yield return packagesProps;
             }
 
             if (string.Equals(dir.FullName, repoRootFull, StringComparison.OrdinalIgnoreCase))
