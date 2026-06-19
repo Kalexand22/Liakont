@@ -3,3 +3,8 @@
 # backup.sh / restore.sh / _backup-common.sh y sont exécutés/sourcés. eol=lf force LF au checkout
 # quel que soit core.autocrlf du poste.
 *.sh text eol=lf
+
+# Les PDF sont binaires : aucune conversion de fin de ligne. Les bordereaux PDF de démo
+# (deployments/cmp/fixtures-demo/pdf-pool/) contiennent une table xref dont les décalages d'octets
+# seraient invalidés par une conversion LF→CRLF au checkout.
+*.pdf binary
