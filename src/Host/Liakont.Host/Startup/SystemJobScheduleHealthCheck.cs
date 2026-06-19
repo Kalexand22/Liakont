@@ -33,7 +33,10 @@ internal static partial class SystemJobScheduleHealthCheck
 
             var activeJobTypes = await uow.GetActiveJobTypesAsync();
 
-            foreach (var job in FindMissing(SystemJobDefinitions.All, activeJobTypes))
+            var missing = FindMissing(SystemJobDefinitions.All, activeJobTypes);
+            var deploymentCadenceMissing = new List<string>();
+
+            foreach (var job in missing)
             {
                 if (job.Class == SystemJobClass.RequiredSeeded && job.CronExpression is { } cron)
                 {
@@ -41,10 +44,18 @@ internal static partial class SystemJobScheduleHealthCheck
                 }
                 else
                 {
-                    // Cadence de déploiement (RDL07/A6-cons-2) : récurrent mais aucune cadence sourcée — on
-                    // signale sans suggérer de cron (à planifier SI la fonctionnalité est utilisée).
-                    LogDeploymentCadenceJobUnscheduled(logger, job.Label);
+                    // Cadence de déploiement (RDL07/A6-cons-2) : agrégés en un seul Warning pour éviter la
+                    // fatigue d'alerte (jusqu'à ~8 jobs) tout en nommant chaque job manquant.
+                    deploymentCadenceMissing.Add(job.Label);
                 }
+            }
+
+            if (deploymentCadenceMissing.Count > 0)
+            {
+                LogDeploymentCadenceJobsUnscheduled(
+                    logger,
+                    deploymentCadenceMissing.Count,
+                    string.Join(" ; ", deploymentCadenceMissing));
             }
         }
         catch (Exception ex)
@@ -86,10 +97,10 @@ internal static partial class SystemJobScheduleHealthCheck
     [LoggerMessage(
         EventId = 7222,
         Level = LogLevel.Warning,
-        Message = "Job SYSTÈME de fan-out récurrent SANS planification active : {Label}. SI vous utilisez la "
-            + "fonctionnalité correspondante, planifiez-le via l'admin des planifications (sa cadence relève de "
-            + "votre déploiement, UTC) — sinon il ne s'exécutera JAMAIS (job mort en production).")]
-    private static partial void LogDeploymentCadenceJobUnscheduled(ILogger logger, string label);
+        Message = "{Count} job(s) de fan-out récurrents sans planification active (liste : {Labels}) — "
+            + "à planifier via l'admin des planifications SI les fonctionnalités correspondantes sont utilisées, "
+            + "sinon ils ne s'exécuteront jamais (jobs morts).")]
+    private static partial void LogDeploymentCadenceJobsUnscheduled(ILogger logger, int count, string labels);
 
     [LoggerMessage(
         EventId = 7221,

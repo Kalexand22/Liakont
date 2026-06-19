@@ -1,9 +1,13 @@
 namespace Liakont.Host.Tests.Unit.Startup;
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using FluentAssertions;
 using Liakont.Host.Startup;
+using Stratum.Common.Abstractions.Jobs;
+using Stratum.Modules.Job.Contracts;
 using Xunit;
 
 /// <summary>
@@ -88,29 +92,96 @@ public sealed class SystemJobScheduleHealthCheckTests
     }
 
     [Fact]
-    public void All_Recurring_FanOut_Triggers_Are_Declared_In_SystemJobDefinitions()
+    public void All_FanOut_Handlers_With_ITenantJobRunner_Are_Declared_In_SystemJobDefinitions()
     {
-        // Lock de COUVERTURE (RDL07/A6-cons-2) : l'ensemble des jobs de fan-out récurrents déclarés est figé.
-        // Câbler un nouveau fan-out récurrent SANS l'ajouter ici (le faux-vert « job mort en prod » que le
-        // diagnostic doit attraper) casse ce test. Le récapitulatif SUP03 (opt-in) et la méta-supervision de
-        // flotte (OPS04, non fan-out par tenant) sont volontairement absents.
-        var expected = new[]
+        // Jobs opt-in VOLONTAIREMENT absents de SystemJobDefinitions :
+        // • SUP03 digest : planification opt-in, défaut désactivé — un warning de démarrage serait du bruit.
+        var allowlistedPayloadNames = new HashSet<string>(StringComparer.Ordinal)
         {
-            "Liakont.Modules.Supervision.Infrastructure.SupervisionEvaluationTrigger",
-            "Liakont.Modules.Archive.Infrastructure.DailyAnchoringTrigger",
-            "Liakont.Modules.Pipeline.Contracts.Jobs.SendAllTrigger",
-            "Liakont.Modules.Pipeline.Contracts.Jobs.SyncAllTrigger",
-            "Liakont.Modules.Pipeline.Contracts.Jobs.AggregatePaymentsAllTrigger",
-            "Liakont.Modules.Pipeline.Contracts.Jobs.RectifyReportsAllTrigger",
-            "Liakont.Modules.Reconciliation.Infrastructure.ReconciliationFanOutJobPayload",
-            "Liakont.Modules.SupportTrace.Infrastructure.SupportTracePurgeTrigger",
-            "Liakont.Modules.Mandats.Infrastructure.TacitAcceptance.SelfBilledAcceptanceTacitTrigger",
-            "Liakont.Modules.Signature.Infrastructure.Drain.SignatureWebhookDrainTrigger",
+            "Liakont.Modules.Supervision.Infrastructure.SupervisionDigestTrigger",
         };
 
-        SystemJobDefinitions.All.Select(d => d.JobType)
-            .Should().BeEquivalentTo(
-                expected,
-                "tout fan-out récurrent doit être déclaré pour entrer dans le diagnostic de démarrage");
+        // Force-load des assemblies référencées par le Host pour s'assurer qu'elles sont dans l'AppDomain.
+        foreach (AssemblyName name in typeof(Liakont.Host.Startup.AppBootstrap).Assembly.GetReferencedAssemblies())
+        {
+            try
+            {
+                Assembly.Load(name);
+            }
+            catch
+            {
+                // Ignore les assemblies système non chargées ou introuvables.
+            }
+        }
+
+        var fanOutPayloadNames = new List<string>();
+        Type jobHandlerOpenGeneric = typeof(IJobHandler<>);
+        Type tenantJobRunnerType = typeof(ITenantJobRunner);
+
+        foreach (Assembly asm in AppDomain.CurrentDomain.GetAssemblies()
+            .Where(a => a.GetName().Name?.StartsWith("Liakont.", StringComparison.Ordinal) == true))
+        {
+            IEnumerable<Type> types;
+            try
+            {
+                types = asm.GetTypes();
+            }
+            catch (ReflectionTypeLoadException ex)
+            {
+                types = ex.Types.Where(t => t is not null)!;
+            }
+
+            foreach (Type type in types)
+            {
+                if (type.IsAbstract || !type.IsClass)
+                {
+                    continue;
+                }
+
+                // Un handler de fan-out = implémente IJobHandler<TPayload> et a un constructeur injectant
+                // ITenantJobRunner (signature des handlers qui font le fan-out sur tous les tenants).
+                Type? handlerInterface = type.GetInterfaces()
+                    .FirstOrDefault(i =>
+                        i.IsGenericType
+                        && i.GetGenericTypeDefinition() == jobHandlerOpenGeneric);
+
+                if (handlerInterface is null)
+                {
+                    continue;
+                }
+
+                bool injectsTenantRunner = type.GetConstructors()
+                    .Any(c => c.GetParameters()
+                        .Any(p => p.ParameterType == tenantJobRunnerType));
+
+                if (!injectsTenantRunner)
+                {
+                    continue;
+                }
+
+                Type payloadType = handlerInterface.GetGenericArguments()[0];
+                if (payloadType.FullName is { } fullName)
+                {
+                    fanOutPayloadNames.Add(fullName);
+                }
+            }
+        }
+
+        // Sanité : le scan doit avoir trouvé au moins un handler (sinon le test passe à vide).
+        fanOutPayloadNames.Should().NotBeEmpty(
+            "le scan par réflexion doit trouver au moins un handler de fan-out (ITenantJobRunner) — "
+            + "si ce n'est pas le cas, vérifier que les assemblies Liakont.* sont bien chargées");
+
+        var declared = new HashSet<string>(
+            SystemJobDefinitions.All.Select(d => d.JobType),
+            StringComparer.Ordinal);
+
+        foreach (string payloadName in fanOutPayloadNames.Where(n => !allowlistedPayloadNames.Contains(n)))
+        {
+            string reason = $"{payloadName} est un handler de fan-out (injecte ITenantJobRunner) mais n'est pas"
+                + " déclaré dans SystemJobDefinitions → il ne sera pas signalé au démarrage s'il n'est jamais"
+                + " planifié (job mort)";
+            declared.Should().Contain(payloadName, reason);
+        }
     }
 }
