@@ -77,6 +77,13 @@ services:
       # Variables injectées DANS le realm importé (secret du client confidentiel + URLs de redirection).
       KEYCLOAK_LIAKONT_CLIENT_SECRET: ${KEYCLOAK_LIAKONT_CLIENT_SECRET:?renseignez KEYCLOAK_LIAKONT_CLIENT_SECRET dans .env}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?renseignez PUBLIC_BASE_URL dans .env}
+      # Brokering SSO (RLM05, ADR-0021 §4) — OPTIONNEL, dormant par défaut. Pour activer le SSO
+      # Google/Microsoft : renseignez ces valeurs dans .env ET passez le provider voulu à enabled:true
+      # dans realm-liakont.json (recette opérateur). Vides par défaut → providers désactivés, démarrage inchangé.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
     volumes:
       - ./keycloak/realm-liakont.json:/opt/keycloak/data/import/realm-liakont.json:ro
     depends_on:
