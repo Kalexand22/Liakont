@@ -144,9 +144,9 @@ public sealed class CanonicalJsonRulesTests
         string json = CanonicalJson.Serialize(
             Build(totals: new PivotTotalsDto(totalNet: 0.00m, totalTax: 0m, totalGross: 0.0m)));
 
-        json.Should().Contain("\"TotalNet\":0.00", "0.00m conserve son échelle 2");
-        json.Should().Contain("\"TotalTax\":0", "0m (échelle 0) reste « 0 »");
-        json.Should().Contain("\"TotalGross\":0.0", "0.0m conserve son échelle 1");
+        json.Should().Contain("\"TotalNet\":0.00,", "0.00m conserve son échelle 2");
+        json.Should().Contain("\"TotalTax\":0,", "0m (échelle 0) reste « 0 »");
+        json.Should().Contain("\"TotalGross\":0.0}", "0.0m conserve son échelle 1");
     }
 
     [Fact]
