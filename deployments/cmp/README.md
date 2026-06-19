@@ -38,9 +38,14 @@ code produit** : il prouve que le produit se déploie par **paramétrage**, sans
 > `pa-accounts.json`, `tva-mapping-cmp-v1.json` → `mapping-tva.json`. Chaque fichier reste un
 > document canonique, simplement renommé — aucune transformation de structure.
 
-## À venir dans ce dossier (lot CMP03)
+## Fichiers (état CMP03)
 
-- `SCENARIO-DEMO-ISATECH.md` — scénario de démo pas à pas.
+- [`SCENARIO-DEMO-ISATECH.md`](SCENARIO-DEMO-ISATECH.md) — scénario de démo ISATECH pas à pas, minuté
+  (15-20 min), exécutable par une personne qui n'a pas développé le produit : prérequis, 6 actes
+  (création tenant depuis le seed, push agent, blocages TVA expliqués, table TVA, réconciliation/audit/
+  archivage, supervision + simulation d'agent muet, réversibilité), points de valeur, objections/réponses
+  (dont hébergement, réversibilité, réception **non couverte en V1**) et déroulé de répétition avant
+  `GATE_DEMO_ISATECH`. Mode **fixtures**, table **NON VALIDÉE** → aucun envoi réel.
 
 ## Règles
 
