@@ -40,6 +40,16 @@ public class DemoErpBExtractorTests
     }
 
     [Fact]
+    public void Declares_R9_conformance_extracts_only_finalized_documents()
+    {
+        // R9 (gate « document finalisé », ADR-0004 D4 Famille 2) : la source de démonstration ne porte
+        // que des pièces émises → l'adaptateur s'engage à n'extraire que des documents finalisés.
+        var extractor = new DemoErpBExtractor(new FakeSourceConnectionFactory(Array.Empty<Dictionary<string, object>>()), new CapturingAgentLog());
+
+        extractor.Capabilities.ExtractsOnlyFinalizedDocuments.Should().BeTrue();
+    }
+
+    [Fact]
     public void Quarantines_a_malformed_document_and_keeps_extracting_the_rest()
     {
         var rows = new[]

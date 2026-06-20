@@ -66,6 +66,10 @@ public sealed class DemoErpAExtractor : IExtractor
     {
         _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
         _log = log ?? throw new ArgumentNullException(nameof(log));
+
+        // R9 (gate « document finalisé », ADR-0004 D4 Famille 2) : la source DemoErpA (table dbo.factures)
+        // ne porte que des pièces émises/comptabilisées (aucun état brouillon) → l'adaptateur s'engage à
+        // n'extraire que des documents finalisés (extractsOnlyFinalizedDocuments: true).
         Capabilities = new ExtractorCapabilities(
             providesSourceDocuments: false,
             providesUnlinkedDocumentPool: false,
@@ -76,7 +80,8 @@ public sealed class DemoErpAExtractor : IExtractor
             emitterIdentitySource: EmitterIdentitySource.FilledByPlatform,
             hasStoredHeaderTotal: true,
             isMutableAfterIssue: false,
-            numberUniquenessScope: NumberUniquenessScope.Global);
+            numberUniquenessScope: NumberUniquenessScope.Global,
+            extractsOnlyFinalizedDocuments: true);
     }
 
     /// <inheritdoc />
