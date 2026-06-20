@@ -135,7 +135,44 @@ try {
     # Restaurer le catalogue agent sain pour l'isolation des cas suivants (aucun pour l'instant).
     Write-Catalog $synRoot 'agent/Directory.Packages.props' @{ 'System.Data.SQLite.Core' = '1.0.119'; 'Newtonsoft.Json' = '13.0.3' }
 
-    # 10) POLITIQUE + CATALOGUES REELS du depot : l'etat courant DOIT passer (exit 0). Sinon RDF07
+    # 10) Balise NON auto-fermante : le lint doit parser les deux formes de balise MSBuild.
+    #     Cas A (>= plancher, forme non auto-fermante) → PASS (exit 0).
+    #     Cas B (sous plancher, forme non auto-fermante) → ECHEC (exit 1) : prouve que la forme est lue.
+    $nonScRoot = Join-Path $tmpDir 'nonsc'
+    $nonScCat  = Join-Path $nonScRoot 'Directory.Packages.props'
+    New-Item -ItemType Directory -Path $nonScRoot -Force | Out-Null
+    $nonScContent = @"
+<Project>
+  <ItemGroup>
+    <PackageVersion Include="Npgsql" Version="9.0.3"></PackageVersion>
+  </ItemGroup>
+</Project>
+"@
+    Set-Content -LiteralPath $nonScCat -Value $nonScContent -Encoding utf8
+
+    $polNonScOk = Write-Policy 'nonsc-ok.json' @{
+        catalogs = @('Directory.Packages.props')
+        governed = @( @{ id = 'Npgsql'; floor = '9.0.3' } )
+    }
+    Check 'balise non auto-fermante (>= plancher)' (Invoke-Lint $polNonScOk $nonScRoot) 0
+
+    # Remplacer la version sous le plancher dans le catalogue non auto-fermant.
+    $nonScContentBelow = @"
+<Project>
+  <ItemGroup>
+    <PackageVersion Include="Npgsql" Version="9.0.2"></PackageVersion>
+  </ItemGroup>
+</Project>
+"@
+    Set-Content -LiteralPath $nonScCat -Value $nonScContentBelow -Encoding utf8
+
+    $polNonScBelow = Write-Policy 'nonsc-below.json' @{
+        catalogs = @('Directory.Packages.props')
+        governed = @( @{ id = 'Npgsql'; floor = '9.0.3' } )
+    }
+    Check 'balise non auto-fermante (sous plancher)' (Invoke-Lint $polNonScBelow $nonScRoot) 1
+
+    # 11) POLITIQUE + CATALOGUES REELS du depot : l'etat courant DOIT passer (exit 0). Sinon RDF07
     #     introduirait une regression (l'avenant differe le bump SQLite : advisory, pas echec).
     Check 'politique + catalogues reels (etat courant)' (Invoke-Lint $realPol $repoRoot) 0
 }
