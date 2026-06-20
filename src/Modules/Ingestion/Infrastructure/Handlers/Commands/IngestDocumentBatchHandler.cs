@@ -40,6 +40,7 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
 
     private readonly IReceivedDocumentUnitOfWorkFactory _uowFactory;
     private readonly ISourceTaxRegimeWriter _sourceTaxRegimeWriter;
+    private readonly IExtractorCapabilitiesWriter _extractorCapabilitiesWriter;
     private readonly IDocumentIntake _documentIntake;
     private readonly IPayloadStagingStore _stagingStore;
     private readonly ILogger<IngestDocumentBatchHandler> _logger;
@@ -47,12 +48,14 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
     public IngestDocumentBatchHandler(
         IReceivedDocumentUnitOfWorkFactory uowFactory,
         ISourceTaxRegimeWriter sourceTaxRegimeWriter,
+        IExtractorCapabilitiesWriter extractorCapabilitiesWriter,
         IDocumentIntake documentIntake,
         IPayloadStagingStore stagingStore,
         ILogger<IngestDocumentBatchHandler> logger)
     {
         _uowFactory = uowFactory;
         _sourceTaxRegimeWriter = sourceTaxRegimeWriter;
+        _extractorCapabilitiesWriter = extractorCapabilitiesWriter;
         _documentIntake = documentIntake;
         _stagingStore = stagingStore;
         _logger = logger;
@@ -67,15 +70,19 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
             results.Add(await ProcessDocumentAsync(request, document, cancellationToken));
         }
 
-        // 2. Métadonnée SECONDAIRE (régimes source pour TVA03), best-effort : son échec ne casse pas
-        //    l'ingestion primaire déjà committée document par document.
+        // 2. Métadonnée SECONDAIRE (régimes source pour TVA03 + capacités déclarées pour RD401/RD403),
+        //    best-effort : son échec ne casse pas l'ingestion primaire déjà committée document par document.
         await PersistSourceTaxRegimesBestEffortAsync(request, cancellationToken);
+        await PersistExtractorCapabilitiesBestEffortAsync(request, cancellationToken);
 
         return new PushBatchResponseDto(results);
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Persistance des régimes de TVA source échouée pour le tenant {TenantId} (métadonnée best-effort, ingestion des documents non affectée)")]
     private static partial void LogSourceTaxRegimePersistFailed(ILogger logger, string tenantId, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Persistance des capacités de source déclarées échouée pour l'agent {AgentId} du tenant {TenantId} (métadonnée best-effort, ingestion des documents non affectée)")]
+    private static partial void LogExtractorCapabilitiesPersistFailed(ILogger logger, Guid agentId, string tenantId, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Création du document Detected (port IDocumentIntake) échouée pour {DocumentId} (best-effort ; le déclencheur durable reste l'événement DocumentReceived déjà publié)")]
     private static partial void LogDocumentIntakeFailed(ILogger logger, Guid documentId, Exception exception);
@@ -121,6 +128,39 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             LogSourceTaxRegimePersistFailed(_logger, request.TenantId, ex);
+        }
+    }
+
+    private async Task PersistExtractorCapabilitiesBestEffortAsync(IngestDocumentBatchCommand request, CancellationToken cancellationToken)
+    {
+        // Add-only : un agent N-1 ne transmet aucune capacité (null) → rien à persister, on ne touche pas
+        // la dernière déclaration connue (pas d'écrasement par l'absence).
+        if (request.ExtractorCapabilities is not { } capabilities)
+        {
+            return;
+        }
+
+        var record = new ExtractorCapabilitiesRecord
+        {
+            ProvidesSourceDocuments = capabilities.ProvidesSourceDocuments,
+            ProvidesUnlinkedDocumentPool = capabilities.ProvidesUnlinkedDocumentPool,
+            HasDetailedLines = capabilities.HasDetailedLines,
+            HasCreditNoteLink = capabilities.HasCreditNoteLink,
+            ExposesPayments = capabilities.ExposesPayments,
+            RegimeKeyShape = capabilities.RegimeKeyShape,
+            EmitterIdentitySource = capabilities.EmitterIdentitySource,
+            HasStoredHeaderTotal = capabilities.HasStoredHeaderTotal,
+            IsMutableAfterIssue = capabilities.IsMutableAfterIssue,
+            NumberUniquenessScope = capabilities.NumberUniquenessScope,
+        };
+
+        try
+        {
+            await _extractorCapabilitiesWriter.UpsertAsync(request.TenantId, request.AgentId, record, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogExtractorCapabilitiesPersistFailed(_logger, request.AgentId, request.TenantId, ex);
         }
     }
 

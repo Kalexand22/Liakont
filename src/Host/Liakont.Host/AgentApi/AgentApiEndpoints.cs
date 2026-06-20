@@ -118,6 +118,7 @@ internal static class AgentApiEndpoints
                     ContractVersion = contractVersion,
                     Documents = request.Documents,
                     SourceTaxRegimes = request.SourceTaxRegimes,
+                    ExtractorCapabilities = request.ExtractorCapabilities,
                 },
                 ct);
             return Results.Ok(response);

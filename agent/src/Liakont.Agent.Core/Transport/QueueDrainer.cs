@@ -91,7 +91,8 @@ public sealed class QueueDrainer
         }
 
         IReadOnlyList<SourceTaxRegimeDto> regimes = ReadStashedRegimes();
-        if (PushPendingDocuments(result, regimes, cancellationToken)
+        ExtractorCapabilitiesDto? capabilities = ReadStashedCapabilities();
+        if (PushPendingDocuments(result, regimes, capabilities, cancellationToken)
             || PushPendingPdfs(QueueItemKind.Pdf, result, cancellationToken)
             || PushPendingPdfs(QueueItemKind.PdfPool, result, cancellationToken))
         {
@@ -174,7 +175,7 @@ public sealed class QueueDrainer
     }
 
     // Phase 2 — push des documents en attente. Renvoie true si le drainage doit s'arrêter.
-    private bool PushPendingDocuments(DrainResult result, IReadOnlyList<SourceTaxRegimeDto> regimes, CancellationToken token)
+    private bool PushPendingDocuments(DrainResult result, IReadOnlyList<SourceTaxRegimeDto> regimes, ExtractorCapabilitiesDto? capabilities, CancellationToken token)
     {
         while (true)
         {
@@ -190,7 +191,7 @@ public sealed class QueueDrainer
                 return false;
             }
 
-            if (PushDocumentBatch(batch, regimes, result, token))
+            if (PushDocumentBatch(batch, regimes, capabilities, result, token))
             {
                 return true;
             }
@@ -198,7 +199,7 @@ public sealed class QueueDrainer
     }
 
     // Pousse un lot ; gère le backoff (429/5xx/réseau) et la re-découpe (413). Renvoie true si arrêt.
-    private bool PushDocumentBatch(IReadOnlyList<QueuedItem> batch, IReadOnlyList<SourceTaxRegimeDto> regimes, DrainResult result, CancellationToken token)
+    private bool PushDocumentBatch(IReadOnlyList<QueuedItem> batch, IReadOnlyList<SourceTaxRegimeDto> regimes, ExtractorCapabilitiesDto? capabilities, DrainResult result, CancellationToken token)
     {
         if (batch.Count == 0)
         {
@@ -215,7 +216,7 @@ public sealed class QueueDrainer
             }
 
             var canonicalDocuments = batch.Select(b => b.PayloadJson!).ToList();
-            PushBatchOutcome outcome = _client.PushDocuments(canonicalDocuments, regimes);
+            PushBatchOutcome outcome = _client.PushDocuments(canonicalDocuments, regimes, capabilities);
 
             switch (outcome.Kind)
             {
@@ -233,7 +234,7 @@ public sealed class QueueDrainer
                     return true;
 
                 case PlatformResponseKind.PayloadTooLarge:
-                    return ResplitAndPush(batch, regimes, result, token);
+                    return ResplitAndPush(batch, regimes, capabilities, result, token);
 
                 default:
                     // Throttled / TransportError : backoff puis nouvelle tentative, sinon arrêt (rien perdu).
@@ -250,7 +251,7 @@ public sealed class QueueDrainer
         }
     }
 
-    private bool ResplitAndPush(IReadOnlyList<QueuedItem> batch, IReadOnlyList<SourceTaxRegimeDto> regimes, DrainResult result, CancellationToken token)
+    private bool ResplitAndPush(IReadOnlyList<QueuedItem> batch, IReadOnlyList<SourceTaxRegimeDto> regimes, ExtractorCapabilitiesDto? capabilities, DrainResult result, CancellationToken token)
     {
         if (batch.Count == 1)
         {
@@ -264,12 +265,12 @@ public sealed class QueueDrainer
         int middle = batch.Count / 2;
         var firstHalf = batch.Take(middle).ToList();
         var secondHalf = batch.Skip(middle).ToList();
-        if (PushDocumentBatch(firstHalf, regimes, result, token))
+        if (PushDocumentBatch(firstHalf, regimes, capabilities, result, token))
         {
             return true;
         }
 
-        return PushDocumentBatch(secondHalf, regimes, result, token);
+        return PushDocumentBatch(secondHalf, regimes, capabilities, result, token);
     }
 
     private void ApplyPushResults(IReadOnlyList<QueuedItem> batch, IReadOnlyList<DocumentPushResultDto> results, DrainResult result)
@@ -394,6 +395,24 @@ public sealed class QueueDrainer
         catch (JsonException)
         {
             return Array.Empty<SourceTaxRegimeDto>();
+        }
+    }
+
+    private ExtractorCapabilitiesDto? ReadStashedCapabilities()
+    {
+        string? json = _queue.GetState(LocalQueue.ExtractorCapabilitiesKey);
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonConvert.DeserializeObject<ExtractorCapabilitiesDto>(json!);
+        }
+        catch (JsonException)
+        {
+            return null;
         }
     }
 
