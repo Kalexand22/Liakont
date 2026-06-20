@@ -34,7 +34,7 @@ public static class AgentContractVersionPolicy
     /// vaut <c>null</c> — testable AVANT la première rupture de contrat, sans fausser la politique
     /// servie en production. La logique 426 reste la même fonction des deux côtés.</para>
     /// </summary>
-    public static bool IsSupported(string? contractVersion, string current, string? previous)
+    internal static bool IsSupported(string? contractVersion, string current, string? previous)
     {
         if (string.IsNullOrWhiteSpace(contractVersion))
         {
