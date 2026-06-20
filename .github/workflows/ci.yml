@@ -51,6 +51,19 @@ jobs:
         shell: pwsh
         run: ./tools/socle-provenance-check.ps1
 
+      # Self-test du lint de plafond mémoire Keycloak appliance (RDF04) : prouve que le lint
+      # ci-dessous discrimine (plafond présent => 0, retiré => 1) et n'est pas pass-by-default.
+      # Logique pure (pas de dotnet/Docker) → garde permanente avant de s'appuyer sur le lint.
+      - name: Self-test du lint plafond mémoire Keycloak appliance
+        shell: pwsh
+        run: ./tools/test-appliance-memcap-lint.ps1
+
+      # Lint anti-régression (ADR-0020 §2) : ÉCHOUE si le service keycloak du compose appliance
+      # perd son plafond mémoire (mem_limit / deploy.resources.limits.memory) ou MaxRAMPercentage.
+      - name: Lint plafond mémoire Keycloak appliance
+        shell: pwsh
+        run: ./tools/lint-appliance-keycloak-memcap.ps1
+
       # Self-test du wrapper ci-test.ps1 : prouve que le retry anti-flake Testcontainers ne peut
       # JAMAIS rendre vert un échec déterministe (logique pure, sans dotnet). Garde permanente avant
       # de s'appuyer sur le wrapper ci-dessous (un test écrit-mais-jamais-exécuté serait un faux-vert).
