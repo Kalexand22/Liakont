@@ -96,6 +96,25 @@ public sealed class ChorusProConsulterCrTests
         status.RawResponse.Should().Be(body);
     }
 
+    // 401 → SendWithAuthAsync retente UNE fois (force-refresh, CP03/F18 §2.1) → 2 appels ; 403 ne déclenche
+    // PAS ce re-essai → 1 appel. Dans les DEUX cas, la boucle consulterCR ne ré-essaie pas (auth non transitoire,
+    // IsRetryableStatus n'inclut que les 5xx) et l'état est TechnicalError re-tentable, jamais un rejet PA figé.
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized, 2)]
+    [InlineData(HttpStatusCode.Forbidden, 1)]
+    public async Task A_401_Or_403_Is_TechnicalError_And_Not_Retried_By_The_ConsulterCr_Loop(HttpStatusCode statusCode, int expectedCalls)
+    {
+        var body = $"{{\"message\":\"auth error {(int)statusCode}\"}}";
+        var handler = new RecordingHttpMessageHandler().Respond(statusCode, body);
+        var status = await NewClient(handler).GetDocumentStatusAsync(FluxId);
+
+        var expectedCode = ((int)statusCode).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        status.State.Should().Be(PaSendState.TechnicalError, $"HTTP {(int)statusCode} est une erreur d'authentification technique, pas un rejet PA");
+        status.RawResponse.Should().Be(body, "le corps brut est conservé pour l'audit (F06/DR6)");
+        status.Errors.Should().ContainSingle().Which.Code.Should().Be(expectedCode);
+        handler.CallCount.Should().Be(expectedCalls, "401 → 1 force-refresh de SendWithAuthAsync (2 appels) ; 403 → aucun (1 appel) ; jamais de retry de la boucle consulterCR");
+    }
+
     [Fact]
     public async Task A_5xx_Is_TechnicalError_And_Retried_On_The_Transient()
     {
