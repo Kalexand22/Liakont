@@ -132,7 +132,7 @@ internal static class SendTestDoubles
 
         public List<Guid> TechnicalError { get; } = new();
 
-        public List<(Guid DocumentId, string PaDocumentId)> RecordedPaReferences { get; } = new();
+        public List<(Guid DocumentId, string PaDocumentId, string? PaResponse)> RecordedPaReferences { get; } = new();
 
         public Task BlockAsync(Guid documentId, string reason, CancellationToken cancellationToken = default)
         {
@@ -158,9 +158,9 @@ internal static class SendTestDoubles
             return Task.CompletedTask;
         }
 
-        public Task RecordPaSendingReferenceAsync(Guid documentId, string paDocumentId, CancellationToken cancellationToken = default)
+        public Task RecordPaSendingReferenceAsync(Guid documentId, string paDocumentId, string? paResponseSnapshot, CancellationToken cancellationToken = default)
         {
-            RecordedPaReferences.Add((documentId, paDocumentId));
+            RecordedPaReferences.Add((documentId, paDocumentId, paResponseSnapshot));
             return Task.CompletedTask;
         }
 

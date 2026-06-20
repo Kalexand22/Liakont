@@ -369,8 +369,10 @@ public sealed class SendTenantJobTests
         var provider = BuildInlineProvider(queries, lifecycle, staging, purge, archive, runLogs, pa);
         await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
 
-        lifecycle.RecordedPaReferences.Should().ContainSingle()
-            .Which.Should().Be((id, $"SPDP-{number}"), "la référence de flux renvoyée par la PA asynchrone est persistée pour le raccrochage.");
+        var recorded = lifecycle.RecordedPaReferences.Should().ContainSingle().Subject;
+        recorded.DocumentId.Should().Be(id);
+        recorded.PaDocumentId.Should().Be($"SPDP-{number}", "la référence de flux renvoyée par la PA asynchrone est persistée pour le raccrochage.");
+        recorded.PaResponse.Should().Contain("api:uploaded", "la réponse brute de l'accusé de dépôt est conservée pour la piste d'audit.");
         lifecycle.Issued.Should().BeEmpty("un dépôt accepté ≠ émis : pas de finalisation sur le seul POST.");
         lifecycle.Rejected.Should().BeEmpty();
         lifecycle.TechnicalError.Should().BeEmpty();

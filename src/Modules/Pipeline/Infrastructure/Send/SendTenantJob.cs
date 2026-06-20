@@ -708,7 +708,9 @@ public sealed partial class SendTenantJob : ITenantJob
                 // qui afficherait un FAUX échec opérateur sur une facture pourtant acceptée par la PA.
                 if (!string.IsNullOrWhiteSpace(result.PaDocumentId))
                 {
-                    await lifecycle.RecordPaSendingReferenceAsync(document.Id, result.PaDocumentId!, cancellationToken);
+                    // La réponse brute de l'accusé de dépôt (result.RawResponse) est conservée dans la piste
+                    // d'audit : seule preuve que la PA a accepté le dépôt avant l'émission différée.
+                    await lifecycle.RecordPaSendingReferenceAsync(document.Id, result.PaDocumentId!, result.RawResponse, cancellationToken);
                 }
 
                 LogSendingInProgress(logger, document.Id);

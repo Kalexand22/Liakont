@@ -205,8 +205,8 @@ public sealed class PipelineSendHarness : IAsyncLifetime
     /// reste <c>Sending</c>, la référence est persistée et un fait d'audit append-only est inscrit. Exerce le
     /// round-trip réel (contraste avec <see cref="SetPaDocumentIdAsync"/> qui contourne la machine à états).
     /// </summary>
-    public Task RecordPaSendingReferenceAsync(Guid documentId, string paDocumentId) =>
-        WithLifecycle(lifecycle => lifecycle.RecordPaSendingReferenceAsync(documentId, paDocumentId));
+    public Task RecordPaSendingReferenceAsync(Guid documentId, string paDocumentId, string? paResponseSnapshot = null) =>
+        WithLifecycle(lifecycle => lifecycle.RecordPaSendingReferenceAsync(documentId, paDocumentId, paResponseSnapshot));
 
     /// <summary>Référence PA réellement persistée sur le document (ou <c>null</c>).</summary>
     public async Task<string?> GetPaDocumentIdAsync(Guid documentId)

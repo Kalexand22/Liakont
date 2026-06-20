@@ -361,7 +361,7 @@ public sealed class DocumentTransitionTests
         // elle permet au raccrochage d'interroger la PA par cette référence sans jamais re-déposer.
         var doc = InState(DocumentState.Sending);
 
-        var evt = doc.RecordPaSendingReference("FLUX-2026-42", occurredAtUtc: T0.AddMinutes(3));
+        var evt = doc.RecordPaSendingReference("FLUX-2026-42", paResponseSnapshot: "{\"status\":\"deposited\"}", occurredAtUtc: T0.AddMinutes(3));
 
         doc.State.Should().Be(DocumentState.Sending, "l'enregistrement de la référence ne change pas l'état.");
         doc.PaDocumentId.Should().Be("FLUX-2026-42", "la référence de flux est persistée pour le raccrochage.");
@@ -369,6 +369,7 @@ public sealed class DocumentTransitionTests
         evt.EventType.Should().Be(DocumentEventType.DocumentPaReferenceRecorded);
         evt.OperatorIdentity.Should().BeNull("un dépôt asynchrone n'est pas une action opérateur (événement SYSTÈME).");
         evt.Detail.Should().Contain("FLUX-2026-42");
+        evt.PaResponseSnapshot.Should().Be("{\"status\":\"deposited\"}", "la réponse brute de l'accusé de dépôt est conservée comme preuve d'acceptation asynchrone.");
         evt.DocumentId.Should().Be(doc.Id);
     }
 
@@ -379,7 +380,7 @@ public sealed class DocumentTransitionTests
     {
         var doc = InState(DocumentState.Sending);
 
-        var act = () => doc.RecordPaSendingReference(blank, T0);
+        var act = () => doc.RecordPaSendingReference(blank, paResponseSnapshot: null, T0);
 
         act.Should().Throw<ArgumentException>().WithParameterName("paDocumentId");
     }
@@ -394,7 +395,7 @@ public sealed class DocumentTransitionTests
         // avec la machine à états : aucune référence n'est inscrite sur un document qui n'a pas été déposé.
         var doc = InState(state);
 
-        var act = () => doc.RecordPaSendingReference("FLUX-1", T0);
+        var act = () => doc.RecordPaSendingReference("FLUX-1", paResponseSnapshot: null, T0);
 
         act.Should().Throw<InvalidOperationException>();
         doc.State.Should().Be(state, "référence refusée : l'état n'a pas changé.");

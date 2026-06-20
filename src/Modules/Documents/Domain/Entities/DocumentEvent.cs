@@ -368,10 +368,12 @@ public sealed class DocumentEvent
     /// D7) : une Plateforme Agréée asynchrone (p. ex. Chorus Pro) a accepté le dépôt et renvoyé un n° de flux
     /// (<paramref name="paDocumentId"/>) ; le document reste <c>Sending</c> en attendant la confirmation
     /// différée. La référence permet au raccrochage d'interroger la PA et de NE JAMAIS re-déposer le flux
-    /// (anti double-dépôt, CLAUDE.md n°3). Événement SYSTÈME (le dépôt n'est pas une action opérateur),
-    /// append-only — jamais réécrit après coup. N'emporte AUCUNE transition d'état.
+    /// (anti double-dépôt, CLAUDE.md n°3). La <paramref name="paResponseSnapshot"/> (réponse brute de l'accusé
+    /// de dépôt) est conservée pour la piste d'audit : c'est la SEULE preuve que la PA a accepté le dépôt avant
+    /// l'émission différée. Événement SYSTÈME (le dépôt n'est pas une action opérateur), append-only — jamais
+    /// réécrit après coup. N'emporte AUCUNE transition d'état.
     /// </summary>
-    public static DocumentEvent PaReferenceRecorded(Guid documentId, DateTimeOffset occurredAtUtc, string paDocumentId)
+    public static DocumentEvent PaReferenceRecorded(Guid documentId, DateTimeOffset occurredAtUtc, string paDocumentId, string? paResponseSnapshot = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(paDocumentId);
 
@@ -383,7 +385,7 @@ public sealed class DocumentEvent
             EventType = DocumentEventType.DocumentPaReferenceRecorded,
             Detail = $"Dépôt accepté par la Plateforme Agréée (asynchrone) sous la référence « {paDocumentId.Trim()} » — en attente de confirmation d'émission.",
             PayloadSnapshot = null,
-            PaResponseSnapshot = null,
+            PaResponseSnapshot = string.IsNullOrWhiteSpace(paResponseSnapshot) ? null : paResponseSnapshot,
             MappingTrace = null,
             OperatorIdentity = null,
         };

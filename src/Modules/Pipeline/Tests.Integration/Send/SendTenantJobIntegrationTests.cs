@@ -129,7 +129,7 @@ public sealed class SendTenantJobIntegrationTests : IClassFixture<PipelineSendHa
         await _harness.BeginSendingAsync(documentId);
 
         var flux = "FLUX-" + pivot.Number;
-        await _harness.RecordPaSendingReferenceAsync(documentId, flux);
+        await _harness.RecordPaSendingReferenceAsync(documentId, flux, "{\"etatCourantFlux\":\"Reçu\"}");
 
         // 1) Round-trip de persistance : référence posée, document RESTÉ Sending, fait d'audit inscrit.
         (await _harness.GetDocumentStateAsync(documentId)).Should().Be("Sending", "l'enregistrement de la référence ne change pas l'état.");

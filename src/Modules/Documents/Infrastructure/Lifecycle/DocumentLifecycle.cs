@@ -98,8 +98,8 @@ internal sealed class DocumentLifecycle : IDocumentLifecycle
     public Task BeginSendingAsync(Guid documentId, CancellationToken cancellationToken = default) =>
         TransitionAsync(documentId, (document, at) => document.BeginSending(at), cancellationToken);
 
-    public Task RecordPaSendingReferenceAsync(Guid documentId, string paDocumentId, CancellationToken cancellationToken = default) =>
-        TransitionAsync(documentId, (document, at) => document.RecordPaSendingReference(paDocumentId, at), cancellationToken);
+    public Task RecordPaSendingReferenceAsync(Guid documentId, string paDocumentId, string? paResponseSnapshot, CancellationToken cancellationToken = default) =>
+        TransitionAsync(documentId, (document, at) => document.RecordPaSendingReference(paDocumentId, paResponseSnapshot, at), cancellationToken);
 
     public Task MarkIssuedAsync(Guid documentId, DocumentIssuanceSnapshots snapshots, CancellationToken cancellationToken = default)
     {

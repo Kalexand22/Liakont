@@ -245,10 +245,12 @@ public sealed class Document
     /// document pour que le raccrochage (RecoverSendingAsync) interroge la PA par cette référence et NE
     /// re-dépose JAMAIS ce flux (anti double-dépôt async, CLAUDE.md n°3). La <paramref name="paDocumentId"/>
     /// est OBLIGATOIRE ; l'horodatage de mise à jour est avancé ; un fait d'audit append-only SYSTÈME
-    /// matérialise l'accusé de réception. Refusé hors de l'état <c>Sending</c> (la référence ne se pose qu'à
-    /// une transmission engagée — cohérent avec la machine à états).
+    /// matérialise l'accusé de réception, portant la <paramref name="paResponseSnapshot"/> (réponse brute de
+    /// l'accusé de dépôt) — seule preuve que la PA a accepté le dépôt avant l'émission différée. Refusé hors de
+    /// l'état <c>Sending</c> (la référence ne se pose qu'à une transmission engagée — cohérent avec la machine à
+    /// états).
     /// </summary>
-    public DocumentEvent RecordPaSendingReference(string paDocumentId, DateTimeOffset occurredAtUtc)
+    public DocumentEvent RecordPaSendingReference(string paDocumentId, string? paResponseSnapshot, DateTimeOffset occurredAtUtc)
     {
         var reference = RequireText(
             paDocumentId,
@@ -264,7 +266,7 @@ public sealed class Document
         PaDocumentId = reference;
         LastUpdateUtc = occurredAtUtc;
 
-        return DocumentEvent.PaReferenceRecorded(Id, occurredAtUtc, reference);
+        return DocumentEvent.PaReferenceRecorded(Id, occurredAtUtc, reference, paResponseSnapshot);
     }
 
     /// <summary>
