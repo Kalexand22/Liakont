@@ -33,6 +33,7 @@ public static class ValidationModuleRegistration
         // au composition root (Host) : IIssuedInvoiceLookup / IIssuedDocumentLookup (TRK03, module Documents),
         // ITenantSettingsQueries (CFG, module TenantSettings). StructureRule reçoit l'horloge système.
         services.AddScoped<IDocumentRule>(_ => new StructureRule(TimeProvider.System));
+        services.AddScoped<IDocumentRule, CurrencyEurOnlyRule>();
         services.AddScoped<IDocumentRule, ArithmeticRule>();
         services.AddScoped<IDocumentRule, LineTotalsRule>();
         services.AddScoped<IDocumentRule, SourceTotalsRule>();

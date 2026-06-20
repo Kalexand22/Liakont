@@ -135,7 +135,7 @@ Décision ∈ { **Pivot V1** · **Capability** · **Contrat IExtractor** · **Di
 | TVA sur encaissements vs débits (fait générateur) | mention + timing flux 10.4 | **Pivot V1** | **P1** |
 | Multi-taux / DOM / Corse / taux particuliers | référentiel de taux étendu | **Pivot V1** | **P1** |
 | Éco-contributions / taxes parafiscales (non-TVA) | charges niveau doc BG-21 | **Pivot V1** | P1 si base TVA |
-| Devise étrangère + taux de change (TVA exprimée en EUR) | BT-111 (+ BT-6, règle BR-53) | **Pivot V1** | P1 si étranger |
+| Devise étrangère + taux de change (TVA exprimée en EUR) | — (BT-111/BT-6 non introduits) | **Hors V1 — EUR-only (verrou bloquant)** : cibles produit FULL EURO (décision Karl 2026-06-19, RD408) ; document non-EUR BLOQUÉ en Validation, pas de gestion multi-devises | P3 (verrou) |
 | Remises/escomptes/charges niveau document | BG-20 / BG-21 | **Pivot V1** | P2 |
 | Écart d'arrondi ligne vs global (toléré) | BT-114 | **Pivot V1** (régler F4) | P2 |
 
