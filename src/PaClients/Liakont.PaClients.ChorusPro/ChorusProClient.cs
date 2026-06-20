@@ -115,6 +115,11 @@ internal sealed class ChorusProClient : IPaClient
         {
             // Timeout : TechnicalError SANS re-POST (idempotence A3/D8 — un re-dépôt à l'aveugle créerait un
             // second flux = double facture, CLAUDE.md n°3). Reprise opérateur au prochain run.
+            // Fenêtre résiduelle inhérente à l'API Chorus Pro (F18 §3.4) : si le timeout survient APRÈS que
+            // le serveur a créé le flux mais AVANT la réception de l'accusé, nous n'avons aucun
+            // numeroFluxDepot — consulterCR (CP05) ne peut pas réconcilier sans référence. Cette situation
+            // est irrécouvrable automatiquement ; la récupération est opérateur et la garantie anti-doublon
+            // est validée à la gate humaine GATE_CHORUS_PRO. Le plug-in ne re-POST jamais.
             return PaSendResult.Technical(
                 [new PaError("CPRO_TIMEOUT", $"Délai d'attente dépassé lors du dépôt Chorus Pro du document {document.Number} (re-tentable, sans re-dépôt automatique).")],
                 rawResponse: "Délai d'attente dépassé (aucun accusé de réception reçu).");

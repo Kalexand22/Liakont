@@ -15,6 +15,7 @@ using Liakont.Modules.Transmission.Contracts;
 ///   <item>2xx SANS <c>numeroFluxDepot</c> → <see cref="PaSendState.RejectedByPa"/> (rejet métier silencieux ; <c>libelle</c>/<c>codeRetour</c> conservés).</item>
 ///   <item>5xx / 401 / 403 / 408 / 429 → <see cref="PaSendState.TechnicalError"/> (re-tentable, SANS re-dépôt — A3/D8).</item>
 ///   <item>autres 4xx → <see cref="PaSendState.RejectedByPa"/> (rejet métier, <c>PaError</c> intacts).</item>
+///   <item>1xx / 3xx inattendu (p. ex. redirection non-suivie 307/308 sur POST) → <see cref="PaSendState.TechnicalError"/> (routage/réseau, re-tentable, SANS re-dépôt).</item>
 /// </list>
 /// <see cref="PaSendResult.RawResponse"/> conserve le corps de RÉPONSE pour l'audit (F06) — il ne porte
 /// aucun credential (les secrets <c>Authorization</c> / <c>cpro-account</c> sont des en-têtes de REQUÊTE,
@@ -58,22 +59,30 @@ internal static class ChorusProResponseMapper
         }
 
         // 2xx : le dépôt n'est acquis QUE si Chorus Pro a délivré un accusé de réception (numeroFluxDepot).
-        var fluxNumber = TryReadFluxNumber(rawBody);
-        if (!string.IsNullOrWhiteSpace(fluxNumber))
+        if ((int)statusCode is >= 200 and < 300)
         {
-            // Accusé de RÉCEPTION → Sending (PaDocumentId = numeroFluxDepot). JAMAIS Issued au dépôt :
-            // l'intégration réelle se confirme par consulterCR (CP05) — règle d'or A1/D5 (CLAUDE.md n°3).
-            return new PaSendResult
+            var fluxNumber = TryReadFluxNumber(rawBody);
+            if (!string.IsNullOrWhiteSpace(fluxNumber))
             {
-                State = PaSendState.Sending,
-                PaDocumentId = fluxNumber,
-                RawResponse = rawBody,
-            };
+                // Accusé de RÉCEPTION → Sending (PaDocumentId = numeroFluxDepot). JAMAIS Issued au dépôt :
+                // l'intégration réelle se confirme par consulterCR (CP05) — règle d'or A1/D5 (CLAUDE.md n°3).
+                return new PaSendResult
+                {
+                    State = PaSendState.Sending,
+                    PaDocumentId = fluxNumber,
+                    RawResponse = rawBody,
+                };
+            }
+
+            // 2xx SANS numéro de flux = rejet métier SILENCIEUX (codeRetour KO / errors[]) : surtout pas
+            // Sending (on n'a aucun accusé à relire), surtout pas Issued. Rejet, libelle/codeRetour conservés.
+            return PaSendResult.Rejected(BuildErrors(statusCode, rawBody, "CPRO_REJET_SILENCIEUX"), rawResponse: rawBody);
         }
 
-        // 2xx SANS numéro de flux = rejet métier SILENCIEUX (codeRetour KO / errors[]) : surtout pas Sending
-        // (on n'a aucun accusé à relire), surtout pas Issued. Rejet, libelle/codeRetour conservés.
-        return PaSendResult.Rejected(BuildErrors(statusCode, rawBody, "CPRO_REJET_SILENCIEUX"), rawResponse: rawBody);
+        // 1xx / 3xx inattendu (p. ex. redirection non-suivie sur POST, 307/308) : le code n'est ni un succès
+        // ni une erreur métier — problème réseau/routage, re-tentable SANS re-dépôt (A3/D8). Jamais masqué en
+        // rejet métier (un 307 n'est pas un refus de Chorus Pro).
+        return PaSendResult.Technical(BuildErrors(statusCode, rawBody, "CPRO_TECHNIQUE"), rawBody);
     }
 
     // Construit les PaError en préservant le message Chorus Pro (libelle/message) et son codeRetour quand ils
