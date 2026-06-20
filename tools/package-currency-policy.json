@@ -1,0 +1,21 @@
+{
+  "description": "Politique de currency des paquets NuGet épinglés (RDF07, avenant ADR-0003). Gouverne les DEUX catalogues centraux (racine plateforme + agent net48). 'governed' = un PLANCHER (floor) par paquet : la CI ÉCHOUE si la version épinglée passe SOUS le plancher (downgrade / régression de currency). 'target' optionnel : si floor <= version épinglée < target, la CI ALERTE (warning) sans échouer — la dépendance prend du retard. 'advisories' = retards CONNUS et acceptés (atténuation documentée) qui restent VISIBLES à chaque run jusqu'à leur résolution. Mettre à jour le plancher (et retirer/ajuster l'advisory) quand le bump effectif est livré. Voir docs/adr/ADR-0003-stack-paquets-agent.md (avenant) et tools/lint-package-currency.ps1.",
+  "catalogs": [
+    "Directory.Packages.props",
+    "agent/Directory.Packages.props"
+  ],
+  "governed": [
+    { "id": "System.Data.SQLite.Core", "floor": "1.0.119", "note": "Buffer local agent (ADR-0003). Retard CVE/EOL connu — voir advisory ci-dessous." },
+    { "id": "Newtonsoft.Json", "floor": "13.0.3", "note": "Sérialisation pivot côté agent (ADR-0003)." },
+    { "id": "Npgsql", "floor": "9.0.3", "note": "Accès PostgreSQL plateforme — surface d'attaque réseau, ne jamais downgrader." },
+    { "id": "MailKit", "floor": "4.17.0", "note": "Transport SMTP réel (ADR-0018). MimeKit verrouillé sur la même version." },
+    { "id": "MimeKit", "floor": "4.17.0", "note": "Composition MIME (dépendance MailKit, versions verrouillées)." }
+  ],
+  "advisories": [
+    {
+      "id": "System.Data.SQLite.Core",
+      "reason": "1.0.119 embarque SQLite 3.46.1 < cible interop 3.50.2 — CVE-2025-6965 (fix 3.50.2) et CVE-2025-29088 (fix 3.49.1) ; branche System.Data.SQLite 1.x EOL. Atténuation : buffer local alimenté par l'agent, aucun input réseau hostile. Risque résiduel : un scanner de vulnérabilités côté client (DSI) peut bloquer un déploiement.",
+      "action": "Avenant ADR-0003 : rafraîchir vers un paquet portant SQLite >= 3.50.2. ⚠ 2.x ne bundle plus le moteur → packager SQLite.Interop.dll par bitness (x86 + x64). Quand le bump est livré : relever le plancher 'governed' et retirer cet advisory."
+    }
+  ]
+}
