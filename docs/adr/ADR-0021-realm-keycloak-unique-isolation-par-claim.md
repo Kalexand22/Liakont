@@ -1,7 +1,11 @@
 # ADR-0021 — Realm Keycloak unique partagé : isolation des tenants par claim `company_id`
 
 - **Statut** : **Accepté** (2026-06-13).
-- **Date** : 2026-06-13
+  **Périmètre des invariants acté le 2026-06-20 (RDF11)** : les invariants INV-0021-1..10 sont prouvés
+  **uniquement pour le profil SaaS PARTAGÉ**. Le profil DÉDIÉ mono-tenant
+  (`Keycloak:DedicatedRealmPerTenant=true`) est une capacité **latente, hors périmètre INV-0021-*** tant
+  qu'elle n'a pas son propre jeu de preuves (voir avenant 2026-06-20 en fin d'ADR).
+- **Date** : 2026-06-13 (avenant 2026-06-20 — RDF11)
 - **Nature** : cet ADR **précède** le chantier d'implémentation (multi-lots, non démarré). Les sections
   **Décision** et **Invariants** sont **normatives** : elles décrivent la **cible** à atteindre, pas
   l'état du code. L'encadré « État actuel vs cible » et la section « Séquencement de construction »
@@ -319,3 +323,59 @@ déclencheur du dédié est une décision **d'offre commerciale**, pas un seuil 
 - `CLAUDE.md` n°6 (abstraction IdP), n°9 (tenant-scope), n°10/18 (secrets).
 - *Au passage en « Accepté »* : ajouter un renvoi retour depuis ADR-0013 socle (qui laissait le
   mapping ouvert) et depuis §4.24/§4.26 de la provenance (état hérité superseçu) vers cet ADR.
+
+## Avenant 2026-06-20 — Périmètre du profil DÉDIÉ + validation au démarrage du flag (RDF11)
+
+- **Statut** : Accepté — **Date** : 2026-06-20 — **Item** : RDF11 (redline ADR fondateurs, finding RL-IDP-8)
+
+### Constat
+
+Le flag `Keycloak:DedicatedRealmPerTenant` sélectionne le profil de déploiement (§1) : `false` (défaut)
+= SaaS **partagé** (realm unique, isolation par `company_id`) ; `true` = **dédié** mono-tenant (un realm
+réel par tenant, créé par le vrai `KeycloakRealmProvisioner`). Deux problèmes :
+
+1. **Aucune validation au démarrage ni cohérence garantie.** Le flag est lu directement
+   (`configuration.GetValue<bool>("Keycloak:DedicatedRealmPerTenant")`) en **plusieurs endroits
+   indépendants** : sélection DI du provisioner (`src/Common/Infrastructure/Database/ServiceCollectionExtensions.cs`),
+   ciblage du realm au provisioning utilisateur (`KeycloakTenantUserProvisioner.cs`) et à la gestion
+   utilisateur (`KeycloakTenantUserManagementService.cs`), seed du registre de realms
+   (`AppBootstrap.SeedRealmRegistryFromDatabaseAsync`). En profil dédié, le vrai provisioner est
+   enregistré **même si l'API Admin de Keycloak n'est pas configurée** → il ne peut NI créer NI gérer le
+   realm du tenant : capacité **à moitié activée**, échec silencieux au provisioning.
+2. **Périmètre des invariants ambigu.** Les invariants INV-0021-1..10 (un seul realm, `company_id`
+   immuable, cross-check fail-closed, 2FA, etc.) ne sont **prouvés que pour le SaaS partagé**. En dédié,
+   `CreateRealmAsync` ne pose **aucun User Profile read-only** → INV-0021-3 n'est **pas** garanti, et plus
+   généralement le modèle de preuve du partagé ne s'applique pas tel quel au dédié.
+
+### Décision
+
+1. **Le profil DÉDIÉ est une capacité LATENTE, hors périmètre INV-0021-***. Les invariants
+   INV-0021-1..10 ne valent **que** pour le SaaS partagé. Aucune capacité du profil dédié n'est réputée
+   garantie (notamment INV-0021-3 / User Profile read-only) tant qu'il n'a pas **son propre jeu de
+   preuves** (tests dédiés). Activer `DedicatedRealmPerTenant=true` en production reste une décision
+   d'offre qui **présuppose ce jeu de preuves à livrer** — il n'existe pas à ce jour.
+2. **Ce que le dédié GARANTIT / PERD (à ce stade)** :
+   - *Garantit* — une frontière cryptographique **par-realm** (un jeton du tenant A est invalide pour B,
+     indépendamment du cross-check) ; la possibilité de politiques d'auth/SSO **par client** (le seul
+     vrai upside fonctionnel, cf. *Conséquences*).
+   - *Perd / ne prouve pas* — le modèle de preuve INV-0021-* du partagé ; l'immuabilité `company_id`
+     côté realm dédié (User Profile read-only non posé par `CreateRealmAsync`) ; la simplicité
+     opérationnelle (réintroduit la taxe « N realms à maintenir », DNS/TLS, fan-out auth) que l'ADR
+     écarte précisément pour le SaaS volume.
+3. **Validation au démarrage, fail-closed (livrée par RDF11).** `DedicatedRealmStartupValidator`
+   (`src/Host/Liakont.Host/Startup/`, pur + testé) + son câblage `AppBootstrap.ValidateDedicatedRealmConfiguration`
+   (appelé dans `InitializeDataAsync`, à côté de la validation signature) : en profil dédié **sans API
+   Admin Keycloak configurée** (`KeycloakAdminOptions.IsConfigured`), le démarrage **échoue
+   explicitement** (message opérateur FR) plutôt que d'activer une capacité sans son pré-requis. No-op en
+   profil partagé (l'API Admin y est optionnelle). C'est l'application de « aucune capacité activée sans
+   preuve » au flag de profil.
+
+### Références (avenant)
+
+- Validateur pur + câblage — `src/Host/Liakont.Host/Startup/DedicatedRealmStartupValidator.cs`,
+  `src/Host/Liakont.Host/Startup/AppBootstrap.cs` (`ValidateDedicatedRealmConfiguration`,
+  `InitializeDataAsync`) ; tests — `tests/Host/Liakont.Host.Tests.Unit/Startup/DedicatedRealmStartupValidatorTests.cs`.
+- Sites consommateurs du flag — `src/Common/Infrastructure/Database/ServiceCollectionExtensions.cs`,
+  `src/Host/Liakont.Host/Security/Keycloak/KeycloakTenantUserProvisioner.cs`,
+  `KeycloakTenantUserManagementService.cs`, `AppBootstrap.SeedRealmRegistryFromDatabaseAsync`.
+- `docs/architecture/provenance-socle-stratum.md` §4.28 (sortie du provisioner realm du chemin partagé).
