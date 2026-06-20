@@ -1,5 +1,8 @@
 namespace Liakont.PaClients.ChorusPro;
 
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using Liakont.Agent.Contracts.Pivot;
 using Liakont.Modules.Transmission.Contracts;
 
@@ -11,25 +14,54 @@ using Liakont.Modules.Transmission.Contracts;
 /// hors de l'assembly (acceptance CP02) — la fabrique le rend derrière l'abstraction <see cref="IPaClient"/>.
 /// <para>
 /// SQUELETTE CP02 : les 9 méthodes + <see cref="Capabilities"/> sont présentes mais NON implémentées
-/// (transport livré par CP03+). Les capacités déclarées sont toutes <c>false</c>
-/// (<see cref="ChorusProCapabilities"/>) : tout appel piloté par une capacité dégrade en résultat TYPÉ
-/// (jamais d'exception, jamais de blocage produit — invariant PAA01). Les méthodes appelées SANS garde de
-/// capacité par le chemin d'envoi (réglage de publication) dégradent fail-closed (vide / no-op) plutôt que
-/// de lever — leçon « méthode de contrat différée appelée inconditionnellement ». Les lectures de tax
-/// reports, GARDÉES par <see cref="PaCapabilities.SupportsTaxReportRetrieval"/> = <c>false</c> chez leurs
-/// appelants, lèvent une <see cref="NotImplementedException"/> traçable plutôt que de renvoyer une donnée
-/// fiscale fausse depuis un endpoint non livré (une liste vide serait un mensonge fiscal — CLAUDE.md n°3).
+/// (transport métier — dépôt <c>deposerFluxFacture</c>, relecture <c>consulterCR</c> — livré par CP04+).
+/// Les capacités déclarées sont toutes <c>false</c> (<see cref="ChorusProCapabilities"/>) : tout appel
+/// piloté par une capacité dégrade en résultat TYPÉ (jamais d'exception, jamais de blocage produit —
+/// invariant PAA01). Les méthodes appelées SANS garde de capacité par le chemin d'envoi (réglage de
+/// publication) dégradent fail-closed (vide / no-op) plutôt que de lever — leçon « méthode de contrat
+/// différée appelée inconditionnellement ». Les lectures de tax reports, GARDÉES par
+/// <see cref="PaCapabilities.SupportsTaxReportRetrieval"/> = <c>false</c> chez leurs appelants, lèvent une
+/// <see cref="NotImplementedException"/> traçable plutôt que de renvoyer une donnée fiscale fausse depuis
+/// un endpoint non livré (une liste vide serait un mensonge fiscal — CLAUDE.md n°3).
+/// </para>
+/// <para>
+/// CP03 — AUTH PISTE : le client porte le client HTTP nommé (TLS 1.2/1.3), le fournisseur de jeton OAuth2
+/// PISTE (<see cref="IChorusProTokenProvider"/>) et la valeur de l'en-tête <c>cpro-account</c> du compte
+/// technique. <see cref="SendWithAuthAsync"/> applique la DOUBLE authentification (Bearer PISTE +
+/// <c>cpro-account</c>) à CHAQUE requête et retente UNE fois sur <c>401</c> (jeton peut-être expiré/révoqué
+/// → re-échange). Les appelants métier (dépôt / relecture) arrivent avec CP04+ ; l'auth est posée et
+/// éprouvée dès CP03. Aucun en-tête d'authentification (Bearer, <c>cpro-account</c>) n'est journalisé —
+/// base64 n'est PAS du chiffrement (CLAUDE.md n°10).
 /// </para>
 /// </summary>
 internal sealed class ChorusProClient : IPaClient
 {
+    private readonly HttpClient _httpClient;
+    private readonly IChorusProTokenProvider _tokenProvider;
+    private readonly string _technicalAccountHeader;
     private readonly PaCapabilities _capabilities;
 
-    /// <summary>Construit le client du squelette avec ses capacités déclarées (toutes false en CP02).</summary>
+    /// <summary>Construit le client Chorus Pro avec son transport authentifié et ses capacités déclarées.</summary>
+    /// <param name="httpClient">Client HTTP nommé (TLS 1.2/1.3, base API + délai configurés par la fabrique).</param>
+    /// <param name="tokenProvider">Fournisseur de jeton OAuth2 PISTE (cache + renouvellement, F18 §2.1).</param>
+    /// <param name="technicalAccountHeader">
+    /// Valeur de l'en-tête <c>cpro-account</c> du compte technique (<c>base64(login:motDePasse)</c>, F18 §2.2),
+    /// pré-calculée et constante pour le compte. SECRÈTE (jamais journalisée — CLAUDE.md n°10).
+    /// </param>
     /// <param name="capabilities">Capacités déclarées du plug-in (<see cref="ChorusProCapabilities.Declared"/>).</param>
-    public ChorusProClient(PaCapabilities capabilities)
+    public ChorusProClient(
+        HttpClient httpClient,
+        IChorusProTokenProvider tokenProvider,
+        string technicalAccountHeader,
+        PaCapabilities capabilities)
     {
+        ArgumentNullException.ThrowIfNull(httpClient);
+        ArgumentNullException.ThrowIfNull(tokenProvider);
+        ArgumentException.ThrowIfNullOrWhiteSpace(technicalAccountHeader);
         ArgumentNullException.ThrowIfNull(capabilities);
+        _httpClient = httpClient;
+        _tokenProvider = tokenProvider;
+        _technicalAccountHeader = technicalAccountHeader;
         _capabilities = capabilities;
     }
 
@@ -149,6 +181,41 @@ internal sealed class ChorusProClient : IPaClient
         // (squelette) → résultat TYPÉ NotSupported, jamais d'exception ni de blocage produit (PAA01).
         return Task.FromResult(PaGeneratedDocument.NotSupported(
             PaCapabilityNotSupportedResult.Create(_capabilities.PaName, PaCapability.DocumentRetrieval)));
+    }
+
+    // DOUBLE authentification PISTE + retry 401 (F18 §2). Pose le Bearer PISTE (jeton en cache/renouvelé)
+    // ET l'en-tête cpro-account du compte technique sur CHAQUE tentative ; sur 401, redemande un jeton (le
+    // précédent est peut-être expiré/révoqué) et retente UNE fois (patron SuperPdpClient.SendWithAuthAsync).
+    // Le second 401 sera classé erreur d'auth re-tentable par le mapper de réponse (livré avec CP04+). La
+    // requête est reconstruite à chaque tentative (HttpRequestMessage est à usage unique) ; la réponse
+    // vivante est rendue à l'appelant (qui la dispose). Aucun en-tête d'auth n'est journalisé (CLAUDE.md
+    // n°10). Méthode INTERNE : exercée par les tests dès CP03 (double en-tête + retry) ; les appelants
+    // métier (dépôt deposerFluxFacture, relecture consulterCR) l'utiliseront à partir de CP04.
+    internal async Task<HttpResponseMessage> SendWithAuthAsync(Func<HttpRequestMessage> build, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(build);
+
+        async Task<HttpResponseMessage> SendOnceAsync(string bearer)
+        {
+            using var request = build();
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
+
+            // cpro-account : compte technique Chorus Pro, DISTINCT du Bearer PISTE (F18 §2.2). Valeur
+            // SECRÈTE (base64 n'est PAS du chiffrement) — posée sur la requête, jamais journalisée.
+            request.Headers.Add(ChorusProDefaults.TechnicalAccountHeaderName, _technicalAccountHeader);
+            return await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+
+        var token = await _tokenProvider.GetAccessTokenAsync(forceRefresh: false, cancellationToken).ConfigureAwait(false);
+        var response = await SendOnceAsync(token).ConfigureAwait(false);
+        if (response.StatusCode != HttpStatusCode.Unauthorized)
+        {
+            return response;
+        }
+
+        response.Dispose();
+        var refreshed = await _tokenProvider.GetAccessTokenAsync(forceRefresh: true, cancellationToken).ConfigureAwait(false);
+        return await SendOnceAsync(refreshed).ConfigureAwait(false);
     }
 
     // Lectures de tax reports GARDÉES par PaCapabilities.SupportsTaxReportRetrieval = false chez leurs
