@@ -72,7 +72,15 @@ public static class PivotCanonicalReader
             isSelfBilled: Boolean(map, "IsSelfBilled"),
             prepaidAmount: DecimalOrNull(map, "PrepaidAmount"),
             sourceData: TextOrNull(map, "SourceData"),
-            paymentDueDate: DateOrNull(map, "PaymentDueDate"));
+            paymentDueDate: DateOrNull(map, "PaymentDueDate"),
+            invoicePeriod: ObjectOrNull(map, "InvoicePeriod") is { } invoicePeriod ? BuildInvoicePeriod(invoicePeriod) : null);
+    }
+
+    private static PivotInvoicePeriodDto BuildInvoicePeriod(IDictionary<string, object?> map)
+    {
+        return new PivotInvoicePeriodDto(
+            startDate: Date(map, "StartDate"),
+            endDate: Date(map, "EndDate"));
     }
 
     private static PivotPartyDto BuildParty(IDictionary<string, object?> map)

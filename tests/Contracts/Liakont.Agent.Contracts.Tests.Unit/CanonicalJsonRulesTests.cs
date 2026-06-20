@@ -189,6 +189,7 @@ public sealed class CanonicalJsonRulesTests
         AssertAllPropertiesArePresent(Element(root, "CreditNoteRefs", 0), typeof(PivotDocumentRefDto));
         AssertAllPropertiesArePresent(Element(root, "Payments", 0), typeof(PivotPaymentDto));
         AssertAllPropertiesArePresent(Element(root, "DocumentCharges", 0), typeof(PivotDocumentChargeDto));
+        AssertAllPropertiesArePresent(Child(root, "InvoicePeriod"), typeof(PivotInvoicePeriodDto));
     }
 
     private static void AssertAllPropertiesArePresent(IDictionary<string, object?> node, Type dtoType)
@@ -327,7 +328,10 @@ public sealed class CanonicalJsonRulesTests
             isSelfBilled: true,
             prepaidAmount: 100.00m,
             sourceData: "{\"raw\":\"doc\"}",
-            paymentDueDate: new DateTime(2026, 3, 31));
+            paymentDueDate: new DateTime(2026, 3, 31),
+            invoicePeriod: new PivotInvoicePeriodDto(
+                startDate: new DateTime(2026, 1, 1),
+                endDate: new DateTime(2026, 1, 31)));
     }
 
     private static PivotDocumentDto Build(
