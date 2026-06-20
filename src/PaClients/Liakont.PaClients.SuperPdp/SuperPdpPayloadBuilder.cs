@@ -157,11 +157,13 @@ internal static class SuperPdpPayloadBuilder
             Identifier = (index + 1).ToString(CultureInfo.InvariantCulture),
             InvoicedQuantity = 1m,
 
-            // BT-130 : unité du pivot si portée (RD407), sinon l'unité neutre C62. En V1 les lignes sont
-            // des agrégats émis en quantité 1 (cf. ci-dessus) et aucune source ne porte d'unité (UnitCode
-            // null → C62) : comportement inchangé. Une source à unité+quantité réelles (B2B, phase 2)
-            // imposera de revoir la normalisation quantité=1 pour rester cohérente — différé tracé.
-            InvoicedQuantityCode = line.UnitCode ?? SuperPdpDefaults.DefaultQuantityUnitCode,
+            // BT-130 : la ligne SuperPDP est un agrégat SYNTHÉTIQUE émis en quantité 1 (cf. ci-dessus) ;
+            // sa seule unité cohérente est l'unité neutre « one » (C62). On NE projette PAS l'UnitCode du
+            // pivot (RD407) ici : « 1 KGM » au prix du total ligne serait fiscalement incohérent (CLAUDE.md
+            // n°3). L'émission fidèle de BT-130 côté SuperPDP suppose d'émettre l'unité AVEC la quantité
+            // réelle — donc de revoir la normalisation quantité=1 — différé B2B (phase 2). FacturX, lui,
+            // émet la quantité réelle (BT-129) et projette donc l'UnitCode fidèlement.
+            InvoicedQuantityCode = SuperPdpDefaults.DefaultQuantityUnitCode,
             NetAmount = line.NetAmount,
             PriceDetails = new SuperPdpEnLinePriceDetails { ItemNetPrice = line.NetAmount },
             VatInformation = new SuperPdpEnLineVatInformation
