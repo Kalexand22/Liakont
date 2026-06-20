@@ -21,4 +21,10 @@
     <ProjectReference Include="..\..\src\Liakont.Agent.Cli\Liakont.Agent.Cli.csproj" />
   </ItemGroup>
 
+  <!-- HttpClient (System.Net.Http, assembly framework net48 non auto-référencée) : test du chemin
+       de run réel AgentRunComposition.CreateHttpClient → force TLS 1.2/1.3 (RDF01). -->
+  <ItemGroup>
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
+
 </Project>
