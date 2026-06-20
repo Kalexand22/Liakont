@@ -193,4 +193,46 @@ public sealed class ChorusProSendTests
         result.Errors.Should().ContainSingle().Which.Code.Should().Be("CPRO_ARTEFACT_REQUIS");
         handler.CallCount.Should().Be(0, "la garde artefact bloque AVANT tout HTTP (jamais régénéré, jamais émis à vide)");
     }
+
+    [Fact]
+    public async Task Auth_403_Is_Technical_Retryable_Not_Rejected()
+    {
+        // 403 = problème d'auth/habilitation (F18 §5, IsRetryableStatus couvre 403) : re-tentable,
+        // jamais un rejet métier figé (ce n'est pas Chorus Pro qui refuse le document).
+        var (client, handler, _) = NewSendClient();
+        handler.Respond(HttpStatusCode.Forbidden, """{"message":"Accès refusé"}""");
+
+        var result = await client.SendDocumentAsync(Document(), context: ContextWithArtifact());
+
+        result.State.Should().Be(PaSendState.TechnicalError, "403 est re-tentable (F18 §5), jamais un rejet métier");
+        result.State.Should().NotBe(PaSendState.RejectedByPa);
+    }
+
+    [Fact]
+    public async Task Unexpected_3xx_Is_Technical_Not_Rejected()
+    {
+        // 3xx non-suivie sur un POST (ex : 307 TemporaryRedirect) → bras 1xx/3xx de MapDeposit :
+        // problème de routage/réseau, re-tentable SANS re-dépôt (A3/D8). Jamais masqué en rejet métier.
+        var (client, handler, _) = NewSendClient();
+        handler.Respond(HttpStatusCode.TemporaryRedirect, "{}");
+
+        var result = await client.SendDocumentAsync(Document(), context: ContextWithArtifact());
+
+        result.State.Should().Be(PaSendState.TechnicalError, "307 inattendu = routage/réseau, re-tentable (A3/D8)");
+        result.State.Should().NotBe(PaSendState.RejectedByPa, "un 3xx n'est pas un refus métier de Chorus Pro");
+    }
+
+    [Fact]
+    public async Task Deposit_2xx_With_Numeric_Flux_Number_Maps_To_Sending()
+    {
+        // Couvre JsonValueKind.Number dans TryReadFluxNumber : certaines réponses Chorus Pro renvoient
+        // numeroFluxDepot en tant que nombre JSON (ex : 123) plutôt que chaîne — doit être accepté.
+        var (client, handler, _) = NewSendClient();
+        handler.Respond(HttpStatusCode.OK, """{"numeroFluxDepot":123}""");
+
+        var result = await client.SendDocumentAsync(Document(), context: ContextWithArtifact());
+
+        result.State.Should().Be(PaSendState.Sending, "numeroFluxDepot numérique → accusé de réception valide");
+        result.PaDocumentId.Should().Be("123", "le numéro de flux numérique est converti en string via GetRawText()");
+    }
 }
