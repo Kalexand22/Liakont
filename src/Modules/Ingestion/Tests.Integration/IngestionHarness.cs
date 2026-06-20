@@ -83,5 +83,5 @@ internal sealed class IngestionHarness
     public RecordingPayloadStagingStore PayloadStagingStore { get; }
 
     public IngestDocumentBatchHandler BatchHandler =>
-        new(ReceivedDocumentUowFactory, SourceTaxRegimeWriter, ExtractorCapabilitiesWriter, DocumentIntake, PayloadStagingStore, NullLogger<IngestDocumentBatchHandler>.Instance);
+        new(ReceivedDocumentUowFactory, SourceTaxRegimeWriter, ExtractorCapabilitiesWriter, ExtractorCapabilitiesQueries, DocumentIntake, PayloadStagingStore, NullLogger<IngestDocumentBatchHandler>.Instance);
 }

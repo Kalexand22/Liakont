@@ -12,6 +12,7 @@ public sealed class PaymentAggregateStatusDisplayTests
     [InlineData("Suspended", "Décision fiscale en attente", Severity.Warning)]
     [InlineData("NotRequired", "Non concerné (TVA sur les débits)", Severity.Neutral)]
     [InlineData("PendingCapability", "En attente (plateforme)", Severity.Warning)]
+    [InlineData("SourceWithoutPayments", "Non transmis (source sans encaissements déclarés)", Severity.Warning)]
     public void Should_Map_Each_Status_To_Its_French_Label_And_Severity(string status, string expectedLabel, Severity expectedSeverity)
     {
         var (label, severity) = PaymentAggregateStatusDisplay.For(status);

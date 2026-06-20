@@ -133,6 +133,67 @@ public sealed class DocumentBatchIngestionIntegrationTests
     }
 
     [Fact]
+    public async Task Alteration_On_Mutable_Source_Does_Not_Emit_Alert()
+    {
+        // RD403 : une source qui se déclare MUTABLE après émission (IsMutableAfterIssue=true) modifie ses
+        // documents de façon attendue → pas de fausse alerte d'altération. Le document altéré reste accepté.
+        var harness = new IngestionHarness(_fixture, NewTenant());
+        var agentId = Guid.NewGuid();
+        var mutable = new ExtractorCapabilitiesDto(isMutableAfterIssue: true);
+
+        await harness.BatchHandler.Handle(
+            BatchWithCapabilities(harness, agentId, mutable, Doc("ref-1", number: "F-1")), CancellationToken.None);
+
+        var altered = await harness.BatchHandler.Handle(
+            BatchWithCapabilities(harness, agentId, mutable, Doc("ref-1", number: "F-1-corrige")), CancellationToken.None);
+
+        altered.Results.Single().Status.Should().Be(DocumentPushStatus.Accepted, "le document altéré est tout de même accepté et traité.");
+        (await CountEventsAsync(harness, IngestionEventTypes.DocumentReceived)).Should().Be(2);
+        (await CountEventsAsync(harness, IngestionEventTypes.SourceAlterationDetected)).Should().Be(0, "une source légitimement mutable ne déclenche pas de fausse alerte d'altération (RD403).");
+    }
+
+    [Fact]
+    public async Task Alteration_Uses_Persisted_Mutability_When_Batch_Omits_Capabilities()
+    {
+        // RD403 : un lot peut OMETTRE les capacités (add-only). La mutabilité effective retombe alors sur la
+        // dernière déclaration persistée pour l'agent → la suppression d'alerte tient même sans re-déclaration.
+        var harness = new IngestionHarness(_fixture, NewTenant());
+        var agentId = Guid.NewGuid();
+
+        await harness.BatchHandler.Handle(
+            BatchWithCapabilities(harness, agentId, new ExtractorCapabilitiesDto(isMutableAfterIssue: true), Doc("ref-1", number: "F-1")), CancellationToken.None);
+
+        await harness.BatchHandler.Handle(
+            BatchWithCapabilities(harness, agentId, capabilities: null, Doc("ref-1", number: "F-1-corrige")), CancellationToken.None);
+
+        (await CountEventsAsync(harness, IngestionEventTypes.SourceAlterationDetected)).Should().Be(0, "la mutabilité persistée est consultée quand le lot omet les capacités (RD403).");
+    }
+
+    [Fact]
+    public async Task Any_Agent_Exposes_Payments_Reflects_Last_Declared_Capability()
+    {
+        // RD403 : la lecture tenant-scopée AnyAgentExposesPaymentsAsync alimente le gate F09. Aucune déclaration
+        // = false (on ne présume pas qu'une source expose les paiements) ; la dernière déclaration prime.
+        var harness = new IngestionHarness(_fixture, NewTenant());
+        var agentId = Guid.NewGuid();
+
+        (await harness.ExtractorCapabilitiesQueries.AnyAgentExposesPaymentsAsync(harness.TenantId))
+            .Should().BeFalse("aucune capacité déclarée = source réputée ne pas exposer les paiements (RD403).");
+
+        await harness.BatchHandler.Handle(
+            BatchWithCapabilities(harness, agentId, new ExtractorCapabilitiesDto(exposesPayments: true), Doc("ref-1")), CancellationToken.None);
+
+        (await harness.ExtractorCapabilitiesQueries.AnyAgentExposesPaymentsAsync(harness.TenantId))
+            .Should().BeTrue("un agent déclare exposer les encaissements.");
+
+        await harness.BatchHandler.Handle(
+            BatchWithCapabilities(harness, agentId, new ExtractorCapabilitiesDto(exposesPayments: false), Doc("ref-2")), CancellationToken.None);
+
+        (await harness.ExtractorCapabilitiesQueries.AnyAgentExposesPaymentsAsync(harness.TenantId))
+            .Should().BeFalse("la dernière déclaration (false) remplace la précédente.");
+    }
+
+    [Fact]
     public async Task Mixed_Batch_Yields_Individual_Results()
     {
         var harness = new IngestionHarness(_fixture, NewTenant());
