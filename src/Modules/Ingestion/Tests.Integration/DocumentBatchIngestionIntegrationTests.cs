@@ -269,6 +269,42 @@ public sealed class DocumentBatchIngestionIntegrationTests
             .Should().BeNull("un agent qui n'en transmet pas ne crée aucune déclaration.");
     }
 
+    [Fact]
+    public async Task Batch_Without_Extractor_Capabilities_Does_Not_Overwrite_Prior_Declaration()
+    {
+        // Régression-guard : un agent N-1 (capabilities: null) ne doit pas écraser une déclaration antérieure
+        // (early-return dans PersistExtractorCapabilitiesBestEffortAsync — « pas d'écrasement par l'absence »).
+        var harness = new IngestionHarness(_fixture, NewTenant());
+        var agentId = Guid.NewGuid();
+
+        var initialCapabilities = new ExtractorCapabilitiesDto(
+            providesSourceDocuments: true,
+            providesUnlinkedDocumentPool: false,
+            hasDetailedLines: true,
+            hasCreditNoteLink: false,
+            exposesPayments: true,
+            regimeKeyShape: "Composite",
+            emitterIdentitySource: "InBase",
+            hasStoredHeaderTotal: true,
+            isMutableAfterIssue: false,
+            numberUniquenessScope: "PerEstablishment");
+
+        // 1er lot : déclaration initiale des capacités.
+        await harness.BatchHandler.Handle(
+            BatchWithCapabilities(harness, agentId, initialCapabilities, Doc("ref-1")), CancellationToken.None);
+
+        // 2e lot : MÊME agent, mais capabilities = null (agent N-1 / mise à jour sans déclaration).
+        await harness.BatchHandler.Handle(
+            BatchWithCapabilities(harness, agentId, capabilities: null, Doc("ref-2")), CancellationToken.None);
+
+        // La déclaration d'origine doit être intacte (pas d'écrasement par l'absence).
+        var read = await harness.ExtractorCapabilitiesQueries.GetByAgentAsync(harness.TenantId, agentId);
+        read.Should().NotBeNull("la déclaration initiale doit subsister après un lot sans capacités.");
+        read!.ProvidesSourceDocuments.Should().BeTrue("le champ de la déclaration d'origine est préservé.");
+        read.RegimeKeyShape.Should().Be("Composite", "les champs discriminants restent inchangés.");
+        read.ExposesPayments.Should().BeTrue("aucun champ n'est nullifié par le lot sans capacités.");
+    }
+
     private static IngestDocumentBatchCommand BatchWithCapabilities(
         IngestionHarness harness, Guid agentId, ExtractorCapabilitiesDto? capabilities, params PivotDocumentDto[] documents) =>
         new()
