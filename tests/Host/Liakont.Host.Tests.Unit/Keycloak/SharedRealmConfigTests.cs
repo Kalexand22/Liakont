@@ -160,6 +160,27 @@ public sealed class SharedRealmConfigTests
     }
 
     [Theory]
+    [MemberData(nameof(RealmFiles))]
+    public void UnmanagedAttributePolicy_Is_Explicitly_Disabled(string realmPath)
+    {
+        using var realm = LoadRealm(realmPath);
+        using var userProfileConfig = LoadDeclarativeUserProfile(realm.RootElement);
+
+        // RDF03 (RL-IDP-4, ADR-0002/0021) : la politique des attributs NON déclarés est posée EXPLICITEMENT
+        // (jamais laissée au défaut implicite de Keycloak, susceptible de changer entre versions). DISABLED =
+        // un attribut absent du profil déclaratif est rejeté en écriture comme en lecture. Conjuguée à
+        // company_id (déclaré, edit=[admin]), elle garantit l'immuabilité côté IdP (INV-0021-3) : ni un
+        // attribut non géré ne peut être introduit, ni company_id édité par un non-admin. Valeur sourcée
+        // (Keycloak 26 UnmanagedAttributePolicy + item RDF03), non inventée.
+        userProfileConfig.RootElement.TryGetProperty("unmanagedAttributePolicy", out var policy)
+            .Should().BeTrue(
+                "le profil utilisateur déclaratif doit poser unmanagedAttributePolicy EXPLICITEMENT (RDF03 — jamais le défaut implicite)");
+        policy.GetString().Should().Be(
+            "DISABLED",
+            "RDF03 : les attributs non déclarés sont rejetés (DISABLED) — pas de smuggling d'attribut, immuabilité company_id garantie côté IdP");
+    }
+
+    [Theory]
     [MemberData(nameof(SeededRealmFiles))]
     public void Every_Tenant_User_Has_A_NonEmpty_CompanyId_And_SuperAdmin_Has_None(string realmPath)
     {
