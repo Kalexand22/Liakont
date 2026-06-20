@@ -131,3 +131,68 @@ du fournisseur Keycloak (par instance), pas l'identité du fournisseur.
 - `blueprint.md` §3.3 (les trois topologies de déploiement), §6 (déploiement)
 - Appliance OPS01a — `deploy/docker/appliance/docker-compose.yml`, base de la mesure
 - Réversibilité OPS06b (dédiée hébergée → self-hosted), granularité par base OPS01b
+
+## Avenant 2026-06-20 — Politique de version et de patch de l'image Keycloak (RDF05)
+
+- **Statut** : Accepté — **Date** : 2026-06-20 — **Item** : RDF05 (redline ADR fondateurs, finding RL-IDP-6)
+
+### Problème constaté
+
+Quatre composes/tests épinglaient l'image Keycloak sur le tag **flottant** `quay.io/keycloak/keycloak:26.0`
+(`deploy/docker/appliance/docker-compose.yml`, `deploy/docker/docker-compose.keycloak.yml`,
+`deployments/bucodi/docker-compose.yml`, `tests/Liakont.Tests.E2E/KeycloakE2EWebFactory.cs`). Or la
+ligne **26.0.x est EOL depuis janvier 2025** (dernier patch `26.0.8`). De plus, `update-instance.ps1`
+(OPS02) ne rafraîchissait **jamais** l'image Keycloak : `docker compose build --pull` ne met à jour
+que les images de base des services `build:` (le Host), pas un service épinglé par `image:`. Aucune
+politique de version ni veille CVE ⇒ un IdP non patché qui **retourne** l'argument « battle-tested
+security » d'ADR-0013 / ADR-0002.
+
+### Décision
+
+1. **Tag de patch précis, jamais flottant.** Tous les composes/tests pinnent un tag
+   `major.minor.patch` (ou un digest `@sha256:…`). État actuel : **`26.0.8`** (le patch exact sur
+   lequel `:26.0` résolvait au moment de la mesure du présent ADR — bascule **sans changement de
+   comportement** : reproductibilité d'abord). La garde de tooling `Test-KeycloakImagePinned`
+   (`Provisioning.psm1`) refuse un tag flottant (`:26`, `:26.0`, `:latest`, absence de tag).
+
+2. **Politique de version.** Keycloak publie ~3-4 minors/an, chaque minor n'étant supporté que sur
+   une **fenêtre courte** (en pratique, le dernier minor publié reçoit les correctifs). **Critère de
+   bump avant EOL** : suivre le **dernier minor supporté** ; planifier le bump **dès qu'un minor plus
+   récent est publié** et **avant** la fin de support du minor courant ; en cas de **CVE Keycloak
+   d'impact élevé**, bumper hors cadence. La veille s'appuie sur les pages officielles
+   (releases et politique de support — voir Références) plutôt que sur un numéro de version figé ici
+   (qui daterait). ⚠ **26.0.x étant EOL**, le bump vers le dernier minor supporté est une **action
+   ops à planifier** (voir point 4).
+
+3. **Bump outillé + revalidation du realm.** `update-instance.ps1 -KeycloakImage <tag précis>`
+   réécrit le tag Keycloak dans le compose de l'instance, force un `docker compose pull` (refresh des
+   services `image:`), recrée le conteneur, puis **revalide le realm** après démarrage
+   (`Test-KeycloakRealmReady` interroge `/realms/<realm>/.well-known/openid-configuration` via le
+   réseau interne). Un realm injoignable **après bump** est un échec : l'instance reste **arrêtée**,
+   la **maintenance maintenue** (jamais lever la maintenance sur un IdP cassé), un rapport de rollback
+   est émis. Le `docker compose pull` est désormais systématique (même sans `-KeycloakImage`) pour que
+   les services `image:` soient rafraîchis à leur tag épinglé.
+
+4. **Exécution du bump off-26.0 = geste ops tracé.** Le présent avenant **épingle** (reproductibilité)
+   et **outille** (bump + revalidation) ; il **n'exécute pas** la montée vers un minor supporté, qui
+   change l'image réellement servie et doit être **revalidée sur infra réelle** (revalidation realm +
+   suite **E2E** Keycloak, hors périmètre d'un item de tooling dont la vérif ne lance pas les
+   Testcontainers). Procédure : `update-instance.ps1 -KeycloakImage quay.io/keycloak/keycloak:<minor.patch supporté>`
+   sur une instance, puis recette E2E, puis propagation aux composes/fixtures.
+
+### Conséquences
+
+- **Aucun changement de comportement** par cet avenant (`:26.0` ⇒ `:26.0.8` = même image résolue) :
+  build/tests verts inchangés ; la suite E2E Keycloak tire désormais un tag précis (digest identique).
+- **OPS02 enrichi** : `update-instance.ps1` gagne `-KeycloakImage` / `-KeycloakRealm`, le `pull`
+  systématique et la revalidation du realm. `Provisioning.psm1` exporte `Test-KeycloakImagePinned`
+  (pur, testable) et `Test-KeycloakRealmReady`.
+- **Dette ops ouverte (suivie)** : bumper Keycloak hors de la ligne EOL 26.0 vers le dernier minor
+  supporté (point 4) — non couvert par RDF05 (pas d'infra réelle / E2E dans un item de tooling).
+
+### Références (avenant)
+
+- Keycloak — Releases & cycle de vie : <https://www.keycloak.org/docs/latest/release_notes/> ,
+  <https://www.keycloak.org/download> (suivi des minors supportés / EOL)
+- ADR-0002 (spike empreinte, argument « battle-tested »), ADR-0013 (modèle de confiance / patch)
+- Outillage : `deploy/provisioning/update-instance.ps1`, `deploy/provisioning/Provisioning.psm1`

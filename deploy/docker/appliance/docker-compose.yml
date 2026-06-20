@@ -49,7 +49,12 @@ services:
 
   # ── Keycloak : fournisseur d'identité (realm Liakont importé au démarrage) ──
   keycloak:
-    image: quay.io/keycloak/keycloak:26.0
+    # Tag de PATCH précis (jamais flottant) : reproductibilité de l'instance + maîtrise des CVE.
+    # Politique de version et procédure de bump : ADR-0020 (avenant « Politique de version et de
+    # patch de l'image Keycloak »). Le bump est outillé : update-instance.ps1 -KeycloakImage <tag>
+    # (pull explicite + revalidation du realm). ⚠ 26.0.x est EOL → bump vers le dernier minor
+    # supporté à planifier (geste ops, revalidation realm + E2E sur infra réelle).
+    image: quay.io/keycloak/keycloak:26.0.8
     restart: unless-stopped
     # start (mode PRODUCTION, pas start-dev) + import du realm. KC_HTTP_ENABLED=true car TLS terminé
     # par Caddy en façade ; KC_PROXY_HEADERS=xforwarded pour respecter le schéma/hôte publics.
