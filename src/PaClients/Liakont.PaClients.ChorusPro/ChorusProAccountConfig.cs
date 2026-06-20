@@ -50,7 +50,11 @@ public sealed record ChorusProAccountConfig
         RequireNonBlank(connectionEmail, nameof(connectionEmail), "L'e-mail de connexion du compte technique Chorus Pro est obligatoire.");
 
         Environment = environment;
-        BaseUrl = baseUrl;
+
+        // RFC 3986 relative-resolution: if BaseUrl has no trailing slash, new Uri(base, "factures/v1/deposer")
+        // REPLACES the last path segment — e.g. "/cpro" becomes "/factures/v1/deposer", silently dropping /cpro.
+        // Normalising here (F18 §3.3) ensures every relative business path always resolves UNDER the full base.
+        BaseUrl = EnsureTrailingSlash(baseUrl);
         TokenEndpoint = tokenEndpoint;
         AccountId = accountId;
         PisteClientId = pisteClientId;
@@ -91,6 +95,9 @@ public sealed record ChorusProAccountConfig
     public override string ToString() =>
         $"ChorusProAccountConfig {{ Environment = {Environment}, AccountId = {AccountId}, " +
         $"PisteClientId = ***, PisteClientSecret = ***, TechnicalLogin = ***, TechnicalPassword = *** }}";
+
+    private static Uri EnsureTrailingSlash(Uri uri) =>
+        uri.AbsolutePath.EndsWith('/') ? uri : new UriBuilder(uri) { Path = uri.AbsolutePath + "/" }.Uri;
 
     private static void RequireAbsolute(Uri uri, string paramName)
     {

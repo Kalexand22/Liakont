@@ -45,13 +45,15 @@ public sealed class ChorusProClientTests
     }
 
     [Fact]
-    public async Task SendDocument_Returns_Typed_NotSupported_For_FacturX_Transmission()
+    public async Task SendDocument_Without_Artifact_Is_Blocked_Never_Regenerated()
     {
+        // CP04 : Chorus Pro = transport pur d'un Factur-X scellé. Sans artefact (contexte nul), le dépôt
+        // est BLOQUÉ (jamais régénéré, jamais émis « à vide » — CLAUDE.md n°3/6), pas un faux « émis ».
         var result = await NewClient().SendDocumentAsync(MinimalDocument());
 
-        result.State.Should().Be(PaSendState.CapabilityNotSupported);
-        result.CapabilityNotSupported!.Capability.Should().Be(PaCapability.FacturXTransmission);
-        result.CapabilityNotSupported.PaName.Should().Be("Chorus Pro");
+        result.State.Should().Be(PaSendState.TechnicalError);
+        result.State.Should().NotBe(PaSendState.Issued);
+        result.Errors.Should().ContainSingle().Which.Code.Should().Be("CPRO_ARTEFACT_REQUIS");
     }
 
     [Fact]
