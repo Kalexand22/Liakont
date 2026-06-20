@@ -36,6 +36,7 @@ public static class ValidationModuleRegistration
         services.AddScoped<IDocumentRule, BuyerLooksProfessionalRule>();
         services.AddScoped<IDocumentRule, UniquenessRule>();
         services.AddScoped<IDocumentRule, CreditNoteRule>();
+        services.AddScoped<IDocumentRule, PartyRoleConsistencyRule>();
 
         return services;
     }
