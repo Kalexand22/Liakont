@@ -13,9 +13,21 @@ using System.Security.Cryptography;
 /// vérifier une signature SHA-256 (« algorithme non valide »). On force le fournisseur
 /// <c>PROV_RSA_AES</c> (type 24), qui supporte SHA-256 — le poste de release SIGNE avec le même type.
 /// </para>
+/// <para>
+/// TAILLE DE CLÉ MINIMALE (RDF14, RL-UPD-1) : une clé dont le module est inférieur à
+/// <see cref="MinimumKeyBits"/> bits (2048 ; 3072 recommandé) est REFUSÉE — chargée, elle laisse
+/// <see cref="HasKey"/> à <c>false</c> et <see cref="Verify"/> à <c>false</c> (fail-closed), exactement
+/// comme une clé absente. Une clé 1024 bits ne donne donc aucune confiance d'auto-update.
+/// </para>
 /// </summary>
 public sealed class RsaManifestSignatureVerifier : IManifestSignatureVerifier
 {
+    /// <summary>
+    /// Taille minimale (en bits) du module RSA acceptée pour la clé de release d'auto-update. En deçà,
+    /// la clé est traitée comme absente (fail-closed). 2048 = plancher, 3072 recommandé (ADR-0013).
+    /// </summary>
+    public const int MinimumKeyBits = 2048;
+
     // PROV_RSA_AES : fournisseur cryptographique Windows qui supporte SHA-256 (à la différence du
     // PROV_RSA_FULL par défaut). Sign et Verify DOIVENT utiliser le même type.
     private const int ProvRsaAes = 24;
@@ -101,7 +113,10 @@ public sealed class RsaManifestSignatureVerifier : IManifestSignatureVerifier
             using (RSACryptoServiceProvider rsa = CreateSha256CapableRsa())
             {
                 rsa.FromXmlString(publicKeyXml);
-                return true;
+
+                // Plancher de taille de clé (RDF14) : une clé < 2048 bits est traitée comme « pas de
+                // clé exploitable » → fail-closed (HasKey false, Verify false), jamais une levée.
+                return rsa.KeySize >= MinimumKeyBits;
             }
         }
         catch (CryptographicException)
