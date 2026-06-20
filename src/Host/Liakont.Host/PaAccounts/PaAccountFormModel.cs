@@ -34,4 +34,7 @@ public sealed class PaAccountFormModel
 
     /// <summary>« client_secret » OAuth2 EN CLAIR (plug-ins en OAuth2ClientCredentials) ; vide = aucun / inchangé.</summary>
     public string? ClientSecret { get; set; }
+
+    /// <summary>Mot de passe du compte TECHNIQUE EN CLAIR (plug-ins en OAuth2WithTechnicalAccount, ex. Chorus Pro) ; vide = aucun / inchangé.</summary>
+    public string? TechnicalPassword { get; set; }
 }

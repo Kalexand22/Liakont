@@ -28,6 +28,9 @@ public record PaAccountDto
     /// <summary>Indique qu'un « client_secret » OAuth2 a été saisi (chiffré en base) — jamais la valeur elle-même.</summary>
     public bool HasClientSecret { get; init; }
 
+    /// <summary>Indique qu'un mot de passe de compte technique a été saisi (chiffré en base) — jamais la valeur elle-même (auth OAuth2WithTechnicalAccount).</summary>
+    public bool HasTechnicalPassword { get; init; }
+
     public required bool IsActive { get; init; }
 
     public required DateTimeOffset CreatedAt { get; init; }

@@ -72,6 +72,7 @@ internal sealed class PaAccountConsoleService : IPaAccountConsoleService
             ApiKey = NullIfBlank(model.ApiKey),
             ClientId = NullIfBlank(model.ClientId),
             ClientSecret = NullIfBlank(model.ClientSecret),
+            TechnicalPassword = NullIfBlank(model.TechnicalPassword),
         };
 
         return _sender.Send(command, cancellationToken);
@@ -96,6 +97,7 @@ internal sealed class PaAccountConsoleService : IPaAccountConsoleService
             ApiKey = NullIfBlank(model.ApiKey),
             ClientId = NullIfBlank(model.ClientId),
             ClientSecret = NullIfBlank(model.ClientSecret),
+            TechnicalPassword = NullIfBlank(model.TechnicalPassword),
         };
 
         return _sender.Send(command, cancellationToken);

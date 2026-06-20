@@ -38,6 +38,9 @@ public sealed class PaAccount
     /// <summary>« client_secret » OAuth2 CHIFFRÉ (texte opaque), ou <c>null</c> si non saisi (plug-in en OAuth2 uniquement).</summary>
     public string? EncryptedClientSecret { get; private set; }
 
+    /// <summary>Mot de passe du compte TECHNIQUE additionnel CHIFFRÉ (texte opaque), ou <c>null</c> si non saisi (auth OAuth2WithTechnicalAccount, ex. Chorus Pro).</summary>
+    public string? EncryptedTechnicalPassword { get; private set; }
+
     public bool IsActive { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
@@ -51,7 +54,8 @@ public sealed class PaAccount
         string accountIdentifiers,
         string? encryptedApiKey,
         string? encryptedClientId = null,
-        string? encryptedClientSecret = null)
+        string? encryptedClientSecret = null,
+        string? encryptedTechnicalPassword = null)
     {
         ValidatePluginType(pluginType);
 
@@ -65,6 +69,7 @@ public sealed class PaAccount
             EncryptedApiKey = encryptedApiKey,
             EncryptedClientId = encryptedClientId,
             EncryptedClientSecret = encryptedClientSecret,
+            EncryptedTechnicalPassword = encryptedTechnicalPassword,
             IsActive = true,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = null,
@@ -80,6 +85,7 @@ public sealed class PaAccount
         string? encryptedApiKey,
         string? encryptedClientId,
         string? encryptedClientSecret,
+        string? encryptedTechnicalPassword,
         bool isActive,
         DateTimeOffset createdAt,
         DateTimeOffset? updatedAt)
@@ -94,6 +100,7 @@ public sealed class PaAccount
             EncryptedApiKey = encryptedApiKey,
             EncryptedClientId = encryptedClientId,
             EncryptedClientSecret = encryptedClientSecret,
+            EncryptedTechnicalPassword = encryptedTechnicalPassword,
             IsActive = isActive,
             CreatedAt = createdAt,
             UpdatedAt = updatedAt,
@@ -133,6 +140,15 @@ public sealed class PaAccount
     public void SetEncryptedClientSecret(string? encryptedClientSecret)
     {
         EncryptedClientSecret = encryptedClientSecret;
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
+    /// <summary>
+    /// Remplace le mot de passe du compte technique chiffré (valeur DÉJÀ chiffrée, texte opaque). <c>null</c> efface.
+    /// </summary>
+    public void SetEncryptedTechnicalPassword(string? encryptedTechnicalPassword)
+    {
+        EncryptedTechnicalPassword = encryptedTechnicalPassword;
         UpdatedAt = DateTimeOffset.UtcNow;
     }
 

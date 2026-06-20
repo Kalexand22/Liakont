@@ -135,6 +135,65 @@ public sealed class ComptesPaViewTests : BunitContext
     }
 
     [Fact]
+    public void Create_editor_with_technical_account_type_shows_client_id_secret_and_technical_password()
+    {
+        // Type OAuth2WithTechnicalAccount (Chorus Pro) → client_id + client_secret + mot de passe technique
+        // (3 champs masqués), pas de champ clé API. Dispatch PAR MODE D'AUTH, jamais par le nom du PA (règle 19).
+        var authModes = new Dictionary<string, PaAuthMode>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["TechPa"] = PaAuthMode.OAuth2WithTechnicalAccount,
+        };
+        var cut = Render<ComptesPaView>(p => p
+            .Add(v => v.Model, Model([], ["TechPa"], authModes))
+            .Add(v => v.EditorOpen, true)
+            .Add(v => v.EditorIsCreate, true)
+            .Add(v => v.EditorModel, new PaAccountFormModel { PluginType = "TechPa" }));
+
+        cut.Find("[data-testid='comptes-pa-clientid']").GetAttribute("type").Should().Be("password");
+        cut.Find("[data-testid='comptes-pa-clientsecret']").GetAttribute("type").Should().Be("password");
+        var technicalPassword = cut.Find("[data-testid='comptes-pa-technicalpassword']");
+        technicalPassword.GetAttribute("type").Should().Be("password", "le mot de passe technique est saisi masqué (CLAUDE.md n°10)");
+        technicalPassword.GetAttribute("value").Should().BeNullOrEmpty("le mot de passe technique n'est jamais pré-rempli");
+        cut.FindAll("[data-testid='comptes-pa-apikey']").Should().BeEmpty("en OAuth2 avec compte technique, le champ clé API est masqué");
+    }
+
+    [Fact]
+    public void Oauth_simple_type_does_not_show_the_technical_password_field()
+    {
+        // OAuth2 simple (Super PDP) → pas de 3ᵉ secret : le mot de passe technique est propre au mode compte technique.
+        var authModes = new Dictionary<string, PaAuthMode>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["OAuthPa"] = PaAuthMode.OAuth2ClientCredentials,
+        };
+        var cut = Render<ComptesPaView>(p => p
+            .Add(v => v.Model, Model([], ["OAuthPa"], authModes))
+            .Add(v => v.EditorOpen, true)
+            .Add(v => v.EditorIsCreate, true)
+            .Add(v => v.EditorModel, new PaAccountFormModel { PluginType = "OAuthPa" }));
+
+        cut.FindAll("[data-testid='comptes-pa-clientid']").Should().ContainSingle();
+        cut.FindAll("[data-testid='comptes-pa-technicalpassword']").Should().BeEmpty("le mot de passe technique n'existe qu'en OAuth2WithTechnicalAccount");
+    }
+
+    [Fact]
+    public void List_technical_account_shows_technical_password_state()
+    {
+        // Compte de type OAuth2WithTechnicalAccount : la ligne « secret » décrit aussi l'état du mot de passe technique.
+        var authModes = new Dictionary<string, PaAuthMode>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["TechPa"] = PaAuthMode.OAuth2WithTechnicalAccount,
+        };
+        var account = Account(pluginType: "TechPa", hasClientId: true, hasClientSecret: true, hasTechnicalPassword: true);
+        var cut = Render<ComptesPaView>(p => p.Add(v => v.Model, Model([account], ["TechPa"], authModes)));
+
+        var secret = cut.Find("[data-testid='comptes-pa-secret']");
+        secret.TextContent.Should().Contain("client_id");
+        secret.TextContent.Should().Contain("mot de passe technique");
+        secret.TextContent.Should().Contain("configuré (masqué)");
+        secret.TextContent.Should().NotContain("Clé API", "un compte OAuth2 avec compte technique n'affiche pas l'état de la clé API");
+    }
+
+    [Fact]
     public void Create_editor_with_api_key_type_shows_api_key_and_hides_oauth_fields()
     {
         // Type ApiKey (défaut, aucun mode déclaré) → champ clé API, pas de client_id/secret.
@@ -246,7 +305,8 @@ public sealed class ComptesPaViewTests : BunitContext
         bool hasApiKey = false,
         string pluginType = "Fake",
         bool hasClientId = false,
-        bool hasClientSecret = false) => new()
+        bool hasClientSecret = false,
+        bool hasTechnicalPassword = false) => new()
     {
         Id = Guid.NewGuid(),
         CompanyId = Guid.NewGuid(),
@@ -256,6 +316,7 @@ public sealed class ComptesPaViewTests : BunitContext
         HasApiKey = hasApiKey,
         HasClientId = hasClientId,
         HasClientSecret = hasClientSecret,
+        HasTechnicalPassword = hasTechnicalPassword,
         IsActive = true,
         CreatedAt = new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero),
     };

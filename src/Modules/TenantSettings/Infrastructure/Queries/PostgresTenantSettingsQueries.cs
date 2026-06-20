@@ -97,6 +97,7 @@ public sealed class PostgresTenantSettingsQueries : ITenantSettingsQueries
                    (encrypted_api_key IS NOT NULL) AS has_api_key,
                    (encrypted_client_id IS NOT NULL) AS has_client_id,
                    (encrypted_client_secret IS NOT NULL) AS has_client_secret,
+                   (encrypted_technical_password IS NOT NULL) AS has_technical_password,
                    is_active, created_at, updated_at
             FROM tenantsettings.pa_accounts
             WHERE company_id = @CompanyId
@@ -120,6 +121,7 @@ public sealed class PostgresTenantSettingsQueries : ITenantSettingsQueries
                 HasApiKey = (bool)row.has_api_key,
                 HasClientId = (bool)row.has_client_id,
                 HasClientSecret = (bool)row.has_client_secret,
+                HasTechnicalPassword = (bool)row.has_technical_password,
                 IsActive = (bool)row.is_active,
                 CreatedAt = TenantSettingsRowReader.ToDateTimeOffset((object)row.created_at),
                 UpdatedAt = TenantSettingsRowReader.ToNullableDateTimeOffset((object?)row.updated_at),
