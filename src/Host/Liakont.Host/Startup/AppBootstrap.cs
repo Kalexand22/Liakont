@@ -321,7 +321,7 @@ public static class AppBootstrap
         // Génération Factur-X (FX02-FX04) : enregistre le port IFacturXBuilder (sérialiseur CII maison +
         // scellement PDF/A-3 QuestPDF confiné à FacturX.Infrastructure, INV-FX-1). La décision de générer
         // reste au pipeline appelant (FacturX ne consulte aucune PaCapabilities — ADR-0023 INV-FX-4).
-        builder.Services.AddFacturXModule();
+        builder.Services.AddFacturXModule(builder.Configuration);
 
         // FX07 (F16 §6.1) : le plug-in PA GÉNÉRIQUE (Essentiel) et ses canaux de livraison Host sont câblés
         // ICI, EN MÊME TEMPS que la génération à l'étape Sending — au moment où le pipeline sait nourrir le
