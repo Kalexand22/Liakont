@@ -51,6 +51,13 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
     restart: unless-stopped
+    # Plafond mémoire (ADR-0020 §2, reprise OPS01a) : sans plafond la JVM Quarkus happe ≈ 1,83 GiB
+    # sur un gros hôte (la JVM dimensionne son tas via MaxRAMPercentage du cgroup) → OOM/thrash sur
+    # une petite VPS self-hosted, non corrigeable à chaud. Plafonnée à 1 GiB elle se cale à ≈ 456 MiB
+    # au repos et démarre sans OOM (mesures ADR-0020). MaxRAMPercentage=75 (cf. JAVA_OPTS_APPEND
+    # ci-dessous) borne le tas à 75 % du plafond cgroup. Anti-régression : lint CI
+    # tools/lint-appliance-keycloak-memcap.ps1 (échoue si ce plafond disparaît).
+    mem_limit: 1g
     # start (mode PRODUCTION, pas start-dev) + import du realm. KC_HTTP_ENABLED=true car TLS terminé
     # par Caddy en façade ; KC_PROXY_HEADERS=xforwarded pour respecter le schéma/hôte publics.
     # Pas de --optimized : les options de build (KC_DB) sont fournies à l'exécution → Keycloak
@@ -73,7 +80,9 @@ services:
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:?renseignez KC_BOOTSTRAP_ADMIN_PASSWORD dans .env}
       # Active la substitution des ${PLACEHOLDER} du realm importé par des variables d'environnement
       # (sinon Keycloak n'interpole PAS le fichier de realm). Voir realm-liakont.json.
-      JAVA_OPTS_APPEND: "-Dkeycloak.migration.replace-placeholders=true"
+      # -XX:MaxRAMPercentage=75 (ADR-0020 §2) : borne le tas JVM à 75 % du plafond cgroup mem_limit
+      # ci-dessus (1 GiB) → la JVM se cale au lieu de happer la RAM de l'hôte.
+      JAVA_OPTS_APPEND: "-Dkeycloak.migration.replace-placeholders=true -XX:MaxRAMPercentage=75"
       # Variables injectées DANS le realm importé (secret du client confidentiel + URLs de redirection).
       KEYCLOAK_LIAKONT_CLIENT_SECRET: ${KEYCLOAK_LIAKONT_CLIENT_SECRET:?renseignez KEYCLOAK_LIAKONT_CLIENT_SECRET dans .env}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?renseignez PUBLIC_BASE_URL dans .env}
