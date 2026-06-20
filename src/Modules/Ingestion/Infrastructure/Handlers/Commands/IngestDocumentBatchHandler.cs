@@ -8,6 +8,7 @@ using Liakont.Modules.Ingestion.Application;
 using Liakont.Modules.Ingestion.Contracts;
 using Liakont.Modules.Ingestion.Contracts.Commands;
 using Liakont.Modules.Ingestion.Contracts.Events;
+using Liakont.Modules.Ingestion.Contracts.Queries;
 using Liakont.Modules.Ingestion.Domain;
 using Liakont.Modules.Ingestion.Domain.Entities;
 using Liakont.Modules.Staging.Contracts;
@@ -41,6 +42,7 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
     private readonly IReceivedDocumentUnitOfWorkFactory _uowFactory;
     private readonly ISourceTaxRegimeWriter _sourceTaxRegimeWriter;
     private readonly IExtractorCapabilitiesWriter _extractorCapabilitiesWriter;
+    private readonly IExtractorCapabilitiesQueries _extractorCapabilitiesQueries;
     private readonly IDocumentIntake _documentIntake;
     private readonly IPayloadStagingStore _stagingStore;
     private readonly ILogger<IngestDocumentBatchHandler> _logger;
@@ -49,6 +51,7 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
         IReceivedDocumentUnitOfWorkFactory uowFactory,
         ISourceTaxRegimeWriter sourceTaxRegimeWriter,
         IExtractorCapabilitiesWriter extractorCapabilitiesWriter,
+        IExtractorCapabilitiesQueries extractorCapabilitiesQueries,
         IDocumentIntake documentIntake,
         IPayloadStagingStore stagingStore,
         ILogger<IngestDocumentBatchHandler> logger)
@@ -56,6 +59,7 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
         _uowFactory = uowFactory;
         _sourceTaxRegimeWriter = sourceTaxRegimeWriter;
         _extractorCapabilitiesWriter = extractorCapabilitiesWriter;
+        _extractorCapabilitiesQueries = extractorCapabilitiesQueries;
         _documentIntake = documentIntake;
         _stagingStore = stagingStore;
         _logger = logger;
@@ -63,11 +67,16 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
 
     public async Task<PushBatchResponseDto> Handle(IngestDocumentBatchCommand request, CancellationToken cancellationToken)
     {
+        // RD403 : une source LÉGITIMEMENT mutable après émission (capacité IsMutableAfterIssue déclarée) ne doit
+        // pas générer de fausse alerte d'altération à chaque modification attendue. Résolu UNE fois par lot (la
+        // qualification est uniforme pour la source de l'agent), AVANT la boucle (hors transaction par document).
+        var sourceIsMutableAfterIssue = await ResolveSourceMutabilityAsync(request, cancellationToken);
+
         // 1. Chemin PRIMAIRE : traiter chaque document indépendamment (lot NON transactionnel, résultat individuel).
         var results = new List<DocumentPushResultDto>(request.Documents.Count);
         foreach (var document in request.Documents)
         {
-            results.Add(await ProcessDocumentAsync(request, document, cancellationToken));
+            results.Add(await ProcessDocumentAsync(request, document, sourceIsMutableAfterIssue, cancellationToken));
         }
 
         // 2. Métadonnée SECONDAIRE (régimes source pour TVA03 + capacités déclarées pour RD401/RD403),
@@ -164,9 +173,28 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
         }
     }
 
+    /// <summary>
+    /// Capacité EFFECTIVE de mutabilité après émission de la source (RD403). Préfère la capacité déclarée
+    /// dans CE lot (la plus fraîche) ; sinon retombe sur la dernière déclaration persistée pour l'agent
+    /// (add-only : un lot peut omettre les capacités). Inconnue (jamais déclarée) = <c>false</c> : par défaut
+    /// SÛR (fail-closed) — on garde l'alerte d'altération, on ne masque jamais l'altération d'une source
+    /// réputée immuable. Seule une déclaration EXPLICITE <c>true</c> supprime l'alerte.
+    /// </summary>
+    private async Task<bool> ResolveSourceMutabilityAsync(IngestDocumentBatchCommand request, CancellationToken cancellationToken)
+    {
+        if (request.ExtractorCapabilities is { } capabilities)
+        {
+            return capabilities.IsMutableAfterIssue;
+        }
+
+        var persisted = await _extractorCapabilitiesQueries.GetByAgentAsync(request.TenantId, request.AgentId, cancellationToken);
+        return persisted?.IsMutableAfterIssue ?? false;
+    }
+
     private async Task<DocumentPushResultDto> ProcessDocumentAsync(
         IngestDocumentBatchCommand request,
         PivotDocumentDto document,
+        bool sourceIsMutableAfterIssue,
         CancellationToken cancellationToken)
     {
         // Validation de contrat par document : un document malformé est REJETÉ ENTIÈREMENT (jamais
@@ -279,7 +307,11 @@ public sealed partial class IngestDocumentBatchHandler : IRequestHandler<IngestD
                     },
                     cancellationToken);
 
-                if (decision.IsAlteration)
+                // RD403 : l'alerte d'altération n'est émise que pour une source NON déclarée mutable après
+                // émission. Une source légitimement mutable (IsMutableAfterIssue=true) modifie ses documents
+                // de façon ATTENDUE — pas d'alerte (pas de faux positif). Le document altéré est tout de même
+                // accepté et traité normalement (DocumentReceived émis ci-dessus) ; seule l'ALERTE est supprimée.
+                if (decision.IsAlteration && !sourceIsMutableAfterIssue)
                 {
                     await uow.WriteEventAsync(
                         new IntegrationEvent<SourceAlterationDetectedV1>

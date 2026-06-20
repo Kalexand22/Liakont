@@ -57,4 +57,22 @@ internal sealed class PostgresExtractorCapabilitiesQueries : IExtractorCapabilit
             LastSeenAtUtc = IngestionRowReader.ToDateTimeOffset((object)row.last_seen_at),
         };
     }
+
+    public async Task<bool> AnyAgentExposesPaymentsAsync(
+        string tenantId,
+        CancellationToken cancellationToken = default)
+    {
+        // Tenant-scopé (WHERE tenant_id) : true SSI au moins un agent du tenant déclare exposer les
+        // encaissements. EXISTS s'arrête au premier match. Aucune ligne / aucune à true → false (par
+        // défaut sûr : on ne présume pas qu'une source muette expose les paiements — F09 §5.4, RD403).
+        const string sql = """
+            SELECT EXISTS(
+                SELECT 1 FROM ingestion.extractor_capabilities
+                WHERE tenant_id = @TenantId AND exposes_payments = true)
+            """;
+
+        using var connection = await _systemConnectionFactory.OpenAsync(cancellationToken);
+        return await connection.ExecuteScalarAsync<bool>(
+            new CommandDefinition(sql, new { TenantId = tenantId }, cancellationToken: cancellationToken));
+    }
 }

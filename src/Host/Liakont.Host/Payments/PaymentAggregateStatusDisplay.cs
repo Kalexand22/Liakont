@@ -32,6 +32,9 @@ public static class PaymentAggregateStatusDisplay
         // La PA configurée ne déclare pas (encore) la transmission des paiements : agrégat prêt, en attente.
         "PendingCapability" => ("En attente (plateforme)", Severity.Warning),
 
+        // La source n'expose pas d'encaissements (RD403) : e-reporting de paiement non applicable à cette source.
+        "SourceWithoutPayments" => ("Non concerné (source sans encaissements)", Severity.Neutral),
+
         _ => (string.IsNullOrWhiteSpace(status) ? "—" : status!, Severity.Neutral),
     };
 }

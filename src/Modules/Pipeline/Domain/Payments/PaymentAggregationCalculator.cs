@@ -44,6 +44,12 @@ public static class PaymentAggregationCalculator
         "En attente : la Plateforme Agréée ne déclare pas encore la capacité de transmission des paiements " +
         "(Flux 10.4). Les agrégats partiront automatiquement dès l'activation de la capacité, sans autre changement.";
 
+    /// <summary>Motif : la source n'expose pas d'encaissements (capacité <c>ExposesPayments</c> non déclarée — RD403).</summary>
+    public const string SourceWithoutPaymentsReason =
+        "La source ne fournit pas de données d'encaissement (elle ne les expose pas) : l'e-reporting de paiement " +
+        "n'est pas applicable à cette source. À distinguer d'une source qui expose les encaissements mais n'en a " +
+        "aucun sur la période — aucun néant n'est transmis à tort (F09 §5.4).";
+
     /// <summary>Motif : document Mixte (découpage frais/adjudication non sourcé — suspendu).</summary>
     public const string MixteSuspendedReason =
         "Document Mixte (biens + services) : le découpage de la part frais soumise à l'e-reporting de paiement " +
@@ -73,20 +79,23 @@ public static class PaymentAggregationCalculator
     private const string ReverseChargeCategory = nameof(VatCategory.AE);
 
     /// <summary>
-    /// Agrège les encaissements résolus par jour×taux et qualifie les agrégats. Le contexte fiscal et la
-    /// capacité PA déterminent la qualification UNIFORME des agrégats calculés (suspension/non requis/etc.) ;
+    /// Agrège les encaissements résolus par jour×taux et qualifie les agrégats. Le contexte fiscal, la capacité de
+    /// la SOURCE à exposer les encaissements (<paramref name="sourceExposesPayments"/>, RD403) et la capacité PA
+    /// déterminent la qualification UNIFORME des agrégats calculés (suspension/non requis/source sans paiements/etc.) ;
     /// les agrégats sont TOUJOURS calculés pour la traçabilité (F09 amendement, CLAUDE.md). Sortie déterministe
     /// (triée par jour puis taux).
     /// </summary>
+    /// <param name="sourceExposesPayments">La source du tenant déclare exposer des encaissements (capacité <c>ExposesPayments</c>, RD403). <c>false</c> = e-reporting de paiement non applicable (jamais de néant transmis à tort).</param>
     public static PaymentAggregationResult Aggregate(
         IReadOnlyList<ResolvedPayment> payments,
         PaymentFiscalContext fiscal,
-        bool paSupportsDomesticPaymentReporting)
+        bool paSupportsDomesticPaymentReporting,
+        bool sourceExposesPayments)
     {
         ArgumentNullException.ThrowIfNull(payments);
         ArgumentNullException.ThrowIfNull(fiscal);
 
-        var (status, reason) = QualifyTenant(fiscal, paSupportsDomesticPaymentReporting);
+        var (status, reason) = QualifyTenant(fiscal, paSupportsDomesticPaymentReporting, sourceExposesPayments);
 
         var exclusions = new List<PaymentExclusion>();
         var orderedKeys = new List<(DateOnly Date, decimal Rate)>();
@@ -169,16 +178,26 @@ public static class PaymentAggregationCalculator
 
     /// <summary>
     /// Qualifie UNIFORMÉMENT les agrégats du tenant. Ordre : TVA sur les débits (non requis) prime ; sinon une
+    /// source qui n'expose pas les encaissements (RD403) rend l'e-reporting de paiement non applicable ; sinon une
     /// méthode d'imputation manquante OU un paramètre fiscal en attente suspend ; sinon l'absence de capacité PA
     /// met en attente ; sinon transmissible.
     /// </summary>
     private static (PaymentAggregationStatus Status, string? Reason) QualifyTenant(
         PaymentFiscalContext fiscal,
-        bool paSupportsDomesticPaymentReporting)
+        bool paSupportsDomesticPaymentReporting,
+        bool sourceExposesPayments)
     {
         if (fiscal.VatOnDebits == true)
         {
             return (PaymentAggregationStatus.NotRequired, VatOnDebitsNotRequiredReason);
+        }
+
+        // RD403 : si la SOURCE n'expose pas les encaissements, l'e-reporting de paiement n'est pas applicable —
+        // gate AVANT les paramètres fiscaux (plus fondamental : sans donnée d'encaissement de la source, la
+        // question fiscale est sans objet). On ne présume jamais que toute source expose les paiements (F09 §5.4).
+        if (!sourceExposesPayments)
+        {
+            return (PaymentAggregationStatus.SourceWithoutPayments, SourceWithoutPaymentsReason);
         }
 
         if (!fiscal.HasFeeImputationMethod)

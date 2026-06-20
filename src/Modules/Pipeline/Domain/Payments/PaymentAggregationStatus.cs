@@ -19,4 +19,12 @@ public enum PaymentAggregationStatus
 
     /// <summary>Calculé mais EN ATTENTE : la Plateforme Agréée ne déclare pas encore la capacité de transmission des paiements (Flux 10.4).</summary>
     PendingCapability,
+
+    /// <summary>
+    /// La SOURCE n'expose pas d'encaissements (capacité <c>ExposesPayments</c> non déclarée, RD403) :
+    /// l'e-reporting de paiement n'est pas applicable à cette source. À DISTINGUER d'une source qui
+    /// expose les encaissements mais n'en a aucun sur la période (« zéro encaissement » → <see cref="Calculated"/>,
+    /// agrégats vides) : ici on ne transmet jamais un néant à tort (F09 §5.4).
+    /// </summary>
+    SourceWithoutPayments,
 }

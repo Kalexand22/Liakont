@@ -70,6 +70,7 @@ public sealed class PaymentAggregationIntegrationTests : IClassFixture<PaymentAg
         var pivot = AggregationFixtures.BuildServicePivot(sourceReference, (100.00m, 20.00m, 20m), (50.00m, 5.00m, 10m));
 
         _harness.SetPaymentReportingCapability(supported: true);
+        _harness.SetSourceExposesPayments(exposes: true);
         await _harness.CheckServiceDocumentAsync(documentId, pivot);
         await _harness.SetFiscalSettingsAsync(vatOnDebits: false, OperationCategory.PrestationServices, "Mensuelle", FeeImputationMethod.AgregationJourTaux);
         await _harness.SeedPaymentAsync(paymentDate, 175.00m, pivot.Number);
@@ -91,6 +92,7 @@ public sealed class PaymentAggregationIntegrationTests : IClassFixture<PaymentAg
         var pivot = AggregationFixtures.BuildServicePivot(sourceReference, (100.00m, 20.00m, 20m));
 
         _harness.SetPaymentReportingCapability(supported: false);
+        _harness.SetSourceExposesPayments(exposes: true);
         await _harness.CheckServiceDocumentAsync(documentId, pivot);
         await _harness.SetFiscalSettingsAsync(vatOnDebits: false, OperationCategory.PrestationServices, "Mensuelle", FeeImputationMethod.AgregationJourTaux);
         await _harness.SeedPaymentAsync(paymentDate, 120.00m, pivot.Number);
@@ -111,6 +113,7 @@ public sealed class PaymentAggregationIntegrationTests : IClassFixture<PaymentAg
         var pivot = AggregationFixtures.BuildServicePivot(sourceReference, (100.00m, 20.00m, 20m));
 
         _harness.SetPaymentReportingCapability(supported: true);
+        _harness.SetSourceExposesPayments(exposes: true);
         await _harness.CheckServiceDocumentAsync(documentId, pivot);
         await _harness.SetFiscalSettingsAsync(vatOnDebits: true, OperationCategory.PrestationServices, "Mensuelle", FeeImputationMethod.AgregationJourTaux);
         await _harness.SeedPaymentAsync(paymentDate, 120.00m, pivot.Number);
@@ -122,6 +125,33 @@ public sealed class PaymentAggregationIntegrationTests : IClassFixture<PaymentAg
     }
 
     [Fact]
+    public async Task Source_Not_Exposing_Payments_Persists_Aggregate_As_SourceWithoutPayments()
+    {
+        // RD403 : la source ne déclare pas exposer les encaissements (ExposesPayments=false). L'agrégat reste
+        // calculé pour la traçabilité, mais qualifié « source sans encaissements » — jamais transmis à tort,
+        // et DISTINCT de « zéro encaissement » (qui serait Calculated). Tous les autres paramètres sont au vert.
+        var paymentDate = new DateOnly(2026, 3, 20);
+        var documentId = Guid.NewGuid();
+        var sourceReference = Guid.NewGuid().ToString("N");
+        var pivot = AggregationFixtures.BuildServicePivot(sourceReference, (100.00m, 20.00m, 20m));
+
+        _harness.SetPaymentReportingCapability(supported: true);
+        _harness.SetSourceExposesPayments(exposes: false);
+        await _harness.CheckServiceDocumentAsync(documentId, pivot);
+        await _harness.SetFiscalSettingsAsync(vatOnDebits: false, OperationCategory.PrestationServices, "Mensuelle", FeeImputationMethod.AgregationJourTaux);
+        await _harness.SeedPaymentAsync(paymentDate, 120.00m, pivot.Number);
+
+        await _harness.RunAggregateAsync();
+
+        var aggregate = (await _harness.GetAggregatesAsync()).Single(a => a.Date == paymentDate);
+        aggregate.Status.Should().Be(PaymentAggregationStatus.SourceWithoutPayments, "source qui n'expose pas les encaissements = e-reporting de paiement non applicable (RD403).");
+        aggregate.TaxableBase.Should().Be(100.00m, "l'agrégat est calculé pour la traçabilité même si la source n'expose pas les paiements.");
+
+        // Réinitialise la capacité partagée du harnais pour ne pas affecter les autres tests (fixture partagée).
+        _harness.SetSourceExposesPayments(exposes: true);
+    }
+
+    [Fact]
     public async Task Snapshot_Is_Append_Only_And_Idempotent()
     {
         var documentId = Guid.NewGuid();
@@ -129,6 +159,7 @@ public sealed class PaymentAggregationIntegrationTests : IClassFixture<PaymentAg
         var pivot = AggregationFixtures.BuildServicePivot(sourceReference, (100.00m, 20.00m, 20m));
 
         _harness.SetPaymentReportingCapability(supported: true);
+        _harness.SetSourceExposesPayments(exposes: true);
         await _harness.CheckServiceDocumentAsync(documentId, pivot);
 
         var snapshot = await _harness.GetSnapshotAsync(documentId);
