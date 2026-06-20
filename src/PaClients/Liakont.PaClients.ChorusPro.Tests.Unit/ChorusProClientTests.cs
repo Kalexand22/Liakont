@@ -13,7 +13,14 @@ using Xunit;
 /// </summary>
 public sealed class ChorusProClientTests
 {
-    private static ChorusProClient NewClient() => new(ChorusProCapabilities.Declared);
+    // Les comportements de SQUELETTE testés ici ne touchent pas le réseau (résultats typés / no-op / lectures
+    // gardées) : le client est construit avec un transport authentifié inerte (handler non sollicité + jeton
+    // stub + en-tête cpro-account fictif). La double auth elle-même est couverte par ChorusProSendWithAuthTests.
+    private static ChorusProClient NewClient() => new(
+        new HttpClient(new RecordingHttpMessageHandler()),
+        new StubChorusProTokenProvider(),
+        technicalAccountHeader: "bG9naW46bWRw",
+        ChorusProCapabilities.Declared);
 
     private static PivotDocumentDto MinimalDocument() => new(
         sourceDocumentKind: "FA",
