@@ -224,15 +224,28 @@ try {
             Write-Ok "Revalidation du realm Keycloak : $($realm.Detail)"
         }
         elseif ($KeycloakImage) {
-            # Un bump a été demandé : un realm injoignable est un ÉCHEC de montée de version (IdP cassé
-            # pour les utilisateurs) → on NE lève PAS la maintenance et on arrête le Host.
-            Write-ErrMsg "Revalidation du realm Keycloak en échec après bump : $($realm.Detail)"
-            & docker @composeArgs stop liakont 2>$null
-            Write-Host ''
-            Write-ErrMsg 'MONTÉE DE VERSION EN ÉCHEC (realm Keycloak injoignable après bump) — instance ARRÊTÉE, maintenance maintenue.'
-            Write-Host  "  ROLLBACK : 1) restaurer le tag Keycloak précédent dans $composeFile + docker compose up -d ;" -ForegroundColor Yellow
-            Write-Host  "             2) bases sauvegardées dans $backupDir si une restauration est nécessaire." -ForegroundColor Yellow
-            exit 1
+            if (-not $realm.ProbeAvailable) {
+                # wget absent du conteneur caddy : environnement dégradé — on ne peut pas prouver l'échec
+                # du realm, on AVERTIT et on lève la maintenance comme si le bump avait réussi.
+                Write-WarnMsg "Revalidation du realm Keycloak impossible après bump (sonde non disponible) : $($realm.Detail)"
+            }
+            else {
+                # Sonde disponible mais realm injoignable : ÉCHEC confirmé de la montée de version (IdP
+                # cassé pour les utilisateurs) → on NE lève PAS la maintenance, on arrête le Host, et on
+                # restaure le tag Keycloak précédent dans le compose pour faciliter le rollback.
+                Write-ErrMsg "Revalidation du realm Keycloak en échec après bump : $($realm.Detail)"
+                & docker @composeArgs stop liakont 2>$null
+                if ($null -ne $originalCompose) {
+                    [System.IO.File]::WriteAllText($composeFile, ($originalCompose -replace "`r`n", "`n"), (New-Object System.Text.UTF8Encoding($false)))
+                    Write-WarnMsg "Tag Keycloak restauré dans le compose ($composeFile)."
+                }
+                Write-Host ''
+                Write-ErrMsg 'MONTÉE DE VERSION EN ÉCHEC (realm Keycloak injoignable après bump) — instance ARRÊTÉE, maintenance maintenue.'
+                Write-Host  "  ROLLBACK : le tag Keycloak précédent a été restauré dans $composeFile ;" -ForegroundColor Yellow
+                Write-Host  "             exécutez « docker compose up -d » pour remettre en marche le conteneur Keycloak précédent ;" -ForegroundColor Yellow
+                Write-Host  "             bases sauvegardées dans $backupDir si une restauration est nécessaire." -ForegroundColor Yellow
+                exit 1
+            }
         }
         else {
             # Pas de bump Keycloak : sonde indisponible (wget absent) ou IdP lent — on AVERTIT sans

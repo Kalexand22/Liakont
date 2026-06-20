@@ -635,7 +635,10 @@ function Test-KeycloakRealmReady {
         Keycloak minimale n'embarque ni curl ni wget. Si wget est absent de caddy, mode dégradé
         (Ready=$false avec Detail explicite) — l'appelant décide d'avertir ou d'échouer selon le contexte.
     .OUTPUTS
-        PSCustomObject { Ready [bool]; Detail [string] }
+        PSCustomObject { Ready [bool]; ProbeAvailable [bool]; Detail [string] }
+        ProbeAvailable=$false signifie que wget est absent du conteneur caddy (environnement dégradé) ;
+        l'appelant peut alors choisir d'avertir plutôt que d'échouer. ProbeAvailable=$true dans tous
+        les autres cas (réponse 200 reçue, ou délai dépassé/realm injoignable = sonde fonctionnelle).
     #>
     [CmdletBinding()]
     param(
@@ -653,18 +656,18 @@ function Test-KeycloakRealmReady {
         $probeArgs = $ComposeArgs + @('exec', '-T', 'caddy', 'wget', '-S', '-q', '-O', '/dev/null', '-T', '5', $url)
         $probe = (& docker @probeArgs 2>&1 | Out-String)
         if ($probe -match 'applet not found' -or $probe -match 'wget:\s*not found' -or $LASTEXITCODE -eq 127) {
-            return [PSCustomObject]@{ Ready = $false
+            return [PSCustomObject]@{ Ready = $false; ProbeAvailable = $false
                 Detail = "Sonde realm non disponible (wget absent du conteneur caddy) — revalidation du realm « $RealmName » impossible (mode dégradé)." }
         }
         if ($probe -match 'HTTP/\S+\s+200') {
-            return [PSCustomObject]@{ Ready = $true
+            return [PSCustomObject]@{ Ready = $true; ProbeAvailable = $true
                 Detail = "Realm « $RealmName » servi (découverte OIDC 200)." }
         }
         $httpLine = (($probe -split "`n") | Where-Object { $_ -match 'HTTP/' } | Select-Object -First 1)
         if ($httpLine) { $lastDetail = "dernière réponse : $($httpLine.Trim())" }
         Start-Sleep -Seconds 3
     }
-    return [PSCustomObject]@{ Ready = $false
+    return [PSCustomObject]@{ Ready = $false; ProbeAvailable = $true
         Detail = "Realm « $RealmName » NON confirmé après $TimeoutSeconds s ($lastDetail) — point de découverte OIDC injoignable." }
 }
 

@@ -103,6 +103,39 @@ try {
         Assert-True ($pa -ne $pb) 'secrets distincts par instance'
     }
 
+    # ── Test-KeycloakImagePinned ──
+    Test-Case 'KeycloakPinned : tag patch précis accepté (quay.io officiel)' {
+        Assert-True (Test-KeycloakImagePinned -ImageRef 'quay.io/keycloak/keycloak:26.0.8') 'tag major.minor.patch refusé à tort'
+    }
+    Test-Case 'KeycloakPinned : tag patch précis accepté (registre privé avec port)' {
+        Assert-True (Test-KeycloakImagePinned -ImageRef 'registry.local:5000/keycloak:26.0.8') 'tag avec registre+port refusé à tort'
+    }
+    Test-Case 'KeycloakPinned : digest @sha256 accepté' {
+        Assert-True (Test-KeycloakImagePinned -ImageRef ('quay.io/keycloak/keycloak@sha256:' + ('a' * 64))) 'digest sha256 refusé à tort'
+    }
+    Test-Case 'KeycloakPinned : tag minor seul refusé (26.0)' {
+        Assert-True (-not (Test-KeycloakImagePinned -ImageRef 'quay.io/keycloak/keycloak:26.0')) 'tag flottant minor accepté à tort'
+    }
+    Test-Case 'KeycloakPinned : tag major seul refusé (26)' {
+        Assert-True (-not (Test-KeycloakImagePinned -ImageRef 'quay.io/keycloak/keycloak:26')) 'tag flottant major accepté à tort'
+    }
+    Test-Case 'KeycloakPinned : :latest refusé' {
+        Assert-True (-not (Test-KeycloakImagePinned -ImageRef 'quay.io/keycloak/keycloak:latest')) 'tag latest accepté à tort'
+    }
+    Test-Case 'KeycloakPinned : absence de tag refusée' {
+        Assert-True (-not (Test-KeycloakImagePinned -ImageRef 'quay.io/keycloak/keycloak')) 'image sans tag acceptée à tort'
+    }
+    Test-Case 'KeycloakPinned : chaîne vide refusée (exception ou $false)' {
+        # PowerShell refuse un string vide sur un paramètre Mandatory ; on accepte aussi bien une
+        # exception (refus du binder) qu'un retour $false (garde interne) — les deux signifient « rejeté ».
+        $accepted = $false
+        try { $accepted = [bool](Test-KeycloakImagePinned -ImageRef '') } catch { $accepted = $false }
+        Assert-True (-not $accepted) 'chaîne vide acceptée à tort'
+    }
+    Test-Case 'KeycloakPinned : tag minor seul refusé (registre privé avec port)' {
+        Assert-True (-not (Test-KeycloakImagePinned -ImageRef 'registry.local:5000/keycloak:26.0')) 'tag flottant minor sur registre privé accepté à tort'
+    }
+
     # ── Registre des instances ──
     Test-Case 'Registre : fichier absent → tableau vide' {
         $missing = Join-Path $tmpRoot 'absent.yaml'

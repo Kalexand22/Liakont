@@ -150,9 +150,10 @@ security » d'ADR-0013 / ADR-0002.
 ### Décision
 
 1. **Tag de patch précis, jamais flottant.** Tous les composes/tests pinnent un tag
-   `major.minor.patch` (ou un digest `@sha256:…`). État actuel : **`26.0.8`** (le patch exact sur
-   lequel `:26.0` résolvait au moment de la mesure du présent ADR — bascule **sans changement de
-   comportement** : reproductibilité d'abord). La garde de tooling `Test-KeycloakImagePinned`
+   `major.minor.patch` (ou un digest `@sha256:…`). État actuel : **`26.0.8`** (le dernier patch de
+   la ligne EOL 26.0.x — `26.0.x` étant EOL, aucun patch ultérieur n'est attendu sur cette ligne,
+   de sorte que `:26.0` reste résolu sur `26.0.8` ; épingler `26.0.8` fige l'image sur ce patch sans
+   changement attendu tant que la ligne reste EOL). La garde de tooling `Test-KeycloakImagePinned`
    (`Provisioning.psm1`) refuse un tag flottant (`:26`, `:26.0`, `:latest`, absence de tag).
 
 2. **Politique de version.** Keycloak publie ~3-4 minors/an, chaque minor n'étant supporté que sur
@@ -182,8 +183,9 @@ security » d'ADR-0013 / ADR-0002.
 
 ### Conséquences
 
-- **Aucun changement de comportement** par cet avenant (`:26.0` ⇒ `:26.0.8` = même image résolue) :
-  build/tests verts inchangés ; la suite E2E Keycloak tire désormais un tag précis (digest identique).
+- **Aucun changement de comportement attendu** par cet avenant (`:26.0` ⇒ `:26.0.8` : `26.0.8` est
+  le dernier patch d'une ligne EOL, donc `:26.0` y résolvait déjà ; épingler le tag explicite gèle
+  la résolution sans modifier l'image effectivement servie) : build/tests verts inchangés.
 - **OPS02 enrichi** : `update-instance.ps1` gagne `-KeycloakImage` / `-KeycloakRealm`, le `pull`
   systématique et la revalidation du realm. `Provisioning.psm1` exporte `Test-KeycloakImagePinned`
   (pur, testable) et `Test-KeycloakRealmReady`.
