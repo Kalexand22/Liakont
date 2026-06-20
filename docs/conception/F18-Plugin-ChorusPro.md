@@ -24,17 +24,17 @@
 
 | Constante / point | Statut | Renvoi |
 |---|---|---|
-| `syntaxeFlux` Factur-X = `IN_DP_E2_CII_FACTURX` | ✅ sourcé (Spec V5.00 ; valeur stable) | §4.1 |
-| 9 libellés `etatCourantFlux` (accents/casse) | ✅ sourcé (Spec V5.00) ; 🔶 page à verrouiller | §5 |
-| Mapping `etatCourantFlux` → `PaSendState` (`Intégré` → `Issued` SEUL) | ✅ décision produit (CLAUDE.md n°3) | §5 |
-| `scope=openid` (ajout PISTE au `client_credentials`) | ✅ sourcé (raccordement OAuth2 PISTE) | §3.1 |
-| Format `cpro-account` = `base64(login:motDePasse)` | ✅ sourcé (Spec V5.00 / doc raccordement) | §3.2 |
-| Endpoint jeton OAuth2 (sandbox) | 🔶 lecture courante — à verrouiller Swagger | §3.1 |
-| Base API + chemin REST versionné (`/cpro/.../v1/…`) | ❓ **À VERROUILLER** (Swagger PISTE) — **ne pas hardcoder** | §4.3, §8 |
-| `avecSignature = false` (notre artefact est non signé) | ✅ décision interne (D9) ; ❓ acceptation Chorus Pro d'un Factur-X **non signé** à confirmer | §7 |
-| Résolution `idUtilisateurCourant` + **cardinalité** | 🔶 méthode tranchée (`consulterCompteUtilisateur`) ; ❓ **cardinalité / caractère requis** à verrouiller | §4.2 |
-| `codeRetour` de succès (valeur exacte) | ❓ **À VERROUILLER** (Swagger) | §6 |
-| Hôtes cibles `*.piste.gouv.fr` (PAS `aife.economie.gouv.fr`) | ✅ sourcé (décommissionnement 30/09/2023) | §8 |
+| `syntaxeFlux` Factur-X = `IN_DP_E2_CII_FACTURX` | ✅ sourcé (Spec V5.00 ; valeur stable) | §3.1 |
+| 9 libellés `etatCourantFlux` (accents/casse) | ✅ sourcé (Spec V5.00) ; 🔶 page à verrouiller | §4 |
+| Mapping `etatCourantFlux` → `PaSendState` (`Intégré` → `Issued` SEUL) | ✅ décision produit (CLAUDE.md n°3) | §4 |
+| `scope=openid` (ajout PISTE au `client_credentials`) | ✅ sourcé (raccordement OAuth2 PISTE) | §2.1 |
+| Format `cpro-account` = `base64(login:motDePasse)` | ✅ sourcé (Spec V5.00 / doc raccordement) | §2.2 |
+| Endpoint jeton OAuth2 (sandbox) | 🔶 lecture courante — à verrouiller Swagger | §2.1 |
+| Base API + chemin REST versionné (`/cpro/.../v1/…`) | ❓ **À VERROUILLER** (Swagger PISTE) — **ne pas hardcoder** | §3.3, §7 |
+| `avecSignature = false` (notre artefact est non signé) | ✅ décision interne (D9) ; ❓ acceptation Chorus Pro d'un Factur-X **non signé** à confirmer | §6 |
+| Résolution `idUtilisateurCourant` + **cardinalité** | 🔶 méthode tranchée (`consulterCompteUtilisateur`) ; ❓ **cardinalité / caractère requis** à verrouiller | §3.2 |
+| `codeRetour` de succès (valeur exacte) | ❓ **À VERROUILLER** (Swagger) | §5 |
+| Hôtes cibles `*.piste.gouv.fr` (PAS `aife.economie.gouv.fr`) | ✅ sourcé (décommissionnement 30/09/2023) | §7 |
 
 > **Règle d'usage de ce document.** Une constante marquée ❓ **ne doit pas être figée dans le code**
 > avant verrouillage sur le Swagger PISTE courant / le compte de qualification. Les constantes ✅
@@ -51,7 +51,7 @@
   `etatCourantFlux`, format `cpro-account`) restent valables ; seuls les **hôtes/chemins** sont à
   ré-ancrer sur le Swagger PISTE courant.
 - 🔶 **Annexe « External Specifications API Appendix V4.14-bis »** consultée pour la **section
-  idempotence / dédup** (faute de section équivalente repérée en V5.00) — voir §4.4. À **reconfirmer en
+  idempotence / dédup** (faute de section équivalente repérée en V5.00) — voir §3.4. À **reconfirmer en
   V5.00 / Swagger** lors du raccordement.
 - ❓ **À VERROUILLER** : confronter V5.00 publique vs annexe V4.14-bis vs **Swagger PISTE courant** au
   raccordement qualif ; tenir compte de la **réforme 2026** (décret 2024-266 + art. 123 LF 2026). En cas
@@ -72,7 +72,7 @@ cpro-account: base64(loginTechnique:motDePasse)   # compte technique Chorus Pro 
 
 - ✅ **Grant** : `client_credentials` ; **corps** `application/x-www-form-urlencoded` :
   `grant_type=client_credentials&client_id=<…>&client_secret=<…>&scope=openid`.
-  Source : *Comment réussir son raccordement API OAuth2* (communauté Chorus Pro/PISTE) — URL §12.
+  Source : *Comment réussir son raccordement API OAuth2* (communauté Chorus Pro/PISTE) — URL §11.
 - ✅ **`scope=openid`** est un **ajout spécifique PISTE** au `client_credentials` standard.
 - 🔶 **Endpoint jeton (qualif)** : `https://sandbox-oauth.piste.gouv.fr/api/oauth/token` — **lecture
   courante, à verrouiller au Swagger PISTE**. Prod : hôte `oauth.piste.gouv.fr` (sans `sandbox-`) à
@@ -191,7 +191,7 @@ cpro-account: base64(loginTechnique:motDePasse)   # compte technique Chorus Pro 
 ## 7. Endpoints `*.piste.gouv.fr` (et NON `aife.economie.gouv.fr`)
 
 - ✅ Les URLs PISTE historiques (`*.aife.economie.gouv.fr`) sont **décommissionnées depuis le 30/09/2023**.
-  Source : *Décommissionnement des URL PISTE historiques* — URL §12.
+  Source : *Décommissionnement des URL PISTE historiques* — URL §11.
 - ➡️ **Toujours `*.piste.gouv.fr`.** Hôtes/chemins exacts **depuis le Swagger PISTE courant** (jeton :
   `*-oauth.piste.gouv.fr` ; API : `*-api.piste.gouv.fr/cpro/…`). Sandbox = préfixe `sandbox-`. **Aucun
   endpoint en dur** dans le code : `ChorusProDefaults` lit cette source + le Swagger.
