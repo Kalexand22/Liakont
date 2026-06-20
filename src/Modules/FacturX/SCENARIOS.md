@@ -32,8 +32,10 @@
 ### Enregistrement DI du module (`AddFacturXModule`)
 - `FacturXModuleRegistrationTests.AddFacturXModule_ReturnsSameCollection_ForChaining` — l'API de
   composition chaîne (retourne la même `IServiceCollection`).
-- `FacturXModuleRegistrationTests.AddFacturXModule_ActivatesQuestPdfCommunityLicense` — l'effet de
-  bord public (licence QuestPDF Community) est posé.
+- `FacturXModuleRegistrationTests.AddFacturXModule_AppliesConfiguredQuestPdfLicense` — la licence
+  QuestPDF est déclarée par configuration (`QuestPdf:LicenseType`), pas codée en dur Community.
+- `FacturXModuleRegistrationTests.AddFacturXModule_FailsClosed_WhenLicenseTypeIsNotDeclared` — clé
+  absente ou vide : le démarrage échoue avec un message opérateur (fermé par défaut).
 - `FacturXModuleRegistrationTests.AddFacturXModule_IsIdempotent` — appel répété sans erreur (le socle
   peut déjà avoir posé la licence).
 

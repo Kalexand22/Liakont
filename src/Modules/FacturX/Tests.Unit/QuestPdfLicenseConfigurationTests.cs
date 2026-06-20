@@ -46,6 +46,7 @@ public sealed class QuestPdfLicenseConfigurationTests
     [InlineData("Community-XL")] // proche mais invalide
     [InlineData("0")] // numérique : pas une déclaration explicite de type
     [InlineData("1")]
+    [InlineData("Community,Enterprise")] // liste virgule : Enum.TryParse l'accepterait mais pas un nom exact
     public void Resolve_Throws_WhenUnknownOrNumeric(string configured)
     {
         var act = () => QuestPdfLicenseConfiguration.Resolve(configured);

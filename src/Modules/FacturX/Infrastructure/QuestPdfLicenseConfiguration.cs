@@ -59,13 +59,16 @@ public static class QuestPdfLicenseConfiguration
 
         var trimmed = configuredValue.Trim();
 
-        // Exiger un NOM, pas un nombre : Enum.TryParse accepterait « 0/1/2 », ce qui ne serait pas une
-        // déclaration explicite de type (acceptance RDF18 : valeur de LicenseType explicite, pas opaque).
-        if (!int.TryParse(trimmed, out _)
-            && Enum.TryParse<LicenseType>(trimmed, ignoreCase: true, out var licenseType)
-            && Enum.IsDefined(licenseType))
+        // Exiger un NOM EXACT (insensible à la casse) parmi les membres de l'énumération : seule une
+        // déclaration explicite du type est acceptée. Enum.TryParse accepterait des valeurs numériques
+        // (« 0 », « 1 ») et des listes virgule-séparées (« Community,Enterprise ») qui ne constituent
+        // pas une déclaration explicite de type — ces cas sont rejetés ici.
+        foreach (var name in Enum.GetNames<LicenseType>())
         {
-            return licenseType;
+            if (string.Equals(name, trimmed, StringComparison.OrdinalIgnoreCase))
+            {
+                return Enum.Parse<LicenseType>(name);
+            }
         }
 
         throw new InvalidOperationException(
