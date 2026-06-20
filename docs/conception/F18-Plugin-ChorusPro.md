@@ -16,7 +16,7 @@
 > `Generique`) via **OAuth2 PISTE** (modèle `SuperPdp`). **B2G uniquement.** Le plug-in ne **construit
 > aucun payload** depuis le pivot, ne **calcule/arrondit aucun montant** (transport pur, le payload
 > `deposerFluxFacture` ne porte aucun montant), n'a **aucune logique fiscale**. e-reporting **EXCLU**
-> (décision D2 — voir §9).
+> (décision D2 — voir §8).
 
 ---
 
@@ -47,7 +47,7 @@
 
 - 🔶 **Spécification Externe API Chorus Pro V5.00 (2020)** = **référence des libellés et constantes**
   consultée. ⚠️ Les hôtes `*.aife.economie.gouv.fr` qui y figurent sont **décommissionnés depuis le
-  30/09/2023** → remplacés par `*.piste.gouv.fr` (voir §8). Les **valeurs métier** (syntaxeFlux,
+  30/09/2023** → remplacés par `*.piste.gouv.fr` (voir §7). Les **valeurs métier** (syntaxeFlux,
   `etatCourantFlux`, format `cpro-account`) restent valables ; seuls les **hôtes/chemins** sont à
   ré-ancrer sur le Swagger PISTE courant.
 - 🔶 **Annexe « External Specifications API Appendix V4.14-bis »** consultée pour la **section
@@ -104,7 +104,7 @@ cpro-account: base64(loginTechnique:motDePasse)   # compte technique Chorus Pro 
   "fichierFlux": "<base64 du PDF/A-3 Factur-X scellé>",
   "nomFichier": "<nom de fichier>",
   "syntaxeFlux": "IN_DP_E2_CII_FACTURX",   // ✅ Factur-X (CII dans PDF/A-3)
-  "avecSignature": false                    // ✅ notre artefact est non signé (D9 ; §7)
+  "avecSignature": false                    // ✅ notre artefact est non signé (D9 ; §6)
 }
 ```
 
