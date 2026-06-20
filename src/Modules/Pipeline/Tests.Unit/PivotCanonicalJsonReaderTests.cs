@@ -92,6 +92,30 @@ public sealed class PivotCanonicalJsonReaderTests
     }
 
     [Fact]
+    public void Unit_Code_Survives_The_Round_Trip_For_The_Pa_Send()
+    {
+        // RD407 — bout en bout : l'unité de mesure (BT-130) écrite par l'agent dans le staging doit être
+        // RELUE par le pipeline avant l'émission FacturX/SuperPDP. Sans cette lecture, le champ serait
+        // écrit puis PERDU à la relecture → l'émetteur retomberait sur C62 même quand la source porte une unité.
+        var pivot = new PivotDocumentDto(
+            sourceDocumentKind: "FACTURE",
+            number: "F-UNITE",
+            issueDate: new DateTime(2026, 1, 15),
+            sourceReference: "SRC-F-UNITE",
+            supplier: new PivotPartyDto("SVV Démo", siren: "123456789"),
+            totals: new PivotTotalsDto(100m, 20m, 120m),
+            operationCategory: OperationCategory.LivraisonBiens,
+            customer: new PivotPartyDto("Client Démo", siren: "987654321"),
+            lines: new[] { new PivotLineDto("Prestation", 100m, unitCode: "KGM", taxes: new[] { new PivotLineTaxDto(20m, 20m, VatCategory.S) }) });
+        var json = CanonicalJson.Serialize(pivot);
+
+        var rebuilt = PivotCanonicalJsonReader.Read(json);
+
+        rebuilt.Lines.Should().ContainSingle().Which.UnitCode.Should().Be("KGM", "BT-130 doit traverser le staging intacte");
+        CanonicalJson.Serialize(rebuilt).Should().Be(json, "round-trip stable octet par octet avec BT-130 (ADR-0007)");
+    }
+
+    [Fact]
     public void Read_Null_Throws()
     {
         var act = () => PivotCanonicalJsonReader.Read(null!);

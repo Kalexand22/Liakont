@@ -80,7 +80,8 @@ public static class PivotCanonicalJsonReader
         sourceRegimeCodes: StrList(element, "SourceRegimeCodes"),
         taxes: ReadList(element, "Taxes", ReadLineTax),
         sourceLineRef: StrOrNull(element, "SourceLineRef"),
-        sourceData: StrOrNull(element, "SourceData"));
+        sourceData: StrOrNull(element, "SourceData"),
+        unitCode: StrOrNull(element, "UnitCode"));
 
     private static PivotLineTaxDto ReadLineTax(JsonElement element) => new(
         taxAmount: Dec(element, "TaxAmount"),
