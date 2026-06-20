@@ -33,7 +33,7 @@ public sealed class ChorusProClientFactoryTests
     }
 
     [Fact]
-    public void Create_Builds_A_ChorusProClient_With_The_Declared_Skeleton_Capabilities()
+    public void Create_Builds_A_ChorusProClient_With_The_Declared_Capabilities()
     {
         var factory = NewFactory(new RecordingHttpMessageHandler(), new StubChorusProAccountResolver());
 
@@ -42,9 +42,9 @@ public sealed class ChorusProClientFactoryTests
         client.Should().BeOfType<ChorusProClient>();
         client.Capabilities.PaName.Should().Be("Chorus Pro");
 
-        // Le transport métier (deposerFluxFacture / consulterCR) arrive avec CP04+ : les capacités restent
-        // toutes false (CLAUDE.md n°2/3) ; CP03 ne câble que l'authentification.
-        client.Capabilities.SupportsFacturXTransmission.Should().BeFalse();
+        // CP08 : la fabrique transporte les capacités déclarées — SupportsFacturXTransmission = true
+        // (transport « Essentiel »), e-reporting = false (EXCLU D2, CLAUDE.md n°2/8).
+        client.Capabilities.SupportsFacturXTransmission.Should().BeTrue();
         client.Capabilities.SupportsB2cReporting.Should().BeFalse();
     }
 
