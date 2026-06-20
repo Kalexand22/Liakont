@@ -74,6 +74,11 @@
          COMPOSITION ROOT (CLAUDE.md n°6/14) ; résolu par PaType « SuperPdp ». Le Host fournit le résolveur de
          compte (déchiffrement des secrets OAuth2 par tenant) ; le plug-in ne voit que Transmission.Contracts. -->
     <ProjectReference Include="..\..\PaClients\Liakont.PaClients.SuperPdp\Liakont.PaClients.SuperPdp.csproj" />
+    <!-- Plug-in PA Chorus Pro (F18, OAuth2WithTechnicalAccount — dépôt d'un Factur-X scellé via PISTE) : PA B2G
+         réelle. Câblé au COMPOSITION ROOT (CLAUDE.md n°6/14) ; résolu par PaType « ChorusPro ». Le Host fournit
+         le résolveur de compte (déchiffrement des secrets PISTE + compte technique par tenant) ; le plug-in ne
+         voit que Transmission.Contracts. -->
+    <ProjectReference Include="..\..\PaClients\Liakont.PaClients.ChorusPro\Liakont.PaClients.ChorusPro.csproj" />
     <!-- Module FacturX (FX02-FX04) câblé au COMPOSITION ROOT par FX07 : le Host enregistre AddFacturXModule
          (port IFacturXBuilder, QuestPDF confinée à FacturX.Infrastructure) et expose le pont
          IFacturXArtifactBuilder vers Transmission.Contracts pour que le pipeline génère « derrière
