@@ -47,6 +47,16 @@ public static class ContractFixtures
     /// <summary>Nom de la fixture de heartbeat.</summary>
     public const string HeartbeatFixtureName = "heartbeat";
 
+    /// <summary>
+    /// Version de contrat HYPOTHÉTIQUE servant à matérialiser le seam de cohabitation N/N-1 (RDF08,
+    /// ADR-0001/F12 §6.4) AVANT toute rupture réelle : les golden d'enveloppe de
+    /// <c>tests/fixtures/contrat-v2/</c> la portent. Ce n'est PAS une version de contrat publiée —
+    /// le modèle de payload reste celui de la V1 (aucune rupture métier) ; seul l'axe de version
+    /// négociée diffère. Une vraie rupture future ajoutera des golden de DOCUMENT ici et bumpera les
+    /// empreintes figées (cf. <c>contrat-agent-v1.md</c> §4).
+    /// </summary>
+    public const string CohabitationNextVersion = "2";
+
     private static readonly IReadOnlyList<DocumentFixture> DocumentsBacking = BuildDocuments();
 
     /// <summary>Les documents pivot de référence (données fictives), dans un ordre stable.</summary>
@@ -87,15 +97,26 @@ public static class ContractFixtures
     /// <see cref="PushBatchRequestDto"/>. Référence de format, non hashée (voir résumé de classe).
     /// </summary>
     /// <returns>Le JSON canonique du lot.</returns>
-    public static string ComposeBatchRequestJson()
+    public static string ComposeBatchRequestJson() => ComposeBatchRequestJson(AgentContractVersion.ContractVersion);
+
+    /// <summary>
+    /// Compose le JSON d'un lot ILLUSTRATIF portant la version de contrat <paramref name="contractVersion"/>.
+    /// Les documents embarqués sont les MÊMES quelle que soit la version : l'axe de version négociée
+    /// (enveloppe) est orthogonal à l'empreinte par document (seul le payload par document est hashé).
+    /// Sert à matérialiser le seam N/N-1 (golden v1 = version de l'assembly ; golden v2 =
+    /// <see cref="CohabitationNextVersion"/>).
+    /// </summary>
+    /// <param name="contractVersion">Version de contrat portée par l'enveloppe.</param>
+    /// <returns>Le JSON canonique du lot.</returns>
+    public static string ComposeBatchRequestJson(string contractVersion)
     {
         string first = CanonicalJson.Serialize(GetDocument("facture-standard-b2c"));
         string second = CanonicalJson.Serialize(GetDocument("avoir-simple-lie"));
 
         // Enveloppe minimale (deux documents) : assemblée explicitement car le writer canonique ne
         // sait pas réinjecter un sous-document déjà sérialisé. Format figé : pas d'espaces, ordre
-        // de déclaration du DTO, version de contrat de l'assembly.
-        return "{\"ContractVersion\":\"" + AgentContractVersion.ContractVersion + "\",\"Documents\":["
+        // de déclaration du DTO. La version de contrat est paramétrée (axe de négociation).
+        return "{\"ContractVersion\":\"" + contractVersion + "\",\"Documents\":["
             + first + "," + second + "]}";
     }
 
@@ -105,10 +126,19 @@ public static class ContractFixtures
     /// d'ADR-0007 (<c>yyyy-MM-ddTHH:mm:ssZ</c>). Référence de format, non hashée.
     /// </summary>
     /// <returns>Le JSON canonique du heartbeat.</returns>
-    public static string ComposeHeartbeatJson()
+    public static string ComposeHeartbeatJson() => ComposeHeartbeatJson(AgentContractVersion.ContractVersion);
+
+    /// <summary>
+    /// Compose le JSON ILLUSTRATIF d'un heartbeat portant la version de contrat
+    /// <paramref name="contractVersion"/>. Identique à <see cref="ComposeHeartbeatJson()"/> hormis la
+    /// version (axe de négociation) — sert à matérialiser le seam N/N-1 (golden v2).
+    /// </summary>
+    /// <param name="contractVersion">Version de contrat portée par l'enveloppe.</param>
+    /// <returns>Le JSON canonique du heartbeat.</returns>
+    public static string ComposeHeartbeatJson(string contractVersion)
     {
         var heartbeat = new HeartbeatRequestDto(
-            contractVersion: AgentContractVersion.ContractVersion,
+            contractVersion: contractVersion,
             agentVersion: "2.4.0",
             sentAtUtc: new DateTime(2026, 2, 1, 9, 30, 0, DateTimeKind.Utc),
             lastSuccessfulSyncUtc: new DateTime(2026, 1, 31, 22, 15, 0, DateTimeKind.Utc));

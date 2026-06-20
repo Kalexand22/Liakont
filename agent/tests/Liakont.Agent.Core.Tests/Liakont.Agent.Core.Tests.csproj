@@ -47,6 +47,9 @@
        les MÊMES fichiers et les MÊMES empreintes que la plateforme — preuve cross-runtime. -->
   <ItemGroup>
     <None Include="..\..\..\tests\fixtures\contrat-v1\*.json" Link="fixtures\contrat-v1\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Golden d'enveloppe du seam de cohabitation N/N-1 (RDF08) : mêmes fichiers que la plateforme,
+         preuve cross-runtime que l'axe de version négociée est orthogonal à l'empreinte par document. -->
+    <None Include="..\..\..\tests\fixtures\contrat-v2\*.json" Link="fixtures\contrat-v2\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

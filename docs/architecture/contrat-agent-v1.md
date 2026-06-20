@@ -108,6 +108,43 @@ enum/champ-optionnel du sérialiseur cross-runtime ; l'agent lui-même ne rempli
    change la sortie canonique, les tests cassent des DEUX côtés. C'est volontaire — la régénération
    est un acte explicite, revu en gate humaine.
 
+### 4.1 Articulation des deux axes de version
+
+La version se porte sur **deux axes distincts et orthogonaux** — ne pas les confondre :
+
+| Axe | Porteur | Granularité | Qui décide |
+|---|---|---|---|
+| **Préfixe d'URL** (`/api/agent/v1/`) | route HTTP (`MapGroup`), constante `AgentContractVersion.Current` (`"v1"`) | grossière : ne change qu'à une **rupture** (§4.2) | acte humain revu (ajout d'un `MapGroup("/api/agent/v2")`) |
+| **Version de contrat négociée** (en-tête `X-Contract-Version`, champ `ContractVersion`) | `AgentContractVersion.ContractVersion` (`"1"`), `AgentContractVersionPolicy` | fine : N et N-1 cohabitent, plus ancien → `426` | la plateforme, à chaque requête (filtre) |
+
+- Le **préfixe d'URL** localise la famille de contrat ; la **version négociée** sélectionne, *à
+  l'intérieur* d'une requête, la compatibilité N/N-1 et déclenche le `426` (auto-update).
+- L'axe de version est **orthogonal à l'empreinte par document** : seul le *payload par document*
+  est hashé (anti-doublon PIV04) ; l'enveloppe (batch/heartbeat) qui porte la version ne l'est pas.
+  Un même document poussé sous contrat N ou N-1 a **la même empreinte** — un changement de version
+  négociée ne crée jamais de doublon ni de rupture d'empreinte.
+
+### 4.2 Seam de cohabitation N/N-1 matérialisé (RDF08)
+
+Le seam N/N-1 est **exercé par des tests dès la V1**, avant toute rupture réelle, pour qu'il ne soit
+pas découvert en production à la première évolution cassante :
+
+- **Négociation** — `AgentContractVersionPolicy.IsSupported(version, current, previous)` est une
+  décision PURE testée (`AgentContractVersionPolicyTests`) sur une matrice hypothétique
+  (`N="2"`, `N-1="1"`) : N et N-1 supportés, toute version antérieure à N-1 refusée (`426`). La
+  matrice *live* garde `Previous = null` (il n'existe pas encore de N-1) — la branche N-1 est donc
+  prouvée correcte sans fausser la politique servie.
+- **Sérialisation** — un jeu de **golden v2** (`tests/fixtures/contrat-v2/` : `batch-mixte.json`,
+  `heartbeat.json`) porte `ContractVersion: "2"` sur les **mêmes** documents que la v1. Les tests
+  cross-runtime (`ContractFixtureTests`, liés net48 + .NET 10) prouvent que l'enveloppe v2 est
+  identique octet par octet des deux côtés, qu'elle ne diffère de la v1 que par la valeur de
+  `ContractVersion`, et que les empreintes des documents embarqués sont inchangées.
+
+> Le **payload v2 reste celui de la V1** : aucune rupture métier n'existe encore, donc aucun DTO ni
+> golden de *document* v2 n'est inventé (CLAUDE.md n°2). Une vraie rupture future bascule
+> `Previous` sur `"1"`, ajoute le `MapGroup("/api/agent/v2")`, ajoute les golden de document v2 et
+> bumpe les empreintes figées — chemins déjà en place et verts grâce à ce seam.
+
 ---
 
 ## 5. Golden files (`tests/fixtures/contrat-v1/`)
