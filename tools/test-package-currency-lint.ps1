@@ -172,7 +172,43 @@ try {
     }
     Check 'balise non auto-fermante (sous plancher)' (Invoke-Lint $polNonScBelow $nonScRoot) 1
 
-    # 11) POLITIQUE + CATALOGUES REELS du depot : l'etat courant DOIT passer (exit 0). Sinon RDF07
+    # 11) Attributs en ordre INVERSE (Version avant Include) : le lint doit parser les deux ordres.
+    #     Cas A (>= plancher, ordre inverse) → PASS (exit 0).
+    #     Cas B (sous plancher, ordre inverse) → ECHEC (exit 1) : prouve que la valeur est lue.
+    $revRoot = Join-Path $tmpDir 'rev'
+    $revCat  = Join-Path $revRoot 'Directory.Packages.props'
+    New-Item -ItemType Directory -Path $revRoot -Force | Out-Null
+    $revContentOk = @"
+<Project>
+  <ItemGroup>
+    <PackageVersion Version="9.0.3" Include="Npgsql" />
+  </ItemGroup>
+</Project>
+"@
+    Set-Content -LiteralPath $revCat -Value $revContentOk -Encoding utf8
+
+    $polRevOk = Write-Policy 'rev-ok.json' @{
+        catalogs = @('Directory.Packages.props')
+        governed = @( @{ id = 'Npgsql'; floor = '9.0.3' } )
+    }
+    Check 'ordre inverse Version-avant-Include (>= plancher)' (Invoke-Lint $polRevOk $revRoot) 0
+
+    $revContentBelow = @"
+<Project>
+  <ItemGroup>
+    <PackageVersion Version="9.0.3" Include="Npgsql" />
+  </ItemGroup>
+</Project>
+"@
+    Set-Content -LiteralPath $revCat -Value $revContentBelow -Encoding utf8
+
+    $polRevBelow = Write-Policy 'rev-below.json' @{
+        catalogs = @('Directory.Packages.props')
+        governed = @( @{ id = 'Npgsql'; floor = '9.0.4' } )   # epingle 9.0.3 < plancher 9.0.4
+    }
+    Check 'ordre inverse Version-avant-Include (sous plancher)' (Invoke-Lint $polRevBelow $revRoot) 1
+
+    # 12) POLITIQUE + CATALOGUES REELS du depot : l'etat courant DOIT passer (exit 0). Sinon RDF07
     #     introduirait une regression (l'avenant differe le bump SQLite : advisory, pas echec).
     Check 'politique + catalogues reels (etat courant)' (Invoke-Lint $realPol $repoRoot) 0
 }
