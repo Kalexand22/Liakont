@@ -81,6 +81,14 @@ try {
     $p6 = Join-Path $tmpDir 'bad-maxram.yml'
     Set-Content -LiteralPath $p6 -Value $badMaxRam -Encoding utf8
     Check 'MaxRAMPercentage sans valeur (malformed)' (Invoke-Lint $p6) 1
+
+    # 7) mem_limit commente (desactive) → le lint DOIT echouer (exit 1).
+    #    Prouve que le filtre $code (lignes non-commentaires) ecarte bien une cle commentee :
+    #    `# mem_limit: 1g` ne doit PAS etre compte comme un plafond reel.
+    $commentedMemLimit = $orig | ForEach-Object { $_ -replace '^(\s*)mem_limit:', '$1# mem_limit:' }
+    $p7 = Join-Path $tmpDir 'commented-mem-limit.yml'
+    Set-Content -LiteralPath $p7 -Value $commentedMemLimit -Encoding utf8
+    Check 'mem_limit commente (desactive)' (Invoke-Lint $p7) 1
 }
 finally {
     Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -90,5 +98,5 @@ if ($failures.Count -gt 0) {
     Write-Host "[TEST-MEMCAP] ECHEC : $($failures.Count) cas non conforme(s)." -ForegroundColor Red
     exit 1
 }
-Write-Host "[TEST-MEMCAP] OK : le lint discrimine correctement (plafond present => 0, retire/reservation/malformed => 1)." -ForegroundColor Green
+Write-Host "[TEST-MEMCAP] OK : le lint discrimine correctement (plafond present => 0, retire/reservation/malformed/commente => 1)." -ForegroundColor Green
 exit 0
