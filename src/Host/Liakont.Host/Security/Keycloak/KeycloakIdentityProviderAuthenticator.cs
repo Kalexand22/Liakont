@@ -386,8 +386,12 @@ internal sealed class KeycloakIdentityProviderAuthenticator : IIdentityProviderA
                     ctx.Principal,
                     TimeProvider.System.GetUtcNow(),
                     sensitivePermissionRevocationWindow);
-                if (revocation.Cap && ctx.Properties is not null)
+                if (revocation.Cap)
                 {
+                    // ctx.Properties est non-null dans OnTokenValidated du flux code OIDC ; le ??= garantit que le
+                    // cap n'est JAMAIS silencieusement abandonné (pas de fail-open de la mitigation) si l'invariant
+                    // venait à changer — on crée alors un sac de propriétés pour porter le cap.
+                    ctx.Properties ??= new AuthenticationProperties();
                     ctx.Properties.ExpiresUtc = revocation.ExpiresUtc;
                     ctx.Properties.AllowRefresh = false;
                 }

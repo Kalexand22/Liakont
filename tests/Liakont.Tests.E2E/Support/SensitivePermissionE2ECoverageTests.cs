@@ -21,6 +21,14 @@ using Xunit;
 /// dans <c>run-tests</c> (filtre <c>Category!=E2E</c>) — comme <see cref="E2EUserOtpSecretsConsistencyTests"/>.
 /// </para>
 /// </summary>
+/// <remarks>
+/// Cette garde prouve une couverture <b>déclarative</b> : elle vérifie qu'un <c>[Fact]</c>/<c>[Theory]</c>
+/// non désactivé via <c>Skip</c>, dérivant de <c>KeycloakBaseE2ETest</c>, portant
+/// <c>[Trait("Category","E2E")]</c> et déclarant un rôle seedé non super-admin, existe pour chaque
+/// permission sensible. Elle ne prouve PAS que ce test E2E s'est exécuté ni qu'il a réussi, ni que
+/// le corps du test se connecte effectivement sous ce rôle exact. L'exécution réelle des tests E2E
+/// annotés reste à la charge du pipeline <c>run-e2e</c> (<c>tools/run-e2e.ps1</c>).
+/// </remarks>
 public sealed class SensitivePermissionE2ECoverageTests
 {
     [Fact]
@@ -57,6 +65,10 @@ public sealed class SensitivePermissionE2ECoverageTests
 
             method.GetCustomAttributes<FactAttribute>(inherit: true).Any().Should().BeTrue(
                 $"{where} doit être un test xUnit ([Fact]/[Theory])");
+
+            var fact = method.GetCustomAttributes<FactAttribute>(inherit: true).FirstOrDefault();
+            string.IsNullOrWhiteSpace(fact?.Skip).Should().BeTrue(
+                $"{where} ne doit pas être désactivé via Skip (une couverture de permission sensible durablement sautée rouvrirait le trou IDN01)");
 
             // Rôle non super-admin : le realm E2E ne contient AUCUN super-admin ; tout utilisateur seedé
             // (donc présent dans E2EUserOtpSecrets) est par construction un rôle realm non super-admin.
