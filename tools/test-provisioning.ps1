@@ -136,6 +136,33 @@ try {
         Assert-True (-not (Test-KeycloakImagePinned -ImageRef 'registry.local:5000/keycloak:26.0')) 'tag flottant minor sur registre privé accepté à tort'
     }
 
+    # ── Set-KeycloakImageInComposeText ──
+    $sampleCompose = @"
+version: '3.8'
+services:
+  postgres:
+    image: postgres:16-alpine
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.8
+    environment:
+      KC_DB: postgres
+"@
+    Test-Case 'Set-KcImage : réécriture du tag Keycloak — la ligne postgres reste inchangée' {
+        $result = Set-KeycloakImageInComposeText -ComposeText $sampleCompose -NewImage 'quay.io/keycloak/keycloak:26.1.4'
+        Assert-True ($result -match 'image: quay\.io/keycloak/keycloak:26\.1\.4') 'nouveau tag présent'
+        Assert-True ($result -match 'image: postgres:16-alpine') 'ligne postgres inchangée'
+        Assert-True (-not ($result -match 'image: quay\.io/keycloak/keycloak:26\.0\.8')) 'ancien tag absent'
+    }
+    Test-Case 'Set-KcImage : round-trip — réécrit puis restaure donne la ligne Keycloak originale' {
+        $bumped = Set-KeycloakImageInComposeText -ComposeText $sampleCompose -NewImage 'quay.io/keycloak/keycloak:26.1.4'
+        $restored = Set-KeycloakImageInComposeText -ComposeText $bumped -NewImage 'quay.io/keycloak/keycloak:26.0.8'
+        Assert-True ($restored -match 'image: quay\.io/keycloak/keycloak:26\.0\.8') 'tag original restauré'
+    }
+    Test-Case 'Set-KcImage : texte sans ligne Keycloak → exception française' {
+        $noKc = "version: '3.8'`nservices:`n  postgres:`n    image: postgres:16-alpine`n"
+        Assert-Throws { Set-KeycloakImageInComposeText -ComposeText $noKc -NewImage 'quay.io/keycloak/keycloak:26.1.4' } 'doit lever si aucune ligne Keycloak'
+    }
+
     # ── Registre des instances ──
     Test-Case 'Registre : fichier absent → tableau vide' {
         $missing = Join-Path $tmpRoot 'absent.yaml'

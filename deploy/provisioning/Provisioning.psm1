@@ -623,6 +623,35 @@ function Test-KeycloakImagePinned {
     return ($tag -match '^\d+\.\d+\.\d+')
 }
 
+function Set-KeycloakImageInComposeText {
+    <#
+    .SYNOPSIS
+        Réécrit le tag de l'image Keycloak dans un texte de compose Docker (fonction PURE).
+    .DESCRIPTION
+        Fonction PURE (aucune E/S) : reçoit le texte brut d'un docker-compose.yml, remplace la ligne
+        « image: quay.io/keycloak/keycloak:<tag> » par la nouvelle référence d'image fournie, et rend
+        le texte réécrit (fins de ligne normalisées en LF). Lève une exception française si aucune ligne
+        « image: quay.io/keycloak/keycloak:<tag> » n'est trouvée dans le texte (composé incorrect).
+        N'affecte que la ligne Keycloak (les autres lignes « image: » restent inchangées).
+    .OUTPUTS
+        Chaîne (texte du compose réécrit, fins de ligne LF).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$ComposeText,
+        [Parameter(Mandatory = $true)][string]$NewImage
+    )
+
+    # [ \t]* : restreint volontairement à espaces/tabulations — \s inclurait les sauts de ligne (greedy
+    # sur une ligne précédente vide) et ancrerait la regex sur la ligne vide plutôt que la ligne cible.
+    $kcPattern = '(?m)^(?<indent>[ \t]*)image:\s*quay\.io/keycloak/keycloak:\S+'
+    if ($ComposeText -notmatch $kcPattern) {
+        throw "Image Keycloak introuvable dans le texte de compose fourni — aucune ligne « image: quay.io/keycloak/keycloak:<tag> » présente. Bump impossible."
+    }
+    $rewritten = ([regex]::Replace($ComposeText, $kcPattern, "`${indent}image: $NewImage")) -replace "`r`n", "`n"
+    return $rewritten
+}
+
 function Test-KeycloakRealmReady {
     <#
     .SYNOPSIS
@@ -678,5 +707,5 @@ Export-ModuleMember -Function `
     Protect-YamlScalar, Unprotect-YamlScalar, `
     Test-DockerAvailable, Get-InstanceDatabases, Backup-InstanceDatabases, Wait-InstanceHealthy, `
     Copy-DeploymentFileAsLf, `
-    Test-KeycloakImagePinned, Test-KeycloakRealmReady, `
+    Test-KeycloakImagePinned, Set-KeycloakImageInComposeText, Test-KeycloakRealmReady, `
     Add-TenantDecommissionAuditEntry, Read-TenantDecommissionAuditEntries

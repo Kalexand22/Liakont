@@ -35,7 +35,16 @@
     l'instance, force un « docker compose pull », puis REVALIDE le realm après démarrage. Un tag FLOTTANT
     (`:26.0`, `:26`, `:latest`) est REFUSÉ (échec rapide, instance intacte). Ex. : quay.io/keycloak/keycloak:26.1.4
 .PARAMETER KeycloakRealm
-    Nom du realm Keycloak à revalider après bump (défaut « liakont », realm de l'appliance).
+    Nom du realm Keycloak à revalider après bump (défaut « liakont », realm de l'appliance de référence).
+    REQUIS lorsque -KeycloakImage est fourni : si le realm de l'instance diffère de « liakont » et que ce
+    paramètre n'est pas passé explicitement, la revalidation interrogerait le mauvais realm et conclurait
+    à tort à un échec de bump (realm « liakont » absent → 404 → instance saine arrêtée). Passez toujours
+    -KeycloakRealm explicitement lors d'un bump Keycloak.
+.PARAMETER RealmRevalidationTimeoutSeconds
+    Délai maximal (secondes) accordé à la revalidation du realm Keycloak après le bump d'image (défaut 60).
+    Sur une infrastructure lente (import de realm + redémarrage du conteneur), ce délai peut être dépassé
+    alors que l'IdP finit par démarrer correctement. Augmentez-le (ex. 120) si des faux-échecs sont
+    observés sur des environnements à démarrage lent.
 .EXAMPLE
     ./update-instance.ps1 -InstanceName acme-prod
 .EXAMPLE
@@ -52,6 +61,7 @@ param(
     [string]$KeycloakImage,
     [string]$KeycloakRealm = 'liakont',
     [int]$MigrationTimeoutSeconds = 300,
+    [int]$RealmRevalidationTimeoutSeconds = 60,
     [switch]$DryRun
 )
 
@@ -125,6 +135,17 @@ try {
               "épinglez un tag de PATCH précis (ex. quay.io/keycloak/keycloak:26.1.4) ou un digest @sha256."
     }
 
+    # Garde realm explicite : si un bump Keycloak est demandé sans -KeycloakRealm explicite, la
+    # revalidation interrogerait le realm par défaut « liakont » — qui peut être absent sur une instance
+    # dont le realm porte un nom différent → 404 → faux-échec → instance saine arrêtée. Échec rapide,
+    # instance intacte (avant toute maintenance).
+    if ($KeycloakImage -and -not $PSBoundParameters.ContainsKey('KeycloakRealm')) {
+        throw "Paramètre -KeycloakRealm requis lors d'un bump d'image Keycloak (-KeycloakImage). " +
+              "Passez le nom du realm à revalider après le bump (le realm de l'appliance de référence " +
+              "est « liakont », mais votre instance peut utiliser un realm différent). " +
+              "Ex. : -KeycloakRealm liakont"
+    }
+
     if ($DryRun) {
         Write-WarnMsg 'DryRun : aucune action. Séquence qui SERAIT exécutée :'
         Write-Host '    1. Maintenance ON  : Caddyfile → maintenance, reload → push agents en 503 ;'
@@ -173,14 +194,15 @@ try {
         # « build --pull » ne touche QUE les services « build: » (le Host) → on réécrit le tag Keycloak
         # dans le compose de l'instance, puis « docker compose pull » (ci-dessous) télécharge l'image.
         $originalCompose = [System.IO.File]::ReadAllText($composeFile)
-        $kcPattern = '(?m)^(?<indent>\s*)image:\s*quay\.io/keycloak/keycloak:\S+'
-        if ($originalCompose -notmatch $kcPattern) {
+        $oldKc = [regex]::Match($originalCompose, 'quay\.io/keycloak/keycloak:\S+').Value
+        try {
+            $rewritten = Set-KeycloakImageInComposeText -ComposeText $originalCompose -NewImage $KeycloakImage
+        }
+        catch {
             Write-ErrMsg "Image Keycloak introuvable dans le compose de l'instance ($composeFile) — bump impossible. Montée de version ANNULÉE."
             Disable-Maintenance -ComposeArgs $composeArgs -Dir $instanceDir
             exit 1
         }
-        $oldKc = [regex]::Match($originalCompose, 'quay\.io/keycloak/keycloak:\S+').Value
-        $rewritten = ([regex]::Replace($originalCompose, $kcPattern, "`${indent}image: $KeycloakImage")) -replace "`r`n", "`n"
         [System.IO.File]::WriteAllText($composeFile, $rewritten, (New-Object System.Text.UTF8Encoding($false)))
         Write-Ok "Image Keycloak : $oldKc → $KeycloakImage (compose de l'instance mis à jour)."
     }
@@ -219,7 +241,7 @@ try {
     if ($health.Healthy) {
         # Revalidation du realm (politique ADR-0020) : prouver que l'IdP sert toujours le realm après
         # une éventuelle montée de version de l'image Keycloak (point de découverte OIDC servi).
-        $realm = Test-KeycloakRealmReady -ComposeArgs $composeArgs -RealmName $KeycloakRealm -TimeoutSeconds 60
+        $realm = Test-KeycloakRealmReady -ComposeArgs $composeArgs -RealmName $KeycloakRealm -TimeoutSeconds $RealmRevalidationTimeoutSeconds
         if ($realm.Ready) {
             Write-Ok "Revalidation du realm Keycloak : $($realm.Detail)"
         }
