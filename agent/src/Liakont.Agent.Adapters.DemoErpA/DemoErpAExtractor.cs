@@ -20,6 +20,13 @@ using Liakont.Agent.Core.Logging;
 /// aucune transaction d'écriture ; requêtes <c>SELECT</c> paramétrées avec timeout court. Idempotent
 /// (R2 : la même période renvoie les mêmes <see cref="PivotDocumentDto.SourceReference"/>).
 /// </summary>
+/// <remarks>
+/// Note d'inversion (redline RD409, finding RD4-18) : NE PAS mapper la lettre du nom d'adaptateur
+/// (DemoErpA / DemoErpB) sur la lettre du panel de validation de l'ADR-0004 (« Source A/B/C/D ») —
+/// ce sont deux jeux INDÉPENDANTS. DemoErpA (cette classe) est un ERP NORMALISÉ aux montants
+/// <c>decimal</c> ; c'est <b>DemoErpB</b>, et non « Source A » du panel, qui porte les montants
+/// <c>float</c> legacy. Aucun changement de comportement attaché à cette note.
+/// </remarks>
 public sealed class DemoErpAExtractor : IExtractor
 {
     private const int QueryTimeoutSeconds = 30;

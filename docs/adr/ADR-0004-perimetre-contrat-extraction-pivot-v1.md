@@ -2,7 +2,7 @@
 
 **Date :** 2026-06-03
 
-**Statut :** Accepté (2026-06-03)
+**Statut :** Accepté (2026-06-03) — **complété par l'[addendum ADR-0004-bis](ADR-0004-bis-reclassements-redline-2026-06.md)** (redline 2026-06-19/20, lot RD4) qui RECLASSE plusieurs décisions au vu de l'implémentation (notamment : débours art. 267 = hors V1 tant qu'aucune F-spec ne tranche ; scission BG-30 = différé tracé ; `Payee` inerte signalé). À lire conjointement.
 
 ---
 
@@ -130,7 +130,7 @@ Décision ∈ { **Pivot V1** · **Capability** · **Contrat IExtractor** · **Di
 | Acompte + montant prépayé + chaînage acompte→solde | BT-113 | **Pivot V1** | **P1** |
 | Autoliquidation (reverse charge — BTP, intra-UE, import) | catégorie `AE` | **Pivot V1** | **P1** |
 | Régime de la marge (occasion, art, agences de voyage) | catégorie + VATEX | **Pivot V1** | **P1** |
-| Débours (art. 267 — hors base TVA) | ligne hors base | **Pivot V1** | **P1** |
+| Débours (art. 267 — hors base TVA) | ligne hors base | **Hors V1** — F-spec avant tout code (amendé par [ADR-0004-bis](ADR-0004-bis-reclassements-redline-2026-06.md) R2 ; F15 l.375 prime : non sourcé → bloqué, jamais mappé en « O ») | P1 (différé sourçable) |
 | Franchise en base (art. 293 B) | catégorie `E` + VATEX | **Pivot V1** | **P1** |
 | TVA sur encaissements vs débits (fait générateur) | mention + timing flux 10.4 | **Pivot V1** | **P1** |
 | Multi-taux / DOM / Corse / taux particuliers | référentiel de taux étendu | **Pivot V1** | **P1** |
