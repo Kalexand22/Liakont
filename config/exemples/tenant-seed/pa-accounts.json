@@ -4,5 +4,10 @@
     "environment": "Staging",
     "accountIdentifiers": "{ \"accountId\": \"DEMO-0001\" }",
     "apiKey": "${PA_API_KEY_FAKE_STAGING}"
+  },
+  {
+    "pluginType": "ChorusPro",
+    "environment": "Staging",
+    "accountIdentifiers": "{ \"accountId\": \"CPRO-DEMO-0001\", \"technicalLogin\": \"TECH_DEMO_LIAKONT\", \"connectionEmail\": \"compte.technique@exemple.test\", \"baseUrl\": \"https://sandbox-api.piste.gouv.fr/cpro/\", \"tokenEndpoint\": \"https://sandbox-oauth.piste.gouv.fr/api/oauth/token\" }"
   }
 ]
