@@ -1083,16 +1083,19 @@ public static class AppBootstrap
 
     /// <summary>
     /// Sélectionne l'implémentation d'<see cref="IIdentityProviderAuthenticator"/> à utiliser
-    /// selon « Identity:Provider » (décision D10). Par défaut Keycloak ; une alternative
-    /// in-process (ex. OpenIddict) s'ajoute dans le registre ci-dessous sans toucher au
-    /// reste du Host.
+    /// selon « Identity:Provider » (décision D10). Par défaut Keycloak. À ce jour il n'existe
+    /// qu'UNE entrée (Keycloak) : 0 implémentation OpenIddict. Ajouter une entrée au registre
+    /// ci-dessous est NÉCESSAIRE mais NON SUFFISANT pour brancher un autre IdP — le provisioning
+    /// realm/utilisateur, le 2FA et la résolution issuer/JWKS sont Keycloak-spécifiques et câblés
+    /// hors du sélecteur (voir avenant ADR-0002 du 2026-06-20 / RDF09).
     /// </summary>
     private static IIdentityProviderAuthenticator SelectIdentityProvider(
         string? providerName,
         KeycloakSettings keycloakSettings)
     {
-        // Registre des fabriques d'IdP, indexé par nom de fournisseur. Une alternative
-        // in-process (ex. OpenIddict) s'ajoute ici comme une entrée supplémentaire.
+        // Registre des fabriques d'IdP, indexé par nom de fournisseur. Une alternative in-process
+        // (ex. OpenIddict) s'ajouterait ici, mais l'entrée seule ne suffit pas : voir le résumé de
+        // méthode (provisioning/2FA/JWKS hors sélecteur) et l'avenant ADR-0002 du 2026-06-20.
         var providers = new Dictionary<string, Func<IIdentityProviderAuthenticator>>(StringComparer.OrdinalIgnoreCase)
         {
             ["Keycloak"] = () => new KeycloakIdentityProviderAuthenticator(keycloakSettings),
