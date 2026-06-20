@@ -419,6 +419,19 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Succeeded;
         }
 
+        // Anti double-dépôt ASYNCHRONE (item PIPE01) — invariant garanti en CHAQUE point de (re)transmission, pas
+        // seulement dans RecoverSendingAsync : un document portant DÉJÀ une référence PA (flux déposé sur une PA
+        // asynchrone) n'est JAMAIS re-déposé, même depuis le chemin TechnicalError. DÉFENSIF : ce cas est
+        // normalement inatteignable (un dépôt async accepté reste Sending, jamais TechnicalError — le chemin
+        // recovery ne transmet plus), mais on ne PRÉSUME pas l'inatteignabilité d'un invariant fiscal P1 (un
+        // renvoi = nouveau flux Chorus Pro = double déclaration, CLAUDE.md n°3). L'anti-doublon Issued par
+        // référence est déjà couvert ci-dessus (TryFinalizeFromPaStatusAsync) ; ici on MAINTIENT sans re-déposer.
+        if (!string.IsNullOrWhiteSpace(document.PaDocumentId))
+        {
+            LogAsyncReferenceStillPending(logger, document.Id, PaSendState.TechnicalError);
+            return SendOutcome.Deferred;
+        }
+
         await lifecycle.BeginSendingAsync(documentId, cancellationToken);
         var (result, facturX) = await TransmitAsync(services, paClient, account, timeProvider, staged.Pivot!, selfBilled.Projection, cancellationToken);
         return await HandleSendResultAsync(services, tenantId, document, staged.Pivot!, staged.Json!, result, facturX, logger, cancellationToken);

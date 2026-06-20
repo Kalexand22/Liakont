@@ -111,6 +111,47 @@ public sealed class SendTenantJobIntegrationTests : IClassFixture<PipelineSendHa
     }
 
     [Fact]
+    public async Task Async_Pa_Reference_Recorded_While_Sending_Persists_And_Is_Never_Redeposited()
+    {
+        // PIPE01 round-trip RÉEL (contraste avec SetPaDocumentIdAsync qui contourne la machine à états) : une PA
+        // asynchrone accepte le dépôt et renvoie un n° de flux → RecordPaSendingReferenceAsync persiste la
+        // référence sur le document RESTÉ Sending + inscrit un fait d'audit DocumentPaReferenceRecorded. Au cycle
+        // suivant, la PA ne CONFIRME pas encore l'émission (statut non terminal) : le document est MAINTENU
+        // Sending et n'est JAMAIS re-déposé — une PA asynchrone (Chorus Pro) créerait un nouveau flux à chaque
+        // dépôt = double déclaration fiscale (CLAUDE.md n°3).
+        await _harness.UsePublishedFakeAsync();
+        _harness.ForceWormAbsent = false;
+
+        var documentId = Guid.NewGuid();
+        var pivot = CheckIntegrationFixtures.BuildPivot("send-async-" + documentId.ToString("N"), "NORMAL");
+        var hash = await _harness.SeedDetectedAndStageAsync(documentId, pivot);
+        await _harness.MarkReadyToSendAsync(documentId);
+        await _harness.BeginSendingAsync(documentId);
+
+        var flux = "FLUX-" + pivot.Number;
+        await _harness.RecordPaSendingReferenceAsync(documentId, flux);
+
+        // 1) Round-trip de persistance : référence posée, document RESTÉ Sending, fait d'audit inscrit.
+        (await _harness.GetDocumentStateAsync(documentId)).Should().Be("Sending", "l'enregistrement de la référence ne change pas l'état.");
+        (await _harness.GetPaDocumentIdAsync(documentId)).Should().Be(flux, "la référence de flux est persistée pour le raccrochage.");
+        (await _harness.EventCountAsync(documentId, "DocumentPaReferenceRecorded"))
+            .Should().Be(1, "un fait d'audit append-only matérialise l'accusé de réception asynchrone.");
+
+        // 2) Cycle de raccrochage : la PA ne connaît pas (encore) ce flux (statut non terminal) → MAINTENU
+        //    Sending, JAMAIS re-déposé.
+        await _harness.RunSendAsync();
+
+        (await _harness.GetDocumentStateAsync(documentId)).Should().Be("Sending", "statut PA non terminal : le document reste Sending.");
+        _harness.PaCallCount(nameof(IPaClient.GetDocumentStatusAsync), flux)
+            .Should().BeGreaterThan(0, "le raccrochage interroge la PA par la référence persistée.");
+        _harness.PaClient.IssuedDocumentNumbers.Should().NotContain(pivot.Number, "aucune (ré)émission.");
+        _harness.PaCallCount(nameof(IPaClient.SendDocumentAsync), pivot.Number)
+            .Should().Be(0, "un flux déjà accepté n'est JAMAIS re-déposé (anti double-dépôt).");
+        (await _harness.IsStagedAsync(documentId, hash))
+            .Should().BeTrue("rien n'est purgé tant que la PA n'a pas confirmé l'émission.");
+    }
+
+    [Fact]
     public async Task Crashed_Sending_Without_Reference_Is_Recovered_Without_Duplicate_Emission()
     {
         await _harness.UsePublishedFakeAsync();
