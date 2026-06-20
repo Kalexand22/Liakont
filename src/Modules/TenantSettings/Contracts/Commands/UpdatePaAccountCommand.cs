@@ -24,4 +24,7 @@ public record UpdatePaAccountCommand : ICommand
 
     /// <summary>« client_secret » OAuth2 EN CLAIR. null/vide = inchangé ; non vide = rotation (chiffré par le handler).</summary>
     public string? ClientSecret { get; init; }
+
+    /// <summary>Mot de passe du compte TECHNIQUE EN CLAIR (auth OAuth2WithTechnicalAccount). null/vide = inchangé ; non vide = rotation (chiffré par le handler).</summary>
+    public string? TechnicalPassword { get; init; }
 }

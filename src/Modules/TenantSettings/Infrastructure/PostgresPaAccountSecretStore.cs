@@ -28,7 +28,7 @@ internal sealed class PostgresPaAccountSecretStore : IPaAccountSecretStore
         // ancien (created_at ASC) — pour résoudre exactement le compte que l'envoi a retenu.
         const string sql = """
             SELECT environment, account_identifiers, encrypted_api_key,
-                   encrypted_client_id, encrypted_client_secret
+                   encrypted_client_id, encrypted_client_secret, encrypted_technical_password
             FROM tenantsettings.pa_accounts
             WHERE company_id = @CompanyId
               AND lower(plugin_type) = lower(@PluginType)
@@ -51,6 +51,7 @@ internal sealed class PostgresPaAccountSecretStore : IPaAccountSecretStore
             (string)row.account_identifiers,
             (string?)row.encrypted_api_key,
             (string?)row.encrypted_client_id,
-            (string?)row.encrypted_client_secret);
+            (string?)row.encrypted_client_secret,
+            (string?)row.encrypted_technical_password);
     }
 }

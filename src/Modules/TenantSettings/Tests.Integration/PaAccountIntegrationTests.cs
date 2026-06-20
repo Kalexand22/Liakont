@@ -125,6 +125,60 @@ public sealed class PaAccountIntegrationTests
     }
 
     [Fact]
+    public async Task Technical_Account_Password_Is_Encrypted_At_Rest_And_Round_Trips_By_Purpose()
+    {
+        const string clientId = "piste-client-FICTIF-0123";
+        const string clientSecret = "piste-secret-FICTIF-9876";
+        const string technicalPassword = "tech-pwd-FICTIF-4242";
+
+        var harness = new TenantSettingsHarness(_fixture, Guid.NewGuid(), Guid.NewGuid());
+        var addHandler = new AddPaAccountHandler(harness.UowFactory, harness.CompanyFilter, harness.SecretProtector, harness.Journal);
+
+        var id = await addHandler.Handle(
+            new AddPaAccountCommand
+            {
+                PluginType = "ChorusPro",
+                Environment = "Staging",
+                AccountIdentifiers = "tech-login@tenant.fr",
+                ClientId = clientId,
+                ClientSecret = clientSecret,
+                TechnicalPassword = technicalPassword,
+            },
+            CancellationToken.None);
+
+        // 1. La colonne du mot de passe technique ne contient PAS le clair, mais un texte chiffré non vide.
+        string? storedTechnicalPassword;
+        using (var conn = await harness.ConnectionFactory.OpenAsync())
+        {
+            storedTechnicalPassword = await conn.ExecuteScalarAsync<string?>(
+                "SELECT encrypted_technical_password FROM tenantsettings.pa_accounts WHERE id = @Id",
+                new { Id = id });
+        }
+
+        storedTechnicalPassword.Should().NotBeNullOrEmpty()
+            .And.NotBe(technicalPassword).And.NotContain(technicalPassword);
+
+        // 2. Relecture via l'UoW : la colonne chiffrée est peuplée (le domaine ne voit que l'opaque).
+        await using (var uow = await harness.UowFactory.BeginAsync())
+        {
+            var account = await uow.GetPaAccountByIdAsync(id, harness.CompanyId);
+            account!.EncryptedTechnicalPassword.Should().Be(storedTechnicalPassword);
+        }
+
+        // 3. Le store de secrets (consommé par le résolveur Host) déchiffre vers le clair d'origine, par purpose.
+        var secretStore = new PostgresPaAccountSecretStore(harness.ConnectionFactory);
+        var secrets = await secretStore.GetActiveAsync(harness.CompanyId, "ChorusPro");
+        secrets.Should().NotBeNull();
+        harness.SecretProtector.Unprotect(secrets!.EncryptedTechnicalPassword!, PaAccountSecretPurposes.TechnicalPassword)
+            .Should().Be(technicalPassword);
+
+        // 4. Le DTO de lecture n'expose jamais le secret — seulement son existence (booléen Has*).
+        var accounts = await harness.Queries.GetPaAccounts(harness.CompanyId);
+        accounts.Should().ContainSingle();
+        accounts[0].HasTechnicalPassword.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Add_Without_Key_Leaves_HasApiKey_False()
     {
         var harness = new TenantSettingsHarness(_fixture, Guid.NewGuid(), Guid.NewGuid());
