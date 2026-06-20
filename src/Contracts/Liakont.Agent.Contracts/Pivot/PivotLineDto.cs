@@ -23,6 +23,13 @@ public sealed class PivotLineDto
     /// <param name="taxes">Ventilation de TVA de la ligne (catégorie/VATEX remplis par le mapping plateforme).</param>
     /// <param name="sourceLineRef">Référence de la ligne dans le système source (traçabilité).</param>
     /// <param name="sourceData">Données source brutes utiles à la traçabilité (JSON), p. ex. montants non arrondis.</param>
+    /// <param name="unitCode">
+    /// Unité de mesure de la quantité (EN 16931 BT-130, codes UN/ECE Rec 20). Champ ADDITIF optionnel
+    /// (ADR-0004 §5 / ADR-0007 : ajouté en FIN du contrat). Absent = <c>null</c> : à l'émission, chaque
+    /// PA/format applique son unité neutre par défaut (<c>C62</c> « one »). Une chaîne vide/blanche est
+    /// normalisée en <c>null</c> (équivalent « absent », empreinte canonique inchangée). L'adaptateur
+    /// recopie le code source sans l'interpréter (CLAUDE.md n°2) — aucune table d'unités n'est inventée.
+    /// </param>
     public PivotLineDto(
         string description,
         decimal netAmount,
@@ -31,7 +38,8 @@ public sealed class PivotLineDto
         IReadOnlyList<string>? sourceRegimeCodes = null,
         IReadOnlyList<PivotLineTaxDto>? taxes = null,
         string? sourceLineRef = null,
-        string? sourceData = null)
+        string? sourceData = null,
+        string? unitCode = null)
     {
         Description = description;
         NetAmount = netAmount;
@@ -41,6 +49,7 @@ public sealed class PivotLineDto
         Taxes = taxes ?? Array.Empty<PivotLineTaxDto>();
         SourceLineRef = sourceLineRef;
         SourceData = sourceData;
+        UnitCode = string.IsNullOrWhiteSpace(unitCode) ? null : unitCode;
     }
 
     /// <summary>Libellé de la ligne (EN 16931 BT-153).</summary>
@@ -66,4 +75,10 @@ public sealed class PivotLineDto
 
     /// <summary>Données source brutes utiles à la traçabilité (JSON).</summary>
     public string? SourceData { get; }
+
+    /// <summary>
+    /// Unité de mesure de la quantité (EN 16931 BT-130, codes UN/ECE Rec 20). Champ additif optionnel ;
+    /// <c>null</c> = unité neutre par défaut à l'émission (<c>C62</c>). Voir le constructeur.
+    /// </summary>
+    public string? UnitCode { get; }
 }

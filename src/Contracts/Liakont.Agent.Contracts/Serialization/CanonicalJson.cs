@@ -204,6 +204,11 @@ public static class CanonicalJson
         WriteArray(writer, line.Taxes, WriteLineTax);
         WriteOptionalString(writer, "SourceLineRef", line.SourceLineRef);
         WriteOptionalString(writer, "SourceData", line.SourceData);
+
+        // EN 16931 BT-130 (RD407) : unité de mesure, champ ADDITIF en FIN (ADR-0007), émis SEULEMENT
+        // s'il est porté — une ligne sans unité produit le JSON canonique INCHANGÉ (hash identique
+        // octet par octet ; l'unité neutre C62 est appliquée par l'émetteur, pas par le pivot).
+        WriteOptionalString(writer, "UnitCode", line.UnitCode);
         writer.EndObject();
     }
 

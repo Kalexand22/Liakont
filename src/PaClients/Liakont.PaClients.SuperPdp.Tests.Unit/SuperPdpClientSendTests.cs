@@ -112,6 +112,23 @@ public sealed class SuperPdpClientSendTests
     }
 
     [Fact]
+    public async Task Send_With_UnitCode_Projects_invoiced_quantity_code()
+    {
+        var handler = new RoutedHttpMessageHandler()
+            .OnConvert(HttpStatusCode.OK, SuperPdpTestData.CiiXml)
+            .OnPost(HttpStatusCode.OK, SuperPdpTestData.IssuedJson);
+        var client = SuperPdpTestData.CreateClient(handler);
+
+        await client.SendDocumentAsync(SuperPdpTestData.Invoice20WithUnitCode("F-UNITE", "KGM"));
+
+        // RD407 (BT-130) : quand la ligne pivot porte une unité, le builder l'émet au lieu du C62 par
+        // défaut (cf. le cas sans unité plus haut qui reste « C62 »). Aucune unité inventée (codes UN/ECE Rec 20).
+        var invoice = ConvertBody(handler);
+        invoice.GetProperty("lines")[0].GetProperty("invoiced_quantity_code").GetString()
+            .Should().Be("KGM", "l'unité portée par le pivot est projetée telle quelle");
+    }
+
+    [Fact]
     public async Task Send_Without_PaymentDueDate_Omits_payment_due_date()
     {
         var handler = new RoutedHttpMessageHandler()

@@ -82,6 +82,23 @@ internal static class SuperPdpTestData
         lines: [new PivotLineDto("Prestation", 100m, taxes: [new PivotLineTaxDto(20m, 20m, VatCategory.S)])],
         paymentDueDate: dueDate);
 
+    /// <summary>
+    /// Facture dont la ligne porte une unité de mesure explicite (EN 16931 BT-130, RD407). Sert à vérifier
+    /// que le builder projette <c>invoiced_quantity_code</c> depuis le pivot au lieu du C62 codé en dur.
+    /// </summary>
+    /// <param name="number">Numéro du document.</param>
+    /// <param name="unitCode">Code d'unité UN/ECE Rec 20 porté par la ligne (ex. <c>KGM</c>).</param>
+    public static PivotDocumentDto Invoice20WithUnitCode(string number, string unitCode) => new(
+        sourceDocumentKind: "FACTURE",
+        number: number,
+        issueDate: new DateTime(2026, 1, 15),
+        sourceReference: $"SRC-{number}",
+        supplier: new PivotPartyDto("SVV Démo", siren: "123456789", vatNumber: "FR32123456789"),
+        totals: new PivotTotalsDto(100m, 20m, 120m),
+        operationCategory: OperationCategory.LivraisonBiens,
+        customer: new PivotPartyDto("Client Démo", siren: "987654321"),
+        lines: [new PivotLineDto("Prestation", 100m, taxes: [new PivotLineTaxDto(20m, 20m, VatCategory.S)], unitCode: unitCode)]);
+
     /// <summary>Même facture mais SANS destinataire : exerce la garde locale d'adressage (F14 §3.2).</summary>
     public static PivotDocumentDto Invoice20WithoutCustomer(string number = "F-2026-009") => new(
         sourceDocumentKind: "FACTURE",

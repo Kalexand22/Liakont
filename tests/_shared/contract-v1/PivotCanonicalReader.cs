@@ -124,7 +124,8 @@ public static class PivotCanonicalReader
             sourceRegimeCodes: TextList(map, "SourceRegimeCodes"),
             taxes: BuildList(map, "Taxes", BuildLineTax),
             sourceLineRef: TextOrNull(map, "SourceLineRef"),
-            sourceData: TextOrNull(map, "SourceData"));
+            sourceData: TextOrNull(map, "SourceData"),
+            unitCode: TextOrNull(map, "UnitCode"));
     }
 
     private static PivotLineTaxDto BuildLineTax(IDictionary<string, object?> map)

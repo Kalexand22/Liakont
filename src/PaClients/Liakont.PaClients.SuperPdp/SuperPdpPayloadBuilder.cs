@@ -156,7 +156,12 @@ internal static class SuperPdpPayloadBuilder
         {
             Identifier = (index + 1).ToString(CultureInfo.InvariantCulture),
             InvoicedQuantity = 1m,
-            InvoicedQuantityCode = SuperPdpDefaults.DefaultQuantityUnitCode,
+
+            // BT-130 : unité du pivot si portée (RD407), sinon l'unité neutre C62. En V1 les lignes sont
+            // des agrégats émis en quantité 1 (cf. ci-dessus) et aucune source ne porte d'unité (UnitCode
+            // null → C62) : comportement inchangé. Une source à unité+quantité réelles (B2B, phase 2)
+            // imposera de revoir la normalisation quantité=1 pour rester cohérente — différé tracé.
+            InvoicedQuantityCode = line.UnitCode ?? SuperPdpDefaults.DefaultQuantityUnitCode,
             NetAmount = line.NetAmount,
             PriceDetails = new SuperPdpEnLinePriceDetails { ItemNetPrice = line.NetAmount },
             VatInformation = new SuperPdpEnLineVatInformation

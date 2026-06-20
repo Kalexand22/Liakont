@@ -135,6 +135,46 @@ public sealed class CanonicalJsonRulesTests
     }
 
     [Fact]
+    public void UnitCode_absent_is_omitted_so_line_hash_is_unchanged()
+    {
+        // RD407 : champ additif BT-130. Une ligne sans unité (UnitCode null) ne doit RIEN ajouter au
+        // JSON canonique — empreinte des goldens B2C inchangée octet par octet.
+        var line = new PivotLineDto(description: "ligne", netAmount: 100m);
+        string json = CanonicalJson.Serialize(Build(lines: new[] { line }));
+
+        json.Should().NotContain("\"UnitCode\"", "absent = OMIS, jamais émis (hash B2C inchangé)");
+    }
+
+    [Fact]
+    public void UnitCode_blank_is_normalized_to_absent()
+    {
+        // Une chaîne vide/blanche équivaut à « absent » : jamais émise (sinon elle changerait le hash).
+        var line = new PivotLineDto(description: "ligne", netAmount: 100m, unitCode: "   ");
+        string json = CanonicalJson.Serialize(Build(lines: new[] { line }));
+
+        json.Should().NotContain("\"UnitCode\"");
+    }
+
+    [Fact]
+    public void UnitCode_when_present_is_emitted_at_end_of_line_and_changes_the_hash()
+    {
+        var withUnit = new PivotLineDto(description: "ligne", netAmount: 100m, unitCode: "KGM");
+        string json = CanonicalJson.Serialize(Build(lines: new[] { withUnit }));
+
+        json.Should().Contain("\"UnitCode\":\"KGM\"", "le code UN/ECE Rec 20 porté est recopié tel quel");
+        json.IndexOf("\"SourceData\"", StringComparison.Ordinal)
+            .Should().BeLessThan(
+                json.IndexOf("\"UnitCode\"", StringComparison.Ordinal),
+                "champ ADDITIF émis en FIN de la ligne (ADR-0007)");
+
+        var withoutUnit = new PivotLineDto(description: "ligne", netAmount: 100m);
+        PayloadHasher.ComputeHash(Build(lines: new[] { withUnit }))
+            .Should().NotBe(
+                PayloadHasher.ComputeHash(Build(lines: new[] { withoutUnit })),
+                "porter une unité distingue l'empreinte (sensibilité), l'absence la laisse intacte");
+    }
+
+    [Fact]
     public void Serialize_rejects_a_null_document()
     {
         Action act = () => CanonicalJson.Serialize(null!);
@@ -288,7 +328,8 @@ public sealed class CanonicalJsonRulesTests
             sourceRegimeCodes: new[] { "TVA_20" },
             taxes: new[] { lineTax },
             sourceLineRef: "LIG-001",
-            sourceData: "{\"raw\":\"line\"}");
+            sourceData: "{\"raw\":\"line\"}",
+            unitCode: "C62");
 
         var creditNoteRef = new PivotDocumentRefDto(
             number: "FA-2026-001",
