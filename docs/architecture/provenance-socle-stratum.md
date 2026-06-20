@@ -1013,3 +1013,72 @@ Quand les besoins socle de Liakont seront stabilisés, les modifications ci-dess
 `ReflectionPermissionCatalog`, §4.4 corrections de tests) sont les candidates à reverser dans Stratum
 pour permettre un retour à des packages NuGet. Toute nouvelle modification d'un fichier `Stratum.*`
 DOIT être ajoutée à la §4 le jour même.
+
+### 6.1 Mesure de dérive CUMULÉE vs le commit source `1454c7f` (RDF16 / RL-SOCLE-1)
+
+La garde automatique (§4.12, `socle-provenance-check.ps1`) mesure la dérive **vs le baseline
+post-régénération** (`socle-baseline.sha1`), donc elle **ne voit pas** les modifications
+d'adaptation **cuites dans le baseline** au moment de sa génération (vendoring SOL01 + §4.1–4.11).
+La **vraie** dette de re-convergence se mesure **vs le commit source `1454c7f`** lui-même.
+
+**Mesure publiée (au 2026-06-20, finding RL-SOCLE-1).** Comparaison fichier à fichier des racines
+vendorées (`src/Common/{Abstractions,Infrastructure,UI,Testing}`,
+`src/Modules/{Identity,Job,Notification,Audit}`, `src/Modules/Party/Contracts`) entre `HEAD` et
+`Stratum@1454c7f`, contenu **normalisé** (CRLF→LF) :
+
+| Catégorie | Fichiers | Note |
+|---|---|---|
+| Source `1454c7f` dans le périmètre | **1234** | |
+| Copiés dans Liakont (présents dans les deux) | **1226** | = le set épinglé par le baseline §4.12 |
+| — dont **identiques** au source | **1153** | aucune dette |
+| — dont **MODIFIÉS** (dérive réelle) | **73** | **la dette de re-convergence** |
+| **NON copiés** (présents source, absents Liakont) | **8** | tous = `src/Modules/Audit/Tests.*` (NON vendorés délibérément, §4.5) |
+| **AJOUTÉS** par Liakont sous les racines vendorées | **34** | code net-neuf marqué `// Liakont addition` (SOL06/FIX211/RLM…), non reversable tel quel |
+
+**Lecture :** la dérive cumulée réelle est de **73 fichiers modifiés** (≈ 5,9 % des 1226 copiés),
+contre **67** fichiers actuellement épinglés-driftés dans le bloc `SOCLE-CONSIGNED-DRIFT` (§4.12) —
+l'écart de ~6 fichiers correspond aux modifications d'adaptation cuites dans le baseline, invisibles
+à la garde post-régénération. Répartition des 73 : Notification 23, Identity 15, Job 13, Common/UI
+10, Common/Infrastructure 5, Audit 4, Common/Abstractions 3. Une part de ces modifications est
+**structurellement Liakont** (ex. §4.31–4.35 fuseau navigateur, §4.20 admin des jobs, §4.24–4.28
+provisioning de tenant) et **n'est pas reversable** en l'état vers Stratum amont.
+
+**Méthode (reproductible, côté développeur — PAS une garde CI).** La mesure exige le dépôt source
+`Stratum` (commit `1454c7f`) en local ; elle n'est donc **pas** ajoutée à `verify-fast` (qui ne doit
+pas dépendre d'un second dépôt). Reproduire : pour chaque fichier des racines ci-dessus présent dans
+les deux dépôts, comparer `git show HEAD:<f>` et `git show 1454c7f:<f>` après normalisation des fins
+de ligne ; compter identiques / modifiés, plus les ajoutés (Liakont seul) et non-copiés (source seul).
+
+### 6.2 Politique de BACKPORT des correctifs de sécurité Stratum amont (RL-SOCLE-1)
+
+ADR-0001 (Conséquence 1) **reconnaît** que la copie vendorée **ne reçoit pas automatiquement** les
+correctifs de Stratum, **sans trancher** de politique. Politique actée par RDF16 :
+
+1. **Pas de descente automatique** (confirmé) : aucun mécanisme ne tire les correctifs amont — c'est
+   le prix assumé de l'option C.
+2. **Backport manuel des correctifs de SÉCURITÉ amont** : quand un correctif de sécurité Stratum
+   touche un fichier **présent dans le vendoring set** (les 1226 ci-dessus), il est **porté à la
+   main** dans la copie vendorée et **consigné en §4** le jour même (comme toute modification
+   `Stratum.*`). Les correctifs non-sécurité sont laissés à l'appréciation (pas d'obligation).
+3. **Veille** : la responsabilité de surveiller les avis de sécurité Stratum amont est une **tâche
+   d'exploitation** (pas automatisée à ce jour) — à réévaluer si le volume le justifie.
+
+### 6.3 Requalification de l'option D (RL-SOCLE-1)
+
+ADR-0001 décrit l'option D (retour aux packages NuGet) comme « possible et **explicitement visée à
+terme** ». Le redline montre que cette réversibilité **n'est pas exercée** et que sa dette croît
+(§6.1 : 73 fichiers driftés, dont une part non reversable). **Statut requalifié par RDF16 :**
+
+> **Option D — re-convergence NuGet : NON PLANIFIÉE à ce jour, à réévaluer.** Elle reste la cible
+> *conceptuelle* (le nommage `Liakont.*` / `Stratum.*` et cette provenance la préparent), mais
+> **aucune** échéance ni budget ne lui sont alloués en V1.
+
+**Critère de réévaluation** (déclencher l'étude D quand l'un est vrai) :
+
+- les **besoins socle** de Liakont sont stabilisés (plus d'afflux de modifications `Stratum.*` sur
+  plusieurs jalons) **ET** la part **reversable** de la dérive (§6.1) justifie l'effort de packaging ;
+- **ou** la dérive cumulée (§6.1) franchit un seuil d'exploitation où la maintenance de la copie
+  vendorée coûte plus que la friction de packaging — à mesurer, pas à supposer.
+
+Tant que le critère n'est pas atteint, l'option D **n'est pas un engagement** ; les ADR qui la
+citent « à terme » sont à lire à travers cette requalification (avenant ADR-0001 du 2026-06-20, RDF16).
