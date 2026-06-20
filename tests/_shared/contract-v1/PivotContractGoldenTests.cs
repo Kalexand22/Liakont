@@ -36,13 +36,20 @@ public sealed class PivotContractGoldenTests
     public static PivotDocumentDto BuildAvoirCompletAvecEcheance(DateTime paymentDueDate) =>
         BuildAvoir(paymentDueDate);
 
+    /// <summary>Le même document golden, mais portant une période de facturation (EN 16931 BG-14, RD406).</summary>
+    /// <param name="invoicePeriod">La période de facturation à porter.</param>
+    /// <returns>Le document pivot de référence enrichi de BG-14.</returns>
+    public static PivotDocumentDto BuildAvoirCompletAvecPeriode(PivotInvoicePeriodDto invoicePeriod) =>
+        BuildAvoir(paymentDueDate: null, invoicePeriod: invoicePeriod);
+
     /// <summary>
-    /// Construit l'avoir golden avec une échéance de paiement (BT-9) optionnelle — base partagée des deux
-    /// fabriques publiques (SANS échéance pour l'ancre golden, AVEC pour la non-régression EXT01).
+    /// Construit l'avoir golden avec une échéance de paiement (BT-9) et une période de facturation (BG-14)
+    /// optionnelles — base partagée des fabriques publiques (les DEUX nuls pour l'ancre golden figée).
     /// </summary>
     /// <param name="paymentDueDate">L'échéance à porter, ou <c>null</c> pour le golden de référence figé.</param>
+    /// <param name="invoicePeriod">La période de facturation à porter, ou <c>null</c> pour le golden de référence figé.</param>
     /// <returns>Le document pivot golden.</returns>
-    public static PivotDocumentDto BuildAvoir(DateTime? paymentDueDate)
+    public static PivotDocumentDto BuildAvoir(DateTime? paymentDueDate, PivotInvoicePeriodDto? invoicePeriod = null)
     {
         var supplier = new PivotPartyDto(
             name: "Galerie Fictïve SARL",
@@ -97,7 +104,8 @@ public sealed class PivotContractGoldenTests
             isSelfBilled: true,
             prepaidAmount: 300m,
             sourceData: "{\"raw\":true,\"path\":\"C:\\x\"}",
-            paymentDueDate: paymentDueDate);
+            paymentDueDate: paymentDueDate,
+            invoicePeriod: invoicePeriod);
     }
 
     [Fact]
@@ -167,6 +175,44 @@ public sealed class PivotContractGoldenTests
         CanonicalJson.Serialize(rebuilt).Should().Be(json, "round-trip sans perte avec l'échéance portée");
         PayloadHasher.ComputeHash(avecEcheance).Should().NotBe(
             GoldenAvoirSha256, "porter BT-9 change le contenu, donc l'empreinte");
+    }
+
+    [Fact]
+    public void InvoicePeriod_when_absent_keeps_the_canonical_json_and_hash_byte_identical()
+    {
+        // Slot réservé BG-14 (RD406) : un document SANS période de facturation doit produire le JSON
+        // canonique et le hash STRICTEMENT inchangés (champ optionnel omis, ADR-0007) — l'ancre golden
+        // est figée sur l'avoir sans période, comme pour BT-9.
+        var sansPeriode = BuildAvoirComplet();
+
+        string json = CanonicalJson.Serialize(sansPeriode);
+
+        json.Should().NotContain("InvoicePeriod", "un optionnel null n'est jamais émis (le hash doit rester figé)");
+        PayloadHasher.ComputeHash(sansPeriode).Should().Be(
+            GoldenAvoirSha256, "réserver le slot BG-14 ne doit RIEN changer pour un document qui ne le porte pas");
+    }
+
+    [Fact]
+    public void InvoicePeriod_when_present_is_emitted_last_and_changes_the_hash()
+    {
+        var avecPeriode = BuildAvoirCompletAvecPeriode(
+            new PivotInvoicePeriodDto(new DateTime(2026, 1, 1), new DateTime(2026, 1, 31)));
+
+        string json = CanonicalJson.Serialize(avecPeriode);
+
+        // BG-14 est émise en FIN d'objet (champ additif, ADR-0007), StartDate (BT-73) puis EndDate (BT-74).
+        json.Should().EndWith(
+            "\"InvoicePeriod\":{\"StartDate\":\"2026-01-01\",\"EndDate\":\"2026-01-31\"}}",
+            "BG-14 est le dernier membre du contrat (réservé en fin, RD406)");
+
+        // Round-trip sans perte ET le hash DIFFÈRE du golden (preuve que le slot est réellement sérialisé).
+        var rebuilt = PivotCanonicalReader.ReadDocument(json);
+        rebuilt.InvoicePeriod.Should().NotBeNull();
+        rebuilt.InvoicePeriod!.StartDate.Should().Be(new DateTime(2026, 1, 1));
+        rebuilt.InvoicePeriod.EndDate.Should().Be(new DateTime(2026, 1, 31));
+        CanonicalJson.Serialize(rebuilt).Should().Be(json, "round-trip sans perte avec la période portée");
+        PayloadHasher.ComputeHash(avecPeriode).Should().NotBe(
+            GoldenAvoirSha256, "porter BG-14 change le contenu, donc l'empreinte");
     }
 
     [Fact]

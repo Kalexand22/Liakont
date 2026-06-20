@@ -54,6 +54,12 @@ public sealed class PivotDocumentDto
     /// en fin de constructeur (ADR-0007) : un appelant existant reste valide, et le hash canonique d'un
     /// document sans échéance est INCHANGÉ (champ optionnel omis — F01-F02 §3.1, F14 §3.2/O11).
     /// </param>
+    /// <param name="invoicePeriod">
+    /// Période de facturation (EN 16931 BG-14 : BT-73/BT-74), slot RÉSERVÉ pour les flux d'abonnement /
+    /// usage (ADR-0004 D4 Famille 3 / §5, RD406). Paramètre ADDITIF en fin de constructeur (ADR-0007) :
+    /// <c>null</c> par défaut, OMIS du JSON canonique tant qu'il est absent → hash INCHANGÉ. Inerte en V1
+    /// (aucun sérialiseur PA ne le projette) ; porté tel quel par la source, jamais inventé (CLAUDE.md n°2).
+    /// </param>
     public PivotDocumentDto(
         string sourceDocumentKind,
         string number,
@@ -73,7 +79,8 @@ public sealed class PivotDocumentDto
         bool isSelfBilled = false,
         decimal? prepaidAmount = null,
         string? sourceData = null,
-        DateTime? paymentDueDate = null)
+        DateTime? paymentDueDate = null,
+        PivotInvoicePeriodDto? invoicePeriod = null)
     {
         SourceDocumentKind = sourceDocumentKind;
         Number = number;
@@ -94,6 +101,7 @@ public sealed class PivotDocumentDto
         PrepaidAmount = prepaidAmount;
         SourceData = sourceData;
         PaymentDueDate = paymentDueDate;
+        InvoicePeriod = invoicePeriod;
     }
 
     /// <summary>Type de document de la source, BRUT (ADR-0004 D3-3).</summary>
@@ -162,4 +170,11 @@ public sealed class PivotDocumentDto
     /// (F14 §3.2/O11) : émise vers la PA seulement quand elle est présente.
     /// </summary>
     public DateTime? PaymentDueDate { get; }
+
+    /// <summary>
+    /// Période de facturation (EN 16931 BG-14 : BT-73/BT-74) — slot RÉSERVÉ pour les flux d'abonnement /
+    /// usage (ADR-0004 D4 Famille 3 / §5, RD406). <c>null</c> tant que la source ne la porte pas : champ
+    /// optionnel OMIS du JSON canonique → hash INCHANGÉ. Inerte en V1 (aucun sérialiseur PA ne le projette).
+    /// </summary>
+    public PivotInvoicePeriodDto? InvoicePeriod { get; }
 }

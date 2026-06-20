@@ -120,6 +120,24 @@ public static class CanonicalJson
             writer.WriteDate(document.PaymentDueDate.Value);
         }
 
+        // EN 16931 BG-14 (slot réservé abonnement — RD406) : champ ADDITIF en FIN (ADR-0007), émis
+        // SEULEMENT s'il est porté — un document sans période produit le JSON canonique INCHANGÉ.
+        if (document.InvoicePeriod != null)
+        {
+            writer.WritePropertyName("InvoicePeriod");
+            WriteInvoicePeriod(writer, document.InvoicePeriod);
+        }
+
+        writer.EndObject();
+    }
+
+    private static void WriteInvoicePeriod(CanonicalJsonWriter writer, PivotInvoicePeriodDto period)
+    {
+        writer.BeginObject();
+        writer.WritePropertyName("StartDate");
+        writer.WriteDate(period.StartDate);
+        writer.WritePropertyName("EndDate");
+        writer.WriteDate(period.EndDate);
         writer.EndObject();
     }
 

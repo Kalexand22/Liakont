@@ -24,4 +24,21 @@ public class ExtractorCapabilitiesContractTests
         new ExtractorCapabilities(extractsOnlyFinalizedDocuments: true)
             .ExtractsOnlyFinalizedDocuments.Should().BeTrue();
     }
+
+    [Fact]
+    public void FlowKind_defaults_to_unit_invoice_simplest_form()
+    {
+        // Slot capacité RÉSERVÉ (ADR-0004 D4 Famille 3 / §5, RD406) : défaut sûr = forme la plus simple
+        // (chaque document est une facture unitaire). Un connecteur existant déclare implicitement ce défaut.
+        new ExtractorCapabilities().FlowKind.Should().Be(FlowKind.UnitInvoice);
+    }
+
+    [Fact]
+    public void FlowKind_is_carried_when_declared_aggregated()
+    {
+        // Réservé pour un futur connecteur POS B2C agrégé (Z journalier) : le slot existe déjà, l'ajout
+        // d'un tel connecteur est additif, jamais une rupture (Conséquence §5).
+        new ExtractorCapabilities(flowKind: FlowKind.AggregatedReporting)
+            .FlowKind.Should().Be(FlowKind.AggregatedReporting);
+    }
 }
