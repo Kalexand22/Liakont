@@ -49,7 +49,12 @@ public sealed class PivotLineDto
         Taxes = taxes ?? Array.Empty<PivotLineTaxDto>();
         SourceLineRef = sourceLineRef;
         SourceData = sourceData;
-        UnitCode = string.IsNullOrWhiteSpace(unitCode) ? null : unitCode;
+
+        // Normalisation de SURFACE uniquement (jamais d'interprétation du code, CLAUDE.md n°2) : on borne
+        // les espaces de bord — un code padded (« C62 ») casserait l'appariement de la liste UN/ECE au
+        // schématron EN 16931 côté PA et brouillerait l'empreinte canonique pour un simple écart d'espacement.
+        var trimmedUnitCode = unitCode?.Trim();
+        UnitCode = string.IsNullOrEmpty(trimmedUnitCode) ? null : trimmedUnitCode;
     }
 
     /// <summary>Libellé de la ligne (EN 16931 BT-153).</summary>

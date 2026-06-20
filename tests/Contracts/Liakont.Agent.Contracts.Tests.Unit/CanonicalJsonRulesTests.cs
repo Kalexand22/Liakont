@@ -156,6 +156,17 @@ public sealed class CanonicalJsonRulesTests
     }
 
     [Fact]
+    public void UnitCode_surrounding_whitespace_is_trimmed()
+    {
+        // Normalisation de surface : un code padné est borné, sinon les espaces fuiraient dans l'attribut
+        // CII et brouilleraient l'empreinte canonique pour un simple écart d'espacement source.
+        var line = new PivotLineDto(description: "ligne", netAmount: 100m, unitCode: "  KGM ");
+        string json = CanonicalJson.Serialize(Build(lines: new[] { line }));
+
+        json.Should().Contain("\"UnitCode\":\"KGM\"").And.NotContain("KGM ", "les espaces de bord sont retirés");
+    }
+
+    [Fact]
     public void UnitCode_when_present_is_emitted_at_end_of_line_and_changes_the_hash()
     {
         var withUnit = new PivotLineDto(description: "ligne", netAmount: 100m, unitCode: "KGM");
