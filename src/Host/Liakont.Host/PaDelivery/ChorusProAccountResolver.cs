@@ -122,9 +122,14 @@ internal sealed class ChorusProAccountResolver : IChorusProAccountResolver
     private static Uri ToAbsoluteUri(IReadOnlyDictionary<string, string> identifiers, string key, string tenantId)
     {
         var raw = RequiredString(identifiers, key, tenantId);
-        if (!Uri.TryCreate(raw, UriKind.Absolute, out var uri))
+
+        // Exige un schéma http(s) absolu, pas seulement UriKind.Absolute : sur un hôte Unix (conteneur),
+        // Uri.TryCreate accepterait un chemin relatif comme « /cpro/ » en file-URI absolu (file:///cpro/),
+        // laissant passer une URL invalide pour un appel HTTP Chorus Pro. On bloque (CLAUDE.md n°3).
+        if (!Uri.TryCreate(raw, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
         {
-            throw new InvalidOperationException(BlockedMessage(tenantId, $"l'URL « {key} » n'est pas absolue"));
+            throw new InvalidOperationException(BlockedMessage(tenantId, $"l'URL « {key} » n'est pas une URL http(s) absolue"));
         }
 
         return uri;

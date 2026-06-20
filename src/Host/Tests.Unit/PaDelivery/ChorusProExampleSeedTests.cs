@@ -19,7 +19,10 @@ using Xunit;
 /// </summary>
 public sealed class ChorusProExampleSeedTests
 {
-    private const string ExampleSeedRelativePath = @"config\exemples\tenant-seed\pa-accounts.json";
+    // Path.Combine par segments : les backslashes littéraux ne sont pas des séparateurs sur le runner Linux
+    // du CI (le fichier ne serait jamais trouvé), alors que verify-fast passerait en local Windows.
+    private static readonly string ExampleSeedRelativePath =
+        Path.Combine("config", "exemples", "tenant-seed", "pa-accounts.json");
 
     private static readonly string[] RequiredChorusProKeys =
     [
