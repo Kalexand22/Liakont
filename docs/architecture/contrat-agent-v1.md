@@ -89,6 +89,20 @@ enum/champ-optionnel du sérialiseur cross-runtime ; l'agent lui-même ne rempli
 > sont des **références ILLUSTRATIVES** du format fil (noms de propriété exacts des DTOs + horodatages
 > UTC `yyyy-MM-ddTHH:mm:ssZ`), pas un artefact hashé.
 
+> **Le fil v1 EST le canonique PascalCase — NON NÉGOCIABLE.** L'agent émet ses propriétés en
+> **PascalCase** (`ContractVersion`, `Documents`, `OperationCategory`, …) — c'est la sortie du writer
+> canonique (PIV02) et des golden files. La liaison côté plateforme (minimal-API, `AgentApiJson`)
+> utilise les défauts « Web » de `System.Text.Json` : `PropertyNamingPolicy = camelCase` **+**
+> `PropertyNameCaseInsensitive = true`. Le fil PascalCase ne se lie donc **que grâce à
+> l'insensibilité à la casse**. ⚠ Le fil v1 n'a **aucune négociation de format** : passer la liaison
+> en **camelCase strict** (`PropertyNameCaseInsensitive = false`) **casserait le contrat
+> SILENCIEUSEMENT** — `System.Text.Json` ne lèverait pas, il produirait un DTO **dégradé** (`Documents`
+> vide, `ContractVersion` null), d'où un lot vu comme « 0 document » ou une `NullReferenceException`
+> en aval. Tout durcissement de casse est donc une **rupture v2** (§4.2), jamais un réglage v1. Cette
+> propriété est **gardée par un contrôle négatif** (`AgentContractJsonBindingTests`,
+> `Pascalcase_wire_silently_loses_documents_when_case_insensitivity_is_disabled`) qui rend la
+> fragilité visible en CI ; voir l'avenant RDF15 d'ADR-0003.
+
 ---
 
 ## 4. Règles d'évolution du contrat

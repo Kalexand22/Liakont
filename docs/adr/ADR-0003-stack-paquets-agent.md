@@ -15,7 +15,7 @@ traçables conformément à la règle CLAUDE.md : tout nouveau paquet exige un A
 
 | Paquet | Version | Rôle | Justification |
 |---|---|---|---|
-| `Newtonsoft.Json` | 13.0.3 | Sérialisation du pivot EN 16931 côté agent | `blueprint.md` §3.2/§5. Déclaré au catalogue ; référencé par les items AGT (client HTTP / transport). |
+| `Newtonsoft.Json` | 13.0.4 | **Transport** côté agent (enveloppes de lot/heartbeat — voir avenant RDF15) | `blueprint.md` §3.2/§5. Déclaré au catalogue ; référencé par les items AGT (client HTTP / transport). Le **pivot hashé** passe par le writer canonique manuel (`CanonicalJson`, ADR-0007), **sans** Newtonsoft. |
 | `System.Data.SQLite.Core` | 1.0.119 | Buffer local WAL de l'agent | Reprise sur coupure réseau (`blueprint.md` §3.2). Déclaré ; référencé par les items AGT (buffer local + reprise réseau). |
 | `Microsoft.NETFramework.ReferenceAssemblies` | 1.0.3 | **Build-only** (`PrivateAssets=all`) | Permet de compiler net48 via le SDK .NET sans pack de ciblage installé (CI / poste sans Visual Studio). Pas une dépendance d'exécution. |
 | `StyleCop.Analyzers` | 1.2.0-beta.556 | **Build-only** (`PrivateAssets=all`) | Aligne l'enforcement de style agent avec la plateforme (même version, même suppressions `.editorconfig`). |
@@ -68,6 +68,47 @@ côté client (DSI, étude de sécurité) lèvera ces CVE et peut **bloquer un d
 - La currency CI n'effectue **aucun appel réseau** (pas de requête NuGet en CI) : elle compare des
   versions épinglées à une politique versionnée — déterministe et hors-ligne.
 
+## Avenant 2026-06-20 (RDF15, RL-PKG-2 + RL-SER-2) — Newtonsoft = transport (pas pivot) + fil v1 PascalCase canonique
+
+### Contexte
+
+Deux petites dettes du contrat agent, sourcées de la redline ADR fondateurs :
+
+1. **Libellé trompeur.** L'ADR (table de décision) qualifiait `Newtonsoft.Json` de
+   « sérialisation du **pivot** EN 16931 ». C'est faux : le **pivot** (le payload **hashé**,
+   anti-doublon PIV04) est produit par l'**unique** writer canonique manuel de
+   `Liakont.Agent.Contracts` (`CanonicalJson` / `CanonicalJsonWriter`, ADR-0007), **sans aucune
+   dépendance Newtonsoft**. Newtonsoft ne sert qu'aux **enveloppes de transport NON hashées**
+   (lot `PushBatchRequestDto`, heartbeat) et à la traçabilité `SourceData` des adaptateurs. Le
+   rôle exact est donc **transport**, jamais l'empreinte d'intégrité.
+2. **Patch en retard.** `Newtonsoft.Json 13.0.3` accusait un patch de retard.
+
+### Décision
+
+1. **Bump `Newtonsoft.Json` 13.0.3 → 13.0.4** (`agent/Directory.Packages.props`). Le **plancher**
+   de currency (`tools/package-currency-policy.json`, avenant RDF07) est relevé à `13.0.4` et son
+   `note` corrigé (« transport », plus « pivot ») — un downgrade sous 13.0.4 échoue désormais la CI.
+2. **Libellé corrigé** dans la table de décision (rôle = transport) et dans le commentaire du
+   catalogue agent.
+3. **Le fil v1 EST le canonique PascalCase, non négociable.** L'agent émet ses propriétés en
+   **PascalCase** (`ContractVersion`, `Documents`, …). Côté plateforme, la liaison `System.Text.Json`
+   du minimal-API utilise les défauts « Web » (`PropertyNamingPolicy = camelCase` **+**
+   `PropertyNameCaseInsensitive = true`) : le fil PascalCase ne se lie que **grâce** à l'insensibilité
+   à la casse. Un durcissement futur (camelCase strict, `PropertyNameCaseInsensitive = false`)
+   **casserait la liaison SILENCIEUSEMENT** (`Documents` vide, `ContractVersion` null — aucune
+   exception). Cette propriété est désormais **documentée comme non négociable** dans
+   `docs/architecture/contrat-agent-v1.md` §3.2 et **gardée par un test négatif** (voir §Conséquences).
+
+### Conséquences
+
+- `clients/OnSiteSignature` (ADR-0030) garde sa propre `Newtonsoft.Json` (catalogue distinct, **hors**
+  périmètre de cet ADR et de la gouvernance de currency) — non touchée par cet avenant.
+- Garde de non-régression : `AgentContractJsonBindingTests` (Host) ajoute un **contrôle négatif** qui
+  désérialise le fil PascalCase de référence avec les **mêmes** options réelles que la production mais
+  `PropertyNameCaseInsensitive = false`, et prouve que les documents **disparaissent silencieusement**
+  (binding dégradé, pas d'exception) — rendant la fragilité VISIBLE en CI. Le fil reste PascalCase
+  canonique : on ne change pas la liaison de production, on interdit de la durcir sans casser ce test.
+
 ## Références
 
 - `blueprint.md` §5
@@ -75,4 +116,6 @@ côté client (DSI, étude de sécurité) lèvera ces CVE et peut **bloquer un d
 - `agent/Directory.Packages.props`, `Directory.Packages.props` (racine)
 - `tools/package-currency-policy.json`, `tools/lint-package-currency.ps1`, `tools/test-package-currency-lint.ps1`
 - Item SOL02, Item RDF07 (avenant, source RL-PKG-1 — `tasks/redline-adr-fondateurs.md`)
+- Item RDF15 (avenant, sources RL-PKG-2 + RL-SER-2 — `tasks/redline-adr-fondateurs.md`)
+- `docs/architecture/contrat-agent-v1.md` §3.2 (fil v1 PascalCase canonique), ADR-0007 (writer canonique)
 - CVE-2025-6965 (SQLite, fix 3.50.2), CVE-2025-29088 (SQLite, fix 3.49.1)
