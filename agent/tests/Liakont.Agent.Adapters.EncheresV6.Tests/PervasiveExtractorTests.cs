@@ -55,6 +55,7 @@ public class PervasiveExtractorTests
         caps.ExposesPayments.Should().BeTrue("les encaissements (lignes type 3, F09) sont livrés par ADP03");
         caps.ProvidesSourceDocuments.Should().BeFalse("false par défaut : aucune source PDF configurée (ADP05 pilote la capacité par config)");
         caps.ProvidesUnlinkedDocumentPool.Should().BeFalse();
+        caps.ExtractsOnlyFinalizedDocuments.Should().BeTrue("R9 — n'extrait que les bordereaux de vente émis (gate document finalisé, ADR-0004 D4)");
     }
 
     [Fact]

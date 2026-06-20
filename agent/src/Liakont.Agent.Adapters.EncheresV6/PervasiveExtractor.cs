@@ -76,6 +76,10 @@ public sealed class PervasiveExtractor : IExtractor
         // Source PDF (ADP05) : la capacité PDF est PORTÉE PAR LA CONFIG — les PDF vivent sur le système de
         // fichiers (mêmes que l'extraction soit ODBC ou fixtures). Sans config PDF, null-object → capacités false.
         _pdfSource = pdfSource ?? NullEncheresV6PdfSource.Instance;
+
+        // R9 (gate « document finalisé », ADR-0004 D4 Famille 2) : la requête source ne lit que les
+        // bordereaux de vente émis (jamais un brouillon de saisie) → l'adaptateur s'engage à n'extraire
+        // que des documents finalisés (extractsOnlyFinalizedDocuments: true).
         Capabilities = new ExtractorCapabilities(
             providesSourceDocuments: _pdfSource.ProvidesSourceDocuments,
             providesUnlinkedDocumentPool: _pdfSource.ProvidesUnlinkedDocumentPool,
@@ -86,7 +90,8 @@ public sealed class PervasiveExtractor : IExtractor
             emitterIdentitySource: EmitterIdentitySource.FromConfig,
             hasStoredHeaderTotal: true,
             isMutableAfterIssue: false,
-            numberUniquenessScope: NumberUniquenessScope.Global);
+            numberUniquenessScope: NumberUniquenessScope.Global,
+            extractsOnlyFinalizedDocuments: true);
     }
 
     /// <inheritdoc />

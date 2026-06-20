@@ -44,6 +44,10 @@ public sealed class EncheresV6FixtureExtractor : IExtractor
         // Source PDF (ADP05) : la capacité PDF est PORTÉE PAR LA CONFIG (la source des PDF est la même que
         // les documents viennent des fixtures ou de l'ODBC). Sans config PDF, null-object → capacités false.
         _pdfSource = pdfSource ?? NullEncheresV6PdfSource.Instance;
+
+        // R9 (gate « document finalisé », ADR-0004 D4 Famille 2) : les fixtures reflètent la source réelle
+        // (bordereaux de vente émis) → même engagement que PervasiveExtractor : n'extraire que des
+        // documents finalisés (extractsOnlyFinalizedDocuments: true).
         Capabilities = new ExtractorCapabilities(
             providesSourceDocuments: _pdfSource.ProvidesSourceDocuments,
             providesUnlinkedDocumentPool: _pdfSource.ProvidesUnlinkedDocumentPool,
@@ -54,7 +58,8 @@ public sealed class EncheresV6FixtureExtractor : IExtractor
             emitterIdentitySource: EmitterIdentitySource.FromConfig,
             hasStoredHeaderTotal: true,
             isMutableAfterIssue: false,
-            numberUniquenessScope: NumberUniquenessScope.Global);
+            numberUniquenessScope: NumberUniquenessScope.Global,
+            extractsOnlyFinalizedDocuments: true);
     }
 
     /// <inheritdoc />

@@ -61,6 +61,10 @@ public sealed class DemoErpBExtractor : IExtractor
     {
         _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
         _log = log ?? throw new ArgumentNullException(nameof(log));
+
+        // R9 (gate « document finalisé », ADR-0004 D4 Famille 2) : la source de démonstration ne contient
+        // que des pièces émises (pas d'état brouillon) → l'adaptateur s'engage à n'extraire que des
+        // documents finalisés (extractsOnlyFinalizedDocuments: true).
         Capabilities = new ExtractorCapabilities(
             providesSourceDocuments: false,
             providesUnlinkedDocumentPool: false,
@@ -71,7 +75,8 @@ public sealed class DemoErpBExtractor : IExtractor
             emitterIdentitySource: EmitterIdentitySource.FilledByPlatform,
             hasStoredHeaderTotal: true,
             isMutableAfterIssue: false,
-            numberUniquenessScope: NumberUniquenessScope.Global);
+            numberUniquenessScope: NumberUniquenessScope.Global,
+            extractsOnlyFinalizedDocuments: true);
     }
 
     /// <inheritdoc />

@@ -45,6 +45,7 @@ public class EncheresV6FixtureExtractorTests
         caps.EmitterIdentitySource.Should().Be(EmitterIdentitySource.FromConfig);
         caps.ProvidesSourceDocuments.Should().BeFalse("false par défaut : aucune source PDF configurée (ADP05 pilote la capacité par config)");
         caps.ProvidesUnlinkedDocumentPool.Should().BeFalse();
+        caps.ExtractsOnlyFinalizedDocuments.Should().BeTrue("R9 — les fixtures reflètent la source réelle (documents émis, gate document finalisé)");
     }
 
     [Fact]
