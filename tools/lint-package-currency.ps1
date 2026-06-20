@@ -104,8 +104,12 @@ foreach ($rel in $policy.catalogs) {
     if (-not (Test-Path -LiteralPath $full)) { Fail-Config "catalogue déclaré introuvable : $rel (résolu : $full)" }
     $content = Get-Content -LiteralPath $full -Raw -Encoding UTF8
     $map = @{}
-    foreach ($m in [regex]::Matches($content, '<PackageVersion\s+Include="(?<id>[^"]+)"\s+Version="(?<ver>[^"]+)"\s*/>')) {
-        $map[$m.Groups['id'].Value] = $m.Groups['ver'].Value
+    foreach ($tag in [regex]::Matches($content, '<PackageVersion\b[^>]*/>')) {
+        $mId  = [regex]::Match($tag.Value, 'Include="(?<id>[^"]+)"')
+        $mVer = [regex]::Match($tag.Value, 'Version="(?<ver>[^"]+)"')
+        if ($mId.Success -and $mVer.Success) {
+            $map[$mId.Groups['id'].Value] = $mVer.Groups['ver'].Value
+        }
     }
     $catalogPkgs[$rel] = $map
 }
