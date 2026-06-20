@@ -1,7 +1,15 @@
 # ADR-0005 — L'agent dans un dépôt Git séparé ; contrat partagé via NuGet versionné
 
-- **Statut** : Accepté (2026-06-03). Mise en œuvre outillage **différée** au démarrage du segment `agent` (lots AGT).
-- **Date** : 2026-06-03
+- **Statut** : **Reporté / Conditionnel** (re-statué le 2026-06-20 — RDF12). *Décision de cible toujours
+  valable*, mais sa **mise en œuvre n'est plus rattachée à un déclencheur vivant** : le déclencheur
+  d'origine (« démarrage du segment `agent`, lots AGT ») est **entièrement écoulé** (GATE_AGENT done) **sans
+  que la bascule ait eu lieu**. État réel : l'agent (`Liakont.Agent.Cli/Core`, tests) **et** la plateforme
+  (`Liakont.Host`, modules `Ingestion`/`Documents`/`Pipeline`/`Transmission`/PA…) consomment encore
+  `Liakont.Agent.Contracts` par **ProjectReference cross-solution**, pas par PackageReference NuGet. Voir
+  l'avenant 2026-06-20 (re-statut + date butoir + conditions de déclenchement).
+  *(Statut antérieur : « Accepté (2026-06-03), mise en œuvre outillage différée au démarrage du segment
+  `agent` ».)*
+- **Date** : 2026-06-03 (re-statué le 2026-06-20 — RDF12)
 - **Contexte décisionnel** : `blueprint.md` §3-4, `docs/conception/F12` (architecture agent),
   `docs/conception/F13` (installateur + profils intégrateur), `CLAUDE.md` règles 5-6,
   `orchestration/protocol.md`, `tools/verify-fast.ps1`, ADR-0001 (pivot — option B « cross-repo »
@@ -97,6 +105,49 @@ substantiel à déplacer aujourd'hui.
   la bascule), mais ce n'est pas la cible. La tension cross-repo notée par ADR-0001 est réelle ; on
   l'assume en **différant** la mise en œuvre au moment où le segment agent démarre, plutôt qu'en
   renonçant à la séparation.
+
+## Avenant 2026-06-20 — Re-statut « Reporté / Conditionnel » + date butoir (RDF12)
+
+- **Statut** : Accepté — **Date** : 2026-06-20 — **Item** : RDF12 (redline ADR fondateurs, finding RL-AGT-3)
+
+### Constat
+
+L'ADR liait sa mise en œuvre au **démarrage du segment `agent`** (« à traiter au démarrage du segment
+agent — PAS maintenant »). Ce déclencheur est **entièrement consommé** : le segment `agent` (lots AGT) est
+livré et **GATE_AGENT est `done`**. Or **la bascule décrite n'a pas été faite** :
+
+- `Liakont.Agent.Core` et `Liakont.Agent.Cli` référencent `Liakont.Agent.Contracts` par **ProjectReference
+  cross-solution** (`..\..\..\src\Contracts\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj`), pas par
+  PackageReference NuGet ;
+- côté plateforme, le même `Liakont.Agent.Contracts` est consommé par **ProjectReference** depuis
+  `Liakont.Host` et de nombreux modules (`Ingestion`, `Documents`, `Pipeline`, `Transmission`, PA…) ;
+- l'agent vit toujours dans `agent/` du **dépôt unique** `Liakont` ; aucun dépôt `liakont-agent` n'existe ;
+  `verify-fast` build encore **les deux** solutions du même repo ; `manifest.yaml` n'a pas de champ `repo:`.
+
+L'ADR n'introduisait **aucune incohérence** tant que la bascule n'était pas faite (ses propres garde-fous le
+prévoient). Le seul problème est de **gouvernance** : un ADR « Accepté » avec un déclencheur **mort** se lit à
+tort comme « en attente de » alors que rien ne le déclenchera plus.
+
+### Décision (re-statut, sans rouvrir la cible)
+
+1. **Re-statué « Reporté / Conditionnel ».** La **cible reste valable** (dépôt agent séparé + contrat NuGet
+   versionné — bénéfices d'isolation/CI/cycle de vie inchangés) ; ce qui change est qu'elle **n'est plus
+   pilotée par un jalon d'orchestration** mais par les **conditions de déclenchement** ci-dessous.
+2. **Conditions de déclenchement (la première rencontrée rouvre l'exécution)** :
+   - **partage / audit externe du code agent** (confier l'agent à un tiers sans exposer la plateforme — la
+     justification « surface de sécurité » de l'ADR) ;
+   - **divergence des cadences de release** agent (net48, auto-update de flotte) vs plateforme (net10) au
+     point que le dépôt/CI unique devienne une gêne réelle ;
+   - **re-convergence NuGet du socle** (option D d'ADR-0001) : le moment où l'on monte l'infrastructure de
+     packaging est l'occasion naturelle de publier aussi `Liakont.Agent.Contracts`.
+3. **Date butoir (backstop, non un engagement commercial).** À défaut d'un déclencheur ci-dessus, **ré-arbitrer
+   au plus tard à la mise en production V1**, jalon adossé à l'**échéance légale e-reporting** rappelée en
+   contexte d'ADR-0001 (**septembre 2026**) : à cette revue, soit on exécute la bascule, soit on **acte
+   explicitement le statu quo** (dépôt unique) comme choix V1 et on referme l'ADR — plutôt que de le laisser
+   « Accepté / en attente » indéfiniment. Cette date est un **point de revue**, pas une promesse de livraison.
+4. **Aucune exécution ici.** Cet avenant **ne déplace pas** le code, **ne crée pas** le dépôt et **ne touche
+   pas** l'orchestration runtime : item **DOC pur** (redline). La bascule reste le chantier décrit en
+   « Conséquences », à valider avec l'humain.
 
 ## Références
 

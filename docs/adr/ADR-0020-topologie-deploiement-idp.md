@@ -1,7 +1,14 @@
 # ADR-0020 — Topologie de déploiement de l'IdP (Keycloak par instance, empreinte mesurée)
 
-- **Statut** : Accepté
-- **Date** : 2026-06-11
+- **Statut** : Accepté — **partiellement superseded par [ADR-0021](ADR-0021-realm-keycloak-unique-isolation-par-claim.md)**
+  sur le modèle de multi-location *intra-instance*. La topologie tranchée ici (**un Keycloak par
+  instance**) reste valable ; en revanche le mécanisme « **un realm par tenant** » à l'intérieur d'une
+  instance (cité §1 / §Conséquences) est **remplacé** par ADR-0021 : **un realm unique partagé** avec
+  isolation des tenants par **claim `company_id` (par-utilisateur, immuable) + cross-check applicatif
+  fail-closed**, et non plus par la **frontière cryptographique par-realm**. Lire ce qui suit en gardant
+  ce renvoi à l'esprit (les mentions « multi-realms intra-instance pour les tenants » sont annotées
+  *(superseded ADR-0021)* à l'endroit où elles apparaissent).
+- **Date** : 2026-06-11 (renvoi ADR-0021 ajouté le 2026-06-20 — RDF12)
 - **Items** : OPS01c (ADR topologie IdP), s'appuie sur OPS01a (appliance Docker)
 - **Contexte décisionnel** : décision D10 (2026-06-03), ADR-0002 (spike d'empreinte Keycloak vs
   OpenIddict), `docs/conception/F12-Architecture-Plateforme-Agent.md` §6.2 / §7 (n°1),
@@ -73,7 +80,9 @@ est un garde-fou d'hôte, pas une cure d'amaigrissement gratuite.
 Chaque instance (self-hosted éditeur, dédiée hébergée, mutualisée) embarque **son propre** conteneur
 Keycloak et **sa propre** base `keycloak-db`, conformément à OPS01a. La multi-location **à
 l'intérieur** d'une instance se fait par **un realm par tenant** (mécanique du socle déjà câblée :
-`RealmRegistry`, `MultiRealmJwksKeyResolver`). On **n'adopte PAS** un Keycloak mutualisé entre
+`RealmRegistry`, `MultiRealmJwksKeyResolver`) *(superseded [ADR-0021](ADR-0021-realm-keycloak-unique-isolation-par-claim.md) :
+un realm **unique partagé** + claim `company_id` par-utilisateur + cross-check, le realm-par-tenant
+restant réservé au déploiement **dédié** mono-tenant)*. On **n'adopte PAS** un Keycloak mutualisé entre
 plusieurs instances/éditeurs. Motifs :
 
 - **Isolation par éditeur** : `blueprint.md` — principe « la marque grise = une instance de plateforme
@@ -116,7 +125,9 @@ Keycloak (par instance), pas l'identité du fournisseur.
 ## Conséquences
 
 - **OPS01a confirmé** dans sa topologie : Keycloak + `keycloak-db` **par instance**, realm `liakont`
-  importé au démarrage, multi-realms intra-instance pour les tenants.
+  importé au démarrage, multi-realms intra-instance pour les tenants *(superseded
+  [ADR-0021](ADR-0021-realm-keycloak-unique-isolation-par-claim.md) : realm **unique partagé**
+  intra-instance, isolation par claim `company_id`)*.
 - **Suivi (petite reprise d'OPS01a)** : plafonner la mémoire du conteneur `keycloak` dans
   `deploy/docker/appliance/docker-compose.yml` (≈ 1 GiB). Le présent ADR ne modifie pas le compose
   (changement chirurgical : OPS01c = mesure + décision) ; la reprise est tracée comme suivi.

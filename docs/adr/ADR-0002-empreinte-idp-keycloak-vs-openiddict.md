@@ -3,7 +3,13 @@
 - **Statut** : Accepté (spike livré) — décision finale d'IdP **différée** (prise sur mesure).
   **État d'implémentation acté le 2026-06-20 (RDF09)** : OpenIddict **NON IMPLÉMENTÉ** ; seule
   topologie V1 livrée = **Keycloak par instance** (voir avenant 2026-06-20 en fin d'ADR).
-- **Date** : 2026-06-03 (avenant 2026-06-20 — RDF09)
+  **Partiellement superseded par [ADR-0021](ADR-0021-realm-keycloak-unique-isolation-par-claim.md)**
+  sur le **modèle de realm** : le « réalms multi-tenant, JWKS par realm » crédité comme atout natif
+  dans l'arbitrage ci-dessous **n'est plus** le modèle SaaS partagé retenu (un **realm unique partagé**
+  + claim `company_id` par-utilisateur + cross-check applicatif fail-closed remplace la frontière
+  cryptographique par-realm ; le realm-par-tenant reste réservé au déploiement **dédié** mono-tenant).
+  Le choix d'**empreinte/IdP** consigné ici n'est PAS rouvert par ce renvoi.
+- **Date** : 2026-06-03 (avenant 2026-06-20 — RDF09 ; renvoi ADR-0021 ajouté le 2026-06-20 — RDF12)
 - **Contexte décisionnel** : décision D10 (2026-06-03), `blueprint.md` §5/§12, `docs/conception/F12` §7 (n°1), item SOL01
 
 ## Contexte
