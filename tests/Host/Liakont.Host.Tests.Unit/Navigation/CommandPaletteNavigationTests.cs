@@ -72,9 +72,13 @@ public sealed class CommandPaletteNavigationTests : BunitContext
             .Add(c => c.IsOpen, true)
             .Add(c => c.NavNodes, (IReadOnlyList<NavNode>)[LiakontLikeTree()]));
 
-        cut.WaitForAssertion(() =>
-            cut.Find("[data-testid='command-palette-results']").TextContent
-                .Should().Contain("Paramètres fiscaux", "la feuille du sous-menu est recherchable"));
+        // Timeout explicite (défaut bUnit = 1 s) : sur un runner CI chargé, le rendu de la palette peut
+        // dépasser 1 s → flake intermittent (même SHA : run pull_request vert, run push rouge). 5 s absorbe
+        // la charge sans masquer un vrai échec — l'assertion reste identique (la feuille DOIT apparaître).
+        cut.WaitForAssertion(
+            () => cut.Find("[data-testid='command-palette-results']").TextContent
+                .Should().Contain("Paramètres fiscaux", "la feuille du sous-menu est recherchable"),
+            TimeSpan.FromSeconds(5));
     }
 
     private sealed class FlatSectionProvider : INavSectionProvider
