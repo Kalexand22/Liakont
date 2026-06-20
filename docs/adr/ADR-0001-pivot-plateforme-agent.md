@@ -184,6 +184,32 @@ La formulation initiale accolait deux justifications de natures différentes (fi
 
 Les deux conditions sont **orthogonales** : on peut sortir du 32-bit en restant net48, ou inversement.
 
+## Avenant 2026-06-20 (bis) — Dette socle gouvernée + plafond multi-tenant documenté (RDF16)
+
+- **Statut** : Accepté — **Date** : 2026-06-20 — **Item** : RDF16 (redline ADR fondateurs, findings
+  RL-SOCLE-1 / RL-SOCLE-2 / RL-SOCLE-3 / RL-AGT-6, décision DEC-4)
+
+Trois promesses différées de cet ADR sont **requalifiées en gouvernance traçable** (aucune décision
+fondatrice n'est reconsidérée) :
+
+1. **Option D (re-convergence NuGet) — requalifiée « NON PLANIFIÉE à ce jour, à réévaluer ».** Les
+   formulations « possible et explicitement visée à terme » (Décision §Option C, Conséquence 2) se
+   lisent désormais à travers cette requalification : aucune échéance ni budget en V1, avec un
+   **critère de réévaluation** chiffré. Mesure de **dérive cumulée vs le commit source `1454c7f`**
+   publiée (73 fichiers `Stratum.*` modifiés au 2026-06-20). Détail :
+   [`provenance-socle-stratum.md` §6.1/§6.3](../architecture/provenance-socle-stratum.md).
+2. **Backport sécurité amont — politique actée.** La Conséquence 1 (« la copie vendorée ne reçoit
+   pas automatiquement les correctifs ») gagne une **politique de backport manuel des correctifs de
+   SÉCURITÉ Stratum amont**, consigné en provenance §4. Détail :
+   [`provenance-socle-stratum.md` §6.2](../architecture/provenance-socle-stratum.md).
+3. **Plafond multi-tenant + préfixe de base — documentés.** Le boot O(N) fail-closed (jamais de
+   migration paresseuse), les ordres de grandeur tenants/instance par topologie, le seuil de
+   sharding, et le préfixe de base `stratum_` (assumé, surchargeable, **pas de bascule unilatérale**
+   — DEC-4, à arbitrer avec RLF01) sont décrits dans
+   [`exploitation-multi-tenant.md`](../architecture/exploitation-multi-tenant.md). La suppression
+   des verrous de lecture **implicites** de la base source relève du paramétrage tenant (exemples
+   par moteur : [`config/exemples/connexion-source-lecture-seule/`](../../config/exemples/connexion-source-lecture-seule/README.md)).
+
 ## Références
 
 - `blueprint.md` (v2 — architecture cible plateforme + agent)
