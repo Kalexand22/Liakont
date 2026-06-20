@@ -48,6 +48,15 @@ internal sealed class KeycloakIdentityProviderAuthenticator : IIdentityProviderA
             throw new InvalidOperationException(
                 $"Keycloak:PostLogoutRedirectUri must be a safe relative path starting with '/'. Got: '{_settings.PostLogoutRedirectUri}'");
         }
+
+        // Fenêtre de révocation des permissions sensibles : fail-closed sur une configuration absurde
+        // (≤ 0 désactiverait l'atténuation RDF10 et laisserait la fenêtre ≥ 8 h non bornée).
+        if (_settings.SensitivePermissionRevocationWindow <= TimeSpan.Zero)
+        {
+            throw new InvalidOperationException(
+                "Keycloak:SensitivePermissionRevocationWindow must be a positive duration "
+                + $"(borne la fenêtre de révocation des permissions sensibles). Got: '{_settings.SensitivePermissionRevocationWindow}'");
+        }
     }
 
     /// <summary>
@@ -93,7 +102,7 @@ internal sealed class KeycloakIdentityProviderAuthenticator : IIdentityProviderA
         // Primary realm OIDC handler
         authBuilder.AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, options =>
         {
-            ConfigureOidcOptions(options, kc.Authority, kc.ClientId, kc.ClientSecret, kc.RequireHttpsMetadata, kc.PostLogoutRedirectUri, kc.MetadataAddress);
+            ConfigureOidcOptions(options, kc.Authority, kc.ClientId, kc.ClientSecret, kc.RequireHttpsMetadata, kc.SensitivePermissionRevocationWindow, kc.PostLogoutRedirectUri, kc.MetadataAddress);
         });
 
         // Additional realm OIDC handlers (named "oidc-{realmName}")
@@ -113,6 +122,7 @@ internal sealed class KeycloakIdentityProviderAuthenticator : IIdentityProviderA
                     realmConfig.ClientId,
                     realmConfig.ClientSecret,
                     kc.RequireHttpsMetadata,
+                    kc.SensitivePermissionRevocationWindow,
                     kc.PostLogoutRedirectUri);
             });
         }
@@ -219,9 +229,12 @@ internal sealed class KeycloakIdentityProviderAuthenticator : IIdentityProviderA
                 // Fenêtre de révocation différée (ADR-0017 §Négatif) : la garde endpoint lit des claims
                 // "permission" figés au sign-in (projetés des rôles realm). Le cookie étant en expiration
                 // glissante, il se ré-émet avec les mêmes claims SANS rejouer OnTokenValidated — une
-                // révocation de rôle n'est donc PAS honorée immédiatement (fenêtre ≥ 8 h, non bornée pour
-                // une session active). Compromis ACCEPTÉ au merge humain (gate console-web) ; atténuation
-                // (raccourcir/désactiver le sliding, ré-auth forcée) seulement si l'opérateur l'exige.
+                // révocation de rôle n'est donc PAS honorée immédiatement (fenêtre ≥ 8 h pour une session
+                // active sur les permissions NON sensibles). Pour les permissions SENSIBLES
+                // (liakont.actions/liakont.settings), RDF10 BORNE cette fenêtre : OnTokenValidated pose un
+                // cap de durée absolu court (sans glissement) sur ces sessions (voir
+                // SensitivePermissionRevocation + KeycloakSettings.SensitivePermissionRevocationWindow).
+                // Ce défaut glissant 8 h reste celui des sessions non sensibles (lecture, supervision).
                 options.SlidingExpiration = true;
                 options.ExpireTimeSpan = TimeSpan.FromHours(8);
 
@@ -259,6 +272,7 @@ internal sealed class KeycloakIdentityProviderAuthenticator : IIdentityProviderA
         string clientId,
         string clientSecret,
         bool requireHttpsMetadata,
+        TimeSpan sensitivePermissionRevocationWindow,
         string postLogoutRedirectUri = "/login",
         string metadataAddress = "")
     {
@@ -360,6 +374,22 @@ internal sealed class KeycloakIdentityProviderAuthenticator : IIdentityProviderA
                         new System.Security.Claims.Claim("stratum_user_id", userId.ToString("D")));
 
                     RolePermissionCatalog.ProjectPermissionClaims(identity);
+                }
+
+                // Borne la fenêtre de révocation des permissions SENSIBLES (RDF10, ADR-0017 §Négatif) :
+                // une session non super-admin porteuse de liakont.actions/liakont.settings reçoit un cap
+                // de durée ABSOLU court (sans glissement). À l'échéance, le cookie est rejeté et l'OIDC
+                // ré-authentifie (transparent tant que la session SSO Keycloak vit), ce qui rejoue la
+                // projection sur les rôles COURANTS — une révocation de rôle est alors honorée en ≤ fenêtre
+                // au lieu des ≥ 8 h du cookie glissant. Les sessions non sensibles gardent le défaut glissant.
+                var revocation = SensitivePermissionRevocation.Resolve(
+                    ctx.Principal,
+                    TimeProvider.System.GetUtcNow(),
+                    sensitivePermissionRevocationWindow);
+                if (revocation.Cap && ctx.Properties is not null)
+                {
+                    ctx.Properties.ExpiresUtc = revocation.ExpiresUtc;
+                    ctx.Properties.AllowRefresh = false;
                 }
 
                 // Strip bulky tokens from auth properties to keep the session cookie small.

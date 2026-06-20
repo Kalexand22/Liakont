@@ -110,20 +110,32 @@ WEB01, actions de WEB03b…) prouvant qu'un rôle élevé non super-admin voit s
 re-validation de l'E2E opérateur **de WEB05** (7/7) incombe à **WEB05**, qui dépend d'IDN01 — elle
 ne peut pas être un critère d'IDN01 (WEB05 s'exécute après).
 
-**Négatif — à accepter consciemment par l'humain (révocation différée)** : en lisant des claims
-figés au sign-in plutôt qu'une lecture base *live*, la garde endpoint cesse d'honorer
+**Négatif — révocation différée (atténuée par RDF10 pour les permissions sensibles)** : en lisant
+des claims figés au sign-in plutôt qu'une lecture base *live*, la garde endpoint cesse d'honorer
 **immédiatement** une révocation de rôle dans Keycloak. Le cookie d'auth est en **expiration
-glissante** (`KeycloakIdentityProviderAuthenticator.cs:198-199` : `SlidingExpiration = true`,
+glissante** (`KeycloakIdentityProviderAuthenticator.cs` : `SlidingExpiration = true`,
 `ExpireTimeSpan = 8h`) : il se ré-émet avec les **mêmes claims figés sans rejouer
 `OnTokenValidated`**. La fenêtre de péremption vaut donc **au minimum** 8 h et est en pratique
 **non bornée pour une session active** (jusqu'à une ré-authentification complète) — et non « = durée
 de vie du cookie ». Sur un produit fiscal, `liakont.actions` (envoi à l'administration) et
-`liakont.settings` (paramétrage TVA) sont sensibles : l'opérateur doit accepter cette fenêtre au
-merge, OU exiger une atténuation — désactiver/raccourcir `SlidingExpiration`/`ExpireTimeSpan`,
-forcer une ré-auth, et/ou conserver une vérification serveur de révocation pour ces deux permissions
-sensibles (la garde claims reste pour le reste). Note : la garde **UI** (`ClaimsPermissionService`)
-était déjà claims-based, donc déjà soumise à cette fenêtre ; le présent ADR l'étend à la garde
-**endpoint**.
+`liakont.settings` (paramétrage TVA) sont sensibles.
+
+**Atténuation RDF10 (DEC-6) — fenêtre bornée pour les permissions sensibles** : à la pose du cookie
+(`OnTokenValidated`), une session **non super-admin** porteuse d'une permission sensible
+(`SensitivePermissions` = {`liakont.actions`, `liakont.settings`}) reçoit un **cap de durée ABSOLU
+court, glissement désactivé** (`AuthenticationProperties.ExpiresUtc = now + fenêtre`,
+`AllowRefresh = false`). À l'échéance, le cookie est rejeté et l'OIDC ré-authentifie (transparent
+tant que la session SSO Keycloak vit), ce qui **rejoue la projection sur les rôles courants** — une
+révocation de rôle est alors honorée en **≤ fenêtre** au lieu des ≥ 8 h. La fenêtre est le **défaut
+défendable** `KeycloakSettings.SensitivePermissionRevocationWindow` (**30 min**, tunable : plus
+court = révocation plus stricte ; plus long = moins de ré-auth ; ≤ 0 = échec au démarrage,
+fail-closed). Les permissions non sensibles (`liakont.read`, `liakont.supervision`,
+`liakont.fleet`) et les super-admins gardent le défaut glissant 8 h. La décision est PURE et testée
+(`SensitivePermissionRevocation`) ; le court-circuit super-admin est préservé. Une **garde CI**
+(`SensitivePermissionE2ECoverageTests`) impose ≥ 1 E2E par permission sensible joué avec un rôle
+**non super-admin** (le super-admin court-circuitant la garde était la cause du trou IDN01). Note :
+la garde **UI** (`ClaimsPermissionService`) était déjà claims-based, donc déjà soumise à cette
+fenêtre ; le présent ADR l'étend à la garde **endpoint**, et RDF10 la borne pour le sensible.
 
 **Limite** : la matrice §3 est statique (rôle→permission). Toute permission par-utilisateur ad hoc
 (hors rôle) sortirait de ce modèle et exigerait un avenant — non requis par le produit actuel.
