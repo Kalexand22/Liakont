@@ -161,23 +161,30 @@ public sealed class SharedRealmConfigTests
 
     [Theory]
     [MemberData(nameof(RealmFiles))]
-    public void UnmanagedAttributePolicy_Is_Explicitly_Disabled(string realmPath)
+    public void Unmanaged_Attributes_Are_Disabled(string realmPath)
     {
         using var realm = LoadRealm(realmPath);
         using var userProfileConfig = LoadDeclarativeUserProfile(realm.RootElement);
 
-        // RDF03 (RL-IDP-4, ADR-0002/0021) : la politique des attributs NON déclarés est posée EXPLICITEMENT
-        // (jamais laissée au défaut implicite de Keycloak, susceptible de changer entre versions). DISABLED =
-        // un attribut absent du profil déclaratif est rejeté en écriture comme en lecture. Conjuguée à
-        // company_id (déclaré, edit=[admin]), elle garantit l'immuabilité côté IdP (INV-0021-3) : ni un
-        // attribut non géré ne peut être introduit, ni company_id édité par un non-admin. Valeur sourcée
-        // (Keycloak 26 UnmanagedAttributePolicy + item RDF03), non inventée.
-        userProfileConfig.RootElement.TryGetProperty("unmanagedAttributePolicy", out var policy)
-            .Should().BeTrue(
-                "le profil utilisateur déclaratif doit poser unmanagedAttributePolicy EXPLICITEMENT (RDF03 — jamais le défaut implicite)");
-        policy.GetString().Should().Be(
-            "DISABLED",
-            "RDF03 : les attributs non déclarés sont rejetés (DISABLED) — pas de smuggling d'attribut, immuabilité company_id garantie côté IdP");
+        // RDF03 (RL-IDP-4, ADR-0002/0021) : les attributs NON déclarés doivent rester DÉSACTIVÉS — un
+        // attribut absent du profil déclaratif ne peut être écrit/lu depuis aucun contexte (registration,
+        // account, admin). Conjugué à company_id (déclaré, edit=[admin] — voir CompanyId_Is_Immutable…),
+        // cela garantit l'immuabilité côté IdP (INV-0021-3) : ni introduction d'un attribut non géré, ni
+        // édition de company_id par un non-admin.
+        //
+        // Keycloak 26 NE FOURNIT PAS de valeur d'enum « disabled » : UPConfig.UnmanagedAttributePolicy =
+        // { ENABLED, ADMIN_VIEW, ADMIN_EDIT } (vérifié contre le source 26.0.0). L'état « désactivé » EST
+        // l'ABSENCE de la propriété (défaut Keycloak). Poser une valeur littérale "DISABLED" ferait échouer
+        // la désérialisation du realm à l'import (InvalidFormatException) — règle « ne jamais inventer un
+        // membre d'enum ». Toute valeur réellement valide (ENABLED/ADMIN_VIEW/ADMIN_EDIT) EXPOSERAIT au
+        // contraire les attributs non gérés. L'état sûr est donc l'absence ; ce test la garde (anti-régression
+        // : il échoue si quelqu'un pose une politique qui expose, ou une valeur invalide qui casse l'import).
+        userProfileConfig.RootElement.TryGetProperty("unmanagedAttributePolicy", out _)
+            .Should().BeFalse(
+                "les attributs non gérés doivent rester désactivés (RDF03/INV-0021-3) : Keycloak 26 n'a pas de "
+                + "valeur d'enum « disabled » (UPConfig.UnmanagedAttributePolicy = ENABLED|ADMIN_VIEW|ADMIN_EDIT), "
+                + "donc l'état SÛR est l'ABSENCE de la propriété — toute valeur posée expose les attributs non "
+                + "gérés ou casse l'import du realm");
     }
 
     [Theory]
