@@ -86,6 +86,7 @@ using Stratum.Common.Infrastructure.GridPreferences;
 using Stratum.Common.Infrastructure.HealthChecks;
 using Stratum.Common.Infrastructure.Http;
 using Stratum.Common.Infrastructure.Jobs;
+using Stratum.Common.Infrastructure.Keycloak;
 using Stratum.Common.Infrastructure.UiRules;
 using Stratum.Common.Infrastructure.Validation;
 using Stratum.Common.UI;
@@ -759,6 +760,13 @@ public static class AppBootstrap
         // plug-in — INV-SIGPROV-6).
         ValidateSignatureProviderConfiguration(app.Configuration, app.Services);
 
+        // Validation au démarrage du profil de déploiement (RDF11, redline ADR fondateurs RL-IDP-8) :
+        // le flag Keycloak:DedicatedRealmPerTenant choisit SaaS partagé (défaut) vs dédié mono-tenant.
+        // Fail-closed : en dédié sans API Admin Keycloak, le provisioning realm-par-tenant ne peut pas
+        // tourner → on bloque plutôt que d'activer une capacité latente sans son pré-requis (avenant
+        // RDF11 de l'ADR-0021 ; capacité dédiée hors périmètre INV-0021-*).
+        ValidateDedicatedRealmConfiguration(app.Configuration);
+
         // Signale l'activation du puits factice hors Development avant toute initialisation,
         // pour qu'un opérateur ayant posé PaClients:Fake:Enabled=true par erreur le voie immédiatement.
         app.WarnIfFakePaClientForcedOutsideDevelopment();
@@ -1068,6 +1076,30 @@ public static class AppBootstrap
 
         var registry = services.GetRequiredService<ISignatureProviderRegistry>();
         SignatureProviderStartupValidator.Validate(enabledProviders, registry);
+    }
+
+    /// <summary>
+    /// Validation au démarrage du flag de profil de déploiement <c>Keycloak:DedicatedRealmPerTenant</c>
+    /// (RDF11, redline ADR fondateurs RL-IDP-8). Délègue la décision pure (fail-closed) à
+    /// <see cref="DedicatedRealmStartupValidator"/> : en profil dédié sans API Admin Keycloak
+    /// configurée, le provisioning realm-par-tenant est impossible → échec explicite au démarrage.
+    /// No-op en profil SaaS partagé (défaut). Le flag est lu via la MÊME clé
+    /// (<c>Keycloak:DedicatedRealmPerTenant</c>) et la MÊME notion « API Admin configurée »
+    /// (<see cref="KeycloakAdminOptions.IsConfigured"/>) que les sites consommateurs (sélection DI du
+    /// provisioner, ciblage de realm), garantissant la cohérence au démarrage. La logique pure est
+    /// testée par <c>DedicatedRealmStartupValidatorTests</c>.
+    /// </summary>
+    /// <param name="configuration">Configuration de l'application (lit la section <c>Keycloak</c>).</param>
+    internal static void ValidateDedicatedRealmConfiguration(
+        Microsoft.Extensions.Configuration.IConfiguration configuration)
+    {
+        var dedicated = configuration.GetValue<bool>(
+            $"{KeycloakAdminOptions.SectionName}:DedicatedRealmPerTenant");
+        var adminConfigured =
+            configuration.GetSection(KeycloakAdminOptions.SectionName).Get<KeycloakAdminOptions>()?.IsConfigured
+            ?? false;
+
+        DedicatedRealmStartupValidator.Validate(dedicated, adminConfigured);
     }
 
     /// <summary>
