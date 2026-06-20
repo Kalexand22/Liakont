@@ -26,7 +26,10 @@ traçables conformément à la règle CLAUDE.md : tout nouveau paquet exige un A
 - Le contrat `Liakont.Agent.Contracts` reste SANS aucun paquet (netstandard2.0, BCL seul).
 - Les versions de tests (xUnit, Test.Sdk, FluentAssertions) sont alignées sur le catalogue
   plateforme (`Directory.Packages.props` racine), couverts par le socle — aucun avenant requis
-  pour ces paquets si la version est synchronisée.
+  pour ces paquets si la version est synchronisée. **⚠️ Prémisse amendée le 2026-06-20 (RDF17) :
+  cette exemption supposait des paquets de test gratuits et interchangeables — devenu FAUX pour
+  `FluentAssertions` ≥ 8.x (commercial). FluentAssertions est désormais SORTI de l'exemption et
+  gouverné par ADR-0031 — voir l'avenant RDF17 ci-dessous.**
 
 ## Avenant 2026-06-20 (RDF07, RL-PKG-1) — Politique de rafraîchissement SQLite + currency CI
 
@@ -109,6 +112,36 @@ Deux petites dettes du contrat agent, sourcées de la redline ADR fondateurs :
   (binding dégradé, pas d'exception) — rendant la fragilité VISIBLE en CI. Le fil reste PascalCase
   canonique : on ne change pas la liaison de production, on interdit de la durcir sans casser ce test.
 
+## Avenant 2026-06-20 (RDF17, RL-TR-1) — Prémisse « paquets de test gratuits » caduque : FluentAssertions sorti de l'exemption
+
+### Contexte
+
+La clause §Conséquences « les paquets de test (xUnit, Test.Sdk, FluentAssertions)… aucun avenant
+requis » reposait sur une **prémisse implicite** : ces paquets sont **gratuits et interchangeables**.
+Cette prémisse est **devenue fausse** pour `FluentAssertions` : depuis janvier 2025, la branche **8.x
+est une dépendance commerciale** (licence Xceed), tandis que la 7.x reste gratuite (Apache 2.0). Le
+paquet est épinglé `8.2.0` dans **3 catalogues** (racine, agent, OnSiteSignature) et touché par
+**739 fichiers** de test — un coût de sortie croissant. Dette **P2** : paquet **build-time only**,
+jamais livré, sans impact runtime ni correction fiscale.
+
+### Décision
+
+1. **`FluentAssertions` est SORTI de l'exemption « paquets de test »** d'ADR-0003 : un paquet de test
+   à **licence commerciale** n'est plus couvert par la clause « aucun avenant requis ». Sa
+   gouvernance (et la décision downgrade 7.x / licence Xceed / migration AwesomeAssertions) est
+   portée par **ADR-0031** (préparation de décision DEC-2).
+2. **Aucune exécution dans RDF17** : l'item RDF17 ne fait qu'**acter la caducité** et produire l'ADR
+   comparatif. Le choix et la migration sont un **item ultérieur après arbitrage Karl (DEC-2)**.
+3. **xUnit / Test.Sdk restent dans l'exemption** (gratuits) — seul FluentAssertions en est retiré.
+
+### Conséquences
+
+- Tant que DEC-2 n'est pas tranchée, `FluentAssertions 8.2.0` reste en place — dette P2 **tracée**,
+  sans impact runtime.
+- À l'exécution (item ultérieur), l'option retenue gouverne sa version dans
+  `tools/package-currency-policy.json` et porte sa propre preuve (`verify-fast` + `run-tests`). Voir
+  ADR-0031 §Conséquences pour le détail par option.
+
 ## Références
 
 - `blueprint.md` §5
@@ -117,5 +150,6 @@ Deux petites dettes du contrat agent, sourcées de la redline ADR fondateurs :
 - `tools/package-currency-policy.json`, `tools/lint-package-currency.ps1`, `tools/test-package-currency-lint.ps1`
 - Item SOL02, Item RDF07 (avenant, source RL-PKG-1 — `tasks/redline-adr-fondateurs.md`)
 - Item RDF15 (avenant, sources RL-PKG-2 + RL-SER-2 — `tasks/redline-adr-fondateurs.md`)
+- Item RDF17 (avenant, source RL-TR-1 — `tasks/redline-adr-fondateurs.md`), **ADR-0031** (préparation de décision FluentAssertions, DEC-2)
 - `docs/architecture/contrat-agent-v1.md` §3.2 (fil v1 PascalCase canonique), ADR-0007 (writer canonique)
 - CVE-2025-6965 (SQLite, fix 3.50.2), CVE-2025-29088 (SQLite, fix 3.49.1)
