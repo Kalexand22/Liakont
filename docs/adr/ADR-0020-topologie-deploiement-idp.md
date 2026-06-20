@@ -101,10 +101,17 @@ présent ADR, qui mesure et décide la topologie) — voir « Conséquences ».
 
 Pour les plus petites instances self-hosted où même ≈ 0,5–1 GiB pèse, l'alternative **OpenIddict
 in-process** (quelques dizaines de Mo, ADR-0002) reste **branchable derrière
-`IIdentityProviderAuthenticator`** sans toucher au métier (seul le sélecteur d'`AppBootstrap`
-change). Le choix Keycloak/OpenIddict **n'est pas rouvert** par cet ADR : il est tranché en amont
-(D10 + spike ADR-0002), pris sur mesure par instance. Le présent ADR ne décide que la **topologie**
-du fournisseur Keycloak (par instance), pas l'identité du fournisseur.
+`IIdentityProviderAuthenticator`** sans toucher au métier. ⚠ **Mais elle est NON IMPLÉMENTÉE**
+(0 implémentation OpenIddict ; le registre `SelectIdentityProvider` n'a qu'une entrée, Keycloak —
+voir avenant ADR-0002 du 2026-06-20 / RDF09) : la formulation antérieure « seul le sélecteur
+d'`AppBootstrap` change » est **retirée**, car au-delà de l'authentificateur il faudrait ré-livrer
+le provisioning realm/utilisateur, le 2FA et la résolution par issuer/JWKS, aujourd'hui
+Keycloak-spécifiques et câblés hors du sélecteur. La seule topologie V1 livrée est donc
+**Keycloak par instance** (la plus petite appliance doit provisionner **≈ 1 GiB** pour l'IdP —
+cohérent avec **RDF04**). Le choix Keycloak/OpenIddict **n'est pas rouvert** par cet ADR : il est
+tranché en amont (D10 + spike ADR-0002), pris sur mesure par instance ; le MVP de réversibilité
+reste un go/no-go opérateur (DEC-1). Le présent ADR ne décide que la **topologie** du fournisseur
+Keycloak (par instance), pas l'identité du fournisseur.
 
 ## Conséquences
 
