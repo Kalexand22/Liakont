@@ -92,6 +92,11 @@ try {
 
     $pubkeyPath = Join-Path $scriptRoot 'update-signing.pubkey.xml'
     $hasPubkey = Test-Path -LiteralPath $pubkeyPath
+    # Validation read-only AVANT toute mutation : plancher 2048 bits (RL-UPD-1). Une clé trop courte
+    # ou invalide échoue ici, avant l'élévation et avant toute copie/ACL/config.
+    if ($hasPubkey) {
+        $pubkeyBits = Test-UpdateSigningPublicKey -Path $pubkeyPath
+    }
 
     if ($DryRun) {
         Write-Host ""
@@ -101,9 +106,7 @@ try {
         Write-Step "Créerait/ACL le répertoire  : $($instance.DataDirectory) ($aclWho)"
         if ($hasPreconfig) { Write-Step "Génèrerait agent.json depuis preconfig.json (clé API DPAPI)" }
         if ($hasPubkey) {
-            # Validation read-only (RDF14) : surface une clé trop courte/invalide dès le -DryRun, sans
-            # rien écrire. Une clé < 2048 bits échoue le plan plutôt que d'être posée inutilement.
-            $pubkeyBits = Test-UpdateSigningPublicKey -Path $pubkeyPath
+            # $pubkeyBits déjà calculé et validé avant ce bloc (validation anticipée ci-dessus).
             Write-Step "Provisionnerait update-signing.pubkey.xml ($pubkeyBits bits, >= 2048 requis)"
         }
         Write-Step "Enregistrerait le service   : $($instance.ServiceName)"
@@ -196,10 +199,8 @@ try {
 
     # ── 8. Clé publique de signature d'auto-update (ADR-0013 : fail-closed sans clé) ──
     if ($hasPubkey) {
-        # Plancher de taille de clé (RDF14, RL-UPD-1) : refuser EXPLICITEMENT une clé < 2048 bits au
-        # provisionnement — sinon l'agent la chargerait puis refuserait silencieusement toute mise à
-        # jour (le vérificateur la traite comme « pas de clé »). Échec fail-fast AVANT la copie.
-        $pubkeyBits = Test-UpdateSigningPublicKey -Path $pubkeyPath
+        # $pubkeyBits déjà validé (plancher 2048 bits, RL-UPD-1) avant l'étape 4 : toute clé trop
+        # courte ou invalide a échoué en amont, avant toute mutation du système de fichiers.
         Copy-Item -LiteralPath $pubkeyPath -Destination (Join-Path $instance.DataDirectory 'update-signing.pubkey.xml') -Force
         Write-Step "Clé publique de signature provisionnée (auto-update activé, $pubkeyBits bits)"
     }
