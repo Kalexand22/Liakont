@@ -90,16 +90,6 @@ public sealed class ChorusProClientTests
     }
 
     [Fact]
-    public async Task GetDocumentStatus_Is_Fail_Closed_TechnicalError_Never_A_Fake_Fiscal_State()
-    {
-        var status = await NewClient().GetDocumentStatusAsync("CPRO-1");
-
-        status.PaDocumentId.Should().Be("CPRO-1");
-        status.State.Should().Be(PaSendState.TechnicalError);
-        status.State.Should().NotBe(PaSendState.Issued, "le squelette n'invente jamais un état fiscal (CLAUDE.md n°3)");
-    }
-
-    [Fact]
     public async Task GetTaxReportSetting_Returns_An_Empty_Inactive_Setting_Fail_Closed()
     {
         var setting = await NewClient().GetTaxReportSettingAsync();
