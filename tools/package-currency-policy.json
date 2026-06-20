@@ -6,7 +6,7 @@
   ],
   "governed": [
     { "id": "System.Data.SQLite.Core", "floor": "1.0.119", "note": "Buffer local agent (ADR-0003). Retard CVE/EOL connu — voir advisory ci-dessous." },
-    { "id": "Newtonsoft.Json", "floor": "13.0.3", "note": "Sérialisation pivot côté agent (ADR-0003)." },
+    { "id": "Newtonsoft.Json", "floor": "13.0.4", "note": "Transport côté agent — enveloppes de lot/heartbeat NON hashées (ADR-0003). Le pivot hashé passe par le writer canonique, sans Newtonsoft." },
     { "id": "Npgsql", "floor": "9.0.3", "note": "Accès PostgreSQL plateforme — surface d'attaque réseau, ne jamais downgrader." },
     { "id": "MailKit", "floor": "4.17.0", "note": "Transport SMTP réel (ADR-0018). MimeKit verrouillé sur la même version." },
     { "id": "MimeKit", "floor": "4.17.0", "note": "Composition MIME (dépendance MailKit, versions verrouillées)." }
