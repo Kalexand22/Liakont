@@ -296,7 +296,7 @@ Le harness de tests E2E (`tests/Liakont.Tests.E2E`) est **adapté** du harness S
 sa consignation ici (adaptation, pas copie brute). Le nouveau projet porte le namespace
 **`Liakont.Tests.E2E`** (code Liakont, pas `Stratum.*`). Infrastructure reprise et adaptée :
 `KeycloakE2EWebFactory` (démarre `Liakont.Host` sur PostgreSQL `postgres:16-alpine` + Keycloak
-`quay.io/keycloak/keycloak:26.0` via Testcontainers, ports dynamiques), `PlaywrightFixture`,
+`quay.io/keycloak/keycloak:26.0.8` via Testcontainers, ports dynamiques), `PlaywrightFixture`,
 `KeycloakE2ECollection`, `KeycloakBaseE2ETest`, `E2EAuthenticationStateProvider` (pont SSR↔circuit),
 `Pages/KeycloakLoginPage`. **Retiré du portage** (spécifique ERP Stratum, hors périmètre Liakont) :
 la configuration `BugCapture` + `MockGitHubHandler`/`GitHubIssueReporter`, et les ~130 Page Objects /

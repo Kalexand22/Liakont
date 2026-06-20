@@ -137,7 +137,8 @@ déclarées (`PaCapabilities`), jamais par un `if (pa is …)` (voir `module-rul
   pour être compilé par `verify-fast`/`run-tests`, mais ses tests `E2E` y sont **exclus** par le
   filtre — seul `run-e2e.ps1` les exécute).
 - Infra démarrée par Testcontainers (PostgreSQL `postgres:16-alpine` + Keycloak
-  `quay.io/keycloak/keycloak:26.0`, realm `liakont-dev` seedé par SOL01) via la collection-fixture
+  `quay.io/keycloak/keycloak:26.0.8` — tag de patch précis, politique de version ADR-0020,
+  realm `liakont-dev` seedé par SOL01) via la collection-fixture
   `KeycloakE2EWebFactory` ; navigateurs installés par `run-e2e.ps1` (`playwright install chromium`).
 - `run-e2e.ps1` **échoue avec un message explicite** si Docker ou les navigateurs manquent —
   **jamais de skip silencieux** (un test E2E écrit mais jamais exécuté est un faux vert). Il porte la
