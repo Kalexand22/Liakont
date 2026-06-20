@@ -342,6 +342,16 @@ public static class AppBootstrap
         builder.Services.TryAddSingleton<ISuperPdpAccountResolver, SuperPdpAccountResolver>();
         builder.Services.AddSuperPdpPaClient();
 
+        // Plug-in PA Chorus Pro (F18, OAuth2WithTechnicalAccount — dépôt d'un Factur-X scellé via PISTE) câblé au
+        // COMPOSITION ROOT — seul endroit autorisé à référencer un plug-in PA concret (CLAUDE.md n°6/14). Le
+        // résolveur de compte (déchiffrement des secrets PISTE + mot de passe du compte technique par tenant via
+        // ISecretProtector + lecture de pa_accounts ; URLs verrouillées au raccordement portées par
+        // account_identifiers, F18 §3.3) est fourni par le Host — le plug-in ne voit pas le coffre. Resolver
+        // AVANT la fabrique (AddChorusProPaClient en dépend, comme Super PDP/Yousign). Câblé ICI et NON dans
+        // PaClientBootstrap.AddConfiguredPaClients (qui ne câble que le Fake). Le « bloquer plutôt qu'envoyer
+        // sans auth » est imposé par le résolveur (fail-closed) et le constructeur de ChorusProAccountConfig.
+        builder.Services.AddChorusProPaDelivery();
+
         // Signature (SIG03, ADR-0027) : registre de types des fournisseurs de signature. Aucun plug-in
         // n'est référencé ici (le module ne connaît AUCUN fournisseur concret — CLAUDE.md n°6) ; chaque
         // plug-in (Yousign = SIG07, Wacom = SIG08) ajoutera sa propre ISignatureProviderFactory en singleton
