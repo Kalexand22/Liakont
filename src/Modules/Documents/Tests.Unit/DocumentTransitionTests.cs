@@ -353,6 +353,53 @@ public sealed class DocumentTransitionTests
         doc.State.Should().Be(state, "recheck refusé : l'état n'a pas changé.");
     }
 
+    [Fact]
+    public void RecordPaSendingReference_From_Sending_Persists_Reference_And_Audits_Without_State_Change()
+    {
+        // PIPE01 : une PA asynchrone accepte le dépôt et renvoie un n° de flux. La référence est persistée sur
+        // le document RESTÉ Sending (PAS de transition) + un fait d'audit SYSTÈME append-only la matérialise —
+        // elle permet au raccrochage d'interroger la PA par cette référence sans jamais re-déposer.
+        var doc = InState(DocumentState.Sending);
+
+        var evt = doc.RecordPaSendingReference("FLUX-2026-42", occurredAtUtc: T0.AddMinutes(3));
+
+        doc.State.Should().Be(DocumentState.Sending, "l'enregistrement de la référence ne change pas l'état.");
+        doc.PaDocumentId.Should().Be("FLUX-2026-42", "la référence de flux est persistée pour le raccrochage.");
+        doc.LastUpdateUtc.Should().Be(T0.AddMinutes(3));
+        evt.EventType.Should().Be(DocumentEventType.DocumentPaReferenceRecorded);
+        evt.OperatorIdentity.Should().BeNull("un dépôt asynchrone n'est pas une action opérateur (événement SYSTÈME).");
+        evt.Detail.Should().Contain("FLUX-2026-42");
+        evt.DocumentId.Should().Be(doc.Id);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void RecordPaSendingReference_Requires_A_Non_Blank_Reference(string blank)
+    {
+        var doc = InState(DocumentState.Sending);
+
+        var act = () => doc.RecordPaSendingReference(blank, T0);
+
+        act.Should().Throw<ArgumentException>().WithParameterName("paDocumentId");
+    }
+
+    [Theory]
+    [InlineData(DocumentState.Detected)]
+    [InlineData(DocumentState.ReadyToSend)]
+    [InlineData(DocumentState.Issued)]
+    public void RecordPaSendingReference_Is_Rejected_Outside_Sending(DocumentState state)
+    {
+        // La référence d'un dépôt asynchrone ne se pose qu'à une transmission engagée (Sending) — cohérent
+        // avec la machine à états : aucune référence n'est inscrite sur un document qui n'a pas été déposé.
+        var doc = InState(state);
+
+        var act = () => doc.RecordPaSendingReference("FLUX-1", T0);
+
+        act.Should().Throw<InvalidOperationException>();
+        doc.State.Should().Be(state, "référence refusée : l'état n'a pas changé.");
+    }
+
     [Theory]
     [InlineData(DocumentState.Issued)]
     [InlineData(DocumentState.Superseded)]

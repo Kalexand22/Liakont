@@ -46,6 +46,16 @@ public interface IDocumentLifecycle
     /// <summary>ReadyToSend → Sending : la transmission à la Plateforme Agréée est engagée.</summary>
     Task BeginSendingAsync(Guid documentId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Enregistre la RÉFÉRENCE PA (n° de flux) d'un dépôt ASYNCHRONE accepté, document RESTÉ <c>Sending</c>
+    /// (item PIPE01, D7) — PAS de transition d'état. Une Plateforme Agréée asynchrone (p. ex. Chorus Pro) a
+    /// accepté le dépôt sans encore l'émettre : la <paramref name="paDocumentId"/> est persistée pour que le
+    /// raccrochage (RecoverSendingAsync) interroge la PA par cette référence et NE re-dépose JAMAIS le flux
+    /// (anti double-dépôt async, CLAUDE.md n°3). Tenant-scopé et ATOMIQUE (référence + fait d'audit append-only
+    /// dans la même transaction). Lève si le document est inconnu ou n'est pas <c>Sending</c>.
+    /// </summary>
+    Task RecordPaSendingReferenceAsync(Guid documentId, string paDocumentId, CancellationToken cancellationToken = default);
+
     /// <summary>Sending → Issued avec les snapshots de preuve OBLIGATOIRES (payload, réponse PA, trace mapping).</summary>
     Task MarkIssuedAsync(Guid documentId, DocumentIssuanceSnapshots snapshots, CancellationToken cancellationToken = default);
 

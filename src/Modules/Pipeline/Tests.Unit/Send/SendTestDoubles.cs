@@ -132,6 +132,8 @@ internal static class SendTestDoubles
 
         public List<Guid> TechnicalError { get; } = new();
 
+        public List<(Guid DocumentId, string PaDocumentId)> RecordedPaReferences { get; } = new();
+
         public Task BlockAsync(Guid documentId, string reason, CancellationToken cancellationToken = default)
         {
             Blocked.Add(documentId);
@@ -153,6 +155,12 @@ internal static class SendTestDoubles
         public Task BeginSendingAsync(Guid documentId, CancellationToken cancellationToken = default)
         {
             BeganSending.Add(documentId);
+            return Task.CompletedTask;
+        }
+
+        public Task RecordPaSendingReferenceAsync(Guid documentId, string paDocumentId, CancellationToken cancellationToken = default)
+        {
+            RecordedPaReferences.Add((documentId, paDocumentId));
             return Task.CompletedTask;
         }
 
@@ -409,6 +417,70 @@ internal static class SendTestDoubles
             throw new NotSupportedException();
 
         public Task<PaDocumentStatus> GetDocumentStatusAsync(string paDocumentId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<PaTaxReport>> ListTaxReportsAsync(DateTime? since = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaTaxReport> GetTaxReportAsync(string taxReportId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaAccountInfo> GetAccountInfoAsync(CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task EnsureTaxReportSettingAsync(PaTaxReportSettingRequest request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PaGeneratedDocument> GetGeneratedDocumentAsync(string paDocumentId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
+
+    /// <summary>
+    /// PA de test ASYNCHRONE pour le RACCROCHAGE par RÉFÉRENCE (item PIPE01) : un document déjà déposé porte
+    /// une référence PA (n° de flux) ; le job RELIT le statut par cette référence via
+    /// <see cref="GetDocumentStatusAsync"/>, qui renvoie l'<see cref="PaSendState"/> CONFIGURÉ. Compte les
+    /// appels à <see cref="SendDocumentAsync"/> pour PROUVER qu'un flux déjà accepté n'est JAMAIS re-déposé
+    /// (anti double-dépôt). Le tax_report_setting est actif (SIREN publié) pour laisser passer le diagnostic
+    /// pré-envoi.
+    /// </summary>
+    internal sealed class AsyncReferenceStatusPaClient : IPaClient
+    {
+        private readonly PaSendState _statusState;
+
+        public AsyncReferenceStatusPaClient(PaSendState statusState) => _statusState = statusState;
+
+        public PaCapabilities Capabilities { get; } = new() { PaName = "PA asynchrone (test)" };
+
+        public int SendCount { get; private set; }
+
+        public int StatusCount { get; private set; }
+
+        public Task<PaSendResult> SendDocumentAsync(PivotDocumentDto document, bool sendAfterImport = true, PaOutboundProjection? projection = null, PaSendContext? context = null, CancellationToken cancellationToken = default)
+        {
+            SendCount++;
+            return Task.FromResult(new PaSendResult
+            {
+                State = PaSendState.Sending,
+                PaDocumentId = $"FLUX-{document.Number}",
+                RawResponse = "{\"status\":\"deposited\"}",
+            });
+        }
+
+        public Task<PaDocumentStatus> GetDocumentStatusAsync(string paDocumentId, CancellationToken cancellationToken = default)
+        {
+            StatusCount++;
+            return Task.FromResult(new PaDocumentStatus
+            {
+                PaDocumentId = paDocumentId,
+                State = _statusState,
+                RawResponse = "{\"etatCourantFlux\":\"" + _statusState + "\"}",
+            });
+        }
+
+        public Task<PaTaxReportSetting> GetTaxReportSettingAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new PaTaxReportSetting { StartDate = new DateOnly(2026, 1, 1) });
+
+        public Task<PaSendResult> SendPaymentReportAsync(PaymentReportPeriod period, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
         public Task<IReadOnlyList<PaTaxReport>> ListTaxReportsAsync(DateTime? since = null, CancellationToken cancellationToken = default) =>
