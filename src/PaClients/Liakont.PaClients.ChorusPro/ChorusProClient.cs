@@ -3,6 +3,7 @@ namespace Liakont.PaClients.ChorusPro;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Text;
 using Liakont.Agent.Contracts.Pivot;
 using Liakont.Modules.Transmission.Contracts;
 
@@ -69,7 +70,7 @@ internal sealed class ChorusProClient : IPaClient
     public PaCapabilities Capabilities => _capabilities;
 
     /// <inheritdoc />
-    public Task<PaSendResult> SendDocumentAsync(
+    public async Task<PaSendResult> SendDocumentAsync(
         PivotDocumentDto document,
         bool sendAfterImport = true,
         PaOutboundProjection? projection = null,
@@ -79,11 +80,53 @@ internal sealed class ChorusProClient : IPaClient
         ArgumentNullException.ThrowIfNull(document);
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Chorus Pro = transport pur d'un Factur-X DÉJÀ scellé (capacité FacturXTransmission, F18 §6).
-        // SQUELETTE : la capacité n'est pas encore déclarée (livrée par CP03) → résultat TYPÉ, jamais
-        // d'exception ni de blocage produit (invariant PAA01).
-        return Task.FromResult(PaSendResult.NotSupported(
-            PaCapabilityNotSupportedResult.Create(_capabilities.PaName, PaCapability.FacturXTransmission)));
+        // Chorus Pro = transport PUR d'un Factur-X DÉJÀ scellé (niveau « Essentiel », F18 §6 ; patron
+        // GeneriqueClient). Garde AVANT tout HTTP : artefact (PaSendContext/FX07) absent ou vide → BLOQUÉ,
+        // jamais régénéré dans le plug-in (indépendance plug-in, CLAUDE.md n°6), jamais d'émission « à vide »
+        // (bloquer plutôt qu'envoyer faux, n°3). Le plug-in ne calcule/n'arrondit AUCUN montant.
+        // La capacité SupportsFacturXTransmission est false jusqu'à CP08 : tant qu'elle l'est, la plateforme
+        // ne génère pas l'artefact en amont → cette garde bloque le dépôt (fail-closed). Aucune garde de
+        // capacité ici (la capacité gate la génération AMONT — patron SuperPdp/Generique).
+        var artifact = context?.PreBuiltArtifact ?? default;
+        if (artifact.IsEmpty)
+        {
+            return BlockedMissingArtifact(document.Number);
+        }
+
+        // Payload deposerFluxFacture (F18 §3.1) : fichierFlux=base64(artefact), nomFichier, syntaxeFlux,
+        // avecSignature=false. idUtilisateurCourant OMIS (cardinalité non verrouillée, F18 §3.2).
+        var payload = ChorusProPayloadBuilder.Build(artifact, document.Number);
+
+        try
+        {
+            using var response = await SendWithAuthAsync(
+                () => new HttpRequestMessage(HttpMethod.Post, ChorusProDefaults.DepositPath)
+                {
+                    Content = new StringContent(payload, Encoding.UTF8, "application/json"),
+                },
+                cancellationToken).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+            // Dépôt accepté → Sending (PaDocumentId=numeroFluxDepot) ; 4xx → Rejected ; 5xx/401/403 →
+            // Technical. JAMAIS Issued au dépôt (A1/D5). RawResponse conservée (corps réponse = sans credential).
+            return ChorusProResponseMapper.MapDeposit(response.StatusCode, body);
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Timeout : TechnicalError SANS re-POST (idempotence A3/D8 — un re-dépôt à l'aveugle créerait un
+            // second flux = double facture, CLAUDE.md n°3). Reprise opérateur au prochain run.
+            return PaSendResult.Technical(
+                [new PaError("CPRO_TIMEOUT", $"Délai d'attente dépassé lors du dépôt Chorus Pro du document {document.Number} (re-tentable, sans re-dépôt automatique).")],
+                rawResponse: "Délai d'attente dépassé (aucun accusé de réception reçu).");
+        }
+        catch (HttpRequestException ex)
+        {
+            // Erreur réseau : TechnicalError re-tentable, SANS re-POST. Le message d'exception (ex.Message)
+            // ne porte jamais de credential (les secrets sont dans les en-têtes, jamais dans l'URL/corps).
+            return PaSendResult.Technical(
+                [new PaError("CPRO_NETWORK", $"Erreur réseau lors du dépôt Chorus Pro du document {document.Number} (re-tentable) : {ex.Message}")],
+                rawResponse: "Erreur réseau (aucun accusé de réception reçu).");
+        }
     }
 
     /// <inheritdoc />
@@ -216,6 +259,22 @@ internal sealed class ChorusProClient : IPaClient
         response.Dispose();
         var refreshed = await _tokenProvider.GetAccessTokenAsync(forceRefresh: true, cancellationToken).ConfigureAwait(false);
         return await SendOnceAsync(refreshed).ConfigureAwait(false);
+    }
+
+    // Artefact Factur-X absent/vide : la plateforme n'a pas fourni le PDF/A-3 scellé (capacité amont
+    // SupportsFacturXTransmission non active, ou génération échouée). Le plug-in BLOQUE sans jamais
+    // régénérer (CLAUDE.md n°6) ni émettre « à vide » (n°3) : TechnicalError re-tentable, message FR
+    // actionnable avec le numéro de document (CLAUDE.md n°12). Patron GeneriqueClient.BlockedMissingArtifact.
+    private static PaSendResult BlockedMissingArtifact(string documentNumber)
+    {
+        var message =
+            $"Document {documentNumber} : la plateforme agréée « {ChorusProDefaults.PaName} » exige un "
+            + "Factur-X pré-construit, fourni par le pipeline à l'étape d'envoi. Aucun artefact reçu — "
+            + "dépôt bloqué, jamais régénéré par le plug-in (CLAUDE.md n°3/6).";
+
+        return PaSendResult.Technical(
+            [new PaError("CPRO_ARTEFACT_REQUIS", message)],
+            rawResponse: "Factur-X pré-construit requis mais absent.");
     }
 
     // Lectures de tax reports GARDÉES par PaCapabilities.SupportsTaxReportRetrieval = false chez leurs

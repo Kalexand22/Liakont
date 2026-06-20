@@ -39,6 +39,30 @@ public static class ChorusProDefaults
     public const string TechnicalAccountHeaderName = "cpro-account";
 
     /// <summary>
+    /// Chemin REST RELATIF (sous <see cref="ChorusProAccountConfig.BaseUrl"/>) du dépôt de flux
+    /// <c>deposerFluxFacture</c> — 🔶 <b>à verrouiller au Swagger PISTE courant</b> (F18 §3.3, gabarit
+    /// versionné <c>/cpro/factures/v1/…</c>). Le « NE PAS HARDCODER » de §3.3 vise la <b>base API</b>
+    /// (host + <c>/cpro/</c>, qualif vs prod) — celle-ci est portée par <see cref="ChorusProAccountConfig.BaseUrl"/>
+    /// (paramétrage du tenant). La ressource versionnée, elle, fait partie du CONTRAT d'API (identique pour
+    /// tous les comptes d'une version donnée — même statut que les chemins <c>v1.beta/invoices</c> de
+    /// Super PDP), donc constante de code ; provisoire tant que le raccordement ne l'a pas verrouillée.
+    /// </summary>
+    public const string DepositPath = "factures/v1/deposer";
+
+    /// <summary>
+    /// Valeur de <c>syntaxeFlux</c> pour un Factur-X (CII embarqué dans un PDF/A-3) — ✅ sourcé F18 §3.1
+    /// (Spec V5.00, nomenclature des syntaxes de flux). Constante stable, jamais inventée (CLAUDE.md n°2).
+    /// </summary>
+    public const string SyntaxeFluxFacturX = "IN_DP_E2_CII_FACTURX";
+
+    /// <summary>
+    /// Drapeau <c>avecSignature</c> du dépôt : <c>false</c> — notre artefact scellé est un PDF/A-3 conforme
+    /// NON signé (✅ décision interne D9, F18 §6 ; ❓ acceptation Chorus Pro d'un Factur-X non signé à
+    /// confirmer au raccordement). Reflète l'artefact, jamais une signature qu'on n'applique pas.
+    /// </summary>
+    public const bool DepositWithSignature = false;
+
+    /// <summary>
     /// Marge de sécurité retranchée à <c>expires_in</c> avant de considérer le jeton PISTE expiré : le
     /// jeton est renouvelé un peu AVANT son échéance réelle (F18 §2.1 — piloter sur l'<c>expires_in</c>
     /// réel renvoyé, jamais figer « 3600 s »). Modèle technique : <c>SuperPdpTokenProvider</c>.
@@ -50,4 +74,17 @@ public static class ChorusProDefaults
     /// grandeur que Super PDP F14 §7 / B2Brouter F05 §4.3).
     /// </summary>
     public static readonly TimeSpan HttpTimeout = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// Construit le <c>nomFichier</c> du flux déposé à partir du numéro de document (BT-1), assaini pour un
+    /// nom de fichier sûr (le contenu reste l'artefact opaque ; aucun montant ni donnée fiscale manipulés).
+    /// </summary>
+    /// <param name="documentNumber">Numéro de document (BT-1). Caractères non alphanumériques remplacés.</param>
+    public static string FileNameFor(string documentNumber)
+    {
+        var safe = string.IsNullOrWhiteSpace(documentNumber)
+            ? "document"
+            : string.Concat(documentNumber.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '_'));
+        return $"factur-x_{safe}.pdf";
+    }
 }
