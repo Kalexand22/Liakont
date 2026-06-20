@@ -2,6 +2,8 @@ namespace Liakont.Modules.Validation.Infrastructure;
 
 using System;
 using Liakont.Modules.Validation.Contracts;
+using Liakont.Modules.Validation.Contracts.Classification;
+using Liakont.Modules.Validation.Domain.Classification;
 using Liakont.Modules.Validation.Domain.Rules;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -20,6 +22,12 @@ public static class ValidationModuleRegistration
     {
         services.AddScoped<IValidationService, ValidationService>();
 
+        // Classificateur du type source → facture/avoir (F04 §3.5bis, RD405) : DÉFAUT « non classé partout »
+        // tant qu'aucune table tenant n'est provisionnée. L'item de suivi (persistance + import seed) substitue
+        // une implémentation adossée à la table via services.Replace (précédent SUP03). Consommé par
+        // SourceDocumentKindCreditNoteRule ci-dessous.
+        services.AddScoped<ISourceDocumentKindClassifier, UnconfiguredSourceDocumentKindClassifier>();
+
         // Ensemble EXPLICITE des règles de validation (F04, VAL02-VAL05). Le pipeline (PIP01b, CHECK) résout
         // IValidationService qui les agrège via ValidationPipeline. Les dépendances inter-modules sont fournies
         // au composition root (Host) : IIssuedInvoiceLookup / IIssuedDocumentLookup (TRK03, module Documents),
@@ -36,6 +44,7 @@ public static class ValidationModuleRegistration
         services.AddScoped<IDocumentRule, BuyerLooksProfessionalRule>();
         services.AddScoped<IDocumentRule, UniquenessRule>();
         services.AddScoped<IDocumentRule, CreditNoteRule>();
+        services.AddScoped<IDocumentRule, SourceDocumentKindCreditNoteRule>();
 
         return services;
     }
