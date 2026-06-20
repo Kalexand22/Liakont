@@ -300,6 +300,14 @@ déclencheur du dédié est une décision **d'offre commerciale**, pas un seuil 
 
 ## Références
 
+- **Renvoi réciproque de supersession (RDF12, 2026-06-20)** : cet ADR **supersède partiellement**
+  [ADR-0020](ADR-0020-topologie-deploiement-idp.md) (le « **un realm par tenant** » *intra-instance* y
+  est remplacé par le realm unique partagé décrit ici — la topologie « Keycloak par instance » d'ADR-0020
+  reste, elle, valable) et [ADR-0002](ADR-0002-empreinte-idp-keycloak-vs-openiddict.md) (l'atout
+  « réalms multi-tenant, JWKS par realm » de son arbitrage ne décrit plus le modèle SaaS partagé). La
+  **frontière cryptographique par-realm** cède la place à l'isolation par **claim `company_id`
+  par-utilisateur + cross-check applicatif fail-closed** (trade-off assumé en §Conséquences). Le
+  realm-par-tenant n'est pas supprimé : il reste la capacité du **déploiement dédié** mono-tenant.
 - `docs/adr/socle/ADR-0013-keycloak-identity-provider.md:141` (mapping realm↔tenant = décision de
   déploiement) ; `docs/adr/ADR-0002-empreinte-idp-keycloak-vs-openiddict.md` ;
   `docs/adr/ADR-0017-pont-role-permission-claims-oidc.md` (projection rôle→permission, à appliquer au
