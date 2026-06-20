@@ -16,11 +16,11 @@ using Liakont.PaClients.ChorusPro.Wire;
 /// connaît ces détails (blueprint.md §2 ; CLAUDE.md n°6). Le type est <c>internal</c> : il ne fuit pas
 /// hors de l'assembly (acceptance CP02) — la fabrique le rend derrière l'abstraction <see cref="IPaClient"/>.
 /// <para>
-/// SQUELETTE CP02 : les 9 méthodes + <see cref="Capabilities"/> sont présentes mais NON implémentées
-/// (transport métier — dépôt <c>deposerFluxFacture</c>, relecture <c>consulterCR</c> — livré par CP04+).
-/// Les capacités déclarées sont toutes <c>false</c> (<see cref="ChorusProCapabilities"/>) : tout appel
-/// piloté par une capacité dégrade en résultat TYPÉ (jamais d'exception, jamais de blocage produit —
-/// invariant PAA01). Les méthodes appelées SANS garde de capacité par le chemin d'envoi (réglage de
+/// Le transport métier (dépôt <c>deposerFluxFacture</c>, relecture <c>consulterCR</c>) est livré par CP04+.
+/// SEULE <see cref="PaCapabilities.SupportsFacturXTransmission"/> est déclarée <c>true</c> (CP08 ; transport
+/// d'un Factur-X scellé, niveau « Essentiel ») ; toutes les autres capacités restent <c>false</c>
+/// (<see cref="ChorusProCapabilities"/>) : tout appel piloté par une capacité absente dégrade en résultat
+/// TYPÉ (jamais d'exception, jamais de blocage produit — invariant PAA01). Les méthodes appelées SANS garde de capacité par le chemin d'envoi (réglage de
 /// publication) dégradent fail-closed (vide / no-op) plutôt que de lever — leçon « méthode de contrat
 /// différée appelée inconditionnellement ». Les lectures de tax reports, GARDÉES par
 /// <see cref="PaCapabilities.SupportsTaxReportRetrieval"/> = <c>false</c> chez leurs appelants, lèvent une
@@ -101,9 +101,10 @@ internal sealed class ChorusProClient : IPaClient
         // GeneriqueClient). Garde AVANT tout HTTP : artefact (PaSendContext/FX07) absent ou vide → BLOQUÉ,
         // jamais régénéré dans le plug-in (indépendance plug-in, CLAUDE.md n°6), jamais d'émission « à vide »
         // (bloquer plutôt qu'envoyer faux, n°3). Le plug-in ne calcule/n'arrondit AUCUN montant.
-        // La capacité SupportsFacturXTransmission est false jusqu'à CP08 : tant qu'elle l'est, la plateforme
-        // ne génère pas l'artefact en amont → cette garde bloque le dépôt (fail-closed). Aucune garde de
-        // capacité ici (la capacité gate la génération AMONT — patron SuperPdp/Generique).
+        // La capacité SupportsFacturXTransmission est déclarée true (CP08) → la plateforme génère l'artefact en
+        // amont et le passe via le PaSendContext ; si malgré tout il est absent (échec de génération amont),
+        // cette garde bloque le dépôt (fail-closed). Aucune garde de capacité ici (la capacité gate la
+        // génération AMONT — patron SuperPdp/Generique).
         var artifact = context?.PreBuiltArtifact ?? default;
         if (artifact.IsEmpty)
         {

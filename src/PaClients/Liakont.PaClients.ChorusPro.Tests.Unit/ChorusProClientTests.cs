@@ -32,16 +32,26 @@ public sealed class ChorusProClientTests
         operationCategory: null);
 
     [Fact]
-    public void Capabilities_Are_All_False_In_The_Skeleton()
+    public void Declares_Only_FacturX_Transmission_Everything_Else_False()
     {
+        // CP08 : Chorus Pro = PA B2G de niveau « Essentiel » → SEULE SupportsFacturXTransmission est true
+        // (transport d'un Factur-X scellé). Toute autre capacité reste false (e-reporting EXCLU D2, B2G ≠ B2B,
+        // transport pur sans lecture/rectification/auto-facturation) — rien d'inventé (CLAUDE.md n°2/8).
         var caps = NewClient().Capabilities;
 
         caps.PaName.Should().Be("Chorus Pro");
-        caps.SupportsFacturXTransmission.Should().BeFalse();
-        caps.SupportsB2bInvoicing.Should().BeFalse();
+        caps.SupportsFacturXTransmission.Should().BeTrue();
+
         caps.SupportsB2cReporting.Should().BeFalse();
+        caps.SupportsDomesticPaymentReporting.Should().BeFalse();
+        caps.SupportsInternationalPaymentReporting.Should().BeFalse();
+        caps.SupportsB2bInvoicing.Should().BeFalse();
+        caps.SupportsCreditNotes.Should().BeFalse();
         caps.SupportsTaxReportRetrieval.Should().BeFalse();
         caps.SupportsDocumentRetrieval.Should().BeFalse();
+        caps.SupportsReportRectification.Should().BeFalse();
+        caps.SupportsSelfBilling.Should().BeFalse();
+        caps.MaxDocumentsPerRequest.Should().BeNull();
     }
 
     [Fact]
