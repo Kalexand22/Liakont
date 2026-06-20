@@ -232,6 +232,58 @@ function Get-AgentBinaryArchitecture {
     }
 }
 
+function Test-UpdateSigningPublicKey {
+    <#
+    .SYNOPSIS
+        Valide la clé publique de signature d'auto-update AVANT provisionnement (RDF14, RL-UPD-1).
+    .DESCRIPTION
+        Miroir, côté installeur, du plancher de taille de clé imposé par
+        Liakont.Agent.Core.Update.RsaManifestSignatureVerifier (>= 2048 bits, 3072 recommandé) : le
+        vérificateur refuse une clé trop courte (fail-closed), mais l'installeur doit échouer
+        EXPLICITEMENT au provisionnement plutôt que de poser une clé qui ne servira jamais (l'agent
+        refuserait silencieusement toute mise à jour). Lève un message français orienté intégrateur si
+        le fichier est absent, n'est pas une clé RSA XML exploitable, ou est sous le plancher.
+        Aucune clé/secret n'est journalisé (CLAUDE.md n°10/n°18) — seule la TAILLE est rapportée.
+    .OUTPUTS
+        [int] la taille (en bits) du module de la clé, en cas de succès.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [int]$MinimumKeyBits = 2048
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw "Clé publique de signature d'auto-update introuvable : « $Path »."
+    }
+
+    $xml = Get-Content -LiteralPath $Path -Raw
+    $rsa = New-Object System.Security.Cryptography.RSACryptoServiceProvider
+    try {
+        try {
+            $rsa.FromXmlString($xml)
+        }
+        catch {
+            throw "Clé publique de signature d'auto-update invalide (« $Path ») : le contenu n'est pas " +
+                  "une clé RSA au format XML exploitable. Régénérez une clé de release conforme."
+        }
+
+        $bits = $rsa.KeySize
+        if ($bits -lt $MinimumKeyBits) {
+            throw "Clé publique de signature d'auto-update trop courte : $bits bits (« $Path »). " +
+                  "Minimum requis $MinimumKeyBits bits (3072 recommandé). Provisionnement REFUSÉ " +
+                  "(ADR-0013/0019) : régénérez une clé de release d'au moins $MinimumKeyBits bits."
+        }
+
+        return $bits
+    }
+    finally {
+        $rsa.Dispose()
+    }
+}
+
 function Protect-AgentPreConfigSecret {
     <#
     .SYNOPSIS
@@ -469,5 +521,5 @@ function New-AgentOneTimePassword {
 }
 
 Export-ModuleMember -Function Resolve-AgentInstance, Get-PeMachineType, Get-AgentBinaryArchitecture,
-    Protect-AgentPreConfigSecret, Unprotect-AgentPreConfigSecret, Compare-ConstantTime,
-    New-AgentOneTimePassword
+    Test-UpdateSigningPublicKey, Protect-AgentPreConfigSecret, Unprotect-AgentPreConfigSecret,
+    Compare-ConstantTime, New-AgentOneTimePassword

@@ -84,6 +84,41 @@ Test-Case 'Pré-config : rejette un chiffré altéré' {
     Assert-Throws { Unprotect-AgentPreConfigSecret -Secret $t -Password 'otp' } 'chiffré altéré'
 }
 
+# ── Plancher de taille de clé de signature d'auto-update (RDF14, RL-UPD-1) ──
+function New-RsaPublicKeyXmlFile {
+    param([int]$Bits)
+    $rsa = New-Object System.Security.Cryptography.RSACryptoServiceProvider($Bits)
+    try {
+        $xml = $rsa.ToXmlString($false)
+    }
+    finally {
+        $rsa.Dispose()
+    }
+    $path = [System.IO.Path]::GetTempFileName()
+    Set-Content -LiteralPath $path -Value $xml -Encoding UTF8
+    return $path
+}
+
+Test-Case 'Clé signature : 2048 bits acceptée (plancher inclusif)' {
+    $p = New-RsaPublicKeyXmlFile -Bits 2048
+    try { Assert-Equal 2048 (Test-UpdateSigningPublicKey -Path $p) 'taille rapportée' }
+    finally { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue }
+}
+Test-Case 'Clé signature : 1024 bits rejetée (trop courte)' {
+    $p = New-RsaPublicKeyXmlFile -Bits 1024
+    try { Assert-Throws { Test-UpdateSigningPublicKey -Path $p } 'clé trop courte' }
+    finally { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue }
+}
+Test-Case 'Clé signature : fichier absent rejeté' {
+    Assert-Throws { Test-UpdateSigningPublicKey -Path (Join-Path $env:TEMP 'pubkey-inexistante-RDF14.xml') } 'fichier absent'
+}
+Test-Case 'Clé signature : XML invalide rejeté' {
+    $p = [System.IO.Path]::GetTempFileName()
+    Set-Content -LiteralPath $p -Value 'pas une clé RSA' -Encoding UTF8
+    try { Assert-Throws { Test-UpdateSigningPublicKey -Path $p } 'XML invalide' }
+    finally { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue }
+}
+
 # ── Mot de passe à usage unique ──
 Test-Case 'OTP : format attendu' { Assert-True ((New-AgentOneTimePassword) -match '^[2-9A-HJ-NP-Z]{5}(-[2-9A-HJ-NP-Z]{5}){4}$') 'format OTP' }
 Test-Case 'OTP : valeurs distinctes' { Assert-True ((New-AgentOneTimePassword) -ne (New-AgentOneTimePassword)) 'OTP distincts' }

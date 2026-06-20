@@ -100,7 +100,12 @@ try {
         $aclWho = if ($IntegratorAccount) { "SYSTEM + Administrateurs + « $IntegratorAccount »" } else { 'SYSTEM + Administrateurs' }
         Write-Step "Créerait/ACL le répertoire  : $($instance.DataDirectory) ($aclWho)"
         if ($hasPreconfig) { Write-Step "Génèrerait agent.json depuis preconfig.json (clé API DPAPI)" }
-        if ($hasPubkey) { Write-Step "Provisionnerait update-signing.pubkey.xml" }
+        if ($hasPubkey) {
+            # Validation read-only (RDF14) : surface une clé trop courte/invalide dès le -DryRun, sans
+            # rien écrire. Une clé < 2048 bits échoue le plan plutôt que d'être posée inutilement.
+            $pubkeyBits = Test-UpdateSigningPublicKey -Path $pubkeyPath
+            Write-Step "Provisionnerait update-signing.pubkey.xml ($pubkeyBits bits, >= 2048 requis)"
+        }
         Write-Step "Enregistrerait le service   : $($instance.ServiceName)"
         exit 0
     }
@@ -191,8 +196,12 @@ try {
 
     # ── 8. Clé publique de signature d'auto-update (ADR-0013 : fail-closed sans clé) ──
     if ($hasPubkey) {
+        # Plancher de taille de clé (RDF14, RL-UPD-1) : refuser EXPLICITEMENT une clé < 2048 bits au
+        # provisionnement — sinon l'agent la chargerait puis refuserait silencieusement toute mise à
+        # jour (le vérificateur la traite comme « pas de clé »). Échec fail-fast AVANT la copie.
+        $pubkeyBits = Test-UpdateSigningPublicKey -Path $pubkeyPath
         Copy-Item -LiteralPath $pubkeyPath -Destination (Join-Path $instance.DataDirectory 'update-signing.pubkey.xml') -Force
-        Write-Step "Clé publique de signature provisionnée (auto-update activé)"
+        Write-Step "Clé publique de signature provisionnée (auto-update activé, $pubkeyBits bits)"
     }
 
     # ── 9. Enregistrement du service Windows pour CETTE instance ──
