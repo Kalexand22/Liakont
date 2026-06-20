@@ -137,18 +137,24 @@ public sealed class PaymentAggregationIntegrationTests : IClassFixture<PaymentAg
 
         _harness.SetPaymentReportingCapability(supported: true);
         _harness.SetSourceExposesPayments(exposes: false);
-        await _harness.CheckServiceDocumentAsync(documentId, pivot);
-        await _harness.SetFiscalSettingsAsync(vatOnDebits: false, OperationCategory.PrestationServices, "Mensuelle", FeeImputationMethod.AgregationJourTaux);
-        await _harness.SeedPaymentAsync(paymentDate, 120.00m, pivot.Number);
+        try
+        {
+            await _harness.CheckServiceDocumentAsync(documentId, pivot);
+            await _harness.SetFiscalSettingsAsync(vatOnDebits: false, OperationCategory.PrestationServices, "Mensuelle", FeeImputationMethod.AgregationJourTaux);
+            await _harness.SeedPaymentAsync(paymentDate, 120.00m, pivot.Number);
 
-        await _harness.RunAggregateAsync();
+            await _harness.RunAggregateAsync();
 
-        var aggregate = (await _harness.GetAggregatesAsync()).Single(a => a.Date == paymentDate);
-        aggregate.Status.Should().Be(PaymentAggregationStatus.SourceWithoutPayments, "source qui n'expose pas les encaissements = e-reporting de paiement non applicable (RD403).");
-        aggregate.TaxableBase.Should().Be(100.00m, "l'agrégat est calculé pour la traçabilité même si la source n'expose pas les paiements.");
-
-        // Réinitialise la capacité partagée du harnais pour ne pas affecter les autres tests (fixture partagée).
-        _harness.SetSourceExposesPayments(exposes: true);
+            var aggregate = (await _harness.GetAggregatesAsync()).Single(a => a.Date == paymentDate);
+            aggregate.Status.Should().Be(PaymentAggregationStatus.SourceWithoutPayments, "source qui n'expose pas les encaissements = e-reporting de paiement non applicable (RD403).");
+            aggregate.TaxableBase.Should().Be(100.00m, "l'agrégat est calculé pour la traçabilité même si la source n'expose pas les paiements.");
+        }
+        finally
+        {
+            // Réinitialise la capacité partagée du harnais (fixture partagée), même si une assertion échoue,
+            // pour ne pas faire fuir `false` vers les autres tests de la classe.
+            _harness.SetSourceExposesPayments(exposes: true);
+        }
     }
 
     [Fact]

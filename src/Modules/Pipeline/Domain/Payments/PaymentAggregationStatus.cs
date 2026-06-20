@@ -24,7 +24,7 @@ public enum PaymentAggregationStatus
     /// La SOURCE n'expose pas d'encaissements (capacité <c>ExposesPayments</c> non déclarée, RD403) :
     /// l'e-reporting de paiement n'est pas applicable à cette source. À DISTINGUER d'une source qui
     /// expose les encaissements mais n'en a aucun sur la période (« zéro encaissement » → <see cref="Calculated"/>,
-    /// agrégats vides) : ici on ne transmet jamais un néant à tort (F09 §5.4).
+    /// agrégats vides) : ici on ne transmet jamais un néant à tort (ADR-0004 D2 : flux 10.4 conditionné à la capacité).
     /// </summary>
     SourceWithoutPayments,
 }

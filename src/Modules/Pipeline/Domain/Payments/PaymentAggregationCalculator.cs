@@ -48,7 +48,7 @@ public static class PaymentAggregationCalculator
     public const string SourceWithoutPaymentsReason =
         "La source ne fournit pas de données d'encaissement (elle ne les expose pas) : l'e-reporting de paiement " +
         "n'est pas applicable à cette source. À distinguer d'une source qui expose les encaissements mais n'en a " +
-        "aucun sur la période — aucun néant n'est transmis à tort (F09 §5.4).";
+        "aucun sur la période — aucun néant n'est transmis à tort (ADR-0004 D2 : flux 10.4 conditionné à la capacité).";
 
     /// <summary>Motif : document Mixte (découpage frais/adjudication non sourcé — suspendu).</summary>
     public const string MixteSuspendedReason =
@@ -194,7 +194,7 @@ public static class PaymentAggregationCalculator
 
         // RD403 : si la SOURCE n'expose pas les encaissements, l'e-reporting de paiement n'est pas applicable —
         // gate AVANT les paramètres fiscaux (plus fondamental : sans donnée d'encaissement de la source, la
-        // question fiscale est sans objet). On ne présume jamais que toute source expose les paiements (F09 §5.4).
+        // question fiscale est sans objet). On ne présume jamais que toute source expose les paiements (ADR-0004 D2).
         if (!sourceExposesPayments)
         {
             return (PaymentAggregationStatus.SourceWithoutPayments, SourceWithoutPaymentsReason);

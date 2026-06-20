@@ -70,7 +70,7 @@ public sealed partial class PaymentAggregatorTenantJob : ITenantJob
 
         // RD403 : la SOURCE expose-t-elle des encaissements ? (capacité ExposesPayments déclarée par l'agent,
         // RD401). false = source qui n'expose pas les paiements → e-reporting non applicable, jamais un néant
-        // transmis à tort (à distinguer de « zéro encaissement » d'une source qui les expose — F09 §5.4).
+        // transmis à tort (à distinguer de « zéro encaissement » d'une source qui les expose — ADR-0004 D2).
         var sourceExposesPayments = await services.GetRequiredService<IExtractorCapabilitiesQueries>()
             .AnyAgentExposesPaymentsAsync(tenantId, cancellationToken);
 

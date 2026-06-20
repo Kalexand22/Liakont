@@ -64,7 +64,7 @@ internal sealed class PostgresExtractorCapabilitiesQueries : IExtractorCapabilit
     {
         // Tenant-scopé (WHERE tenant_id) : true SSI au moins un agent du tenant déclare exposer les
         // encaissements. EXISTS s'arrête au premier match. Aucune ligne / aucune à true → false (par
-        // défaut sûr : on ne présume pas qu'une source muette expose les paiements — F09 §5.4, RD403).
+        // défaut sûr : on ne présume pas qu'une source muette expose les paiements — ADR-0004 D2, RD403).
         const string sql = """
             SELECT EXISTS(
                 SELECT 1 FROM ingestion.extractor_capabilities
