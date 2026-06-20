@@ -10,7 +10,7 @@
 $ErrorActionPreference = 'Stop'
 
 $lint    = Join-Path $PSScriptRoot 'lint-appliance-keycloak-memcap.ps1'
-$compose = Join-Path $PSScriptRoot '..\deploy\docker\appliance\docker-compose.yml'
+$compose = Join-Path $PSScriptRoot '../deploy/docker/appliance/docker-compose.yml'
 $psExe   = (Get-Process -Id $PID).Path   # pwsh (Linux/CI) ou powershell.exe (Windows)
 
 if (-not (Test-Path -LiteralPath $lint))    { Write-Host "[TEST-MEMCAP] lint introuvable : $lint" -ForegroundColor Red; exit 1 }
@@ -59,6 +59,28 @@ try {
     $p4 = Join-Path $tmpDir 'no-both.yml'
     Set-Content -LiteralPath $p4 -Value $noBoth -Encoding utf8
     Check 'mem_limit + MaxRAMPercentage retires' (Invoke-Lint $p4) 1
+
+    # 5) Seule une reservation memoire (deploy.resources.reservations.memory) sans plafond reel
+    #    → le lint DOIT echouer (exit 1) : une reservation n'est pas un plafond.
+    $reservationOnly = $noMemLimit | ForEach-Object {
+        if ($_ -match '^\s*environment:\s*$') {
+            # Injecter un bloc deploy.resources.reservations.memory juste avant environment:
+            "    deploy:"
+            "      resources:"
+            "        reservations:"
+            "          memory: 1g"
+        }
+        $_
+    }
+    $p5 = Join-Path $tmpDir 'reservation-only.yml'
+    Set-Content -LiteralPath $p5 -Value $reservationOnly -Encoding utf8
+    Check 'reservation seulement (pas de plafond)' (Invoke-Lint $p5) 1
+
+    # 6) -XX:MaxRAMPercentage sans valeur numerique (malformed) → le lint DOIT echouer (exit 1).
+    $badMaxRam = $orig | ForEach-Object { $_ -replace '-XX:MaxRAMPercentage=\d+', '-XX:MaxRAMPercentage' }
+    $p6 = Join-Path $tmpDir 'bad-maxram.yml'
+    Set-Content -LiteralPath $p6 -Value $badMaxRam -Encoding utf8
+    Check 'MaxRAMPercentage sans valeur (malformed)' (Invoke-Lint $p6) 1
 }
 finally {
     Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -68,5 +90,5 @@ if ($failures.Count -gt 0) {
     Write-Host "[TEST-MEMCAP] ECHEC : $($failures.Count) cas non conforme(s)." -ForegroundColor Red
     exit 1
 }
-Write-Host "[TEST-MEMCAP] OK : le lint discrimine correctement (plafond present => 0, retire => 1)." -ForegroundColor Green
+Write-Host "[TEST-MEMCAP] OK : le lint discrimine correctement (plafond present => 0, retire/reservation/malformed => 1)." -ForegroundColor Green
 exit 0

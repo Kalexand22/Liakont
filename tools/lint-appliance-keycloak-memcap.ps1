@@ -13,10 +13,14 @@
 param(
     # Chemin du compose à vérifier. Défaut : le compose réel de l'appliance, résolu relativement à
     # ce script (fonctionne quel que soit le répertoire courant ; paramétrable pour le self-test).
-    [string]$ComposePath = (Join-Path $PSScriptRoot '..\deploy\docker\appliance\docker-compose.yml')
+    [string]$ComposePath = ''
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $ComposePath) {
+    $ComposePath = Join-Path $PSScriptRoot '../deploy/docker/appliance/docker-compose.yml'
+}
 
 function Fail([string]$msg) {
     Write-Host "[LINT-KC-MEMCAP] ECHEC : $msg" -ForegroundColor Red
@@ -53,10 +57,29 @@ $block = $lines[$start..($end - 1)]
 $code = $block | Where-Object { $_.TrimStart() -notmatch '^#' }
 
 # ── Garde 1 : plafond mémoire (mem_limit OU deploy.resources.limits.memory) avec une valeur non vide ──
+# `memory:` apparaît aussi sous `deploy.resources.reservations` (plancher, pas un plafond) : on
+# n'accepte `memory:` QUE lorsqu'on est sous un bloc `limits:`. Scan avec flag d'état par indentation.
 $hasMemLimit = $false
+$underLimits  = $false
+$limitsIndent = -1
 foreach ($l in $code) {
     if ($l -match '^\s*mem_limit:\s*\S+') { $hasMemLimit = $true; break }
-    if ($l -match '^\s*memory:\s*\S+')    { $hasMemLimit = $true; break }   # sous deploy.resources.limits
+
+    # Détection du bloc limits:
+    if ($l -match '^(\s*)limits:\s*$') {
+        $underLimits  = $true
+        $limitsIndent = $Matches[1].Length
+        continue
+    }
+    # Sortie du bloc limits: quand une ligne non vide revient à l'indentation du limits: ou moins
+    if ($underLimits) {
+        if ($l -match '^(\s*)\S') {
+            $lineIndent = $Matches[1].Length
+            if ($lineIndent -le $limitsIndent) { $underLimits = $false; $limitsIndent = -1 }
+        }
+    }
+
+    if ($underLimits -and $l -match '^\s*memory:\s*\S+') { $hasMemLimit = $true; break }
 }
 if (-not $hasMemLimit) {
     Fail ("le service ``keycloak`` n'a aucun plafond mémoire (``mem_limit:`` ou ``deploy.resources.limits.memory:``). " +
@@ -68,7 +91,7 @@ if (-not $hasMemLimit) {
 # sur une ligne de code (les commentaires ont été écartés ci-dessus).
 $hasMaxRam = $false
 foreach ($l in $code) {
-    if ($l -match '-XX:MaxRAMPercentage') { $hasMaxRam = $true; break }
+    if ($l -match '-XX:MaxRAMPercentage=\d+') { $hasMaxRam = $true; break }
 }
 if (-not $hasMaxRam) {
     Fail ("le service ``keycloak`` n'a pas de ``-XX:MaxRAMPercentage`` (JAVA_OPTS_APPEND). " +
