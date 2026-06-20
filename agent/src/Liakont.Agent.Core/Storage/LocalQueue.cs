@@ -49,6 +49,9 @@ public sealed class LocalQueue : IDisposable
     /// <summary>Clé des régimes de TVA source collectés au dernier run, à joindre au prochain push (TVA03).</summary>
     public const string SourceTaxRegimesKey = "push.source_tax_regimes";
 
+    /// <summary>Clé des capacités déclarées de la source au dernier run, à joindre au prochain push (ADR-0004 D2 / RD401).</summary>
+    public const string ExtractorCapabilitiesKey = "push.extractor_capabilities";
+
     // Sérialise tous les accès à l'unique connexion (sûreté intra-process). Réentrant : un appelant
     // public qui en délègue un autre (MarkError → SetStatus) ne se bloque pas lui-même.
     private readonly object _operationLock = new object();

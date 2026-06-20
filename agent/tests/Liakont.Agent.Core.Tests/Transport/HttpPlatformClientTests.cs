@@ -50,6 +50,37 @@ public class HttpPlatformClientTests
     }
 
     [Fact]
+    public void Push_body_carries_extractor_capabilities_when_provided()
+    {
+        var handler = new StubHttpMessageHandler((req, body) =>
+            StubHttpMessageHandler.Json(HttpStatusCode.OK, "{\"Results\":[]}"));
+        HttpPlatformClient client = CreateClient(handler);
+
+        client.PushDocuments(
+            OneDocument,
+            Array.Empty<SourceTaxRegimeDto>(),
+            new ExtractorCapabilitiesDto(exposesPayments: true, regimeKeyShape: "Composite"));
+
+        string body = handler.RequestBodies[0];
+        body.Should().Contain("\"ExtractorCapabilities\":");
+        body.Should().Contain("\"ExposesPayments\":true");
+        body.Should().Contain("\"RegimeKeyShape\":\"Composite\"");
+    }
+
+    [Fact]
+    public void Push_body_omits_extractor_capabilities_when_absent()
+    {
+        // Add-only : un agent N-1 (capacités null) ne doit RIEN changer au format fil → champ omis.
+        var handler = new StubHttpMessageHandler((req, body) =>
+            StubHttpMessageHandler.Json(HttpStatusCode.OK, "{\"Results\":[]}"));
+        HttpPlatformClient client = CreateClient(handler);
+
+        client.PushDocuments(OneDocument, Array.Empty<SourceTaxRegimeDto>());
+
+        handler.RequestBodies[0].Should().NotContain("ExtractorCapabilities");
+    }
+
+    [Fact]
     public void Push_200_parses_per_document_results()
     {
         var handler = new StubHttpMessageHandler((req, body) => StubHttpMessageHandler.Json(

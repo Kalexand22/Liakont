@@ -163,6 +163,31 @@ public class ExtractionCycleTests
     }
 
     [Fact]
+    public void Run_stashes_extractor_capabilities_for_the_next_push()
+    {
+        using (var db = new TempDatabase())
+        using (var queue = new LocalQueue(db.Path, new MutableClock(Clock)))
+        {
+            // Capacités déclarées par la source (ADR-0004 D2 / RD401) : le cycle les range dans l'état de
+            // la file, le drainage les joindra au prochain lot. Les formes énumérées voyagent en brut.
+            var extractor = new FixtureExtractor(
+                "Fixture",
+                capabilities: new ExtractorCapabilities(exposesPayments: true, isMutableAfterIssue: true, regimeKeyShape: RegimeKeyShape.Composite),
+                documents: new[] { PivotTestData.Document("REF-1", Mid) });
+            var cycle = new ExtractionCycle(queue, new NullAgentLog());
+
+            cycle.Run(extractor, From, To);
+
+            string? stashed = queue.GetState(LocalQueue.ExtractorCapabilitiesKey);
+            stashed.Should().NotBeNullOrEmpty();
+            var dto = Newtonsoft.Json.JsonConvert.DeserializeObject<ExtractorCapabilitiesDto>(stashed!);
+            dto!.ExposesPayments.Should().BeTrue();
+            dto.IsMutableAfterIssue.Should().BeTrue();
+            dto.RegimeKeyShape.Should().Be("Composite");
+        }
+    }
+
+    [Fact]
     public void Run_advances_watermark_when_regime_listing_is_momentarily_unavailable()
     {
         using (var db = new TempDatabase())

@@ -90,6 +90,10 @@ public sealed class ExtractionCycle
 
         int regimes = StashSourceTaxRegimes(extractor);
 
+        // Capacités déclarées de la source (ADR-0004 D2 / RD401) : jointes au prochain push comme
+        // métadonnée d'enveloppe (non hashée). Déclaratives et stables ; l'agent ne les interprète jamais.
+        StashExtractorCapabilities(capabilities);
+
         _queue.SetExtractionWatermarkUtc(toExclusiveUtc);
 
         _log.Info(
@@ -167,5 +171,13 @@ public sealed class ExtractionCycle
         // interprétés par l'agent (CLAUDE.md n°2).
         _queue.SetState(LocalQueue.SourceTaxRegimesKey, JsonConvert.SerializeObject(regimes));
         return regimes.Count;
+    }
+
+    private void StashExtractorCapabilities(ExtractorCapabilities capabilities)
+    {
+        // Métadonnée de push (RD401) : jointe au prochain lot par le drainage. Capacités DÉCLARÉES,
+        // jamais interprétées par l'agent (CLAUDE.md n°6) — les formes énumérées voyagent en valeur brute.
+        ExtractorCapabilitiesDto dto = ExtractorCapabilitiesMapper.ToDto(capabilities);
+        _queue.SetState(LocalQueue.ExtractorCapabilitiesKey, JsonConvert.SerializeObject(dto));
     }
 }
