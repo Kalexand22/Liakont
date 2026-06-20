@@ -8,6 +8,7 @@ using System.ServiceProcess;
 using System.Threading;
 using Liakont.Agent.Core;
 using Liakont.Agent.Core.Logging;
+using Liakont.Agent.Core.Net;
 using Liakont.Agent.Core.Time;
 
 /// <summary>
@@ -22,6 +23,11 @@ internal static class Program
 {
     private static int Main(string[] args)
     {
+        // TLS 1.2/1.3 forcé AU TOUT DÉBUT, avant toute connexion HTTPS sortante du service réel
+        // (RDF01) : ServicePointManager est global au processus et n'est partagé ni avec test-api
+        // ni avec l'updater (processus distincts).
+        AgentTls.ForceStrongTls();
+
         if (!AgentInstance.TryFromCommandLine(args, out AgentInstance instance, out string[] remaining, out string? error))
         {
             Console.Error.WriteLine(error);
