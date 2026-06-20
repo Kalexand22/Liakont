@@ -150,6 +150,33 @@ Toute la logique de validation vit sur la **plateforme**, jamais dans l'agent (C
   ne reçoit que l'acheteur (`PivotPartyDto`), jamais les totaux. Un test le verrouille (bordereau à
   montant élevé + acheteur particulier = aucune anomalie).
 
+## Decisions RD404 (cohérence des rôles de tiers — finding RD4-09)
+
+- **Contrôle d'INTÉGRITÉ de données, pas une règle fiscale (CLAUDE.md n°2).** Le pivot porte
+  `IsSelfBilled` / `Invoicer` (auto-facturation 389, ADR-0004 D3-6) et `Payee` (affacturage BG-10), et le
+  pipeline consomme déjà `IsSelfBilled` (garde d'émission 389, MND07), mais AUCUNE règle n'en contrôlait la
+  cohérence. `PartyRoleConsistencyRule` la rétablit sans inventer de règle : **F15 §1.8** ferme l'existence
+  d'un contrôle CTC propre au 389 (au-delà de G1.01 type admis et G1.42/G1.45 numérotation) et range
+  l'identification de l'émetteur matériel dans les **règles de rôle générales** — exactement comme l'identité
+  émetteur/acheteur (VAL02).
+- **Auto-facturation ⇒ émetteur matériel présent ET identifié.** Une 389 est, par définition (UNTDID 1001,
+  F15 §1.2 ; art. 289 I-2 CGI, F15 §1.1), émise par un tiers DISTINCT du vendeur. `Invoicer` null = identique
+  au vendeur (contrat) : un `IsSelfBilled=true` sans `Invoicer` est donc internement incohérent → BLOQUANT
+  (`SELF_BILLED_INVOICER_MISSING`). « Identifié » = SIREN BT-30 présent et valide (clé de Luhn,
+  `SirenValidator`) → sinon BLOQUANT (`SELF_BILLED_INVOICER_UNIDENTIFIED`). « Bloquer plutôt qu'envoyer faux »
+  (CLAUDE.md n°3) : un 389 projetterait un type de document distinct du 380 standard.
+- **Réciproque : `Invoicer` présent ⇒ `IsSelfBilled` cohérent.** Un émetteur de facture distinct du vendeur
+  relève de l'auto-facturation / facturation pour compte de tiers (ADR-0004 D3-6) ; le porter sans marquer
+  l'auto-facturation est incohérent → BLOQUANT (`INVOICER_WITHOUT_SELF_BILLED`).
+- **`Payee` (affacturage BG-10) = DIFFÉRÉ EXPLICITE (RD409).** Le champ est au contrat et au hash canonique
+  mais INERTE : aucun sérialiseur PA ne le projette en V1 (grep `src/PaClients` Payee = 0). Décision RD404 :
+  ne PAS inventer une projection affacturage (non sourcée — F15 §6.5/§6 ouvre l'articulation 393/396), mais
+  ne pas non plus laisser un champ contractuel passer pour transmis alors qu'il est inerte. Sa présence est
+  donc SIGNALÉE à l'opérateur (`PAYEE_NOT_TRANSMITTED`, **Warning** — jamais bloquant, donnée optionnelle),
+  et le différé est tracé pour l'addendum RD409 (`tasks/redline-adr-0004.md`).
+- **Règle PURE, aucune dépendance, aucune écriture.** Détecte seulement (INV-VALIDATION-007). Enregistrée
+  ligne par ligne dans `ValidationModuleRegistration` (ensemble explicite et auditable).
+
 ## Published Events
 
 Aucun. (Le résultat de validation est consommé par le pipeline d'envoi — lot PIP — via les `Contracts`.)
